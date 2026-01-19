@@ -6,6 +6,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .routers import fluids_router, solve_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -33,6 +35,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include API routers
+API_V1_PREFIX = "/api/v1"
+app.include_router(fluids_router, prefix=API_V1_PREFIX)
+app.include_router(solve_router, prefix=API_V1_PREFIX)
 
 
 @app.get("/")

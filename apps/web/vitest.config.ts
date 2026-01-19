@@ -5,7 +5,10 @@ export default defineConfig({
   plugins: [sveltekit()],
   test: {
     include: ['src/**/*.{test,spec}.{js,ts}'],
-    environment: 'jsdom',
-    globals: true
-  }
+    environment: 'node',
+    globals: true,
+    alias: {
+      $lib: '/workspace/apps/web/src/lib',
+    },
+  },
 });

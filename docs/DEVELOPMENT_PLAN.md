@@ -1,7 +1,7 @@
 # OpenSolve Pipe - Development Plan
 
-**Status:** Planning → Phase 1 Implementation
-**Last Updated:** 2026-01-17
+**Status:** Phase 1 Implementation (Issue #1 Complete)
+**Last Updated:** 2026-01-19
 
 ---
 
@@ -10,6 +10,7 @@
 This document outlines the phased development approach for OpenSolve Pipe, starting with a minimal viable product (MVP) and progressively adding features. Each phase is designed to be independently deployable and valuable to users.
 
 **Guiding Principles:**
+
 - Ship early and often
 - Validate with real users after each phase
 - Simple networks first, complex networks later
@@ -24,6 +25,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 **Estimated Complexity:** Medium (3-4 weeks)
 
 **Success Criteria:**
+
 - ✅ Users can model a pump → pipe → tank system
 - ✅ System solves correctly (< 1% deviation from EPANET)
 - ✅ Results display flow, pressures, operating point
@@ -36,6 +38,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 **File:** `apps/api/src/opensolve_pipe/services/solver/simple.py`
 
 **Tasks:**
+
 - [ ] Implement Darcy-Weisbach friction factor calculation (Colebrook)
 - [ ] Create head loss calculator for pipe segments
 - [ ] Implement K-factor resolution for fittings (Crane TP-410)
@@ -55,6 +58,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 **Files:** `apps/api/src/opensolve_pipe/models/`
 
 **Tasks:**
+
 - [ ] Define Pydantic models for Project, Component, PipingSegment
 - [ ] Implement Reservoir, Tank, Junction models
 - [ ] Implement Pump model with curve handling
@@ -71,6 +75,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 **Files:** `apps/api/src/opensolve_pipe/data/`
 
 **Tasks:**
+
 - [ ] Create `pipe_materials.json` (carbon steel, SS, PVC - Schedule 40/80)
 - [ ] Create `fittings.json` (elbows, tees, valves - basic set)
 - [ ] Create `fluids.json` (water only for MVP)
@@ -86,6 +91,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 **File:** `apps/api/src/opensolve_pipe/services/fluids.py`
 
 **Tasks:**
+
 - [ ] Implement water property calculations (temp-dependent)
 - [ ] Create fluid properties API endpoint
 - [ ] Add temperature unit conversion
@@ -101,6 +107,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 **Files:** `apps/api/src/opensolve_pipe/routers/`
 
 **Tasks:**
+
 - [ ] Implement `/api/v1/solve` endpoint
 - [ ] Implement `/api/v1/fluids` endpoint
 - [ ] Implement `/api/v1/fluids/{fluid_id}/properties` endpoint
@@ -117,6 +124,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 **File:** `apps/api/src/opensolve_pipe/utils/units.py`
 
 **Tasks:**
+
 - [ ] Implement unit conversion system (length, pressure, flow)
 - [ ] Add unit validation
 - [ ] Create UnitPreferences model
@@ -130,6 +138,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 **Files:** `apps/web/src/lib/stores/`
 
 **Tasks:**
+
 - [ ] Create project store (Svelte store)
 - [ ] Implement component chain management (add/remove/edit)
 - [ ] Add undo/redo history
@@ -145,6 +154,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 **File:** `apps/web/src/lib/utils/encoding.ts`
 
 **Tasks:**
+
 - [ ] Implement project → JSON → gzip → base64url pipeline
 - [ ] Implement reverse decoding pipeline
 - [ ] Add error handling for corrupt URLs
@@ -162,6 +172,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 **Files:** `apps/web/src/lib/components/panel/`
 
 **Tasks:**
+
 - [ ] Create PanelNavigator component (main container)
 - [ ] Create ElementPanel component (element properties form)
 - [ ] Create PipingPanel component (pipe + fittings editor)
@@ -179,6 +190,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 **Files:** `apps/web/src/lib/components/forms/`
 
 **Tasks:**
+
 - [ ] Create ReservoirForm (elevation, water level)
 - [ ] Create TankForm (elevation, dimensions, levels)
 - [ ] Create PumpForm (curve entry, name)
@@ -195,6 +207,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 **Files:** `apps/web/src/lib/components/results/`
 
 **Tasks:**
+
 - [ ] Create ResultsPanel component (main container)
 - [ ] Create PumpCurveChart component (pump + system curve)
 - [ ] Create NodeTable component (pressures, HGL, EGL)
@@ -213,6 +226,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 **Files:** `apps/web/src/routes/`
 
 **Tasks:**
+
 - [ ] Create main layout with header
 - [ ] Add view mode switcher (panel / results)
 - [ ] Create "Solve" button with loading state
@@ -227,6 +241,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 ### 1.13 Testing & Validation (High Priority)
 
 **Tasks:**
+
 - [ ] Write backend solver tests (compare vs known results)
 - [ ] Test URL encoding/decoding roundtrip
 - [ ] Test API endpoints with Postman/curl
@@ -240,6 +255,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 ### 1.14 Deployment (Medium Priority)
 
 **Tasks:**
+
 - [ ] Set up Vercel deployment for frontend
 - [ ] Set up Railway/Fly.io deployment for backend
 - [ ] Configure environment variables
@@ -280,6 +296,7 @@ graph TD
 **Estimated Complexity:** High (4-5 weeks)
 
 **Success Criteria:**
+
 - ✅ Users can model branching networks (e.g., parallel pumps)
 - ✅ Users can model looped networks
 - ✅ Schematic auto-generates and is interactive
@@ -290,6 +307,7 @@ graph TD
 **File:** `apps/api/src/opensolve_pipe/services/solver/network.py`
 
 **Tasks:**
+
 - [ ] Implement component chain → WNTR adapter
 - [ ] Handle WNTR node creation (reservoirs, tanks, junctions)
 - [ ] Handle WNTR link creation (pipes, pumps, valves)
@@ -309,6 +327,7 @@ graph TD
 **File:** `apps/api/src/opensolve_pipe/services/solver/__init__.py`
 
 **Tasks:**
+
 - [ ] Implement solver selection logic (simple vs network)
 - [ ] Detect topology type (single-path vs branching)
 - [ ] Route to appropriate solver
@@ -321,6 +340,7 @@ graph TD
 ### 2.3 Frontend - Branching Support
 
 **Tasks:**
+
 - [ ] Update data model to support multiple downstream connections
 - [ ] Update panel navigator to show branch selector
 - [ ] Add "Create Branch" UI
@@ -336,6 +356,7 @@ graph TD
 **File:** `apps/web/src/lib/components/schematic/`
 
 **Tasks:**
+
 - [ ] Create SchematicViewer component (SVG canvas)
 - [ ] Implement graph layout algorithm (dagre or elkjs)
 - [ ] Create component symbols (pump, tank, valve, etc.)
@@ -353,6 +374,7 @@ graph TD
 ### 2.5 Additional Component Types
 
 **Tasks:**
+
 - [ ] Add Valve components (gate, ball, butterfly)
 - [ ] Add Check Valve component
 - [ ] Add Heat Exchanger component (fixed pressure drop)
@@ -365,6 +387,7 @@ graph TD
 ### 2.6 Testing
 
 **Tasks:**
+
 - [ ] Test parallel pump configuration
 - [ ] Test looped network (Hardy Cross method validation)
 - [ ] Test schematic rendering for various topologies
@@ -383,6 +406,7 @@ graph TD
 ### 3.1 Pump Library
 
 **Tasks:**
+
 - [ ] Add project-level pump curve storage
 - [ ] Create pump curve manager UI
 - [ ] Allow CSV import of pump curves
@@ -396,6 +420,7 @@ graph TD
 ### 3.2 Additional Fluids
 
 **Tasks:**
+
 - [ ] Add ethylene glycol solutions (CoolProp)
 - [ ] Add propylene glycol solutions
 - [ ] Add common fuels (diesel, gasoline)
@@ -411,6 +436,7 @@ graph TD
 **File:** `apps/api/src/opensolve_pipe/services/checks.py`
 
 **Tasks:**
+
 - [ ] Implement velocity checks (min/max)
 - [ ] Implement NPSH margin checks
 - [ ] Create check configuration UI
@@ -424,6 +450,7 @@ graph TD
 ### 3.4 Export Features
 
 **Tasks:**
+
 - [ ] Implement CSV export (results tables)
 - [ ] Implement Excel export (formatted workbook)
 - [ ] Implement PNG export (schematic)
@@ -439,6 +466,7 @@ graph TD
 ### 3.5 UI Polish
 
 **Tasks:**
+
 - [ ] Add keyboard shortcuts (arrow keys to navigate)
 - [ ] Improve loading states and animations
 - [ ] Add tooltips for technical terms
@@ -452,6 +480,7 @@ graph TD
 ### 3.6 Advanced Pipe Materials
 
 **Tasks:**
+
 - [ ] Expand pipe materials library (ductile iron, HDPE, GRP)
 - [ ] Add pipe liner support
 - [ ] Support custom roughness override
@@ -464,6 +493,7 @@ graph TD
 ### 3.7 Control Valves
 
 **Tasks:**
+
 - [ ] Implement PRV (pressure reducing valve)
 - [ ] Implement PSV (pressure sustaining valve)
 - [ ] Implement FCV (flow control valve)
@@ -483,6 +513,7 @@ graph TD
 ### 4.1 User Accounts
 
 **Tasks:**
+
 - [ ] Set up authentication (Auth0 or Supabase Auth)
 - [ ] Create user registration/login flow
 - [ ] Add "My Projects" dashboard
@@ -496,6 +527,7 @@ graph TD
 ### 4.2 Project Persistence
 
 **Tasks:**
+
 - [ ] Implement server-side project storage
 - [ ] Handle large projects (> 50KB)
 - [ ] Create short reference keys for URLs
@@ -509,6 +541,7 @@ graph TD
 ### 4.3 Version Control
 
 **Tasks:**
+
 - [ ] Implement commit operation
 - [ ] Implement branch creation
 - [ ] Implement checkout (load version)
@@ -523,6 +556,7 @@ graph TD
 ### 4.4 Sharing & Permissions
 
 **Tasks:**
+
 - [ ] Implement project sharing (shareable links)
 - [ ] Add copy-on-write for shared projects
 - [ ] Create collaboration invite system
@@ -542,6 +576,7 @@ graph TD
 ### 5.1 Cost Estimation
 
 **Tasks:**
+
 - [ ] Research cost data sources
 - [ ] Create component cost database
 - [ ] Implement cost calculation service
@@ -555,6 +590,7 @@ graph TD
 ### 5.2 Pipe Sizing Optimization
 
 **Tasks:**
+
 - [ ] Implement optimization objective functions
 - [ ] Add constraints (velocity limits, pressure requirements)
 - [ ] Integrate optimization solver (scipy.optimize)
@@ -568,6 +604,7 @@ graph TD
 ### 5.3 Global Pump Database
 
 **Tasks:**
+
 - [ ] Create pump database schema
 - [ ] Build pump data collection system
 - [ ] Add pump search/filter UI
@@ -581,6 +618,7 @@ graph TD
 ### 5.4 Pump Curve Digitization
 
 **Tasks:**
+
 - [ ] Research OCR/CV libraries for curve extraction
 - [ ] Build image upload and preprocessing
 - [ ] Implement curve detection algorithm
@@ -594,6 +632,7 @@ graph TD
 ### 5.5 Public API
 
 **Tasks:**
+
 - [ ] Design REST API specification
 - [ ] Add API key authentication
 - [ ] Implement rate limiting per key
@@ -608,6 +647,7 @@ graph TD
 ### 5.6 Advanced Visualization
 
 **Tasks:**
+
 - [ ] Color-coded results on schematic (flow/pressure)
 - [ ] Animated flow visualization
 - [ ] 3D isometric view option
@@ -643,24 +683,28 @@ graph TD
 ## Success Metrics
 
 ### Phase 1 (MVP)
+
 - [ ] 10 beta users successfully solve a system
 - [ ] Average time to first solve < 5 minutes
 - [ ] Zero critical bugs after 1 week of use
 - [ ] Mobile usability score > 80
 
 ### Phase 2 (Network Solver)
+
 - [ ] 50+ active users
 - [ ] Complex network solve success rate > 95%
 - [ ] Average solve time < 5 seconds for 50-component networks
 - [ ] Positive user feedback on schematic visualization
 
 ### Phase 3 (Enhanced Features)
+
 - [ ] 200+ active users
 - [ ] 50+ exports generated per week
 - [ ] 10+ community-contributed pump curves
 - [ ] User retention (7-day) > 40%
 
 ### Phase 4 (Collaboration)
+
 - [ ] 500+ registered users
 - [ ] 100+ projects saved to server
 - [ ] 20+ shared projects actively used
@@ -671,11 +715,13 @@ graph TD
 ## Development Workflow
 
 ### Sprint Structure
+
 - **Sprint length:** 2 weeks
 - **Velocity:** Adjust based on team size and complexity
 - **Ceremonies:** Daily standup (async), sprint review, retro
 
 ### Definition of Done
+
 - [ ] Code complete and peer reviewed
 - [ ] Unit tests written and passing
 - [ ] Integration tests passing
@@ -685,27 +731,29 @@ graph TD
 - [ ] Product owner approved
 
 ### Git Workflow
+
 - **Main branch:** Production-ready code
 - **Develop branch:** Integration branch
 - **Feature branches:** `feature/issue-123-description`
 - **Release branches:** `release/v1.2.0`
 
 ### Code Review
+
 - All code requires 1 approval before merge
 - Automated tests must pass
-- Linting and formatting enforced (Prettier, ESLint, Black)
+- Linting and formatting enforced (Prettier, ESLint, Ruff)
 
 ---
 
 ## Next Steps
 
-1. **Immediate:** Create GitHub issues for Phase 1 (see next section)
-2. **Week 1:** Set up project structure, install dependencies
-3. **Week 2:** Implement data models and simple solver
-4. **Week 3:** Build API endpoints and test solver
-5. **Week 4:** Create frontend state management and panel UI
-6. **Week 5:** Build results display and URL encoding
-7. **Week 6:** Testing, bug fixes, deployment
+1. ~~**Immediate:** Create GitHub issues for Phase 1~~ ✅ Done
+2. ~~**Week 1:** Set up project structure, install dependencies~~ ✅ Done (Issue #1)
+3. **Next:** Implement data models and simple solver (Issues #2, #5)
+4. **Then:** Build API endpoints and test solver (Issue #7)
+5. **Then:** Create frontend state management and panel UI (Issues #10, #12)
+6. **Then:** Build results display and URL encoding (Issues #11, #14)
+7. **Finally:** Testing, bug fixes, deployment (Issues #17, #18)
 
 ---
 

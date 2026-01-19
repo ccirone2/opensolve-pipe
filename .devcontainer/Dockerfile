@@ -40,15 +40,14 @@ ENV PATH=$NVM_DIR/versions/node/v$NODE_VERSION/bin:$PATH
 RUN npm install -g pnpm eslint prettier
 
 # Install Python development tools
+# Note: black and isort removed - using Ruff for linting and formatting
 RUN pip install --no-cache-dir \
     ruff \
     mypy \
     pytest \
     pytest-cov \
     pytest-asyncio \
-    pre-commit \
-    black \
-    isort
+    pre-commit
 
 # Set up non-root user (vscode user is created by base image)
 ARG USERNAME=vscode

@@ -93,3 +93,8 @@ Plan complete. To execute:
 ```
 /workflows:work
 ```
+
+## Step 7: Update /docs
+
+Update the /\*.md files in /docs with checks in todo lists. Create/update the DECISIONS.md with
+changes from original planning documents.

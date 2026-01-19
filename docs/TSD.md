@@ -1,5 +1,5 @@
 # Technical Specification Document (TSD)
-# HydraFlow - Web-Based Hydraulic Network Design Tool
+# OpenSolve Pipe - Web-Based Hydraulic Network Design Tool
 
 **Version:** 0.1.0 (Draft)  
 **Date:** January 2026  
@@ -11,7 +11,7 @@
 
 ### 1.1 Purpose
 
-This document provides implementation-level technical specifications for HydraFlow. It translates the architecture defined in the SDD into concrete technologies, file structures, and implementation details.
+This document provides implementation-level technical specifications for OpenSolve Pipe. It translates the architecture defined in the SDD into concrete technologies, file structures, and implementation details.
 
 ### 1.2 Scope
 
@@ -85,7 +85,7 @@ This document covers:
 ### 3.1 Monorepo Layout
 
 ```
-hydraflow/
+opensolve-pipe/
 ├── apps/
 │   ├── web/                    # SvelteKit frontend
 │   │   ├── src/
@@ -115,7 +115,7 @@ hydraflow/
 │   │
 │   └── api/                    # FastAPI backend
 │       ├── src/
-│       │   ├── hydraflow/
+│       │   ├── opensolve_pipe/
 │       │   │   ├── __init__.py
 │       │   │   ├── main.py             # FastAPI app entry
 │       │   │   ├── routers/
@@ -199,7 +199,7 @@ hydraflow/
 </main>
 ```
 
-#### Backend Entry: `apps/api/src/hydraflow/main.py`
+#### Backend Entry: `apps/api/src/opensolve_pipe/main.py`
 
 ```python
 from fastapi import FastAPI
@@ -208,7 +208,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .routers import solve, fluids, export, version
 
 app = FastAPI(
-    title="HydraFlow API",
+    title="OpenSolve Pipe API",
     description="Hydraulic network analysis API",
     version="0.1.0",
 )
@@ -238,7 +238,7 @@ async def health_check():
 
 ### 4.1 Pipe Materials Library
 
-**File:** `apps/api/src/hydraflow/data/pipe_materials.json`
+**File:** `apps/api/src/opensolve_pipe/data/pipe_materials.json`
 
 ```json
 {
@@ -307,7 +307,7 @@ async def health_check():
 
 ### 4.2 Fittings Library (Crane TP-410 Based)
 
-**File:** `apps/api/src/hydraflow/data/fittings.json`
+**File:** `apps/api/src/opensolve_pipe/data/fittings.json`
 
 ```json
 {
@@ -412,7 +412,7 @@ async def health_check():
 
 ### 4.3 Fluids Library
 
-**File:** `apps/api/src/hydraflow/data/fluids.json`
+**File:** `apps/api/src/opensolve_pipe/data/fluids.json`
 
 ```json
 {
@@ -475,7 +475,7 @@ pako.gzip (compression level 9)
     ↓
 base64url encode (URL-safe, no padding)
     ↓
-URL: https://hydraflow.app/p/{encoded}
+URL: https://opensolve-pipe.app/p/{encoded}
 ```
 
 **Decoding Pipeline:**
@@ -544,7 +544,7 @@ function base64urlEncode(data: Uint8Array): string {
 
 For networks with no branches, use direct calculation.
 
-**File:** `apps/api/src/hydraflow/services/solver/simple.py`
+**File:** `apps/api/src/opensolve_pipe/services/solver/simple.py`
 
 ```python
 """
@@ -655,7 +655,7 @@ def calculate_head_loss(
 
 For branching/looped networks, convert to WNTR model.
 
-**File:** `apps/api/src/hydraflow/services/solver/network.py`
+**File:** `apps/api/src/opensolve_pipe/services/solver/network.py`
 
 ```python
 """
@@ -697,11 +697,11 @@ def solve_network(project: Project) -> SolvedState:
 
 ### 5.3 Solver Adapter (Component Chain → WNTR)
 
-**File:** `apps/api/src/hydraflow/services/solver/adapter.py`
+**File:** `apps/api/src/opensolve_pipe/services/solver/adapter.py`
 
 ```python
 """
-Adapter to convert HydraFlow component chain to WNTR model.
+Adapter to convert OpenSolve Pipe component chain to WNTR model.
 """
 
 import wntr
@@ -710,7 +710,7 @@ from ...models.project import Project, Component
 
 def component_chain_to_wntr(project: Project) -> wntr.network.WaterNetworkModel:
     """
-    Convert a HydraFlow project to a WNTR WaterNetworkModel.
+    Convert an OpenSolve Pipe project to a WNTR WaterNetworkModel.
     
     Mapping:
     - Reservoir/Tank → WNTR Reservoir or Tank
@@ -792,7 +792,7 @@ def component_chain_to_wntr(project: Project) -> wntr.network.WaterNetworkModel:
 
 ### 6.1 Unit Registry
 
-**File:** `apps/api/src/hydraflow/utils/units.py`
+**File:** `apps/api/src/opensolve_pipe/utils/units.py`
 
 ```python
 """
@@ -879,7 +879,7 @@ class UnitPreferences:
 
 ### 7.1 Solve Endpoint
 
-**File:** `apps/api/src/hydraflow/routers/solve.py`
+**File:** `apps/api/src/opensolve_pipe/routers/solve.py`
 
 ```python
 from fastapi import APIRouter, HTTPException, BackgroundTasks
@@ -1106,8 +1106,8 @@ pip --version
 
 ```bash
 # Clone repository
-git clone https://github.com/your-org/hydraflow.git
-cd hydraflow
+git clone https://github.com/your-org/opensolve-pipe.git
+cd opensolve-pipe
 
 # Install frontend dependencies
 cd apps/web
@@ -1124,7 +1124,7 @@ npm run dev
 
 # Terminal 2: Backend
 cd apps/api
-uvicorn hydraflow.main:app --reload --port 8000
+uvicorn opensolve_pipe.main:app --reload --port 8000
 ```
 
 ### 9.3 Docker Development
@@ -1157,9 +1157,9 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_USER=hydraflow
+      - POSTGRES_USER=opensolve_pipe
       - POSTGRES_PASSWORD=dev_password
-      - POSTGRES_DB=hydraflow
+      - POSTGRES_DB=opensolve_pipe
     volumes:
       - pgdata:/var/lib/postgresql/data
 
@@ -1177,8 +1177,8 @@ volumes:
 # apps/api/tests/test_solver.py
 
 import pytest
-from hydraflow.services.solver import solve_simple_network
-from hydraflow.models.project import Project
+from opensolve_pipe.services.solver import solve_simple_network
+from opensolve_pipe.models.project import Project
 from tests.fixtures import simple_pump_system
 
 
@@ -1285,13 +1285,13 @@ restartPolicyType = "ON_FAILURE"
 
 ```bash
 # Frontend (.env)
-PUBLIC_API_URL=https://api.hydraflow.app
+PUBLIC_API_URL=https://api.opensolve-pipe.app
 
 # Backend (.env)
 ENVIRONMENT=production
 DATABASE_URL=postgresql://...
 REDIS_URL=redis://...
-CORS_ORIGINS=https://hydraflow.app
+CORS_ORIGINS=https://opensolve-pipe.app
 ```
 
 ---

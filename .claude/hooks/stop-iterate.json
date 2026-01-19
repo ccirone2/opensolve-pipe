@@ -1,0 +1,41 @@
+{
+  "name": "stop-iterate",
+  "event": "stop",
+  "description": "Provides feedback after each task completion and iterates up to 5 times for quality improvement",
+  "maxIterations": 5,
+  "config": {
+    "qualityThreshold": 0.9,
+    "testPassRateThreshold": 0.93,
+    "checks": [
+      {
+        "name": "tests",
+        "command": "cd apps/api && pytest --cov --cov-report=json",
+        "successCriteria": {
+          "type": "coverage",
+          "minCoverage": 93
+        }
+      },
+      {
+        "name": "linting",
+        "command": "ruff check apps/api/src",
+        "successCriteria": {
+          "type": "exitCode",
+          "expected": 0
+        }
+      },
+      {
+        "name": "typeCheck",
+        "command": "mypy apps/api/src",
+        "successCriteria": {
+          "type": "exitCode",
+          "expected": 0
+        }
+      }
+    ]
+  },
+  "feedback": {
+    "onSuccess": "Task completed successfully with high quality. All checks passed.",
+    "onIncomplete": "Iteration {current}/{max}: {issues}",
+    "onMaxIterations": "Completed {max} iterations. Review results and provide further direction if needed."
+  }
+}

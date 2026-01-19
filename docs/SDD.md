@@ -1,5 +1,5 @@
 # Software Design Document (SDD)
-# HydraFlow - Web-Based Hydraulic Network Design Tool
+# OpenSolve Pipe - Web-Based Hydraulic Network Design Tool
 
 **Version:** 0.1.0 (Draft)  
 **Date:** January 2026  
@@ -11,7 +11,7 @@
 
 ### 1.1 Purpose
 
-This document describes the software architecture and design for HydraFlow, a web-based hydraulic network analysis tool. It serves as the bridge between the Product Requirements Document (PRD) and the Technical Specification Document (TSD).
+This document describes the software architecture and design for OpenSolve Pipe, a web-based hydraulic network analysis tool. It serves as the bridge between the Product Requirements Document (PRD) and the Technical Specification Document (TSD).
 
 ### 1.2 Scope
 
@@ -510,13 +510,13 @@ Request:
 
 Response (200 OK):
 Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-Content-Disposition: attachment; filename="hydraflow_results.xlsx"
+Content-Disposition: attachment; filename="opensolve_pipe_results.xlsx"
 <binary data>
 ```
 
 ### 5.2 URL State Encoding
 
-**Format:** `https://hydraflow.app/p/{encoded_state}`
+**Format:** `https://opensolve-pipe.app/p/{encoded_state}`
 
 **Encoding Process:**
 1. Serialize project to JSON
@@ -526,7 +526,7 @@ Content-Disposition: attachment; filename="hydraflow_results.xlsx"
 
 **Example:**
 ```
-https://hydraflow.app/p/H4sIAAAAAAAAA6tWKkktLlGyUlAqS...
+https://opensolve-pipe.app/p/H4sIAAAAAAAAA6tWKkktLlGyUlAqS...
 ```
 
 ---

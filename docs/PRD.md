@@ -1,5 +1,5 @@
 # Product Requirements Document (PRD)
-# HydraFlow - Web-Based Hydraulic Network Design Tool
+# OpenSolve Pipe - Web-Based Hydraulic Network Design Tool
 
 **Version:** 0.1.0 (Draft)  
 **Date:** January 2026  
@@ -11,7 +11,7 @@
 
 ### 1.1 Vision Statement
 
-HydraFlow is a free, browser-based hydraulic design tool that democratizes access to professional-grade pipe network analysis. It combines the approachability needed for students and field technicians with the power and flexibility demanded by process and consulting engineers.
+OpenSolve Pipe is a free, browser-based hydraulic design tool that democratizes access to professional-grade pipe network analysis. It combines the approachability needed for students and field technicians with the power and flexibility demanded by process and consulting engineers.
 
 ### 1.2 Problem Statement
 

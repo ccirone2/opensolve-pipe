@@ -1,0 +1,132 @@
+{
+  "name": "block-dangerous",
+  "event": "preToolUse",
+  "description": "Blocks dangerous commands that could harm the system or data",
+  "targetTools": ["bash", "shell"],
+  "blockedPatterns": [
+    {
+      "pattern": "rm\\s+-rf\\s+/(?!home/|tmp/|mnt/user-data)",
+      "reason": "Blocked: rm -rf outside safe directories",
+      "severity": "critical"
+    },
+    {
+      "pattern": "rm\\s+-rf\\s+\\*",
+      "reason": "Blocked: rm -rf with wildcard",
+      "severity": "critical"
+    },
+    {
+      "pattern": "mkfs",
+      "reason": "Blocked: Filesystem formatting",
+      "severity": "critical"
+    },
+    {
+      "pattern": "dd\\s+if=.*of=/dev",
+      "reason": "Blocked: Writing to block devices",
+      "severity": "critical"
+    },
+    {
+      "pattern": "DROP\\s+DATABASE",
+      "reason": "Blocked: Database destruction",
+      "severity": "critical",
+      "flags": "i"
+    },
+    {
+      "pattern": "DROP\\s+SCHEMA.*CASCADE",
+      "reason": "Blocked: Schema destruction with cascade",
+      "severity": "critical",
+      "flags": "i"
+    },
+    {
+      "pattern": "TRUNCATE\\s+TABLE",
+      "reason": "Blocked: Table truncation",
+      "severity": "critical",
+      "flags": "i"
+    },
+    {
+      "pattern": "echo.*\\$\\{?[\\w]*(?:PASSWORD|SECRET|TOKEN|KEY)",
+      "reason": "Blocked: Potential credential exposure",
+      "severity": "critical",
+      "flags": "i"
+    },
+    {
+      "pattern": "curl.*-d.*password",
+      "reason": "Blocked: Sending passwords over network",
+      "severity": "critical",
+      "flags": "i"
+    },
+    {
+      "pattern": "wget.*password",
+      "reason": "Blocked: Sending passwords over network",
+      "severity": "critical",
+      "flags": "i"
+    },
+    {
+      "pattern": "nmap",
+      "reason": "Blocked: Network scanning",
+      "severity": "critical"
+    },
+    {
+      "pattern": "nikto",
+      "reason": "Blocked: Web vulnerability scanning",
+      "severity": "critical"
+    },
+    {
+      "pattern": "sqlmap",
+      "reason": "Blocked: SQL injection testing",
+      "severity": "critical"
+    },
+    {
+      "pattern": "chmod\\s+777",
+      "reason": "Blocked: Insecure file permissions",
+      "severity": "critical"
+    },
+    {
+      "pattern": "chown.*root",
+      "reason": "Blocked: Changing ownership to root",
+      "severity": "critical"
+    },
+    {
+      "pattern": "sudo\\s+(?!apt|pip|npm)",
+      "reason": "Blocked: Sudo usage outside package managers",
+      "severity": "critical"
+    },
+    {
+      "pattern": "git\\s+push.*--force\\s+origin\\s+(main|master)",
+      "reason": "Blocked: Force push to main/master branch",
+      "severity": "critical"
+    },
+    {
+      "pattern": "git\\s+reset\\s+--hard\\s+HEAD~[5-9]",
+      "reason": "Blocked: Large hard reset (5+ commits)",
+      "severity": "critical"
+    }
+  ],
+  "warningPatterns": [
+    {
+      "pattern": "rm\\s+-rf",
+      "message": "WARNING: Potentially dangerous rm -rf command. Proceeding with caution.",
+      "severity": "warning"
+    },
+    {
+      "pattern": "git\\s+push.*--force",
+      "message": "WARNING: Force push detected. Ensure this is intentional.",
+      "severity": "warning"
+    },
+    {
+      "pattern": "DROP\\s+TABLE",
+      "message": "WARNING: Dropping table. Ensure this is intentional.",
+      "severity": "warning",
+      "flags": "i"
+    },
+    {
+      "pattern": "DELETE\\s+FROM\\s+\\w+\\s*;?\\s*$",
+      "message": "WARNING: DELETE without WHERE clause. This will delete all rows.",
+      "severity": "warning",
+      "flags": "i"
+    }
+  ],
+  "messages": {
+    "blocked": "🚫 BLOCKED: {reason}\n\nPattern: {pattern}\nCommand: {command}\n\nThis command has been blocked for safety. If you believe this is a false positive, please modify the command or ask for human approval.",
+    "warning": "⚠️ {message}\n\nCommand: {command}\n\nProceeding with caution. Ensure this is intentional."
+  }
+}

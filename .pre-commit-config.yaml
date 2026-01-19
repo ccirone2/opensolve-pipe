@@ -1,0 +1,126 @@
+# OpenSolve Pipe - Pre-commit Hooks Configuration
+# Ensures code quality before commits
+
+repos:
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+      - id: end-of-file-fixer
+        name: Fix end of files
+      - id: check-yaml
+        name: Check YAML syntax
+      - id: check-json
+        name: Check JSON syntax
+      - id: check-added-large-files
+        name: Check for large files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+        name: Check for merge conflicts
+      - id: detect-private-key
+        name: Detect private keys
+      - id: no-commit-to-branch
+        name: Protect main branch
+        args: ['--branch', 'main', '--branch', 'master']
+
+  # Python: Ruff linting and formatting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.15
+    hooks:
+      # Run ruff linter
+      - id: ruff
+        name: Ruff lint (Python)
+        args: [--fix, --exit-non-zero-on-fix]
+        files: ^apps/api/
+      # Run ruff formatter
+      - id: ruff-format
+        name: Ruff format (Python)
+        files: ^apps/api/
+
+  # Python: Type checking with mypy
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        name: MyPy type check
+        files: ^apps/api/src/
+        args: [--config-file=apps/api/pyproject.toml]
+        additional_dependencies:
+          - pydantic>=2.0
+          - types-requests
+        pass_filenames: false
+
+  # Python: Run tests (block if < 93% pass)
+  - repo: local
+    hooks:
+      - id: pytest
+        name: Run Python tests
+        entry: bash -c 'cd apps/api && pytest --cov --cov-fail-under=93 || echo "⚠️  Tests must pass at ≥93% to commit"'
+        language: system
+        files: ^apps/api/(src|tests)/.*\.py$
+        pass_filenames: false
+
+  # TypeScript/Svelte: ESLint
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v9.0.0-beta.0
+    hooks:
+      - id: eslint
+        name: ESLint (TypeScript/Svelte)
+        files: ^apps/web/src/.*\.(ts|js|svelte)$
+        args: [--fix, --max-warnings=0]
+        additional_dependencies:
+          - eslint@^8.56.0
+          - eslint-plugin-svelte@^2.35.1
+          - '@typescript-eslint/parser@^6.19.0'
+          - '@typescript-eslint/eslint-plugin@^6.19.0'
+          - typescript@^5.3.3
+
+  # TypeScript/Svelte: Prettier
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.1.0
+    hooks:
+      - id: prettier
+        name: Prettier (TypeScript/Svelte/JSON/YAML)
+        files: ^apps/web/.*\.(ts|js|svelte|json|yaml|yml|md)$
+        additional_dependencies:
+          - prettier@^3.2.4
+          - prettier-plugin-svelte@^3.1.2
+
+  # Svelte: Type checking
+  - repo: local
+    hooks:
+      - id: svelte-check
+        name: Svelte check
+        entry: bash -c 'cd apps/web && pnpm svelte-check --fail-on-warnings'
+        language: system
+        files: ^apps/web/src/.*\.svelte$
+        pass_filenames: false
+
+  # Markdown: Lint markdown files
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.39.0
+    hooks:
+      - id: markdownlint
+        name: Markdown lint
+        args: [--fix]
+        files: \.md$
+
+# Global configuration
+default_language_version:
+  python: python3.11
+  node: "20.11.0"
+
+# CI configuration
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit hooks
+
+    for more information, see https://pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: [pytest, svelte-check]  # Skip tests and svelte-check in CI (run separately)
+  submodules: false

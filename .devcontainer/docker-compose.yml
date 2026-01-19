@@ -1,0 +1,70 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: opensolve-pipe-dev
+    volumes:
+      # Mount workspace (Windows/WSL compatible)
+      - ../:/workspace:cached
+      # Persist bash history (optional)
+      - type: bind
+        source: ~/.bash_history
+        target: /home/vscode/.bash_history
+        read_only: false
+    command: sleep infinity
+    network_mode: service:postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Database connection
+      DATABASE_URL: postgresql://opensolve:devpassword@localhost:5432/opensolve_pipe
+      # Redis connection
+      REDIS_URL: redis://localhost:6379/0
+      # Development mode
+      ENVIRONMENT: development
+      # Python unbuffered output
+      PYTHONUNBUFFERED: 1
+      # Node environment
+      NODE_ENV: development
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: opensolve-pipe-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: opensolve
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: opensolve_pipe
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opensolve -d opensolve_pipe"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: opensolve-pipe-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres-data:
+  redis-data:

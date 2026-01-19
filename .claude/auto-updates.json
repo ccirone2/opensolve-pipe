@@ -1,0 +1,138 @@
+{
+  "enabled": true,
+  "description": "Automatic file updates based on triggers",
+  "triggers": {
+    "onFileChange": {
+      "apps/api/src/**/*.py": ["update-api-types", "update-changelog"],
+      "apps/web/src/lib/models/**/*.ts": ["update-changelog"],
+      "docs/*.md": ["validate-docs-consistency"],
+      "apps/api/src/opensolve_pipe/models/*.py": ["regenerate-frontend-types"],
+      "apps/api/src/opensolve_pipe/routers/*.py": ["update-api-docs"]
+    },
+    "onCommit": {
+      "patterns": ["*"],
+      "actions": ["update-changelog"]
+    },
+    "onPRMerge": {
+      "actions": ["update-version", "update-changelog", "regenerate-api-client"]
+    },
+    "onArchitectureChange": {
+      "patterns": [
+        "docs/SDD.md",
+        "docs/TSD.md",
+        "apps/api/src/opensolve_pipe/models/**",
+        "apps/web/src/lib/stores/**"
+      ],
+      "actions": ["update-decisions"]
+    }
+  },
+  "files": {
+    "docs/CHANGELOG.md": {
+      "autoGenerate": true,
+      "format": "keep-a-changelog",
+      "trigger": "onCommit",
+      "sections": [
+        "Added",
+        "Changed",
+        "Deprecated",
+        "Removed",
+        "Fixed",
+        "Security"
+      ],
+      "template": "## [Unreleased]\n\n### {section}\n- {changes}\n\n"
+    },
+    "docs/DECISIONS.md": {
+      "autoGenerate": true,
+      "format": "adr",
+      "trigger": "onArchitectureChange",
+      "template": "# Architecture Decision Record\n\n## {number}. {title}\n\nDate: {date}\n\nStatus: {status}\n\n### Context\n{context}\n\n### Decision\n{decision}\n\n### Consequences\n{consequences}\n\n"
+    },
+    "apps/web/src/lib/api/types.ts": {
+      "autoGenerate": true,
+      "source": "apps/api/src/opensolve_pipe/models/*.py",
+      "trigger": "onSourceChange",
+      "generator": "pydantic-to-typescript",
+      "options": {
+        "preserveComments": true,
+        "useUnknown": false,
+        "enumAsConst": true
+      }
+    },
+    "docs/API.md": {
+      "autoGenerate": true,
+      "source": "apps/api/src/opensolve_pipe/routers/*.py",
+      "trigger": "onSourceChange",
+      "generator": "fastapi-to-markdown",
+      "options": {
+        "includeSchemas": true,
+        "includeExamples": true
+      }
+    }
+  },
+  "actions": {
+    "update-changelog": {
+      "description": "Update CHANGELOG.md with commit message",
+      "script": "scripts/update-changelog.sh",
+      "enabled": true
+    },
+    "update-decisions": {
+      "description": "Update DECISIONS.md with new ADR",
+      "script": "scripts/update-decisions.sh",
+      "enabled": true
+    },
+    "update-api-types": {
+      "description": "Regenerate TypeScript types from Python models",
+      "script": "scripts/generate-api-types.sh",
+      "enabled": true
+    },
+    "update-api-docs": {
+      "description": "Regenerate API documentation",
+      "script": "scripts/generate-api-docs.sh",
+      "enabled": true
+    },
+    "update-version": {
+      "description": "Bump version number in package.json and pyproject.toml",
+      "script": "scripts/bump-version.sh",
+      "enabled": true
+    },
+    "regenerate-api-client": {
+      "description": "Regenerate API client from OpenAPI spec",
+      "script": "scripts/generate-api-client.sh",
+      "enabled": false
+    },
+    "regenerate-frontend-types": {
+      "description": "Regenerate frontend types from backend models",
+      "script": "scripts/generate-frontend-types.sh",
+      "enabled": true
+    },
+    "validate-docs-consistency": {
+      "description": "Check docs for internal consistency",
+      "script": "scripts/validate-docs.sh",
+      "enabled": true
+    }
+  },
+  "notifications": {
+    "onAutoUpdate": {
+      "enabled": true,
+      "message": "✨ Auto-updated: {file}",
+      "includeChanges": true
+    },
+    "onValidationError": {
+      "enabled": true,
+      "message": "⚠️  Validation failed for: {file}\n{error}",
+      "stopOnError": false
+    }
+  },
+  "validation": {
+    "beforeUpdate": {
+      "checkSyntax": true,
+      "runLinting": false,
+      "runTests": false
+    },
+    "afterUpdate": {
+      "checkSyntax": true,
+      "runLinting": true,
+      "runTests": false
+    }
+  }
+}

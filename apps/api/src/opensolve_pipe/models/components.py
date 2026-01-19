@@ -93,9 +93,7 @@ class Tank(BaseComponent):
 
     @field_validator("initial_level")
     @classmethod
-    def validate_initial_level(
-        cls, v: float, info: ValidationInfo
-    ) -> float:
+    def validate_initial_level(cls, v: float, info: ValidationInfo) -> float:
         """Validate initial level is within min/max bounds."""
         data = info.data
         if "min_level" in data and v < data["min_level"]:
@@ -200,6 +198,14 @@ class Sprinkler(BaseComponent):
 
 # Discriminated union for all component types
 Component = Annotated[
-    Reservoir | Tank | Junction | PumpComponent | ValveComponent | HeatExchanger | Strainer | Orifice | Sprinkler,
+    Reservoir
+    | Tank
+    | Junction
+    | PumpComponent
+    | ValveComponent
+    | HeatExchanger
+    | Strainer
+    | Orifice
+    | Sprinkler,
     Field(discriminator="type"),
 ]

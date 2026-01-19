@@ -1,5 +1,6 @@
 """OpenSolve Pipe API - Hydraulic network analysis."""
 
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -24,13 +25,20 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# CORS Configuration
+# CORS Configuration - configurable via environment variable
+cors_origins = (
+    os.getenv("CORS_ORIGINS", "").split(",") if os.getenv("CORS_ORIGINS") else []
+)
+cors_origins.extend(
+    [
+        "http://localhost:5173",  # Dev server
+        "http://localhost:4173",  # Preview server
+    ]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:4173",
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

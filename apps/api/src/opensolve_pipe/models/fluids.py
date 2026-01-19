@@ -58,9 +58,7 @@ class FluidDefinition(OpenSolvePipeBaseModel):
             if self.custom_vapor_pressure is None:
                 missing.append("custom_vapor_pressure")
             if missing:
-                raise ValueError(
-                    f"Custom fluid requires: {', '.join(missing)}"
-                )
+                raise ValueError(f"Custom fluid requires: {', '.join(missing)}")
         return self
 
     @model_validator(mode="after")

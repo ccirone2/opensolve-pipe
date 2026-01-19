@@ -159,11 +159,23 @@
 				/>
 			{:else if activeTab === 'downstream'}
 				<div class="text-center text-gray-500">
-					<p class="text-sm">Downstream connections</p>
+					<p class="text-sm font-medium">Downstream Connections</p>
 					<p class="mt-2 text-xs">
 						{currentComponent.downstream_connections.length} connection(s)
 					</p>
-					<!-- TODO: Add downstream connection management UI -->
+					{#if currentComponent.downstream_connections.length === 0}
+						<p class="mt-4 text-xs text-gray-400">
+							No downstream connections yet. Add components after this element.
+						</p>
+					{:else}
+						<div class="mt-4 space-y-2">
+							{#each currentComponent.downstream_connections as conn}
+								<div class="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-left text-sm">
+									<span class="text-gray-700">→ {conn.target_component_id}</span>
+								</div>
+							{/each}
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>

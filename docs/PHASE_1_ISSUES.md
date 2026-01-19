@@ -13,20 +13,20 @@ This document contains all GitHub issues for Phase 1 (MVP) of OpenSolve Pipe.
 | 3 | Backend - Create Pipe Materials and Fittings Data Libraries | [#7](https://github.com/ccirone2/opensolve-pipe/issues/7) | [PR #8](https://github.com/ccirone2/opensolve-pipe/pull/8) | ✅ **COMPLETE** |
 | 4 | Backend - Implement Fluid Properties Service | [#9](https://github.com/ccirone2/opensolve-pipe/issues/9) | [PR #11](https://github.com/ccirone2/opensolve-pipe/pull/11) | ✅ **COMPLETE** |
 | 5 | Backend - Implement Simple Solver | [#10](https://github.com/ccirone2/opensolve-pipe/issues/10) | [PR #12](https://github.com/ccirone2/opensolve-pipe/pull/12) | ✅ **COMPLETE** |
-| 6 | Backend - Implement Unit Conversion System | - | - | 📋 Not Started |
-| 7 | Backend - Create API Endpoints | - | - | 📋 Not Started |
-| 8 | Frontend - Setup SvelteKit Project and Routing | - | - | 📋 Not Started |
-| 9 | Frontend - Define TypeScript Interfaces | - | - | 📋 Not Started |
-| 10 | Frontend - Implement Project State Management | - | - | 📋 Not Started |
-| 11 | Frontend - Implement URL Encoding/Decoding | - | - | 📋 Not Started |
-| 12 | Frontend - Build Panel Navigator UI | - | - | 📋 Not Started |
-| 13 | Frontend - Build Component Property Forms | - | - | 📋 Not Started |
-| 14 | Frontend - Build Results Display Components | - | - | 📋 Not Started |
-| 15 | Frontend - Create API Client | - | - | 📋 Not Started |
-| 16 | Frontend - Implement "Solve" Button and Workflow | - | - | 📋 Not Started |
-| 17 | End-to-End Testing and Bug Fixes | - | - | 📋 Not Started |
-| 18 | Deployment Setup (Frontend + Backend) | - | - | 📋 Not Started |
-| 19 | Documentation and Landing Page | - | - | 📋 Not Started |
+| 6 | Backend - Implement Unit Conversion System | [#14](https://github.com/ccirone2/opensolve-pipe/issues/14) | - | 📋 Not Started |
+| 7 | Backend - Create API Endpoints | [#15](https://github.com/ccirone2/opensolve-pipe/issues/15) | - | 📋 Not Started |
+| 8 | Frontend - Setup SvelteKit Project and Routing | [#16](https://github.com/ccirone2/opensolve-pipe/issues/16) | - | 📋 Not Started |
+| 9 | Frontend - Define TypeScript Interfaces | [#17](https://github.com/ccirone2/opensolve-pipe/issues/17) | - | 📋 Not Started |
+| 10 | Frontend - Implement Project State Management | [#18](https://github.com/ccirone2/opensolve-pipe/issues/18) | - | 📋 Not Started |
+| 11 | Frontend - Implement URL Encoding/Decoding | [#19](https://github.com/ccirone2/opensolve-pipe/issues/19) | - | 📋 Not Started |
+| 12 | Frontend - Build Panel Navigator UI | [#20](https://github.com/ccirone2/opensolve-pipe/issues/20) | - | 📋 Not Started |
+| 13 | Frontend - Build Component Property Forms | [#21](https://github.com/ccirone2/opensolve-pipe/issues/21) | - | 📋 Not Started |
+| 14 | Frontend - Build Results Display Components | [#22](https://github.com/ccirone2/opensolve-pipe/issues/22) | - | 📋 Not Started |
+| 15 | Frontend - Create API Client | [#23](https://github.com/ccirone2/opensolve-pipe/issues/23) | - | 📋 Not Started |
+| 16 | Frontend - Implement "Solve" Button and Workflow | [#24](https://github.com/ccirone2/opensolve-pipe/issues/24) | - | 📋 Not Started |
+| 17 | End-to-End Testing and Bug Fixes | [#25](https://github.com/ccirone2/opensolve-pipe/issues/25) | - | 📋 Not Started |
+| 18 | Deployment Setup (Frontend + Backend) | [#26](https://github.com/ccirone2/opensolve-pipe/issues/26) | - | 📋 Not Started |
+| 19 | Documentation and Landing Page | [#27](https://github.com/ccirone2/opensolve-pipe/issues/27) | - | 📋 Not Started |
 
 **Progress:** 5 of 19 issues completed (26%)
 
@@ -97,19 +97,19 @@ Create Pydantic models for all core data structures: Project, Component, Piping,
 
 **Tasks:**
 
-- [ ] Define `Project` model (metadata, settings, fluid, components, results)
-- [ ] Define `ProjectMetadata` model
-- [ ] Define `ProjectSettings` model (units, solver options)
-- [ ] Define `Component` base model with type discriminator
-- [ ] Define `Reservoir`, `Tank`, `Junction` component models
-- [ ] Define `Pump` model with `PumpCurve`
-- [ ] Define `PipingSegment` model (pipe + fittings)
-- [ ] Define `PipeDefinition` and `Fitting` models
-- [ ] Define `SolvedState` output model
-- [ ] Define `NodeResult` and `LinkResult` models
-- [ ] Define `PumpResult` model
-- [ ] Add validation rules (positive values, required fields)
-- [ ] Write unit tests for model validation
+- [x] Define `Project` model (metadata, settings, fluid, components, results)
+- [x] Define `ProjectMetadata` model
+- [x] Define `ProjectSettings` model (units, solver options)
+- [x] Define `Component` base model with type discriminator
+- [x] Define `Reservoir`, `Tank`, `Junction` component models
+- [x] Define `Pump` model with `PumpCurve`
+- [x] Define `PipingSegment` model (pipe + fittings)
+- [x] Define `PipeDefinition` and `Fitting` models
+- [x] Define `SolvedState` output model
+- [x] Define `NodeResult` and `LinkResult` models
+- [x] Define `PumpResult` model
+- [x] Add validation rules (positive values, required fields)
+- [x] Write unit tests for model validation
 
 **Acceptance Criteria:**
 
@@ -138,15 +138,15 @@ Create JSON data files for pipe materials and fittings with lookup services.
 
 **Tasks:**
 
-- [ ] Create `pipe_materials.json` with carbon steel, stainless steel, PVC (Schedule 40/80)
-- [ ] Include nominal sizes 2", 2.5", 3", 4", 6", 8" with ID/OD/wall thickness
-- [ ] Create `fittings.json` with elbows (90°, 45°), tees, valves (Crane TP-410 K-factors)
-- [ ] Create `fluids.json` with water properties (temperature-dependent)
-- [ ] Implement `get_pipe_material()` service function
-- [ ] Implement `get_fitting_k_factor()` service function
-- [ ] Implement `get_fluid_properties()` service function
-- [ ] Add error handling for missing materials/fittings
-- [ ] Write tests for data lookup functions
+- [x] Create `pipe_materials.json` with carbon steel, stainless steel, PVC (Schedule 40/80)
+- [x] Include nominal sizes 2", 2.5", 3", 4", 6", 8" with ID/OD/wall thickness
+- [x] Create `fittings.json` with elbows (90°, 45°), tees, valves (Crane TP-410 K-factors)
+- [x] Create `fluids.json` with water properties (temperature-dependent)
+- [x] Implement `get_pipe_material()` service function
+- [x] Implement `get_fitting_k_factor()` service function
+- [x] Implement `get_fluid_properties()` service function
+- [x] Add error handling for missing materials/fittings
+- [x] Write tests for data lookup functions
 
 **Acceptance Criteria:**
 
@@ -173,12 +173,12 @@ Create service for calculating fluid properties using the `fluids` library.
 
 **Tasks:**
 
-- [ ] Define `FluidProperties` model (density, viscosity, vapor pressure)
-- [ ] Implement water properties calculation at given temperature
-- [ ] Add temperature unit conversion (F, C, K)
-- [ ] Handle out-of-range temperatures gracefully
-- [ ] Write tests comparing results to known values
-- [ ] Add docstrings with example usage
+- [x] Define `FluidProperties` model (density, viscosity, vapor pressure)
+- [x] Implement water properties calculation at given temperature
+- [x] Add temperature unit conversion (F, C, K)
+- [x] Handle out-of-range temperatures gracefully
+- [x] Write tests comparing results to known values
+- [x] Add docstrings with example usage
 
 **Acceptance Criteria:**
 
@@ -205,16 +205,16 @@ Implement the simple solver for single-path networks (no branches). This is the 
 
 **Tasks:**
 
-- [ ] Implement Darcy-Weisbach friction factor calculation (Colebrook equation)
-- [ ] Implement pipe head loss calculation (friction + minor losses)
-- [ ] Implement K-factor resolution for fittings (L/D method)
-- [ ] Create system curve generator (head loss vs flow)
-- [ ] Implement pump curve interpolator (cubic spline)
-- [ ] Implement operating point finder (curve intersection with scipy.optimize)
-- [ ] Calculate node pressures, velocities, Reynolds numbers
-- [ ] Calculate NPSH available at pump suction
-- [ ] Add convergence detection and iteration limits
-- [ ] Write comprehensive tests with known solutions
+- [x] Implement Darcy-Weisbach friction factor calculation (Colebrook equation)
+- [x] Implement pipe head loss calculation (friction + minor losses)
+- [x] Implement K-factor resolution for fittings (L/D method)
+- [x] Create system curve generator (head loss vs flow)
+- [x] Implement pump curve interpolator (cubic spline)
+- [x] Implement operating point finder (curve intersection with scipy.optimize)
+- [x] Calculate node pressures, velocities, Reynolds numbers
+- [x] Calculate NPSH available at pump suction
+- [x] Add convergence detection and iteration limits
+- [x] Write comprehensive tests with known solutions
 
 **Acceptance Criteria:**
 
@@ -231,6 +231,8 @@ Implement the simple solver for single-path networks (no branches). This is the 
 ---
 
 ### Issue #6: Backend - Implement Unit Conversion System
+
+> 📋 **NOT STARTED** - [GitHub Issue #14](https://github.com/ccirone2/opensolve-pipe/issues/14)
 
 **Labels:** `backend`, `utilities`, `Phase 1`
 **Milestone:** Phase 1 - MVP
@@ -261,6 +263,8 @@ Create a comprehensive unit conversion system for all physical quantities.
 ---
 
 ### Issue #7: Backend - Create API Endpoints (Solve, Fluids)
+
+> 📋 **NOT STARTED** - [GitHub Issue #15](https://github.com/ccirone2/opensolve-pipe/issues/15)
 
 **Labels:** `backend`, `api`, `Phase 1`, `critical`
 **Milestone:** Phase 1 - MVP
@@ -298,6 +302,8 @@ Implement FastAPI endpoints for solving networks and querying fluid properties.
 
 ### Issue #8: Frontend - Setup SvelteKit Project and Routing
 
+> 📋 **NOT STARTED** - [GitHub Issue #16](https://github.com/ccirone2/opensolve-pipe/issues/16)
+
 **Labels:** `frontend`, `setup`, `Phase 1`
 **Milestone:** Phase 1 - MVP
 
@@ -332,6 +338,8 @@ Initialize SvelteKit with TypeScript, Tailwind CSS, and basic routing.
 
 ### Issue #9: Frontend - Define TypeScript Interfaces (Data Models)
 
+> 📋 **NOT STARTED** - [GitHub Issue #17](https://github.com/ccirone2/opensolve-pipe/issues/17)
+
 **Labels:** `frontend`, `models`, `Phase 1`
 **Milestone:** Phase 1 - MVP
 
@@ -363,6 +371,8 @@ Create TypeScript interfaces matching backend Pydantic models.
 ---
 
 ### Issue #10: Frontend - Implement Project State Management (Svelte Stores)
+
+> 📋 **NOT STARTED** - [GitHub Issue #18](https://github.com/ccirone2/opensolve-pipe/issues/18)
 
 **Labels:** `frontend`, `state`, `Phase 1`, `critical`
 **Milestone:** Phase 1 - MVP
@@ -396,6 +406,8 @@ Create Svelte stores for managing project state, including component chain and n
 ---
 
 ### Issue #11: Frontend - Implement URL Encoding/Decoding
+
+> 📋 **NOT STARTED** - [GitHub Issue #19](https://github.com/ccirone2/opensolve-pipe/issues/19)
 
 **Labels:** `frontend`, `encoding`, `Phase 1`, `critical`
 **Milestone:** Phase 1 - MVP
@@ -432,6 +444,8 @@ Implement project serialization to URL-safe compressed format.
 ---
 
 ### Issue #12: Frontend - Build Panel Navigator UI
+
+> 📋 **NOT STARTED** - [GitHub Issue #20](https://github.com/ccirone2/opensolve-pipe/issues/20)
 
 **Labels:** `frontend`, `ui`, `Phase 1`, `critical`
 **Milestone:** Phase 1 - MVP
@@ -470,6 +484,8 @@ Create the primary UI for building and editing the hydraulic network element-by-
 
 ### Issue #13: Frontend - Build Component Property Forms
 
+> 📋 **NOT STARTED** - [GitHub Issue #21](https://github.com/ccirone2/opensolve-pipe/issues/21)
+
 **Labels:** `frontend`, `forms`, `Phase 1`
 **Milestone:** Phase 1 - MVP
 
@@ -505,6 +521,8 @@ Create forms for editing properties of each component type.
 ---
 
 ### Issue #14: Frontend - Build Results Display Components
+
+> 📋 **NOT STARTED** - [GitHub Issue #22](https://github.com/ccirone2/opensolve-pipe/issues/22)
 
 **Labels:** `frontend`, `visualization`, `Phase 1`, `critical`
 **Milestone:** Phase 1 - MVP
@@ -542,6 +560,8 @@ Create components for displaying solved network results, including pump curve vi
 
 ### Issue #15: Frontend - Create API Client
 
+> 📋 **NOT STARTED** - [GitHub Issue #23](https://github.com/ccirone2/opensolve-pipe/issues/23)
+
 **Labels:** `frontend`, `api`, `Phase 1`
 **Milestone:** Phase 1 - MVP
 
@@ -572,6 +592,8 @@ Create API client for communicating with backend.
 ---
 
 ### Issue #16: Frontend - Implement "Solve" Button and Workflow
+
+> 📋 **NOT STARTED** - [GitHub Issue #24](https://github.com/ccirone2/opensolve-pipe/issues/24)
 
 **Labels:** `frontend`, `integration`, `Phase 1`, `critical`
 **Milestone:** Phase 1 - MVP
@@ -605,6 +627,8 @@ Connect the UI to the backend solver via the "Solve" button.
 
 ### Issue #17: End-to-End Testing and Bug Fixes
 
+> 📋 **NOT STARTED** - [GitHub Issue #25](https://github.com/ccirone2/opensolve-pipe/issues/25)
+
 **Labels:** `testing`, `Phase 1`, `critical`
 **Milestone:** Phase 1 - MVP
 
@@ -635,6 +659,8 @@ Comprehensive testing of the complete workflow from project creation to solved r
 
 ### Issue #18: Deployment Setup (Frontend + Backend)
 
+> 📋 **NOT STARTED** - [GitHub Issue #26](https://github.com/ccirone2/opensolve-pipe/issues/26)
+
 **Labels:** `deployment`, `Phase 1`
 **Milestone:** Phase 1 - MVP
 
@@ -664,6 +690,8 @@ Deploy frontend to Vercel and backend to Railway (or Fly.io).
 ---
 
 ### Issue #19: Documentation and Landing Page
+
+> 📋 **NOT STARTED** - [GitHub Issue #27](https://github.com/ccirone2/opensolve-pipe/issues/27)
 
 **Labels:** `documentation`, `Phase 1`
 **Milestone:** Phase 1 - MVP

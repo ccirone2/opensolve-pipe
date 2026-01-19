@@ -76,35 +76,47 @@ if [ -f "apps/web/.env.example" ] && [ ! -f "apps/web/.env" ]; then
     cp apps/web/.env.example apps/web/.env
 fi
 
-# Wait for PostgreSQL to be ready
-print_status "Waiting for PostgreSQL to be ready..."
-max_attempts=30
+# Wait for PostgreSQL to be ready (optional - don't fail if not available)
+print_status "Checking for PostgreSQL..."
+max_attempts=10
 attempt=0
-while ! pg_isready -h localhost -p 5432 -U opensolve -d opensolve_pipe > /dev/null 2>&1; do
-    attempt=$((attempt + 1))
-    if [ $attempt -eq $max_attempts ]; then
-        print_error "PostgreSQL failed to start after $max_attempts attempts"
-        exit 1
+pg_available=false
+while [ $attempt -lt $max_attempts ]; do
+    if pg_isready -h localhost -p 5432 -U opensolve -d opensolve_pipe > /dev/null 2>&1; then
+        pg_available=true
+        break
     fi
+    attempt=$((attempt + 1))
     echo "Waiting for PostgreSQL... (attempt $attempt/$max_attempts)"
     sleep 2
 done
-print_status "PostgreSQL is ready!"
 
-# Wait for Redis to be ready
-print_status "Waiting for Redis to be ready..."
-max_attempts=30
+if [ "$pg_available" = true ]; then
+    print_status "PostgreSQL is ready!"
+else
+    print_warning "PostgreSQL not available - skipping database checks"
+fi
+
+# Wait for Redis to be ready (optional - don't fail if not available)
+print_status "Checking for Redis..."
+max_attempts=10
 attempt=0
-while ! redis-cli -h localhost -p 6379 ping > /dev/null 2>&1; do
-    attempt=$((attempt + 1))
-    if [ $attempt -eq $max_attempts ]; then
-        print_error "Redis failed to start after $max_attempts attempts"
-        exit 1
+redis_available=false
+while [ $attempt -lt $max_attempts ]; do
+    if redis-cli -h localhost -p 6379 ping > /dev/null 2>&1; then
+        redis_available=true
+        break
     fi
+    attempt=$((attempt + 1))
     echo "Waiting for Redis... (attempt $attempt/$max_attempts)"
     sleep 2
 done
-print_status "Redis is ready!"
+
+if [ "$redis_available" = true ]; then
+    print_status "Redis is ready!"
+else
+    print_warning "Redis not available - this is optional for development"
+fi
 
 # Run database migrations (if migration system exists)
 # Uncomment when migrations are set up
@@ -132,13 +144,17 @@ echo "    cd apps/api && uvicorn opensolve_pipe.main:app --reload --host 0.0.0.0
 echo "    → http://localhost:8000"
 echo "    → http://localhost:8000/docs (API docs)"
 echo ""
+if [ "$pg_available" = true ]; then
 echo "  Database:"
 echo "    PostgreSQL: localhost:5432"
 echo "    User: opensolve | Password: devpassword | DB: opensolve_pipe"
 echo ""
+fi
+if [ "$redis_available" = true ]; then
 echo "  Redis:"
 echo "    localhost:6379"
 echo ""
+fi
 echo "📖 Documentation:"
 echo "    - CLAUDE.md - Project overview and context"
 echo "    - docs/DEVELOPMENT_PLAN.md - Phased development plan"
@@ -148,7 +164,9 @@ echo "🔧 Development Tools:"
 echo "    - Pre-commit hooks: automatically run linting and formatting"
 echo "    - Ruff: Python linting and formatting"
 echo "    - ESLint + Prettier: TypeScript/Svelte formatting"
+if [ "$pg_available" = true ]; then
 echo "    - SQLTools: Database management in VS Code"
+fi
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""

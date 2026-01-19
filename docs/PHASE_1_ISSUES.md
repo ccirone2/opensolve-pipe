@@ -2,6 +2,38 @@
 
 This document contains all GitHub issues for Phase 1 (MVP) of OpenSolve Pipe.
 
+---
+
+## Issue Status Summary
+
+| Doc # | Title | GitHub Issue | PR | Status |
+|-------|-------|--------------|----|----|
+| 1 | Project Setup and Repository Structure | [#1](https://github.com/ccirone2/opensolve-pipe/issues/1) | [PR #2](https://github.com/ccirone2/opensolve-pipe/pull/2) | ✅ **COMPLETE** |
+| 2 | Backend - Define Pydantic Data Models | [#5](https://github.com/ccirone2/opensolve-pipe/issues/5) | [PR #6](https://github.com/ccirone2/opensolve-pipe/pull/6) | ✅ **COMPLETE** |
+| 3 | Backend - Create Pipe Materials and Fittings Data Libraries | [#7](https://github.com/ccirone2/opensolve-pipe/issues/7) | [PR #8](https://github.com/ccirone2/opensolve-pipe/pull/8) | ✅ **COMPLETE** |
+| 4 | Backend - Implement Fluid Properties Service | [#9](https://github.com/ccirone2/opensolve-pipe/issues/9) | [PR #11](https://github.com/ccirone2/opensolve-pipe/pull/11) | ✅ **COMPLETE** |
+| 5 | Backend - Implement Simple Solver | [#10](https://github.com/ccirone2/opensolve-pipe/issues/10) | [PR #12](https://github.com/ccirone2/opensolve-pipe/pull/12) | ✅ **COMPLETE** |
+| 6 | Backend - Implement Unit Conversion System | - | - | 📋 Not Started |
+| 7 | Backend - Create API Endpoints | - | - | 📋 Not Started |
+| 8 | Frontend - Setup SvelteKit Project and Routing | - | - | 📋 Not Started |
+| 9 | Frontend - Define TypeScript Interfaces | - | - | 📋 Not Started |
+| 10 | Frontend - Implement Project State Management | - | - | 📋 Not Started |
+| 11 | Frontend - Implement URL Encoding/Decoding | - | - | 📋 Not Started |
+| 12 | Frontend - Build Panel Navigator UI | - | - | 📋 Not Started |
+| 13 | Frontend - Build Component Property Forms | - | - | 📋 Not Started |
+| 14 | Frontend - Build Results Display Components | - | - | 📋 Not Started |
+| 15 | Frontend - Create API Client | - | - | 📋 Not Started |
+| 16 | Frontend - Implement "Solve" Button and Workflow | - | - | 📋 Not Started |
+| 17 | End-to-End Testing and Bug Fixes | - | - | 📋 Not Started |
+| 18 | Deployment Setup (Frontend + Backend) | - | - | 📋 Not Started |
+| 19 | Documentation and Landing Page | - | - | 📋 Not Started |
+
+**Progress:** 5 of 19 issues completed (26%)
+
+**Backend Progress:** 5 of 7 backend issues completed (71%)
+
+---
+
 **Choose your format:**
 
 - [Manual Creation (Markdown Checklist)](#manual-creation-markdown-checklist)
@@ -16,6 +48,8 @@ Copy each issue below and create it manually in GitHub Issues.
 ---
 
 ### Issue #1: Project Setup and Repository Structure
+
+> ✅ **COMPLETED** - [GitHub Issue #1](https://github.com/ccirone2/opensolve-pipe/issues/1) | [PR #2](https://github.com/ccirone2/opensolve-pipe/pull/2)
 
 **Labels:** `setup`, `Phase 1`
 **Milestone:** Phase 1 - MVP
@@ -46,6 +80,8 @@ Set up the monorepo structure and install core dependencies for both frontend an
 ---
 
 ### Issue #2: Backend - Define Pydantic Data Models
+
+> ✅ **COMPLETED** - [GitHub Issue #5](https://github.com/ccirone2/opensolve-pipe/issues/5) | [PR #6](https://github.com/ccirone2/opensolve-pipe/pull/6)
 
 **Labels:** `backend`, `models`, `Phase 1`
 **Milestone:** Phase 1 - MVP
@@ -85,6 +121,8 @@ Create Pydantic models for all core data structures: Project, Component, Piping,
 
 ### Issue #3: Backend - Create Pipe Materials and Fittings Data Libraries
 
+> ✅ **COMPLETED** - [GitHub Issue #7](https://github.com/ccirone2/opensolve-pipe/issues/7) | [PR #8](https://github.com/ccirone2/opensolve-pipe/pull/8)
+
 **Labels:** `backend`, `data`, `Phase 1`
 **Milestone:** Phase 1 - MVP
 
@@ -120,6 +158,8 @@ Create JSON data files for pipe materials and fittings with lookup services.
 
 ### Issue #4: Backend - Implement Fluid Properties Service
 
+> ✅ **COMPLETED** - [GitHub Issue #9](https://github.com/ccirone2/opensolve-pipe/issues/9) | [PR #11](https://github.com/ccirone2/opensolve-pipe/pull/11)
+
 **Labels:** `backend`, `fluids`, `Phase 1`
 **Milestone:** Phase 1 - MVP
 
@@ -149,6 +189,8 @@ Create service for calculating fluid properties using the `fluids` library.
 ---
 
 ### Issue #5: Backend - Implement Simple Solver (Core Hydraulic Calculations)
+
+> ✅ **COMPLETED** - [GitHub Issue #10](https://github.com/ccirone2/opensolve-pipe/issues/10) | [PR #12](https://github.com/ccirone2/opensolve-pipe/pull/12)
 
 **Labels:** `backend`, `solver`, `Phase 1`, `critical`
 **Milestone:** Phase 1 - MVP

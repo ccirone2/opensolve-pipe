@@ -1,7 +1,15 @@
 # OpenSolve Pipe - Development Plan
 
-**Status:** Phase 1 Implementation (Issue #1 Complete)
+**Status:** Phase 1 Implementation (Backend Core Complete - Issues #1, #2, #3, #4, #5)
 **Last Updated:** 2026-01-19
+
+> **Progress Summary:** 5 of 19 Phase 1 issues completed (26%). All backend core services are complete:
+>
+> - [x] Project Setup ([#1](https://github.com/ccirone2/opensolve-pipe/issues/1), [PR #2](https://github.com/ccirone2/opensolve-pipe/pull/2))
+> - [x] Pydantic Data Models ([#5](https://github.com/ccirone2/opensolve-pipe/issues/5), [PR #6](https://github.com/ccirone2/opensolve-pipe/pull/6))
+> - [x] Data Libraries ([#7](https://github.com/ccirone2/opensolve-pipe/issues/7), [PR #8](https://github.com/ccirone2/opensolve-pipe/pull/8))
+> - [x] Fluid Properties Service ([#9](https://github.com/ccirone2/opensolve-pipe/issues/9), [PR #11](https://github.com/ccirone2/opensolve-pipe/pull/11))
+> - [x] Simple Solver ([#10](https://github.com/ccirone2/opensolve-pipe/issues/10), [PR #12](https://github.com/ccirone2/opensolve-pipe/pull/12))
 
 ---
 
@@ -35,17 +43,23 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 
 ### 1.1 Backend - Simple Solver (High Priority)
 
-**File:** `apps/api/src/opensolve_pipe/services/solver/simple.py`
+> ✅ **COMPLETED** - [GitHub Issue #10](https://github.com/ccirone2/opensolve-pipe/issues/10) | [PR #12](https://github.com/ccirone2/opensolve-pipe/pull/12)
+
+**Files:**
+
+- `apps/api/src/opensolve_pipe/services/solver/simple.py`
+- `apps/api/src/opensolve_pipe/services/solver/friction.py`
+- `apps/api/src/opensolve_pipe/services/solver/k_factors.py`
 
 **Tasks:**
 
-- [ ] Implement Darcy-Weisbach friction factor calculation (Colebrook)
-- [ ] Create head loss calculator for pipe segments
-- [ ] Implement K-factor resolution for fittings (Crane TP-410)
-- [ ] Build system curve generator (head loss vs flow)
-- [ ] Create pump curve interpolator
-- [ ] Implement operating point finder (curve intersection)
-- [ ] Calculate full network state at operating point
+- [x] Implement Darcy-Weisbach friction factor calculation (Colebrook via `fluids` library)
+- [x] Create head loss calculator for pipe segments (friction.py)
+- [x] Implement K-factor resolution for fittings (Crane TP-410 L/D method)
+- [x] Build system curve generator (head loss vs flow)
+- [x] Create pump curve interpolator (cubic spline)
+- [x] Implement operating point finder (Brent's method)
+- [x] Calculate full network state at operating point (velocity, Reynolds, NPSH)
 
 **Dependencies:** `fluids` library, `scipy` (for optimization)
 
@@ -55,16 +69,18 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 
 ### 1.2 Backend - Data Models (High Priority)
 
+> ✅ **COMPLETED** - [GitHub Issue #5](https://github.com/ccirone2/opensolve-pipe/issues/5) | [PR #6](https://github.com/ccirone2/opensolve-pipe/pull/6)
+
 **Files:** `apps/api/src/opensolve_pipe/models/`
 
 **Tasks:**
 
-- [ ] Define Pydantic models for Project, Component, PipingSegment
-- [ ] Implement Reservoir, Tank, Junction models
-- [ ] Implement Pump model with curve handling
-- [ ] Create PipeDefinition and Fitting models
-- [ ] Define SolvedState output models
-- [ ] Add validation rules (physical bounds, required fields)
+- [x] Define Pydantic models for Project, Component, PipingSegment
+- [x] Implement Reservoir, Tank, Junction models
+- [x] Implement Pump model with curve handling
+- [x] Create PipeDefinition and Fitting models
+- [x] Define SolvedState output models
+- [x] Add validation rules (physical bounds, required fields)
 
 **Complexity:** Medium - Straightforward data modeling
 
@@ -72,15 +88,17 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 
 ### 1.3 Backend - Data Libraries (Medium Priority)
 
+> ✅ **COMPLETED** - [GitHub Issue #7](https://github.com/ccirone2/opensolve-pipe/issues/7) | [PR #8](https://github.com/ccirone2/opensolve-pipe/pull/8)
+
 **Files:** `apps/api/src/opensolve_pipe/data/`
 
 **Tasks:**
 
-- [ ] Create `pipe_materials.json` (carbon steel, SS, PVC - Schedule 40/80)
-- [ ] Create `fittings.json` (elbows, tees, valves - basic set)
-- [ ] Create `fluids.json` (water only for MVP)
-- [ ] Implement pipe material lookup service
-- [ ] Implement fitting K-factor lookup service
+- [x] Create `pipe_materials.json` (carbon steel, SS, PVC - Schedule 40/80)
+- [x] Create `fittings.json` (elbows, tees, valves - Crane TP-410 L/D method)
+- [x] Create `fluids.json` (water only for MVP)
+- [x] Implement pipe material lookup service
+- [x] Implement fitting K-factor lookup service (with f_T lookup)
 
 **Complexity:** Low - Data entry and simple lookups
 
@@ -88,13 +106,18 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 
 ### 1.4 Backend - Fluid Properties (Medium Priority)
 
-**File:** `apps/api/src/opensolve_pipe/services/fluids.py`
+> ✅ **COMPLETED** - [GitHub Issue #9](https://github.com/ccirone2/opensolve-pipe/issues/9) | [PR #11](https://github.com/ccirone2/opensolve-pipe/pull/11)
+
+**Files:**
+
+- `apps/api/src/opensolve_pipe/services/fluids.py`
+- `apps/api/src/opensolve_pipe/models/fluids.py`
 
 **Tasks:**
 
-- [ ] Implement water property calculations (temp-dependent)
-- [ ] Create fluid properties API endpoint
-- [ ] Add temperature unit conversion
+- [x] Implement water property calculations (temp-dependent via `fluids` library)
+- [x] Define FluidProperties model (density, viscosity, vapor pressure, specific gravity)
+- [x] Add temperature unit conversion (Fahrenheit, Celsius, Kelvin)
 
 **Dependencies:** `fluids` library for water properties
 
@@ -749,10 +772,12 @@ graph TD
 
 1. ~~**Immediate:** Create GitHub issues for Phase 1~~ ✅ Done
 2. ~~**Week 1:** Set up project structure, install dependencies~~ ✅ Done (Issue #1)
-3. **Next:** Implement data models and simple solver (Issues #2, #5)
-   - ✅ Issue #2 implementation plan created: `docs/plans/issue-2-plan.md`
-   - Ready for implementation
-4. **Then:** Build API endpoints and test solver (Issue #7)
+3. ~~**Backend Core:** Implement data models and simple solver~~ ✅ Done
+   - ✅ Data Models ([#5](https://github.com/ccirone2/opensolve-pipe/issues/5), [PR #6](https://github.com/ccirone2/opensolve-pipe/pull/6))
+   - ✅ Data Libraries ([#7](https://github.com/ccirone2/opensolve-pipe/issues/7), [PR #8](https://github.com/ccirone2/opensolve-pipe/pull/8))
+   - ✅ Fluid Properties ([#9](https://github.com/ccirone2/opensolve-pipe/issues/9), [PR #11](https://github.com/ccirone2/opensolve-pipe/pull/11))
+   - ✅ Simple Solver ([#10](https://github.com/ccirone2/opensolve-pipe/issues/10), [PR #12](https://github.com/ccirone2/opensolve-pipe/pull/12))
+4. **Next:** Implement unit conversion system (Doc Issue #6) and API endpoints (Doc Issue #7)
 5. **Then:** Create frontend state management and panel UI (Issues #10, #12)
 6. **Then:** Build results display and URL encoding (Issues #11, #14)
 7. **Finally:** Testing, bug fixes, deployment (Issues #17, #18)

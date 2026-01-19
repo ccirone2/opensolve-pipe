@@ -3,6 +3,7 @@
 This document contains all GitHub issues for Phase 1 (MVP) of OpenSolve Pipe.
 
 **Choose your format:**
+
 - [Manual Creation (Markdown Checklist)](#manual-creation-markdown-checklist)
 - [Automated Creation (gh CLI Commands)](#automated-creation-gh-cli-commands)
 
@@ -23,19 +24,21 @@ Copy each issue below and create it manually in GitHub Issues.
 Set up the monorepo structure and install core dependencies for both frontend and backend.
 
 **Tasks:**
-- [ ] Create `apps/web/` directory structure for SvelteKit frontend
-- [ ] Create `apps/api/` directory structure for FastAPI backend
-- [ ] Initialize SvelteKit project with TypeScript
-- [ ] Initialize FastAPI project with pyproject.toml
-- [ ] Install backend dependencies: `fastapi`, `uvicorn`, `pydantic`, `fluids`, `scipy`
-- [ ] Install frontend dependencies: `pako`, `tailwindcss`, `chart.js`
-- [ ] Set up ESLint and Prettier for frontend
-- [ ] Set up Black and isort for backend
-- [ ] Create `.gitignore` for both apps
-- [ ] Add README.md with setup instructions
-- [ ] Verify both apps run locally (`npm run dev` and `uvicorn`)
+
+- [x] Create `apps/web/` directory structure for SvelteKit frontend
+- [x] Create `apps/api/` directory structure for FastAPI backend
+- [x] Initialize SvelteKit project with TypeScript
+- [x] Initialize FastAPI project with pyproject.toml
+- [x] Install backend dependencies: `fastapi`, `uvicorn`, `pydantic`, `fluids`, `scipy`
+- [x] Install frontend dependencies: `pako`, `tailwindcss`, `chart.js`
+- [x] Set up ESLint and Prettier for frontend
+- [x] Set up Ruff for backend (replaces Black and isort)
+- [x] Create `.gitignore` for both apps
+- [x] Add README.md with setup instructions
+- [x] Verify both apps run locally (`pnpm dev` and `uvicorn`)
 
 **Acceptance Criteria:**
+
 - Frontend runs on `localhost:5173`
 - Backend runs on `localhost:8000`
 - Both apps have working hot reload
@@ -51,11 +54,13 @@ Set up the monorepo structure and install core dependencies for both frontend an
 Create Pydantic models for all core data structures: Project, Component, Piping, and SolvedState.
 
 **Related Files:**
+
 - `apps/api/src/opensolve_pipe/models/project.py`
 - `apps/api/src/opensolve_pipe/models/components.py`
 - `apps/api/src/opensolve_pipe/models/results.py`
 
 **Tasks:**
+
 - [ ] Define `Project` model (metadata, settings, fluid, components, results)
 - [ ] Define `ProjectMetadata` model
 - [ ] Define `ProjectSettings` model (units, solver options)
@@ -71,6 +76,7 @@ Create Pydantic models for all core data structures: Project, Component, Piping,
 - [ ] Write unit tests for model validation
 
 **Acceptance Criteria:**
+
 - All models serialize to/from JSON correctly
 - Invalid data raises `ValidationError`
 - Models match TypeScript interfaces in TSD
@@ -86,12 +92,14 @@ Create Pydantic models for all core data structures: Project, Component, Piping,
 Create JSON data files for pipe materials and fittings with lookup services.
 
 **Related Files:**
+
 - `apps/api/src/opensolve_pipe/data/pipe_materials.json`
 - `apps/api/src/opensolve_pipe/data/fittings.json`
 - `apps/api/src/opensolve_pipe/data/fluids.json`
 - `apps/api/src/opensolve_pipe/services/data.py`
 
 **Tasks:**
+
 - [ ] Create `pipe_materials.json` with carbon steel, stainless steel, PVC (Schedule 40/80)
 - [ ] Include nominal sizes 2", 2.5", 3", 4", 6", 8" with ID/OD/wall thickness
 - [ ] Create `fittings.json` with elbows (90°, 45°), tees, valves (Crane TP-410 K-factors)
@@ -103,6 +111,7 @@ Create JSON data files for pipe materials and fittings with lookup services.
 - [ ] Write tests for data lookup functions
 
 **Acceptance Criteria:**
+
 - All data files validate as proper JSON
 - Service functions return correct data
 - Missing items raise appropriate errors
@@ -118,10 +127,12 @@ Create JSON data files for pipe materials and fittings with lookup services.
 Create service for calculating fluid properties using the `fluids` library.
 
 **Related Files:**
+
 - `apps/api/src/opensolve_pipe/services/fluids.py`
 - `apps/api/src/opensolve_pipe/models/fluids.py`
 
 **Tasks:**
+
 - [ ] Define `FluidProperties` model (density, viscosity, vapor pressure)
 - [ ] Implement water properties calculation at given temperature
 - [ ] Add temperature unit conversion (F, C, K)
@@ -130,6 +141,7 @@ Create service for calculating fluid properties using the `fluids` library.
 - [ ] Add docstrings with example usage
 
 **Acceptance Criteria:**
+
 - Water at 68°F returns correct density (~62.32 lb/ft³)
 - Properties are consistent with `fluids` library
 - Unit conversions work correctly
@@ -145,10 +157,12 @@ Create service for calculating fluid properties using the `fluids` library.
 Implement the simple solver for single-path networks (no branches). This is the core hydraulic calculation engine.
 
 **Related Files:**
+
 - `apps/api/src/opensolve_pipe/services/solver/simple.py`
 - `apps/api/src/opensolve_pipe/services/solver/k_factors.py`
 
 **Tasks:**
+
 - [ ] Implement Darcy-Weisbach friction factor calculation (Colebrook equation)
 - [ ] Implement pipe head loss calculation (friction + minor losses)
 - [ ] Implement K-factor resolution for fittings (L/D method)
@@ -161,12 +175,14 @@ Implement the simple solver for single-path networks (no branches). This is the 
 - [ ] Write comprehensive tests with known solutions
 
 **Acceptance Criteria:**
+
 - Simple pump-pipe-tank system solves correctly
 - Results match hand calculations (< 1% error)
 - Solver converges in < 100 iterations
 - Non-converged cases return clear error messages
 
 **Reference:**
+
 - Crane TP-410 for K-factors
 - Darcy-Weisbach equation: `h_f = f × (L/D) × (v²/2g)`
 
@@ -181,9 +197,11 @@ Implement the simple solver for single-path networks (no branches). This is the 
 Create a comprehensive unit conversion system for all physical quantities.
 
 **Related Files:**
+
 - `apps/api/src/opensolve_pipe/utils/units.py`
 
 **Tasks:**
+
 - [ ] Define `UnitCategory` enum (length, pressure, flow, velocity, etc.)
 - [ ] Create conversion factors dictionary (to SI base units)
 - [ ] Implement `convert(value, from_unit, to_unit)` function
@@ -193,6 +211,7 @@ Create a comprehensive unit conversion system for all physical quantities.
 - [ ] Add temperature conversions (with offset handling)
 
 **Acceptance Criteria:**
+
 - All common conversions work correctly (psi ↔ kPa, GPM ↔ L/s, etc.)
 - Incompatible conversions raise `ValueError`
 - Temperature conversions handle offsets correctly
@@ -208,11 +227,13 @@ Create a comprehensive unit conversion system for all physical quantities.
 Implement FastAPI endpoints for solving networks and querying fluid properties.
 
 **Related Files:**
+
 - `apps/api/src/opensolve_pipe/main.py`
 - `apps/api/src/opensolve_pipe/routers/solve.py`
 - `apps/api/src/opensolve_pipe/routers/fluids.py`
 
 **Tasks:**
+
 - [ ] Create FastAPI app with CORS middleware
 - [ ] Implement `POST /api/v1/solve` endpoint
 - [ ] Implement `GET /api/v1/fluids` endpoint (list available fluids)
@@ -225,6 +246,7 @@ Implement FastAPI endpoints for solving networks and querying fluid properties.
 - [ ] Document endpoints with OpenAPI docstrings
 
 **Acceptance Criteria:**
+
 - `/api/v1/solve` accepts Project and returns SolvedState
 - Fluid endpoints return correct properties
 - Invalid requests return 400/422 with clear error messages
@@ -241,12 +263,14 @@ Implement FastAPI endpoints for solving networks and querying fluid properties.
 Initialize SvelteKit with TypeScript, Tailwind CSS, and basic routing.
 
 **Related Files:**
+
 - `apps/web/src/routes/+page.svelte`
 - `apps/web/src/routes/p/[...encoded]/+page.svelte`
 - `apps/web/src/app.html`
 - `apps/web/tailwind.config.js`
 
 **Tasks:**
+
 - [ ] Configure Tailwind CSS with custom design tokens
 - [ ] Create main landing page (`/`)
 - [ ] Create project viewer route (`/p/{encoded}`)
@@ -257,6 +281,7 @@ Initialize SvelteKit with TypeScript, Tailwind CSS, and basic routing.
 - [ ] Test routing on mobile and desktop
 
 **Acceptance Criteria:**
+
 - Tailwind classes work correctly
 - Routes navigate properly
 - Responsive design works on mobile (< 768px)
@@ -272,11 +297,13 @@ Initialize SvelteKit with TypeScript, Tailwind CSS, and basic routing.
 Create TypeScript interfaces matching backend Pydantic models.
 
 **Related Files:**
+
 - `apps/web/src/lib/models/project.ts`
 - `apps/web/src/lib/models/components.ts`
 - `apps/web/src/lib/models/results.ts`
 
 **Tasks:**
+
 - [ ] Define `Project` interface
 - [ ] Define component interfaces (Reservoir, Tank, Junction, Pump)
 - [ ] Define `PipingSegment`, `PipeDefinition`, `Fitting` interfaces
@@ -286,6 +313,7 @@ Create TypeScript interfaces matching backend Pydantic models.
 - [ ] Verify alignment with backend models
 
 **Acceptance Criteria:**
+
 - All interfaces compile without errors
 - Type guards work correctly for component types
 - Interfaces match backend Pydantic models
@@ -301,10 +329,12 @@ Create TypeScript interfaces matching backend Pydantic models.
 Create Svelte stores for managing project state, including component chain and navigation.
 
 **Related Files:**
+
 - `apps/web/src/lib/stores/project.ts`
 - `apps/web/src/lib/stores/navigation.ts`
 
 **Tasks:**
+
 - [ ] Create `projectStore` (writable store for Project)
 - [ ] Add methods: `addComponent()`, `removeComponent()`, `updateComponent()`
 - [ ] Create `currentElementId` store for navigation
@@ -315,6 +345,7 @@ Create Svelte stores for managing project state, including component chain and n
 - [ ] Add local storage persistence (optional MVP enhancement)
 
 **Acceptance Criteria:**
+
 - Components can be added/removed/edited
 - Navigation state updates correctly
 - Undo/redo works for all actions
@@ -331,9 +362,11 @@ Create Svelte stores for managing project state, including component chain and n
 Implement project serialization to URL-safe compressed format.
 
 **Related Files:**
+
 - `apps/web/src/lib/utils/encoding.ts`
 
 **Tasks:**
+
 - [ ] Install `pako` library (gzip compression)
 - [ ] Implement `encodeProject(project: Project): string` function
 - [ ] Implement `decodeProject(encoded: string): Project` function
@@ -344,12 +377,14 @@ Implement project serialization to URL-safe compressed format.
 - [ ] Test with various project sizes
 
 **Acceptance Criteria:**
+
 - Empty project encodes to short string (< 200 chars)
 - Medium project (5 components) encodes to < 2KB
 - Roundtrip preserves all data
 - Invalid URLs throw descriptive errors
 
 **Reference:**
+
 - Encoding pipeline: JSON → gzip → base64url
 
 ---
@@ -363,12 +398,14 @@ Implement project serialization to URL-safe compressed format.
 Create the primary UI for building and editing the hydraulic network element-by-element.
 
 **Related Files:**
+
 - `apps/web/src/lib/components/panel/PanelNavigator.svelte`
 - `apps/web/src/lib/components/panel/ElementPanel.svelte`
 - `apps/web/src/lib/components/panel/PipingPanel.svelte`
 - `apps/web/src/lib/components/panel/NavigationControls.svelte`
 
 **Tasks:**
+
 - [ ] Create `PanelNavigator` component (main container)
 - [ ] Create `ElementPanel` with property forms
 - [ ] Create `PipingPanel` for pipe and fittings configuration
@@ -380,6 +417,7 @@ Create the primary UI for building and editing the hydraulic network element-by-
 - [ ] Add keyboard navigation support (arrow keys)
 
 **Acceptance Criteria:**
+
 - Users can navigate through component chain
 - Users can edit component properties
 - Users can add/remove components
@@ -397,6 +435,7 @@ Create the primary UI for building and editing the hydraulic network element-by-
 Create forms for editing properties of each component type.
 
 **Related Files:**
+
 - `apps/web/src/lib/components/forms/ReservoirForm.svelte`
 - `apps/web/src/lib/components/forms/TankForm.svelte`
 - `apps/web/src/lib/components/forms/PumpForm.svelte`
@@ -404,6 +443,7 @@ Create forms for editing properties of each component type.
 - `apps/web/src/lib/components/forms/FittingsTable.svelte`
 
 **Tasks:**
+
 - [ ] Create `ReservoirForm` (elevation, water level)
 - [ ] Create `TankForm` (elevation, dimensions, levels)
 - [ ] Create `PumpForm` with curve entry table
@@ -414,6 +454,7 @@ Create forms for editing properties of each component type.
 - [ ] Add number input with sensible min/max ranges
 
 **Acceptance Criteria:**
+
 - All component types can be fully configured
 - Form validation prevents invalid inputs
 - Unit labels display correctly
@@ -430,12 +471,14 @@ Create forms for editing properties of each component type.
 Create components for displaying solved network results, including pump curve visualization.
 
 **Related Files:**
+
 - `apps/web/src/lib/components/results/ResultsPanel.svelte`
 - `apps/web/src/lib/components/results/PumpCurveChart.svelte`
 - `apps/web/src/lib/components/results/NodeTable.svelte`
 - `apps/web/src/lib/components/results/LinkTable.svelte`
 
 **Tasks:**
+
 - [ ] Create `ResultsPanel` component (main container)
 - [ ] Create `PumpCurveChart` using Chart.js (pump + system curves)
 - [ ] Create `NodeTable` showing pressures, HGL, EGL for all nodes
@@ -447,6 +490,7 @@ Create components for displaying solved network results, including pump curve vi
 - [ ] Make tables scrollable on mobile
 
 **Acceptance Criteria:**
+
 - Pump curve displays correctly with operating point marked
 - Tables show all solved values with proper units
 - Results update when project is re-solved
@@ -463,9 +507,11 @@ Create components for displaying solved network results, including pump curve vi
 Create API client for communicating with backend.
 
 **Related Files:**
+
 - `apps/web/src/lib/api/client.ts`
 
 **Tasks:**
+
 - [ ] Create `solveNetwork(project: Project): Promise<SolvedState>` function
 - [ ] Create `getFluidProperties(fluidId, temperature)` function
 - [ ] Create `listFluids()` function
@@ -476,6 +522,7 @@ Create API client for communicating with backend.
 - [ ] Write tests with mocked fetch
 
 **Acceptance Criteria:**
+
 - API calls succeed with valid data
 - Network errors are caught and handled gracefully
 - Environment variable controls backend URL
@@ -491,9 +538,11 @@ Create API client for communicating with backend.
 Connect the UI to the backend solver via the "Solve" button.
 
 **Related Files:**
+
 - `apps/web/src/routes/+page.svelte`
 
 **Tasks:**
+
 - [ ] Add "Solve" button to header
 - [ ] Implement solve workflow (get project → call API → update results)
 - [ ] Show loading spinner during solve
@@ -504,6 +553,7 @@ Connect the UI to the backend solver via the "Solve" button.
 - [ ] Update URL after successful solve
 
 **Acceptance Criteria:**
+
 - Clicking "Solve" sends project to backend
 - Results display after successful solve
 - Errors display with helpful messages
@@ -520,6 +570,7 @@ Connect the UI to the backend solver via the "Solve" button.
 Comprehensive testing of the complete workflow from project creation to solved results.
 
 **Tasks:**
+
 - [ ] Create test project: Reservoir → Pump → 100ft pipe → Tank
 - [ ] Test project creation via panel navigator
 - [ ] Test URL encoding/decoding roundtrip
@@ -532,6 +583,7 @@ Comprehensive testing of the complete workflow from project creation to solved r
 - [ ] Fix critical bugs blocking MVP launch
 
 **Acceptance Criteria:**
+
 - Test project solves successfully
 - Results match expected values (< 1% error)
 - No critical bugs remain
@@ -548,6 +600,7 @@ Comprehensive testing of the complete workflow from project creation to solved r
 Deploy frontend to Vercel and backend to Railway (or Fly.io).
 
 **Tasks:**
+
 - [ ] Create Vercel project for frontend
 - [ ] Configure build settings for SvelteKit
 - [ ] Set up environment variables (PUBLIC_API_URL)
@@ -560,6 +613,7 @@ Deploy frontend to Vercel and backend to Railway (or Fly.io).
 - [ ] Add health check monitoring
 
 **Acceptance Criteria:**
+
 - Frontend accessible at public URL
 - Backend API accessible and CORS configured
 - Deployed app works identically to local
@@ -576,6 +630,7 @@ Deploy frontend to Vercel and backend to Railway (or Fly.io).
 Create user-facing documentation and landing page.
 
 **Tasks:**
+
 - [ ] Create landing page with project description
 - [ ] Add "Getting Started" tutorial
 - [ ] Document component types and properties
@@ -587,6 +642,7 @@ Create user-facing documentation and landing page.
 - [ ] Add changelog/release notes
 
 **Acceptance Criteria:**
+
 - Landing page is clear and professional
 - Tutorial walks users through first solve
 - Documentation answers common questions
@@ -605,17 +661,17 @@ gh issue create \
   --body "Set up the monorepo structure and install core dependencies for both frontend and backend.
 
 **Tasks:**
-- [ ] Create \`apps/web/\` directory structure for SvelteKit frontend
-- [ ] Create \`apps/api/\` directory structure for FastAPI backend
-- [ ] Initialize SvelteKit project with TypeScript
-- [ ] Initialize FastAPI project with pyproject.toml
-- [ ] Install backend dependencies: \`fastapi\`, \`uvicorn\`, \`pydantic\`, \`fluids\`, \`scipy\`
-- [ ] Install frontend dependencies: \`pako\`, \`tailwindcss\`, \`chart.js\`
-- [ ] Set up ESLint and Prettier for frontend
-- [ ] Set up Black and isort for backend
-- [ ] Create \`.gitignore\` for both apps
-- [ ] Add README.md with setup instructions
-- [ ] Verify both apps run locally (\`npm run dev\` and \`uvicorn\`)
+- [x] Create \`apps/web/\` directory structure for SvelteKit frontend
+- [x] Create \`apps/api/\` directory structure for FastAPI backend
+- [x] Initialize SvelteKit project with TypeScript
+- [x] Initialize FastAPI project with pyproject.toml
+- [x] Install backend dependencies: \`fastapi\`, \`uvicorn\`, \`pydantic\`, \`fluids\`, \`scipy\`
+- [x] Install frontend dependencies: \`pako\`, \`tailwindcss\`, \`chart.js\`
+- [x] Set up ESLint and Prettier for frontend
+- [x] Set up Ruff for backend (replaces Black and isort)
+- [x] Create \`.gitignore\` for both apps
+- [x] Add README.md with setup instructions
+- [x] Verify both apps run locally (\`pnpm dev\` and \`uvicorn\`)
 
 **Acceptance Criteria:**
 - Frontend runs on \`localhost:5173\`
@@ -1132,6 +1188,7 @@ echo "✅ All Phase 1 issues created!"
 **Total Phase 1 Issues:** 19
 
 **Critical Path (7 issues):**
+
 1. #1 - Project Setup
 2. #2 - Backend Data Models
 3. #5 - Simple Solver
@@ -1143,6 +1200,7 @@ echo "✅ All Phase 1 issues created!"
 **Estimated Effort:** 3-4 weeks with 2-3 developers
 
 **Next Steps:**
+
 1. Create the "Phase 1 - MVP" milestone in GitHub
 2. Create all issues using either manual or automated method
 3. Assign issues to team members based on expertise

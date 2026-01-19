@@ -1,0 +1,217 @@
+{
+  "version": "1.0.0",
+  "source": "IAPWS-IF97, CoolProp, Engineering literature",
+  "fluids": {
+    "water": {
+      "name": "Water",
+      "type": "temperature_dependent",
+      "temperature_range_C": [0, 100],
+      "properties": [
+        {
+          "temp_C": 0,
+          "temp_F": 32,
+          "density_kg_m3": 999.84,
+          "dynamic_viscosity_Pa_s": 0.001792,
+          "kinematic_viscosity_m2_s": 1.793e-6,
+          "vapor_pressure_Pa": 611
+        },
+        {
+          "temp_C": 5,
+          "temp_F": 41,
+          "density_kg_m3": 999.97,
+          "dynamic_viscosity_Pa_s": 0.001519,
+          "kinematic_viscosity_m2_s": 1.519e-6,
+          "vapor_pressure_Pa": 872
+        },
+        {
+          "temp_C": 10,
+          "temp_F": 50,
+          "density_kg_m3": 999.70,
+          "dynamic_viscosity_Pa_s": 0.001307,
+          "kinematic_viscosity_m2_s": 1.307e-6,
+          "vapor_pressure_Pa": 1228
+        },
+        {
+          "temp_C": 15,
+          "temp_F": 59,
+          "density_kg_m3": 999.10,
+          "dynamic_viscosity_Pa_s": 0.001139,
+          "kinematic_viscosity_m2_s": 1.140e-6,
+          "vapor_pressure_Pa": 1706
+        },
+        {
+          "temp_C": 20,
+          "temp_F": 68,
+          "density_kg_m3": 998.21,
+          "dynamic_viscosity_Pa_s": 0.001002,
+          "kinematic_viscosity_m2_s": 1.004e-6,
+          "vapor_pressure_Pa": 2339
+        },
+        {
+          "temp_C": 25,
+          "temp_F": 77,
+          "density_kg_m3": 997.05,
+          "dynamic_viscosity_Pa_s": 0.000890,
+          "kinematic_viscosity_m2_s": 8.93e-7,
+          "vapor_pressure_Pa": 3169
+        },
+        {
+          "temp_C": 30,
+          "temp_F": 86,
+          "density_kg_m3": 995.65,
+          "dynamic_viscosity_Pa_s": 0.000798,
+          "kinematic_viscosity_m2_s": 8.01e-7,
+          "vapor_pressure_Pa": 4246
+        },
+        {
+          "temp_C": 35,
+          "temp_F": 95,
+          "density_kg_m3": 994.03,
+          "dynamic_viscosity_Pa_s": 0.000720,
+          "kinematic_viscosity_m2_s": 7.24e-7,
+          "vapor_pressure_Pa": 5627
+        },
+        {
+          "temp_C": 40,
+          "temp_F": 104,
+          "density_kg_m3": 992.22,
+          "dynamic_viscosity_Pa_s": 0.000653,
+          "kinematic_viscosity_m2_s": 6.58e-7,
+          "vapor_pressure_Pa": 7384
+        },
+        {
+          "temp_C": 45,
+          "temp_F": 113,
+          "density_kg_m3": 990.21,
+          "dynamic_viscosity_Pa_s": 0.000596,
+          "kinematic_viscosity_m2_s": 6.02e-7,
+          "vapor_pressure_Pa": 9593
+        },
+        {
+          "temp_C": 50,
+          "temp_F": 122,
+          "density_kg_m3": 988.04,
+          "dynamic_viscosity_Pa_s": 0.000547,
+          "kinematic_viscosity_m2_s": 5.53e-7,
+          "vapor_pressure_Pa": 12352
+        },
+        {
+          "temp_C": 55,
+          "temp_F": 131,
+          "density_kg_m3": 985.69,
+          "dynamic_viscosity_Pa_s": 0.000504,
+          "kinematic_viscosity_m2_s": 5.12e-7,
+          "vapor_pressure_Pa": 15762
+        },
+        {
+          "temp_C": 60,
+          "temp_F": 140,
+          "density_kg_m3": 983.20,
+          "dynamic_viscosity_Pa_s": 0.000466,
+          "kinematic_viscosity_m2_s": 4.74e-7,
+          "vapor_pressure_Pa": 19946
+        },
+        {
+          "temp_C": 65,
+          "temp_F": 149,
+          "density_kg_m3": 980.55,
+          "dynamic_viscosity_Pa_s": 0.000433,
+          "kinematic_viscosity_m2_s": 4.42e-7,
+          "vapor_pressure_Pa": 25042
+        },
+        {
+          "temp_C": 70,
+          "temp_F": 158,
+          "density_kg_m3": 977.77,
+          "dynamic_viscosity_Pa_s": 0.000404,
+          "kinematic_viscosity_m2_s": 4.13e-7,
+          "vapor_pressure_Pa": 31201
+        },
+        {
+          "temp_C": 75,
+          "temp_F": 167,
+          "density_kg_m3": 974.84,
+          "dynamic_viscosity_Pa_s": 0.000378,
+          "kinematic_viscosity_m2_s": 3.88e-7,
+          "vapor_pressure_Pa": 38595
+        },
+        {
+          "temp_C": 80,
+          "temp_F": 176,
+          "density_kg_m3": 971.79,
+          "dynamic_viscosity_Pa_s": 0.000354,
+          "kinematic_viscosity_m2_s": 3.65e-7,
+          "vapor_pressure_Pa": 47414
+        },
+        {
+          "temp_C": 85,
+          "temp_F": 185,
+          "density_kg_m3": 968.59,
+          "dynamic_viscosity_Pa_s": 0.000334,
+          "kinematic_viscosity_m2_s": 3.45e-7,
+          "vapor_pressure_Pa": 57867
+        },
+        {
+          "temp_C": 90,
+          "temp_F": 194,
+          "density_kg_m3": 965.31,
+          "dynamic_viscosity_Pa_s": 0.000315,
+          "kinematic_viscosity_m2_s": 3.26e-7,
+          "vapor_pressure_Pa": 70182
+        },
+        {
+          "temp_C": 95,
+          "temp_F": 203,
+          "density_kg_m3": 961.89,
+          "dynamic_viscosity_Pa_s": 0.000298,
+          "kinematic_viscosity_m2_s": 3.10e-7,
+          "vapor_pressure_Pa": 84608
+        },
+        {
+          "temp_C": 100,
+          "temp_F": 212,
+          "density_kg_m3": 958.35,
+          "dynamic_viscosity_Pa_s": 0.000282,
+          "kinematic_viscosity_m2_s": 2.94e-7,
+          "vapor_pressure_Pa": 101420
+        }
+      ]
+    },
+    "diesel": {
+      "name": "Diesel Fuel",
+      "type": "fixed",
+      "density_kg_m3": 850,
+      "dynamic_viscosity_Pa_s": 0.00255,
+      "kinematic_viscosity_m2_s": 3.0e-6,
+      "vapor_pressure_Pa": 500,
+      "notes": "Typical No. 2 Diesel at 15°C (60°F)"
+    },
+    "gasoline": {
+      "name": "Gasoline",
+      "type": "fixed",
+      "density_kg_m3": 750,
+      "dynamic_viscosity_Pa_s": 0.00045,
+      "kinematic_viscosity_m2_s": 6.0e-7,
+      "vapor_pressure_Pa": 55000,
+      "notes": "Typical gasoline at 20°C"
+    },
+    "kerosene": {
+      "name": "Kerosene",
+      "type": "fixed",
+      "density_kg_m3": 810,
+      "dynamic_viscosity_Pa_s": 0.00162,
+      "kinematic_viscosity_m2_s": 2.0e-6,
+      "vapor_pressure_Pa": 3000,
+      "notes": "Typical kerosene at 20°C"
+    },
+    "hydraulic_oil": {
+      "name": "Hydraulic Oil",
+      "type": "fixed",
+      "density_kg_m3": 870,
+      "dynamic_viscosity_Pa_s": 0.0348,
+      "kinematic_viscosity_m2_s": 4.0e-5,
+      "vapor_pressure_Pa": 100,
+      "notes": "ISO VG 32 hydraulic oil at 40°C"
+    }
+  }
+}

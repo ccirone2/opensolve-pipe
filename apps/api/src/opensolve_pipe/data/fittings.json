@@ -1,0 +1,194 @@
+{
+  "version": "1.0.0",
+  "source": "Crane TP-410, 2018 Edition",
+  "methods": {
+    "L_over_D": "K = f_T × (L/D) where f_T is friction factor at complete turbulence",
+    "K_fixed": "K is constant regardless of pipe size"
+  },
+  "friction_factor_turbulent": {
+    "description": "Friction factor at complete turbulence (f_T) by nominal pipe size (inches)",
+    "values": {
+      "0.5": 0.027,
+      "0.75": 0.025,
+      "1": 0.023,
+      "1.25": 0.022,
+      "1.5": 0.021,
+      "2": 0.019,
+      "2.5": 0.018,
+      "3": 0.018,
+      "4": 0.017,
+      "6": 0.015,
+      "8": 0.014,
+      "10": 0.014,
+      "12": 0.013,
+      "14": 0.013,
+      "16": 0.013,
+      "18": 0.012,
+      "20": 0.012,
+      "24": 0.012
+    }
+  },
+  "fittings": {
+    "elbow_90_lr": {
+      "name": "90° Long Radius Elbow",
+      "category": "elbow",
+      "k_method": "L_over_D",
+      "L_over_D": 14,
+      "notes": "r/D = 1.5, welded or flanged"
+    },
+    "elbow_90_sr": {
+      "name": "90° Short Radius Elbow",
+      "category": "elbow",
+      "k_method": "L_over_D",
+      "L_over_D": 30,
+      "notes": "r/D = 1.0, welded or flanged"
+    },
+    "elbow_45": {
+      "name": "45° Elbow",
+      "category": "elbow",
+      "k_method": "L_over_D",
+      "L_over_D": 16,
+      "notes": "Standard long radius"
+    },
+    "tee_through": {
+      "name": "Tee (Flow Through Run)",
+      "category": "tee",
+      "k_method": "L_over_D",
+      "L_over_D": 20,
+      "notes": "Flow straight through the run"
+    },
+    "tee_branch": {
+      "name": "Tee (Flow Into Branch)",
+      "category": "tee",
+      "k_method": "L_over_D",
+      "L_over_D": 60,
+      "notes": "Flow diverted into branch"
+    },
+    "reducer_concentric": {
+      "name": "Concentric Reducer",
+      "category": "reducer",
+      "k_method": "K_fixed",
+      "K": 0.1,
+      "notes": "Approximate K for gradual reducer. Actual K depends on angle and d/D ratio."
+    },
+    "reducer_eccentric": {
+      "name": "Eccentric Reducer",
+      "category": "reducer",
+      "k_method": "K_fixed",
+      "K": 0.15,
+      "notes": "Approximate K. Actual K depends on angle and d/D ratio."
+    },
+    "expander_concentric": {
+      "name": "Concentric Expander",
+      "category": "expander",
+      "k_method": "K_fixed",
+      "K": 0.3,
+      "notes": "Approximate K for sudden expansion. Use Borda-Carnot for accuracy."
+    },
+    "expander_eccentric": {
+      "name": "Eccentric Expander",
+      "category": "expander",
+      "k_method": "K_fixed",
+      "K": 0.35,
+      "notes": "Approximate K. Actual K depends on angle and d/D ratio."
+    },
+    "gate_valve": {
+      "name": "Gate Valve (Fully Open)",
+      "category": "valve",
+      "k_method": "L_over_D",
+      "L_over_D": 8,
+      "notes": "Fully open gate valve"
+    },
+    "ball_valve": {
+      "name": "Ball Valve (Fully Open)",
+      "category": "valve",
+      "k_method": "L_over_D",
+      "L_over_D": 3,
+      "notes": "Full bore, fully open"
+    },
+    "butterfly_valve": {
+      "name": "Butterfly Valve (Fully Open)",
+      "category": "valve",
+      "k_method": "K_fixed",
+      "K": 0.35,
+      "notes": "Fully open position"
+    },
+    "globe_valve": {
+      "name": "Globe Valve (Fully Open)",
+      "category": "valve",
+      "k_method": "L_over_D",
+      "L_over_D": 340,
+      "notes": "Conventional globe valve, fully open"
+    },
+    "check_valve_swing": {
+      "name": "Swing Check Valve",
+      "category": "valve",
+      "k_method": "L_over_D",
+      "L_over_D": 50,
+      "notes": "Standard swing check"
+    },
+    "check_valve_lift": {
+      "name": "Lift Check Valve",
+      "category": "valve",
+      "k_method": "L_over_D",
+      "L_over_D": 600,
+      "notes": "Vertical lift check - high resistance"
+    },
+    "entrance_sharp": {
+      "name": "Pipe Entrance (Sharp-Edged)",
+      "category": "entrance",
+      "k_method": "K_fixed",
+      "K": 0.5,
+      "notes": "Flush, square-edged entrance from tank or reservoir"
+    },
+    "entrance_rounded": {
+      "name": "Pipe Entrance (Rounded)",
+      "category": "entrance",
+      "k_method": "K_fixed",
+      "K": 0.04,
+      "notes": "Well-rounded entrance, r/D >= 0.15"
+    },
+    "entrance_projecting": {
+      "name": "Pipe Entrance (Projecting)",
+      "category": "entrance",
+      "k_method": "K_fixed",
+      "K": 0.78,
+      "notes": "Pipe projecting into tank (re-entrant)"
+    },
+    "exit": {
+      "name": "Pipe Exit",
+      "category": "exit",
+      "k_method": "K_fixed",
+      "K": 1.0,
+      "notes": "Exit into tank or atmosphere - all velocity head is lost"
+    },
+    "strainer_basket": {
+      "name": "Basket Strainer",
+      "category": "strainer",
+      "k_method": "K_fixed",
+      "K": 2.0,
+      "notes": "Clean basket strainer. Fouled strainer K can be 2-5x higher."
+    },
+    "strainer_y": {
+      "name": "Y-Strainer",
+      "category": "strainer",
+      "k_method": "K_fixed",
+      "K": 1.5,
+      "notes": "Clean Y-strainer. Fouled strainer K can be 2-5x higher."
+    },
+    "union": {
+      "name": "Union",
+      "category": "connection",
+      "k_method": "K_fixed",
+      "K": 0.04,
+      "notes": "Threaded or flanged union - negligible resistance"
+    },
+    "coupling": {
+      "name": "Coupling",
+      "category": "connection",
+      "k_method": "K_fixed",
+      "K": 0.04,
+      "notes": "Threaded or socket-welded coupling - negligible resistance"
+    }
+  }
+}

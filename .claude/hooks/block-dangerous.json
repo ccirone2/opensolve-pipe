@@ -5,124 +5,505 @@
   "targetTools": ["bash", "shell"],
   "blockedPatterns": [
     {
-      "pattern": "rm\\s+-rf\\s+/(?!home/|tmp/|mnt/user-data)",
-      "reason": "Blocked: rm -rf outside safe directories",
-      "severity": "critical"
+      "category": "Destructive File Operations",
+      "patterns": [
+        {
+          "pattern": "rm\\s+(-[rRf]+|--recursive|--force)\\s+/(?!home/|tmp/|mnt/user-data)",
+          "reason": "Blocked: Recursive/forced removal outside safe directories",
+          "severity": "critical"
+        },
+        {
+          "pattern": "rm\\s+-rf\\s+\\*",
+          "reason": "Blocked: rm -rf with wildcard",
+          "severity": "critical"
+        },
+        {
+          "pattern": "sudo\\s+rm",
+          "reason": "Blocked: Privileged file removal",
+          "severity": "critical"
+        },
+        {
+          "pattern": "rmdir\\s+--ignore-fail-on-non-empty",
+          "reason": "Blocked: Directory removal bypass",
+          "severity": "critical"
+        }
+      ]
     },
     {
-      "pattern": "rm\\s+-rf\\s+\\*",
-      "reason": "Blocked: rm -rf with wildcard",
-      "severity": "critical"
+      "category": "Permission Changes",
+      "patterns": [
+        {
+          "pattern": "chmod\\s+(-R\\s+)?777",
+          "reason": "Blocked: World-writable permissions",
+          "severity": "critical"
+        },
+        {
+          "pattern": "chown\\s+(-R\\s+)?.*root",
+          "reason": "Blocked: Changing ownership to root",
+          "severity": "critical"
+        }
+      ]
     },
     {
-      "pattern": "mkfs",
-      "reason": "Blocked: Filesystem formatting",
-      "severity": "critical"
+      "category": "Git Destructive Operations",
+      "patterns": [
+        {
+          "pattern": "git\\s+push\\s+.*--force\\s+.*\\b(main|master)\\b",
+          "reason": "Blocked: Force push to main/master branch",
+          "severity": "critical"
+        },
+        {
+          "pattern": "git\\s+push\\s+-f\\s+.*\\b(main|master)\\b",
+          "reason": "Blocked: Force push to main/master branch",
+          "severity": "critical"
+        },
+        {
+          "pattern": "git\\s+reset\\s+--hard\\s+HEAD~[5-9]|HEAD~[1-9][0-9]",
+          "reason": "Blocked: Large hard reset (5+ commits)",
+          "severity": "critical"
+        },
+        {
+          "pattern": "git\\s+stash\\s+clear",
+          "reason": "Blocked: Delete all stashes (unrecoverable)",
+          "severity": "critical"
+        },
+        {
+          "pattern": "git\\s+reflog\\s+expire",
+          "reason": "Blocked: Remove recovery data",
+          "severity": "critical"
+        },
+        {
+          "pattern": "git\\s+gc\\s+--prune=now",
+          "reason": "Blocked: Aggressive garbage collection",
+          "severity": "critical"
+        },
+        {
+          "pattern": "git\\s+filter-branch",
+          "reason": "Blocked: Full history rewrite",
+          "severity": "critical"
+        }
+      ]
     },
     {
-      "pattern": "dd\\s+if=.*of=/dev",
-      "reason": "Blocked: Writing to block devices",
-      "severity": "critical"
+      "category": "System-Level Destruction",
+      "patterns": [
+        {
+          "pattern": "mkfs",
+          "reason": "Blocked: Filesystem formatting",
+          "severity": "critical"
+        },
+        {
+          "pattern": "dd\\s+.*of=/dev/",
+          "reason": "Blocked: Writing to block devices",
+          "severity": "critical"
+        }
+      ]
     },
     {
-      "pattern": "DROP\\s+DATABASE",
-      "reason": "Blocked: Database destruction",
-      "severity": "critical",
-      "flags": "i"
+      "category": "Process Destruction",
+      "patterns": [
+        {
+          "pattern": "kill\\s+-9\\s+-1",
+          "reason": "Blocked: Terminate all processes",
+          "severity": "critical"
+        },
+        {
+          "pattern": "killall\\s+-9",
+          "reason": "Blocked: Force kill all by name",
+          "severity": "critical"
+        },
+        {
+          "pattern": "pkill\\s+-9",
+          "reason": "Blocked: Force kill by pattern",
+          "severity": "critical"
+        }
+      ]
     },
     {
-      "pattern": "DROP\\s+SCHEMA.*CASCADE",
-      "reason": "Blocked: Schema destruction with cascade",
-      "severity": "critical",
-      "flags": "i"
+      "category": "Shell/History Manipulation",
+      "patterns": [
+        {
+          "pattern": "history\\s+-c",
+          "reason": "Blocked: Clear shell history",
+          "severity": "critical"
+        }
+      ]
     },
     {
-      "pattern": "TRUNCATE\\s+TABLE",
-      "reason": "Blocked: Table truncation",
-      "severity": "critical",
-      "flags": "i"
+      "category": "Database Destruction",
+      "patterns": [
+        {
+          "pattern": "DROP\\s+DATABASE",
+          "reason": "Blocked: Database destruction",
+          "severity": "critical",
+          "flags": "i"
+        },
+        {
+          "pattern": "DROP\\s+SCHEMA.*CASCADE",
+          "reason": "Blocked: Schema destruction with cascade",
+          "severity": "critical",
+          "flags": "i"
+        },
+        {
+          "pattern": "TRUNCATE\\s+TABLE",
+          "reason": "Blocked: Table truncation",
+          "severity": "critical",
+          "flags": "i"
+        },
+        {
+          "pattern": "dropdb",
+          "reason": "Blocked: PostgreSQL database removal",
+          "severity": "critical"
+        },
+        {
+          "pattern": "mysqladmin\\s+drop",
+          "reason": "Blocked: MySQL database removal",
+          "severity": "critical"
+        },
+        {
+          "pattern": "redis-cli\\s+(FLUSHALL|FLUSHDB)",
+          "reason": "Blocked: Redis data wipe",
+          "severity": "critical",
+          "flags": "i"
+        },
+        {
+          "pattern": "(mongosh|mongo).*dropDatabase",
+          "reason": "Blocked: MongoDB database deletion",
+          "severity": "critical"
+        }
+      ]
     },
     {
-      "pattern": "echo.*\\$\\{?[\\w]*(?:PASSWORD|SECRET|TOKEN|KEY)",
-      "reason": "Blocked: Potential credential exposure",
-      "severity": "critical",
-      "flags": "i"
+      "category": "Credential Exposure",
+      "patterns": [
+        {
+          "pattern": "echo.*\\$\\{?[\\w]*(?:PASSWORD|SECRET|TOKEN|KEY|CREDENTIAL)",
+          "reason": "Blocked: Potential credential exposure",
+          "severity": "critical",
+          "flags": "i"
+        },
+        {
+          "pattern": "curl.*-d.*password",
+          "reason": "Blocked: Sending passwords over network",
+          "severity": "critical",
+          "flags": "i"
+        },
+        {
+          "pattern": "wget.*password",
+          "reason": "Blocked: Sending passwords over network",
+          "severity": "critical",
+          "flags": "i"
+        }
+      ]
     },
     {
-      "pattern": "curl.*-d.*password",
-      "reason": "Blocked: Sending passwords over network",
-      "severity": "critical",
-      "flags": "i"
+      "category": "Security Tools",
+      "patterns": [
+        {
+          "pattern": "\\bnmap\\b",
+          "reason": "Blocked: Network scanning",
+          "severity": "critical"
+        },
+        {
+          "pattern": "\\bnikto\\b",
+          "reason": "Blocked: Web vulnerability scanning",
+          "severity": "critical"
+        },
+        {
+          "pattern": "\\bsqlmap\\b",
+          "reason": "Blocked: SQL injection testing",
+          "severity": "critical"
+        }
+      ]
     },
     {
-      "pattern": "wget.*password",
-      "reason": "Blocked: Sending passwords over network",
-      "severity": "critical",
-      "flags": "i"
+      "category": "Privileged Access",
+      "patterns": [
+        {
+          "pattern": "sudo\\s+(?!apt|pip|npm|pnpm|yarn)",
+          "reason": "Blocked: Sudo usage outside package managers",
+          "severity": "critical"
+        }
+      ]
     },
     {
-      "pattern": "nmap",
-      "reason": "Blocked: Network scanning",
-      "severity": "critical"
+      "category": "Docker Destructive Operations",
+      "patterns": [
+        {
+          "pattern": "docker\\s+system\\s+prune\\s+-a",
+          "reason": "Blocked: Remove all unused Docker data",
+          "severity": "critical"
+        },
+        {
+          "pattern": "docker\\s+rm\\s+-f\\s+\\$\\(docker\\s+ps",
+          "reason": "Blocked: Force remove all containers",
+          "severity": "critical"
+        },
+        {
+          "pattern": "docker\\s+rmi\\s+-f",
+          "reason": "Blocked: Force remove Docker images",
+          "severity": "critical"
+        },
+        {
+          "pattern": "docker\\s+volume\\s+(rm|prune)",
+          "reason": "Blocked: Docker volume data loss",
+          "severity": "critical"
+        }
+      ]
     },
     {
-      "pattern": "nikto",
-      "reason": "Blocked: Web vulnerability scanning",
-      "severity": "critical"
+      "category": "Kubernetes Destructive Operations",
+      "patterns": [
+        {
+          "pattern": "kubectl\\s+delete\\s+namespace",
+          "reason": "Blocked: Kubernetes namespace removal",
+          "severity": "critical"
+        },
+        {
+          "pattern": "kubectl\\s+delete\\s+all\\s+--all",
+          "reason": "Blocked: Delete all Kubernetes resources",
+          "severity": "critical"
+        },
+        {
+          "pattern": "helm\\s+uninstall",
+          "reason": "Blocked: Helm release removal",
+          "severity": "critical"
+        }
+      ]
     },
     {
-      "pattern": "sqlmap",
-      "reason": "Blocked: SQL injection testing",
-      "severity": "critical"
+      "category": "Infrastructure as Code",
+      "patterns": [
+        {
+          "pattern": "terraform\\s+destroy",
+          "reason": "Blocked: Terraform infrastructure destruction",
+          "severity": "critical"
+        },
+        {
+          "pattern": "pulumi\\s+destroy",
+          "reason": "Blocked: Pulumi infrastructure destruction",
+          "severity": "critical"
+        },
+        {
+          "pattern": "(serverless|sls)\\s+remove",
+          "reason": "Blocked: Serverless stack removal",
+          "severity": "critical"
+        },
+        {
+          "pattern": "sam\\s+delete",
+          "reason": "Blocked: SAM application deletion",
+          "severity": "critical"
+        }
+      ]
     },
     {
-      "pattern": "chmod\\s+777",
-      "reason": "Blocked: Insecure file permissions",
-      "severity": "critical"
+      "category": "Cloud Provider Destructive (AWS)",
+      "patterns": [
+        {
+          "pattern": "aws\\s+s3\\s+rm\\s+.*--recursive",
+          "reason": "Blocked: Recursive S3 deletion",
+          "severity": "critical"
+        },
+        {
+          "pattern": "aws\\s+s3\\s+rb\\s+.*--force",
+          "reason": "Blocked: Force S3 bucket removal",
+          "severity": "critical"
+        },
+        {
+          "pattern": "aws\\s+ec2\\s+terminate-instances",
+          "reason": "Blocked: EC2 instance termination",
+          "severity": "critical"
+        },
+        {
+          "pattern": "aws\\s+rds\\s+delete-db-instance",
+          "reason": "Blocked: RDS database deletion",
+          "severity": "critical"
+        },
+        {
+          "pattern": "aws\\s+cloudformation\\s+delete-stack",
+          "reason": "Blocked: CloudFormation stack removal",
+          "severity": "critical"
+        },
+        {
+          "pattern": "aws\\s+dynamodb\\s+delete-table",
+          "reason": "Blocked: DynamoDB table deletion",
+          "severity": "critical"
+        }
+      ]
     },
     {
-      "pattern": "chown.*root",
-      "reason": "Blocked: Changing ownership to root",
-      "severity": "critical"
+      "category": "Cloud Provider Destructive (GCP)",
+      "patterns": [
+        {
+          "pattern": "gcloud\\s+projects\\s+delete",
+          "reason": "Blocked: GCP project deletion",
+          "severity": "critical"
+        },
+        {
+          "pattern": "gcloud\\s+compute\\s+instances\\s+delete",
+          "reason": "Blocked: GCP VM deletion",
+          "severity": "critical"
+        },
+        {
+          "pattern": "gcloud\\s+sql\\s+instances\\s+delete",
+          "reason": "Blocked: Cloud SQL deletion",
+          "severity": "critical"
+        },
+        {
+          "pattern": "gcloud\\s+container\\s+clusters\\s+delete",
+          "reason": "Blocked: GKE cluster removal",
+          "severity": "critical"
+        },
+        {
+          "pattern": "gcloud\\s+storage\\s+rm\\s+-r",
+          "reason": "Blocked: Recursive GCS deletion",
+          "severity": "critical"
+        }
+      ]
     },
     {
-      "pattern": "sudo\\s+(?!apt|pip|npm)",
-      "reason": "Blocked: Sudo usage outside package managers",
-      "severity": "critical"
+      "category": "Platform Destructive (Vercel/Netlify/Cloudflare)",
+      "patterns": [
+        {
+          "pattern": "vercel\\s+(remove|projects\\s+rm)\\s+.*--yes",
+          "reason": "Blocked: Vercel deployment/project removal",
+          "severity": "critical"
+        },
+        {
+          "pattern": "netlify\\s+sites:delete",
+          "reason": "Blocked: Netlify site deletion",
+          "severity": "critical"
+        },
+        {
+          "pattern": "wrangler\\s+delete",
+          "reason": "Blocked: Cloudflare Worker deletion",
+          "severity": "critical"
+        },
+        {
+          "pattern": "wrangler\\s+(r2\\s+bucket|kv:namespace|d1)\\s+delete",
+          "reason": "Blocked: Cloudflare storage deletion",
+          "severity": "critical"
+        }
+      ]
     },
     {
-      "pattern": "git\\s+push.*--force\\s+origin\\s+(main|master)",
-      "reason": "Blocked: Force push to main/master branch",
-      "severity": "critical"
-    },
-    {
-      "pattern": "git\\s+reset\\s+--hard\\s+HEAD~[5-9]",
-      "reason": "Blocked: Large hard reset (5+ commits)",
-      "severity": "critical"
+      "category": "GitHub/Package Registry",
+      "patterns": [
+        {
+          "pattern": "gh\\s+repo\\s+delete",
+          "reason": "Blocked: GitHub repository deletion",
+          "severity": "critical"
+        },
+        {
+          "pattern": "npm\\s+unpublish",
+          "reason": "Blocked: NPM package removal",
+          "severity": "critical"
+        }
+      ]
     }
   ],
   "warningPatterns": [
     {
-      "pattern": "rm\\s+-rf",
-      "message": "WARNING: Potentially dangerous rm -rf command. Proceeding with caution.",
-      "severity": "warning"
+      "category": "File Operations",
+      "patterns": [
+        {
+          "pattern": "rm\\s+-rf",
+          "message": "WARNING: Potentially dangerous rm -rf command. Proceeding with caution.",
+          "severity": "warning"
+        }
+      ]
     },
     {
-      "pattern": "git\\s+push.*--force",
-      "message": "WARNING: Force push detected. Ensure this is intentional.",
-      "severity": "warning"
+      "category": "Git Operations",
+      "patterns": [
+        {
+          "pattern": "git\\s+push.*--force",
+          "message": "WARNING: Force push detected. Ensure this is intentional.",
+          "severity": "warning"
+        },
+        {
+          "pattern": "git\\s+push\\s+-f",
+          "message": "WARNING: Force push detected. Ensure this is intentional.",
+          "severity": "warning"
+        },
+        {
+          "pattern": "git\\s+reset\\s+--hard",
+          "message": "WARNING: Hard reset will discard uncommitted changes.",
+          "severity": "warning"
+        },
+        {
+          "pattern": "git\\s+clean\\s+-[fd]",
+          "message": "WARNING: git clean will remove untracked files/directories.",
+          "severity": "warning"
+        },
+        {
+          "pattern": "git\\s+checkout\\s+--\\s+\\.",
+          "message": "WARNING: This will discard all uncommitted changes.",
+          "severity": "warning"
+        },
+        {
+          "pattern": "git\\s+restore\\s+\\.",
+          "message": "WARNING: This will discard uncommitted changes.",
+          "severity": "warning"
+        },
+        {
+          "pattern": "git\\s+stash\\s+drop",
+          "message": "WARNING: Dropping stash is unrecoverable.",
+          "severity": "warning"
+        },
+        {
+          "pattern": "git\\s+branch\\s+-D",
+          "message": "WARNING: Force deleting branch (may lose unmerged commits).",
+          "severity": "warning"
+        },
+        {
+          "pattern": "git\\s+push\\s+.*--delete",
+          "message": "WARNING: Deleting remote branch.",
+          "severity": "warning"
+        }
+      ]
     },
     {
-      "pattern": "DROP\\s+TABLE",
-      "message": "WARNING: Dropping table. Ensure this is intentional.",
-      "severity": "warning",
-      "flags": "i"
+      "category": "Database Operations",
+      "patterns": [
+        {
+          "pattern": "DROP\\s+TABLE",
+          "message": "WARNING: Dropping table. Ensure this is intentional.",
+          "severity": "warning",
+          "flags": "i"
+        },
+        {
+          "pattern": "DELETE\\s+FROM\\s+\\w+\\s*;?\\s*$",
+          "message": "WARNING: DELETE without WHERE clause. This will delete all rows.",
+          "severity": "warning",
+          "flags": "i"
+        }
+      ]
     },
     {
-      "pattern": "DELETE\\s+FROM\\s+\\w+\\s*;?\\s*$",
-      "message": "WARNING: DELETE without WHERE clause. This will delete all rows.",
-      "severity": "warning",
-      "flags": "i"
+      "category": "Docker Operations",
+      "patterns": [
+        {
+          "pattern": "docker\\s+system\\s+prune",
+          "message": "WARNING: Docker prune will remove unused data.",
+          "severity": "warning"
+        },
+        {
+          "pattern": "docker-compose\\s+down\\s+-v",
+          "message": "WARNING: This will remove volumes (data loss).",
+          "severity": "warning"
+        }
+      ]
+    },
+    {
+      "category": "Kubernetes Operations",
+      "patterns": [
+        {
+          "pattern": "kubectl\\s+delete",
+          "message": "WARNING: Kubernetes resource deletion.",
+          "severity": "warning"
+        }
+      ]
     }
   ],
   "messages": {

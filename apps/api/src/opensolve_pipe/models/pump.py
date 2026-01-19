@@ -1,6 +1,5 @@
 """Pump curve and pump-related models."""
 
-
 from pydantic import Field, field_validator, model_validator
 
 from .base import NonNegativeFloat, OpenSolvePipeBaseModel, PositiveFloat
@@ -55,9 +54,7 @@ class PumpCurve(OpenSolvePipeBaseModel):
 
     @field_validator("points")
     @classmethod
-    def validate_pump_curve_sorted(
-        cls, v: list[FlowHeadPoint]
-    ) -> list[FlowHeadPoint]:
+    def validate_pump_curve_sorted(cls, v: list[FlowHeadPoint]) -> list[FlowHeadPoint]:
         """Ensure pump curve points are sorted by flow."""
         flows = [p.flow for p in v]
         if flows != sorted(flows):

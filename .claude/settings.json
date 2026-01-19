@@ -8,8 +8,19 @@
     "typescript-lsp@claude-plugins-official": true,
     "compound-engineering@every-marketplace": true
   },
-  "plugins": [
-    "compound-engineering"
-  ],
-  "mcpServers": {}
+  "plugins": ["compound-engineering"],
+  "mcpServers": {},
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun x gh-setup-hooks",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
 }

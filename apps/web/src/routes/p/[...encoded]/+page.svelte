@@ -26,6 +26,35 @@
 	// Project name from metadata
 	let projectName = $derived($metadata?.name || (encoded ? 'Project' : 'New Project'));
 
+	// Edit state for project name
+	let isEditingName = $state(false);
+	let editedName = $state('');
+
+	function startEditingName() {
+		editedName = projectName;
+		isEditingName = true;
+	}
+
+	function saveProjectName() {
+		if (editedName.trim()) {
+			projectStore.updateMetadata({ name: editedName.trim() });
+		}
+		isEditingName = false;
+	}
+
+	function cancelEditingName() {
+		isEditingName = false;
+	}
+
+	function handleNameKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			saveProjectName();
+		} else if (event.key === 'Escape') {
+			cancelEditingName();
+		}
+	}
+
 	// Check if project has components (can solve)
 	let canSolve = $derived($components.length > 0);
 
@@ -132,7 +161,7 @@
 
 	<!-- Toast Messages -->
 	{#if solveError}
-		<div class="fixed right-4 top-20 z-50 max-w-md animate-in fade-in slide-in-from-top-2">
+		<div class="fixed right-4 top-20 z-50 max-w-md transition-all duration-150 ease-out">
 			<div class="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 shadow-lg">
 				<svg class="h-5 w-5 flex-shrink-0 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -156,7 +185,7 @@
 	{/if}
 
 	{#if solveSuccess}
-		<div class="fixed right-4 top-20 z-50 max-w-md animate-in fade-in slide-in-from-top-2">
+		<div class="fixed right-4 top-20 z-50 max-w-md transition-all duration-150 ease-out">
 			<div class="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-4 shadow-lg">
 				<svg class="h-5 w-5 flex-shrink-0 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
@@ -185,6 +214,41 @@
 		{#if viewMode === 'panel'}
 			<!-- Panel Navigator View -->
 			<div class="mx-auto max-w-4xl p-4">
+				<div class="mb-4">
+					{#if isEditingName}
+						<!-- svelte-ignore a11y_autofocus -->
+						<input
+							type="text"
+							bind:value={editedName}
+							onkeydown={handleNameKeydown}
+							onblur={saveProjectName}
+							class="w-full rounded-md border border-blue-300 px-2 py-1 text-xl font-semibold text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+							autofocus
+						/>
+					{:else}
+						<button
+							type="button"
+							onclick={startEditingName}
+							class="group flex items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-gray-100"
+							title="Click to edit project name"
+						>
+							<h1 class="text-xl font-semibold text-gray-900">{projectName}</h1>
+							<svg
+								class="h-4 w-4 text-gray-400 opacity-0 transition-opacity group-hover:opacity-100"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+								/>
+							</svg>
+						</button>
+					{/if}
+				</div>
 				<PanelNavigator />
 			</div>
 		{:else}
@@ -200,33 +264,11 @@
 	<!-- Mobile-friendly bottom navigation hint -->
 	<div class="border-t border-gray-200 bg-white p-4 text-center text-sm text-gray-500 md:hidden">
 		{#if viewMode === 'panel'}
-			Swipe left/right to navigate components
+			Use arrow keys or navigation buttons to move between components
 		{:else}
 			Scroll to view all results
 		{/if}
 	</div>
 </div>
 
-<style>
-	@keyframes fade-in {
-		from {
-			opacity: 0;
-		}
-		to {
-			opacity: 1;
-		}
-	}
-
-	@keyframes slide-in-from-top-2 {
-		from {
-			transform: translateY(-0.5rem);
-		}
-		to {
-			transform: translateY(0);
-		}
-	}
-
-	.animate-in {
-		animation: fade-in 0.15s ease-out, slide-in-from-top-2 0.15s ease-out;
-	}
-</style>
+<!-- Toast animations use Tailwind's built-in transition utilities via class binding -->

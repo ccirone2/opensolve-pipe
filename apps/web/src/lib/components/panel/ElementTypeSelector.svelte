@@ -51,9 +51,9 @@
 								<button
 									type="button"
 									onclick={() => handleSelect(type)}
-									class="rounded-md border border-gray-200 px-3 py-2 text-left text-sm transition-colors hover:border-blue-500 hover:bg-blue-50"
+									class="rounded-md border border-gray-200 px-3 py-2 text-left text-sm leading-normal transition-colors hover:border-blue-500 hover:bg-blue-50"
 								>
-									{COMPONENT_TYPE_LABELS[type]}
+									<span class="block truncate">{COMPONENT_TYPE_LABELS[type]}</span>
 								</button>
 							{/each}
 						</div>

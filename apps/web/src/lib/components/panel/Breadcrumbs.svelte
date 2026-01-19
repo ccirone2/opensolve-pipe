@@ -67,4 +67,6 @@
 			{/each}
 		</ol>
 	</nav>
+{:else if $components.length === 0}
+	<span class="text-sm text-gray-400">No components added yet</span>
 {/if}

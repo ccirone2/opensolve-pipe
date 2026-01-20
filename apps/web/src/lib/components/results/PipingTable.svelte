@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { components } from '$lib/stores';
-	import { COMPONENT_TYPE_LABELS, FLOW_REGIME_LABELS, type SolvedState, type ComponentType } from '$lib/models';
+	import { FLOW_REGIME_LABELS, type SolvedState } from '$lib/models';
 
 	interface Props {
 		/** The solved state containing results. */
@@ -9,30 +9,16 @@
 
 	let { results }: Props = $props();
 
-	interface LinkData {
+	interface PipingData {
 		id: string;
 		name: string;
 		type: string;
-		result: typeof results.link_results[string] | undefined;
+		result: typeof results.piping_results[string] | undefined;
 	}
 
-	// Get links with their results
-	let linkData = $derived.by(() => {
-		const data: LinkData[] = [];
-
-		// Add component links (pumps, valves, etc.)
-		const linkComponents = $components.filter((c) =>
-			['pump', 'valve', 'heat_exchanger', 'strainer'].includes(c.type)
-		);
-
-		linkComponents.forEach((comp) => {
-			data.push({
-				id: comp.id,
-				name: comp.name,
-				type: comp.type,
-				result: results.link_results[comp.id]
-			});
-		});
+	// Get piping segments with their results
+	let pipingData = $derived.by(() => {
+		const data: PipingData[] = [];
 
 		// Add piping segments from components with upstream_piping
 		$components.forEach((comp) => {
@@ -42,9 +28,22 @@
 					id: pipeId,
 					name: `Pipe to ${comp.name}`,
 					type: 'pipe',
-					result: results.link_results[pipeId] || results.link_results[comp.id]
+					result: results.piping_results[pipeId] || results.piping_results[comp.id]
 				});
 			}
+
+			// Also check downstream connections for piping
+			comp.downstream_connections?.forEach((conn) => {
+				if (conn.piping) {
+					const pipeId = `pipe_${comp.id}_to_${conn.target_component_id}`;
+					data.push({
+						id: pipeId,
+						name: `Pipe from ${comp.name}`,
+						type: 'pipe',
+						result: results.piping_results[pipeId]
+					});
+				}
+			});
 		});
 
 		return data;
@@ -69,7 +68,7 @@
 		<thead class="bg-gray-50">
 			<tr>
 				<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-					Link
+					Piping
 				</th>
 				<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
 					Type
@@ -92,37 +91,37 @@
 			</tr>
 		</thead>
 		<tbody class="divide-y divide-gray-200 bg-white">
-			{#each linkData as link}
+			{#each pipingData as piping}
 				<tr class="hover:bg-gray-50">
 					<td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">
-						{link.name}
+						{piping.name}
 					</td>
 					<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">
-						{link.type === 'pipe' ? 'Pipe' : COMPONENT_TYPE_LABELS[link.type as ComponentType] ?? link.type}
+						Pipe
 					</td>
 					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
-						{formatNumber(link.result?.flow)}
+						{formatNumber(piping.result?.flow)}
 					</td>
 					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
-						{formatNumber(link.result?.velocity)}
+						{formatNumber(piping.result?.velocity)}
 					</td>
 					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
-						{formatNumber(link.result?.head_loss)}
+						{formatNumber(piping.result?.head_loss)}
 					</td>
 					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
-						{formatScientific(link.result?.reynolds_number)}
+						{formatScientific(piping.result?.reynolds_number)}
 					</td>
 					<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">
-						{#if link.result?.regime}
+						{#if piping.result?.regime}
 							<span
 								class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium
-									{link.result.regime === 'laminar'
+									{piping.result.regime === 'laminar'
 									? 'bg-green-100 text-green-800'
-									: link.result.regime === 'transitional'
+									: piping.result.regime === 'transitional'
 										? 'bg-yellow-100 text-yellow-800'
 										: 'bg-blue-100 text-blue-800'}"
 							>
-								{FLOW_REGIME_LABELS[link.result.regime]}
+								{FLOW_REGIME_LABELS[piping.result.regime]}
 							</span>
 						{:else}
 							-
@@ -130,10 +129,10 @@
 					</td>
 				</tr>
 			{/each}
-			{#if linkData.length === 0}
+			{#if pipingData.length === 0}
 				<tr>
 					<td colspan="7" class="px-4 py-8 text-center text-sm text-gray-500">
-						No link results available
+						No piping results available
 					</td>
 				</tr>
 			{/if}

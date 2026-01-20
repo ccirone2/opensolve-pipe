@@ -1,4 +1,8 @@
-"""Solved state and result models."""
+"""Solved state and result models.
+
+Note: Per ADR-006, user-facing terminology uses "Components" and "Piping"
+instead of the EPANET-derived "Nodes" and "Links".
+"""
 
 from datetime import datetime
 from enum import Enum
@@ -23,8 +27,11 @@ class FlowRegime(str, Enum):
     TURBULENT = "turbulent"
 
 
-class NodeResult(OpenSolvePipeBaseModel):
-    """Solved state for a node (reservoir, tank, junction, etc.)."""
+class ComponentResult(OpenSolvePipeBaseModel):
+    """Solved state for a component (reservoir, tank, junction, pump, valve, etc.).
+
+    Contains pressure and hydraulic grade information for each component.
+    """
 
     component_id: str = Field(description="ID of the component")
     pressure: float = Field(description="Static pressure in project units")
@@ -36,15 +43,18 @@ class NodeResult(OpenSolvePipeBaseModel):
     egl: float = Field(description="Energy Grade Line elevation")
 
 
-class LinkResult(OpenSolvePipeBaseModel):
-    """Solved state for a link (pipe segment between components)."""
+class PipingResult(OpenSolvePipeBaseModel):
+    """Solved state for a piping segment (pipe + fittings between components).
 
-    component_id: str = Field(description="ID of the upstream component")
-    upstream_node_id: str = Field(description="ID of the upstream node")
-    downstream_node_id: str = Field(description="ID of the downstream node")
+    Contains flow, velocity, and head loss information for connecting piping.
+    """
+
+    component_id: str = Field(description="ID of the piping segment")
+    upstream_component_id: str = Field(description="ID of the upstream component")
+    downstream_component_id: str = Field(description="ID of the downstream component")
     flow: float = Field(description="Flow rate in project units (positive = forward)")
     velocity: float = Field(description="Flow velocity in project units")
-    head_loss: float = Field(description="Head loss across the link in project units")
+    head_loss: float = Field(description="Head loss across the piping in project units")
     friction_head_loss: float = Field(
         default=0.0, description="Head loss due to pipe friction"
     )
@@ -132,11 +142,11 @@ class SolvedState(OpenSolvePipeBaseModel):
         default=None, description="Error message if not converged"
     )
 
-    node_results: dict[str, NodeResult] = Field(
-        default_factory=dict, description="Results keyed by node component ID"
+    component_results: dict[str, ComponentResult] = Field(
+        default_factory=dict, description="Results keyed by component ID"
     )
-    link_results: dict[str, LinkResult] = Field(
-        default_factory=dict, description="Results keyed by upstream component ID"
+    piping_results: dict[str, PipingResult] = Field(
+        default_factory=dict, description="Piping results keyed by piping segment ID"
     )
     pump_results: dict[str, PumpResult] = Field(
         default_factory=dict, description="Results keyed by pump component ID"

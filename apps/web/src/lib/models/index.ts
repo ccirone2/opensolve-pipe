@@ -97,8 +97,8 @@ export {
 // Results
 export type {
 	FlowRegime,
-	NodeResult,
-	LinkResult,
+	ComponentResult,
+	PipingResult,
 	PumpResult,
 	WarningCategory,
 	WarningSeverity,
@@ -112,8 +112,8 @@ export {
 	getWarningsBySeverity,
 	getWarningsForComponent,
 	hasErrors,
-	getNodeResult,
-	getLinkResult,
+	getComponentResult,
+	getPipingResult,
 	getPumpResult
 } from './results';
 

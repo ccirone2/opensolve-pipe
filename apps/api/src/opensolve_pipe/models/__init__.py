@@ -47,9 +47,9 @@ from .piping import (
 from .project import Project, ProjectMetadata, ProjectSettings
 from .pump import FlowEfficiencyPoint, FlowHeadPoint, NPSHRPoint, PumpCurve
 from .results import (
+    ComponentResult,
     FlowRegime,
-    LinkResult,
-    NodeResult,
+    PipingResult,
     PumpResult,
     SolvedState,
     Warning,
@@ -61,7 +61,7 @@ from .units import SolverOptions, UnitPreferences, UnitSystem
 __all__ = [
     "BaseComponent",
     "Component",
-    # Components
+    "ComponentResult",
     "ComponentType",
     "Connection",
     "Diameter",
@@ -70,36 +70,29 @@ __all__ = [
     "FittingType",
     "Flow",
     "FlowEfficiencyPoint",
-    # Pump
     "FlowHeadPoint",
-    # Results
     "FlowRegime",
     "FluidDefinition",
     "FluidProperties",
-    # Fluids
     "FluidType",
     "Head",
     "HeatExchanger",
     "Junction",
     "Length",
-    "LinkResult",
     "NPSHRPoint",
-    "NodeResult",
     "NonNegativeFloat",
     "NonNegativeInt",
-    # Base
     "OpenSolvePipeBaseModel",
     "Orifice",
     "PipeDefinition",
-    # Piping
     "PipeMaterial",
     "PipeSchedule",
+    "PipingResult",
     "PipingSegment",
     "PositiveFloat",
     "PositiveInt",
     "Pressure",
     "Project",
-    # Project
     "ProjectMetadata",
     "ProjectSettings",
     "PumpComponent",
@@ -113,7 +106,6 @@ __all__ = [
     "Tank",
     "Temperature",
     "UnitPreferences",
-    # Units
     "UnitSystem",
     "ValveComponent",
     "ValveType",

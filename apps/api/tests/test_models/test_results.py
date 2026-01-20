@@ -2,14 +2,11 @@
 
 from datetime import datetime
 
-import pytest
-from pydantic import ValidationError
-
 from opensolve_pipe.models import (
+    ComponentResult,
     FlowHeadPoint,
     FlowRegime,
-    LinkResult,
-    NodeResult,
+    PipingResult,
     PumpResult,
     SolvedState,
     Warning,
@@ -18,12 +15,12 @@ from opensolve_pipe.models import (
 )
 
 
-class TestNodeResult:
-    """Tests for NodeResult model."""
+class TestComponentResult:
+    """Tests for ComponentResult model."""
 
-    def test_create_node_result(self):
-        """Test creating a node result."""
-        result = NodeResult(
+    def test_create_component_result(self):
+        """Test creating a component result."""
+        result = ComponentResult(
             component_id="J1",
             pressure=50.0,
             dynamic_pressure=1.5,
@@ -35,9 +32,9 @@ class TestNodeResult:
         assert result.pressure == 50.0
         assert result.hgl == 125.0
 
-    def test_node_result_with_negative_pressure(self):
-        """Test node result with negative pressure (vacuum)."""
-        result = NodeResult(
+    def test_component_result_with_negative_pressure(self):
+        """Test component result with negative pressure (vacuum)."""
+        result = ComponentResult(
             component_id="J1",
             pressure=-5.0,
             dynamic_pressure=1.0,
@@ -48,15 +45,15 @@ class TestNodeResult:
         assert result.pressure == -5.0
 
 
-class TestLinkResult:
-    """Tests for LinkResult model."""
+class TestPipingResult:
+    """Tests for PipingResult model."""
 
-    def test_create_link_result(self):
-        """Test creating a link result."""
-        result = LinkResult(
+    def test_create_piping_result(self):
+        """Test creating a piping result."""
+        result = PipingResult(
             component_id="pipe_R1_J1",
-            upstream_node_id="R1",
-            downstream_node_id="J1",
+            upstream_component_id="R1",
+            downstream_component_id="J1",
             flow=150.0,
             velocity=5.5,
             head_loss=8.5,
@@ -68,12 +65,12 @@ class TestLinkResult:
         assert result.velocity == 5.5
         assert result.regime == FlowRegime.TURBULENT
 
-    def test_link_result_with_detailed_losses(self):
-        """Test link result with friction and minor losses."""
-        result = LinkResult(
+    def test_piping_result_with_detailed_losses(self):
+        """Test piping result with friction and minor losses."""
+        result = PipingResult(
             component_id="pipe_R1_J1",
-            upstream_node_id="R1",
-            downstream_node_id="J1",
+            upstream_component_id="R1",
+            downstream_component_id="J1",
             flow=150.0,
             velocity=5.5,
             head_loss=8.5,
@@ -91,8 +88,8 @@ class TestLinkResult:
         """Test all flow regime values."""
         base_result = {
             "component_id": "pipe",
-            "upstream_node_id": "A",
-            "downstream_node_id": "B",
+            "upstream_component_id": "A",
+            "downstream_component_id": "B",
             "flow": 100.0,
             "velocity": 3.0,
             "head_loss": 5.0,
@@ -100,7 +97,7 @@ class TestLinkResult:
             "friction_factor": 0.02,
         }
         for regime in FlowRegime:
-            result = LinkResult(**base_result, regime=regime)
+            result = PipingResult(**base_result, regime=regime)
             assert result.regime == regime
 
 
@@ -246,12 +243,12 @@ class TestSolvedState:
         assert state.error == "Maximum iterations exceeded"
 
     def test_solved_state_with_results(self):
-        """Test solved state with node and link results."""
+        """Test solved state with component and piping results."""
         state = SolvedState(
             converged=True,
             iterations=15,
-            node_results={
-                "R1": NodeResult(
+            component_results={
+                "R1": ComponentResult(
                     component_id="R1",
                     pressure=0,
                     dynamic_pressure=0,
@@ -259,7 +256,7 @@ class TestSolvedState:
                     hgl=110,
                     egl=110,
                 ),
-                "J1": NodeResult(
+                "J1": ComponentResult(
                     component_id="J1",
                     pressure=45,
                     dynamic_pressure=1.5,
@@ -268,11 +265,11 @@ class TestSolvedState:
                     egl=96.5,
                 ),
             },
-            link_results={
-                "R1": LinkResult(
-                    component_id="R1",
-                    upstream_node_id="R1",
-                    downstream_node_id="J1",
+            piping_results={
+                "pipe_R1_J1": PipingResult(
+                    component_id="pipe_R1_J1",
+                    upstream_component_id="R1",
+                    downstream_component_id="J1",
                     flow=150,
                     velocity=5.5,
                     head_loss=15,
@@ -282,9 +279,9 @@ class TestSolvedState:
                 ),
             },
         )
-        assert len(state.node_results) == 2
-        assert len(state.link_results) == 1
-        assert state.node_results["R1"].hgl == 110
+        assert len(state.component_results) == 2
+        assert len(state.piping_results) == 1
+        assert state.component_results["R1"].hgl == 110
 
     def test_solved_state_with_warnings(self, sample_solved_state: SolvedState):
         """Test solved state with warnings."""

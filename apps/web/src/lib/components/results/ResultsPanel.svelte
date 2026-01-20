@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { solvedState, components, pumpLibrary } from '$lib/stores';
 	import { isPump, WARNING_CATEGORY_LABELS, type Warning } from '$lib/models';
-	import NodeTable from './NodeTable.svelte';
-	import LinkTable from './LinkTable.svelte';
+	import ComponentTable from './ComponentTable.svelte';
+	import PipingTable from './PipingTable.svelte';
 	import PumpCurveChart from './PumpCurveChart.svelte';
 
 	interface Props {
@@ -38,8 +38,8 @@
 
 	const tabs: { id: TabId; label: string }[] = [
 		{ id: 'summary', label: 'Summary' },
-		{ id: 'nodes', label: 'Nodes' },
-		{ id: 'links', label: 'Links' },
+		{ id: 'nodes', label: 'Components' },
+		{ id: 'links', label: 'Piping' },
 		{ id: 'pumps', label: 'Pumps' }
 	];
 
@@ -183,15 +183,15 @@
 				{#if $solvedState.converged}
 					<div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
 						<div class="rounded-lg bg-gray-50 p-3">
-							<p class="text-xs font-medium uppercase tracking-wide text-gray-500">Nodes</p>
+							<p class="text-xs font-medium uppercase tracking-wide text-gray-500">Components</p>
 							<p class="mt-1 text-2xl font-semibold text-gray-900">
-								{Object.keys($solvedState.node_results).length}
+								{Object.keys($solvedState.component_results).length}
 							</p>
 						</div>
 						<div class="rounded-lg bg-gray-50 p-3">
-							<p class="text-xs font-medium uppercase tracking-wide text-gray-500">Links</p>
+							<p class="text-xs font-medium uppercase tracking-wide text-gray-500">Piping</p>
 							<p class="mt-1 text-2xl font-semibold text-gray-900">
-								{Object.keys($solvedState.link_results).length}
+								{Object.keys($solvedState.piping_results).length}
 							</p>
 						</div>
 						<div class="rounded-lg bg-gray-50 p-3">
@@ -209,9 +209,9 @@
 					</div>
 				{/if}
 			{:else if activeTab === 'nodes'}
-				<NodeTable results={$solvedState} />
+				<ComponentTable results={$solvedState} />
 			{:else if activeTab === 'links'}
-				<LinkTable results={$solvedState} />
+				<PipingTable results={$solvedState} />
 			{:else if activeTab === 'pumps'}
 				{#if pumpData.length === 0}
 					<div class="flex flex-col items-center justify-center py-12 text-center">

@@ -1,6 +1,9 @@
 /**
  * Solved state and result models.
  * Mirrors: apps/api/src/opensolve_pipe/models/results.py
+ *
+ * Note: Per ADR-006, user-facing terminology uses "Components" and "Piping"
+ * instead of the EPANET-derived "Nodes" and "Links".
  */
 
 import type { FlowHeadPoint } from './pump';
@@ -15,8 +18,11 @@ export const FLOW_REGIME_LABELS: Record<FlowRegime, string> = {
 	turbulent: 'Turbulent'
 };
 
-/** Solved state for a node (reservoir, tank, junction, etc.). */
-export interface NodeResult {
+/**
+ * Solved state for a component (reservoir, tank, junction, pump, valve, etc.).
+ * Contains pressure and hydraulic grade information.
+ */
+export interface ComponentResult {
 	/** ID of the component. */
 	component_id: string;
 	/** Static pressure in project units. */
@@ -31,19 +37,22 @@ export interface NodeResult {
 	egl: number;
 }
 
-/** Solved state for a link (pipe segment between components). */
-export interface LinkResult {
-	/** ID of the upstream component. */
+/**
+ * Solved state for a piping segment (pipe + fittings between components).
+ * Contains flow, velocity, and head loss information.
+ */
+export interface PipingResult {
+	/** ID of the piping segment (typically pipe_{component_id}). */
 	component_id: string;
-	/** ID of the upstream node. */
-	upstream_node_id: string;
-	/** ID of the downstream node. */
-	downstream_node_id: string;
+	/** ID of the upstream component. */
+	upstream_component_id: string;
+	/** ID of the downstream component. */
+	downstream_component_id: string;
 	/** Flow rate in project units (positive = forward). */
 	flow: number;
 	/** Flow velocity in project units. */
 	velocity: number;
-	/** Head loss across the link in project units. */
+	/** Head loss across the piping in project units. */
 	head_loss: number;
 	/** Head loss due to pipe friction. Default: 0 */
 	friction_head_loss: number;
@@ -119,10 +128,10 @@ export interface SolvedState {
 	solve_time_seconds?: number;
 	/** Error message if not converged. */
 	error?: string;
-	/** Results keyed by node component ID. */
-	node_results: Record<string, NodeResult>;
-	/** Results keyed by upstream component ID. */
-	link_results: Record<string, LinkResult>;
+	/** Results keyed by component ID. */
+	component_results: Record<string, ComponentResult>;
+	/** Piping results keyed by piping segment ID. */
+	piping_results: Record<string, PipingResult>;
 	/** Results keyed by pump component ID. */
 	pump_results: Record<string, PumpResult>;
 	/** Warnings and design check results. */
@@ -149,14 +158,14 @@ export function hasErrors(state: SolvedState): boolean {
 	return state.warnings.some((w) => w.severity === 'error');
 }
 
-/** Get the result for a node component. */
-export function getNodeResult(state: SolvedState, componentId: string): NodeResult | undefined {
-	return state.node_results[componentId];
+/** Get the result for a component. */
+export function getComponentResult(state: SolvedState, componentId: string): ComponentResult | undefined {
+	return state.component_results[componentId];
 }
 
-/** Get the result for a link component. */
-export function getLinkResult(state: SolvedState, componentId: string): LinkResult | undefined {
-	return state.link_results[componentId];
+/** Get the result for a piping segment. */
+export function getPipingResult(state: SolvedState, pipingId: string): PipingResult | undefined {
+	return state.piping_results[pipingId];
 }
 
 /** Get the result for a pump component. */

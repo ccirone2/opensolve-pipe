@@ -14,7 +14,7 @@ This document captures architectural decisions made during OpenSolve Pipe develo
 
 Organize Pydantic models into separate files by domain concern rather than a single large models file:
 
-```
+```text
 models/
 ├── base.py         # BaseModel config, common types
 ├── project.py      # Project container
@@ -161,6 +161,76 @@ class SolvedState:
 - Slightly more verbose serialization
 - Must ensure IDs are unique (enforced in Project model)
 - Ordering not guaranteed (use component list order for display)
+
+---
+
+## ADR-006: Component vs Piping Terminology (Not Nodes vs Links)
+
+**Date:** 2026-01-20
+**Status:** Accepted
+**Context:** UI Review - Add Component Menu Architecture
+
+### Decision
+
+Rename the conceptual grouping from "Nodes vs Links" to "Components vs Piping":
+
+1. **Components (Equipment)**: All hydraulic equipment in the network
+   - Reservoir, Tank, Junction, Sprinkler, Orifice
+   - Pump, Valve, Heat Exchanger, Strainer
+   - These are the "things" in the system
+
+2. **Piping (Connections)**: The piping and fittings that connect components
+   - Pipes (with material, schedule, diameter, length)
+   - Fittings (elbows, tees, reducers) with K-factors
+   - These exist on the `upstream_piping` and `downstream_connections[].piping` properties
+
+3. **Exception - Tee as Component**: A tee fitting that creates a branch connection should be represented as a Junction component, not as a piping fitting.
+
+### Rationale
+
+The original "Nodes vs Links" terminology was adopted from EPANET/WNTR graph theory where:
+
+- **Nodes** = points with pressure state (junctions, reservoirs, tanks)
+- **Links** = flow paths (pipes, pumps, valves)
+
+However, this creates confusion because:
+
+- **User mental model**: Engineers think of "equipment" (pumps, valves, HX) and "piping" (pipes, fittings)
+- **EPANET classifies pumps and valves as "links"**, but users see them as equipment/components
+- The distinction between "node" and "link" is a solver implementation detail, not a user concept
+
+The new terminology aligns with:
+
+- How engineers describe systems ("add a pump", "add a valve", not "add a link")
+- The UI's "Add Component" menu (all equipment should be peers)
+- The data model's `PipingSegment` concept (piping connects components)
+
+### Consequences
+
+**Frontend Changes Required:**
+
+- `apps/web/src/lib/models/components.ts`: Replace `COMPONENT_CATEGORIES` Nodes/Links with single "Equipment" category or flat list
+- `apps/web/src/lib/models/components.ts`: Remove/rename `isNodeComponent()` and `isLinkComponent()` functions
+- `apps/web/src/lib/components/panel/ElementTypeSelector.svelte`: Update grouping UI
+- `apps/web/src/lib/components/results/ResultsPanel.svelte`: Rename "Nodes" and "Links" tabs to "Components" or similar
+- `apps/web/src/lib/components/results/NodeTable.svelte`: Rename to ComponentTable or merge
+- `apps/web/src/lib/components/results/LinkTable.svelte`: Rename to ComponentTable or merge
+
+**Backend Changes Required:**
+
+- `apps/api/src/opensolve_pipe/models/results.py`: Rename `NodeResult` and `LinkResult` to `ComponentResult` or similar
+- API response structure may need adjustment
+
+**Documentation Changes Required:**
+
+- `docs/PRD.md`: Update Section 3.1.1 "Nodes" and 3.1.2 "Links" terminology
+- `docs/user/components.md`: Update user-facing documentation
+
+**Solver Consideration:**
+
+- The internal solver can still use EPANET's node/link graph representation
+- This is an abstraction layer: user-facing "components" map to solver "nodes and links"
+- The mapping logic in `component_chain_to_network()` handles this translation
 
 ---
 

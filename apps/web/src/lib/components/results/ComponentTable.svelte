@@ -9,19 +9,15 @@
 
 	let { results }: Props = $props();
 
-	// Get nodes with their results
-	let nodeData = $derived.by(() => {
-		const nodes = $components.filter((c) =>
-			['reservoir', 'tank', 'junction', 'sprinkler', 'orifice'].includes(c.type)
-		);
-
-		return nodes.map((node) => {
-			const result = results.node_results[node.id];
+	// Get all components with their results
+	let componentData = $derived.by(() => {
+		return $components.map((component) => {
+			const result = results.component_results[component.id];
 			return {
-				id: node.id,
-				name: node.name,
-				type: node.type,
-				elevation: node.elevation,
+				id: component.id,
+				name: component.name,
+				type: component.type,
+				elevation: component.elevation,
 				result
 			};
 		});
@@ -38,7 +34,7 @@
 		<thead class="bg-gray-50">
 			<tr>
 				<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-					Node
+					Component
 				</th>
 				<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
 					Type
@@ -55,29 +51,29 @@
 			</tr>
 		</thead>
 		<tbody class="divide-y divide-gray-200 bg-white">
-			{#each nodeData as node}
+			{#each componentData as component}
 				<tr class="hover:bg-gray-50">
 					<td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">
-						{node.name}
+						{component.name}
 					</td>
 					<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">
-						{COMPONENT_TYPE_LABELS[node.type]}
+						{COMPONENT_TYPE_LABELS[component.type]}
 					</td>
 					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
-						{formatNumber(node.result?.pressure)}
+						{formatNumber(component.result?.pressure)}
 					</td>
 					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
-						{formatNumber(node.result?.hgl)}
+						{formatNumber(component.result?.hgl)}
 					</td>
 					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
-						{formatNumber(node.result?.egl)}
+						{formatNumber(component.result?.egl)}
 					</td>
 				</tr>
 			{/each}
-			{#if nodeData.length === 0}
+			{#if componentData.length === 0}
 				<tr>
 					<td colspan="5" class="px-4 py-8 text-center text-sm text-gray-500">
-						No node results available
+						No component results available
 					</td>
 				</tr>
 			{/if}

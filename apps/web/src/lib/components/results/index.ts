@@ -6,6 +6,6 @@
  */
 
 export { default as ResultsPanel } from './ResultsPanel.svelte';
-export { default as NodeTable } from './NodeTable.svelte';
-export { default as LinkTable } from './LinkTable.svelte';
+export { default as ComponentTable } from './ComponentTable.svelte';
+export { default as PipingTable } from './PipingTable.svelte';
 export { default as PumpCurveChart } from './PumpCurveChart.svelte';

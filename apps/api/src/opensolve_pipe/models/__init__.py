@@ -47,9 +47,9 @@ from .piping import (
 from .project import Project, ProjectMetadata, ProjectSettings
 from .pump import FlowEfficiencyPoint, FlowHeadPoint, NPSHRPoint, PumpCurve
 from .results import (
+    ComponentResult,
     FlowRegime,
-    LinkResult,
-    NodeResult,
+    PipingResult,
     PumpResult,
     SolvedState,
     Warning,
@@ -82,9 +82,8 @@ __all__ = [
     "HeatExchanger",
     "Junction",
     "Length",
-    "LinkResult",
+    "ComponentResult",
     "NPSHRPoint",
-    "NodeResult",
     "NonNegativeFloat",
     "NonNegativeInt",
     # Base
@@ -94,6 +93,7 @@ __all__ = [
     # Piping
     "PipeMaterial",
     "PipeSchedule",
+    "PipingResult",
     "PipingSegment",
     "PositiveFloat",
     "PositiveInt",

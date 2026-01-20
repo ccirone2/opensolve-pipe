@@ -145,8 +145,8 @@ async def solve_project(project: Project) -> SolvedState:
     - Fixed-property fluids (diesel, gasoline, etc.)
 
     Returns a SolvedState with:
-    - node_results: Pressure and energy at each node
-    - link_results: Flow, velocity, and losses in each link
+    - component_results: Pressure and energy at each component
+    - piping_results: Flow, velocity, and losses in piping segments
     - pump_results: Operating point and system curve data
     - warnings: Design check results and solver messages
 
@@ -176,8 +176,8 @@ async def solve_project(project: Project) -> SolvedState:
         timestamp=datetime.utcnow(),
         solve_time_seconds=solve_time,
         error="Full project solving not yet implemented",
-        node_results={},
-        link_results={},
+        component_results={},
+        piping_results={},
         pump_results={},
         warnings=warnings,
     )

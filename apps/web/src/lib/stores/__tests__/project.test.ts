@@ -188,8 +188,8 @@ describe('projectStore', () => {
 				converged: true,
 				iterations: 5,
 				timestamp: new Date().toISOString(),
-				node_results: {},
-				link_results: {},
+				component_results: {},
+				piping_results: {},
 				pump_results: {},
 				warnings: []
 			};
@@ -205,8 +205,8 @@ describe('projectStore', () => {
 				converged: true,
 				iterations: 5,
 				timestamp: new Date().toISOString(),
-				node_results: {},
-				link_results: {},
+				component_results: {},
+				piping_results: {},
 				pump_results: {},
 				warnings: []
 			});

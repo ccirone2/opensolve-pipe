@@ -30,10 +30,23 @@ export const COMPONENT_TYPE_LABELS: Record<ComponentType, string> = {
 	sprinkler: 'Sprinkler'
 };
 
-/** Component categories for UI grouping. */
+/**
+ * Component categories for UI grouping.
+ * All equipment is grouped together - "links" (piping/fittings) connect components.
+ * See ADR-006 in docs/DECISIONS.md for rationale.
+ */
 export const COMPONENT_CATEGORIES = {
-	Nodes: ['reservoir', 'tank', 'junction', 'sprinkler', 'orifice'] as ComponentType[],
-	Links: ['pump', 'valve', 'heat_exchanger', 'strainer'] as ComponentType[]
+	Equipment: [
+		'reservoir',
+		'tank',
+		'junction',
+		'pump',
+		'valve',
+		'heat_exchanger',
+		'strainer',
+		'orifice',
+		'sprinkler'
+	] as ComponentType[]
 };
 
 /** Types of control valves. */
@@ -238,14 +251,26 @@ export function isSprinkler(component: Component): component is Sprinkler {
 	return component.type === 'sprinkler';
 }
 
-/** Check if a component is a node type (has pressure state). */
+/**
+ * @deprecated Use COMPONENT_CATEGORIES.Equipment instead.
+ * Legacy function - all components are now considered equipment.
+ * The node/link distinction is an internal solver concept, not user-facing.
+ * See ADR-006.
+ */
 export function isNodeComponent(component: Component): boolean {
-	return COMPONENT_CATEGORIES.Nodes.includes(component.type);
+	// Legacy: reservoir, tank, junction, sprinkler, orifice were "nodes"
+	return ['reservoir', 'tank', 'junction', 'sprinkler', 'orifice'].includes(component.type);
 }
 
-/** Check if a component is a link type (connects nodes). */
+/**
+ * @deprecated Use COMPONENT_CATEGORIES.Equipment instead.
+ * Legacy function - all components are now considered equipment.
+ * The node/link distinction is an internal solver concept, not user-facing.
+ * See ADR-006.
+ */
 export function isLinkComponent(component: Component): boolean {
-	return COMPONENT_CATEGORIES.Links.includes(component.type);
+	// Legacy: pump, valve, heat_exchanger, strainer were "links"
+	return ['pump', 'valve', 'heat_exchanger', 'strainer'].includes(component.type);
 }
 
 /** Get total head for a reservoir. */

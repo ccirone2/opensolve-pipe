@@ -10,21 +10,21 @@ test.describe('Project Workflow', () => {
 		// Check page elements - project name is displayed in header - use first() to handle multiple instances
 		await expect(page.getByText('Untitled Project').first()).toBeVisible();
 
-		// Should show Panel/Results view switcher
-		await expect(page.getByRole('button', { name: /Panel/i })).toBeVisible();
+		// Should show Build/Results view switcher
+		await expect(page.getByRole('button', { name: /Build/i })).toBeVisible();
 		await expect(page.getByRole('button', { name: /Results/i })).toBeVisible();
 
 		// Should show Solve button
 		await expect(page.getByRole('button', { name: /Solve/i })).toBeVisible();
 	});
 
-	test('switches between Panel and Results views', async ({ page }) => {
-		// Start in Panel view
-		const panelButton = page.getByRole('button', { name: /Panel/i });
+	test('switches between Build and Results views', async ({ page }) => {
+		// Start in Build view
+		const buildButton = page.getByRole('button', { name: /Build/i });
 		const resultsButton = page.getByRole('button', { name: /Results/i });
 
-		// Panel should be active initially - check for active state via aria or styling
-		await expect(panelButton).toBeVisible();
+		// Build should be active initially - check for visibility
+		await expect(buildButton).toBeVisible();
 
 		// Click Results button
 		await resultsButton.click();
@@ -32,11 +32,11 @@ test.describe('Project Workflow', () => {
 		// Results should now be active (button should still be visible)
 		await expect(resultsButton).toBeVisible();
 
-		// Click Panel button
-		await panelButton.click();
+		// Click Build button
+		await buildButton.click();
 
-		// Panel should be active again
-		await expect(panelButton).toBeVisible();
+		// Build should be active again
+		await expect(buildButton).toBeVisible();
 	});
 
 	test('solve button is disabled when project has no components', async ({ page }) => {

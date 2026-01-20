@@ -1,5 +1,8 @@
 <script lang="ts">
 	import Header from '$lib/components/Header.svelte';
+	import { getExampleProjectUrl } from '$lib/data/exampleProject';
+
+	const exampleUrl = getExampleProjectUrl();
 </script>
 
 <svelte:head>
@@ -13,7 +16,7 @@
 <div class="flex min-h-screen flex-col bg-gray-50">
 	<Header />
 
-	<main class="flex-1">
+	<main id="main-content" class="flex-1">
 		<!-- Hero Section -->
 		<div class="bg-gradient-to-br from-blue-600 to-blue-800 py-16 text-white">
 			<div class="mx-auto max-w-4xl px-4 text-center">
@@ -37,8 +40,8 @@
 						</svg>
 						New Project
 					</a>
-					<button
-						type="button"
+					<a
+						href={exampleUrl}
 						class="inline-flex items-center justify-center rounded-lg border-2 border-white/30 px-6 py-3 font-semibold text-white transition hover:bg-white/10"
 					>
 						<svg class="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -50,7 +53,7 @@
 							/>
 						</svg>
 						Open Example
-					</button>
+					</a>
 				</div>
 			</div>
 		</div>

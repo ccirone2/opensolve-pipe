@@ -16,6 +16,59 @@
 	let editingCurve = $state<PumpCurve | null>(null);
 	let newPoint = $state({ flow: 0, head: 0 });
 
+	// Focus trap for modal
+	let modalRef = $state<HTMLDivElement | null>(null);
+	let previousActiveElement: Element | null = null;
+
+	// Focus trap effect
+	$effect(() => {
+		if (showCurveEditor && modalRef) {
+			// Store the previously focused element
+			previousActiveElement = document.activeElement;
+
+			// Focus the first focusable element in the modal
+			const focusableElements = modalRef.querySelectorAll<HTMLElement>(
+				'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+			);
+			if (focusableElements.length > 0) {
+				focusableElements[0].focus();
+			}
+		} else if (!showCurveEditor && previousActiveElement) {
+			// Restore focus when modal closes
+			(previousActiveElement as HTMLElement).focus?.();
+			previousActiveElement = null;
+		}
+	});
+
+	function handleModalKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			cancelCurveEdit();
+			return;
+		}
+
+		if (event.key !== 'Tab' || !modalRef) return;
+
+		const focusableElements = modalRef.querySelectorAll<HTMLElement>(
+			'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+		);
+		const firstElement = focusableElements[0];
+		const lastElement = focusableElements[focusableElements.length - 1];
+
+		if (event.shiftKey) {
+			// Shift + Tab: if on first element, go to last
+			if (document.activeElement === firstElement) {
+				event.preventDefault();
+				lastElement.focus();
+			}
+		} else {
+			// Tab: if on last element, go to first
+			if (document.activeElement === lastElement) {
+				event.preventDefault();
+				firstElement.focus();
+			}
+		}
+	}
+
 	// Get the selected curve
 	let selectedCurve = $derived($pumpLibrary.find((c) => c.id === component.curve_id));
 
@@ -191,9 +244,19 @@
 
 <!-- Curve Editor Modal -->
 {#if showCurveEditor && editingCurve}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-		<div class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
-			<h3 class="text-lg font-semibold text-gray-900">Edit Pump Curve</h3>
+	<!-- svelte-ignore a11y_interactive_supports_focus -->
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+		role="dialog"
+		aria-modal="true"
+		aria-labelledby="modal-title"
+		onkeydown={handleModalKeydown}
+	>
+		<div
+			bind:this={modalRef}
+			class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-6 shadow-xl"
+		>
+			<h3 id="modal-title" class="text-lg font-semibold text-gray-900">Edit Pump Curve</h3>
 
 			<div class="mt-4 space-y-4">
 				<div>

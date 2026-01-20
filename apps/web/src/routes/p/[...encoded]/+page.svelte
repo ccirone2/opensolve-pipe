@@ -210,7 +210,7 @@
 		</div>
 	{/if}
 
-	<main class="flex-1">
+	<main id="main-content" class="flex-1">
 		{#if viewMode === 'panel'}
 			<!-- Panel Navigator View -->
 			<div class="mx-auto max-w-4xl p-4">

@@ -32,6 +32,9 @@
 
 	let { component }: Props = $props();
 
+	// Delete confirmation state
+	let showDeleteConfirm = $state(false);
+
 	function updateField(field: string, value: unknown) {
 		projectStore.updateComponent(component.id, { [field]: value });
 	}
@@ -39,6 +42,19 @@
 	function handleTextInput(field: string, e: Event) {
 		const input = e.target as HTMLInputElement;
 		updateField(field, input.value);
+	}
+
+	function handleDeleteClick() {
+		showDeleteConfirm = true;
+	}
+
+	function confirmDelete() {
+		projectStore.removeComponent(component.id);
+		showDeleteConfirm = false;
+	}
+
+	function cancelDelete() {
+		showDeleteConfirm = false;
 	}
 </script>
 
@@ -87,12 +103,35 @@
 
 	<!-- Delete Button -->
 	<div class="border-t border-gray-200 pt-4">
-		<button
-			type="button"
-			onclick={() => projectStore.removeComponent(component.id)}
-			class="text-sm text-red-600 hover:text-red-700 hover:underline"
-		>
-			Delete this component
-		</button>
+		{#if showDeleteConfirm}
+			<div class="rounded-md border border-red-200 bg-red-50 p-3">
+				<p class="text-sm font-medium text-red-800">Delete "{component.name}"?</p>
+				<p class="mt-1 text-xs text-red-600">This action cannot be undone.</p>
+				<div class="mt-3 flex gap-2">
+					<button
+						type="button"
+						onclick={confirmDelete}
+						class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700"
+					>
+						Delete
+					</button>
+					<button
+						type="button"
+						onclick={cancelDelete}
+						class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+					>
+						Cancel
+					</button>
+				</div>
+			</div>
+		{:else}
+			<button
+				type="button"
+				onclick={handleDeleteClick}
+				class="text-sm text-red-600 hover:text-red-700 hover:underline"
+			>
+				Delete this component
+			</button>
+		{/if}
 	</div>
 </div>

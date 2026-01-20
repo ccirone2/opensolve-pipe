@@ -82,6 +82,7 @@
 				<button
 					type="button"
 					onclick={() => (showAddSelector = !showAddSelector)}
+					aria-label="Add component"
 					class="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
 				>
 					<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

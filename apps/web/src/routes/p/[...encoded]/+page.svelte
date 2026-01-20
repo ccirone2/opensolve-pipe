@@ -161,7 +161,7 @@
 
 	<!-- Toast Messages -->
 	{#if solveError}
-		<div class="fixed right-4 top-20 z-50 max-w-md transition-all duration-150 ease-out">
+		<div class="fixed right-4 top-20 z-50 max-w-md transition-all duration-150 ease-out" role="alert" aria-live="assertive">
 			<div class="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 shadow-lg">
 				<svg class="h-5 w-5 flex-shrink-0 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -185,7 +185,7 @@
 	{/if}
 
 	{#if solveSuccess}
-		<div class="fixed right-4 top-20 z-50 max-w-md transition-all duration-150 ease-out">
+		<div class="fixed right-4 top-20 z-50 max-w-md transition-all duration-150 ease-out" role="status" aria-live="polite">
 			<div class="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-4 shadow-lg">
 				<svg class="h-5 w-5 flex-shrink-0 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />

@@ -116,6 +116,7 @@
 									min={1}
 									max={99}
 									onchange={(e) => updateFitting(index, 'quantity', parseInt((e.target as HTMLInputElement).value) || 1)}
+									aria-label="Quantity for {FITTING_TYPE_LABELS[fitting.type]}"
 									class="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 								/>
 							</td>
@@ -130,6 +131,7 @@
 										const val = (e.target as HTMLInputElement).value;
 										updateFitting(index, 'k_factor_override', val ? parseFloat(val) : undefined);
 									}}
+									aria-label="K-factor for {FITTING_TYPE_LABELS[fitting.type]}"
 									class="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 								/>
 							</td>

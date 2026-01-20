@@ -63,7 +63,7 @@ Now invoke the compound-engineering planning workflow:
 
 Run:
 
-```
+```text
 /workflows:plan
 ```
 
@@ -90,11 +90,11 @@ gh issue comment $ARGUMENTS.issue --body "## 📋 Implementation Plan Created
 
 Plan complete. To execute:
 
-```
+```text
 /workflows:work
 ```
 
 ## Step 7: Update /docs
 
-Update the /\*.md files in /docs with checks in todo lists. Create/update the DECISIONS.md with
-changes from original planning documents.
+Update the /\*.md files in /docs with checks in todo lists. Create & update the DECISIONS.md with
+changes from original planning documents. Include links to gh issue numbers where relevant.

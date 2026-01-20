@@ -25,10 +25,10 @@ test.describe('Homepage', () => {
 		// Click "New Project" button
 		await page.getByRole('link', { name: /New Project/i }).click();
 
-		// Should navigate to /p/
-		await expect(page).toHaveURL(/\/p\//);
+		// Should navigate to /p (with optional encoded data)
+		await expect(page).toHaveURL(/\/p/);
 
-		// Should show project editor
-		await expect(page.getByRole('heading', { name: /New Project/i })).toBeVisible();
+		// Should show project name (Untitled Project for empty project)
+		await expect(page.getByText('Untitled Project')).toBeVisible();
 	});
 });

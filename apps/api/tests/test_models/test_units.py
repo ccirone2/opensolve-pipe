@@ -26,7 +26,7 @@ class TestUnitPreferences:
         assert prefs.length == "ft"
         assert prefs.diameter == "in"
         assert prefs.pressure == "psi"
-        assert prefs.head == "ft"
+        assert prefs.head == "ft_head"
         assert prefs.flow == "GPM"
         assert prefs.velocity == "ft/s"
         assert prefs.temperature == "F"
@@ -38,7 +38,7 @@ class TestUnitPreferences:
             length="m",
             diameter="mm",
             pressure="kPa",
-            head="m",
+            head="m_head",
             flow="L/s",
             velocity="m/s",
             temperature="C",
@@ -46,6 +46,7 @@ class TestUnitPreferences:
         assert prefs.system == UnitSystem.SI
         assert prefs.length == "m"
         assert prefs.flow == "L/s"
+        assert prefs.head == "m_head"
 
     def test_create_mixed_preferences(self):
         """Test creating mixed unit preferences."""
@@ -54,12 +55,13 @@ class TestUnitPreferences:
             length="m",
             diameter="in",
             pressure="bar",
-            head="ft",
+            head="ft_head",
             flow="m3/h",
             velocity="m/s",
             temperature="C",
         )
         assert prefs.system == UnitSystem.MIXED
+        assert prefs.head == "ft_head"
 
     def test_preferences_serialization_roundtrip(self):
         """Test that preferences serialize and deserialize correctly."""

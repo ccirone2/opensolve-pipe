@@ -28,7 +28,7 @@ test.describe('Homepage', () => {
 		// Should navigate to /p (with optional encoded data)
 		await expect(page).toHaveURL(/\/p/);
 
-		// Should show project name (Untitled Project for empty project)
-		await expect(page.getByText('Untitled Project')).toBeVisible();
+		// Should show project name (Untitled Project for empty project) - use first() to handle multiple instances
+		await expect(page.getByText('Untitled Project').first()).toBeVisible();
 	});
 });

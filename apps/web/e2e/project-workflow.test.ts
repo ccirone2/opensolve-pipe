@@ -7,8 +7,8 @@ test.describe('Project Workflow', () => {
 	});
 
 	test('shows new project view with panel navigator', async ({ page }) => {
-		// Check page elements - project name is displayed in header
-		await expect(page.getByText('Untitled Project')).toBeVisible();
+		// Check page elements - project name is displayed in header - use first() to handle multiple instances
+		await expect(page.getByText('Untitled Project').first()).toBeVisible();
 
 		// Should show Panel/Results view switcher
 		await expect(page.getByRole('button', { name: /Panel/i })).toBeVisible();

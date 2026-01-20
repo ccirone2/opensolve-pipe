@@ -108,7 +108,7 @@
 								: 'text-gray-600 hover:text-gray-900'}"
 							onclick={() => handleViewModeChange('panel')}
 						>
-							Panel
+							Build
 						</button>
 						<button
 							type="button"

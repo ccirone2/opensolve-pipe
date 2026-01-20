@@ -28,12 +28,12 @@ pnpm lint
 
 ## Scripts
 
-| Command | Description |
-|---------|-------------|
-| `pnpm dev` | Start development server with hot reload |
-| `pnpm build` | Build for production |
-| `pnpm preview` | Preview production build |
-| `pnpm check` | Run TypeScript type checking |
-| `pnpm lint` | Run ESLint |
-| `pnpm format` | Format code with Prettier |
-| `pnpm test` | Run tests with Vitest |
+| Command        | Description                              |
+| -------------- | ---------------------------------------- |
+| `pnpm dev`     | Start development server with hot reload |
+| `pnpm build`   | Build for production                     |
+| `pnpm preview` | Preview production build                 |
+| `pnpm check`   | Run TypeScript type checking             |
+| `pnpm lint`    | Run ESLint                               |
+| `pnpm format`  | Format code with Prettier                |
+| `pnpm test`    | Run tests with Vitest                    |

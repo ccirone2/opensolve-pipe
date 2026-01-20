@@ -22,5 +22,11 @@
         ]
       }
     ]
+  },
+  "prompts": {
+    "review-frontend": {
+      "path": ".claude/prompts/review-frontend.md",
+      "description": "Run comprehensive UI/UX review using Playwright MCP"
+    }
   }
 }

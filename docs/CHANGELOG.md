@@ -56,6 +56,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING:** Renamed "Nodes/Links" terminology to "Components/Piping" per ADR-006
+  - `NodeResult` → `ComponentResult`
+  - `LinkResult` → `PipingResult`
+  - `node_results` → `component_results`
+  - `link_results` → `piping_results`
+  - UI tabs renamed from "Nodes"/"Links" to "Components"/"Piping"
+
 ### Planned Features
 
 - Branching network support

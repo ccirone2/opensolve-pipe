@@ -61,7 +61,7 @@ from .units import SolverOptions, UnitPreferences, UnitSystem
 __all__ = [
     "BaseComponent",
     "Component",
-    # Components
+    "ComponentResult",
     "ComponentType",
     "Connection",
     "Diameter",
@@ -70,27 +70,21 @@ __all__ = [
     "FittingType",
     "Flow",
     "FlowEfficiencyPoint",
-    # Pump
     "FlowHeadPoint",
-    # Results
     "FlowRegime",
     "FluidDefinition",
     "FluidProperties",
-    # Fluids
     "FluidType",
     "Head",
     "HeatExchanger",
     "Junction",
     "Length",
-    "ComponentResult",
     "NPSHRPoint",
     "NonNegativeFloat",
     "NonNegativeInt",
-    # Base
     "OpenSolvePipeBaseModel",
     "Orifice",
     "PipeDefinition",
-    # Piping
     "PipeMaterial",
     "PipeSchedule",
     "PipingResult",
@@ -99,7 +93,6 @@ __all__ = [
     "PositiveInt",
     "Pressure",
     "Project",
-    # Project
     "ProjectMetadata",
     "ProjectSettings",
     "PumpComponent",
@@ -113,7 +106,6 @@ __all__ = [
     "Tank",
     "Temperature",
     "UnitPreferences",
-    # Units
     "UnitSystem",
     "ValveComponent",
     "ValveType",

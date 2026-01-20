@@ -35,9 +35,9 @@
 
 	<!-- Dropdown -->
 	<div
-		class="absolute left-0 right-0 top-full z-50 mt-2 rounded-lg border border-gray-200 bg-white shadow-lg"
+		class="absolute right-0 top-full z-50 mt-2 w-80 rounded-lg border border-gray-200 bg-white shadow-lg"
 	>
-		<div class="p-3">
+		<div class="p-4">
 			<h3 class="mb-3 text-sm font-semibold text-gray-900">Add Component</h3>
 
 			<div class="space-y-4">
@@ -46,12 +46,12 @@
 						<h4 class="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
 							{category}
 						</h4>
-						<div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+						<div class="flex flex-wrap gap-2">
 							{#each types as type}
 								<button
 									type="button"
 									onclick={() => handleSelect(type)}
-									class="rounded-md border border-gray-200 bg-white px-3 py-2 text-left text-sm leading-normal text-gray-900 transition-colors hover:border-blue-500 hover:bg-blue-50"
+									class="whitespace-nowrap rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 transition-colors hover:border-blue-500 hover:bg-blue-50"
 								>
 									{COMPONENT_TYPE_LABELS[type]}
 								</button>

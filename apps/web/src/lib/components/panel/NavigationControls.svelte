@@ -53,6 +53,7 @@
 		type="button"
 		onclick={handlePrev}
 		disabled={!canNavigatePrev}
+		aria-label="Previous component"
 		class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors
 			{canNavigatePrev
 			? 'bg-white text-gray-700 shadow-sm hover:bg-gray-50 border border-gray-300'
@@ -85,6 +86,7 @@
 		type="button"
 		onclick={handleNext}
 		disabled={!canNavigateNext}
+		aria-label="Next component"
 		class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors
 			{canNavigateNext
 			? 'bg-white text-gray-700 shadow-sm hover:bg-gray-50 border border-gray-300'

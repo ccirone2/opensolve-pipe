@@ -49,7 +49,7 @@
 					{/if}
 
 					{#if crumb.type === 'ellipsis'}
-						<span class="px-2 text-gray-400">...</span>
+						<span class="px-2 text-gray-400" aria-label="More components">...</span>
 					{:else if crumb.isLast}
 						<span class="px-2 font-medium text-gray-900">
 							{crumb.name || COMPONENT_TYPE_LABELS[crumb.type]}

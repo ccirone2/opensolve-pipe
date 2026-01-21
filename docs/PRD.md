@@ -1,8 +1,9 @@
 # Product Requirements Document (PRD)
+
 # OpenSolve Pipe - Web-Based Hydraulic Network Design Tool
 
-**Version:** 0.1.0 (Draft)  
-**Date:** January 2026  
+**Version:** 0.1.0 (Draft)
+**Date:** January 2026
 **Status:** Skeleton PRD for Development Planning
 
 ---
@@ -87,12 +88,20 @@ Users shall be able to model the following components:
 
 #### 3.1.1 Nodes (Zero-Dimensional Elements)
 
-| Component | Configuration Options |
-|-----------|----------------------|
-| Reservoir/Tank | Constant or variable level, elevation, geometry |
-| Junction | Elevation, demand/supply |
-| Sprinkler/Nozzle | K-factor, discharge coefficient |
-| Orifice | Diameter, Cd, or Cv |
+| Component | Configuration Options | Connection Ports |
+|-----------|----------------------|------------------|
+| Reservoir/Tank | Constant or variable level, elevation, geometry, port configuration | 1-n ports (user-defined, each with size) |
+| Reference Node (Ideal) | Elevation, pressure setpoint | 1 port |
+| Reference Node (Non-Ideal) | Elevation, pressure-flow curve, capacity limits | 1 port |
+| Branch (Tee) | Orientation (through/branch flows), port sizes | 3 ports |
+| Branch (Wye) | Angle, port sizes | 3 ports |
+| Branch (Cross) | Port sizes | 4 ports |
+| Branch (Elbow with Branch) | Main angle (90°/45°), branch angle, port sizes | 3 ports |
+| Sprinkler/Nozzle | K-factor, discharge coefficient | 1 port (inlet) |
+| Orifice | Diameter, Cd, or Cv | 2 ports |
+| Plug/Cap | None (closed end, zero flow boundary) | 1 port (no flow) |
+
+**Note:** Junction nodes are deprecated in favor of Branch components which provide explicit fitting geometry and K-factor calculations.
 
 #### 3.1.2 Links (One-Dimensional Elements)
 
@@ -112,15 +121,58 @@ Users shall be able to model the following components:
 | Strainer/Filter | K-factor (clean and dirty) |
 | User-Defined Element | Cv curve or K-factor |
 
-#### 3.1.3 Piping Elements (Between Components)
+#### 3.1.3 Pipe Connections (Between Component Ports)
+
+A **pipe connection** is a collection of pipes and fittings that connects exactly two endpoints (component ports). Each connection has:
+
+- One or more pipe segments (material, diameter, length)
+- Zero or more inline fittings (elbows, reducers, inline valves)
+- Two endpoints that attach to component ports
 
 | Element | Configuration Options |
 |---------|----------------------|
+| Pipe Segment | Material, schedule, diameter, length, roughness |
 | Elbow (45°, 90°, LR, SR) | Quantity, K or L/D |
-| Tee (through, branch) | Quantity, K or L/D |
 | Reducer/Expander | Inlet/outlet sizes, gradual/sudden |
 | Coupling/Union | K-factor |
 | Entrance/Exit | Type (sharp, rounded, projecting) |
+| Inline Valve | Type, K-factor or Cv |
+
+**Note:** Tee fittings are now modeled as Branch components (nodes) rather than inline fittings. This provides more accurate hydraulic modeling for flow splitting/combining scenarios.
+
+#### 3.1.4 Connection Architecture
+
+The hydraulic network is modeled as a graph where:
+
+- **Components** are nodes with one or more **ports**
+- **Pipe connections** are edges connecting exactly two ports
+- Each port has a **nominal size** that determines the connection diameter
+
+**Port Types:**
+
+| Component Type | Port Count | Port Naming Convention |
+|----------------|------------|------------------------|
+| Reservoir/Tank | 1-n | port_1, port_2, ... (user-defined) |
+| Reference Node | 1 | port_1 |
+| Pump | 2 | suction (inlet), discharge (outlet) |
+| Valve | 2 | inlet, outlet |
+| Branch (Tee/Wye) | 3 | run_inlet, run_outlet, branch |
+| Branch (Cross) | 4 | port_1, port_2, port_3, port_4 |
+| Orifice | 2 | inlet, outlet |
+| Sprinkler | 1 | inlet |
+| Plug/Cap | 1 | port_1 (zero flow boundary) |
+
+**Reference Node Types:**
+
+1. **Ideal Reference Node**: Maintains constant pressure regardless of flow rate. Acts as an infinite reservoir or ideal pressure source. Useful for:
+   - System boundary conditions
+   - Representing large municipal supply mains
+   - Modeling ideal pressure sources
+
+2. **Non-Ideal Reference Node**: Pressure varies with flow rate based on a pressure-flow curve. Useful for:
+   - Pressure regulators with capacity limits
+   - Booster pumps with supply limitations
+   - Wells with drawdown curves
 
 ### 3.2 Outputs
 
@@ -190,6 +242,7 @@ Traditional form-based entry for:
 | Project library | Save and reuse within project |
 
 Future:
+
 - Global database of common pumps
 - Image digitization
 

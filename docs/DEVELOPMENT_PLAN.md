@@ -26,6 +26,43 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 
 ---
 
+## Architectural Foundation: Port-Based Connection Model
+
+Before diving into implementation phases, it's important to understand the core architectural decisions that shape the data model.
+
+### Connection Architecture
+
+The hydraulic network uses a **port-based architecture**:
+
+- **Components** are nodes with one or more **ports** (connection points)
+- **Pipe connections** are edges that connect exactly two ports
+- Each port has a **nominal size** that determines the connection diameter
+
+### Component Port Configurations
+
+| Component Type | Ports | Notes |
+|----------------|-------|-------|
+| Reservoir/Tank | 1-n | User-defined, each with configurable size |
+| Reference Node (Ideal) | 1 | Fixed pressure boundary |
+| Reference Node (Non-Ideal) | 1 | Pressure-flow curve boundary |
+| Plug/Cap | 1 | Zero flow boundary (dead end) |
+| Pump | 2 | Suction (inlet) + Discharge (outlet) |
+| Valve | 2 | Inlet + Outlet |
+| Branch (Tee/Wye) | 3 | Run + Branch ports |
+| Branch (Cross) | 4 | Four-way intersection |
+| Orifice | 2 | Inlet + Outlet |
+| Sprinkler | 1 | Inlet only |
+
+### Key Architectural Decisions
+
+1. **Junction nodes are deprecated** in favor of explicit Branch components (tees, wyes, crosses)
+2. **Branch components** provide proper K-factor calculations for flow splitting/combining
+3. **Reference nodes** replace simple reservoir nodes for pressure boundary conditions
+4. **Multi-port tanks/reservoirs** support real-world configurations with multiple connections
+5. **Pipe connections** always have exactly two endpoints (no inline tees)
+
+---
+
 ## Phase 1: MVP - Simple Solver + Basic UI
 
 **Goal:** Prove the core concept with a working single-path solver and minimal UI
@@ -40,6 +77,9 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 - ✅ Project state encodes to URL
 - ✅ URL decodes back to working project
 - ✅ Works on mobile (responsive design)
+- ✅ Port-based connection model implemented
+- ✅ Reference nodes (ideal) supported for boundary conditions
+- ✅ Basic branch components (tee) supported for simple branching
 
 ### 1.1 Backend - Simple Solver (High Priority)
 
@@ -125,7 +165,83 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 
 ---
 
-### 1.5 Backend - API Endpoints (High Priority)
+### 1.5 Backend - Port-Based Architecture (High Priority)
+
+**Files:**
+
+- `apps/api/src/opensolve_pipe/models/ports.py`
+- `apps/api/src/opensolve_pipe/models/connections.py`
+
+**Tasks:**
+
+- [ ] Define `Port` model (id, nominal_size, direction)
+- [ ] Define `PipeConnection` model (from/to component and port IDs)
+- [ ] Update all component models to include `ports` field
+- [ ] Add port factory functions for each component type
+- [ ] Update `PipingSegment` to support multiple pipe segments
+- [ ] Add validation for port connections (size compatibility, direction)
+- [ ] Write tests for port-based topology validation
+
+**Complexity:** Medium - Core data model refactor
+
+---
+
+### 1.6 Backend - Reference Node and Plug Components (Medium Priority)
+
+**Files:**
+
+- `apps/api/src/opensolve_pipe/models/reference_node.py`
+- `apps/api/src/opensolve_pipe/models/plug.py`
+- `apps/api/src/opensolve_pipe/services/solver/reference.py`
+
+**Tasks:**
+
+Reference Node:
+
+- [ ] Define `IdealReferenceNode` model (fixed pressure boundary)
+- [ ] Define `NonIdealReferenceNode` model (pressure-flow curve)
+- [ ] Implement reference node handling in simple solver
+- [ ] Add reference node to component type discriminator
+- [ ] Create frontend form for reference node configuration
+- [ ] Write tests for reference node boundary conditions
+
+Plug/Cap:
+
+- [ ] Define `Plug` model (zero flow boundary, 1 port)
+- [ ] Implement plug handling in simple solver (enforces Q=0)
+- [ ] Add plug to component type discriminator
+- [ ] Create frontend form for plug configuration
+- [ ] Write tests for plug zero-flow enforcement
+
+**Complexity:** Medium - New component types
+
+---
+
+### 1.7 Backend - Branch Component (Medium Priority)
+
+**Files:**
+
+- `apps/api/src/opensolve_pipe/models/branch.py`
+- `apps/api/src/opensolve_pipe/data/branch_k_factors.json`
+- `apps/api/src/opensolve_pipe/services/solver/branch.py`
+
+**Tasks:**
+
+- [ ] Define `TeeBranch` model (3 ports, orientation)
+- [ ] Define `WyeBranch` model (3 ports, angle)
+- [ ] Define `CrossBranch` model (4 ports)
+- [ ] Define `ElbowBranch` model (3 ports, angles)
+- [ ] Create branch K-factor lookup data (Crane TP-410)
+- [ ] Implement branch K-factor calculation (flow-dependent)
+- [ ] Add branch to component type discriminator
+- [ ] Create frontend forms for branch configuration
+- [ ] Write tests for branch hydraulic calculations
+
+**Complexity:** High - Complex K-factor calculations
+
+---
+
+### 1.8 Backend - API Endpoints (High Priority)
 
 **Files:** `apps/api/src/opensolve_pipe/routers/`
 
@@ -142,7 +258,7 @@ This document outlines the phased development approach for OpenSolve Pipe, start
 
 ---
 
-### 1.6 Backend - Unit Conversion (Medium Priority)
+### 1.9 Backend - Unit Conversion (Medium Priority)
 
 **File:** `apps/api/src/opensolve_pipe/utils/units.py`
 

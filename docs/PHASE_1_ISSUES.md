@@ -27,10 +27,16 @@ This document contains all GitHub issues for Phase 1 (MVP) of OpenSolve Pipe.
 | 17 | End-to-End Testing and Bug Fixes | [#25](https://github.com/ccirone2/opensolve-pipe/issues/25) | - | 📋 Not Started |
 | 18 | Deployment Setup (Frontend + Backend) | [#26](https://github.com/ccirone2/opensolve-pipe/issues/26) | - | 📋 Not Started |
 | 19 | Documentation and Landing Page | [#27](https://github.com/ccirone2/opensolve-pipe/issues/27) | - | 📋 Not Started |
+| 20 | Backend - Port-Based Architecture | TBD | - | 📋 Not Started |
+| 21 | Backend - Reference Node and Plug Components | TBD | - | 📋 Not Started |
+| 22 | Backend - Branch Component (Tee/Wye/Cross) | TBD | - | 📋 Not Started |
+| 23 | Frontend - Port Connection Editor | TBD | - | 📋 Not Started |
+| 24 | Frontend - Reference Node Form | TBD | - | 📋 Not Started |
+| 25 | Frontend - Branch Component Forms | TBD | - | 📋 Not Started |
 
-**Progress:** 5 of 19 issues completed (26%)
+**Progress:** 5 of 25 issues completed (20%)
 
-**Backend Progress:** 5 of 7 backend issues completed (71%)
+**Backend Progress:** 5 of 10 backend issues completed (50%)
 
 ---
 
@@ -720,6 +726,276 @@ Create user-facing documentation and landing page.
 
 ---
 
+### Issue #20: Backend - Port-Based Architecture
+
+> 📋 **NOT STARTED** - GitHub Issue TBD
+
+**Labels:** `backend`, `architecture`, `Phase 1`, `critical`
+**Milestone:** Phase 1 - MVP
+
+**Description:**
+Implement the port-based connection architecture that enables components with variable numbers of connection points.
+
+**Related Files:**
+
+- `apps/api/src/opensolve_pipe/models/ports.py`
+- `apps/api/src/opensolve_pipe/models/connections.py`
+
+**Tasks:**
+
+- [ ] Define `Port` model (id, nominal_size, direction: inlet/outlet/bidirectional)
+- [ ] Define `PortDirection` enum
+- [ ] Define `PipeConnection` model (from/to component and port IDs)
+- [ ] Update `BaseComponent` to include `ports` field
+- [ ] Add port factory functions for each component type
+- [ ] Update `PipingSegment` to support multiple pipe segments in series
+- [ ] Add validation for port connections (size compatibility)
+- [ ] Add validation for port direction (inlet → outlet)
+- [ ] Update Project model to use `PipeConnection` list
+- [ ] Migrate existing `downstream_connections` to new model
+- [ ] Write unit tests for port-based topology validation
+- [ ] Write tests for connection validation rules
+
+**Acceptance Criteria:**
+
+- All components have explicit port definitions
+- Pipe connections reference specific ports
+- Port size validation catches mismatched connections
+- Existing tests continue to pass with new model
+
+**Dependencies:** Issue #2 (Data Models)
+
+---
+
+### Issue #21: Backend - Reference Node and Plug Components
+
+> 📋 **NOT STARTED** - GitHub Issue TBD
+
+**Labels:** `backend`, `components`, `Phase 1`
+**Milestone:** Phase 1 - MVP
+
+**Description:**
+Implement Reference Node and Plug/Cap components for defining boundary conditions in the network.
+
+**Related Files:**
+
+- `apps/api/src/opensolve_pipe/models/reference_node.py`
+- `apps/api/src/opensolve_pipe/models/plug.py`
+- `apps/api/src/opensolve_pipe/services/solver/reference.py`
+
+**Tasks:**
+
+Reference Node:
+
+- [ ] Define `ReferenceNode` base model with single port
+- [ ] Define `IdealReferenceNode` model (fixed pressure boundary)
+- [ ] Define `NonIdealReferenceNode` model (pressure-flow curve)
+- [ ] Define `FlowPressurePoint` model for curve data
+- [ ] Add reference node to component type discriminator
+- [ ] Implement ideal reference node handling in simple solver
+- [ ] Implement non-ideal reference node interpolation
+- [ ] Add reference node to WNTR adapter for network solver
+- [ ] Write tests comparing ideal vs reservoir results
+- [ ] Write tests for non-ideal pressure-flow curve behavior
+
+Plug/Cap:
+
+- [ ] Define `Plug` model with single port (zero flow boundary)
+- [ ] Add plug to component type discriminator
+- [ ] Implement plug handling in simple solver (enforces Q=0)
+- [ ] Add plug to WNTR adapter for network solver
+- [ ] Write tests for plug zero-flow enforcement
+- [ ] Create frontend form for plug configuration
+
+**Acceptance Criteria:**
+
+- Ideal reference node produces same results as reservoir at same pressure
+- Non-ideal reference node correctly interpolates pressure at given flow
+- Reference nodes work with both simple and network solvers
+- Maximum flow limits are enforced for non-ideal nodes
+- Plug enforces zero flow at connected port
+- Plug correctly calculates pressure at dead-end
+
+**Dependencies:** Issue #20 (Port-Based Architecture)
+
+**Hydraulic Notes:**
+
+- Ideal reference node = infinite reservoir (constant pressure regardless of flow)
+- Non-ideal reference node = pressure regulator with capacity curve
+- Plug/Cap = dead end with zero flow (pressure calculated from network)
+- Use at system boundaries where pressure is known or flow is zero
+
+---
+
+### Issue #22: Backend - Branch Component (Tee/Wye/Cross)
+
+> 📋 **NOT STARTED** - GitHub Issue TBD
+
+**Labels:** `backend`, `components`, `Phase 1`, `critical`
+**Milestone:** Phase 1 - MVP
+
+**Description:**
+Implement Branch components for flow splitting/combining with proper K-factor calculations.
+
+**Related Files:**
+
+- `apps/api/src/opensolve_pipe/models/branch.py`
+- `apps/api/src/opensolve_pipe/data/branch_k_factors.json`
+- `apps/api/src/opensolve_pipe/services/solver/branch.py`
+
+**Tasks:**
+
+- [ ] Define `Branch` base model with variable ports
+- [ ] Define `TeeBranch` model (3 ports: run_inlet, run_outlet, branch)
+- [ ] Define `WyeBranch` model (3 ports with configurable angle)
+- [ ] Define `CrossBranch` model (4 ports)
+- [ ] Define `ElbowBranch` model (3 ports: main elbow + branch)
+- [ ] Create `branch_k_factors.json` with Crane TP-410 data
+- [ ] Implement K-factor calculation for diverging flow (tee)
+- [ ] Implement K-factor calculation for converging flow (tee)
+- [ ] Handle reduced-size branch ports in K-factor calculation
+- [ ] Add branch to component type discriminator
+- [ ] Implement branch handling in simple solver (single branch path)
+- [ ] Add branch to WNTR adapter for network solver
+- [ ] Write tests for K-factor calculations vs Crane TP-410 tables
+- [ ] Write tests for different flow configurations
+
+**Acceptance Criteria:**
+
+- K-factors match Crane TP-410 within 5%
+- Reduced-size branches calculate correct K adjustment
+- Flow direction (diverging/converging) is automatically detected
+- Branch works with both simple and network solvers
+
+**Dependencies:** Issue #20 (Port-Based Architecture)
+
+**Hydraulic Reference:**
+
+- Crane TP-410, Chapter 4: Flow Through Fittings
+- K_branch = 60 × f_T for tee branch flow
+- K_run = 20 × f_T for tee through flow
+- Branch size reduction increases K by factor of (D_run/D_branch)^4
+
+---
+
+### Issue #23: Frontend - Port Connection Editor
+
+> 📋 **NOT STARTED** - GitHub Issue TBD
+
+**Labels:** `frontend`, `ui`, `Phase 1`
+**Milestone:** Phase 1 - MVP
+
+**Description:**
+Create UI for managing port-based connections between components.
+
+**Related Files:**
+
+- `apps/web/src/lib/components/panel/PortConnectionEditor.svelte`
+- `apps/web/src/lib/components/panel/PortSelector.svelte`
+- `apps/web/src/lib/stores/connections.ts`
+
+**Tasks:**
+
+- [ ] Create `PortSelector` component (dropdown of available ports)
+- [ ] Create `PortConnectionEditor` component (manage connection between two ports)
+- [ ] Display port sizes and directions in selector
+- [ ] Show connection validation errors (size mismatch, direction mismatch)
+- [ ] Update `PipingPanel` to work with port-based connections
+- [ ] Add "Add Connection" button for components with available ports
+- [ ] Show visual indicator for connected vs unconnected ports
+- [ ] Update project store to manage `PipeConnection` objects
+- [ ] Write tests for connection editor interactions
+
+**Acceptance Criteria:**
+
+- Users can select source and target ports for connections
+- Invalid connections (size mismatch) show clear errors
+- All available ports are visible in the selector
+- Connection state updates correctly in the store
+
+**Dependencies:** Issue #20 (Backend Port Architecture), Issue #10 (Frontend State Management)
+
+---
+
+### Issue #24: Frontend - Reference Node Form
+
+> 📋 **NOT STARTED** - GitHub Issue TBD
+
+**Labels:** `frontend`, `forms`, `Phase 1`
+**Milestone:** Phase 1 - MVP
+
+**Description:**
+Create form components for configuring Reference Node components.
+
+**Related Files:**
+
+- `apps/web/src/lib/components/forms/ReferenceNodeForm.svelte`
+- `apps/web/src/lib/components/forms/PressureFlowCurveEditor.svelte`
+
+**Tasks:**
+
+- [ ] Create `ReferenceNodeForm` component
+- [ ] Add reference type selector (ideal vs non-ideal)
+- [ ] Add elevation input
+- [ ] Add pressure input for ideal reference node
+- [ ] Create `PressureFlowCurveEditor` for non-ideal reference node
+- [ ] Add curve point table (flow, pressure pairs)
+- [ ] Add curve visualization (simple line chart)
+- [ ] Add port size configuration
+- [ ] Add validation for curve data (monotonic, positive values)
+- [ ] Write tests for form validation
+
+**Acceptance Criteria:**
+
+- Ideal reference node can be configured with fixed pressure
+- Non-ideal reference node curve can be entered and visualized
+- Form validation prevents invalid configurations
+- Port size can be set independently
+
+**Dependencies:** Issue #21 (Backend Reference Node), Issue #13 (Component Forms)
+
+---
+
+### Issue #25: Frontend - Branch Component Forms
+
+> 📋 **NOT STARTED** - GitHub Issue TBD
+
+**Labels:** `frontend`, `forms`, `Phase 1`
+**Milestone:** Phase 1 - MVP
+
+**Description:**
+Create form components for configuring Branch components (tee, wye, cross).
+
+**Related Files:**
+
+- `apps/web/src/lib/components/forms/BranchForm.svelte`
+- `apps/web/src/lib/components/forms/TeeForm.svelte`
+- `apps/web/src/lib/components/forms/WyeForm.svelte`
+- `apps/web/src/lib/components/forms/CrossForm.svelte`
+
+**Tasks:**
+
+- [ ] Create `BranchForm` base component with type selector
+- [ ] Create `TeeForm` with orientation selector (through/diverging/converging)
+- [ ] Create `WyeForm` with angle input
+- [ ] Create `CrossForm` for 4-way intersections
+- [ ] Add port size configuration for each port
+- [ ] Support reduced-size branch ports
+- [ ] Add visual diagram showing port arrangement
+- [ ] Add validation for port sizes (branch ≤ run for tees)
+- [ ] Write tests for form validation
+
+**Acceptance Criteria:**
+
+- All branch types can be configured
+- Port sizes can be set independently
+- Visual diagram helps users understand port arrangement
+- Reduced-size branches are properly supported
+
+**Dependencies:** Issue #22 (Backend Branch Component), Issue #13 (Component Forms)
+
+---
+
 ## Automated Creation (gh CLI Commands)
 
 Run these commands to automatically create all Phase 1 issues:
@@ -1255,9 +1531,9 @@ echo "✅ All Phase 1 issues created!"
 
 ## Summary
 
-**Total Phase 1 Issues:** 19
+**Total Phase 1 Issues:** 25
 
-**Critical Path (7 issues):**
+**Critical Path (10 issues):**
 
 1. #1 - Project Setup
 2. #2 - Backend Data Models
@@ -1266,8 +1542,18 @@ echo "✅ All Phase 1 issues created!"
 5. #10 - Frontend State Management
 6. #12 - Panel Navigator UI
 7. #14 - Results Display
+8. #20 - Port-Based Architecture
+9. #22 - Branch Component
+10. #23 - Port Connection Editor
 
-**Estimated Effort:** 3-4 weeks with 2-3 developers
+**Estimated Effort:** 4-5 weeks with 2-3 developers (increased due to port-based architecture)
+
+**Architecture Notes:**
+
+- Issues #20-25 implement the port-based connection architecture
+- This enables components with variable numbers of connection ports
+- Branch components replace inline tee fittings for better hydraulic accuracy
+- Reference nodes provide flexible pressure boundary conditions
 
 **Next Steps:**
 

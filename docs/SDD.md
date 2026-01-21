@@ -1,8 +1,9 @@
 # Software Design Document (SDD)
+
 # OpenSolve Pipe - Web-Based Hydraulic Network Design Tool
 
-**Version:** 0.1.0 (Draft)  
-**Date:** January 2026  
+**Version:** 0.1.0 (Draft)
+**Date:** January 2026
 **Status:** Skeleton SDD for Development Planning
 
 ---
@@ -109,6 +110,7 @@ This document covers:
 **Purpose:** Primary interface for building and editing the hydraulic network.
 
 **Structure:**
+
 ```
 PanelNavigator
 ├── ElementPanel
@@ -128,6 +130,7 @@ PanelNavigator
 ```
 
 **State:**
+
 ```typescript
 interface NavigatorState {
   currentElementId: string;
@@ -141,12 +144,14 @@ interface NavigatorState {
 **Purpose:** Auto-generated process flow diagram for visualization.
 
 **Responsibilities:**
+
 - Render component chain as directed graph
 - Use simplified custom symbols (not full P&ID)
 - Handle click events to open element in Panel Navigator
 - Software-defined layout (user cannot drag elements)
 
 **Layout Algorithm:**
+
 - Hierarchical left-to-right or top-to-bottom layout
 - Branches shown as parallel paths
 - Loops indicated with return arrows
@@ -156,6 +161,7 @@ interface NavigatorState {
 **Purpose:** Display solved network state and analysis outputs.
 
 **Views:**
+
 - Summary (operating points, key metrics)
 - Node table (pressures, HGL, EGL)
 - Link table (flows, velocities, head loss)
@@ -167,6 +173,7 @@ interface NavigatorState {
 **Purpose:** Single source of truth for application state.
 
 **Responsibilities:**
+
 - Manage component chain data model
 - Track undo/redo history
 - Serialize/deserialize for URL encoding
@@ -179,6 +186,7 @@ interface NavigatorState {
 **Purpose:** Perform hydraulic network analysis.
 
 **Endpoints:**
+
 ```
 POST /api/v1/solve
   Request: NetworkModel (serialized component chain)
@@ -190,6 +198,7 @@ POST /api/v1/system-curve
 ```
 
 **Implementation:**
+
 - Simple networks (single path): Direct calculation using fluids library
 - Branching/looped networks: Convert to WNTR model, solve with EPANET
 
@@ -198,6 +207,7 @@ POST /api/v1/system-curve
 **Purpose:** Provide fluid properties for calculations.
 
 **Endpoints:**
+
 ```
 GET /api/v1/fluids
   Response: List of available fluids
@@ -211,6 +221,7 @@ POST /api/v1/fluids/custom
 ```
 
 **Data Sources:**
+
 - Built-in library (water, glycols, fuels)
 - CoolProp or similar for temperature-dependent properties
 - User-defined fluids (stored in project state)
@@ -229,6 +240,7 @@ POST /api/v1/fluids/custom
 | `history` | List all versions with metadata |
 
 **Storage Strategy:**
+
 - Small projects (< 50KB compressed): URL-encoded, no server storage
 - Medium projects: Server storage with URL as reference key
 - Large projects: Full server storage with account required
@@ -270,38 +282,56 @@ interface ProjectSettings {
 
 ### 4.2 Component Model
 
+The component model uses a **port-based architecture** where each component has a defined number of connection ports, and pipe connections link ports between components.
+
 ```typescript
-type Component = 
-  | Reservoir 
-  | Tank 
-  | Junction 
-  | Pump 
-  | Valve 
-  | HeatExchanger 
-  | Strainer 
-  | Orifice 
+type Component =
+  | Reservoir
+  | Tank
+  | ReferenceNode
+  | Branch
+  | Plug
+  | Pump
+  | Valve
+  | HeatExchanger
+  | Strainer
+  | Orifice
   | Sprinkler
   | UserDefinedElement;
+
+interface Port {
+  id: string;                    // e.g., "suction", "discharge", "branch"
+  nominalSize: number;           // Nominal diameter in project units
+  direction: 'inlet' | 'outlet' | 'bidirectional';
+}
 
 interface BaseComponent {
   id: string;
   type: ComponentType;
   name: string;
   elevation: number;  // In project units
-  
-  // Connections
-  upstreamPiping?: PipingSegment;
-  downstreamConnections: Connection[];
+  ports: Port[];      // All connection ports for this component
 }
 
-interface Connection {
-  targetComponentId: string;
-  piping: PipingSegment;
+interface PipeConnection {
+  id: string;
+  fromComponentId: string;
+  fromPortId: string;
+  toComponentId: string;
+  toPortId: string;
+  piping: PipingSegment;         // Pipes and fittings in this connection
 }
 
 interface PipingSegment {
-  pipe: PipeDefinition;
-  fittings: Fitting[];
+  pipes: PipeDefinition[];       // One or more pipe segments
+  fittings: Fitting[];           // Inline fittings (elbows, reducers, etc.)
+}
+
+// Legacy support: Connection interface for simple downstream linkage
+interface Connection {
+  targetComponentId: string;
+  targetPortId?: string;         // Optional, defaults to first available inlet
+  piping?: PipingSegment;
 }
 ```
 
@@ -314,7 +344,7 @@ interface PipeDefinition {
   schedule: string;
   length: number;
   roughness?: number;  // Override calculated roughness
-  
+
   // Optional liner
   liner?: {
     material: string;
@@ -330,7 +360,128 @@ interface PipeMaterial {
 }
 ```
 
-### 4.4 Pump Model
+### 4.4 Reference Node Model
+
+Reference nodes define pressure boundary conditions for the hydraulic network.
+
+```typescript
+interface ReferenceNode extends BaseComponent {
+  type: 'reference_node';
+  referenceType: 'ideal' | 'non_ideal';
+  ports: [Port];  // Single connection port
+}
+
+interface IdealReferenceNode extends ReferenceNode {
+  referenceType: 'ideal';
+  pressure: number;           // Fixed pressure (in project units)
+}
+
+interface NonIdealReferenceNode extends ReferenceNode {
+  referenceType: 'non_ideal';
+  pressureFlowCurve: FlowPressurePoint[];  // Pressure vs flow rate
+  maxFlow?: number;           // Maximum flow capacity
+}
+
+interface FlowPressurePoint {
+  flow: number;
+  pressure: number;
+}
+```
+
+### 4.5 Branch Component Model
+
+Branch components represent fittings where flow splits or combines (tees, wyes, crosses).
+
+```typescript
+type BranchType = 'tee' | 'wye' | 'cross' | 'elbow_branch';
+
+interface Branch extends BaseComponent {
+  type: 'branch';
+  branchType: BranchType;
+  ports: Port[];  // 3 ports for tee/wye, 4 for cross
+}
+
+interface TeeBranch extends Branch {
+  branchType: 'tee';
+  orientation: 'through' | 'converging' | 'diverging';
+  ports: [
+    Port & { id: 'run_inlet' },
+    Port & { id: 'run_outlet' },
+    Port & { id: 'branch' }
+  ];
+  // Branch port may have different size than run ports
+}
+
+interface WyeBranch extends Branch {
+  branchType: 'wye';
+  angle: number;  // Angle of wye in degrees (typically 45°)
+  ports: [
+    Port & { id: 'inlet' },
+    Port & { id: 'outlet_1' },
+    Port & { id: 'outlet_2' }
+  ];
+}
+
+interface CrossBranch extends Branch {
+  branchType: 'cross';
+  ports: [
+    Port & { id: 'port_1' },
+    Port & { id: 'port_2' },
+    Port & { id: 'port_3' },
+    Port & { id: 'port_4' }
+  ];
+}
+
+interface ElbowBranch extends Branch {
+  branchType: 'elbow_branch';
+  mainAngle: 45 | 90;         // Main elbow angle
+  branchAngle: number;        // Branch takeoff angle
+  ports: [
+    Port & { id: 'inlet' },
+    Port & { id: 'outlet' },
+    Port & { id: 'branch' }
+  ];
+}
+```
+
+### 4.6 Plug/Cap Model
+
+Plug/Cap components represent closed ends in the piping system with zero flow.
+
+```typescript
+interface Plug extends BaseComponent {
+  type: 'plug';
+  ports: [Port & { id: 'port_1'; direction: 'bidirectional' }];
+  // Plug enforces zero flow at this boundary
+  // Useful for:
+  // - Dead-end branches
+  // - Future expansion points
+  // - Temporarily closed connections
+}
+```
+
+### 4.7 Reservoir and Tank Models
+
+Reservoirs and tanks support multiple connection ports with different sizes.
+
+```typescript
+interface Reservoir extends BaseComponent {
+  type: 'reservoir';
+  waterLevel: number;         // Water surface elevation above component elevation
+  ports: Port[];              // One or more ports (user-defined)
+}
+
+interface Tank extends BaseComponent {
+  type: 'tank';
+  diameter: number;
+  initialLevel: number;
+  minLevel: number;
+  maxLevel: number;
+  ports: Port[];              // One or more ports with different sizes
+}
+```
+
+### 4.8 Pump Model
 
 ```typescript
 interface Pump extends BaseComponent {
@@ -339,6 +490,10 @@ interface Pump extends BaseComponent {
   speed: number;  // Fraction of rated speed (1.0 = 100%)
   status: 'on' | 'off';
   npshr?: NPSHRCurve;  // Optional NPSH required curve
+  ports: [
+    Port & { id: 'suction'; direction: 'inlet' },
+    Port & { id: 'discharge'; direction: 'outlet' }
+  ];
 }
 
 interface PumpCurve {
@@ -356,19 +511,23 @@ interface FlowHeadPoint {
 }
 ```
 
-### 4.5 Valve Models
+### 4.9 Valve Models
 
 ```typescript
 interface Valve extends BaseComponent {
   type: 'valve';
   valveType: ValveType;
   model: 'simplified' | 'detailed';
+  ports: [
+    Port & { id: 'inlet'; direction: 'inlet' },
+    Port & { id: 'outlet'; direction: 'outlet' }
+  ];
 }
 
-type ValveType = 
-  | 'gate' 
-  | 'ball' 
-  | 'butterfly' 
+type ValveType =
+  | 'gate'
+  | 'ball'
+  | 'butterfly'
   | 'globe'
   | 'check'
   | 'stop_check'
@@ -392,18 +551,19 @@ interface DetailedControlValve extends Valve {
 }
 ```
 
-### 4.6 Solved State
+### 4.10 Solved State
 
 ```typescript
 interface SolvedState {
   converged: boolean;
   iterations: number;
   timestamp: DateTime;
-  
+
   nodeResults: Map<string, NodeResult>;
-  linkResults: Map<string, LinkResult>;
+  linkResults: Map<string, LinkResult>;       // Results for pipe connections
   pumpResults: Map<string, PumpResult>;
-  
+  branchResults: Map<string, BranchResult>;   // Flow split/combine results
+
   warnings: Warning[];
 }
 
@@ -432,8 +592,15 @@ interface PumpResult {
   npshAvailable: number;
   npshMargin?: number;     // If NPSH required provided
   efficiency?: number;      // If efficiency curve provided
-  
+
   systemCurve: FlowHeadPoint[];
+}
+
+interface BranchResult {
+  componentId: string;
+  portFlows: Map<string, number>;      // Flow through each port (positive = into component)
+  totalHeadLoss: number;               // Head loss across the branch fitting
+  kFactors: Map<string, number>;       // Calculated K-factor for each flow path
 }
 ```
 
@@ -519,12 +686,14 @@ Content-Disposition: attachment; filename="opensolve_pipe_results.xlsx"
 **Format:** `https://opensolve-pipe.app/p/{encoded_state}`
 
 **Encoding Process:**
+
 1. Serialize project to JSON
 2. Compress with gzip
 3. Encode as base64url (URL-safe base64)
 4. If > 2000 characters, store server-side and use short reference key
 
 **Example:**
+
 ```
 https://opensolve-pipe.app/p/H4sIAAAAAAAAA6tWKkktLlGyUlAqS...
 ```
@@ -567,13 +736,13 @@ Priority order for fitting K-factors:
 def resolve_k_factor(fitting: Fitting, pipe: PipeDefinition, Re: float) -> float:
     if fitting.user_k_factor is not None:
         return fitting.user_k_factor
-    
+
     if crane_available(fitting.type):
         return crane_k_factor(fitting, pipe.inner_diameter, Re)
-    
+
     if fluids_available(fitting.type):
         return fluids_k_factor(fitting, pipe.inner_diameter, Re)
-    
+
     raise ValueError(f"No K-factor available for {fitting.type}")
 ```
 
@@ -618,6 +787,7 @@ def resolve_k_factor(fitting: Fitting, pipe: PipeDefinition, Re: float) -> float
 Current behavior (per PRD): Return null results with clear indication of failure.
 
 Future enhancement: Provide diagnostic information:
+
 - Last iteration state
 - Components with largest residuals
 - Suggested troubleshooting steps

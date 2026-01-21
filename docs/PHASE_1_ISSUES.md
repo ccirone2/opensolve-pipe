@@ -27,12 +27,12 @@ This document contains all GitHub issues for Phase 1 (MVP) of OpenSolve Pipe.
 | 17 | End-to-End Testing and Bug Fixes | [#25](https://github.com/ccirone2/opensolve-pipe/issues/25) | - | 📋 Not Started |
 | 18 | Deployment Setup (Frontend + Backend) | [#26](https://github.com/ccirone2/opensolve-pipe/issues/26) | - | 📋 Not Started |
 | 19 | Documentation and Landing Page | [#27](https://github.com/ccirone2/opensolve-pipe/issues/27) | - | 📋 Not Started |
-| 20 | Backend - Port-Based Architecture | TBD | - | 📋 Not Started |
-| 21 | Backend - Reference Node and Plug Components | TBD | - | 📋 Not Started |
-| 22 | Backend - Branch Component (Tee/Wye/Cross) | TBD | - | 📋 Not Started |
-| 23 | Frontend - Port Connection Editor | TBD | - | 📋 Not Started |
-| 24 | Frontend - Reference Node Form | TBD | - | 📋 Not Started |
-| 25 | Frontend - Branch Component Forms | TBD | - | 📋 Not Started |
+| 20 | Backend - Port-Based Architecture | [#58](https://github.com/ccirone2/opensolve-pipe/issues/58) | - | 📋 Not Started |
+| 21 | Backend - Reference Node and Plug Components | [#59](https://github.com/ccirone2/opensolve-pipe/issues/59) | - | 📋 Not Started |
+| 22 | Backend - Branch Component (Tee/Wye/Cross) | [#60](https://github.com/ccirone2/opensolve-pipe/issues/60) | - | 📋 Not Started |
+| 23 | Frontend - Port Connection Editor | [#61](https://github.com/ccirone2/opensolve-pipe/issues/61) | - | 📋 Not Started |
+| 24 | Frontend - Reference Node Form | [#62](https://github.com/ccirone2/opensolve-pipe/issues/62) | - | 📋 Not Started |
+| 25 | Frontend - Branch Component Forms | [#63](https://github.com/ccirone2/opensolve-pipe/issues/63) | - | 📋 Not Started |
 
 **Progress:** 5 of 25 issues completed (20%)
 
@@ -728,7 +728,7 @@ Create user-facing documentation and landing page.
 
 ### Issue #20: Backend - Port-Based Architecture
 
-> 📋 **NOT STARTED** - GitHub Issue TBD
+> 📋 **NOT STARTED** - [GitHub Issue #58](https://github.com/ccirone2/opensolve-pipe/issues/58)
 
 **Labels:** `backend`, `architecture`, `Phase 1`, `critical`
 **Milestone:** Phase 1 - MVP
@@ -769,7 +769,7 @@ Implement the port-based connection architecture that enables components with va
 
 ### Issue #21: Backend - Reference Node and Plug Components
 
-> 📋 **NOT STARTED** - GitHub Issue TBD
+> 📋 **NOT STARTED** - [GitHub Issue #59](https://github.com/ccirone2/opensolve-pipe/issues/59)
 
 **Labels:** `backend`, `components`, `Phase 1`
 **Milestone:** Phase 1 - MVP
@@ -829,7 +829,7 @@ Plug/Cap:
 
 ### Issue #22: Backend - Branch Component (Tee/Wye/Cross)
 
-> 📋 **NOT STARTED** - GitHub Issue TBD
+> 📋 **NOT STARTED** - [GitHub Issue #60](https://github.com/ccirone2/opensolve-pipe/issues/60)
 
 **Labels:** `backend`, `components`, `Phase 1`, `critical`
 **Milestone:** Phase 1 - MVP
@@ -880,7 +880,7 @@ Implement Branch components for flow splitting/combining with proper K-factor ca
 
 ### Issue #23: Frontend - Port Connection Editor
 
-> 📋 **NOT STARTED** - GitHub Issue TBD
+> 📋 **NOT STARTED** - [GitHub Issue #61](https://github.com/ccirone2/opensolve-pipe/issues/61)
 
 **Labels:** `frontend`, `ui`, `Phase 1`
 **Milestone:** Phase 1 - MVP
@@ -919,7 +919,7 @@ Create UI for managing port-based connections between components.
 
 ### Issue #24: Frontend - Reference Node Form
 
-> 📋 **NOT STARTED** - GitHub Issue TBD
+> 📋 **NOT STARTED** - [GitHub Issue #62](https://github.com/ccirone2/opensolve-pipe/issues/62)
 
 **Labels:** `frontend`, `forms`, `Phase 1`
 **Milestone:** Phase 1 - MVP
@@ -958,7 +958,7 @@ Create form components for configuring Reference Node components.
 
 ### Issue #25: Frontend - Branch Component Forms
 
-> 📋 **NOT STARTED** - GitHub Issue TBD
+> 📋 **NOT STARTED** - [GitHub Issue #63](https://github.com/ccirone2/opensolve-pipe/issues/63)
 
 **Labels:** `frontend`, `forms`, `Phase 1`
 **Milestone:** Phase 1 - MVP

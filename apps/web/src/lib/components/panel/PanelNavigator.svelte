@@ -4,7 +4,7 @@
 	import NavigationControls from './NavigationControls.svelte';
 	import Breadcrumbs from './Breadcrumbs.svelte';
 	import ElementPanel from './ElementPanel.svelte';
-	import PipingPanel from './PipingPanel.svelte';
+	import DownstreamPipingPanel from './DownstreamPipingPanel.svelte';
 	import ElementTypeSelector from './ElementTypeSelector.svelte';
 
 	type TabId = 'element' | 'upstream' | 'downstream';
@@ -18,6 +18,19 @@
 		if (!id) return null;
 		return $components.find((c) => c.id === id) ?? null;
 	});
+
+	// Get upstream component (component that has a downstream connection to current)
+	let upstreamComponent = $derived.by(() => {
+		if (!currentComponent) return null;
+		return $components.find((c) =>
+			c.downstream_connections.some((conn) => conn.target_component_id === currentComponent!.id)
+		) ?? null;
+	});
+
+	// Get current component index for contextual insertion
+	let currentComponentIndex = $derived(
+		currentComponent ? $components.findIndex((c) => c.id === currentComponent.id) : -1
+	);
 
 	// Auto-navigate to first component if none selected
 	$effect(() => {
@@ -59,8 +72,8 @@
 	}
 
 	const tabs: { id: TabId; label: string }[] = [
-		{ id: 'element', label: 'Element' },
 		{ id: 'upstream', label: 'Upstream' },
+		{ id: 'element', label: 'Element' },
 		{ id: 'downstream', label: 'Downstream' }
 	];
 
@@ -94,6 +107,7 @@
 				<ElementTypeSelector
 					open={showAddSelector}
 					onClose={() => (showAddSelector = false)}
+					insertAfterIndex={currentComponentIndex >= 0 ? currentComponentIndex : undefined}
 				/>
 			</div>
 		</div>
@@ -149,35 +163,71 @@
 			</nav>
 		</div>
 
-		<!-- Tab Content -->
-		<div class="flex-1 overflow-y-auto p-4">
+		<!-- Tab Content - fixed height for consistent navigation button position -->
+		<div class="min-h-[400px] flex-1 overflow-y-auto p-4">
 			{#if activeTab === 'element'}
 				<ElementPanel component={currentComponent} />
 			{:else if activeTab === 'upstream'}
-				<PipingPanel
-					componentId={currentComponent.id}
-					piping={currentComponent.upstream_piping}
-				/>
-			{:else if activeTab === 'downstream'}
-				<div class="text-center text-gray-500">
-					<p class="text-sm font-medium">Downstream Connections</p>
-					<p class="mt-2 text-xs">
-						{currentComponent.downstream_connections.length} connection(s)
-					</p>
-					{#if currentComponent.downstream_connections.length === 0}
-						<p class="mt-4 text-xs text-gray-400">
-							No downstream connections yet. Add components after this element.
-						</p>
+				<!-- Upstream: Show connections coming into this element -->
+				<div class="space-y-4">
+					<div class="text-center text-gray-500">
+						<p class="text-sm font-medium">Upstream Connection</p>
+						<p class="mt-1 text-xs">What feeds into this element</p>
+					</div>
+					{#if !upstreamComponent}
+						<div class="rounded-lg border-2 border-dashed border-gray-300 p-6 text-center">
+							<svg
+								class="mx-auto h-12 w-12 text-gray-400"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M5 12h14M5 12l4-4m-4 4l4 4"
+								/>
+							</svg>
+							<p class="mt-2 text-sm text-gray-600">No upstream connection</p>
+							<p class="mt-1 text-xs text-gray-400">
+								This is a source element (reservoir/tank).
+							</p>
+						</div>
 					{:else}
-						<div class="mt-4 space-y-2">
-							{#each currentComponent.downstream_connections as conn}
-								<div class="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-left text-sm">
-									<span class="text-gray-700">→ {conn.target_component_id}</span>
+						<div class="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+							<div class="flex items-center gap-3">
+								<div class="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+									<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											stroke-width="2"
+											d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
+										/>
+									</svg>
 								</div>
-							{/each}
+								<div>
+									<p class="text-sm font-medium text-gray-900">{upstreamComponent.name}</p>
+									<p class="text-xs text-gray-500 capitalize">{upstreamComponent.type.replace('_', ' ')}</p>
+								</div>
+							</div>
+							<button
+								type="button"
+								onclick={() => navigationStore.navigateTo(upstreamComponent!.id)}
+								class="mt-3 w-full rounded-md bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+							>
+								Go to {upstreamComponent.name}
+							</button>
 						</div>
 					{/if}
 				</div>
+			{:else if activeTab === 'downstream'}
+				<!-- Downstream: Show piping editor for downstream connections -->
+				<DownstreamPipingPanel
+					componentId={currentComponent.id}
+					connections={currentComponent.downstream_connections}
+				/>
 			{/if}
 		</div>
 

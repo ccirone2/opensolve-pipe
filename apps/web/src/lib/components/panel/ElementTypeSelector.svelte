@@ -13,12 +13,17 @@
 		open?: boolean;
 		/** Callback when the selector is closed. */
 		onClose?: () => void;
+		/** Index at which to insert the new component (inserts after this index). */
+		insertAfterIndex?: number;
 	}
 
-	let { onSelect, open = false, onClose }: Props = $props();
+	let { onSelect, open = false, onClose, insertAfterIndex }: Props = $props();
 
 	function handleSelect(type: ComponentType) {
-		projectStore.addComponent(type);
+		// If insertAfterIndex is provided, insert after that position
+		// Otherwise, append to end (default behavior)
+		const atIndex = insertAfterIndex !== undefined ? insertAfterIndex + 1 : undefined;
+		projectStore.addComponent(type, atIndex);
 		onSelect?.(type);
 		onClose?.();
 	}

@@ -237,6 +237,33 @@ function createProjectStore() {
 		},
 
 		/**
+		 * Update downstream connection piping for a component.
+		 * Updates the piping for the first downstream connection.
+		 */
+		updateDownstreamPiping(
+			componentId: string,
+			targetComponentId: string,
+			piping: PipingSegment | undefined
+		) {
+			updateWithHistory('Update downstream piping', (project) => ({
+				...project,
+				components: project.components.map((c) => {
+					if (c.id === componentId) {
+						return {
+							...c,
+							downstream_connections: c.downstream_connections.map((conn) =>
+								conn.target_component_id === targetComponentId
+									? { ...conn, piping }
+									: conn
+							)
+						};
+					}
+					return c;
+				})
+			}));
+		},
+
+		/**
 		 * Add a pump curve to the library.
 		 */
 		addPumpCurve(curve: PumpCurve) {

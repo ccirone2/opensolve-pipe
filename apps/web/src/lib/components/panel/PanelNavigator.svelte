@@ -163,8 +163,8 @@
 			</nav>
 		</div>
 
-		<!-- Tab Content - fixed height for consistent navigation button position -->
-		<div class="min-h-[400px] flex-1 overflow-y-auto p-4">
+		<!-- Tab Content - fixed height container with scroll for consistent navigation button position -->
+		<div class="h-[400px] overflow-y-auto p-4">
 			{#if activeTab === 'element'}
 				<ElementPanel component={currentComponent} />
 			{:else if activeTab === 'upstream'}
@@ -231,7 +231,9 @@
 			{/if}
 		</div>
 
-		<!-- Navigation Controls -->
-		<NavigationControls />
+		<!-- Navigation Controls - anchored at bottom -->
+		<div class="mt-auto border-t border-gray-200 bg-white">
+			<NavigationControls />
+		</div>
 	{/if}
 </div>

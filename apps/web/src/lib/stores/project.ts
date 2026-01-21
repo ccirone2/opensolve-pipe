@@ -108,6 +108,7 @@ function createProjectStore() {
 
 		/**
 		 * Add a new component.
+		 * Automatically creates downstream connections for linear workflows.
 		 */
 		addComponent(type: ComponentType, atIndex?: number): string {
 			const id = generateComponentId();
@@ -115,11 +116,63 @@ function createProjectStore() {
 
 			updateWithHistory(`Add ${type}`, (project) => {
 				const newComponents = [...project.components];
-				if (atIndex !== undefined && atIndex >= 0 && atIndex <= newComponents.length) {
-					newComponents.splice(atIndex, 0, component);
-				} else {
-					newComponents.push(component);
+				const insertAt =
+					atIndex !== undefined && atIndex >= 0 && atIndex <= newComponents.length
+						? atIndex
+						: newComponents.length;
+
+				// Get the component before and after the insertion point
+				const prevComponent = insertAt > 0 ? newComponents[insertAt - 1] : null;
+				const nextComponent = insertAt < newComponents.length ? newComponents[insertAt] : null;
+
+				// Insert the new component
+				newComponents.splice(insertAt, 0, component);
+
+				// Auto-create connections for linear workflow
+				// 1. Previous component should connect to new component
+				if (prevComponent) {
+					// Check if prev was connected to next, and update that connection
+					const existingConnIdx = prevComponent.downstream_connections.findIndex(
+						(c) => c.target_component_id === nextComponent?.id
+					);
+
+					if (existingConnIdx >= 0) {
+						// Prev was connected to next - redirect prev to new component
+						// and connect new component to next (preserving piping)
+						const existingConn = prevComponent.downstream_connections[existingConnIdx];
+						prevComponent.downstream_connections[existingConnIdx] = {
+							target_component_id: id
+						};
+						// New component connects to next with the existing piping
+						component.downstream_connections = [
+							{
+								target_component_id: nextComponent!.id,
+								piping: existingConn.piping
+							}
+						];
+					} else {
+						// No existing connection - create new one from prev to new
+						prevComponent.downstream_connections.push({
+							target_component_id: id
+						});
+						// If there's a next component, connect new to next
+						if (nextComponent) {
+							component.downstream_connections = [
+								{
+									target_component_id: nextComponent.id
+								}
+							];
+						}
+					}
+				} else if (nextComponent) {
+					// No prev component but there is a next - connect new to next
+					component.downstream_connections = [
+						{
+							target_component_id: nextComponent.id
+						}
+					];
 				}
+
 				return { ...project, components: newComponents };
 			});
 
@@ -184,12 +237,21 @@ function createProjectStore() {
 
 		/**
 		 * Add a connection between components.
+		 * If a connection already exists, it will not add a duplicate.
 		 */
 		addConnection(fromComponentId: string, toComponentId: string, piping?: PipingSegment) {
 			updateWithHistory('Add connection', (project) => ({
 				...project,
 				components: project.components.map((c) => {
 					if (c.id === fromComponentId) {
+						// Check if connection already exists
+						const existingConn = c.downstream_connections.find(
+							(conn) => conn.target_component_id === toComponentId
+						);
+						if (existingConn) {
+							// Connection already exists - don't add duplicate
+							return c;
+						}
 						const newConnection: Connection = {
 							target_component_id: toComponentId,
 							piping

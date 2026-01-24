@@ -1,0 +1,228 @@
+"""Tests for port model and port factory functions."""
+
+import pytest
+
+from opensolve_pipe.models import (
+    Port,
+    PortDirection,
+    create_heat_exchanger_ports,
+    create_junction_ports,
+    create_orifice_ports,
+    create_pump_ports,
+    create_reservoir_ports,
+    create_sprinkler_ports,
+    create_strainer_ports,
+    create_tank_ports,
+    create_valve_ports,
+)
+
+
+class TestPort:
+    """Tests for Port model."""
+
+    def test_port_creation(self):
+        """Test basic port creation."""
+        port = Port(id="inlet", nominal_size=4.0, direction=PortDirection.INLET)
+
+        assert port.id == "inlet"
+        assert port.nominal_size == 4.0
+        assert port.direction == PortDirection.INLET
+
+    def test_port_default_direction(self):
+        """Test that port defaults to bidirectional."""
+        port = Port(id="port_1", nominal_size=4.0)
+
+        assert port.direction == PortDirection.BIDIRECTIONAL
+
+    def test_port_requires_positive_size(self):
+        """Test that port size must be positive."""
+        with pytest.raises(ValueError):
+            Port(id="port_1", nominal_size=0)
+
+        with pytest.raises(ValueError):
+            Port(id="port_1", nominal_size=-1.0)
+
+    def test_port_serialization(self):
+        """Test port serializes correctly."""
+        port = Port(id="discharge", nominal_size=6.0, direction=PortDirection.OUTLET)
+        data = port.model_dump()
+
+        assert data["id"] == "discharge"
+        assert data["nominal_size"] == 6.0
+        assert data["direction"] == "outlet"
+
+    def test_port_deserialization(self):
+        """Test port deserializes correctly."""
+        data = {"id": "suction", "nominal_size": 8.0, "direction": "inlet"}
+        port = Port.model_validate(data)
+
+        assert port.id == "suction"
+        assert port.nominal_size == 8.0
+        assert port.direction == PortDirection.INLET
+
+
+class TestReservoirPorts:
+    """Tests for reservoir port factory."""
+
+    def test_default_reservoir_ports(self):
+        """Test default reservoir has single outlet port."""
+        ports = create_reservoir_ports()
+
+        assert len(ports) == 1
+        assert ports[0].id == "outlet_1"
+        assert ports[0].nominal_size == 4.0
+        assert ports[0].direction == PortDirection.BIDIRECTIONAL
+
+    def test_custom_reservoir_ports(self):
+        """Test reservoir with custom port configs."""
+        configs = [{"port_a": 6.0}, {"port_b": 4.0}]
+        ports = create_reservoir_ports(configs)
+
+        assert len(ports) == 2
+        assert {p.id for p in ports} == {"port_a", "port_b"}
+
+    def test_reservoir_custom_default_size(self):
+        """Test reservoir with custom default size."""
+        ports = create_reservoir_ports(default_size=8.0)
+
+        assert len(ports) == 1
+        assert ports[0].nominal_size == 8.0
+
+
+class TestTankPorts:
+    """Tests for tank port factory."""
+
+    def test_default_tank_ports(self):
+        """Test default tank has single bidirectional port."""
+        ports = create_tank_ports()
+
+        assert len(ports) == 1
+        assert ports[0].id == "port_1"
+        assert ports[0].direction == PortDirection.BIDIRECTIONAL
+
+
+class TestJunctionPorts:
+    """Tests for junction port factory."""
+
+    def test_default_junction_ports(self):
+        """Test default junction has single bidirectional port."""
+        ports = create_junction_ports()
+
+        assert len(ports) == 1
+        assert ports[0].id == "port_1"
+        assert ports[0].direction == PortDirection.BIDIRECTIONAL
+
+
+class TestPumpPorts:
+    """Tests for pump port factory."""
+
+    def test_pump_ports_default(self):
+        """Test pump has suction and discharge ports."""
+        ports = create_pump_ports()
+
+        assert len(ports) == 2
+
+        suction = next(p for p in ports if p.id == "suction")
+        discharge = next(p for p in ports if p.id == "discharge")
+
+        assert suction.direction == PortDirection.INLET
+        assert discharge.direction == PortDirection.OUTLET
+        assert suction.nominal_size == 4.0
+        assert discharge.nominal_size == 4.0
+
+    def test_pump_ports_custom_sizes(self):
+        """Test pump with custom port sizes."""
+        ports = create_pump_ports(suction_size=6.0, discharge_size=4.0)
+
+        suction = next(p for p in ports if p.id == "suction")
+        discharge = next(p for p in ports if p.id == "discharge")
+
+        assert suction.nominal_size == 6.0
+        assert discharge.nominal_size == 4.0
+
+
+class TestValvePorts:
+    """Tests for valve port factory."""
+
+    def test_valve_ports_default(self):
+        """Test valve has inlet and outlet ports."""
+        ports = create_valve_ports()
+
+        assert len(ports) == 2
+
+        inlet = next(p for p in ports if p.id == "inlet")
+        outlet = next(p for p in ports if p.id == "outlet")
+
+        assert inlet.direction == PortDirection.INLET
+        assert outlet.direction == PortDirection.OUTLET
+
+    def test_valve_ports_same_size(self):
+        """Test valve outlet defaults to inlet size."""
+        ports = create_valve_ports(inlet_size=6.0)
+
+        inlet = next(p for p in ports if p.id == "inlet")
+        outlet = next(p for p in ports if p.id == "outlet")
+
+        assert inlet.nominal_size == 6.0
+        assert outlet.nominal_size == 6.0
+
+    def test_valve_ports_different_sizes(self):
+        """Test valve with different inlet/outlet sizes."""
+        ports = create_valve_ports(inlet_size=6.0, outlet_size=4.0)
+
+        inlet = next(p for p in ports if p.id == "inlet")
+        outlet = next(p for p in ports if p.id == "outlet")
+
+        assert inlet.nominal_size == 6.0
+        assert outlet.nominal_size == 4.0
+
+
+class TestHeatExchangerPorts:
+    """Tests for heat exchanger port factory."""
+
+    def test_heat_exchanger_ports(self):
+        """Test heat exchanger has inlet and outlet ports."""
+        ports = create_heat_exchanger_ports()
+
+        assert len(ports) == 2
+        assert {p.id for p in ports} == {"inlet", "outlet"}
+
+
+class TestStrainerPorts:
+    """Tests for strainer port factory."""
+
+    def test_strainer_ports(self):
+        """Test strainer has inlet and outlet ports."""
+        ports = create_strainer_ports()
+
+        assert len(ports) == 2
+        assert {p.id for p in ports} == {"inlet", "outlet"}
+
+
+class TestOrificePorts:
+    """Tests for orifice port factory."""
+
+    def test_orifice_ports(self):
+        """Test orifice has inlet and outlet ports."""
+        ports = create_orifice_ports()
+
+        assert len(ports) == 2
+        assert {p.id for p in ports} == {"inlet", "outlet"}
+
+
+class TestSprinklerPorts:
+    """Tests for sprinkler port factory."""
+
+    def test_sprinkler_ports(self):
+        """Test sprinkler has single inlet port."""
+        ports = create_sprinkler_ports()
+
+        assert len(ports) == 1
+        assert ports[0].id == "inlet"
+        assert ports[0].direction == PortDirection.INLET
+
+    def test_sprinkler_ports_custom_size(self):
+        """Test sprinkler with custom inlet size."""
+        ports = create_sprinkler_ports(inlet_size=0.5)
+
+        assert ports[0].nominal_size == 0.5

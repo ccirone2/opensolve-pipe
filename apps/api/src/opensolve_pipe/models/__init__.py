@@ -35,6 +35,13 @@ from .components import (
     ValveComponent,
     ValveType,
 )
+from .connections import (
+    ConnectionBuilder,
+    PipeConnection,
+    validate_connection,
+    validate_port_direction_compatibility,
+    validate_port_size_compatibility,
+)
 from .fluids import FluidDefinition, FluidProperties, FluidType
 from .piping import (
     Fitting,
@@ -43,6 +50,19 @@ from .piping import (
     PipeMaterial,
     PipeSchedule,
     PipingSegment,
+)
+from .ports import (
+    Port,
+    PortDirection,
+    create_heat_exchanger_ports,
+    create_junction_ports,
+    create_orifice_ports,
+    create_pump_ports,
+    create_reservoir_ports,
+    create_sprinkler_ports,
+    create_strainer_ports,
+    create_tank_ports,
+    create_valve_ports,
 )
 from .project import Project, ProjectMetadata, ProjectSettings
 from .pump import FlowEfficiencyPoint, FlowHeadPoint, NPSHRPoint, PumpCurve
@@ -64,6 +84,7 @@ __all__ = [
     "ComponentResult",
     "ComponentType",
     "Connection",
+    "ConnectionBuilder",
     "Diameter",
     "Elevation",
     "Fitting",
@@ -84,11 +105,14 @@ __all__ = [
     "NonNegativeInt",
     "OpenSolvePipeBaseModel",
     "Orifice",
+    "PipeConnection",
     "PipeDefinition",
     "PipeMaterial",
     "PipeSchedule",
     "PipingResult",
     "PipingSegment",
+    "Port",
+    "PortDirection",
     "PositiveFloat",
     "PositiveInt",
     "Pressure",
@@ -113,9 +137,22 @@ __all__ = [
     "Warning",
     "WarningCategory",
     "WarningSeverity",
+    "create_heat_exchanger_ports",
+    "create_junction_ports",
+    "create_orifice_ports",
+    "create_pump_ports",
+    "create_reservoir_ports",
+    "create_sprinkler_ports",
+    "create_strainer_ports",
+    "create_tank_ports",
+    "create_valve_ports",
+    "validate_connection",
+    "validate_port_direction_compatibility",
+    "validate_port_size_compatibility",
 ]
 
 # Rebuild models with forward references now that all models are defined
+PipeConnection.model_rebuild()
 Project.model_rebuild()
 
 MODEL_VERSION = "1.0.0"

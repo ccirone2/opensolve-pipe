@@ -25,6 +25,11 @@ export { default as StrainerForm } from './StrainerForm.svelte';
 export { default as ReferenceNodeForm } from './ReferenceNodeForm.svelte';
 export { default as PlugForm } from './PlugForm.svelte';
 
+// Branch components
+export { default as TeeBranchForm } from './TeeBranchForm.svelte';
+export { default as WyeBranchForm } from './WyeBranchForm.svelte';
+export { default as CrossBranchForm } from './CrossBranchForm.svelte';
+
 // Piping components
 export { default as PipeForm } from './PipeForm.svelte';
 export { default as FittingsTable } from './FittingsTable.svelte';

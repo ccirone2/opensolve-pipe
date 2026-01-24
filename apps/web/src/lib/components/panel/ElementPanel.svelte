@@ -14,6 +14,9 @@
 		isIdealReferenceNode,
 		isNonIdealReferenceNode,
 		isPlug,
+		isTeeBranch,
+		isWyeBranch,
+		isCrossBranch,
 		type Component
 	} from '$lib/models';
 	import {
@@ -27,7 +30,10 @@
 		OrificeForm,
 		SprinklerForm,
 		ReferenceNodeForm,
-		PlugForm
+		PlugForm,
+		TeeBranchForm,
+		WyeBranchForm,
+		CrossBranchForm
 	} from '$lib/components/forms';
 
 	interface Props {
@@ -107,6 +113,12 @@
 			<ReferenceNodeForm {component} onUpdate={updateField} />
 		{:else if isPlug(component)}
 			<PlugForm {component} onUpdate={updateField} />
+		{:else if isTeeBranch(component)}
+			<TeeBranchForm {component} onUpdate={updateField} />
+		{:else if isWyeBranch(component)}
+			<WyeBranchForm {component} onUpdate={updateField} />
+		{:else if isCrossBranch(component)}
+			<CrossBranchForm {component} onUpdate={updateField} />
 		{/if}
 	</div>
 

@@ -42,6 +42,9 @@ class ComponentType(str, Enum):
     IDEAL_REFERENCE_NODE = "ideal_reference_node"
     NON_IDEAL_REFERENCE_NODE = "non_ideal_reference_node"
     PLUG = "plug"
+    TEE_BRANCH = "tee_branch"
+    WYE_BRANCH = "wye_branch"
+    CROSS_BRANCH = "cross_branch"
 
 
 class ValveType(str, Enum):
@@ -303,6 +306,7 @@ class Sprinkler(BaseComponent):
         return self
 
 
+from .branch import CrossBranch, TeeBranch, WyeBranch  # noqa: E402
 from .plug import Plug  # noqa: E402
 from .reference_node import IdealReferenceNode, NonIdealReferenceNode  # noqa: E402
 
@@ -319,6 +323,9 @@ Component = Annotated[
     | Sprinkler
     | IdealReferenceNode
     | NonIdealReferenceNode
-    | Plug,
+    | Plug
+    | TeeBranch
+    | WyeBranch
+    | CrossBranch,
     Field(discriminator="type"),
 ]

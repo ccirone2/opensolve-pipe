@@ -19,6 +19,17 @@ from .base import (
     Temperature,
     Velocity,
 )
+from .branch import (
+    BaseBranch,
+    Branch,
+    BranchType,
+    CrossBranch,
+    TeeBranch,
+    WyeBranch,
+    create_cross_ports,
+    create_tee_ports,
+    create_wye_ports,
+)
 from .components import (
     BaseComponent,
     Component,
@@ -89,13 +100,17 @@ from .results import (
 from .units import SolverOptions, UnitPreferences, UnitSystem
 
 __all__ = [
+    "BaseBranch",
     "BaseComponent",
     "BaseReferenceNode",
+    "Branch",
+    "BranchType",
     "Component",
     "ComponentResult",
     "ComponentType",
     "Connection",
     "ConnectionBuilder",
+    "CrossBranch",
     "Diameter",
     "Elevation",
     "Fitting",
@@ -145,6 +160,7 @@ __all__ = [
     "Sprinkler",
     "Strainer",
     "Tank",
+    "TeeBranch",
     "Temperature",
     "UnitPreferences",
     "UnitSystem",
@@ -154,6 +170,8 @@ __all__ = [
     "Warning",
     "WarningCategory",
     "WarningSeverity",
+    "WyeBranch",
+    "create_cross_ports",
     "create_heat_exchanger_ports",
     "create_junction_ports",
     "create_orifice_ports",
@@ -164,7 +182,9 @@ __all__ = [
     "create_sprinkler_ports",
     "create_strainer_ports",
     "create_tank_ports",
+    "create_tee_ports",
     "create_valve_ports",
+    "create_wye_ports",
     "validate_connection",
     "validate_port_direction_compatibility",
     "validate_port_size_compatibility",

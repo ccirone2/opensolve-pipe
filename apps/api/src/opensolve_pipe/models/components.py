@@ -39,6 +39,9 @@ class ComponentType(str, Enum):
     STRAINER = "strainer"
     ORIFICE = "orifice"
     SPRINKLER = "sprinkler"
+    IDEAL_REFERENCE_NODE = "ideal_reference_node"
+    NON_IDEAL_REFERENCE_NODE = "non_ideal_reference_node"
+    PLUG = "plug"
 
 
 class ValveType(str, Enum):
@@ -300,6 +303,9 @@ class Sprinkler(BaseComponent):
         return self
 
 
+from .plug import Plug  # noqa: E402
+from .reference_node import IdealReferenceNode, NonIdealReferenceNode  # noqa: E402
+
 # Discriminated union for all component types
 Component = Annotated[
     Reservoir
@@ -310,6 +316,9 @@ Component = Annotated[
     | HeatExchanger
     | Strainer
     | Orifice
-    | Sprinkler,
+    | Sprinkler
+    | IdealReferenceNode
+    | NonIdealReferenceNode
+    | Plug,
     Field(discriminator="type"),
 ]

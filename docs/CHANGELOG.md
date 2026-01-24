@@ -56,6 +56,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Backend (API)
+
+- **Port-Based Architecture** (PR #64)
+  - Port model with id, nominal_size, and direction (inlet/outlet/bidirectional)
+  - PipeConnection model for explicit port-to-port connections
+  - Port factory functions for all component types
+  - Connection validation (size compatibility, direction checks)
+
+- **Reference Node Components** (PR #65)
+  - IdealReferenceNode: Fixed pressure boundary condition
+  - NonIdealReferenceNode: Pressure-flow curve boundary with interpolation
+  - FlowPressurePoint model for curve data
+
+- **Plug/Cap Component** (PR #65)
+  - Dead-end boundary condition (zero flow)
+  - Single port with configurable size
+
+- **Branch Components** (PR #66)
+  - TeeBranch: 90° fitting with run_inlet, run_outlet, branch ports
+  - WyeBranch: Angled fitting (22.5-60°) for smoother flow transitions
+  - CrossBranch: Four-way fitting with perpendicular branches
+  - Configurable port sizes for reduced-size branches
+
+#### Frontend (Web)
+
+- **Port Connection Models** (PR #67)
+  - Port and PortDirection types matching backend
+  - PipeConnection type for port-based connections
+  - Port factory functions for all component types (14 functions)
+  - Type guards for new component types
+  - Project store connection management (add/remove/update)
+
+- **Reference Node Forms** (PR #68)
+  - ReferenceNodeForm for ideal and non-ideal nodes
+  - Pressure-flow curve editor table for non-ideal nodes
+  - PlugForm for dead-end configuration
+
+- **Branch Component Forms** (PR #69)
+  - TeeBranchForm with angle and port size configuration
+  - WyeBranchForm with angled branch visualization
+  - CrossBranchForm with four-way port configuration
+  - Visual SVG diagrams showing port arrangement
+  - Validation warnings for unusual configurations
+
 ### Changed
 
 - **BREAKING:** Renamed "Nodes/Links" terminology to "Components/Piping" per ADR-006
@@ -65,9 +111,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `link_results` → `piping_results`
   - UI tabs renamed from "Nodes"/"Links" to "Components"/"Piping"
 
+- Component categories reorganized:
+  - Sources: reservoir, tank, ideal_reference_node, non_ideal_reference_node
+  - Connections: junction, tee_branch, wye_branch, cross_branch, plug
+  - Equipment: pump, valve, heat_exchanger, strainer, orifice, sprinkler
+
 ### Planned Features
 
-- Branching network support
 - Looped network support (EPANET integration)
 - Server-side project storage for large projects
 - Pump curve digitization from images

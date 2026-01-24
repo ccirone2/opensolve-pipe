@@ -51,6 +51,7 @@ from .piping import (
     PipeSchedule,
     PipingSegment,
 )
+from .plug import Plug, create_plug_port
 from .ports import (
     Port,
     PortDirection,
@@ -66,6 +67,15 @@ from .ports import (
 )
 from .project import Project, ProjectMetadata, ProjectSettings
 from .pump import FlowEfficiencyPoint, FlowHeadPoint, NPSHRPoint, PumpCurve
+from .reference_node import (
+    BaseReferenceNode,
+    FlowPressurePoint,
+    IdealReferenceNode,
+    NonIdealReferenceNode,
+    ReferenceNode,
+    ReferenceType,
+    create_reference_node_port,
+)
 from .results import (
     ComponentResult,
     FlowRegime,
@@ -80,6 +90,7 @@ from .units import SolverOptions, UnitPreferences, UnitSystem
 
 __all__ = [
     "BaseComponent",
+    "BaseReferenceNode",
     "Component",
     "ComponentResult",
     "ComponentType",
@@ -92,15 +103,18 @@ __all__ = [
     "Flow",
     "FlowEfficiencyPoint",
     "FlowHeadPoint",
+    "FlowPressurePoint",
     "FlowRegime",
     "FluidDefinition",
     "FluidProperties",
     "FluidType",
     "Head",
     "HeatExchanger",
+    "IdealReferenceNode",
     "Junction",
     "Length",
     "NPSHRPoint",
+    "NonIdealReferenceNode",
     "NonNegativeFloat",
     "NonNegativeInt",
     "OpenSolvePipeBaseModel",
@@ -111,6 +125,7 @@ __all__ = [
     "PipeSchedule",
     "PipingResult",
     "PipingSegment",
+    "Plug",
     "Port",
     "PortDirection",
     "PositiveFloat",
@@ -122,6 +137,8 @@ __all__ = [
     "PumpComponent",
     "PumpCurve",
     "PumpResult",
+    "ReferenceNode",
+    "ReferenceType",
     "Reservoir",
     "SolvedState",
     "SolverOptions",
@@ -140,7 +157,9 @@ __all__ = [
     "create_heat_exchanger_ports",
     "create_junction_ports",
     "create_orifice_ports",
+    "create_plug_port",
     "create_pump_ports",
+    "create_reference_node_port",
     "create_reservoir_ports",
     "create_sprinkler_ports",
     "create_strainer_ports",

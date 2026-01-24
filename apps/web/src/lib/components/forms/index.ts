@@ -21,6 +21,10 @@ export { default as ValveForm } from './ValveForm.svelte';
 export { default as HeatExchangerForm } from './HeatExchangerForm.svelte';
 export { default as StrainerForm } from './StrainerForm.svelte';
 
+// Boundary components
+export { default as ReferenceNodeForm } from './ReferenceNodeForm.svelte';
+export { default as PlugForm } from './PlugForm.svelte';
+
 // Piping components
 export { default as PipeForm } from './PipeForm.svelte';
 export { default as FittingsTable } from './FittingsTable.svelte';

@@ -59,6 +59,9 @@ export {
 
 // Components
 export type {
+	PortDirection,
+	Port,
+	PipeConnection,
 	ComponentType,
 	ValveType,
 	Connection,
@@ -71,6 +74,13 @@ export type {
 	Strainer,
 	Orifice,
 	Sprinkler,
+	FlowPressurePoint,
+	IdealReferenceNode,
+	NonIdealReferenceNode,
+	Plug,
+	TeeBranch,
+	WyeBranch,
+	CrossBranch,
 	Component
 } from './components';
 export {
@@ -87,10 +97,31 @@ export {
 	isStrainer,
 	isOrifice,
 	isSprinkler,
+	isIdealReferenceNode,
+	isNonIdealReferenceNode,
+	isPlug,
+	isTeeBranch,
+	isWyeBranch,
+	isCrossBranch,
 	isNodeComponent,
 	isLinkComponent,
 	getReservoirTotalHead,
 	generateComponentId,
+	getDefaultPorts,
+	createReservoirPorts,
+	createTankPorts,
+	createJunctionPorts,
+	createPumpPorts,
+	createValvePorts,
+	createHeatExchangerPorts,
+	createStrainerPorts,
+	createOrificePorts,
+	createSprinklerPorts,
+	createReferenceNodePorts,
+	createPlugPorts,
+	createTeePorts,
+	createWyePorts,
+	createCrossPorts,
 	createDefaultComponent
 } from './components';
 
@@ -121,15 +152,22 @@ export {
 export type { ProjectMetadata, ProjectSettings, Project } from './project';
 export {
 	generateProjectId,
+	generateConnectionId,
 	createDefaultMetadata,
 	createDefaultSettings,
 	createNewProject,
 	getComponentById,
 	getPumpCurveById,
+	getConnectionById,
+	getConnectionsFromComponent,
+	getConnectionsToComponent,
+	getConnectionsForPort,
 	validateComponentIds,
 	validateConnectionReferences,
 	validatePumpCurveIds,
 	validatePumpCurveReferences,
+	validatePipeConnectionIds,
+	validatePipeConnectionReferences,
 	validateProject,
 	touchProject,
 	branchProject

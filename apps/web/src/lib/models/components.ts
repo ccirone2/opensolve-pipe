@@ -5,6 +5,43 @@
 
 import type { PipingSegment } from './piping';
 
+// ============================================================================
+// Port Types
+// ============================================================================
+
+/** Direction of flow through a port. */
+export type PortDirection = 'inlet' | 'outlet' | 'bidirectional';
+
+/** A connection port on a component. */
+export interface Port {
+	/** Unique port identifier within the component. */
+	id: string;
+	/** Nominal port size in project units (typically inches). */
+	nominal_size: number;
+	/** Flow direction constraint for this port. */
+	direction: PortDirection;
+}
+
+/** Port-based connection between two components. */
+export interface PipeConnection {
+	/** Unique connection identifier. */
+	id: string;
+	/** Source component ID. */
+	from_component_id: string;
+	/** Source port ID on the from_component. */
+	from_port_id: string;
+	/** Target component ID. */
+	to_component_id: string;
+	/** Target port ID on the to_component. */
+	to_port_id: string;
+	/** Piping segment for this connection. */
+	piping?: PipingSegment;
+}
+
+// ============================================================================
+// Component Types
+// ============================================================================
+
 /** Types of network components. */
 export type ComponentType =
 	| 'reservoir'
@@ -15,7 +52,13 @@ export type ComponentType =
 	| 'heat_exchanger'
 	| 'strainer'
 	| 'orifice'
-	| 'sprinkler';
+	| 'sprinkler'
+	| 'ideal_reference_node'
+	| 'non_ideal_reference_node'
+	| 'plug'
+	| 'tee_branch'
+	| 'wye_branch'
+	| 'cross_branch';
 
 /** Display names for component types. */
 export const COMPONENT_TYPE_LABELS: Record<ComponentType, string> = {
@@ -27,7 +70,13 @@ export const COMPONENT_TYPE_LABELS: Record<ComponentType, string> = {
 	heat_exchanger: 'Heat Exchanger',
 	strainer: 'Strainer',
 	orifice: 'Orifice',
-	sprinkler: 'Sprinkler'
+	sprinkler: 'Sprinkler',
+	ideal_reference_node: 'Reference Node (Ideal)',
+	non_ideal_reference_node: 'Reference Node (Non-Ideal)',
+	plug: 'Plug/Cap',
+	tee_branch: 'Tee Branch',
+	wye_branch: 'Wye Branch',
+	cross_branch: 'Cross Branch'
 };
 
 /**
@@ -36,17 +85,9 @@ export const COMPONENT_TYPE_LABELS: Record<ComponentType, string> = {
  * See ADR-006 in docs/DECISIONS.md for rationale.
  */
 export const COMPONENT_CATEGORIES = {
-	Equipment: [
-		'reservoir',
-		'tank',
-		'junction',
-		'pump',
-		'valve',
-		'heat_exchanger',
-		'strainer',
-		'orifice',
-		'sprinkler'
-	] as ComponentType[]
+	Sources: ['reservoir', 'tank', 'ideal_reference_node', 'non_ideal_reference_node'] as ComponentType[],
+	Connections: ['junction', 'tee_branch', 'wye_branch', 'cross_branch', 'plug'] as ComponentType[],
+	Equipment: ['pump', 'valve', 'heat_exchanger', 'strainer', 'orifice', 'sprinkler'] as ComponentType[]
 };
 
 /** Types of control valves. */
@@ -97,9 +138,11 @@ interface BaseComponentProps {
 	name: string;
 	/** Component elevation (can be negative). */
 	elevation: number;
-	/** Piping from upstream component. */
+	/** Connection ports for this component. */
+	ports: Port[];
+	/** Piping from upstream component (deprecated, use connections). */
 	upstream_piping?: PipingSegment;
-	/** Connections to downstream components. */
+	/** Connections to downstream components (deprecated, use Project.connections). */
 	downstream_connections: Connection[];
 }
 
@@ -192,6 +235,66 @@ export interface Sprinkler extends BaseComponentProps {
 	design_pressure?: number;
 }
 
+// ============================================================================
+// Reference Node Types
+// ============================================================================
+
+/** A point on a pressure-flow curve for non-ideal reference nodes. */
+export interface FlowPressurePoint {
+	/** Flow rate in project units. */
+	flow: number;
+	/** Pressure at this flow in project units. */
+	pressure: number;
+}
+
+/** Ideal reference node with constant pressure. */
+export interface IdealReferenceNode extends BaseComponentProps {
+	type: 'ideal_reference_node';
+	/** Fixed pressure in project units. */
+	pressure: number;
+}
+
+/** Non-ideal reference node with pressure that varies with flow. */
+export interface NonIdealReferenceNode extends BaseComponentProps {
+	type: 'non_ideal_reference_node';
+	/** Pressure-flow curve defining boundary behavior. */
+	pressure_flow_curve: FlowPressurePoint[];
+	/** Maximum flow capacity (optional). */
+	max_flow?: number;
+}
+
+// ============================================================================
+// Plug Type
+// ============================================================================
+
+/** Plug/Cap component for dead-end boundary conditions. */
+export interface Plug extends BaseComponentProps {
+	type: 'plug';
+}
+
+// ============================================================================
+// Branch Types
+// ============================================================================
+
+/** Tee branch for 90° flow splitting/combining. */
+export interface TeeBranch extends BaseComponentProps {
+	type: 'tee_branch';
+	/** Branch angle in degrees (45-90, standard tee is 90°). */
+	branch_angle: number;
+}
+
+/** Wye branch for angled flow splitting/combining. */
+export interface WyeBranch extends BaseComponentProps {
+	type: 'wye_branch';
+	/** Branch angle in degrees (22.5-60, common values: 45°, 60°). */
+	branch_angle: number;
+}
+
+/** Cross fitting for four-way flow distribution. */
+export interface CrossBranch extends BaseComponentProps {
+	type: 'cross_branch';
+}
+
 /** Discriminated union for all component types. */
 export type Component =
 	| Reservoir
@@ -202,7 +305,13 @@ export type Component =
 	| HeatExchanger
 	| Strainer
 	| Orifice
-	| Sprinkler;
+	| Sprinkler
+	| IdealReferenceNode
+	| NonIdealReferenceNode
+	| Plug
+	| TeeBranch
+	| WyeBranch
+	| CrossBranch;
 
 // Type guards for component discrimination
 
@@ -251,6 +360,36 @@ export function isSprinkler(component: Component): component is Sprinkler {
 	return component.type === 'sprinkler';
 }
 
+/** Type guard for IdealReferenceNode. */
+export function isIdealReferenceNode(component: Component): component is IdealReferenceNode {
+	return component.type === 'ideal_reference_node';
+}
+
+/** Type guard for NonIdealReferenceNode. */
+export function isNonIdealReferenceNode(component: Component): component is NonIdealReferenceNode {
+	return component.type === 'non_ideal_reference_node';
+}
+
+/** Type guard for Plug. */
+export function isPlug(component: Component): component is Plug {
+	return component.type === 'plug';
+}
+
+/** Type guard for TeeBranch. */
+export function isTeeBranch(component: Component): component is TeeBranch {
+	return component.type === 'tee_branch';
+}
+
+/** Type guard for WyeBranch. */
+export function isWyeBranch(component: Component): component is WyeBranch {
+	return component.type === 'wye_branch';
+}
+
+/** Type guard for CrossBranch. */
+export function isCrossBranch(component: Component): component is CrossBranch {
+	return component.type === 'cross_branch';
+}
+
 /**
  * @deprecated Use COMPONENT_CATEGORIES.Equipment instead.
  * Legacy function - all components are now considered equipment.
@@ -283,12 +422,150 @@ export function generateComponentId(): string {
 	return `comp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
+// ============================================================================
+// Port Factory Functions
+// ============================================================================
+
+/** Create default ports for a reservoir. */
+export function createReservoirPorts(size: number = 4.0): Port[] {
+	return [{ id: 'outlet_1', nominal_size: size, direction: 'bidirectional' }];
+}
+
+/** Create default ports for a tank. */
+export function createTankPorts(size: number = 4.0): Port[] {
+	return [{ id: 'port_1', nominal_size: size, direction: 'bidirectional' }];
+}
+
+/** Create default ports for a junction. */
+export function createJunctionPorts(size: number = 4.0): Port[] {
+	return [{ id: 'port_1', nominal_size: size, direction: 'bidirectional' }];
+}
+
+/** Create default ports for a pump. */
+export function createPumpPorts(suctionSize: number = 4.0, dischargeSize: number = 4.0): Port[] {
+	return [
+		{ id: 'suction', nominal_size: suctionSize, direction: 'inlet' },
+		{ id: 'discharge', nominal_size: dischargeSize, direction: 'outlet' }
+	];
+}
+
+/** Create default ports for a valve. */
+export function createValvePorts(size: number = 4.0): Port[] {
+	return [
+		{ id: 'inlet', nominal_size: size, direction: 'inlet' },
+		{ id: 'outlet', nominal_size: size, direction: 'outlet' }
+	];
+}
+
+/** Create default ports for a heat exchanger. */
+export function createHeatExchangerPorts(size: number = 4.0): Port[] {
+	return [
+		{ id: 'inlet', nominal_size: size, direction: 'inlet' },
+		{ id: 'outlet', nominal_size: size, direction: 'outlet' }
+	];
+}
+
+/** Create default ports for a strainer. */
+export function createStrainerPorts(size: number = 4.0): Port[] {
+	return [
+		{ id: 'inlet', nominal_size: size, direction: 'inlet' },
+		{ id: 'outlet', nominal_size: size, direction: 'outlet' }
+	];
+}
+
+/** Create default ports for an orifice. */
+export function createOrificePorts(size: number = 4.0): Port[] {
+	return [
+		{ id: 'inlet', nominal_size: size, direction: 'inlet' },
+		{ id: 'outlet', nominal_size: size, direction: 'outlet' }
+	];
+}
+
+/** Create default ports for a sprinkler. */
+export function createSprinklerPorts(size: number = 1.0): Port[] {
+	return [{ id: 'inlet', nominal_size: size, direction: 'inlet' }];
+}
+
+/** Create default ports for a reference node. */
+export function createReferenceNodePorts(size: number = 4.0): Port[] {
+	return [{ id: 'port_1', nominal_size: size, direction: 'bidirectional' }];
+}
+
+/** Create default ports for a plug. */
+export function createPlugPorts(size: number = 4.0): Port[] {
+	return [{ id: 'port_1', nominal_size: size, direction: 'bidirectional' }];
+}
+
+/** Create default ports for a tee branch. */
+export function createTeePorts(runSize: number = 4.0, branchSize?: number): Port[] {
+	return [
+		{ id: 'run_inlet', nominal_size: runSize, direction: 'bidirectional' },
+		{ id: 'run_outlet', nominal_size: runSize, direction: 'bidirectional' },
+		{ id: 'branch', nominal_size: branchSize ?? runSize, direction: 'bidirectional' }
+	];
+}
+
+/** Create default ports for a wye branch. */
+export function createWyePorts(runSize: number = 4.0, branchSize?: number): Port[] {
+	return [
+		{ id: 'run_inlet', nominal_size: runSize, direction: 'bidirectional' },
+		{ id: 'run_outlet', nominal_size: runSize, direction: 'bidirectional' },
+		{ id: 'branch', nominal_size: branchSize ?? runSize, direction: 'bidirectional' }
+	];
+}
+
+/** Create default ports for a cross branch. */
+export function createCrossPorts(mainSize: number = 4.0, branchSize?: number): Port[] {
+	return [
+		{ id: 'run_inlet', nominal_size: mainSize, direction: 'bidirectional' },
+		{ id: 'run_outlet', nominal_size: mainSize, direction: 'bidirectional' },
+		{ id: 'branch_1', nominal_size: branchSize ?? mainSize, direction: 'bidirectional' },
+		{ id: 'branch_2', nominal_size: branchSize ?? mainSize, direction: 'bidirectional' }
+	];
+}
+
+/** Get default ports for a component type. */
+export function getDefaultPorts(type: ComponentType): Port[] {
+	switch (type) {
+		case 'reservoir':
+			return createReservoirPorts();
+		case 'tank':
+			return createTankPorts();
+		case 'junction':
+			return createJunctionPorts();
+		case 'pump':
+			return createPumpPorts();
+		case 'valve':
+			return createValvePorts();
+		case 'heat_exchanger':
+			return createHeatExchangerPorts();
+		case 'strainer':
+			return createStrainerPorts();
+		case 'orifice':
+			return createOrificePorts();
+		case 'sprinkler':
+			return createSprinklerPorts();
+		case 'ideal_reference_node':
+		case 'non_ideal_reference_node':
+			return createReferenceNodePorts();
+		case 'plug':
+			return createPlugPorts();
+		case 'tee_branch':
+			return createTeePorts();
+		case 'wye_branch':
+			return createWyePorts();
+		case 'cross_branch':
+			return createCrossPorts();
+	}
+}
+
 /** Create a default component of the specified type. */
 export function createDefaultComponent(type: ComponentType, id?: string): Component {
 	const baseProps: BaseComponentProps = {
 		id: id ?? generateComponentId(),
 		name: `New ${COMPONENT_TYPE_LABELS[type]}`,
 		elevation: 0,
+		ports: getDefaultPorts(type),
 		downstream_connections: []
 	};
 
@@ -323,5 +600,24 @@ export function createDefaultComponent(type: ComponentType, id?: string): Compon
 			};
 		case 'sprinkler':
 			return { ...baseProps, type: 'sprinkler', k_factor: 5.6 };
+		case 'ideal_reference_node':
+			return { ...baseProps, type: 'ideal_reference_node', pressure: 50 };
+		case 'non_ideal_reference_node':
+			return {
+				...baseProps,
+				type: 'non_ideal_reference_node',
+				pressure_flow_curve: [
+					{ flow: 0, pressure: 60 },
+					{ flow: 100, pressure: 50 }
+				]
+			};
+		case 'plug':
+			return { ...baseProps, type: 'plug' };
+		case 'tee_branch':
+			return { ...baseProps, type: 'tee_branch', branch_angle: 90 };
+		case 'wye_branch':
+			return { ...baseProps, type: 'wye_branch', branch_angle: 45 };
+		case 'cross_branch':
+			return { ...baseProps, type: 'cross_branch' };
 	}
 }

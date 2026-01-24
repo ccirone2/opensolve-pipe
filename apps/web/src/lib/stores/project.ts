@@ -11,12 +11,14 @@ import type {
 	PumpCurve,
 	SolvedState,
 	Connection,
-	PipingSegment
+	PipingSegment,
+	PipeConnection
 } from '$lib/models';
 import {
 	createNewProject,
 	touchProject,
 	generateComponentId,
+	generateConnectionId,
 	createDefaultComponent
 } from '$lib/models';
 import { historyStore } from './history';
@@ -357,6 +359,70 @@ function createProjectStore() {
 			}));
 		},
 
+		// ========================================================================
+		// Port-Based Connection Management
+		// ========================================================================
+
+		/**
+		 * Add a port-based connection between components.
+		 */
+		addPipeConnection(
+			fromComponentId: string,
+			fromPortId: string,
+			toComponentId: string,
+			toPortId: string,
+			piping?: PipingSegment
+		): string {
+			const id = generateConnectionId();
+			const connection: PipeConnection = {
+				id,
+				from_component_id: fromComponentId,
+				from_port_id: fromPortId,
+				to_component_id: toComponentId,
+				to_port_id: toPortId,
+				piping
+			};
+
+			updateWithHistory('Add connection', (project) => ({
+				...project,
+				connections: [...project.connections, connection]
+			}));
+
+			return id;
+		},
+
+		/**
+		 * Remove a port-based connection by ID.
+		 */
+		removePipeConnection(connectionId: string) {
+			updateWithHistory('Remove connection', (project) => ({
+				...project,
+				connections: project.connections.filter((c) => c.id !== connectionId)
+			}));
+		},
+
+		/**
+		 * Update a port-based connection's piping.
+		 */
+		updatePipeConnectionPiping(connectionId: string, piping: PipingSegment | undefined) {
+			updateWithHistory('Update connection piping', (project) => ({
+				...project,
+				connections: project.connections.map((c) =>
+					c.id === connectionId ? { ...c, piping } : c
+				)
+			}));
+		},
+
+		/**
+		 * Get all connections for a component.
+		 */
+		getConnectionsForComponent(componentId: string): PipeConnection[] {
+			const project = get(store);
+			return project.connections.filter(
+				(c) => c.from_component_id === componentId || c.to_component_id === componentId
+			);
+		},
+
 		/**
 		 * Set solved state (results).
 		 */
@@ -454,6 +520,12 @@ export const components: Readable<Component[]> = derived(
 export const pumpLibrary: Readable<PumpCurve[]> = derived(
 	projectStore,
 	($project) => $project.pump_library
+);
+
+/** Derived store for port-based connections. */
+export const connections: Readable<PipeConnection[]> = derived(
+	projectStore,
+	($project) => $project.connections
 );
 
 /** Derived store for fluid definition. */

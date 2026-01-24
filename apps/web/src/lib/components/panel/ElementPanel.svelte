@@ -11,6 +11,9 @@
 		isStrainer,
 		isOrifice,
 		isSprinkler,
+		isIdealReferenceNode,
+		isNonIdealReferenceNode,
+		isPlug,
 		type Component
 	} from '$lib/models';
 	import {
@@ -22,7 +25,9 @@
 		HeatExchangerForm,
 		StrainerForm,
 		OrificeForm,
-		SprinklerForm
+		SprinklerForm,
+		ReferenceNodeForm,
+		PlugForm
 	} from '$lib/components/forms';
 
 	interface Props {
@@ -98,6 +103,10 @@
 			<OrificeForm {component} onUpdate={updateField} />
 		{:else if isSprinkler(component)}
 			<SprinklerForm {component} onUpdate={updateField} />
+		{:else if isIdealReferenceNode(component) || isNonIdealReferenceNode(component)}
+			<ReferenceNodeForm {component} onUpdate={updateField} />
+		{:else if isPlug(component)}
+			<PlugForm {component} onUpdate={updateField} />
 		{/if}
 	</div>
 

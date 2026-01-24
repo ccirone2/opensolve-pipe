@@ -3,7 +3,7 @@
 from enum import Enum
 from typing import Annotated, Literal
 
-from pydantic import Field, ValidationInfo, field_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 
 from .base import (
     Elevation,
@@ -12,6 +12,19 @@ from .base import (
     PositiveFloat,
 )
 from .piping import PipingSegment
+from .ports import (
+    Port,
+    PortDirection,
+    create_heat_exchanger_ports,
+    create_junction_ports,
+    create_orifice_ports,
+    create_pump_ports,
+    create_reservoir_ports,
+    create_sprinkler_ports,
+    create_strainer_ports,
+    create_tank_ports,
+    create_valve_ports,
+)
 
 
 class ComponentType(str, Enum):
@@ -60,12 +73,40 @@ class BaseComponent(OpenSolvePipeBaseModel):
     type: ComponentType = Field(description="Component type discriminator")
     name: str = Field(description="Display name")
     elevation: Elevation = Field(description="Component elevation (can be negative)")
+    ports: list[Port] = Field(
+        default_factory=list,
+        description="Connection ports for this component",
+    )
     upstream_piping: PipingSegment | None = Field(
-        default=None, description="Piping from upstream component"
+        default=None, description="Piping from upstream component (deprecated)"
     )
     downstream_connections: list[Connection] = Field(
-        default_factory=list, description="Connections to downstream components"
+        default_factory=list,
+        description="Connections to downstream components (deprecated, use Project.connections)",
     )
+
+    def get_port(self, port_id: str) -> Port | None:
+        """Get a port by ID."""
+        for port in self.ports:
+            if port.id == port_id:
+                return port
+        return None
+
+    def get_inlet_ports(self) -> list[Port]:
+        """Get all inlet ports."""
+        return [
+            p
+            for p in self.ports
+            if p.direction in (PortDirection.INLET, PortDirection.BIDIRECTIONAL)
+        ]
+
+    def get_outlet_ports(self) -> list[Port]:
+        """Get all outlet ports."""
+        return [
+            p
+            for p in self.ports
+            if p.direction in (PortDirection.OUTLET, PortDirection.BIDIRECTIONAL)
+        ]
 
 
 class Reservoir(BaseComponent):
@@ -75,6 +116,13 @@ class Reservoir(BaseComponent):
     water_level: NonNegativeFloat = Field(
         description="Water level above reservoir bottom"
     )
+
+    @model_validator(mode="after")
+    def set_default_ports(self) -> "Reservoir":
+        """Set default ports if not provided."""
+        if not self.ports:
+            self.ports = create_reservoir_ports()
+        return self
 
     @property
     def total_head(self) -> float:
@@ -106,6 +154,13 @@ class Tank(BaseComponent):
             )
         return v
 
+    @model_validator(mode="after")
+    def set_default_ports(self) -> "Tank":
+        """Set default ports if not provided."""
+        if not self.ports:
+            self.ports = create_tank_ports()
+        return self
+
 
 class Junction(BaseComponent):
     """Connection point, optionally with demand."""
@@ -114,6 +169,13 @@ class Junction(BaseComponent):
     demand: NonNegativeFloat = Field(
         default=0.0, description="Flow demand withdrawn at this junction"
     )
+
+    @model_validator(mode="after")
+    def set_default_ports(self) -> "Junction":
+        """Set default ports if not provided."""
+        if not self.ports:
+            self.ports = create_junction_ports()
+        return self
 
 
 class PumpComponent(BaseComponent):
@@ -125,6 +187,13 @@ class PumpComponent(BaseComponent):
         default=1.0, description="Fraction of rated speed (1.0 = 100%)"
     )
     status: Literal["on", "off"] = Field(default="on", description="Pump status")
+
+    @model_validator(mode="after")
+    def set_default_ports(self) -> "PumpComponent":
+        """Set default ports if not provided."""
+        if not self.ports:
+            self.ports = create_pump_ports()
+        return self
 
 
 class ValveComponent(BaseComponent):
@@ -146,6 +215,13 @@ class ValveComponent(BaseComponent):
         default=None, description="Valve Cv coefficient (optional, for detailed model)"
     )
 
+    @model_validator(mode="after")
+    def set_default_ports(self) -> "ValveComponent":
+        """Set default ports if not provided."""
+        if not self.ports:
+            self.ports = create_valve_ports()
+        return self
+
 
 class HeatExchanger(BaseComponent):
     """Heat exchanger with known pressure drop."""
@@ -157,6 +233,13 @@ class HeatExchanger(BaseComponent):
     design_flow: PositiveFloat = Field(
         description="Design flow rate (in project units)"
     )
+
+    @model_validator(mode="after")
+    def set_default_ports(self) -> "HeatExchanger":
+        """Set default ports if not provided."""
+        if not self.ports:
+            self.ports = create_heat_exchanger_ports()
+        return self
 
 
 class Strainer(BaseComponent):
@@ -173,6 +256,13 @@ class Strainer(BaseComponent):
         default=None, description="Design flow for fixed pressure drop"
     )
 
+    @model_validator(mode="after")
+    def set_default_ports(self) -> "Strainer":
+        """Set default ports if not provided."""
+        if not self.ports:
+            self.ports = create_strainer_ports()
+        return self
+
 
 class Orifice(BaseComponent):
     """Orifice plate for flow measurement or restriction."""
@@ -182,6 +272,13 @@ class Orifice(BaseComponent):
     discharge_coefficient: PositiveFloat = Field(
         default=0.62, description="Discharge coefficient (Cd)"
     )
+
+    @model_validator(mode="after")
+    def set_default_ports(self) -> "Orifice":
+        """Set default ports if not provided."""
+        if not self.ports:
+            self.ports = create_orifice_ports()
+        return self
 
 
 class Sprinkler(BaseComponent):
@@ -194,6 +291,13 @@ class Sprinkler(BaseComponent):
     design_pressure: PositiveFloat | None = Field(
         default=None, description="Design operating pressure"
     )
+
+    @model_validator(mode="after")
+    def set_default_ports(self) -> "Sprinkler":
+        """Set default ports if not provided."""
+        if not self.ports:
+            self.ports = create_sprinkler_ports()
+        return self
 
 
 # Discriminated union for all component types

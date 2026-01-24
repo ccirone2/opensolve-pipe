@@ -10,6 +10,10 @@ from pydantic import Field, field_validator, model_validator
 
 from .base import OpenSolvePipeBaseModel
 from .components import Component, PumpComponent
+from .connections import (
+    PipeConnection,
+    validate_port_direction_compatibility,
+)
 from .fluids import FluidDefinition
 from .units import SolverOptions, UnitPreferences
 
@@ -68,6 +72,10 @@ class Project(OpenSolvePipeBaseModel):
     components: list[Component] = Field(
         default_factory=list, description="Network components"
     )
+    connections: list[PipeConnection] = Field(
+        default_factory=list,
+        description="Port-based pipe connections between components",
+    )
     pump_library: list[PumpCurve] = Field(
         default_factory=list, description="Available pump curves"
     )
@@ -124,6 +132,65 @@ class Project(OpenSolvePipeBaseModel):
                 )
         return self
 
+    @field_validator("connections")
+    @classmethod
+    def validate_connection_ids_unique(
+        cls, v: list[PipeConnection]
+    ) -> list[PipeConnection]:
+        """Ensure all connection IDs are unique."""
+        ids = [c.id for c in v]
+        if len(ids) != len(set(ids)):
+            duplicates = [id for id in ids if ids.count(id) > 1]
+            raise ValueError(f"Duplicate connection IDs: {set(duplicates)}")
+        return v
+
+    @model_validator(mode="after")
+    def validate_connection_references(self) -> Project:
+        """Validate that all connections reference valid components and ports."""
+        component_map = {c.id: c for c in self.components}
+
+        for conn in self.connections:
+            # Validate from component exists
+            if conn.from_component_id not in component_map:
+                raise ValueError(
+                    f"Connection '{conn.id}' references unknown "
+                    f"source component: '{conn.from_component_id}'"
+                )
+
+            # Validate to component exists
+            if conn.to_component_id not in component_map:
+                raise ValueError(
+                    f"Connection '{conn.id}' references unknown "
+                    f"target component: '{conn.to_component_id}'"
+                )
+
+            # Validate from port exists
+            from_component = component_map[conn.from_component_id]
+            from_port = from_component.get_port(conn.from_port_id)
+            if from_port is None:
+                raise ValueError(
+                    f"Connection '{conn.id}' references unknown port "
+                    f"'{conn.from_port_id}' on component '{conn.from_component_id}'"
+                )
+
+            # Validate to port exists
+            to_component = component_map[conn.to_component_id]
+            to_port = to_component.get_port(conn.to_port_id)
+            if to_port is None:
+                raise ValueError(
+                    f"Connection '{conn.id}' references unknown port "
+                    f"'{conn.to_port_id}' on component '{conn.to_component_id}'"
+                )
+
+            # Validate port direction compatibility
+            dir_valid, dir_error = validate_port_direction_compatibility(
+                from_port, to_port
+            )
+            if not dir_valid:
+                raise ValueError(f"Connection '{conn.id}': {dir_error}")
+
+        return self
+
     def get_component(self, component_id: str) -> Component | None:
         """Get a component by ID."""
         for component in self.components:
@@ -137,3 +204,29 @@ class Project(OpenSolvePipeBaseModel):
             if curve.id == curve_id:
                 return curve
         return None
+
+    def get_connection(self, connection_id: str) -> PipeConnection | None:
+        """Get a connection by ID."""
+        for conn in self.connections:
+            if conn.id == connection_id:
+                return conn
+        return None
+
+    def get_connections_from_component(self, component_id: str) -> list[PipeConnection]:
+        """Get all connections originating from a component."""
+        return [c for c in self.connections if c.from_component_id == component_id]
+
+    def get_connections_to_component(self, component_id: str) -> list[PipeConnection]:
+        """Get all connections targeting a component."""
+        return [c for c in self.connections if c.to_component_id == component_id]
+
+    def get_connections_for_port(
+        self, component_id: str, port_id: str
+    ) -> list[PipeConnection]:
+        """Get all connections involving a specific port."""
+        return [
+            c
+            for c in self.connections
+            if (c.from_component_id == component_id and c.from_port_id == port_id)
+            or (c.to_component_id == component_id and c.to_port_id == port_id)
+        ]

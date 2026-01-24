@@ -163,8 +163,8 @@
 			</nav>
 		</div>
 
-		<!-- Tab Content - fixed height container with scroll for consistent navigation button position -->
-		<div class="h-[400px] overflow-y-auto p-4">
+		<!-- Tab Content - flex container that grows to fill available space -->
+		<div class="min-h-0 flex-1 overflow-y-auto p-4">
 			{#if activeTab === 'element'}
 				<ElementPanel component={currentComponent} />
 			{:else if activeTab === 'upstream'}

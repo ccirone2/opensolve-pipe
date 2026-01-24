@@ -210,11 +210,11 @@
 		</div>
 	{/if}
 
-	<main id="main-content" class="flex-1">
+	<main id="main-content" class="flex min-h-0 flex-1 flex-col">
 		{#if viewMode === 'panel'}
 			<!-- Panel Navigator View -->
-			<div class="mx-auto max-w-4xl p-4">
-				<div class="mb-4">
+			<div class="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col p-4">
+				<div class="mb-4 flex-shrink-0">
 					{#if isEditingName}
 						<!-- svelte-ignore a11y_autofocus -->
 						<input
@@ -249,7 +249,9 @@
 						</button>
 					{/if}
 				</div>
-				<PanelNavigator />
+				<div class="min-h-0 flex-1">
+					<PanelNavigator />
+				</div>
 			</div>
 		{:else}
 			<!-- Results View -->

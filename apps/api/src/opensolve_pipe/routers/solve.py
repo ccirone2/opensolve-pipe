@@ -1,7 +1,6 @@
 """Solve API router for hydraulic network analysis."""
 
 from datetime import datetime
-from time import perf_counter
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -17,6 +16,7 @@ from ..models.results import (
 )
 from ..services.data import FluidNotFoundError, TemperatureOutOfRangeError
 from ..services.fluids import get_fluid_properties_with_units
+from ..services.solver.network import solve_project
 from ..services.solver.simple import SimpleSolverOptions, solve_pump_pipe_system
 
 router = APIRouter(prefix="/solve", tags=["solve"])
@@ -129,18 +129,21 @@ class SimpleSolveResponse(BaseModel):
     summary="Solve a project",
     description=(
         "Solve a complete hydraulic network project and return the solved state. "
-        "This endpoint currently supports simple single-path networks."
+        "Supports simple single-path networks and branching networks with tees, wyes, and crosses."
     ),
 )
-async def solve_project(project: Project) -> SolvedState:
+async def solve_project_endpoint(project: Project) -> SolvedState:
     """
     Solve a complete project.
 
     Takes a Project model with components, fluid definition, and settings,
     then performs hydraulic analysis to find the operating point.
 
-    Currently supports:
+    Supports:
     - Simple single-path networks (reservoir → pump → pipe → destination)
+    - Branching networks with tees, wyes, and crosses
+    - Multiple source types (reservoirs, tanks, reference nodes)
+    - Dead-end plugs
     - Water and other temperature-dependent fluids
     - Fixed-property fluids (diesel, gasoline, etc.)
 
@@ -150,37 +153,26 @@ async def solve_project(project: Project) -> SolvedState:
     - pump_results: Operating point and system curve data
     - warnings: Design check results and solver messages
 
-    Note: Full network solving is not yet implemented. This endpoint
-    will return a placeholder response for complex networks.
+    Note: Looped networks (with cycles) are not yet supported.
+    Use EPANET for complex looped networks.
     """
-    start_time = perf_counter()
-
-    # For now, return a placeholder solved state
-    # Full project solving will be implemented in a future issue
-    warnings = [
-        Warning(
-            category=WarningCategory.DATA,
-            severity=WarningSeverity.INFO,
-            message=(
-                "Full project solving not yet implemented. "
-                "Use POST /api/v1/solve/simple for pump-pipe systems."
-            ),
+    try:
+        result = solve_project(project)
+        return result
+    except Exception as e:
+        return SolvedState(
+            converged=False,
+            iterations=0,
+            timestamp=datetime.utcnow(),
+            error=f"Solver error: {e!s}",
+            warnings=[
+                Warning(
+                    category=WarningCategory.DATA,
+                    severity=WarningSeverity.ERROR,
+                    message=f"Unexpected solver error: {e!s}",
+                )
+            ],
         )
-    ]
-
-    solve_time = perf_counter() - start_time
-
-    return SolvedState(
-        converged=False,
-        iterations=0,
-        timestamp=datetime.utcnow(),
-        solve_time_seconds=solve_time,
-        error="Full project solving not yet implemented",
-        component_results={},
-        piping_results={},
-        pump_results={},
-        warnings=warnings,
-    )
 
 
 @router.post(

@@ -9,7 +9,7 @@ class TestSolveProject:
 
     @pytest.mark.anyio
     async def test_solve_empty_project(self, client: AsyncClient) -> None:
-        """Should return placeholder response for empty project."""
+        """Should return error for empty project (no components)."""
         response = await client.post(
             "/api/v1/solve",
             json={
@@ -24,9 +24,9 @@ class TestSolveProject:
         assert response.status_code == 200
         data = response.json()
 
-        # Full solving not implemented yet
+        # Empty project should fail with no components error
         assert data["converged"] is False
-        assert "not yet implemented" in data["error"]
+        assert "No components" in data["error"]
         assert len(data["warnings"]) > 0
 
 

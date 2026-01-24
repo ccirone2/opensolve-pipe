@@ -103,7 +103,12 @@ class TestFluidDefinition:
 
     def test_all_fluid_types(self):
         """Test that all non-custom, non-glycol fluid types are valid without concentration."""
-        for fluid_type in [FluidType.WATER, FluidType.DIESEL, FluidType.GASOLINE, FluidType.KEROSENE]:
+        for fluid_type in [
+            FluidType.WATER,
+            FluidType.DIESEL,
+            FluidType.GASOLINE,
+            FluidType.KEROSENE,
+        ]:
             fluid = FluidDefinition(type=fluid_type)
             assert fluid.type == fluid_type
 

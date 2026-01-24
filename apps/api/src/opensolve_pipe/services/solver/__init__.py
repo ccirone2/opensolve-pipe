@@ -51,6 +51,16 @@ from .k_factors import (
     resolve_fittings_total_k,
 )
 
+# Network solver
+from .network import (
+    NetworkGraph,
+    NetworkType,
+    SolverState,
+    build_network_graph,
+    classify_network,
+    solve_project,
+)
+
 # Simple solver
 from .simple import (
     SimpleSolverOptions,
@@ -64,7 +74,6 @@ from .simple import (
 )
 
 __all__ = [
-    # Constants
     "FT_TO_M",
     "GPM_TO_CFS",
     "GPM_TO_M3S",
@@ -74,11 +83,13 @@ __all__ = [
     "IN_TO_M",
     "RE_LAMINAR",
     "RE_TURBULENT",
-    # Simple solver
+    "NetworkGraph",
+    "NetworkType",
     "SimpleSolverOptions",
     "SolverResult",
+    "SolverState",
+    "build_network_graph",
     "build_pump_curve_interpolator",
-    # Friction calculations
     "calculate_friction_factor",
     "calculate_friction_factor_laminar",
     "calculate_friction_head_loss",
@@ -89,9 +100,9 @@ __all__ = [
     "calculate_total_head_loss",
     "calculate_velocity",
     "calculate_velocity_fps",
+    "classify_network",
     "find_operating_point",
     "generate_system_curve",
-    # K-factor resolution
     "get_f_t",
     "get_fitting_k_by_type",
     "k_ball_valve",
@@ -105,6 +116,7 @@ __all__ = [
     "k_gate_valve",
     "resolve_fitting_k",
     "resolve_fittings_total_k",
+    "solve_project",
     "solve_pump_pipe_system",
     "solve_water_system",
 ]

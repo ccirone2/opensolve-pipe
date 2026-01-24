@@ -4,9 +4,9 @@ import pytest
 
 from opensolve_pipe.models import (
     Connection,
-    FlowHeadPoint,
     Fitting,
     FittingType,
+    FlowHeadPoint,
     FluidDefinition,
     FluidType,
     Junction,

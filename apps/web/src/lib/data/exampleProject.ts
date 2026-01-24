@@ -51,6 +51,7 @@ export const EXAMPLE_PROJECT: Project = {
 			name: 'Supply Tank',
 			elevation: 0,
 			water_level: 10,
+			ports: [{ id: 'outlet_1', nominal_size: 4, direction: 'bidirectional' }],
 			downstream_connections: [
 				{
 					target_component_id: 'pump_1',
@@ -74,6 +75,10 @@ export const EXAMPLE_PROJECT: Project = {
 			curve_id: 'curve_1',
 			speed: 1.0,
 			status: 'on',
+			ports: [
+				{ id: 'suction', nominal_size: 4, direction: 'inlet' },
+				{ id: 'discharge', nominal_size: 4, direction: 'outlet' }
+			],
 			downstream_connections: [
 				{
 					target_component_id: 'junction_1',
@@ -98,7 +103,45 @@ export const EXAMPLE_PROJECT: Project = {
 			name: 'Discharge Point',
 			elevation: 50,
 			demand: 200,
+			ports: [{ id: 'port_1', nominal_size: 4, direction: 'bidirectional' }],
 			downstream_connections: []
+		}
+	],
+	connections: [
+		{
+			id: 'conn_1',
+			from_component_id: 'reservoir_1',
+			from_port_id: 'outlet_1',
+			to_component_id: 'pump_1',
+			to_port_id: 'suction',
+			piping: {
+				pipe: {
+					material: 'carbon_steel',
+					schedule: '40',
+					nominal_diameter: 4,
+					length: 20
+				},
+				fittings: [{ type: 'elbow_90_lr', quantity: 2 }]
+			}
+		},
+		{
+			id: 'conn_2',
+			from_component_id: 'pump_1',
+			from_port_id: 'discharge',
+			to_component_id: 'junction_1',
+			to_port_id: 'port_1',
+			piping: {
+				pipe: {
+					material: 'carbon_steel',
+					schedule: '40',
+					nominal_diameter: 4,
+					length: 100
+				},
+				fittings: [
+					{ type: 'elbow_90_lr', quantity: 3 },
+					{ type: 'gate_valve', quantity: 1 }
+				]
+			}
 		}
 	],
 	pump_library: [

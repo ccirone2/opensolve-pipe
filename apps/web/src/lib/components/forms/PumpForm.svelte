@@ -117,21 +117,36 @@
 			editingCurve.npshr_curve.sort((a, b) => a.flow - b.flow);
 		}
 
+		// Create a plain object copy to avoid Svelte proxy issues with structuredClone
+		const curveToSave: PumpCurve = {
+			id: editingCurve.id,
+			name: editingCurve.name,
+			points: editingCurve.points.map((p) => ({ flow: p.flow, head: p.head })),
+			efficiency_curve: editingCurve.efficiency_curve?.map((p) => ({
+				flow: p.flow,
+				efficiency: p.efficiency
+			})),
+			npshr_curve: editingCurve.npshr_curve?.map((p) => ({
+				flow: p.flow,
+				npsh_required: p.npsh_required
+			}))
+		};
+
 		// Check if curve already exists
 		const existingIndex = $pumpLibrary.findIndex((c) => c.id === editingCurve!.id);
 		if (existingIndex >= 0) {
-			projectStore.updatePumpCurve(editingCurve.id, {
-				name: editingCurve.name,
-				points: editingCurve.points,
-				efficiency_curve: editingCurve.efficiency_curve,
-				npshr_curve: editingCurve.npshr_curve
+			projectStore.updatePumpCurve(curveToSave.id, {
+				name: curveToSave.name,
+				points: curveToSave.points,
+				efficiency_curve: curveToSave.efficiency_curve,
+				npshr_curve: curveToSave.npshr_curve
 			});
 		} else {
-			projectStore.addPumpCurve(editingCurve);
+			projectStore.addPumpCurve(curveToSave);
 		}
 
 		// Select the curve for this pump
-		onUpdate('curve_id', editingCurve.id);
+		onUpdate('curve_id', curveToSave.id);
 
 		showCurveEditor = false;
 		editingCurve = null;

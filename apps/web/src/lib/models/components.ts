@@ -71,8 +71,8 @@ export const COMPONENT_TYPE_LABELS: Record<ComponentType, string> = {
 	strainer: 'Strainer',
 	orifice: 'Orifice',
 	sprinkler: 'Sprinkler',
-	ideal_reference_node: 'Reference Node (Ideal)',
-	non_ideal_reference_node: 'Reference Node (Non-Ideal)',
+	ideal_reference_node: 'Reference Node',
+	non_ideal_reference_node: 'Reference Node',
 	plug: 'Plug/Cap',
 	tee_branch: 'Tee Branch',
 	wye_branch: 'Wye Branch',
@@ -83,11 +83,14 @@ export const COMPONENT_TYPE_LABELS: Record<ComponentType, string> = {
  * Component categories for UI grouping.
  * All equipment is grouped together - "links" (piping/fittings) connect components.
  * See ADR-006 in docs/DECISIONS.md for rationale.
+ *
+ * Note: 'ideal_reference_node' is used as the menu entry for Reference Node.
+ * Users can switch to non-ideal within the component form.
  */
 export const COMPONENT_CATEGORIES = {
-	Sources: ['reservoir', 'tank', 'ideal_reference_node', 'non_ideal_reference_node'] as ComponentType[],
-	Connections: ['junction', 'tee_branch', 'wye_branch', 'cross_branch', 'plug'] as ComponentType[],
-	Equipment: ['pump', 'valve', 'heat_exchanger', 'strainer', 'orifice', 'sprinkler'] as ComponentType[]
+	Sources: ['reservoir', 'tank', 'ideal_reference_node'] as ComponentType[],
+	Equipment: ['pump', 'valve', 'heat_exchanger', 'strainer', 'orifice', 'sprinkler'] as ComponentType[],
+	Connections: ['junction', 'tee_branch', 'wye_branch', 'cross_branch', 'plug'] as ComponentType[]
 };
 
 /** Types of control valves. */

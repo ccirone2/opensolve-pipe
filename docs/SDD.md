@@ -303,6 +303,7 @@ interface Port {
   id: string;                    // e.g., "suction", "discharge", "branch"
   nominalSize: number;           // Nominal diameter in project units
   direction: 'inlet' | 'outlet' | 'bidirectional';
+  elevation?: number;            // Optional port-specific elevation (inherits from component if not set)
 }
 
 interface BaseComponent {
@@ -311,6 +312,10 @@ interface BaseComponent {
   name: string;
   elevation: number;  // In project units
   ports: Port[];      // All connection ports for this component
+
+  // Helper method to get effective port elevation
+  // Returns port.elevation if set, otherwise returns component elevation
+  getPortElevation(portId: string): number;
 }
 
 interface PipeConnection {

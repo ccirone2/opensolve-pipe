@@ -66,6 +66,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Port factory functions for all component types
   - Connection validation (size compatibility, direction checks)
 
+- **Port-Level Elevation Support** (PR #90)
+  - Optional `elevation` field on Port model for port-specific heights
+  - `get_port_elevation(port_id)` method on BaseComponent for elevation lookup
+  - Inheritance behavior: ports without elevation use parent component elevation
+  - Enables accurate modeling of tall equipment (tanks, vertical pumps, heat exchangers)
+
 - **Reference Node Components** (PR #65)
   - IdealReferenceNode: Fixed pressure boundary condition
   - NonIdealReferenceNode: Pressure-flow curve boundary with interpolation

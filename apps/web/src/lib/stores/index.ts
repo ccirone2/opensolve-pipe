@@ -8,6 +8,7 @@
 export {
 	projectStore,
 	components,
+	connections,
 	pumpLibrary,
 	fluid,
 	settings,

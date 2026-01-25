@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Chart, registerables } from 'chart.js';
 	import type { PumpCurve, PumpResult } from '$lib/models';
+	import { calculateBEP } from '$lib/models/pump';
 
 	// Register Chart.js components
 	Chart.register(...registerables);
@@ -13,6 +14,9 @@
 	}
 
 	let { curve, result }: Props = $props();
+
+	// Calculate BEP from efficiency curve
+	let bep = $derived(calculateBEP(curve));
 
 	let canvas: HTMLCanvasElement | null = $state(null);
 	let chart: Chart | null = null;
@@ -95,6 +99,20 @@
 				});
 			}
 
+			// Best Efficiency Point (BEP) - only if efficiency data exists
+			if (bep) {
+				datasets.push({
+					label: 'BEP',
+					data: [{ x: bep.flow, y: bep.head }],
+					borderColor: 'rgb(168, 85, 247)',
+					backgroundColor: 'rgb(168, 85, 247)',
+					pointRadius: 8,
+					pointHoverRadius: 10,
+					pointStyle: 'star',
+					showLine: false
+				});
+			}
+
 			// Calculate axis ranges
 			const allFlows = curve.points.map((p) => p.flow);
 			const allHeads = curve.points.map((p) => p.head);
@@ -109,6 +127,12 @@
 			}
 			if (result?.operating_head !== undefined) {
 				allHeads.push(result.operating_head);
+			}
+
+			// Include BEP in axis range
+			if (bep) {
+				allFlows.push(bep.flow);
+				allHeads.push(bep.head);
 			}
 
 			const maxFlow = Math.max(...allFlows) * 1.1 || 100;
@@ -138,6 +162,9 @@
 								label(context) {
 									const point = context.raw as { x: number; y: number };
 									const label = context.dataset.label === 'Pump Curve Points' ? 'Pump Curve' : context.dataset.label;
+									if (label === 'BEP' && bep) {
+										return `BEP: ${point.x.toFixed(1)} GPM @ ${point.y.toFixed(1)} ft (${(bep.efficiency * 100).toFixed(1)}% eff.)`;
+									}
 									return `${label}: ${point.x.toFixed(1)} GPM @ ${point.y.toFixed(1)} ft`;
 								}
 							}
@@ -185,6 +212,8 @@
 		const currentCurve = curve;
 		// eslint-disable-next-line @typescript-eslint/no-unused-vars
 		const _trackResult = result; // Track result changes to trigger re-render
+		// eslint-disable-next-line @typescript-eslint/no-unused-vars
+		const _trackBep = bep; // Track BEP changes to trigger re-render
 
 		if (currentCanvas && currentCurve?.points?.length > 0) {
 			// Use setTimeout to ensure we're not in the middle of a render
@@ -242,5 +271,17 @@
 				</p>
 			</div>
 		{/if}
+	</div>
+{/if}
+
+<!-- BEP Info (shown when efficiency curve exists, even without solver results) -->
+{#if bep}
+	<div class="mt-4 rounded-lg border border-purple-200 bg-purple-50 p-3">
+		<p class="text-xs font-medium uppercase tracking-wide text-purple-600">Best Efficiency Point (BEP)</p>
+		<div class="mt-2 flex flex-wrap gap-4 text-sm text-purple-900">
+			<span><strong>Flow:</strong> {bep.flow.toFixed(1)} GPM</span>
+			<span><strong>Head:</strong> {bep.head.toFixed(1)} ft</span>
+			<span><strong>Efficiency:</strong> {(bep.efficiency * 100).toFixed(1)}%</span>
+		</div>
 	</div>
 {/if}

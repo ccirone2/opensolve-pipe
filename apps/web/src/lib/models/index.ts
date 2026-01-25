@@ -49,12 +49,14 @@ export type {
 	FlowHeadPoint,
 	FlowEfficiencyPoint,
 	NPSHRPoint,
-	PumpCurve
+	PumpCurve,
+	BestEfficiencyPoint
 } from './pump';
 export {
 	validatePumpCurve,
 	createDefaultPumpCurve,
-	interpolatePumpHead
+	interpolatePumpHead,
+	calculateBEP
 } from './pump';
 
 // Components

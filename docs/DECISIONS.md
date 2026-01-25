@@ -234,6 +234,62 @@ The new terminology aligns with:
 
 ---
 
+## ADR-007: Port-Level Elevation with Inheritance
+
+**Date:** 2026-01-25
+**Status:** Accepted
+**Context:** Issue #89 - Port-Level Elevation Support
+
+### Decision
+
+Add an optional `elevation` field to the `Port` model with inheritance behavior:
+
+```python
+class Port(OpenSolvePipeBaseModel):
+    id: str
+    nominal_size: PositiveFloat
+    direction: PortDirection
+    elevation: Elevation | None = None  # Optional, inherits from component if None
+```
+
+The `BaseComponent` class provides a `get_port_elevation(port_id)` method that:
+
+1. Returns `port.elevation` if explicitly set
+2. Returns `component.elevation` if port elevation is `None`
+
+### Rationale
+
+1. **Real-world accuracy**: Equipment often has ports at different heights:
+   - Tanks: bottom drain vs side fill vs top overflow
+   - Pumps: suction nozzle below discharge nozzle
+   - Heat exchangers: shell/tube connections at different heights
+
+2. **Backward compatibility**: By making elevation optional with inheritance, existing projects work unchanged. Ports default to inheriting from the parent component, which is correct for most equipment (valves, strainers, etc.).
+
+3. **Minimal API surface**: A single optional field and one helper method, rather than separate elevation fields for each port type.
+
+4. **Solver integration**: The `get_port_elevation()` method provides a clean abstraction for the solver to use port-level elevations in hydraulic calculations without checking for None everywhere.
+
+### Consequences
+
+**Positive:**
+
+- More accurate head loss calculations for tall equipment
+- Better NPSH calculations when pump suction/discharge are at different heights
+- Cleaner API than alternatives (e.g., separate port elevation arrays)
+
+**Negative:**
+
+- Solver must be updated to use port elevations instead of component elevations where appropriate
+- UI forms may need updates to allow port elevation input for relevant component types
+
+**Migration:**
+
+- No migration required - existing projects continue to work
+- Port elevation field defaults to `None` (inherit from component)
+
+---
+
 ## Template for Future ADRs
 
 ```markdown

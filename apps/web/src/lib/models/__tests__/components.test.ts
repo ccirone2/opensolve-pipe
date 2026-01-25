@@ -24,14 +24,14 @@ describe('getPortElevation', () => {
 			downstream_connections: []
 		};
 
-		expect(getPortElevation(component, 'outlet_1')).toBe(100);
+		expect(getPortElevation(component, 'P1')).toBe(100);
 	});
 
 	it('returns port elevation when explicitly set', () => {
 		const ports: Port[] = [
-			{ id: 'bottom_drain', nominal_size: 4.0, direction: 'bidirectional', elevation: 95 },
-			{ id: 'side_fill', nominal_size: 6.0, direction: 'bidirectional', elevation: 105 },
-			{ id: 'top_overflow', nominal_size: 4.0, direction: 'bidirectional', elevation: 120 }
+			{ id: 'P1', name: 'Bottom Drain', nominal_size: 4.0, direction: 'bidirectional', elevation: 95 },
+			{ id: 'P2', name: 'Side Fill', nominal_size: 6.0, direction: 'bidirectional', elevation: 105 },
+			{ id: 'P3', name: 'Top Overflow', nominal_size: 4.0, direction: 'bidirectional', elevation: 120 }
 		];
 
 		const component: Component = {
@@ -47,14 +47,14 @@ describe('getPortElevation', () => {
 			downstream_connections: []
 		};
 
-		expect(getPortElevation(component, 'bottom_drain')).toBe(95);
-		expect(getPortElevation(component, 'side_fill')).toBe(105);
-		expect(getPortElevation(component, 'top_overflow')).toBe(120);
+		expect(getPortElevation(component, 'P1')).toBe(95);
+		expect(getPortElevation(component, 'P2')).toBe(105);
+		expect(getPortElevation(component, 'P3')).toBe(120);
 	});
 
 	it('returns 0 when port elevation is explicitly set to 0', () => {
 		const ports: Port[] = [
-			{ id: 'outlet_1', nominal_size: 4.0, direction: 'bidirectional', elevation: 0 }
+			{ id: 'P1', name: 'Outlet', nominal_size: 4.0, direction: 'bidirectional', elevation: 0 }
 		];
 
 		const component: Component = {
@@ -68,12 +68,12 @@ describe('getPortElevation', () => {
 		};
 
 		// Port elevation is explicitly 0, should not inherit 50
-		expect(getPortElevation(component, 'outlet_1')).toBe(0);
+		expect(getPortElevation(component, 'P1')).toBe(0);
 	});
 
 	it('supports negative port elevations', () => {
 		const ports: Port[] = [
-			{ id: 'bottom', nominal_size: 4.0, direction: 'bidirectional', elevation: -25 }
+			{ id: 'P1', name: 'Bottom', nominal_size: 4.0, direction: 'bidirectional', elevation: -25 }
 		];
 
 		const component: Component = {
@@ -89,17 +89,17 @@ describe('getPortElevation', () => {
 			downstream_connections: []
 		};
 
-		expect(getPortElevation(component, 'bottom')).toBe(-25);
+		expect(getPortElevation(component, 'P1')).toBe(-25);
 	});
 
 	it('handles mixed ports - some with elevation, some without', () => {
 		const ports: Port[] = [
-			{ id: 'suction', nominal_size: 6.0, direction: 'inlet', elevation: 5 }, // Explicit elevation
-			{ id: 'discharge', nominal_size: 4.0, direction: 'outlet' } // No elevation, inherits
+			{ id: 'P1', name: 'Suction', nominal_size: 6.0, direction: 'inlet', elevation: 5 }, // Explicit elevation
+			{ id: 'P2', name: 'Discharge', nominal_size: 4.0, direction: 'outlet' } // No elevation, inherits
 		];
 
 		const component: Component = {
-			id: 'P1',
+			id: 'PMP1',
 			type: 'pump',
 			name: 'Vertical Pump',
 			elevation: 10, // Pump body at 10 ft
@@ -110,8 +110,8 @@ describe('getPortElevation', () => {
 			downstream_connections: []
 		};
 
-		expect(getPortElevation(component, 'suction')).toBe(5); // Uses explicit elevation
-		expect(getPortElevation(component, 'discharge')).toBe(10); // Inherits component elevation
+		expect(getPortElevation(component, 'P1')).toBe(5); // Uses explicit elevation
+		expect(getPortElevation(component, 'P2')).toBe(10); // Inherits component elevation
 	});
 
 	it('throws error for non-existent port', () => {
@@ -134,7 +134,8 @@ describe('getPortElevation', () => {
 describe('Port interface', () => {
 	it('allows port creation without elevation (undefined)', () => {
 		const port: Port = {
-			id: 'port_1',
+			id: 'P1',
+			name: 'Port',
 			nominal_size: 4.0,
 			direction: 'bidirectional'
 		};
@@ -144,7 +145,8 @@ describe('Port interface', () => {
 
 	it('allows port creation with explicit elevation', () => {
 		const port: Port = {
-			id: 'port_1',
+			id: 'P1',
+			name: 'Port',
 			nominal_size: 4.0,
 			direction: 'bidirectional',
 			elevation: 15.5
@@ -155,7 +157,8 @@ describe('Port interface', () => {
 
 	it('allows port creation with zero elevation', () => {
 		const port: Port = {
-			id: 'port_1',
+			id: 'P1',
+			name: 'Port',
 			nominal_size: 4.0,
 			direction: 'bidirectional',
 			elevation: 0
@@ -166,7 +169,8 @@ describe('Port interface', () => {
 
 	it('allows port creation with negative elevation', () => {
 		const port: Port = {
-			id: 'port_1',
+			id: 'P1',
+			name: 'Port',
 			nominal_size: 4.0,
 			direction: 'bidirectional',
 			elevation: -10

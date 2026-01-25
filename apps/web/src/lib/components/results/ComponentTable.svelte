@@ -61,7 +61,7 @@
 					componentId: component.id,
 					componentName: component.name,
 					componentType: component.type,
-					port: { id: 'default', nominal_size: 0, direction: 'bidirectional' },
+					port: { id: 'P0', name: 'Default', nominal_size: 0, direction: 'bidirectional' },
 					isFirstPort: true,
 					portCount: 1,
 					result

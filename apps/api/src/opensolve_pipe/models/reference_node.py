@@ -49,7 +49,8 @@ def create_reference_node_port(nominal_size: float = 4.0) -> list[Port]:
     """
     return [
         Port(
-            id="port_1",
+            id="P1",
+            name="Port",
             nominal_size=nominal_size,
             direction=PortDirection.BIDIRECTIONAL,
         )

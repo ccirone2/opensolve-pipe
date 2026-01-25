@@ -22,41 +22,53 @@ class TestPort:
 
     def test_port_creation(self):
         """Test basic port creation."""
-        port = Port(id="inlet", nominal_size=4.0, direction=PortDirection.INLET)
+        port = Port(
+            id="P1", name="Inlet", nominal_size=4.0, direction=PortDirection.INLET
+        )
 
-        assert port.id == "inlet"
+        assert port.id == "P1"
+        assert port.name == "Inlet"
         assert port.nominal_size == 4.0
         assert port.direction == PortDirection.INLET
 
     def test_port_default_direction(self):
         """Test that port defaults to bidirectional."""
-        port = Port(id="port_1", nominal_size=4.0)
+        port = Port(id="P1", name="Port", nominal_size=4.0)
 
         assert port.direction == PortDirection.BIDIRECTIONAL
 
     def test_port_requires_positive_size(self):
         """Test that port size must be positive."""
         with pytest.raises(ValueError):
-            Port(id="port_1", nominal_size=0)
+            Port(id="P1", name="Port", nominal_size=0)
 
         with pytest.raises(ValueError):
-            Port(id="port_1", nominal_size=-1.0)
+            Port(id="P1", name="Port", nominal_size=-1.0)
 
     def test_port_serialization(self):
         """Test port serializes correctly."""
-        port = Port(id="discharge", nominal_size=6.0, direction=PortDirection.OUTLET)
+        port = Port(
+            id="P2", name="Discharge", nominal_size=6.0, direction=PortDirection.OUTLET
+        )
         data = port.model_dump()
 
-        assert data["id"] == "discharge"
+        assert data["id"] == "P2"
+        assert data["name"] == "Discharge"
         assert data["nominal_size"] == 6.0
         assert data["direction"] == "outlet"
 
     def test_port_deserialization(self):
         """Test port deserializes correctly."""
-        data = {"id": "suction", "nominal_size": 8.0, "direction": "inlet"}
+        data = {
+            "id": "P1",
+            "name": "Suction",
+            "nominal_size": 8.0,
+            "direction": "inlet",
+        }
         port = Port.model_validate(data)
 
-        assert port.id == "suction"
+        assert port.id == "P1"
+        assert port.name == "Suction"
         assert port.nominal_size == 8.0
         assert port.direction == PortDirection.INLET
 
@@ -69,20 +81,21 @@ class TestReservoirPorts:
         ports = create_reservoir_ports()
 
         assert len(ports) == 1
-        assert ports[0].id == "outlet_1"
+        assert ports[0].id == "P1"
+        assert ports[0].name == "Outlet"
         assert ports[0].nominal_size == 4.0
         assert ports[0].direction == PortDirection.BIDIRECTIONAL
 
-    def test_custom_reservoir_ports(self):
-        """Test reservoir with custom port configs."""
-        configs = [{"port_a": 6.0}, {"port_b": 4.0}]
-        ports = create_reservoir_ports(configs)
-
-        assert len(ports) == 2
-        assert {p.id for p in ports} == {"port_a", "port_b"}
-
-    def test_reservoir_custom_default_size(self):
+    def test_custom_reservoir_default_size(self):
         """Test reservoir with custom default size."""
+        ports = create_reservoir_ports(default_size=6.0)
+
+        assert len(ports) == 1
+        assert ports[0].id == "P1"
+        assert ports[0].nominal_size == 6.0
+
+    def test_reservoir_large_default_size(self):
+        """Test reservoir with large default size."""
         ports = create_reservoir_ports(default_size=8.0)
 
         assert len(ports) == 1
@@ -97,7 +110,8 @@ class TestTankPorts:
         ports = create_tank_ports()
 
         assert len(ports) == 1
-        assert ports[0].id == "port_1"
+        assert ports[0].id == "P1"
+        assert ports[0].name == "Port"
         assert ports[0].direction == PortDirection.BIDIRECTIONAL
 
 
@@ -109,7 +123,8 @@ class TestJunctionPorts:
         ports = create_junction_ports()
 
         assert len(ports) == 1
-        assert ports[0].id == "port_1"
+        assert ports[0].id == "P1"
+        assert ports[0].name == "Port"
         assert ports[0].direction == PortDirection.BIDIRECTIONAL
 
 
@@ -122,9 +137,11 @@ class TestPumpPorts:
 
         assert len(ports) == 2
 
-        suction = next(p for p in ports if p.id == "suction")
-        discharge = next(p for p in ports if p.id == "discharge")
+        suction = next(p for p in ports if p.id == "P1")
+        discharge = next(p for p in ports if p.id == "P2")
 
+        assert suction.name == "Suction"
+        assert discharge.name == "Discharge"
         assert suction.direction == PortDirection.INLET
         assert discharge.direction == PortDirection.OUTLET
         assert suction.nominal_size == 4.0
@@ -134,8 +151,8 @@ class TestPumpPorts:
         """Test pump with custom port sizes."""
         ports = create_pump_ports(suction_size=6.0, discharge_size=4.0)
 
-        suction = next(p for p in ports if p.id == "suction")
-        discharge = next(p for p in ports if p.id == "discharge")
+        suction = next(p for p in ports if p.id == "P1")
+        discharge = next(p for p in ports if p.id == "P2")
 
         assert suction.nominal_size == 6.0
         assert discharge.nominal_size == 4.0
@@ -150,9 +167,11 @@ class TestValvePorts:
 
         assert len(ports) == 2
 
-        inlet = next(p for p in ports if p.id == "inlet")
-        outlet = next(p for p in ports if p.id == "outlet")
+        inlet = next(p for p in ports if p.id == "P1")
+        outlet = next(p for p in ports if p.id == "P2")
 
+        assert inlet.name == "Inlet"
+        assert outlet.name == "Outlet"
         assert inlet.direction == PortDirection.INLET
         assert outlet.direction == PortDirection.OUTLET
 
@@ -160,8 +179,8 @@ class TestValvePorts:
         """Test valve outlet defaults to inlet size."""
         ports = create_valve_ports(inlet_size=6.0)
 
-        inlet = next(p for p in ports if p.id == "inlet")
-        outlet = next(p for p in ports if p.id == "outlet")
+        inlet = next(p for p in ports if p.id == "P1")
+        outlet = next(p for p in ports if p.id == "P2")
 
         assert inlet.nominal_size == 6.0
         assert outlet.nominal_size == 6.0
@@ -170,8 +189,8 @@ class TestValvePorts:
         """Test valve with different inlet/outlet sizes."""
         ports = create_valve_ports(inlet_size=6.0, outlet_size=4.0)
 
-        inlet = next(p for p in ports if p.id == "inlet")
-        outlet = next(p for p in ports if p.id == "outlet")
+        inlet = next(p for p in ports if p.id == "P1")
+        outlet = next(p for p in ports if p.id == "P2")
 
         assert inlet.nominal_size == 6.0
         assert outlet.nominal_size == 4.0
@@ -185,7 +204,8 @@ class TestHeatExchangerPorts:
         ports = create_heat_exchanger_ports()
 
         assert len(ports) == 2
-        assert {p.id for p in ports} == {"inlet", "outlet"}
+        assert {p.id for p in ports} == {"P1", "P2"}
+        assert {p.name for p in ports} == {"Inlet", "Outlet"}
 
 
 class TestStrainerPorts:
@@ -196,7 +216,8 @@ class TestStrainerPorts:
         ports = create_strainer_ports()
 
         assert len(ports) == 2
-        assert {p.id for p in ports} == {"inlet", "outlet"}
+        assert {p.id for p in ports} == {"P1", "P2"}
+        assert {p.name for p in ports} == {"Inlet", "Outlet"}
 
 
 class TestOrificePorts:
@@ -207,7 +228,8 @@ class TestOrificePorts:
         ports = create_orifice_ports()
 
         assert len(ports) == 2
-        assert {p.id for p in ports} == {"inlet", "outlet"}
+        assert {p.id for p in ports} == {"P1", "P2"}
+        assert {p.name for p in ports} == {"Inlet", "Outlet"}
 
 
 class TestSprinklerPorts:
@@ -218,7 +240,8 @@ class TestSprinklerPorts:
         ports = create_sprinkler_ports()
 
         assert len(ports) == 1
-        assert ports[0].id == "inlet"
+        assert ports[0].id == "P1"
+        assert ports[0].name == "Inlet"
         assert ports[0].direction == PortDirection.INLET
 
     def test_sprinkler_ports_custom_size(self):
@@ -233,40 +256,41 @@ class TestPortElevation:
 
     def test_port_elevation_default_none(self):
         """Test that port elevation defaults to None."""
-        port = Port(id="port_1", nominal_size=4.0)
+        port = Port(id="P1", name="Port", nominal_size=4.0)
 
         assert port.elevation is None
 
     def test_port_elevation_can_be_set(self):
         """Test that port elevation can be explicitly set."""
-        port = Port(id="port_1", nominal_size=4.0, elevation=10.0)
+        port = Port(id="P1", name="Port", nominal_size=4.0, elevation=10.0)
 
         assert port.elevation == 10.0
 
     def test_port_elevation_can_be_negative(self):
         """Test that port elevation can be negative (below reference)."""
-        port = Port(id="port_1", nominal_size=4.0, elevation=-5.0)
+        port = Port(id="P1", name="Port", nominal_size=4.0, elevation=-5.0)
 
         assert port.elevation == -5.0
 
     def test_port_elevation_can_be_zero(self):
         """Test that port elevation can be zero."""
-        port = Port(id="port_1", nominal_size=4.0, elevation=0.0)
+        port = Port(id="P1", name="Port", nominal_size=4.0, elevation=0.0)
 
         assert port.elevation == 0.0
 
     def test_port_serialization_with_elevation(self):
         """Test port with elevation serializes correctly."""
-        port = Port(id="outlet", nominal_size=6.0, elevation=15.5)
+        port = Port(id="P2", name="Outlet", nominal_size=6.0, elevation=15.5)
         data = port.model_dump()
 
-        assert data["id"] == "outlet"
+        assert data["id"] == "P2"
+        assert data["name"] == "Outlet"
         assert data["nominal_size"] == 6.0
         assert data["elevation"] == 15.5
 
     def test_port_serialization_without_elevation(self):
         """Test port without elevation serializes with None."""
-        port = Port(id="outlet", nominal_size=6.0)
+        port = Port(id="P2", name="Outlet", nominal_size=6.0)
         data = port.model_dump()
 
         assert data["elevation"] is None
@@ -274,26 +298,28 @@ class TestPortElevation:
     def test_port_deserialization_with_elevation(self):
         """Test port with elevation deserializes correctly."""
         data = {
-            "id": "drain",
+            "id": "P3",
+            "name": "Drain",
             "nominal_size": 2.0,
             "direction": "outlet",
             "elevation": -2.5,
         }
         port = Port.model_validate(data)
 
-        assert port.id == "drain"
+        assert port.id == "P3"
+        assert port.name == "Drain"
         assert port.elevation == -2.5
 
     def test_port_deserialization_without_elevation(self):
         """Test port without elevation field deserializes to None."""
-        data = {"id": "inlet", "nominal_size": 4.0, "direction": "inlet"}
+        data = {"id": "P1", "name": "Inlet", "nominal_size": 4.0, "direction": "inlet"}
         port = Port.model_validate(data)
 
         assert port.elevation is None
 
     def test_port_deserialization_with_null_elevation(self):
         """Test port with explicit null elevation deserializes to None."""
-        data = {"id": "inlet", "nominal_size": 4.0, "elevation": None}
+        data = {"id": "P1", "name": "Inlet", "nominal_size": 4.0, "elevation": None}
         port = Port.model_validate(data)
 
         assert port.elevation is None

@@ -313,7 +313,7 @@ class TestGetPortElevation:
             water_level=10.0,
         )
         # Default port has no elevation set
-        assert reservoir.get_port_elevation("outlet_1") == 100.0
+        assert reservoir.get_port_elevation("P1") == 100.0
 
     def test_port_uses_own_elevation_when_set(self):
         """Test that port uses its own elevation when explicitly set."""
@@ -329,19 +329,22 @@ class TestGetPortElevation:
             initial_level=10.0,
             ports=[
                 Port(
-                    id="bottom_drain",
+                    id="P1",
+                    name="Bottom Drain",
                     nominal_size=4.0,
                     direction=PortDirection.BIDIRECTIONAL,
                     elevation=95.0,
                 ),
                 Port(
-                    id="side_fill",
+                    id="P2",
+                    name="Side Fill",
                     nominal_size=6.0,
                     direction=PortDirection.BIDIRECTIONAL,
                     elevation=105.0,
                 ),
                 Port(
-                    id="top_overflow",
+                    id="P3",
+                    name="Top Overflow",
                     nominal_size=4.0,
                     direction=PortDirection.BIDIRECTIONAL,
                     elevation=120.0,
@@ -349,9 +352,9 @@ class TestGetPortElevation:
             ],
         )
 
-        assert tank.get_port_elevation("bottom_drain") == 95.0
-        assert tank.get_port_elevation("side_fill") == 105.0
-        assert tank.get_port_elevation("top_overflow") == 120.0
+        assert tank.get_port_elevation("P1") == 95.0
+        assert tank.get_port_elevation("P2") == 105.0
+        assert tank.get_port_elevation("P3") == 120.0
 
     def test_port_elevation_can_be_zero(self):
         """Test that port elevation of 0.0 is used (not mistaken for None)."""
@@ -364,7 +367,8 @@ class TestGetPortElevation:
             water_level=10.0,
             ports=[
                 Port(
-                    id="outlet_1",
+                    id="P1",
+                    name="Outlet",
                     nominal_size=4.0,
                     direction=PortDirection.BIDIRECTIONAL,
                     elevation=0.0,
@@ -372,7 +376,7 @@ class TestGetPortElevation:
             ],
         )
         # Port elevation is explicitly 0, should not inherit 50
-        assert reservoir.get_port_elevation("outlet_1") == 0.0
+        assert reservoir.get_port_elevation("P1") == 0.0
 
     def test_port_elevation_can_be_negative(self):
         """Test that port elevation can be negative."""
@@ -388,41 +392,44 @@ class TestGetPortElevation:
             initial_level=10.0,
             ports=[
                 Port(
-                    id="bottom",
+                    id="P1",
+                    name="Bottom",
                     nominal_size=4.0,
                     direction=PortDirection.BIDIRECTIONAL,
                     elevation=-25.0,
                 ),
             ],
         )
-        assert tank.get_port_elevation("bottom") == -25.0
+        assert tank.get_port_elevation("P1") == -25.0
 
     def test_mixed_ports_some_with_elevation(self):
         """Test component with mix of ports with and without elevation."""
         from opensolve_pipe.models import Port, PortDirection
 
         pump = PumpComponent(
-            id="P1",
+            id="PMP1",
             name="Vertical Pump",
             elevation=10.0,  # Pump body at 10 ft
             curve_id="PC1",
             ports=[
                 Port(
-                    id="suction",
+                    id="P1",
+                    name="Suction",
                     nominal_size=6.0,
                     direction=PortDirection.INLET,
                     elevation=5.0,
                 ),  # Suction lower
                 Port(
-                    id="discharge", nominal_size=4.0, direction=PortDirection.OUTLET
+                    id="P2",
+                    name="Discharge",
+                    nominal_size=4.0,
+                    direction=PortDirection.OUTLET,
                 ),  # No elevation, inherits
             ],
         )
 
-        assert pump.get_port_elevation("suction") == 5.0  # Uses explicit elevation
-        assert (
-            pump.get_port_elevation("discharge") == 10.0
-        )  # Inherits component elevation
+        assert pump.get_port_elevation("P1") == 5.0  # Uses explicit elevation
+        assert pump.get_port_elevation("P2") == 10.0  # Inherits component elevation
 
     def test_get_port_elevation_raises_for_missing_port(self):
         """Test that get_port_elevation raises ValueError for non-existent port."""
@@ -453,21 +460,23 @@ class TestGetPortElevation:
             design_flow=200.0,
             ports=[
                 Port(
-                    id="inlet",
+                    id="P1",
+                    name="Inlet",
                     nominal_size=4.0,
                     direction=PortDirection.INLET,
                     elevation=18.0,
                 ),
                 Port(
-                    id="outlet",
+                    id="P2",
+                    name="Outlet",
                     nominal_size=4.0,
                     direction=PortDirection.OUTLET,
                     elevation=22.0,
                 ),
             ],
         )
-        assert hx.get_port_elevation("inlet") == 18.0
-        assert hx.get_port_elevation("outlet") == 22.0
+        assert hx.get_port_elevation("P1") == 18.0
+        assert hx.get_port_elevation("P2") == 22.0
 
         # Test on Junction (inherits)
         junction = Junction(
@@ -475,7 +484,7 @@ class TestGetPortElevation:
             name="Junction",
             elevation=30.0,
         )
-        assert junction.get_port_elevation("port_1") == 30.0
+        assert junction.get_port_elevation("P1") == 30.0
 
         # Test on Valve
         valve = ValveComponent(
@@ -484,5 +493,5 @@ class TestGetPortElevation:
             elevation=25.0,
             valve_type=ValveType.GATE,
         )
-        assert valve.get_port_elevation("inlet") == 25.0
-        assert valve.get_port_elevation("outlet") == 25.0
+        assert valve.get_port_elevation("P1") == 25.0
+        assert valve.get_port_elevation("P2") == 25.0

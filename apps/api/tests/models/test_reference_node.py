@@ -45,7 +45,7 @@ class TestCreateReferenceNodePort:
         """Test creating default reference node port."""
         ports = create_reference_node_port()
         assert len(ports) == 1
-        assert ports[0].id == "port_1"
+        assert ports[0].id == "P1"
         assert ports[0].nominal_size == 4.0
         assert ports[0].direction == PortDirection.BIDIRECTIONAL
 
@@ -82,7 +82,7 @@ class TestIdealReferenceNode:
             pressure=50.0,
         )
         assert len(node.ports) == 1
-        assert node.ports[0].id == "port_1"
+        assert node.ports[0].id == "P1"
         assert node.ports[0].direction == PortDirection.BIDIRECTIONAL
 
     def test_ideal_reference_node_custom_ports(self) -> None:
@@ -126,12 +126,12 @@ class TestIdealReferenceNode:
             elevation=0.0,
             pressure=50.0,
         )
-        port = node.get_port("port_1")
+        port = node.get_port("P1")
         assert port is not None
-        assert port.id == "port_1"
+        assert port.id == "P1"
 
         # Non-existent port
-        assert node.get_port("port_2") is None
+        assert node.get_port("P2") is None
 
 
 class TestNonIdealReferenceNode:

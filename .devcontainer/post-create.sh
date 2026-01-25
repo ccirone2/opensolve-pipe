@@ -13,7 +13,6 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# Function to print colored output
 print_status() {
     echo -e "${GREEN}✓${NC} $1"
 }
@@ -26,147 +25,137 @@ print_error() {
     echo -e "${RED}✗${NC} $1"
 }
 
-# Check if we're in the workspace directory
+# Workspace
 cd /workspace || {
     print_error "Failed to change to workspace directory"
     exit 1
 }
 
-# Create apps directories if they don't exist
+# Directory structure
 print_status "Creating directory structure..."
 mkdir -p apps/api/src/opensolve_pipe
 mkdir -p apps/web/src
 
-# Backend setup
+# -------------------------
+# Backend (Python)
+# -------------------------
 if [ -f "apps/api/pyproject.toml" ]; then
     print_status "Installing Python backend dependencies..."
     cd apps/api
-    pip install -e ".[dev]" || print_warning "Failed to install Python dependencies (may not be set up yet)"
+    pip install -e ".[dev]" || print_warning "Python deps install failed"
     cd /workspace
 else
-    print_warning "apps/api/pyproject.toml not found - skipping Python dependency installation"
+    print_warning "apps/api/pyproject.toml not found - skipping backend deps"
 fi
 
-# Frontend setup
+# -------------------------
+# Frontend (Node / SvelteKit)
+# -------------------------
 if [ -f "apps/web/package.json" ]; then
     print_status "Installing frontend dependencies..."
     cd apps/web
-    pnpm install || print_warning "Failed to install frontend dependencies (may not be set up yet)"
+    pnpm install || print_warning "Frontend deps install failed"
     cd /workspace
 else
-    print_warning "apps/web/package.json not found - skipping frontend dependency installation"
+    print_warning "apps/web/package.json not found - skipping frontend deps"
 fi
 
-# Install pre-commit hooks
+# -------------------------
+# Playwright (polished setup)
+# -------------------------
+if [ -f "apps/web/package.json" ] && grep -q '"@playwright/test"' apps/web/package.json; then
+    print_status "Setting up Playwright (Chromium + system deps)..."
+    cd apps/web
+
+    # Install browser + Linux deps (safe to re-run)
+    npx playwright install chromium --with-deps || \
+        print_warning "Playwright install failed or already installed"
+
+    # Create standard folders if missing
+    mkdir -p test-results playwright-report
+
+    cd /workspace
+else
+    print_warning "Playwright not detected - skipping browser install"
+fi
+
+# -------------------------
+# Pre-commit
+# -------------------------
 if [ -f ".pre-commit-config.yaml" ]; then
     print_status "Installing pre-commit hooks..."
-    pre-commit install || print_warning "Failed to install pre-commit hooks"
+    pre-commit install || print_warning "Pre-commit install failed"
 else
-    print_warning ".pre-commit-config.yaml not found - skipping pre-commit setup"
+    print_warning ".pre-commit-config.yaml not found - skipping pre-commit"
 fi
 
-# Create .env files from .env.example if they exist and .env doesn't
+# -------------------------
+# Env files
+# -------------------------
 if [ -f "apps/api/.env.example" ] && [ ! -f "apps/api/.env" ]; then
-    print_status "Creating apps/api/.env from .env.example..."
+    print_status "Creating apps/api/.env from example..."
     cp apps/api/.env.example apps/api/.env
 fi
 
 if [ -f "apps/web/.env.example" ] && [ ! -f "apps/web/.env" ]; then
-    print_status "Creating apps/web/.env from .env.example..."
+    print_status "Creating apps/web/.env from example..."
     cp apps/web/.env.example apps/web/.env
 fi
 
-# Wait for PostgreSQL to be ready (optional - don't fail if not available)
+# -------------------------
+# PostgreSQL
+# -------------------------
 print_status "Checking for PostgreSQL..."
-max_attempts=10
-attempt=0
 pg_available=false
-while [ $attempt -lt $max_attempts ]; do
+for i in {1..10}; do
     if pg_isready -h localhost -p 5432 -U opensolve -d opensolve_pipe > /dev/null 2>&1; then
         pg_available=true
         break
     fi
-    attempt=$((attempt + 1))
-    echo "Waiting for PostgreSQL... (attempt $attempt/$max_attempts)"
+    echo "Waiting for PostgreSQL... ($i/10)"
     sleep 2
 done
 
-if [ "$pg_available" = true ]; then
-    print_status "PostgreSQL is ready!"
-else
-    print_warning "PostgreSQL not available - skipping database checks"
-fi
+[ "$pg_available" = true ] && print_status "PostgreSQL is ready!" \
+    || print_warning "PostgreSQL not available"
 
-# Wait for Redis to be ready (optional - don't fail if not available)
+# -------------------------
+# Redis
+# -------------------------
 print_status "Checking for Redis..."
-max_attempts=10
-attempt=0
 redis_available=false
-while [ $attempt -lt $max_attempts ]; do
+for i in {1..10}; do
     if redis-cli -h localhost -p 6379 ping > /dev/null 2>&1; then
         redis_available=true
         break
     fi
-    attempt=$((attempt + 1))
-    echo "Waiting for Redis... (attempt $attempt/$max_attempts)"
+    echo "Waiting for Redis... ($i/10)"
     sleep 2
 done
 
-if [ "$redis_available" = true ]; then
-    print_status "Redis is ready!"
-else
-    print_warning "Redis not available - this is optional for development"
-fi
+[ "$redis_available" = true ] && print_status "Redis is ready!" \
+    || print_warning "Redis not available"
 
-# Run database migrations (if migration system exists)
-# Uncomment when migrations are set up
-# if [ -f "apps/api/alembic.ini" ]; then
-#     print_status "Running database migrations..."
-#     cd apps/api
-#     alembic upgrade head || print_warning "Failed to run migrations"
-#     cd /workspace
-# fi
-
-# Display helpful information
+# -------------------------
+# Summary
+# -------------------------
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "🎉 OpenSolve Pipe development environment is ready!"
 echo ""
-echo "📚 Quick Start:"
+echo "Frontend (SvelteKit):"
+echo "  cd apps/web && pnpm dev"
+echo "  → http://localhost:5173"
 echo ""
-echo "  Frontend (SvelteKit):"
-echo "    cd apps/web && pnpm dev"
-echo "    → http://localhost:5173"
+echo "Backend (FastAPI):"
+echo "  cd apps/api && uvicorn opensolve_pipe.main:app --reload --host 0.0.0.0 --port 8000"
+echo "  → http://localhost:8000"
 echo ""
-echo "  Backend (FastAPI):"
-echo "    cd apps/api && uvicorn opensolve_pipe.main:app --reload --host 0.0.0.0 --port 8000"
-echo "    → http://localhost:8000"
-echo "    → http://localhost:8000/docs (API docs)"
-echo ""
-if [ "$pg_available" = true ]; then
-echo "  Database:"
-echo "    PostgreSQL: localhost:5432"
-echo "    User: opensolve | Password: devpassword | DB: opensolve_pipe"
-echo ""
-fi
-if [ "$redis_available" = true ]; then
-echo "  Redis:"
-echo "    localhost:6379"
-echo ""
-fi
-echo "📖 Documentation:"
-echo "    - CLAUDE.md - Project overview and context"
-echo "    - docs/DEVELOPMENT_PLAN.md - Phased development plan"
-echo "    - docs/PRD.md, SDD.md, TSD.md - Complete specifications"
-echo ""
-echo "🔧 Development Tools:"
-echo "    - Pre-commit hooks: automatically run linting and formatting"
-echo "    - Ruff: Python linting and formatting"
-echo "    - ESLint + Prettier: TypeScript/Svelte formatting"
-if [ "$pg_available" = true ]; then
-echo "    - SQLTools: Database management in VS Code"
-fi
+echo "Playwright:"
+echo "  cd apps/web"
+echo "  pnpm test:e2e        # headless"
+echo "  pnpm test:e2e:ui     # interactive UI"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""

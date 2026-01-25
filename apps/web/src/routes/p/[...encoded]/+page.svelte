@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import Header from '$lib/components/Header.svelte';
 	import { PanelNavigator } from '$lib/components/panel';
 	import { ResultsPanel } from '$lib/components/results';
@@ -58,11 +57,15 @@
 	// Check if project has components (can solve)
 	let canSolve = $derived($components.length > 0);
 
-	// Load project from URL on mount
-	onMount(() => {
-		if (encoded) {
+	// Track if we've already loaded from URL to prevent re-loading
+	let hasLoadedFromUrl = $state(false);
+
+	// Load project from URL using effect (more reliable than onMount for SSR hydration)
+	$effect(() => {
+		if (encoded && !hasLoadedFromUrl) {
 			const project = tryDecodeProject(encoded);
 			if (project) {
+				hasLoadedFromUrl = true;
 				projectStore.load(project);
 			}
 		}

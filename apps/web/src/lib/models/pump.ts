@@ -121,3 +121,43 @@ export function interpolatePumpHead(curve: PumpCurve, flow: number): number | nu
 
 	return null;
 }
+
+/** Best Efficiency Point (BEP) data. */
+export interface BestEfficiencyPoint {
+	/** Flow rate at BEP. */
+	flow: number;
+	/** Efficiency at BEP (0-1). */
+	efficiency: number;
+	/** Head at BEP (interpolated from pump curve). */
+	head: number;
+}
+
+/**
+ * Calculate the Best Efficiency Point (BEP) from efficiency curve data.
+ * Returns null if no efficiency curve data is provided.
+ */
+export function calculateBEP(curve: PumpCurve): BestEfficiencyPoint | null {
+	if (!curve.efficiency_curve || curve.efficiency_curve.length === 0) {
+		return null;
+	}
+
+	// Find the point with maximum efficiency
+	let maxEfficiencyPoint = curve.efficiency_curve[0];
+	for (const point of curve.efficiency_curve) {
+		if (point.efficiency > maxEfficiencyPoint.efficiency) {
+			maxEfficiencyPoint = point;
+		}
+	}
+
+	// Interpolate the head at BEP flow from the pump curve
+	const head = interpolatePumpHead(curve, maxEfficiencyPoint.flow);
+	if (head === null) {
+		return null;
+	}
+
+	return {
+		flow: maxEfficiencyPoint.flow,
+		efficiency: maxEfficiencyPoint.efficiency,
+		head
+	};
+}

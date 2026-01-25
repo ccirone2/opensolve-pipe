@@ -231,6 +231,59 @@ class TestSolveSimple:
 
         assert response.status_code == 422
 
+    @pytest.mark.anyio
+    async def test_solve_simple_glycol_not_implemented(
+        self, client: AsyncClient
+    ) -> None:
+        """Should return 501 for glycol fluids in simple solve."""
+        response = await client.post(
+            "/api/v1/solve/simple",
+            json={
+                "pump_curve": [
+                    {"flow": 0, "head": 100},
+                    {"flow": 100, "head": 70},
+                ],
+                "static_head_ft": 20.0,
+                "pipe_length_ft": 200.0,
+                "pipe_diameter_in": 4.0,
+                "pipe_roughness_in": 0.0018,
+                "fluid": {
+                    "type": "ethylene_glycol",
+                    "temperature": 68.0,
+                    "concentration": 30,
+                },
+            },
+        )
+
+        assert response.status_code == 501
+        data = response.json()
+        assert data["detail"]["error"] == "not_implemented"
+
+    @pytest.mark.anyio
+    async def test_solve_simple_temperature_out_of_range(
+        self, client: AsyncClient
+    ) -> None:
+        """Should return 400 for temperature out of range in simple solve."""
+        response = await client.post(
+            "/api/v1/solve/simple",
+            json={
+                "pump_curve": [
+                    {"flow": 0, "head": 100},
+                    {"flow": 100, "head": 70},
+                ],
+                "static_head_ft": 20.0,
+                "pipe_length_ft": 200.0,
+                "pipe_diameter_in": 4.0,
+                "pipe_roughness_in": 0.0018,
+                "fluid": {"type": "water", "temperature": 500.0},
+                "temperature_unit": "F",
+            },
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data["detail"]["error"] == "temperature_out_of_range"
+
 
 class TestHealthCheck:
     """Tests for health check endpoint."""

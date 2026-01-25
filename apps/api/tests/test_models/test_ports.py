@@ -226,3 +226,74 @@ class TestSprinklerPorts:
         ports = create_sprinkler_ports(inlet_size=0.5)
 
         assert ports[0].nominal_size == 0.5
+
+
+class TestPortElevation:
+    """Tests for port elevation functionality."""
+
+    def test_port_elevation_default_none(self):
+        """Test that port elevation defaults to None."""
+        port = Port(id="port_1", nominal_size=4.0)
+
+        assert port.elevation is None
+
+    def test_port_elevation_can_be_set(self):
+        """Test that port elevation can be explicitly set."""
+        port = Port(id="port_1", nominal_size=4.0, elevation=10.0)
+
+        assert port.elevation == 10.0
+
+    def test_port_elevation_can_be_negative(self):
+        """Test that port elevation can be negative (below reference)."""
+        port = Port(id="port_1", nominal_size=4.0, elevation=-5.0)
+
+        assert port.elevation == -5.0
+
+    def test_port_elevation_can_be_zero(self):
+        """Test that port elevation can be zero."""
+        port = Port(id="port_1", nominal_size=4.0, elevation=0.0)
+
+        assert port.elevation == 0.0
+
+    def test_port_serialization_with_elevation(self):
+        """Test port with elevation serializes correctly."""
+        port = Port(id="outlet", nominal_size=6.0, elevation=15.5)
+        data = port.model_dump()
+
+        assert data["id"] == "outlet"
+        assert data["nominal_size"] == 6.0
+        assert data["elevation"] == 15.5
+
+    def test_port_serialization_without_elevation(self):
+        """Test port without elevation serializes with None."""
+        port = Port(id="outlet", nominal_size=6.0)
+        data = port.model_dump()
+
+        assert data["elevation"] is None
+
+    def test_port_deserialization_with_elevation(self):
+        """Test port with elevation deserializes correctly."""
+        data = {
+            "id": "drain",
+            "nominal_size": 2.0,
+            "direction": "outlet",
+            "elevation": -2.5,
+        }
+        port = Port.model_validate(data)
+
+        assert port.id == "drain"
+        assert port.elevation == -2.5
+
+    def test_port_deserialization_without_elevation(self):
+        """Test port without elevation field deserializes to None."""
+        data = {"id": "inlet", "nominal_size": 4.0, "direction": "inlet"}
+        port = Port.model_validate(data)
+
+        assert port.elevation is None
+
+    def test_port_deserialization_with_null_elevation(self):
+        """Test port with explicit null elevation deserializes to None."""
+        data = {"id": "inlet", "nominal_size": 4.0, "elevation": None}
+        port = Port.model_validate(data)
+
+        assert port.elevation is None

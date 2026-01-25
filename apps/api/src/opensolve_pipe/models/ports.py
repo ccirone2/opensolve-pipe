@@ -4,7 +4,7 @@ from enum import Enum
 
 from pydantic import Field
 
-from .base import OpenSolvePipeBaseModel, PositiveFloat
+from .base import Elevation, OpenSolvePipeBaseModel, PositiveFloat
 
 
 class PortDirection(str, Enum):
@@ -22,6 +22,12 @@ class Port(OpenSolvePipeBaseModel):
     - A unique ID within the component (e.g., "suction", "discharge")
     - A nominal size for pipe size matching
     - A direction indicating flow constraints
+    - An optional elevation override for port-specific height
+
+    If elevation is not specified (None), the port inherits the parent
+    component's elevation. This is useful for most equipment. For tall
+    equipment like tanks, reservoirs, or vertical pumps, port-specific
+    elevations can be set to model connection points at different heights.
     """
 
     id: str = Field(description="Unique port identifier within the component")
@@ -31,6 +37,10 @@ class Port(OpenSolvePipeBaseModel):
     direction: PortDirection = Field(
         default=PortDirection.BIDIRECTIONAL,
         description="Flow direction constraint for this port",
+    )
+    elevation: Elevation | None = Field(
+        default=None,
+        description="Optional port-specific elevation. If None, inherits from parent component.",
     )
 
 

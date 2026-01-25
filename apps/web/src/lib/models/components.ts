@@ -12,7 +12,20 @@ import type { PipingSegment } from './piping';
 /** Direction of flow through a port. */
 export type PortDirection = 'inlet' | 'outlet' | 'bidirectional';
 
-/** A connection port on a component. */
+/**
+ * A connection port on a component.
+ *
+ * Ports define where pipes can connect to components. Each port has:
+ * - A unique ID within the component (e.g., "suction", "discharge")
+ * - A nominal size for pipe size matching
+ * - A direction indicating flow constraints
+ * - An optional elevation override for port-specific height
+ *
+ * If elevation is not specified (undefined), the port inherits the parent
+ * component's elevation. This is useful for most equipment. For tall
+ * equipment like tanks, reservoirs, or vertical pumps, port-specific
+ * elevations can be set to model connection points at different heights.
+ */
 export interface Port {
 	/** Unique port identifier within the component. */
 	id: string;
@@ -20,6 +33,8 @@ export interface Port {
 	nominal_size: number;
 	/** Flow direction constraint for this port. */
 	direction: PortDirection;
+	/** Optional port-specific elevation. If undefined, inherits from parent component. */
+	elevation?: number;
 }
 
 /** Port-based connection between two components. */
@@ -418,6 +433,31 @@ export function isLinkComponent(component: Component): boolean {
 /** Get total head for a reservoir. */
 export function getReservoirTotalHead(reservoir: Reservoir): number {
 	return reservoir.elevation + reservoir.water_level;
+}
+
+/**
+ * Get the effective elevation for a port on a component.
+ *
+ * If the port has a specific elevation set, that value is returned.
+ * Otherwise, the component's elevation is returned (inheritance).
+ *
+ * This is useful for modeling:
+ * - Tanks/Reservoirs with ports at different heights (bottom drain, side fill, top overflow)
+ * - Pumps with suction and discharge nozzles at different elevations
+ * - Heat exchangers with shell/tube connections at different heights
+ * - Vertical equipment where connection points span multiple elevations
+ *
+ * @param component - The component containing the port
+ * @param portId - The ID of the port to get elevation for
+ * @returns The effective elevation of the port
+ * @throws Error if the port is not found on the component
+ */
+export function getPortElevation(component: Component, portId: string): number {
+	const port = component.ports.find((p) => p.id === portId);
+	if (!port) {
+		throw new Error(`Port '${portId}' not found on component '${component.id}'`);
+	}
+	return port.elevation !== undefined ? port.elevation : component.elevation;
 }
 
 /** Generate a unique component ID. */

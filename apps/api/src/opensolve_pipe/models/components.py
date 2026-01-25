@@ -98,6 +98,32 @@ class BaseComponent(OpenSolvePipeBaseModel):
                 return port
         return None
 
+    def get_port_elevation(self, port_id: str) -> float:
+        """Get the effective elevation for a port.
+
+        If the port has a specific elevation set, that value is returned.
+        Otherwise, the component's elevation is returned (inheritance).
+
+        This is useful for modeling:
+        - Tanks/Reservoirs with ports at different heights (bottom drain, side fill, top overflow)
+        - Pumps with suction and discharge nozzles at different elevations
+        - Heat exchangers with shell/tube connections at different heights
+        - Vertical equipment where connection points span multiple elevations
+
+        Args:
+            port_id: The ID of the port to get elevation for
+
+        Returns:
+            The effective elevation of the port
+
+        Raises:
+            ValueError: If the port_id is not found on this component
+        """
+        port = self.get_port(port_id)
+        if port is None:
+            raise ValueError(f"Port '{port_id}' not found on component '{self.id}'")
+        return port.elevation if port.elevation is not None else self.elevation
+
     def get_inlet_ports(self) -> list[Port]:
         """Get all inlet ports."""
         return [

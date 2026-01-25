@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { components } from '$lib/stores';
-	import { COMPONENT_TYPE_LABELS, type SolvedState, type Port, type ComponentType } from '$lib/models';
+	import {
+		COMPONENT_TYPE_LABELS,
+		type SolvedState,
+		type Port,
+		type ComponentType,
+		type ComponentResult
+	} from '$lib/models';
 
 	interface Props {
 		/** The solved state containing results. */
@@ -16,7 +22,29 @@
 		port: Port;
 		isFirstPort: boolean;
 		portCount: number;
-		result: typeof results.component_results[string] | undefined;
+		result: ComponentResult | undefined;
+	}
+
+	/**
+	 * Get the result for a specific port on a component.
+	 * Tries composite key first, then falls back to component-level lookup.
+	 */
+	function getPortResult(componentId: string, portId: string): ComponentResult | undefined {
+		// Try the composite key first (new format: "{component_id}_{port_id}")
+		const compositeKey = `${componentId}_${portId}`;
+		if (results.component_results[compositeKey]) {
+			return results.component_results[compositeKey];
+		}
+
+		// Fallback: try the component ID directly (legacy format)
+		if (results.component_results[componentId]) {
+			return results.component_results[componentId];
+		}
+
+		// Final fallback: search for any result with matching component_id and port_id
+		return Object.values(results.component_results).find(
+			(r) => r.component_id === componentId && r.port_id === portId
+		);
 	}
 
 	// Get all components with their ports and results
@@ -24,11 +52,11 @@
 		const rows: PortRow[] = [];
 
 		$components.forEach((component) => {
-			const result = results.component_results[component.id];
 			const ports = component.ports || [];
 
 			if (ports.length === 0) {
 				// Component has no ports defined, show as single row
+				const result = getPortResult(component.id, 'default');
 				rows.push({
 					componentId: component.id,
 					componentName: component.name,
@@ -40,6 +68,8 @@
 				});
 			} else {
 				ports.forEach((port, index) => {
+					// Look up port-specific result
+					const result = getPortResult(component.id, port.id);
 					rows.push({
 						componentId: component.id,
 						componentName: component.name,

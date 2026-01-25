@@ -19,12 +19,15 @@ export const FLOW_REGIME_LABELS: Record<FlowRegime, string> = {
 };
 
 /**
- * Solved state for a component (reservoir, tank, junction, pump, valve, etc.).
- * Contains pressure and hydraulic grade information.
+ * Solved state for a component port (reservoir, tank, junction, pump, valve, etc.).
+ * Contains pressure and hydraulic grade information for each port on a component.
+ * Multi-port components (pumps, valves) have separate results for each port.
  */
 export interface ComponentResult {
 	/** ID of the component. */
 	component_id: string;
+	/** ID of the port (e.g., 'suction', 'discharge'). Default: 'default' */
+	port_id: string;
 	/** Static pressure in project units. */
 	pressure: number;
 	/** Dynamic pressure (velocity head) in project units. Default: 0 */
@@ -158,9 +161,36 @@ export function hasErrors(state: SolvedState): boolean {
 	return state.warnings.some((w) => w.severity === 'error');
 }
 
-/** Get the result for a component. */
+/** Get the result for a component (legacy - returns first matching result). */
 export function getComponentResult(state: SolvedState, componentId: string): ComponentResult | undefined {
-	return state.component_results[componentId];
+	// First try the exact key (for backward compatibility)
+	if (state.component_results[componentId]) {
+		return state.component_results[componentId];
+	}
+	// Then look for any result with matching component_id
+	return Object.values(state.component_results).find((r) => r.component_id === componentId);
+}
+
+/** Get the result for a specific port on a component. */
+export function getPortResult(
+	state: SolvedState,
+	componentId: string,
+	portId: string
+): ComponentResult | undefined {
+	// Try the composite key first
+	const compositeKey = `${componentId}_${portId}`;
+	if (state.component_results[compositeKey]) {
+		return state.component_results[compositeKey];
+	}
+	// Fallback to searching by component_id and port_id fields
+	return Object.values(state.component_results).find(
+		(r) => r.component_id === componentId && r.port_id === portId
+	);
+}
+
+/** Get all results for a component (all ports). */
+export function getComponentPortResults(state: SolvedState, componentId: string): ComponentResult[] {
+	return Object.values(state.component_results).filter((r) => r.component_id === componentId);
 }
 
 /** Get the result for a piping segment. */

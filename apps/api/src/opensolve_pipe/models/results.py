@@ -28,12 +28,16 @@ class FlowRegime(str, Enum):
 
 
 class ComponentResult(OpenSolvePipeBaseModel):
-    """Solved state for a component (reservoir, tank, junction, pump, valve, etc.).
+    """Solved state for a component port (reservoir, tank, junction, pump, valve, etc.).
 
-    Contains pressure and hydraulic grade information for each component.
+    Contains pressure and hydraulic grade information for each port on a component.
+    Multi-port components (pumps, valves) have separate results for each port.
     """
 
     component_id: str = Field(description="ID of the component")
+    port_id: str = Field(
+        default="default", description="ID of the port (e.g., 'suction', 'discharge')"
+    )
     pressure: float = Field(description="Static pressure in project units")
     dynamic_pressure: float = Field(
         default=0.0, description="Dynamic pressure (velocity head) in project units"

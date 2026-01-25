@@ -180,10 +180,11 @@
 
 	// Effect for chart lifecycle - creates chart when canvas is available, destroys on cleanup
 	$effect(() => {
-		// Track dependencies
+		// Track dependencies - these variables ensure the effect re-runs when props change
 		const currentCanvas = canvas;
 		const currentCurve = curve;
-		const currentResult = result;
+		// eslint-disable-next-line @typescript-eslint/no-unused-vars
+		const _trackResult = result; // Track result changes to trigger re-render
 
 		if (currentCanvas && currentCurve?.points?.length > 0) {
 			// Use setTimeout to ensure we're not in the middle of a render

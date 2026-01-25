@@ -89,7 +89,10 @@ class NetworkGraph:
 class SolverState:
     """Mutable state during network solving."""
 
-    # Pressures at each component (in ft of head)
+    # Pressures at each port (in ft of head), keyed by "{component_id}_{port_id}"
+    port_pressures: dict[str, float] = field(default_factory=dict)
+
+    # Legacy: Pressures at each component (in ft of head) - for backward compatibility
     pressures: dict[str, float] = field(default_factory=dict)
 
     # Flows through each connection (in GPM, positive = forward)
@@ -467,12 +470,22 @@ def solve_simple_path(
         else:
             state.head_losses[conn.id] = 0.0
 
-    # Calculate pressures at each component (propagate from source)
+    # Calculate pressures at each component port (propagate from source)
     current_pressure = source_head  # Start at source total head
     current_id = source_id
     visited = {source_id}
 
+    # Store pressure for source component
     state.pressures[source_id] = current_pressure
+    # Store port-level pressure for source (use first port or "default")
+    source_comp = graph.components[source_id]
+    source_ports = getattr(source_comp, "ports", [])
+    if source_ports:
+        for port in source_ports:
+            port_key = f"{source_id}_{port.id}"
+            state.port_pressures[port_key] = current_pressure
+    else:
+        state.port_pressures[f"{source_id}_default"] = current_pressure
 
     while graph.outgoing.get(current_id):
         conn_id = graph.outgoing[current_id][0]
@@ -486,16 +499,62 @@ def solve_simple_path(
         # Adjust pressure based on component type and head loss
         next_comp = graph.components[next_id]
         h_loss_conn = state.head_losses.get(conn_id, 0.0)
+        next_ports = getattr(next_comp, "ports", [])
 
         if next_comp.type == ComponentType.PUMP:
-            # Pump adds head
-            current_pressure = current_pressure - h_loss_conn + operating_head
+            # Pump: suction port gets pressure before pump, discharge gets pressure after
+            suction_pressure = current_pressure - h_loss_conn
+            discharge_pressure = suction_pressure + operating_head
+
+            # Find suction and discharge port IDs
+            suction_port_id = "suction"
+            discharge_port_id = "discharge"
+            for port in next_ports:
+                if port.direction == "inlet":
+                    suction_port_id = port.id
+                elif port.direction == "outlet":
+                    discharge_port_id = port.id
+
+            state.port_pressures[f"{next_id}_{suction_port_id}"] = suction_pressure
+            state.port_pressures[f"{next_id}_{discharge_port_id}"] = discharge_pressure
+
+            # Legacy: store discharge pressure as component pressure
+            current_pressure = discharge_pressure
+        elif next_comp.type == ComponentType.VALVE:
+            # Valve: inlet gets pressure before drop, outlet gets pressure after
+            inlet_pressure = current_pressure - h_loss_conn
+            # For valves, we need to calculate the pressure drop across the valve
+            # For now, use a simplified model where valve adds no additional loss
+            # (the h_loss_conn includes piping loss, not valve-specific loss)
+            outlet_pressure = inlet_pressure
+
+            # Find inlet and outlet port IDs
+            inlet_port_id = "inlet"
+            outlet_port_id = "outlet"
+            for port in next_ports:
+                if port.direction == "inlet":
+                    inlet_port_id = port.id
+                elif port.direction == "outlet":
+                    outlet_port_id = port.id
+
+            state.port_pressures[f"{next_id}_{inlet_port_id}"] = inlet_pressure
+            state.port_pressures[f"{next_id}_{outlet_port_id}"] = outlet_pressure
+
+            current_pressure = outlet_pressure
         else:
             # All other components just have head loss and elevation change
             elevation_change = (
                 next_comp.elevation - graph.components[current_id].elevation
             )
             current_pressure = current_pressure - h_loss_conn - elevation_change
+
+            # Store port-level pressures for all ports on this component
+            if next_ports:
+                for port in next_ports:
+                    port_key = f"{next_id}_{port.id}"
+                    state.port_pressures[port_key] = current_pressure
+            else:
+                state.port_pressures[f"{next_id}_default"] = current_pressure
 
         state.pressures[next_id] = current_pressure
         current_id = next_id
@@ -881,21 +940,50 @@ def solve_project(project: Project) -> SolvedState:
     # Collect warnings
     warnings.extend(state.warnings)
 
-    # Build result objects
+    # Build result objects - now using port-level pressures
     component_results: dict[str, ComponentResult] = {}
-    for comp_id in graph.components:
-        pressure = state.pressures.get(comp_id, 0.0)
+
+    # First, emit results from port_pressures (port-level data)
+    for port_key, pressure in state.port_pressures.items():
+        # Parse the port key: "{component_id}_{port_id}"
+        parts = port_key.rsplit("_", 1)
+        if len(parts) == 2:
+            comp_id, port_id = parts
+        else:
+            comp_id = port_key
+            port_id = "default"
+
         # Convert head to pressure (psi) for results
         pressure_psi = pressure * 0.433  # ft of water to psi
 
-        component_results[comp_id] = ComponentResult(
+        component_results[port_key] = ComponentResult(
             component_id=comp_id,
+            port_id=port_id,
             pressure=pressure_psi,
             dynamic_pressure=0.0,  # Simplified - not calculating velocity head at each point
             total_pressure=pressure_psi,
             hgl=pressure,  # HGL is the pressure head
             egl=pressure,  # Simplified - EGL = HGL + velocity head
         )
+
+    # Fallback: Add any components that don't have port-level data
+    # (for backward compatibility with older solver paths)
+    for comp_id in graph.components:
+        if comp_id not in state.port_pressures and not any(
+            k.startswith(f"{comp_id}_") for k in state.port_pressures
+        ):
+            pressure = state.pressures.get(comp_id, 0.0)
+            pressure_psi = pressure * 0.433
+
+            component_results[f"{comp_id}_default"] = ComponentResult(
+                component_id=comp_id,
+                port_id="default",
+                pressure=pressure_psi,
+                dynamic_pressure=0.0,
+                total_pressure=pressure_psi,
+                hgl=pressure,
+                egl=pressure,
+            )
 
     piping_results: dict[str, PipingResult] = {}
     for conn_id, conn in graph.connections.items():

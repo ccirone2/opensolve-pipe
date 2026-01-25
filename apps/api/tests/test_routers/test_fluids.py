@@ -214,3 +214,31 @@ class TestCalculateFluidProperties:
         )
 
         assert response.status_code == 422  # Validation error
+
+    @pytest.mark.anyio
+    async def test_calculate_glycol_not_implemented(self, client: AsyncClient) -> None:
+        """Should return 501 for glycol fluids via POST endpoint."""
+        response = await client.post(
+            "/api/v1/fluids/properties",
+            json={"type": "ethylene_glycol", "temperature": 68.0, "concentration": 30},
+            params={"temperature_unit": "F"},
+        )
+
+        assert response.status_code == 501
+        data = response.json()
+        assert data["detail"]["error"] == "not_implemented"
+
+    @pytest.mark.anyio
+    async def test_calculate_temperature_out_of_range(
+        self, client: AsyncClient
+    ) -> None:
+        """Should return 400 for temperature out of range via POST endpoint."""
+        response = await client.post(
+            "/api/v1/fluids/properties",
+            json={"type": "water", "temperature": 500.0},
+            params={"temperature_unit": "F"},
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data["detail"]["error"] == "temperature_out_of_range"

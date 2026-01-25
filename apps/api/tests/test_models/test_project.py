@@ -17,6 +17,7 @@ from opensolve_pipe.models import (
     UnitPreferences,
     UnitSystem,
 )
+from opensolve_pipe.models.connections import PipeConnection
 
 
 class TestProjectMetadata:
@@ -195,3 +196,184 @@ class TestProject:
             ]
         )
         assert len(project.components) == 2
+
+    def test_project_get_connection(self, sample_project: Project):
+        """Test getting a connection by ID."""
+        # Non-existent connection should return None
+        assert sample_project.get_connection("nonexistent") is None
+
+    def test_project_get_connections_from_component(self, sample_project: Project):
+        """Test getting connections from a component."""
+        # Get connections originating from reservoir
+        conns = sample_project.get_connections_from_component("R1")
+        assert isinstance(conns, list)
+
+    def test_project_get_connections_to_component(self, sample_project: Project):
+        """Test getting connections to a component."""
+        # Get connections targeting junction
+        conns = sample_project.get_connections_to_component("J1")
+        assert isinstance(conns, list)
+
+    def test_project_get_connections_for_port(self, sample_project: Project):
+        """Test getting connections for a specific port."""
+        # Get connections for a port
+        conns = sample_project.get_connections_for_port("R1", "outlet_1")
+        assert isinstance(conns, list)
+
+    def test_project_duplicate_connection_ids(self):
+        """Test that duplicate connection IDs are rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            Project(
+                components=[
+                    Reservoir(id="R1", name="Source", elevation=100, water_level=10),
+                    Junction(id="J1", name="Junction 1", elevation=50),
+                ],
+                connections=[
+                    PipeConnection(
+                        id="conn_1",
+                        from_component_id="R1",
+                        from_port_id="outlet_1",
+                        to_component_id="J1",
+                        to_port_id="port_1",
+                    ),
+                    PipeConnection(
+                        id="conn_1",  # Duplicate ID
+                        from_component_id="R1",
+                        from_port_id="outlet_1",
+                        to_component_id="J1",
+                        to_port_id="port_1",
+                    ),
+                ],
+            )
+        assert "Duplicate" in str(exc_info.value)
+
+    def test_project_connection_unknown_source_component(self):
+        """Test that connection referencing unknown source component is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            Project(
+                components=[
+                    Junction(id="J1", name="Junction 1", elevation=50),
+                ],
+                connections=[
+                    PipeConnection(
+                        id="conn_1",
+                        from_component_id="nonexistent",  # Invalid
+                        from_port_id="outlet_1",
+                        to_component_id="J1",
+                        to_port_id="port_1",
+                    ),
+                ],
+            )
+        assert "unknown" in str(exc_info.value).lower()
+
+    def test_project_connection_unknown_target_component(self):
+        """Test that connection referencing unknown target component is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            Project(
+                components=[
+                    Reservoir(id="R1", name="Source", elevation=100, water_level=10),
+                ],
+                connections=[
+                    PipeConnection(
+                        id="conn_1",
+                        from_component_id="R1",
+                        from_port_id="outlet_1",
+                        to_component_id="nonexistent",  # Invalid
+                        to_port_id="port_1",
+                    ),
+                ],
+            )
+        assert "unknown" in str(exc_info.value).lower()
+
+    def test_project_connection_unknown_source_port(self):
+        """Test that connection referencing unknown source port is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            Project(
+                components=[
+                    Reservoir(id="R1", name="Source", elevation=100, water_level=10),
+                    Junction(id="J1", name="Junction 1", elevation=50),
+                ],
+                connections=[
+                    PipeConnection(
+                        id="conn_1",
+                        from_component_id="R1",
+                        from_port_id="invalid_port",  # Invalid port
+                        to_component_id="J1",
+                        to_port_id="port_1",
+                    ),
+                ],
+            )
+        assert "unknown port" in str(exc_info.value).lower()
+
+    def test_project_connection_unknown_target_port(self):
+        """Test that connection referencing unknown target port is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            Project(
+                components=[
+                    Reservoir(id="R1", name="Source", elevation=100, water_level=10),
+                    Junction(id="J1", name="Junction 1", elevation=50),
+                ],
+                connections=[
+                    PipeConnection(
+                        id="conn_1",
+                        from_component_id="R1",
+                        from_port_id="outlet_1",
+                        to_component_id="J1",
+                        to_port_id="invalid_port",  # Invalid port
+                    ),
+                ],
+            )
+        assert "unknown port" in str(exc_info.value).lower()
+
+    def test_project_connection_port_direction_incompatible(self):
+        """Test that incompatible port directions are rejected."""
+        # Create a pump to test with (has inlet suction and outlet discharge)
+        pump_curve = PumpCurve(
+            id="PC1",
+            name="Test Pump",
+            points=[
+                FlowHeadPoint(flow=0, head=100),
+                FlowHeadPoint(flow=100, head=50),
+            ],
+        )
+        pump1 = PumpComponent(id="P1", name="Pump 1", elevation=10, curve_id="PC1")
+        pump2 = PumpComponent(id="P2", name="Pump 2", elevation=10, curve_id="PC1")
+
+        with pytest.raises(ValidationError) as exc_info:
+            Project(
+                components=[pump1, pump2],
+                pump_library=[pump_curve],
+                connections=[
+                    PipeConnection(
+                        id="conn_1",
+                        # Try to connect from inlet (suction) port - invalid
+                        from_component_id="P1",
+                        from_port_id="suction",  # inlet port
+                        to_component_id="P2",
+                        to_port_id="suction",  # inlet port
+                    ),
+                ],
+            )
+        assert "inlet" in str(exc_info.value).lower()
+
+    def test_project_with_valid_pipe_connections(self):
+        """Test project with valid PipeConnection array."""
+        project = Project(
+            components=[
+                Reservoir(id="R1", name="Source", elevation=100, water_level=10),
+                Junction(id="J1", name="Junction 1", elevation=50),
+            ],
+            connections=[
+                PipeConnection(
+                    id="conn_1",
+                    from_component_id="R1",
+                    from_port_id="outlet_1",
+                    to_component_id="J1",
+                    to_port_id="port_1",
+                ),
+            ],
+        )
+        assert len(project.connections) == 1
+        conn = project.get_connection("conn_1")
+        assert conn is not None
+        assert conn.from_component_id == "R1"

@@ -39,19 +39,7 @@
 			// Build datasets
 			const datasets: Chart['data']['datasets'] = [];
 
-			// Pump curve
-			datasets.push({
-				label: 'Pump Curve',
-				data: curve.points.map((p) => ({ x: p.flow, y: p.head })),
-				borderColor: 'rgb(59, 130, 246)',
-				backgroundColor: 'rgba(59, 130, 246, 0.1)',
-				fill: false,
-				tension: 0.4,
-				pointRadius: 3,
-				pointHoverRadius: 5
-			});
-
-			// System curve
+			// System curve - smooth line only, no points (drawn first/behind)
 			if (result?.system_curve && result.system_curve.length > 0) {
 				datasets.push({
 					label: 'System Curve',
@@ -59,11 +47,40 @@
 					borderColor: 'rgb(239, 68, 68)',
 					backgroundColor: 'rgba(239, 68, 68, 0.1)',
 					fill: false,
+					showLine: true,
 					tension: 0.4,
 					pointRadius: 0,
-					borderDash: [5, 5]
+					pointHoverRadius: 0,
+					borderWidth: 2,
+					order: 3
 				});
 			}
+
+			// Pump curve line (drawn behind points)
+			datasets.push({
+				label: 'Pump Curve',
+				data: curve.points.map((p) => ({ x: p.flow, y: p.head })),
+				borderColor: 'rgb(59, 130, 246)',
+				backgroundColor: 'rgba(59, 130, 246, 0.1)',
+				fill: false,
+				showLine: true,
+				tension: 0.4,
+				pointRadius: 0,
+				borderWidth: 2,
+				order: 2
+			});
+
+			// Pump curve points (drawn on top of line)
+			datasets.push({
+				label: 'Pump Curve Points',
+				data: curve.points.map((p) => ({ x: p.flow, y: p.head })),
+				borderColor: 'rgb(59, 130, 246)',
+				backgroundColor: 'rgb(59, 130, 246)',
+				showLine: false,
+				pointRadius: 5,
+				pointHoverRadius: 7,
+				order: 1
+			});
 
 			// Operating point
 			if (result?.operating_flow !== undefined && result?.operating_head !== undefined) {
@@ -112,14 +129,16 @@
 							position: 'bottom',
 							labels: {
 								usePointStyle: true,
-								padding: 16
+								padding: 16,
+								filter: (item) => item.text !== 'Pump Curve Points'
 							}
 						},
 						tooltip: {
 							callbacks: {
 								label(context) {
 									const point = context.raw as { x: number; y: number };
-									return `${context.dataset.label}: ${point.x.toFixed(1)} GPM @ ${point.y.toFixed(1)} ft`;
+									const label = context.dataset.label === 'Pump Curve Points' ? 'Pump Curve' : context.dataset.label;
+									return `${label}: ${point.x.toFixed(1)} GPM @ ${point.y.toFixed(1)} ft`;
 								}
 							}
 						}

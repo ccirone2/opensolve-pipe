@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { components } from '$lib/stores';
-	import { COMPONENT_TYPE_LABELS, type SolvedState } from '$lib/models';
+	import { COMPONENT_TYPE_LABELS, type SolvedState, type Port, type ComponentType } from '$lib/models';
 
 	interface Props {
 		/** The solved state containing results. */
@@ -9,23 +9,66 @@
 
 	let { results }: Props = $props();
 
-	// Get all components with their results
-	let componentData = $derived.by(() => {
-		return $components.map((component) => {
+	interface PortRow {
+		componentId: string;
+		componentName: string;
+		componentType: ComponentType;
+		port: Port;
+		isFirstPort: boolean;
+		portCount: number;
+		result: typeof results.component_results[string] | undefined;
+	}
+
+	// Get all components with their ports and results
+	let portData = $derived.by(() => {
+		const rows: PortRow[] = [];
+
+		$components.forEach((component) => {
 			const result = results.component_results[component.id];
-			return {
-				id: component.id,
-				name: component.name,
-				type: component.type,
-				elevation: component.elevation,
-				result
-			};
+			const ports = component.ports || [];
+
+			if (ports.length === 0) {
+				// Component has no ports defined, show as single row
+				rows.push({
+					componentId: component.id,
+					componentName: component.name,
+					componentType: component.type,
+					port: { id: 'default', nominal_size: 0, direction: 'bidirectional' },
+					isFirstPort: true,
+					portCount: 1,
+					result
+				});
+			} else {
+				ports.forEach((port, index) => {
+					rows.push({
+						componentId: component.id,
+						componentName: component.name,
+						componentType: component.type,
+						port,
+						isFirstPort: index === 0,
+						portCount: ports.length,
+						result
+					});
+				});
+			}
 		});
+
+		return rows;
 	});
 
 	function formatNumber(value: number | undefined, decimals = 2): string {
 		if (value === undefined) return '-';
 		return value.toFixed(decimals);
+	}
+
+	function formatPortName(port: Port): string {
+		const dirMap: Record<string, string> = {
+			inlet: 'In',
+			outlet: 'Out',
+			bidirectional: ''
+		};
+		const dir = dirMap[port.direction] || '';
+		return dir ? `${port.id} (${dir})` : port.id;
 	}
 </script>
 
@@ -39,6 +82,9 @@
 				<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
 					Type
 				</th>
+				<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+					Port
+				</th>
 				<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
 					Pressure (psi)
 				</th>
@@ -51,28 +97,39 @@
 			</tr>
 		</thead>
 		<tbody class="divide-y divide-gray-200 bg-white">
-			{#each componentData as component}
+			{#each portData as row}
 				<tr class="hover:bg-gray-50">
-					<td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">
-						{component.name}
-					</td>
+					{#if row.isFirstPort}
+						<td
+							class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900"
+							rowspan={row.portCount}
+						>
+							{row.componentName}
+						</td>
+						<td
+							class="whitespace-nowrap px-4 py-3 text-sm text-gray-500"
+							rowspan={row.portCount}
+						>
+							{COMPONENT_TYPE_LABELS[row.componentType]}
+						</td>
+					{/if}
 					<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">
-						{COMPONENT_TYPE_LABELS[component.type]}
+						{formatPortName(row.port)}
 					</td>
 					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
-						{formatNumber(component.result?.pressure)}
+						{formatNumber(row.result?.pressure)}
 					</td>
 					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
-						{formatNumber(component.result?.hgl)}
+						{formatNumber(row.result?.hgl)}
 					</td>
 					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
-						{formatNumber(component.result?.egl)}
+						{formatNumber(row.result?.egl)}
 					</td>
 				</tr>
 			{/each}
-			{#if componentData.length === 0}
+			{#if portData.length === 0}
 				<tr>
-					<td colspan="5" class="px-4 py-8 text-center text-sm text-gray-500">
+					<td colspan="6" class="px-4 py-8 text-center text-sm text-gray-500">
 						No component results available
 					</td>
 				</tr>

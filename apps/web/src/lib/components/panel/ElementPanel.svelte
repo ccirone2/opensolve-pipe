@@ -17,7 +17,9 @@
 		isTeeBranch,
 		isWyeBranch,
 		isCrossBranch,
-		type Component
+		type Component,
+		type IdealReferenceNode,
+		type NonIdealReferenceNode
 	} from '$lib/models';
 	import {
 		ReservoirForm,
@@ -48,6 +50,38 @@
 
 	function updateField(field: string, value: unknown) {
 		projectStore.updateComponent(component.id, { [field]: value });
+	}
+
+	/**
+	 * Handle switching reference node type between ideal and non-ideal.
+	 * Converts the component data structure appropriately.
+	 */
+	function handleReferenceNodeTypeChange(newType: 'ideal_reference_node' | 'non_ideal_reference_node') {
+		if (newType === 'ideal_reference_node') {
+			// Convert from non-ideal to ideal
+			const nonIdeal = component as NonIdealReferenceNode;
+			// Use the first point's pressure as the fixed pressure, or default to 50
+			const pressure = nonIdeal.pressure_flow_curve?.[0]?.pressure ?? 50;
+			projectStore.updateComponent(component.id, {
+				type: 'ideal_reference_node',
+				pressure,
+				// Remove non-ideal specific fields
+				pressure_flow_curve: undefined,
+				max_flow: undefined
+			} as Partial<IdealReferenceNode>);
+		} else {
+			// Convert from ideal to non-ideal
+			const ideal = component as IdealReferenceNode;
+			projectStore.updateComponent(component.id, {
+				type: 'non_ideal_reference_node',
+				pressure_flow_curve: [
+					{ flow: 0, pressure: ideal.pressure ?? 60 },
+					{ flow: 100, pressure: (ideal.pressure ?? 60) - 10 }
+				],
+				// Remove ideal specific field
+				pressure: undefined
+			} as Partial<NonIdealReferenceNode>);
+		}
 	}
 
 	function handleTextInput(field: string, e: Event) {
@@ -110,7 +144,7 @@
 		{:else if isSprinkler(component)}
 			<SprinklerForm {component} onUpdate={updateField} />
 		{:else if isIdealReferenceNode(component) || isNonIdealReferenceNode(component)}
-			<ReferenceNodeForm {component} onUpdate={updateField} />
+			<ReferenceNodeForm {component} onUpdate={updateField} onTypeChange={handleReferenceNodeTypeChange} />
 		{:else if isPlug(component)}
 			<PlugForm {component} onUpdate={updateField} />
 		{:else if isTeeBranch(component)}

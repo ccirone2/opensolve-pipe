@@ -7,12 +7,22 @@
 		component: IdealReferenceNode | NonIdealReferenceNode;
 		/** Callback when a field value changes. */
 		onUpdate: (field: string, value: unknown) => void;
+		/** Callback to change the component type (for switching between ideal/non-ideal). */
+		onTypeChange?: (newType: 'ideal_reference_node' | 'non_ideal_reference_node') => void;
 	}
 
-	let { component, onUpdate }: Props = $props();
+	let { component, onUpdate, onTypeChange }: Props = $props();
 
 	// Check if this is an ideal or non-ideal reference node
 	const isIdeal = $derived(component.type === 'ideal_reference_node');
+
+	// Handle type switch
+	function handleTypeSwitch(newIsIdeal: boolean) {
+		const newType = newIsIdeal ? 'ideal_reference_node' : 'non_ideal_reference_node';
+		if (newType !== component.type && onTypeChange) {
+			onTypeChange(newType);
+		}
+	}
 
 	// For non-ideal nodes, get the curve data
 	const curvePoints = $derived(
@@ -66,6 +76,38 @@
 </script>
 
 <div class="space-y-4">
+	<!-- Type Selector -->
+	<fieldset>
+		<legend class="block text-sm font-medium text-gray-700 mb-2">Reference Node Type</legend>
+		<div class="flex gap-2" role="group" aria-label="Reference Node Type">
+			<button
+				type="button"
+				onclick={() => handleTypeSwitch(true)}
+				aria-pressed={isIdeal}
+				class="flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors
+					{isIdeal
+					? 'bg-blue-600 text-white'
+					: 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+			>
+				Ideal
+			</button>
+			<button
+				type="button"
+				onclick={() => handleTypeSwitch(false)}
+				aria-pressed={!isIdeal}
+				class="flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors
+					{!isIdeal
+					? 'bg-amber-600 text-white'
+					: 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+			>
+				Non-Ideal
+			</button>
+		</div>
+		<p class="mt-1 text-xs text-gray-500">
+			{isIdeal ? 'Constant pressure boundary' : 'Pressure varies with flow'}
+		</p>
+	</fieldset>
+
 	<NumberInput
 		id="elevation"
 		label="Elevation"

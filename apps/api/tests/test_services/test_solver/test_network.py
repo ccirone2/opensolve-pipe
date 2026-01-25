@@ -156,7 +156,8 @@ class TestSolveProject:
                     elevation=0.0,
                     ports=[
                         Port(
-                            id="port_1",
+                            id="P1",
+                            name="Port",
                             nominal_size=4.0,
                             direction=PortDirection.BIDIRECTIONAL,
                         )
@@ -182,7 +183,8 @@ class TestSolveProject:
                     water_level=10.0,
                     ports=[
                         Port(
-                            id="outlet",
+                            id="P1",
+                            name="Outlet",
                             nominal_size=4.0,
                             direction=PortDirection.OUTLET,
                         )
@@ -198,7 +200,10 @@ class TestSolveProject:
                     initial_level=5.0,
                     ports=[
                         Port(
-                            id="inlet", nominal_size=4.0, direction=PortDirection.INLET
+                            id="P1",
+                            name="Inlet",
+                            nominal_size=4.0,
+                            direction=PortDirection.INLET,
                         )
                     ],
                 ),
@@ -207,9 +212,9 @@ class TestSolveProject:
                 PipeConnection(
                     id="pipe-1",
                     from_component_id="reservoir-1",
-                    from_port_id="outlet",
+                    from_port_id="P1",
                     to_component_id="tank-1",
-                    to_port_id="inlet",
+                    to_port_id="P1",
                     piping=PipingSegment(
                         pipe=PipeDefinition(
                             material=PipeMaterial.CARBON_STEEL,
@@ -382,7 +387,8 @@ def _create_simple_pump_project(pipe_diameter: float = 4.0) -> Project:
                 water_level=10.0,
                 ports=[
                     Port(
-                        id="outlet",
+                        id="P1",
+                        name="Outlet",
                         nominal_size=pipe_diameter,
                         direction=PortDirection.OUTLET,
                     )
@@ -395,12 +401,14 @@ def _create_simple_pump_project(pipe_diameter: float = 4.0) -> Project:
                 curve_id="pump-curve-1",
                 ports=[
                     Port(
-                        id="suction",
+                        id="P1",
+                        name="Suction",
                         nominal_size=pipe_diameter,
                         direction=PortDirection.INLET,
                     ),
                     Port(
-                        id="discharge",
+                        id="P2",
+                        name="Discharge",
                         nominal_size=pipe_diameter,
                         direction=PortDirection.OUTLET,
                     ),
@@ -416,7 +424,8 @@ def _create_simple_pump_project(pipe_diameter: float = 4.0) -> Project:
                 initial_level=5.0,
                 ports=[
                     Port(
-                        id="inlet",
+                        id="P1",
+                        name="Inlet",
                         nominal_size=pipe_diameter,
                         direction=PortDirection.INLET,
                     )
@@ -427,9 +436,9 @@ def _create_simple_pump_project(pipe_diameter: float = 4.0) -> Project:
             PipeConnection(
                 id="suction-pipe",
                 from_component_id="reservoir-1",
-                from_port_id="outlet",
+                from_port_id="P1",
                 to_component_id="pump-1",
-                to_port_id="suction",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -445,9 +454,9 @@ def _create_simple_pump_project(pipe_diameter: float = 4.0) -> Project:
             PipeConnection(
                 id="discharge-pipe",
                 from_component_id="pump-1",
-                from_port_id="discharge",
+                from_port_id="P2",
                 to_component_id="tank-1",
-                to_port_id="inlet",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -490,7 +499,12 @@ def _create_reference_node_project() -> Project:
                 elevation=0.0,
                 pressure=50.0,  # 50 psi
                 ports=[
-                    Port(id="outlet", nominal_size=4.0, direction=PortDirection.OUTLET)
+                    Port(
+                        id="P1",
+                        name="Outlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.OUTLET,
+                    )
                 ],
             ),
             PumpComponent(
@@ -499,9 +513,17 @@ def _create_reference_node_project() -> Project:
                 elevation=0.0,
                 curve_id="pump-curve-1",
                 ports=[
-                    Port(id="suction", nominal_size=4.0, direction=PortDirection.INLET),
                     Port(
-                        id="discharge", nominal_size=4.0, direction=PortDirection.OUTLET
+                        id="P1",
+                        name="Suction",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
+                    ),
+                    Port(
+                        id="P2",
+                        name="Discharge",
+                        nominal_size=4.0,
+                        direction=PortDirection.OUTLET,
                     ),
                 ],
             ),
@@ -514,7 +536,12 @@ def _create_reference_node_project() -> Project:
                 max_level=20.0,
                 initial_level=5.0,
                 ports=[
-                    Port(id="inlet", nominal_size=4.0, direction=PortDirection.INLET)
+                    Port(
+                        id="P1",
+                        name="Inlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
+                    )
                 ],
             ),
         ],
@@ -522,9 +549,9 @@ def _create_reference_node_project() -> Project:
             PipeConnection(
                 id="suction-pipe",
                 from_component_id="reference-1",
-                from_port_id="outlet",
+                from_port_id="P1",
                 to_component_id="pump-1",
-                to_port_id="suction",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -537,9 +564,9 @@ def _create_reference_node_project() -> Project:
             PipeConnection(
                 id="discharge-pipe",
                 from_component_id="pump-1",
-                from_port_id="discharge",
+                from_port_id="P2",
                 to_component_id="tank-1",
-                to_port_id="inlet",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -577,7 +604,12 @@ def _create_plug_project() -> Project:
                 elevation=0.0,
                 water_level=10.0,
                 ports=[
-                    Port(id="outlet", nominal_size=4.0, direction=PortDirection.OUTLET)
+                    Port(
+                        id="P1",
+                        name="Outlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.OUTLET,
+                    )
                 ],
             ),
             PumpComponent(
@@ -586,9 +618,17 @@ def _create_plug_project() -> Project:
                 elevation=0.0,
                 curve_id="pump-curve-1",
                 ports=[
-                    Port(id="suction", nominal_size=4.0, direction=PortDirection.INLET),
                     Port(
-                        id="discharge", nominal_size=4.0, direction=PortDirection.OUTLET
+                        id="P1",
+                        name="Suction",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
+                    ),
+                    Port(
+                        id="P2",
+                        name="Discharge",
+                        nominal_size=4.0,
+                        direction=PortDirection.OUTLET,
                     ),
                 ],
             ),
@@ -597,7 +637,12 @@ def _create_plug_project() -> Project:
                 name="Dead End",
                 elevation=50.0,
                 ports=[
-                    Port(id="inlet", nominal_size=4.0, direction=PortDirection.INLET)
+                    Port(
+                        id="P1",
+                        name="Inlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
+                    )
                 ],
             ),
         ],
@@ -605,9 +650,9 @@ def _create_plug_project() -> Project:
             PipeConnection(
                 id="suction-pipe",
                 from_component_id="reservoir-1",
-                from_port_id="outlet",
+                from_port_id="P1",
                 to_component_id="pump-1",
-                to_port_id="suction",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -620,9 +665,9 @@ def _create_plug_project() -> Project:
             PipeConnection(
                 id="discharge-pipe",
                 from_component_id="pump-1",
-                from_port_id="discharge",
+                from_port_id="P2",
                 to_component_id="plug-1",
-                to_port_id="inlet",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -659,7 +704,12 @@ def _create_branching_project() -> Project:
                 elevation=0.0,
                 water_level=10.0,
                 ports=[
-                    Port(id="outlet", nominal_size=4.0, direction=PortDirection.OUTLET)
+                    Port(
+                        id="P1",
+                        name="Outlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.OUTLET,
+                    )
                 ],
             ),
             PumpComponent(
@@ -668,9 +718,17 @@ def _create_branching_project() -> Project:
                 elevation=0.0,
                 curve_id="pump-curve-1",
                 ports=[
-                    Port(id="suction", nominal_size=4.0, direction=PortDirection.INLET),
                     Port(
-                        id="discharge", nominal_size=4.0, direction=PortDirection.OUTLET
+                        id="P1",
+                        name="Suction",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
+                    ),
+                    Port(
+                        id="P2",
+                        name="Discharge",
+                        nominal_size=4.0,
+                        direction=PortDirection.OUTLET,
                     ),
                 ],
             ),
@@ -681,15 +739,20 @@ def _create_branching_project() -> Project:
                 branch_angle=90.0,
                 ports=[
                     Port(
-                        id="run_inlet", nominal_size=4.0, direction=PortDirection.INLET
+                        id="P1",
+                        name="Run Inlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
                     ),
                     Port(
-                        id="run_outlet",
+                        id="P2",
+                        name="Run Outlet",
                         nominal_size=4.0,
                         direction=PortDirection.OUTLET,
                     ),
                     Port(
-                        id="branch",
+                        id="P3",
+                        name="Branch",
                         nominal_size=4.0,
                         direction=PortDirection.BIDIRECTIONAL,
                     ),
@@ -704,7 +767,12 @@ def _create_branching_project() -> Project:
                 max_level=20.0,
                 initial_level=5.0,
                 ports=[
-                    Port(id="inlet", nominal_size=4.0, direction=PortDirection.INLET)
+                    Port(
+                        id="P1",
+                        name="Inlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
+                    )
                 ],
             ),
             Tank(
@@ -716,7 +784,12 @@ def _create_branching_project() -> Project:
                 max_level=20.0,
                 initial_level=5.0,
                 ports=[
-                    Port(id="inlet", nominal_size=4.0, direction=PortDirection.INLET)
+                    Port(
+                        id="P1",
+                        name="Inlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
+                    )
                 ],
             ),
         ],
@@ -724,9 +797,9 @@ def _create_branching_project() -> Project:
             PipeConnection(
                 id="suction-pipe",
                 from_component_id="reservoir-1",
-                from_port_id="outlet",
+                from_port_id="P1",
                 to_component_id="pump-1",
-                to_port_id="suction",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -739,9 +812,9 @@ def _create_branching_project() -> Project:
             PipeConnection(
                 id="pump-to-tee",
                 from_component_id="pump-1",
-                from_port_id="discharge",
+                from_port_id="P2",
                 to_component_id="tee-1",
-                to_port_id="run_inlet",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -754,9 +827,9 @@ def _create_branching_project() -> Project:
             PipeConnection(
                 id="tee-to-tank1",
                 from_component_id="tee-1",
-                from_port_id="run_outlet",
+                from_port_id="P2",
                 to_component_id="tank-1",
-                to_port_id="inlet",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -769,9 +842,9 @@ def _create_branching_project() -> Project:
             PipeConnection(
                 id="tee-to-tank2",
                 from_component_id="tee-1",
-                from_port_id="branch",
+                from_port_id="P3",
                 to_component_id="tank-2",
-                to_port_id="inlet",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -813,7 +886,12 @@ def _create_looped_project() -> Project:
                 elevation=0.0,
                 water_level=10.0,
                 ports=[
-                    Port(id="outlet", nominal_size=4.0, direction=PortDirection.OUTLET)
+                    Port(
+                        id="P1",
+                        name="Outlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.OUTLET,
+                    )
                 ],
             ),
             PumpComponent(
@@ -822,9 +900,17 @@ def _create_looped_project() -> Project:
                 elevation=0.0,
                 curve_id="pump-curve-1",
                 ports=[
-                    Port(id="suction", nominal_size=4.0, direction=PortDirection.INLET),
                     Port(
-                        id="discharge", nominal_size=4.0, direction=PortDirection.OUTLET
+                        id="P1",
+                        name="Suction",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
+                    ),
+                    Port(
+                        id="P2",
+                        name="Discharge",
+                        nominal_size=4.0,
+                        direction=PortDirection.OUTLET,
                     ),
                 ],
             ),
@@ -833,9 +919,24 @@ def _create_looped_project() -> Project:
                 name="Junction A",
                 elevation=10.0,
                 ports=[
-                    Port(id="inlet1", nominal_size=4.0, direction=PortDirection.INLET),
-                    Port(id="inlet2", nominal_size=4.0, direction=PortDirection.INLET),
-                    Port(id="outlet", nominal_size=4.0, direction=PortDirection.OUTLET),
+                    Port(
+                        id="P1",
+                        name="Inlet 1",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
+                    ),
+                    Port(
+                        id="P2",
+                        name="Inlet 2",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
+                    ),
+                    Port(
+                        id="P3",
+                        name="Outlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.OUTLET,
+                    ),
                 ],
             ),
             Junction(
@@ -843,12 +944,23 @@ def _create_looped_project() -> Project:
                 name="Junction B",
                 elevation=10.0,
                 ports=[
-                    Port(id="inlet", nominal_size=4.0, direction=PortDirection.INLET),
                     Port(
-                        id="outlet1", nominal_size=4.0, direction=PortDirection.OUTLET
+                        id="P1",
+                        name="Inlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
                     ),
                     Port(
-                        id="outlet2", nominal_size=4.0, direction=PortDirection.OUTLET
+                        id="P2",
+                        name="Outlet 1",
+                        nominal_size=4.0,
+                        direction=PortDirection.OUTLET,
+                    ),
+                    Port(
+                        id="P3",
+                        name="Outlet 2",
+                        nominal_size=4.0,
+                        direction=PortDirection.OUTLET,
                     ),
                 ],
             ),
@@ -861,7 +973,12 @@ def _create_looped_project() -> Project:
                 max_level=20.0,
                 initial_level=5.0,
                 ports=[
-                    Port(id="inlet", nominal_size=4.0, direction=PortDirection.INLET)
+                    Port(
+                        id="P1",
+                        name="Inlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
+                    )
                 ],
             ),
         ],
@@ -869,9 +986,9 @@ def _create_looped_project() -> Project:
             PipeConnection(
                 id="suction-pipe",
                 from_component_id="reservoir-1",
-                from_port_id="outlet",
+                from_port_id="P1",
                 to_component_id="pump-1",
-                to_port_id="suction",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -884,9 +1001,9 @@ def _create_looped_project() -> Project:
             PipeConnection(
                 id="pump-to-j1",
                 from_component_id="pump-1",
-                from_port_id="discharge",
+                from_port_id="P2",
                 to_component_id="junction-1",
-                to_port_id="inlet1",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -900,9 +1017,9 @@ def _create_looped_project() -> Project:
             PipeConnection(
                 id="j1-to-j2",
                 from_component_id="junction-1",
-                from_port_id="outlet",
+                from_port_id="P3",
                 to_component_id="junction-2",
-                to_port_id="inlet",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -916,9 +1033,9 @@ def _create_looped_project() -> Project:
             PipeConnection(
                 id="j2-to-j1-loop",
                 from_component_id="junction-2",
-                from_port_id="outlet1",
+                from_port_id="P2",
                 to_component_id="junction-1",
-                to_port_id="inlet2",
+                to_port_id="P2",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -931,9 +1048,9 @@ def _create_looped_project() -> Project:
             PipeConnection(
                 id="j2-to-tank",
                 from_component_id="junction-2",
-                from_port_id="outlet2",
+                from_port_id="P3",
                 to_component_id="tank-1",
-                to_port_id="inlet",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -974,7 +1091,12 @@ def _create_non_ideal_reference_node_project() -> Project:
                     FlowPressurePoint(flow=200, pressure=45.0),
                 ],
                 ports=[
-                    Port(id="outlet", nominal_size=4.0, direction=PortDirection.OUTLET)
+                    Port(
+                        id="P1",
+                        name="Outlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.OUTLET,
+                    )
                 ],
             ),
             PumpComponent(
@@ -983,9 +1105,17 @@ def _create_non_ideal_reference_node_project() -> Project:
                 elevation=0.0,
                 curve_id="pump-curve-1",
                 ports=[
-                    Port(id="suction", nominal_size=4.0, direction=PortDirection.INLET),
                     Port(
-                        id="discharge", nominal_size=4.0, direction=PortDirection.OUTLET
+                        id="P1",
+                        name="Suction",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
+                    ),
+                    Port(
+                        id="P2",
+                        name="Discharge",
+                        nominal_size=4.0,
+                        direction=PortDirection.OUTLET,
                     ),
                 ],
             ),
@@ -998,7 +1128,12 @@ def _create_non_ideal_reference_node_project() -> Project:
                 max_level=20.0,
                 initial_level=5.0,
                 ports=[
-                    Port(id="inlet", nominal_size=4.0, direction=PortDirection.INLET)
+                    Port(
+                        id="P1",
+                        name="Inlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
+                    )
                 ],
             ),
         ],
@@ -1006,9 +1141,9 @@ def _create_non_ideal_reference_node_project() -> Project:
             PipeConnection(
                 id="suction-pipe",
                 from_component_id="reference-1",
-                from_port_id="outlet",
+                from_port_id="P1",
                 to_component_id="pump-1",
-                to_port_id="suction",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -1021,9 +1156,9 @@ def _create_non_ideal_reference_node_project() -> Project:
             PipeConnection(
                 id="discharge-pipe",
                 from_component_id="pump-1",
-                from_port_id="discharge",
+                from_port_id="P2",
                 to_component_id="tank-1",
-                to_port_id="inlet",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -1061,7 +1196,12 @@ def _create_pump_with_npshr_project() -> Project:
                 elevation=0.0,
                 water_level=5.0,  # Low water level for NPSH concern
                 ports=[
-                    Port(id="outlet", nominal_size=4.0, direction=PortDirection.OUTLET)
+                    Port(
+                        id="P1",
+                        name="Outlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.OUTLET,
+                    )
                 ],
             ),
             PumpComponent(
@@ -1070,9 +1210,17 @@ def _create_pump_with_npshr_project() -> Project:
                 elevation=5.0,  # Pump above water level
                 curve_id="pump-curve-1",
                 ports=[
-                    Port(id="suction", nominal_size=4.0, direction=PortDirection.INLET),
                     Port(
-                        id="discharge", nominal_size=4.0, direction=PortDirection.OUTLET
+                        id="P1",
+                        name="Suction",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
+                    ),
+                    Port(
+                        id="P2",
+                        name="Discharge",
+                        nominal_size=4.0,
+                        direction=PortDirection.OUTLET,
                     ),
                 ],
             ),
@@ -1085,7 +1233,12 @@ def _create_pump_with_npshr_project() -> Project:
                 max_level=20.0,
                 initial_level=5.0,
                 ports=[
-                    Port(id="inlet", nominal_size=4.0, direction=PortDirection.INLET)
+                    Port(
+                        id="P1",
+                        name="Inlet",
+                        nominal_size=4.0,
+                        direction=PortDirection.INLET,
+                    )
                 ],
             ),
         ],
@@ -1093,9 +1246,9 @@ def _create_pump_with_npshr_project() -> Project:
             PipeConnection(
                 id="suction-pipe",
                 from_component_id="reservoir-1",
-                from_port_id="outlet",
+                from_port_id="P1",
                 to_component_id="pump-1",
-                to_port_id="suction",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -1111,9 +1264,9 @@ def _create_pump_with_npshr_project() -> Project:
             PipeConnection(
                 id="discharge-pipe",
                 from_component_id="pump-1",
-                from_port_id="discharge",
+                from_port_id="P2",
                 to_component_id="tank-1",
-                to_port_id="inlet",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -1159,7 +1312,12 @@ def _create_large_pipe_low_velocity_project() -> Project:
                 elevation=0.0,
                 water_level=10.0,
                 ports=[
-                    Port(id="outlet", nominal_size=12.0, direction=PortDirection.OUTLET)
+                    Port(
+                        id="P1",
+                        name="Outlet",
+                        nominal_size=12.0,
+                        direction=PortDirection.OUTLET,
+                    )
                 ],
             ),
             PumpComponent(
@@ -1169,10 +1327,14 @@ def _create_large_pipe_low_velocity_project() -> Project:
                 curve_id="pump-curve-1",
                 ports=[
                     Port(
-                        id="suction", nominal_size=12.0, direction=PortDirection.INLET
+                        id="P1",
+                        name="Suction",
+                        nominal_size=12.0,
+                        direction=PortDirection.INLET,
                     ),
                     Port(
-                        id="discharge",
+                        id="P2",
+                        name="Discharge",
                         nominal_size=12.0,
                         direction=PortDirection.OUTLET,
                     ),
@@ -1187,7 +1349,12 @@ def _create_large_pipe_low_velocity_project() -> Project:
                 max_level=20.0,
                 initial_level=5.0,
                 ports=[
-                    Port(id="inlet", nominal_size=12.0, direction=PortDirection.INLET)
+                    Port(
+                        id="P1",
+                        name="Inlet",
+                        nominal_size=12.0,
+                        direction=PortDirection.INLET,
+                    )
                 ],
             ),
         ],
@@ -1195,9 +1362,9 @@ def _create_large_pipe_low_velocity_project() -> Project:
             PipeConnection(
                 id="suction-pipe",
                 from_component_id="reservoir-1",
-                from_port_id="outlet",
+                from_port_id="P1",
                 to_component_id="pump-1",
-                to_port_id="suction",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,
@@ -1210,9 +1377,9 @@ def _create_large_pipe_low_velocity_project() -> Project:
             PipeConnection(
                 id="discharge-pipe",
                 from_component_id="pump-1",
-                from_port_id="discharge",
+                from_port_id="P2",
                 to_component_id="tank-1",
-                to_port_id="inlet",
+                to_port_id="P1",
                 piping=PipingSegment(
                     pipe=PipeDefinition(
                         material=PipeMaterial.CARBON_STEEL,

@@ -14,7 +14,7 @@ class TestCreatePlugPort:
         """Test creating default plug port."""
         ports = create_plug_port()
         assert len(ports) == 1
-        assert ports[0].id == "port_1"
+        assert ports[0].id == "P1"
         assert ports[0].nominal_size == 4.0
         assert ports[0].direction == PortDirection.BIDIRECTIONAL
 
@@ -48,7 +48,7 @@ class TestPlug:
             elevation=0.0,
         )
         assert len(plug.ports) == 1
-        assert plug.ports[0].id == "port_1"
+        assert plug.ports[0].id == "P1"
         assert plug.ports[0].direction == PortDirection.BIDIRECTIONAL
 
     def test_plug_custom_ports(self) -> None:
@@ -102,12 +102,12 @@ class TestPlug:
             name="Cap",
             elevation=0.0,
         )
-        port = plug.get_port("port_1")
+        port = plug.get_port("P1")
         assert port is not None
-        assert port.id == "port_1"
+        assert port.id == "P1"
 
         # Non-existent port
-        assert plug.get_port("port_2") is None
+        assert plug.get_port("P2") is None
 
 
 class TestPlugSerialization:

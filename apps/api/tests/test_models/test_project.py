@@ -217,7 +217,7 @@ class TestProject:
     def test_project_get_connections_for_port(self, sample_project: Project):
         """Test getting connections for a specific port."""
         # Get connections for a port
-        conns = sample_project.get_connections_for_port("R1", "outlet_1")
+        conns = sample_project.get_connections_for_port("R1", "P1")
         assert isinstance(conns, list)
 
     def test_project_duplicate_connection_ids(self):
@@ -232,16 +232,16 @@ class TestProject:
                     PipeConnection(
                         id="conn_1",
                         from_component_id="R1",
-                        from_port_id="outlet_1",
+                        from_port_id="P1",
                         to_component_id="J1",
-                        to_port_id="port_1",
+                        to_port_id="P1",
                     ),
                     PipeConnection(
                         id="conn_1",  # Duplicate ID
                         from_component_id="R1",
-                        from_port_id="outlet_1",
+                        from_port_id="P1",
                         to_component_id="J1",
-                        to_port_id="port_1",
+                        to_port_id="P1",
                     ),
                 ],
             )
@@ -258,9 +258,9 @@ class TestProject:
                     PipeConnection(
                         id="conn_1",
                         from_component_id="nonexistent",  # Invalid
-                        from_port_id="outlet_1",
+                        from_port_id="P1",
                         to_component_id="J1",
-                        to_port_id="port_1",
+                        to_port_id="P1",
                     ),
                 ],
             )
@@ -277,9 +277,9 @@ class TestProject:
                     PipeConnection(
                         id="conn_1",
                         from_component_id="R1",
-                        from_port_id="outlet_1",
+                        from_port_id="P1",
                         to_component_id="nonexistent",  # Invalid
-                        to_port_id="port_1",
+                        to_port_id="P1",
                     ),
                 ],
             )
@@ -299,7 +299,7 @@ class TestProject:
                         from_component_id="R1",
                         from_port_id="invalid_port",  # Invalid port
                         to_component_id="J1",
-                        to_port_id="port_1",
+                        to_port_id="P1",
                     ),
                 ],
             )
@@ -317,7 +317,7 @@ class TestProject:
                     PipeConnection(
                         id="conn_1",
                         from_component_id="R1",
-                        from_port_id="outlet_1",
+                        from_port_id="P1",
                         to_component_id="J1",
                         to_port_id="invalid_port",  # Invalid port
                     ),
@@ -327,7 +327,7 @@ class TestProject:
 
     def test_project_connection_port_direction_incompatible(self):
         """Test that incompatible port directions are rejected."""
-        # Create a pump to test with (has inlet suction and outlet discharge)
+        # Create a pump to test with (has inlet P1/Suction and outlet P2/Discharge)
         pump_curve = PumpCurve(
             id="PC1",
             name="Test Pump",
@@ -336,8 +336,8 @@ class TestProject:
                 FlowHeadPoint(flow=100, head=50),
             ],
         )
-        pump1 = PumpComponent(id="P1", name="Pump 1", elevation=10, curve_id="PC1")
-        pump2 = PumpComponent(id="P2", name="Pump 2", elevation=10, curve_id="PC1")
+        pump1 = PumpComponent(id="PM1", name="Pump 1", elevation=10, curve_id="PC1")
+        pump2 = PumpComponent(id="PM2", name="Pump 2", elevation=10, curve_id="PC1")
 
         with pytest.raises(ValidationError) as exc_info:
             Project(
@@ -346,11 +346,11 @@ class TestProject:
                 connections=[
                     PipeConnection(
                         id="conn_1",
-                        # Try to connect from inlet (suction) port - invalid
-                        from_component_id="P1",
-                        from_port_id="suction",  # inlet port
-                        to_component_id="P2",
-                        to_port_id="suction",  # inlet port
+                        # Try to connect from inlet (P1/Suction) port - invalid
+                        from_component_id="PM1",
+                        from_port_id="P1",  # inlet port (Suction)
+                        to_component_id="PM2",
+                        to_port_id="P1",  # inlet port (Suction)
                     ),
                 ],
             )
@@ -367,9 +367,9 @@ class TestProject:
                 PipeConnection(
                     id="conn_1",
                     from_component_id="R1",
-                    from_port_id="outlet_1",
+                    from_port_id="P1",
                     to_component_id="J1",
-                    to_port_id="port_1",
+                    to_port_id="P1",
                 ),
             ],
         )

@@ -16,7 +16,8 @@ export type PortDirection = 'inlet' | 'outlet' | 'bidirectional';
  * A connection port on a component.
  *
  * Ports define where pipes can connect to components. Each port has:
- * - A unique ID within the component (e.g., "suction", "discharge")
+ * - A unique ID within the component (P1, P2, P3, etc.)
+ * - A human-readable name describing the port's purpose
  * - A nominal size for pipe size matching
  * - A direction indicating flow constraints
  * - An optional elevation override for port-specific height
@@ -27,8 +28,10 @@ export type PortDirection = 'inlet' | 'outlet' | 'bidirectional';
  * elevations can be set to model connection points at different heights.
  */
 export interface Port {
-	/** Unique port identifier within the component. */
+	/** Unique port identifier within the component (P1, P2, P3, ...). */
 	id: string;
+	/** Human-readable name describing the port (e.g., 'Suction', 'Discharge'). */
+	name: string;
 	/** Nominal port size in project units (typically inches). */
 	nominal_size: number;
 	/** Flow direction constraint for this port. */
@@ -471,99 +474,99 @@ export function generateComponentId(): string {
 
 /** Create default ports for a reservoir. */
 export function createReservoirPorts(size: number = 4.0): Port[] {
-	return [{ id: 'outlet_1', nominal_size: size, direction: 'bidirectional' }];
+	return [{ id: 'P1', name: 'Outlet', nominal_size: size, direction: 'bidirectional' }];
 }
 
 /** Create default ports for a tank. */
 export function createTankPorts(size: number = 4.0): Port[] {
-	return [{ id: 'port_1', nominal_size: size, direction: 'bidirectional' }];
+	return [{ id: 'P1', name: 'Port', nominal_size: size, direction: 'bidirectional' }];
 }
 
 /** Create default ports for a junction. */
 export function createJunctionPorts(size: number = 4.0): Port[] {
-	return [{ id: 'port_1', nominal_size: size, direction: 'bidirectional' }];
+	return [{ id: 'P1', name: 'Port', nominal_size: size, direction: 'bidirectional' }];
 }
 
 /** Create default ports for a pump. */
 export function createPumpPorts(suctionSize: number = 4.0, dischargeSize: number = 4.0): Port[] {
 	return [
-		{ id: 'suction', nominal_size: suctionSize, direction: 'inlet' },
-		{ id: 'discharge', nominal_size: dischargeSize, direction: 'outlet' }
+		{ id: 'P1', name: 'Suction', nominal_size: suctionSize, direction: 'inlet' },
+		{ id: 'P2', name: 'Discharge', nominal_size: dischargeSize, direction: 'outlet' }
 	];
 }
 
 /** Create default ports for a valve. */
 export function createValvePorts(size: number = 4.0): Port[] {
 	return [
-		{ id: 'inlet', nominal_size: size, direction: 'inlet' },
-		{ id: 'outlet', nominal_size: size, direction: 'outlet' }
+		{ id: 'P1', name: 'Inlet', nominal_size: size, direction: 'inlet' },
+		{ id: 'P2', name: 'Outlet', nominal_size: size, direction: 'outlet' }
 	];
 }
 
 /** Create default ports for a heat exchanger. */
 export function createHeatExchangerPorts(size: number = 4.0): Port[] {
 	return [
-		{ id: 'inlet', nominal_size: size, direction: 'inlet' },
-		{ id: 'outlet', nominal_size: size, direction: 'outlet' }
+		{ id: 'P1', name: 'Inlet', nominal_size: size, direction: 'inlet' },
+		{ id: 'P2', name: 'Outlet', nominal_size: size, direction: 'outlet' }
 	];
 }
 
 /** Create default ports for a strainer. */
 export function createStrainerPorts(size: number = 4.0): Port[] {
 	return [
-		{ id: 'inlet', nominal_size: size, direction: 'inlet' },
-		{ id: 'outlet', nominal_size: size, direction: 'outlet' }
+		{ id: 'P1', name: 'Inlet', nominal_size: size, direction: 'inlet' },
+		{ id: 'P2', name: 'Outlet', nominal_size: size, direction: 'outlet' }
 	];
 }
 
 /** Create default ports for an orifice. */
 export function createOrificePorts(size: number = 4.0): Port[] {
 	return [
-		{ id: 'inlet', nominal_size: size, direction: 'inlet' },
-		{ id: 'outlet', nominal_size: size, direction: 'outlet' }
+		{ id: 'P1', name: 'Inlet', nominal_size: size, direction: 'inlet' },
+		{ id: 'P2', name: 'Outlet', nominal_size: size, direction: 'outlet' }
 	];
 }
 
 /** Create default ports for a sprinkler. */
 export function createSprinklerPorts(size: number = 1.0): Port[] {
-	return [{ id: 'inlet', nominal_size: size, direction: 'inlet' }];
+	return [{ id: 'P1', name: 'Inlet', nominal_size: size, direction: 'inlet' }];
 }
 
 /** Create default ports for a reference node. */
 export function createReferenceNodePorts(size: number = 4.0): Port[] {
-	return [{ id: 'port_1', nominal_size: size, direction: 'bidirectional' }];
+	return [{ id: 'P1', name: 'Port', nominal_size: size, direction: 'bidirectional' }];
 }
 
 /** Create default ports for a plug. */
 export function createPlugPorts(size: number = 4.0): Port[] {
-	return [{ id: 'port_1', nominal_size: size, direction: 'bidirectional' }];
+	return [{ id: 'P1', name: 'Port', nominal_size: size, direction: 'bidirectional' }];
 }
 
 /** Create default ports for a tee branch. */
 export function createTeePorts(runSize: number = 4.0, branchSize?: number): Port[] {
 	return [
-		{ id: 'run_inlet', nominal_size: runSize, direction: 'bidirectional' },
-		{ id: 'run_outlet', nominal_size: runSize, direction: 'bidirectional' },
-		{ id: 'branch', nominal_size: branchSize ?? runSize, direction: 'bidirectional' }
+		{ id: 'P1', name: 'Run Inlet', nominal_size: runSize, direction: 'bidirectional' },
+		{ id: 'P2', name: 'Run Outlet', nominal_size: runSize, direction: 'bidirectional' },
+		{ id: 'P3', name: 'Branch', nominal_size: branchSize ?? runSize, direction: 'bidirectional' }
 	];
 }
 
 /** Create default ports for a wye branch. */
 export function createWyePorts(runSize: number = 4.0, branchSize?: number): Port[] {
 	return [
-		{ id: 'run_inlet', nominal_size: runSize, direction: 'bidirectional' },
-		{ id: 'run_outlet', nominal_size: runSize, direction: 'bidirectional' },
-		{ id: 'branch', nominal_size: branchSize ?? runSize, direction: 'bidirectional' }
+		{ id: 'P1', name: 'Run Inlet', nominal_size: runSize, direction: 'bidirectional' },
+		{ id: 'P2', name: 'Run Outlet', nominal_size: runSize, direction: 'bidirectional' },
+		{ id: 'P3', name: 'Branch', nominal_size: branchSize ?? runSize, direction: 'bidirectional' }
 	];
 }
 
 /** Create default ports for a cross branch. */
 export function createCrossPorts(mainSize: number = 4.0, branchSize?: number): Port[] {
 	return [
-		{ id: 'run_inlet', nominal_size: mainSize, direction: 'bidirectional' },
-		{ id: 'run_outlet', nominal_size: mainSize, direction: 'bidirectional' },
-		{ id: 'branch_1', nominal_size: branchSize ?? mainSize, direction: 'bidirectional' },
-		{ id: 'branch_2', nominal_size: branchSize ?? mainSize, direction: 'bidirectional' }
+		{ id: 'P1', name: 'Run Inlet', nominal_size: mainSize, direction: 'bidirectional' },
+		{ id: 'P2', name: 'Run Outlet', nominal_size: mainSize, direction: 'bidirectional' },
+		{ id: 'P3', name: 'Branch 1', nominal_size: branchSize ?? mainSize, direction: 'bidirectional' },
+		{ id: 'P4', name: 'Branch 2', nominal_size: branchSize ?? mainSize, direction: 'bidirectional' }
 	];
 }
 

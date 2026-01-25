@@ -23,9 +23,9 @@ class TestCreateTeePorts:
         """Test creating default tee ports."""
         ports = create_tee_ports()
         assert len(ports) == 3
-        assert ports[0].id == "run_inlet"
-        assert ports[1].id == "run_outlet"
-        assert ports[2].id == "branch"
+        assert ports[0].id == "P1"
+        assert ports[1].id == "P2"
+        assert ports[2].id == "P3"
         assert all(p.nominal_size == 4.0 for p in ports)
         assert all(p.direction == PortDirection.BIDIRECTIONAL for p in ports)
 
@@ -39,9 +39,9 @@ class TestCreateTeePorts:
     def test_create_reducing_tee(self) -> None:
         """Test creating reducing tee ports."""
         ports = create_tee_ports(run_size=6.0, branch_size=4.0)
-        assert ports[0].nominal_size == 6.0  # run_inlet
-        assert ports[1].nominal_size == 6.0  # run_outlet
-        assert ports[2].nominal_size == 4.0  # branch (smaller)
+        assert ports[0].nominal_size == 6.0  # P1 (Run Inlet)
+        assert ports[1].nominal_size == 6.0  # P2 (Run Outlet)
+        assert ports[2].nominal_size == 4.0  # P3 (Branch, smaller)
 
 
 class TestCreateWyePorts:
@@ -51,9 +51,9 @@ class TestCreateWyePorts:
         """Test creating default wye ports."""
         ports = create_wye_ports()
         assert len(ports) == 3
-        assert ports[0].id == "run_inlet"
-        assert ports[1].id == "run_outlet"
-        assert ports[2].id == "branch"
+        assert ports[0].id == "P1"
+        assert ports[1].id == "P2"
+        assert ports[2].id == "P3"
 
     def test_create_reducing_wye(self) -> None:
         """Test creating reducing wye ports."""
@@ -69,18 +69,18 @@ class TestCreateCrossPorts:
         """Test creating default cross ports."""
         ports = create_cross_ports()
         assert len(ports) == 4
-        assert ports[0].id == "run_inlet"
-        assert ports[1].id == "run_outlet"
-        assert ports[2].id == "branch_1"
-        assert ports[3].id == "branch_2"
+        assert ports[0].id == "P1"
+        assert ports[1].id == "P2"
+        assert ports[2].id == "P3"
+        assert ports[3].id == "P4"
 
     def test_create_reducing_cross(self) -> None:
         """Test creating reducing cross ports."""
         ports = create_cross_ports(main_size=6.0, branch_size=4.0)
-        assert ports[0].nominal_size == 6.0  # run_inlet
-        assert ports[1].nominal_size == 6.0  # run_outlet
-        assert ports[2].nominal_size == 4.0  # branch_1
-        assert ports[3].nominal_size == 4.0  # branch_2
+        assert ports[0].nominal_size == 6.0  # P1 (Run Inlet)
+        assert ports[1].nominal_size == 6.0  # P2 (Run Outlet)
+        assert ports[2].nominal_size == 4.0  # P3 (Branch 1)
+        assert ports[3].nominal_size == 4.0  # P4 (Branch 2)
 
 
 class TestTeeBranch:
@@ -107,9 +107,9 @@ class TestTeeBranch:
             elevation=0.0,
         )
         assert len(tee.ports) == 3
-        assert tee.ports[0].id == "run_inlet"
-        assert tee.ports[1].id == "run_outlet"
-        assert tee.ports[2].id == "branch"
+        assert tee.ports[0].id == "P1"
+        assert tee.ports[1].id == "P2"
+        assert tee.ports[2].id == "P3"
 
     def test_tee_branch_custom_ports(self) -> None:
         """Test that custom ports are preserved."""
@@ -153,7 +153,7 @@ class TestTeeBranch:
                 id="tee_1",
                 name="Invalid",
                 elevation=0.0,
-                ports=[Port(id="single", nominal_size=4.0)],
+                ports=[Port(id="P1", name="Single", nominal_size=4.0)],
             )
         assert "exactly 3 ports" in str(exc_info.value)
 
@@ -164,9 +164,9 @@ class TestTeeBranch:
             name="Tee",
             elevation=0.0,
         )
-        port = tee.get_port("branch")
+        port = tee.get_port("P3")
         assert port is not None
-        assert port.id == "branch"
+        assert port.id == "P3"
         assert tee.get_port("nonexistent") is None
 
     def test_tee_branch_get_run_ports(self) -> None:
@@ -178,8 +178,8 @@ class TestTeeBranch:
         )
         run_ports = tee.get_run_ports()
         assert len(run_ports) == 2
-        assert run_ports[0].id == "run_inlet"
-        assert run_ports[1].id == "run_outlet"
+        assert run_ports[0].id == "P1"
+        assert run_ports[1].id == "P2"
 
     def test_tee_branch_get_branch_ports(self) -> None:
         """Test get_branch_ports method."""
@@ -190,7 +190,7 @@ class TestTeeBranch:
         )
         branch_ports = tee.get_branch_ports()
         assert len(branch_ports) == 1
-        assert branch_ports[0].id == "branch"
+        assert branch_ports[0].id == "P3"
 
 
 class TestWyeBranch:
@@ -246,8 +246,8 @@ class TestWyeBranch:
                 name="Invalid",
                 elevation=0.0,
                 ports=[
-                    Port(id="p1", nominal_size=4.0),
-                    Port(id="p2", nominal_size=4.0),
+                    Port(id="P1", name="Port 1", nominal_size=4.0),
+                    Port(id="P2", name="Port 2", nominal_size=4.0),
                 ],
             )
         assert "exactly 3 ports" in str(exc_info.value)
@@ -274,10 +274,10 @@ class TestCrossBranch:
             elevation=0.0,
         )
         assert len(cross.ports) == 4
-        assert cross.ports[0].id == "run_inlet"
-        assert cross.ports[1].id == "run_outlet"
-        assert cross.ports[2].id == "branch_1"
-        assert cross.ports[3].id == "branch_2"
+        assert cross.ports[0].id == "P1"
+        assert cross.ports[1].id == "P2"
+        assert cross.ports[2].id == "P3"
+        assert cross.ports[3].id == "P4"
 
     def test_cross_branch_invalid_port_count(self) -> None:
         """Test cross branch rejects wrong number of ports."""
@@ -288,7 +288,7 @@ class TestCrossBranch:
                 id="cross_1",
                 name="Invalid",
                 elevation=0.0,
-                ports=[Port(id="p1", nominal_size=4.0)],
+                ports=[Port(id="P1", name="Port 1", nominal_size=4.0)],
             )
         assert "exactly 4 ports" in str(exc_info.value)
 
@@ -301,8 +301,8 @@ class TestCrossBranch:
         )
         branch_ports = cross.get_branch_ports()
         assert len(branch_ports) == 2
-        assert branch_ports[0].id == "branch_1"
-        assert branch_ports[1].id == "branch_2"
+        assert branch_ports[0].id == "P3"
+        assert branch_ports[1].id == "P4"
 
 
 class TestBranchSerialization:

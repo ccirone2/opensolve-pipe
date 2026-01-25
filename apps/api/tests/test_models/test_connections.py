@@ -28,16 +28,16 @@ class TestPipeConnection:
         conn = PipeConnection(
             id="conn-1",
             from_component_id="pump-1",
-            from_port_id="discharge",
+            from_port_id="P2",
             to_component_id="valve-1",
-            to_port_id="inlet",
+            to_port_id="P1",
         )
 
         assert conn.id == "conn-1"
         assert conn.from_component_id == "pump-1"
-        assert conn.from_port_id == "discharge"
+        assert conn.from_port_id == "P2"
         assert conn.to_component_id == "valve-1"
-        assert conn.to_port_id == "inlet"
+        assert conn.to_port_id == "P1"
         assert conn.piping is None
 
     def test_connection_with_piping(self):
@@ -55,9 +55,9 @@ class TestPipeConnection:
         conn = PipeConnection(
             id="conn-1",
             from_component_id="pump-1",
-            from_port_id="discharge",
+            from_port_id="P2",
             to_component_id="valve-1",
-            to_port_id="inlet",
+            to_port_id="P1",
             piping=piping,
         )
 
@@ -70,16 +70,16 @@ class TestPipeConnection:
         conn = PipeConnection(
             id="conn-1",
             from_component_id="pump-1",
-            from_port_id="discharge",
+            from_port_id="P2",
             to_component_id="valve-1",
-            to_port_id="inlet",
+            to_port_id="P1",
         )
 
         data = conn.model_dump()
 
         assert data["id"] == "conn-1"
         assert data["from_component_id"] == "pump-1"
-        assert data["from_port_id"] == "discharge"
+        assert data["from_port_id"] == "P2"
 
 
 class TestPortDirectionValidation:
@@ -87,8 +87,12 @@ class TestPortDirectionValidation:
 
     def test_outlet_to_inlet_valid(self):
         """Test outlet -> inlet is valid."""
-        from_port = Port(id="out", nominal_size=4.0, direction=PortDirection.OUTLET)
-        to_port = Port(id="in", nominal_size=4.0, direction=PortDirection.INLET)
+        from_port = Port(
+            id="P1", name="Outlet", nominal_size=4.0, direction=PortDirection.OUTLET
+        )
+        to_port = Port(
+            id="P1", name="Inlet", nominal_size=4.0, direction=PortDirection.INLET
+        )
 
         valid, error = validate_port_direction_compatibility(from_port, to_port)
 
@@ -97,8 +101,15 @@ class TestPortDirectionValidation:
 
     def test_outlet_to_bidirectional_valid(self):
         """Test outlet -> bidirectional is valid."""
-        from_port = Port(id="out", nominal_size=4.0, direction=PortDirection.OUTLET)
-        to_port = Port(id="bi", nominal_size=4.0, direction=PortDirection.BIDIRECTIONAL)
+        from_port = Port(
+            id="P1", name="Outlet", nominal_size=4.0, direction=PortDirection.OUTLET
+        )
+        to_port = Port(
+            id="P1",
+            name="Port",
+            nominal_size=4.0,
+            direction=PortDirection.BIDIRECTIONAL,
+        )
 
         valid, error = validate_port_direction_compatibility(from_port, to_port)
 
@@ -108,9 +119,14 @@ class TestPortDirectionValidation:
     def test_bidirectional_to_inlet_valid(self):
         """Test bidirectional -> inlet is valid."""
         from_port = Port(
-            id="bi", nominal_size=4.0, direction=PortDirection.BIDIRECTIONAL
+            id="P1",
+            name="Port",
+            nominal_size=4.0,
+            direction=PortDirection.BIDIRECTIONAL,
         )
-        to_port = Port(id="in", nominal_size=4.0, direction=PortDirection.INLET)
+        to_port = Port(
+            id="P1", name="Inlet", nominal_size=4.0, direction=PortDirection.INLET
+        )
 
         valid, error = validate_port_direction_compatibility(from_port, to_port)
 
@@ -120,10 +136,16 @@ class TestPortDirectionValidation:
     def test_bidirectional_to_bidirectional_valid(self):
         """Test bidirectional -> bidirectional is valid."""
         from_port = Port(
-            id="bi1", nominal_size=4.0, direction=PortDirection.BIDIRECTIONAL
+            id="P1",
+            name="Port 1",
+            nominal_size=4.0,
+            direction=PortDirection.BIDIRECTIONAL,
         )
         to_port = Port(
-            id="bi2", nominal_size=4.0, direction=PortDirection.BIDIRECTIONAL
+            id="P2",
+            name="Port 2",
+            nominal_size=4.0,
+            direction=PortDirection.BIDIRECTIONAL,
         )
 
         valid, error = validate_port_direction_compatibility(from_port, to_port)
@@ -133,8 +155,15 @@ class TestPortDirectionValidation:
 
     def test_inlet_to_anything_invalid(self):
         """Test inlet -> anything is invalid."""
-        from_port = Port(id="in", nominal_size=4.0, direction=PortDirection.INLET)
-        to_port = Port(id="bi", nominal_size=4.0, direction=PortDirection.BIDIRECTIONAL)
+        from_port = Port(
+            id="P1", name="Inlet", nominal_size=4.0, direction=PortDirection.INLET
+        )
+        to_port = Port(
+            id="P1",
+            name="Port",
+            nominal_size=4.0,
+            direction=PortDirection.BIDIRECTIONAL,
+        )
 
         valid, error = validate_port_direction_compatibility(from_port, to_port)
 
@@ -143,8 +172,12 @@ class TestPortDirectionValidation:
 
     def test_anything_to_outlet_invalid(self):
         """Test anything -> outlet is invalid."""
-        from_port = Port(id="out", nominal_size=4.0, direction=PortDirection.OUTLET)
-        to_port = Port(id="out2", nominal_size=4.0, direction=PortDirection.OUTLET)
+        from_port = Port(
+            id="P1", name="Outlet 1", nominal_size=4.0, direction=PortDirection.OUTLET
+        )
+        to_port = Port(
+            id="P2", name="Outlet 2", nominal_size=4.0, direction=PortDirection.OUTLET
+        )
 
         valid, error = validate_port_direction_compatibility(from_port, to_port)
 
@@ -157,8 +190,12 @@ class TestPortSizeValidation:
 
     def test_same_size_valid(self):
         """Test same size ports are valid."""
-        from_port = Port(id="out", nominal_size=4.0, direction=PortDirection.OUTLET)
-        to_port = Port(id="in", nominal_size=4.0, direction=PortDirection.INLET)
+        from_port = Port(
+            id="P1", name="Outlet", nominal_size=4.0, direction=PortDirection.OUTLET
+        )
+        to_port = Port(
+            id="P1", name="Inlet", nominal_size=4.0, direction=PortDirection.INLET
+        )
 
         valid, error = validate_port_size_compatibility(from_port, to_port)
 
@@ -167,9 +204,11 @@ class TestPortSizeValidation:
 
     def test_within_tolerance_valid(self):
         """Test ports within tolerance are valid."""
-        from_port = Port(id="out", nominal_size=4.0, direction=PortDirection.OUTLET)
+        from_port = Port(
+            id="P1", name="Outlet", nominal_size=4.0, direction=PortDirection.OUTLET
+        )
         to_port = Port(
-            id="in", nominal_size=4.3, direction=PortDirection.INLET
+            id="P1", name="Inlet", nominal_size=4.3, direction=PortDirection.INLET
         )  # 7.5% diff
 
         valid, error = validate_port_size_compatibility(
@@ -181,9 +220,11 @@ class TestPortSizeValidation:
 
     def test_exceeds_tolerance_invalid(self):
         """Test ports exceeding tolerance are invalid."""
-        from_port = Port(id="out", nominal_size=4.0, direction=PortDirection.OUTLET)
+        from_port = Port(
+            id="P1", name="Outlet", nominal_size=4.0, direction=PortDirection.OUTLET
+        )
         to_port = Port(
-            id="in", nominal_size=6.0, direction=PortDirection.INLET
+            id="P1", name="Inlet", nominal_size=6.0, direction=PortDirection.INLET
         )  # 50% diff
 
         valid, error = validate_port_size_compatibility(
@@ -195,9 +236,11 @@ class TestPortSizeValidation:
 
     def test_custom_tolerance(self):
         """Test custom tolerance value."""
-        from_port = Port(id="out", nominal_size=4.0, direction=PortDirection.OUTLET)
+        from_port = Port(
+            id="P1", name="Outlet", nominal_size=4.0, direction=PortDirection.OUTLET
+        )
         to_port = Port(
-            id="in", nominal_size=5.5, direction=PortDirection.INLET
+            id="P1", name="Inlet", nominal_size=5.5, direction=PortDirection.INLET
         )  # 27% diff
 
         # With 20% tolerance, should fail (27% > 20%)
@@ -217,14 +260,16 @@ class TestValidateConnection:
         conn = PipeConnection(
             id="conn-1",
             from_component_id="pump-1",
-            from_port_id="discharge",
+            from_port_id="P2",
             to_component_id="valve-1",
-            to_port_id="inlet",
+            to_port_id="P1",
         )
         from_port = Port(
-            id="discharge", nominal_size=4.0, direction=PortDirection.OUTLET
+            id="P2", name="Discharge", nominal_size=4.0, direction=PortDirection.OUTLET
         )
-        to_port = Port(id="inlet", nominal_size=4.0, direction=PortDirection.INLET)
+        to_port = Port(
+            id="P1", name="Inlet", nominal_size=4.0, direction=PortDirection.INLET
+        )
 
         errors = validate_connection(conn, from_port, to_port)
 
@@ -235,12 +280,16 @@ class TestValidateConnection:
         conn = PipeConnection(
             id="conn-1",
             from_component_id="a",
-            from_port_id="inlet",
+            from_port_id="P1",
             to_component_id="b",
-            to_port_id="outlet",
+            to_port_id="P2",
         )
-        from_port = Port(id="inlet", nominal_size=4.0, direction=PortDirection.INLET)
-        to_port = Port(id="outlet", nominal_size=4.0, direction=PortDirection.OUTLET)
+        from_port = Port(
+            id="P1", name="Inlet", nominal_size=4.0, direction=PortDirection.INLET
+        )
+        to_port = Port(
+            id="P2", name="Outlet", nominal_size=4.0, direction=PortDirection.OUTLET
+        )
 
         errors = validate_connection(conn, from_port, to_port)
 
@@ -252,12 +301,16 @@ class TestValidateConnection:
         conn = PipeConnection(
             id="conn-1",
             from_component_id="a",
-            from_port_id="out",
+            from_port_id="P1",
             to_component_id="b",
-            to_port_id="in",
+            to_port_id="P1",
         )
-        from_port = Port(id="out", nominal_size=4.0, direction=PortDirection.OUTLET)
-        to_port = Port(id="in", nominal_size=8.0, direction=PortDirection.INLET)
+        from_port = Port(
+            id="P1", name="Outlet", nominal_size=4.0, direction=PortDirection.OUTLET
+        )
+        to_port = Port(
+            id="P1", name="Inlet", nominal_size=8.0, direction=PortDirection.INLET
+        )
 
         errors = validate_connection(conn, from_port, to_port, check_size=True)
 
@@ -269,12 +322,16 @@ class TestValidateConnection:
         conn = PipeConnection(
             id="conn-1",
             from_component_id="a",
-            from_port_id="out",
+            from_port_id="P1",
             to_component_id="b",
-            to_port_id="in",
+            to_port_id="P1",
         )
-        from_port = Port(id="out", nominal_size=4.0, direction=PortDirection.OUTLET)
-        to_port = Port(id="in", nominal_size=8.0, direction=PortDirection.INLET)
+        from_port = Port(
+            id="P1", name="Outlet", nominal_size=4.0, direction=PortDirection.OUTLET
+        )
+        to_port = Port(
+            id="P1", name="Inlet", nominal_size=8.0, direction=PortDirection.INLET
+        )
 
         errors = validate_connection(conn, from_port, to_port, check_size=False)
 
@@ -288,16 +345,16 @@ class TestConnectionBuilder:
         """Test basic connection building."""
         conn = (
             ConnectionBuilder("conn-1")
-            .from_component("pump-1", "discharge")
-            .to_component("valve-1", "inlet")
+            .from_component("pump-1", "P2")
+            .to_component("valve-1", "P1")
             .build()
         )
 
         assert conn.id == "conn-1"
         assert conn.from_component_id == "pump-1"
-        assert conn.from_port_id == "discharge"
+        assert conn.from_port_id == "P2"
         assert conn.to_component_id == "valve-1"
-        assert conn.to_port_id == "inlet"
+        assert conn.to_port_id == "P1"
 
     def test_builder_with_piping(self):
         """Test builder with piping segment."""
@@ -312,8 +369,8 @@ class TestConnectionBuilder:
 
         conn = (
             ConnectionBuilder("conn-1")
-            .from_component("pump-1", "discharge")
-            .to_component("valve-1", "inlet")
+            .from_component("pump-1", "P2")
+            .to_component("valve-1", "P1")
             .with_piping(piping)
             .build()
         )
@@ -323,14 +380,14 @@ class TestConnectionBuilder:
 
     def test_builder_missing_from_raises(self):
         """Test builder raises if from not set."""
-        builder = ConnectionBuilder("conn-1").to_component("valve-1", "inlet")
+        builder = ConnectionBuilder("conn-1").to_component("valve-1", "P1")
 
         with pytest.raises(ValueError, match="Source component"):
             builder.build()
 
     def test_builder_missing_to_raises(self):
         """Test builder raises if to not set."""
-        builder = ConnectionBuilder("conn-1").from_component("pump-1", "discharge")
+        builder = ConnectionBuilder("conn-1").from_component("pump-1", "P2")
 
         with pytest.raises(ValueError, match="Target component"):
             builder.build()

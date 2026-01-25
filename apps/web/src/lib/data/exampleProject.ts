@@ -55,7 +55,7 @@ export const EXAMPLE_PROJECT: Project = {
 			name: 'Supply Reservoir',
 			elevation: 0,
 			water_level: 15,
-			ports: [{ id: 'outlet_1', nominal_size: 6, direction: 'bidirectional' }],
+			ports: [{ id: 'P1', name: 'Outlet', nominal_size: 6, direction: 'bidirectional' }],
 			downstream_connections: [
 				{
 					target_component_id: 'valve_suction',
@@ -87,8 +87,8 @@ export const EXAMPLE_PROJECT: Project = {
 			position: 1.0,
 			cv: 450,
 			ports: [
-				{ id: 'inlet', nominal_size: 4, direction: 'inlet' },
-				{ id: 'outlet', nominal_size: 4, direction: 'outlet' }
+				{ id: 'P1', name: 'Inlet', nominal_size: 4, direction: 'inlet' },
+				{ id: 'P2', name: 'Outlet', nominal_size: 4, direction: 'outlet' }
 			],
 			downstream_connections: [
 				{
@@ -120,8 +120,8 @@ export const EXAMPLE_PROJECT: Project = {
 			speed: 1.0,
 			status: 'on',
 			ports: [
-				{ id: 'suction', nominal_size: 4, direction: 'inlet' },
-				{ id: 'discharge', nominal_size: 4, direction: 'outlet' }
+				{ id: 'P1', name: 'Suction', nominal_size: 4, direction: 'inlet' },
+				{ id: 'P2', name: 'Discharge', nominal_size: 4, direction: 'outlet' }
 			],
 			downstream_connections: [
 				{
@@ -150,8 +150,8 @@ export const EXAMPLE_PROJECT: Project = {
 			position: 0.85,
 			cv: 200,
 			ports: [
-				{ id: 'inlet', nominal_size: 4, direction: 'inlet' },
-				{ id: 'outlet', nominal_size: 4, direction: 'outlet' }
+				{ id: 'P1', name: 'Inlet', nominal_size: 4, direction: 'inlet' },
+				{ id: 'P2', name: 'Outlet', nominal_size: 4, direction: 'outlet' }
 			],
 			downstream_connections: [
 				{
@@ -185,7 +185,7 @@ export const EXAMPLE_PROJECT: Project = {
 			min_level: 2,
 			max_level: 25,
 			initial_level: 10,
-			ports: [{ id: 'port_1', nominal_size: 4, direction: 'bidirectional' }],
+			ports: [{ id: 'P1', name: 'Port', nominal_size: 4, direction: 'bidirectional' }],
 			downstream_connections: []
 		}
 	],
@@ -193,9 +193,9 @@ export const EXAMPLE_PROJECT: Project = {
 		{
 			id: 'conn_1',
 			from_component_id: 'reservoir_1',
-			from_port_id: 'outlet_1',
+			from_port_id: 'P1',
 			to_component_id: 'valve_suction',
-			to_port_id: 'inlet',
+			to_port_id: 'P1',
 			piping: {
 				pipe: {
 					material: 'carbon_steel',
@@ -213,9 +213,9 @@ export const EXAMPLE_PROJECT: Project = {
 		{
 			id: 'conn_2',
 			from_component_id: 'valve_suction',
-			from_port_id: 'outlet',
+			from_port_id: 'P2',
 			to_component_id: 'pump_1',
-			to_port_id: 'suction',
+			to_port_id: 'P1',
 			piping: {
 				pipe: {
 					material: 'carbon_steel',
@@ -232,9 +232,9 @@ export const EXAMPLE_PROJECT: Project = {
 		{
 			id: 'conn_3',
 			from_component_id: 'pump_1',
-			from_port_id: 'discharge',
+			from_port_id: 'P2',
 			to_component_id: 'valve_discharge',
-			to_port_id: 'inlet',
+			to_port_id: 'P1',
 			piping: {
 				pipe: {
 					material: 'carbon_steel',
@@ -248,9 +248,9 @@ export const EXAMPLE_PROJECT: Project = {
 		{
 			id: 'conn_4',
 			from_component_id: 'valve_discharge',
-			from_port_id: 'outlet',
+			from_port_id: 'P2',
 			to_component_id: 'tank_1',
-			to_port_id: 'port_1',
+			to_port_id: 'P1',
 			piping: {
 				pipe: {
 					material: 'carbon_steel',

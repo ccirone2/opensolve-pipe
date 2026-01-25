@@ -43,9 +43,9 @@ def create_tee_ports(
     """Create ports for a tee branch component.
 
     Tees have three ports:
-    - run_inlet: Main line inlet (bidirectional for flow reversals)
-    - run_outlet: Main line outlet (bidirectional for flow reversals)
-    - branch: Branch connection (bidirectional)
+    - P1: Run Inlet (main line inlet, bidirectional for flow reversals)
+    - P2: Run Outlet (main line outlet, bidirectional for flow reversals)
+    - P3: Branch (branch connection, bidirectional)
 
     The branch can be the same size as the run (standard tee) or
     smaller (reducing tee).
@@ -62,17 +62,20 @@ def create_tee_ports(
 
     return [
         Port(
-            id="run_inlet",
+            id="P1",
+            name="Run Inlet",
             nominal_size=run_size,
             direction=PortDirection.BIDIRECTIONAL,
         ),
         Port(
-            id="run_outlet",
+            id="P2",
+            name="Run Outlet",
             nominal_size=run_size,
             direction=PortDirection.BIDIRECTIONAL,
         ),
         Port(
-            id="branch",
+            id="P3",
+            name="Branch",
             nominal_size=branch_size,
             direction=PortDirection.BIDIRECTIONAL,
         ),
@@ -86,9 +89,9 @@ def create_wye_ports(
     """Create ports for a wye branch component.
 
     Wyes have three ports:
-    - run_inlet: Main line inlet
-    - run_outlet: Main line outlet
-    - branch: Branch at an angle (typically 45°)
+    - P1: Run Inlet (main line inlet)
+    - P2: Run Outlet (main line outlet)
+    - P3: Branch (branch at an angle, typically 45°)
 
     Args:
         run_size: Nominal size of the run ports
@@ -102,17 +105,20 @@ def create_wye_ports(
 
     return [
         Port(
-            id="run_inlet",
+            id="P1",
+            name="Run Inlet",
             nominal_size=run_size,
             direction=PortDirection.BIDIRECTIONAL,
         ),
         Port(
-            id="run_outlet",
+            id="P2",
+            name="Run Outlet",
             nominal_size=run_size,
             direction=PortDirection.BIDIRECTIONAL,
         ),
         Port(
-            id="branch",
+            id="P3",
+            name="Branch",
             nominal_size=branch_size,
             direction=PortDirection.BIDIRECTIONAL,
         ),
@@ -126,10 +132,10 @@ def create_cross_ports(
     """Create ports for a cross branch component.
 
     Crosses have four ports arranged in two perpendicular lines:
-    - run_inlet: Main line inlet
-    - run_outlet: Main line outlet
-    - branch_1: First branch (perpendicular to run)
-    - branch_2: Second branch (opposite to branch_1)
+    - P1: Run Inlet (main line inlet)
+    - P2: Run Outlet (main line outlet)
+    - P3: Branch 1 (first branch, perpendicular to run)
+    - P4: Branch 2 (second branch, opposite to branch_1)
 
     Args:
         main_size: Nominal size of the main run ports
@@ -143,22 +149,26 @@ def create_cross_ports(
 
     return [
         Port(
-            id="run_inlet",
+            id="P1",
+            name="Run Inlet",
             nominal_size=main_size,
             direction=PortDirection.BIDIRECTIONAL,
         ),
         Port(
-            id="run_outlet",
+            id="P2",
+            name="Run Outlet",
             nominal_size=main_size,
             direction=PortDirection.BIDIRECTIONAL,
         ),
         Port(
-            id="branch_1",
+            id="P3",
+            name="Branch 1",
             nominal_size=branch_size,
             direction=PortDirection.BIDIRECTIONAL,
         ),
         Port(
-            id="branch_2",
+            id="P4",
+            name="Branch 2",
             nominal_size=branch_size,
             direction=PortDirection.BIDIRECTIONAL,
         ),
@@ -196,12 +206,12 @@ class BaseBranch(OpenSolvePipeBaseModel):
         return None
 
     def get_run_ports(self) -> list[Port]:
-        """Get the main run ports."""
-        return [p for p in self.ports if p.id.startswith("run_")]
+        """Get the main run ports (P1: Run Inlet, P2: Run Outlet)."""
+        return [p for p in self.ports if p.name.lower().startswith("run")]
 
     def get_branch_ports(self) -> list[Port]:
-        """Get the branch ports."""
-        return [p for p in self.ports if p.id.startswith("branch")]
+        """Get the branch ports (P3, P4, etc.)."""
+        return [p for p in self.ports if p.name.lower().startswith("branch")]
 
 
 class TeeBranch(BaseBranch):

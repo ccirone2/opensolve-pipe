@@ -19,7 +19,8 @@ class Port(OpenSolvePipeBaseModel):
     """A connection port on a component.
 
     Ports define where pipes can connect to components. Each port has:
-    - A unique ID within the component (e.g., "suction", "discharge")
+    - A unique ID within the component (P1, P2, P3, etc.)
+    - A human-readable name describing the port's purpose
     - A nominal size for pipe size matching
     - A direction indicating flow constraints
     - An optional elevation override for port-specific height
@@ -30,7 +31,13 @@ class Port(OpenSolvePipeBaseModel):
     elevations can be set to model connection points at different heights.
     """
 
-    id: str = Field(description="Unique port identifier within the component")
+    id: str = Field(
+        pattern=r"^P\d+$",
+        description="Unique port identifier within the component (P1, P2, P3, ...)",
+    )
+    name: str = Field(
+        description="Human-readable name describing the port (e.g., 'Suction', 'Discharge')"
+    )
     nominal_size: PositiveFloat = Field(
         description="Nominal port size in project units (typically inches)"
     )
@@ -44,115 +51,72 @@ class Port(OpenSolvePipeBaseModel):
     )
 
 
-# Type alias for port configurations
-PortConfig = dict[str, PositiveFloat]  # port_id -> nominal_size
-
-
 def create_reservoir_ports(
-    port_configs: list[PortConfig] | None = None,
     default_size: float = 4.0,
 ) -> list[Port]:
     """Create ports for a reservoir component.
 
-    Reservoirs can have multiple outlet ports (water supply points).
-    Default: single bidirectional port.
+    Reservoirs have a single bidirectional port for water supply.
 
     Args:
-        port_configs: List of {port_id: size} configurations
         default_size: Default port size if no configs provided
 
     Returns:
         List of Port objects
     """
-    if not port_configs:
-        return [
-            Port(
-                id="outlet_1",
-                nominal_size=default_size,
-                direction=PortDirection.BIDIRECTIONAL,
-            )
-        ]
-
     return [
         Port(
-            id=port_id,
-            nominal_size=size,
+            id="P1",
+            name="Outlet",
+            nominal_size=default_size,
             direction=PortDirection.BIDIRECTIONAL,
         )
-        for config in port_configs
-        for port_id, size in config.items()
     ]
 
 
 def create_tank_ports(
-    port_configs: list[PortConfig] | None = None,
     default_size: float = 4.0,
 ) -> list[Port]:
     """Create ports for a tank component.
 
-    Tanks can have multiple bidirectional ports (fill/drain points).
-    Default: single bidirectional port.
+    Tanks have a single bidirectional port for fill/drain.
 
     Args:
-        port_configs: List of {port_id: size} configurations
-        default_size: Default port size if no configs provided
+        default_size: Default port size
 
     Returns:
         List of Port objects
     """
-    if not port_configs:
-        return [
-            Port(
-                id="port_1",
-                nominal_size=default_size,
-                direction=PortDirection.BIDIRECTIONAL,
-            )
-        ]
-
     return [
         Port(
-            id=port_id,
-            nominal_size=size,
+            id="P1",
+            name="Port",
+            nominal_size=default_size,
             direction=PortDirection.BIDIRECTIONAL,
         )
-        for config in port_configs
-        for port_id, size in config.items()
     ]
 
 
 def create_junction_ports(
-    port_configs: list[PortConfig] | None = None,
     default_size: float = 4.0,
 ) -> list[Port]:
     """Create ports for a junction component.
 
-    Junctions can have multiple bidirectional ports.
-    Default: single bidirectional port.
+    Junctions have a single bidirectional port.
 
     Args:
-        port_configs: List of {port_id: size} configurations
-        default_size: Default port size if no configs provided
+        default_size: Default port size
 
     Returns:
         List of Port objects
     """
-    if not port_configs:
-        return [
-            Port(
-                id="port_1",
-                nominal_size=default_size,
-                direction=PortDirection.BIDIRECTIONAL,
-            )
-        ]
-
     return [
         Port(
-            id=port_id,
-            nominal_size=size,
+            id="P1",
+            name="Port",
+            nominal_size=default_size,
             direction=PortDirection.BIDIRECTIONAL,
         )
-        for config in port_configs
-        for port_id, size in config.items()
     ]
 
 
@@ -163,8 +127,8 @@ def create_pump_ports(
     """Create ports for a pump component.
 
     Pumps have exactly two ports:
-    - suction (inlet)
-    - discharge (outlet)
+    - P1: Suction (inlet)
+    - P2: Discharge (outlet)
 
     Args:
         suction_size: Suction port nominal size
@@ -174,9 +138,17 @@ def create_pump_ports(
         List of two Port objects
     """
     return [
-        Port(id="suction", nominal_size=suction_size, direction=PortDirection.INLET),
         Port(
-            id="discharge", nominal_size=discharge_size, direction=PortDirection.OUTLET
+            id="P1",
+            name="Suction",
+            nominal_size=suction_size,
+            direction=PortDirection.INLET,
+        ),
+        Port(
+            id="P2",
+            name="Discharge",
+            nominal_size=discharge_size,
+            direction=PortDirection.OUTLET,
         ),
     ]
 
@@ -188,8 +160,8 @@ def create_valve_ports(
     """Create ports for a valve component.
 
     Valves have exactly two ports:
-    - inlet
-    - outlet
+    - P1: Inlet
+    - P2: Outlet
 
     Args:
         inlet_size: Inlet port nominal size
@@ -202,8 +174,18 @@ def create_valve_ports(
         outlet_size = inlet_size
 
     return [
-        Port(id="inlet", nominal_size=inlet_size, direction=PortDirection.INLET),
-        Port(id="outlet", nominal_size=outlet_size, direction=PortDirection.OUTLET),
+        Port(
+            id="P1",
+            name="Inlet",
+            nominal_size=inlet_size,
+            direction=PortDirection.INLET,
+        ),
+        Port(
+            id="P2",
+            name="Outlet",
+            nominal_size=outlet_size,
+            direction=PortDirection.OUTLET,
+        ),
     ]
 
 
@@ -214,8 +196,8 @@ def create_heat_exchanger_ports(
     """Create ports for a heat exchanger component.
 
     Heat exchangers have exactly two ports:
-    - inlet
-    - outlet
+    - P1: Inlet
+    - P2: Outlet
 
     Args:
         inlet_size: Inlet port nominal size
@@ -228,8 +210,18 @@ def create_heat_exchanger_ports(
         outlet_size = inlet_size
 
     return [
-        Port(id="inlet", nominal_size=inlet_size, direction=PortDirection.INLET),
-        Port(id="outlet", nominal_size=outlet_size, direction=PortDirection.OUTLET),
+        Port(
+            id="P1",
+            name="Inlet",
+            nominal_size=inlet_size,
+            direction=PortDirection.INLET,
+        ),
+        Port(
+            id="P2",
+            name="Outlet",
+            nominal_size=outlet_size,
+            direction=PortDirection.OUTLET,
+        ),
     ]
 
 
@@ -240,8 +232,8 @@ def create_strainer_ports(
     """Create ports for a strainer component.
 
     Strainers have exactly two ports:
-    - inlet
-    - outlet
+    - P1: Inlet
+    - P2: Outlet
 
     Args:
         inlet_size: Inlet port nominal size
@@ -254,8 +246,18 @@ def create_strainer_ports(
         outlet_size = inlet_size
 
     return [
-        Port(id="inlet", nominal_size=inlet_size, direction=PortDirection.INLET),
-        Port(id="outlet", nominal_size=outlet_size, direction=PortDirection.OUTLET),
+        Port(
+            id="P1",
+            name="Inlet",
+            nominal_size=inlet_size,
+            direction=PortDirection.INLET,
+        ),
+        Port(
+            id="P2",
+            name="Outlet",
+            nominal_size=outlet_size,
+            direction=PortDirection.OUTLET,
+        ),
     ]
 
 
@@ -266,8 +268,8 @@ def create_orifice_ports(
     """Create ports for an orifice component.
 
     Orifices have exactly two ports:
-    - inlet
-    - outlet
+    - P1: Inlet
+    - P2: Outlet
 
     Args:
         inlet_size: Inlet port nominal size
@@ -280,8 +282,18 @@ def create_orifice_ports(
         outlet_size = inlet_size
 
     return [
-        Port(id="inlet", nominal_size=inlet_size, direction=PortDirection.INLET),
-        Port(id="outlet", nominal_size=outlet_size, direction=PortDirection.OUTLET),
+        Port(
+            id="P1",
+            name="Inlet",
+            nominal_size=inlet_size,
+            direction=PortDirection.INLET,
+        ),
+        Port(
+            id="P2",
+            name="Outlet",
+            nominal_size=outlet_size,
+            direction=PortDirection.OUTLET,
+        ),
     ]
 
 
@@ -289,7 +301,7 @@ def create_sprinkler_ports(inlet_size: float = 1.0) -> list[Port]:
     """Create ports for a sprinkler component.
 
     Sprinklers have exactly one port:
-    - inlet (sprinklers discharge to atmosphere)
+    - P1: Inlet (sprinklers discharge to atmosphere)
 
     Args:
         inlet_size: Inlet port nominal size
@@ -298,5 +310,10 @@ def create_sprinkler_ports(inlet_size: float = 1.0) -> list[Port]:
         List with single Port object
     """
     return [
-        Port(id="inlet", nominal_size=inlet_size, direction=PortDirection.INLET),
+        Port(
+            id="P1",
+            name="Inlet",
+            nominal_size=inlet_size,
+            direction=PortDirection.INLET,
+        ),
     ]

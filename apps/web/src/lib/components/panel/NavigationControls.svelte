@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { navigationStore, canGoBack, canGoForward, components } from '$lib/stores';
+	import { navigationStore, components } from '$lib/stores';
 	import { COMPONENT_TYPE_LABELS } from '$lib/models';
 
 	interface Props {
@@ -20,31 +20,27 @@
 	let totalComponents = $derived($components.length);
 
 	function handlePrev() {
-		// Navigate to previous component in the chain
+		// Navigate to previous component in the chain (linear navigation)
 		if (currentIndex > 0) {
 			const prevComponent = $components[currentIndex - 1];
 			navigationStore.navigateTo(prevComponent.id);
-			onNavigate?.('prev');
-		} else if ($canGoBack) {
-			navigationStore.goBack();
 			onNavigate?.('prev');
 		}
 	}
 
 	function handleNext() {
-		// Navigate to next component in the chain
+		// Navigate to next component in the chain (linear navigation)
 		if (currentIndex < totalComponents - 1) {
 			const nextComponent = $components[currentIndex + 1];
 			navigationStore.navigateTo(nextComponent.id);
 			onNavigate?.('next');
-		} else if ($canGoForward) {
-			navigationStore.goForward();
-			onNavigate?.('next');
 		}
 	}
 
-	let canNavigatePrev = $derived(currentIndex > 0 || $canGoBack);
-	let canNavigateNext = $derived(currentIndex < totalComponents - 1 || $canGoForward);
+	// Previous/Next are purely linear through component chain
+	// (not affected by visit history)
+	let canNavigatePrev = $derived(currentIndex > 0);
+	let canNavigateNext = $derived(currentIndex < totalComponents - 1);
 </script>
 
 <div class="flex items-center justify-between border-t border-gray-200 bg-gray-50 px-4 py-3">

@@ -73,10 +73,10 @@
 </script>
 
 <div>
-	<label for={id} class="block text-sm font-medium text-gray-700">
+	<label for={id} class="block text-sm font-medium text-[var(--color-text-muted)]">
 		{label}
 		{#if required}
-			<span class="text-red-500">*</span>
+			<span class="text-[var(--color-error)]">*</span>
 		{/if}
 	</label>
 	<div class="mt-1 flex rounded-md shadow-sm">
@@ -89,25 +89,25 @@
 			{step}
 			{placeholder}
 			oninput={handleInput}
-			class="block w-full rounded-{unit ? 'l' : ''}md border px-3 py-2 text-sm focus:outline-none focus:ring-1
+			class="block w-full border bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1
 				{error
-				? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-				: 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'}
-				{unit ? 'rounded-r-none' : ''}"
+				? 'border-[var(--color-error)] focus:border-[var(--color-error)] focus:ring-[var(--color-error)]'
+				: 'border-[var(--color-border)] focus:border-[var(--color-accent)] focus:ring-[var(--color-accent)]'}
+				{unit ? 'rounded-l-md rounded-r-none' : 'rounded-md'}"
 			aria-invalid={!!error}
 			aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
 		/>
 		{#if unit}
 			<span
-				class="inline-flex items-center rounded-r-md border border-l-0 border-gray-300 bg-gray-50 px-3 text-sm text-gray-500"
+				class="inline-flex items-center rounded-r-md border border-l-0 border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 text-sm text-[var(--color-text-muted)]"
 			>
 				{unit}
 			</span>
 		{/if}
 	</div>
 	{#if error}
-		<p id="{id}-error" class="mt-1 text-xs text-red-600">{error}</p>
+		<p id="{id}-error" class="mt-1 text-xs text-[var(--color-error)]">{error}</p>
 	{:else if hint}
-		<p id="{id}-hint" class="mt-1 text-xs text-gray-500">{hint}</p>
+		<p id="{id}-hint" class="mt-1 text-xs text-[var(--color-text-subtle)]">{hint}</p>
 	{/if}
 </div>

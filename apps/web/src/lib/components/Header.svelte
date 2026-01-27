@@ -1,4 +1,6 @@
 <script lang="ts">
+	import ThemeToggle from './ThemeToggle.svelte';
+
 	type ViewMode = 'panel' | 'results';
 
 	interface Props {
@@ -34,14 +36,14 @@
 	}
 </script>
 
-<header class="sticky top-0 z-50 border-b border-gray-200 bg-white shadow-sm">
+<header class="sticky top-0 z-50 border-b border-[var(--color-border)] bg-[var(--color-surface)] shadow-sm">
 	<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
 		<div class="flex h-14 items-center justify-between">
 			<!-- Left: Logo and Project Name -->
 			<div class="flex items-center gap-3">
-				<a href="/" class="flex items-center gap-2 text-gray-900 hover:text-gray-700">
+				<a href="/" class="flex items-center gap-2 text-[var(--color-text)] hover:text-[var(--color-text-muted)]">
 					<svg
-						class="h-6 w-6 text-blue-600"
+						class="h-6 w-6 text-[var(--color-accent)]"
 						fill="none"
 						stroke="currentColor"
 						viewBox="0 0 24 24"
@@ -65,7 +67,7 @@
 						onclick={handleSolve}
 						disabled={!canSolve || isSolving}
 						title="Solve network (Ctrl+Enter)"
-						class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+						class="inline-flex items-center gap-2 rounded-lg bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-[var(--color-accent-text)] transition-colors hover:bg-[var(--color-accent-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
 					>
 						{#if isSolving}
 							<svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -99,13 +101,13 @@
 				{/if}
 
 				{#if showViewSwitcher}
-					<div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
+					<div class="inline-flex rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-1">
 						<button
 							type="button"
 							class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors {viewMode ===
 							'panel'
-								? 'bg-white text-gray-900 shadow'
-								: 'text-gray-600 hover:text-gray-900'}"
+								? 'bg-[var(--color-surface)] text-[var(--color-text)] shadow'
+								: 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]'}"
 							onclick={() => handleViewModeChange('panel')}
 						>
 							Build
@@ -114,14 +116,16 @@
 							type="button"
 							class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors {viewMode ===
 							'results'
-								? 'bg-white text-gray-900 shadow'
-								: 'text-gray-600 hover:text-gray-900'}"
+								? 'bg-[var(--color-surface)] text-[var(--color-text)] shadow'
+								: 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]'}"
 							onclick={() => handleViewModeChange('results')}
 						>
 							Results
 						</button>
 					</div>
 				{/if}
+
+				<ThemeToggle />
 			</div>
 		</div>
 	</div>

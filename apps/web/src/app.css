@@ -1,1 +1,311 @@
 @import 'tailwindcss';
+
+/* ========================================================================
+   Theme CSS Custom Properties
+   ======================================================================== */
+
+:root {
+	/* Typography */
+	--font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+		sans-serif;
+	--font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, ui-monospace, monospace;
+
+	/* Spacing */
+	--space-xs: 0.25rem;
+	--space-sm: 0.5rem;
+	--space-md: 1rem;
+	--space-lg: 1.5rem;
+	--space-xl: 2rem;
+
+	/* Borders */
+	--radius-sm: 4px;
+	--radius-md: 6px;
+	--radius-lg: 8px;
+}
+
+/* ========================================================================
+   Dark Theme (Default)
+   ======================================================================== */
+[data-theme='dark'] {
+	--color-bg: #0a0a0a;
+	--color-surface: #111111;
+	--color-surface-elevated: #1a1a1a;
+	--color-border: #262626;
+	--color-border-subtle: #1f1f1f;
+	--color-text: #e5e5e5;
+	--color-text-muted: #a3a3a3;
+	--color-text-subtle: #737373;
+	--color-accent: #f59e0b;
+	--color-accent-hover: #d97706;
+	--color-accent-muted: rgba(245, 158, 11, 0.15);
+	--color-accent-text: #000;
+	--color-success: #22c55e;
+	--color-warning: #f59e0b;
+	--color-error: #ef4444;
+	--color-info: #3b82f6;
+	--color-dropdown-shadow: rgba(0, 0, 0, 0.4);
+}
+
+/* ========================================================================
+   Light Theme
+   ======================================================================== */
+[data-theme='light'] {
+	--color-bg: #f5f5f5;
+	--color-surface: #ffffff;
+	--color-surface-elevated: #fafafa;
+	--color-border: #e5e5e5;
+	--color-border-subtle: #ebebeb;
+	--color-text: #171717;
+	--color-text-muted: #525252;
+	--color-text-subtle: #737373;
+	--color-accent: #2563eb;
+	--color-accent-hover: #1d4ed8;
+	--color-accent-muted: rgba(37, 99, 235, 0.12);
+	--color-accent-text: #fff;
+	--color-success: #16a34a;
+	--color-warning: #ca8a04;
+	--color-error: #dc2626;
+	--color-info: #2563eb;
+	--color-dropdown-shadow: rgba(0, 0, 0, 0.1);
+}
+
+/* ========================================================================
+   Base Styles
+   ======================================================================== */
+html {
+	font-family: var(--font-sans);
+}
+
+body {
+	background-color: var(--color-bg);
+	color: var(--color-text);
+	transition:
+		background-color 0.2s ease,
+		color 0.2s ease;
+}
+
+/* ========================================================================
+   Form Input Utilities
+   ======================================================================== */
+
+/* Hide number input spin buttons */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+
+input[type='number'] {
+	appearance: textfield;
+	-moz-appearance: textfield;
+}
+
+/* ========================================================================
+   Engineering Input Component Styles
+   ======================================================================== */
+.engineering-input {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+}
+
+.engineering-input .input-label {
+	font-size: 0.75rem;
+	font-weight: 500;
+	color: var(--color-text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.025em;
+}
+
+.engineering-input .input-wrapper {
+	display: flex;
+	background: var(--color-surface);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	transition:
+		border-color 0.15s ease,
+		box-shadow 0.15s ease;
+}
+
+.engineering-input .input-wrapper:focus-within {
+	border-color: var(--color-accent);
+	box-shadow: 0 0 0 3px var(--color-accent-muted);
+}
+
+.engineering-input .value-input {
+	flex: 1;
+	min-width: 0;
+	padding: 0.625rem 0.875rem;
+	background: transparent;
+	border: none;
+	color: var(--color-text);
+	font-family: var(--font-mono);
+	font-size: 0.875rem;
+	font-weight: 500;
+}
+
+.engineering-input .value-input:focus {
+	outline: none;
+}
+
+.engineering-input .value-input::placeholder {
+	color: var(--color-text-subtle);
+}
+
+.engineering-input .unit-button {
+	display: flex;
+	align-items: center;
+	gap: var(--space-xs);
+	padding: 0.625rem 0.75rem;
+	background: var(--color-surface-elevated);
+	border: none;
+	border-left: 1px solid var(--color-border);
+	border-radius: 0 var(--radius-md) var(--radius-md) 0;
+	color: var(--color-text-muted);
+	font-size: 0.75rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	cursor: pointer;
+	transition:
+		background-color 0.15s ease,
+		color 0.15s ease;
+}
+
+.engineering-input .unit-button:hover {
+	background: var(--color-border);
+	color: var(--color-text);
+}
+
+.engineering-input .unit-button:focus {
+	outline: none;
+	background: var(--color-border);
+	color: var(--color-text);
+}
+
+.engineering-input .unit-button .chevron {
+	width: 12px;
+	height: 12px;
+	transition: transform 0.15s ease;
+}
+
+.engineering-input .unit-button.open .chevron {
+	transform: rotate(180deg);
+}
+
+.engineering-input .unit-selector {
+	position: relative;
+}
+
+.engineering-input .unit-dropdown {
+	position: absolute;
+	top: 100%;
+	right: 0;
+	min-width: 80px;
+	margin-top: 4px;
+	padding: 4px;
+	background: var(--color-surface-elevated);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	box-shadow: 0 4px 12px var(--color-dropdown-shadow);
+	opacity: 0;
+	visibility: hidden;
+	transform: translateY(-4px);
+	transition:
+		opacity 0.15s ease,
+		transform 0.15s ease,
+		visibility 0.15s ease;
+	z-index: 50;
+}
+
+.engineering-input .unit-dropdown.open {
+	opacity: 1;
+	visibility: visible;
+	transform: translateY(0);
+}
+
+.engineering-input .unit-option {
+	display: block;
+	width: 100%;
+	padding: 0.5rem 0.75rem;
+	background: transparent;
+	border: none;
+	border-radius: var(--radius-sm);
+	color: var(--color-text-muted);
+	font-size: 0.75rem;
+	font-weight: 500;
+	text-align: left;
+	cursor: pointer;
+	transition:
+		background-color 0.1s ease,
+		color 0.1s ease;
+}
+
+.engineering-input .unit-option:hover {
+	background: var(--color-border);
+	color: var(--color-text);
+}
+
+.engineering-input .unit-option.selected {
+	background: var(--color-accent-muted);
+	color: var(--color-accent);
+}
+
+.engineering-input.disabled {
+	opacity: 0.5;
+	pointer-events: none;
+}
+
+.engineering-input .input-error {
+	font-size: 0.75rem;
+	color: var(--color-error);
+}
+
+.engineering-input .input-hint {
+	font-size: 0.75rem;
+	color: var(--color-text-subtle);
+}
+
+/* ========================================================================
+   Theme Toggle Styles
+   ======================================================================== */
+.theme-toggle {
+	position: relative;
+	width: 44px;
+	height: 24px;
+	background: var(--color-border);
+	border-radius: 12px;
+	cursor: pointer;
+	transition: background-color 0.2s ease;
+	border: none;
+	padding: 0;
+}
+
+.theme-toggle:focus {
+	outline: none;
+	box-shadow: 0 0 0 3px var(--color-accent-muted);
+}
+
+.theme-toggle-thumb {
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 20px;
+	height: 20px;
+	background: var(--color-surface);
+	border-radius: 50%;
+	transition: transform 0.2s ease;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.theme-toggle-thumb svg {
+	width: 12px;
+	height: 12px;
+	color: var(--color-text-muted);
+}
+
+[data-theme='light'] .theme-toggle-thumb {
+	transform: translateX(20px);
+}

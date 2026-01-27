@@ -1,0 +1,1696 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenSolve Pipe - Component Library</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* ========================================================================
+       RESET & BASE
+       ======================================================================== */
+    *, *::before, *::after { box-sizing: border-box; }
+
+    :root {
+      /* Typography */
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+
+      /* Spacing */
+      --space-xs: 0.25rem;
+      --space-sm: 0.5rem;
+      --space-md: 1rem;
+      --space-lg: 1.5rem;
+      --space-xl: 2rem;
+      --space-2xl: 3rem;
+
+      /* Borders */
+      --radius-sm: 4px;
+      --radius-md: 6px;
+      --radius-lg: 8px;
+      --radius-xl: 12px;
+    }
+
+    /* ========================================================================
+       DARK THEME (Default)
+       ======================================================================== */
+    [data-theme="dark"] {
+      --color-bg: #0a0a0a;
+      --color-surface: #111111;
+      --color-surface-elevated: #1a1a1a;
+      --color-border: #262626;
+      --color-border-subtle: #1f1f1f;
+      --color-text: #e5e5e5;
+      --color-text-muted: #a3a3a3;
+      --color-text-subtle: #737373;
+      --color-accent: #f59e0b;
+      --color-accent-hover: #d97706;
+      --color-accent-muted: rgba(245, 158, 11, 0.15);
+      --color-accent-text: #000;
+      --color-success: #22c55e;
+      --color-warning: #f59e0b;
+      --color-error: #ef4444;
+      --color-info: #3b82f6;
+      --color-dropdown-shadow: rgba(0, 0, 0, 0.4);
+    }
+
+    /* ========================================================================
+       LIGHT THEME
+       ======================================================================== */
+    [data-theme="light"] {
+      --color-bg: #f5f5f5;
+      --color-surface: #ffffff;
+      --color-surface-elevated: #fafafa;
+      --color-border: #e5e5e5;
+      --color-border-subtle: #ebebeb;
+      --color-text: #171717;
+      --color-text-muted: #525252;
+      --color-text-subtle: #737373;
+      --color-accent: #2563eb;
+      --color-accent-hover: #1d4ed8;
+      --color-accent-muted: rgba(37, 99, 235, 0.12);
+      --color-accent-text: #fff;
+      --color-success: #16a34a;
+      --color-warning: #ca8a04;
+      --color-error: #dc2626;
+      --color-info: #2563eb;
+      --color-dropdown-shadow: rgba(0, 0, 0, 0.1);
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--color-bg);
+      color: var(--color-text);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.5;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    /* ========================================================================
+       LAYOUT
+       ======================================================================== */
+    .library-container {
+      display: flex;
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      width: 260px;
+      background: var(--color-surface);
+      border-right: 1px solid var(--color-border);
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      overflow-y: auto;
+      padding: var(--space-lg);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .sidebar-header {
+      margin-bottom: var(--space-lg);
+    }
+
+    .sidebar-title {
+      font-size: 1.125rem;
+      font-weight: 700;
+      margin: 0 0 var(--space-xs);
+    }
+
+    .sidebar-subtitle {
+      font-size: 0.75rem;
+      color: var(--color-text-subtle);
+      margin: 0;
+    }
+
+    /* Theme Toggle */
+    .theme-toggle-wrapper {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: var(--space-sm) var(--space-md);
+      margin-bottom: var(--space-lg);
+      background: var(--color-surface-elevated);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border-subtle);
+    }
+
+    .theme-toggle-label {
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--color-text-muted);
+      flex: 1;
+    }
+
+    .theme-toggle {
+      position: relative;
+      width: 52px;
+      height: 28px;
+      background: var(--color-border);
+      border-radius: 14px;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+      border: none;
+      padding: 0;
+    }
+
+    .theme-toggle:focus {
+      outline: none;
+      box-shadow: 0 0 0 3px var(--color-accent-muted);
+    }
+
+    .theme-toggle-thumb {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 22px;
+      height: 22px;
+      background: var(--color-surface);
+      border-radius: 50%;
+      transition: transform 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+
+    .theme-toggle-thumb svg {
+      width: 14px;
+      height: 14px;
+      color: var(--color-text-muted);
+    }
+
+    [data-theme="light"] .theme-toggle-thumb {
+      transform: translateX(24px);
+    }
+
+    .theme-icon-moon,
+    .theme-icon-sun {
+      position: absolute;
+    }
+
+    [data-theme="dark"] .theme-icon-sun { display: none; }
+    [data-theme="dark"] .theme-icon-moon { display: block; }
+    [data-theme="light"] .theme-icon-sun { display: block; }
+    [data-theme="light"] .theme-icon-moon { display: none; }
+
+    .nav-section {
+      margin-bottom: var(--space-lg);
+    }
+
+    .nav-section-title {
+      font-size: 0.625rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--color-text-subtle);
+      margin: 0 0 var(--space-sm);
+    }
+
+    .nav-link {
+      display: block;
+      padding: var(--space-sm) var(--space-md);
+      color: var(--color-text-muted);
+      text-decoration: none;
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      transition: all 0.15s ease;
+    }
+
+    .nav-link:hover {
+      background: var(--color-surface-elevated);
+      color: var(--color-text);
+    }
+
+    .nav-link.active {
+      background: var(--color-accent-muted);
+      color: var(--color-accent);
+    }
+
+    .main-content {
+      flex: 1;
+      margin-left: 260px;
+      padding: var(--space-2xl);
+      max-width: 1000px;
+    }
+
+    /* ========================================================================
+       COMPONENT SECTIONS
+       ======================================================================== */
+    .component-section {
+      margin-bottom: var(--space-2xl);
+      scroll-margin-top: var(--space-xl);
+    }
+
+    .section-header {
+      margin-bottom: var(--space-lg);
+      padding-bottom: var(--space-md);
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .section-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin: 0 0 var(--space-xs);
+    }
+
+    .section-description {
+      color: var(--color-text-muted);
+      margin: 0;
+    }
+
+    .component-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border-subtle);
+      border-radius: var(--radius-xl);
+      margin-bottom: var(--space-lg);
+      overflow: hidden;
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .card-header {
+      padding: var(--space-md) var(--space-lg);
+      border-bottom: 1px solid var(--color-border-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .card-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    .card-badge {
+      font-size: 0.625rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: var(--space-xs) var(--space-sm);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface-elevated);
+      color: var(--color-text-muted);
+    }
+
+    .card-preview {
+      padding: var(--space-xl);
+      background: var(--color-surface-elevated);
+      transition: background-color 0.2s ease;
+    }
+
+    .card-code {
+      padding: var(--space-md) var(--space-lg);
+      background: var(--color-bg);
+      border-top: 1px solid var(--color-border-subtle);
+      transition: background-color 0.2s ease;
+    }
+
+    .code-toggle {
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: var(--space-xs) 0;
+      display: flex;
+      align-items: center;
+      gap: var(--space-xs);
+    }
+
+    .code-toggle:hover {
+      color: var(--color-text);
+    }
+
+    .code-block {
+      display: none;
+      margin-top: var(--space-md);
+    }
+
+    .code-block.open {
+      display: block;
+    }
+
+    .code-block pre {
+      margin: 0;
+      padding: var(--space-md);
+      background: var(--color-surface);
+      border-radius: var(--radius-md);
+      overflow-x: auto;
+    }
+
+    .code-block code {
+      font-family: var(--font-mono);
+      font-size: 0.8125rem;
+      line-height: 1.6;
+      color: var(--color-text-muted);
+    }
+
+    /* ========================================================================
+       COMPONENT: ENGINEERING INPUT
+       See: FORM_SPEC_INPUT_FIELD_WITH_UNITS.md
+       ======================================================================== */
+    .engineering-input {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-sm);
+      font-family: var(--font-mono);
+      max-width: 240px;
+    }
+
+    .engineering-input .label {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--color-text-muted);
+    }
+
+    .engineering-input .input-wrapper {
+      display: flex;
+      align-items: stretch;
+      background: var(--color-surface-elevated);
+      border: 2px solid var(--color-border);
+      border-radius: var(--radius-md);
+      overflow: visible;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
+    }
+
+    .engineering-input .input-wrapper.focused {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-accent-muted);
+    }
+
+    .engineering-input .value-input {
+      flex: 1;
+      min-width: 0;
+      padding: 0.625rem 0.875rem;
+      font-family: var(--font-mono);
+      font-size: 0.9375rem;
+      font-weight: 500;
+      color: var(--color-text);
+      background: transparent;
+      border: none;
+      outline: none;
+      appearance: textfield;
+      -moz-appearance: textfield;
+    }
+
+    .engineering-input .value-input::-webkit-outer-spin-button,
+    .engineering-input .value-input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      appearance: none;
+      margin: 0;
+    }
+
+    .engineering-input .value-input::placeholder {
+      color: var(--color-text-subtle);
+    }
+
+    .engineering-input .unit-selector {
+      position: relative;
+      display: flex;
+      align-items: stretch;
+    }
+
+    .engineering-input .unit-button {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.625rem 0.75rem;
+      font-family: var(--font-mono);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--color-text);
+      background: var(--color-surface);
+      border: none;
+      border-left: 1px solid var(--color-border);
+      cursor: pointer;
+      transition: background-color 0.15s ease;
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    }
+
+    .engineering-input .unit-button:hover:not(:disabled) {
+      background: var(--color-border);
+    }
+
+    .engineering-input .unit-button:focus {
+      outline: none;
+      background: var(--color-accent-muted);
+    }
+
+    .engineering-input .unit-button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .engineering-input .unit-text {
+      min-width: 1.75rem;
+      text-align: center;
+    }
+
+    .engineering-input .chevron {
+      transition: transform 0.2s ease;
+      opacity: 0.6;
+    }
+
+    .engineering-input .unit-button.open .chevron {
+      transform: rotate(180deg);
+    }
+
+    .engineering-input .unit-dropdown {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      right: 0;
+      min-width: 100%;
+      max-height: 180px;
+      margin: 0;
+      padding: var(--space-xs);
+      list-style: none;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      box-shadow: 0 8px 24px var(--color-dropdown-shadow);
+      overflow-y: auto;
+      z-index: 1000;
+    }
+
+    .engineering-input .unit-dropdown.open {
+      display: block;
+    }
+
+    .engineering-input .unit-option {
+      padding: var(--space-sm) 0.75rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--color-text);
+      text-align: center;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background-color 0.1s ease;
+    }
+
+    .engineering-input .unit-option:hover,
+    .engineering-input .unit-option.highlighted {
+      background: var(--color-surface-elevated);
+    }
+
+    .engineering-input .unit-option.selected {
+      background: var(--color-accent);
+      color: var(--color-accent-text);
+    }
+
+    .engineering-input.disabled {
+      opacity: 0.5;
+      pointer-events: none;
+    }
+
+    .engineering-input.error .input-wrapper {
+      border-color: var(--color-error);
+    }
+
+    .engineering-input.error .input-wrapper.focused {
+      box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+    }
+
+    .engineering-input .error-message {
+      font-size: 0.75rem;
+      color: var(--color-error);
+      font-family: var(--font-sans);
+    }
+
+    /* ========================================================================
+       COMPONENT: TEXT INPUT
+       ======================================================================== */
+    .text-input {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-sm);
+      max-width: 280px;
+    }
+
+    .text-input .label {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--color-text-muted);
+    }
+
+    .text-input input {
+      padding: 0.625rem 0.875rem;
+      font-family: var(--font-sans);
+      font-size: 0.9375rem;
+      color: var(--color-text);
+      background: var(--color-surface-elevated);
+      border: 2px solid var(--color-border);
+      border-radius: var(--radius-md);
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
+    }
+
+    .text-input input:focus {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-accent-muted);
+    }
+
+    .text-input input::placeholder {
+      color: var(--color-text-subtle);
+    }
+
+    .text-input.disabled input {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* ========================================================================
+       COMPONENT: SELECT / DROPDOWN
+       ======================================================================== */
+    .select-input {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-sm);
+      max-width: 240px;
+    }
+
+    .select-input .label {
+      font-size: 0.6875rem;
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--color-text-muted);
+    }
+
+    .select-input .select-wrapper {
+      position: relative;
+    }
+
+    .select-input .select-button {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.625rem 0.875rem;
+      font-family: var(--font-sans);
+      font-size: 0.9375rem;
+      color: var(--color-text);
+      background: var(--color-surface-elevated);
+      border: 2px solid var(--color-border);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
+    }
+
+    .select-input .select-button:focus {
+      outline: none;
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-accent-muted);
+    }
+
+    .select-input .select-button .chevron {
+      transition: transform 0.2s ease;
+      opacity: 0.6;
+    }
+
+    .select-input .select-button.open .chevron {
+      transform: rotate(180deg);
+    }
+
+    .select-input .select-dropdown {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: 200px;
+      margin: 0;
+      padding: var(--space-xs);
+      list-style: none;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      box-shadow: 0 8px 24px var(--color-dropdown-shadow);
+      overflow-y: auto;
+      z-index: 1000;
+    }
+
+    .select-input .select-dropdown.open {
+      display: block;
+    }
+
+    .select-input .select-option {
+      padding: var(--space-sm) 0.75rem;
+      font-size: 0.875rem;
+      color: var(--color-text);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background-color 0.1s ease;
+    }
+
+    .select-input .select-option:hover {
+      background: var(--color-surface-elevated);
+    }
+
+    .select-input .select-option.selected {
+      background: var(--color-accent);
+      color: var(--color-accent-text);
+    }
+
+    /* ========================================================================
+       COMPONENT: CHECKBOX
+       ======================================================================== */
+    .checkbox-input {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      cursor: pointer;
+    }
+
+    .checkbox-input input[type="checkbox"] {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .checkbox-input .checkbox-box {
+      width: 18px;
+      height: 18px;
+      background: var(--color-surface-elevated);
+      border: 2px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+
+    .checkbox-input input:focus + .checkbox-box {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-accent-muted);
+    }
+
+    .checkbox-input input:checked + .checkbox-box {
+      background: var(--color-accent);
+      border-color: var(--color-accent);
+    }
+
+    .checkbox-input .checkbox-box svg {
+      opacity: 0;
+      color: var(--color-accent-text);
+      transition: opacity 0.1s ease;
+    }
+
+    .checkbox-input input:checked + .checkbox-box svg {
+      opacity: 1;
+    }
+
+    .checkbox-input .checkbox-label {
+      font-size: 0.875rem;
+      color: var(--color-text);
+    }
+
+    .checkbox-input.disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* ========================================================================
+       COMPONENT: TOGGLE / SWITCH
+       ======================================================================== */
+    .toggle-input {
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+    }
+
+    .toggle-input input[type="checkbox"] {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-input .toggle-track {
+      width: 44px;
+      height: 24px;
+      background: var(--color-border);
+      border-radius: 12px;
+      position: relative;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+
+    .toggle-input input:focus + .toggle-track {
+      box-shadow: 0 0 0 3px var(--color-accent-muted);
+    }
+
+    .toggle-input input:checked + .toggle-track {
+      background: var(--color-accent);
+    }
+
+    .toggle-input .toggle-thumb {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 20px;
+      height: 20px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .toggle-input input:checked + .toggle-track .toggle-thumb {
+      transform: translateX(20px);
+    }
+
+    .toggle-input .toggle-label {
+      font-size: 0.875rem;
+      color: var(--color-text);
+    }
+
+    /* ========================================================================
+       COMPONENT: BUTTON
+       ======================================================================== */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-sm);
+      padding: 0.625rem 1.25rem;
+      font-family: var(--font-sans);
+      font-size: 0.875rem;
+      font-weight: 600;
+      border-radius: var(--radius-md);
+      border: none;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-primary {
+      background: var(--color-accent);
+      color: var(--color-accent-text);
+    }
+
+    .btn-primary:hover {
+      background: var(--color-accent-hover);
+    }
+
+    .btn-secondary {
+      background: var(--color-surface-elevated);
+      color: var(--color-text);
+      border: 1px solid var(--color-border);
+    }
+
+    .btn-secondary:hover {
+      background: var(--color-border);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--color-text-muted);
+    }
+
+    .btn-ghost:hover {
+      background: var(--color-surface-elevated);
+      color: var(--color-text);
+    }
+
+    .btn-danger {
+      background: var(--color-error);
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #dc2626;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-sm {
+      padding: 0.375rem 0.75rem;
+      font-size: 0.75rem;
+    }
+
+    .btn-lg {
+      padding: 0.875rem 1.75rem;
+      font-size: 1rem;
+    }
+
+    /* ========================================================================
+       COMPONENT: STATUS BADGE
+       ======================================================================== */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-xs);
+      padding: 0.25rem 0.625rem;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.025em;
+      border-radius: 9999px;
+    }
+
+    .badge-success {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--color-success);
+    }
+
+    .badge-warning {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--color-warning);
+    }
+
+    .badge-error {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--color-error);
+    }
+
+    .badge-info {
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--color-info);
+    }
+
+    .badge-neutral {
+      background: var(--color-surface-elevated);
+      color: var(--color-text-muted);
+    }
+
+    /* ========================================================================
+       UTILITY: GRID FOR PREVIEWS
+       ======================================================================== */
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: var(--space-lg);
+    }
+
+    .preview-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-md);
+      align-items: flex-start;
+    }
+
+    .preview-stack {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-md);
+    }
+  </style>
+</head>
+<body>
+  <div class="library-container">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <header class="sidebar-header">
+        <h1 class="sidebar-title">Component Library</h1>
+        <p class="sidebar-subtitle">OpenSolve Pipe Design System</p>
+      </header>
+
+      <!-- Theme Toggle -->
+      <div class="theme-toggle-wrapper">
+        <span class="theme-toggle-label">Theme</span>
+        <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+          <span class="theme-toggle-thumb">
+            <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+            <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="5"/>
+              <line x1="12" y1="1" x2="12" y2="3"/>
+              <line x1="12" y1="21" x2="12" y2="23"/>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+              <line x1="1" y1="12" x2="3" y2="12"/>
+              <line x1="21" y1="12" x2="23" y2="12"/>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+          </span>
+        </button>
+      </div>
+
+      <nav>
+        <section class="nav-section">
+          <h2 class="nav-section-title">Form Inputs</h2>
+          <a href="#engineering-input" class="nav-link">Engineering Input</a>
+          <a href="#text-input" class="nav-link">Text Input</a>
+          <a href="#select-input" class="nav-link">Select / Dropdown</a>
+          <a href="#checkbox" class="nav-link">Checkbox</a>
+          <a href="#toggle" class="nav-link">Toggle / Switch</a>
+        </section>
+
+        <section class="nav-section">
+          <h2 class="nav-section-title">Actions</h2>
+          <a href="#buttons" class="nav-link">Buttons</a>
+        </section>
+
+        <section class="nav-section">
+          <h2 class="nav-section-title">Feedback</h2>
+          <a href="#badges" class="nav-link">Status Badges</a>
+        </section>
+
+        <section class="nav-section">
+          <h2 class="nav-section-title">Documentation</h2>
+          <a href="FORM_SPEC_INPUT_FIELD_WITH_UNITS.md" class="nav-link">Input w/ Units Spec</a>
+        </section>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+      <!-- ================================================================
+           ENGINEERING INPUT
+           ================================================================ -->
+      <section id="engineering-input" class="component-section">
+        <header class="section-header">
+          <h2 class="section-title">Engineering Input</h2>
+          <p class="section-description">Numerical input with integrated unit selection. Used for all physical quantities (length, pressure, flow, etc.). Use <strong>Tab</strong> to focus the unit selector, then <strong>Up/Down arrows</strong> to cycle units.</p>
+        </header>
+
+        <!-- Default State -->
+        <div class="component-card">
+          <header class="card-header">
+            <h3 class="card-title">Default State</h3>
+            <span class="card-badge">Interactive</span>
+          </header>
+          <div class="card-preview">
+            <div class="preview-grid">
+              <div class="engineering-input" data-field="length">
+                <label class="label">Pipe Length</label>
+                <div class="input-wrapper">
+                  <input type="number" class="value-input" placeholder="Enter length" step="any">
+                  <div class="unit-selector">
+                    <button type="button" class="unit-button">
+                      <span class="unit-text">ft</span>
+                      <svg class="chevron" viewBox="0 0 24 24" width="14" height="14">
+                        <path d="M7 10l5 5 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                    <ul class="unit-dropdown">
+                      <li class="unit-option selected" data-unit="ft">ft</li>
+                      <li class="unit-option" data-unit="m">m</li>
+                      <li class="unit-option" data-unit="in">in</li>
+                      <li class="unit-option" data-unit="mm">mm</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div class="engineering-input" data-field="pressure">
+                <label class="label">Design Pressure</label>
+                <div class="input-wrapper">
+                  <input type="number" class="value-input" placeholder="0.00" step="any">
+                  <div class="unit-selector">
+                    <button type="button" class="unit-button">
+                      <span class="unit-text">psi</span>
+                      <svg class="chevron" viewBox="0 0 24 24" width="14" height="14">
+                        <path d="M7 10l5 5 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                    <ul class="unit-dropdown">
+                      <li class="unit-option selected" data-unit="psi">psi</li>
+                      <li class="unit-option" data-unit="kPa">kPa</li>
+                      <li class="unit-option" data-unit="bar">bar</li>
+                      <li class="unit-option" data-unit="atm">atm</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div class="engineering-input" data-field="flow">
+                <label class="label">Flow Rate</label>
+                <div class="input-wrapper">
+                  <input type="number" class="value-input" placeholder="0.00" step="any">
+                  <div class="unit-selector">
+                    <button type="button" class="unit-button">
+                      <span class="unit-text">GPM</span>
+                      <svg class="chevron" viewBox="0 0 24 24" width="14" height="14">
+                        <path d="M7 10l5 5 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                    <ul class="unit-dropdown">
+                      <li class="unit-option selected" data-unit="GPM">GPM</li>
+                      <li class="unit-option" data-unit="LPM">LPM</li>
+                      <li class="unit-option" data-unit="m³/h">m³/h</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="card-code">
+            <button class="code-toggle" onclick="toggleCode(this)">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              View Code
+            </button>
+            <div class="code-block">
+              <pre><code>&lt;EngineeringInput
+  label="Pipe Length"
+  bind:value={pipeLength}
+  bind:unit={lengthUnit}
+  units={['ft', 'm', 'in', 'mm']}
+  placeholder="Enter length"
+/&gt;</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- States -->
+        <div class="component-card">
+          <header class="card-header">
+            <h3 class="card-title">States</h3>
+            <span class="card-badge">Variations</span>
+          </header>
+          <div class="card-preview">
+            <div class="preview-grid">
+              <div class="engineering-input" data-field="constrained">
+                <label class="label">Valve Position (0-100)</label>
+                <div class="input-wrapper">
+                  <input type="number" class="value-input" placeholder="0-100" step="0.1" min="0" max="100" value="85">
+                  <div class="unit-selector">
+                    <button type="button" class="unit-button">
+                      <span class="unit-text">%</span>
+                      <svg class="chevron" viewBox="0 0 24 24" width="14" height="14">
+                        <path d="M7 10l5 5 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                    <ul class="unit-dropdown">
+                      <li class="unit-option selected" data-unit="%">%</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div class="engineering-input disabled">
+                <label class="label">Disabled</label>
+                <div class="input-wrapper">
+                  <input type="number" class="value-input" placeholder="—" disabled value="125.5">
+                  <div class="unit-selector">
+                    <button type="button" class="unit-button" disabled>
+                      <span class="unit-text">ft</span>
+                      <svg class="chevron" viewBox="0 0 24 24" width="14" height="14">
+                        <path d="M7 10l5 5 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="engineering-input error">
+                <label class="label">With Error</label>
+                <div class="input-wrapper">
+                  <input type="number" class="value-input" value="-50">
+                  <div class="unit-selector">
+                    <button type="button" class="unit-button">
+                      <span class="unit-text">psi</span>
+                      <svg class="chevron" viewBox="0 0 24 24" width="14" height="14">
+                        <path d="M7 10l5 5 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                    <ul class="unit-dropdown">
+                      <li class="unit-option selected" data-unit="psi">psi</li>
+                    </ul>
+                  </div>
+                </div>
+                <span class="error-message">Value must be positive</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           TEXT INPUT
+           ================================================================ -->
+      <section id="text-input" class="component-section">
+        <header class="section-header">
+          <h2 class="section-title">Text Input</h2>
+          <p class="section-description">Standard text input for names, descriptions, and other text values.</p>
+        </header>
+
+        <div class="component-card">
+          <header class="card-header">
+            <h3 class="card-title">Default State</h3>
+            <span class="card-badge">Interactive</span>
+          </header>
+          <div class="card-preview">
+            <div class="preview-grid">
+              <div class="text-input">
+                <label class="label">Component Name</label>
+                <input type="text" placeholder="Enter name...">
+              </div>
+
+              <div class="text-input">
+                <label class="label">With Value</label>
+                <input type="text" value="Main Process Pump">
+              </div>
+
+              <div class="text-input disabled">
+                <label class="label">Disabled</label>
+                <input type="text" value="Read Only" disabled>
+              </div>
+            </div>
+          </div>
+          <div class="card-code">
+            <button class="code-toggle" onclick="toggleCode(this)">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              View Code
+            </button>
+            <div class="code-block">
+              <pre><code>&lt;TextInput
+  label="Component Name"
+  bind:value={componentName}
+  placeholder="Enter name..."
+/&gt;</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           SELECT INPUT
+           ================================================================ -->
+      <section id="select-input" class="component-section">
+        <header class="section-header">
+          <h2 class="section-title">Select / Dropdown</h2>
+          <p class="section-description">Selection input for choosing from a list of options.</p>
+        </header>
+
+        <div class="component-card">
+          <header class="card-header">
+            <h3 class="card-title">Default State</h3>
+            <span class="card-badge">Interactive</span>
+          </header>
+          <div class="card-preview">
+            <div class="preview-grid">
+              <div class="select-input" data-field="valve-type">
+                <label class="label">Valve Type</label>
+                <div class="select-wrapper">
+                  <button type="button" class="select-button">
+                    <span class="select-text">Gate Valve</span>
+                    <svg class="chevron" viewBox="0 0 24 24" width="14" height="14">
+                      <path d="M7 10l5 5 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                  <ul class="select-dropdown">
+                    <li class="select-option selected" data-value="gate">Gate Valve</li>
+                    <li class="select-option" data-value="ball">Ball Valve</li>
+                    <li class="select-option" data-value="butterfly">Butterfly Valve</li>
+                    <li class="select-option" data-value="globe">Globe Valve</li>
+                    <li class="select-option" data-value="check">Check Valve</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div class="select-input" data-field="material">
+                <label class="label">Pipe Material</label>
+                <div class="select-wrapper">
+                  <button type="button" class="select-button">
+                    <span class="select-text">Carbon Steel</span>
+                    <svg class="chevron" viewBox="0 0 24 24" width="14" height="14">
+                      <path d="M7 10l5 5 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                  <ul class="select-dropdown">
+                    <li class="select-option selected" data-value="carbon_steel">Carbon Steel</li>
+                    <li class="select-option" data-value="stainless_steel">Stainless Steel</li>
+                    <li class="select-option" data-value="copper">Copper</li>
+                    <li class="select-option" data-value="pvc">PVC</li>
+                    <li class="select-option" data-value="hdpe">HDPE</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="card-code">
+            <button class="code-toggle" onclick="toggleCode(this)">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              View Code
+            </button>
+            <div class="code-block">
+              <pre><code>&lt;Select
+  label="Valve Type"
+  bind:value={valveType}
+  options={[
+    { value: 'gate', label: 'Gate Valve' },
+    { value: 'ball', label: 'Ball Valve' },
+    { value: 'butterfly', label: 'Butterfly Valve' },
+  ]}
+/&gt;</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           CHECKBOX
+           ================================================================ -->
+      <section id="checkbox" class="component-section">
+        <header class="section-header">
+          <h2 class="section-title">Checkbox</h2>
+          <p class="section-description">Binary toggle for enabling/disabling options.</p>
+        </header>
+
+        <div class="component-card">
+          <header class="card-header">
+            <h3 class="card-title">Default State</h3>
+            <span class="card-badge">Interactive</span>
+          </header>
+          <div class="card-preview">
+            <div class="preview-stack">
+              <label class="checkbox-input">
+                <input type="checkbox">
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 24 24" width="12" height="12">
+                    <path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+                <span class="checkbox-label">Include velocity check</span>
+              </label>
+
+              <label class="checkbox-input">
+                <input type="checkbox" checked>
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 24 24" width="12" height="12">
+                    <path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+                <span class="checkbox-label">Include pressure check</span>
+              </label>
+
+              <label class="checkbox-input">
+                <input type="checkbox" checked>
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 24 24" width="12" height="12">
+                    <path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+                <span class="checkbox-label">Include NPSH check</span>
+              </label>
+
+              <label class="checkbox-input disabled">
+                <input type="checkbox" disabled>
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 24 24" width="12" height="12">
+                    <path d="M20 6L9 17l-5-5" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+                <span class="checkbox-label">Disabled option</span>
+              </label>
+            </div>
+          </div>
+          <div class="card-code">
+            <button class="code-toggle" onclick="toggleCode(this)">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              View Code
+            </button>
+            <div class="code-block">
+              <pre><code>&lt;Checkbox
+  label="Include velocity check"
+  bind:checked={includeVelocityCheck}
+/&gt;</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           TOGGLE
+           ================================================================ -->
+      <section id="toggle" class="component-section">
+        <header class="section-header">
+          <h2 class="section-title">Toggle / Switch</h2>
+          <p class="section-description">On/off switch for binary settings, typically for immediate effect.</p>
+        </header>
+
+        <div class="component-card">
+          <header class="card-header">
+            <h3 class="card-title">Default State</h3>
+            <span class="card-badge">Interactive</span>
+          </header>
+          <div class="card-preview">
+            <div class="preview-stack">
+              <label class="toggle-input">
+                <input type="checkbox">
+                <span class="toggle-track">
+                  <span class="toggle-thumb"></span>
+                </span>
+                <span class="toggle-label">Pump Status: Off</span>
+              </label>
+
+              <label class="toggle-input">
+                <input type="checkbox" checked>
+                <span class="toggle-track">
+                  <span class="toggle-thumb"></span>
+                </span>
+                <span class="toggle-label">Pump Status: On</span>
+              </label>
+
+              <label class="toggle-input">
+                <input type="checkbox" checked>
+                <span class="toggle-track">
+                  <span class="toggle-thumb"></span>
+                </span>
+                <span class="toggle-label">Include system curve</span>
+              </label>
+            </div>
+          </div>
+          <div class="card-code">
+            <button class="code-toggle" onclick="toggleCode(this)">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              View Code
+            </button>
+            <div class="code-block">
+              <pre><code>&lt;Toggle
+  label="Pump Status"
+  bind:checked={pumpOn}
+  onLabel="On"
+  offLabel="Off"
+/&gt;</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           BUTTONS
+           ================================================================ -->
+      <section id="buttons" class="component-section">
+        <header class="section-header">
+          <h2 class="section-title">Buttons</h2>
+          <p class="section-description">Action triggers for forms and interactions.</p>
+        </header>
+
+        <div class="component-card">
+          <header class="card-header">
+            <h3 class="card-title">Variants</h3>
+            <span class="card-badge">Variations</span>
+          </header>
+          <div class="card-preview">
+            <div class="preview-stack">
+              <div class="preview-row">
+                <button class="btn btn-primary">Primary</button>
+                <button class="btn btn-secondary">Secondary</button>
+                <button class="btn btn-ghost">Ghost</button>
+                <button class="btn btn-danger">Danger</button>
+              </div>
+              <div class="preview-row">
+                <button class="btn btn-primary btn-sm">Small</button>
+                <button class="btn btn-primary">Default</button>
+                <button class="btn btn-primary btn-lg">Large</button>
+              </div>
+              <div class="preview-row">
+                <button class="btn btn-primary" disabled>Disabled</button>
+                <button class="btn btn-secondary" disabled>Disabled</button>
+              </div>
+            </div>
+          </div>
+          <div class="card-code">
+            <button class="code-toggle" onclick="toggleCode(this)">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              View Code
+            </button>
+            <div class="code-block">
+              <pre><code>&lt;Button variant="primary"&gt;Primary&lt;/Button&gt;
+&lt;Button variant="secondary"&gt;Secondary&lt;/Button&gt;
+&lt;Button variant="ghost"&gt;Ghost&lt;/Button&gt;
+&lt;Button variant="danger"&gt;Danger&lt;/Button&gt;
+
+&lt;Button size="sm"&gt;Small&lt;/Button&gt;
+&lt;Button size="lg"&gt;Large&lt;/Button&gt;
+
+&lt;Button disabled&gt;Disabled&lt;/Button&gt;</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           BADGES
+           ================================================================ -->
+      <section id="badges" class="component-section">
+        <header class="section-header">
+          <h2 class="section-title">Status Badges</h2>
+          <p class="section-description">Visual indicators for status, state, or categories.</p>
+        </header>
+
+        <div class="component-card">
+          <header class="card-header">
+            <h3 class="card-title">Variants</h3>
+            <span class="card-badge">Variations</span>
+          </header>
+          <div class="card-preview">
+            <div class="preview-row">
+              <span class="badge badge-success">Solved</span>
+              <span class="badge badge-warning">Warning</span>
+              <span class="badge badge-error">Error</span>
+              <span class="badge badge-info">Info</span>
+              <span class="badge badge-neutral">Draft</span>
+            </div>
+          </div>
+          <div class="card-code">
+            <button class="code-toggle" onclick="toggleCode(this)">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              View Code
+            </button>
+            <div class="code-block">
+              <pre><code>&lt;Badge variant="success"&gt;Solved&lt;/Badge&gt;
+&lt;Badge variant="warning"&gt;Warning&lt;/Badge&gt;
+&lt;Badge variant="error"&gt;Error&lt;/Badge&gt;
+&lt;Badge variant="info"&gt;Info&lt;/Badge&gt;
+&lt;Badge variant="neutral"&gt;Draft&lt;/Badge&gt;</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script>
+    // ========================================================================
+    // Theme Toggle
+    // ========================================================================
+    const themeToggle = document.getElementById('theme-toggle');
+    const html = document.documentElement;
+
+    // Load saved theme or default to dark
+    const savedTheme = localStorage.getItem('component-library-theme') || 'dark';
+    html.setAttribute('data-theme', savedTheme);
+
+    themeToggle.addEventListener('click', () => {
+      const currentTheme = html.getAttribute('data-theme');
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', newTheme);
+      localStorage.setItem('component-library-theme', newTheme);
+    });
+
+    // ========================================================================
+    // Code Toggle
+    // ========================================================================
+    function toggleCode(button) {
+      const codeBlock = button.nextElementSibling;
+      codeBlock.classList.toggle('open');
+      button.textContent = codeBlock.classList.contains('open') ? 'Hide Code' : 'View Code';
+    }
+
+    // ========================================================================
+    // Engineering Input Interactions
+    // ========================================================================
+    function closeAllDropdowns() {
+      document.querySelectorAll('.unit-dropdown, .select-dropdown').forEach(d => {
+        d.classList.remove('open');
+      });
+      document.querySelectorAll('.unit-button, .select-button').forEach(b => {
+        b.classList.remove('open');
+      });
+    }
+
+    // Get current selected index in a dropdown
+    function getSelectedIndex(options) {
+      return Array.from(options).findIndex(o => o.classList.contains('selected'));
+    }
+
+    // Select an option by index
+    function selectOptionByIndex(options, unitText, index) {
+      if (index < 0 || index >= options.length) return;
+      options.forEach(o => o.classList.remove('selected'));
+      options[index].classList.add('selected');
+      unitText.textContent = options[index].dataset.unit;
+    }
+
+    // Initialize Engineering Inputs
+    document.querySelectorAll('.engineering-input').forEach(container => {
+      const input = container.querySelector('.value-input');
+      const wrapper = container.querySelector('.input-wrapper');
+      const unitButton = container.querySelector('.unit-button');
+      const dropdown = container.querySelector('.unit-dropdown');
+      const unitText = container.querySelector('.unit-text');
+      const options = container.querySelectorAll('.unit-option');
+
+      if (!unitButton || container.classList.contains('disabled')) return;
+
+      // Focus handling for input
+      if (input && wrapper) {
+        input.addEventListener('focus', () => wrapper.classList.add('focused'));
+        input.addEventListener('blur', () => wrapper.classList.remove('focused'));
+      }
+
+      // Toggle dropdown on click
+      unitButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const isOpen = dropdown.classList.contains('open');
+        closeAllDropdowns();
+        if (!isOpen) {
+          dropdown.classList.add('open');
+          unitButton.classList.add('open');
+        }
+      });
+
+      // Keyboard navigation for unit button (arrow keys cycle units)
+      unitButton.addEventListener('keydown', (e) => {
+        const optionsArray = Array.from(options);
+        if (optionsArray.length <= 1) return;
+
+        const currentIndex = getSelectedIndex(options);
+
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          const nextIndex = (currentIndex + 1) % optionsArray.length;
+          selectOptionByIndex(options, unitText, nextIndex);
+        } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          const prevIndex = (currentIndex - 1 + optionsArray.length) % optionsArray.length;
+          selectOptionByIndex(options, unitText, prevIndex);
+        } else if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          const isOpen = dropdown.classList.contains('open');
+          closeAllDropdowns();
+          if (!isOpen) {
+            dropdown.classList.add('open');
+            unitButton.classList.add('open');
+          }
+        }
+      });
+
+      // Option selection via click
+      options.forEach(option => {
+        option.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          options.forEach(o => o.classList.remove('selected'));
+          option.classList.add('selected');
+          unitText.textContent = option.dataset.unit;
+          closeAllDropdowns();
+          unitButton.focus();
+        });
+      });
+    });
+
+    // Initialize Select Inputs
+    document.querySelectorAll('.select-input').forEach(container => {
+      const button = container.querySelector('.select-button');
+      const dropdown = container.querySelector('.select-dropdown');
+      const selectText = container.querySelector('.select-text');
+      const options = container.querySelectorAll('.select-option');
+
+      if (!button) return;
+
+      button.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const isOpen = dropdown.classList.contains('open');
+        closeAllDropdowns();
+        if (!isOpen) {
+          dropdown.classList.add('open');
+          button.classList.add('open');
+        }
+      });
+
+      options.forEach(option => {
+        option.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          options.forEach(o => o.classList.remove('selected'));
+          option.classList.add('selected');
+          selectText.textContent = option.textContent;
+          closeAllDropdowns();
+        });
+      });
+    });
+
+    // Global click to close dropdowns
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.unit-selector') && !e.target.closest('.select-wrapper')) {
+        closeAllDropdowns();
+      }
+    });
+
+    // Escape key closes dropdowns
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeAllDropdowns();
+      }
+    });
+
+    // ========================================================================
+    // Sidebar Navigation
+    // ========================================================================
+    document.querySelectorAll('.nav-link[href^="#"]').forEach(link => {
+      link.addEventListener('click', () => {
+        document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+        link.classList.add('active');
+      });
+    });
+
+    // Highlight active section on scroll
+    const sections = document.querySelectorAll('.component-section');
+    const navLinks = document.querySelectorAll('.nav-link[href^="#"]');
+
+    window.addEventListener('scroll', () => {
+      let current = '';
+      sections.forEach(section => {
+        const sectionTop = section.offsetTop;
+        if (window.scrollY >= sectionTop - 100) {
+          current = section.getAttribute('id');
+        }
+      });
+
+      navLinks.forEach(link => {
+        link.classList.remove('active');
+        if (link.getAttribute('href') === '#' + current) {
+          link.classList.add('active');
+        }
+      });
+    });
+  </script>
+</body>
+</html>

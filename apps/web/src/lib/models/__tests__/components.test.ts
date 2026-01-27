@@ -20,6 +20,7 @@ describe('getPortElevation', () => {
 			name: 'Test Reservoir',
 			elevation: 100,
 			water_level: 10,
+			surface_pressure: 0,
 			ports: createReservoirPorts(4.0),
 			downstream_connections: []
 		};
@@ -43,6 +44,7 @@ describe('getPortElevation', () => {
 			min_level: 0,
 			max_level: 20,
 			initial_level: 10,
+			surface_pressure: 0,
 			ports,
 			downstream_connections: []
 		};
@@ -63,6 +65,7 @@ describe('getPortElevation', () => {
 			name: 'Test Reservoir',
 			elevation: 50, // Component at 50 ft
 			water_level: 10,
+			surface_pressure: 0,
 			ports,
 			downstream_connections: []
 		};
@@ -85,6 +88,7 @@ describe('getPortElevation', () => {
 			min_level: 0,
 			max_level: 20,
 			initial_level: 10,
+			surface_pressure: 0,
 			ports,
 			downstream_connections: []
 		};
@@ -121,6 +125,7 @@ describe('getPortElevation', () => {
 			name: 'Test Reservoir',
 			elevation: 100,
 			water_level: 10,
+			surface_pressure: 0,
 			ports: createReservoirPorts(4.0),
 			downstream_connections: []
 		};

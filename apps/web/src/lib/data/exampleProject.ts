@@ -55,6 +55,7 @@ export const EXAMPLE_PROJECT: Project = {
 			name: 'Supply Reservoir',
 			elevation: 0,
 			water_level: 15,
+			surface_pressure: 0,
 			ports: [{ id: 'P1', name: 'Outlet', nominal_size: 6, direction: 'bidirectional' }],
 			downstream_connections: [
 				{
@@ -185,6 +186,7 @@ export const EXAMPLE_PROJECT: Project = {
 			min_level: 2,
 			max_level: 25,
 			initial_level: 10,
+			surface_pressure: 0,
 			ports: [{ id: 'P1', name: 'Port', nominal_size: 4, direction: 'bidirectional' }],
 			downstream_connections: []
 		}

@@ -172,6 +172,8 @@ export interface Reservoir extends BaseComponentProps {
 	type: 'reservoir';
 	/** Water level above reservoir bottom. */
 	water_level: number;
+	/** Gauge pressure at water surface. Default: 0 (atmospheric). Units: project pressure units. */
+	surface_pressure: number;
 }
 
 /** Variable-level storage tank. */
@@ -185,6 +187,8 @@ export interface Tank extends BaseComponentProps {
 	max_level: number;
 	/** Initial water level. */
 	initial_level: number;
+	/** Gauge pressure at water surface. Default: 0 (atmospheric). Units: project pressure units. */
+	surface_pressure: number;
 }
 
 /** Connection point, optionally with demand. */
@@ -433,9 +437,46 @@ export function isLinkComponent(component: Component): boolean {
 	return ['pump', 'valve', 'heat_exchanger', 'strainer'].includes(component.type);
 }
 
-/** Get total head for a reservoir. */
+/** Get total head for a reservoir (without pressure contribution). */
 export function getReservoirTotalHead(reservoir: Reservoir): number {
 	return reservoir.elevation + reservoir.water_level;
+}
+
+/**
+ * Get total head for a reservoir including surface pressure contribution.
+ * @param reservoir - The reservoir component
+ * @param fluidDensity - Fluid density in kg/m³ (SI) or lb/ft³ (Imperial)
+ * @param g - Gravitational acceleration (default: 9.80665 m/s²)
+ * @returns Total head = elevation + water_level + pressure_head
+ */
+export function getReservoirTotalHeadWithPressure(
+	reservoir: Reservoir,
+	fluidDensity: number,
+	g: number = 9.80665
+): number {
+	const pressureHead = reservoir.surface_pressure / (fluidDensity * g);
+	return reservoir.elevation + reservoir.water_level + pressureHead;
+}
+
+/** Get total head for a tank (without pressure contribution). */
+export function getTankTotalHead(tank: Tank): number {
+	return tank.elevation + tank.initial_level;
+}
+
+/**
+ * Get total head for a tank including surface pressure contribution.
+ * @param tank - The tank component
+ * @param fluidDensity - Fluid density in kg/m³ (SI) or lb/ft³ (Imperial)
+ * @param g - Gravitational acceleration (default: 9.80665 m/s²)
+ * @returns Total head = elevation + initial_level + pressure_head
+ */
+export function getTankTotalHeadWithPressure(
+	tank: Tank,
+	fluidDensity: number,
+	g: number = 9.80665
+): number {
+	const pressureHead = tank.surface_pressure / (fluidDensity * g);
+	return tank.elevation + tank.initial_level + pressureHead;
 }
 
 /**
@@ -617,7 +658,7 @@ export function createDefaultComponent(type: ComponentType, id?: string): Compon
 
 	switch (type) {
 		case 'reservoir':
-			return { ...baseProps, type: 'reservoir', water_level: 0 };
+			return { ...baseProps, type: 'reservoir', water_level: 0, surface_pressure: 0 };
 		case 'tank':
 			return {
 				...baseProps,
@@ -625,7 +666,8 @@ export function createDefaultComponent(type: ComponentType, id?: string): Compon
 				diameter: 10,
 				min_level: 0,
 				max_level: 20,
-				initial_level: 10
+				initial_level: 10,
+				surface_pressure: 0
 			};
 		case 'junction':
 			return { ...baseProps, type: 'junction', demand: 0 };

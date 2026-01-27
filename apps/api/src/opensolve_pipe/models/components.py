@@ -148,6 +148,10 @@ class Reservoir(BaseComponent):
     water_level: NonNegativeFloat = Field(
         description="Water level above reservoir bottom"
     )
+    surface_pressure: float = Field(
+        default=0.0,
+        description="Gauge pressure at water surface (0 = atmospheric). Units: project pressure units.",
+    )
 
     @model_validator(mode="after")
     def set_default_ports(self) -> "Reservoir":
@@ -158,8 +162,28 @@ class Reservoir(BaseComponent):
 
     @property
     def total_head(self) -> float:
-        """Total head = elevation + water level."""
+        """Total head = elevation + water level.
+
+        Note: Does not include surface_pressure contribution. Use
+        total_head_with_pressure(fluid_density, g) for full calculation.
+        """
         return self.elevation + self.water_level
+
+    def total_head_with_pressure(
+        self, fluid_density: float, g: float = 9.80665
+    ) -> float:
+        """Total head including surface pressure contribution.
+
+        Args:
+            fluid_density: Fluid density in kg/m³ (SI) or lb/ft³ (Imperial)
+            g: Gravitational acceleration (default: 9.80665 m/s²)
+
+        Returns:
+            Total head = elevation + water_level + pressure_head
+        """
+        # pressure_head = surface_pressure / (density * g)
+        pressure_head = self.surface_pressure / (fluid_density * g)
+        return self.elevation + self.water_level + pressure_head
 
 
 class Tank(BaseComponent):
@@ -170,6 +194,10 @@ class Tank(BaseComponent):
     min_level: NonNegativeFloat = Field(default=0.0, description="Minimum water level")
     max_level: PositiveFloat = Field(description="Maximum water level")
     initial_level: NonNegativeFloat = Field(description="Initial water level")
+    surface_pressure: float = Field(
+        default=0.0,
+        description="Gauge pressure at water surface (0 = atmospheric). Units: project pressure units.",
+    )
 
     @field_validator("initial_level")
     @classmethod
@@ -192,6 +220,31 @@ class Tank(BaseComponent):
         if not self.ports:
             self.ports = create_tank_ports()
         return self
+
+    @property
+    def total_head(self) -> float:
+        """Total head = elevation + initial level.
+
+        Note: Does not include surface_pressure contribution. Use
+        total_head_with_pressure(fluid_density, g) for full calculation.
+        """
+        return self.elevation + self.initial_level
+
+    def total_head_with_pressure(
+        self, fluid_density: float, g: float = 9.80665
+    ) -> float:
+        """Total head including surface pressure contribution.
+
+        Args:
+            fluid_density: Fluid density in kg/m³ (SI) or lb/ft³ (Imperial)
+            g: Gravitational acceleration (default: 9.80665 m/s²)
+
+        Returns:
+            Total head = elevation + initial_level + pressure_head
+        """
+        # pressure_head = surface_pressure / (density * g)
+        pressure_head = self.surface_pressure / (fluid_density * g)
+        return self.elevation + self.initial_level + pressure_head
 
 
 class Junction(BaseComponent):

@@ -30,3 +30,6 @@ export {
 
 // History store (undo/redo)
 export { historyStore, canUndo, canRedo, undoCount, redoCount } from './history';
+
+// Theme store (light/dark mode)
+export { themeStore, isDarkMode, type Theme } from './theme';

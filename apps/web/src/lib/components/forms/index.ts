@@ -7,6 +7,7 @@
 
 // Base components
 export { default as NumberInput } from './NumberInput.svelte';
+export { default as EngineeringInput } from './EngineeringInput.svelte';
 
 // Node components
 export { default as ReservoirForm } from './ReservoirForm.svelte';

@@ -1,7 +1,13 @@
 <script lang="ts">
   import '../app.css';
+  import { onMount } from 'svelte';
+  import { themeStore } from '$lib/stores';
 
   let { children } = $props();
+
+  onMount(() => {
+    themeStore.initialize();
+  });
 </script>
 
 <!-- Skip link for keyboard navigation -->

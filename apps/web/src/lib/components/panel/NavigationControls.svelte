@@ -43,7 +43,7 @@
 	let canNavigateNext = $derived(currentIndex < totalComponents - 1);
 </script>
 
-<div class="flex items-center justify-between border-t border-gray-200 bg-gray-50 px-4 py-3">
+<div class="flex items-center justify-between border-t border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-4 py-3">
 	<!-- Previous Button -->
 	<button
 		type="button"
@@ -52,8 +52,8 @@
 		aria-label="Previous component"
 		class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors
 			{canNavigatePrev
-			? 'bg-white text-gray-700 shadow-sm hover:bg-gray-50 border border-gray-300'
-			: 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'}"
+			? 'bg-[var(--color-surface)] text-[var(--color-text)] shadow-sm hover:bg-[var(--color-surface-elevated)] border border-[var(--color-border)]'
+			: 'bg-[var(--color-surface-elevated)] text-[var(--color-text-subtle)] cursor-not-allowed border border-[var(--color-border-subtle)]'}"
 	>
 		<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
@@ -64,16 +64,16 @@
 	<!-- Position Indicator -->
 	<div class="text-center">
 		{#if currentComponent}
-			<p class="text-sm font-medium text-gray-700">
+			<p class="text-sm font-medium text-[var(--color-text)]">
 				{COMPONENT_TYPE_LABELS[currentComponent.type]}
 			</p>
-			<p class="text-xs text-gray-500">
+			<p class="text-xs text-[var(--color-text-muted)]">
 				{currentIndex + 1} of {totalComponents}
 			</p>
 		{:else if totalComponents === 0}
-			<p class="text-sm text-gray-500">No components</p>
+			<p class="text-sm text-[var(--color-text-muted)]">No components</p>
 		{:else}
-			<p class="text-sm text-gray-500">Select a component</p>
+			<p class="text-sm text-[var(--color-text-muted)]">Select a component</p>
 		{/if}
 	</div>
 
@@ -85,8 +85,8 @@
 		aria-label="Next component"
 		class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors
 			{canNavigateNext
-			? 'bg-white text-gray-700 shadow-sm hover:bg-gray-50 border border-gray-300'
-			: 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'}"
+			? 'bg-[var(--color-surface)] text-[var(--color-text)] shadow-sm hover:bg-[var(--color-surface-elevated)] border border-[var(--color-border)]'
+			: 'bg-[var(--color-surface-elevated)] text-[var(--color-text-subtle)] cursor-not-allowed border border-[var(--color-border-subtle)]'}"
 	>
 		<span class="hidden sm:inline">Next</span>
 		<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

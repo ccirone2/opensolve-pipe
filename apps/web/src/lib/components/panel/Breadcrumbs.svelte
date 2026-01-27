@@ -39,7 +39,7 @@
 			{#each breadcrumbs as crumb, index}
 				<li class="flex items-center">
 					{#if index > 0}
-						<svg class="h-4 w-4 flex-shrink-0 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+						<svg class="h-4 w-4 flex-shrink-0 text-[var(--color-text-subtle)]" fill="currentColor" viewBox="0 0 20 20">
 							<path
 								fill-rule="evenodd"
 								d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
@@ -49,16 +49,16 @@
 					{/if}
 
 					{#if crumb.type === 'ellipsis'}
-						<span class="px-2 text-gray-400" aria-label="More components">...</span>
+						<span class="px-2 text-[var(--color-text-subtle)]" aria-label="More components">...</span>
 					{:else if crumb.isLast}
-						<span class="px-2 font-medium text-gray-900">
+						<span class="px-2 font-medium text-[var(--color-text)]">
 							{crumb.name || COMPONENT_TYPE_LABELS[crumb.type]}
 						</span>
 					{:else}
 						<button
 							type="button"
 							onclick={() => handleClick(crumb.id)}
-							class="px-2 text-gray-500 hover:text-gray-700 hover:underline"
+							class="px-2 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:underline"
 						>
 							{crumb.name || COMPONENT_TYPE_LABELS[crumb.type]}
 						</button>
@@ -68,5 +68,5 @@
 		</ol>
 	</nav>
 {:else if $components.length === 0}
-	<span class="text-sm text-gray-400">No components added yet</span>
+	<span class="text-sm text-[var(--color-text-subtle)]">No components added yet</span>
 {/if}

@@ -23,12 +23,12 @@
 	/>
 
 	<div>
-		<label for="valve_type" class="block text-sm font-medium text-gray-700">Valve Type</label>
+		<label for="valve_type" class="block text-sm font-medium text-[var(--color-text)]">Valve Type</label>
 		<select
 			id="valve_type"
 			value={component.valve_type}
 			onchange={(e) => onUpdate('valve_type', (e.target as HTMLSelectElement).value)}
-			class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+			class="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] shadow-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
 		>
 			{#each Object.entries(VALVE_TYPE_LABELS) as [value, label]}
 				<option {value}>{label}</option>

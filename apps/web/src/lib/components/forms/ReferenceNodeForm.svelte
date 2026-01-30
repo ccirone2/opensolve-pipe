@@ -78,7 +78,7 @@
 <div class="space-y-4">
 	<!-- Type Selector -->
 	<fieldset>
-		<legend class="block text-sm font-medium text-gray-700 mb-2">Reference Node Type</legend>
+		<legend class="block text-sm font-medium text-[var(--color-text)] mb-2">Reference Node Type</legend>
 		<div class="flex gap-2" role="group" aria-label="Reference Node Type">
 			<button
 				type="button"
@@ -86,8 +86,8 @@
 				aria-pressed={isIdeal}
 				class="flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors
 					{isIdeal
-					? 'bg-blue-600 text-white'
-					: 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+					? 'bg-[var(--color-accent)] text-[var(--color-accent-text)]'
+					: 'bg-[var(--color-surface-elevated)] text-[var(--color-text)] hover:bg-[var(--color-border)]'}"
 			>
 				Ideal
 			</button>
@@ -97,13 +97,13 @@
 				aria-pressed={!isIdeal}
 				class="flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors
 					{!isIdeal
-					? 'bg-amber-600 text-white'
-					: 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+					? 'bg-[var(--color-accent)] text-[var(--color-accent-text)]'
+					: 'bg-[var(--color-surface-elevated)] text-[var(--color-text)] hover:bg-[var(--color-border)]'}"
 			>
 				Non-Ideal
 			</button>
 		</div>
-		<p class="mt-1 text-xs text-gray-500">
+		<p class="mt-1 text-xs text-[var(--color-text-muted)]">
 			{isIdeal ? 'Constant pressure boundary' : 'Pressure varies with flow'}
 		</p>
 	</fieldset>
@@ -128,8 +128,8 @@
 
 	{#if isIdeal}
 		<!-- Ideal Reference Node: Fixed Pressure -->
-		<div class="rounded-md bg-blue-50 p-3">
-			<p class="text-sm text-blue-800">
+		<div class="rounded-md bg-[var(--color-accent-muted)] p-3">
+			<p class="text-sm text-[var(--color-accent)]">
 				<strong>Ideal Reference Node:</strong> Maintains constant pressure regardless of flow.
 			</p>
 		</div>
@@ -144,38 +144,38 @@
 		/>
 	{:else}
 		<!-- Non-Ideal Reference Node: Pressure-Flow Curve -->
-		<div class="rounded-md bg-amber-50 p-3">
-			<p class="text-sm text-amber-800">
+		<div class="rounded-md bg-[var(--color-accent-muted)] p-3">
+			<p class="text-sm text-[var(--color-accent)]">
 				<strong>Non-Ideal Reference Node:</strong> Pressure varies with flow rate.
 			</p>
 		</div>
 
 		<div class="space-y-2">
 			<div class="flex items-center justify-between">
-				<span class="block text-sm font-medium text-gray-700">Pressure-Flow Curve</span>
+				<span class="block text-sm font-medium text-[var(--color-text)]">Pressure-Flow Curve</span>
 				<button
 					type="button"
 					onclick={addCurvePoint}
-					class="inline-flex items-center rounded-md bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
+					class="inline-flex items-center rounded-md bg-[var(--color-accent)] px-2 py-1 text-xs font-medium text-[var(--color-accent-text)] hover:bg-[var(--color-accent-hover)]"
 				>
 					Add Point
 				</button>
 			</div>
 
 			{#if curveError()}
-				<p class="text-xs text-red-600">{curveError()}</p>
+				<p class="text-xs text-[var(--color-error)]">{curveError()}</p>
 			{/if}
 
 			<div class="overflow-x-auto">
-				<table class="min-w-full divide-y divide-gray-200 text-sm">
-					<thead class="bg-gray-50">
+				<table class="min-w-full divide-y divide-[var(--color-border)] text-sm">
+					<thead class="bg-[var(--color-surface-elevated)]">
 						<tr>
-							<th class="px-3 py-2 text-left font-medium text-gray-500">Flow (GPM)</th>
-							<th class="px-3 py-2 text-left font-medium text-gray-500">Pressure (psi)</th>
-							<th class="px-3 py-2 text-left font-medium text-gray-500"></th>
+							<th class="px-3 py-2 text-left font-medium text-[var(--color-text-muted)]">Flow (GPM)</th>
+							<th class="px-3 py-2 text-left font-medium text-[var(--color-text-muted)]">Pressure (psi)</th>
+							<th class="px-3 py-2 text-left font-medium text-[var(--color-text-muted)]"></th>
 						</tr>
 					</thead>
-					<tbody class="divide-y divide-gray-200">
+					<tbody class="divide-y divide-[var(--color-border)]">
 						{#each curvePoints as point, index}
 							<tr>
 								<td class="px-1 py-1">
@@ -184,7 +184,7 @@
 										value={point.flow}
 										min={0}
 										step="any"
-										class="w-20 rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+										class="w-20 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none"
 										oninput={(e) =>
 											updateCurvePoint(index, 'flow', parseFloat(e.currentTarget.value))}
 									/>
@@ -194,7 +194,7 @@
 										type="number"
 										value={point.pressure}
 										step="any"
-										class="w-20 rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+										class="w-20 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none"
 										oninput={(e) =>
 											updateCurvePoint(index, 'pressure', parseFloat(e.currentTarget.value))}
 									/>
@@ -204,7 +204,7 @@
 										<button
 											type="button"
 											onclick={() => removeCurvePoint(index)}
-											class="text-red-600 hover:text-red-800"
+											class="text-[var(--color-error)] hover:opacity-80"
 											title="Remove point"
 										>
 											<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -224,7 +224,7 @@
 				</table>
 			</div>
 
-			<p class="text-xs text-gray-500">
+			<p class="text-xs text-[var(--color-text-muted)]">
 				Enter flow-pressure pairs in ascending flow order. Pressure will be interpolated between
 				points.
 			</p>

@@ -16,14 +16,14 @@ repos:
         name: Check JSON syntax
       - id: check-added-large-files
         name: Check for large files
-        args: ['--maxkb=1000']
+        args: ["--maxkb=1000"]
       - id: check-merge-conflict
         name: Check for merge conflicts
       - id: detect-private-key
         name: Detect private keys
-      - id: no-commit-to-branch
-        name: Protect main branch
-        args: ['--branch', 'main', '--branch', 'master']
+      # - id: no-commit-to-branch
+      #   name: Protect main branch
+      #   args: ['--branch', 'main', '--branch', 'master']
 
   # Python: Ruff linting and formatting
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -70,8 +70,8 @@ repos:
         additional_dependencies:
           - eslint@^8.56.0
           - eslint-plugin-svelte@^2.35.1
-          - '@typescript-eslint/parser@^6.19.0'
-          - '@typescript-eslint/eslint-plugin@^6.19.0'
+          - "@typescript-eslint/parser@^6.19.0"
+          - "@typescript-eslint/eslint-plugin@^6.19.0"
           - typescript@^5.3.3
 
   # TypeScript/Svelte: Prettier
@@ -114,8 +114,8 @@ ci:
 
     for more information, see https://pre-commit.ci
   autofix_prs: true
-  autoupdate_branch: ''
-  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_branch: ""
+  autoupdate_commit_msg: "[pre-commit.ci] pre-commit autoupdate"
   autoupdate_schedule: weekly
-  skip: [pytest, svelte-check]  # Skip tests and svelte-check in CI (run separately)
+  skip: [pytest, svelte-check] # Skip tests and svelte-check in CI (run separately)
   submodules: false

@@ -2,6 +2,7 @@
 	import { Chart, registerables } from 'chart.js';
 	import type { PumpCurve, PumpResult } from '$lib/models';
 	import { calculateBEP } from '$lib/models/pump';
+	import { isDarkMode } from '$lib/stores';
 
 	// Register Chart.js components
 	Chart.register(...registerables);
@@ -14,6 +15,14 @@
 	}
 
 	let { curve, result }: Props = $props();
+
+	// Get chart colors based on theme
+	function getChartColors(dark: boolean) {
+		return {
+			gridColor: dark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+			textColor: dark ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.8)'
+		};
+	}
 
 	// Calculate BEP from efficiency curve
 	let bep = $derived(calculateBEP(curve));
@@ -32,13 +41,16 @@
 		}
 	}
 
-	function createChart(canvasEl: HTMLCanvasElement) {
+	function createChart(canvasEl: HTMLCanvasElement, dark: boolean) {
 		try {
 			// Destroy existing chart first
 			destroyChart();
 
 			// Ensure curve has points
 			if (!curve?.points || curve.points.length === 0) return;
+
+			// Get theme-aware colors
+			const colors = getChartColors(dark);
 
 			// Build datasets
 			const datasets: Chart['data']['datasets'] = [];
@@ -154,7 +166,8 @@
 							labels: {
 								usePointStyle: true,
 								padding: 16,
-								filter: (item) => item.text !== 'Pump Curve Points'
+								filter: (item) => item.text !== 'Pump Curve Points',
+								color: colors.textColor
 							}
 						},
 						tooltip: {
@@ -178,10 +191,14 @@
 							title: {
 								display: true,
 								text: 'Flow (GPM)',
-								font: { weight: 'bold' }
+								font: { weight: 'bold' },
+								color: colors.textColor
 							},
 							grid: {
-								color: 'rgba(0, 0, 0, 0.05)'
+								color: colors.gridColor
+							},
+							ticks: {
+								color: colors.textColor
 							}
 						},
 						y: {
@@ -191,10 +208,14 @@
 							title: {
 								display: true,
 								text: 'Head (ft)',
-								font: { weight: 'bold' }
+								font: { weight: 'bold' },
+								color: colors.textColor
 							},
 							grid: {
-								color: 'rgba(0, 0, 0, 0.05)'
+								color: colors.gridColor
+							},
+							ticks: {
+								color: colors.textColor
 							}
 						}
 					}
@@ -210,6 +231,7 @@
 		// Track dependencies - these variables ensure the effect re-runs when props change
 		const currentCanvas = canvas;
 		const currentCurve = curve;
+		const currentDarkMode = $isDarkMode; // Track theme changes to re-render chart
 		// eslint-disable-next-line @typescript-eslint/no-unused-vars
 		const _trackResult = result; // Track result changes to trigger re-render
 		// eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -218,7 +240,7 @@
 		if (currentCanvas && currentCurve?.points?.length > 0) {
 			// Use setTimeout to ensure we're not in the middle of a render
 			const timeoutId = setTimeout(() => {
-				createChart(currentCanvas);
+				createChart(currentCanvas, currentDarkMode);
 			}, 0);
 
 			// Cleanup function
@@ -235,38 +257,38 @@
 	});
 </script>
 
-<div class="relative h-64 w-full sm:h-80">
-	<canvas bind:this={canvas} class="w-full h-full"></canvas>
+<div class="relative h-64 w-full rounded-lg bg-[var(--color-surface)] p-2 sm:h-80">
+	<canvas bind:this={canvas} class="w-full h-full" style="background: transparent;"></canvas>
 </div>
 
 {#if result}
 	<div class="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-		<div class="rounded-lg bg-gray-50 p-3">
-			<p class="text-xs font-medium uppercase tracking-wide text-gray-500">Flow</p>
-			<p class="mt-1 text-lg font-semibold text-gray-900">{result.operating_flow.toFixed(1)} GPM</p>
+		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
+			<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Flow</p>
+			<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.operating_flow.toFixed(1)} GPM</p>
 		</div>
-		<div class="rounded-lg bg-gray-50 p-3">
-			<p class="text-xs font-medium uppercase tracking-wide text-gray-500">Head</p>
-			<p class="mt-1 text-lg font-semibold text-gray-900">{result.operating_head.toFixed(1)} ft</p>
+		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
+			<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Head</p>
+			<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.operating_head.toFixed(1)} ft</p>
 		</div>
-		<div class="rounded-lg bg-gray-50 p-3">
-			<p class="text-xs font-medium uppercase tracking-wide text-gray-500">NPSH Available</p>
-			<p class="mt-1 text-lg font-semibold text-gray-900">{result.npsh_available.toFixed(1)} ft</p>
+		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
+			<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">NPSH Available</p>
+			<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.npsh_available.toFixed(1)} ft</p>
 		</div>
 		{#if result.efficiency !== undefined}
-			<div class="rounded-lg bg-gray-50 p-3">
-				<p class="text-xs font-medium uppercase tracking-wide text-gray-500">Efficiency</p>
-				<p class="mt-1 text-lg font-semibold text-gray-900">{(result.efficiency * 100).toFixed(1)}%</p>
+			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
+				<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Efficiency</p>
+				<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{(result.efficiency * 100).toFixed(1)}%</p>
 			</div>
 		{:else if result.power !== undefined}
-			<div class="rounded-lg bg-gray-50 p-3">
-				<p class="text-xs font-medium uppercase tracking-wide text-gray-500">Power</p>
-				<p class="mt-1 text-lg font-semibold text-gray-900">{result.power.toFixed(2)} kW</p>
+			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
+				<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Power</p>
+				<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.power.toFixed(2)} kW</p>
 			</div>
 		{:else}
-			<div class="rounded-lg bg-gray-50 p-3">
-				<p class="text-xs font-medium uppercase tracking-wide text-gray-500">NPSH Margin</p>
-				<p class="mt-1 text-lg font-semibold text-gray-900">
+			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
+				<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">NPSH Margin</p>
+				<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">
 					{result.npsh_margin !== undefined ? `${result.npsh_margin.toFixed(1)} ft` : '-'}
 				</p>
 			</div>
@@ -276,9 +298,9 @@
 
 <!-- BEP Info (shown when efficiency curve exists, even without solver results) -->
 {#if bep}
-	<div class="mt-4 rounded-lg border border-purple-200 bg-purple-50 p-3">
-		<p class="text-xs font-medium uppercase tracking-wide text-purple-600">Best Efficiency Point (BEP)</p>
-		<div class="mt-2 flex flex-wrap gap-4 text-sm text-purple-900">
+	<div class="mt-4 rounded-lg border border-purple-500/30 bg-purple-500/10 p-3">
+		<p class="text-xs font-medium uppercase tracking-wide text-purple-500">Best Efficiency Point (BEP)</p>
+		<div class="mt-2 flex flex-wrap gap-4 text-sm text-[var(--color-text)]">
 			<span><strong>Flow:</strong> {bep.flow.toFixed(1)} GPM</span>
 			<span><strong>Head:</strong> {bep.head.toFixed(1)} ft</span>
 			<span><strong>Efficiency:</strong> {(bep.efficiency * 100).toFixed(1)}%</span>

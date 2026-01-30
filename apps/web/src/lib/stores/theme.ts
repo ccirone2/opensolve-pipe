@@ -15,7 +15,7 @@ const STORAGE_KEY = 'opensolve-pipe-theme';
  * Get the initial theme from localStorage or system preference.
  */
 function getInitialTheme(): Theme {
-	if (!browser) return 'dark';
+	if (!browser) return 'light';
 
 	// Check localStorage first
 	const stored = localStorage.getItem(STORAGE_KEY);
@@ -23,12 +23,12 @@ function getInitialTheme(): Theme {
 		return stored;
 	}
 
-	// Fall back to system preference
-	if (window.matchMedia('(prefers-color-scheme: light)').matches) {
-		return 'light';
+	// Default to light, but respect system dark preference
+	if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+		return 'dark';
 	}
 
-	return 'dark';
+	return 'light';
 }
 
 /**

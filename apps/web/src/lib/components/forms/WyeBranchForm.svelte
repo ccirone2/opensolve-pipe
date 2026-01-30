@@ -29,15 +29,15 @@
 </script>
 
 <div class="space-y-4">
-	<div class="rounded-md bg-green-50 p-3">
-		<p class="text-sm text-green-800">
+	<div class="rounded-md bg-[var(--color-success)]/10 p-3">
+		<p class="text-sm text-[var(--color-success)]">
 			<strong>Wye Branch:</strong> Angled fitting (typically 45°) for smoother flow transitions.
 			Lower head loss than standard tee.
 		</p>
 	</div>
 
 	<!-- Visual diagram -->
-	<div class="rounded-md border border-gray-200 bg-gray-50 p-4">
+	<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-4">
 		<div class="flex items-center justify-center">
 			<svg viewBox="0 0 120 80" class="h-16 w-24">
 				<!-- Run line (horizontal) -->
@@ -45,15 +45,15 @@
 				<!-- Branch line (angled up at 45°) -->
 				<line x1="60" y1="50" x2="85" y2="15" stroke="currentColor" stroke-width="4" />
 				<!-- Port labels -->
-				<text x="15" y="65" class="fill-gray-600 text-[8px]">Run In</text>
-				<text x="85" y="65" class="fill-gray-600 text-[8px]">Run Out</text>
-				<text x="75" y="20" class="fill-gray-600 text-[8px]">Branch</text>
+				<text x="15" y="65" class="fill-current text-[8px] opacity-60">Run In</text>
+				<text x="85" y="65" class="fill-current text-[8px] opacity-60">Run Out</text>
+				<text x="75" y="20" class="fill-current text-[8px] opacity-60">Branch</text>
 				<!-- Angle indicator -->
-				<path d="M 60,50 L 70,50 A 10,10 0 0,0 67,40" fill="none" stroke="gray" stroke-width="1" />
-				<text x="68" y="48" class="fill-gray-500 text-[6px]">45°</text>
+				<path d="M 60,50 L 70,50 A 10,10 0 0,0 67,40" fill="none" stroke="currentColor" stroke-width="1" class="opacity-50" />
+				<text x="68" y="48" class="fill-current text-[6px] opacity-50">45°</text>
 			</svg>
 		</div>
-		<p class="mt-2 text-center text-xs text-gray-500">Lower pressure drop than 90° tee</p>
+		<p class="mt-2 text-center text-xs text-[var(--color-text-muted)]">Lower pressure drop than 90° tee</p>
 	</div>
 
 	<NumberInput
@@ -76,9 +76,9 @@
 		onchange={(value) => onUpdate('branch_angle', value)}
 	/>
 
-	<div class="border-t border-gray-200 pt-4">
-		<span class="block text-sm font-medium text-gray-700">Port Sizes</span>
-		<p class="mt-1 text-xs text-gray-500">Configure the nominal pipe size for each connection</p>
+	<div class="border-t border-[var(--color-border)] pt-4">
+		<span class="block text-sm font-medium text-[var(--color-text)]">Port Sizes</span>
+		<p class="mt-1 text-xs text-[var(--color-text-muted)]">Configure the nominal pipe size for each connection</p>
 	</div>
 
 	<NumberInput
@@ -101,8 +101,8 @@
 	/>
 
 	{#if branch && runInlet && branch.nominal_size > runInlet.nominal_size}
-		<div class="rounded-md border border-amber-200 bg-amber-50 p-2">
-			<p class="text-xs text-amber-800">
+		<div class="rounded-md border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/10 p-2">
+			<p class="text-xs text-[var(--color-warning)]">
 				Branch size larger than run is unusual. Typically branch is same size or smaller.
 			</p>
 		</div>

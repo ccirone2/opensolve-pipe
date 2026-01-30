@@ -103,63 +103,63 @@
 </script>
 
 <div class="overflow-x-auto">
-	<table class="min-w-full divide-y divide-gray-200">
-		<thead class="bg-gray-50">
+	<table class="min-w-full divide-y divide-[var(--color-border)]">
+		<thead class="bg-[var(--color-surface-elevated)]">
 			<tr>
-				<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+				<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
 					Component
 				</th>
-				<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+				<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
 					Type
 				</th>
-				<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+				<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
 					Port
 				</th>
-				<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+				<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
 					Pressure (psi)
 				</th>
-				<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+				<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
 					HGL (ft)
 				</th>
-				<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+				<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
 					EGL (ft)
 				</th>
 			</tr>
 		</thead>
-		<tbody class="divide-y divide-gray-200 bg-white">
+		<tbody class="divide-y divide-[var(--color-border)] bg-[var(--color-surface)]">
 			{#each portData as row}
-				<tr class="hover:bg-gray-50">
+				<tr class="hover:bg-[var(--color-surface-elevated)]">
 					{#if row.isFirstPort}
 						<td
-							class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900"
+							class="whitespace-nowrap px-4 py-3 text-sm font-medium text-[var(--color-text)]"
 							rowspan={row.portCount}
 						>
 							{row.componentName}
 						</td>
 						<td
-							class="whitespace-nowrap px-4 py-3 text-sm text-gray-500"
+							class="whitespace-nowrap px-4 py-3 text-sm text-[var(--color-text-muted)]"
 							rowspan={row.portCount}
 						>
 							{COMPONENT_TYPE_LABELS[row.componentType]}
 						</td>
 					{/if}
-					<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">
+					<td class="whitespace-nowrap px-4 py-3 text-sm text-[var(--color-text-muted)]">
 						{formatPortName(row.port)}
 					</td>
-					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
+					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-[var(--color-text)]">
 						{formatNumber(row.result?.pressure)}
 					</td>
-					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
+					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-[var(--color-text)]">
 						{formatNumber(row.result?.hgl)}
 					</td>
-					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
+					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-[var(--color-text)]">
 						{formatNumber(row.result?.egl)}
 					</td>
 				</tr>
 			{/each}
 			{#if portData.length === 0}
 				<tr>
-					<td colspan="6" class="px-4 py-8 text-center text-sm text-gray-500">
+					<td colspan="6" class="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
 						No component results available
 					</td>
 				</tr>

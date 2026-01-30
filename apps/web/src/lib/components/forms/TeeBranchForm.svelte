@@ -29,15 +29,15 @@
 </script>
 
 <div class="space-y-4">
-	<div class="rounded-md bg-blue-50 p-3">
-		<p class="text-sm text-blue-800">
+	<div class="rounded-md bg-[var(--color-accent-muted)] p-3">
+		<p class="text-sm text-[var(--color-accent)]">
 			<strong>Tee Branch:</strong> 90° fitting for flow splitting or combining. Run ports are the main
 			flow path, branch port is perpendicular.
 		</p>
 	</div>
 
 	<!-- Visual diagram -->
-	<div class="rounded-md border border-gray-200 bg-gray-50 p-4">
+	<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-4">
 		<div class="flex items-center justify-center">
 			<svg viewBox="0 0 120 80" class="h-16 w-24">
 				<!-- Run line (horizontal) -->
@@ -45,16 +45,16 @@
 				<!-- Branch line (vertical up) -->
 				<line x1="60" y1="40" x2="60" y2="10" stroke="currentColor" stroke-width="4" />
 				<!-- Port labels -->
-				<text x="15" y="55" class="fill-gray-600 text-[8px]">Run In</text>
-				<text x="85" y="55" class="fill-gray-600 text-[8px]">Run Out</text>
-				<text x="65" y="20" class="fill-gray-600 text-[8px]">Branch</text>
+				<text x="15" y="55" class="fill-current text-[8px] opacity-60">Run In</text>
+				<text x="85" y="55" class="fill-current text-[8px] opacity-60">Run Out</text>
+				<text x="65" y="20" class="fill-current text-[8px] opacity-60">Branch</text>
 				<!-- Flow arrows -->
 				<polygon points="30,37 40,40 30,43" fill="currentColor" />
 				<polygon points="90,37 100,40 90,43" fill="currentColor" />
 				<polygon points="57,25 60,15 63,25" fill="currentColor" />
 			</svg>
 		</div>
-		<p class="mt-2 text-center text-xs text-gray-500">Flow direction shown for diverging flow</p>
+		<p class="mt-2 text-center text-xs text-[var(--color-text-muted)]">Flow direction shown for diverging flow</p>
 	</div>
 
 	<NumberInput
@@ -77,9 +77,9 @@
 		onchange={(value) => onUpdate('branch_angle', value)}
 	/>
 
-	<div class="border-t border-gray-200 pt-4">
-		<span class="block text-sm font-medium text-gray-700">Port Sizes</span>
-		<p class="mt-1 text-xs text-gray-500">Configure the nominal pipe size for each connection</p>
+	<div class="border-t border-[var(--color-border)] pt-4">
+		<span class="block text-sm font-medium text-[var(--color-text)]">Port Sizes</span>
+		<p class="mt-1 text-xs text-[var(--color-text-muted)]">Configure the nominal pipe size for each connection</p>
 	</div>
 
 	<NumberInput
@@ -102,8 +102,8 @@
 	/>
 
 	{#if branch && runInlet && branch.nominal_size > runInlet.nominal_size}
-		<div class="rounded-md border border-amber-200 bg-amber-50 p-2">
-			<p class="text-xs text-amber-800">
+		<div class="rounded-md border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/10 p-2">
+			<p class="text-xs text-[var(--color-warning)]">
 				Branch size larger than run is unusual. Typically branch is same size or smaller.
 			</p>
 		</div>

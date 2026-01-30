@@ -21,8 +21,8 @@
 </script>
 
 <div class="space-y-4">
-	<div class="rounded-md bg-gray-50 p-3">
-		<p class="text-sm text-gray-700">
+	<div class="rounded-md bg-[var(--color-surface-elevated)] p-3">
+		<p class="text-sm text-[var(--color-text)]">
 			<strong>Plug/Cap:</strong> Dead-end boundary condition. Flow is zero at this point.
 		</p>
 	</div>

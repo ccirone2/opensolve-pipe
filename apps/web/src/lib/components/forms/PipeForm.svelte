@@ -16,12 +16,12 @@
 <div class="space-y-4">
 	<div class="grid grid-cols-2 gap-3">
 		<div>
-			<label for="material" class="block text-sm font-medium text-gray-700">Material</label>
+			<label for="material" class="block text-sm font-medium text-[var(--color-text)]">Material</label>
 			<select
 				id="material"
 				value={pipe.material}
 				onchange={(e) => onUpdate('material', (e.target as HTMLSelectElement).value)}
-				class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+				class="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] shadow-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
 			>
 				{#each Object.entries(PIPE_MATERIAL_LABELS) as [value, label]}
 					<option {value}>{label}</option>
@@ -30,12 +30,12 @@
 		</div>
 
 		<div>
-			<label for="schedule" class="block text-sm font-medium text-gray-700">Schedule</label>
+			<label for="schedule" class="block text-sm font-medium text-[var(--color-text)]">Schedule</label>
 			<select
 				id="schedule"
 				value={pipe.schedule}
 				onchange={(e) => onUpdate('schedule', (e.target as HTMLSelectElement).value)}
-				class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+				class="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] shadow-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
 			>
 				{#each Object.entries(PIPE_SCHEDULE_LABELS) as [value, label]}
 					<option {value}>{label}</option>

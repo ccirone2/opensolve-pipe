@@ -53,43 +53,43 @@
 </script>
 
 <div class="overflow-x-auto">
-	<table class="min-w-full divide-y divide-gray-200">
-		<thead class="bg-gray-50">
+	<table class="min-w-full divide-y divide-[var(--color-border)]">
+		<thead class="bg-[var(--color-surface-elevated)]">
 			<tr>
-				<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+				<th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
 					Piping
 				</th>
-				<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+				<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
 					Flow (GPM)
 				</th>
-				<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+				<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
 					Velocity (ft/s)
 				</th>
-				<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+				<th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
 					Head Loss (ft)
 				</th>
 			</tr>
 		</thead>
-		<tbody class="divide-y divide-gray-200 bg-white">
+		<tbody class="divide-y divide-[var(--color-border)] bg-[var(--color-surface)]">
 			{#each pipingData as piping}
-				<tr class="hover:bg-gray-50">
-					<td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">
+				<tr class="hover:bg-[var(--color-surface-elevated)]">
+					<td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-[var(--color-text)]">
 						{piping.name}
 					</td>
-					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
+					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-[var(--color-text)]">
 						{formatNumber(piping.result?.flow)}
 					</td>
-					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
+					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-[var(--color-text)]">
 						{formatNumber(piping.result?.velocity)}
 					</td>
-					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-900">
+					<td class="whitespace-nowrap px-4 py-3 text-right text-sm text-[var(--color-text)]">
 						{formatNumber(piping.result?.head_loss)}
 					</td>
 				</tr>
 			{/each}
 			{#if pipingData.length === 0}
 				<tr>
-					<td colspan="4" class="px-4 py-8 text-center text-sm text-gray-500">
+					<td colspan="4" class="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
 						No piping results available
 					</td>
 				</tr>

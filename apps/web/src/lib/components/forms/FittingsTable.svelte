@@ -39,12 +39,12 @@
 
 <div class="space-y-3">
 	<div class="flex items-center justify-between">
-		<h4 class="text-sm font-medium text-gray-900">Fittings</h4>
+		<h4 class="text-sm font-medium text-[var(--color-text)]">Fittings</h4>
 		<div class="relative">
 			<button
 				type="button"
 				onclick={() => (showSelector = !showSelector)}
-				class="inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700"
+				class="inline-flex items-center gap-1 text-sm font-medium text-[var(--color-accent)] hover:opacity-80"
 			>
 				<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -60,18 +60,18 @@
 					onclick={() => (showSelector = false)}
 					aria-label="Close menu"
 				></button>
-				<div class="absolute right-0 z-50 mt-2 w-64 rounded-lg border border-gray-200 bg-white shadow-lg">
+				<div class="absolute right-0 z-50 mt-2 w-64 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg">
 					<div class="max-h-64 overflow-y-auto p-2">
 						{#each Object.entries(FITTING_CATEGORIES) as [category, types]}
 							<div class="py-1">
-								<p class="px-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+								<p class="px-2 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
 									{category}
 								</p>
 								{#each types as type}
 									<button
 										type="button"
 										onclick={() => addFitting(type)}
-										class="block w-full px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100 rounded"
+										class="block w-full px-2 py-1.5 text-left text-sm text-[var(--color-text)] hover:bg-[var(--color-surface-elevated)] rounded"
 									>
 										{FITTING_TYPE_LABELS[type]}
 									</button>
@@ -85,29 +85,29 @@
 	</div>
 
 	{#if fittings.length === 0}
-		<p class="text-sm text-gray-500 italic">No fittings added</p>
+		<p class="text-sm text-[var(--color-text-muted)] italic">No fittings added</p>
 	{:else}
-		<div class="overflow-hidden rounded-md border border-gray-200">
-			<table class="min-w-full divide-y divide-gray-200">
-				<thead class="bg-gray-50">
+		<div class="overflow-hidden rounded-md border border-[var(--color-border)]">
+			<table class="min-w-full divide-y divide-[var(--color-border)]">
+				<thead class="bg-[var(--color-surface-elevated)]">
 					<tr>
-						<th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+						<th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
 							Type
 						</th>
-						<th class="w-20 px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+						<th class="w-20 px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
 							Qty
 						</th>
-						<th class="w-24 px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+						<th class="w-24 px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
 							K-Factor
 						</th>
 						<th class="w-20 px-3 py-2"></th>
 					</tr>
 				</thead>
-				<tbody class="divide-y divide-gray-200 bg-white">
+				<tbody class="divide-y divide-[var(--color-border)] bg-[var(--color-surface)]">
 					{#each fittings as fitting, index}
 						<tr>
 							<td class="px-3 py-2">
-								<span class="text-sm text-gray-900">{FITTING_TYPE_LABELS[fitting.type]}</span>
+								<span class="text-sm text-[var(--color-text)]">{FITTING_TYPE_LABELS[fitting.type]}</span>
 							</td>
 							<td class="px-3 py-2">
 								<input
@@ -117,7 +117,7 @@
 									max={99}
 									onchange={(e) => updateFitting(index, 'quantity', parseInt((e.target as HTMLInputElement).value) || 1)}
 									aria-label="Quantity for {FITTING_TYPE_LABELS[fitting.type]}"
-									class="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+									class="w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
 								/>
 							</td>
 							<td class="px-3 py-2">
@@ -132,7 +132,7 @@
 										updateFitting(index, 'k_factor_override', val ? parseFloat(val) : undefined);
 									}}
 									aria-label="K-factor for {FITTING_TYPE_LABELS[fitting.type]}"
-									class="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+									class="w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
 								/>
 							</td>
 							<td class="px-3 py-2">
@@ -140,7 +140,7 @@
 									<button
 										type="button"
 										onclick={() => duplicateFitting(index)}
-										class="text-gray-400 hover:text-gray-600"
+										class="text-[var(--color-text-subtle)] hover:text-[var(--color-text)]"
 										title="Duplicate"
 									>
 										<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -150,7 +150,7 @@
 									<button
 										type="button"
 										onclick={() => removeFitting(index)}
-										class="text-gray-400 hover:text-red-500"
+										class="text-[var(--color-text-subtle)] hover:text-[var(--color-error)]"
 										title="Remove"
 									>
 										<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -164,7 +164,7 @@
 				</tbody>
 			</table>
 		</div>
-		<p class="text-xs text-gray-500">
+		<p class="text-xs text-[var(--color-text-muted)]">
 			K-Factor: Leave blank to use standard values based on diameter
 		</p>
 	{/if}

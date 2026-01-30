@@ -5,6 +5,19 @@
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>OpenSolve Pipe</title>
+    <!-- Set theme before page renders to prevent flash of wrong theme -->
+    <script>
+      (function() {
+        const STORAGE_KEY = 'opensolve-pipe-theme';
+        const stored = localStorage.getItem(STORAGE_KEY);
+        let theme = stored;
+        if (theme !== 'light' && theme !== 'dark') {
+          // Default to light, but respect system dark preference
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.setAttribute('data-theme', theme);
+      })();
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

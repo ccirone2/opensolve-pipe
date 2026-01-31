@@ -14,7 +14,12 @@ from enum import Enum
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
-from ...models.components import ComponentType, PumpStatus
+from ...models.components import (
+    ComponentType,
+    PumpStatus,
+    ValveComponent,
+    ValveStatus,
+)
 from ...models.results import (
     ComponentResult,
     FlowRegime,
@@ -338,6 +343,40 @@ def solve_simple_path(
             )
         )
         return state, True, None  # Converged with zero flow
+
+    # Check for closed valves (ISOLATED or FAILED_CLOSED) - they block all flow
+    for comp_id, comp in graph.components.items():
+        if isinstance(comp, ValveComponent) and comp.status in (
+            ValveStatus.ISOLATED,
+            ValveStatus.FAILED_CLOSED,
+        ):
+            status_msg = (
+                "Valve is isolated - zero flow"
+                if comp.status == ValveStatus.ISOLATED
+                else "Valve failed closed - zero flow"
+            )
+            # Set zero flow for all connections
+            for conn in project.connections:
+                state.flows[conn.id] = 0.0
+                state.velocities[conn.id] = 0.0
+                state.reynolds[conn.id] = 0.0
+                state.friction_factors[conn.id] = 0.0
+                state.head_losses[conn.id] = 0.0
+            state._pump_data[pump_id] = {
+                "operating_flow": 0.0,
+                "operating_head": 0.0,
+                "npsh_available": 0.0,
+                "system_curve": [],
+            }
+            state.warnings.append(
+                Warning(
+                    category=WarningCategory.OPERATING_POINT,
+                    severity=WarningSeverity.WARNING,
+                    component_id=comp_id,
+                    message=status_msg,
+                )
+            )
+            return state, True, None  # Converged with zero flow
 
     pump_curve = project.get_pump_curve(pump_comp.curve_id)
     if pump_curve is None:

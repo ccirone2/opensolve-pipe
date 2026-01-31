@@ -33,6 +33,7 @@ from ...models.components import (
     Strainer,
     Tank,
     ValveComponent,
+    ValveStatus,
     ValveType,
 )
 from ...models.plug import Plug
@@ -320,36 +321,81 @@ def _add_component_to_wntr(
         ctx.node_map[comp.id] = inlet_name
         ctx.implicit_junctions[comp.id] = [inlet_name, outlet_name]
 
-        if comp.valve_type in (ValveType.PRV, ValveType.PSV, ValveType.FCV):
+        # Handle valve status: ISOLATED or FAILED_CLOSED = closed valve
+        if comp.status in (ValveStatus.ISOLATED, ValveStatus.FAILED_CLOSED):
+            # Model as closed valve - very high K-factor
+            pipe_name = ctx.next_pipe_name()
+            wn.add_pipe(
+                pipe_name,
+                inlet_name,
+                outlet_name,
+                length=0.01,
+                diameter=0.1,
+                roughness=0.0001,
+                minor_loss=1e6,  # Essentially closed
+            )
+            ctx.link_map[comp.id] = pipe_name
+
+        elif comp.valve_type in (ValveType.PRV, ValveType.PSV, ValveType.FCV):
             # Control valve - use WNTR valve
             valve_name = ctx.next_valve_name()
 
-            if comp.valve_type == ValveType.PRV:
-                valve_type = "PRV"
-                # Setting is downstream pressure in meters
-                setting = (comp.setpoint or 0.0) * PSI_TO_M
-            elif comp.valve_type == ValveType.PSV:
-                valve_type = "PSV"
-                setting = (comp.setpoint or 0.0) * PSI_TO_M
-            else:  # FCV
-                valve_type = "FCV"
-                # Setting is flow in m³/s
-                setting = (comp.setpoint or 0.0) * GPM_TO_M3S
+            # Handle FAILED_OPEN and LOCKED_OPEN for control valves
+            if comp.status == ValveStatus.FAILED_OPEN:
+                # Valve failed open - model as open pipe, no control action
+                pipe_name = ctx.next_pipe_name()
+                wn.add_pipe(
+                    pipe_name,
+                    inlet_name,
+                    outlet_name,
+                    length=0.01,
+                    diameter=0.1,
+                    roughness=0.0001,
+                    minor_loss=0.1,  # Minimal loss for open valve
+                )
+                ctx.link_map[comp.id] = pipe_name
+            elif comp.status == ValveStatus.LOCKED_OPEN:
+                # Valve locked at current position - no setpoint control
+                # Model as pipe with K-factor based on position
+                pipe_name = ctx.next_pipe_name()
+                k_factor = _get_valve_k_factor(comp)
+                wn.add_pipe(
+                    pipe_name,
+                    inlet_name,
+                    outlet_name,
+                    length=0.01,
+                    diameter=0.1,
+                    roughness=0.0001,
+                    minor_loss=k_factor,
+                )
+                ctx.link_map[comp.id] = pipe_name
+            else:  # ACTIVE status - normal control valve operation
+                if comp.valve_type == ValveType.PRV:
+                    valve_type = "PRV"
+                    # Setting is downstream pressure in meters
+                    setting = (comp.setpoint or 0.0) * PSI_TO_M
+                elif comp.valve_type == ValveType.PSV:
+                    valve_type = "PSV"
+                    setting = (comp.setpoint or 0.0) * PSI_TO_M
+                else:  # FCV
+                    valve_type = "FCV"
+                    # Setting is flow in m³/s
+                    setting = (comp.setpoint or 0.0) * GPM_TO_M3S
 
-            wn.add_valve(
-                valve_name,
-                inlet_name,
-                outlet_name,
-                diameter=0.1,  # 100mm default
-                valve_type=valve_type,
-                minor_loss=0.0,
-                setting=setting,
-            )
-            ctx.link_map[comp.id] = valve_name
+                wn.add_valve(
+                    valve_name,
+                    inlet_name,
+                    outlet_name,
+                    diameter=0.1,  # 100mm default
+                    valve_type=valve_type,
+                    minor_loss=0.0,
+                    setting=setting,
+                )
+                ctx.link_map[comp.id] = valve_name
         else:
             # Regular valve - model as short pipe with minor loss
             pipe_name = ctx.next_pipe_name()
-            # Get K-factor based on valve type and position
+            # Get K-factor based on valve type, position, and status
             k_factor = _get_valve_k_factor(comp)
             wn.add_pipe(
                 pipe_name,
@@ -656,7 +702,24 @@ def _get_wntr_node_for_port(
 
 
 def _get_valve_k_factor(valve: ValveComponent) -> float:
-    """Get K-factor for a valve based on type and position."""
+    """Get K-factor for a valve based on type, position, and status."""
+    # Handle status first
+    if valve.status in (ValveStatus.ISOLATED, ValveStatus.FAILED_CLOSED):
+        return 1e6  # Essentially closed
+
+    if valve.status == ValveStatus.FAILED_OPEN:
+        # Return minimum K for fully open valve
+        base_k = {
+            ValveType.GATE: 0.2,
+            ValveType.BALL: 0.05,
+            ValveType.BUTTERFLY: 0.3,
+            ValveType.GLOBE: 4.0,
+            ValveType.CHECK: 2.0,
+            ValveType.STOP_CHECK: 3.0,
+        }
+        return base_k.get(valve.valve_type, 1.0)
+
+    # ACTIVE or LOCKED_OPEN: use position-based K-factor
     # Base K-factors for fully open valves (Crane TP-410)
     base_k = {
         ValveType.GATE: 0.2,

@@ -27,6 +27,7 @@ from ...models.components import (
     Junction,
     Orifice,
     PumpComponent,
+    PumpStatus,
     Reservoir,
     Sprinkler,
     Strainer,
@@ -259,6 +260,32 @@ def _add_component_to_wntr(
                 speed=comp.speed,
             )
             ctx.pump_map[comp.id] = pump_name
+
+            # Handle pump status
+            pump_link = wn.get_link(pump_name)
+            if comp.status == PumpStatus.RUNNING:
+                # Normal operation - pump is open
+                pump_link.initial_status = wntr.network.LinkStatus.Open
+            elif comp.status == PumpStatus.OFF_WITH_CHECK:
+                # Off with check valve - pump closed, no reverse flow
+                pump_link.initial_status = wntr.network.LinkStatus.Closed
+            elif comp.status == PumpStatus.OFF_NO_CHECK:
+                # Off without check - pump closed, add bypass for reverse flow
+                pump_link.initial_status = wntr.network.LinkStatus.Closed
+                # Add a low-resistance bypass pipe for potential reverse flow
+                bypass_name = ctx.next_pipe_name()
+                wn.add_pipe(
+                    bypass_name,
+                    suction_name,
+                    discharge_name,
+                    length=0.1,  # Very short pipe
+                    diameter=0.01,  # Small diameter (10mm) for low resistance
+                    roughness=0.0015,  # Smooth pipe
+                    minor_loss=0.5,  # Some minor loss
+                )
+            elif comp.status == PumpStatus.LOCKED_OUT:
+                # Locked out - pump closed, acts as closed valve
+                pump_link.initial_status = wntr.network.LinkStatus.Closed
         else:
             ctx.warnings.append(
                 Warning(

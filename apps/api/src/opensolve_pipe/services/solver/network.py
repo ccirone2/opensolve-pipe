@@ -14,7 +14,7 @@ from enum import Enum
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
-from ...models.components import ComponentType
+from ...models.components import ComponentType, PumpStatus
 from ...models.results import (
     ComponentResult,
     FlowRegime,
@@ -307,6 +307,37 @@ def solve_simple_path(
 
     if not isinstance(pump_comp, PumpComponent):
         return state, False, f"Component '{pump_id}' is not a pump"
+
+    # Check pump status - only RUNNING pumps operate normally
+    if pump_comp.status != PumpStatus.RUNNING:
+        status_messages = {
+            PumpStatus.OFF_WITH_CHECK: "Pump is off with check valve - zero flow",
+            PumpStatus.OFF_NO_CHECK: "Pump is off without check valve",
+            PumpStatus.LOCKED_OUT: "Pump is locked out (LOTO)",
+        }
+        msg = status_messages.get(pump_comp.status, f"Pump status: {pump_comp.status}")
+        # For non-running pumps, set zero flow and return
+        for conn in project.connections:
+            state.flows[conn.id] = 0.0
+            state.velocities[conn.id] = 0.0
+            state.reynolds[conn.id] = 0.0
+            state.friction_factors[conn.id] = 0.0
+            state.head_losses[conn.id] = 0.0
+        state._pump_data[pump_id] = {
+            "operating_flow": 0.0,
+            "operating_head": 0.0,
+            "npsh_available": 0.0,
+            "system_curve": [],
+        }
+        state.warnings.append(
+            Warning(
+                category=WarningCategory.OPERATING_POINT,
+                severity=WarningSeverity.WARNING,
+                component_id=pump_id,
+                message=msg,
+            )
+        )
+        return state, True, None  # Converged with zero flow
 
     pump_curve = project.get_pump_curve(pump_comp.curve_id)
     if pump_curve is None:

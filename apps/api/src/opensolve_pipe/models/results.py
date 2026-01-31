@@ -182,6 +182,7 @@ class WarningCategory(str, Enum):
     CONVERGENCE = "convergence"
     TOPOLOGY = "topology"
     DATA = "data"
+    OPERATING_POINT = "operating_point"
 
 
 class WarningSeverity(str, Enum):

@@ -290,6 +290,49 @@ The `BaseComponent` class provides a `get_port_elevation(port_id)` method that:
 
 ---
 
+## ADR-008: Protocol-Based Interfaces
+
+**Date:** 2026-01-31
+**Status:** Accepted
+**Context:** Issue #118 - Create protocols module structure
+
+### Decision
+
+Use `typing.Protocol` for defining structural contracts that components and services must satisfy. Protocols are organized in a dedicated `protocols/` module:
+
+```text
+protocols/
+├── __init__.py       # Re-exports all protocols
+├── solver.py         # NetworkSolver protocol
+├── components.py     # HasPorts, HeadSource, HeadLossCalculator protocols
+└── fluids.py         # FluidPropertyProvider protocol
+```
+
+### Rationale
+
+- **Avoid metaclass conflicts**: Pydantic models use `ModelMetaclass`, which conflicts with `ABCMeta`. Protocols use structural subtyping without metaclass requirements.
+- **Structural subtyping**: Classes satisfy protocols implicitly by implementing the required methods, no explicit inheritance needed.
+- **Static type safety**: mypy validates protocol conformance at type-check time.
+- **No runtime overhead**: Protocols are not `@runtime_checkable`, avoiding isinstance() overhead.
+- **Separation of concerns**: Interface contracts live separately from implementations.
+
+### Consequences
+
+**Positive:**
+
+- Clean separation between interface contracts and implementations
+- No isinstance() checks at runtime (use type annotations instead)
+- Existing Pydantic models can satisfy protocols without modification
+- mypy catches protocol violations during development
+
+**Negative:**
+
+- Cannot use isinstance() to check protocol conformance at runtime
+- Developers must understand structural subtyping concept
+- Protocol method signatures must be kept in sync with implementations
+
+---
+
 ## Template for Future ADRs
 
 ```markdown

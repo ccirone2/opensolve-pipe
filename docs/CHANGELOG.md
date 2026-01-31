@@ -67,6 +67,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Validation for controlled modes requiring setpoints
   - VFD (Variable Frequency Drive) support for pressure/flow control modes
 
+- **Protocol Interfaces Module** (PR #118)
+  - `protocols/` module for type-safe structural contracts
+  - `NetworkSolver` protocol for solver strategies
+  - `HasPorts`, `HeadSource`, `HeadLossCalculator` protocols for component interfaces
+  - `FluidPropertyProvider` protocol for fluid property services
+  - ADR-008: Protocol-based interfaces decision
+
 - **Valve Status States** (PR #115)
   - `ValveStatus` enum: active, isolated, failed_open, failed_closed, locked_open
   - Updated `ValveComponent` with status field for operational state tracking

@@ -1,34 +1,32 @@
 # OpenSolve Pipe - Development Plan
 
-**Status:** Phase 1 Complete (MVP Functional - Full Network Solver Pending)
+**Status:** ✅ Phase 1 Complete | Phase 2 In Planning
 **Last Updated:** 2026-01-31
 
-> **Progress Summary:** Phase 1 MVP is **97% complete**. All features implemented including pump/valve operating modes. Only full network solver remains.
+> **Progress Summary:** Phase 1 MVP is **100% complete**. All core features implemented. Advanced pump/valve features moved to Phase 2.
 >
-> ✅ **Completed:**
+> ✅ **Phase 1 Complete:**
 >
-> - [x] Project Setup ([#1](https://github.com/ccirone2/opensolve-pipe/issues/1), [PR #2](https://github.com/ccirone2/opensolve-pipe/pull/2))
-> - [x] Pydantic Data Models ([#5](https://github.com/ccirone2/opensolve-pipe/issues/5), [PR #6](https://github.com/ccirone2/opensolve-pipe/pull/6))
-> - [x] Data Libraries ([#7](https://github.com/ccirone2/opensolve-pipe/issues/7), [PR #8](https://github.com/ccirone2/opensolve-pipe/pull/8))
-> - [x] Fluid Properties Service ([#9](https://github.com/ccirone2/opensolve-pipe/issues/9), [PR #11](https://github.com/ccirone2/opensolve-pipe/pull/11))
-> - [x] Simple Solver ([#10](https://github.com/ccirone2/opensolve-pipe/issues/10), [PR #12](https://github.com/ccirone2/opensolve-pipe/pull/12))
-> - [x] Port-Based Architecture ([#58](https://github.com/ccirone2/opensolve-pipe/issues/58), [PR #64](https://github.com/ccirone2/opensolve-pipe/pull/64))
-> - [x] Reference Nodes & Plug ([#59](https://github.com/ccirone2/opensolve-pipe/issues/59), [PR #65](https://github.com/ccirone2/opensolve-pipe/pull/65))
-> - [x] Branch Components ([#60](https://github.com/ccirone2/opensolve-pipe/issues/60), [PR #66](https://github.com/ccirone2/opensolve-pipe/pull/66))
-> - [x] Frontend Port Connections ([#61](https://github.com/ccirone2/opensolve-pipe/issues/61), [PR #67](https://github.com/ccirone2/opensolve-pipe/pull/67))
-> - [x] Reference Node Forms ([#62](https://github.com/ccirone2/opensolve-pipe/issues/62), [PR #68](https://github.com/ccirone2/opensolve-pipe/pull/68))
-> - [x] Branch Component Forms ([#63](https://github.com/ccirone2/opensolve-pipe/issues/63), [PR #69](https://github.com/ccirone2/opensolve-pipe/pull/69))
-> - [x] Frontend State Management, URL Encoding, Panel Navigator, Component Forms, Results Display
+> - [x] All 25 core MVP issues complete (see [PHASE_1_ISSUES.md](./PHASE_1_ISSUES.md))
+> - [x] Simple Solver for single-path networks
+> - [x] Branching Solver for tree-structured networks (tee, wye, cross)
+> - [x] Port-based architecture with elevation inheritance (ADR-007)
+> - [x] Protocol-based interfaces (ADR-008)
+> - [x] Reference nodes (ideal and non-ideal)
+> - [x] Frontend: Panel Navigator, Forms, Results Display, URL Encoding
 > - [x] CI/CD Pipeline (GitHub Actions, Vercel, Railway)
-> - [x] 576+ backend tests, 86 frontend tests (>93% coverage)
-> - [x] Pump Operating Modes and Status ([#103](https://github.com/ccirone2/opensolve-pipe/issues/103), [PR #114](https://github.com/ccirone2/opensolve-pipe/pull/114))
-> - [x] Valve Status States ([#104](https://github.com/ccirone2/opensolve-pipe/issues/104), [PR #115](https://github.com/ccirone2/opensolve-pipe/pull/115))
-> - [x] Enhanced Solver Result Fields ([#105](https://github.com/ccirone2/opensolve-pipe/issues/105), [PR #116](https://github.com/ccirone2/opensolve-pipe/pull/116))
-> - [x] TypeScript Models Sync ([#106](https://github.com/ccirone2/opensolve-pipe/issues/106), [PR #117](https://github.com/ccirone2/opensolve-pipe/pull/117))
+> - [x] 576+ backend tests, 119 frontend tests (>93% coverage)
+> - [x] Pump/valve operating mode and status models
+> - [x] Pump curve improvements (quadratic fit, BEP calculation)
+> - [x] Dark mode support
 >
-> 🚧 **Remaining:**
+> 📋 **Phase 2 Planned:** (see [PHASE_2_ISSUES.md](./PHASE_2_ISSUES.md))
 >
-> - [ ] Full Network Solver ([#71](https://github.com/ccirone2/opensolve-pipe/issues/71)) - Currently only simple solver works
+> - [ ] Looped Network Solver (WNTR/EPANET integration)
+> - [ ] Schematic Viewer (auto-generated visual diagram)
+> - [ ] VFD pump control modes (controlled_pressure, controlled_flow)
+> - [ ] Pump/valve status handling in solver
+> - [ ] Enhanced UI controls for pump/valve modes
 
 ---
 
@@ -316,13 +314,13 @@ TypeScript Sync:
 
 ### 1.8 Backend - API Endpoints (High Priority)
 
-> ⚠️ **PARTIAL** - Full solver endpoint pending ([Issue #71](https://github.com/ccirone2/opensolve-pipe/issues/71))
+> ✅ **COMPLETED** - Full solver endpoint implemented ([Issue #71](https://github.com/ccirone2/opensolve-pipe/issues/71), [PR #73](https://github.com/ccirone2/opensolve-pipe/pull/73))
 
 **Files:** `apps/api/src/opensolve_pipe/routers/`
 
 **Tasks:**
 
-- [ ] Implement `/api/v1/solve` endpoint - **Returns placeholder** ([Issue #71](https://github.com/ccirone2/opensolve-pipe/issues/71))
+- [x] Implement `/api/v1/solve` endpoint (uses SolverRegistry to select solver)
 - [x] Implement `/api/v1/solve/simple` endpoint (pump-pipe systems)
 - [x] Implement `/api/v1/fluids` endpoint
 - [x] Implement `/api/v1/fluids/{fluid_id}/properties` endpoint

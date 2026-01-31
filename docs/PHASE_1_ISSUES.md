@@ -34,11 +34,46 @@ This document contains all GitHub issues for Phase 1 (MVP) of OpenSolve Pipe.
 | 24 | Frontend - Reference Node Form | [#62](https://github.com/ccirone2/opensolve-pipe/issues/62) | [PR #68](https://github.com/ccirone2/opensolve-pipe/pull/68) | ✅ **COMPLETE** |
 | 25 | Frontend - Branch Component Forms | [#63](https://github.com/ccirone2/opensolve-pipe/issues/63) | [PR #69](https://github.com/ccirone2/opensolve-pipe/pull/69) | ✅ **COMPLETE** |
 
-**Progress:** 25 of 25 issues completed (100%)
+**Progress:** 25 of 25 issues completed (100%) ✅
 
 **Backend Progress:** 10 of 10 backend issues completed (100%)
 
 **Frontend Progress:** 15 of 15 frontend issues completed (100%)
+
+---
+
+## Bonus Features Completed (Beyond Original Scope)
+
+These features were implemented during Phase 1 but were beyond the original MVP scope:
+
+| Feature | Issues/PRs | Status |
+|---------|------------|--------|
+| Protocol-based interfaces (ADR-008) | [#118](https://github.com/ccirone2/opensolve-pipe/issues/118), [#119](https://github.com/ccirone2/opensolve-pipe/issues/119), [#121](https://github.com/ccirone2/opensolve-pipe/issues/121), [#124](https://github.com/ccirone2/opensolve-pipe/issues/124) | ✅ Complete |
+| Port-level elevation support (ADR-007) | [#89](https://github.com/ccirone2/opensolve-pipe/issues/89), [PR #90](https://github.com/ccirone2/opensolve-pipe/pull/90) | ✅ Complete |
+| Pump operating modes (models only) | [#103](https://github.com/ccirone2/opensolve-pipe/issues/103), [PR #114](https://github.com/ccirone2/opensolve-pipe/pull/114) | ✅ Complete |
+| Valve status states (models only) | [#104](https://github.com/ccirone2/opensolve-pipe/issues/104), [PR #115](https://github.com/ccirone2/opensolve-pipe/pull/115) | ✅ Complete |
+| Enhanced result fields | [#105](https://github.com/ccirone2/opensolve-pipe/issues/105), [PR #116](https://github.com/ccirone2/opensolve-pipe/pull/116) | ✅ Complete |
+| TypeScript model sync | [#106](https://github.com/ccirone2/opensolve-pipe/issues/106), [PR #117](https://github.com/ccirone2/opensolve-pipe/pull/117) | ✅ Complete |
+| Pump curve chart improvements | [#126](https://github.com/ccirone2/opensolve-pipe/issues/126), [PR #127](https://github.com/ccirone2/opensolve-pipe/pull/127) | ✅ Complete |
+| Theme toggle and dark mode | [PR #97](https://github.com/ccirone2/opensolve-pipe/pull/97), [PR #100](https://github.com/ccirone2/opensolve-pipe/pull/100), [PR #101](https://github.com/ccirone2/opensolve-pipe/pull/101) | ✅ Complete |
+
+---
+
+## Issues Moved to Phase 2
+
+The following issues were created during Phase 1 but moved to Phase 2 as they represent advanced features:
+
+| Issue | Title | Reason |
+|-------|-------|--------|
+| [#107](https://github.com/ccirone2/opensolve-pipe/issues/107) | Implement pump status handling in solver | VFD/status logic is advanced feature |
+| [#108](https://github.com/ccirone2/opensolve-pipe/issues/108) | Implement valve status handling in solver | Valve failure modes are advanced |
+| [#109](https://github.com/ccirone2/opensolve-pipe/issues/109) | Implement VFD pump control modes | Variable speed drives are advanced |
+| [#110](https://github.com/ccirone2/opensolve-pipe/issues/110) | Implement pump viscosity correction | ANSI/HI 9.6.7 is specialized |
+| [#111](https://github.com/ccirone2/opensolve-pipe/issues/111) | Add pump operating mode UI controls | Depends on solver implementation |
+| [#112](https://github.com/ccirone2/opensolve-pipe/issues/112) | Add valve status UI controls | Depends on solver implementation |
+| [#113](https://github.com/ccirone2/opensolve-pipe/issues/113) | Update results display for enhanced outputs | Depends on solver implementation |
+
+See [PHASE_2_ISSUES.md](./PHASE_2_ISSUES.md) for the complete Phase 2 plan.
 
 ---
 

@@ -63,6 +63,33 @@ class ValveType(str, Enum):
     RELIEF = "relief"
 
 
+class PumpOperatingMode(str, Enum):
+    """Operating modes for pumps.
+
+    Defines how the pump speed/operation is controlled.
+    See PRD Section 3.1.2.1 for details.
+    """
+
+    FIXED_SPEED = "fixed_speed"  # Operates at defined speed ratio
+    VARIABLE_SPEED = "variable_speed"  # VFD adjusts to maintain setpoint
+    CONTROLLED_PRESSURE = "controlled_pressure"  # VFD maintains discharge pressure
+    CONTROLLED_FLOW = "controlled_flow"  # VFD maintains flow rate
+    OFF = "off"  # Not running
+
+
+class PumpStatus(str, Enum):
+    """Status options for pumps.
+
+    Defines the current operational state of the pump.
+    See PRD Section 3.1.2.2 for details.
+    """
+
+    RUNNING = "running"  # Normal operation at defined speed
+    OFF_WITH_CHECK = "off_check"  # Zero flow, check valve prevents reverse
+    OFF_NO_CHECK = "off_no_check"  # Zero flow, reverse flow allowed
+    LOCKED_OUT = "locked_out"  # Treated as closed valve (LOTO)
+
+
 class Connection(OpenSolvePipeBaseModel):
     """Connection to a downstream component."""
 
@@ -271,7 +298,35 @@ class PumpComponent(BaseComponent):
     speed: PositiveFloat = Field(
         default=1.0, description="Fraction of rated speed (1.0 = 100%)"
     )
-    status: Literal["on", "off"] = Field(default="on", description="Pump status")
+    operating_mode: PumpOperatingMode = Field(
+        default=PumpOperatingMode.FIXED_SPEED,
+        description="Pump operating mode (see PRD Section 3.1.2.1)",
+    )
+    status: PumpStatus = Field(
+        default=PumpStatus.RUNNING,
+        description="Pump operational status (see PRD Section 3.1.2.2)",
+    )
+    control_setpoint: float | None = Field(
+        default=None,
+        description="Setpoint for controlled modes (pressure or flow depending on mode)",
+    )
+    viscosity_correction_enabled: bool = Field(
+        default=True,
+        description="Enable viscosity correction per ANSI/HI 9.6.7",
+    )
+
+    @model_validator(mode="after")
+    def validate_control_setpoint(self) -> "PumpComponent":
+        """Validate that controlled modes have a setpoint."""
+        controlled_modes = {
+            PumpOperatingMode.CONTROLLED_PRESSURE,
+            PumpOperatingMode.CONTROLLED_FLOW,
+        }
+        if self.operating_mode in controlled_modes and self.control_setpoint is None:
+            raise ValueError(
+                f"control_setpoint is required when operating_mode is {self.operating_mode.value}"
+            )
+        return self
 
     @model_validator(mode="after")
     def set_default_ports(self) -> "PumpComponent":

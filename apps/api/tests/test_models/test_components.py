@@ -10,6 +10,8 @@ from opensolve_pipe.models import (
     Junction,
     Orifice,
     PumpComponent,
+    PumpOperatingMode,
+    PumpStatus,
     Reservoir,
     Sprinkler,
     Strainer,
@@ -167,18 +169,52 @@ class TestPumpComponent:
         assert sample_pump.type == ComponentType.PUMP
         assert sample_pump.curve_id == "PC1"
         assert sample_pump.speed == 1.0
-        assert sample_pump.status == "on"
+        assert sample_pump.status == PumpStatus.RUNNING
 
-    def test_pump_off_status(self):
-        """Test pump with off status."""
+    def test_pump_default_operating_mode(self):
+        """Test pump defaults to FIXED_SPEED operating mode."""
+        pump = PumpComponent(
+            id="P1",
+            name="Test Pump",
+            elevation=20.0,
+            curve_id="PC1",
+        )
+        assert pump.operating_mode == PumpOperatingMode.FIXED_SPEED
+        assert pump.status == PumpStatus.RUNNING
+        assert pump.viscosity_correction_enabled is True
+
+    def test_pump_off_with_check_status(self):
+        """Test pump with OFF_WITH_CHECK status (check valve prevents reverse)."""
         pump = PumpComponent(
             id="P1",
             name="Standby Pump",
             elevation=20.0,
             curve_id="PC1",
-            status="off",
+            status=PumpStatus.OFF_WITH_CHECK,
         )
-        assert pump.status == "off"
+        assert pump.status == PumpStatus.OFF_WITH_CHECK
+
+    def test_pump_off_no_check_status(self):
+        """Test pump with OFF_NO_CHECK status (reverse flow allowed)."""
+        pump = PumpComponent(
+            id="P1",
+            name="Standby Pump",
+            elevation=20.0,
+            curve_id="PC1",
+            status=PumpStatus.OFF_NO_CHECK,
+        )
+        assert pump.status == PumpStatus.OFF_NO_CHECK
+
+    def test_pump_locked_out_status(self):
+        """Test pump with LOCKED_OUT status (LOTO)."""
+        pump = PumpComponent(
+            id="P1",
+            name="LOTO Pump",
+            elevation=20.0,
+            curve_id="PC1",
+            status=PumpStatus.LOCKED_OUT,
+        )
+        assert pump.status == PumpStatus.LOCKED_OUT
 
     def test_pump_variable_speed(self):
         """Test pump with variable speed."""
@@ -190,6 +226,94 @@ class TestPumpComponent:
             speed=0.8,  # 80% speed
         )
         assert pump.speed == 0.8
+
+    def test_pump_controlled_pressure_mode(self):
+        """Test pump with controlled pressure mode."""
+        pump = PumpComponent(
+            id="P1",
+            name="VFD Pump",
+            elevation=20.0,
+            curve_id="PC1",
+            operating_mode=PumpOperatingMode.CONTROLLED_PRESSURE,
+            control_setpoint=75.0,  # psi
+        )
+        assert pump.operating_mode == PumpOperatingMode.CONTROLLED_PRESSURE
+        assert pump.control_setpoint == 75.0
+
+    def test_pump_controlled_flow_mode(self):
+        """Test pump with controlled flow mode."""
+        pump = PumpComponent(
+            id="P1",
+            name="VFD Pump",
+            elevation=20.0,
+            curve_id="PC1",
+            operating_mode=PumpOperatingMode.CONTROLLED_FLOW,
+            control_setpoint=150.0,  # gpm
+        )
+        assert pump.operating_mode == PumpOperatingMode.CONTROLLED_FLOW
+        assert pump.control_setpoint == 150.0
+
+    def test_pump_controlled_mode_requires_setpoint(self):
+        """Test that controlled modes require a setpoint."""
+        with pytest.raises(ValidationError) as exc_info:
+            PumpComponent(
+                id="P1",
+                name="VFD Pump",
+                elevation=20.0,
+                curve_id="PC1",
+                operating_mode=PumpOperatingMode.CONTROLLED_PRESSURE,
+                # Missing control_setpoint
+            )
+        assert "control_setpoint is required" in str(exc_info.value)
+
+    def test_pump_off_mode(self):
+        """Test pump with OFF operating mode."""
+        pump = PumpComponent(
+            id="P1",
+            name="Off Pump",
+            elevation=20.0,
+            curve_id="PC1",
+            operating_mode=PumpOperatingMode.OFF,
+        )
+        assert pump.operating_mode == PumpOperatingMode.OFF
+
+    def test_pump_viscosity_correction_disabled(self):
+        """Test pump with viscosity correction disabled."""
+        pump = PumpComponent(
+            id="P1",
+            name="Test Pump",
+            elevation=20.0,
+            curve_id="PC1",
+            viscosity_correction_enabled=False,
+        )
+        assert pump.viscosity_correction_enabled is False
+
+    def test_pump_all_status_values(self):
+        """Test that all PumpStatus enum values are valid."""
+        for status in PumpStatus:
+            pump = PumpComponent(
+                id="P1",
+                name=f"Pump with {status.value}",
+                elevation=20.0,
+                curve_id="PC1",
+                status=status,
+            )
+            assert pump.status == status
+
+    def test_pump_all_operating_mode_values(self):
+        """Test that all PumpOperatingMode enum values are valid."""
+        for mode in PumpOperatingMode:
+            # Controlled modes need setpoint
+            setpoint = 100.0 if "controlled" in mode.value else None
+            pump = PumpComponent(
+                id="P1",
+                name=f"Pump with {mode.value}",
+                elevation=20.0,
+                curve_id="PC1",
+                operating_mode=mode,
+                control_setpoint=setpoint,
+            )
+            assert pump.operating_mode == mode
 
 
 class TestValveComponent:

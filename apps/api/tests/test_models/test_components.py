@@ -17,6 +17,7 @@ from opensolve_pipe.models import (
     Strainer,
     Tank,
     ValveComponent,
+    ValveStatus,
     ValveType,
 )
 
@@ -353,6 +354,75 @@ class TestValveComponent:
                 valve_type=ValveType.GATE,
                 position=1.5,  # Invalid: > 1
             )
+
+    def test_valve_default_status_active(self):
+        """Test that valve defaults to ACTIVE status."""
+        valve = ValveComponent(
+            id="V1",
+            name="Gate Valve",
+            elevation=30.0,
+            valve_type=ValveType.GATE,
+        )
+        assert valve.status == ValveStatus.ACTIVE
+
+    def test_valve_isolated_status(self):
+        """Test valve with ISOLATED status (zero flow, closed for isolation)."""
+        valve = ValveComponent(
+            id="V1",
+            name="Isolation Valve",
+            elevation=30.0,
+            valve_type=ValveType.GATE,
+            status=ValveStatus.ISOLATED,
+        )
+        assert valve.status == ValveStatus.ISOLATED
+
+    def test_valve_failed_open_status(self):
+        """Test valve with FAILED_OPEN status (full open, no control action)."""
+        valve = ValveComponent(
+            id="V1",
+            name="Failed PRV",
+            elevation=30.0,
+            valve_type=ValveType.PRV,
+            status=ValveStatus.FAILED_OPEN,
+            setpoint=50.0,  # Setpoint ignored when failed open
+        )
+        assert valve.status == ValveStatus.FAILED_OPEN
+
+    def test_valve_failed_closed_status(self):
+        """Test valve with FAILED_CLOSED status (zero flow)."""
+        valve = ValveComponent(
+            id="V1",
+            name="Failed Check Valve",
+            elevation=30.0,
+            valve_type=ValveType.CHECK,
+            status=ValveStatus.FAILED_CLOSED,
+        )
+        assert valve.status == ValveStatus.FAILED_CLOSED
+
+    def test_valve_locked_open_status(self):
+        """Test valve with LOCKED_OPEN status (fixed position, no control)."""
+        valve = ValveComponent(
+            id="V1",
+            name="Locked Valve",
+            elevation=30.0,
+            valve_type=ValveType.BUTTERFLY,
+            status=ValveStatus.LOCKED_OPEN,
+            position=0.75,  # Position at which valve is locked
+        )
+        assert valve.status == ValveStatus.LOCKED_OPEN
+        assert valve.position == 0.75
+
+    def test_valve_all_status_values(self):
+        """Test that all ValveStatus enum values are valid."""
+        for status in ValveStatus:
+            valve = ValveComponent(
+                id="V1",
+                name=f"Valve with {status.value}",
+                elevation=30.0,
+                valve_type=ValveType.GATE,
+                status=status,
+            )
+            assert valve.status == status
 
 
 class TestOtherComponents:

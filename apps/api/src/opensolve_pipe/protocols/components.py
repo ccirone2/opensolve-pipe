@@ -8,7 +8,10 @@ Defines structural contracts for component behaviors:
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from ..models.fluids import FluidProperties
 
 
 class HasPorts(Protocol):
@@ -46,12 +49,35 @@ class HeadSource(Protocol):
         ...
 
 
+@runtime_checkable
 class HeadLossCalculator(Protocol):
-    """Protocol for components that calculate head loss.
+    """Components that cause head loss in the hydraulic network.
 
-    Examples: Pipe segments, fittings, valves
+    Implementors must provide a method to calculate head loss given
+    flow conditions. The calculation method varies by component type:
 
-    Method signatures will be defined in Phase 2.
+    - Valves: Cv-based or K-factor based
+    - Heat Exchangers: Quadratic scaling from design conditions
+    - Strainers: K-factor or fixed pressure drop
+    - Orifices: Discharge coefficient calculation
+
+    All head loss values are returned in feet of fluid.
     """
 
-    ...
+    def calculate_head_loss(
+        self,
+        flow_gpm: float,
+        velocity_fps: float,
+        fluid_props: FluidProperties,
+    ) -> float:
+        """Calculate head loss for given flow conditions.
+
+        Args:
+            flow_gpm: Volumetric flow rate in gallons per minute
+            velocity_fps: Flow velocity in feet per second
+            fluid_props: Fluid properties (density, viscosity, etc.)
+
+        Returns:
+            Head loss in feet of fluid
+        """
+        ...

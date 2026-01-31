@@ -1,11 +1,13 @@
-"""K-factor resolution for pipe fittings.
+"""K-factor resolution for pipe fittings and valves.
 
 This module provides functions to resolve K-factors for pipe fittings
-using the Crane TP-410 method (L/D or fixed K values).
+using the Crane TP-410 method (L/D or fixed K values), as well as
+K-factors for valve components based on valve type and position.
 """
 
 from __future__ import annotations
 
+from ...models.components import ValveType
 from ...models.piping import Fitting, FittingType
 from ..data import get_fitting_k_factor, get_friction_factor_turbulent
 
@@ -145,12 +147,62 @@ def k_exit(quantity: int = 1) -> float:
 
 
 # =============================================================================
+# Valve K-Factor Lookups
+# =============================================================================
+
+
+def get_valve_k_factor(
+    valve_type: ValveType,
+    position: float | None = None,
+) -> float:
+    """Get K-factor for valve based on type and position.
+
+    Uses base K-factors from Crane TP-410 for fully open valves,
+    then adjusts for valve position using a simplified model.
+
+    Args:
+        valve_type: Type of valve
+        position: Valve position (0=closed, 1=open), None for full open
+
+    Returns:
+        K-factor for head loss calculation
+    """
+    # Base K-factors for fully open valves (from Crane TP-410)
+    base_k: dict[ValveType, float] = {
+        ValveType.GATE: 0.2,
+        ValveType.BALL: 0.05,
+        ValveType.BUTTERFLY: 0.3,
+        ValveType.GLOBE: 10.0,
+        ValveType.CHECK: 2.5,
+        ValveType.STOP_CHECK: 13.0,
+        ValveType.PRV: 5.0,
+        ValveType.PSV: 5.0,
+        ValveType.FCV: 3.0,
+        ValveType.TCV: 3.0,
+        ValveType.RELIEF: 2.0,
+    }
+
+    k = base_k.get(valve_type, 1.0)
+
+    # Adjust for position (simplified model)
+    if position is not None and position < 1.0:
+        # K increases as valve closes (simplified exponential model)
+        # At 50% open, K is roughly 4x the full-open value
+        if position <= 0:
+            return float("inf")  # Closed valve
+        k = k / (position**2)
+
+    return k
+
+
+# =============================================================================
 # Exports
 # =============================================================================
 
 __all__ = [
     "get_f_t",
     "get_fitting_k_by_type",
+    "get_valve_k_factor",
     "k_ball_valve",
     "k_check_valve_swing",
     "k_elbow_45",

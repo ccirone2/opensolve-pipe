@@ -25,7 +25,7 @@ from ...models.results import (
     WarningCategory,
     WarningSeverity,
 )
-from ...protocols import HeadSource
+from ...protocols import HeadLossCalculator, HeadSource
 from ..fluids import get_fluid_properties_with_units
 from .friction import calculate_pipe_head_loss_fps
 from .k_factors import resolve_fittings_total_k
@@ -238,6 +238,31 @@ def get_source_head(component: Component) -> float:
         return component.total_head
     # Fallback for components without total_head property
     return component.elevation
+
+
+def calculate_component_head_loss(
+    component: Component,
+    flow_gpm: float,
+    velocity_fps: float,
+    fluid_props: FluidProperties,
+) -> float:
+    """Calculate head loss for any component.
+
+    Uses the HeadLossCalculator protocol - any component with a
+    calculate_head_loss method will have its loss calculated.
+
+    Args:
+        component: Network component
+        flow_gpm: Flow rate in GPM
+        velocity_fps: Velocity in ft/s
+        fluid_props: Fluid properties
+
+    Returns:
+        Head loss in feet, or 0.0 if component doesn't cause loss
+    """
+    if isinstance(component, HeadLossCalculator):
+        return component.calculate_head_loss(flow_gpm, velocity_fps, fluid_props)
+    return 0.0
 
 
 def solve_simple_path(

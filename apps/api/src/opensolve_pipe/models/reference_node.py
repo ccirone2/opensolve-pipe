@@ -110,6 +110,16 @@ class IdealReferenceNode(BaseReferenceNode):
             self.ports = create_reference_node_port()
         return self
 
+    @property
+    def total_head(self) -> float:
+        """Total head in feet, converting pressure from psi.
+
+        Converts pressure (psi) to feet of water head using the standard
+        conversion factor of 0.433 psi/ft.
+        """
+        # pressure / 0.433 converts psi to feet of water
+        return self.elevation + self.pressure / 0.433
+
 
 class NonIdealReferenceNode(BaseReferenceNode):
     """Non-ideal reference node with pressure that varies with flow.
@@ -163,6 +173,19 @@ class NonIdealReferenceNode(BaseReferenceNode):
         if not self.ports:
             self.ports = create_reference_node_port()
         return self
+
+    @property
+    def total_head(self) -> float:
+        """Total head in feet at zero flow condition.
+
+        Uses the pressure-flow curve to find the pressure at the point
+        closest to zero flow, then converts to feet of water head.
+        """
+        if self.pressure_flow_curve:
+            # Find point closest to zero flow
+            min_flow_point = min(self.pressure_flow_curve, key=lambda p: abs(p.flow))
+            return self.elevation + min_flow_point.pressure / 0.433
+        return self.elevation
 
     def interpolate_pressure(self, flow: float) -> float:
         """Interpolate pressure from curve at given flow.

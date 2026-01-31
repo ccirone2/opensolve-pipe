@@ -160,12 +160,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed Pump Curve legend to show solid circle with line (matches graph)
   - Fixed System Curve legend to show line only without circle marker (matches graph)
   - Changed BEP marker from purple star to amber/orange cross-hair (+) for better visibility
-  - Added efficiency curve display with secondary Y-axis on right side
-  - Efficiency curve rendered as smooth quadratic best-fit line
+  - Pump curve rendered as smooth quadratic best-fit line with data points overlay
+  - Efficiency curve rendered as smooth quadratic best-fit line on secondary Y-axis
+  - BEP calculated from mathematical maximum of efficiency curve fit
+  - Added quadratic regression functions: `fitQuadratic()`, `evaluateQuadratic()`, `findQuadraticMaximum()`
+  - Added curve generators: `generatePumpBestFitCurve()`, `generateEfficiencyBestFitCurve()`
   - Added `interpolateEfficiency()` function for efficiency curve interpolation
-  - Added `fitQuadratic()` and `generateEfficiencyBestFitCurve()` for quadratic regression
   - Operating point tooltip now shows efficiency when efficiency curve is available
-  - Added 27 new unit tests for pump model functions
+  - Added 33 new unit tests for pump model functions
 
 ### Changed
 

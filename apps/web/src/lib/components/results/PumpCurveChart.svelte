@@ -2,7 +2,7 @@
 	import { Chart, registerables } from 'chart.js';
 	import type { ChartDataset, ScatterDataPoint } from 'chart.js';
 	import type { PumpCurve, PumpResult } from '$lib/models';
-	import { calculateBEP, interpolateEfficiency, generateEfficiencyBestFitCurve } from '$lib/models/pump';
+	import { calculateBEP, interpolateEfficiency, generateEfficiencyBestFitCurve, generatePumpBestFitCurve } from '$lib/models/pump';
 	import { isDarkMode } from '$lib/stores';
 
 	// Register Chart.js components
@@ -79,23 +79,54 @@
 				});
 			}
 
-			// Pump curve - combined line with points (single dataset)
+			// Pump curve - quadratic best-fit line with data points shown
 			// Legend: solid circle with line
-			datasets.push({
-				label: 'Pump Curve',
-				data: curve.points.map((p) => ({ x: p.flow, y: p.head })),
-				borderColor: 'rgb(59, 130, 246)',
-				backgroundColor: 'rgb(59, 130, 246)',
-				fill: false,
-				showLine: true,
-				tension: 0.4,
-				pointRadius: 5,
-				pointHoverRadius: 7,
-				borderWidth: 2,
-				order: 2,
-				// Legend shows circle (matching the solid blue circles on graph)
-				pointStyle: 'circle'
-			});
+			const pumpBestFit = generatePumpBestFitCurve(curve);
+			if (pumpBestFit) {
+				// Smooth best-fit curve (no points)
+				datasets.push({
+					label: 'Pump Curve',
+					data: pumpBestFit.map((p) => ({ x: p.flow, y: p.head })),
+					borderColor: 'rgb(59, 130, 246)',
+					backgroundColor: 'rgba(59, 130, 246, 0.1)',
+					fill: false,
+					showLine: true,
+					tension: 0,
+					pointRadius: 0,
+					pointHoverRadius: 0,
+					borderWidth: 2,
+					order: 2,
+					pointStyle: 'line'
+				});
+				// Data points overlay (for reference)
+				datasets.push({
+					label: 'Pump Data',
+					data: curve.points.map((p) => ({ x: p.flow, y: p.head })),
+					borderColor: 'rgb(59, 130, 246)',
+					backgroundColor: 'rgb(59, 130, 246)',
+					showLine: false,
+					pointRadius: 4,
+					pointHoverRadius: 6,
+					order: 1,
+					pointStyle: 'circle'
+				});
+			} else {
+				// Fallback: direct line through points (fewer than 3 points)
+				datasets.push({
+					label: 'Pump Curve',
+					data: curve.points.map((p) => ({ x: p.flow, y: p.head })),
+					borderColor: 'rgb(59, 130, 246)',
+					backgroundColor: 'rgb(59, 130, 246)',
+					fill: false,
+					showLine: true,
+					tension: 0.4,
+					pointRadius: 5,
+					pointHoverRadius: 7,
+					borderWidth: 2,
+					order: 2,
+					pointStyle: 'circle'
+				});
+			}
 
 			// Efficiency curve (if available) - quadratic best-fit on secondary Y-axis
 			if (hasEfficiencyCurve && curve.efficiency_curve) {
@@ -286,7 +317,8 @@
 							labels: {
 								usePointStyle: true,
 								padding: 16,
-								color: colors.textColor
+								color: colors.textColor,
+								filter: (item) => item.text !== 'Pump Data'
 							}
 						},
 						tooltip: {
@@ -295,12 +327,16 @@
 								const label = tooltipItem.dataset.label;
 								// Skip efficiency curve in main tooltip (it has different y-axis)
 								if (label === 'Efficiency') return false;
+								// Skip pump curve line (we show Pump Data points instead)
+								if (label === 'Pump Curve') return false;
 								return true;
 							},
 							callbacks: {
 								label(context) {
 									const point = context.raw as { x: number; y: number };
-									const label = context.dataset.label;
+									let label = context.dataset.label;
+									// Show "Pump Curve" for pump data points
+									if (label === 'Pump Data') label = 'Pump Curve';
 									if (label === 'BEP' && bep) {
 										return `BEP: ${point.x.toFixed(1)} GPM @ ${point.y.toFixed(1)} ft (${(bep.efficiency * 100).toFixed(1)}% eff.)`;
 									}

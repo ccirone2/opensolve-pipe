@@ -10,7 +10,9 @@ import {
 	interpolateEfficiency,
 	fitQuadratic,
 	evaluateQuadratic,
+	findQuadraticMaximum,
 	generateEfficiencyBestFitCurve,
+	generatePumpBestFitCurve,
 	calculateBEP
 } from '../pump';
 import type { PumpCurve } from '../pump';
@@ -232,6 +234,30 @@ describe('evaluateQuadratic', () => {
 	});
 });
 
+describe('findQuadraticMaximum', () => {
+	it('should return null for upward-opening parabola', () => {
+		const coeffs = { a: 1, b: 0, c: 0 }; // y = x^2
+		expect(findQuadraticMaximum(coeffs)).toBeNull();
+	});
+
+	it('should find maximum of downward-opening parabola', () => {
+		// y = -x^2 + 4x - 3 = -(x-2)^2 + 1, max at x=2, y=1
+		const coeffs = { a: -1, b: 4, c: -3 };
+		const max = findQuadraticMaximum(coeffs);
+		expect(max).not.toBeNull();
+		expect(max!.x).toBeCloseTo(2, 5);
+		expect(max!.y).toBeCloseTo(1, 5);
+	});
+
+	it('should find maximum of typical efficiency curve shape', () => {
+		// y = -0.00005x^2 + 0.01x + 0.2 (max around x=100)
+		const coeffs = { a: -0.00005, b: 0.01, c: 0.2 };
+		const max = findQuadraticMaximum(coeffs);
+		expect(max).not.toBeNull();
+		expect(max!.x).toBeCloseTo(100, 1);
+	});
+});
+
 describe('generateEfficiencyBestFitCurve', () => {
 	it('should return null for curves without efficiency data', () => {
 		const curve: PumpCurve = {
@@ -321,6 +347,45 @@ describe('generateEfficiencyBestFitCurve', () => {
 	});
 });
 
+describe('generatePumpBestFitCurve', () => {
+	it('should return null for fewer than 3 points', () => {
+		const curve: PumpCurve = {
+			id: 'test',
+			name: 'Test',
+			points: [
+				{ flow: 0, head: 100 },
+				{ flow: 100, head: 80 }
+			]
+		};
+		expect(generatePumpBestFitCurve(curve)).toBeNull();
+	});
+
+	it('should generate smooth curve from pump data', () => {
+		const curve: PumpCurve = {
+			id: 'test',
+			name: 'Test',
+			points: [
+				{ flow: 0, head: 100 },
+				{ flow: 50, head: 95 },
+				{ flow: 100, head: 85 },
+				{ flow: 150, head: 70 },
+				{ flow: 200, head: 50 }
+			]
+		};
+
+		const result = generatePumpBestFitCurve(curve, 10);
+		expect(result).not.toBeNull();
+		expect(result!.length).toBe(10);
+
+		// Check flow range
+		expect(result![0].flow).toBe(0);
+		expect(result![result!.length - 1].flow).toBe(200);
+
+		// Pump curve should be decreasing (typical shape)
+		expect(result![0].head).toBeGreaterThan(result![result!.length - 1].head);
+	});
+});
+
 describe('calculateBEP', () => {
 	it('should return null for curves without efficiency data', () => {
 		const curve: PumpCurve = {
@@ -334,30 +399,56 @@ describe('calculateBEP', () => {
 		expect(calculateBEP(curve)).toBeNull();
 	});
 
-	it('should find BEP at maximum efficiency point', () => {
+	it('should find BEP using quadratic fit maximum', () => {
+		// Symmetric efficiency curve with clear peak at flow=100
 		const curve: PumpCurve = {
 			id: 'test',
 			name: 'Test',
 			points: [
-				{ flow: 0, head: 100 },
-				{ flow: 50, head: 90 },
-				{ flow: 100, head: 80 },
-				{ flow: 150, head: 65 },
+				{ flow: 0, head: 120 },
+				{ flow: 50, head: 110 },
+				{ flow: 100, head: 95 },
+				{ flow: 150, head: 75 },
 				{ flow: 200, head: 50 }
 			],
 			efficiency_curve: [
 				{ flow: 0, efficiency: 0 },
-				{ flow: 50, efficiency: 0.6 },
-				{ flow: 100, efficiency: 0.8 },
-				{ flow: 150, efficiency: 0.75 },
-				{ flow: 200, efficiency: 0.6 }
+				{ flow: 50, efficiency: 0.55 },
+				{ flow: 100, efficiency: 0.80 },
+				{ flow: 150, efficiency: 0.55 },
+				{ flow: 200, efficiency: 0 }
 			]
 		};
 
 		const bep = calculateBEP(curve);
 		expect(bep).not.toBeNull();
+		// BEP should be at flow=100 (symmetric efficiency curve peaks there)
+		expect(bep!.flow).toBeCloseTo(100, 0);
+		// Efficiency at peak should be around 0.8
+		expect(bep!.efficiency).toBeCloseTo(0.8, 1);
+		// Head from pump curve fit at BEP flow
+		expect(bep!.head).toBeGreaterThan(70);
+		expect(bep!.head).toBeLessThan(110);
+	});
+
+	it('should fall back to raw data for fewer than 3 efficiency points', () => {
+		const curve: PumpCurve = {
+			id: 'test',
+			name: 'Test',
+			points: [
+				{ flow: 0, head: 100 },
+				{ flow: 100, head: 80 }
+			],
+			efficiency_curve: [
+				{ flow: 50, efficiency: 0.7 },
+				{ flow: 100, efficiency: 0.8 }
+			]
+		};
+
+		const bep = calculateBEP(curve);
+		expect(bep).not.toBeNull();
+		// Should use raw data maximum
 		expect(bep!.flow).toBe(100);
 		expect(bep!.efficiency).toBe(0.8);
-		expect(bep!.head).toBe(80);
 	});
 });

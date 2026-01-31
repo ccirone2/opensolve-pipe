@@ -60,7 +60,11 @@ export {
 	interpolateEfficiency,
 	fitQuadratic,
 	evaluateQuadratic,
+	findQuadraticMaximum,
 	generateEfficiencyBestFitCurve,
+	generatePumpBestFitCurve,
+	getPumpCurveCoefficients,
+	getEfficiencyCurveCoefficients,
 	calculateBEP
 } from './pump';
 

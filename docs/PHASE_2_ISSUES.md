@@ -21,18 +21,18 @@ This document contains all GitHub issues for Phase 2 of OpenSolve Pipe.
 | M6 | Add valve status UI controls | [#112](https://github.com/ccirone2/opensolve-pipe/issues/112) | - | 🔲 Open |
 | M7 | Update results display for enhanced outputs | [#113](https://github.com/ccirone2/opensolve-pipe/issues/113) | - | 🔲 Open |
 | | **Looped Network Solver** | | | |
-| 1 | Backend - WNTR/EPANET Integration | - | - | 🔲 Not Created |
-| 2 | Backend - Looped Network Solver Strategy | - | - | 🔲 Not Created |
-| 3 | Backend - Component Chain to EPANET Adapter | - | - | 🔲 Not Created |
-| 4 | Backend - Solver Router Enhancement | - | - | 🔲 Not Created |
+| 1 | Backend - WNTR/EPANET Integration | [#128](https://github.com/ccirone2/opensolve-pipe/issues/128) | - | 🔲 Open |
+| 2 | Backend - Looped Network Solver Strategy | [#129](https://github.com/ccirone2/opensolve-pipe/issues/129) | - | 🔲 Open |
+| 3 | Backend - Component Chain to EPANET Adapter | [#130](https://github.com/ccirone2/opensolve-pipe/issues/130) | - | 🔲 Open |
+| 4 | Backend - Solver Router Enhancement | [#131](https://github.com/ccirone2/opensolve-pipe/issues/131) | - | 🔲 Open |
 | | **Schematic Viewer** | | | |
-| 5 | Frontend - Schematic Viewer Component | - | - | 🔲 Not Created |
-| 6 | Frontend - Graph Layout Algorithm | - | - | 🔲 Not Created |
-| 7 | Frontend - Component Symbols | - | - | 🔲 Not Created |
-| 8 | Frontend - Schematic Interaction | - | - | 🔲 Not Created |
+| 5 | Frontend - Schematic Viewer Component | [#132](https://github.com/ccirone2/opensolve-pipe/issues/132) | - | 🔲 Open |
+| 6 | Frontend - Graph Layout Algorithm | [#133](https://github.com/ccirone2/opensolve-pipe/issues/133) | - | 🔲 Open |
+| 7 | Frontend - Component Symbols | [#134](https://github.com/ccirone2/opensolve-pipe/issues/134) | - | 🔲 Open |
+| 8 | Frontend - Schematic Interaction | [#135](https://github.com/ccirone2/opensolve-pipe/issues/135) | - | 🔲 Open |
 | | **Additional Features** | | | |
-| 9 | Frontend - Branching UI Support | - | - | 🔲 Not Created |
-| 10 | Testing - Complex Network Validation | - | - | 🔲 Not Created |
+| 9 | Frontend - Branching UI Support | [#136](https://github.com/ccirone2/opensolve-pipe/issues/136) | - | 🔲 Open |
+| 10 | Testing - Complex Network Validation | [#137](https://github.com/ccirone2/opensolve-pipe/issues/137) | - | 🔲 Open |
 
 **Progress:** 0 of 17 issues completed (0%)
 
@@ -220,6 +220,8 @@ Update results panel to display enhanced pump and valve result fields.
 
 ### Issue 1: Backend - WNTR/EPANET Integration
 
+> 🔲 **OPEN** - [GitHub Issue #128](https://github.com/ccirone2/opensolve-pipe/issues/128)
+
 **Labels:** `backend`, `solver`, `Phase 2`, `critical`
 
 **Description:**
@@ -249,6 +251,8 @@ Integrate WNTR (Water Network Tool for Resilience) library for solving looped ne
 
 ### Issue 2: Backend - Looped Network Solver Strategy
 
+> 🔲 **OPEN** - [GitHub Issue #129](https://github.com/ccirone2/opensolve-pipe/issues/129)
+
 **Labels:** `backend`, `solver`, `Phase 2`, `critical`
 
 **Description:**
@@ -272,6 +276,8 @@ Create a `LoopedSolver` strategy that uses EPANET for networks with closed loops
 ---
 
 ### Issue 3: Backend - Component Chain to EPANET Adapter
+
+> 🔲 **OPEN** - [GitHub Issue #130](https://github.com/ccirone2/opensolve-pipe/issues/130)
 
 **Labels:** `backend`, `solver`, `Phase 2`
 
@@ -302,6 +308,8 @@ Create adapter to convert our port-based component model to EPANET node-link for
 
 ### Issue 4: Backend - Solver Router Enhancement
 
+> 🔲 **OPEN** - [GitHub Issue #131](https://github.com/ccirone2/opensolve-pipe/issues/131)
+
 **Labels:** `backend`, `solver`, `Phase 2`
 
 **Description:**
@@ -327,6 +335,8 @@ Enhance solver router to automatically select between Simple, Branching, and Loo
 ## Schematic Viewer
 
 ### Issue 5: Frontend - Schematic Viewer Component
+
+> 🔲 **OPEN** - [GitHub Issue #132](https://github.com/ccirone2/opensolve-pipe/issues/132)
 
 **Labels:** `frontend`, `ui`, `Phase 2`, `critical`
 
@@ -354,6 +364,8 @@ Create the main schematic viewer component using SVG and D3.js.
 ---
 
 ### Issue 6: Frontend - Graph Layout Algorithm
+
+> 🔲 **OPEN** - [GitHub Issue #133](https://github.com/ccirone2/opensolve-pipe/issues/133)
 
 **Labels:** `frontend`, `visualization`, `Phase 2`, `critical`
 
@@ -386,6 +398,8 @@ Implement automatic graph layout for positioning components in schematic.
 ---
 
 ### Issue 7: Frontend - Component Symbols
+
+> 🔲 **OPEN** - [GitHub Issue #134](https://github.com/ccirone2/opensolve-pipe/issues/134)
 
 **Labels:** `frontend`, `visualization`, `Phase 2`
 
@@ -421,6 +435,8 @@ Create SVG symbols for all component types.
 
 ### Issue 8: Frontend - Schematic Interaction
 
+> 🔲 **OPEN** - [GitHub Issue #135](https://github.com/ccirone2/opensolve-pipe/issues/135)
+
 **Labels:** `frontend`, `ui`, `Phase 2`
 
 **Description:**
@@ -449,6 +465,8 @@ Add interactivity to schematic (click, hover, selection).
 
 ### Issue 9: Frontend - Branching UI Support
 
+> 🔲 **OPEN** - [GitHub Issue #136](https://github.com/ccirone2/opensolve-pipe/issues/136)
+
 **Labels:** `frontend`, `ui`, `Phase 2`
 
 **Description:**
@@ -471,6 +489,8 @@ Enhance panel navigator to support creating and managing branches.
 ---
 
 ### Issue 10: Testing - Complex Network Validation
+
+> 🔲 **OPEN** - [GitHub Issue #137](https://github.com/ccirone2/opensolve-pipe/issues/137)
 
 **Labels:** `testing`, `Phase 2`, `critical`
 

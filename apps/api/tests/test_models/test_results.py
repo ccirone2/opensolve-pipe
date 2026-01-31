@@ -292,21 +292,6 @@ class TestControlValveResult:
         assert result.status == ValveStatus.FAILED_OPEN
         assert result.setpoint_achieved is False
 
-    def test_control_valve_isolated(self):
-        """Test control valve with ISOLATED status."""
-        result = ControlValveResult(
-            component_id="V1",
-            status=ValveStatus.ISOLATED,
-            setpoint=None,
-            actual_value=0.0,
-            setpoint_achieved=False,
-            valve_position=0.0,
-            pressure_drop=0.0,
-            flow=0.0,
-        )
-        assert result.status == ValveStatus.ISOLATED
-        assert result.flow == 0.0
-
     def test_fcv_result(self):
         """Test FCV (flow control valve) result."""
         result = ControlValveResult(

@@ -204,36 +204,6 @@ class TestValveStatusActive:
                 assert piping_result.flow > 0
 
 
-class TestValveStatusIsolated:
-    """Tests for valve in ISOLATED status."""
-
-    def test_isolated_valve_solves(self) -> None:
-        """Isolated valve should solve successfully."""
-        project = create_valve_test_project(ValveStatus.ISOLATED)
-        result = solve_project(project)
-
-        assert result.converged is True
-
-    def test_isolated_valve_zero_flow(self) -> None:
-        """Isolated valve should have zero flow."""
-        project = create_valve_test_project(ValveStatus.ISOLATED)
-        result = solve_project(project)
-
-        if result.converged:
-            for piping_result in result.piping_results.values():
-                assert piping_result.flow == 0.0
-
-    def test_isolated_valve_has_warning(self) -> None:
-        """Isolated valve should produce warning."""
-        project = create_valve_test_project(ValveStatus.ISOLATED)
-        result = solve_project(project)
-
-        if result.converged:
-            valve_warnings = [w for w in result.warnings if w.component_id == "valve-1"]
-            assert len(valve_warnings) > 0
-            assert "isolated" in valve_warnings[0].message.lower()
-
-
 class TestValveStatusFailedOpen:
     """Tests for valve in FAILED_OPEN status."""
 
@@ -282,26 +252,6 @@ class TestValveStatusFailedClosed:
             valve_warnings = [w for w in result.warnings if w.component_id == "valve-1"]
             assert len(valve_warnings) > 0
             assert "failed" in valve_warnings[0].message.lower()
-
-
-class TestValveStatusLockedOpen:
-    """Tests for valve in LOCKED_OPEN status."""
-
-    def test_locked_open_valve_solves(self) -> None:
-        """Locked open valve should solve successfully."""
-        project = create_valve_test_project(ValveStatus.LOCKED_OPEN, valve_position=1.0)
-        result = solve_project(project)
-
-        assert result.converged is True
-
-    def test_locked_open_valve_has_flow(self) -> None:
-        """Locked open valve should allow flow based on position."""
-        project = create_valve_test_project(ValveStatus.LOCKED_OPEN, valve_position=1.0)
-        result = solve_project(project)
-
-        if result.converged:
-            for piping_result in result.piping_results.values():
-                assert piping_result.flow > 0
 
 
 class TestValveStatusWithPosition:

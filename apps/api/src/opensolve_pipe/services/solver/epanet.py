@@ -270,23 +270,6 @@ def _add_component_to_wntr(
             elif comp.status == PumpStatus.OFF_WITH_CHECK:
                 # Off with check valve - pump closed, no reverse flow
                 pump_link.initial_status = wntr.network.LinkStatus.Closed
-            elif comp.status == PumpStatus.OFF_NO_CHECK:
-                # Off without check - pump closed, add bypass for reverse flow
-                pump_link.initial_status = wntr.network.LinkStatus.Closed
-                # Add a low-resistance bypass pipe for potential reverse flow
-                bypass_name = ctx.next_pipe_name()
-                wn.add_pipe(
-                    bypass_name,
-                    suction_name,
-                    discharge_name,
-                    length=0.1,  # Very short pipe
-                    diameter=0.01,  # Small diameter (10mm) for low resistance
-                    roughness=0.0015,  # Smooth pipe
-                    minor_loss=0.5,  # Some minor loss
-                )
-            elif comp.status == PumpStatus.LOCKED_OUT:
-                # Locked out - pump closed, acts as closed valve
-                pump_link.initial_status = wntr.network.LinkStatus.Closed
         else:
             ctx.warnings.append(
                 Warning(
@@ -321,8 +304,8 @@ def _add_component_to_wntr(
         ctx.node_map[comp.id] = inlet_name
         ctx.implicit_junctions[comp.id] = [inlet_name, outlet_name]
 
-        # Handle valve status: ISOLATED or FAILED_CLOSED = closed valve
-        if comp.status in (ValveStatus.ISOLATED, ValveStatus.FAILED_CLOSED):
+        # Handle valve status: FAILED_CLOSED = closed valve
+        if comp.status == ValveStatus.FAILED_CLOSED:
             # Model as closed valve - very high K-factor
             pipe_name = ctx.next_pipe_name()
             wn.add_pipe(
@@ -340,7 +323,7 @@ def _add_component_to_wntr(
             # Control valve - use WNTR valve
             valve_name = ctx.next_valve_name()
 
-            # Handle FAILED_OPEN and LOCKED_OPEN for control valves
+            # Handle FAILED_OPEN for control valves
             if comp.status == ValveStatus.FAILED_OPEN:
                 # Valve failed open - model as open pipe, no control action
                 pipe_name = ctx.next_pipe_name()
@@ -352,21 +335,6 @@ def _add_component_to_wntr(
                     diameter=0.1,
                     roughness=0.0001,
                     minor_loss=0.1,  # Minimal loss for open valve
-                )
-                ctx.link_map[comp.id] = pipe_name
-            elif comp.status == ValveStatus.LOCKED_OPEN:
-                # Valve locked at current position - no setpoint control
-                # Model as pipe with K-factor based on position
-                pipe_name = ctx.next_pipe_name()
-                k_factor = _get_valve_k_factor(comp)
-                wn.add_pipe(
-                    pipe_name,
-                    inlet_name,
-                    outlet_name,
-                    length=0.01,
-                    diameter=0.1,
-                    roughness=0.0001,
-                    minor_loss=k_factor,
                 )
                 ctx.link_map[comp.id] = pipe_name
             else:  # ACTIVE status - normal control valve operation
@@ -704,7 +672,7 @@ def _get_wntr_node_for_port(
 def _get_valve_k_factor(valve: ValveComponent) -> float:
     """Get K-factor for a valve based on type, position, and status."""
     # Handle status first
-    if valve.status in (ValveStatus.ISOLATED, ValveStatus.FAILED_CLOSED):
+    if valve.status == ValveStatus.FAILED_CLOSED:
         return 1e6  # Essentially closed
 
     if valve.status == ValveStatus.FAILED_OPEN:
@@ -719,7 +687,7 @@ def _get_valve_k_factor(valve: ValveComponent) -> float:
         }
         return base_k.get(valve.valve_type, 1.0)
 
-    # ACTIVE or LOCKED_OPEN: use position-based K-factor
+    # ACTIVE: use position-based K-factor
     # Base K-factors for fully open valves (Crane TP-410)
     base_k = {
         ValveType.GATE: 0.2,

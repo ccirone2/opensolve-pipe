@@ -195,28 +195,6 @@ class TestPumpComponent:
         )
         assert pump.status == PumpStatus.OFF_WITH_CHECK
 
-    def test_pump_off_no_check_status(self):
-        """Test pump with OFF_NO_CHECK status (reverse flow allowed)."""
-        pump = PumpComponent(
-            id="P1",
-            name="Standby Pump",
-            elevation=20.0,
-            curve_id="PC1",
-            status=PumpStatus.OFF_NO_CHECK,
-        )
-        assert pump.status == PumpStatus.OFF_NO_CHECK
-
-    def test_pump_locked_out_status(self):
-        """Test pump with LOCKED_OUT status (LOTO)."""
-        pump = PumpComponent(
-            id="P1",
-            name="LOTO Pump",
-            elevation=20.0,
-            curve_id="PC1",
-            status=PumpStatus.LOCKED_OUT,
-        )
-        assert pump.status == PumpStatus.LOCKED_OUT
-
     def test_pump_variable_speed(self):
         """Test pump with variable speed."""
         pump = PumpComponent(
@@ -365,17 +343,6 @@ class TestValveComponent:
         )
         assert valve.status == ValveStatus.ACTIVE
 
-    def test_valve_isolated_status(self):
-        """Test valve with ISOLATED status (zero flow, closed for isolation)."""
-        valve = ValveComponent(
-            id="V1",
-            name="Isolation Valve",
-            elevation=30.0,
-            valve_type=ValveType.GATE,
-            status=ValveStatus.ISOLATED,
-        )
-        assert valve.status == ValveStatus.ISOLATED
-
     def test_valve_failed_open_status(self):
         """Test valve with FAILED_OPEN status (full open, no control action)."""
         valve = ValveComponent(
@@ -398,19 +365,6 @@ class TestValveComponent:
             status=ValveStatus.FAILED_CLOSED,
         )
         assert valve.status == ValveStatus.FAILED_CLOSED
-
-    def test_valve_locked_open_status(self):
-        """Test valve with LOCKED_OPEN status (fixed position, no control)."""
-        valve = ValveComponent(
-            id="V1",
-            name="Locked Valve",
-            elevation=30.0,
-            valve_type=ValveType.BUTTERFLY,
-            status=ValveStatus.LOCKED_OPEN,
-            position=0.75,  # Position at which valve is locked
-        )
-        assert valve.status == ValveStatus.LOCKED_OPEN
-        assert valve.position == 0.75
 
     def test_valve_all_status_values(self):
         """Test that all ValveStatus enum values are valid."""

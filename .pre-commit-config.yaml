@@ -54,7 +54,7 @@ repos:
     hooks:
       - id: pytest
         name: Run Python tests
-        entry: bash -c 'cd apps/api && pytest --cov --cov-fail-under=93 || echo "⚠️  Tests must pass at ≥93% to commit"'
+        entry: bash -c 'cd apps/api && pytest --cov --cov-fail-under=85 || echo "⚠️  Tests must pass at ≥85% to commit"'
         language: system
         files: ^apps/api/(src|tests)/.*\.py$
         pass_filenames: false

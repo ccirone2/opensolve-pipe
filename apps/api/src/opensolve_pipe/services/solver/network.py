@@ -319,12 +319,8 @@ def solve_simple_path(
 
     # Check pump status - only RUNNING pumps operate normally
     if pump_comp.status != PumpStatus.RUNNING:
-        status_messages = {
-            PumpStatus.OFF_WITH_CHECK: "Pump is off with check valve - zero flow",
-            PumpStatus.OFF_NO_CHECK: "Pump is off without check valve",
-            PumpStatus.LOCKED_OUT: "Pump is locked out (LOTO)",
-        }
-        msg = status_messages.get(pump_comp.status, f"Pump status: {pump_comp.status}")
+        # OFF_WITH_CHECK is the only non-running state
+        msg = "Pump is off with check valve - zero flow"
         # For non-running pumps, set zero flow and return
         for conn in project.connections:
             state.flows[conn.id] = 0.0
@@ -348,17 +344,13 @@ def solve_simple_path(
         )
         return state, True, None  # Converged with zero flow
 
-    # Check for closed valves (ISOLATED or FAILED_CLOSED) - they block all flow
+    # Check for closed valves (FAILED_CLOSED) - they block all flow
     for comp_id, comp in graph.components.items():
-        if isinstance(comp, ValveComponent) and comp.status in (
-            ValveStatus.ISOLATED,
-            ValveStatus.FAILED_CLOSED,
+        if (
+            isinstance(comp, ValveComponent)
+            and comp.status == ValveStatus.FAILED_CLOSED
         ):
-            status_msg = (
-                "Valve is isolated - zero flow"
-                if comp.status == ValveStatus.ISOLATED
-                else "Valve failed closed - zero flow"
-            )
+            status_msg = "Valve failed closed - zero flow"
             # Set zero flow for all connections
             for conn in project.connections:
                 state.flows[conn.id] = 0.0

@@ -38,6 +38,7 @@ from .friction import (
 from .k_factors import (
     get_f_t,
     get_fitting_k_by_type,
+    get_valve_k_factor,
     k_ball_valve,
     k_check_valve_swing,
     k_elbow_45,
@@ -114,6 +115,7 @@ __all__ = [
     "generate_system_curve",
     "get_f_t",
     "get_fitting_k_by_type",
+    "get_valve_k_factor",
     "k_ball_valve",
     "k_check_valve_swing",
     "k_elbow_45",

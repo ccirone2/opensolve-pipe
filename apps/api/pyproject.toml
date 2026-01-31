@@ -57,7 +57,7 @@ src = ["src"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "C4", "UP", "SIM", "TCH", "RUF"]
-ignore = ["E501", "B008"]
+ignore = ["E501", "B008", "TCH001"]  # TCH001: Pydantic models need runtime imports
 
 [tool.ruff.lint.isort]
 known-first-party = ["opensolve_pipe"]

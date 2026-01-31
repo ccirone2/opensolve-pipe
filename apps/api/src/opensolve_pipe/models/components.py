@@ -1,9 +1,15 @@
 """Component models for hydraulic network elements."""
 
+from __future__ import annotations
+
+import math
 from enum import Enum
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import Field, ValidationInfo, field_validator, model_validator
+
+if TYPE_CHECKING:
+    from .fluids import FluidProperties
 
 from .base import (
     Elevation,
@@ -195,7 +201,7 @@ class Reservoir(BaseComponent):
     )
 
     @model_validator(mode="after")
-    def set_default_ports(self) -> "Reservoir":
+    def set_default_ports(self) -> Reservoir:
         """Set default ports if not provided."""
         if not self.ports:
             self.ports = create_reservoir_ports()
@@ -256,7 +262,7 @@ class Tank(BaseComponent):
         return v
 
     @model_validator(mode="after")
-    def set_default_ports(self) -> "Tank":
+    def set_default_ports(self) -> Tank:
         """Set default ports if not provided."""
         if not self.ports:
             self.ports = create_tank_ports()
@@ -297,7 +303,7 @@ class Junction(BaseComponent):
     )
 
     @model_validator(mode="after")
-    def set_default_ports(self) -> "Junction":
+    def set_default_ports(self) -> Junction:
         """Set default ports if not provided."""
         if not self.ports:
             self.ports = create_junction_ports()
@@ -330,7 +336,7 @@ class PumpComponent(BaseComponent):
     )
 
     @model_validator(mode="after")
-    def validate_control_setpoint(self) -> "PumpComponent":
+    def validate_control_setpoint(self) -> PumpComponent:
         """Validate that controlled modes have a setpoint."""
         controlled_modes = {
             PumpOperatingMode.CONTROLLED_PRESSURE,
@@ -343,7 +349,7 @@ class PumpComponent(BaseComponent):
         return self
 
     @model_validator(mode="after")
-    def set_default_ports(self) -> "PumpComponent":
+    def set_default_ports(self) -> PumpComponent:
         """Set default ports if not provided."""
         if not self.ports:
             self.ports = create_pump_ports()
@@ -374,11 +380,46 @@ class ValveComponent(BaseComponent):
     )
 
     @model_validator(mode="after")
-    def set_default_ports(self) -> "ValveComponent":
+    def set_default_ports(self) -> ValveComponent:
         """Set default ports if not provided."""
         if not self.ports:
             self.ports = create_valve_ports()
         return self
+
+    def calculate_head_loss(
+        self,
+        flow_gpm: float,
+        velocity_fps: float,
+        fluid_props: FluidProperties,
+    ) -> float:
+        """Calculate valve head loss.
+
+        Uses Cv if available, otherwise falls back to K-factor
+        based on valve type and position.
+
+        Args:
+            flow_gpm: Flow rate in GPM
+            velocity_fps: Velocity in ft/s
+            fluid_props: Fluid properties
+
+        Returns:
+            Head loss in feet
+        """
+        if self.cv is not None:
+            # Cv-based calculation: Q = Cv * sqrt(dP / SG)
+            # Rearranged: dP = SG * (Q / Cv)^2
+            # Convert dP (psi) to head (ft): h = dP / (0.433 * SG)
+            sg = fluid_props.specific_gravity
+            dp_psi = sg * (flow_gpm / self.cv) ** 2
+            return dp_psi / (0.433 * sg)
+        else:
+            # K-factor based calculation
+            from ..services.solver.k_factors import get_valve_k_factor
+
+            k = get_valve_k_factor(self.valve_type, self.position)
+            g = 32.174  # ft/s²
+            velocity_head = velocity_fps**2 / (2 * g)
+            return k * velocity_head
 
 
 class HeatExchanger(BaseComponent):
@@ -393,11 +434,41 @@ class HeatExchanger(BaseComponent):
     )
 
     @model_validator(mode="after")
-    def set_default_ports(self) -> "HeatExchanger":
+    def set_default_ports(self) -> HeatExchanger:
         """Set default ports if not provided."""
         if not self.ports:
             self.ports = create_heat_exchanger_ports()
         return self
+
+    def calculate_head_loss(
+        self,
+        flow_gpm: float,
+        velocity_fps: float,
+        fluid_props: FluidProperties,
+    ) -> float:
+        """Calculate heat exchanger head loss.
+
+        Scales quadratically from design conditions:
+        h_loss = design_drop * (Q / Q_design)^2
+
+        Args:
+            flow_gpm: Flow rate in GPM
+            velocity_fps: Velocity in ft/s (not used)
+            fluid_props: Fluid properties
+
+        Returns:
+            Head loss in feet
+        """
+        if flow_gpm <= 0:
+            return 0.0
+
+        # pressure_drop is in project units (psi), convert to feet
+        sg = fluid_props.specific_gravity
+        design_head_loss_ft = self.pressure_drop / (0.433 * sg)
+
+        # Quadratic scaling
+        flow_ratio = flow_gpm / self.design_flow
+        return design_head_loss_ft * (flow_ratio**2)
 
 
 class Strainer(BaseComponent):
@@ -415,11 +486,44 @@ class Strainer(BaseComponent):
     )
 
     @model_validator(mode="after")
-    def set_default_ports(self) -> "Strainer":
+    def set_default_ports(self) -> Strainer:
         """Set default ports if not provided."""
         if not self.ports:
             self.ports = create_strainer_ports()
         return self
+
+    def calculate_head_loss(
+        self,
+        flow_gpm: float,
+        velocity_fps: float,
+        fluid_props: FluidProperties,
+    ) -> float:
+        """Calculate strainer head loss.
+
+        Uses K-factor if available, otherwise scales from design
+        pressure drop.
+
+        Args:
+            flow_gpm: Flow rate in GPM
+            velocity_fps: Velocity in ft/s
+            fluid_props: Fluid properties
+
+        Returns:
+            Head loss in feet
+        """
+        if self.k_factor is not None:
+            # K-factor based
+            g = 32.174  # ft/s²
+            velocity_head = velocity_fps**2 / (2 * g)
+            return self.k_factor * velocity_head
+        elif self.pressure_drop is not None and self.design_flow is not None:
+            # Fixed pressure drop with quadratic scaling
+            sg = fluid_props.specific_gravity
+            design_head_loss_ft = self.pressure_drop / (0.433 * sg)
+            flow_ratio = flow_gpm / self.design_flow if self.design_flow > 0 else 0
+            return design_head_loss_ft * (flow_ratio**2)
+        else:
+            return 0.0
 
 
 class Orifice(BaseComponent):
@@ -432,11 +536,47 @@ class Orifice(BaseComponent):
     )
 
     @model_validator(mode="after")
-    def set_default_ports(self) -> "Orifice":
+    def set_default_ports(self) -> Orifice:
         """Set default ports if not provided."""
         if not self.ports:
             self.ports = create_orifice_ports()
         return self
+
+    def calculate_head_loss(
+        self,
+        flow_gpm: float,
+        velocity_fps: float,
+        fluid_props: FluidProperties,
+    ) -> float:
+        """Calculate orifice head loss.
+
+        Uses discharge coefficient and orifice diameter.
+        Q = Cd * A * sqrt(2 * g * h)
+        Rearranged: h = (Q / (Cd * A))^2 / (2 * g)
+
+        Args:
+            flow_gpm: Flow rate in GPM
+            velocity_fps: Velocity in ft/s (not used)
+            fluid_props: Fluid properties (not used)
+
+        Returns:
+            Head loss in feet
+        """
+        if flow_gpm <= 0:
+            return 0.0
+
+        # Convert flow to ft³/s
+        flow_cfs = flow_gpm / 448.831
+
+        # Orifice area in ft² (diameter in inches, convert to feet)
+        orifice_area_ft2 = math.pi * (self.orifice_diameter / 24) ** 2
+
+        g = 32.174  # ft/s²
+        cd = self.discharge_coefficient
+
+        # h = (Q / (Cd * A))^2 / (2 * g)
+        head_loss = (flow_cfs / (cd * orifice_area_ft2)) ** 2 / (2 * g)
+        return head_loss
 
 
 class Sprinkler(BaseComponent):
@@ -451,7 +591,7 @@ class Sprinkler(BaseComponent):
     )
 
     @model_validator(mode="after")
-    def set_default_ports(self) -> "Sprinkler":
+    def set_default_ports(self) -> Sprinkler:
         """Set default ports if not provided."""
         if not self.ports:
             self.ports = create_sprinkler_ports()

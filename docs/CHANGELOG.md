@@ -67,17 +67,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Validation for controlled modes requiring setpoints
   - VFD (Variable Frequency Drive) support for pressure/flow control modes
 
-- **Protocol Interfaces Module** (PR #118, #119, #121)
+- **Protocol Interfaces Module** (PR #118, #119, #121, #124)
   - `protocols/` module for type-safe structural contracts
   - `NetworkSolver` protocol for solver strategies with method signatures
   - `HeadSource` protocol for components with fixed head boundary conditions
-  - `HasPorts`, `HeadLossCalculator` protocols for component interfaces
-  - `FluidPropertyProvider` protocol for fluid property services
+  - `HeadLossCalculator` protocol for components that cause head loss
+  - `HasPorts`, `FluidPropertyProvider` protocols for component interfaces
   - `SimpleSolver` and `BranchingSolver` strategy classes implementing NetworkSolver
   - `SolverRegistry` for selecting appropriate solver by network topology
   - `solve_project()` refactored to use registry pattern
   - `get_source_head()` simplified using HeadSource protocol
+  - `calculate_component_head_loss()` helper using HeadLossCalculator protocol
   - `total_head` property added to IdealReferenceNode and NonIdealReferenceNode
+  - `calculate_head_loss()` method added to ValveComponent, HeatExchanger, Strainer, Orifice
+  - `get_valve_k_factor()` helper for valve K-factor lookup
   - ADR-008: Protocol-based interfaces decision
 
 - **Valve Status States** (PR #115)

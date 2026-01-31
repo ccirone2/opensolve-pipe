@@ -61,6 +61,9 @@ from .network import (
     solve_project,
 )
 
+# Solver registry and strategies
+from .registry import SolverRegistry, create_default_registry, default_registry
+
 # Simple solver
 from .simple import (
     SimpleSolverOptions,
@@ -72,6 +75,7 @@ from .simple import (
     solve_pump_pipe_system,
     solve_water_system,
 )
+from .strategies import BranchingSolver, SimpleSolver
 
 __all__ = [
     "FT_TO_M",
@@ -83,9 +87,12 @@ __all__ = [
     "IN_TO_M",
     "RE_LAMINAR",
     "RE_TURBULENT",
+    "BranchingSolver",
     "NetworkGraph",
     "NetworkType",
+    "SimpleSolver",
     "SimpleSolverOptions",
+    "SolverRegistry",
     "SolverResult",
     "SolverState",
     "build_network_graph",
@@ -101,6 +108,8 @@ __all__ = [
     "calculate_velocity",
     "calculate_velocity_fps",
     "classify_network",
+    "create_default_registry",
+    "default_registry",
     "find_operating_point",
     "generate_system_curve",
     "get_f_t",

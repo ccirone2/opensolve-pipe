@@ -50,13 +50,17 @@ export type {
 	FlowEfficiencyPoint,
 	NPSHRPoint,
 	PumpCurve,
-	BestEfficiencyPoint
+	BestEfficiencyPoint,
+	QuadraticCoefficients
 } from './pump';
 export {
 	validatePumpCurve,
 	createDefaultPumpCurve,
 	interpolatePumpHead,
 	interpolateEfficiency,
+	fitQuadratic,
+	evaluateQuadratic,
+	generateEfficiencyBestFitCurve,
 	calculateBEP
 } from './pump';
 

@@ -2,7 +2,7 @@
 	import { Chart, registerables } from 'chart.js';
 	import type { ChartDataset, ScatterDataPoint } from 'chart.js';
 	import type { PumpCurve, PumpResult } from '$lib/models';
-	import { calculateBEP, interpolateEfficiency } from '$lib/models/pump';
+	import { calculateBEP, interpolateEfficiency, generateEfficiencyBestFitCurve } from '$lib/models/pump';
 	import { isDarkMode } from '$lib/stores';
 
 	// Register Chart.js components
@@ -97,24 +97,44 @@
 				pointStyle: 'circle'
 			});
 
-			// Efficiency curve (if available) - uses secondary Y-axis
+			// Efficiency curve (if available) - quadratic best-fit on secondary Y-axis
 			if (hasEfficiencyCurve && curve.efficiency_curve) {
-				datasets.push({
-					label: 'Efficiency',
-					data: curve.efficiency_curve.map((p) => ({ x: p.flow, y: p.efficiency * 100 })),
-					borderColor: 'rgb(156, 163, 175)',
-					backgroundColor: 'rgba(156, 163, 175, 0.3)',
-					fill: false,
-					showLine: true,
-					tension: 0.4,
-					pointRadius: 3,
-					pointHoverRadius: 5,
-					borderWidth: 1.5,
-					borderDash: [4, 2],
-					order: 4,
-					yAxisID: 'yEfficiency',
-					pointStyle: 'circle'
-				});
+				// Generate smooth best-fit curve
+				const bestFitCurve = generateEfficiencyBestFitCurve(curve);
+				if (bestFitCurve) {
+					datasets.push({
+						label: 'Efficiency',
+						data: bestFitCurve.map((p) => ({ x: p.flow, y: p.efficiency * 100 })),
+						borderColor: 'rgb(156, 163, 175)',
+						backgroundColor: 'rgba(156, 163, 175, 0.1)',
+						fill: false,
+						showLine: true,
+						tension: 0,
+						pointRadius: 0,
+						pointHoverRadius: 0,
+						borderWidth: 1.5,
+						order: 4,
+						yAxisID: 'yEfficiency',
+						pointStyle: 'line'
+					});
+				} else {
+					// Fallback to raw points if best-fit fails (< 3 points)
+					datasets.push({
+						label: 'Efficiency',
+						data: curve.efficiency_curve.map((p) => ({ x: p.flow, y: p.efficiency * 100 })),
+						borderColor: 'rgb(156, 163, 175)',
+						backgroundColor: 'rgba(156, 163, 175, 0.3)',
+						fill: false,
+						showLine: true,
+						tension: 0.4,
+						pointRadius: 3,
+						pointHoverRadius: 5,
+						borderWidth: 1.5,
+						order: 4,
+						yAxisID: 'yEfficiency',
+						pointStyle: 'circle'
+					});
+				}
 			}
 
 			// Operating point

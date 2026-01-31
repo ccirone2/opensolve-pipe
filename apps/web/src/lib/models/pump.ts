@@ -145,6 +145,125 @@ export function interpolateEfficiency(curve: PumpCurve, flow: number): number | 
 	return null;
 }
 
+/** Quadratic regression coefficients (a, b, c) for y = ax² + bx + c */
+export interface QuadraticCoefficients {
+	a: number;
+	b: number;
+	c: number;
+}
+
+/**
+ * Fit a quadratic curve (y = ax² + bx + c) to data points using least squares regression.
+ * Returns null if there are fewer than 3 points.
+ */
+export function fitQuadratic(
+	points: { x: number; y: number }[]
+): QuadraticCoefficients | null {
+	if (points.length < 3) return null;
+
+	const n = points.length;
+
+	// Calculate sums for normal equations
+	let sumX = 0,
+		sumX2 = 0,
+		sumX3 = 0,
+		sumX4 = 0;
+	let sumY = 0,
+		sumXY = 0,
+		sumX2Y = 0;
+
+	for (const p of points) {
+		const x = p.x;
+		const y = p.y;
+		const x2 = x * x;
+		const x3 = x2 * x;
+		const x4 = x3 * x;
+
+		sumX += x;
+		sumX2 += x2;
+		sumX3 += x3;
+		sumX4 += x4;
+		sumY += y;
+		sumXY += x * y;
+		sumX2Y += x2 * y;
+	}
+
+	// Solve the system of normal equations using Cramer's rule
+	// [n,    sumX,  sumX2 ] [c]   [sumY  ]
+	// [sumX, sumX2, sumX3 ] [b] = [sumXY ]
+	// [sumX2,sumX3, sumX4 ] [a]   [sumX2Y]
+
+	const det =
+		n * (sumX2 * sumX4 - sumX3 * sumX3) -
+		sumX * (sumX * sumX4 - sumX3 * sumX2) +
+		sumX2 * (sumX * sumX3 - sumX2 * sumX2);
+
+	if (Math.abs(det) < 1e-10) return null;
+
+	const detA =
+		sumY * (sumX2 * sumX4 - sumX3 * sumX3) -
+		sumX * (sumXY * sumX4 - sumX3 * sumX2Y) +
+		sumX2 * (sumXY * sumX3 - sumX2 * sumX2Y);
+
+	const detB =
+		n * (sumXY * sumX4 - sumX3 * sumX2Y) -
+		sumY * (sumX * sumX4 - sumX3 * sumX2) +
+		sumX2 * (sumX * sumX2Y - sumXY * sumX2);
+
+	const detC =
+		n * (sumX2 * sumX2Y - sumXY * sumX3) -
+		sumX * (sumX * sumX2Y - sumXY * sumX2) +
+		sumY * (sumX * sumX3 - sumX2 * sumX2);
+
+	return {
+		a: detC / det,
+		b: detB / det,
+		c: detA / det
+	};
+}
+
+/**
+ * Evaluate a quadratic function at a given x value.
+ */
+export function evaluateQuadratic(coeffs: QuadraticCoefficients, x: number): number {
+	return coeffs.a * x * x + coeffs.b * x + coeffs.c;
+}
+
+/**
+ * Generate a smooth quadratic best-fit curve from efficiency data points.
+ * Returns an array of points for plotting, or null if fitting fails.
+ */
+export function generateEfficiencyBestFitCurve(
+	curve: PumpCurve,
+	numPoints: number = 50
+): { flow: number; efficiency: number }[] | null {
+	if (!curve.efficiency_curve || curve.efficiency_curve.length < 3) return null;
+
+	// Convert to x,y format for fitting
+	const dataPoints = curve.efficiency_curve.map((p) => ({ x: p.flow, y: p.efficiency }));
+
+	// Fit quadratic
+	const coeffs = fitQuadratic(dataPoints);
+	if (!coeffs) return null;
+
+	// Get flow range
+	const flows = curve.efficiency_curve.map((p) => p.flow);
+	const minFlow = Math.min(...flows);
+	const maxFlow = Math.max(...flows);
+
+	// Generate smooth curve points
+	const result: { flow: number; efficiency: number }[] = [];
+	for (let i = 0; i < numPoints; i++) {
+		const flow = minFlow + (i / (numPoints - 1)) * (maxFlow - minFlow);
+		let efficiency = evaluateQuadratic(coeffs, flow);
+		// Clamp efficiency to valid range
+		efficiency = Math.max(0, Math.min(1, efficiency));
+		result.push({ flow, efficiency });
+	}
+
+	return result;
+}
+
 /** Best Efficiency Point (BEP) data. */
 export interface BestEfficiencyPoint {
 	/** Flow rate at BEP. */

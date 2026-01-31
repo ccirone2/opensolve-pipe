@@ -8,6 +8,9 @@ import {
 	createDefaultPumpCurve,
 	interpolatePumpHead,
 	interpolateEfficiency,
+	fitQuadratic,
+	evaluateQuadratic,
+	generateEfficiencyBestFitCurve,
 	calculateBEP
 } from '../pump';
 import type { PumpCurve } from '../pump';
@@ -174,6 +177,147 @@ describe('interpolateEfficiency', () => {
 
 	it('should interpolate efficiency between second and third points', () => {
 		expect(interpolateEfficiency(curveWithEfficiency, 150)).toBe(0.7);
+	});
+});
+
+describe('fitQuadratic', () => {
+	it('should return null for fewer than 3 points', () => {
+		const points = [
+			{ x: 0, y: 0 },
+			{ x: 1, y: 1 }
+		];
+		expect(fitQuadratic(points)).toBeNull();
+	});
+
+	it('should fit a perfect parabola', () => {
+		// y = x^2 (a=1, b=0, c=0)
+		const points = [
+			{ x: -2, y: 4 },
+			{ x: -1, y: 1 },
+			{ x: 0, y: 0 },
+			{ x: 1, y: 1 },
+			{ x: 2, y: 4 }
+		];
+		const coeffs = fitQuadratic(points);
+		expect(coeffs).not.toBeNull();
+		expect(coeffs!.a).toBeCloseTo(1, 5);
+		expect(coeffs!.b).toBeCloseTo(0, 5);
+		expect(coeffs!.c).toBeCloseTo(0, 5);
+	});
+
+	it('should fit a downward parabola', () => {
+		// y = -0.5x^2 + 2x + 1 (typical efficiency curve shape)
+		const points = [
+			{ x: 0, y: 1 },
+			{ x: 1, y: 2.5 },
+			{ x: 2, y: 3 },
+			{ x: 3, y: 2.5 },
+			{ x: 4, y: 1 }
+		];
+		const coeffs = fitQuadratic(points);
+		expect(coeffs).not.toBeNull();
+		expect(coeffs!.a).toBeCloseTo(-0.5, 5);
+		expect(coeffs!.b).toBeCloseTo(2, 5);
+		expect(coeffs!.c).toBeCloseTo(1, 5);
+	});
+});
+
+describe('evaluateQuadratic', () => {
+	it('should evaluate quadratic at given x', () => {
+		const coeffs = { a: 1, b: -2, c: 1 }; // (x-1)^2 = x^2 - 2x + 1
+		expect(evaluateQuadratic(coeffs, 0)).toBe(1);
+		expect(evaluateQuadratic(coeffs, 1)).toBe(0);
+		expect(evaluateQuadratic(coeffs, 2)).toBe(1);
+		expect(evaluateQuadratic(coeffs, 3)).toBe(4);
+	});
+});
+
+describe('generateEfficiencyBestFitCurve', () => {
+	it('should return null for curves without efficiency data', () => {
+		const curve: PumpCurve = {
+			id: 'test',
+			name: 'Test',
+			points: [
+				{ flow: 0, head: 100 },
+				{ flow: 100, head: 80 }
+			]
+		};
+		expect(generateEfficiencyBestFitCurve(curve)).toBeNull();
+	});
+
+	it('should return null for fewer than 3 efficiency points', () => {
+		const curve: PumpCurve = {
+			id: 'test',
+			name: 'Test',
+			points: [
+				{ flow: 0, head: 100 },
+				{ flow: 100, head: 80 }
+			],
+			efficiency_curve: [
+				{ flow: 0, efficiency: 0 },
+				{ flow: 100, efficiency: 0.8 }
+			]
+		};
+		expect(generateEfficiencyBestFitCurve(curve)).toBeNull();
+	});
+
+	it('should generate smooth curve from efficiency data', () => {
+		const curve: PumpCurve = {
+			id: 'test',
+			name: 'Test',
+			points: [
+				{ flow: 0, head: 100 },
+				{ flow: 100, head: 80 },
+				{ flow: 200, head: 50 }
+			],
+			efficiency_curve: [
+				{ flow: 0, efficiency: 0 },
+				{ flow: 50, efficiency: 0.6 },
+				{ flow: 100, efficiency: 0.8 },
+				{ flow: 150, efficiency: 0.75 },
+				{ flow: 200, efficiency: 0.5 }
+			]
+		};
+
+		const result = generateEfficiencyBestFitCurve(curve, 10);
+		expect(result).not.toBeNull();
+		expect(result!.length).toBe(10);
+
+		// Check flow range
+		expect(result![0].flow).toBe(0);
+		expect(result![result!.length - 1].flow).toBe(200);
+
+		// All efficiency values should be valid (0-1)
+		for (const point of result!) {
+			expect(point.efficiency).toBeGreaterThanOrEqual(0);
+			expect(point.efficiency).toBeLessThanOrEqual(1);
+		}
+	});
+
+	it('should clamp efficiency values to valid range', () => {
+		// Extreme data that might produce out-of-range predictions
+		const curve: PumpCurve = {
+			id: 'test',
+			name: 'Test',
+			points: [
+				{ flow: 0, head: 100 },
+				{ flow: 100, head: 50 }
+			],
+			efficiency_curve: [
+				{ flow: 0, efficiency: 0.1 },
+				{ flow: 50, efficiency: 0.9 },
+				{ flow: 100, efficiency: 0.1 }
+			]
+		};
+
+		const result = generateEfficiencyBestFitCurve(curve);
+		expect(result).not.toBeNull();
+
+		// All values should be clamped to 0-1
+		for (const point of result!) {
+			expect(point.efficiency).toBeGreaterThanOrEqual(0);
+			expect(point.efficiency).toBeLessThanOrEqual(1);
+		}
 	});
 });
 

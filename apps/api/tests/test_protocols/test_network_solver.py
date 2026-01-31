@@ -119,20 +119,21 @@ class TestSolverRegistry:
         assert len(registry.registered_solvers) == 1
 
     def test_create_default_registry(self) -> None:
-        """create_default_registry should return registry with both solvers."""
+        """create_default_registry should return registry with all solvers."""
         registry = create_default_registry()
 
-        assert len(registry.registered_solvers) == 2
+        assert len(registry.registered_solvers) == 3
 
-        # Check that both solver types are registered
+        # Check that all solver types are registered
         types_covered = set()
         for solver in registry.registered_solvers:
             types_covered.update(solver.supported_network_types)
 
         assert NetworkType.SIMPLE in types_covered
         assert NetworkType.BRANCHING in types_covered
+        assert NetworkType.LOOPED in types_covered
 
     def test_default_registry_exists(self) -> None:
         """default_registry module-level instance should exist."""
         assert default_registry is not None
-        assert len(default_registry.registered_solvers) == 2
+        assert len(default_registry.registered_solvers) == 3

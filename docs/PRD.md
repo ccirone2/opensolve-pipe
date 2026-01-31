@@ -34,13 +34,13 @@ A web application that:
 
 ### 1.4 Target Users
 
-| User Type | Needs | Experience Level |
-|-----------|-------|------------------|
-| Students | Learning tool, homework, projects | Beginner |
-| Field Technicians | Quick calculations, troubleshooting | Intermediate |
-| Maintenance Engineers | System verification, modifications | Intermediate |
-| Process Engineers | New system design, optimization | Advanced |
-| Consulting Engineers | Client deliverables, complex networks | Advanced |
+| User Type             | Needs                                 | Experience Level |
+| --------------------- | ------------------------------------- | ---------------- |
+| Students              | Learning tool, homework, projects     | Beginner         |
+| Field Technicians     | Quick calculations, troubleshooting   | Intermediate     |
+| Maintenance Engineers | System verification, modifications    | Intermediate     |
+| Process Engineers     | New system design, optimization       | Advanced         |
+| Consulting Engineers  | Client deliverables, complex networks | Advanced         |
 
 ---
 
@@ -87,15 +87,15 @@ A web application that:
 
 ### 2.3 Future Features (Planned)
 
-| Feature | Priority | Phase |
-|---------|----------|-------|
-| Cost estimation utility | High | 2 |
-| Pipe sizing optimization | Medium | 2 |
-| Global pump database | Medium | 2 |
-| Pump curve digitization from image | Medium | 3 |
-| Public API | Medium | 3 |
-| Color-coded results visualization | Low | 3 |
-| Code compliance libraries | Low | 3 |
+| Feature                            | Priority | Phase |
+| ---------------------------------- | -------- | ----- |
+| Cost estimation utility            | High     | 2     |
+| Pipe sizing optimization           | Medium   | 2     |
+| Global pump database               | Medium   | 2     |
+| Pump curve digitization from image | Medium   | 3     |
+| Public API                         | Medium   | 3     |
+| Color-coded results visualization  | Low      | 3     |
+| Code compliance libraries          | Low      | 3     |
 
 ---
 
@@ -107,50 +107,50 @@ Users shall be able to model the following components:
 
 #### 3.1.1 Nodes (Zero-Dimensional Elements)
 
-| Component | Configuration Options | Connection Ports |
-|-----------|----------------------|------------------|
-| Reservoir/Tank | Constant or variable level, elevation, geometry, port configuration | 1-n ports (user-defined, each with size) |
-| Reference Node (Ideal) | Elevation, pressure setpoint | 1 port |
-| Reference Node (Non-Ideal) | Elevation, pressure-flow curve, capacity limits | 1 port |
-| Branch (Tee) | Orientation (through/branch flows), port sizes | 3 ports |
-| Branch (Wye) | Angle, port sizes | 3 ports |
-| Branch (Cross) | Port sizes | 4 ports |
-| Branch (Elbow with Branch) | Main angle (90°/45°), branch angle, port sizes | 3 ports |
-| Sprinkler/Nozzle | K-factor, discharge coefficient | 1 port (inlet) |
-| Orifice | Diameter, Cd, or Cv | 2 ports |
-| Plug/Cap | None (closed end, zero flow boundary) | 1 port (no flow) |
+| Component                  | Configuration Options                                               | Connection Ports                         |
+| -------------------------- | ------------------------------------------------------------------- | ---------------------------------------- |
+| Reservoir/Tank             | Constant or variable level, elevation, geometry, port configuration | 1-n ports (user-defined, each with size) |
+| Reference Node (Ideal)     | Elevation, pressure setpoint                                        | 1 port                                   |
+| Reference Node (Non-Ideal) | Elevation, pressure-flow curve, capacity limits                     | 1 port                                   |
+| Branch (Tee)               | Orientation (through/branch flows), port sizes                      | 3 ports                                  |
+| Branch (Wye)               | Angle, port sizes                                                   | 3 ports                                  |
+| Branch (Cross)             | Port sizes                                                          | 4 ports                                  |
+| Branch (Elbow with Branch) | Main angle (90°/45°), branch angle, port sizes                      | 3 ports                                  |
+| Sprinkler/Nozzle           | K-factor, discharge coefficient                                     | 1 port (inlet)                           |
+| Orifice                    | Diameter, Cd, or Cv                                                 | 2 ports                                  |
+| Plug/Cap                   | None (closed end, zero flow boundary)                               | 1 port (no flow)                         |
 
 **Note:** Junction nodes are deprecated in favor of Branch components which provide explicit fitting geometry and K-factor calculations.
 
 #### 3.1.2 Links (One-Dimensional Elements)
 
-| Component | Configuration Options |
-|-----------|----------------------|
-| Pipe | Material, schedule, diameter, length, roughness |
-| Pump | Curve (head vs flow), speed ratio (0-1.0 or %), control mode, viscosity correction |
-| Check Valve | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed) |
-| Stop-Check Valve | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed) |
-| Gate/Ball/Butterfly Valve | Cv or K-factor, position (0-100% open), status (active/isolated) |
-| Globe Valve | Cv or K-factor, position (0-100% open), status (active/isolated) |
-| Pressure Reducing Valve | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed) |
-| Pressure Sustaining Valve | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed) |
-| Flow Control Valve | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed) |
-| Pressure Relief Valve | Setpoint, capacity |
-| Heat Exchanger | Fixed pressure drop, or Cv/K model |
-| Strainer/Filter | K-factor (clean and dirty) |
-| User-Defined Element | Cv curve or K-factor |
+| Component                 | Configuration Options                                                              |
+| ------------------------- | ---------------------------------------------------------------------------------- |
+| Pipe                      | Material, schedule, diameter, length, roughness                                    |
+| Pump                      | Curve (head vs flow), speed ratio (0-1.0 or %), control mode, viscosity correction |
+| Check Valve               | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed)       |
+| Stop-Check Valve          | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed)       |
+| Gate/Ball/Butterfly Valve | Cv or K-factor, position (0-100% open), status (active/isolated)                   |
+| Globe Valve               | Cv or K-factor, position (0-100% open), status (active/isolated)                   |
+| Pressure Reducing Valve   | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        |
+| Pressure Sustaining Valve | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        |
+| Flow Control Valve        | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        |
+| Pressure Relief Valve     | Setpoint, capacity                                                                 |
+| Heat Exchanger            | Fixed pressure drop, or Cv/K model                                                 |
+| Strainer/Filter           | K-factor (clean and dirty)                                                         |
+| User-Defined Element      | Cv curve or K-factor                                                               |
 
 ##### 3.1.2.1 Pump Operating Modes
 
 Pumps support multiple operating modes to model real-world control strategies:
 
-| Mode | Description | Required Input |
-|------|-------------|----------------|
-| Fixed Speed | Pump operates at defined speed ratio (1.0 = full speed) | Speed ratio (0.0-1.0) |
-| Variable Speed (VFD) | Speed adjusts to maintain setpoint | Control variable + setpoint |
-| Controlled Pressure | VFD maintains constant discharge or differential pressure | Pressure setpoint |
-| Controlled Flow | VFD maintains constant flow rate | Flow setpoint |
-| Off | Pump is not running; treated as closed valve or check valve | Status = off |
+| Mode                 | Description                                                 | Required Input              |
+| -------------------- | ----------------------------------------------------------- | --------------------------- |
+| Fixed Speed          | Pump operates at defined speed ratio (1.0 = full speed)     | Speed ratio (0.0-1.0)       |
+| Variable Speed (VFD) | Speed adjusts to maintain setpoint                          | Control variable + setpoint |
+| Controlled Pressure  | VFD maintains constant discharge or differential pressure   | Pressure setpoint           |
+| Controlled Flow      | VFD maintains constant flow rate                            | Flow setpoint               |
+| Off                  | Pump is not running; treated as closed valve or check valve | Status = off                |
 
 **Viscosity Correction:**
 For fluids more viscous than water, pump performance is automatically corrected using the Hydraulic Institute method (ANSI/HI 9.6.7). Correction factors are applied to:
@@ -166,22 +166,18 @@ Users may disable viscosity correction for pumps already rated for the operating
 
 **Pump Status:**
 
-| Status | Behavior |
-|--------|----------|
-| Running | Normal operation per curve and speed |
-| Off (with check) | Zero flow, prevents reverse flow |
-| Off (no check) | Zero flow, allows reverse flow (if system drives it) |
-| Locked Out | Treated as closed valve (zero flow, adds resistance) |
+| Status           | Behavior                             |
+| ---------------- | ------------------------------------ |
+| Running          | Normal operation per curve and speed |
+| Off (with check) | Zero flow, prevents reverse flow     |
 
 **Valve Status:**
 
-| Status | Behavior |
-|--------|----------|
-| Active | Normal operation per position/setpoint |
-| Isolated/Closed | Zero flow through valve |
-| Failed Open | Full open position, no control action |
-| Failed Closed | Zero flow, treated as closed |
-| Locked Open | Fixed at current position, no control action |
+| Status        | Behavior                               |
+| ------------- | -------------------------------------- |
+| Active        | Normal operation per position/setpoint |
+| Failed Open   | Full open position, no control action  |
+| Failed Closed | Zero flow, treated as closed           |
 
 #### 3.1.3 Pipe Connections (Between Component Ports)
 
@@ -191,14 +187,14 @@ A **pipe connection** is a collection of pipes and fittings that connects exactl
 - Zero or more inline fittings (elbows, reducers, inline valves)
 - Two endpoints that attach to component ports
 
-| Element | Configuration Options |
-|---------|----------------------|
-| Pipe Segment | Material, schedule, diameter, length, roughness |
-| Elbow (45°, 90°, LR, SR) | Quantity, K or L/D |
-| Reducer/Expander | Inlet/outlet sizes, gradual/sudden |
-| Coupling/Union | K-factor |
-| Entrance/Exit | Type (sharp, rounded, projecting) |
-| Inline Valve | Type, K-factor or Cv |
+| Element                  | Configuration Options                           |
+| ------------------------ | ----------------------------------------------- |
+| Pipe Segment             | Material, schedule, diameter, length, roughness |
+| Elbow (45°, 90°, LR, SR) | Quantity, K or L/D                              |
+| Reducer/Expander         | Inlet/outlet sizes, gradual/sudden              |
+| Coupling/Union           | K-factor                                        |
+| Entrance/Exit            | Type (sharp, rounded, projecting)               |
+| Inline Valve             | Type, K-factor or Cv                            |
 
 **Note:** Tee fittings are now modeled as Branch components (nodes) rather than inline fittings. This provides more accurate hydraulic modeling for flow splitting/combining scenarios.
 
@@ -212,17 +208,17 @@ The hydraulic network is modeled as a graph where:
 
 **Port Types:**
 
-| Component Type | Port Count | Port Naming Convention |
-|----------------|------------|------------------------|
-| Reservoir/Tank | 1-n | port_1, port_2, ... (user-defined) |
-| Reference Node | 1 | port_1 |
-| Pump | 2 | suction (inlet), discharge (outlet) |
-| Valve | 2 | inlet, outlet |
-| Branch (Tee/Wye) | 3 | run_inlet, run_outlet, branch |
-| Branch (Cross) | 4 | port_1, port_2, port_3, port_4 |
-| Orifice | 2 | inlet, outlet |
-| Sprinkler | 1 | inlet |
-| Plug/Cap | 1 | port_1 (zero flow boundary) |
+| Component Type   | Port Count | Port Naming Convention              |
+| ---------------- | ---------- | ----------------------------------- |
+| Reservoir/Tank   | 1-n        | port_1, port_2, ... (user-defined)  |
+| Reference Node   | 1          | port_1                              |
+| Pump             | 2          | suction (inlet), discharge (outlet) |
+| Valve            | 2          | inlet, outlet                       |
+| Branch (Tee/Wye) | 3          | run_inlet, run_outlet, branch       |
+| Branch (Cross)   | 4          | port_1, port_2, port_3, port_4      |
+| Orifice          | 2          | inlet, outlet                       |
+| Sprinkler        | 1          | inlet                               |
+| Plug/Cap         | 1          | port_1 (zero flow boundary)         |
 
 **Reference Node Types:**
 
@@ -314,11 +310,11 @@ Traditional form-based entry for:
 
 ### 3.4 Pump Curve Input
 
-| Method | Description |
-|--------|-------------|
-| Manual table | Enter flow/head pairs directly |
-| CSV/Excel upload | Import from file |
-| Project library | Save and reuse within project |
+| Method           | Description                    |
+| ---------------- | ------------------------------ |
+| Manual table     | Enter flow/head pairs directly |
+| CSV/Excel upload | Import from file               |
+| Project library  | Save and reuse within project  |
 
 Future:
 
@@ -437,12 +433,12 @@ Users may enable checks from a library:
 
 ## 6. Success Metrics
 
-| Metric | Target |
-|--------|--------|
-| Time to first solve (new user) | < 5 minutes |
-| Mobile usability score | > 90 (Lighthouse) |
-| Solve accuracy vs EPANET | < 1% deviation |
-| User retention (return within 7 days) | > 40% |
+| Metric                                | Target            |
+| ------------------------------------- | ----------------- |
+| Time to first solve (new user)        | < 5 minutes       |
+| Mobile usability score                | > 90 (Lighthouse) |
+| Solve accuracy vs EPANET              | < 1% deviation    |
+| User retention (return within 7 days) | > 40%             |
 
 ---
 
@@ -462,12 +458,12 @@ Users may enable checks from a library:
 
 ### Appendix A: Competitive Analysis
 
-| Tool | Strengths | Weaknesses |
-|------|-----------|------------|
-| EPANET | Free, proven solver | Desktop-only, dated UI |
-| AFT Fathom | Powerful, professional | Expensive, desktop-only |
-| Pipe-FLO | Good UI, comprehensive | Expensive, desktop-only |
-| Online calculators | Free, accessible | Single-pipe only, limited |
+| Tool               | Strengths              | Weaknesses                |
+| ------------------ | ---------------------- | ------------------------- |
+| EPANET             | Free, proven solver    | Desktop-only, dated UI    |
+| AFT Fathom         | Powerful, professional | Expensive, desktop-only   |
+| Pipe-FLO           | Good UI, comprehensive | Expensive, desktop-only   |
+| Online calculators | Free, accessible       | Single-pipe only, limited |
 
 ### Appendix B: User Stories
 

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...models.components import (
     ComponentType,
+    PumpOperatingMode,
     PumpStatus,
     ValveComponent,
     ValveStatus,
@@ -37,9 +38,12 @@ from .k_factors import resolve_fittings_total_k
 from .simple import (
     SimpleSolverOptions,
     build_pump_curve_interpolator,
+    build_speed_adjusted_pump_curve,
     build_system_curve_function,
     calculate_npsh_available,
     find_operating_point,
+    find_vfd_speed_for_flow,
+    find_vfd_speed_for_pressure,
     generate_system_curve,
 )
 
@@ -488,19 +492,108 @@ def solve_simple_path(
             ),
         )
 
-    # Find operating point
-    result = find_operating_point(
-        pump_curve=pump_interp,
-        system_curve=system_func,
-        flow_min=options.flow_min_gpm,
-        flow_max=options.flow_max_gpm,
-        tolerance=options.tolerance,
-    )
+    # Handle VFD-controlled modes
+    actual_speed: float | None = None
+    setpoint_achieved = True
 
-    if result is None:
-        return state, False, "Could not find pump-system curve intersection"
+    if pump_comp.operating_mode == PumpOperatingMode.CONTROLLED_FLOW:
+        # VFD controlled to maintain target flow
+        target_flow = pump_comp.control_setpoint or 0.0
+        vfd_result = find_vfd_speed_for_flow(
+            curve_points=pump_curve_points,
+            system_curve_func=system_func,
+            target_flow_gpm=target_flow,
+            speed_min=0.3,
+            speed_max=1.2,
+            tolerance=0.01,
+        )
+        if not vfd_result.converged:
+            return state, False, vfd_result.error_message or "VFD control failed"
+        operating_flow = vfd_result.operating_flow_gpm or 0.0
+        operating_head = vfd_result.operating_head_ft or 0.0
+        actual_speed = vfd_result.actual_speed
+        setpoint_achieved = vfd_result.setpoint_achieved
 
-    operating_flow, operating_head = result
+        if not setpoint_achieved:
+            state.warnings.append(
+                Warning(
+                    category=WarningCategory.OPERATING_POINT,
+                    severity=WarningSeverity.WARNING,
+                    component_id=pump_id,
+                    message=(
+                        f"VFD could not achieve target flow {target_flow:.1f} GPM. "
+                        f"Actual: {operating_flow:.1f} GPM at speed ratio {actual_speed:.2f}"
+                    ),
+                )
+            )
+
+    elif pump_comp.operating_mode == PumpOperatingMode.CONTROLLED_PRESSURE:
+        # VFD controlled to maintain target discharge pressure
+        target_pressure = pump_comp.control_setpoint or 0.0
+        # Convert psi to feet of head
+        gamma = 0.433 * fluid_props.specific_gravity
+        target_pressure_ft = target_pressure / gamma
+        vfd_result = find_vfd_speed_for_pressure(
+            curve_points=pump_curve_points,
+            system_curve_func=system_func,
+            target_discharge_pressure_ft=target_pressure_ft,
+            suction_head_ft=suction_head_ft,
+            speed_min=0.3,
+            speed_max=1.2,
+            tolerance=0.01,
+        )
+        if not vfd_result.converged:
+            return state, False, vfd_result.error_message or "VFD control failed"
+        operating_flow = vfd_result.operating_flow_gpm or 0.0
+        operating_head = vfd_result.operating_head_ft or 0.0
+        actual_speed = vfd_result.actual_speed
+        setpoint_achieved = vfd_result.setpoint_achieved
+
+        if not setpoint_achieved:
+            state.warnings.append(
+                Warning(
+                    category=WarningCategory.OPERATING_POINT,
+                    severity=WarningSeverity.WARNING,
+                    component_id=pump_id,
+                    message=(
+                        f"VFD could not achieve target pressure {target_pressure:.1f} psi. "
+                        f"Speed ratio {actual_speed:.2f}"
+                    ),
+                )
+            )
+
+    elif pump_comp.operating_mode == PumpOperatingMode.VARIABLE_SPEED:
+        # Variable speed with user-defined speed ratio
+        speed_ratio = pump_comp.speed
+        adjusted_pump_curve = build_speed_adjusted_pump_curve(
+            pump_curve_points, speed_ratio
+        )
+        result = find_operating_point(
+            pump_curve=adjusted_pump_curve,
+            system_curve=system_func,
+            flow_min=options.flow_min_gpm,
+            flow_max=options.flow_max_gpm,
+            tolerance=options.tolerance,
+        )
+        if result is None:
+            return state, False, "Could not find pump-system curve intersection"
+        operating_flow, operating_head = result
+        actual_speed = speed_ratio
+
+    else:
+        # Fixed speed (default) - original behavior
+        result = find_operating_point(
+            pump_curve=pump_interp,
+            system_curve=system_func,
+            flow_min=options.flow_min_gpm,
+            flow_max=options.flow_max_gpm,
+            tolerance=options.tolerance,
+        )
+
+        if result is None:
+            return state, False, "Could not find pump-system curve intersection"
+
+        operating_flow, operating_head = result
 
     # Calculate detailed results
     _h_loss, velocity, reynolds, friction_f = calculate_pipe_head_loss_fps(
@@ -697,6 +790,8 @@ def solve_simple_path(
             "operating_flow": operating_flow,
             "operating_head": operating_head,
             "npsh_available": npsh_a,
+            "actual_speed": actual_speed,
+            "setpoint_achieved": setpoint_achieved,
             "system_curve": generate_system_curve(
                 static_head_ft=static_head_ft,
                 pipe_length_ft=total_length_ft,
@@ -1112,6 +1207,7 @@ def solve_project(project: Project) -> SolvedState:
             operating_flow=pump_data["operating_flow"],
             operating_head=pump_data["operating_head"],
             npsh_available=pump_data["npsh_available"],
+            actual_speed=pump_data.get("actual_speed"),
             system_curve=system_curve_points,
         )
 

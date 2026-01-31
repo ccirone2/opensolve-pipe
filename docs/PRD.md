@@ -1,6 +1,4 @@
-# Product Requirements Document (PRD)
-
-# OpenSolve Pipe - Web-Based Hydraulic Network Design Tool
+# Product Requirements Document (PRD): OpenSolve Pipe
 
 **Version:** 0.1.0 (Draft)
 **Date:** January 2026
@@ -54,8 +52,29 @@ A web application that:
 - Single-phase, isothermal flow
 - Pressurized pipe networks only
 - Common liquids (water, glycols, common fuels)
-- Branching and looped networks
-- Series and parallel pump configurations
+
+**Network Topologies:**
+
+- Open systems (once-through flow from source to discharge)
+- Closed systems (recirculating loops)
+- Branching networks (flow divides at tees/wyes)
+- Looped networks (multiple flow paths between points, no limit on number of loops)
+- Any combination of the above
+
+**Driving Forces:**
+
+- Pressure-fed systems (pressurized source, e.g., municipal supply, pressurized tank)
+- Gravity-fed systems (elevated reservoir, head tank)
+- Pumped systems, including:
+  - Multiple pumps in parallel
+  - Multiple pumps in series
+  - Combined configurations
+
+**System States:**
+
+- Active operation (pumps running, valves open)
+- Degraded operation (individual pumps off, valves closed)
+- Isolation scenarios (sections of network isolated)
 
 ### 2.2 Out of Scope (Current Version)
 
@@ -108,18 +127,61 @@ Users shall be able to model the following components:
 | Component | Configuration Options |
 |-----------|----------------------|
 | Pipe | Material, schedule, diameter, length, roughness |
-| Pump | Curve (head vs flow), speed, status |
-| Check Valve | Cv or K-factor, cracking pressure |
-| Stop-Check Valve | Cv or K-factor, cracking pressure |
-| Gate/Ball/Butterfly Valve | Cv or K-factor, position (% open) |
-| Globe Valve | Cv or K-factor, position |
-| Pressure Reducing Valve | Setpoint, Cv curve (detailed) or auto-sized (simplified) |
-| Pressure Sustaining Valve | Setpoint, Cv curve or auto-sized |
-| Flow Control Valve | Setpoint, Cv curve or auto-sized |
+| Pump | Curve (head vs flow), speed ratio (0-1.0 or %), control mode, viscosity correction |
+| Check Valve | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed) |
+| Stop-Check Valve | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed) |
+| Gate/Ball/Butterfly Valve | Cv or K-factor, position (0-100% open), status (active/isolated) |
+| Globe Valve | Cv or K-factor, position (0-100% open), status (active/isolated) |
+| Pressure Reducing Valve | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed) |
+| Pressure Sustaining Valve | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed) |
+| Flow Control Valve | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed) |
 | Pressure Relief Valve | Setpoint, capacity |
 | Heat Exchanger | Fixed pressure drop, or Cv/K model |
 | Strainer/Filter | K-factor (clean and dirty) |
 | User-Defined Element | Cv curve or K-factor |
+
+##### 3.1.2.1 Pump Operating Modes
+
+Pumps support multiple operating modes to model real-world control strategies:
+
+| Mode | Description | Required Input |
+|------|-------------|----------------|
+| Fixed Speed | Pump operates at defined speed ratio (1.0 = full speed) | Speed ratio (0.0-1.0) |
+| Variable Speed (VFD) | Speed adjusts to maintain setpoint | Control variable + setpoint |
+| Controlled Pressure | VFD maintains constant discharge or differential pressure | Pressure setpoint |
+| Controlled Flow | VFD maintains constant flow rate | Flow setpoint |
+| Off | Pump is not running; treated as closed valve or check valve | Status = off |
+
+**Viscosity Correction:**
+For fluids more viscous than water, pump performance is automatically corrected using the Hydraulic Institute method (ANSI/HI 9.6.7). Correction factors are applied to:
+
+- Head (reduced)
+- Flow (reduced)
+- Efficiency (reduced)
+- Power (increased)
+
+Users may disable viscosity correction for pumps already rated for the operating fluid.
+
+##### 3.1.2.2 Component Status
+
+**Pump Status:**
+
+| Status | Behavior |
+|--------|----------|
+| Running | Normal operation per curve and speed |
+| Off (with check) | Zero flow, prevents reverse flow |
+| Off (no check) | Zero flow, allows reverse flow (if system drives it) |
+| Locked Out | Treated as closed valve (zero flow, adds resistance) |
+
+**Valve Status:**
+
+| Status | Behavior |
+|--------|----------|
+| Active | Normal operation per position/setpoint |
+| Isolated/Closed | Zero flow through valve |
+| Failed Open | Full open position, no control action |
+| Failed Closed | Zero flow, treated as closed |
+| Locked Open | Fixed at current position, no control action |
 
 #### 3.1.3 Pipe Connections (Between Component Ports)
 
@@ -192,6 +254,23 @@ For each node:
 - Total pressure
 - Hydraulic grade line (HGL)
 - Energy grade line (EGL)
+
+For each pump:
+
+- Operating point (flow, head)
+- Speed (actual, if VFD-controlled)
+- Status (running/off)
+- Power consumption
+- Efficiency (with viscosity correction if applicable)
+- NPSH available
+- NPSH margin
+
+For each control valve:
+
+- Status (active/bypassed/failed)
+- Actual flow/pressure vs setpoint
+- Valve position (% open)
+- Whether setpoint is achieved
 
 #### 3.2.2 Pump Analysis
 
@@ -404,4 +483,4 @@ Users may enable checks from a library:
 
 ---
 
-*End of PRD*
+<!-- End of PRD -->

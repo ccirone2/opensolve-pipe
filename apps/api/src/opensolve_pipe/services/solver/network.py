@@ -14,11 +14,7 @@ from enum import Enum
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
-from ...models.components import (
-    ComponentType,
-    Reservoir,
-    Tank,
-)
+from ...models.components import ComponentType
 from ...models.results import (
     ComponentResult,
     FlowRegime,
@@ -29,6 +25,7 @@ from ...models.results import (
     WarningCategory,
     WarningSeverity,
 )
+from ...protocols import HeadSource
 from ..fluids import get_fluid_properties_with_units
 from .friction import calculate_pipe_head_loss_fps
 from .k_factors import resolve_fittings_total_k
@@ -227,32 +224,20 @@ def classify_network(graph: NetworkGraph) -> NetworkType:
 def get_source_head(component: Component) -> float:
     """Get the total head at a source component.
 
+    Uses the HeadSource protocol - any component with a total_head property
+    can be used as a source.
+
     Args:
-        component: Source component (reservoir, tank, or reference node)
+        component: Source component implementing HeadSource protocol
+                   (reservoir, tank, or reference node)
 
     Returns:
         Total head in feet
     """
-    if isinstance(component, Reservoir):
-        return component.elevation + component.water_level
-    elif isinstance(component, Tank):
-        return component.elevation + component.initial_level
-    elif component.type == ComponentType.IDEAL_REFERENCE_NODE:  # type: ignore[comparison-overlap]
-        # IdealReferenceNode: convert pressure to head
-        # Assume pressure is in psi, convert to ft of water
-        return component.elevation + component.pressure / 0.433
-    elif component.type == ComponentType.NON_IDEAL_REFERENCE_NODE:  # type: ignore[comparison-overlap]
-        # NonIdealReferenceNode: use the pressure at zero flow
-        # Interpolate from curve if available
-        if hasattr(component, "pressure_flow_curve") and component.pressure_flow_curve:
-            # Find point closest to zero flow
-            min_flow_point = min(
-                component.pressure_flow_curve, key=lambda p: abs(p.flow)
-            )
-            return component.elevation + min_flow_point.pressure / 0.433
-        return component.elevation
-    else:
-        return component.elevation
+    if isinstance(component, HeadSource):
+        return component.total_head
+    # Fallback for components without total_head property
+    return component.elevation
 
 
 def solve_simple_path(

@@ -60,6 +60,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Backend (API)
 
+- **Pump Operating Modes and Status** (PR #114)
+  - `PumpOperatingMode` enum: fixed_speed, variable_speed, controlled_pressure, controlled_flow, off
+  - `PumpStatus` enum: running, off_check, off_no_check, locked_out
+  - Updated `PumpComponent` with operating_mode, status, control_setpoint, viscosity_correction_enabled fields
+  - Validation for controlled modes requiring setpoints
+  - VFD (Variable Frequency Drive) support for pressure/flow control modes
+
+- **Valve Status States** (PR #115)
+  - `ValveStatus` enum: active, isolated, failed_open, failed_closed, locked_open
+  - Updated `ValveComponent` with status field for operational state tracking
+  - Support for isolation and failure mode scenarios
+
+- **Enhanced Solver Result Fields** (PR #116)
+  - `ViscosityCorrectionFactors` model with c_q, c_h, c_eta factors per ANSI/HI 9.6.7
+  - `ControlValveResult` model for control valve behavior tracking
+  - Enhanced `PumpResult` with status, actual_speed, viscosity_correction_applied, viscosity_correction_factors
+  - Enhanced `SolvedState` with control_valve_results dictionary
+
 - **Port-Based Architecture** (PR #64)
   - Port model with id, nominal_size, and direction (inlet/outlet/bidirectional)
   - PipeConnection model for explicit port-to-port connections
@@ -88,6 +106,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Configurable port sizes for reduced-size branches
 
 #### Frontend (Web)
+
+- **Pump and Valve TypeScript Models** (PR #117)
+  - TypeScript types for PumpOperatingMode, PumpStatus, ValveStatus
+  - Human-readable label maps for all enums (PUMP_OPERATING_MODE_LABELS, etc.)
+  - Updated PumpComponent and ValveComponent interfaces
+  - ViscosityCorrectionFactors and ControlValveResult types
+  - Enhanced PumpResult and SolvedState types
+  - Updated PumpForm to use new running/off_check status values
+  - Updated example project with new pump/valve status fields
 
 - **Port Connection Models** (PR #67)
   - Port and PortDirection types matching backend

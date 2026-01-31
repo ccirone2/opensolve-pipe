@@ -1,9 +1,9 @@
 # OpenSolve Pipe - Development Plan
 
 **Status:** Phase 1 Complete (MVP Functional - Full Network Solver Pending)
-**Last Updated:** 2026-01-24
+**Last Updated:** 2026-01-31
 
-> **Progress Summary:** Phase 1 MVP is **95% complete**. All features implemented except full network solver.
+> **Progress Summary:** Phase 1 MVP is **97% complete**. All features implemented including pump/valve operating modes. Only full network solver remains.
 >
 > ✅ **Completed:**
 >
@@ -20,7 +20,11 @@
 > - [x] Branch Component Forms ([#63](https://github.com/ccirone2/opensolve-pipe/issues/63), [PR #69](https://github.com/ccirone2/opensolve-pipe/pull/69))
 > - [x] Frontend State Management, URL Encoding, Panel Navigator, Component Forms, Results Display
 > - [x] CI/CD Pipeline (GitHub Actions, Vercel, Railway)
-> - [x] 576+ backend tests, 73 frontend tests (>93% coverage)
+> - [x] 576+ backend tests, 86 frontend tests (>93% coverage)
+> - [x] Pump Operating Modes and Status ([#103](https://github.com/ccirone2/opensolve-pipe/issues/103), [PR #114](https://github.com/ccirone2/opensolve-pipe/pull/114))
+> - [x] Valve Status States ([#104](https://github.com/ccirone2/opensolve-pipe/issues/104), [PR #115](https://github.com/ccirone2/opensolve-pipe/pull/115))
+> - [x] Enhanced Solver Result Fields ([#105](https://github.com/ccirone2/opensolve-pipe/issues/105), [PR #116](https://github.com/ccirone2/opensolve-pipe/pull/116))
+> - [x] TypeScript Models Sync ([#106](https://github.com/ccirone2/opensolve-pipe/issues/106), [PR #117](https://github.com/ccirone2/opensolve-pipe/pull/117))
 >
 > 🚧 **Remaining:**
 >
@@ -259,6 +263,54 @@ Plug/Cap:
 - [x] Write tests for branch hydraulic calculations
 
 **Complexity:** High - Complex K-factor calculations
+
+---
+
+### 1.7.1 Backend - Pump/Valve Operating Modes and Status (Medium Priority)
+
+> ✅ **COMPLETED** - [GitHub Issue #103](https://github.com/ccirone2/opensolve-pipe/issues/103) | [PR #114](https://github.com/ccirone2/opensolve-pipe/pull/114)
+> [GitHub Issue #104](https://github.com/ccirone2/opensolve-pipe/issues/104) | [PR #115](https://github.com/ccirone2/opensolve-pipe/pull/115)
+> [GitHub Issue #105](https://github.com/ccirone2/opensolve-pipe/issues/105) | [PR #116](https://github.com/ccirone2/opensolve-pipe/pull/116)
+> [GitHub Issue #106](https://github.com/ccirone2/opensolve-pipe/issues/106) | [PR #117](https://github.com/ccirone2/opensolve-pipe/pull/117)
+
+**Files:**
+
+- `apps/api/src/opensolve_pipe/models/components.py`
+- `apps/api/src/opensolve_pipe/models/results.py`
+- `apps/web/src/lib/models/components.ts`
+- `apps/web/src/lib/models/results.ts`
+
+**Tasks:**
+
+Pump Operating Modes:
+
+- [x] Add `PumpOperatingMode` enum (fixed_speed, variable_speed, controlled_pressure, controlled_flow, off)
+- [x] Add `PumpStatus` enum (running, off_check, off_no_check, locked_out)
+- [x] Update `PumpComponent` with operating_mode, status, control_setpoint fields
+- [x] Add viscosity_correction_enabled field per ANSI/HI 9.6.7
+- [x] Add validation for controlled modes requiring setpoints
+
+Valve Status:
+
+- [x] Add `ValveStatus` enum (active, isolated, failed_open, failed_closed, locked_open)
+- [x] Update `ValveComponent` with status field
+
+Enhanced Result Fields:
+
+- [x] Add `ViscosityCorrectionFactors` model (c_q, c_h, c_eta)
+- [x] Add `ControlValveResult` model for control valve behavior
+- [x] Enhance `PumpResult` with status, actual_speed, viscosity correction
+- [x] Enhance `SolvedState` with control_valve_results dictionary
+
+TypeScript Sync:
+
+- [x] Add TypeScript types matching backend enums
+- [x] Add human-readable label maps for UI display
+- [x] Update component and result interfaces
+- [x] Update PumpForm component with new status values
+- [x] Update example project with new fields
+
+**Complexity:** Medium - Enum definitions and interface updates
 
 ---
 

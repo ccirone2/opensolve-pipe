@@ -33,7 +33,7 @@ jobs:
           ruff format --check src/
 
       - name: Run type checking
-        run: mypy src/
+        run: mypy --strict src/
 
       - name: Run tests
         run: pytest --cov=opensolve_pipe --cov-report=xml

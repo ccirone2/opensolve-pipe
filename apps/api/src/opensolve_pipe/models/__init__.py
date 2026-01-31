@@ -46,6 +46,7 @@ from .components import (
     Strainer,
     Tank,
     ValveComponent,
+    ValveStatus,
     ValveType,
 )
 from .connections import (
@@ -169,6 +170,7 @@ __all__ = [
     "UnitPreferences",
     "UnitSystem",
     "ValveComponent",
+    "ValveStatus",
     "ValveType",
     "Velocity",
     "Warning",

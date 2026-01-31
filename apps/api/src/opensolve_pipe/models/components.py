@@ -90,6 +90,20 @@ class PumpStatus(str, Enum):
     LOCKED_OUT = "locked_out"  # Treated as closed valve (LOTO)
 
 
+class ValveStatus(str, Enum):
+    """Status options for valves.
+
+    Defines the current operational state of the valve.
+    See PRD Section 3.1.2.2 for details.
+    """
+
+    ACTIVE = "active"  # Normal operation per position/setpoint
+    ISOLATED = "isolated"  # Zero flow through valve (closed for isolation)
+    FAILED_OPEN = "failed_open"  # Full open position, no control action
+    FAILED_CLOSED = "failed_closed"  # Zero flow, treated as closed
+    LOCKED_OPEN = "locked_open"  # Fixed at current position, no control action
+
+
 class Connection(OpenSolvePipeBaseModel):
     """Connection to a downstream component."""
 
@@ -341,6 +355,10 @@ class ValveComponent(BaseComponent):
 
     type: Literal[ComponentType.VALVE] = ComponentType.VALVE
     valve_type: ValveType = Field(description="Type of valve")
+    status: ValveStatus = Field(
+        default=ValveStatus.ACTIVE,
+        description="Valve operational status (see PRD Section 3.1.2.2)",
+    )
     setpoint: float | None = Field(
         default=None,
         description="Setpoint for control valves (pressure or flow depending on type)",

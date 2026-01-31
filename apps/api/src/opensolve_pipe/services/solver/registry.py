@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .strategies import BranchingSolver, SimpleSolver
+from .strategies import BranchingSolver, LoopedSolver, SimpleSolver
 
 if TYPE_CHECKING:
     from ...models.project import Project
@@ -62,11 +62,12 @@ def create_default_registry() -> SolverRegistry:
     """Create a registry with the default built-in solvers.
 
     Returns:
-        A SolverRegistry with SimpleSolver and BranchingSolver registered
+        A SolverRegistry with SimpleSolver, BranchingSolver, and LoopedSolver registered
     """
     registry = SolverRegistry()
     registry.register(SimpleSolver())
     registry.register(BranchingSolver())
+    registry.register(LoopedSolver())
     return registry
 
 

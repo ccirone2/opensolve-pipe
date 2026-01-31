@@ -278,17 +278,18 @@ class TestSolveProject:
         # Should have results for all components
         assert len(result.component_results) > 0
 
-    def test_solve_looped_project_not_supported(self) -> None:
-        """Looped project should return not supported error."""
+    def test_solve_looped_project_with_epanet(self) -> None:
+        """Looped project should be solved using EPANET via LoopedSolver."""
         project = _create_looped_project()
         result = solve_project(project)
 
-        # Looped networks are not yet supported
-        assert result.converged is False
-        assert result.error is not None
-        assert (
-            "looped" in result.error.lower() or "not supported" in result.error.lower()
-        )
+        # Looped networks are now supported via EPANET/WNTR
+        # EPANET may or may not converge depending on network configuration
+        # but should not return "not supported" error
+        if result.error:
+            assert "not supported" not in result.error.lower()
+        # Should have component results regardless of convergence
+        assert len(result.component_results) > 0 or len(result.piping_results) > 0
 
     def test_solve_with_non_ideal_reference_node(self) -> None:
         """Project with non-ideal reference node should solve."""

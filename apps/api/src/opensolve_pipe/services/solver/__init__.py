@@ -84,7 +84,7 @@ from .simple import (
     solve_pump_pipe_system,
     solve_water_system,
 )
-from .strategies import BranchingSolver, SimpleSolver
+from .strategies import BranchingSolver, LoopedSolver, SimpleSolver
 
 __all__ = [
     "FT_TO_M",
@@ -97,6 +97,7 @@ __all__ = [
     "RE_LAMINAR",
     "RE_TURBULENT",
     "BranchingSolver",
+    "LoopedSolver",
     "NetworkGraph",
     "NetworkType",
     "SimpleSolver",
@@ -108,7 +109,6 @@ __all__ = [
     "build_network_graph",
     "build_pump_curve_interpolator",
     "build_wntr_network",
-    "convert_wntr_results",
     "calculate_friction_factor",
     "calculate_friction_factor_laminar",
     "calculate_friction_head_loss",
@@ -120,6 +120,7 @@ __all__ = [
     "calculate_velocity",
     "calculate_velocity_fps",
     "classify_network",
+    "convert_wntr_results",
     "create_default_registry",
     "default_registry",
     "find_operating_point",
@@ -143,4 +144,5 @@ __all__ = [
     "solve_with_epanet",
     "solve_pump_pipe_system",
     "solve_water_system",
+    "solve_with_epanet",
 ]

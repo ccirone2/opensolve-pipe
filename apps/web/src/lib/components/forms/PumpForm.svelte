@@ -311,23 +311,23 @@
 				<input
 					type="radio"
 					name="status"
-					value="on"
-					checked={component.status === 'on'}
-					onchange={() => onUpdate('status', 'on')}
+					value="running"
+					checked={component.status === 'running'}
+					onchange={() => onUpdate('status', 'running')}
 					class="h-4 w-4 border-[var(--color-border)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
 				/>
-				<span class="ml-2 text-sm text-[var(--color-text)]">On</span>
+				<span class="ml-2 text-sm text-[var(--color-text)]">Running</span>
 			</label>
 			<label class="flex items-center">
 				<input
 					type="radio"
 					name="status"
-					value="off"
-					checked={component.status === 'off'}
-					onchange={() => onUpdate('status', 'off')}
+					value="off_check"
+					checked={component.status === 'off_check'}
+					onchange={() => onUpdate('status', 'off_check')}
 					class="h-4 w-4 border-[var(--color-border)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
 				/>
-				<span class="ml-2 text-sm text-[var(--color-text)]">Off</span>
+				<span class="ml-2 text-sm text-[var(--color-text)]">Off (with check)</span>
 			</label>
 		</div>
 	</fieldset>

@@ -85,6 +85,7 @@ export const EXAMPLE_PROJECT: Project = {
 			name: 'Suction Isolation Valve',
 			elevation: 0,
 			valve_type: 'gate',
+			status: 'active',
 			position: 1.0,
 			cv: 450,
 			ports: [
@@ -119,7 +120,9 @@ export const EXAMPLE_PROJECT: Project = {
 			elevation: 0,
 			curve_id: 'curve_1',
 			speed: 1.0,
-			status: 'on',
+			operating_mode: 'fixed_speed',
+			status: 'running',
+			viscosity_correction_enabled: true,
 			ports: [
 				{ id: 'P1', name: 'Suction', nominal_size: 4, direction: 'inlet' },
 				{ id: 'P2', name: 'Discharge', nominal_size: 4, direction: 'outlet' }
@@ -148,6 +151,7 @@ export const EXAMPLE_PROJECT: Project = {
 			name: 'Discharge Control Valve',
 			elevation: 2,
 			valve_type: 'globe',
+			status: 'active',
 			position: 0.85,
 			cv: 200,
 			ports: [

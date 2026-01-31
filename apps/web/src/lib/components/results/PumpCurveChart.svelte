@@ -31,6 +31,12 @@
 	// Check if efficiency curve data is available
 	let hasEfficiencyCurve = $derived(curve?.efficiency_curve && curve.efficiency_curve.length > 0);
 
+	// Calculate interpolated efficiency at operating point
+	let operatingEfficiency = $derived.by(() => {
+		if (!hasEfficiencyCurve || !result?.operating_flow) return null;
+		return interpolateEfficiency(curve, result.operating_flow);
+	});
+
 	let canvas: HTMLCanvasElement | null = $state(null);
 	let chart: Chart | null = null;
 
@@ -408,7 +414,12 @@
 			<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">NPSH Available</p>
 			<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.npsh_available.toFixed(1)} ft</p>
 		</div>
-		{#if result.efficiency !== undefined}
+		{#if operatingEfficiency !== null}
+			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
+				<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Efficiency</p>
+				<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{(operatingEfficiency * 100).toFixed(1)}%</p>
+			</div>
+		{:else if result.efficiency !== undefined}
 			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
 				<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Efficiency</p>
 				<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{(result.efficiency * 100).toFixed(1)}%</p>

@@ -92,8 +92,6 @@ class PumpStatus(str, Enum):
 
     RUNNING = "running"  # Normal operation at defined speed
     OFF_WITH_CHECK = "off_check"  # Zero flow, check valve prevents reverse
-    OFF_NO_CHECK = "off_no_check"  # Zero flow, reverse flow allowed
-    LOCKED_OUT = "locked_out"  # Treated as closed valve (LOTO)
 
 
 class ValveStatus(str, Enum):
@@ -104,10 +102,8 @@ class ValveStatus(str, Enum):
     """
 
     ACTIVE = "active"  # Normal operation per position/setpoint
-    ISOLATED = "isolated"  # Zero flow through valve (closed for isolation)
     FAILED_OPEN = "failed_open"  # Full open position, no control action
     FAILED_CLOSED = "failed_closed"  # Zero flow, treated as closed
-    LOCKED_OPEN = "locked_open"  # Fixed at current position, no control action
 
 
 class Connection(OpenSolvePipeBaseModel):

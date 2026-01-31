@@ -232,3 +232,8 @@ coverage/
 
 # Playwright
 .playwright-mcp
+
+# EPANET temp files (created during tests)
+temp.bin
+temp.inp
+temp.rpt

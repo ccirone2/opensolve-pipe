@@ -200,56 +200,6 @@ class TestPumpStatusOffWithCheck:
             assert "off" in pump_warnings[0].message.lower()
 
 
-class TestPumpStatusOffNoCheck:
-    """Tests for pump in OFF_NO_CHECK status."""
-
-    def test_off_no_check_solves(self) -> None:
-        """Off pump without check valve should solve successfully."""
-        project = create_simple_pump_project(PumpStatus.OFF_NO_CHECK)
-        result = solve_project(project)
-
-        assert result.converged is True
-
-    def test_off_no_check_zero_flow(self) -> None:
-        """Off pump without check valve should have zero flow in simple network."""
-        project = create_simple_pump_project(PumpStatus.OFF_NO_CHECK)
-        result = solve_project(project)
-
-        if result.converged:
-            for piping_result in result.piping_results.values():
-                assert piping_result.flow == 0.0
-
-
-class TestPumpStatusLockedOut:
-    """Tests for pump in LOCKED_OUT status."""
-
-    def test_locked_out_solves(self) -> None:
-        """Locked out pump should solve successfully."""
-        project = create_simple_pump_project(PumpStatus.LOCKED_OUT)
-        result = solve_project(project)
-
-        assert result.converged is True
-
-    def test_locked_out_zero_flow(self) -> None:
-        """Locked out pump should have zero flow."""
-        project = create_simple_pump_project(PumpStatus.LOCKED_OUT)
-        result = solve_project(project)
-
-        if result.converged:
-            for piping_result in result.piping_results.values():
-                assert piping_result.flow == 0.0
-
-    def test_locked_out_has_warning(self) -> None:
-        """Locked out pump should produce LOTO warning."""
-        project = create_simple_pump_project(PumpStatus.LOCKED_OUT)
-        result = solve_project(project)
-
-        if result.converged:
-            pump_warnings = [w for w in result.warnings if w.component_id == "pump-1"]
-            assert len(pump_warnings) > 0
-            assert "loto" in pump_warnings[0].message.lower()
-
-
 class TestPumpStatusInResults:
     """Tests for pump status in results."""
 

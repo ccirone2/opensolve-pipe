@@ -83,6 +83,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `get_valve_k_factor()` helper for valve K-factor lookup
   - ADR-008: Protocol-based interfaces decision
 
+- **Looped Network Solver Strategy** (PR #129)
+  - `LoopedSolver` class implementing NetworkSolver protocol for looped networks
+  - Automatic network type detection using graph cycle analysis
+  - WNTR/EPANET integration for gradient-based network solving
+  - SolvedState to SolverState conversion for consistent API
+  - Registered in default solver registry for automatic selection
+
 - **Valve Status States** (PR #115)
   - `ValveStatus` enum: active, isolated, failed_open, failed_closed, locked_open
   - Updated `ValveComponent` with status field for operational state tracking

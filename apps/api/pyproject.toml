@@ -20,6 +20,7 @@ dependencies = [
     "fluids>=1.0.0,<2.0.0",
     "scipy>=1.14.0,<2.0.0",
     "numpy>=2.0.0,<3.0.0",
+    "wntr>=1.2.0,<2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -68,5 +69,5 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["fluids.*", "scipy.*"]
+module = ["fluids.*", "scipy.*", "wntr.*"]
 ignore_missing_imports = true

@@ -12,6 +12,14 @@ This package provides hydraulic calculations for pipe networks including:
 
 from __future__ import annotations
 
+from .epanet import (
+    WNTRBuildContext,
+    build_wntr_network,
+    convert_wntr_results,
+    run_epanet_simulation,
+    solve_with_epanet,
+)
+
 # Friction calculations
 from .friction import (
     FT_TO_M,
@@ -76,7 +84,7 @@ from .simple import (
     solve_pump_pipe_system,
     solve_water_system,
 )
-from .strategies import BranchingSolver, SimpleSolver
+from .strategies import BranchingSolver, LoopedSolver, SimpleSolver
 
 __all__ = [
     "FT_TO_M",
@@ -89,6 +97,7 @@ __all__ = [
     "RE_LAMINAR",
     "RE_TURBULENT",
     "BranchingSolver",
+    "LoopedSolver",
     "NetworkGraph",
     "NetworkType",
     "SimpleSolver",
@@ -96,8 +105,10 @@ __all__ = [
     "SolverRegistry",
     "SolverResult",
     "SolverState",
+    "WNTRBuildContext",
     "build_network_graph",
     "build_pump_curve_interpolator",
+    "build_wntr_network",
     "calculate_friction_factor",
     "calculate_friction_factor_laminar",
     "calculate_friction_head_loss",
@@ -109,6 +120,7 @@ __all__ = [
     "calculate_velocity",
     "calculate_velocity_fps",
     "classify_network",
+    "convert_wntr_results",
     "create_default_registry",
     "default_registry",
     "find_operating_point",
@@ -127,7 +139,9 @@ __all__ = [
     "k_gate_valve",
     "resolve_fitting_k",
     "resolve_fittings_total_k",
+    "run_epanet_simulation",
     "solve_project",
     "solve_pump_pipe_system",
     "solve_water_system",
+    "solve_with_epanet",
 ]

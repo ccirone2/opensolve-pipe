@@ -90,6 +90,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - SolvedState to SolverState conversion for consistent API
   - Registered in default solver registry for automatic selection
 
+- **Complex Network Validation Tests** (PR #137)
+  - Parallel pumps test: equal flow split, flow continuity
+  - Series pumps test: same flow through stages, head addition
+  - Looped distribution test: grid topology with demands
+  - Building riser test: multi-floor vertical distribution
+  - Fire sprinkler loop test: cross-connected mains
+  - Performance benchmarks: solve time < 1s for simple networks
+
 - **Valve Status States** (PR #115)
   - `ValveStatus` enum: active, isolated, failed_open, failed_closed, locked_open
   - Updated `ValveComponent` with status field for operational state tracking

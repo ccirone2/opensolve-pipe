@@ -141,8 +141,8 @@ __all__ = [
     "resolve_fittings_total_k",
     "run_epanet_simulation",
     "solve_project",
-    "solve_with_epanet",
     "solve_pump_pipe_system",
     "solve_water_system",
+    "solve_with_epanet",
     "solve_with_epanet",
 ]

@@ -143,6 +143,57 @@ export const VALVE_TYPE_LABELS: Record<ValveType, string> = {
 /** Valve types that require a setpoint. */
 export const CONTROL_VALVE_TYPES: ValveType[] = ['prv', 'psv', 'fcv', 'tcv'];
 
+// ============================================================================
+// Pump Operating Modes and Status
+// ============================================================================
+
+/** Pump operating modes. See PRD Section 3.1.2.1. */
+export type PumpOperatingMode =
+	| 'fixed_speed'
+	| 'variable_speed'
+	| 'controlled_pressure'
+	| 'controlled_flow'
+	| 'off';
+
+/** Display names for pump operating modes. */
+export const PUMP_OPERATING_MODE_LABELS: Record<PumpOperatingMode, string> = {
+	fixed_speed: 'Fixed Speed',
+	variable_speed: 'Variable Speed (VFD)',
+	controlled_pressure: 'Controlled Pressure',
+	controlled_flow: 'Controlled Flow',
+	off: 'Off'
+};
+
+/** Pump operating modes that require a control setpoint. */
+export const CONTROLLED_PUMP_MODES: PumpOperatingMode[] = ['controlled_pressure', 'controlled_flow'];
+
+/** Pump status options. See PRD Section 3.1.2.2. */
+export type PumpStatus = 'running' | 'off_check' | 'off_no_check' | 'locked_out';
+
+/** Display names for pump status. */
+export const PUMP_STATUS_LABELS: Record<PumpStatus, string> = {
+	running: 'Running',
+	off_check: 'Off (with Check)',
+	off_no_check: 'Off (no Check)',
+	locked_out: 'Locked Out'
+};
+
+// ============================================================================
+// Valve Status
+// ============================================================================
+
+/** Valve status options. See PRD Section 3.1.2.2. */
+export type ValveStatus = 'active' | 'isolated' | 'failed_open' | 'failed_closed' | 'locked_open';
+
+/** Display names for valve status. */
+export const VALVE_STATUS_LABELS: Record<ValveStatus, string> = {
+	active: 'Active',
+	isolated: 'Isolated/Closed',
+	failed_open: 'Failed Open',
+	failed_closed: 'Failed Closed',
+	locked_open: 'Locked Open'
+};
+
 /** Connection to a downstream component. */
 export interface Connection {
 	/** ID of the downstream component. */
@@ -205,8 +256,14 @@ export interface PumpComponent extends BaseComponentProps {
 	curve_id: string;
 	/** Fraction of rated speed (1.0 = 100%). Default: 1.0 */
 	speed: number;
-	/** Pump status. Default: 'on' */
-	status: 'on' | 'off';
+	/** Pump operating mode. Default: 'fixed_speed' */
+	operating_mode: PumpOperatingMode;
+	/** Pump operational status. Default: 'running' */
+	status: PumpStatus;
+	/** Setpoint for controlled modes (pressure or flow depending on mode). */
+	control_setpoint?: number;
+	/** Enable viscosity correction per ANSI/HI 9.6.7. Default: true */
+	viscosity_correction_enabled: boolean;
 }
 
 /** Valve component for flow/pressure control. */
@@ -214,6 +271,8 @@ export interface ValveComponent extends BaseComponentProps {
 	type: 'valve';
 	/** Type of valve. */
 	valve_type: ValveType;
+	/** Valve operational status. Default: 'active' */
+	status: ValveStatus;
 	/** Setpoint for control valves (pressure or flow depending on type). */
 	setpoint?: number;
 	/** Valve position for throttling (0=closed, 1=open). */
@@ -672,9 +731,17 @@ export function createDefaultComponent(type: ComponentType, id?: string): Compon
 		case 'junction':
 			return { ...baseProps, type: 'junction', demand: 0 };
 		case 'pump':
-			return { ...baseProps, type: 'pump', curve_id: '', speed: 1.0, status: 'on' };
+			return {
+				...baseProps,
+				type: 'pump',
+				curve_id: '',
+				speed: 1.0,
+				operating_mode: 'fixed_speed',
+				status: 'running',
+				viscosity_correction_enabled: true
+			};
 		case 'valve':
-			return { ...baseProps, type: 'valve', valve_type: 'gate' };
+			return { ...baseProps, type: 'valve', valve_type: 'gate', status: 'active' };
 		case 'heat_exchanger':
 			return { ...baseProps, type: 'heat_exchanger', pressure_drop: 5, design_flow: 100 };
 		case 'strainer':

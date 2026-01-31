@@ -66,6 +66,9 @@ export type {
 	PipeConnection,
 	ComponentType,
 	ValveType,
+	PumpOperatingMode,
+	PumpStatus,
+	ValveStatus,
 	Connection,
 	Reservoir,
 	Tank,
@@ -90,6 +93,10 @@ export {
 	COMPONENT_CATEGORIES,
 	VALVE_TYPE_LABELS,
 	CONTROL_VALVE_TYPES,
+	PUMP_OPERATING_MODE_LABELS,
+	CONTROLLED_PUMP_MODES,
+	PUMP_STATUS_LABELS,
+	VALVE_STATUS_LABELS,
 	isReservoir,
 	isTank,
 	isJunction,
@@ -132,7 +139,9 @@ export type {
 	FlowRegime,
 	ComponentResult,
 	PipingResult,
+	ViscosityCorrectionFactors,
 	PumpResult,
+	ControlValveResult,
 	WarningCategory,
 	WarningSeverity,
 	Warning,
@@ -147,7 +156,8 @@ export {
 	hasErrors,
 	getComponentResult,
 	getPipingResult,
-	getPumpResult
+	getPumpResult,
+	getControlValveResult
 } from './results';
 
 // Project

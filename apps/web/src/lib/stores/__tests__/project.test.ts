@@ -191,6 +191,7 @@ describe('projectStore', () => {
 				component_results: {},
 				piping_results: {},
 				pump_results: {},
+				control_valve_results: {},
 				warnings: []
 			};
 
@@ -208,6 +209,7 @@ describe('projectStore', () => {
 				component_results: {},
 				piping_results: {},
 				pump_results: {},
+				control_valve_results: {},
 				warnings: []
 			});
 

@@ -7,6 +7,7 @@
  */
 
 import type { FlowHeadPoint } from './pump';
+import type { PumpStatus, ValveStatus } from './components';
 
 /** Flow regime classification. */
 export type FlowRegime = 'laminar' | 'transitional' | 'turbulent';
@@ -69,24 +70,69 @@ export interface PipingResult {
 	regime: FlowRegime;
 }
 
+/**
+ * Viscosity correction factors per ANSI/HI 9.6.7.
+ * These factors adjust pump performance for viscous fluids.
+ * All factors are less than 1.0 for viscous fluids (compared to water).
+ */
+export interface ViscosityCorrectionFactors {
+	/** Flow correction factor (reduces rated flow for viscous fluids). */
+	c_q: number;
+	/** Head correction factor (reduces rated head for viscous fluids). */
+	c_h: number;
+	/** Efficiency correction factor (reduces efficiency for viscous fluids). */
+	c_eta: number;
+}
+
 /** Solved state for a pump at its operating point. */
 export interface PumpResult {
 	/** ID of the pump component. */
 	component_id: string;
+	/** Pump operational status at solve time. Default: 'running' */
+	status: PumpStatus;
 	/** Operating flow rate in project units. */
 	operating_flow: number;
 	/** Operating head in project units. */
 	operating_head: number;
+	/** Actual speed ratio (0-1) if VFD-controlled, undefined for fixed speed. */
+	actual_speed?: number;
 	/** NPSH available at pump suction. */
 	npsh_available: number;
 	/** NPSH margin (NPSHa - NPSHr) if NPSHR curve provided. */
 	npsh_margin?: number;
-	/** Pump efficiency at operating point (if efficiency curve provided). */
+	/** Pump efficiency at operating point (with viscosity correction if applied). */
 	efficiency?: number;
 	/** Power consumption in kW (if efficiency provided). */
 	power?: number;
+	/** Whether viscosity correction was applied per ANSI/HI 9.6.7. Default: false */
+	viscosity_correction_applied: boolean;
+	/** Viscosity correction factors if correction was applied. */
+	viscosity_correction_factors?: ViscosityCorrectionFactors;
 	/** System curve points. */
 	system_curve: FlowHeadPoint[];
+}
+
+/**
+ * Solved state for a control valve (PRV, PSV, FCV, TCV).
+ * Control valves regulate pressure or flow to maintain a setpoint.
+ */
+export interface ControlValveResult {
+	/** ID of the valve component. */
+	component_id: string;
+	/** Valve operational status at solve time. Default: 'active' */
+	status: ValveStatus;
+	/** Target setpoint value (pressure or flow depending on valve type). */
+	setpoint?: number;
+	/** Actual controlled value (pressure downstream of PRV, etc.). */
+	actual_value: number;
+	/** Whether the valve successfully achieved its setpoint. */
+	setpoint_achieved: boolean;
+	/** Valve position (0=closed, 1=fully open). */
+	valve_position: number;
+	/** Pressure drop across the valve in project units. */
+	pressure_drop: number;
+	/** Flow rate through the valve in project units. */
+	flow: number;
 }
 
 /** Categories of warnings and design check results. */
@@ -137,6 +183,8 @@ export interface SolvedState {
 	piping_results: Record<string, PipingResult>;
 	/** Results keyed by pump component ID. */
 	pump_results: Record<string, PumpResult>;
+	/** Results keyed by control valve component ID. */
+	control_valve_results: Record<string, ControlValveResult>;
 	/** Warnings and design check results. */
 	warnings: Warning[];
 }
@@ -201,4 +249,12 @@ export function getPipingResult(state: SolvedState, pipingId: string): PipingRes
 /** Get the result for a pump component. */
 export function getPumpResult(state: SolvedState, componentId: string): PumpResult | undefined {
 	return state.pump_results[componentId];
+}
+
+/** Get the result for a control valve component. */
+export function getControlValveResult(
+	state: SolvedState,
+	componentId: string
+): ControlValveResult | undefined {
+	return state.control_valve_results[componentId];
 }

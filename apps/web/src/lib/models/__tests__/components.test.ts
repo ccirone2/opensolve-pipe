@@ -109,7 +109,9 @@ describe('getPortElevation', () => {
 			elevation: 10, // Pump body at 10 ft
 			curve_id: 'PC1',
 			speed: 1.0,
-			status: 'on',
+			operating_mode: 'fixed_speed',
+			status: 'running',
+			viscosity_correction_enabled: true,
 			ports,
 			downstream_connections: []
 		};

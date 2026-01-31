@@ -92,10 +92,12 @@ from .reference_node import (
 )
 from .results import (
     ComponentResult,
+    ControlValveResult,
     FlowRegime,
     PipingResult,
     PumpResult,
     SolvedState,
+    ViscosityCorrectionFactors,
     Warning,
     WarningCategory,
     WarningSeverity,
@@ -113,6 +115,7 @@ __all__ = [
     "ComponentType",
     "Connection",
     "ConnectionBuilder",
+    "ControlValveResult",
     "CrossBranch",
     "Diameter",
     "Elevation",
@@ -173,6 +176,7 @@ __all__ = [
     "ValveStatus",
     "ValveType",
     "Velocity",
+    "ViscosityCorrectionFactors",
     "Warning",
     "WarningCategory",
     "WarningSeverity",

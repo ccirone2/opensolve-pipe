@@ -16,6 +16,7 @@ from .base import (
     OpenSolvePipeBaseModel,
     PositiveFloat,
 )
+from .components import PumpStatus, ValveStatus
 from .pump import FlowHeadPoint
 
 
@@ -70,15 +71,47 @@ class PipingResult(OpenSolvePipeBaseModel):
     regime: FlowRegime = Field(description="Flow regime classification")
 
 
+class ViscosityCorrectionFactors(OpenSolvePipeBaseModel):
+    """Viscosity correction factors per ANSI/HI 9.6.7.
+
+    These factors adjust pump performance when handling viscous fluids.
+    All factors are less than 1.0 for viscous fluids (compared to water).
+    """
+
+    c_q: float = Field(
+        ge=0,
+        le=1,
+        description="Flow correction factor (reduces rated flow for viscous fluids)",
+    )
+    c_h: float = Field(
+        ge=0,
+        le=1,
+        description="Head correction factor (reduces rated head for viscous fluids)",
+    )
+    c_eta: float = Field(
+        ge=0,
+        le=1,
+        description="Efficiency correction factor (reduces efficiency for viscous fluids)",
+    )
+
+
 class PumpResult(OpenSolvePipeBaseModel):
     """Solved state for a pump at its operating point."""
 
     component_id: str = Field(description="ID of the pump component")
+    status: PumpStatus = Field(
+        default=PumpStatus.RUNNING,
+        description="Pump operational status at solve time",
+    )
     operating_flow: NonNegativeFloat = Field(
         description="Operating flow rate in project units"
     )
     operating_head: NonNegativeFloat = Field(
         description="Operating head in project units"
+    )
+    actual_speed: float | None = Field(
+        default=None,
+        description="Actual speed ratio (0-1) if VFD-controlled, None for fixed speed",
     )
     npsh_available: float = Field(description="NPSH available at pump suction")
     npsh_margin: float | None = Field(
@@ -88,14 +121,56 @@ class PumpResult(OpenSolvePipeBaseModel):
         default=None,
         ge=0,
         le=1,
-        description="Pump efficiency at operating point (if efficiency curve provided)",
+        description="Pump efficiency at operating point (with viscosity correction if applied)",
     )
     power: PositiveFloat | None = Field(
         default=None, description="Power consumption in kW (if efficiency provided)"
     )
+    viscosity_correction_applied: bool = Field(
+        default=False,
+        description="Whether viscosity correction was applied per ANSI/HI 9.6.7",
+    )
+    viscosity_correction_factors: ViscosityCorrectionFactors | None = Field(
+        default=None,
+        description="Viscosity correction factors if correction was applied",
+    )
     system_curve: list[FlowHeadPoint] = Field(
         default_factory=list, description="System curve points"
     )
+
+
+class ControlValveResult(OpenSolvePipeBaseModel):
+    """Solved state for a control valve (PRV, PSV, FCV, TCV).
+
+    Control valves regulate pressure or flow to maintain a setpoint.
+    This result shows whether the valve achieved its setpoint and
+    its resulting position.
+    """
+
+    component_id: str = Field(description="ID of the valve component")
+    status: ValveStatus = Field(
+        default=ValveStatus.ACTIVE,
+        description="Valve operational status at solve time",
+    )
+    setpoint: float | None = Field(
+        default=None,
+        description="Target setpoint value (pressure or flow depending on valve type)",
+    )
+    actual_value: float = Field(
+        description="Actual controlled value (pressure downstream of PRV, etc.)"
+    )
+    setpoint_achieved: bool = Field(
+        description="Whether the valve successfully achieved its setpoint"
+    )
+    valve_position: float = Field(
+        ge=0,
+        le=1,
+        description="Valve position (0=closed, 1=fully open)",
+    )
+    pressure_drop: NonNegativeFloat = Field(
+        description="Pressure drop across the valve in project units"
+    )
+    flow: float = Field(description="Flow rate through the valve in project units")
 
 
 class WarningCategory(str, Enum):
@@ -154,6 +229,9 @@ class SolvedState(OpenSolvePipeBaseModel):
     )
     pump_results: dict[str, PumpResult] = Field(
         default_factory=dict, description="Results keyed by pump component ID"
+    )
+    control_valve_results: dict[str, ControlValveResult] = Field(
+        default_factory=dict, description="Results keyed by control valve component ID"
     )
 
     warnings: list[Warning] = Field(

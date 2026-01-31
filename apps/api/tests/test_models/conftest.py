@@ -16,6 +16,7 @@ from opensolve_pipe.models import (
     Project,
     PumpComponent,
     PumpCurve,
+    PumpStatus,
     Reservoir,
     SolvedState,
     Tank,
@@ -86,7 +87,7 @@ def sample_pump(sample_pump_curve: PumpCurve) -> PumpComponent:
         elevation=20.0,
         curve_id=sample_pump_curve.id,
         speed=1.0,
-        status="on",
+        status=PumpStatus.RUNNING,
     )
 
 

@@ -122,6 +122,29 @@ export function interpolatePumpHead(curve: PumpCurve, flow: number): number | nu
 	return null;
 }
 
+/** Interpolate efficiency at a given flow using the efficiency curve. */
+export function interpolateEfficiency(curve: PumpCurve, flow: number): number | null {
+	if (!curve.efficiency_curve || curve.efficiency_curve.length < 2) return null;
+
+	const points = curve.efficiency_curve;
+
+	// Handle flow outside curve range
+	if (flow <= points[0].flow) return points[0].efficiency;
+	if (flow >= points[points.length - 1].flow) return points[points.length - 1].efficiency;
+
+	// Find surrounding points and interpolate
+	for (let i = 1; i < points.length; i++) {
+		if (flow <= points[i].flow) {
+			const p0 = points[i - 1];
+			const p1 = points[i];
+			const t = (flow - p0.flow) / (p1.flow - p0.flow);
+			return p0.efficiency + t * (p1.efficiency - p0.efficiency);
+		}
+	}
+
+	return null;
+}
+
 /** Best Efficiency Point (BEP) data. */
 export interface BestEfficiencyPoint {
 	/** Flow rate at BEP. */

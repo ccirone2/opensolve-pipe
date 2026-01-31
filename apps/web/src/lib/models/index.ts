@@ -56,6 +56,7 @@ export {
 	validatePumpCurve,
 	createDefaultPumpCurve,
 	interpolatePumpHead,
+	interpolateEfficiency,
 	calculateBEP
 } from './pump';
 

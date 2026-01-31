@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { Chart, registerables } from 'chart.js';
+	import type { ChartDataset, ScatterDataPoint } from 'chart.js';
 	import type { PumpCurve, PumpResult } from '$lib/models';
-	import { calculateBEP } from '$lib/models/pump';
+	import { calculateBEP, interpolateEfficiency } from '$lib/models/pump';
 	import { isDarkMode } from '$lib/stores';
 
 	// Register Chart.js components
@@ -26,6 +27,9 @@
 
 	// Calculate BEP from efficiency curve
 	let bep = $derived(calculateBEP(curve));
+
+	// Check if efficiency curve data is available
+	let hasEfficiencyCurve = $derived(curve?.efficiency_curve && curve.efficiency_curve.length > 0);
 
 	let canvas: HTMLCanvasElement | null = $state(null);
 	let chart: Chart | null = null;
@@ -53,9 +57,10 @@
 			const colors = getChartColors(dark);
 
 			// Build datasets
-			const datasets: Chart['data']['datasets'] = [];
+			const datasets: ChartDataset<'scatter', ScatterDataPoint[]>[] = [];
 
 			// System curve - smooth line only, no points (drawn first/behind)
+			// Legend: line only (no marker)
 			if (result?.system_curve && result.system_curve.length > 0) {
 				datasets.push({
 					label: 'System Curve',
@@ -66,37 +71,51 @@
 					showLine: true,
 					tension: 0.4,
 					pointRadius: 0,
-					pointHoverRadius: 0,
+					pointHoverRadius: 4,
 					borderWidth: 2,
-					order: 3
+					order: 3,
+					// Legend shows line only (dash pattern to indicate line)
+					pointStyle: 'line'
 				});
 			}
 
-			// Pump curve line (drawn behind points)
+			// Pump curve - combined line with points (single dataset)
+			// Legend: solid circle with line
 			datasets.push({
 				label: 'Pump Curve',
 				data: curve.points.map((p) => ({ x: p.flow, y: p.head })),
 				borderColor: 'rgb(59, 130, 246)',
-				backgroundColor: 'rgba(59, 130, 246, 0.1)',
+				backgroundColor: 'rgb(59, 130, 246)',
 				fill: false,
 				showLine: true,
 				tension: 0.4,
-				pointRadius: 0,
-				borderWidth: 2,
-				order: 2
-			});
-
-			// Pump curve points (drawn on top of line)
-			datasets.push({
-				label: 'Pump Curve Points',
-				data: curve.points.map((p) => ({ x: p.flow, y: p.head })),
-				borderColor: 'rgb(59, 130, 246)',
-				backgroundColor: 'rgb(59, 130, 246)',
-				showLine: false,
 				pointRadius: 5,
 				pointHoverRadius: 7,
-				order: 1
+				borderWidth: 2,
+				order: 2,
+				// Legend shows circle (matching the solid blue circles on graph)
+				pointStyle: 'circle'
 			});
+
+			// Efficiency curve (if available) - uses secondary Y-axis
+			if (hasEfficiencyCurve && curve.efficiency_curve) {
+				datasets.push({
+					label: 'Efficiency',
+					data: curve.efficiency_curve.map((p) => ({ x: p.flow, y: p.efficiency * 100 })),
+					borderColor: 'rgb(156, 163, 175)',
+					backgroundColor: 'rgba(156, 163, 175, 0.3)',
+					fill: false,
+					showLine: true,
+					tension: 0.4,
+					pointRadius: 3,
+					pointHoverRadius: 5,
+					borderWidth: 1.5,
+					borderDash: [4, 2],
+					order: 4,
+					yAxisID: 'yEfficiency',
+					pointStyle: 'circle'
+				});
+			}
 
 			// Operating point
 			if (result?.operating_flow !== undefined && result?.operating_head !== undefined) {
@@ -107,20 +126,22 @@
 					backgroundColor: 'rgb(34, 197, 94)',
 					pointRadius: 8,
 					pointHoverRadius: 10,
-					showLine: false
+					showLine: false,
+					pointStyle: 'circle'
 				});
 			}
 
-			// Best Efficiency Point (BEP) - only if efficiency data exists
+			// Best Efficiency Point (BEP) - cross-hair marker with orange/amber color
 			if (bep) {
 				datasets.push({
 					label: 'BEP',
 					data: [{ x: bep.flow, y: bep.head }],
-					borderColor: 'rgb(168, 85, 247)',
-					backgroundColor: 'rgb(168, 85, 247)',
-					pointRadius: 8,
-					pointHoverRadius: 10,
-					pointStyle: 'star',
+					borderColor: 'rgb(245, 158, 11)',
+					backgroundColor: 'rgb(245, 158, 11)',
+					pointRadius: 10,
+					pointHoverRadius: 12,
+					pointStyle: 'crossRot',
+					borderWidth: 3,
 					showLine: false
 				});
 			}
@@ -147,8 +168,87 @@
 				allHeads.push(bep.head);
 			}
 
+			// Include efficiency curve flows
+			if (hasEfficiencyCurve && curve.efficiency_curve) {
+				allFlows.push(...curve.efficiency_curve.map((p) => p.flow));
+			}
+
 			const maxFlow = Math.max(...allFlows) * 1.1 || 100;
 			const maxHead = Math.max(...allHeads) * 1.1 || 100;
+
+			// Calculate efficiency axis range to fill vertical space
+			let minEfficiency = 0;
+			let maxEfficiency = 100;
+			if (hasEfficiencyCurve && curve.efficiency_curve) {
+				const efficiencies = curve.efficiency_curve.map((p) => p.efficiency * 100);
+				const effMin = Math.min(...efficiencies);
+				const effMax = Math.max(...efficiencies);
+				// Add padding and round to nice numbers
+				const effRange = effMax - effMin;
+				minEfficiency = Math.max(0, Math.floor((effMin - effRange * 0.1) / 5) * 5);
+				maxEfficiency = Math.min(100, Math.ceil((effMax + effRange * 0.1) / 5) * 5);
+			}
+
+			// Define scales configuration
+			const scales: Record<string, object> = {
+				x: {
+					type: 'linear',
+					min: 0,
+					max: maxFlow,
+					title: {
+						display: true,
+						text: 'Flow (GPM)',
+						font: { weight: 'bold' },
+						color: colors.textColor
+					},
+					grid: {
+						color: colors.gridColor
+					},
+					ticks: {
+						color: colors.textColor
+					}
+				},
+				y: {
+					type: 'linear',
+					position: 'left',
+					min: 0,
+					max: maxHead,
+					title: {
+						display: true,
+						text: 'Head (ft)',
+						font: { weight: 'bold' },
+						color: colors.textColor
+					},
+					grid: {
+						color: colors.gridColor
+					},
+					ticks: {
+						color: colors.textColor
+					}
+				}
+			};
+
+			// Add efficiency Y-axis if efficiency curve exists
+			if (hasEfficiencyCurve) {
+				scales['yEfficiency'] = {
+					type: 'linear',
+					position: 'right',
+					min: minEfficiency,
+					max: maxEfficiency,
+					title: {
+						display: true,
+						text: 'Efficiency (%)',
+						font: { weight: 'bold' },
+						color: 'rgb(156, 163, 175)'
+					},
+					grid: {
+						drawOnChartArea: false
+					},
+					ticks: {
+						color: 'rgb(156, 163, 175)'
+					}
+				};
+			}
 
 			chart = new Chart(canvasEl, {
 				type: 'scatter',
@@ -166,59 +266,36 @@
 							labels: {
 								usePointStyle: true,
 								padding: 16,
-								filter: (item) => item.text !== 'Pump Curve Points',
 								color: colors.textColor
 							}
 						},
 						tooltip: {
+							filter: (tooltipItem) => {
+								// Don't show duplicate tooltips for same data point
+								const label = tooltipItem.dataset.label;
+								// Skip efficiency curve in main tooltip (it has different y-axis)
+								if (label === 'Efficiency') return false;
+								return true;
+							},
 							callbacks: {
 								label(context) {
 									const point = context.raw as { x: number; y: number };
-									const label = context.dataset.label === 'Pump Curve Points' ? 'Pump Curve' : context.dataset.label;
+									const label = context.dataset.label;
 									if (label === 'BEP' && bep) {
 										return `BEP: ${point.x.toFixed(1)} GPM @ ${point.y.toFixed(1)} ft (${(bep.efficiency * 100).toFixed(1)}% eff.)`;
+									}
+									if (label === 'Operating Point' && hasEfficiencyCurve && curve.efficiency_curve) {
+										const eff = interpolateEfficiency(curve, point.x);
+										if (eff !== null) {
+											return `${label}: ${point.x.toFixed(1)} GPM @ ${point.y.toFixed(1)} ft (${(eff * 100).toFixed(1)}% eff.)`;
+										}
 									}
 									return `${label}: ${point.x.toFixed(1)} GPM @ ${point.y.toFixed(1)} ft`;
 								}
 							}
 						}
 					},
-					scales: {
-						x: {
-							type: 'linear',
-							min: 0,
-							max: maxFlow,
-							title: {
-								display: true,
-								text: 'Flow (GPM)',
-								font: { weight: 'bold' },
-								color: colors.textColor
-							},
-							grid: {
-								color: colors.gridColor
-							},
-							ticks: {
-								color: colors.textColor
-							}
-						},
-						y: {
-							type: 'linear',
-							min: 0,
-							max: maxHead,
-							title: {
-								display: true,
-								text: 'Head (ft)',
-								font: { weight: 'bold' },
-								color: colors.textColor
-							},
-							grid: {
-								color: colors.gridColor
-							},
-							ticks: {
-								color: colors.textColor
-							}
-						}
-					}
+					scales
 				}
 			});
 		} catch (error) {

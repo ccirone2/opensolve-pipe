@@ -836,7 +836,9 @@ def solve_branching_network(
 def solve_project(project: Project) -> SolvedState:
     """Solve a complete project and return the solved state.
 
-    This is the main entry point for project solving.
+    This is the main entry point for project solving. Uses the solver
+    registry to select the appropriate solver strategy based on network
+    topology.
 
     Args:
         project: The project to solve
@@ -844,6 +846,9 @@ def solve_project(project: Project) -> SolvedState:
     Returns:
         SolvedState with all results
     """
+    # Import here to avoid circular imports
+    from .registry import default_registry
+
     start_time = perf_counter()
     warnings: list[Warning] = []
 
@@ -866,7 +871,7 @@ def solve_project(project: Project) -> SolvedState:
             ],
         )
 
-    # Build network graph
+    # Build network graph for validation
     graph = build_network_graph(project)
 
     # Check for valid network
@@ -911,31 +916,28 @@ def solve_project(project: Project) -> SolvedState:
         num_curve_points=project.settings.solver_options.flow_points,
     )
 
-    # Solve based on network type
-    if graph.network_type == NetworkType.SIMPLE:
-        state, converged, error = solve_simple_path(
-            project, graph, fluid_props, options
-        )
-    elif graph.network_type == NetworkType.BRANCHING:
-        state, converged, error = solve_branching_network(
-            project, graph, fluid_props, options
-        )
-    else:
-        # Looped networks not yet supported
+    # Use registry to select appropriate solver
+    solver = default_registry.get_solver(project)
+    if solver is None:
+        # No solver available for this network type (e.g., looped networks)
         return SolvedState(
             converged=False,
             iterations=0,
             timestamp=datetime.utcnow(),
             solve_time_seconds=perf_counter() - start_time,
-            error="Looped networks are not yet supported. Use EPANET for complex networks.",
+            error="No solver available for this network topology. "
+            "Looped networks require EPANET integration (not yet implemented).",
             warnings=[
                 Warning(
                     category=WarningCategory.TOPOLOGY,
                     severity=WarningSeverity.ERROR,
-                    message="Looped networks require EPANET integration (not yet implemented)",
+                    message="No solver available for this network type",
                 )
             ],
         )
+
+    # Solve using the selected strategy
+    state, converged, error = solver.solve(project, fluid_props, options)
 
     # Collect warnings
     warnings.extend(state.warnings)

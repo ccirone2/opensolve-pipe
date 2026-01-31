@@ -312,6 +312,259 @@ def calculate_npsh_available(
 
 
 # =============================================================================
+# VFD Pump Control (Affinity Laws)
+# =============================================================================
+
+
+@dataclass
+class VFDControlResult:
+    """Result from VFD speed control calculation."""
+
+    converged: bool
+    actual_speed: float
+    operating_flow_gpm: float | None = None
+    operating_head_ft: float | None = None
+    setpoint_achieved: bool = False
+    actual_value: float | None = None  # Actual pressure or flow achieved
+    error_message: str | None = None
+
+
+def apply_affinity_laws(
+    curve_points: list[FlowHeadPoint],
+    speed_ratio: float,
+) -> list[FlowHeadPoint]:
+    """
+    Apply affinity laws to shift pump curve for different speed.
+
+    Affinity laws:
+        Q₂/Q₁ = N₂/N₁
+        H₂/H₁ = (N₂/N₁)²
+        P₂/P₁ = (N₂/N₁)³
+
+    Args:
+        curve_points: Original pump curve points at rated speed
+        speed_ratio: Speed ratio (0.3 to 1.2 typical), 1.0 = rated speed
+
+    Returns:
+        New pump curve points at the adjusted speed
+    """
+    from ...models.pump import FlowHeadPoint as FHP
+
+    adjusted_points = []
+    for point in curve_points:
+        new_flow = point.flow * speed_ratio
+        new_head = point.head * (speed_ratio**2)
+        adjusted_points.append(FHP(flow=new_flow, head=new_head))
+    return adjusted_points
+
+
+def build_speed_adjusted_pump_curve(
+    curve_points: list[FlowHeadPoint],
+    speed_ratio: float,
+) -> Callable[[float], float]:
+    """
+    Build pump curve interpolator at a specific speed ratio.
+
+    Args:
+        curve_points: Original pump curve points at rated speed
+        speed_ratio: Speed ratio (1.0 = rated speed)
+
+    Returns:
+        Function that takes flow (GPM) and returns head (ft)
+    """
+    adjusted_points = apply_affinity_laws(curve_points, speed_ratio)
+    return build_pump_curve_interpolator(adjusted_points)
+
+
+def find_vfd_speed_for_flow(
+    curve_points: list[FlowHeadPoint],
+    system_curve_func: Callable[[float], float],
+    target_flow_gpm: float,
+    speed_min: float = 0.3,
+    speed_max: float = 1.2,
+    tolerance: float = 0.01,
+    max_iterations: int = 50,
+) -> VFDControlResult:
+    """
+    Find VFD speed to achieve target flow rate.
+
+    Iteratively adjusts speed until pump delivers target flow at the
+    intersection of adjusted pump curve and system curve.
+
+    Args:
+        curve_points: Original pump curve points at rated speed
+        system_curve_func: System curve function (flow -> head)
+        target_flow_gpm: Target flow rate in GPM
+        speed_min: Minimum allowed speed ratio
+        speed_max: Maximum allowed speed ratio
+        tolerance: Flow tolerance as fraction of target
+        max_iterations: Maximum iterations
+
+    Returns:
+        VFDControlResult with actual speed and operating point
+    """
+    # Binary search for speed that achieves target flow
+    low_speed = speed_min
+    high_speed = speed_max
+
+    # Check if target is achievable at max speed
+    max_speed_curve = build_speed_adjusted_pump_curve(curve_points, high_speed)
+    max_speed_point = find_operating_point(
+        max_speed_curve, system_curve_func, flow_max=target_flow_gpm * 2
+    )
+    if max_speed_point is None or max_speed_point[0] < target_flow_gpm:
+        return VFDControlResult(
+            converged=False,
+            actual_speed=high_speed,
+            operating_flow_gpm=max_speed_point[0] if max_speed_point else None,
+            operating_head_ft=max_speed_point[1] if max_speed_point else None,
+            setpoint_achieved=False,
+            error_message=f"Target flow {target_flow_gpm} GPM not achievable at max speed",
+        )
+
+    # Check if target is too low even at min speed
+    min_speed_curve = build_speed_adjusted_pump_curve(curve_points, low_speed)
+    min_speed_point = find_operating_point(
+        min_speed_curve, system_curve_func, flow_max=target_flow_gpm * 2
+    )
+    if min_speed_point and min_speed_point[0] > target_flow_gpm:
+        return VFDControlResult(
+            converged=True,
+            actual_speed=low_speed,
+            operating_flow_gpm=min_speed_point[0],
+            operating_head_ft=min_speed_point[1],
+            setpoint_achieved=False,
+            actual_value=min_speed_point[0],
+            error_message=f"Target flow {target_flow_gpm} GPM requires speed below minimum",
+        )
+
+    # Binary search
+    for _ in range(max_iterations):
+        mid_speed = (low_speed + high_speed) / 2
+        pump_curve = build_speed_adjusted_pump_curve(curve_points, mid_speed)
+        op_point = find_operating_point(
+            pump_curve, system_curve_func, flow_max=target_flow_gpm * 3
+        )
+
+        if op_point is None:
+            low_speed = mid_speed
+            continue
+
+        actual_flow = op_point[0]
+        error = abs(actual_flow - target_flow_gpm) / target_flow_gpm
+
+        if error < tolerance:
+            return VFDControlResult(
+                converged=True,
+                actual_speed=mid_speed,
+                operating_flow_gpm=actual_flow,
+                operating_head_ft=op_point[1],
+                setpoint_achieved=True,
+                actual_value=actual_flow,
+            )
+
+        if actual_flow > target_flow_gpm:
+            high_speed = mid_speed
+        else:
+            low_speed = mid_speed
+
+    # Return best result after max iterations
+    final_speed = (low_speed + high_speed) / 2
+    pump_curve = build_speed_adjusted_pump_curve(curve_points, final_speed)
+    final_point = find_operating_point(pump_curve, system_curve_func)
+    return VFDControlResult(
+        converged=True,
+        actual_speed=final_speed,
+        operating_flow_gpm=final_point[0] if final_point else None,
+        operating_head_ft=final_point[1] if final_point else None,
+        setpoint_achieved=False,
+        actual_value=final_point[0] if final_point else None,
+        error_message="Max iterations reached",
+    )
+
+
+def find_vfd_speed_for_pressure(
+    curve_points: list[FlowHeadPoint],
+    system_curve_func: Callable[[float], float],
+    target_discharge_pressure_ft: float,
+    suction_head_ft: float,
+    speed_min: float = 0.3,
+    speed_max: float = 1.2,
+    tolerance: float = 0.01,
+    max_iterations: int = 50,
+) -> VFDControlResult:
+    """
+    Find VFD speed to achieve target discharge pressure.
+
+    Discharge pressure = suction head + pump head
+
+    Args:
+        curve_points: Original pump curve points at rated speed
+        system_curve_func: System curve function (flow -> head)
+        target_discharge_pressure_ft: Target discharge pressure in ft of head
+        suction_head_ft: Suction head (pressure at pump inlet) in ft
+        speed_min: Minimum allowed speed ratio
+        speed_max: Maximum allowed speed ratio
+        tolerance: Pressure tolerance as fraction of target
+        max_iterations: Maximum iterations
+
+    Returns:
+        VFDControlResult with actual speed and operating point
+    """
+    # Target pump head = target discharge - suction
+    target_pump_head = target_discharge_pressure_ft - suction_head_ft
+
+    # Binary search for speed
+    low_speed = speed_min
+    high_speed = speed_max
+
+    for _ in range(max_iterations):
+        mid_speed = (low_speed + high_speed) / 2
+        pump_curve = build_speed_adjusted_pump_curve(curve_points, mid_speed)
+        op_point = find_operating_point(pump_curve, system_curve_func)
+
+        if op_point is None:
+            low_speed = mid_speed
+            continue
+
+        actual_head = op_point[1]
+        actual_discharge = suction_head_ft + actual_head
+        error = abs(actual_head - target_pump_head) / max(target_pump_head, 1.0)
+
+        if error < tolerance:
+            return VFDControlResult(
+                converged=True,
+                actual_speed=mid_speed,
+                operating_flow_gpm=op_point[0],
+                operating_head_ft=actual_head,
+                setpoint_achieved=True,
+                actual_value=actual_discharge,
+            )
+
+        if actual_head > target_pump_head:
+            high_speed = mid_speed
+        else:
+            low_speed = mid_speed
+
+    # Return best result after max iterations
+    final_speed = (low_speed + high_speed) / 2
+    pump_curve = build_speed_adjusted_pump_curve(curve_points, final_speed)
+    final_point = find_operating_point(pump_curve, system_curve_func)
+    actual_discharge = (
+        suction_head_ft + final_point[1] if final_point else suction_head_ft
+    )
+    return VFDControlResult(
+        converged=True,
+        actual_speed=final_speed,
+        operating_flow_gpm=final_point[0] if final_point else None,
+        operating_head_ft=final_point[1] if final_point else None,
+        setpoint_achieved=False,
+        actual_value=actual_discharge,
+        error_message="Max iterations reached",
+    )
+
+
+# =============================================================================
 # Simple Solver (Main Entry Point)
 # =============================================================================
 

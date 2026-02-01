@@ -46,6 +46,15 @@ from .simple import (
     find_vfd_speed_for_pressure,
     generate_system_curve,
 )
+from .viscosity_correction import (
+    DEFAULT_PUMP_SPEED_RPM,
+    apply_viscosity_correction,
+    calculate_correction_factors,
+    calculate_viscosity_parameter_b,
+    estimate_bep_from_curve,
+    is_b_parameter_in_range,
+    should_apply_correction,
+)
 
 if TYPE_CHECKING:
     from ...models.components import Component
@@ -458,8 +467,118 @@ def solve_simple_path(
     # Convert vapor pressure to psi
     vapor_pressure_psi = fluid_props.vapor_pressure * 0.000145038  # Pa to psi
 
-    # Build pump curve interpolator
+    # Convert kinematic viscosity to centistokes (cSt) for viscosity correction
+    # 1 m²/s = 1e6 cSt
+    viscosity_cst = fluid_props.kinematic_viscosity * 1e6
+
+    # Get pump speed from curve (or use default)
+    pump_speed_rpm = pump_curve.rated_speed or DEFAULT_PUMP_SPEED_RPM
+
+    # Apply viscosity correction if enabled and fluid is viscous
+    viscosity_correction_applied = False
+    viscosity_correction_factors = None
     pump_curve_points = pump_curve.points
+
+    if pump_comp.viscosity_correction_enabled and should_apply_correction(
+        viscosity_cst
+    ):
+        # Estimate BEP from pump curve
+        bep_flow, bep_head = estimate_bep_from_curve(
+            pump_curve.points, pump_curve.efficiency_curve
+        )
+
+        # Calculate viscosity parameter B
+        b_parameter = calculate_viscosity_parameter_b(
+            flow_bep_gpm=bep_flow,
+            head_bep_ft=bep_head,
+            viscosity_cst=viscosity_cst,
+            speed_rpm=pump_speed_rpm,
+        )
+
+        # Check if B is within HI method limits
+        if not is_b_parameter_in_range(b_parameter):
+            state.warnings.append(
+                Warning(
+                    category=WarningCategory.DATA,
+                    severity=WarningSeverity.WARNING,
+                    component_id=pump_id,
+                    message=(
+                        f"Viscosity parameter B ({b_parameter:.1f}) is outside "
+                        f"ANSI/HI 9.6.7 method limits (1-40). Results may be approximate."
+                    ),
+                    details={
+                        "b_parameter": b_parameter,
+                        "viscosity_cst": viscosity_cst,
+                    },
+                )
+            )
+
+        # Calculate correction factors
+        viscosity_correction_factors = calculate_correction_factors(b_parameter)
+
+        # Warn if correction is severe
+        if (
+            min(viscosity_correction_factors.c_q, viscosity_correction_factors.c_h)
+            < 0.5
+        ):
+            state.warnings.append(
+                Warning(
+                    category=WarningCategory.DATA,
+                    severity=WarningSeverity.WARNING,
+                    component_id=pump_id,
+                    message=(
+                        f"Extreme viscosity correction applied: "
+                        f"C_Q={viscosity_correction_factors.c_q:.2f}, "
+                        f"C_H={viscosity_correction_factors.c_h:.2f}. "
+                        "Verify pump is suitable for this fluid."
+                    ),
+                )
+            )
+
+        # Apply correction to pump curve points
+        pump_curve_points = apply_viscosity_correction(
+            pump_curve.points, viscosity_correction_factors
+        )
+        viscosity_correction_applied = True
+
+        # Add info message about correction
+        state.warnings.append(
+            Warning(
+                category=WarningCategory.DATA,
+                severity=WarningSeverity.INFO,
+                component_id=pump_id,
+                message=(
+                    f"Viscosity correction applied per ANSI/HI 9.6.7: "
+                    f"C_Q={viscosity_correction_factors.c_q:.3f}, "
+                    f"C_H={viscosity_correction_factors.c_h:.3f}, "
+                    f"C_η={viscosity_correction_factors.c_eta:.3f}"
+                ),
+                details={
+                    "b_parameter": b_parameter,
+                    "viscosity_cst": viscosity_cst,
+                    "c_q": viscosity_correction_factors.c_q,
+                    "c_h": viscosity_correction_factors.c_h,
+                    "c_eta": viscosity_correction_factors.c_eta,
+                },
+            )
+        )
+    elif not pump_comp.viscosity_correction_enabled and should_apply_correction(
+        viscosity_cst
+    ):
+        # Warn that correction is disabled for a viscous fluid
+        state.warnings.append(
+            Warning(
+                category=WarningCategory.DATA,
+                severity=WarningSeverity.INFO,
+                component_id=pump_id,
+                message=(
+                    f"Viscosity correction disabled for viscous fluid ({viscosity_cst:.1f} cSt). "
+                    "Pump curve assumed to be pre-corrected or rated for this fluid."
+                ),
+            )
+        )
+
+    # Build pump curve interpolator (using corrected or original curve)
     pump_interp = build_pump_curve_interpolator(pump_curve_points)
 
     # Build system curve function
@@ -784,6 +903,8 @@ def solve_simple_path(
             "npsh_available": npsh_a,
             "actual_speed": actual_speed,
             "setpoint_achieved": setpoint_achieved,
+            "viscosity_correction_applied": viscosity_correction_applied,
+            "viscosity_correction_factors": viscosity_correction_factors,
             "system_curve": generate_system_curve(
                 static_head_ft=static_head_ft,
                 pipe_length_ft=total_length_ft,
@@ -1200,6 +1321,10 @@ def solve_project(project: Project) -> SolvedState:
             operating_head=pump_data["operating_head"],
             npsh_available=pump_data["npsh_available"],
             actual_speed=pump_data.get("actual_speed"),
+            viscosity_correction_applied=pump_data.get(
+                "viscosity_correction_applied", False
+            ),
+            viscosity_correction_factors=pump_data.get("viscosity_correction_factors"),
             system_curve=system_curve_points,
         )
 

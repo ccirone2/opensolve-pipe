@@ -15,7 +15,7 @@
 		label?: string;
 		showLabel?: boolean;
 		/** Valve type. */
-		valveType?: 'gate' | 'ball' | 'check' | 'prv' | 'psv' | 'fcv' | 'butterfly';
+		valveType?: 'gate' | 'ball' | 'check' | 'prv' | 'psv' | 'fcv' | 'tcv' | 'butterfly' | 'globe' | 'stop_check' | 'relief';
 		/** Valve status. */
 		status?: 'active' | 'isolated' | 'failed_open' | 'failed_closed' | 'locked_open';
 		onclick?: () => void;
@@ -74,7 +74,7 @@
 	{onmouseenter}
 	{onmouseleave}
 >
-	{#if valveType === 'gate' || valveType === 'ball' || valveType === 'butterfly'}
+	{#if valveType === 'gate' || valveType === 'ball' || valveType === 'butterfly' || valveType === 'globe'}
 		<!-- Gate/Ball/Butterfly valve: two triangles meeting at center -->
 		<polygon
 			points="0,0 {width / 2},{cy} 0,{height}"
@@ -117,6 +117,44 @@
 			x2={width * 0.7}
 			y2={height - 2}
 			class="stroke-[var(--color-text)] stroke-3"
+		/>
+		<!-- Flow direction indicator -->
+		<line
+			x1={width * 0.8}
+			y1={cy}
+			x2={width}
+			y2={cy}
+			class="stroke-[var(--color-text)] stroke-2"
+		/>
+	{:else if valveType === 'stop_check'}
+		<!-- Stop-check valve: check valve with stop capability -->
+		<polygon
+			points="0,0 {width * 0.7},{cy} 0,{height}"
+			fill={fillColor}
+			fill-opacity={fillOpacity}
+			class="stroke-[var(--color-text)] stroke-2"
+		/>
+		<line
+			x1={width * 0.7}
+			y1="2"
+			x2={width * 0.7}
+			y2={height - 2}
+			class="stroke-[var(--color-text)] stroke-3"
+		/>
+		<!-- Stop indicator (stem) -->
+		<line
+			x1={width * 0.35}
+			y1="0"
+			x2={width * 0.35}
+			y2="-8"
+			class="stroke-[var(--color-text)] stroke-2"
+		/>
+		<rect
+			x={width * 0.35 - 4}
+			y="-14"
+			width="8"
+			height="6"
+			class="fill-[var(--color-surface)] stroke-[var(--color-text)] stroke-1"
 		/>
 		<!-- Flow direction indicator -->
 		<line
@@ -202,6 +240,58 @@
 			class="fill-[var(--color-text)] text-[10px] font-bold"
 		>
 			F
+		</text>
+	{:else if valveType === 'tcv'}
+		<!-- TCV (Temperature Control Valve): triangles with temperature indicator -->
+		<polygon
+			points="0,0 {width / 2},{cy} 0,{height}"
+			fill={fillColor}
+			fill-opacity={fillOpacity}
+			class="stroke-[var(--color-text)] stroke-2"
+		/>
+		<polygon
+			points="{width},0 {width / 2},{cy} {width},{height}"
+			fill={fillColor}
+			fill-opacity={fillOpacity}
+			class="stroke-[var(--color-text)] stroke-2"
+		/>
+		<!-- Temperature indicator (T) -->
+		<text
+			x={width / 2}
+			y="-6"
+			text-anchor="middle"
+			class="fill-[var(--color-text)] text-[10px] font-bold"
+		>
+			T
+		</text>
+	{:else if valveType === 'relief'}
+		<!-- Relief valve: similar to PSV with relief arrow -->
+		<polygon
+			points="0,{cy} {width / 2},0 {width},{cy} {width / 2},{height}"
+			fill={fillColor}
+			fill-opacity={fillOpacity}
+			class="stroke-[var(--color-text)] stroke-2"
+		/>
+		<!-- Relief arrow pointing up -->
+		<line
+			x1={width / 2}
+			y1="0"
+			x2={width / 2}
+			y2="-10"
+			class="stroke-[var(--color-text)] stroke-2"
+		/>
+		<polygon
+			points="{width / 2 - 4},-10 {width / 2},-16 {width / 2 + 4},-10"
+			class="fill-[var(--color-text)]"
+		/>
+		<!-- Relief indicator (R) -->
+		<text
+			x={width / 2}
+			y="-20"
+			text-anchor="middle"
+			class="fill-[var(--color-text-muted)] text-[8px]"
+		>
+			R
 		</text>
 	{/if}
 

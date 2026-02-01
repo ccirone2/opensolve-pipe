@@ -9,6 +9,7 @@
 		children?: import('svelte').Snippet;
 	}
 
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used when component interaction is fully wired
 	let { onComponentClick, children }: Props = $props();
 
 	let canvas: SchematicCanvas | undefined = $state();

@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { solvedState, components, pumpLibrary } from '$lib/stores';
-	import { isPump, WARNING_CATEGORY_LABELS, type Warning } from '$lib/models';
+	import { isPump, isValve, WARNING_CATEGORY_LABELS, type Warning, type ValveComponent } from '$lib/models';
 	import ComponentTable from './ComponentTable.svelte';
 	import PipingTable from './PipingTable.svelte';
-	import PumpCurveChart from './PumpCurveChart.svelte';
+	import PumpResultsCard from './PumpResultsCard.svelte';
+	import ControlValveResultsCard from './ControlValveResultsCard.svelte';
 
 	interface Props {
 		/** Whether a solve is currently in progress. */
@@ -12,7 +13,7 @@
 
 	let { isLoading = false }: Props = $props();
 
-	type TabId = 'summary' | 'nodes' | 'links' | 'pumps';
+	type TabId = 'summary' | 'nodes' | 'links' | 'pumps' | 'valves';
 	let activeTab: TabId = $state('summary');
 
 	// Get pumps with their curves and results
@@ -22,6 +23,19 @@
 			const curve = $pumpLibrary.find((c) => c.id === pump.curve_id);
 			const result = $solvedState?.pump_results[pump.id];
 			return { pump, curve, result };
+		});
+	});
+
+	// Get control valves (PRV, PSV, FCV, TCV) with results
+	let controlValveData = $derived.by(() => {
+		const controlValveTypes = ['prv', 'psv', 'fcv', 'tcv'];
+		const valves = $components.filter(
+			(c): c is ValveComponent =>
+				isValve(c) && controlValveTypes.includes(c.valve_type)
+		);
+		return valves.map((valve) => {
+			const result = $solvedState?.control_valve_results[valve.id];
+			return { valve, result };
 		});
 	});
 
@@ -36,12 +50,26 @@
 		$solvedState?.warnings.filter((w) => w.severity === 'info') ?? []
 	);
 
-	const tabs: { id: TabId; label: string }[] = [
-		{ id: 'summary', label: 'Summary' },
-		{ id: 'nodes', label: 'Components' },
-		{ id: 'links', label: 'Piping' },
-		{ id: 'pumps', label: 'Pumps' }
-	];
+	// Dynamically build tabs based on what exists
+	let tabs = $derived.by(() => {
+		const baseTabs: { id: TabId; label: string }[] = [
+			{ id: 'summary', label: 'Summary' },
+			{ id: 'nodes', label: 'Components' },
+			{ id: 'links', label: 'Piping' }
+		];
+
+		// Only show Pumps tab if there are pumps
+		if (pumpData.length > 0) {
+			baseTabs.push({ id: 'pumps', label: 'Pumps' });
+		}
+
+		// Only show Valves tab if there are control valves
+		if (controlValveData.length > 0) {
+			baseTabs.push({ id: 'valves', label: 'Valves' });
+		}
+
+		return baseTabs;
+	});
 
 	function formatDuration(seconds: number | undefined): string {
 		if (seconds === undefined) return '-';
@@ -181,7 +209,7 @@
 
 				<!-- Quick Stats -->
 				{#if $solvedState.converged}
-					<div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+					<div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
 						<div class="rounded-lg bg-[var(--color-surface-elevated)] p-3">
 							<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Components</p>
 							<p class="mt-1 text-2xl font-semibold text-[var(--color-text)]">
@@ -198,6 +226,12 @@
 							<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Pumps</p>
 							<p class="mt-1 text-2xl font-semibold text-[var(--color-text)]">
 								{Object.keys($solvedState.pump_results).length}
+							</p>
+						</div>
+						<div class="rounded-lg bg-[var(--color-surface-elevated)] p-3">
+							<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Ctrl Valves</p>
+							<p class="mt-1 text-2xl font-semibold text-[var(--color-text)]">
+								{Object.keys($solvedState.control_valve_results).length}
 							</p>
 						</div>
 						<div class="rounded-lg bg-[var(--color-surface-elevated)] p-3">
@@ -228,17 +262,41 @@
 				{:else}
 					<div class="space-y-6">
 						{#each pumpData as { pump, curve, result }}
-							<div class="rounded-lg border border-[var(--color-border)] p-4">
-								<h4 class="text-sm font-medium text-[var(--color-text)]">{pump.name}</h4>
-								{#if curve}
-									<p class="text-xs text-[var(--color-text-muted)]">{curve.name}</p>
-									<div class="mt-4">
-										<PumpCurveChart {curve} {result} />
-									</div>
-								{:else}
-									<p class="mt-2 text-sm text-[var(--color-warning)]">No pump curve assigned</p>
-								{/if}
-							</div>
+							{#if result}
+								<PumpResultsCard {pump} {curve} {result} />
+							{:else}
+								<div class="rounded-lg border border-[var(--color-border)] p-4">
+									<h4 class="text-sm font-medium text-[var(--color-text)]">{pump.name}</h4>
+									<p class="mt-2 text-sm text-[var(--color-text-muted)]">No results available</p>
+								</div>
+							{/if}
+						{/each}
+					</div>
+				{/if}
+			{:else if activeTab === 'valves'}
+				{#if controlValveData.length === 0}
+					<div class="flex flex-col items-center justify-center py-12 text-center">
+						<svg class="h-12 w-12 text-[var(--color-text-subtle)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+							/>
+						</svg>
+						<p class="mt-4 text-sm text-[var(--color-text-muted)]">No control valves in this network</p>
+					</div>
+				{:else}
+					<div class="space-y-4">
+						{#each controlValveData as { valve, result }}
+							{#if result}
+								<ControlValveResultsCard {valve} {result} />
+							{:else}
+								<div class="rounded-lg border border-[var(--color-border)] p-4">
+									<h4 class="text-sm font-medium text-[var(--color-text)]">{valve.name}</h4>
+									<p class="mt-2 text-sm text-[var(--color-text-muted)]">No results available</p>
+								</div>
+							{/if}
 						{/each}
 					</div>
 				{/if}

@@ -86,8 +86,8 @@
 		return rows;
 	});
 
-	function formatNumber(value: number | undefined, decimals = 2): string {
-		if (value === undefined) return '-';
+	function formatNumber(value: number | undefined | null, decimals = 2): string {
+		if (value == null) return '-'; // handles both null and undefined
 		return value.toFixed(decimals);
 	}
 

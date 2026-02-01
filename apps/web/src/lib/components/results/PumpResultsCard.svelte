@@ -39,8 +39,8 @@
 			pump.operating_mode === 'controlled_flow'
 	);
 
-	function formatNumber(value: number | undefined, decimals = 1): string {
-		if (value === undefined) return '-';
+	function formatNumber(value: number | undefined | null, decimals = 1): string {
+		if (value == null) return '-'; // handles both null and undefined
 		return value.toFixed(decimals);
 	}
 </script>

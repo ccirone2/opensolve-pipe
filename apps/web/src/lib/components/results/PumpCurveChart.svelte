@@ -404,15 +404,15 @@
 	<div class="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
 		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
 			<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Flow</p>
-			<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.operating_flow.toFixed(1)} GPM</p>
+			<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.operating_flow?.toFixed(1) ?? '-'} GPM</p>
 		</div>
 		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
 			<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Head</p>
-			<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.operating_head.toFixed(1)} ft</p>
+			<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.operating_head?.toFixed(1) ?? '-'} ft</p>
 		</div>
 		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
 			<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">NPSH Available</p>
-			<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.npsh_available.toFixed(1)} ft</p>
+			<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.npsh_available?.toFixed(1) ?? '-'} ft</p>
 		</div>
 		{#if operatingEfficiency !== null}
 			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">

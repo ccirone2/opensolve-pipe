@@ -50,8 +50,8 @@
 		}
 	});
 
-	function formatNumber(value: number | undefined, decimals = 1): string {
-		if (value === undefined) return '-';
+	function formatNumber(value: number | undefined | null, decimals = 1): string {
+		if (value == null) return '-'; // handles both null and undefined
 		return value.toFixed(decimals);
 	}
 </script>
@@ -113,7 +113,7 @@
 			<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2">
 				<p class="text-xs text-[var(--color-text-muted)]">Position</p>
 				<p class="text-sm font-semibold text-[var(--color-text)]">
-					{Math.round(result.valve_position * 100)}%
+					{result.valve_position != null ? Math.round(result.valve_position * 100) : '-'}%
 					{#if result.status === 'failed_open'}
 						<span class="text-xs font-normal text-[var(--color-text-muted)]">(stuck)</span>
 					{/if}

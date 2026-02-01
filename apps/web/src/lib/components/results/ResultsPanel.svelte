@@ -21,7 +21,7 @@
 		const pumps = $components.filter(isPump);
 		return pumps.map((pump) => {
 			const curve = $pumpLibrary.find((c) => c.id === pump.curve_id);
-			const result = $solvedState?.pump_results[pump.id];
+			const result = $solvedState?.pump_results?.[pump.id];
 			return { pump, curve, result };
 		});
 	});
@@ -34,20 +34,20 @@
 				isValve(c) && controlValveTypes.includes(c.valve_type)
 		);
 		return valves.map((valve) => {
-			const result = $solvedState?.control_valve_results[valve.id];
+			const result = $solvedState?.control_valve_results?.[valve.id];
 			return { valve, result };
 		});
 	});
 
 	// Group warnings by severity
 	let errorWarnings = $derived(
-		$solvedState?.warnings.filter((w) => w.severity === 'error') ?? []
+		$solvedState?.warnings?.filter((w) => w.severity === 'error') ?? []
 	);
 	let warningWarnings = $derived(
-		$solvedState?.warnings.filter((w) => w.severity === 'warning') ?? []
+		$solvedState?.warnings?.filter((w) => w.severity === 'warning') ?? []
 	);
 	let infoWarnings = $derived(
-		$solvedState?.warnings.filter((w) => w.severity === 'info') ?? []
+		$solvedState?.warnings?.filter((w) => w.severity === 'info') ?? []
 	);
 
 	// Dynamically build tabs based on what exists
@@ -165,7 +165,7 @@
 				</div>
 
 				<!-- Warnings -->
-				{#if $solvedState.warnings.length > 0}
+				{#if ($solvedState.warnings ?? []).length > 0}
 					<div class="mt-4 space-y-3">
 						<h4 class="text-sm font-medium text-[var(--color-text)]">Warnings & Messages</h4>
 
@@ -213,31 +213,31 @@
 						<div class="rounded-lg bg-[var(--color-surface-elevated)] p-3">
 							<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Components</p>
 							<p class="mt-1 text-2xl font-semibold text-[var(--color-text)]">
-								{Object.keys($solvedState.component_results).length}
+								{Object.keys($solvedState.component_results ?? {}).length}
 							</p>
 						</div>
 						<div class="rounded-lg bg-[var(--color-surface-elevated)] p-3">
 							<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Piping</p>
 							<p class="mt-1 text-2xl font-semibold text-[var(--color-text)]">
-								{Object.keys($solvedState.piping_results).length}
+								{Object.keys($solvedState.piping_results ?? {}).length}
 							</p>
 						</div>
 						<div class="rounded-lg bg-[var(--color-surface-elevated)] p-3">
 							<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Pumps</p>
 							<p class="mt-1 text-2xl font-semibold text-[var(--color-text)]">
-								{Object.keys($solvedState.pump_results).length}
+								{Object.keys($solvedState.pump_results ?? {}).length}
 							</p>
 						</div>
 						<div class="rounded-lg bg-[var(--color-surface-elevated)] p-3">
 							<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Ctrl Valves</p>
 							<p class="mt-1 text-2xl font-semibold text-[var(--color-text)]">
-								{Object.keys($solvedState.control_valve_results).length}
+								{Object.keys($solvedState.control_valve_results ?? {}).length}
 							</p>
 						</div>
 						<div class="rounded-lg bg-[var(--color-surface-elevated)] p-3">
 							<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Warnings</p>
 							<p class="mt-1 text-2xl font-semibold text-[var(--color-text)]">
-								{$solvedState.warnings.length}
+								{($solvedState.warnings ?? []).length}
 							</p>
 						</div>
 					</div>

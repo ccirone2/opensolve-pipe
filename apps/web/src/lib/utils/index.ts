@@ -15,3 +15,18 @@ export {
 } from './encoding';
 
 export type { EncodingResult } from './encoding';
+
+// Topology validation
+export {
+	validateTopology,
+	wouldCreateInvalidLoop,
+	getOrphanedComponents,
+	hasLoops
+} from './topology';
+
+export type {
+	TopologyIssue,
+	TopologyIssueType,
+	IssueSeverity,
+	TopologyValidationResult
+} from './topology';

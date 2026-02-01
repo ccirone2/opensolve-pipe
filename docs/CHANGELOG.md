@@ -98,6 +98,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fire sprinkler loop test: cross-connected mains
   - Performance benchmarks: solve time < 1s for simple networks
 
+- **WNTR/EPANET Integration** (PR #128)
+  - `wntr` dependency added to pyproject.toml
+  - `epanet.py` wrapper module (700+ lines) for EPANET solver integration
+  - `build_wntr_network()` function for converting component chain to WNTR graph
+  - Component type mapping: Reservoir→WNTR Reservoir, Tank→WNTR Tank, Junction→WNTR Junction
+  - Pump→WNTR Pump with curve conversion, Valve→WNTR Valve (PRV, PSV, FCV, TCV)
+  - `run_epanet_simulation()` and `solve_with_epanet()` functions
+  - Results conversion back to SolvedState format
+  - Comprehensive test suite in `test_epanet.py` and `test_epanet_comprehensive.py`
+
+- **Component Chain to EPANET Adapter** (PR #130)
+  - Reservoir, Tank, Junction → WNTR node types
+  - Pump with curve conversion to WNTR format
+  - Valve type mapping (gate→TCV, ball→TCV, check→CV, PRV→PRV, PSV→PSV, FCV→FCV)
+  - PipeConnection → WNTR Pipe link with friction parameters
+  - Fittings → equivalent pipe lengths for K-factor conversion
+  - Elevation handling for NPSH calculations
+
+- **Solver Router Enhancement** (PR #131)
+  - `NetworkType.LOOPED` detection in `classify_network()` using graph cycle analysis
+  - `SolverRegistry` updated to include `LoopedSolver` for automatic selection
+  - Clear error messages for unsupported network topologies
+  - Logging of solver selection for debugging
+
 - **Valve Status States** (PR #115)
   - `ValveStatus` enum: active, isolated, failed_open, failed_closed, locked_open
   - Updated `ValveComponent` with status field for operational state tracking
@@ -166,9 +190,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Visual SVG diagrams showing port arrangement
   - Validation warnings for unusual configurations
 
+- **Schematic Viewer** (PR #132)
+  - `SchematicViewer.svelte` - main container with toolbar
+  - `SchematicCanvas.svelte` - SVG canvas with zoom/pan support
+  - Viewport management with fit-to-screen functionality
+  - Pan with drag support (click and drag to move)
+  - Zoom controls with level indicator (mousewheel + buttons)
+  - "Fit to View" button for auto-centering
+
+- **Graph Layout Algorithm** (PR #133)
+  - `layout.ts` with automatic component positioning
+  - Left-to-right flow layout optimized for hydraulic networks
+  - Linear chain handling with consistent spacing
+  - Branch handling for split/merge points (tees, wyes, crosses)
+  - Dagre-based layout with hydraulic network optimizations
+
+- **Component Symbols** (PR #134)
+  - Core SVG symbols: `ReservoirSymbol`, `TankSymbol`, `JunctionSymbol`, `PumpSymbol`, `ValveSymbol`, `PipeSymbol`
+  - `GenericSymbol` fallback for unknown component types
+  - Dark/light theme support via CSS variables
+  - Status indicators on pump/valve symbols (running/off, open/closed)
+  - Symbol factory function for component type → symbol mapping
+  - `HeatExchangerSymbol` - shell-and-tube pattern with tube bundle lines
+  - `StrainerSymbol` - Y-strainer with mesh pattern
+  - `OrificeSymbol` - restriction plate with gap
+  - `SprinklerSymbol` - nozzle with spray pattern
+  - `PlugSymbol` - cap/dead-end symbol
+  - `ReferenceNodeSymbol` - diamond boundary marker (P for ideal, PQ for non-ideal)
+  - `TeeSymbol` - T-junction with 3 connection points
+  - `WyeSymbol` - Y-junction with angled branch
+  - `CrossSymbol` - four-way intersection with 4 ports
+
+- **Schematic Interaction** (PR #135)
+  - Click handler selects component and opens property panel
+  - Hover highlight effect with visual feedback
+  - Tooltip with component name on hover
+  - Result values on hover (pressure, HGL) when solved
+  - Selection highlight with border/glow effect
+
+- **Branching UI Support** (PR #136)
+  - `BranchSelector.svelte` for tee/wye/cross component navigation
+  - Shows downstream connections visually
+  - "Add Branch" functionality for creating new downstream paths
+  - Loop closure feature (connect to existing component)
+  - Topology validation to prevent invalid connections
+
+- **Pump Operating Mode UI Controls** (PR #111)
+  - Operating mode dropdown (fixed_speed, variable_speed, controlled_pressure, controlled_flow)
+  - Conditional setpoint fields for controlled modes (pressure/flow setpoint)
+  - Speed ratio input for variable_speed mode (0.5-1.2 range)
+  - Viscosity correction checkbox
+  - Status dropdown in PumpForm.svelte (running, off_check)
+
+- **Valve Status UI Controls** (PR #112)
+  - Status dropdown (active, failed_open, failed_closed, isolated, locked_open)
+  - Visual indicators for failure states (warning badges)
+  - Conditional field behavior based on status (setpoint disabled when failed)
+  - Implemented in ValveForm.svelte
+
+- **Enhanced Results Display** (PR #113, #157-160)
+  - Pump status badge with color coding (running=green, off=gray, locked=red)
+  - Actual speed display for VFD pumps (percentage of rated)
+  - Power consumption in HP with kW→HP conversion (×1.341)
+  - Efficiency with "(viscosity corrected)" indicator when applicable
+  - NPSH Available, Required, and Margin with percentage calculation
+  - Viscosity correction factors expandable section (C_Q, C_H, C_η)
+  - Control valve results: status, setpoint vs actual, position, pressure drop
+  - Null safety fixes for result fields (formatNumber helper with null handling)
+
 ### Fixed
 
+#### Backend (API)
+
+- **NPSH Margin Storage** (PR #157)
+  - Calculate and store `npsh_margin` in PumpResult (NPSHa - NPSHr)
+  - Interpolate NPSHr from pump curve at operating flow
+  - Add warning when NPSH margin is negative (cavitation risk)
+
+- **Efficiency Interpolation** (PR #158)
+  - Interpolate pump efficiency from efficiency curve at operating flow
+  - Apply viscosity correction factor (C_η) when applicable
+  - Handle extrapolation for flows outside curve range (use nearest endpoint)
+
+- **Power Calculation** (PR #159)
+  - Calculate hydraulic power: Water HP = (Flow × Head × SG) / 3960
+  - Calculate brake HP: Brake HP = Water HP / efficiency
+  - Convert to kW: Power (kW) = Brake HP × 0.7457
+  - Store `power` field in PumpResult (kW)
+
 #### Frontend (Web)
+
+- **Pump Results Card Null Safety** (PR #160)
+  - Fixed null reference errors in PumpResultsCard.svelte
+  - Added `formatNumber()` helper with null/undefined handling
+  - Fixed NPSH section to handle missing npsh_margin gracefully
+  - Fixed efficiency and power display for pumps without curves
 
 - **Pump Curve Chart Improvements** (PR #126)
   - Fixed duplicate "Pump Curve" label in tooltip hovertext
@@ -200,13 +316,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned Features
 
-- Looped network support (EPANET integration)
-- Server-side project storage for large projects
+- Server-side project storage for large projects (> 50KB)
 - Pump curve digitization from images
-- Global pump database
-- Export to EPANET format
+- Global pump database integration
+- Export to EPANET INP format
 - Cost estimation utility
 - Pipe sizing optimization
+- Flow direction arrows on pipe symbols
+- Keyboard navigation for schematic viewer
+- Manual position override for schematic layout
 
 ---
 

@@ -10,6 +10,16 @@
 		isJunction,
 		isPump,
 		isValve,
+		isHeatExchanger,
+		isStrainer,
+		isOrifice,
+		isSprinkler,
+		isPlug,
+		isIdealReferenceNode,
+		isNonIdealReferenceNode,
+		isTeeBranch,
+		isWyeBranch,
+		isCrossBranch,
 		type PumpComponent,
 		type ValveComponent
 	} from '$lib/models';
@@ -19,6 +29,15 @@
 		JunctionSymbol,
 		PumpSymbol,
 		ValveSymbol,
+		HeatExchangerSymbol,
+		StrainerSymbol,
+		OrificeSymbol,
+		SprinklerSymbol,
+		PlugSymbol,
+		ReferenceNodeSymbol,
+		TeeSymbol,
+		WyeSymbol,
+		CrossSymbol,
 		GenericSymbol
 	} from './symbols';
 
@@ -65,34 +84,22 @@
 		if (isJunction(component)) return { width: 20, height: 20 };
 		if (isPump(component)) return { width: 50, height: 50 };
 		if (isValve(component)) return { width: 40, height: 30 };
+		if (isHeatExchanger(component)) return { width: 60, height: 40 };
+		if (isStrainer(component)) return { width: 50, height: 40 };
+		if (isOrifice(component)) return { width: 40, height: 30 };
+		if (isSprinkler(component)) return { width: 40, height: 40 };
+		if (isPlug(component)) return { width: 30, height: 24 };
+		if (isIdealReferenceNode(component) || isNonIdealReferenceNode(component)) return { width: 40, height: 40 };
+		if (isTeeBranch(component)) return { width: 50, height: 40 };
+		if (isWyeBranch(component)) return { width: 50, height: 40 };
+		if (isCrossBranch(component)) return { width: 50, height: 50 };
 		return { width, height };
 	});
 
-	// Get type label abbreviation for generic symbols
+	// Get type label abbreviation for generic symbols (fallback only)
 	let typeLabel = $derived.by(() => {
-		switch (component.type) {
-			case 'heat_exchanger':
-				return 'HX';
-			case 'strainer':
-				return 'STR';
-			case 'orifice':
-				return 'ORF';
-			case 'sprinkler':
-				return 'SPR';
-			case 'plug':
-				return 'PLG';
-			case 'ideal_reference_node':
-			case 'non_ideal_reference_node':
-				return 'REF';
-			case 'tee_branch':
-				return 'TEE';
-			case 'wye_branch':
-				return 'WYE';
-			case 'cross_branch':
-				return '+';
-			default:
-				return '?';
-		}
+		// Only used for truly unknown component types
+		return '?';
 	});
 
 	function handleClick(): void {
@@ -194,8 +201,8 @@
 			onmouseenter={handleMouseEnter}
 			onmouseleave={handleMouseLeave}
 		/>
-	{:else}
-		<GenericSymbol
+	{:else if isHeatExchanger(component)}
+		<HeatExchangerSymbol
 			{x}
 			{y}
 			width={symbolDimensions.width}
@@ -203,6 +210,139 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			onclick={handleClick}
+			onmouseenter={handleMouseEnter}
+			onmouseleave={handleMouseLeave}
+		/>
+	{:else if isStrainer(component)}
+		<StrainerSymbol
+			{x}
+			{y}
+			width={symbolDimensions.width}
+			height={symbolDimensions.height}
+			{selected}
+			{hovered}
+			label={component.name}
+			onclick={handleClick}
+			onmouseenter={handleMouseEnter}
+			onmouseleave={handleMouseLeave}
+		/>
+	{:else if isOrifice(component)}
+		<OrificeSymbol
+			{x}
+			{y}
+			width={symbolDimensions.width}
+			height={symbolDimensions.height}
+			{selected}
+			{hovered}
+			label={component.name}
+			onclick={handleClick}
+			onmouseenter={handleMouseEnter}
+			onmouseleave={handleMouseLeave}
+		/>
+	{:else if isSprinkler(component)}
+		<SprinklerSymbol
+			{x}
+			{y}
+			width={symbolDimensions.width}
+			height={symbolDimensions.height}
+			{selected}
+			{hovered}
+			label={component.name}
+			onclick={handleClick}
+			onmouseenter={handleMouseEnter}
+			onmouseleave={handleMouseLeave}
+		/>
+	{:else if isPlug(component)}
+		<PlugSymbol
+			{x}
+			{y}
+			width={symbolDimensions.width}
+			height={symbolDimensions.height}
+			{selected}
+			{hovered}
+			label={component.name}
+			onclick={handleClick}
+			onmouseenter={handleMouseEnter}
+			onmouseleave={handleMouseLeave}
+		/>
+	{:else if isIdealReferenceNode(component)}
+		<ReferenceNodeSymbol
+			{x}
+			{y}
+			width={symbolDimensions.width}
+			height={symbolDimensions.height}
+			{selected}
+			{hovered}
+			label={component.name}
+			isIdeal={true}
+			onclick={handleClick}
+			onmouseenter={handleMouseEnter}
+			onmouseleave={handleMouseLeave}
+		/>
+	{:else if isNonIdealReferenceNode(component)}
+		<ReferenceNodeSymbol
+			{x}
+			{y}
+			width={symbolDimensions.width}
+			height={symbolDimensions.height}
+			{selected}
+			{hovered}
+			label={component.name}
+			isIdeal={false}
+			onclick={handleClick}
+			onmouseenter={handleMouseEnter}
+			onmouseleave={handleMouseLeave}
+		/>
+	{:else if isTeeBranch(component)}
+		<TeeSymbol
+			{x}
+			{y}
+			width={symbolDimensions.width}
+			height={symbolDimensions.height}
+			{selected}
+			{hovered}
+			label={component.name}
+			onclick={handleClick}
+			onmouseenter={handleMouseEnter}
+			onmouseleave={handleMouseLeave}
+		/>
+	{:else if isWyeBranch(component)}
+		<WyeSymbol
+			{x}
+			{y}
+			width={symbolDimensions.width}
+			height={symbolDimensions.height}
+			{selected}
+			{hovered}
+			label={component.name}
+			onclick={handleClick}
+			onmouseenter={handleMouseEnter}
+			onmouseleave={handleMouseLeave}
+		/>
+	{:else if isCrossBranch(component)}
+		<CrossSymbol
+			{x}
+			{y}
+			width={symbolDimensions.width}
+			height={symbolDimensions.height}
+			{selected}
+			{hovered}
+			label={component.name}
+			onclick={handleClick}
+			onmouseenter={handleMouseEnter}
+			onmouseleave={handleMouseLeave}
+		/>
+	{:else}
+		<!-- Fallback for unknown component types -->
+		<GenericSymbol
+			{x}
+			{y}
+			width={symbolDimensions.width}
+			height={symbolDimensions.height}
+			{selected}
+			{hovered}
+			label={(component as Component).name}
 			{typeLabel}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}

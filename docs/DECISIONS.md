@@ -333,6 +333,172 @@ protocols/
 
 ---
 
+## ADR-009: WNTR/EPANET Integration for Looped Networks
+
+**Date:** 2026-01-31
+**Status:** Accepted
+**Context:** Issue #128, #129, #130, #131 - Phase 2 Looped Network Support
+
+### Decision
+
+Integrate WNTR (Water Network Tool for Resilience) as the solver backend for looped/complex networks:
+
+1. **Dependency**: Add `wntr` package to Python dependencies
+2. **Wrapper Module**: Create `epanet.py` wrapper that:
+   - Converts OpenSolve component chain to WNTR network graph
+   - Maps component types to WNTR equivalents
+   - Runs EPANET simulation via WNTR's solver interface
+   - Converts WNTR results back to OpenSolve `SolvedState` format
+3. **Solver Selection**: Automatic routing based on network topology:
+   - Simple (no branches): Use direct calculation (`SimpleSolver`)
+   - Branching (tree): Use `BranchingSolver`
+   - Looped (cycles): Use `LoopedSolver` → WNTR/EPANET
+
+### Rationale
+
+- **Industry standard**: EPANET is the de facto standard for hydraulic network analysis
+- **Proven accuracy**: 30+ years of validation in water distribution systems
+- **Python integration**: WNTR provides clean Python API to EPANET solver
+- **Gradient-based solving**: Hardy Cross / Newton-Raphson handles complex topologies
+- **Maintained library**: WNTR actively maintained by US EPA and Sandia National Labs
+
+### Consequences
+
+**Positive:**
+
+- Supports any network topology (parallel, looped, complex branching)
+- Leverages validated solver algorithms
+- Consistent results with industry tools
+
+**Negative:**
+
+- Additional dependency (~50MB with EPANET binaries)
+- Conversion overhead between component chain and WNTR graph
+- WNTR uses SI units internally (requires conversion layer)
+- Some OpenSolve features (viscosity correction) not natively supported by EPANET
+
+**Component Mapping:**
+
+| OpenSolve | WNTR |
+|-----------|------|
+| Reservoir | Reservoir (fixed head) |
+| Tank | Tank (variable level) |
+| Junction | Junction (demand node) |
+| Pump | Pump (with head curve) |
+| Valve (PRV/PSV/FCV) | Valve (matching type) |
+| Valve (gate/ball/check) | Pipe with minor loss |
+| PipeConnection | Pipe (with friction) |
+| HeatExchanger, Strainer | Pipe with equivalent K-factor |
+
+---
+
+## ADR-010: Schematic Layout Algorithm
+
+**Date:** 2026-01-31
+**Status:** Accepted
+**Context:** Issue #133 - Graph Layout Algorithm for Schematic Viewer
+
+### Decision
+
+Use a left-to-right directed graph layout algorithm based on dagre principles:
+
+1. **Layout Direction**: Left-to-right (LR) flow matching typical P&ID conventions
+2. **Algorithm**: Layered graph layout (Sugiyama-style) with:
+   - Topological sorting to establish component layers
+   - Rank assignment based on distance from source
+   - Node ordering within layers to minimize edge crossings
+   - Horizontal and vertical spacing based on component types
+3. **Implementation**: Custom TypeScript implementation in `layout.ts`
+
+### Rationale
+
+- **P&ID conventions**: Hydraulic schematics typically flow left-to-right
+- **Readable output**: Layered layout produces clean, organized diagrams
+- **Branch handling**: Algorithm naturally handles split/merge points
+- **No external dependency**: Custom implementation avoids dagre.js bundle size
+- **Customization**: Can tune spacing, ranking for hydraulic-specific needs
+
+### Consequences
+
+**Positive:**
+
+- Clean, professional-looking schematics
+- Consistent layout across different network topologies
+- No external runtime dependencies
+- Full control over layout parameters
+
+**Negative:**
+
+- Manual position override not implemented (would require significant UI work)
+- Complex networks may have suboptimal edge routing
+- Algorithm complexity: O(V + E) for basic layout, O(V²) worst case for crossing minimization
+
+**Future Considerations:**
+
+- Could add elkjs for more sophisticated layout options
+- Manual position persistence would require schema changes
+
+---
+
+## ADR-011: Generic Symbol Fallback Pattern
+
+**Date:** 2026-01-31
+**Status:** Accepted
+**Context:** Issue #134 - Component Symbols for Schematic Viewer
+
+### Decision
+
+Implement a two-tier symbol system:
+
+1. **Dedicated Symbols**: Full SVG symbols for core component types:
+   - `ReservoirSymbol`: Tank-like shape with water level indication
+   - `TankSymbol`: Cylinder with level indicator
+   - `JunctionSymbol`: Connection point (dot or small circle)
+   - `PumpSymbol`: Circle with impeller indication
+   - `ValveSymbol`: Bowtie shape (two triangles)
+   - `PipeSymbol`: Line with flow direction
+
+2. **Generic Fallback**: `GenericSymbol` for components without dedicated symbols:
+   - Rounded rectangle with 2-3 letter abbreviation
+   - Abbreviations: HX (heat exchanger), STR (strainer), ORF (orifice), etc.
+   - Consistent sizing and styling with dedicated symbols
+   - Theme-aware colors via CSS variables
+
+### Rationale
+
+- **Incremental delivery**: Ship working schematic with core symbols first
+- **Always renderable**: Every component can be displayed, even without custom art
+- **ISA-5.1 compliance**: Core symbols follow P&ID standards
+- **Extensibility**: New symbol components can be added without changing layout code
+- **Theme support**: CSS variables enable dark/light mode switching
+
+### Consequences
+
+**Positive:**
+
+- Schematic always renders completely (no missing components)
+- Clear visual distinction between component types
+- Easy to add new symbols incrementally
+- Consistent look across themes
+
+**Negative:**
+
+- Some components less recognizable (HX vs actual heat exchanger symbol)
+- Users familiar with P&ID symbols may expect standard representations
+- Need to implement 9 more dedicated symbols for full coverage
+
+**Remaining Symbols Needed:**
+
+- HeatExchanger: Coil or shell-and-tube pattern
+- Strainer: Basket/Y-strainer pattern
+- Orifice: Restriction plate symbol
+- Sprinkler: Spray pattern
+- Plug: Cap/dead-end symbol
+- ReferenceNode: Boundary marker
+- Tee/Wye/Cross: Junction shapes
+
+---
+
 ## Template for Future ADRs
 
 ```markdown

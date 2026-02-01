@@ -223,6 +223,7 @@ function calculatePositions(
 function generateConnectionLines(
 	connections: PipeConnection[],
 	positions: Map<string, ComponentPosition>,
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars -- Reserved for future options like routing algorithm
 	options: Required<LayoutOptions>
 ): ConnectionLine[] {
 	const lines: ConnectionLine[] = [];

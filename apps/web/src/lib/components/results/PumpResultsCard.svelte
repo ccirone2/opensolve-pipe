@@ -86,10 +86,10 @@
 						<p class="text-lg font-semibold text-[var(--color-text)]">{(result.actual_speed * 100).toFixed(0)}%</p>
 					</div>
 				{/if}
-				{#if result.power !== undefined}
+				{#if result.power != null}
 					<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2">
 						<p class="text-xs text-[var(--color-text-muted)]">Power</p>
-						<p class="text-lg font-semibold text-[var(--color-text)]">{formatNumber(result.power, 2)} kW</p>
+						<p class="text-lg font-semibold text-[var(--color-text)]">{formatNumber(result.power * 1.341, 2)} HP</p>
 					</div>
 				{/if}
 			</div>
@@ -115,17 +115,19 @@
 						<p class="text-xs text-[var(--color-text-muted)]">Available</p>
 						<p class="text-sm font-semibold text-[var(--color-text)]">{formatNumber(result.npsh_available)} ft</p>
 					</div>
-					{#if result.npsh_margin !== undefined}
+					{#if result.npsh_margin != null}
+						{@const npshRequired = result.npsh_available - result.npsh_margin}
+						{@const marginPercent = npshRequired > 0 ? (result.npsh_margin / npshRequired) * 100 : 0}
 						<div>
 							<p class="text-xs text-[var(--color-text-muted)]">Required</p>
 							<p class="text-sm font-semibold text-[var(--color-text)]">
-								{formatNumber(result.npsh_available - result.npsh_margin)} ft
+								{formatNumber(npshRequired)} ft
 							</p>
 						</div>
 						<div>
 							<p class="text-xs text-[var(--color-text-muted)]">Margin</p>
 							<p class="flex items-center gap-1 text-sm font-semibold {result.npsh_margin > 0 ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}">
-								{formatNumber(result.npsh_margin)} ft
+								{formatNumber(marginPercent, 0)}%
 								{#if result.npsh_margin > 0}
 									<span>✓</span>
 								{:else}

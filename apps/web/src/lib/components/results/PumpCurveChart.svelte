@@ -31,12 +31,6 @@
 	// Check if efficiency curve data is available
 	let hasEfficiencyCurve = $derived(curve?.efficiency_curve && curve.efficiency_curve.length > 0);
 
-	// Calculate interpolated efficiency at operating point
-	let operatingEfficiency = $derived.by(() => {
-		if (!hasEfficiencyCurve || !result?.operating_flow) return null;
-		return interpolateEfficiency(curve, result.operating_flow);
-	});
-
 	let canvas: HTMLCanvasElement | null = $state(null);
 	let chart: Chart | null = null;
 
@@ -399,46 +393,6 @@
 <div class="relative h-64 w-full rounded-lg bg-[var(--color-surface)] p-2 sm:h-80">
 	<canvas bind:this={canvas} class="w-full h-full" style="background: transparent;"></canvas>
 </div>
-
-{#if result}
-	<div class="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
-			<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Flow</p>
-			<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.operating_flow?.toFixed(1) ?? '-'} GPM</p>
-		</div>
-		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
-			<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Head</p>
-			<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.operating_head?.toFixed(1) ?? '-'} ft</p>
-		</div>
-		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
-			<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">NPSH Available</p>
-			<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.npsh_available?.toFixed(1) ?? '-'} ft</p>
-		</div>
-		{#if operatingEfficiency !== null}
-			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
-				<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Efficiency</p>
-				<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{(operatingEfficiency * 100).toFixed(1)}%</p>
-			</div>
-		{:else if result.efficiency !== undefined}
-			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
-				<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Efficiency</p>
-				<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{(result.efficiency * 100).toFixed(1)}%</p>
-			</div>
-		{:else if result.power !== undefined}
-			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
-				<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Power</p>
-				<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.power.toFixed(2)} kW</p>
-			</div>
-		{:else}
-			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
-				<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">NPSH Margin</p>
-				<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">
-					{result.npsh_margin !== undefined ? `${result.npsh_margin.toFixed(1)} ft` : '-'}
-				</p>
-			</div>
-		{/if}
-	</div>
-{/if}
 
 <!-- BEP Info (shown when efficiency curve exists, even without solver results) -->
 {#if bep}

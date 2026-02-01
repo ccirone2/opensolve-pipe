@@ -863,7 +863,8 @@ def solve_simple_path(
             )
         )
 
-    # Add NPSH warning if margin is low
+    # Calculate NPSH margin if NPSHR curve exists (#157)
+    npsh_margin: float | None = None
     if pump_curve.npshr_curve:
         # Find NPSHR at operating point by interpolation
         npshr_points = sorted(pump_curve.npshr_curve, key=lambda p: p.flow)
@@ -895,12 +896,52 @@ def solve_simple_path(
                     )
                 break
 
+    # Interpolate efficiency at operating point (#158)
+    efficiency: float | None = None
+    if pump_curve.efficiency_curve:
+        eff_points = sorted(pump_curve.efficiency_curve, key=lambda p: p.flow)
+        # Linear interpolation
+        for i in range(len(eff_points) - 1):
+            if eff_points[i].flow <= operating_flow <= eff_points[i + 1].flow:
+                t = (operating_flow - eff_points[i].flow) / (
+                    eff_points[i + 1].flow - eff_points[i].flow
+                )
+                efficiency = eff_points[i].efficiency + t * (
+                    eff_points[i + 1].efficiency - eff_points[i].efficiency
+                )
+                break
+        else:
+            # Handle extrapolation: use nearest endpoint
+            if operating_flow <= eff_points[0].flow:
+                efficiency = eff_points[0].efficiency
+            elif operating_flow >= eff_points[-1].flow:
+                efficiency = eff_points[-1].efficiency
+
+        # Apply viscosity correction to efficiency if enabled
+        if efficiency is not None and viscosity_correction_factors is not None:
+            efficiency *= viscosity_correction_factors.c_eta
+
+    # Calculate pump power if efficiency is known (#159)
+    power_kw: float | None = None
+    if efficiency is not None and efficiency > 0:
+        # Water HP = (Flow_GPM * Head_ft * SG) / 3960
+        # Brake HP = Water HP / efficiency
+        # Power (kW) = Brake HP * 0.7457
+        water_hp = (
+            operating_flow * operating_head * fluid_props.specific_gravity
+        ) / 3960
+        brake_hp = water_hp / efficiency
+        power_kw = brake_hp * 0.7457
+
     # Store pump-specific data in state for later extraction
     state._pump_data = {
         pump_id: {
             "operating_flow": operating_flow,
             "operating_head": operating_head,
             "npsh_available": npsh_a,
+            "npsh_margin": npsh_margin,
+            "efficiency": efficiency,
+            "power": power_kw,
             "actual_speed": actual_speed,
             "setpoint_achieved": setpoint_achieved,
             "viscosity_correction_applied": viscosity_correction_applied,
@@ -1320,6 +1361,9 @@ def solve_project(project: Project) -> SolvedState:
             operating_flow=pump_data["operating_flow"],
             operating_head=pump_data["operating_head"],
             npsh_available=pump_data["npsh_available"],
+            npsh_margin=pump_data.get("npsh_margin"),
+            efficiency=pump_data.get("efficiency"),
+            power=pump_data.get("power"),
             actual_speed=pump_data.get("actual_speed"),
             viscosity_correction_applied=pump_data.get(
                 "viscosity_correction_applied", False

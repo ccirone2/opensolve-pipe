@@ -72,72 +72,67 @@
 		<div class="mt-4 space-y-4">
 			<!-- Primary Metrics -->
 			<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-				<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2">
-					<p class="text-xs text-[var(--color-text-muted)]">Flow</p>
-					<p class="text-lg font-semibold text-[var(--color-text)]">{formatNumber(result.operating_flow)} GPM</p>
+				<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
+					<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Flow</p>
+					<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{formatNumber(result.operating_flow)} GPM</p>
 				</div>
-				<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2">
-					<p class="text-xs text-[var(--color-text-muted)]">Head</p>
-					<p class="text-lg font-semibold text-[var(--color-text)]">{formatNumber(result.operating_head)} ft</p>
+				<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
+					<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Head</p>
+					<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{formatNumber(result.operating_head)} ft</p>
 				</div>
-				{#if isVFD && result.actual_speed !== undefined}
-					<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2">
-						<p class="text-xs text-[var(--color-text-muted)]">Speed (VFD)</p>
-						<p class="text-lg font-semibold text-[var(--color-text)]">{(result.actual_speed * 100).toFixed(0)}%</p>
-					</div>
-				{/if}
-				{#if result.power != null}
-					<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2">
-						<p class="text-xs text-[var(--color-text-muted)]">Power</p>
-						<p class="text-lg font-semibold text-[var(--color-text)]">{formatNumber(result.power * 1.341, 2)} HP</p>
-					</div>
-				{/if}
-			</div>
-
-			<!-- Efficiency -->
-			{#if result.efficiency !== undefined}
-				<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2">
+				<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
+					<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Power</p>
+					<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.power != null ? formatNumber(result.power * 1.341, 2) : '-'} HP</p>
+				</div>
+				<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
 					<div class="flex items-center justify-between">
-						<p class="text-xs text-[var(--color-text-muted)]">Efficiency</p>
+						<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Efficiency</p>
 						{#if result.viscosity_correction_applied}
-							<span class="text-xs text-[var(--color-accent)]">(viscosity corrected)</span>
+							<span class="text-xs text-[var(--color-accent)]">(corrected)</span>
 						{/if}
 					</div>
-					<p class="text-lg font-semibold text-[var(--color-text)]">{(result.efficiency * 100).toFixed(1)}%</p>
+					<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{result.efficiency != null ? (result.efficiency * 100).toFixed(1) : '-'}%</p>
+				</div>
+			</div>
+
+			{#if isVFD && result.actual_speed != null}
+				<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
+					<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">VFD Speed</p>
+					<p class="mt-1 text-lg font-semibold text-[var(--color-text)]">{(result.actual_speed * 100).toFixed(0)}%</p>
 				</div>
 			{/if}
 
 			<!-- NPSH Section -->
-			<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
-				<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">NPSH</p>
-				<div class="mt-2 grid grid-cols-3 gap-4">
-					<div>
-						<p class="text-xs text-[var(--color-text-muted)]">Available</p>
-						<p class="text-sm font-semibold text-[var(--color-text)]">{formatNumber(result.npsh_available)} ft</p>
-					</div>
-					{#if result.npsh_margin != null}
-						{@const npshRequired = result.npsh_available - result.npsh_margin}
-						{@const marginPercent = npshRequired > 0 ? (result.npsh_margin / npshRequired) * 100 : 0}
+			{#if true}
+				{@const npshRequired = result.npsh_margin != null ? result.npsh_available - result.npsh_margin : null}
+				{@const marginPercent = npshRequired != null && npshRequired > 0 ? (result.npsh_margin! / npshRequired) * 100 : null}
+				<div class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-3">
+					<p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">NPSH</p>
+					<div class="mt-2 grid grid-cols-3 gap-4">
+						<div>
+							<p class="text-xs text-[var(--color-text-muted)]">Available</p>
+							<p class="text-sm font-semibold text-[var(--color-text)]">{formatNumber(result.npsh_available)} ft</p>
+						</div>
 						<div>
 							<p class="text-xs text-[var(--color-text-muted)]">Required</p>
-							<p class="text-sm font-semibold text-[var(--color-text)]">
-								{formatNumber(npshRequired)} ft
-							</p>
+							<p class="text-sm font-semibold text-[var(--color-text)]">{npshRequired != null ? formatNumber(npshRequired) : '-'} ft</p>
 						</div>
 						<div>
 							<p class="text-xs text-[var(--color-text-muted)]">Margin</p>
-							<p class="flex items-center gap-1 text-sm font-semibold {result.npsh_margin > 0 ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}">
-								{formatNumber(marginPercent, 0)}%
-								{#if result.npsh_margin > 0}
-									<span>✓</span>
-								{:else}
-									<span>⚠️</span>
+							<p class="flex items-center gap-1 text-sm font-semibold {marginPercent != null && marginPercent > 0 ? 'text-[var(--color-success)]' : marginPercent != null ? 'text-[var(--color-error)]' : 'text-[var(--color-text)]'}">
+								{marginPercent != null ? formatNumber(marginPercent, 0) : '-'}%
+								{#if marginPercent != null}
+									{#if marginPercent > 0}
+										<span>✓</span>
+									{:else}
+										<span>⚠️</span>
+									{/if}
 								{/if}
 							</p>
 						</div>
-					{/if}
+					</div>
 				</div>
-			</div>
+			{/if}
 
 			<!-- Viscosity Correction Details (collapsible) -->
 			{#if result.viscosity_correction_applied && result.viscosity_correction_factors}

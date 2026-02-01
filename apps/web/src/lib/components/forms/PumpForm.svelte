@@ -4,8 +4,11 @@
 		PumpCurve,
 		FlowHeadPoint,
 		FlowEfficiencyPoint,
-		NPSHRPoint
+		NPSHRPoint,
+		PumpOperatingMode,
+		PumpStatus
 	} from '$lib/models';
+	import { PUMP_OPERATING_MODE_LABELS, PUMP_STATUS_LABELS } from '$lib/models';
 	import { pumpLibrary, projectStore } from '$lib/stores';
 	import NumberInput from './NumberInput.svelte';
 
@@ -291,46 +294,126 @@
 		</div>
 	{/if}
 
-	<NumberInput
-		id="speed"
-		label="Speed"
-		value={component.speed * 100}
-		unit="%"
-		min={0}
-		max={100}
-		step={1}
-		onchange={(value) => onUpdate('speed', value / 100)}
-		hint="100% = design speed"
-	/>
+	<!-- Operating Mode -->
+	<div>
+		<label for="operating_mode" class="block text-sm font-medium text-[var(--color-text)]">
+			Operating Mode
+		</label>
+		<select
+			id="operating_mode"
+			value={component.operating_mode}
+			onchange={(e) => {
+				const mode = (e.target as HTMLSelectElement).value as PumpOperatingMode;
+				onUpdate('operating_mode', mode);
+				// Auto-set status when mode is 'off'
+				if (mode === 'off' && component.status === 'running') {
+					onUpdate('status', 'off_check');
+				}
+				// Auto-set status to running when switching from off to a running mode
+				if (mode !== 'off' && (component.status === 'off_check' || component.status === 'off_no_check')) {
+					onUpdate('status', 'running');
+				}
+			}}
+			class="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] shadow-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+		>
+			{#each Object.entries(PUMP_OPERATING_MODE_LABELS) as [value, label]}
+				<option {value}>{label}</option>
+			{/each}
+		</select>
+	</div>
 
-	<!-- Status -->
-	<fieldset>
-		<legend class="block text-sm font-medium text-[var(--color-text)]">Status</legend>
-		<div class="mt-2 flex gap-4">
-			<label class="flex items-center">
-				<input
-					type="radio"
-					name="status"
-					value="running"
-					checked={component.status === 'running'}
-					onchange={() => onUpdate('status', 'running')}
-					class="h-4 w-4 border-[var(--color-border)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
-				/>
-				<span class="ml-2 text-sm text-[var(--color-text)]">Running</span>
+	<!-- Speed Ratio (only for fixed_speed and variable_speed modes) -->
+	{#if component.operating_mode === 'fixed_speed' || component.operating_mode === 'variable_speed'}
+		<NumberInput
+			id="speed"
+			label="Speed Ratio"
+			value={component.speed * 100}
+			unit="%"
+			min={0}
+			max={150}
+			step={1}
+			onchange={(value) => onUpdate('speed', value / 100)}
+			hint="100% = design speed (0-150%)"
+		/>
+	{/if}
+
+	<!-- Pressure Setpoint (only for controlled_pressure mode) -->
+	{#if component.operating_mode === 'controlled_pressure'}
+		<NumberInput
+			id="control_setpoint"
+			label="Pressure Setpoint"
+			value={component.control_setpoint ?? 50}
+			unit="psi"
+			min={0}
+			step={1}
+			onchange={(value) => onUpdate('control_setpoint', value)}
+			hint="Target discharge pressure"
+		/>
+	{/if}
+
+	<!-- Flow Setpoint (only for controlled_flow mode) -->
+	{#if component.operating_mode === 'controlled_flow'}
+		<NumberInput
+			id="control_setpoint"
+			label="Flow Setpoint"
+			value={component.control_setpoint ?? 100}
+			unit="GPM"
+			min={0}
+			step={1}
+			onchange={(value) => onUpdate('control_setpoint', value)}
+			hint="Target flow rate"
+		/>
+	{/if}
+
+	<!-- Viscosity Correction -->
+	<div class="flex items-start gap-2">
+		<input
+			type="checkbox"
+			id="viscosity_correction"
+			checked={component.viscosity_correction_enabled}
+			onchange={(e) => onUpdate('viscosity_correction_enabled', (e.target as HTMLInputElement).checked)}
+			class="mt-1 h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
+		/>
+		<div>
+			<label for="viscosity_correction" class="text-sm font-medium text-[var(--color-text)]">
+				Apply viscosity correction
 			</label>
-			<label class="flex items-center">
-				<input
-					type="radio"
-					name="status"
-					value="off_check"
-					checked={component.status === 'off_check'}
-					onchange={() => onUpdate('status', 'off_check')}
-					class="h-4 w-4 border-[var(--color-border)] text-[var(--color-accent)] focus:ring-[var(--color-accent)]"
-				/>
-				<span class="ml-2 text-sm text-[var(--color-text)]">Off (with check)</span>
-			</label>
+			<p class="text-xs text-[var(--color-text-muted)]">
+				Automatically correct pump performance for viscous fluids per ANSI/HI 9.6.7
+			</p>
 		</div>
-	</fieldset>
+	</div>
+
+	<!-- Advanced Section (collapsible) -->
+	<details class="rounded-md border border-[var(--color-border)]">
+		<summary class="cursor-pointer px-3 py-2 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-elevated)]">
+			Advanced
+		</summary>
+		<div class="border-t border-[var(--color-border)] p-3">
+			<label for="status" class="block text-sm font-medium text-[var(--color-text)]">Status</label>
+			<select
+				id="status"
+				value={component.status}
+				onchange={(e) => onUpdate('status', (e.target as HTMLSelectElement).value as PumpStatus)}
+				class="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] shadow-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+			>
+				{#each Object.entries(PUMP_STATUS_LABELS) as [value, label]}
+					<option {value}>{label}</option>
+				{/each}
+			</select>
+			<p class="mt-1 text-xs text-[var(--color-text-muted)]">
+				{#if component.status === 'off_check'}
+					Pump is off but check valve prevents backflow
+				{:else if component.status === 'off_no_check'}
+					Pump is off and allows backflow
+				{:else if component.status === 'locked_out'}
+					Pump is locked out and cannot operate
+				{:else}
+					Pump is running normally
+				{/if}
+			</p>
+		</div>
+	</details>
 </div>
 
 <!-- Curve Editor Modal -->

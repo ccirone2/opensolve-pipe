@@ -9,3 +9,4 @@ export { default as ElementPanel } from './ElementPanel.svelte';
 export { default as PipingPanel } from './PipingPanel.svelte';
 export { default as DownstreamPipingPanel } from './DownstreamPipingPanel.svelte';
 export { default as ElementTypeSelector } from './ElementTypeSelector.svelte';
+export { default as BranchSelector } from './BranchSelector.svelte';

@@ -357,7 +357,7 @@ def _add_component_to_wntr(
                     diameter=0.1,  # 100mm default
                     valve_type=valve_type,
                     minor_loss=0.0,
-                    setting=setting,
+                    initial_setting=setting,
                 )
                 ctx.link_map[comp.id] = valve_name
         else:
@@ -506,8 +506,10 @@ def _add_component_to_wntr(
             node_name,
             base_demand=0.0,
             elevation=comp.elevation * FT_TO_M,
-            emitter_coefficient=k_m3s_m,
         )
+        # Set emitter coefficient on the junction object after creation
+        junction = wn.get_node(node_name)
+        junction.emitter_coefficient = k_m3s_m
         ctx.node_map[comp.id] = node_name
 
     else:

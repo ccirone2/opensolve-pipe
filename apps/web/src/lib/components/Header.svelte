@@ -11,6 +11,8 @@
 		onSolve?: () => void;
 		isSolving?: boolean;
 		canSolve?: boolean;
+		showSchematic?: boolean;
+		onSchematicToggle?: () => void;
 	}
 
 	let {
@@ -20,7 +22,9 @@
 		showViewSwitcher = false,
 		onSolve,
 		isSolving = false,
-		canSolve = true
+		canSolve = true,
+		showSchematic = false,
+		onSchematicToggle
 	}: Props = $props();
 
 	function handleViewModeChange(mode: ViewMode) {
@@ -59,8 +63,29 @@
 				</a>
 			</div>
 
-			<!-- Right: Solve Button and View Mode Switcher -->
+			<!-- Right: Schematic Toggle, Solve Button and View Mode Switcher -->
 			<div class="flex items-center gap-3">
+				{#if onSchematicToggle}
+					<button
+						type="button"
+						onclick={onSchematicToggle}
+						title={showSchematic ? 'Hide schematic' : 'Show schematic'}
+						class="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors {showSchematic
+							? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]'
+							: 'border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-[var(--color-text-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-text)]'}"
+					>
+						<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"
+							/>
+						</svg>
+						<span class="hidden sm:inline">Schematic</span>
+					</button>
+				{/if}
+
 				{#if onSolve}
 					<button
 						type="button"

@@ -245,7 +245,7 @@ pump_speed_rpm: PositiveFloat = Field(
 
 - [ ] Unit tests with known HI example values (< 1% deviation)
 - [ ] Integration test: full solve with glycol 50% at various temperatures
-- [ ] Test coverage ≥ 85% for new module
+- [ ] Test coverage ≥ 93% for new module
 - [ ] Ruff and mypy pass
 
 ### Quality Gates

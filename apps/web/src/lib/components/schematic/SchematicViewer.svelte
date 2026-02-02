@@ -1,20 +1,24 @@
 <script lang="ts">
-	import { components } from '$lib/stores';
+	import { components, connections } from '$lib/stores';
 	import SchematicCanvas from './SchematicCanvas.svelte';
+	import SchematicComponent from './SchematicComponent.svelte';
+	import { calculateLayout, type LayoutResult } from '$lib/utils/schematic/layout';
 
 	interface Props {
 		/** Called when a component is clicked. */
 		onComponentClick?: (componentId: string) => void;
-		/** Custom content to render (for now, placeholder). */
-		children?: import('svelte').Snippet;
+		/** ID of the currently selected component. */
+		selectedComponentId?: string | null;
 	}
 
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars -- Will be used when component interaction is fully wired
-	let { onComponentClick, children }: Props = $props();
+	let { onComponentClick, selectedComponentId = null }: Props = $props();
 
 	let canvas: SchematicCanvas | undefined = $state();
 	let zoomLevel = $state(1);
 	let containerElement: HTMLDivElement | undefined = $state();
+
+	// Calculate layout whenever components or connections change
+	let layout: LayoutResult = $derived(calculateLayout($components, $connections));
 
 	// Format zoom level for display
 	let zoomPercent = $derived(Math.round(zoomLevel * 100));
@@ -23,10 +27,25 @@
 	 * Fit the schematic to the viewport.
 	 */
 	function handleFitToView(): void {
-		// For now, use a default content area since we don't have actual components yet
-		// This will be updated when we add component symbols
-		const defaultBounds = { x: 0, y: 0, width: 800, height: 400 };
-		canvas?.fitToView(defaultBounds);
+		if (layout.bounds.width > 0 && layout.bounds.height > 0) {
+			canvas?.fitToView(layout.bounds);
+		}
+	}
+
+	/**
+	 * Handle component click.
+	 */
+	function handleComponentClick(componentId: string): void {
+		onComponentClick?.(componentId);
+	}
+
+	/**
+	 * Generate SVG path for a connection line.
+	 */
+	function connectionPath(points: Array<{ x: number; y: number }>): string {
+		if (points.length === 0) return '';
+		const [first, ...rest] = points;
+		return `M ${first.x} ${first.y} ` + rest.map((p) => `L ${p.x} ${p.y}`).join(' ');
 	}
 
 	/**
@@ -78,50 +97,51 @@
 		minZoom={0.1}
 		maxZoom={4}
 	>
-		{#if children}
-			{@render children()}
-		{:else}
-			<!-- Default placeholder content -->
-			<g class="schematic-content">
-				{#if $components.length === 0}
-					<!-- Empty state placeholder -->
-					<text
-						x="400"
-						y="200"
-						text-anchor="middle"
-						class="fill-[var(--color-text-muted)] text-sm"
-					>
-						Add components to see the schematic
-					</text>
-				{:else}
-					<!-- Placeholder: show component count -->
-					<text
-						x="400"
-						y="180"
-						text-anchor="middle"
-						class="fill-[var(--color-text)] text-lg font-medium"
-					>
-						Schematic View
-					</text>
-					<text
-						x="400"
-						y="210"
-						text-anchor="middle"
-						class="fill-[var(--color-text-muted)] text-sm"
-					>
-						{$components.length} components
-					</text>
-					<text
-						x="400"
-						y="240"
-						text-anchor="middle"
-						class="fill-[var(--color-text-subtle)] text-xs"
-					>
-						Component symbols coming soon
-					</text>
-				{/if}
-			</g>
-		{/if}
+		<g class="schematic-content">
+			{#if $components.length === 0}
+				<!-- Empty state placeholder -->
+				<text
+					x="400"
+					y="200"
+					text-anchor="middle"
+					class="fill-[var(--color-text-muted)] text-sm"
+				>
+					Add components to see the schematic
+				</text>
+			{:else}
+				<!-- Connection lines (render first, so they appear behind components) -->
+				<g class="connections">
+					{#each layout.connections as conn (conn.id)}
+						<path
+							d={connectionPath(conn.points)}
+							fill="none"
+							stroke="var(--color-text-muted)"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						/>
+					{/each}
+				</g>
+
+				<!-- Components -->
+				<g class="components">
+					{#each layout.components as pos (pos.id)}
+						{@const comp = $components.find((c) => c.id === pos.id)}
+						{#if comp}
+							<SchematicComponent
+								component={comp}
+								x={pos.x}
+								y={pos.y}
+								width={pos.width}
+								height={pos.height}
+								selected={selectedComponentId === comp.id}
+								onclick={handleComponentClick}
+							/>
+						{/if}
+					{/each}
+				</g>
+			{/if}
+		</g>
 	</SchematicCanvas>
 
 	<!-- Zoom Controls -->

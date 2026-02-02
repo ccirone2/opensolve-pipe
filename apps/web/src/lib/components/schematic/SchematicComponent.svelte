@@ -77,6 +77,11 @@
 	let hovered = $state(false);
 	let showTooltip = $state(false);
 
+	// Convert top-left position (from layout) to center position (for symbols)
+	// The layout provides top-left coordinates, but SymbolBase expects center coordinates
+	let centerX = $derived(x + width / 2);
+	let centerY = $derived(y + height / 2);
+
 	// Determine symbol dimensions based on component type
 	let symbolDimensions = $derived.by(() => {
 		if (isReservoir(component)) return { width: 60, height: 50 };
@@ -134,8 +139,8 @@
 <g class="schematic-component" data-component-id={component.id}>
 	{#if isReservoir(component)}
 		<ReservoirSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}
@@ -147,8 +152,8 @@
 		/>
 	{:else if isTank(component)}
 		<TankSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}
@@ -161,8 +166,8 @@
 		/>
 	{:else if isJunction(component)}
 		<JunctionSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}
@@ -174,8 +179,8 @@
 		/>
 	{:else if isPump(component)}
 		<PumpSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}
@@ -188,8 +193,8 @@
 		/>
 	{:else if isValve(component)}
 		<ValveSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}
@@ -203,8 +208,8 @@
 		/>
 	{:else if isHeatExchanger(component)}
 		<HeatExchangerSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}
@@ -216,8 +221,8 @@
 		/>
 	{:else if isStrainer(component)}
 		<StrainerSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}
@@ -229,8 +234,8 @@
 		/>
 	{:else if isOrifice(component)}
 		<OrificeSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}
@@ -242,8 +247,8 @@
 		/>
 	{:else if isSprinkler(component)}
 		<SprinklerSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}
@@ -255,8 +260,8 @@
 		/>
 	{:else if isPlug(component)}
 		<PlugSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}
@@ -268,8 +273,8 @@
 		/>
 	{:else if isIdealReferenceNode(component)}
 		<ReferenceNodeSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}
@@ -282,8 +287,8 @@
 		/>
 	{:else if isNonIdealReferenceNode(component)}
 		<ReferenceNodeSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}
@@ -296,8 +301,8 @@
 		/>
 	{:else if isTeeBranch(component)}
 		<TeeSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}
@@ -309,8 +314,8 @@
 		/>
 	{:else if isWyeBranch(component)}
 		<WyeSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}
@@ -322,8 +327,8 @@
 		/>
 	{:else if isCrossBranch(component)}
 		<CrossSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}
@@ -336,8 +341,8 @@
 	{:else}
 		<!-- Fallback for unknown component types -->
 		<GenericSymbol
-			{x}
-			{y}
+			x={centerX}
+			y={centerY}
 			width={symbolDimensions.width}
 			height={symbolDimensions.height}
 			{selected}

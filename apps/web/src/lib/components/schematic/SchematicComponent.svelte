@@ -151,6 +151,11 @@
 			onmouseleave={handleMouseLeave}
 		/>
 	{:else if isTank(component)}
+		{@const maxLevel = component.max_level || 1}
+		{@const minLevel = component.min_level || 0}
+		{@const normalizedLevel = maxLevel > minLevel
+			? (component.initial_level - minLevel) / (maxLevel - minLevel)
+			: 0.5}
 		<TankSymbol
 			x={centerX}
 			y={centerY}
@@ -159,7 +164,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
-			level={component.initial_level ?? 0.5}
+			level={normalizedLevel}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}
 			onmouseleave={handleMouseLeave}

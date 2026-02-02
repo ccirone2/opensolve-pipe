@@ -40,6 +40,9 @@
 	let rx = $derived(width / 2);
 	const ry = 6;
 	let bodyHeight = $derived(height - ry * 2);
+
+	// Clamp level to 0-1 range for visual representation
+	let displayLevel = $derived(Math.max(0, Math.min(1, level)));
 </script>
 
 <SymbolBase
@@ -90,23 +93,25 @@
 	/>
 
 	<!-- Water fill -->
-	{#if level > 0}
+	{#if displayLevel > 0}
 		<rect
 			x="1"
-			y={ry + bodyHeight * (1 - level)}
+			y={ry + bodyHeight * (1 - displayLevel)}
 			width={width - 2}
-			height={bodyHeight * level}
+			height={bodyHeight * displayLevel}
 			class="fill-blue-400/40"
 		/>
 	{/if}
 
 	<!-- Level indicator line -->
-	<line
-		x1="2"
-		y1={ry + bodyHeight * (1 - level)}
-		x2={width - 2}
-		y2={ry + bodyHeight * (1 - level)}
-		class="stroke-blue-500 stroke-1"
-		stroke-dasharray="4 2"
-	/>
+	{#if displayLevel > 0 && displayLevel < 1}
+		<line
+			x1="2"
+			y1={ry + bodyHeight * (1 - displayLevel)}
+			x2={width - 2}
+			y2={ry + bodyHeight * (1 - displayLevel)}
+			class="stroke-blue-500 stroke-1"
+			stroke-dasharray="4 2"
+		/>
+	{/if}
 </SymbolBase>

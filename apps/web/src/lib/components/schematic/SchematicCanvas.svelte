@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
 	import { select } from 'd3-selection';
 	import { zoom, zoomIdentity, type ZoomBehavior, type D3ZoomEvent } from 'd3-zoom';
 	import 'd3-transition'; // Augments Selection with .transition()
@@ -27,17 +26,17 @@
 
 	let svgElement: SVGSVGElement | undefined = $state();
 	let contentGroup: SVGGElement | undefined = $state();
-	let zoomBehavior: ZoomBehavior<SVGSVGElement, unknown> | null = null;
+	let zoomBehavior: ZoomBehavior<SVGSVGElement, unknown> | null = $state(null);
 	let currentTransform = $state({ x: 0, y: 0, k: 1 });
 
-	// Initialize zoom behavior when SVG is mounted
-	onMount(() => {
+	// Initialize zoom behavior when SVG element is available
+	$effect(() => {
 		if (!svgElement) return;
 
 		const svg = select(svgElement);
 
 		// Create zoom behavior
-		zoomBehavior = zoom<SVGSVGElement, unknown>()
+		const newZoomBehavior = zoom<SVGSVGElement, unknown>()
 			.scaleExtent([minZoom, maxZoom])
 			.on('zoom', (event: D3ZoomEvent<SVGSVGElement, unknown>) => {
 				const { x, y, k } = event.transform;
@@ -46,17 +45,19 @@
 				onZoomChange?.(k);
 			});
 
+		zoomBehavior = newZoomBehavior;
+
 		// Apply zoom behavior to SVG
-		svg.call(zoomBehavior);
+		svg.call(newZoomBehavior);
 
 		// Enable touch support for mobile pinch-to-zoom
 		svg.on('touchstart.zoom', null); // Let d3-zoom handle touch events
-	});
 
-	onDestroy(() => {
-		if (svgElement) {
-			select(svgElement).on('.zoom', null);
-		}
+		// Cleanup function
+		return () => {
+			svg.on('.zoom', null);
+			zoomBehavior = null;
+		};
 	});
 
 	/**

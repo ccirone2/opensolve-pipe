@@ -2,6 +2,7 @@
 	import Header from '$lib/components/Header.svelte';
 	import { PanelNavigator } from '$lib/components/panel';
 	import { ResultsPanel } from '$lib/components/results';
+	import SchematicViewer from '$lib/components/schematic/SchematicViewer.svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
@@ -16,6 +17,27 @@
 
 	// View mode state
 	let viewMode: ViewMode = $state('panel');
+
+	// Schematic toggle state (persists across view mode switches)
+	let showSchematic = $state(false);
+
+	function handleSchematicToggle() {
+		showSchematic = !showSchematic;
+	}
+
+	// Handle component click from schematic - select in panel and switch to panel view
+	function handleSchematicComponentClick(componentId: string) {
+		// Find the component index
+		const index = $components.findIndex((c) => c.id === componentId);
+		if (index !== -1) {
+			// Switch to panel view if not already there
+			if (viewMode !== 'panel') {
+				viewMode = 'panel';
+			}
+			// The PanelNavigator will need to expose a way to navigate to a specific component
+			// For now, we at least switch to panel view
+		}
+	}
 
 	// Solve state
 	let isSolving = $state(false);
@@ -160,6 +182,8 @@
 		onSolve={handleSolve}
 		{isSolving}
 		{canSolve}
+		{showSchematic}
+		onSchematicToggle={handleSchematicToggle}
 	/>
 
 	<!-- Toast Messages -->
@@ -214,6 +238,16 @@
 	{/if}
 
 	<main id="main-content" class="flex min-h-0 flex-1 flex-col">
+		<!-- Schematic Viewer (stacked above content when visible) -->
+		{#if showSchematic}
+			<div
+				class="shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] transition-all duration-300 ease-in-out"
+				style="height: 300px; min-height: 200px;"
+			>
+				<SchematicViewer onComponentClick={handleSchematicComponentClick} />
+			</div>
+		{/if}
+
 		{#if viewMode === 'panel'}
 			<!-- Panel Navigator View -->
 			<div class="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col p-4">

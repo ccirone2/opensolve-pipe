@@ -25,7 +25,7 @@
 		x = 0,
 		y = 0,
 		width = 50,
-		height = 60,
+		height = 45,
 		selected = false,
 		hovered = false,
 		label = '',

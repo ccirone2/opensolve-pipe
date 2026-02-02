@@ -83,11 +83,11 @@
 	<!-- Symbol content (passed as children) -->
 	{@render children?.()}
 
-	<!-- Label -->
+	<!-- Label (positioned at fixed offset from center for consistent alignment) -->
 	{#if showLabel && label}
 		<text
 			x={width / 2}
-			y={height + 16}
+			y={height / 2 + 35}
 			text-anchor="middle"
 			class="fill-[var(--color-text)] text-xs font-medium"
 		>

@@ -85,7 +85,7 @@
 	// Determine symbol dimensions based on component type
 	let symbolDimensions = $derived.by(() => {
 		if (isReservoir(component)) return { width: 60, height: 50 };
-		if (isTank(component)) return { width: 50, height: 60 };
+		if (isTank(component)) return { width: 50, height: 45 };
 		if (isJunction(component)) return { width: 20, height: 20 };
 		if (isPump(component)) return { width: 50, height: 50 };
 		if (isValve(component)) return { width: 40, height: 30 };

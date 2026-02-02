@@ -355,9 +355,9 @@
 		/>
 	{/if}
 
-	<!-- Tooltip -->
-	{#if showTooltip && (tooltipContent || component.name)}
-		<g transform="translate({x}, {y - symbolDimensions.height / 2 - 40})">
+	<!-- Tooltip (positioned above symbol center) -->
+	{#if showTooltip && tooltipContent}
+		<g transform="translate({centerX}, {centerY - symbolDimensions.height / 2 - 30})">
 			<rect
 				x="-60"
 				y="-10"

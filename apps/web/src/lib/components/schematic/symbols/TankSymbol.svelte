@@ -89,18 +89,14 @@
 		class="fill-[var(--color-surface)] stroke-[var(--color-text)] stroke-2"
 	/>
 
-	<!-- Water fill (clipped to body) -->
+	<!-- Water fill -->
 	{#if level > 0}
-		<clipPath id="tank-body-{x}-{y}">
-			<rect x="1" y={ry} width={width - 2} height={bodyHeight} />
-		</clipPath>
 		<rect
 			x="1"
 			y={ry + bodyHeight * (1 - level)}
 			width={width - 2}
 			height={bodyHeight * level}
 			class="fill-blue-400/40"
-			clip-path="url(#tank-body-{x}-{y})"
 		/>
 	{/if}
 

@@ -58,6 +58,7 @@
 	transform="translate({left}, {top})"
 	role="button"
 	tabindex="0"
+	style="outline: none;"
 	{onclick}
 	{onmouseenter}
 	{onmouseleave}

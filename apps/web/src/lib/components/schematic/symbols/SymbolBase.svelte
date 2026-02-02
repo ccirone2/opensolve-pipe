@@ -87,7 +87,7 @@
 	{#if showLabel && label}
 		<text
 			x={width / 2}
-			y={height / 2 + 35}
+			y={height / 2 + 45}
 			text-anchor="middle"
 			class="fill-[var(--color-text)] text-xs font-medium"
 		>

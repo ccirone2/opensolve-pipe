@@ -1,57 +1,65 @@
 <script lang="ts">
-	import Header from '$lib/components/Header.svelte';
-	import { PanelNavigator } from '$lib/components/panel';
-	import { ResultsPanel } from '$lib/components/results';
+	import {
+		WorkspaceToolbar,
+		ComponentTree,
+		PropertyPanel,
+		CommandPalette,
+		StatusBar
+	} from '$lib/components/workspace';
 	import SchematicViewer from '$lib/components/schematic/SchematicViewer.svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
-	import { projectStore, components, metadata } from '$lib/stores';
+	import { projectStore, components, metadata, navigationStore } from '$lib/stores';
 	import { solveNetwork, ApiError } from '$lib/api';
 	import { encodeProject, tryDecodeProject } from '$lib/utils';
-
-	type ViewMode = 'panel' | 'results';
 
 	// Get encoded project data from URL
 	let encoded = $derived($page.params.encoded || '');
 
-	// View mode state
-	let viewMode: ViewMode = $state('panel');
+	// Layout state
+	let isSidebarOpen = $state(true);
+	let isInspectorOpen = $state(true);
+	let showCommandPalette = $state(false);
 
-	// Schematic toggle state (persists across view mode switches)
-	let showSchematic = $state(false);
-
-	function handleSchematicToggle() {
-		showSchematic = !showSchematic;
-	}
-
-	// Handle component click from schematic - select in panel and switch to panel view
-	function handleSchematicComponentClick(componentId: string) {
-		// Find the component index
-		const index = $components.findIndex((c) => c.id === componentId);
-		if (index !== -1) {
-			// Switch to panel view if not already there
-			if (viewMode !== 'panel') {
-				viewMode = 'panel';
-			}
-			// The PanelNavigator will need to expose a way to navigate to a specific component
-			// For now, we at least switch to panel view
-		}
-	}
+	// Project name editing
+	let isEditingName = $state(false);
+	let editedName = $state('');
 
 	// Solve state
 	let isSolving = $state(false);
 	let solveError = $state<string | null>(null);
-	let solveSuccess = $state<{ time: number; iterations: number } | null>(null);
 
 	// Project name from metadata
 	let projectName = $derived($metadata?.name || (encoded ? 'Project' : 'New Project'));
 
-	// Edit state for project name
-	let isEditingName = $state(false);
-	let editedName = $state('');
+	// Check if project has components (can solve)
+	let canSolve = $derived($components.length > 0);
 
-	function startEditingName() {
+	// Track if we've already loaded from URL to prevent re-loading
+	let hasLoadedFromUrl = $state(false);
+
+	// Load project from URL
+	$effect(() => {
+		if (encoded && !hasLoadedFromUrl) {
+			const project = tryDecodeProject(encoded);
+			if (project) {
+				hasLoadedFromUrl = true;
+				projectStore.load(project);
+			}
+		}
+	});
+
+	// Handle component click from schematic
+	function handleSchematicComponentClick(componentId: string) {
+		navigationStore.navigateTo(componentId);
+		if (!isInspectorOpen) {
+			isInspectorOpen = true;
+		}
+	}
+
+	// Name editing
+	function handleEditName() {
 		editedName = projectName;
 		isEditingName = true;
 	}
@@ -63,65 +71,28 @@
 		isEditingName = false;
 	}
 
-	function cancelEditingName() {
-		isEditingName = false;
-	}
-
 	function handleNameKeydown(event: KeyboardEvent) {
 		if (event.key === 'Enter') {
 			event.preventDefault();
 			saveProjectName();
 		} else if (event.key === 'Escape') {
-			cancelEditingName();
+			isEditingName = false;
 		}
 	}
 
-	// Check if project has components (can solve)
-	let canSolve = $derived($components.length > 0);
-
-	// Track if we've already loaded from URL to prevent re-loading
-	let hasLoadedFromUrl = $state(false);
-
-	// Load project from URL using effect (more reliable than onMount for SSR hydration)
-	$effect(() => {
-		if (encoded && !hasLoadedFromUrl) {
-			const project = tryDecodeProject(encoded);
-			if (project) {
-				hasLoadedFromUrl = true;
-				projectStore.load(project);
-			}
-		}
-	});
-
-	function handleViewModeChange(mode: ViewMode) {
-		viewMode = mode;
-	}
-
+	// Solve
 	async function handleSolve() {
 		if (isSolving || !canSolve) return;
 
 		isSolving = true;
 		solveError = null;
-		solveSuccess = null;
 
 		try {
 			const project = get(projectStore);
 			const result = await solveNetwork(project);
-
-			// Update store with results
 			projectStore.setResults(result);
 
-			// Show success message
 			if (result.converged) {
-				solveSuccess = {
-					time: result.solve_time_seconds ?? 0,
-					iterations: result.iterations ?? 0
-				};
-
-				// Switch to results view
-				viewMode = 'results';
-
-				// Update URL with new state (including results)
 				await updateUrl();
 			} else {
 				solveError = result.error || 'Solution did not converge';
@@ -147,24 +118,35 @@
 		}
 	}
 
-	// Keyboard shortcut handler
+	// Keyboard shortcuts
 	function handleKeydown(event: KeyboardEvent) {
 		// Ctrl+Enter or Cmd+Enter to solve
 		if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
 			event.preventDefault();
 			handleSolve();
+			return;
+		}
+
+		// Ctrl+K or Cmd+K for command palette
+		if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
+			event.preventDefault();
+			showCommandPalette = !showCommandPalette;
+			return;
+		}
+
+		// Escape to close palette
+		if (event.key === 'Escape' && showCommandPalette) {
+			showCommandPalette = false;
+			return;
 		}
 	}
 
-	// Auto-clear success message after 5 seconds
-	$effect(() => {
-		if (solveSuccess) {
-			const timeout = setTimeout(() => {
-				solveSuccess = null;
-			}, 5000);
-			return () => clearTimeout(timeout);
-		}
-	});
+	// Workspace CSS class
+	let workspaceClass = $derived(
+		'workspace' +
+		(!isSidebarOpen ? ' sidebar-collapsed' : '') +
+		(!isInspectorOpen ? ' inspector-collapsed' : '')
+	);
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -173,141 +155,95 @@
 	<title>{projectName} - OpenSolve Pipe</title>
 </svelte:head>
 
-<div class="flex min-h-screen flex-col bg-[var(--color-bg)]">
-	<Header
-		{projectName}
-		{viewMode}
-		onViewModeChange={handleViewModeChange}
-		showViewSwitcher={true}
-		onSolve={handleSolve}
-		{isSolving}
-		{canSolve}
-		{showSchematic}
-		onSchematicToggle={handleSchematicToggle}
-	/>
-
-	<!-- Toast Messages -->
-	{#if solveError}
-		<div class="fixed right-4 top-20 z-50 max-w-md transition-all duration-150 ease-out" role="alert" aria-live="assertive">
-			<div class="flex items-start gap-3 rounded-lg border border-[var(--color-error)]/30 bg-[var(--color-error)]/10 p-4 shadow-lg">
-				<svg class="h-5 w-5 flex-shrink-0 text-[var(--color-error)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-				</svg>
-				<div class="flex-1">
-					<p class="text-sm font-medium text-[var(--color-error)]">Solve Failed</p>
-					<p class="mt-1 text-sm text-[var(--color-error)]/80">{solveError}</p>
-				</div>
-				<button
-					type="button"
-					onclick={() => (solveError = null)}
-					class="text-[var(--color-error)]/60 hover:text-[var(--color-error)]"
-					aria-label="Dismiss error"
-				>
-					<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-					</svg>
-				</button>
+<div class={workspaceClass}>
+	<!-- Toolbar -->
+	<div class="workspace-toolbar">
+		{#if isEditingName}
+			<!-- Inline name editor overlays the toolbar -->
+			<div class="flex h-full items-center border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2">
+				<!-- svelte-ignore a11y_autofocus -->
+				<input
+					type="text"
+					bind:value={editedName}
+					onkeydown={handleNameKeydown}
+					onblur={saveProjectName}
+					class="w-64 rounded border border-[var(--color-border-focus)] bg-[var(--color-surface-elevated)] px-2 py-0.5 text-sm text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-muted)]"
+					autofocus
+				/>
 			</div>
-		</div>
-	{/if}
-
-	{#if solveSuccess}
-		<div class="fixed right-4 top-20 z-50 max-w-md transition-all duration-150 ease-out" role="status" aria-live="polite">
-			<div class="flex items-start gap-3 rounded-lg border border-[var(--color-success)]/30 bg-[var(--color-success)]/10 p-4 shadow-lg">
-				<svg class="h-5 w-5 flex-shrink-0 text-[var(--color-success)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-				</svg>
-				<div class="flex-1">
-					<p class="text-sm font-medium text-[var(--color-success)]">Solution Converged</p>
-					<p class="mt-1 text-sm text-[var(--color-success)]/80">
-						{solveSuccess.iterations} iterations in {solveSuccess.time < 1 ? `${(solveSuccess.time * 1000).toFixed(0)} ms` : `${solveSuccess.time.toFixed(2)} s`}
-					</p>
-				</div>
-				<button
-					type="button"
-					onclick={() => (solveSuccess = null)}
-					class="text-[var(--color-success)]/60 hover:text-[var(--color-success)]"
-					aria-label="Dismiss message"
-				>
-					<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-					</svg>
-				</button>
-			</div>
-		</div>
-	{/if}
-
-	<main id="main-content" class="flex min-h-0 flex-1 flex-col">
-		<!-- Schematic Viewer (stacked above content when visible) -->
-		{#if showSchematic}
-			<div
-				class="shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] transition-all duration-300 ease-in-out"
-				style="height: 300px; min-height: 200px;"
-			>
-				<SchematicViewer onComponentClick={handleSchematicComponentClick} />
-			</div>
+		{:else}
+			<WorkspaceToolbar
+				{projectName}
+				{isSolving}
+				{canSolve}
+				{isSidebarOpen}
+				{isInspectorOpen}
+				onSolve={handleSolve}
+				onToggleSidebar={() => (isSidebarOpen = !isSidebarOpen)}
+				onToggleInspector={() => (isInspectorOpen = !isInspectorOpen)}
+				onOpenCommandPalette={() => (showCommandPalette = true)}
+				onEditName={handleEditName}
+			/>
 		{/if}
+	</div>
 
-		{#if viewMode === 'panel'}
-			<!-- Panel Navigator View -->
-			<div class="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col p-4">
-				<div class="mb-4 flex-shrink-0">
-					{#if isEditingName}
-						<!-- svelte-ignore a11y_autofocus -->
-						<input
-							type="text"
-							bind:value={editedName}
-							onkeydown={handleNameKeydown}
-							onblur={saveProjectName}
-							class="w-full rounded-md border border-[var(--color-accent)] bg-[var(--color-surface)] px-2 py-1 text-xl font-semibold text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
-							autofocus
-						/>
-					{:else}
+	<!-- Sidebar: Component Tree -->
+	{#if isSidebarOpen}
+		<div class="workspace-sidebar">
+			<ComponentTree
+				onOpenCommandPalette={() => (showCommandPalette = true)}
+			/>
+		</div>
+	{/if}
+
+	<!-- Canvas: Schematic Viewer -->
+	<div class="workspace-canvas canvas-grid">
+		{#if $components.length === 0}
+			<!-- Empty state overlay -->
+			<div class="absolute inset-0 flex flex-col items-center justify-center gap-4">
+				<div class="rounded-xl border border-dashed border-[var(--color-border)] bg-[var(--color-surface)]/80 p-8 text-center backdrop-blur-sm">
+					<svg class="mx-auto h-12 w-12 text-[var(--color-text-subtle)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+					</svg>
+					<h2 class="mt-3 text-base font-semibold text-[var(--color-text)]">Start Building</h2>
+					<p class="mt-1 text-xs text-[var(--color-text-muted)]">
+						Add components to design your hydraulic network
+					</p>
+					<div class="mt-4 flex justify-center gap-2">
 						<button
 							type="button"
-							onclick={startEditingName}
-							class="group flex items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-[var(--color-surface-elevated)]"
-							title="Click to edit project name"
+							onclick={() => (showCommandPalette = true)}
+							class="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-xs font-semibold text-[var(--color-accent-text)] transition-colors hover:bg-[var(--color-accent-hover)]"
 						>
-							<h1 class="text-xl font-semibold text-[var(--color-text)]">{projectName}</h1>
-							<svg
-								class="h-4 w-4 text-[var(--color-text-subtle)] opacity-0 transition-opacity group-hover:opacity-100"
-								fill="none"
-								stroke="currentColor"
-								viewBox="0 0 24 24"
-							>
-								<path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									stroke-width="2"
-									d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-								/>
+							<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
 							</svg>
+							Add Component
+							<span class="kbd text-[0.5rem]">Ctrl+K</span>
 						</button>
-					{/if}
-				</div>
-				<div class="min-h-0 flex-1">
-					<PanelNavigator />
+					</div>
 				</div>
 			</div>
 		{:else}
-			<!-- Results View -->
-			<div class="mx-auto max-w-4xl p-4">
-				<div class="rounded-lg bg-[var(--color-surface)] shadow">
-					<ResultsPanel isLoading={isSolving} />
-				</div>
-			</div>
+			<SchematicViewer onComponentClick={handleSchematicComponentClick} />
 		{/if}
-	</main>
+	</div>
 
-	<!-- Mobile-friendly bottom navigation hint -->
-	<div class="border-t border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-center text-sm text-[var(--color-text-muted)] md:hidden">
-		{#if viewMode === 'panel'}
-			Use arrow keys or navigation buttons to move between components
-		{:else}
-			Scroll to view all results
-		{/if}
+	<!-- Inspector: Property Panel -->
+	{#if isInspectorOpen}
+		<div class="workspace-inspector">
+			<PropertyPanel />
+		</div>
+	{/if}
+
+	<!-- Status Bar -->
+	<div class="workspace-statusbar">
+		<StatusBar {isSolving} {solveError} />
 	</div>
 </div>
 
-<!-- Toast animations use Tailwind's built-in transition utilities via class binding -->
+<!-- Command Palette (global overlay) -->
+<CommandPalette
+	open={showCommandPalette}
+	onClose={() => (showCommandPalette = false)}
+/>

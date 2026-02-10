@@ -9,11 +9,9 @@
 	interface Props {
 		onOpenCommandPalette?: () => void;
 		onSolve?: () => void;
-		onUndo?: () => void;
-		onRedo?: () => void;
 	}
 
-	let { onOpenCommandPalette, onSolve, onUndo, onRedo }: Props = $props();
+	let { onOpenCommandPalette, onSolve }: Props = $props();
 
 	const tabs: { id: SidebarTab; label: string }[] = [
 		{ id: 'tree', label: 'Tree' },
@@ -93,6 +91,6 @@
 				<SystemResultsPanel {onSolve} />
 			{/if}
 		</div>
-		<SidebarFooter {onOpenCommandPalette} {onSolve} {onUndo} {onRedo} />
+		<SidebarFooter />
 	</div>
 </div>

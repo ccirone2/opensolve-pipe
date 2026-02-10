@@ -889,6 +889,44 @@ The editor shows when `editingPumpCurveId !== null` AND `activeSidebarTab === 'l
 
 ---
 
+## ADR-022: Pump Curve Chart Architecture (Shared Flow Domain, NPSH Subplot)
+
+**Date:** 2026-02-10
+**Status:** Accepted
+**Context:** Issue #219 - Pump Curve Editor Enhancements
+
+### Decision
+
+Rewrite the Curve Preview SVG charts with:
+
+1. **Shared flow domain** across all curve types for a consistent X-axis
+2. **Nice axis ticks** algorithm that computes round numbers (1, 2, 5 multiples) for both axes
+3. **NPSH as a separate subplot** below the main chart with its own Y-axis scale
+4. **Design point crosshair** rendered as dashed lines spanning the full chart with a diamond marker
+5. **BEP marker** computed from quadratic efficiency curve fit
+
+### Rationale
+
+- **Shared flow domain:** All curves on the same chart need identical X-axis scaling for visual correlation; previously each curve computed its own max flow independently
+- **Nice ticks:** Engineers expect round-number axis labels (0, 50, 100) not arbitrary values; the algorithm snaps to 1/2/5 × 10^n increments
+- **NPSH subplot:** NPSH required values (typically 5-30 ft) are a different order of magnitude from head (50-200 ft), making overlay confusing; a separate subplot with its own Y-axis is standard practice in pump curve sheets
+- **Design point crosshair:** Industry convention for marking the rated operating condition on pump curve charts
+
+### Consequences
+
+**Positive:**
+
+- Chart axes now have readable numeric labels matching engineering convention
+- NPSH is clearly visible with appropriate scale instead of being compressed
+- Design point is prominent and easy to identify on both main chart and NPSH subplot
+
+**Negative:**
+
+- Two separate SVG elements require coordinated X-axis (solved via shared `flowAxisMax` state)
+- Chart rendering code is more complex with const declarations requiring Svelte `{#if true}` wrappers
+
+---
+
 ## Template for Future ADRs
 
 ```markdown

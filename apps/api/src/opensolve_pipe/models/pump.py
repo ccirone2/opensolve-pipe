@@ -28,6 +28,13 @@ class NPSHRPoint(OpenSolvePipeBaseModel):
     npsh_required: PositiveFloat = Field(description="NPSH required in project units")
 
 
+class FlowPowerPoint(OpenSolvePipeBaseModel):
+    """A single point on a power curve (flow vs brake horsepower)."""
+
+    flow: NonNegativeFloat = Field(description="Flow rate in project units")
+    power: NonNegativeFloat = Field(description="Power (BHP) in project units")
+
+
 class PumpCurve(OpenSolvePipeBaseModel):
     """Pump performance curve definition."""
 
@@ -41,6 +48,11 @@ class PumpCurve(OpenSolvePipeBaseModel):
     impeller_diameter: PositiveFloat | None = Field(
         default=None, description="Impeller diameter in project units"
     )
+    stages: int | None = Field(default=None, ge=1, description="Number of pump stages")
+    inlet_outlet: str | None = Field(
+        default=None, description="Inlet/outlet size description"
+    )
+    notes: str | None = Field(default=None, description="Free-form notes")
 
     points: list[FlowHeadPoint] = Field(
         min_length=2, description="Pump curve points (minimum 2)"
@@ -50,6 +62,9 @@ class PumpCurve(OpenSolvePipeBaseModel):
     )
     npshr_curve: list[NPSHRPoint] | None = Field(
         default=None, description="Optional NPSH required curve"
+    )
+    power_curve: list[FlowPowerPoint] | None = Field(
+        default=None, description="Optional power curve"
     )
 
     @field_validator("points")

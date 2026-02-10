@@ -50,6 +50,7 @@ export type {
 	FlowHeadPoint,
 	FlowEfficiencyPoint,
 	NPSHRPoint,
+	FlowPowerPoint,
 	PumpCurve,
 	BestEfficiencyPoint,
 	QuadraticCoefficients

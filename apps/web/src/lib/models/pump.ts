@@ -27,6 +27,14 @@ export interface NPSHRPoint {
 	npsh_required: number;
 }
 
+/** A single point on a power curve (flow vs brake horsepower). */
+export interface FlowPowerPoint {
+	/** Flow rate in project units. */
+	flow: number;
+	/** Power (BHP) in project units. */
+	power: number;
+}
+
 /** Pump performance curve definition. */
 export interface PumpCurve {
 	/** Unique identifier for this pump curve. */
@@ -41,12 +49,20 @@ export interface PumpCurve {
 	rated_speed?: number;
 	/** Impeller diameter in project units. */
 	impeller_diameter?: number;
+	/** Number of pump stages. */
+	stages?: number;
+	/** Inlet/outlet size description (e.g. "2\" / 2\""). */
+	inlet_outlet?: string;
+	/** Free-form notes. */
+	notes?: string;
 	/** Pump curve points (minimum 2). */
 	points: FlowHeadPoint[];
 	/** Optional efficiency curve. */
 	efficiency_curve?: FlowEfficiencyPoint[];
 	/** Optional NPSH required curve. */
 	npshr_curve?: NPSHRPoint[];
+	/** Optional power curve. */
+	power_curve?: FlowPowerPoint[];
 }
 
 /** Validate pump curve. Returns error message or null if valid. */

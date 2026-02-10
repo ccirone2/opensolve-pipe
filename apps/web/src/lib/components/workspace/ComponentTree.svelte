@@ -112,7 +112,45 @@
 		draggedId = null;
 		dropTargetIndex = null;
 	}
+
+	// Context menu state
+	let contextMenuId = $state<string | null>(null);
+	let contextMenuPos = $state<{ x: number; y: number }>({ x: 0, y: 0 });
+
+	function handleContextMenu(e: MouseEvent, componentId: string) {
+		e.preventDefault();
+		e.stopPropagation();
+		contextMenuId = componentId;
+		contextMenuPos = { x: e.clientX, y: e.clientY };
+	}
+
+	function closeContextMenu() {
+		contextMenuId = null;
+	}
+
+	function handleCopySeries(e: Event) {
+		e.stopPropagation();
+		if (contextMenuId) {
+			projectStore.copyComponentInSeries(contextMenuId);
+		}
+		closeContextMenu();
+	}
+
+	function handleCopyParallel(e: Event) {
+		e.stopPropagation();
+		if (contextMenuId) {
+			projectStore.copyComponentInParallel(contextMenuId);
+		}
+		closeContextMenu();
+	}
+
+	// Close context menu on any click
+	function handleWindowClick() {
+		closeContextMenu();
+	}
 </script>
+
+<svelte:window onclick={handleWindowClick} />
 
 <div class="flex h-full flex-col bg-[var(--color-surface)]">
 	<!-- Header -->
@@ -154,6 +192,7 @@
 				{@const category = getCategoryForType(component.type)}
 				{@const isDragging = draggedId === component.id}
 				{@const isDropTarget = dropTargetIndex === i}
+				{@const isLinked = !!component.parent_id}
 
 				<!-- Drop indicator line (before this item) -->
 				{#if isDropTarget && draggedId !== component.id}
@@ -169,6 +208,7 @@
 					ondragleave={handleDragLeave}
 					ondrop={(e) => handleDrop(e, i)}
 					ondragend={handleDragEnd}
+					oncontextmenu={(e) => handleContextMenu(e, component.id)}
 					class="group flex w-full cursor-grab items-center gap-2 px-3 py-1.5 text-left transition-colors
 						{isDragging ? 'opacity-40' : ''}
 						{isSelected
@@ -192,6 +232,15 @@
 					<span class="w-4 flex-shrink-0 text-center mono-value text-[0.625rem] text-[var(--color-text-subtle)]">
 						{i + 1}
 					</span>
+
+					<!-- Linked indicator -->
+					{#if isLinked}
+						<span class="flex-shrink-0 text-[var(--color-info)]" title="Linked to parent (edits will break link)">
+							<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+							</svg>
+						</span>
+					{/if}
 
 					<!-- Type badge -->
 					<span
@@ -252,3 +301,35 @@
 		{/if}
 	</div>
 </div>
+
+<!-- Context Menu -->
+{#if contextMenuId}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="fixed z-[200] min-w-[140px] rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] py-1 shadow-lg"
+		style="left: {contextMenuPos.x}px; top: {contextMenuPos.y}px;"
+		onclick={(e) => e.stopPropagation()}
+		onkeydown={() => {}}
+	>
+		<button
+			type="button"
+			onclick={handleCopySeries}
+			class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-[var(--color-text)] transition-colors hover:bg-[var(--color-tree-hover)]"
+		>
+			<svg class="h-3.5 w-3.5 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+				<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m0 0a2.625 2.625 0 115.25 0" />
+			</svg>
+			Copy in Series
+		</button>
+		<button
+			type="button"
+			onclick={handleCopyParallel}
+			class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-[var(--color-text)] transition-colors hover:bg-[var(--color-tree-hover)]"
+		>
+			<svg class="h-3.5 w-3.5 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+				<path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5L7.5 3m0 0L12 7.5M7.5 3v13.5m13.5-13.5L16.5 7.5m0 0L12 3m4.5 4.5V21" />
+			</svg>
+			Copy in Parallel
+		</button>
+	</div>
+{/if}

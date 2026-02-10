@@ -199,7 +199,6 @@
 	</div>
 
 	<!-- Component List -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div bind:this={listEl} class="flex-1 overflow-y-auto py-1" tabindex="-1" onkeydown={handleListKeydown} role="listbox" aria-label="Component list">
 		{#if $components.length === 0}
 			<div class="flex flex-col items-center gap-2 px-3 py-6 text-center">

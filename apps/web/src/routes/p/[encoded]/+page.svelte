@@ -204,6 +204,33 @@
 				return;
 			}
 		}
+
+		// Left/Right arrow keys to navigate components in schematic
+		// Only when not typing in an input field and no modifiers
+		if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+			const tag = (event.target as HTMLElement)?.tagName;
+			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+			const comps = $components;
+			if (comps.length === 0) return;
+
+			const currentIndex = comps.findIndex((c) => c.id === $currentElementId);
+			let newIndex: number | null = null;
+
+			if (event.key === 'ArrowRight') {
+				newIndex = currentIndex < 0 ? 0 : Math.min(currentIndex + 1, comps.length - 1);
+			} else {
+				newIndex = currentIndex < 0 ? comps.length - 1 : Math.max(currentIndex - 1, 0);
+			}
+
+			if (newIndex !== null) {
+				event.preventDefault();
+				navigationStore.navigateTo(comps[newIndex].id);
+				if (!isInspectorOpen) {
+					workspaceStore.setInspectorOpen(true);
+				}
+			}
+		}
 	}
 
 	// Mobile tab switching

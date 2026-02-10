@@ -51,6 +51,8 @@
 
 	function handleSelect(component: Component) {
 		navigationStore.navigateTo(component.id);
+		// Focus the list container so arrow keys work immediately
+		listEl?.focus();
 	}
 
 	// Delete confirmation state
@@ -147,6 +149,33 @@
 	function handleWindowClick() {
 		closeContextMenu();
 	}
+
+	// Arrow key navigation
+	function handleListKeydown(e: KeyboardEvent) {
+		const comps = $components;
+		if (comps.length === 0) return;
+
+		let newIndex: number | null = null;
+		const currentIndex = comps.findIndex((c) => c.id === $currentElementId);
+
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			newIndex = currentIndex < 0 ? 0 : Math.min(currentIndex + 1, comps.length - 1);
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			newIndex = currentIndex < 0 ? comps.length - 1 : Math.max(currentIndex - 1, 0);
+		} else if (e.key === 'Home') {
+			e.preventDefault();
+			newIndex = 0;
+		} else if (e.key === 'End') {
+			e.preventDefault();
+			newIndex = comps.length - 1;
+		}
+
+		if (newIndex !== null) {
+			navigationStore.navigateTo(comps[newIndex].id);
+		}
+	}
 </script>
 
 <svelte:window onclick={handleWindowClick} />
@@ -170,7 +199,7 @@
 	</div>
 
 	<!-- Component List -->
-	<div bind:this={listEl} class="flex-1 overflow-y-auto py-1">
+	<div bind:this={listEl} class="flex-1 overflow-y-auto py-1" tabindex="-1" onkeydown={handleListKeydown} role="listbox" aria-label="Component list">
 		{#if $components.length === 0}
 			<div class="flex flex-col items-center gap-2 px-3 py-6 text-center">
 				<svg class="h-8 w-8 text-[var(--color-text-subtle)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
@@ -214,8 +243,9 @@
 						: 'text-[var(--color-text-muted)] hover:bg-[var(--color-tree-hover)] hover:text-[var(--color-text)]'}"
 					onclick={() => handleSelect(component)}
 					onkeydown={(e) => e.key === 'Enter' && handleSelect(component)}
-					role="button"
-					tabindex="0"
+					role="option"
+					aria-selected={isSelected}
+					tabindex="-1"
 				>
 					<!-- Drag handle -->
 					<span class="flex-shrink-0 text-[var(--color-text-subtle)] opacity-0 transition-opacity group-hover:opacity-60" aria-hidden="true">

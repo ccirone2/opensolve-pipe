@@ -359,6 +359,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Pump Curve Preview NPSH Subplot Alignment** (PR #222, Issue #221)
+  - Fixed NPSH subplot rendering narrower than main chart with smaller fonts
+  - Root cause: `preserveAspectRatio="xMidYMid meet"` with `h-full w-full` in different-height containers caused SVGs to scale differently
+  - Fix: removed height constraints, both SVGs now use `w-full` only so viewBox aspect ratio determines height while width fills container identically
+  - Added power curve data (BHP) to Goulds 3196 example pump
+
 - **New Project Redirect** (PR #199, Issue #193)
   - Fixed: clicking "New Project" on landing page showed a loading spinner but never loaded the workspace
   - Root cause: `onMount` + `goto()` redirect in `/p/+page.svelte` did not fire in Vite preview builds

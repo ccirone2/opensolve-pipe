@@ -37,15 +37,15 @@
 	{#if componentCount > 0}
 		<div class="grid w-full max-w-[200px] grid-cols-3 gap-2 text-center">
 			<div>
-				<p class="font-[var(--font-mono)] text-base font-semibold text-[var(--color-badge-source-text)]">{categoryCounts.sources}</p>
+				<p class="mono-value text-base font-semibold text-[var(--color-badge-source-text)]">{categoryCounts.sources}</p>
 				<p class="text-[0.5625rem] text-[var(--color-text-subtle)]">Sources</p>
 			</div>
 			<div>
-				<p class="font-[var(--font-mono)] text-base font-semibold text-[var(--color-badge-equipment-text)]">{categoryCounts.equipment}</p>
+				<p class="mono-value text-base font-semibold text-[var(--color-badge-equipment-text)]">{categoryCounts.equipment}</p>
 				<p class="text-[0.5625rem] text-[var(--color-text-subtle)]">Equipment</p>
 			</div>
 			<div>
-				<p class="font-[var(--font-mono)] text-base font-semibold text-[var(--color-badge-connection-text)]">{categoryCounts.connections}</p>
+				<p class="mono-value text-base font-semibold text-[var(--color-badge-connection-text)]">{categoryCounts.connections}</p>
 				<p class="text-[0.5625rem] text-[var(--color-text-subtle)]">Connections</p>
 			</div>
 		</div>

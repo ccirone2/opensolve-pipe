@@ -25,25 +25,25 @@
 		{#if componentResult?.pressure !== undefined}
 			<div class="min-w-0 flex-1 text-center">
 				<p class="text-[0.5625rem] text-[var(--color-text-subtle)]">Pressure</p>
-				<p class="font-[var(--font-mono)] text-[0.6875rem] font-semibold text-[var(--color-text)]">{fmt(componentResult.pressure)}</p>
+				<p class="mono-value text-[0.6875rem] font-semibold text-[var(--color-text)]">{fmt(componentResult.pressure)}</p>
 			</div>
 		{/if}
 		{#if pipingResult?.flow !== undefined}
 			<div class="min-w-0 flex-1 text-center">
 				<p class="text-[0.5625rem] text-[var(--color-text-subtle)]">Flow</p>
-				<p class="font-[var(--font-mono)] text-[0.6875rem] font-semibold text-[var(--color-text)]">{fmt(pipingResult.flow)}</p>
+				<p class="mono-value text-[0.6875rem] font-semibold text-[var(--color-text)]">{fmt(pipingResult.flow)}</p>
 			</div>
 		{/if}
 		{#if pipingResult?.velocity !== undefined}
 			<div class="min-w-0 flex-1 text-center">
 				<p class="text-[0.5625rem] text-[var(--color-text-subtle)]">Velocity</p>
-				<p class="font-[var(--font-mono)] text-[0.6875rem] font-semibold text-[var(--color-text)]">{fmt(pipingResult.velocity)}</p>
+				<p class="mono-value text-[0.6875rem] font-semibold text-[var(--color-text)]">{fmt(pipingResult.velocity)}</p>
 			</div>
 		{/if}
 		{#if pumpResult?.operating_head !== undefined}
 			<div class="min-w-0 flex-1 text-center">
 				<p class="text-[0.5625rem] text-[var(--color-text-subtle)]">Head</p>
-				<p class="font-[var(--font-mono)] text-[0.6875rem] font-semibold text-[var(--color-text)]">{fmt(pumpResult.operating_head)}</p>
+				<p class="mono-value text-[0.6875rem] font-semibold text-[var(--color-text)]">{fmt(pumpResult.operating_head)}</p>
 			</div>
 		{/if}
 	</div>

@@ -62,9 +62,9 @@
 		</div>
 	{:else}
 		<!-- Solve Status -->
-		<div class="rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2.5">
+		<div class="card p-2.5">
 			<div class="flex items-center justify-between">
-				<span class="text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+				<span class="section-heading">
 					Status
 				</span>
 				{#if $solvedState?.converged}
@@ -91,21 +91,21 @@
 		</div>
 
 		<!-- Component Summary -->
-		<div class="rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2.5">
-			<h4 class="mb-2 text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+		<div class="card p-2.5">
+			<h4 class="mb-2 section-heading">
 				Components
 			</h4>
 			<div class="grid grid-cols-3 gap-2 text-center">
 				<div>
-					<p class="font-[var(--font-mono)] text-sm font-semibold text-[var(--color-badge-source-text)]">{categoryCounts.sources}</p>
+					<p class="mono-value text-sm font-semibold text-[var(--color-badge-source-text)]">{categoryCounts.sources}</p>
 					<p class="text-[0.5625rem] text-[var(--color-text-subtle)]">Sources</p>
 				</div>
 				<div>
-					<p class="font-[var(--font-mono)] text-sm font-semibold text-[var(--color-badge-equipment-text)]">{categoryCounts.equipment}</p>
+					<p class="mono-value text-sm font-semibold text-[var(--color-badge-equipment-text)]">{categoryCounts.equipment}</p>
 					<p class="text-[0.5625rem] text-[var(--color-text-subtle)]">Equipment</p>
 				</div>
 				<div>
-					<p class="font-[var(--font-mono)] text-sm font-semibold text-[var(--color-badge-connection-text)]">{categoryCounts.connections}</p>
+					<p class="mono-value text-sm font-semibold text-[var(--color-badge-connection-text)]">{categoryCounts.connections}</p>
 					<p class="text-[0.5625rem] text-[var(--color-text-subtle)]">Connections</p>
 				</div>
 			</div>
@@ -113,8 +113,8 @@
 
 		<!-- Per-Component Results Table -->
 		{#if $solvedState?.component_results}
-			<div class="rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2.5">
-				<h4 class="mb-2 text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+			<div class="card p-2.5">
+				<h4 class="mb-2 section-heading">
 					Node Results
 				</h4>
 				<div class="overflow-x-auto">
@@ -132,10 +132,10 @@
 								{#if result}
 									<tr class="border-t border-[var(--color-border-subtle)]">
 										<td class="truncate py-1 pr-2 text-[var(--color-text)]">{comp.name}</td>
-										<td class="py-1 pr-2 font-[var(--font-mono)] text-[var(--color-text)]">
+										<td class="py-1 pr-2 mono-value text-[var(--color-text)]">
 											{formatNumber(result.pressure)}
 										</td>
-										<td class="py-1 font-[var(--font-mono)] text-[var(--color-text)]">
+										<td class="py-1 mono-value text-[var(--color-text)]">
 											{formatNumber(result.hgl)}
 										</td>
 									</tr>
@@ -149,8 +149,8 @@
 
 		<!-- Piping Results -->
 		{#if $solvedState?.piping_results}
-			<div class="rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2.5">
-				<h4 class="mb-2 text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+			<div class="card p-2.5">
+				<h4 class="mb-2 section-heading">
 					Flow Results
 				</h4>
 				<div class="overflow-x-auto">
@@ -168,10 +168,10 @@
 								{#if result}
 									<tr class="border-t border-[var(--color-border-subtle)]">
 										<td class="truncate py-1 pr-2 text-[var(--color-text)]">{comp.name}</td>
-										<td class="py-1 pr-2 font-[var(--font-mono)] text-[var(--color-text)]">
+										<td class="py-1 pr-2 mono-value text-[var(--color-text)]">
 											{formatNumber(result.flow)}
 										</td>
-										<td class="py-1 font-[var(--font-mono)] text-[var(--color-text)]">
+										<td class="py-1 mono-value text-[var(--color-text)]">
 											{formatNumber(result.velocity)}
 										</td>
 									</tr>
@@ -186,7 +186,7 @@
 		<!-- Warnings -->
 		{#if warnings.length > 0}
 			<div class="rounded border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/5 p-2.5">
-				<h4 class="mb-2 text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-warning)]">
+				<h4 class="mb-2 section-heading text-[var(--color-warning)]">
 					Warnings ({warnings.length})
 				</h4>
 				<div class="space-y-1">

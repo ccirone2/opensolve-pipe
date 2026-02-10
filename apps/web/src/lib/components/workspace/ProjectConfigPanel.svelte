@@ -54,13 +54,13 @@
 
 <div class="flex flex-col gap-0.5 p-2">
 	<!-- Fluid Configuration -->
-	<div class="rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)]">
+	<div class="card">
 		<button
 			type="button"
 			onclick={() => (fluidOpen = !fluidOpen)}
 			class="flex w-full items-center justify-between px-2.5 py-2 text-left"
 		>
-			<span class="text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+			<span class="section-heading">
 				Fluid
 			</span>
 			<svg
@@ -75,14 +75,14 @@
 			<div class="space-y-2.5 border-t border-[var(--color-border)] px-2.5 py-2.5">
 				<!-- Fluid Type -->
 				<div>
-					<label for="fluid-type" class="mb-1 block text-[0.625rem] font-medium uppercase tracking-wider text-[var(--color-text-subtle)]">
+					<label for="fluid-type" class="mb-1 block section-heading text-[var(--color-text-subtle)]">
 						Type
 					</label>
 					<select
 						id="fluid-type"
 						value={fluidType}
 						onchange={(e) => updateFluid({ type: (e.target as HTMLSelectElement).value as FluidType })}
-						class="w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-xs text-[var(--color-text)] focus:border-[var(--color-border-focus)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-muted)]"
+						class="form-input"
 					>
 						{#each fluidTypes as [value, label]}
 							<option {value}>{label}</option>
@@ -92,7 +92,7 @@
 
 				<!-- Temperature -->
 				<div>
-					<label for="fluid-temp" class="mb-1 block text-[0.625rem] font-medium uppercase tracking-wider text-[var(--color-text-subtle)]">
+					<label for="fluid-temp" class="mb-1 block section-heading text-[var(--color-text-subtle)]">
 						Temperature ({unitSystem === 'si' ? 'C' : 'F'})
 					</label>
 					<input
@@ -100,14 +100,14 @@
 						type="number"
 						value={fluidTemp}
 						onchange={(e) => updateFluid({ temperature: parseFloat((e.target as HTMLInputElement).value) || 68 })}
-						class="w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 font-[var(--font-mono)] text-xs text-[var(--color-text)] focus:border-[var(--color-border-focus)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-muted)]"
+						class="form-input mono-value"
 					/>
 				</div>
 
 				<!-- Concentration (glycols only) -->
 				{#if GLYCOL_FLUID_TYPES.includes(fluidType)}
 					<div>
-						<label for="fluid-concentration" class="mb-1 block text-[0.625rem] font-medium uppercase tracking-wider text-[var(--color-text-subtle)]">
+						<label for="fluid-concentration" class="mb-1 block section-heading text-[var(--color-text-subtle)]">
 							Concentration (%)
 						</label>
 						<input
@@ -117,7 +117,7 @@
 							max="100"
 							value={fluidConcentration}
 							onchange={(e) => updateFluid({ concentration: parseFloat((e.target as HTMLInputElement).value) || 50 })}
-							class="w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 font-[var(--font-mono)] text-xs text-[var(--color-text)] focus:border-[var(--color-border-focus)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-muted)]"
+							class="form-input mono-value"
 						/>
 					</div>
 				{/if}
@@ -126,13 +126,13 @@
 	</div>
 
 	<!-- Unit System -->
-	<div class="rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)]">
+	<div class="card">
 		<button
 			type="button"
 			onclick={() => (unitsOpen = !unitsOpen)}
 			class="flex w-full items-center justify-between px-2.5 py-2 text-left"
 		>
-			<span class="text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+			<span class="section-heading">
 				Units
 			</span>
 			<svg
@@ -164,13 +164,13 @@
 	</div>
 
 	<!-- Solver Options -->
-	<div class="rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)]">
+	<div class="card">
 		<button
 			type="button"
 			onclick={() => (solverOpen = !solverOpen)}
 			class="flex w-full items-center justify-between px-2.5 py-2 text-left"
 		>
-			<span class="text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+			<span class="section-heading">
 				Solver
 			</span>
 			<svg
@@ -184,7 +184,7 @@
 		{#if solverOpen}
 			<div class="space-y-2.5 border-t border-[var(--color-border)] px-2.5 py-2.5">
 				<div>
-					<label for="solver-max-iter" class="mb-1 block text-[0.625rem] font-medium uppercase tracking-wider text-[var(--color-text-subtle)]">
+					<label for="solver-max-iter" class="mb-1 block section-heading text-[var(--color-text-subtle)]">
 						Max Iterations
 					</label>
 					<input
@@ -194,12 +194,12 @@
 						max="10000"
 						value={maxIterations}
 						onchange={(e) => updateSolverOption('max_iterations', parseInt((e.target as HTMLInputElement).value) || 100)}
-						class="w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 font-[var(--font-mono)] text-xs text-[var(--color-text)] focus:border-[var(--color-border-focus)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-muted)]"
+						class="form-input mono-value"
 					/>
 				</div>
 
 				<div>
-					<label for="solver-tolerance" class="mb-1 block text-[0.625rem] font-medium uppercase tracking-wider text-[var(--color-text-subtle)]">
+					<label for="solver-tolerance" class="mb-1 block section-heading text-[var(--color-text-subtle)]">
 						Tolerance
 					</label>
 					<input
@@ -210,7 +210,7 @@
 						step="0.0001"
 						value={tolerance}
 						onchange={(e) => updateSolverOption('tolerance', parseFloat((e.target as HTMLInputElement).value) || 0.001)}
-						class="w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 font-[var(--font-mono)] text-xs text-[var(--color-text)] focus:border-[var(--color-border-focus)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-muted)]"
+						class="form-input mono-value"
 					/>
 				</div>
 			</div>
@@ -218,13 +218,13 @@
 	</div>
 
 	<!-- Pump Library -->
-	<div class="rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)]">
+	<div class="card">
 		<button
 			type="button"
 			onclick={() => (pumpLibOpen = !pumpLibOpen)}
 			class="flex w-full items-center justify-between px-2.5 py-2 text-left"
 		>
-			<span class="text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+			<span class="section-heading">
 				Pump Library
 				{#if $pumpLibrary.length > 0}
 					<span class="ml-1 text-[var(--color-accent)]">({$pumpLibrary.length})</span>

@@ -126,7 +126,7 @@
 	{:else}
 		<!-- Component Header with Inline Actions -->
 		<div class="flex items-center gap-2 border-b border-[var(--color-border)] px-3 py-2">
-			<span class="text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-accent)]">
+			<span class="section-heading text-[var(--color-accent)]">
 				{COMPONENT_TYPE_LABELS[currentComponent.type]}
 			</span>
 			<span class="min-w-0 flex-1 truncate text-xs font-medium text-[var(--color-text)]">
@@ -224,15 +224,15 @@
 					<div class="space-y-3">
 						<!-- Component Result (Node data) -->
 						{#if componentResult}
-							<div class="rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2.5">
-								<h4 class="mb-2 text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+							<div class="card p-2.5">
+								<h4 class="mb-2 section-heading">
 									Hydraulic State
 								</h4>
 								<div class="grid grid-cols-2 gap-2">
 									{#if componentResult.pressure !== undefined}
 										<div>
 											<span class="text-[0.625rem] text-[var(--color-text-subtle)]">Pressure</span>
-											<p class="font-[var(--font-mono)] text-xs font-medium text-[var(--color-text)]">
+											<p class="mono-value text-xs font-medium text-[var(--color-text)]">
 												{formatNumber(componentResult.pressure)} psi
 											</p>
 										</div>
@@ -240,7 +240,7 @@
 									{#if componentResult.hgl !== undefined}
 										<div>
 											<span class="text-[0.625rem] text-[var(--color-text-subtle)]">HGL</span>
-											<p class="font-[var(--font-mono)] text-xs font-medium text-[var(--color-text)]">
+											<p class="mono-value text-xs font-medium text-[var(--color-text)]">
 												{formatNumber(componentResult.hgl)} ft
 											</p>
 										</div>
@@ -248,7 +248,7 @@
 									{#if componentResult.egl !== undefined}
 										<div>
 											<span class="text-[0.625rem] text-[var(--color-text-subtle)]">EGL</span>
-											<p class="font-[var(--font-mono)] text-xs font-medium text-[var(--color-text)]">
+											<p class="mono-value text-xs font-medium text-[var(--color-text)]">
 												{formatNumber(componentResult.egl)} ft
 											</p>
 										</div>
@@ -259,15 +259,15 @@
 
 						<!-- Piping Result -->
 						{#if pipingResult}
-							<div class="rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2.5">
-								<h4 class="mb-2 text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+							<div class="card p-2.5">
+								<h4 class="mb-2 section-heading">
 									Flow Data
 								</h4>
 								<div class="grid grid-cols-2 gap-2">
 									{#if pipingResult.flow !== undefined}
 										<div>
 											<span class="text-[0.625rem] text-[var(--color-text-subtle)]">Flow</span>
-											<p class="font-[var(--font-mono)] text-xs font-medium text-[var(--color-text)]">
+											<p class="mono-value text-xs font-medium text-[var(--color-text)]">
 												{formatNumber(pipingResult.flow)} GPM
 											</p>
 										</div>
@@ -275,7 +275,7 @@
 									{#if pipingResult.velocity !== undefined}
 										<div>
 											<span class="text-[0.625rem] text-[var(--color-text-subtle)]">Velocity</span>
-											<p class="font-[var(--font-mono)] text-xs font-medium text-[var(--color-text)]">
+											<p class="mono-value text-xs font-medium text-[var(--color-text)]">
 												{formatNumber(pipingResult.velocity)} ft/s
 											</p>
 										</div>
@@ -283,7 +283,7 @@
 									{#if pipingResult.head_loss !== undefined}
 										<div>
 											<span class="text-[0.625rem] text-[var(--color-text-subtle)]">Head Loss</span>
-											<p class="font-[var(--font-mono)] text-xs font-medium text-[var(--color-text)]">
+											<p class="mono-value text-xs font-medium text-[var(--color-text)]">
 												{formatNumber(pipingResult.head_loss)} ft
 											</p>
 										</div>
@@ -291,7 +291,7 @@
 									{#if pipingResult.reynolds_number !== undefined}
 										<div>
 											<span class="text-[0.625rem] text-[var(--color-text-subtle)]">Reynolds</span>
-											<p class="font-[var(--font-mono)] text-xs font-medium text-[var(--color-text)]">
+											<p class="mono-value text-xs font-medium text-[var(--color-text)]">
 												{formatNumber(pipingResult.reynolds_number, 0)}
 											</p>
 										</div>

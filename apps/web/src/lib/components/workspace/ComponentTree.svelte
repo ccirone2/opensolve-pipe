@@ -99,13 +99,13 @@
 					tabindex="0"
 				>
 					<!-- Index -->
-					<span class="w-4 flex-shrink-0 text-center font-[var(--font-mono)] text-[0.625rem] text-[var(--color-text-subtle)]">
+					<span class="w-4 flex-shrink-0 text-center mono-value text-[0.625rem] text-[var(--color-text-subtle)]">
 						{i + 1}
 					</span>
 
 					<!-- Type badge -->
 					<span
-						class="flex-shrink-0 rounded px-1 py-0.5 font-[var(--font-mono)] text-[0.5625rem] font-semibold
+						class="flex-shrink-0 rounded px-1 py-0.5 mono-value text-[0.5625rem] font-semibold
 							{category === 'source'
 							? 'bg-[var(--color-badge-source)] text-[var(--color-badge-source-text)]'
 							: category === 'equipment'

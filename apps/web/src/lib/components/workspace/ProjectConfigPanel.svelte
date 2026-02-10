@@ -49,8 +49,7 @@
 	const fluidTypes = Object.entries(FLUID_TYPE_LABELS) as [FluidType, string][];
 	const unitSystems: { id: UnitSystem; label: string }[] = [
 		{ id: 'imperial', label: 'Imperial' },
-		{ id: 'si', label: 'SI' },
-		{ id: 'mixed', label: 'Mixed' }
+		{ id: 'si', label: 'SI' }
 	];
 </script>
 
@@ -135,7 +134,7 @@
 			class="flex w-full items-center justify-between px-2.5 py-2 text-left"
 		>
 			<span class="section-heading">
-				Units
+				Display Units
 			</span>
 			<svg
 				class="h-3 w-3 text-[var(--color-text-subtle)] transition-transform {unitsOpen ? 'rotate-180' : ''}"

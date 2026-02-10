@@ -252,7 +252,7 @@
 				id="curve_id"
 				value={component.curve_id}
 				onchange={(e) => onUpdate('curve_id', (e.target as HTMLSelectElement).value)}
-				class="block flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] shadow-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+				class="form-input flex-1"
 			>
 				<option value="">Select a curve...</option>
 				{#each $pumpLibrary as curve}
@@ -314,7 +314,7 @@
 					onUpdate('status', 'running');
 				}
 			}}
-			class="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] shadow-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+			class="form-input"
 		>
 			{#each Object.entries(PUMP_OPERATING_MODE_LABELS) as [value, label]}
 				<option {value}>{label}</option>
@@ -395,7 +395,7 @@
 				id="status"
 				value={component.status}
 				onchange={(e) => onUpdate('status', (e.target as HTMLSelectElement).value as PumpStatus)}
-				class="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] shadow-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+				class="form-input"
 			>
 				{#each Object.entries(PUMP_STATUS_LABELS) as [value, label]}
 					<option {value}>{label}</option>
@@ -442,7 +442,7 @@
 						oninput={(e) => {
 							if (editingCurve) editingCurve.name = (e.target as HTMLInputElement).value;
 						}}
-						class="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+						class="form-input"
 					/>
 				</div>
 

@@ -39,6 +39,17 @@
 		cross_branch: 'CRS'
 	};
 
+	// Scrollable list ref for scroll-to-selected
+	let listEl: HTMLDivElement | undefined = $state();
+
+	// Auto-scroll to selected component when selection changes
+	$effect(() => {
+		const id = $currentElementId;
+		if (!id || !listEl) return;
+		const el = listEl.querySelector(`[data-component-id="${id}"]`);
+		el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+	});
+
 	function handleSelect(component: Component) {
 		navigationStore.navigateTo(component.id);
 	}
@@ -68,7 +79,7 @@
 	</div>
 
 	<!-- Component List -->
-	<div class="flex-1 overflow-y-auto py-1">
+	<div bind:this={listEl} class="flex-1 overflow-y-auto py-1">
 		{#if $components.length === 0}
 			<div class="flex flex-col items-center gap-2 px-3 py-6 text-center">
 				<svg class="h-8 w-8 text-[var(--color-text-subtle)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
@@ -89,6 +100,7 @@
 				{@const category = getCategoryForType(component.type)}
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
+					data-component-id={component.id}
 					class="group flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left transition-colors
 						{isSelected
 						? 'bg-[var(--color-tree-selected)] text-[var(--color-text)]'

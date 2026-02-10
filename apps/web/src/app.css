@@ -189,8 +189,12 @@ body {
 	grid-template-columns: 0px 1fr 0px;
 }
 
-/* Focus Mode — PanelNavigator replaces sidebar + inspector */
-.workspace.focus-mode {
+/* Focus Mode — PanelNavigator replaces sidebar + inspector.
+   Must override .sidebar-collapsed / .inspector-collapsed specificity. */
+.workspace.focus-mode,
+.workspace.focus-mode.sidebar-collapsed,
+.workspace.focus-mode.inspector-collapsed,
+.workspace.focus-mode.sidebar-collapsed.inspector-collapsed {
 	grid-template-rows: var(--toolbar-height) 1fr 35vh var(--statusbar-height);
 	grid-template-columns: 1fr;
 	grid-template-areas:

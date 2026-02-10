@@ -9,6 +9,7 @@
 export type { UnitSystem, UnitPreferences, SolverOptions } from './units';
 export {
 	SYSTEM_PRESETS,
+	normalizeUnitSystem,
 	createUnitPreferencesFromSystem,
 	DEFAULT_UNIT_PREFERENCES,
 	DEFAULT_SOLVER_OPTIONS

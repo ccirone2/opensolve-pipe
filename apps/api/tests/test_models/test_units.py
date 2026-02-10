@@ -13,7 +13,6 @@ class TestUnitSystem:
         """Test all unit system values."""
         assert UnitSystem.IMPERIAL.value == "imperial"
         assert UnitSystem.SI.value == "si"
-        assert UnitSystem.MIXED.value == "mixed"
 
 
 class TestUnitPreferences:
@@ -48,20 +47,10 @@ class TestUnitPreferences:
         assert prefs.flow == "L/s"
         assert prefs.head == "m_head"
 
-    def test_create_mixed_preferences(self):
-        """Test creating mixed unit preferences."""
-        prefs = UnitPreferences(
-            system=UnitSystem.MIXED,
-            length="m",
-            diameter="in",
-            pressure="bar",
-            head="ft_head",
-            flow="m3/h",
-            velocity="m/s",
-            temperature="C",
-        )
-        assert prefs.system == UnitSystem.MIXED
-        assert prefs.head == "ft_head"
+    def test_legacy_mixed_coerces_to_imperial(self):
+        """Test that legacy 'mixed' system is coerced to 'imperial'."""
+        prefs = UnitPreferences(system="mixed")
+        assert prefs.system == UnitSystem.IMPERIAL
 
     def test_preferences_serialization_roundtrip(self):
         """Test that preferences serialize and deserialize correctly."""

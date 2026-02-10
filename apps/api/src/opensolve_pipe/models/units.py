@@ -8,11 +8,10 @@ from .base import NonNegativeFloat, OpenSolvePipeBaseModel, PositiveFloat, Posit
 
 
 class UnitSystem(StrEnum):
-    """Available unit systems."""
+    """Available unit systems for display preferences."""
 
     IMPERIAL = "imperial"
     SI = "si"
-    MIXED = "mixed"
 
 
 # Preset unit configurations for each system
@@ -41,25 +40,22 @@ SYSTEM_PRESETS: dict[UnitSystem, dict[str, str]] = {
         "viscosity_dynamic": "Pa.s",
         "density": "kg/m3",
     },
-    UnitSystem.MIXED: {
-        "length": "m",
-        "diameter": "in",
-        "pressure": "bar",
-        "head": "m_head",
-        "flow": "m3/h",
-        "velocity": "m/s",
-        "temperature": "C",
-        "viscosity_kinematic": "cSt",
-        "viscosity_dynamic": "cP",
-        "density": "kg/m3",
-    },
 }
 
 
 class UnitPreferences(OpenSolvePipeBaseModel):
-    """User's preferred units for display and input."""
+    """User\'s preferred units for display and input."""
 
     system: UnitSystem = UnitSystem.IMPERIAL
+
+    @field_validator("system", mode="before")
+    @classmethod
+    def coerce_mixed_to_imperial(cls, v: str) -> str:
+        """Backward compat: treat legacy 'mixed' as 'imperial'."""
+        if isinstance(v, str) and v.lower() == "mixed":
+            return UnitSystem.IMPERIAL.value
+        return v
+
     length: str = "ft"
     diameter: str = "in"
     pressure: str = "psi"

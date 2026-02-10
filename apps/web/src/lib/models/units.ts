@@ -3,8 +3,8 @@
  * Mirrors: apps/api/src/opensolve_pipe/models/units.py
  */
 
-/** Available unit systems. */
-export type UnitSystem = 'imperial' | 'si' | 'mixed';
+/** Available unit systems for display preferences. */
+export type UnitSystem = 'imperial' | 'si';
 
 /** User's preferred units for display and input. */
 export interface UnitPreferences {
@@ -46,20 +46,14 @@ export const SYSTEM_PRESETS: Record<UnitSystem, Omit<UnitPreferences, 'system'>>
 		viscosity_kinematic: 'm2/s',
 		viscosity_dynamic: 'Pa.s',
 		density: 'kg/m3'
-	},
-	mixed: {
-		length: 'm',
-		diameter: 'in',
-		pressure: 'bar',
-		head: 'm_head',
-		flow: 'm3/h',
-		velocity: 'm/s',
-		temperature: 'C',
-		viscosity_kinematic: 'cSt',
-		viscosity_dynamic: 'cP',
-		density: 'kg/m3'
 	}
 };
+
+/** Coerce legacy 'mixed' system to 'imperial' for backward compatibility. */
+export function normalizeUnitSystem(system: string): UnitSystem {
+	if (system === 'mixed') return 'imperial';
+	return system as UnitSystem;
+}
 
 /** Create UnitPreferences from a preset system. */
 export function createUnitPreferencesFromSystem(system: UnitSystem): UnitPreferences {

@@ -308,6 +308,16 @@ export const EXAMPLE_PROJECT: Project = {
 				{ flow: 250, npsh_required: 14 },
 				{ flow: 300, npsh_required: 19 },
 				{ flow: 350, npsh_required: 26 }
+			],
+			power_curve: [
+				{ flow: 0, power: 2.5 },
+				{ flow: 50, power: 3.5 },
+				{ flow: 100, power: 4.8 },
+				{ flow: 150, power: 5.6 },
+				{ flow: 200, power: 6.2 },
+				{ flow: 250, power: 6.6 },
+				{ flow: 300, power: 6.5 },
+				{ flow: 350, power: 5.6 }
 			]
 		}
 	]

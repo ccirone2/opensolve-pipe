@@ -575,9 +575,9 @@
 
 			{:else if activeTab === 'preview'}
 			<!-- Curve Preview Tab -->
-			<div class="flex h-full flex-col p-4">
+			<div class="flex flex-col gap-3 p-4">
 				<!-- Toggle Buttons -->
-				<div class="mb-3 flex flex-wrap gap-2">
+				<div class="flex flex-wrap gap-2">
 					<button
 						type="button"
 						onclick={() => showHeadCurve = !showHeadCurve}
@@ -605,7 +605,7 @@
 				</div>
 
 				<!-- Main Chart: Head + Efficiency + Power -->
-				<div class="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2">
+				<div class="rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2">
 					{#if headPoints.length === 0 && efficiencyPoints.length === 0 && powerPoints.length === 0}
 						<div class="flex h-full items-center justify-center">
 							<p class="text-sm text-[var(--color-text-subtle)]">Add curve data to see a preview.</p>
@@ -622,7 +622,7 @@
 						{@const headAxisMax = headTicks[headTicks.length - 1] || 1}
 						{@const scaleX = (flow: number) => chartLeft + (flow / flowAxisMax) * chartW}
 						{@const scaleY = (head: number) => chartBottom - (head / headAxisMax) * chartH}
-						<svg viewBox="0 0 500 280" class="h-full w-full" preserveAspectRatio="xMidYMid meet">
+						<svg viewBox="0 0 500 280" class="w-full">
 							<!-- Grid lines -->
 							{#each headTicks as tick}
 								<line x1={chartLeft} y1={scaleY(tick)} x2={chartRight} y2={scaleY(tick)} stroke="var(--color-border)" stroke-width="0.5" />
@@ -747,7 +747,7 @@
 
 				<!-- NPSH Subplot (separate chart below main) -->
 				{#if npshPoints.length >= 2}
-					<div class="mt-3 h-40 rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2">
+					<div class="rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2">
 					{#if true}
 						{@const chartLeft = 55}
 						{@const chartRight = 470}
@@ -760,7 +760,7 @@
 						{@const npshAxisMax = npshTicks[npshTicks.length - 1] || 1}
 						{@const scaleX = (flow: number) => chartLeft + (flow / flowAxisMax) * chartW}
 						{@const scaleY = (npsh: number) => chartBottom - (npsh / npshAxisMax) * chartH}
-						<svg viewBox="0 0 500 140" class="h-full w-full" preserveAspectRatio="xMidYMid meet">
+						<svg viewBox="0 0 500 140" class="w-full">
 							<!-- Grid -->
 							{#each npshTicks as tick}
 								<line x1={chartLeft} y1={scaleY(tick)} x2={chartRight} y2={scaleY(tick)} stroke="var(--color-border)" stroke-width="0.5" />
@@ -806,7 +806,7 @@
 				{/if}
 
 				<!-- Legend -->
-				<div class="mt-3 flex flex-wrap gap-4 text-xs text-[var(--color-text-muted)]">
+				<div class="flex flex-wrap gap-4 text-xs text-[var(--color-text-muted)]">
 					{#if headPoints.length > 0}
 						<span class="flex items-center gap-1.5"><span class="h-0.5 w-4 bg-blue-500"></span> Head (ft)</span>
 					{/if}

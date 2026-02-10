@@ -268,8 +268,6 @@
 		<SidebarTabs
 			onOpenCommandPalette={() => (showCommandPalette = true)}
 			onSolve={handleSolve}
-			onUndo={() => projectStore.undo()}
-			onRedo={() => projectStore.redo()}
 		/>
 	</div>
 

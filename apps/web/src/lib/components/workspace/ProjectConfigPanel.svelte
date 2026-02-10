@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { projectStore, fluid, settings, pumpLibrary } from '$lib/stores';
+	import { projectStore, fluid, settings } from '$lib/stores';
 	import {
 		FLUID_TYPE_LABELS,
 		GLYCOL_FLUID_TYPES,
@@ -26,7 +26,6 @@
 	let fluidOpen = $state(true);
 	let unitsOpen = $state(true);
 	let solverOpen = $state(false);
-	let pumpLibOpen = $state(false);
 
 	function updateFluid(updates: Partial<FluidDefinition>) {
 		const current = $fluid ?? { type: 'water' as FluidType, temperature: 68 };
@@ -214,47 +213,6 @@
 						class="form-input mono-value"
 					/>
 				</div>
-			</div>
-		{/if}
-	</div>
-
-	<!-- Pump Library -->
-	<div class="card">
-		<button
-			type="button"
-			onclick={() => (pumpLibOpen = !pumpLibOpen)}
-			class="flex w-full items-center justify-between px-2.5 py-2 text-left"
-		>
-			<span class="section-heading">
-				Pump Library
-				{#if $pumpLibrary.length > 0}
-					<span class="ml-1 text-[var(--color-accent)]">({$pumpLibrary.length})</span>
-				{/if}
-			</span>
-			<svg
-				class="h-3 w-3 text-[var(--color-text-subtle)] transition-transform {pumpLibOpen ? 'rotate-180' : ''}"
-				fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"
-			>
-				<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-			</svg>
-		</button>
-
-		{#if pumpLibOpen}
-			<div class="border-t border-[var(--color-border)] px-2.5 py-2.5">
-				{#if $pumpLibrary.length === 0}
-					<p class="text-center text-xs text-[var(--color-text-subtle)]">No pump curves defined</p>
-				{:else}
-					<div class="space-y-1">
-						{#each $pumpLibrary as curve}
-							<div class="flex items-center justify-between rounded bg-[var(--color-surface)] px-2 py-1.5">
-								<span class="text-xs text-[var(--color-text)]">{curve.name}</span>
-								<span class="text-[0.625rem] text-[var(--color-text-subtle)]">
-									{curve.points?.length ?? 0} pts
-								</span>
-							</div>
-						{/each}
-					</div>
-				{/if}
 			</div>
 		{/if}
 	</div>

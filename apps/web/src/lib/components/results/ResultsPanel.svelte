@@ -1,10 +1,12 @@
 <script lang="ts">
-	import { solvedState, components, pumpLibrary } from '$lib/stores';
+	import { solvedState, components, connections, pumpLibrary } from '$lib/stores';
 	import { isPump, isValve, WARNING_CATEGORY_LABELS, type Warning, type ValveComponent } from '$lib/models';
 	import ComponentTable from './ComponentTable.svelte';
 	import PipingTable from './PipingTable.svelte';
 	import PumpResultsCard from './PumpResultsCard.svelte';
 	import ControlValveResultsCard from './ControlValveResultsCard.svelte';
+	import ElevationProfile from './ElevationProfile.svelte';
+	import { buildElevationData } from '$lib/utils/elevationProfile';
 
 	interface Props {
 		/** Whether a solve is currently in progress. */
@@ -13,7 +15,7 @@
 
 	let { isLoading = false }: Props = $props();
 
-	type TabId = 'summary' | 'nodes' | 'links' | 'pumps' | 'valves';
+	type TabId = 'summary' | 'nodes' | 'links' | 'pumps' | 'valves' | 'elevation';
 	let activeTab: TabId = $state('summary');
 
 	// Get pumps with their curves and results
@@ -38,6 +40,9 @@
 			return { valve, result };
 		});
 	});
+
+	// Build elevation profile data
+	let elevationData = $derived(buildElevationData($components, $connections, $solvedState));
 
 	// Group warnings by severity
 	let errorWarnings = $derived(
@@ -67,6 +72,9 @@
 		if (controlValveData.length > 0) {
 			baseTabs.push({ id: 'valves', label: 'Valves' });
 		}
+
+		// Always show Elevation tab when results exist
+		baseTabs.push({ id: 'elevation', label: 'Elevation' });
 
 		return baseTabs;
 	});
@@ -300,6 +308,8 @@
 						{/each}
 					</div>
 				{/if}
+			{:else if activeTab === 'elevation'}
+				<ElevationProfile data={elevationData} />
 			{/if}
 		</div>
 	{/if}

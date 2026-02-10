@@ -1,11 +1,14 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('URL Encoding', () => {
-	test('new project has no encoded data in URL', async ({ page }) => {
+	test('new project redirects /p/ to encoded workspace URL', async ({ page }) => {
 		await page.goto('/p/');
 
-		// URL should be just /p/ or /p
-		expect(page.url()).toMatch(/\/p\/?$/);
+		// /p/ should redirect to /p/{encoded} with a valid encoded project
+		await expect(page).toHaveURL(/\/p\/.+/, { timeout: 5000 });
+
+		// Should load the workspace
+		await expect(page.getByText('Untitled Project').first()).toBeVisible({ timeout: 10000 });
 	});
 
 	test('handles invalid encoded data gracefully', async ({ page }) => {

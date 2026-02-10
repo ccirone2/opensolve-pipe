@@ -1,8 +1,18 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import { getExampleProjectUrl } from '$lib/data/exampleProject';
+	import { createNewProject } from '$lib/models';
+	import { encodeProject } from '$lib/utils';
 
 	const exampleUrl = getExampleProjectUrl();
+
+	function handleNewProject(event: MouseEvent) {
+		event.preventDefault();
+		const project = createNewProject();
+		const result = encodeProject(project);
+		goto(`/p/${result.encoded}`);
+	}
 </script>
 
 <svelte:head>
@@ -63,6 +73,7 @@
 					<div class="mt-8 flex flex-wrap gap-3">
 						<a
 							href="/p/"
+							onclick={handleNewProject}
 							class="inline-flex items-center gap-2 rounded-lg bg-[var(--color-accent)] px-5 py-2.5 text-sm font-semibold text-[var(--color-accent-text)] shadow-lg shadow-[var(--color-accent)]/20 transition hover:bg-[var(--color-accent-hover)]"
 						>
 							<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">

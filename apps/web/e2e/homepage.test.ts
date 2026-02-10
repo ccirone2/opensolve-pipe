@@ -25,10 +25,13 @@ test.describe('Homepage', () => {
 		// Click "New Project" button
 		await page.getByRole('link', { name: /New Project/i }).click();
 
-		// Should navigate to /p (new project redirect page)
-		await expect(page).toHaveURL(/\/p/);
+		// Should navigate to /p/{encoded} (workspace with encoded project data)
+		await expect(page).toHaveURL(/\/p\/.+/, { timeout: 5000 });
 
-		// Should show the redirect loading page with "Creating new project..." text
-		await expect(page.getByText(/Creating new project/i)).toBeVisible({ timeout: 10000 });
+		// Should show the workspace with "Untitled Project" title
+		await expect(page.getByText('Untitled Project').first()).toBeVisible({ timeout: 10000 });
+
+		// Should show the Solve button (workspace is loaded)
+		await expect(page.getByRole('button', { name: /Solve/i })).toBeVisible();
 	});
 });

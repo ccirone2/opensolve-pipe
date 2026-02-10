@@ -54,9 +54,25 @@
 		navigationStore.navigateTo(component.id);
 	}
 
+	// Delete confirmation state
+	let pendingDeleteId = $state<string | null>(null);
+
 	function handleDelete(e: Event, componentId: string) {
 		e.stopPropagation();
-		projectStore.removeComponent(componentId);
+		pendingDeleteId = componentId;
+	}
+
+	function confirmDelete(e: Event) {
+		e.stopPropagation();
+		if (pendingDeleteId) {
+			projectStore.removeComponent(pendingDeleteId);
+			pendingDeleteId = null;
+		}
+	}
+
+	function cancelDelete(e: Event) {
+		e.stopPropagation();
+		pendingDeleteId = null;
 	}
 </script>
 
@@ -132,17 +148,38 @@
 						{component.name}
 					</span>
 
-					<!-- Delete button (on hover) -->
-					<button
-						type="button"
-						onclick={(e) => handleDelete(e, component.id)}
-						class="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--color-error)]/20 hover:text-[var(--color-error)]"
-						title="Remove component"
-					>
-						<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-						</svg>
-					</button>
+					<!-- Delete button with confirmation -->
+					{#if pendingDeleteId === component.id}
+						<div class="flex flex-shrink-0 items-center gap-1">
+							<button
+								type="button"
+								onclick={confirmDelete}
+								class="flex h-4 items-center rounded bg-[var(--color-error)] px-1.5 text-[0.5625rem] font-semibold text-white"
+								title="Confirm delete"
+							>Del</button>
+							<button
+								type="button"
+								onclick={cancelDelete}
+								class="flex h-4 items-center rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1 text-[0.5625rem] text-[var(--color-text-muted)]"
+								title="Cancel"
+							>
+								<svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+								</svg>
+							</button>
+						</div>
+					{:else}
+						<button
+							type="button"
+							onclick={(e) => handleDelete(e, component.id)}
+							class="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--color-error)]/20 hover:text-[var(--color-error)]"
+							title="Remove component"
+						>
+							<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+							</svg>
+						</button>
+					{/if}
 				</div>
 
 				<!-- Connection line between components -->

@@ -11,14 +11,18 @@ import { browser } from '$app/environment';
 
 /**
  * Get the API base URL from environment or use default.
+ *
+ * - Browser: uses relative URL `/api/v1` (proxied by Vite in dev, rewritten by Vercel in prod)
+ * - SSR: uses PUBLIC_API_URL env var if set, otherwise falls back to localhost:8000
  */
 function getBaseUrl(): string {
-	// In browser, use relative URL (proxied by SvelteKit)
+	// In browser, use relative URL (proxied by Vite dev server or Vercel rewrites)
 	if (browser) {
 		return '/api/v1';
 	}
-	// In SSR, call the backend directly
-	return 'http://localhost:8000/api/v1';
+	// In SSR, use environment variable or fall back to localhost for local dev
+	const apiUrl = import.meta.env.PUBLIC_API_URL || 'http://localhost:8000';
+	return `${apiUrl.replace(/\/$/, '')}/api/v1`;
 }
 
 /** Default request timeout in milliseconds. */

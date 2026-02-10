@@ -17,7 +17,7 @@
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import { projectStore, components, metadata, navigationStore, workspaceStore, currentElementId } from '$lib/stores';
-	import { solveNetwork, ApiError } from '$lib/api';
+	import { solveNetwork, ApiError, NetworkError, TimeoutError } from '$lib/api';
 	import { encodeProject, tryDecodeProject } from '$lib/utils';
 
 	// Get encoded project data from URL
@@ -129,7 +129,11 @@
 				solveError = result.error || 'Solution did not converge';
 			}
 		} catch (error) {
-			if (error instanceof ApiError) {
+			if (error instanceof NetworkError) {
+				solveError = 'Could not reach the solver API. Please check your connection and try again.';
+			} else if (error instanceof TimeoutError) {
+				solveError = 'The solver request timed out. Try simplifying the network or try again later.';
+			} else if (error instanceof ApiError) {
 				solveError = error.message;
 			} else {
 				solveError = 'An unexpected error occurred while solving';

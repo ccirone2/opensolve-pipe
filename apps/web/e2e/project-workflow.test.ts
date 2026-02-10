@@ -15,15 +15,17 @@ test.describe('Project Workflow', () => {
 		await expect(page.getByText('Untitled Project').first()).toBeVisible({ timeout: 10000 });
 
 		// Should show Solve button in toolbar
-		await expect(page.getByRole('button', { name: /Solve/i })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Solve', exact: true })).toBeVisible();
 	});
 
 	test('solve button is disabled when project has no components', async ({ page }) => {
 		// Wait for workspace to render
-		await expect(page.getByRole('button', { name: /Solve/i })).toBeVisible({ timeout: 10000 });
+		await expect(
+			page.getByRole('button', { name: 'Solve', exact: true })
+		).toBeVisible({ timeout: 10000 });
 
 		// Solve button should be disabled for empty project
-		const solveButton = page.getByRole('button', { name: /Solve/i });
+		const solveButton = page.getByRole('button', { name: 'Solve', exact: true });
 		await expect(solveButton).toBeDisabled();
 	});
 });
@@ -44,8 +46,8 @@ test.describe('Project Navigation', () => {
 		// Wait for workspace to render
 		await expect(page.getByText('Untitled Project').first()).toBeVisible({ timeout: 10000 });
 
-		// Use Ctrl+K keyboard shortcut to open command palette
-		await page.keyboard.press('Control+k');
+		// Click the "Add component" button in the sidebar footer to open command palette
+		await page.getByRole('button', { name: /Add component/i }).first().click();
 
 		// Should show command palette with search input
 		await expect(page.getByPlaceholder(/search|type/i).first()).toBeVisible({ timeout: 5000 });
@@ -57,12 +59,16 @@ test.describe('Keyboard Shortcuts', () => {
 		await page.goto(WORKSPACE_URL);
 
 		// Wait for workspace to render
-		await expect(page.getByRole('button', { name: /Solve/i })).toBeVisible({ timeout: 10000 });
+		await expect(
+			page.getByRole('button', { name: 'Solve', exact: true })
+		).toBeVisible({ timeout: 10000 });
 
 		// Press Ctrl+Enter (should not cause errors on empty project)
 		await page.keyboard.press('Control+Enter');
 
 		// Page should still be functional
-		await expect(page.getByRole('button', { name: /Solve/i })).toBeVisible();
+		await expect(
+			page.getByRole('button', { name: 'Solve', exact: true })
+		).toBeVisible();
 	});
 });

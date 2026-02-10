@@ -31,7 +31,7 @@ test.describe('Homepage', () => {
 		// Should show the workspace with "Untitled Project" title
 		await expect(page.getByText('Untitled Project').first()).toBeVisible({ timeout: 10000 });
 
-		// Should show the Solve button (workspace is loaded)
-		await expect(page.getByRole('button', { name: /Solve/i })).toBeVisible();
+		// Should show the Solve button in toolbar (workspace is loaded)
+		await expect(page.getByRole('button', { name: /Solve/i }).first()).toBeVisible();
 	});
 });

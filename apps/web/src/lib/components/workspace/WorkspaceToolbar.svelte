@@ -1,5 +1,7 @@
 <script lang="ts">
 	import ThemeToggle from '../ThemeToggle.svelte';
+	import { currentElementId, components, activeInspectorTab, navigationStore } from '$lib/stores';
+	import { COMPONENT_TYPE_LABELS } from '$lib/models';
 
 	interface Props {
 		projectName: string;
@@ -26,6 +28,18 @@
 		onOpenCommandPalette,
 		onEditName
 	}: Props = $props();
+
+	// Breadcrumb: current component info
+	let currentComponent = $derived.by(() => {
+		const id = $currentElementId;
+		if (!id) return null;
+		return $components.find((c) => c.id === id) ?? null;
+	});
+
+	let tabLabel = $derived(
+		$activeInspectorTab === 'properties' ? 'Properties' :
+		$activeInspectorTab === 'piping' ? 'Piping' : 'Results'
+	);
 </script>
 
 <div class="flex h-full items-center border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2">
@@ -58,6 +72,20 @@
 		>
 			{projectName}
 		</button>
+
+		{#if currentComponent}
+			<span class="mx-1 text-[var(--color-border)]">/</span>
+			<button
+				type="button"
+				onclick={() => navigationStore.navigateTo(currentComponent!.id)}
+				class="max-w-[160px] truncate rounded px-1.5 py-0.5 text-xs text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-surface-elevated)] hover:text-[var(--color-text)]"
+				title={currentComponent.name}
+			>
+				{currentComponent.name}
+			</button>
+			<span class="mx-0.5 hidden text-[var(--color-border)] sm:inline">/</span>
+			<span class="hidden text-xs text-[var(--color-text-subtle)] sm:inline">{tabLabel}</span>
+		{/if}
 	</div>
 
 	<!-- Center: Actions -->

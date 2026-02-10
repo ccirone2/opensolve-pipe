@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { components, solvedState, isSolved } from '$lib/stores';
+	import { components, solvedState, isSolved, workspaceStore } from '$lib/stores';
 
 	interface Props {
 		isSolving?: boolean;
@@ -7,6 +7,16 @@
 	}
 
 	let { isSolving = false, solveError = null }: Props = $props();
+
+	function openResults() {
+		workspaceStore.setSidebarTab('results');
+		workspaceStore.setSidebarOpen(true);
+	}
+
+	function openWarnings() {
+		workspaceStore.setSidebarTab('results');
+		workspaceStore.setSidebarOpen(true);
+	}
 
 	let componentCount = $derived($components.length);
 	let connectionCount = $derived(
@@ -39,7 +49,7 @@
 				{solveError}
 			</span>
 		{:else if $isSolved && $solvedState?.converged}
-			<span class="flex items-center gap-1 text-[var(--color-success)]">
+			<button type="button" onclick={openResults} class="flex items-center gap-1 text-[var(--color-success)] transition-colors hover:brightness-110" title="View results">
 				<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
 					<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
 				</svg>
@@ -47,14 +57,14 @@
 				{#if $solvedState?.solve_time_seconds}
 					<span class="text-[var(--color-text-subtle)]">({formatDuration($solvedState.solve_time_seconds)})</span>
 				{/if}
-			</span>
+			</button>
 		{:else if $isSolved && !$solvedState?.converged}
-			<span class="flex items-center gap-1 text-[var(--color-error)]">
+			<button type="button" onclick={openResults} class="flex items-center gap-1 text-[var(--color-error)] transition-colors hover:brightness-110" title="View error details">
 				<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
 					<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
 				</svg>
 				Failed to converge
-			</span>
+			</button>
 		{:else}
 			<span class="text-[var(--color-text-subtle)]">Ready</span>
 		{/if}
@@ -65,9 +75,9 @@
 		<span>{componentCount} component{componentCount !== 1 ? 's' : ''}</span>
 		<span>{connectionCount} connection{connectionCount !== 1 ? 's' : ''}</span>
 		{#if $isSolved && $solvedState?.warnings?.length}
-			<span class="text-[var(--color-warning)]">
+			<button type="button" onclick={openWarnings} class="text-[var(--color-warning)] transition-colors hover:brightness-110" title="View warnings">
 				{$solvedState.warnings.length} warning{$solvedState.warnings.length !== 1 ? 's' : ''}
-			</span>
+			</button>
 		{/if}
 	</div>
 </div>

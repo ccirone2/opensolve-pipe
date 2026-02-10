@@ -278,11 +278,11 @@
 	// ---- No-flow HGL ----
 	let noFlowHGL = $derived.by(() => {
 		const firstTank = components.find(
-			(c) => c.max_el != null && (c.name.toLowerCase().includes('reservoir') ||
+			(c) => c.surface_el != null && (c.name.toLowerCase().includes('reservoir') ||
 				c.name.toLowerCase().includes('tank') || c.name.toLowerCase().includes('tnk'))
 		);
 		const lastTank = [...components].reverse().find(
-			(c) => c.max_el != null && (c.name.toLowerCase().includes('reservoir') ||
+			(c) => c.surface_el != null && (c.name.toLowerCase().includes('reservoir') ||
 				c.name.toLowerCase().includes('tank') || c.name.toLowerCase().includes('tnk'))
 		);
 		const pumpIndex = components.findIndex(
@@ -292,8 +292,8 @@
 		if (!firstTank || pumpIndex === -1) return null;
 
 		return {
-			upstreamHGL: firstTank.max_el!,
-			downstreamHGL: lastTank?.max_el ?? firstTank.max_el!,
+			upstreamHGL: firstTank.surface_el!,
+			downstreamHGL: lastTank?.surface_el ?? firstTank.surface_el!,
 			pumpX: xScale(pumpIndex)
 		};
 	});

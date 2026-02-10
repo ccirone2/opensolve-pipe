@@ -407,10 +407,11 @@ def solve_simple_path(
     if end_component is None:
         return state, False, "Could not find end of flow path"
 
-    # Static head = end elevation - source total head
+    # Static head = end total head - source total head
+    # For tanks/reservoirs, total_head includes water level (elevation + water_level)
     source_head = get_source_head(source)
-    end_elevation = end_component.elevation
-    static_head_ft = end_elevation - source_head
+    end_head = get_source_head(end_component)
+    static_head_ft = end_head - source_head
 
     # Calculate total pipe length, diameter, roughness, and K-factors
     total_length_ft = 0.0
@@ -826,11 +827,11 @@ def solve_simple_path(
 
             current_pressure = outlet_pressure
         else:
-            # All other components just have head loss and elevation change
-            elevation_change = (
-                next_comp.elevation - graph.components[current_id].elevation
-            )
-            current_pressure = current_pressure - h_loss_conn - elevation_change
+            # All other components: apply connection head loss only.
+            # current_pressure is total head (HGL) throughout the chain,
+            # so we do NOT subtract elevation change here — the elevation
+            # is already embedded in the total head reference.
+            current_pressure = current_pressure - h_loss_conn
 
             # Store port-level pressures for all ports on this component
             if next_ports:

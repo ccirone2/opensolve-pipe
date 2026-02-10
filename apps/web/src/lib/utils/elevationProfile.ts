@@ -39,6 +39,8 @@ export interface ElevationElement {
 	min_el?: number;
 	/** Maximum elevation (tank max water level, reservoir surface, or pipe high point). */
 	max_el?: number;
+	/** Fluid surface elevation (reservoir water_level or tank initial_level above base). */
+	surface_el?: number;
 	/** Pipe length (connections only, determines x-axis scaling). */
 	length?: number;
 	/** Head change across this element: negative = loss, positive = gain (pump). */
@@ -196,9 +198,11 @@ export function buildElevationData(
 		// Add tank/reservoir-specific elevation ranges
 		if (isReservoir(comp)) {
 			compElement.max_el = comp.elevation + comp.water_level;
+			compElement.surface_el = comp.elevation + comp.water_level;
 		} else if (isTank(comp)) {
 			compElement.min_el = comp.elevation + comp.min_level;
 			compElement.max_el = comp.elevation + comp.max_level;
+			compElement.surface_el = comp.elevation + comp.initial_level;
 		}
 
 		elements.push(compElement);

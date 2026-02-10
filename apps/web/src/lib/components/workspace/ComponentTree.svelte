@@ -76,7 +76,7 @@
 	}
 </script>
 
-<div class="flex h-full flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]">
+<div class="flex h-full flex-col bg-[var(--color-surface)]">
 	<!-- Header -->
 	<div class="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-2">
 		<span class="text-[0.6875rem] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">

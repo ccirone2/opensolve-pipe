@@ -272,6 +272,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Vertical icon-only sidebar tabs with active indicator bar, replacing horizontal text tabs (PR #187)
   - Base sizing increase: html font-size 14→16px, sidebar 220→260px, inspector 340→380px (PR #188)
 
+- **Navigation Panel Width Increase** (PR #198, Issue #197)
+  - Sidebar width increased from 260px to 280px for better readability
+  - Inspector width adjusted proportionally
+
+- **Library Tab** (PR #202, Issue #195)
+  - New "Library" sidebar tab (4th tab) for managing reusable data definitions
+  - `LibraryTab.svelte` with three collapsible sections: Pump Curves, Loss Curves, Reference Profiles
+  - `PumpCurveList.svelte` with CRUD: list, add, expand/collapse, delete pump curves from `pumpLibrary` store
+  - `PumpCurveEditor.svelte` with inline editing: name field, flow/head data point table, add/remove rows, save/cancel
+  - Minimum 2 data points validation (matching backend `PumpCurve` model constraint)
+  - Loss Curves and Reference Profiles sections display "Coming Soon" placeholder with description
+  - Book icon for Library tab in vertical icon strip
+  - Sidebar tab keyboard shortcut Ctrl+4
+
+- **Sidebar Footer Quick Actions** (PR #201, Issue #194)
+  - `SidebarFooter.svelte` component with quick-action buttons: Add Component, Solve, Undo, Redo
+  - Keyboard shortcut tooltips on hover (Ctrl+K, Ctrl+Enter, Ctrl+Z, Ctrl+Shift+Z)
+  - Add Component button opens command palette
+  - Positioned at bottom of sidebar, always visible regardless of active tab
+
+- **Display Units Simplification** (PR #200, Issue #196)
+  - Removed "Mixed" unit mode from both frontend and backend
+  - `UnitSystem` enum now contains only `IMPERIAL` and `SI`
+  - Renamed section from "Unit System" to "Display Units" in ProjectConfigPanel
+  - Users can always enter data in any unit; display units control output formatting only
+
 - **Pump Operating Mode UI Controls** (PR #111)
   - Operating mode dropdown (fixed_speed, variable_speed, controlled_pressure, controlled_flow)
   - Conditional setpoint fields for controlled modes (pressure/flow setpoint)
@@ -296,6 +322,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Null safety fixes for result fields (formatNumber helper with null handling)
 
 ### Fixed
+
+- **New Project Redirect** (PR #199, Issue #193)
+  - Fixed: clicking "New Project" on landing page showed a loading spinner but never loaded the workspace
+  - Root cause: `onMount` + `goto()` redirect in `/p/+page.svelte` did not fire in Vite preview builds
+  - Solution: replaced with `+page.ts` universal load function using SvelteKit's `redirect(307, ...)` for server-side redirect
+  - New project creation now works reliably in both dev and preview/production builds
 
 #### Backend (API)
 

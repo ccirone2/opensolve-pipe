@@ -625,6 +625,132 @@ When a component is copied (via right-click context menu), the copy maintains a 
 
 ---
 
+## ADR-015: Universal Load Redirect for New Project Route
+
+**Date:** 2026-02-10
+**Status:** Accepted
+**Context:** Issue #193 - New Project button loading screen never loads workspace
+
+### Decision
+
+Replace the client-side `onMount` + `goto()` redirect in `/p/+page.svelte` with a SvelteKit universal load function in `/p/+page.ts`:
+
+```typescript
+// apps/web/src/routes/p/+page.ts
+import { redirect } from '@sveltejs/kit';
+export const load: PageLoad = () => {
+  const project = createNewProject();
+  const result = encodeProject(project);
+  redirect(307, `/p/${result.encoded}`);
+};
+```
+
+### Rationale
+
+- **Root cause**: `onMount` callbacks in Svelte 5 do not fire reliably during hydration in Vite preview builds. The `/p` route showed "Creating new project..." indefinitely because the `goto()` call inside `onMount` never executed.
+- **Universal load**: SvelteKit's `+page.ts` load function runs on both server and client, before the component renders. `redirect()` is handled at the framework level, bypassing the hydration issue entirely.
+- **Consistent behavior**: The redirect works identically in `pnpm dev` (Vite dev server), `pnpm preview` (Vite preview), and production builds (Vercel adapter).
+- **Simpler component**: `/p/+page.svelte` is reduced to a minimal loading fallback that only displays briefly during the redirect, instead of containing navigation logic.
+
+### Consequences
+
+**Positive:**
+
+- New project creation works in all build modes (dev, preview, production)
+- E2E tests can verify the redirect by asserting `toHaveURL(/\/p\/.+/)`
+- Component is simpler (no `onMount`, no `goto` import)
+
+**Negative:**
+
+- Encoding a default project in the load function adds a small latency to the redirect (~5ms)
+- The `+page.svelte` is now essentially dead code (the redirect fires before it renders) but kept for loading state fallback
+
+---
+
+## ADR-016: Display Units Simplification (Removing Mixed Mode)
+
+**Date:** 2026-02-10
+**Status:** Accepted
+**Context:** Issue #196 - Remove "Mixed" button under Config > Units
+
+### Decision
+
+Remove the `MIXED` value from the `UnitSystem` enum on both frontend and backend, leaving only `IMPERIAL` and `SI`. Rename the UI section from "Unit System" to "Display Units."
+
+**Backend:**
+
+```python
+class UnitSystem(str, Enum):
+    IMPERIAL = "imperial"
+    SI = "si"
+    # MIXED removed
+```
+
+**Frontend:**
+
+```typescript
+type UnitSystem = 'imperial' | 'si';
+// 'mixed' removed
+```
+
+### Rationale
+
+- **Users can always enter data in any unit**: The input fields accept values and the system converts internally. "Mixed" implied a third mode but offered no additional capability.
+- **Display units are what matters**: The toggle controls which unit system is used for displaying results and default input fields. Calling it "Display Units" is more accurate and less confusing.
+- **Simpler UI**: Two-button toggle (Imperial / SI) is clearer than a three-button toggle where one option ("Mixed") had unclear semantics.
+
+### Consequences
+
+**Positive:**
+
+- Clearer user experience — no ambiguity about what "Mixed" means
+- Simpler validation — only two valid enum values
+- Frontend and backend models are smaller and easier to maintain
+
+**Negative:**
+
+- Breaking change for any saved projects that reference `unit_system: "mixed"` (mitigated: defaults to `imperial` on deserialization if value is unrecognized)
+
+---
+
+## ADR-017: Library Tab for Reusable Data Definitions
+
+**Date:** 2026-02-10
+**Status:** Accepted
+**Context:** Issue #195 - Add Library tab for pump curves, loss curves, and reference profiles
+
+### Decision
+
+Add a fourth sidebar tab ("Library") for managing reusable data definitions:
+
+1. **Tab structure**: Three collapsible sections — Pump Curves (functional), Loss Curves (Coming Soon), Reference Profiles (Coming Soon).
+2. **Pump Curve CRUD**: Full create, read, update, delete for pump curves backed by the existing `pumpLibrary` store.
+3. **Inline editing**: Clicking a pump curve in the list expands an inline editor (`PumpCurveEditor.svelte`) with name field and flow/head data point table.
+4. **Coming Soon sections**: Loss Curves and Reference Profiles display a description of planned functionality with a "Coming Soon" badge.
+
+### Rationale
+
+- **Discoverability**: Pump curves were previously only accessible from within the Pump component form. A dedicated Library tab makes them easy to find, create, and manage independently of any specific pump.
+- **Extensibility**: The collapsible section pattern supports future data types (loss curves, reference profiles) without restructuring.
+- **Existing store**: The `pumpLibrary` store already exists in the project model. The Library tab is purely a new UI surface for existing data.
+- **Minimum 2 points**: Enforced in the editor UI, matching the backend `PumpCurve` Pydantic model's `min_length=2` constraint.
+
+### Consequences
+
+**Positive:**
+
+- Pump curves are easier to manage and discover
+- Architecture is ready for loss curves and reference profiles
+- No backend changes required — uses existing `pumpLibrary` store and `PumpCurve` model
+
+**Negative:**
+
+- Fourth sidebar tab may feel crowded on smaller screens (mitigated by vertical icon strip design)
+- Coming Soon placeholders may set user expectations for features not yet available
+- Chart.js visualization of pump curves is not yet included (future enhancement)
+
+---
+
 ## Template for Future ADRs
 
 ```markdown

@@ -171,6 +171,11 @@ body {
 	grid-area: statusbar;
 }
 
+/* Panel transitions — smooth slide via grid-template-columns */
+.workspace {
+	transition: grid-template-columns 0.2s ease;
+}
+
 /* Sidebar collapsed state */
 .workspace.sidebar-collapsed {
 	grid-template-columns: 0px 1fr var(--inspector-width);
@@ -183,6 +188,24 @@ body {
 
 .workspace.sidebar-collapsed.inspector-collapsed {
 	grid-template-columns: 0px 1fr 0px;
+}
+
+/* Hide overflow on collapsed panels for smooth slide */
+.workspace.sidebar-collapsed .workspace-sidebar {
+	overflow: hidden;
+	pointer-events: none;
+}
+
+.workspace.inspector-collapsed .workspace-inspector {
+	overflow: hidden;
+	pointer-events: none;
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+	.workspace {
+		transition: none;
+	}
 }
 
 /* Mobile layout */

@@ -30,6 +30,9 @@
 	let isSolving = $state(false);
 	let solveError = $state<string | null>(null);
 
+	// Loading state for URL decode
+	let isLoading = $state(true);
+
 	// Project name from metadata
 	let projectName = $derived($metadata?.name || (encoded ? 'Project' : 'New Project'));
 
@@ -48,6 +51,7 @@
 				projectStore.load(project);
 			}
 		}
+		isLoading = false;
 	});
 
 	// Handle component click from schematic
@@ -187,19 +191,28 @@
 		{/if}
 	</div>
 
-	<!-- Sidebar: Tabbed Navigation -->
-	{#if isSidebarOpen}
-		<div class="workspace-sidebar">
-			<SidebarTabs
-				onOpenCommandPalette={() => (showCommandPalette = true)}
-				onSolve={handleSolve}
-			/>
-		</div>
-	{/if}
+	<!-- Sidebar: Tabbed Navigation (always rendered for CSS transition) -->
+	<div class="workspace-sidebar">
+		<SidebarTabs
+			onOpenCommandPalette={() => (showCommandPalette = true)}
+			onSolve={handleSolve}
+		/>
+	</div>
 
 	<!-- Canvas: Schematic Viewer -->
 	<div class="workspace-canvas canvas-grid">
-		{#if $components.length === 0}
+		{#if isLoading}
+			<!-- Loading state for URL-encoded projects -->
+			<div class="absolute inset-0 flex items-center justify-center">
+				<div class="flex flex-col items-center gap-3">
+					<svg class="h-8 w-8 animate-spin text-[var(--color-accent)]" fill="none" viewBox="0 0 24 24">
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" />
+						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+					</svg>
+					<p class="text-xs text-[var(--color-text-muted)]">Loading project...</p>
+				</div>
+			</div>
+		{:else if $components.length === 0}
 			<!-- Empty state overlay -->
 			<div class="absolute inset-0 flex flex-col items-center justify-center gap-4">
 				<div class="rounded-xl border border-dashed border-[var(--color-border)] bg-[var(--color-surface)]/80 p-8 text-center backdrop-blur-sm">
@@ -214,13 +227,13 @@
 						<button
 							type="button"
 							onclick={() => (showCommandPalette = true)}
-							class="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-xs font-semibold text-[var(--color-accent-text)] transition-colors hover:bg-[var(--color-accent-hover)]"
+							class="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-accent)] px-4 py-2 text-sm font-semibold text-[var(--color-accent-text)] transition-colors hover:bg-[var(--color-accent-hover)]"
 						>
-							<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+							<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
 								<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
 							</svg>
 							Add Component
-							<span class="kbd text-[0.5rem]">Ctrl+K</span>
+							<span class="kbd text-[0.5rem] hidden sm:inline-flex">Ctrl+K</span>
 						</button>
 					</div>
 				</div>
@@ -230,12 +243,10 @@
 		{/if}
 	</div>
 
-	<!-- Inspector: Property Panel -->
-	{#if isInspectorOpen}
-		<div class="workspace-inspector">
-			<PropertyPanel onSolve={handleSolve} />
-		</div>
-	{/if}
+	<!-- Inspector: Property Panel (always rendered for CSS transition) -->
+	<div class="workspace-inspector">
+		<PropertyPanel onSolve={handleSolve} />
+	</div>
 
 	<!-- Status Bar -->
 	<div class="workspace-statusbar">

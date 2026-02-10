@@ -548,6 +548,42 @@ Adopt a dual-paradigm workspace design that supports both spatial (IDE-like) and
 
 ---
 
+## ADR-013: Component Form Registry Pattern and Route-Based View System
+
+**Date:** 2026-02-10
+**Status:** Accepted
+**Context:** Issue #173 - Remaining UI audit items
+
+### Decision
+
+1. **Form Registry**: Replace the 15-branch `{#if}/{:else if}` chain in `ElementPanel.svelte` with a `FORM_REGISTRY` map (`Record<ComponentType, SvelteComponent>`) in `forms/index.ts`. `ReferenceNodeForm` retains a special case for its `onTypeChange` prop. Uses Svelte 5's native dynamic component rendering instead of deprecated `<svelte:component>`.
+
+2. **Route-Based Views**: Restructure URL routes from `[...encoded]` (rest parameter) to `[encoded]` (single segment), enabling sub-routes like `/p/{encoded}/results` and `/p/{encoded}/cost`. A new `/p/+page.svelte` handles the "new project" case (previously caught by the rest parameter matching zero segments).
+
+3. **CSS Form Utility**: Update `.form-input` class to match full form field styling (0.875rem font, 0.75rem padding, accent focus ring, shadow) and replace inline Tailwind class strings across all form components.
+
+### Rationale
+
+- **Registry pattern**: Adding a new component type becomes a one-line entry in the registry instead of touching the panel template. Eliminates 14 type guard imports.
+- **Route restructuring**: base64url encoding doesn't contain `/`, so the rest parameter was unnecessary. Single-segment params enable SvelteKit's standard nested routing for future full-screen views.
+- **CSS utility**: The inline select/input class string (`mt-1 block w-full rounded-md border...`) appeared 8+ times across forms. A single `.form-input` class eliminates duplication.
+
+### Consequences
+
+**Positive:**
+
+- Adding new component types requires only: form component + registry entry
+- Future views (results, cost estimation, pipe sizing) get dedicated routes
+- Form CSS maintenance is centralized in one class definition
+
+**Negative:**
+
+- Dynamic component rendering loses TypeScript narrowing on form props (mitigated by `any` type on registry)
+- Existing URLs with `/p/` (no encoded data) now route to a redirect page instead of the workspace directly
+- Sub-routes share no layout yet — a `+layout.svelte` extraction would be needed for shared workspace chrome
+
+---
+
 ## Template for Future ADRs
 
 ```markdown

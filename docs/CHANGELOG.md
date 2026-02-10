@@ -256,6 +256,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Mobile nav bar with Components/Settings/Results/Solve tabs
   - Desktop Focus Mode combining spatial schematic + sequential PanelNavigator (Ctrl+Shift+F)
 
+- **UI Audit Remaining Items** (PR #174, Issue #173)
+  - Canvas zoom sync: SchematicViewer persists zoom level to workspaceStore
+  - Bidirectional highlighting: ComponentTree auto-scrolls to selected component
+  - View system: restructured routes to `/p/[encoded]/`, added stub results and cost views
+  - Form CSS consistency: replaced inline Tailwind input/select patterns with `.form-input` utility
+  - Component form registry: `FORM_REGISTRY` map replaces 15-branch if/else chain in ElementPanel
+
 - **Pump Operating Mode UI Controls** (PR #111)
   - Operating mode dropdown (fixed_speed, variable_speed, controlled_pressure, controlled_flow)
   - Conditional setpoint fields for controlled modes (pressure/flow setpoint)

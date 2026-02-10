@@ -5,6 +5,7 @@ export { default as CommandPalette } from './CommandPalette.svelte';
 export { default as StatusBar } from './StatusBar.svelte';
 export { default as SidebarTabs } from './SidebarTabs.svelte';
 export { default as SidebarFooter } from './SidebarFooter.svelte';
+export { default as LibraryTab } from './LibraryTab.svelte';
 export { default as ProjectConfigPanel } from './ProjectConfigPanel.svelte';
 export { default as SystemResultsPanel } from './SystemResultsPanel.svelte';
 export { default as MetricsStrip } from './MetricsStrip.svelte';

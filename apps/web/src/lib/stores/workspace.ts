@@ -9,7 +9,7 @@ import { writable, derived } from 'svelte/store';
 import { browser } from '$app/environment';
 
 /** Sidebar tab options. */
-export type SidebarTab = 'tree' | 'config' | 'results';
+export type SidebarTab = 'tree' | 'config' | 'results' | 'library';
 
 /** Inspector tab options. */
 export type InspectorTab = 'properties' | 'piping' | 'results';

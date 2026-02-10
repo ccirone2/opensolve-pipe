@@ -74,6 +74,44 @@
 		e.stopPropagation();
 		pendingDeleteId = null;
 	}
+
+	// Drag-and-drop reorder state
+	let draggedId = $state<string | null>(null);
+	let dropTargetIndex = $state<number | null>(null);
+
+	function handleDragStart(e: DragEvent, componentId: string) {
+		draggedId = componentId;
+		if (e.dataTransfer) {
+			e.dataTransfer.effectAllowed = 'move';
+			e.dataTransfer.setData('text/plain', componentId);
+		}
+	}
+
+	function handleDragOver(e: DragEvent, index: number) {
+		e.preventDefault();
+		if (e.dataTransfer) {
+			e.dataTransfer.dropEffect = 'move';
+		}
+		dropTargetIndex = index;
+	}
+
+	function handleDragLeave() {
+		dropTargetIndex = null;
+	}
+
+	function handleDrop(e: DragEvent, targetIndex: number) {
+		e.preventDefault();
+		if (draggedId) {
+			projectStore.moveComponent(draggedId, targetIndex);
+		}
+		draggedId = null;
+		dropTargetIndex = null;
+	}
+
+	function handleDragEnd() {
+		draggedId = null;
+		dropTargetIndex = null;
+	}
 </script>
 
 <div class="flex h-full flex-col bg-[var(--color-surface)]">
@@ -114,10 +152,25 @@
 			{#each $components as component, i}
 				{@const isSelected = $currentElementId === component.id}
 				{@const category = getCategoryForType(component.type)}
+				{@const isDragging = draggedId === component.id}
+				{@const isDropTarget = dropTargetIndex === i}
+
+				<!-- Drop indicator line (before this item) -->
+				{#if isDropTarget && draggedId !== component.id}
+					<div class="mx-2 h-[2px] rounded bg-[var(--color-accent)]"></div>
+				{/if}
+
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					data-component-id={component.id}
-					class="group flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left transition-colors
+					draggable="true"
+					ondragstart={(e) => handleDragStart(e, component.id)}
+					ondragover={(e) => handleDragOver(e, i)}
+					ondragleave={handleDragLeave}
+					ondrop={(e) => handleDrop(e, i)}
+					ondragend={handleDragEnd}
+					class="group flex w-full cursor-grab items-center gap-2 px-3 py-1.5 text-left transition-colors
+						{isDragging ? 'opacity-40' : ''}
 						{isSelected
 						? 'bg-[var(--color-tree-selected)] text-[var(--color-text)]'
 						: 'text-[var(--color-text-muted)] hover:bg-[var(--color-tree-hover)] hover:text-[var(--color-text)]'}"
@@ -126,6 +179,15 @@
 					role="button"
 					tabindex="0"
 				>
+					<!-- Drag handle -->
+					<span class="flex-shrink-0 text-[var(--color-text-subtle)] opacity-0 transition-opacity group-hover:opacity-60" aria-hidden="true">
+						<svg class="h-3 w-3" viewBox="0 0 16 16" fill="currentColor">
+							<circle cx="5" cy="4" r="1.2" /><circle cx="11" cy="4" r="1.2" />
+							<circle cx="5" cy="8" r="1.2" /><circle cx="11" cy="8" r="1.2" />
+							<circle cx="5" cy="12" r="1.2" /><circle cx="11" cy="12" r="1.2" />
+						</svg>
+					</span>
+
 					<!-- Index -->
 					<span class="w-4 flex-shrink-0 text-center mono-value text-[0.625rem] text-[var(--color-text-subtle)]">
 						{i + 1}
@@ -183,7 +245,7 @@
 				</div>
 
 				<!-- Connection line between components -->
-				{#if i < $components.length - 1}
+				{#if i < $components.length - 1 && !isDropTarget}
 					<div class="ml-[1.375rem] h-2 border-l border-dashed border-[var(--color-border)]"></div>
 				{/if}
 			{/each}

@@ -329,6 +329,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `editingPumpCurveId` workspace store state drives canvas content switching
   - PumpCurveList updated from inline editing to selection-based workflow
 
+- **Elevation Profile Visualization** (PR #TBD, Issue #223)
+  - New "Elevation" sub-tab in the Results panel (inspector)
+  - SVG chart showing physical pipe elevations and component positions
+  - Flowing HGL (green) computed from cumulative head changes with clipping logic
+  - No-flow HGL (purple dashed) at tank water surfaces with jump at pump
+  - Color-coded component markers (blue=tank, green=valve, red=pump)
+  - Tank water level ranges with pulsing animation
+  - Min/max pipe elevation indicators (amber dashed)
+  - Hover tooltips with element details and head change color coding
+  - Toggle controls for Min/Max, No-Flow HGL, Flowing HGL
+  - Data table with hover cross-highlighting between chart and table
+  - Responsive width via ResizeObserver
+  - `buildElevationData()` utility transforms project + solved state into elevation elements
+  - 5 unit tests for the data transformation utility
+
 - **Schematic Zoom Limits and Label Visibility**
   - Minimum zoom set to 33%, maximum zoom set to 125%
   - Component text labels hidden when zoom level falls below 55%

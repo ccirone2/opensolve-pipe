@@ -2,7 +2,7 @@
 
 ## Product Requirements Document (PRD)
 
-Version 1.0 | February 2025
+Version 1.0 | February 2026
 
 ---
 
@@ -34,46 +34,84 @@ This visualization is intended to integrate with pump system analysis software t
 
 The system consists of two primary element types:
 
-| Type | Examples | Description |
-|------|----------|-------------|
+| Type   | Examples          | Description                                 |
+| ------ | ----------------- | ------------------------------------------- |
 | `comp` | tank, valve, pump | Physical components with discrete locations |
-| `conn` | pipe, conduit | Connections (piping) between components |
+| `conn` | pipe, conduit     | Connections (piping) between components     |
 
 ### 3.2 Data Structure
 
 Each element in the system is represented as an object with the following properties:
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `type` | string | Yes | `'comp'` or `'conn'` |
-| `name` | string | Yes | Unique identifier (e.g., `'tnk-1'`, `'pmp-1'`, `'cx-3'`) |
-| `p1_el` | number | Yes | Elevation at port 1 (upstream connection point) |
-| `p2_el` | number | No | Elevation at port 2 (downstream connection point) |
-| `min_el` | number | No | Minimum elevation (tank level or pipe low point) |
-| `max_el` | number | No | Maximum elevation (tank level or pipe high point) |
-| `length` | number | Conn only | Pipe length (determines x-axis scaling) |
-| `head_change` | number | No | Head loss (negative) or gain (positive) across element |
+| Property      | Type   | Required  | Description                                              |
+| ------------- | ------ | --------- | -------------------------------------------------------- |
+| `type`        | string | Yes       | `'comp'` or `'conn'`                                     |
+| `name`        | string | Yes       | Unique identifier (e.g., `'tnk-1'`, `'pmp-1'`, `'cx-3'`) |
+| `p1_el`       | number | Yes       | Elevation at port 1 (upstream connection point)          |
+| `p2_el`       | number | No        | Elevation at port 2 (downstream connection point)        |
+| `min_el`      | number | No        | Minimum elevation (tank level or pipe low point)         |
+| `max_el`      | number | No        | Maximum elevation (tank level or pipe high point)        |
+| `length`      | number | Conn only | Pipe length (determines x-axis scaling)                  |
+| `head_change` | number | No        | Head loss (negative) or gain (positive) across element   |
 
 ### 3.3 Example Data
 
 ```javascript
 const data = [
-  { type: 'comp', name: 'tnk-1', min_el: 650, max_el: 675,
-    p1_el: 655, p2_el: null, head_change: -2 },
-  { type: 'conn', name: 'cx-1', p1_el: 655, p2_el: 655,
-    length: 50, head_change: -1 },
-  { type: 'comp', name: 'vlv-1', p1_el: 655, p2_el: 655,
-    head_change: -5 },
-  { type: 'conn', name: 'cx-2', p1_el: 655, p2_el: 645,
-    length: 120, head_change: -3 },
-  { type: 'comp', name: 'pmp-1', p1_el: 645, p2_el: 655,
-    head_change: 85 },
-  { type: 'conn', name: 'cx-3', min_el: 640, p1_el: 655,
-    p2_el: 660, length: 200, head_change: -4 },
-  { type: 'conn', name: 'cx-4', max_el: 700, p1_el: 660,
-    p2_el: 675, length: 350, head_change: -50 },
-  { type: 'comp', name: 'tank-2', min_el: 680, max_el: 690,
-    p1_el: 675, p2_el: null, head_change: -5 }
+  {
+    type: "comp",
+    name: "tnk-1",
+    min_el: 650,
+    max_el: 675,
+    p1_el: 655,
+    p2_el: null,
+    head_change: -2,
+  },
+  {
+    type: "conn",
+    name: "cx-1",
+    p1_el: 655,
+    p2_el: 655,
+    length: 50,
+    head_change: -1,
+  },
+  { type: "comp", name: "vlv-1", p1_el: 655, p2_el: 655, head_change: -5 },
+  {
+    type: "conn",
+    name: "cx-2",
+    p1_el: 655,
+    p2_el: 645,
+    length: 120,
+    head_change: -3,
+  },
+  { type: "comp", name: "pmp-1", p1_el: 645, p2_el: 655, head_change: 85 },
+  {
+    type: "conn",
+    name: "cx-3",
+    min_el: 640,
+    p1_el: 655,
+    p2_el: 660,
+    length: 200,
+    head_change: -4,
+  },
+  {
+    type: "conn",
+    name: "cx-4",
+    max_el: 700,
+    p1_el: 660,
+    p2_el: 675,
+    length: 350,
+    head_change: -50,
+  },
+  {
+    type: "comp",
+    name: "tank-2",
+    min_el: 680,
+    max_el: 690,
+    p1_el: 675,
+    p2_el: null,
+    head_change: -5,
+  },
 ];
 ```
 
@@ -85,11 +123,11 @@ const data = [
 
 Components are displayed as circular markers at their port elevations:
 
-| Component | Color | Visual Behavior |
-|-----------|-------|-----------------|
-| Tank (`tnk-`, `tank-`) | Blue (`#2563eb`) | Pulsing rectangle showing min/max water levels |
-| Valve (`vlv-`) | Green (`#059669`) | Static circular marker at port elevation |
-| Pump (`pmp-`) | Red (`#dc2626`) | Animated arrows indicating flow direction |
+| Component              | Color             | Visual Behavior                                |
+| ---------------------- | ----------------- | ---------------------------------------------- |
+| Tank (`tnk-`, `tank-`) | Blue (`#2563eb`)  | Pulsing rectangle showing min/max water levels |
+| Valve (`vlv-`)         | Green (`#059669`) | Static circular marker at port elevation       |
+| Pump (`pmp-`)          | Red (`#dc2626`)   | Animated arrows indicating flow direction      |
 
 **Marker Sizes:**
 
@@ -397,12 +435,17 @@ FUNCTION renderClippedHGL(hglPoints, maxEl, minEl):
 
 ```css
 @keyframes pulse {
-    0%, 100% { opacity: 0.4; }
-    50%      { opacity: 0.8; }
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.8;
+  }
 }
 
 .tank-water {
-    animation: pulse 2s infinite;
+  animation: pulse 2s infinite;
 }
 ```
 
@@ -410,14 +453,24 @@ FUNCTION renderClippedHGL(hglPoints, maxEl, minEl):
 
 ```css
 @keyframes pumpFlowLinear {
-    0%   { opacity: 0; transform: translateY(100%); }
-    20%  { opacity: 1; }
-    80%  { opacity: 1; }
-    100% { opacity: 0; transform: translateY(-100%); }
+  0% {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
 }
 
 .pump-flow-arrow {
-    animation: pumpFlowLinear 3s infinite linear;
+  animation: pumpFlowLinear 3s infinite linear;
 }
 
 /* Three arrows staggered at 0s, 1s, 2s delays */
@@ -428,20 +481,20 @@ FUNCTION renderClippedHGL(hglPoints, maxEl, minEl):
 
 ## 9. Color Palette
 
-| Element | Hex Code | Usage |
-|---------|----------|-------|
-| Tank | `#2563eb` | Tank markers, water level range |
-| Valve | `#059669` | Valve markers |
-| Pump | `#dc2626` | Pump markers, flow arrows |
-| Connection/Pipe | `#64748b` | Pipe lines |
-| HGL (No Flow) | `#a855f7` | Static hydraulic grade line |
-| HGL (Flowing) | `#22c55e` | Dynamic hydraulic grade line |
-| Min/Max Indicator | `#f59e0b` | Elevation extremes |
-| Boundary Marker | `#000000` | Series connection boundaries |
-| Background | `#0f172a` | Dark theme background |
-| Text | `#f1f5f9` | Labels, axis text |
-| Grid (major) | `#334155` | 50-unit grid lines |
-| Grid (minor) | `#334155` | 10-unit grid lines (dashed, 20% opacity) |
+| Element           | Hex Code  | Usage                                    |
+| ----------------- | --------- | ---------------------------------------- |
+| Tank              | `#2563eb` | Tank markers, water level range          |
+| Valve             | `#059669` | Valve markers                            |
+| Pump              | `#dc2626` | Pump markers, flow arrows                |
+| Connection/Pipe   | `#64748b` | Pipe lines                               |
+| HGL (No Flow)     | `#a855f7` | Static hydraulic grade line              |
+| HGL (Flowing)     | `#22c55e` | Dynamic hydraulic grade line             |
+| Min/Max Indicator | `#f59e0b` | Elevation extremes                       |
+| Boundary Marker   | `#000000` | Series connection boundaries             |
+| Background        | `#0f172a` | Dark theme background                    |
+| Text              | `#f1f5f9` | Labels, axis text                        |
+| Grid (major)      | `#334155` | 50-unit grid lines                       |
+| Grid (minor)      | `#334155` | 10-unit grid lines (dashed, 20% opacity) |
 
 ---
 
@@ -449,11 +502,11 @@ FUNCTION renderClippedHGL(hglPoints, maxEl, minEl):
 
 ### 10.1 Tank Port Position
 
-| Condition | Behavior |
-|-----------|----------|
+| Condition                | Behavior                                 |
+| ------------------------ | ---------------------------------------- |
 | Port below tank `min_el` | Show losses bar from port up to `min_el` |
 | Port above tank `max_el` | Show losses bar from `max_el` up to port |
-| Port within tank range | No losses bar needed |
+| Port within tank range   | No losses bar needed                     |
 
 ### 10.2 HGL Jump Conditions
 
@@ -465,12 +518,12 @@ The no-flow HGL jumps at:
 
 ### 10.3 Missing Data Handling
 
-| Missing Property | Default Behavior |
-|------------------|------------------|
-| `p2_el` | Use `p1_el` for both ports |
-| `length` | Use 0 (component positioned at same x as previous) |
-| `head_change` | Treat as 0 (no change) |
-| `min_el` / `max_el` | Don't render range indicators |
+| Missing Property    | Default Behavior                                   |
+| ------------------- | -------------------------------------------------- |
+| `p2_el`             | Use `p1_el` for both ports                         |
+| `length`            | Use 0 (component positioned at same x as previous) |
+| `head_change`       | Treat as 0 (no change)                             |
+| `min_el` / `max_el` | Don't render range indicators                      |
 
 ### 10.4 Series vs Single Connection Detection
 
@@ -493,24 +546,24 @@ isSeries = segment.connections.length > 1
 
 ### 11.2 Optional Configuration
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `width` | number | 900 | Canvas width in pixels |
-| `height` | number | 500 | Canvas height in pixels |
-| `margin` | object | `{top:60, right:40, bottom:80, left:70}` | Plot margins |
-| `showMinMax` | boolean | `true` | Initial state of min/max toggle |
-| `showHGL` | boolean | `true` | Initial state of no-flow HGL toggle |
-| `showFlowingHGL` | boolean | `true` | Initial state of flowing HGL toggle |
-| `elevationUnit` | string | `"ft"` | Unit label for y-axis |
+| Parameter        | Type    | Default                                  | Description                         |
+| ---------------- | ------- | ---------------------------------------- | ----------------------------------- |
+| `width`          | number  | 900                                      | Canvas width in pixels              |
+| `height`         | number  | 500                                      | Canvas height in pixels             |
+| `margin`         | object  | `{top:60, right:40, bottom:80, left:70}` | Plot margins                        |
+| `showMinMax`     | boolean | `true`                                   | Initial state of min/max toggle     |
+| `showHGL`        | boolean | `true`                                   | Initial state of no-flow HGL toggle |
+| `showFlowingHGL` | boolean | `true`                                   | Initial state of flowing HGL toggle |
+| `elevationUnit`  | string  | `"ft"`                                   | Unit label for y-axis               |
 
 ### 11.3 Events/Callbacks
 
-| Event | Payload | Description |
-|-------|---------|-------------|
+| Event            | Payload          | Description                             |
+| ---------------- | ---------------- | --------------------------------------- |
 | `onElementHover` | `element` object | Triggered when hovering over an element |
-| `onElementLeave` | `element` object | Triggered when leaving an element |
-| `onElementClick` | `element` object | Triggered when clicking an element |
-| `onToggleChange` | `{name, state}` | Triggered when display option changes |
+| `onElementLeave` | `element` object | Triggered when leaving an element       |
+| `onElementClick` | `element` object | Triggered when clicking an element      |
+| `onToggleChange` | `{name, state}`  | Triggered when display option changes   |
 
 ### 11.4 Technology-Agnostic Implementation Notes
 
@@ -584,16 +637,16 @@ Key rendering requirements:
 
 For the example data, the flowing HGL progresses as follows:
 
-| Location | HGL Before | ΔH | HGL After |
-|----------|------------|-----|-----------|
-| tnk-1 (start) | 675 | -2 | 673 |
-| cx-1 | 673 | -1 | 672 |
-| vlv-1 | 672 | -5 | 667 |
-| cx-2 | 667 | -3 | 664 |
-| pmp-1 | 664 | +85 | **749** ← Peak (off scale) |
-| cx-3 | 749 | -4 | 745 |
-| cx-4 | 745 | -50 | 695 |
-| tank-2 | 695 | -5 | **690** ← Final (matches tank max) |
+| Location      | HGL Before | ΔH  | HGL After                          |
+| ------------- | ---------- | --- | ---------------------------------- |
+| tnk-1 (start) | 675        | -2  | 673                                |
+| cx-1          | 673        | -1  | 672                                |
+| vlv-1         | 672        | -5  | 667                                |
+| cx-2          | 667        | -3  | 664                                |
+| pmp-1         | 664        | +85 | **749** ← Peak (off scale)         |
+| cx-3          | 749        | -4  | 745                                |
+| cx-4          | 745        | -50 | 695                                |
+| tank-2        | 695        | -5  | **690** ← Final (matches tank max) |
 
 **Total head change:** -2 -1 -5 -3 +85 -4 -50 -5 = **+15 ft** (net gain from 675 to 690)
 

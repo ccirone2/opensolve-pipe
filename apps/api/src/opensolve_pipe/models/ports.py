@@ -1,13 +1,13 @@
 """Port model for component connection points."""
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import Field
 
 from .base import Elevation, OpenSolvePipeBaseModel, PositiveFloat
 
 
-class PortDirection(str, Enum):
+class PortDirection(StrEnum):
     """Direction of flow through a port."""
 
     INLET = "inlet"

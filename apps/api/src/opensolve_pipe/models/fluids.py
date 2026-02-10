@@ -1,13 +1,13 @@
 """Fluid definition and properties models."""
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import Field, model_validator
 
 from .base import NonNegativeFloat, OpenSolvePipeBaseModel, PositiveFloat
 
 
-class FluidType(str, Enum):
+class FluidType(StrEnum):
     """Available fluid types."""
 
     WATER = "water"

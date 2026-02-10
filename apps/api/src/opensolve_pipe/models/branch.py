@@ -5,7 +5,7 @@ at specific points in the network. They have multiple ports and handle
 the hydraulic relationships between the connected flows.
 """
 
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -19,7 +19,7 @@ from .piping import PipingSegment
 from .ports import Port, PortDirection
 
 
-class BranchType(str, Enum):
+class BranchType(StrEnum):
     """Type of branch fitting."""
 
     TEE = "tee"

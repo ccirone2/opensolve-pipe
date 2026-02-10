@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import Field, ValidationInfo, field_validator, model_validator
@@ -33,7 +33,7 @@ from .ports import (
 )
 
 
-class ComponentType(str, Enum):
+class ComponentType(StrEnum):
     """Types of network components."""
 
     RESERVOIR = "reservoir"
@@ -53,7 +53,7 @@ class ComponentType(str, Enum):
     CROSS_BRANCH = "cross_branch"
 
 
-class ValveType(str, Enum):
+class ValveType(StrEnum):
     """Types of control valves."""
 
     GATE = "gate"
@@ -69,7 +69,7 @@ class ValveType(str, Enum):
     RELIEF = "relief"
 
 
-class PumpOperatingMode(str, Enum):
+class PumpOperatingMode(StrEnum):
     """Operating modes for pumps.
 
     Defines how the pump speed/operation is controlled.
@@ -83,7 +83,7 @@ class PumpOperatingMode(str, Enum):
     OFF = "off"  # Not running
 
 
-class PumpStatus(str, Enum):
+class PumpStatus(StrEnum):
     """Status options for pumps.
 
     Defines the current operational state of the pump.
@@ -94,7 +94,7 @@ class PumpStatus(str, Enum):
     OFF_WITH_CHECK = "off_check"  # Zero flow, check valve prevents reverse
 
 
-class ValveStatus(str, Enum):
+class ValveStatus(StrEnum):
     """Status options for valves.
 
     Defines the current operational state of the valve.

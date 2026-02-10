@@ -5,7 +5,7 @@ instead of the EPANET-derived "Nodes" and "Links".
 """
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import Field
@@ -20,7 +20,7 @@ from .components import PumpStatus, ValveStatus
 from .pump import FlowHeadPoint
 
 
-class FlowRegime(str, Enum):
+class FlowRegime(StrEnum):
     """Flow regime classification."""
 
     LAMINAR = "laminar"
@@ -173,7 +173,7 @@ class ControlValveResult(OpenSolvePipeBaseModel):
     flow: float = Field(description="Flow rate through the valve in project units")
 
 
-class WarningCategory(str, Enum):
+class WarningCategory(StrEnum):
     """Categories of warnings and design check results."""
 
     VELOCITY = "velocity"
@@ -185,7 +185,7 @@ class WarningCategory(str, Enum):
     OPERATING_POINT = "operating_point"
 
 
-class WarningSeverity(str, Enum):
+class WarningSeverity(StrEnum):
     """Warning severity levels."""
 
     INFO = "info"

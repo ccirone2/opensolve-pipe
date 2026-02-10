@@ -1,11 +1,10 @@
 <script lang="ts">
-	import { components, currentElementId, navigationStore, projectStore, solvedState, pumpLibrary, workspaceStore, activeInspectorTab } from '$lib/stores';
+	import { components, currentElementId, projectStore, solvedState, pumpLibrary, workspaceStore, activeInspectorTab } from '$lib/stores';
 	import type { InspectorTab } from '$lib/stores';
 	import {
 		COMPONENT_TYPE_LABELS,
 		isPump,
 		isValve,
-		type Component,
 		type ValveComponent
 	} from '$lib/models';
 	import ElementPanel from '../panel/ElementPanel.svelte';

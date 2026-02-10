@@ -1,6 +1,6 @@
 """Reference node models for pressure boundary conditions."""
 
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -15,7 +15,7 @@ from .piping import PipingSegment
 from .ports import Port, PortDirection
 
 
-class ReferenceType(str, Enum):
+class ReferenceType(StrEnum):
     """Type of reference node."""
 
     IDEAL = "ideal"

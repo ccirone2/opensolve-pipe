@@ -17,10 +17,10 @@ Example:
     20.0
 """
 
-from enum import Enum
+from enum import StrEnum
 
 
-class UnitCategory(str, Enum):
+class UnitCategory(StrEnum):
     """Categories of physical quantities for unit conversion."""
 
     LENGTH = "length"

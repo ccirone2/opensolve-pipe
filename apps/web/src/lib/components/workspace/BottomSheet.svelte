@@ -78,7 +78,6 @@
 	style="height: {sheetHeight}"
 >
 	<!-- Drag handle -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="bottom-sheet-handle"
 		ontouchstart={handleTouchStart}

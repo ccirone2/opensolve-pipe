@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
@@ -63,7 +63,7 @@ if TYPE_CHECKING:
     from ...models.project import Project
 
 
-class NetworkType(str, Enum):
+class NetworkType(StrEnum):
     """Classification of network topology."""
 
     SIMPLE = "simple"  # Single path from source to sink
@@ -986,6 +986,8 @@ def solve_branching_network(
     Returns:
         Tuple of (SolverState, converged, error_message)
     """
+    from ...models.components import PumpComponent
+
     state = SolverState()
 
     # For now, we only support tree-structured branching (no loops)
@@ -1139,7 +1141,7 @@ def solve_branching_network(
                 )
 
                 # Check if next component is a pump
-                if next_comp.type == ComponentType.PUMP:
+                if isinstance(next_comp, PumpComponent):
                     # Get pump curve and find operating point
                     pump_curve = project.get_pump_curve(next_comp.curve_id)
                     if pump_curve:

@@ -1,13 +1,13 @@
 """Piping, pipe definition, and fitting models."""
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import Field
 
 from .base import OpenSolvePipeBaseModel, PositiveFloat, PositiveInt
 
 
-class PipeMaterial(str, Enum):
+class PipeMaterial(StrEnum):
     """Available pipe materials."""
 
     CARBON_STEEL = "carbon_steel"
@@ -21,7 +21,7 @@ class PipeMaterial(str, Enum):
     GRP = "grp"  # Glass Reinforced Plastic (Fiberglass)
 
 
-class PipeSchedule(str, Enum):
+class PipeSchedule(StrEnum):
     """Common pipe schedules."""
 
     SCH_5 = "5"
@@ -34,7 +34,7 @@ class PipeSchedule(str, Enum):
     XXS = "XXS"
 
 
-class FittingType(str, Enum):
+class FittingType(StrEnum):
     """Types of pipe fittings."""
 
     # Elbows

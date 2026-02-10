@@ -209,14 +209,41 @@ function createProjectStore() {
 
 		/**
 		 * Update a component's properties.
+		 * If the component has a parent_id, this edit breaks the parent link.
+		 * If the component is a parent, propagate changes to linked children.
 		 */
 		updateComponent(componentId: string, updates: Partial<Component>) {
-			updateWithHistory('Update component', (project) => ({
-				...project,
-				components: project.components.map((c) =>
-					c.id === componentId ? ({ ...c, ...updates } as Component) : c
-				)
-			}));
+			updateWithHistory('Update component', (project) => {
+				// Fields that should NOT propagate to children
+				const nonPropagatingKeys = new Set(['id', 'name', 'parent_id', 'downstream_connections', 'upstream_piping', 'ports']);
+
+				// Build propagatable updates (type-specific fields only)
+				const propagatable: Record<string, unknown> = {};
+				for (const [key, value] of Object.entries(updates)) {
+					if (!nonPropagatingKeys.has(key)) {
+						propagatable[key] = value;
+					}
+				}
+
+				return {
+					...project,
+					components: project.components.map((c) => {
+						if (c.id === componentId) {
+							// Update the target component; break parent link if it's a child
+							const updated = { ...c, ...updates } as Component;
+							if (c.parent_id) {
+								updated.parent_id = undefined;
+							}
+							return updated;
+						}
+						// Propagate to linked children
+						if (c.parent_id === componentId && Object.keys(propagatable).length > 0) {
+							return { ...c, ...propagatable } as Component;
+						}
+						return c;
+					})
+				};
+			});
 		},
 
 		/**
@@ -235,6 +262,105 @@ function createProjectStore() {
 
 				return { ...project, components: newComponents };
 			});
+		},
+
+		/**
+		 * Copy a component in series (insert after original in the chain).
+		 * The copy maintains a parent_id link to the original until edited.
+		 */
+		copyComponentInSeries(componentId: string): string | null {
+			const project = get(store);
+			const original = project.components.find((c) => c.id === componentId);
+			if (!original) return null;
+
+			const id = generateComponentId();
+			const copy = structuredClone(original) as Component;
+			copy.id = id;
+			copy.name = `${original.name} (Copy)`;
+			copy.parent_id = original.id;
+			copy.downstream_connections = [];
+
+			const originalIndex = project.components.findIndex((c) => c.id === componentId);
+
+			updateWithHistory('Copy component (series)', (proj) => {
+				const newComponents = [...proj.components];
+				const insertAt = originalIndex + 1;
+
+				// Get the next component after original
+				const nextComponent = insertAt < newComponents.length ? newComponents[insertAt] : null;
+
+				// Insert copy after original
+				newComponents.splice(insertAt, 0, copy);
+
+				// Redirect original's downstream to copy, copy connects to next
+				const origComp = newComponents[originalIndex];
+				if (nextComponent) {
+					const existingConnIdx = origComp.downstream_connections.findIndex(
+						(c) => c.target_component_id === nextComponent.id
+					);
+					if (existingConnIdx >= 0) {
+						const existingConn = origComp.downstream_connections[existingConnIdx];
+						origComp.downstream_connections[existingConnIdx] = {
+							target_component_id: id
+						};
+						copy.downstream_connections = [{
+							target_component_id: nextComponent.id,
+							piping: existingConn.piping
+						}];
+					} else {
+						origComp.downstream_connections.push({ target_component_id: id });
+						copy.downstream_connections = [{ target_component_id: nextComponent.id }];
+					}
+				} else {
+					origComp.downstream_connections.push({ target_component_id: id });
+				}
+
+				return { ...proj, components: newComponents };
+			});
+
+			navigationStore.navigateTo(id);
+			return id;
+		},
+
+		/**
+		 * Copy a component in parallel (insert after original, no chain redirect).
+		 * The copy maintains a parent_id link to the original until edited.
+		 */
+		copyComponentInParallel(componentId: string): string | null {
+			const project = get(store);
+			const original = project.components.find((c) => c.id === componentId);
+			if (!original) return null;
+
+			const id = generateComponentId();
+			const copy = structuredClone(original) as Component;
+			copy.id = id;
+			copy.name = `${original.name} (Parallel)`;
+			copy.parent_id = original.id;
+			copy.downstream_connections = [];
+
+			const originalIndex = project.components.findIndex((c) => c.id === componentId);
+
+			updateWithHistory('Copy component (parallel)', (proj) => {
+				const newComponents = [...proj.components];
+				// Insert right after original (no connection rewiring)
+				newComponents.splice(originalIndex + 1, 0, copy);
+				return { ...proj, components: newComponents };
+			});
+
+			navigationStore.navigateTo(id);
+			return id;
+		},
+
+		/**
+		 * Break the parent-child link on a component (make it independent).
+		 */
+		breakParentLink(componentId: string) {
+			updateWithHistory('Break parent link', (project) => ({
+				...project,
+				components: project.components.map((c) =>
+					c.id === componentId ? { ...c, parent_id: undefined } : c
+				)
+			}));
 		},
 
 		/**

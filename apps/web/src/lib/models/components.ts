@@ -216,6 +216,8 @@ interface BaseComponentProps {
 	upstream_piping?: PipingSegment;
 	/** Connections to downstream components (deprecated, use Project.connections). */
 	downstream_connections: Connection[];
+	/** ID of the parent component this was copied from. Undefined = independent. */
+	parent_id?: string;
 }
 
 /** Fixed-head water source (infinite capacity). */

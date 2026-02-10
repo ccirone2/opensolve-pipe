@@ -9,9 +9,11 @@
 		onComponentClick?: (componentId: string) => void;
 		/** ID of the currently selected component. */
 		selectedComponentId?: string | null;
+		/** Called when the zoom level changes (for persistence). */
+		onZoomChange?: (level: number) => void;
 	}
 
-	let { onComponentClick, selectedComponentId = null }: Props = $props();
+	let { onComponentClick, selectedComponentId = null, onZoomChange }: Props = $props();
 
 	let canvas: SchematicCanvas | undefined = $state();
 	let zoomLevel = $state(1);
@@ -22,6 +24,11 @@
 
 	// Format zoom level for display
 	let zoomPercent = $derived(Math.round(zoomLevel * 100));
+
+	// Notify parent of zoom changes
+	$effect(() => {
+		onZoomChange?.(zoomLevel);
+	});
 
 	/**
 	 * Fit the schematic to the viewport.

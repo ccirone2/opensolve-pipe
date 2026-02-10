@@ -42,7 +42,7 @@
 			id="valve_type"
 			value={component.valve_type}
 			onchange={(e) => onUpdate('valve_type', (e.target as HTMLSelectElement).value)}
-			class="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] shadow-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+			class="form-input"
 		>
 			{#each Object.entries(VALVE_TYPE_LABELS) as [value, label]}
 				<option {value}>{label}</option>
@@ -57,7 +57,7 @@
 			id="status"
 			value={component.status}
 			onchange={(e) => onUpdate('status', (e.target as HTMLSelectElement).value as ValveStatus)}
-			class="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] shadow-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+			class="form-input"
 		>
 			{#each Object.entries(VALVE_STATUS_LABELS) as [value, label]}
 				<option {value}>{label}</option>
@@ -106,7 +106,7 @@
 			<div>
 				<span class="block text-sm font-medium text-[var(--color-text)]">Position</span>
 				<div
-					class="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-text-muted)]"
+					class="form-input bg-[var(--color-surface-elevated)] text-[var(--color-text-muted)]"
 				>
 					100% (locked open)
 				</div>
@@ -116,7 +116,7 @@
 			<div>
 				<span class="block text-sm font-medium text-[var(--color-text)]">Position</span>
 				<div
-					class="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-text-muted)]"
+					class="form-input bg-[var(--color-surface-elevated)] text-[var(--color-text-muted)]"
 				>
 					{Math.round((component.position ?? 1) * 100)}% (locked)
 				</div>
@@ -152,7 +152,7 @@
 					{/if}
 				</span>
 				<div
-					class="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[var(--color-text-muted)]"
+					class="form-input bg-[var(--color-surface-elevated)] text-[var(--color-text-muted)]"
 				>
 					{component.setpoint ?? 0}
 					{component.valve_type === 'fcv' ? 'GPM' : 'psi'}

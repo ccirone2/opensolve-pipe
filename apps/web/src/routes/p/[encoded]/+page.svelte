@@ -289,7 +289,11 @@
 				</div>
 			</div>
 		{:else}
-			<SchematicViewer onComponentClick={handleSchematicComponentClick} />
+			<SchematicViewer
+				onComponentClick={handleSchematicComponentClick}
+				selectedComponentId={$currentElementId}
+				onZoomChange={(level) => workspaceStore.setCanvasZoom(level)}
+			/>
 		{/if}
 	</div>
 

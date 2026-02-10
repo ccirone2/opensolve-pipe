@@ -228,7 +228,7 @@
 							{:else}
 								<select
 									bind:value={selectedTargetId}
-									class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)]"
+									class="form-input"
 								>
 									<option value={null}>Select a component...</option>
 									{#each availableTargets as target}

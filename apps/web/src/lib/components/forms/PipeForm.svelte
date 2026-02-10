@@ -21,7 +21,7 @@
 				id="material"
 				value={pipe.material}
 				onchange={(e) => onUpdate('material', (e.target as HTMLSelectElement).value)}
-				class="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] shadow-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+				class="form-input"
 			>
 				{#each Object.entries(PIPE_MATERIAL_LABELS) as [value, label]}
 					<option {value}>{label}</option>
@@ -35,7 +35,7 @@
 				id="schedule"
 				value={pipe.schedule}
 				onchange={(e) => onUpdate('schedule', (e.target as HTMLSelectElement).value)}
-				class="mt-1 block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] shadow-sm focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+				class="form-input"
 			>
 				{#each Object.entries(PIPE_SCHEDULE_LABELS) as [value, label]}
 					<option {value}>{label}</option>

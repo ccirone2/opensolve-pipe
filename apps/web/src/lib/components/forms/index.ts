@@ -5,6 +5,9 @@
  * Each form includes validation, unit display, and mobile-friendly inputs.
  */
 
+import type { ComponentType } from '$lib/models';
+import type { Component as SvelteComponent } from 'svelte';
+
 // Base components
 export { default as NumberInput } from './NumberInput.svelte';
 export { default as EngineeringInput } from './EngineeringInput.svelte';
@@ -34,3 +37,41 @@ export { default as CrossBranchForm } from './CrossBranchForm.svelte';
 // Piping components
 export { default as PipeForm } from './PipeForm.svelte';
 export { default as FittingsTable } from './FittingsTable.svelte';
+
+// --- Form Registry ---
+// Maps ComponentType → form component for dynamic rendering.
+// ReferenceNodeForm handles both ideal and non-ideal types.
+
+import ReservoirForm from './ReservoirForm.svelte';
+import TankForm from './TankForm.svelte';
+import JunctionForm from './JunctionForm.svelte';
+import PumpForm from './PumpForm.svelte';
+import ValveForm from './ValveForm.svelte';
+import HeatExchangerForm from './HeatExchangerForm.svelte';
+import StrainerForm from './StrainerForm.svelte';
+import OrificeForm from './OrificeForm.svelte';
+import SprinklerForm from './SprinklerForm.svelte';
+import ReferenceNodeForm from './ReferenceNodeForm.svelte';
+import PlugForm from './PlugForm.svelte';
+import TeeBranchForm from './TeeBranchForm.svelte';
+import WyeBranchForm from './WyeBranchForm.svelte';
+import CrossBranchForm from './CrossBranchForm.svelte';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const FORM_REGISTRY: Record<ComponentType, SvelteComponent<any>> = {
+	reservoir: ReservoirForm,
+	tank: TankForm,
+	junction: JunctionForm,
+	pump: PumpForm,
+	valve: ValveForm,
+	heat_exchanger: HeatExchangerForm,
+	strainer: StrainerForm,
+	orifice: OrificeForm,
+	sprinkler: SprinklerForm,
+	ideal_reference_node: ReferenceNodeForm,
+	non_ideal_reference_node: ReferenceNodeForm,
+	plug: PlugForm,
+	tee_branch: TeeBranchForm,
+	wye_branch: WyeBranchForm,
+	cross_branch: CrossBranchForm
+};

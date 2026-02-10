@@ -181,7 +181,7 @@
 	// === Chart data for preview ===
 	let showHeadCurve = $state(true);
 	let showEffCurve = $state(true);
-	let showPowerCurve = $state(true);
+	let showPowerCurve = $state(false);
 
 	// Build a temporary PumpCurve for chart utilities
 	let previewCurve = $derived<PumpCurve>({
@@ -720,18 +720,19 @@
 								{/each}
 							{/if}
 
-							<!-- Design Point crosshair -->
+							<!-- Design Point right-angle marker -->
 							{#if designPointFlow != null && designPointHead != null}
 								{@const dpX = scaleX(designPointFlow)}
 								{@const dpY = scaleY(designPointHead)}
-								<!-- Vertical crosshair line -->
-								<line x1={dpX} y1={chartTop} x2={dpX} y2={chartBottom} stroke="#ef4444" stroke-width="1" stroke-dasharray="4 3" opacity="0.6" />
-								<!-- Horizontal crosshair line -->
-								<line x1={chartLeft} y1={dpY} x2={chartRight} y2={dpY} stroke="#ef4444" stroke-width="1" stroke-dasharray="4 3" opacity="0.6" />
-								<!-- Center diamond marker -->
-								<polygon points="{dpX},{dpY - 6} {dpX + 5},{dpY} {dpX},{dpY + 6} {dpX - 5},{dpY}" fill="#ef4444" stroke="#ef4444" stroke-width="1" />
-								<!-- Label -->
-								<text x={dpX + 8} y={dpY - 8} fill="#ef4444" font-size="8" font-weight="bold">DP</text>
+								{@const arm = 22}
+								<path
+									d="M {dpX - arm} {dpY} L {dpX} {dpY} L {dpX} {dpY + arm}"
+									fill="none"
+									stroke="#1a1a1a"
+									stroke-width="2.5"
+									stroke-linecap="square"
+									stroke-linejoin="miter"
+								/>
 							{/if}
 
 							<!-- BEP marker -->
@@ -796,9 +797,32 @@
 								<circle cx={scaleX(p.flow)} cy={scaleY(p.npsh_required)} r="3" fill="#f97316" />
 							{/each}
 
-							<!-- Design Point vertical indicator -->
+							<!-- Design Point right-angle marker on NPSH curve -->
 							{#if designPointFlow != null}
-								<line x1={scaleX(designPointFlow)} y1={chartTop} x2={scaleX(designPointFlow)} y2={chartBottom} stroke="#ef4444" stroke-width="1" stroke-dasharray="4 3" opacity="0.6" />
+								{@const dpNpshX = scaleX(designPointFlow)}
+								{@const sortedNpsh = [...npshPoints].sort((a, b) => a.flow - b.flow)}
+								{@const dpNpshY = (() => {
+									const pts = sortedNpsh;
+									const f = designPointFlow;
+									if (pts.length < 2 || f <= pts[0].flow) return scaleY(pts[0]?.npsh_required ?? 0);
+									if (f >= pts[pts.length - 1].flow) return scaleY(pts[pts.length - 1].npsh_required);
+									for (let i = 1; i < pts.length; i++) {
+										if (f <= pts[i].flow) {
+											const t = (f - pts[i-1].flow) / (pts[i].flow - pts[i-1].flow);
+											return scaleY(pts[i-1].npsh_required + t * (pts[i].npsh_required - pts[i-1].npsh_required));
+										}
+									}
+									return scaleY(0);
+								})()}
+								{@const arm = 16}
+								<path
+									d="M {dpNpshX - arm} {dpNpshY} L {dpNpshX} {dpNpshY} L {dpNpshX} {dpNpshY + arm}"
+									fill="none"
+									stroke="#1a1a1a"
+									stroke-width="2.5"
+									stroke-linecap="square"
+									stroke-linejoin="miter"
+								/>
 							{/if}
 						</svg>
 					{/if}
@@ -820,7 +844,7 @@
 						<span class="flex items-center gap-1.5"><span class="h-0.5 w-4 bg-orange-500"></span> NPSHr (ft)</span>
 					{/if}
 					{#if designPointFlow != null && designPointHead != null}
-						<span class="flex items-center gap-1.5"><span class="inline-block h-2 w-2 rotate-45 bg-red-500"></span> Design Point</span>
+						<span class="flex items-center gap-1.5"><svg class="h-3 w-3" viewBox="0 0 12 12"><path d="M 1 4 L 7 4 L 7 11" fill="none" stroke="#1a1a1a" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" /></svg> Design Point</span>
 					{/if}
 					{#if bepData}
 						<span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full border-2 border-amber-500"></span> BEP</span>

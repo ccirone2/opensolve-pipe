@@ -306,14 +306,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed `onUndo`/`onRedo` prop threading through SidebarTabs
 
 - **Pump Curve Editor Enhancements** (PR #220, Issue #219)
-  - Design Point fieldset (flow, head, speed) with crosshair marker on Curve Preview chart
+  - Design Point fieldset (flow, head, speed) with right-angle marker on Curve Preview chart
+  - Design point right-angle marker also shown on NPSH subplot (interpolated at DP flow)
   - Min/max impeller diameter fields alongside selected trim diameter
   - Proper axis tick labels with "nice" round numbers on both flow (X) and head (Y) axes
   - NPSH moved to its own subplot below main chart with independent Y-axis
   - BEP (Best Efficiency Point) marker shown when efficiency data is present
+  - Power curve trace hidden by default on Curve Preview (toggle available)
   - Power curve data included in default pump curve example
   - Right Y-axis percentage labels for efficiency curve
-  - Design point vertical indicator also shown on NPSH subplot
   - Updated PumpCurve model (TS + Python) with `DesignPoint`, `min_impeller_diameter`, `max_impeller_diameter`
 
 - **Full-Width Pump Curve Editor** (PR #218, Issue #217)

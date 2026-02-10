@@ -855,6 +855,40 @@ Chose `import.meta.env` over SvelteKit's `$env/dynamic/public` because the dynam
 
 ---
 
+## ADR-021: Full-Width Canvas Editor for Pump Curves
+
+**Date:** 2026-02-10
+**Status:** Accepted
+**Context:** Issue #217 - Library Panel Pump Curve Editor
+
+### Decision
+
+Replace the inline sidebar pump curve editor with a full-width tabbed editor panel that takes over the canvas area when a pump curve is selected from the Library sidebar tab. The editor state is driven by `editingPumpCurveId` in the workspace store.
+
+The editor shows when `editingPumpCurveId !== null` AND `activeSidebarTab === 'library'`. Switching to another sidebar tab reveals the schematic; switching back to Library restores the editor for the previously selected curve.
+
+### Rationale
+
+- **Space for data entry:** Pump curves have multiple data types (head, efficiency, NPSH, power) and metadata fields that are too cramped for a 300px sidebar
+- **Tab-based organization:** Three primary tabs (Info, Data, Preview) with four data sub-tabs mirror the logical groupings of pump curve data
+- **Non-destructive switching:** Canvas content toggles between schematic and editor based on store state, preserving both views
+- **Consistent with Library pattern:** As more library types are added (loss curves, reference profiles), the same canvas-takeover pattern can be reused
+
+### Consequences
+
+**Positive:**
+
+- Full-width layout accommodates data tables, forms, and chart preview comfortably
+- Local editable state with explicit Save prevents accidental data loss
+- SVG preview chart provides immediate visual feedback without external dependencies
+
+**Negative:**
+
+- Schematic is hidden while editing pump curves (trade-off for full-width editing space)
+- Each new library item type will need its own editor panel component
+
+---
+
 ## Template for Future ADRs
 
 ```markdown

@@ -305,6 +305,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Modal dismissible via backdrop click or Escape key
   - Removed `onUndo`/`onRedo` prop threading through SidebarTabs
 
+- **Full-Width Pump Curve Editor** (PR #218, Issue #217)
+  - `PumpCurveEditorPanel.svelte`: replaces canvas area when a pump curve is selected from Library tab
+  - Three primary tabs: Pump Information (form), Curve Data (editable tables), Curve Preview (SVG chart)
+  - Pump Information: name, manufacturer, model, speed, impeller diameter, stages, inlet/outlet, notes
+  - Curve Data: four sub-tabs (Head, Efficiency, NPSH, Power) with add/remove rows and inline editing
+  - Curve Preview: SVG chart with toggle buttons per curve type, quadratic best-fit lines, color-coded legend
+  - Breadcrumb navigation (Library / Pump Curves / {name}) with close/back to schematic
+  - Save with dirty indicator, duplicate, and two-step delete confirmation
+  - Extended PumpCurve model (TS + Python) with `stages`, `inlet_outlet`, `notes`, `power_curve` fields
+  - `editingPumpCurveId` workspace store state drives canvas content switching
+  - PumpCurveList updated from inline editing to selection-based workflow
+
 - **Display Units Simplification** (PR #200, Issue #196)
   - Removed "Mixed" unit mode from both frontend and backend
   - `UnitSystem` enum now contains only `IMPERIAL` and `SI`

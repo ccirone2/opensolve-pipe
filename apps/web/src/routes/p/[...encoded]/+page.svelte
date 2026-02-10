@@ -233,7 +233,7 @@
 	<!-- Inspector: Property Panel -->
 	{#if isInspectorOpen}
 		<div class="workspace-inspector">
-			<PropertyPanel />
+			<PropertyPanel onSolve={handleSolve} />
 		</div>
 	{/if}
 

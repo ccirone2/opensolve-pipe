@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { components, currentElementId, navigationStore, projectStore, solvedState, pumpLibrary } from '$lib/stores';
+	import { components, currentElementId, navigationStore, projectStore, solvedState, pumpLibrary, workspaceStore, activeInspectorTab } from '$lib/stores';
+	import type { InspectorTab } from '$lib/stores';
 	import {
 		COMPONENT_TYPE_LABELS,
 		isPump,
@@ -11,9 +12,17 @@
 	import DownstreamPipingPanel from '../panel/DownstreamPipingPanel.svelte';
 	import PumpResultsCard from '../results/PumpResultsCard.svelte';
 	import ControlValveResultsCard from '../results/ControlValveResultsCard.svelte';
+	import MetricsStrip from './MetricsStrip.svelte';
+	import ProjectSummary from './ProjectSummary.svelte';
 
-	type InspectorTab = 'properties' | 'piping' | 'results';
-	let activeTab: InspectorTab = $state('properties');
+	interface Props {
+		onSolve?: () => void;
+	}
+
+	let { onSolve }: Props = $props();
+
+	// Track if this is the first selection to auto-switch tab
+	let hasSelectedBefore = $state(false);
 
 	// Get current component
 	let currentComponent = $derived.by(() => {
@@ -21,6 +30,15 @@
 		if (!id) return null;
 		return $components.find((c) => c.id === id) ?? null;
 	});
+
+	// Get the current component's index for move actions
+	let currentIndex = $derived.by(() => {
+		if (!currentComponent) return -1;
+		return $components.findIndex((c) => c.id === currentComponent!.id);
+	});
+
+	let canMoveUp = $derived(currentIndex > 0);
+	let canMoveDown = $derived(currentIndex >= 0 && currentIndex < $components.length - 1);
 
 	// Get pump data for results
 	let pumpResult = $derived.by(() => {
@@ -59,12 +77,40 @@
 		return val.toFixed(decimals);
 	}
 
-	// Auto-switch to properties tab when component changes
+	// Only auto-switch to properties on the first selection
 	$effect(() => {
 		if ($currentElementId) {
-			activeTab = 'properties';
+			if (!hasSelectedBefore) {
+				hasSelectedBefore = true;
+				workspaceStore.setInspectorTab('properties');
+			}
 		}
 	});
+
+	function setTab(tab: InspectorTab) {
+		workspaceStore.setInspectorTab(tab);
+	}
+
+	// Inline actions
+	function handleDuplicate() {
+		if (!currentComponent) return;
+		projectStore.addComponent(currentComponent.type, currentIndex + 1);
+	}
+
+	function handleMoveUp() {
+		if (!currentComponent || !canMoveUp) return;
+		projectStore.moveComponent(currentComponent.id, currentIndex - 1);
+	}
+
+	function handleMoveDown() {
+		if (!currentComponent || !canMoveDown) return;
+		projectStore.moveComponent(currentComponent.id, currentIndex + 1);
+	}
+
+	function handleDelete() {
+		if (!currentComponent) return;
+		projectStore.removeComponent(currentComponent.id);
+	}
 
 	const tabs: { id: InspectorTab; label: string }[] = [
 		{ id: 'properties', label: 'Properties' },
@@ -75,32 +121,75 @@
 
 <div class="flex h-full flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)]">
 	{#if !currentComponent}
-		<!-- No selection -->
-		<div class="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center">
-			<svg class="h-10 w-10 text-[var(--color-text-subtle)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1">
-				<path stroke-linecap="round" stroke-linejoin="round" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
-			</svg>
-			<p class="text-xs text-[var(--color-text-subtle)]">Select a component<br />from the tree or schematic</p>
-		</div>
+		<!-- No selection: Project Summary -->
+		<ProjectSummary {onSolve} />
 	{:else}
-		<!-- Component Header -->
+		<!-- Component Header with Inline Actions -->
 		<div class="flex items-center gap-2 border-b border-[var(--color-border)] px-3 py-2">
 			<span class="text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-accent)]">
 				{COMPONENT_TYPE_LABELS[currentComponent.type]}
 			</span>
-			<span class="flex-1 truncate text-xs font-medium text-[var(--color-text)]">
+			<span class="min-w-0 flex-1 truncate text-xs font-medium text-[var(--color-text)]">
 				{currentComponent.name}
 			</span>
+			<!-- Inline Actions -->
+			<div class="flex items-center gap-0.5">
+				<button
+					type="button"
+					onclick={handleDuplicate}
+					class="flex h-5 w-5 items-center justify-center rounded text-[var(--color-text-subtle)] transition-colors hover:bg-[var(--color-surface-elevated)] hover:text-[var(--color-text)]"
+					title="Duplicate"
+				>
+					<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" />
+					</svg>
+				</button>
+				<button
+					type="button"
+					onclick={handleMoveUp}
+					disabled={!canMoveUp}
+					class="flex h-5 w-5 items-center justify-center rounded text-[var(--color-text-subtle)] transition-colors hover:bg-[var(--color-surface-elevated)] hover:text-[var(--color-text)] disabled:opacity-30"
+					title="Move up"
+				>
+					<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+					</svg>
+				</button>
+				<button
+					type="button"
+					onclick={handleMoveDown}
+					disabled={!canMoveDown}
+					class="flex h-5 w-5 items-center justify-center rounded text-[var(--color-text-subtle)] transition-colors hover:bg-[var(--color-surface-elevated)] hover:text-[var(--color-text)] disabled:opacity-30"
+					title="Move down"
+				>
+					<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+					</svg>
+				</button>
+				<button
+					type="button"
+					onclick={handleDelete}
+					class="flex h-5 w-5 items-center justify-center rounded text-[var(--color-text-subtle)] transition-colors hover:bg-[var(--color-error)]/10 hover:text-[var(--color-error)]"
+					title="Delete"
+				>
+					<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+					</svg>
+				</button>
+			</div>
 		</div>
+
+		<!-- Metrics Strip (pinned key values) -->
+		<MetricsStrip component={currentComponent} />
 
 		<!-- Tab Navigation -->
 		<div class="flex border-b border-[var(--color-border)] bg-[var(--color-surface)]">
 			{#each tabs as tab}
 				<button
 					type="button"
-					onclick={() => (activeTab = tab.id)}
+					onclick={() => setTab(tab.id)}
 					class="flex-1 border-b-2 py-1.5 text-center text-[0.6875rem] font-medium transition-colors
-						{activeTab === tab.id
+						{$activeInspectorTab === tab.id
 						? 'border-[var(--color-accent)] text-[var(--color-accent)]'
 						: 'border-transparent text-[var(--color-text-muted)] hover:text-[var(--color-text)]'}"
 				>
@@ -114,16 +203,16 @@
 
 		<!-- Tab Content -->
 		<div class="flex-1 overflow-y-auto p-3">
-			{#if activeTab === 'properties'}
+			{#if $activeInspectorTab === 'properties'}
 				<ElementPanel component={currentComponent} />
 
-			{:else if activeTab === 'piping'}
+			{:else if $activeInspectorTab === 'piping'}
 				<DownstreamPipingPanel
 					componentId={currentComponent.id}
 					connections={currentComponent.downstream_connections}
 				/>
 
-			{:else if activeTab === 'results'}
+			{:else if $activeInspectorTab === 'results'}
 				{#if !$solvedState}
 					<div class="flex flex-col items-center justify-center gap-2 py-8 text-center">
 						<svg class="h-8 w-8 text-[var(--color-text-subtle)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">

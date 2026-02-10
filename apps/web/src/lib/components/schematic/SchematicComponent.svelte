@@ -58,6 +58,8 @@
 		result?: ComponentResult;
 		/** Click handler. */
 		onclick?: (componentId: string) => void;
+		/** Whether to show the text label. */
+		showLabel?: boolean;
 		/** Selection change handler. */
 		onselect?: (componentId: string) => void;
 	}
@@ -69,6 +71,7 @@
 		width = 60,
 		height = 40,
 		selected = false,
+		showLabel = true,
 		result,
 		onclick,
 		onselect
@@ -146,6 +149,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			{showLabel}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}
 			onmouseleave={handleMouseLeave}
@@ -164,6 +168,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			{showLabel}
 			level={normalizedLevel}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}
@@ -178,6 +183,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			{showLabel}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}
 			onmouseleave={handleMouseLeave}
@@ -191,6 +197,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			{showLabel}
 			status={(component as PumpComponent).status ?? 'running'}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}
@@ -205,6 +212,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			{showLabel}
 			valveType={(component as ValveComponent).valve_type}
 			status={(component as ValveComponent).status ?? 'active'}
 			onclick={handleClick}
@@ -220,6 +228,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			{showLabel}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}
 			onmouseleave={handleMouseLeave}
@@ -233,6 +242,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			{showLabel}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}
 			onmouseleave={handleMouseLeave}
@@ -246,6 +256,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			{showLabel}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}
 			onmouseleave={handleMouseLeave}
@@ -259,6 +270,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			{showLabel}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}
 			onmouseleave={handleMouseLeave}
@@ -272,6 +284,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			{showLabel}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}
 			onmouseleave={handleMouseLeave}
@@ -285,6 +298,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			{showLabel}
 			isIdeal={true}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}
@@ -299,6 +313,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			{showLabel}
 			isIdeal={false}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}
@@ -313,6 +328,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			{showLabel}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}
 			onmouseleave={handleMouseLeave}
@@ -326,6 +342,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			{showLabel}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}
 			onmouseleave={handleMouseLeave}
@@ -339,6 +356,7 @@
 			{selected}
 			{hovered}
 			label={component.name}
+			{showLabel}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}
 			onmouseleave={handleMouseLeave}
@@ -353,6 +371,7 @@
 			{selected}
 			{hovered}
 			label={(component as Component).name}
+			{showLabel}
 			{typeLabel}
 			onclick={handleClick}
 			onmouseenter={handleMouseEnter}

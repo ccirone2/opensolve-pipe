@@ -50,53 +50,32 @@
 	{onmouseenter}
 	{onmouseleave}
 >
-	<!-- Tank outline -->
+	<!-- Water fill (behind walls) -->
+	{@const waterTop = height * (1 - waterLevel)}
 	<rect
-		x="0"
-		y="0"
-		{width}
-		{height}
-		rx="2"
-		class="fill-[var(--color-surface)] stroke-[var(--color-text)] stroke-2"
+		x="3"
+		y={waterTop}
+		width={width - 6}
+		height={height - waterTop - 3}
+		class="fill-blue-300/50"
 	/>
 
-	<!-- Water fill -->
-	<rect
-		x="2"
-		y={height * (1 - waterLevel)}
-		width={width - 4}
-		height={height * waterLevel - 2}
-		class="fill-blue-400/40"
-	/>
-
-	<!-- Water level line (wavy) -->
+	<!-- Water surface wavy line -->
 	<path
-		d="M 2 {height * (1 - waterLevel)}
-		   Q {width * 0.25} {height * (1 - waterLevel) - 3}, {width * 0.5} {height * (1 - waterLevel)}
-		   Q {width * 0.75} {height * (1 - waterLevel) + 3}, {width - 2} {height * (1 - waterLevel)}"
-		class="fill-none stroke-blue-500 stroke-1"
+		d="M 3 {waterTop}
+		   Q {width * 0.25} {waterTop - 3}, {width * 0.5} {waterTop}
+		   Q {width * 0.75} {waterTop + 3}, {width - 3} {waterTop}"
+		class="fill-none stroke-blue-500"
+		stroke-width="1.5"
 	/>
 
-	<!-- Ground symbol below (reservoir is typically at ground level) -->
-	<line
-		x1="0"
-		y1={height + 2}
-		x2={width}
-		y2={height + 2}
-		class="stroke-[var(--color-text)] stroke-2"
-	/>
-	<line
-		x1="5"
-		y1={height + 6}
-		x2={width - 5}
-		y2={height + 6}
-		class="stroke-[var(--color-text)] stroke-1"
-	/>
-	<line
-		x1="12"
-		y1={height + 10}
-		x2={width - 12}
-		y2={height + 10}
-		class="stroke-[var(--color-text)] stroke-1"
+	<!-- Open-top reservoir walls (left, bottom, right — no top) -->
+	<path
+		d="M 0 0 L 0 {height} L {width} {height} L {width} 0"
+		fill="none"
+		stroke="var(--color-text)"
+		stroke-width="2"
+		stroke-linecap="square"
+		stroke-linejoin="miter"
 	/>
 </SymbolBase>

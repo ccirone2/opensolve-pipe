@@ -329,6 +329,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `editingPumpCurveId` workspace store state drives canvas content switching
   - PumpCurveList updated from inline editing to selection-based workflow
 
+- **Schematic Zoom Limits and Label Visibility**
+  - Minimum zoom set to 33%, maximum zoom set to 125%
+  - Component text labels hidden when zoom level falls below 55%
+  - Updated SchematicCanvas, SchematicViewer, SchematicComponent, and workspace store
+
+- **Reservoir Symbol Redesign**
+  - Changed from closed rectangle to open-top reservoir (three-sided: left, bottom, right walls)
+  - Water fill with wavy surface line at 60% level
+  - Removed ground hatching lines and connection stub for cleaner appearance
+  - Stroke weight matched to other component symbols (stroke-2)
+
 - **Display Units Simplification** (PR #200, Issue #196)
   - Removed "Mixed" unit mode from both frontend and backend
   - `UnitSystem` enum now contains only `IMPERIAL` and `SI`

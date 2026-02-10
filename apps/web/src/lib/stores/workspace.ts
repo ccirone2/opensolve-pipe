@@ -133,7 +133,7 @@ function createWorkspaceStore() {
 
 		/** Set the canvas zoom level. */
 		setCanvasZoom(zoom: number) {
-			update((s) => ({ ...s, canvasZoom: Math.max(0.1, Math.min(5, zoom)) }));
+			update((s) => ({ ...s, canvasZoom: Math.max(0.33, Math.min(1.25, zoom)) }));
 		},
 
 		/** Track the last selected component. */

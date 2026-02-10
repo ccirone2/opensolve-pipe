@@ -101,8 +101,8 @@
 	<SchematicCanvas
 		bind:this={canvas}
 		bind:zoomLevel
-		minZoom={0.1}
-		maxZoom={4}
+		minZoom={0.33}
+		maxZoom={1.25}
 	>
 		<g class="schematic-content">
 			{#if $components.length === 0}
@@ -142,6 +142,7 @@
 								width={pos.width}
 								height={pos.height}
 								selected={selectedComponentId === comp.id}
+								showLabel={zoomLevel >= 0.55}
 								onclick={handleComponentClick}
 							/>
 						{/if}

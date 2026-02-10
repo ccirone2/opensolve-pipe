@@ -4,9 +4,9 @@
 	import 'd3-transition'; // Augments Selection with .transition()
 
 	interface Props {
-		/** Minimum zoom scale. Default: 0.1 */
+		/** Minimum zoom scale. Default: 0.33 */
 		minZoom?: number;
-		/** Maximum zoom scale. Default: 4 */
+		/** Maximum zoom scale. Default: 1.25 */
 		maxZoom?: number;
 		/** Current zoom level (read-only, for display). */
 		zoomLevel?: number;
@@ -17,8 +17,8 @@
 	}
 
 	let {
-		minZoom = 0.1,
-		maxZoom = 4,
+		minZoom = 0.33,
+		maxZoom = 1.25,
 		zoomLevel = $bindable(1),
 		onZoomChange,
 		children

@@ -263,6 +263,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Form CSS consistency: replaced inline Tailwind input/select patterns with `.form-input` utility
   - Component form registry: `FORM_REGISTRY` map replaces 15-branch if/else chain in ElementPanel
 
+- **Workspace UX Improvements** (PRs #183-190, Issues #175-182)
+  - Undo/redo keyboard shortcuts: Ctrl+Z for undo, Ctrl+Shift+Z / Ctrl+Y for redo (PR #186)
+  - Drag-to-reorder components in component tree with HTML5 drag-and-drop (PR #189)
+  - Delete confirmation: inline [Del] / [Cancel] buttons replace immediate delete (PR #185)
+  - Copy component: right-click context menu with "Copy in Series" and "Copy in Parallel" (PR #190)
+  - Parent-child inheritance: copied components inherit parent changes via `parent_id` link until directly edited (PR #190)
+  - Vertical icon-only sidebar tabs with active indicator bar, replacing horizontal text tabs (PR #187)
+  - Base sizing increase: html font-size 14→16px, sidebar 220→260px, inspector 340→380px (PR #188)
+
 - **Pump Operating Mode UI Controls** (PR #111)
   - Operating mode dropdown (fixed_speed, variable_speed, controlled_pressure, controlled_flow)
   - Conditional setpoint fields for controlled modes (pressure/flow setpoint)
@@ -307,6 +316,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Store `power` field in PumpResult (kW)
 
 #### Frontend (Web)
+
+- **Landing Page Scroll** (PR #183, Issue #175)
+  - Removed `overflow: hidden` from body CSS that blocked vertical scrolling on non-workspace pages
+  - Workspace page has its own overflow handling via `.workspace` class
+
+- **Quick Add Reservoir Button** (PR #184, Issue #182)
+  - Removed redundant "Quick add reservoir" footer button from ComponentTree
 
 - **Pump Results Card Null Safety** (PR #160)
   - Fixed null reference errors in PumpResultsCard.svelte

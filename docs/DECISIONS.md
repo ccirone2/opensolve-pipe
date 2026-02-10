@@ -584,6 +584,47 @@ Adopt a dual-paradigm workspace design that supports both spatial (IDE-like) and
 
 ---
 
+## ADR-014: Parent-Child Component Inheritance with Auto-Break
+
+**Date:** 2026-02-10
+**Status:** Accepted
+**Context:** Issue #180 - Copy component with series/parallel options and parent-child inheritance
+
+### Decision
+
+When a component is copied (via right-click context menu), the copy maintains a `parent_id` reference to the original:
+
+1. **`parent_id` field**: Added to `BaseComponentProps`. `undefined` means independent; a string ID means linked to a parent.
+2. **Copy in Series**: Inserts the copy immediately after the original in the component chain and redirects downstream connections through the copy.
+3. **Copy in Parallel**: Inserts the copy after the original without modifying connections.
+4. **Auto-propagation**: When `updateComponent()` is called on a parent, type-specific fields (everything except `id`, `name`, `parent_id`, `downstream_connections`, `upstream_piping`, `ports`) are propagated to all linked children.
+5. **Auto-break**: When `updateComponent()` is called directly on a child (a component with `parent_id`), the `parent_id` is set to `undefined`, making it independent.
+6. **Visual indicator**: A chain-link icon appears in the component tree next to linked children.
+
+### Rationale
+
+- **Common workflow**: Engineers frequently duplicate equipment with minor variations. Copy-then-edit is faster than configuring from scratch.
+- **Consistency guarantee**: Parent-child links ensure replicated components stay in sync until intentionally diverged.
+- **Explicit break**: Editing a child is a clear signal of intentional divergence; auto-breaking the link prevents confusion about which component "owns" the values.
+- **Non-propagating fields**: Identity (`id`, `name`), topology (`connections`, `piping`, `ports`), and lineage (`parent_id`) are inherently per-component and must not propagate.
+
+### Consequences
+
+**Positive:**
+
+- Fast duplication workflow for common equipment
+- Linked components stay synchronized automatically
+- Clear visual indication of parent-child relationships
+- Clean break semantics — no partial inheritance states
+
+**Negative:**
+
+- Propagation is shallow (one level only; grandchildren don't inherit from grandparent)
+- Breaking the link is irreversible without undo
+- Bulk edits to multiple children require editing the parent (or each child individually after break)
+
+---
+
 ## Template for Future ADRs
 
 ```markdown

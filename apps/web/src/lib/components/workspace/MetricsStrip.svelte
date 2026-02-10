@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { solvedState } from '$lib/stores';
-	import { isPump, isValve, type Component, type ValveComponent } from '$lib/models';
+	import { isPump, type Component } from '$lib/models';
 
 	interface Props {
 		component: Component;

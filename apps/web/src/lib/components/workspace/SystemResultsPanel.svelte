@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { components, solvedState, isSolved } from '$lib/stores';
-	import { COMPONENT_CATEGORIES, type ComponentType } from '$lib/models';
+	import { COMPONENT_CATEGORIES } from '$lib/models';
 
 	interface Props {
 		onSolve?: () => void;

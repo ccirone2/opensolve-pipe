@@ -1,13 +1,13 @@
 """Unit system and solver configuration models."""
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import Field, field_validator
 
 from .base import NonNegativeFloat, OpenSolvePipeBaseModel, PositiveFloat, PositiveInt
 
 
-class UnitSystem(str, Enum):
+class UnitSystem(StrEnum):
     """Available unit systems."""
 
     IMPERIAL = "imperial"

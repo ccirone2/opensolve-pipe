@@ -1,45 +1,27 @@
 import { test, expect } from '@playwright/test';
 
+// Navigate to /p/empty to directly load workspace with default (empty) project.
+// The "empty" string is invalid encoded data, so tryDecodeProject returns null
+// and the workspace renders with the default store state.
+const WORKSPACE_URL = '/p/empty';
+
 test.describe('Project Workflow', () => {
 	test.beforeEach(async ({ page }) => {
-		// Navigate to new project page
-		await page.goto('/p');
+		await page.goto(WORKSPACE_URL);
 	});
 
-	test('shows new project view with panel navigator', async ({ page }) => {
-		// Check page elements - project name is displayed in header - use first() to handle multiple instances
-		await expect(page.getByText('Untitled Project').first()).toBeVisible();
+	test('shows new project view with workspace layout', async ({ page }) => {
+		// Check page elements - project name is displayed in toolbar
+		await expect(page.getByText('Untitled Project').first()).toBeVisible({ timeout: 10000 });
 
-		// Should show Build/Results view switcher
-		await expect(page.getByRole('button', { name: /Build/i })).toBeVisible();
-		await expect(page.getByRole('button', { name: /Results/i })).toBeVisible();
-
-		// Should show Solve button
+		// Should show Solve button in toolbar
 		await expect(page.getByRole('button', { name: /Solve/i })).toBeVisible();
 	});
 
-	test('switches between Build and Results views', async ({ page }) => {
-		// Start in Build view
-		const buildButton = page.getByRole('button', { name: /Build/i });
-		const resultsButton = page.getByRole('button', { name: /Results/i });
-
-		// Build should be active initially - check for visibility
-		await expect(buildButton).toBeVisible();
-
-		// Click Results button
-		await resultsButton.click();
-
-		// Results should now be active (button should still be visible)
-		await expect(resultsButton).toBeVisible();
-
-		// Click Build button
-		await buildButton.click();
-
-		// Build should be active again
-		await expect(buildButton).toBeVisible();
-	});
-
 	test('solve button is disabled when project has no components', async ({ page }) => {
+		// Wait for workspace to render
+		await expect(page.getByRole('button', { name: /Solve/i })).toBeVisible({ timeout: 10000 });
+
 		// Solve button should be disabled for empty project
 		const solveButton = page.getByRole('button', { name: /Solve/i });
 		await expect(solveButton).toBeDisabled();
@@ -47,33 +29,37 @@ test.describe('Project Workflow', () => {
 });
 
 test.describe('Project Navigation', () => {
-	test('panel navigator shows add component button', async ({ page }) => {
-		await page.goto('/p');
+	test('shows add component elements in empty state', async ({ page }) => {
+		await page.goto(WORKSPACE_URL);
 
-		// Should show "Add First Component" or similar
+		// Should show empty state with build prompt
 		await expect(
-			page.getByRole('button', { name: /Add|Create|Start/i }).first()
-		).toBeVisible();
+			page.getByText(/Start Building|Add Component|No components/i).first()
+		).toBeVisible({ timeout: 10000 });
 	});
 
-	test('can add a component to the project', async ({ page }) => {
-		await page.goto('/p');
+	test('can open command palette', async ({ page }) => {
+		await page.goto(WORKSPACE_URL);
 
-		// Click add component button
-		const addButton = page.getByRole('button', { name: /Add|Create|Start/i }).first();
-		await addButton.click();
+		// Wait for workspace to render
+		await expect(page.getByText('Untitled Project').first()).toBeVisible({ timeout: 10000 });
 
-		// Should show component type selector with "Add Component" heading
-		await expect(page.getByRole('heading', { name: /Add Component/i })).toBeVisible();
+		// Use Ctrl+K keyboard shortcut to open command palette
+		await page.keyboard.press('Control+k');
+
+		// Should show command palette with search input
+		await expect(page.getByPlaceholder(/search|type/i).first()).toBeVisible({ timeout: 5000 });
 	});
 });
 
 test.describe('Keyboard Shortcuts', () => {
 	test('Ctrl+Enter triggers solve', async ({ page }) => {
-		await page.goto('/p');
+		await page.goto(WORKSPACE_URL);
 
-		// Add a component first to enable solve
-		// For now, just test that the shortcut doesn't cause errors
+		// Wait for workspace to render
+		await expect(page.getByRole('button', { name: /Solve/i })).toBeVisible({ timeout: 10000 });
+
+		// Press Ctrl+Enter (should not cause errors on empty project)
 		await page.keyboard.press('Control+Enter');
 
 		// Page should still be functional

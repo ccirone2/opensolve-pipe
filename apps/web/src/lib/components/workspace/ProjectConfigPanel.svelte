@@ -5,6 +5,8 @@
 		GLYCOL_FLUID_TYPES,
 		type FluidType,
 		type UnitSystem,
+		type UnitPreferences,
+		type SolverOptions,
 		type FluidDefinition
 	} from '$lib/models';
 
@@ -33,14 +35,14 @@
 
 	function updateUnitSystem(system: UnitSystem) {
 		projectStore.updateSettings({
-			units: { ...($settings?.units ?? {}), system } as any
+			units: { ...($settings?.units ?? {}), system } as UnitPreferences
 		});
 	}
 
 	function updateSolverOption(key: string, value: number) {
 		const current = $settings?.solver_options ?? {};
 		projectStore.updateSettings({
-			solver_options: { ...current, [key]: value } as any
+			solver_options: { ...current, [key]: value } as SolverOptions
 		});
 	}
 

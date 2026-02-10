@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { components, navigationStore, currentElementId, projectStore } from '$lib/stores';
 	import {
-		COMPONENT_TYPE_LABELS,
 		COMPONENT_CATEGORIES,
 		type Component,
 		type ComponentType
@@ -199,7 +198,6 @@
 					<div class="mx-2 h-[2px] rounded bg-[var(--color-accent)]"></div>
 				{/if}
 
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					data-component-id={component.id}
 					draggable="true"

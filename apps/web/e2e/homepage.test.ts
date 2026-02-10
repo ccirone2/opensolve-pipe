@@ -8,15 +8,15 @@ test.describe('Homepage', () => {
 		await expect(page).toHaveTitle(/OpenSolve Pipe/);
 
 		// Check main heading
-		await expect(page.getByRole('heading', { name: /Hydraulic Network Analysis/i })).toBeVisible();
+		await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
 		// Check "New Project" button exists
 		await expect(page.getByRole('link', { name: /New Project/i })).toBeVisible();
 
 		// Check features section
-		await expect(page.getByText(/Instant Results/i)).toBeVisible();
-		await expect(page.getByText(/Shareable via URL/i)).toBeVisible();
-		await expect(page.getByText(/Mobile-Friendly/i)).toBeVisible();
+		await expect(page.getByText(/Fast Solver/i)).toBeVisible();
+		await expect(page.getByText(/URL-Encoded State/i)).toBeVisible();
+		await expect(page.getByText(/Engineering Workspace/i)).toBeVisible();
 	});
 
 	test('navigates to new project page', async ({ page }) => {
@@ -25,10 +25,10 @@ test.describe('Homepage', () => {
 		// Click "New Project" button
 		await page.getByRole('link', { name: /New Project/i }).click();
 
-		// Should navigate to /p (with optional encoded data)
+		// Should navigate to /p (new project redirect page)
 		await expect(page).toHaveURL(/\/p/);
 
-		// Should show project name (Untitled Project for empty project) - use first() to handle multiple instances
-		await expect(page.getByText('Untitled Project').first()).toBeVisible();
+		// Should show the redirect loading page with "Creating new project..." text
+		await expect(page.getByText(/Creating new project/i)).toBeVisible({ timeout: 10000 });
 	});
 });

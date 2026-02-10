@@ -1,11 +1,8 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { projectStore, components, navigationStore } from '$lib/stores';
 	import {
 		COMPONENT_TYPE_LABELS,
-		COMPONENT_CATEGORIES,
-		type ComponentType,
-		type Component
+		COMPONENT_CATEGORIES
 	} from '$lib/models';
 
 	interface Props {
@@ -73,23 +70,12 @@
 		return results;
 	});
 
-	// Group items by category
-	let groupedItems = $derived.by(() => {
-		const groups = new Map<string, PaletteItem[]>();
-		for (const item of items) {
-			const group = groups.get(item.category) ?? [];
-			group.push(item);
-			groups.set(item.category, group);
-		}
-		return groups;
-	});
-
 	// Flat list for keyboard navigation
 	let flatItems = $derived(items);
 
 	// Reset active index when query changes
 	$effect(() => {
-		query;
+		void query;
 		activeIndex = 0;
 	});
 

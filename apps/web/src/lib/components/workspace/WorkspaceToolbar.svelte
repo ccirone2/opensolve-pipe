@@ -1,7 +1,6 @@
 <script lang="ts">
 	import ThemeToggle from '../ThemeToggle.svelte';
 	import { currentElementId, components, activeInspectorTab, navigationStore, isFocusMode, workspaceStore } from '$lib/stores';
-	import { COMPONENT_TYPE_LABELS } from '$lib/models';
 
 	interface Props {
 		projectName: string;

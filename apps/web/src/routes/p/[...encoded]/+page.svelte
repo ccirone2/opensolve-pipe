@@ -10,16 +10,16 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
-	import { projectStore, components, metadata, navigationStore } from '$lib/stores';
+	import { projectStore, components, metadata, navigationStore, workspaceStore } from '$lib/stores';
 	import { solveNetwork, ApiError } from '$lib/api';
 	import { encodeProject, tryDecodeProject } from '$lib/utils';
 
 	// Get encoded project data from URL
 	let encoded = $derived($page.params.encoded || '');
 
-	// Layout state
-	let isSidebarOpen = $state(true);
-	let isInspectorOpen = $state(true);
+	// Layout state from workspace store
+	let isSidebarOpen = $derived($workspaceStore.sidebarOpen);
+	let isInspectorOpen = $derived($workspaceStore.inspectorOpen);
 	let showCommandPalette = $state(false);
 
 	// Project name editing
@@ -54,7 +54,7 @@
 	function handleSchematicComponentClick(componentId: string) {
 		navigationStore.navigateTo(componentId);
 		if (!isInspectorOpen) {
-			isInspectorOpen = true;
+			workspaceStore.setInspectorOpen(true);
 		}
 	}
 
@@ -179,8 +179,8 @@
 				{isSidebarOpen}
 				{isInspectorOpen}
 				onSolve={handleSolve}
-				onToggleSidebar={() => (isSidebarOpen = !isSidebarOpen)}
-				onToggleInspector={() => (isInspectorOpen = !isInspectorOpen)}
+				onToggleSidebar={() => workspaceStore.toggleSidebar()}
+				onToggleInspector={() => workspaceStore.toggleInspector()}
 				onOpenCommandPalette={() => (showCommandPalette = true)}
 				onEditName={handleEditName}
 			/>

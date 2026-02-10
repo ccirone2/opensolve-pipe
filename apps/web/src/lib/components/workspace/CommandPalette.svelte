@@ -15,6 +15,7 @@
 	let query = $state('');
 	let activeIndex = $state(0);
 	let inputEl: HTMLInputElement | undefined = $state();
+	let resultsEl: HTMLDivElement | undefined = $state();
 
 	// Build searchable items
 	interface PaletteItem {
@@ -89,6 +90,17 @@
 		}
 	});
 
+	// Scroll active item into view
+	$effect(() => {
+		void activeIndex;
+		if (resultsEl) {
+			const activeEl = resultsEl.querySelector('.command-palette-item.active');
+			if (activeEl) {
+				activeEl.scrollIntoView({ block: 'nearest' });
+			}
+		}
+	});
+
 	function handleKeydown(e: KeyboardEvent) {
 		switch (e.key) {
 			case 'ArrowDown':
@@ -133,10 +145,9 @@
 				bind:value={query}
 				class="command-palette-input"
 				placeholder="Type to search components..."
-				onkeydown={handleKeydown}
 			/>
 
-			<div class="command-palette-results">
+			<div class="command-palette-results" bind:this={resultsEl}>
 				{#if flatItems.length === 0}
 					<div class="px-4 py-6 text-center text-xs text-[var(--color-text-subtle)]">
 						No matching components

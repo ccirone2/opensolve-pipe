@@ -499,6 +499,55 @@ Implement a two-tier symbol system:
 
 ---
 
+## ADR-012: Workspace Layout with Persistent State and Dual Interaction Paradigms
+
+**Date:** 2026-02-10
+**Status:** Accepted
+**Context:** Issues #164-#171 - UI/UX Audit Improvements
+
+### Decision
+
+Adopt a dual-paradigm workspace design that supports both spatial (IDE-like) and sequential (panel navigator) interaction models:
+
+1. **workspaceStore**: A localStorage-persisted Svelte store manages all layout state (sidebar, inspector, focus mode, zoom, active tabs). This replaces scattered local `$state` variables across components.
+
+2. **Multi-tab Sidebar**: The sidebar uses a tabbed interface (Tree/Config/Results) instead of a single component tree, giving every feature a permanent home.
+
+3. **Always-rendered Panels**: Sidebar and inspector are always mounted in the DOM. Visibility is controlled by CSS `grid-template-columns` transitions (0px width when collapsed), enabling smooth slide animations instead of instant `{#if}` block removal.
+
+4. **Focus Mode (Desktop)**: A toggle (`Ctrl+Shift+F`) collapses sidebar and inspector, replacing them with the PanelNavigator in a bottom panel (~35vh). This gives desktop users access to the sequential editing paradigm without leaving the workspace.
+
+5. **Bottom Sheet (Mobile)**: On mobile (≤768px), the sidebar and inspector are hidden entirely. A swipe-driven bottom sheet with three snap points (collapsed/half/full) renders the PanelNavigator, and a bottom nav bar provides tab-based navigation (Components/Settings/Results/Solve).
+
+6. **CSS Utility Classes**: Repeated Tailwind patterns are extracted into semantic utility classes (`.section-heading`, `.card`, `.form-input`, `.mono-value`) in `app.css` to reduce duplication across 15+ component files.
+
+### Rationale
+
+- **Persistence**: Layout preferences (which panels are open, active tabs) should survive page reloads. localStorage is sufficient since this is client-only state.
+- **Smooth transitions**: CSS grid transitions are more performant than Svelte transitions for layout changes because they avoid DOM insertion/removal.
+- **Dual paradigms**: Engineers need both spatial overview (see everything) and sequential deep-editing (walk the chain). Rather than forcing one model, both are available.
+- **Mobile-first bottom sheet**: Touch-driven swipe gestures are the native mobile interaction pattern. The bottom sheet preserves canvas visibility while allowing full editing.
+- **CSS utilities**: 30+ instances of identical class strings across files was a maintenance burden. Semantic class names improve readability.
+
+### Consequences
+
+**Positive:**
+
+- Unified state management via workspaceStore eliminates state sync bugs
+- Smooth CSS animations for all panel toggles (200ms ease)
+- Mobile users get a native-feeling editing experience
+- Desktop users can switch between spatial and sequential paradigms
+- Reduced CSS duplication improves consistency
+
+**Negative:**
+
+- Always-rendered panels consume memory even when hidden (minimal impact)
+- Bottom sheet swipe gestures require careful threshold tuning
+- Focus mode layout requires a separate CSS grid definition
+- CSS utility classes add a layer of indirection vs inline Tailwind
+
+---
+
 ## Template for Future ADRs
 
 ```markdown

@@ -751,6 +751,110 @@ Add a fourth sidebar tab ("Library") for managing reusable data definitions:
 
 ---
 
+## ADR-018: Keyboard-First Component Navigation
+
+**Date:** 2026-02-10
+**Status:** Accepted
+**Context:** Issues #204, #209 - Arrow key navigation in component tree and workspace
+
+### Decision
+
+Implement a split keyboard navigation model:
+
+- **Up/Down arrows** in the component tree panel (listbox pattern with `role="listbox"` / `role="option"`)
+- **Left/Right arrows** at the workspace level for schematic navigation
+- Home/End keys for jump-to-first/last in the tree
+- Arrow keys skip navigation when focus is on input/textarea/select elements
+
+The component tree list container receives focus on click (`listEl.focus()`) so arrow keys work immediately after selecting a component. Workspace-level arrows are handled via the global `svelte:window onkeydown` handler with element tag guards.
+
+### Rationale
+
+- **No conflicts:** Up/Down in tree vs Left/Right in workspace avoids key collisions
+- **Standard patterns:** listbox/option ARIA roles match WAI-ARIA authoring practices
+- **Input safety:** Tag-based guard (`INPUT`, `TEXTAREA`, `SELECT`) prevents arrow keys from interfering with form fields
+- **Inspector sync:** Both navigation paths update `currentElementId` via `navigationStore.navigateTo()`, keeping the inspector panel in sync
+
+### Consequences
+
+**Positive:**
+
+- Full keyboard-driven workflow without mouse for component navigation
+- Accessible to screen reader users via ARIA roles
+- Auto-scroll keeps selected component visible in both tree and schematic
+
+**Negative:**
+
+- Left/Right arrows are globally captured on the workspace page (could conflict with future text editing in canvas)
+- Users must click a component first before arrow keys work (no implicit focus)
+
+---
+
+## ADR-019: Sidebar Footer as Help-Only (Shortcuts Popup)
+
+**Date:** 2026-02-10
+**Status:** Accepted
+**Context:** Issue #205 - Redesign sidebar footer
+
+### Decision
+
+Replace the sidebar footer action buttons (Add Component, Solve, Undo, Redo) with a single "Shortcuts" button that opens a modal popup listing all keyboard shortcuts. The footer no longer triggers any actions directly — it serves purely as a discoverability aid for keyboard shortcuts.
+
+### Rationale
+
+- **Redundancy removal:** All footer actions were already accessible via keyboard shortcuts (Ctrl+K, Ctrl+Enter, Ctrl+Z, Ctrl+Shift+Z) and toolbar buttons
+- **Discoverability:** New users need a way to discover available shortcuts; a dedicated popup serves this better than duplicated buttons
+- **Prop simplification:** Removing `onUndo`/`onRedo` from SidebarTabs reduces prop threading complexity
+- **Screen real estate:** Single small button uses less vertical space than four action buttons
+
+### Consequences
+
+**Positive:**
+
+- Cleaner sidebar footer with minimal visual clutter
+- Self-documenting UI — users can always find all shortcuts in one place
+- Reduced prop coupling between workspace page and sidebar components
+
+**Negative:**
+
+- Users who relied on footer buttons must use keyboard shortcuts or toolbar instead
+- Shortcuts list is static (must be manually updated when new shortcuts are added)
+
+---
+
+## ADR-020: Environment-Variable API URL for Deployment Flexibility
+
+**Date:** 2026-02-10
+**Status:** Accepted
+**Context:** Issue #207 - Solver not working on Vercel deployment
+
+### Decision
+
+Use `import.meta.env.PUBLIC_API_URL` for the SSR base URL in the API client, with `http://localhost:8000` as the fallback. Browser requests continue to use the relative `/api/v1` path (proxied by SvelteKit or Vercel rewrites).
+
+Chose `import.meta.env` over SvelteKit's `$env/dynamic/public` because the dynamic import caused page crashes in Vite preview builds (elements detached from DOM).
+
+### Rationale
+
+- **Deployment flexibility:** Different environments (local, staging, production) can point to different API backends
+- **Vite compatibility:** `import.meta.env` works reliably in dev, preview, and production builds
+- **Zero breaking change:** Defaults to localhost when env var is not set
+
+### Consequences
+
+**Positive:**
+
+- Vercel deployment now works correctly with `PUBLIC_API_URL` pointing to the deployed API
+- Local development works without any configuration
+- `.env.example` documents the required variables for deployment
+
+**Negative:**
+
+- `import.meta.env` values are baked in at build time (not truly dynamic at runtime)
+- Must rebuild the frontend when changing the API URL
+
+---
+
 ## Template for Future ADRs
 
 ```markdown

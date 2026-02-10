@@ -272,9 +272,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Vertical icon-only sidebar tabs with active indicator bar, replacing horizontal text tabs (PR #187)
   - Base sizing increase: html font-size 14→16px, sidebar 220→260px, inspector 340→380px (PR #188)
 
-- **Navigation Panel Width Increase** (PR #198, Issue #197)
-  - Sidebar width increased from 260px to 280px for better readability
+- **Navigation Panel Width Increase** (PR #210, Issue #203; PR #198, Issue #197)
+  - Sidebar width increased from 260px to 280px (PR #198) then to 300px (PR #210) for better readability
   - Inspector width adjusted proportionally
+
+- **Arrow Key Navigation in Component Tree** (PR #215, Issue #204)
+  - Up/Down arrow keys cycle through components when the tree list has focus
+  - Home/End keys jump to first/last component
+  - Clicking a component focuses the list so arrow keys work immediately
+  - Uses listbox/option ARIA pattern for accessibility
+  - Auto-scrolls to keep the selected component visible
+
+- **Arrow Key Navigation in Workspace** (PR #216, Issue #209)
+  - Left/Right arrow keys navigate to previous/next component when a component is selected
+  - Automatically opens the inspector panel if closed
+  - Skips navigation when typing in input/textarea/select fields
+  - No modifier keys required (plain arrow keys only)
 
 - **Library Tab** (PR #202, Issue #195)
   - New "Library" sidebar tab (4th tab) for managing reusable data definitions
@@ -286,11 +299,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Book icon for Library tab in vertical icon strip
   - Sidebar tab keyboard shortcut Ctrl+4
 
-- **Sidebar Footer Quick Actions** (PR #201, Issue #194)
-  - `SidebarFooter.svelte` component with quick-action buttons: Add Component, Solve, Undo, Redo
-  - Keyboard shortcut tooltips on hover (Ctrl+K, Ctrl+Enter, Ctrl+Z, Ctrl+Shift+Z)
-  - Add Component button opens command palette
-  - Positioned at bottom of sidebar, always visible regardless of active tab
+- **Keyboard Shortcuts Help Popup** (PR #214, Issue #205)
+  - Redesigned `SidebarFooter.svelte`: replaced action buttons with single "Shortcuts" button
+  - Opens modal popup listing all keyboard shortcuts with key bindings
+  - Modal dismissible via backdrop click or Escape key
+  - Removed `onUndo`/`onRedo` prop threading through SidebarTabs
 
 - **Display Units Simplification** (PR #200, Issue #196)
   - Removed "Mixed" unit mode from both frontend and backend
@@ -328,6 +341,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Root cause: `onMount` + `goto()` redirect in `/p/+page.svelte` did not fire in Vite preview builds
   - Solution: replaced with `+page.ts` universal load function using SvelteKit's `redirect(307, ...)` for server-side redirect
   - New project creation now works reliably in both dev and preview/production builds
+
+- **Command Palette Arrow Key Double-Jump and No Scroll** (PR #211, Issue #206)
+  - Fixed: Up/Down arrow keys jumped 2 items at a time in command palette
+  - Root cause: `onkeydown` handler on both backdrop div and input caused events to fire twice via bubbling
+  - Fix: removed duplicate `onkeydown` from input, kept on backdrop only
+  - Added `scrollIntoView({ block: 'nearest' })` so the active item stays visible when navigating past the visible window
+
+- **Solver API Connectivity for Vercel Deployment** (PR #212, Issue #207)
+  - Fixed: solver not working when deployed to Vercel (works fine locally)
+  - Root cause: SSR `getBaseUrl()` hardcoded `http://localhost:8000` with no env var support
+  - Fix: use `import.meta.env.PUBLIC_API_URL` with localhost fallback
+  - Added `NetworkError` and `TimeoutError` handling with user-friendly messages
+  - Updated `.env.example` files with deployment documentation
+
+- **Remove Pump Library from Config Panel** (PR #213, Issue #208)
+  - Removed Pump Library collapsible section from `ProjectConfigPanel.svelte`
+  - Pump library is now exclusively managed from the Library tab (PR #202)
+  - Removed `pumpLibrary` store import and `pumpLibOpen` state from Config panel
 
 #### Backend (API)
 
@@ -399,7 +430,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cost estimation utility
 - Pipe sizing optimization
 - Flow direction arrows on pipe symbols
-- Keyboard navigation for schematic viewer
 - Manual position override for schematic layout
 
 ---

@@ -235,6 +235,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Loop closure feature (connect to existing component)
   - Topology validation to prevent invalid connections
 
+- **Workspace Layout System** (PR #172, Issues #164-171)
+  - `workspaceStore` with persistent layout state (sidebar, inspector, focus mode, canvas zoom)
+  - localStorage-backed persistence across sessions
+  - Multi-tab sidebar with Component Tree, Project Config, and System Results panels
+  - Keyboard shortcuts for sidebar tabs (Ctrl+1/2/3)
+  - `ProjectConfigPanel` with collapsible Fluid, Units, Solver, Pump Library sections
+  - `SystemResultsPanel` with solve status, component counts, node/flow results tables
+  - `PropertyPanel` rewrite with `MetricsStrip` (pressure/flow/velocity/head at a glance)
+  - `ProjectSummary` empty-state panel with project stats and quick-solve button
+  - Inline component actions in inspector (duplicate, move up/down, delete)
+  - CSS utility classes: `.section-heading`, `.card`, `.result-card`, `.form-input`, `.mono-value`
+  - Smooth panel transitions via CSS `grid-template-columns` animation
+  - Loading spinner for URL-decoded projects
+  - Improved empty state with larger "Add Component" CTA
+  - `prefers-reduced-motion` media query support
+  - Toolbar breadcrumb navigation: Project / Component / Tab
+  - Interactive status bar (click Converged/Failed/warnings to open Results)
+  - Mobile bottom sheet with swipe gestures (collapsed/half/full snap points)
+  - Mobile nav bar with Components/Settings/Results/Solve tabs
+  - Desktop Focus Mode combining spatial schematic + sequential PanelNavigator (Ctrl+Shift+F)
+
 - **Pump Operating Mode UI Controls** (PR #111)
   - Operating mode dropdown (fixed_speed, variable_speed, controlled_pressure, controlled_flow)
   - Conditional setpoint fields for controlled modes (pressure/flow setpoint)

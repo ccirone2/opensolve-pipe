@@ -33,3 +33,17 @@ export { historyStore, canUndo, canRedo, undoCount, redoCount } from './history'
 
 // Theme store (light/dark mode)
 export { themeStore, isDarkMode, type Theme } from './theme';
+
+// Workspace layout store
+export {
+	workspaceStore,
+	isSidebarOpen,
+	isInspectorOpen,
+	activeSidebarTab,
+	activeInspectorTab,
+	isFocusMode,
+	canvasZoom,
+	type SidebarTab,
+	type InspectorTab,
+	type WorkspaceState
+} from './workspace';

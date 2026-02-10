@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 
 /* ========================================================================
-   Theme CSS Custom Properties
+   Theme CSS Custom Properties - Blueprint Workspace
    ======================================================================== */
 
 :root {
@@ -21,52 +21,96 @@
 	--radius-sm: 4px;
 	--radius-md: 6px;
 	--radius-lg: 8px;
+
+	/* Layout */
+	--sidebar-width: 220px;
+	--inspector-width: 340px;
+	--toolbar-height: 40px;
+	--statusbar-height: 28px;
 }
 
 /* ========================================================================
-   Dark Theme (Default)
+   Dark Theme (Default) - Slate/Indigo Engineering Palette
    ======================================================================== */
 [data-theme='dark'] {
-	--color-bg: #0a0a0a;
-	--color-surface: #111111;
-	--color-surface-elevated: #1a1a1a;
-	--color-border: #262626;
-	--color-border-subtle: #1f1f1f;
-	--color-text: #e5e5e5;
-	--color-text-muted: #a3a3a3;
-	--color-text-subtle: #737373;
-	--color-accent: #f59e0b;
-	--color-accent-hover: #d97706;
-	--color-accent-muted: rgba(245, 158, 11, 0.15);
-	--color-accent-text: #000;
-	--color-success: #22c55e;
-	--color-warning: #f59e0b;
-	--color-error: #ef4444;
-	--color-info: #3b82f6;
-	--color-dropdown-shadow: rgba(0, 0, 0, 0.4);
+	--color-bg: #0c0e14;
+	--color-surface: #12151e;
+	--color-surface-elevated: #191d2a;
+	--color-surface-inset: #0a0c11;
+	--color-border: #252a3a;
+	--color-border-subtle: #1c2030;
+	--color-border-focus: #6366f1;
+	--color-text: #e2e4eb;
+	--color-text-muted: #8b90a5;
+	--color-text-subtle: #5c6178;
+	--color-accent: #818cf8;
+	--color-accent-hover: #6366f1;
+	--color-accent-muted: rgba(129, 140, 248, 0.12);
+	--color-accent-text: #fff;
+	--color-success: #34d399;
+	--color-warning: #fbbf24;
+	--color-error: #f87171;
+	--color-info: #60a5fa;
+	--color-dropdown-shadow: rgba(0, 0, 0, 0.5);
+
+	/* Canvas */
+	--color-canvas-bg: #0e1018;
+	--color-canvas-grid: rgba(99, 102, 241, 0.06);
+	--color-canvas-grid-major: rgba(99, 102, 241, 0.12);
+
+	/* Tree */
+	--color-tree-selected: rgba(129, 140, 248, 0.15);
+	--color-tree-hover: rgba(129, 140, 248, 0.08);
+
+	/* Badges */
+	--color-badge-source: rgba(52, 211, 153, 0.15);
+	--color-badge-source-text: #34d399;
+	--color-badge-equipment: rgba(129, 140, 248, 0.15);
+	--color-badge-equipment-text: #818cf8;
+	--color-badge-connection: rgba(251, 191, 36, 0.15);
+	--color-badge-connection-text: #fbbf24;
 }
 
 /* ========================================================================
-   Light Theme
+   Light Theme - Clean Slate/Indigo
    ======================================================================== */
 [data-theme='light'] {
-	--color-bg: #f5f5f5;
+	--color-bg: #f0f2f7;
 	--color-surface: #ffffff;
-	--color-surface-elevated: #fafafa;
-	--color-border: #e5e5e5;
-	--color-border-subtle: #ebebeb;
-	--color-text: #171717;
-	--color-text-muted: #525252;
-	--color-text-subtle: #737373;
-	--color-accent: #2563eb;
-	--color-accent-hover: #1d4ed8;
-	--color-accent-muted: rgba(37, 99, 235, 0.12);
+	--color-surface-elevated: #f8f9fc;
+	--color-surface-inset: #ebedf4;
+	--color-border: #d4d8e8;
+	--color-border-subtle: #e2e5f0;
+	--color-border-focus: #6366f1;
+	--color-text: #1a1d2e;
+	--color-text-muted: #5c6178;
+	--color-text-subtle: #8b90a5;
+	--color-accent: #6366f1;
+	--color-accent-hover: #4f46e5;
+	--color-accent-muted: rgba(99, 102, 241, 0.10);
 	--color-accent-text: #fff;
-	--color-success: #16a34a;
-	--color-warning: #ca8a04;
+	--color-success: #059669;
+	--color-warning: #d97706;
 	--color-error: #dc2626;
 	--color-info: #2563eb;
-	--color-dropdown-shadow: rgba(0, 0, 0, 0.1);
+	--color-dropdown-shadow: rgba(0, 0, 0, 0.08);
+
+	/* Canvas */
+	--color-canvas-bg: #f8f9fc;
+	--color-canvas-grid: rgba(99, 102, 241, 0.06);
+	--color-canvas-grid-major: rgba(99, 102, 241, 0.12);
+
+	/* Tree */
+	--color-tree-selected: rgba(99, 102, 241, 0.12);
+	--color-tree-hover: rgba(99, 102, 241, 0.06);
+
+	/* Badges */
+	--color-badge-source: rgba(5, 150, 105, 0.10);
+	--color-badge-source-text: #059669;
+	--color-badge-equipment: rgba(99, 102, 241, 0.10);
+	--color-badge-equipment-text: #6366f1;
+	--color-badge-connection: rgba(217, 119, 6, 0.10);
+	--color-badge-connection-text: #d97706;
 }
 
 /* ========================================================================
@@ -74,14 +118,246 @@
    ======================================================================== */
 html {
 	font-family: var(--font-sans);
+	font-size: 14px;
 }
 
 body {
 	background-color: var(--color-bg);
 	color: var(--color-text);
 	transition:
-		background-color 0.2s ease,
-		color 0.2s ease;
+		background-color 0.15s ease,
+		color 0.15s ease;
+	overflow: hidden;
+}
+
+/* ========================================================================
+   Workspace Layout
+   ======================================================================== */
+.workspace {
+	display: grid;
+	grid-template-rows: var(--toolbar-height) 1fr var(--statusbar-height);
+	grid-template-columns: var(--sidebar-width) 1fr var(--inspector-width);
+	grid-template-areas:
+		'toolbar toolbar toolbar'
+		'sidebar canvas inspector'
+		'statusbar statusbar statusbar';
+	height: 100vh;
+	overflow: hidden;
+}
+
+.workspace-toolbar {
+	grid-area: toolbar;
+}
+
+.workspace-sidebar {
+	grid-area: sidebar;
+	overflow-y: auto;
+	overflow-x: hidden;
+}
+
+.workspace-canvas {
+	grid-area: canvas;
+	overflow: hidden;
+	position: relative;
+}
+
+.workspace-inspector {
+	grid-area: inspector;
+	overflow-y: auto;
+	overflow-x: hidden;
+}
+
+.workspace-statusbar {
+	grid-area: statusbar;
+}
+
+/* Panel transitions — smooth slide via grid-template-columns */
+.workspace {
+	transition: grid-template-columns 0.2s ease;
+}
+
+/* Sidebar collapsed state */
+.workspace.sidebar-collapsed {
+	grid-template-columns: 0px 1fr var(--inspector-width);
+}
+
+/* Inspector collapsed state */
+.workspace.inspector-collapsed {
+	grid-template-columns: var(--sidebar-width) 1fr 0px;
+}
+
+.workspace.sidebar-collapsed.inspector-collapsed {
+	grid-template-columns: 0px 1fr 0px;
+}
+
+/* Focus Mode — PanelNavigator replaces sidebar + inspector */
+.workspace.focus-mode {
+	grid-template-rows: var(--toolbar-height) 1fr 35vh var(--statusbar-height);
+	grid-template-columns: 1fr;
+	grid-template-areas:
+		'toolbar'
+		'canvas'
+		'focus-panel'
+		'statusbar';
+}
+
+.workspace-focus-panel {
+	grid-area: focus-panel;
+	overflow-y: auto;
+	overflow-x: hidden;
+}
+
+.workspace.focus-mode .workspace-sidebar,
+.workspace.focus-mode .workspace-inspector {
+	display: none;
+}
+
+/* Hide overflow on collapsed panels for smooth slide */
+.workspace.sidebar-collapsed .workspace-sidebar {
+	overflow: hidden;
+	pointer-events: none;
+}
+
+.workspace.inspector-collapsed .workspace-inspector {
+	overflow: hidden;
+	pointer-events: none;
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+	.workspace {
+		transition: none;
+	}
+}
+
+/* Mobile layout — Bottom sheet replaces static panels */
+@media (max-width: 768px) {
+	.workspace {
+		grid-template-rows: var(--toolbar-height) 1fr var(--statusbar-height);
+		grid-template-columns: 1fr;
+		grid-template-areas:
+			'toolbar'
+			'canvas'
+			'statusbar';
+		transition: none;
+	}
+
+	.workspace-sidebar,
+	.workspace-inspector {
+		display: none;
+	}
+
+	.workspace.sidebar-collapsed,
+	.workspace.inspector-collapsed,
+	.workspace.sidebar-collapsed.inspector-collapsed {
+		grid-template-columns: 1fr;
+	}
+}
+
+/* ========================================================================
+   Canvas Grid Background
+   ======================================================================== */
+.canvas-grid {
+	background-image:
+		linear-gradient(var(--color-canvas-grid) 1px, transparent 1px),
+		linear-gradient(90deg, var(--color-canvas-grid) 1px, transparent 1px),
+		linear-gradient(var(--color-canvas-grid-major) 1px, transparent 1px),
+		linear-gradient(90deg, var(--color-canvas-grid-major) 1px, transparent 1px);
+	background-size:
+		20px 20px,
+		20px 20px,
+		100px 100px,
+		100px 100px;
+	background-color: var(--color-canvas-bg);
+}
+
+/* ========================================================================
+   Scrollbar Styling
+   ======================================================================== */
+.workspace-sidebar::-webkit-scrollbar,
+.workspace-inspector::-webkit-scrollbar {
+	width: 6px;
+}
+
+.workspace-sidebar::-webkit-scrollbar-track,
+.workspace-inspector::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.workspace-sidebar::-webkit-scrollbar-thumb,
+.workspace-inspector::-webkit-scrollbar-thumb {
+	background: var(--color-border);
+	border-radius: 3px;
+}
+
+.workspace-sidebar::-webkit-scrollbar-thumb:hover,
+.workspace-inspector::-webkit-scrollbar-thumb:hover {
+	background: var(--color-text-subtle);
+}
+
+/* ========================================================================
+   Reusable Component Utility Classes
+   ========================================================================
+   .section-heading  — Tiny uppercase label for panel sections
+                       Add a text color class to override default muted color
+                       Example: <h4 class="section-heading">Title</h4>
+                       Example: <span class="section-heading text-[var(--color-accent)]">Active</span>
+
+   .card             — Elevated surface container (panels, form groups)
+                       Add padding as needed (p-2.5, p-3, p-4)
+                       Example: <div class="card p-3">...</div>
+
+   .result-card      — Regular surface container (result data, tables)
+                       Add padding as needed
+                       Example: <div class="result-card p-2.5">...</div>
+
+   .form-input       — Standard form input with focus ring
+                       Works with input, select elements
+                       Example: <input class="form-input" />
+
+   .mono-value       — Monospace value display (metrics, numbers)
+                       Add size/weight/color as needed
+                       Example: <span class="mono-value text-sm font-semibold">42.5</span>
+   ======================================================================== */
+
+.section-heading {
+	font-size: 0.625rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--color-text-muted);
+}
+
+.card {
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--color-border);
+	background: var(--color-surface-elevated);
+}
+
+.result-card {
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--color-border);
+	background: var(--color-surface);
+}
+
+.form-input {
+	width: 100%;
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--color-border);
+	background: var(--color-surface);
+	padding: 0.375rem 0.5rem;
+	font-size: 0.75rem;
+	color: var(--color-text);
+}
+
+.form-input:focus {
+	border-color: var(--color-border-focus);
+	outline: none;
+	box-shadow: 0 0 0 1px var(--color-accent-muted);
+}
+
+.mono-value {
+	font-family: var(--font-mono);
 }
 
 /* ========================================================================
@@ -110,37 +386,37 @@ input[type='number'] {
 }
 
 .engineering-input .input-label {
-	font-size: 0.75rem;
+	font-size: 0.6875rem;
 	font-weight: 500;
 	color: var(--color-text-muted);
 	text-transform: uppercase;
-	letter-spacing: 0.025em;
+	letter-spacing: 0.04em;
 }
 
 .engineering-input .input-wrapper {
 	display: flex;
 	background: var(--color-surface);
 	border: 1px solid var(--color-border);
-	border-radius: var(--radius-md);
+	border-radius: var(--radius-sm);
 	transition:
 		border-color 0.15s ease,
 		box-shadow 0.15s ease;
 }
 
 .engineering-input .input-wrapper:focus-within {
-	border-color: var(--color-accent);
-	box-shadow: 0 0 0 3px var(--color-accent-muted);
+	border-color: var(--color-border-focus);
+	box-shadow: 0 0 0 2px var(--color-accent-muted);
 }
 
 .engineering-input .value-input {
 	flex: 1;
 	min-width: 0;
-	padding: 0.625rem 0.875rem;
+	padding: 0.5rem 0.625rem;
 	background: transparent;
 	border: none;
 	color: var(--color-text);
 	font-family: var(--font-mono);
-	font-size: 0.875rem;
+	font-size: 0.8125rem;
 	font-weight: 500;
 }
 
@@ -156,13 +432,13 @@ input[type='number'] {
 	display: flex;
 	align-items: center;
 	gap: var(--space-xs);
-	padding: 0.625rem 0.75rem;
+	padding: 0.5rem 0.625rem;
 	background: var(--color-surface-elevated);
 	border: none;
 	border-left: 1px solid var(--color-border);
-	border-radius: 0 var(--radius-md) var(--radius-md) 0;
+	border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 	color: var(--color-text-muted);
-	font-size: 0.75rem;
+	font-size: 0.6875rem;
 	font-weight: 600;
 	text-transform: uppercase;
 	cursor: pointer;
@@ -226,12 +502,12 @@ input[type='number'] {
 .engineering-input .unit-option {
 	display: block;
 	width: 100%;
-	padding: 0.5rem 0.75rem;
+	padding: 0.375rem 0.625rem;
 	background: transparent;
 	border: none;
 	border-radius: var(--radius-sm);
 	color: var(--color-text-muted);
-	font-size: 0.75rem;
+	font-size: 0.6875rem;
 	font-weight: 500;
 	text-align: left;
 	cursor: pointer;
@@ -256,12 +532,12 @@ input[type='number'] {
 }
 
 .engineering-input .input-error {
-	font-size: 0.75rem;
+	font-size: 0.6875rem;
 	color: var(--color-error);
 }
 
 .engineering-input .input-hint {
-	font-size: 0.75rem;
+	font-size: 0.6875rem;
 	color: var(--color-text-subtle);
 }
 
@@ -270,10 +546,10 @@ input[type='number'] {
    ======================================================================== */
 .theme-toggle {
 	position: relative;
-	width: 44px;
-	height: 24px;
+	width: 36px;
+	height: 20px;
 	background: var(--color-border);
-	border-radius: 12px;
+	border-radius: 10px;
 	cursor: pointer;
 	transition: background-color 0.2s ease;
 	border: none;
@@ -282,15 +558,15 @@ input[type='number'] {
 
 .theme-toggle:focus {
 	outline: none;
-	box-shadow: 0 0 0 3px var(--color-accent-muted);
+	box-shadow: 0 0 0 2px var(--color-accent-muted);
 }
 
 .theme-toggle-thumb {
 	position: absolute;
 	top: 2px;
 	left: 2px;
-	width: 20px;
-	height: 20px;
+	width: 16px;
+	height: 16px;
 	background: var(--color-surface);
 	border-radius: 50%;
 	transition: transform 0.2s ease;
@@ -301,11 +577,125 @@ input[type='number'] {
 }
 
 .theme-toggle-thumb svg {
-	width: 12px;
-	height: 12px;
+	width: 10px;
+	height: 10px;
 	color: var(--color-text-muted);
 }
 
 [data-theme='light'] .theme-toggle-thumb {
-	transform: translateX(20px);
+	transform: translateX(16px);
+}
+
+/* ========================================================================
+   Command Palette
+   ======================================================================== */
+.command-palette-backdrop {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.5);
+	backdrop-filter: blur(4px);
+	z-index: 100;
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+	padding-top: 20vh;
+}
+
+.command-palette {
+	width: 480px;
+	max-width: calc(100vw - 2rem);
+	background: var(--color-surface);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-lg);
+	box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+	overflow: hidden;
+}
+
+.command-palette-input {
+	width: 100%;
+	padding: 0.875rem 1rem;
+	background: transparent;
+	border: none;
+	border-bottom: 1px solid var(--color-border);
+	color: var(--color-text);
+	font-size: 0.9375rem;
+}
+
+.command-palette-input:focus {
+	outline: none;
+}
+
+.command-palette-input::placeholder {
+	color: var(--color-text-subtle);
+}
+
+.command-palette-results {
+	max-height: 320px;
+	overflow-y: auto;
+	padding: 0.5rem;
+}
+
+.command-palette-item {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	width: 100%;
+	padding: 0.5rem 0.75rem;
+	background: transparent;
+	border: none;
+	border-radius: var(--radius-sm);
+	color: var(--color-text);
+	font-size: 0.8125rem;
+	text-align: left;
+	cursor: pointer;
+	transition: background-color 0.1s ease;
+}
+
+.command-palette-item:hover,
+.command-palette-item.active {
+	background: var(--color-tree-hover);
+}
+
+.command-palette-item.active {
+	background: var(--color-tree-selected);
+}
+
+.command-palette-item .item-badge {
+	display: inline-flex;
+	align-items: center;
+	padding: 0.125rem 0.375rem;
+	border-radius: var(--radius-sm);
+	font-size: 0.625rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.command-palette-group {
+	padding: 0.375rem 0.75rem 0.25rem;
+	font-size: 0.625rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--color-text-subtle);
+}
+
+/* ========================================================================
+   Keyboard Shortcut Badge
+   ======================================================================== */
+.kbd {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 1.25rem;
+	height: 1.25rem;
+	padding: 0 0.25rem;
+	background: var(--color-surface-elevated);
+	border: 1px solid var(--color-border);
+	border-radius: 3px;
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+	font-weight: 500;
+	color: var(--color-text-muted);
+	box-shadow: 0 1px 0 var(--color-border);
 }

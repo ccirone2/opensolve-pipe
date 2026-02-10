@@ -13,7 +13,7 @@
 	/>
 </svelte:head>
 
-<div class="flex min-h-screen flex-col bg-[var(--color-bg)]" style="overflow: auto;">
+<div class="flex min-h-screen flex-col bg-[var(--color-bg)]">
 	<!-- Minimal Header -->
 	<header class="fixed left-0 right-0 top-0 z-50 border-b border-[var(--color-border)]/50 bg-[var(--color-bg)]/80 backdrop-blur-md">
 		<div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">

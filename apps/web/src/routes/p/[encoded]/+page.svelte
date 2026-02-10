@@ -154,6 +154,24 @@
 
 	// Keyboard shortcuts
 	function handleKeydown(event: KeyboardEvent) {
+		// Ctrl+Z / Cmd+Z for undo, Ctrl+Shift+Z / Cmd+Shift+Z for redo
+		if ((event.ctrlKey || event.metaKey) && event.key === 'z') {
+			event.preventDefault();
+			if (event.shiftKey) {
+				projectStore.redo();
+			} else {
+				projectStore.undo();
+			}
+			return;
+		}
+
+		// Ctrl+Y / Cmd+Y for redo (alternative)
+		if ((event.ctrlKey || event.metaKey) && event.key === 'y') {
+			event.preventDefault();
+			projectStore.redo();
+			return;
+		}
+
 		// Ctrl+Enter or Cmd+Enter to solve
 		if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
 			event.preventDefault();

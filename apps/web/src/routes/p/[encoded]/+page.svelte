@@ -12,7 +12,7 @@
 	import SchematicViewer from '$lib/components/schematic/SchematicViewer.svelte';
 	import PanelNavigator from '$lib/components/panel/PanelNavigator.svelte';
 	import ProjectConfigPanel from '$lib/components/workspace/ProjectConfigPanel.svelte';
-	import SystemResultsPanel from '$lib/components/workspace/SystemResultsPanel.svelte';
+	import ResultsPanel from '$lib/components/results/ResultsPanel.svelte';
 	import ComponentTree from '$lib/components/workspace/ComponentTree.svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
@@ -405,7 +405,7 @@
 		{:else if mobileTab === 'settings'}
 			<ProjectConfigPanel />
 		{:else if mobileTab === 'results'}
-			<SystemResultsPanel onSolve={handleSolve} />
+			<ResultsPanel />
 		{:else}
 			<ComponentTree />
 		{/if}

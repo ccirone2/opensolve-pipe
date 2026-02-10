@@ -2,7 +2,7 @@
 	import { workspaceStore, activeSidebarTab, type SidebarTab } from '$lib/stores';
 	import ComponentTree from './ComponentTree.svelte';
 	import ProjectConfigPanel from './ProjectConfigPanel.svelte';
-	import SystemResultsPanel from './SystemResultsPanel.svelte';
+	import ResultsPanel from '../results/ResultsPanel.svelte';
 	import LibraryTab from './LibraryTab.svelte';
 	import SidebarFooter from './SidebarFooter.svelte';
 
@@ -88,7 +88,7 @@
 			{:else if $activeSidebarTab === 'config'}
 				<ProjectConfigPanel />
 			{:else if $activeSidebarTab === 'results'}
-				<SystemResultsPanel {onSolve} />
+				<ResultsPanel />
 			{/if}
 		</div>
 		<SidebarFooter />

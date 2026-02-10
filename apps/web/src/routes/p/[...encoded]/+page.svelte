@@ -1,7 +1,7 @@
 <script lang="ts">
 	import {
 		WorkspaceToolbar,
-		ComponentTree,
+		SidebarTabs,
 		PropertyPanel,
 		CommandPalette,
 		StatusBar
@@ -187,11 +187,12 @@
 		{/if}
 	</div>
 
-	<!-- Sidebar: Component Tree -->
+	<!-- Sidebar: Tabbed Navigation -->
 	{#if isSidebarOpen}
 		<div class="workspace-sidebar">
-			<ComponentTree
+			<SidebarTabs
 				onOpenCommandPalette={() => (showCommandPalette = true)}
+				onSolve={handleSolve}
 			/>
 		</div>
 	{/if}

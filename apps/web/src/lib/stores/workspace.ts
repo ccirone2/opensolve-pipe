@@ -14,6 +14,9 @@ export type SidebarTab = 'tree' | 'config' | 'results' | 'library';
 /** Inspector tab options. */
 export type InspectorTab = 'properties' | 'piping' | 'results';
 
+/** Results view options for the canvas overlay panel. */
+export type ResultsView = 'summary' | 'nodes' | 'links' | 'pumps' | 'valves' | 'elevation';
+
 /** Workspace layout state. */
 export interface WorkspaceState {
 	sidebarOpen: boolean;
@@ -24,6 +27,7 @@ export interface WorkspaceState {
 	canvasZoom: number;
 	lastSelectedComponentId: string | null;
 	editingPumpCurveId: string | null;
+	activeResultsView: ResultsView | null;
 }
 
 /** Default workspace state. */
@@ -35,7 +39,8 @@ const DEFAULT_STATE: WorkspaceState = {
 	focusMode: false,
 	canvasZoom: 1,
 	lastSelectedComponentId: null,
-	editingPumpCurveId: null
+	editingPumpCurveId: null,
+	activeResultsView: null
 };
 
 /** Storage key for workspace preferences. */
@@ -146,6 +151,11 @@ function createWorkspaceStore() {
 			update((s) => ({ ...s, editingPumpCurveId: id }));
 		},
 
+		/** Set the active results view (opens results panel in canvas area). */
+		setActiveResultsView(view: ResultsView | null) {
+			update((s) => ({ ...s, activeResultsView: view }));
+		},
+
 		/** Reset all layout state to defaults. */
 		reset() {
 			store.set({ ...DEFAULT_STATE });
@@ -176,3 +186,6 @@ export const canvasZoom = derived(workspaceStore, ($ws) => $ws.canvasZoom);
 
 /** The pump curve ID currently being edited (null = show schematic). */
 export const editingPumpCurveId = derived(workspaceStore, ($ws) => $ws.editingPumpCurveId);
+
+/** The active results view shown in canvas overlay (null = show schematic). */
+export const activeResultsView = derived(workspaceStore, ($ws) => $ws.activeResultsView);

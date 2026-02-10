@@ -13,11 +13,12 @@
 	import PanelNavigator from '$lib/components/panel/PanelNavigator.svelte';
 	import ProjectConfigPanel from '$lib/components/workspace/ProjectConfigPanel.svelte';
 	import ResultsPanel from '$lib/components/results/ResultsPanel.svelte';
+	import ResultsViewerPanel from '$lib/components/results/ResultsViewerPanel.svelte';
 	import ComponentTree from '$lib/components/workspace/ComponentTree.svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
-	import { projectStore, components, metadata, navigationStore, workspaceStore, currentElementId, editingPumpCurveId, activeSidebarTab } from '$lib/stores';
+	import { projectStore, components, metadata, navigationStore, workspaceStore, currentElementId, editingPumpCurveId, activeSidebarTab, activeResultsView } from '$lib/stores';
 	import { solveNetwork, ApiError, NetworkError, TimeoutError } from '$lib/api';
 	import { encodeProject, tryDecodeProject } from '$lib/utils';
 
@@ -159,6 +160,9 @@
 
 	// Show pump curve editor in canvas when a curve is selected and Library tab is active
 	let showPumpCurveEditor = $derived($editingPumpCurveId !== null && $activeSidebarTab === 'library');
+
+	// Show results viewer panel in canvas when a results view is selected and Results tab is active
+	let showResultsViewer = $derived($activeResultsView !== null && $activeSidebarTab === 'results');
 
 	// Keyboard shortcuts
 	function handleKeydown(event: KeyboardEvent) {
@@ -353,6 +357,13 @@
 		{#if showPumpCurveEditor && $editingPumpCurveId}
 			<div class="absolute inset-y-0 left-0 w-full max-w-[800px] border-r border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg">
 				<PumpCurveEditorPanel curveId={$editingPumpCurveId} />
+			</div>
+		{/if}
+
+		<!-- Results Viewer: overlays left side of canvas, up to 800px -->
+		{#if showResultsViewer && $activeResultsView}
+			<div class="absolute inset-y-0 left-0 w-full max-w-[800px] border-r border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg">
+				<ResultsViewerPanel view={$activeResultsView} />
 			</div>
 		{/if}
 	</div>

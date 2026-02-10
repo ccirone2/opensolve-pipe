@@ -44,7 +44,9 @@ export {
 	isFocusMode,
 	canvasZoom,
 	editingPumpCurveId,
+	activeResultsView,
 	type SidebarTab,
 	type InspectorTab,
+	type ResultsView,
 	type WorkspaceState
 } from './workspace';

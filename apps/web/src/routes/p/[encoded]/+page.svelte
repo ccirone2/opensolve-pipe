@@ -302,11 +302,9 @@
 		/>
 	</div>
 
-	<!-- Canvas: Schematic Viewer or Pump Curve Editor -->
-	<div class="workspace-canvas {showPumpCurveEditor ? '' : 'canvas-grid'}">
-		{#if showPumpCurveEditor && $editingPumpCurveId}
-			<PumpCurveEditorPanel curveId={$editingPumpCurveId} />
-		{:else if isLoading}
+	<!-- Canvas: Schematic Viewer (always rendered) -->
+	<div class="workspace-canvas canvas-grid">
+		{#if isLoading}
 			<!-- Loading state for URL-encoded projects -->
 			<div class="absolute inset-0 flex items-center justify-center">
 				<div class="flex flex-col items-center gap-3">
@@ -349,6 +347,13 @@
 				selectedComponentId={$currentElementId}
 				onZoomChange={(level) => workspaceStore.setCanvasZoom(level)}
 			/>
+		{/if}
+
+		<!-- Pump Curve Editor: overlays left side of canvas, up to 800px -->
+		{#if showPumpCurveEditor && $editingPumpCurveId}
+			<div class="absolute inset-y-0 left-0 w-full max-w-[800px] border-r border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg">
+				<PumpCurveEditorPanel curveId={$editingPumpCurveId} />
+			</div>
 		{/if}
 	</div>
 

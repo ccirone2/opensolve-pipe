@@ -214,7 +214,6 @@
 	</div>
 {:else}
 	<div class="flex h-full flex-col bg-[var(--color-surface)]">
-	<div class="mx-auto flex h-full w-full max-w-[800px] flex-col">
 		<!-- Top Bar: Breadcrumb + Actions -->
 		<div class="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2">
 			<!-- Breadcrumb -->
@@ -642,6 +641,5 @@
 				</div>
 			{/if}
 		</div>
-	</div>
 	</div>
 {/if}

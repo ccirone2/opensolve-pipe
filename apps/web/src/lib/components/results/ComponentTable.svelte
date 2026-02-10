@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { components } from '$lib/stores';
+	import { components, navigationStore, workspaceStore, currentElementId } from '$lib/stores';
 	import {
 		COMPONENT_TYPE_LABELS,
 		type SolvedState,
@@ -7,6 +7,11 @@
 		type ComponentType,
 		type ComponentResult
 	} from '$lib/models';
+
+	function handleRowClick(componentId: string) {
+		navigationStore.navigateTo(componentId);
+		workspaceStore.setInspectorOpen(true);
+	}
 
 	interface Props {
 		/** The solved state containing results. */
@@ -128,7 +133,10 @@
 		</thead>
 		<tbody class="divide-y divide-[var(--color-border)] bg-[var(--color-surface)]">
 			{#each portData as row}
-				<tr class="hover:bg-[var(--color-surface-elevated)]">
+				<tr
+					class="cursor-pointer hover:bg-[var(--color-surface-elevated)] {$currentElementId === row.componentId ? 'bg-[var(--color-accent)]/10' : ''}"
+					onclick={() => handleRowClick(row.componentId)}
+				>
 					{#if row.isFirstPort}
 						<td
 							class="whitespace-nowrap px-4 py-3 text-sm font-medium text-[var(--color-text)]"

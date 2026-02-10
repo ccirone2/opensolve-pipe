@@ -7,6 +7,7 @@
 	 * Translated from the React reference in docs/features/viz_elevation_profile/.
 	 */
 	import type { ElevationElement } from '$lib/utils/elevationProfile';
+	import { navigationStore, workspaceStore } from '$lib/stores';
 
 	interface Props {
 		/** Elevation profile data elements (ordered upstream → downstream). */
@@ -386,6 +387,13 @@
 	function handleLeave(): void {
 		hoveredItem = null;
 	}
+
+	function handleElementClick(el: ElevationElement): void {
+		if (el.type === 'comp') {
+			navigationStore.navigateTo(el.id);
+			workspaceStore.setInspectorOpen(true);
+		}
+	}
 </script>
 
 <div bind:this={containerElement} class="flex flex-col gap-4">
@@ -736,11 +744,15 @@
 				{@const color = getComponentColor(comp.name)}
 				{@const isHovered = hoveredItem?.type === 'comp' && hoveredItem?.data.id === comp.id}
 
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 				<g
 					class="cursor-pointer"
 					onmouseenter={() => handleHover('comp', data.indexOf(comp), comp, cx, yScale(comp.p1_el))}
 					onmouseleave={handleLeave}
+					onclick={() => handleElementClick(comp)}
+					onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleElementClick(comp); }}
+					role="button"
+					tabindex="0"
 				>
 					<!-- P1 marker -->
 					<circle
@@ -867,7 +879,7 @@
 						{@const isHovered = hoveredItem?.data.id === item.id}
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<tr
-							class="border-b border-[var(--color-border)] transition-colors {isHovered ? 'bg-[var(--color-accent)]/10' : 'hover:bg-[var(--color-surface-elevated)]'}"
+							class="cursor-pointer border-b border-[var(--color-border)] transition-colors {isHovered ? 'bg-[var(--color-accent)]/10' : 'hover:bg-[var(--color-surface-elevated)]'}"
 							onmouseenter={() => {
 								const cx = item.type === 'comp'
 									? xScale(components.indexOf(item))
@@ -875,6 +887,7 @@
 								handleHover(item.type, i, item, cx, yScale(item.p1_el));
 							}}
 							onmouseleave={handleLeave}
+							onclick={() => handleElementClick(item)}
 						>
 							<td class="px-3 py-1.5 text-[var(--color-text-muted)]">{item.type}</td>
 							<td class="px-3 py-1.5 font-medium" style="color: {item.type === 'comp' ? getComponentColor(item.name) : 'var(--color-text)'}">

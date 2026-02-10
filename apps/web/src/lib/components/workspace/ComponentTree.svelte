@@ -152,18 +152,4 @@
 			{/each}
 		{/if}
 	</div>
-
-	<!-- Footer: Quick add -->
-	<div class="border-t border-[var(--color-border)] px-2 py-1.5">
-		<button
-			type="button"
-			onclick={() => projectStore.addComponent('reservoir')}
-			class="flex w-full items-center gap-1.5 rounded px-2 py-1 text-xs text-[var(--color-text-subtle)] transition-colors hover:bg-[var(--color-surface-elevated)] hover:text-[var(--color-text)]"
-		>
-			<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-				<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-			</svg>
-			Quick add reservoir
-		</button>
-	</div>
 </div>

@@ -43,6 +43,7 @@ export {
 	activeInspectorTab,
 	isFocusMode,
 	canvasZoom,
+	editingPumpCurveId,
 	type SidebarTab,
 	type InspectorTab,
 	type WorkspaceState

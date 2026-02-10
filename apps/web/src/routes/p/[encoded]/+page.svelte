@@ -6,7 +6,8 @@
 		CommandPalette,
 		StatusBar,
 		BottomSheet,
-		MobileNavBar
+		MobileNavBar,
+		PumpCurveEditorPanel
 	} from '$lib/components/workspace';
 	import SchematicViewer from '$lib/components/schematic/SchematicViewer.svelte';
 	import PanelNavigator from '$lib/components/panel/PanelNavigator.svelte';
@@ -16,7 +17,7 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
-	import { projectStore, components, metadata, navigationStore, workspaceStore, currentElementId } from '$lib/stores';
+	import { projectStore, components, metadata, navigationStore, workspaceStore, currentElementId, editingPumpCurveId, activeSidebarTab } from '$lib/stores';
 	import { solveNetwork, ApiError, NetworkError, TimeoutError } from '$lib/api';
 	import { encodeProject, tryDecodeProject } from '$lib/utils';
 
@@ -155,6 +156,9 @@
 
 	// Focus mode state
 	let focusModeActive = $derived($workspaceStore.focusMode);
+
+	// Show pump curve editor in canvas when a curve is selected and Library tab is active
+	let showPumpCurveEditor = $derived($editingPumpCurveId !== null && $activeSidebarTab === 'library');
 
 	// Keyboard shortcuts
 	function handleKeydown(event: KeyboardEvent) {
@@ -298,9 +302,11 @@
 		/>
 	</div>
 
-	<!-- Canvas: Schematic Viewer -->
-	<div class="workspace-canvas canvas-grid">
-		{#if isLoading}
+	<!-- Canvas: Schematic Viewer or Pump Curve Editor -->
+	<div class="workspace-canvas {showPumpCurveEditor ? '' : 'canvas-grid'}">
+		{#if showPumpCurveEditor && $editingPumpCurveId}
+			<PumpCurveEditorPanel curveId={$editingPumpCurveId} />
+		{:else if isLoading}
 			<!-- Loading state for URL-encoded projects -->
 			<div class="absolute inset-0 flex items-center justify-center">
 				<div class="flex flex-col items-center gap-3">

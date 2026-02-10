@@ -23,6 +23,7 @@ export interface WorkspaceState {
 	focusMode: boolean;
 	canvasZoom: number;
 	lastSelectedComponentId: string | null;
+	editingPumpCurveId: string | null;
 }
 
 /** Default workspace state. */
@@ -33,7 +34,8 @@ const DEFAULT_STATE: WorkspaceState = {
 	inspectorTab: 'properties',
 	focusMode: false,
 	canvasZoom: 1,
-	lastSelectedComponentId: null
+	lastSelectedComponentId: null,
+	editingPumpCurveId: null
 };
 
 /** Storage key for workspace preferences. */
@@ -139,6 +141,11 @@ function createWorkspaceStore() {
 			update((s) => ({ ...s, lastSelectedComponentId: id }));
 		},
 
+		/** Set the pump curve being edited (opens editor in canvas area). */
+		setEditingPumpCurve(id: string | null) {
+			update((s) => ({ ...s, editingPumpCurveId: id }));
+		},
+
 		/** Reset all layout state to defaults. */
 		reset() {
 			store.set({ ...DEFAULT_STATE });
@@ -166,3 +173,6 @@ export const isFocusMode = derived(workspaceStore, ($ws) => $ws.focusMode);
 
 /** The current canvas zoom level. */
 export const canvasZoom = derived(workspaceStore, ($ws) => $ws.canvasZoom);
+
+/** The pump curve ID currently being edited (null = show schematic). */
+export const editingPumpCurveId = derived(workspaceStore, ($ws) => $ws.editingPumpCurveId);

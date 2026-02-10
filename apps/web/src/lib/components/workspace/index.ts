@@ -12,3 +12,4 @@ export { default as MetricsStrip } from './MetricsStrip.svelte';
 export { default as ProjectSummary } from './ProjectSummary.svelte';
 export { default as BottomSheet } from './BottomSheet.svelte';
 export { default as MobileNavBar } from './MobileNavBar.svelte';
+export { default as PumpCurveEditorPanel } from './PumpCurveEditorPanel.svelte';

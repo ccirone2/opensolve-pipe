@@ -35,6 +35,16 @@ export interface FlowPowerPoint {
 	power: number;
 }
 
+/** Design point for a pump (rated operating condition). */
+export interface DesignPoint {
+	/** Design flow rate in project units. */
+	flow: number;
+	/** Design head in project units. */
+	head: number;
+	/** Design speed in RPM (may differ from curve rated_speed). */
+	speed?: number;
+}
+
 /** Pump performance curve definition. */
 export interface PumpCurve {
 	/** Unique identifier for this pump curve. */
@@ -45,16 +55,22 @@ export interface PumpCurve {
 	manufacturer?: string;
 	/** Pump model number. */
 	model?: string;
-	/** Rated speed in RPM. */
+	/** Rated speed in RPM (speed at which curve was tested). */
 	rated_speed?: number;
-	/** Impeller diameter in project units. */
+	/** Impeller diameter in project units (selected trim). */
 	impeller_diameter?: number;
+	/** Minimum impeller diameter in project units. */
+	min_impeller_diameter?: number;
+	/** Maximum impeller diameter in project units. */
+	max_impeller_diameter?: number;
 	/** Number of pump stages. */
 	stages?: number;
 	/** Inlet/outlet size description (e.g. "2\" / 2\""). */
 	inlet_outlet?: string;
 	/** Free-form notes. */
 	notes?: string;
+	/** Design point (rated operating condition). */
+	design_point?: DesignPoint;
 	/** Pump curve points (minimum 2). */
 	points: FlowHeadPoint[];
 	/** Optional efficiency curve. */
@@ -111,6 +127,13 @@ export function createDefaultPumpCurve(id: string): PumpCurve {
 			{ flow: 100, head: 85 },
 			{ flow: 150, head: 70 },
 			{ flow: 200, head: 50 }
+		],
+		power_curve: [
+			{ flow: 0, power: 3 },
+			{ flow: 50, power: 5 },
+			{ flow: 100, power: 7 },
+			{ flow: 150, power: 8.5 },
+			{ flow: 200, power: 9 }
 		]
 	};
 }

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { pumpLibrary, projectStore, workspaceStore } from '$lib/stores';
-	import type { PumpCurve, FlowHeadPoint, FlowEfficiencyPoint, NPSHRPoint, FlowPowerPoint } from '$lib/models';
-	import { generatePumpBestFitCurve, generateEfficiencyBestFitCurve } from '$lib/models';
+	import type { PumpCurve, FlowHeadPoint, FlowEfficiencyPoint, NPSHRPoint, FlowPowerPoint, DesignPoint } from '$lib/models';
+	import { generatePumpBestFitCurve, generateEfficiencyBestFitCurve, calculateBEP } from '$lib/models';
 
 	interface Props {
 		curveId: string;
@@ -19,8 +19,13 @@
 	let ratedSpeed = $state<number | null>(null);
 	let impellerDiameter = $state<number | null>(null);
 	let stages = $state<number | null>(null);
+	let minImpellerDiameter = $state<number | null>(null);
+	let maxImpellerDiameter = $state<number | null>(null);
 	let inletOutlet = $state('');
 	let notes = $state('');
+	let designPointFlow = $state<number | null>(null);
+	let designPointHead = $state<number | null>(null);
+	let designPointSpeed = $state<number | null>(null);
 	let headPoints = $state<FlowHeadPoint[]>([]);
 	let efficiencyPoints = $state<FlowEfficiencyPoint[]>([]);
 	let npshPoints = $state<NPSHRPoint[]>([]);
@@ -45,8 +50,13 @@
 		ratedSpeed = c.rated_speed ?? null;
 		impellerDiameter = c.impeller_diameter ?? null;
 		stages = c.stages ?? null;
+		minImpellerDiameter = c.min_impeller_diameter ?? null;
+		maxImpellerDiameter = c.max_impeller_diameter ?? null;
 		inletOutlet = c.inlet_outlet ?? '';
 		notes = c.notes ?? '';
+		designPointFlow = c.design_point?.flow ?? null;
+		designPointHead = c.design_point?.head ?? null;
+		designPointSpeed = c.design_point?.speed ?? null;
 		headPoints = c.points.map((p) => ({ ...p }));
 		efficiencyPoints = (c.efficiency_curve ?? []).map((p) => ({ ...p }));
 		npshPoints = (c.npshr_curve ?? []).map((p) => ({ ...p }));
@@ -67,15 +77,22 @@
 		const sortedNpsh = [...npshPoints].sort((a, b) => a.flow - b.flow);
 		const sortedPower = [...powerPoints].sort((a, b) => a.flow - b.flow);
 
+		const dp: DesignPoint | undefined = designPointFlow != null && designPointHead != null
+			? { flow: designPointFlow, head: designPointHead, speed: designPointSpeed ?? undefined }
+			: undefined;
+
 		projectStore.updatePumpCurve(curveId, {
 			name: name.trim() || 'Untitled',
 			manufacturer: manufacturer.trim() || undefined,
 			model: model.trim() || undefined,
 			rated_speed: ratedSpeed ?? undefined,
 			impeller_diameter: impellerDiameter ?? undefined,
+			min_impeller_diameter: minImpellerDiameter ?? undefined,
+			max_impeller_diameter: maxImpellerDiameter ?? undefined,
 			stages: stages ?? undefined,
 			inlet_outlet: inletOutlet.trim() || undefined,
 			notes: notes.trim() || undefined,
+			design_point: dp,
 			points: sorted.length >= 2 ? sorted : headPoints,
 			efficiency_curve: sortedEff.length > 0 ? sortedEff : undefined,
 			npshr_curve: sortedNpsh.length > 0 ? sortedNpsh : undefined,
@@ -164,7 +181,6 @@
 	// === Chart data for preview ===
 	let showHeadCurve = $state(true);
 	let showEffCurve = $state(true);
-	let showNpshCurve = $state(true);
 	let showPowerCurve = $state(true);
 
 	// Build a temporary PumpCurve for chart utilities
@@ -179,6 +195,7 @@
 
 	let headBestFit = $derived(showHeadCurve ? generatePumpBestFitCurve(previewCurve) : null);
 	let effBestFit = $derived(showEffCurve ? generateEfficiencyBestFitCurve(previewCurve) : null);
+	let bepData = $derived(calculateBEP(previewCurve));
 
 	// Primary tabs
 	const primaryTabs = [
@@ -206,6 +223,45 @@
 		if (id === 'npsh') return npshCount;
 		return powerCount;
 	}
+
+	// === Chart helpers ===
+
+	/** Generate nice tick values for an axis range */
+	function niceAxisTicks(min: number, max: number, count: number = 5): number[] {
+		if (max <= min) return [0];
+		const range = max - min;
+		const roughStep = range / count;
+		const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+		const residual = roughStep / magnitude;
+		let niceStep: number;
+		if (residual <= 1.5) niceStep = magnitude;
+		else if (residual <= 3) niceStep = 2 * magnitude;
+		else if (residual <= 7) niceStep = 5 * magnitude;
+		else niceStep = 10 * magnitude;
+
+		const niceMin = Math.floor(min / niceStep) * niceStep;
+		const niceMax = Math.ceil(max / niceStep) * niceStep;
+		const ticks: number[] = [];
+		for (let v = niceMin; v <= niceMax + niceStep * 0.01; v += niceStep) {
+			ticks.push(Math.round(v * 1e6) / 1e6);
+		}
+		return ticks;
+	}
+
+	/** Shared flow domain across all curves for consistent x-axis */
+	let allFlows = $derived.by(() => {
+		const flows: number[] = [];
+		if (headPoints.length > 0) flows.push(...headPoints.map(p => p.flow));
+		if (efficiencyPoints.length > 0) flows.push(...efficiencyPoints.map(p => p.flow));
+		if (npshPoints.length > 0) flows.push(...npshPoints.map(p => p.flow));
+		if (powerPoints.length > 0) flows.push(...powerPoints.map(p => p.flow));
+		if (designPointFlow != null) flows.push(designPointFlow);
+		return flows;
+	});
+
+	let flowMax = $derived(allFlows.length > 0 ? Math.max(...allFlows) : 1);
+	let flowTicks = $derived(niceAxisTicks(0, flowMax));
+	let flowAxisMax = $derived(flowTicks.length > 0 ? flowTicks[flowTicks.length - 1] : 1);
 </script>
 
 {#if !sourceCurve}
@@ -304,341 +360,473 @@
 		<!-- Tab Content -->
 		<div class="min-h-0 flex-1 overflow-y-auto">
 			{#if activeTab === 'info'}
-				<!-- Pump Information Tab -->
-				<div class="mx-auto max-w-2xl space-y-4 p-6">
+			<!-- Pump Information Tab -->
+			<div class="mx-auto max-w-2xl space-y-4 p-6">
+				<div>
+					<label for="curve-name" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Curve Name *</label>
+					<input id="curve-name" type="text" bind:value={name} oninput={markDirty} class="form-input" placeholder="e.g. Grundfos CR 32-2" />
+				</div>
+
+				<div class="grid grid-cols-3 gap-4">
 					<div>
-						<label for="curve-name" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Curve Name *</label>
-						<input id="curve-name" type="text" bind:value={name} oninput={markDirty} class="form-input" placeholder="e.g. Grundfos CR 32-2" />
+						<label for="curve-mfr" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Manufacturer</label>
+						<input id="curve-mfr" type="text" bind:value={manufacturer} oninput={markDirty} class="form-input" placeholder="Optional" />
 					</div>
-
-					<div class="grid grid-cols-3 gap-4">
-						<div>
-							<label for="curve-mfr" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Manufacturer</label>
-							<input id="curve-mfr" type="text" bind:value={manufacturer} oninput={markDirty} class="form-input" placeholder="Optional" />
-						</div>
-						<div>
-							<label for="curve-model" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Model</label>
-							<input id="curve-model" type="text" bind:value={model} oninput={markDirty} class="form-input" placeholder="Optional" />
-						</div>
-						<div>
-							<label for="curve-speed" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Speed (RPM)</label>
-							<input id="curve-speed" type="number" value={ratedSpeed ?? ''} oninput={(e) => { ratedSpeed = parseFloat(e.currentTarget.value) || null; markDirty(); }} class="form-input mono-value" placeholder="Optional" />
-						</div>
-					</div>
-
-					<div class="grid grid-cols-3 gap-4">
-						<div>
-							<label for="curve-impeller" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Impeller Diameter</label>
-							<input id="curve-impeller" type="number" value={impellerDiameter ?? ''} oninput={(e) => { impellerDiameter = parseFloat(e.currentTarget.value) || null; markDirty(); }} class="form-input mono-value" placeholder="Optional" />
-						</div>
-						<div>
-							<label for="curve-stages" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Stages</label>
-							<input id="curve-stages" type="number" min="1" value={stages ?? ''} oninput={(e) => { stages = parseInt(e.currentTarget.value) || null; markDirty(); }} class="form-input mono-value" placeholder="Optional" />
-						</div>
-						<div>
-							<label for="curve-io" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Inlet / Outlet</label>
-							<input id="curve-io" type="text" bind:value={inletOutlet} oninput={markDirty} class="form-input" placeholder='e.g. 2" / 2"' />
-						</div>
-					</div>
-
 					<div>
-						<label for="curve-notes" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Notes</label>
-						<textarea id="curve-notes" bind:value={notes} oninput={markDirty} rows="3" class="form-input resize-y" placeholder="Free-form notes..."></textarea>
+						<label for="curve-model" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Model</label>
+						<input id="curve-model" type="text" bind:value={model} oninput={markDirty} class="form-input" placeholder="Optional" />
+					</div>
+					<div>
+						<label for="curve-speed" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Curve Speed (RPM)</label>
+						<input id="curve-speed" type="number" value={ratedSpeed ?? ''} oninput={(e) => { ratedSpeed = parseFloat(e.currentTarget.value) || null; markDirty(); }} class="form-input mono-value" placeholder="Optional" />
 					</div>
 				</div>
+
+				<div class="grid grid-cols-3 gap-4">
+					<div>
+						<label for="curve-impeller" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Impeller Dia. (Selected Trim)</label>
+						<input id="curve-impeller" type="number" value={impellerDiameter ?? ''} oninput={(e) => { impellerDiameter = parseFloat(e.currentTarget.value) || null; markDirty(); }} class="form-input mono-value" placeholder="Optional" />
+					</div>
+					<div>
+						<label for="curve-min-impeller" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Min Impeller Dia.</label>
+						<input id="curve-min-impeller" type="number" value={minImpellerDiameter ?? ''} oninput={(e) => { minImpellerDiameter = parseFloat(e.currentTarget.value) || null; markDirty(); }} class="form-input mono-value" placeholder="Optional" />
+					</div>
+					<div>
+						<label for="curve-max-impeller" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Max Impeller Dia.</label>
+						<input id="curve-max-impeller" type="number" value={maxImpellerDiameter ?? ''} oninput={(e) => { maxImpellerDiameter = parseFloat(e.currentTarget.value) || null; markDirty(); }} class="form-input mono-value" placeholder="Optional" />
+					</div>
+				</div>
+
+				<div class="grid grid-cols-3 gap-4">
+					<div>
+						<label for="curve-stages" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Stages</label>
+						<input id="curve-stages" type="number" min="1" value={stages ?? ''} oninput={(e) => { stages = parseInt(e.currentTarget.value) || null; markDirty(); }} class="form-input mono-value" placeholder="Optional" />
+					</div>
+					<div>
+						<label for="curve-io" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Inlet / Outlet</label>
+						<input id="curve-io" type="text" bind:value={inletOutlet} oninput={markDirty} class="form-input" placeholder='e.g. 2" / 2"' />
+					</div>
+				</div>
+
+				<!-- Design Point -->
+				<fieldset class="rounded-md border border-[var(--color-border)] p-4">
+					<legend class="section-heading px-1 text-[var(--color-text-subtle)]">Design Point</legend>
+					<div class="grid grid-cols-3 gap-4">
+						<div>
+							<label for="dp-flow" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Flow</label>
+							<input id="dp-flow" type="number" value={designPointFlow ?? ''} oninput={(e) => { designPointFlow = parseFloat(e.currentTarget.value) || null; markDirty(); }} class="form-input mono-value" placeholder="Optional" min="0" step="any" />
+						</div>
+						<div>
+							<label for="dp-head" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Head</label>
+							<input id="dp-head" type="number" value={designPointHead ?? ''} oninput={(e) => { designPointHead = parseFloat(e.currentTarget.value) || null; markDirty(); }} class="form-input mono-value" placeholder="Optional" min="0" step="any" />
+						</div>
+						<div>
+							<label for="dp-speed" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Speed (RPM)</label>
+							<input id="dp-speed" type="number" value={designPointSpeed ?? ''} oninput={(e) => { designPointSpeed = parseFloat(e.currentTarget.value) || null; markDirty(); }} class="form-input mono-value" placeholder="Optional" min="0" step="any" />
+						</div>
+					</div>
+				</fieldset>
+
+				<div>
+					<label for="curve-notes" class="mb-1 block section-heading text-[var(--color-text-subtle)]">Notes</label>
+					<textarea id="curve-notes" bind:value={notes} oninput={markDirty} rows="3" class="form-input resize-y" placeholder="Free-form notes..."></textarea>
+				</div>
+			</div>
 
 			{:else if activeTab === 'data'}
-				<!-- Curve Data Tab -->
-				<div class="flex h-full flex-col">
-					<!-- Data Sub-Tabs -->
-					<div class="flex gap-1 border-b border-[var(--color-border)] px-4 py-1.5">
-						{#each dataTabDefs as dt}
-						{@const count = getDataTabCount(dt.id)}
-							<button
-								type="button"
-								onclick={() => activeDataTab = dt.id}
-								class="flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors
-									{activeDataTab === dt.id
-									? 'bg-[var(--color-accent)] text-[var(--color-accent-text)]'
-									: 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface-elevated)] hover:text-[var(--color-text)]'}"
-							>
-								{dt.label}
-								<span class="rounded-full bg-black/10 px-1.5 py-0.5 text-[0.5625rem] {count === 0 ? 'opacity-40' : ''}">
-									{count}
-								</span>
-							</button>
-						{/each}
-					</div>
-
-					<!-- Data Table -->
-					<div class="min-h-0 flex-1 overflow-y-auto p-4">
-						{#if activeDataTab === 'head'}
-							{#if headPoints.length === 0}
-								<div class="flex flex-col items-center gap-3 py-12 text-center">
-									<p class="text-sm text-[var(--color-text-subtle)]">No head data yet.</p>
-									<button type="button" onclick={addHeadPoint} class="rounded bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-[var(--color-accent-text)]">Add Data</button>
-								</div>
-							{:else}
-								<div class="mx-auto max-w-lg">
-									<div class="sticky top-0 z-10 grid grid-cols-[2rem_1fr_1fr_2rem] gap-2 bg-[var(--color-surface)] pb-1 text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-subtle)]">
-										<span>#</span><span>Flow (GPM)</span><span>Head (ft)</span><span></span>
-									</div>
-									{#each headPoints as point, i}
-										<div class="group grid grid-cols-[2rem_1fr_1fr_2rem] items-center gap-2 py-0.5">
-											<span class="text-[0.625rem] text-[var(--color-text-subtle)]">{i + 1}</span>
-											<input type="number" value={point.flow} oninput={(e) => { headPoints[i] = { ...headPoints[i], flow: parseFloat(e.currentTarget.value) || 0 }; headPoints = headPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" step="any" />
-											<input type="number" value={point.head} oninput={(e) => { headPoints[i] = { ...headPoints[i], head: parseFloat(e.currentTarget.value) || 0 }; headPoints = headPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" step="any" />
-											<button type="button" onclick={() => removeHeadPoint(i)} class="flex h-full items-center justify-center rounded text-[var(--color-text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 hover:text-[var(--color-error)]" title="Remove">
-												<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-											</button>
-										</div>
-									{/each}
-									<button type="button" onclick={addHeadPoint} class="mt-2 flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent-muted)]">
-										<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-										Add Row
-									</button>
-								</div>
-							{/if}
-
-						{:else if activeDataTab === 'efficiency'}
-							{#if efficiencyPoints.length === 0}
-								<div class="flex flex-col items-center gap-3 py-12 text-center">
-									<p class="text-sm text-[var(--color-text-subtle)]">No efficiency data yet.</p>
-									<button type="button" onclick={addEfficiencyPoint} class="rounded bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-[var(--color-accent-text)]">Add Data</button>
-								</div>
-							{:else}
-								<div class="mx-auto max-w-lg">
-									<div class="sticky top-0 z-10 grid grid-cols-[2rem_1fr_1fr_2rem] gap-2 bg-[var(--color-surface)] pb-1 text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-subtle)]">
-										<span>#</span><span>Flow (GPM)</span><span>Efficiency (%)</span><span></span>
-									</div>
-									{#each efficiencyPoints as point, i}
-										<div class="group grid grid-cols-[2rem_1fr_1fr_2rem] items-center gap-2 py-0.5">
-											<span class="text-[0.625rem] text-[var(--color-text-subtle)]">{i + 1}</span>
-											<input type="number" value={point.flow} oninput={(e) => { efficiencyPoints[i] = { ...efficiencyPoints[i], flow: parseFloat(e.currentTarget.value) || 0 }; efficiencyPoints = efficiencyPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" step="any" />
-											<input type="number" value={point.efficiency * 100} oninput={(e) => { efficiencyPoints[i] = { ...efficiencyPoints[i], efficiency: (parseFloat(e.currentTarget.value) || 0) / 100 }; efficiencyPoints = efficiencyPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" max="100" step="any" />
-											<button type="button" onclick={() => removeEfficiencyPoint(i)} class="flex h-full items-center justify-center rounded text-[var(--color-text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 hover:text-[var(--color-error)]" title="Remove">
-												<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-											</button>
-										</div>
-									{/each}
-									<button type="button" onclick={addEfficiencyPoint} class="mt-2 flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent-muted)]">
-										<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-										Add Row
-									</button>
-								</div>
-							{/if}
-
-						{:else if activeDataTab === 'npsh'}
-							{#if npshPoints.length === 0}
-								<div class="flex flex-col items-center gap-3 py-12 text-center">
-									<p class="text-sm text-[var(--color-text-subtle)]">No NPSH data yet.</p>
-									<button type="button" onclick={addNpshPoint} class="rounded bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-[var(--color-accent-text)]">Add Data</button>
-								</div>
-							{:else}
-								<div class="mx-auto max-w-lg">
-									<div class="sticky top-0 z-10 grid grid-cols-[2rem_1fr_1fr_2rem] gap-2 bg-[var(--color-surface)] pb-1 text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-subtle)]">
-										<span>#</span><span>Flow (GPM)</span><span>NPSH (ft)</span><span></span>
-									</div>
-									{#each npshPoints as point, i}
-										<div class="group grid grid-cols-[2rem_1fr_1fr_2rem] items-center gap-2 py-0.5">
-											<span class="text-[0.625rem] text-[var(--color-text-subtle)]">{i + 1}</span>
-											<input type="number" value={point.flow} oninput={(e) => { npshPoints[i] = { ...npshPoints[i], flow: parseFloat(e.currentTarget.value) || 0 }; npshPoints = npshPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" step="any" />
-											<input type="number" value={point.npsh_required} oninput={(e) => { npshPoints[i] = { ...npshPoints[i], npsh_required: parseFloat(e.currentTarget.value) || 0 }; npshPoints = npshPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" step="any" />
-											<button type="button" onclick={() => removeNpshPoint(i)} class="flex h-full items-center justify-center rounded text-[var(--color-text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 hover:text-[var(--color-error)]" title="Remove">
-												<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-											</button>
-										</div>
-									{/each}
-									<button type="button" onclick={addNpshPoint} class="mt-2 flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent-muted)]">
-										<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-										Add Row
-									</button>
-								</div>
-							{/if}
-
-						{:else if activeDataTab === 'power'}
-							{#if powerPoints.length === 0}
-								<div class="flex flex-col items-center gap-3 py-12 text-center">
-									<p class="text-sm text-[var(--color-text-subtle)]">No power data yet.</p>
-									<button type="button" onclick={addPowerPoint} class="rounded bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-[var(--color-accent-text)]">Add Data</button>
-								</div>
-							{:else}
-								<div class="mx-auto max-w-lg">
-									<div class="sticky top-0 z-10 grid grid-cols-[2rem_1fr_1fr_2rem] gap-2 bg-[var(--color-surface)] pb-1 text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-subtle)]">
-										<span>#</span><span>Flow (GPM)</span><span>Power (HP)</span><span></span>
-									</div>
-									{#each powerPoints as point, i}
-										<div class="group grid grid-cols-[2rem_1fr_1fr_2rem] items-center gap-2 py-0.5">
-											<span class="text-[0.625rem] text-[var(--color-text-subtle)]">{i + 1}</span>
-											<input type="number" value={point.flow} oninput={(e) => { powerPoints[i] = { ...powerPoints[i], flow: parseFloat(e.currentTarget.value) || 0 }; powerPoints = powerPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" step="any" />
-											<input type="number" value={point.power} oninput={(e) => { powerPoints[i] = { ...powerPoints[i], power: parseFloat(e.currentTarget.value) || 0 }; powerPoints = powerPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" step="any" />
-											<button type="button" onclick={() => removePowerPoint(i)} class="flex h-full items-center justify-center rounded text-[var(--color-text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 hover:text-[var(--color-error)]" title="Remove">
-												<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-											</button>
-										</div>
-									{/each}
-									<button type="button" onclick={addPowerPoint} class="mt-2 flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent-muted)]">
-										<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-										Add Row
-									</button>
-								</div>
-							{/if}
-						{/if}
-					</div>
+			<!-- Curve Data Tab -->
+			<div class="flex h-full flex-col">
+				<!-- Data Sub-Tabs -->
+				<div class="flex gap-1 border-b border-[var(--color-border)] px-4 py-1.5">
+					{#each dataTabDefs as dt}
+					{@const count = getDataTabCount(dt.id)}
+						<button
+							type="button"
+							onclick={() => activeDataTab = dt.id}
+							class="flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium transition-colors
+								{activeDataTab === dt.id
+								? 'bg-[var(--color-accent)] text-[var(--color-accent-text)]'
+								: 'text-[var(--color-text-muted)] hover:bg-[var(--color-surface-elevated)] hover:text-[var(--color-text)]'}"
+						>
+							{dt.label}
+							<span class="rounded-full bg-black/10 px-1.5 py-0.5 text-[0.5625rem] {count === 0 ? 'opacity-40' : ''}">
+								{count}
+							</span>
+						</button>
+					{/each}
 				</div>
+
+				<!-- Data Table -->
+				<div class="min-h-0 flex-1 overflow-y-auto p-4">
+					{#if activeDataTab === 'head'}
+						{#if headPoints.length === 0}
+							<div class="flex flex-col items-center gap-3 py-12 text-center">
+								<p class="text-sm text-[var(--color-text-subtle)]">No head data yet.</p>
+								<button type="button" onclick={addHeadPoint} class="rounded bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-[var(--color-accent-text)]">Add Data</button>
+							</div>
+						{:else}
+							<div class="mx-auto max-w-lg">
+								<div class="sticky top-0 z-10 grid grid-cols-[2rem_1fr_1fr_2rem] gap-2 bg-[var(--color-surface)] pb-1 text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-subtle)]">
+									<span>#</span><span>Flow (GPM)</span><span>Head (ft)</span><span></span>
+								</div>
+								{#each headPoints as point, i}
+									<div class="group grid grid-cols-[2rem_1fr_1fr_2rem] items-center gap-2 py-0.5">
+										<span class="text-[0.625rem] text-[var(--color-text-subtle)]">{i + 1}</span>
+										<input type="number" value={point.flow} oninput={(e) => { headPoints[i] = { ...headPoints[i], flow: parseFloat(e.currentTarget.value) || 0 }; headPoints = headPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" step="any" />
+										<input type="number" value={point.head} oninput={(e) => { headPoints[i] = { ...headPoints[i], head: parseFloat(e.currentTarget.value) || 0 }; headPoints = headPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" step="any" />
+										<button type="button" onclick={() => removeHeadPoint(i)} class="flex h-full items-center justify-center rounded text-[var(--color-text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 hover:text-[var(--color-error)]" title="Remove">
+											<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+										</button>
+									</div>
+								{/each}
+								<button type="button" onclick={addHeadPoint} class="mt-2 flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent-muted)]">
+									<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+									Add Row
+								</button>
+							</div>
+						{/if}
+
+					{:else if activeDataTab === 'efficiency'}
+						{#if efficiencyPoints.length === 0}
+							<div class="flex flex-col items-center gap-3 py-12 text-center">
+								<p class="text-sm text-[var(--color-text-subtle)]">No efficiency data yet.</p>
+								<button type="button" onclick={addEfficiencyPoint} class="rounded bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-[var(--color-accent-text)]">Add Data</button>
+							</div>
+						{:else}
+							<div class="mx-auto max-w-lg">
+								<div class="sticky top-0 z-10 grid grid-cols-[2rem_1fr_1fr_2rem] gap-2 bg-[var(--color-surface)] pb-1 text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-subtle)]">
+									<span>#</span><span>Flow (GPM)</span><span>Efficiency (%)</span><span></span>
+								</div>
+								{#each efficiencyPoints as point, i}
+									<div class="group grid grid-cols-[2rem_1fr_1fr_2rem] items-center gap-2 py-0.5">
+										<span class="text-[0.625rem] text-[var(--color-text-subtle)]">{i + 1}</span>
+										<input type="number" value={point.flow} oninput={(e) => { efficiencyPoints[i] = { ...efficiencyPoints[i], flow: parseFloat(e.currentTarget.value) || 0 }; efficiencyPoints = efficiencyPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" step="any" />
+										<input type="number" value={point.efficiency * 100} oninput={(e) => { efficiencyPoints[i] = { ...efficiencyPoints[i], efficiency: (parseFloat(e.currentTarget.value) || 0) / 100 }; efficiencyPoints = efficiencyPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" max="100" step="any" />
+										<button type="button" onclick={() => removeEfficiencyPoint(i)} class="flex h-full items-center justify-center rounded text-[var(--color-text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 hover:text-[var(--color-error)]" title="Remove">
+											<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+										</button>
+									</div>
+								{/each}
+								<button type="button" onclick={addEfficiencyPoint} class="mt-2 flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent-muted)]">
+									<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+									Add Row
+								</button>
+							</div>
+						{/if}
+
+					{:else if activeDataTab === 'npsh'}
+						{#if npshPoints.length === 0}
+							<div class="flex flex-col items-center gap-3 py-12 text-center">
+								<p class="text-sm text-[var(--color-text-subtle)]">No NPSH data yet.</p>
+								<button type="button" onclick={addNpshPoint} class="rounded bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-[var(--color-accent-text)]">Add Data</button>
+							</div>
+						{:else}
+							<div class="mx-auto max-w-lg">
+								<div class="sticky top-0 z-10 grid grid-cols-[2rem_1fr_1fr_2rem] gap-2 bg-[var(--color-surface)] pb-1 text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-subtle)]">
+									<span>#</span><span>Flow (GPM)</span><span>NPSH (ft)</span><span></span>
+								</div>
+								{#each npshPoints as point, i}
+									<div class="group grid grid-cols-[2rem_1fr_1fr_2rem] items-center gap-2 py-0.5">
+										<span class="text-[0.625rem] text-[var(--color-text-subtle)]">{i + 1}</span>
+										<input type="number" value={point.flow} oninput={(e) => { npshPoints[i] = { ...npshPoints[i], flow: parseFloat(e.currentTarget.value) || 0 }; npshPoints = npshPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" step="any" />
+										<input type="number" value={point.npsh_required} oninput={(e) => { npshPoints[i] = { ...npshPoints[i], npsh_required: parseFloat(e.currentTarget.value) || 0 }; npshPoints = npshPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" step="any" />
+										<button type="button" onclick={() => removeNpshPoint(i)} class="flex h-full items-center justify-center rounded text-[var(--color-text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 hover:text-[var(--color-error)]" title="Remove">
+											<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+										</button>
+									</div>
+								{/each}
+								<button type="button" onclick={addNpshPoint} class="mt-2 flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent-muted)]">
+									<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+									Add Row
+								</button>
+							</div>
+						{/if}
+
+					{:else if activeDataTab === 'power'}
+						{#if powerPoints.length === 0}
+							<div class="flex flex-col items-center gap-3 py-12 text-center">
+								<p class="text-sm text-[var(--color-text-subtle)]">No power data yet.</p>
+								<button type="button" onclick={addPowerPoint} class="rounded bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-[var(--color-accent-text)]">Add Data</button>
+							</div>
+						{:else}
+							<div class="mx-auto max-w-lg">
+								<div class="sticky top-0 z-10 grid grid-cols-[2rem_1fr_1fr_2rem] gap-2 bg-[var(--color-surface)] pb-1 text-[0.625rem] font-semibold uppercase tracking-wider text-[var(--color-text-subtle)]">
+									<span>#</span><span>Flow (GPM)</span><span>Power (HP)</span><span></span>
+								</div>
+								{#each powerPoints as point, i}
+									<div class="group grid grid-cols-[2rem_1fr_1fr_2rem] items-center gap-2 py-0.5">
+										<span class="text-[0.625rem] text-[var(--color-text-subtle)]">{i + 1}</span>
+										<input type="number" value={point.flow} oninput={(e) => { powerPoints[i] = { ...powerPoints[i], flow: parseFloat(e.currentTarget.value) || 0 }; powerPoints = powerPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" step="any" />
+										<input type="number" value={point.power} oninput={(e) => { powerPoints[i] = { ...powerPoints[i], power: parseFloat(e.currentTarget.value) || 0 }; powerPoints = powerPoints; markDirty(); }} class="form-input mono-value text-xs" min="0" step="any" />
+										<button type="button" onclick={() => removePowerPoint(i)} class="flex h-full items-center justify-center rounded text-[var(--color-text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 hover:text-[var(--color-error)]" title="Remove">
+											<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+										</button>
+									</div>
+								{/each}
+								<button type="button" onclick={addPowerPoint} class="mt-2 flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent-muted)]">
+									<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+									Add Row
+								</button>
+							</div>
+						{/if}
+					{/if}
+				</div>
+			</div>
 
 			{:else if activeTab === 'preview'}
-				<!-- Curve Preview Tab -->
-				<div class="flex h-full flex-col p-4">
-					<!-- Toggle Buttons -->
-					<div class="mb-4 flex flex-wrap gap-2">
-						<button
-							type="button"
-							onclick={() => showHeadCurve = !showHeadCurve}
-							class="rounded px-3 py-1.5 text-xs font-medium transition-colors
-								{showHeadCurve ? 'bg-blue-500 text-white' : 'bg-[var(--color-surface-elevated)] text-[var(--color-text-muted)]'}
-								{headPoints.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}"
-							disabled={headPoints.length === 0}
-						>Head</button>
-						<button
-							type="button"
-							onclick={() => showEffCurve = !showEffCurve}
-							class="rounded px-3 py-1.5 text-xs font-medium transition-colors
-								{showEffCurve ? 'bg-green-500 text-white' : 'bg-[var(--color-surface-elevated)] text-[var(--color-text-muted)]'}
-								{efficiencyPoints.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}"
-							disabled={efficiencyPoints.length === 0}
-						>Efficiency</button>
-						<button
-							type="button"
-							onclick={() => showNpshCurve = !showNpshCurve}
-							class="rounded px-3 py-1.5 text-xs font-medium transition-colors
-								{showNpshCurve ? 'bg-orange-500 text-white' : 'bg-[var(--color-surface-elevated)] text-[var(--color-text-muted)]'}
-								{npshPoints.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}"
-							disabled={npshPoints.length === 0}
-						>NPSH</button>
-						<button
-							type="button"
-							onclick={() => showPowerCurve = !showPowerCurve}
-							class="rounded px-3 py-1.5 text-xs font-medium transition-colors
-								{showPowerCurve ? 'bg-purple-500 text-white' : 'bg-[var(--color-surface-elevated)] text-[var(--color-text-muted)]'}
-								{powerPoints.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}"
-							disabled={powerPoints.length === 0}
-						>Power</button>
-					</div>
-
-					<!-- Chart Area -->
-					<div class="flex flex-1 items-center justify-center rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-4">
-						{#if headPoints.length === 0 && efficiencyPoints.length === 0 && npshPoints.length === 0 && powerPoints.length === 0}
-							<p class="text-sm text-[var(--color-text-subtle)]">Add curve data to see a preview.</p>
-						{:else}
-							<!-- SVG chart -->
-							<svg viewBox="0 0 500 300" class="h-full w-full max-h-[400px]" preserveAspectRatio="xMidYMid meet">
-								<!-- Grid -->
-								{#each [0, 1, 2, 3, 4] as i}
-									<line x1="50" y1={50 + i * 50} x2="470" y2={50 + i * 50} stroke="var(--color-border)" stroke-width="0.5" />
-								{/each}
-								<!-- Axes -->
-								<line x1="50" y1="50" x2="50" y2="260" stroke="var(--color-text-subtle)" stroke-width="1" />
-								<line x1="50" y1="260" x2="470" y2="260" stroke="var(--color-text-subtle)" stroke-width="1" />
-								<text x="260" y="290" text-anchor="middle" fill="var(--color-text-muted)" font-size="10">Flow (GPM)</text>
-								<text x="15" y="155" text-anchor="middle" fill="var(--color-text-muted)" font-size="10" transform="rotate(-90, 15, 155)">Value</text>
-
-								<!-- Head curve (blue) -->
-								{#if showHeadCurve && headBestFit && headBestFit.length > 0}
-									{@const maxFlow = Math.max(...headPoints.map(p => p.flow), 1)}
-									{@const maxHead = Math.max(...headPoints.map(p => p.head), 1)}
-									<polyline
-										points={headBestFit.map(p => `${50 + (p.flow / maxFlow) * 420},${260 - (p.head / maxHead) * 200}`).join(' ')}
-										fill="none"
-										stroke="#3b82f6"
-										stroke-width="2"
-									/>
-									{#each headPoints as p}
-										<circle cx={50 + (p.flow / maxFlow) * 420} cy={260 - (p.head / maxHead) * 200} r="3" fill="#3b82f6" />
-									{/each}
-								{:else if showHeadCurve && headPoints.length >= 2}
-									{@const maxFlow = Math.max(...headPoints.map(p => p.flow), 1)}
-									{@const maxHead = Math.max(...headPoints.map(p => p.head), 1)}
-									{@const sorted = [...headPoints].sort((a, b) => a.flow - b.flow)}
-									<polyline
-										points={sorted.map(p => `${50 + (p.flow / maxFlow) * 420},${260 - (p.head / maxHead) * 200}`).join(' ')}
-										fill="none"
-										stroke="#3b82f6"
-										stroke-width="2"
-									/>
-									{#each sorted as p}
-										<circle cx={50 + (p.flow / maxFlow) * 420} cy={260 - (p.head / maxHead) * 200} r="3" fill="#3b82f6" />
-									{/each}
-								{/if}
-
-								<!-- Efficiency curve (green) -->
-								{#if showEffCurve && effBestFit && effBestFit.length > 0}
-									{@const maxFlow = Math.max(...efficiencyPoints.map(p => p.flow), 1)}
-									<polyline
-										points={effBestFit.map(p => `${50 + (p.flow / maxFlow) * 420},${260 - p.efficiency * 200}`).join(' ')}
-										fill="none"
-										stroke="#22c55e"
-										stroke-width="2"
-										stroke-dasharray="6 3"
-									/>
-									{#each efficiencyPoints as p}
-										<circle cx={50 + (p.flow / maxFlow) * 420} cy={260 - p.efficiency * 200} r="3" fill="#22c55e" />
-									{/each}
-								{/if}
-
-								<!-- NPSH curve (orange) -->
-								{#if showNpshCurve && npshPoints.length >= 2}
-									{@const maxFlow = Math.max(...npshPoints.map(p => p.flow), 1)}
-									{@const maxNpsh = Math.max(...npshPoints.map(p => p.npsh_required), 1)}
-									{@const sorted = [...npshPoints].sort((a, b) => a.flow - b.flow)}
-									<polyline
-										points={sorted.map(p => `${50 + (p.flow / maxFlow) * 420},${260 - (p.npsh_required / maxNpsh) * 200}`).join(' ')}
-										fill="none"
-										stroke="#f97316"
-										stroke-width="2"
-										stroke-dasharray="3 3"
-									/>
-									{#each sorted as p}
-										<circle cx={50 + (p.flow / maxFlow) * 420} cy={260 - (p.npsh_required / maxNpsh) * 200} r="3" fill="#f97316" />
-									{/each}
-								{/if}
-
-								<!-- Power curve (purple) -->
-								{#if showPowerCurve && powerPoints.length >= 2}
-									{@const maxFlow = Math.max(...powerPoints.map(p => p.flow), 1)}
-									{@const maxPower = Math.max(...powerPoints.map(p => p.power), 1)}
-									{@const sorted = [...powerPoints].sort((a, b) => a.flow - b.flow)}
-									<polyline
-										points={sorted.map(p => `${50 + (p.flow / maxFlow) * 420},${260 - (p.power / maxPower) * 200}`).join(' ')}
-										fill="none"
-										stroke="#a855f7"
-										stroke-width="2"
-										stroke-dasharray="8 4"
-									/>
-									{#each sorted as p}
-										<circle cx={50 + (p.flow / maxFlow) * 420} cy={260 - (p.power / maxPower) * 200} r="3" fill="#a855f7" />
-									{/each}
-								{/if}
-							</svg>
-						{/if}
-					</div>
-
-					<!-- Legend -->
-					<div class="mt-3 flex flex-wrap gap-4 text-xs text-[var(--color-text-muted)]">
-						{#if headPoints.length > 0}
-							<span class="flex items-center gap-1.5"><span class="h-0.5 w-4 bg-blue-500"></span> Head (ft)</span>
-						{/if}
-						{#if efficiencyPoints.length > 0}
-							<span class="flex items-center gap-1.5"><span class="h-0.5 w-4 border-t-2 border-dashed border-green-500"></span> Efficiency (%)</span>
-						{/if}
-						{#if npshPoints.length > 0}
-							<span class="flex items-center gap-1.5"><span class="h-0.5 w-4 border-t-2 border-dotted border-orange-500"></span> NPSH (ft)</span>
-						{/if}
-						{#if powerPoints.length > 0}
-							<span class="flex items-center gap-1.5"><span class="h-0.5 w-4 border-t-2 border-dashed border-purple-500"></span> Power (HP)</span>
-						{/if}
-					</div>
+			<!-- Curve Preview Tab -->
+			<div class="flex h-full flex-col p-4">
+				<!-- Toggle Buttons -->
+				<div class="mb-3 flex flex-wrap gap-2">
+					<button
+						type="button"
+						onclick={() => showHeadCurve = !showHeadCurve}
+						class="rounded px-3 py-1.5 text-xs font-medium transition-colors
+							{showHeadCurve ? 'bg-blue-500 text-white' : 'bg-[var(--color-surface-elevated)] text-[var(--color-text-muted)]'}
+							{headPoints.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}"
+						disabled={headPoints.length === 0}
+					>Head</button>
+					<button
+						type="button"
+						onclick={() => showEffCurve = !showEffCurve}
+						class="rounded px-3 py-1.5 text-xs font-medium transition-colors
+							{showEffCurve ? 'bg-green-500 text-white' : 'bg-[var(--color-surface-elevated)] text-[var(--color-text-muted)]'}
+							{efficiencyPoints.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}"
+						disabled={efficiencyPoints.length === 0}
+					>Efficiency</button>
+					<button
+						type="button"
+						onclick={() => showPowerCurve = !showPowerCurve}
+						class="rounded px-3 py-1.5 text-xs font-medium transition-colors
+							{showPowerCurve ? 'bg-purple-500 text-white' : 'bg-[var(--color-surface-elevated)] text-[var(--color-text-muted)]'}
+							{powerPoints.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}"
+						disabled={powerPoints.length === 0}
+					>Power</button>
 				</div>
+
+				<!-- Main Chart: Head + Efficiency + Power -->
+				<div class="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2">
+					{#if headPoints.length === 0 && efficiencyPoints.length === 0 && powerPoints.length === 0}
+						<div class="flex h-full items-center justify-center">
+							<p class="text-sm text-[var(--color-text-subtle)]">Add curve data to see a preview.</p>
+						</div>
+					{:else}
+						{@const chartLeft = 55}
+						{@const chartRight = 470}
+						{@const chartTop = 25}
+						{@const chartBottom = 250}
+						{@const chartW = chartRight - chartLeft}
+						{@const chartH = chartBottom - chartTop}
+						{@const maxHead = headPoints.length > 0 ? Math.max(...headPoints.map(p => p.head)) : 100}
+						{@const headTicks = niceAxisTicks(0, maxHead)}
+						{@const headAxisMax = headTicks[headTicks.length - 1] || 1}
+						{@const scaleX = (flow: number) => chartLeft + (flow / flowAxisMax) * chartW}
+						{@const scaleY = (head: number) => chartBottom - (head / headAxisMax) * chartH}
+						<svg viewBox="0 0 500 280" class="h-full w-full" preserveAspectRatio="xMidYMid meet">
+							<!-- Grid lines -->
+							{#each headTicks as tick}
+								<line x1={chartLeft} y1={scaleY(tick)} x2={chartRight} y2={scaleY(tick)} stroke="var(--color-border)" stroke-width="0.5" />
+							{/each}
+							{#each flowTicks as tick}
+								<line x1={scaleX(tick)} y1={chartTop} x2={scaleX(tick)} y2={chartBottom} stroke="var(--color-border)" stroke-width="0.5" />
+							{/each}
+
+							<!-- Axes -->
+							<line x1={chartLeft} y1={chartTop} x2={chartLeft} y2={chartBottom} stroke="var(--color-text-subtle)" stroke-width="1" />
+							<line x1={chartLeft} y1={chartBottom} x2={chartRight} y2={chartBottom} stroke="var(--color-text-subtle)" stroke-width="1" />
+
+							<!-- X-axis tick labels (flow) -->
+							{#each flowTicks as tick}
+								<text x={scaleX(tick)} y={chartBottom + 14} text-anchor="middle" fill="var(--color-text-muted)" font-size="8">{tick}</text>
+							{/each}
+							<text x={(chartLeft + chartRight) / 2} y={chartBottom + 26} text-anchor="middle" fill="var(--color-text-muted)" font-size="9">Flow (GPM)</text>
+
+							<!-- Y-axis tick labels (head) -->
+							{#each headTicks as tick}
+								<text x={chartLeft - 5} y={scaleY(tick) + 3} text-anchor="end" fill="var(--color-text-muted)" font-size="8">{tick}</text>
+							{/each}
+							<text x="12" y={(chartTop + chartBottom) / 2} text-anchor="middle" fill="var(--color-text-muted)" font-size="9" transform="rotate(-90, 12, {(chartTop + chartBottom) / 2})">Head (ft)</text>
+
+							<!-- Head curve (blue) -->
+							{#if showHeadCurve && headBestFit && headBestFit.length > 0}
+								<polyline
+									points={headBestFit.map(p => `${scaleX(p.flow)},${scaleY(p.head)}`).join(' ')}
+									fill="none"
+									stroke="#3b82f6"
+									stroke-width="2"
+								/>
+								{#each headPoints as p}
+									<circle cx={scaleX(p.flow)} cy={scaleY(p.head)} r="3" fill="#3b82f6" />
+								{/each}
+							{:else if showHeadCurve && headPoints.length >= 2}
+								{@const sorted = [...headPoints].sort((a, b) => a.flow - b.flow)}
+								<polyline
+									points={sorted.map(p => `${scaleX(p.flow)},${scaleY(p.head)}`).join(' ')}
+									fill="none"
+									stroke="#3b82f6"
+									stroke-width="2"
+								/>
+								{#each sorted as p}
+									<circle cx={scaleX(p.flow)} cy={scaleY(p.head)} r="3" fill="#3b82f6" />
+								{/each}
+							{/if}
+
+							<!-- Efficiency curve (green, right y-axis scaled 0-100%) -->
+							{#if showEffCurve && effBestFit && effBestFit.length > 0}
+								<polyline
+									points={effBestFit.map(p => `${scaleX(p.flow)},${chartBottom - p.efficiency * chartH}`).join(' ')}
+									fill="none"
+									stroke="#22c55e"
+									stroke-width="2"
+									stroke-dasharray="6 3"
+								/>
+								{#each efficiencyPoints as p}
+									<circle cx={scaleX(p.flow)} cy={chartBottom - p.efficiency * chartH} r="3" fill="#22c55e" />
+								{/each}
+							{:else if showEffCurve && efficiencyPoints.length >= 2}
+								{@const sorted = [...efficiencyPoints].sort((a, b) => a.flow - b.flow)}
+								<polyline
+									points={sorted.map(p => `${scaleX(p.flow)},${chartBottom - p.efficiency * chartH}`).join(' ')}
+									fill="none"
+									stroke="#22c55e"
+									stroke-width="2"
+									stroke-dasharray="6 3"
+								/>
+								{#each sorted as p}
+									<circle cx={scaleX(p.flow)} cy={chartBottom - p.efficiency * chartH} r="3" fill="#22c55e" />
+								{/each}
+							{/if}
+
+							<!-- Right Y-axis labels (efficiency %) -->
+							{#if efficiencyPoints.length > 0}
+								{#each [0, 25, 50, 75, 100] as pct}
+									<text x={chartRight + 5} y={chartBottom - (pct / 100) * chartH + 3} text-anchor="start" fill="#22c55e" font-size="8">{pct}%</text>
+								{/each}
+							{/if}
+
+							<!-- Power curve (purple) -->
+							{#if showPowerCurve && powerPoints.length >= 2}
+								{@const maxPower = Math.max(...powerPoints.map(p => p.power), 1)}
+								{@const sorted = [...powerPoints].sort((a, b) => a.flow - b.flow)}
+								<polyline
+									points={sorted.map(p => `${scaleX(p.flow)},${chartBottom - (p.power / maxPower) * chartH * 0.8}`).join(' ')}
+									fill="none"
+									stroke="#a855f7"
+									stroke-width="2"
+									stroke-dasharray="8 4"
+								/>
+								{#each sorted as p}
+									<circle cx={scaleX(p.flow)} cy={chartBottom - (p.power / maxPower) * chartH * 0.8} r="3" fill="#a855f7" />
+								{/each}
+							{/if}
+
+							<!-- Design Point crosshair -->
+							{#if designPointFlow != null && designPointHead != null}
+								{@const dpX = scaleX(designPointFlow)}
+								{@const dpY = scaleY(designPointHead)}
+								<!-- Vertical crosshair line -->
+								<line x1={dpX} y1={chartTop} x2={dpX} y2={chartBottom} stroke="#ef4444" stroke-width="1" stroke-dasharray="4 3" opacity="0.6" />
+								<!-- Horizontal crosshair line -->
+								<line x1={chartLeft} y1={dpY} x2={chartRight} y2={dpY} stroke="#ef4444" stroke-width="1" stroke-dasharray="4 3" opacity="0.6" />
+								<!-- Center diamond marker -->
+								<polygon points="{dpX},{dpY - 6} {dpX + 5},{dpY} {dpX},{dpY + 6} {dpX - 5},{dpY}" fill="#ef4444" stroke="#ef4444" stroke-width="1" />
+								<!-- Label -->
+								<text x={dpX + 8} y={dpY - 8} fill="#ef4444" font-size="8" font-weight="bold">DP</text>
+							{/if}
+
+							<!-- BEP marker -->
+							{#if bepData}
+								{@const bepX = scaleX(bepData.flow)}
+								{@const bepY = scaleY(bepData.head)}
+								<circle cx={bepX} cy={bepY} r="5" fill="none" stroke="#f59e0b" stroke-width="2" />
+								<text x={bepX + 8} y={bepY - 4} fill="#f59e0b" font-size="8" font-weight="bold">BEP</text>
+							{/if}
+						</svg>
+					{/if}
+				</div>
+
+				<!-- NPSH Subplot (separate chart below main) -->
+				{#if npshPoints.length >= 2}
+					<div class="mt-3 h-40 rounded border border-[var(--color-border)] bg-[var(--color-surface-elevated)] p-2">
+					{#if true}
+						{@const chartLeft = 55}
+						{@const chartRight = 470}
+						{@const chartTop = 15}
+						{@const chartBottom = 115}
+						{@const chartW = chartRight - chartLeft}
+						{@const chartH = chartBottom - chartTop}
+						{@const maxNpsh = Math.max(...npshPoints.map(p => p.npsh_required), 1)}
+						{@const npshTicks = niceAxisTicks(0, maxNpsh)}
+						{@const npshAxisMax = npshTicks[npshTicks.length - 1] || 1}
+						{@const scaleX = (flow: number) => chartLeft + (flow / flowAxisMax) * chartW}
+						{@const scaleY = (npsh: number) => chartBottom - (npsh / npshAxisMax) * chartH}
+						<svg viewBox="0 0 500 140" class="h-full w-full" preserveAspectRatio="xMidYMid meet">
+							<!-- Grid -->
+							{#each npshTicks as tick}
+								<line x1={chartLeft} y1={scaleY(tick)} x2={chartRight} y2={scaleY(tick)} stroke="var(--color-border)" stroke-width="0.5" />
+							{/each}
+							{#each flowTicks as tick}
+								<line x1={scaleX(tick)} y1={chartTop} x2={scaleX(tick)} y2={chartBottom} stroke="var(--color-border)" stroke-width="0.5" />
+							{/each}
+
+							<!-- Axes -->
+							<line x1={chartLeft} y1={chartTop} x2={chartLeft} y2={chartBottom} stroke="var(--color-text-subtle)" stroke-width="1" />
+							<line x1={chartLeft} y1={chartBottom} x2={chartRight} y2={chartBottom} stroke="var(--color-text-subtle)" stroke-width="1" />
+
+							<!-- X-axis ticks -->
+							{#each flowTicks as tick}
+								<text x={scaleX(tick)} y={chartBottom + 12} text-anchor="middle" fill="var(--color-text-muted)" font-size="8">{tick}</text>
+							{/each}
+							<text x={(chartLeft + chartRight) / 2} y={chartBottom + 24} text-anchor="middle" fill="var(--color-text-muted)" font-size="9">Flow (GPM)</text>
+
+							<!-- Y-axis ticks -->
+							{#each npshTicks as tick}
+								<text x={chartLeft - 5} y={scaleY(tick) + 3} text-anchor="end" fill="var(--color-text-muted)" font-size="8">{tick}</text>
+							{/each}
+							<text x="12" y={(chartTop + chartBottom) / 2} text-anchor="middle" fill="#f97316" font-size="9" transform="rotate(-90, 12, {(chartTop + chartBottom) / 2})">NPSHr (ft)</text>
+
+							<!-- NPSH curve -->
+							<polyline
+								points={[...npshPoints].sort((a, b) => a.flow - b.flow).map(p => `${scaleX(p.flow)},${scaleY(p.npsh_required)}`).join(' ')}
+								fill="none"
+								stroke="#f97316"
+								stroke-width="2"
+							/>
+							{#each [...npshPoints].sort((a, b) => a.flow - b.flow) as p}
+								<circle cx={scaleX(p.flow)} cy={scaleY(p.npsh_required)} r="3" fill="#f97316" />
+							{/each}
+
+							<!-- Design Point vertical indicator -->
+							{#if designPointFlow != null}
+								<line x1={scaleX(designPointFlow)} y1={chartTop} x2={scaleX(designPointFlow)} y2={chartBottom} stroke="#ef4444" stroke-width="1" stroke-dasharray="4 3" opacity="0.6" />
+							{/if}
+						</svg>
+					{/if}
+					</div>
+				{/if}
+
+				<!-- Legend -->
+				<div class="mt-3 flex flex-wrap gap-4 text-xs text-[var(--color-text-muted)]">
+					{#if headPoints.length > 0}
+						<span class="flex items-center gap-1.5"><span class="h-0.5 w-4 bg-blue-500"></span> Head (ft)</span>
+					{/if}
+					{#if efficiencyPoints.length > 0}
+						<span class="flex items-center gap-1.5"><span class="h-0.5 w-4 border-t-2 border-dashed border-green-500"></span> Efficiency (%)</span>
+					{/if}
+					{#if powerPoints.length > 0}
+						<span class="flex items-center gap-1.5"><span class="h-0.5 w-4 border-t-2 border-dashed border-purple-500"></span> Power (HP)</span>
+					{/if}
+					{#if npshPoints.length > 0}
+						<span class="flex items-center gap-1.5"><span class="h-0.5 w-4 bg-orange-500"></span> NPSHr (ft)</span>
+					{/if}
+					{#if designPointFlow != null && designPointHead != null}
+						<span class="flex items-center gap-1.5"><span class="inline-block h-2 w-2 rotate-45 bg-red-500"></span> Design Point</span>
+					{/if}
+					{#if bepData}
+						<span class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full border-2 border-amber-500"></span> BEP</span>
+					{/if}
+				</div>
+			</div>
 			{/if}
 		</div>
 	</div>

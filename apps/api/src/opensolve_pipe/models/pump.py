@@ -35,6 +35,14 @@ class FlowPowerPoint(OpenSolvePipeBaseModel):
     power: NonNegativeFloat = Field(description="Power (BHP) in project units")
 
 
+class DesignPoint(OpenSolvePipeBaseModel):
+    """Design point for a pump (rated operating condition)."""
+
+    flow: NonNegativeFloat = Field(description="Design flow rate in project units")
+    head: NonNegativeFloat = Field(description="Design head in project units")
+    speed: PositiveFloat | None = Field(default=None, description="Design speed in RPM")
+
+
 class PumpCurve(OpenSolvePipeBaseModel):
     """Pump performance curve definition."""
 
@@ -46,13 +54,22 @@ class PumpCurve(OpenSolvePipeBaseModel):
         default=None, description="Rated speed in RPM"
     )
     impeller_diameter: PositiveFloat | None = Field(
-        default=None, description="Impeller diameter in project units"
+        default=None, description="Impeller diameter in project units (selected trim)"
+    )
+    min_impeller_diameter: PositiveFloat | None = Field(
+        default=None, description="Minimum impeller diameter in project units"
+    )
+    max_impeller_diameter: PositiveFloat | None = Field(
+        default=None, description="Maximum impeller diameter in project units"
     )
     stages: int | None = Field(default=None, ge=1, description="Number of pump stages")
     inlet_outlet: str | None = Field(
         default=None, description="Inlet/outlet size description"
     )
     notes: str | None = Field(default=None, description="Free-form notes")
+    design_point: DesignPoint | None = Field(
+        default=None, description="Design point (rated operating condition)"
+    )
 
     points: list[FlowHeadPoint] = Field(
         min_length=2, description="Pump curve points (minimum 2)"

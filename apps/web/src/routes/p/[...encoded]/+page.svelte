@@ -149,6 +149,9 @@
 		}
 	}
 
+	// Focus mode state
+	let focusModeActive = $derived($workspaceStore.focusMode);
+
 	// Keyboard shortcuts
 	function handleKeydown(event: KeyboardEvent) {
 		// Ctrl+Enter or Cmd+Enter to solve
@@ -165,10 +168,23 @@
 			return;
 		}
 
-		// Escape to close palette
-		if (event.key === 'Escape' && showCommandPalette) {
-			showCommandPalette = false;
+		// Ctrl+Shift+F for focus mode
+		if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'F') {
+			event.preventDefault();
+			workspaceStore.toggleFocusMode();
 			return;
+		}
+
+		// Escape to close palette or exit focus mode
+		if (event.key === 'Escape') {
+			if (showCommandPalette) {
+				showCommandPalette = false;
+				return;
+			}
+			if (focusModeActive) {
+				workspaceStore.setFocusMode(false);
+				return;
+			}
 		}
 	}
 
@@ -181,8 +197,9 @@
 	// Workspace CSS class
 	let workspaceClass = $derived(
 		'workspace' +
-		(!isSidebarOpen ? ' sidebar-collapsed' : '') +
-		(!isInspectorOpen ? ' inspector-collapsed' : '')
+		(focusModeActive ? ' focus-mode' : '') +
+		(!isSidebarOpen || focusModeActive ? ' sidebar-collapsed' : '') +
+		(!isInspectorOpen || focusModeActive ? ' inspector-collapsed' : '')
 	);
 </script>
 
@@ -275,6 +292,32 @@
 			<SchematicViewer onComponentClick={handleSchematicComponentClick} />
 		{/if}
 	</div>
+
+	<!-- Focus Mode Panel (desktop only, replaces sidebar + inspector) -->
+	{#if focusModeActive && !isMobile}
+		<div class="workspace-focus-panel">
+			<div class="flex h-full flex-col border-t border-[var(--color-border)] bg-[var(--color-surface)]">
+				<!-- Focus panel header -->
+				<div class="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-1.5">
+					<span class="section-heading">Focus Mode</span>
+					<button
+						type="button"
+						onclick={() => workspaceStore.setFocusMode(false)}
+						class="flex h-5 w-5 items-center justify-center rounded text-[var(--color-text-subtle)] transition-colors hover:bg-[var(--color-surface-elevated)] hover:text-[var(--color-text)]"
+						title="Exit focus mode (Esc)"
+					>
+						<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
+				<!-- PanelNavigator content -->
+				<div class="min-h-0 flex-1 overflow-y-auto">
+					<PanelNavigator />
+				</div>
+			</div>
+		</div>
+	{/if}
 
 	<!-- Inspector: Property Panel (always rendered for CSS transition) -->
 	<div class="workspace-inspector">

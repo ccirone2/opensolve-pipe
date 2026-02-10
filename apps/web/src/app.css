@@ -190,6 +190,28 @@ body {
 	grid-template-columns: 0px 1fr 0px;
 }
 
+/* Focus Mode — PanelNavigator replaces sidebar + inspector */
+.workspace.focus-mode {
+	grid-template-rows: var(--toolbar-height) 1fr 35vh var(--statusbar-height);
+	grid-template-columns: 1fr;
+	grid-template-areas:
+		'toolbar'
+		'canvas'
+		'focus-panel'
+		'statusbar';
+}
+
+.workspace-focus-panel {
+	grid-area: focus-panel;
+	overflow-y: auto;
+	overflow-x: hidden;
+}
+
+.workspace.focus-mode .workspace-sidebar,
+.workspace.focus-mode .workspace-inspector {
+	display: none;
+}
+
 /* Hide overflow on collapsed panels for smooth slide */
 .workspace.sidebar-collapsed .workspace-sidebar {
 	overflow: hidden;

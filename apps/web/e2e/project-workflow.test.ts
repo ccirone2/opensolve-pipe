@@ -46,8 +46,8 @@ test.describe('Project Navigation', () => {
 		// Wait for workspace to render
 		await expect(page.getByText('Untitled Project').first()).toBeVisible({ timeout: 10000 });
 
-		// Use Ctrl+K keyboard shortcut to open command palette
-		await page.keyboard.press('Control+k');
+		// Click the "Add component" button in the sidebar footer to open command palette
+		await page.getByRole('button', { name: /Add component/i }).first().click();
 
 		// Should show command palette with search input
 		await expect(page.getByPlaceholder(/search|type/i).first()).toBeVisible({ timeout: 5000 });

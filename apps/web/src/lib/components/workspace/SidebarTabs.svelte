@@ -3,13 +3,16 @@
 	import ComponentTree from './ComponentTree.svelte';
 	import ProjectConfigPanel from './ProjectConfigPanel.svelte';
 	import SystemResultsPanel from './SystemResultsPanel.svelte';
+	import SidebarFooter from './SidebarFooter.svelte';
 
 	interface Props {
 		onOpenCommandPalette?: () => void;
 		onSolve?: () => void;
+		onUndo?: () => void;
+		onRedo?: () => void;
 	}
 
-	let { onOpenCommandPalette, onSolve }: Props = $props();
+	let { onOpenCommandPalette, onSolve, onUndo, onRedo }: Props = $props();
 
 	const tabs: { id: SidebarTab; label: string }[] = [
 		{ id: 'tree', label: 'Tree' },
@@ -71,14 +74,17 @@
 		{/each}
 	</div>
 
-	<!-- Tab Content -->
-	<div class="flex-1 overflow-y-auto overflow-x-hidden">
-		{#if $activeSidebarTab === 'tree'}
-			<ComponentTree {onOpenCommandPalette} />
-		{:else if $activeSidebarTab === 'config'}
-			<ProjectConfigPanel />
-		{:else if $activeSidebarTab === 'results'}
-			<SystemResultsPanel {onSolve} />
-		{/if}
+	<!-- Tab Content + Footer -->
+	<div class="flex flex-1 flex-col overflow-hidden">
+		<div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+			{#if $activeSidebarTab === 'tree'}
+				<ComponentTree {onOpenCommandPalette} />
+			{:else if $activeSidebarTab === 'config'}
+				<ProjectConfigPanel />
+			{:else if $activeSidebarTab === 'results'}
+				<SystemResultsPanel {onSolve} />
+			{/if}
+		</div>
+		<SidebarFooter {onOpenCommandPalette} {onSolve} {onUndo} {onRedo} />
 	</div>
 </div>

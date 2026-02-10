@@ -15,15 +15,17 @@ test.describe('Project Workflow', () => {
 		await expect(page.getByText('Untitled Project').first()).toBeVisible({ timeout: 10000 });
 
 		// Should show Solve button in toolbar
-		await expect(page.getByRole('button', { name: /Solve/i })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Solve', exact: true })).toBeVisible();
 	});
 
 	test('solve button is disabled when project has no components', async ({ page }) => {
 		// Wait for workspace to render
-		await expect(page.getByRole('button', { name: /Solve/i })).toBeVisible({ timeout: 10000 });
+		await expect(
+			page.getByRole('button', { name: 'Solve', exact: true })
+		).toBeVisible({ timeout: 10000 });
 
 		// Solve button should be disabled for empty project
-		const solveButton = page.getByRole('button', { name: /Solve/i });
+		const solveButton = page.getByRole('button', { name: 'Solve', exact: true });
 		await expect(solveButton).toBeDisabled();
 	});
 });
@@ -57,12 +59,16 @@ test.describe('Keyboard Shortcuts', () => {
 		await page.goto(WORKSPACE_URL);
 
 		// Wait for workspace to render
-		await expect(page.getByRole('button', { name: /Solve/i })).toBeVisible({ timeout: 10000 });
+		await expect(
+			page.getByRole('button', { name: 'Solve', exact: true })
+		).toBeVisible({ timeout: 10000 });
 
 		// Press Ctrl+Enter (should not cause errors on empty project)
 		await page.keyboard.press('Control+Enter');
 
 		// Page should still be functional
-		await expect(page.getByRole('button', { name: /Solve/i })).toBeVisible();
+		await expect(
+			page.getByRole('button', { name: 'Solve', exact: true })
+		).toBeVisible();
 	});
 });

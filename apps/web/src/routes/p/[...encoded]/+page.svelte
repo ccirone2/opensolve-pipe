@@ -4,13 +4,19 @@
 		SidebarTabs,
 		PropertyPanel,
 		CommandPalette,
-		StatusBar
+		StatusBar,
+		BottomSheet,
+		MobileNavBar
 	} from '$lib/components/workspace';
 	import SchematicViewer from '$lib/components/schematic/SchematicViewer.svelte';
+	import PanelNavigator from '$lib/components/panel/PanelNavigator.svelte';
+	import ProjectConfigPanel from '$lib/components/workspace/ProjectConfigPanel.svelte';
+	import SystemResultsPanel from '$lib/components/workspace/SystemResultsPanel.svelte';
+	import ComponentTree from '$lib/components/workspace/ComponentTree.svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
-	import { projectStore, components, metadata, navigationStore, workspaceStore } from '$lib/stores';
+	import { projectStore, components, metadata, navigationStore, workspaceStore, currentElementId } from '$lib/stores';
 	import { solveNetwork, ApiError } from '$lib/api';
 	import { encodeProject, tryDecodeProject } from '$lib/utils';
 
@@ -33,6 +39,11 @@
 	// Loading state for URL decode
 	let isLoading = $state(true);
 
+	// Mobile state
+	let isMobile = $state(false);
+	let mobileTab = $state<'components' | 'settings' | 'results' | 'solve'>('components');
+	let bottomSheetState = $state<'collapsed' | 'half' | 'full'>('collapsed');
+
 	// Project name from metadata
 	let projectName = $derived($metadata?.name || (encoded ? 'Project' : 'New Project'));
 
@@ -41,6 +52,22 @@
 
 	// Track if we've already loaded from URL to prevent re-loading
 	let hasLoadedFromUrl = $state(false);
+
+	// Detect mobile viewport
+	$effect(() => {
+		const mq = window.matchMedia('(max-width: 768px)');
+		isMobile = mq.matches;
+		const handler = (e: MediaQueryListEvent) => { isMobile = e.matches; };
+		mq.addEventListener('change', handler);
+		return () => mq.removeEventListener('change', handler);
+	});
+
+	// Open bottom sheet when component selected on mobile
+	$effect(() => {
+		if (isMobile && $currentElementId) {
+			bottomSheetState = 'half';
+		}
+	});
 
 	// Load project from URL
 	$effect(() => {
@@ -143,6 +170,12 @@
 			showCommandPalette = false;
 			return;
 		}
+	}
+
+	// Mobile tab switching
+	function handleMobileTabChange(tab: 'components' | 'settings' | 'results' | 'solve') {
+		mobileTab = tab;
+		bottomSheetState = 'half';
 	}
 
 	// Workspace CSS class
@@ -253,6 +286,31 @@
 		<StatusBar {isSolving} {solveError} />
 	</div>
 </div>
+
+<!-- Mobile Bottom Sheet + Nav Bar (only on mobile) -->
+{#if isMobile}
+	<BottomSheet
+		sheetState={bottomSheetState}
+		onStateChange={(s) => (bottomSheetState = s)}
+	>
+		{#if $currentElementId && mobileTab === 'components'}
+			<PanelNavigator />
+		{:else if mobileTab === 'settings'}
+			<ProjectConfigPanel />
+		{:else if mobileTab === 'results'}
+			<SystemResultsPanel onSolve={handleSolve} />
+		{:else}
+			<ComponentTree />
+		{/if}
+	</BottomSheet>
+
+	<MobileNavBar
+		activeTab={mobileTab}
+		onTabChange={handleMobileTabChange}
+		onSolve={handleSolve}
+		{isSolving}
+	/>
+{/if}
 
 <!-- Command Palette (global overlay) -->
 <CommandPalette

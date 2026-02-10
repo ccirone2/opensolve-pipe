@@ -208,19 +208,20 @@ body {
 	}
 }
 
-/* Mobile layout */
+/* Mobile layout — Bottom sheet replaces static panels */
 @media (max-width: 768px) {
 	.workspace {
-		grid-template-rows: var(--toolbar-height) 1fr 40vh var(--statusbar-height);
+		grid-template-rows: var(--toolbar-height) 1fr var(--statusbar-height);
 		grid-template-columns: 1fr;
 		grid-template-areas:
 			'toolbar'
 			'canvas'
-			'inspector'
 			'statusbar';
+		transition: none;
 	}
 
-	.workspace-sidebar {
+	.workspace-sidebar,
+	.workspace-inspector {
 		display: none;
 	}
 

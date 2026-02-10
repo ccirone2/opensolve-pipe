@@ -8,3 +8,5 @@ export { default as ProjectConfigPanel } from './ProjectConfigPanel.svelte';
 export { default as SystemResultsPanel } from './SystemResultsPanel.svelte';
 export { default as MetricsStrip } from './MetricsStrip.svelte';
 export { default as ProjectSummary } from './ProjectSummary.svelte';
+export { default as BottomSheet } from './BottomSheet.svelte';
+export { default as MobileNavBar } from './MobileNavBar.svelte';

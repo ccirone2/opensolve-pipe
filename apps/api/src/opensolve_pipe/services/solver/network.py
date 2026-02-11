@@ -239,21 +239,40 @@ def classify_network(graph: NetworkGraph) -> NetworkType:
     return NetworkType.SIMPLE
 
 
-def get_source_head(component: Component) -> float:
+def get_source_head(
+    component: Component,
+    fluid_props: FluidProperties | None = None,
+) -> float:
     """Get the total head at a source component.
 
     Uses the HeadSource protocol - any component with a total_head property
-    can be used as a source.
+    can be used as a source. When fluid_props is provided and the component
+    has a non-zero surface_pressure, the pressure contribution is included.
 
     Args:
         component: Source component implementing HeadSource protocol
                    (reservoir, tank, or reference node)
+        fluid_props: Fluid properties for surface pressure conversion.
+                     Required when surface_pressure != 0.
 
     Returns:
-        Total head in feet
+        Total head in feet (including surface pressure head if applicable)
     """
     if isinstance(component, HeadSource):
-        return component.total_head
+        head = component.total_head
+        # Add surface pressure contribution if present
+        if (
+            fluid_props is not None
+            and hasattr(component, "surface_pressure")
+            and component.surface_pressure != 0
+        ):
+            # Convert gauge pressure (psi) to feet of head
+            # 2.31 ft/psi for water (SG=1.0), adjusted by specific gravity
+            pressure_head_ft = (
+                component.surface_pressure * 2.31 / fluid_props.specific_gravity
+            )
+            head += pressure_head_ft
+        return head
     # Fallback for components without total_head property
     return component.elevation
 
@@ -409,8 +428,9 @@ def solve_simple_path(
 
     # Static head = end total head - source total head
     # For tanks/reservoirs, total_head includes water level (elevation + water_level)
-    source_head = get_source_head(source)
-    end_head = get_source_head(end_component)
+    # and surface pressure contribution when fluid_props is available
+    source_head = get_source_head(source, fluid_props)
+    end_head = get_source_head(end_component, fluid_props)
     static_head_ft = end_head - source_head
 
     # Calculate total pipe length, diameter, roughness, and K-factors
@@ -1117,7 +1137,7 @@ def solve_branching_network(
     # Calculate pressures at each component
     for source_id in graph.sources:
         source = graph.components[source_id]
-        source_head = get_source_head(source)
+        source_head = get_source_head(source, fluid_props)
         state.pressures[source_id] = source_head
 
         # BFS to propagate pressures

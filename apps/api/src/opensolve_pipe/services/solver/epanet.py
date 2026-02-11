@@ -164,17 +164,25 @@ def _add_component_to_wntr(
     if isinstance(comp, Reservoir):
         node_name = comp.id
         # WNTR reservoirs use head (elevation + water level), in meters
-        total_head_m = (comp.elevation + comp.water_level) * FT_TO_M
+        # Include surface pressure contribution if non-zero
+        total_head_ft = comp.elevation + comp.water_level
+        if comp.surface_pressure != 0 and fluid_props.specific_gravity > 0:
+            total_head_ft += comp.surface_pressure * 2.31 / fluid_props.specific_gravity
+        total_head_m = total_head_ft * FT_TO_M
         wn.add_reservoir(node_name, base_head=total_head_m)
         ctx.node_map[comp.id] = node_name
 
     elif isinstance(comp, Tank):
         node_name = comp.id
         # WNTR tanks need elevation, diameter, levels in meters
+        # Surface pressure is added as equivalent head to the initial level
+        init_level = comp.initial_level
+        if comp.surface_pressure != 0 and fluid_props.specific_gravity > 0:
+            init_level += comp.surface_pressure * 2.31 / fluid_props.specific_gravity
         wn.add_tank(
             node_name,
             elevation=comp.elevation * FT_TO_M,
-            init_level=comp.initial_level * FT_TO_M,
+            init_level=init_level * FT_TO_M,
             min_level=comp.min_level * FT_TO_M,
             max_level=comp.max_level * FT_TO_M,
             diameter=comp.diameter * FT_TO_M,

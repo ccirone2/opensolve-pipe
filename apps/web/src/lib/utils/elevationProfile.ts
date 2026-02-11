@@ -7,8 +7,6 @@
 
 import type {
 	Component,
-	Reservoir,
-	Tank,
 	PipeConnection
 } from '$lib/models/components';
 import {
@@ -17,7 +15,7 @@ import {
 	isPump,
 	isValve
 } from '$lib/models/components';
-import type { SolvedState, ComponentResult, PipingResult } from '$lib/models/results';
+import type { SolvedState, ComponentResult } from '$lib/models/results';
 
 // ============================================================================
 // Types

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildElevationData, type ElevationElement } from '../elevationProfile';
+import { buildElevationData } from '../elevationProfile';
 import type { Component, PipeConnection, Reservoir, Tank, Junction, PumpComponent } from '$lib/models/components';
 import type { SolvedState } from '$lib/models/results';
 

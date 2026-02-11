@@ -302,7 +302,6 @@
 	<div class="workspace-sidebar">
 		<SidebarTabs
 			onOpenCommandPalette={() => (showCommandPalette = true)}
-			onSolve={handleSolve}
 		/>
 	</div>
 

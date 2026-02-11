@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { solvedState, components, pumpLibrary, workspaceStore, activeResultsView, type ResultsView } from '$lib/stores';
-	import { isPump, isValve, type ValveComponent } from '$lib/models';
+	import { solvedState, components, workspaceStore, activeResultsView, type ResultsView } from '$lib/stores';
 
 	// Counts for each category
 	let componentCount = $derived(

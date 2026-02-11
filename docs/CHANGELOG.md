@@ -60,6 +60,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Backend (API)
 
+- **Surface Pressure in HGL Calculations** (PR #227, Issue #225)
+  - `get_source_head()` now accepts optional `fluid_props` parameter for surface pressure conversion
+  - Gauge pressure (psi) converted to feet of head: `pressure * 2.31 / SG`
+  - Simple solver and branching solver both pass fluid properties to `get_source_head()`
+  - WNTR/EPANET solver includes surface pressure in reservoir `base_head` and tank `init_level`
+  - 7 new tests covering surface pressure with water, heavy fluids (SG adjustment), zero pressure, and backward compatibility
+
 - **Pump Operating Modes and Status** (PR #114)
   - `PumpOperatingMode` enum: fixed_speed, variable_speed, controlled_pressure, controlled_flow, off
   - `PumpStatus` enum: running, off_check, off_no_check, locked_out
@@ -329,7 +336,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `editingPumpCurveId` workspace store state drives canvas content switching
   - PumpCurveList updated from inline editing to selection-based workflow
 
-- **Elevation Profile Visualization** (PR #TBD, Issue #223)
+- **Elevation Profile Visualization** (PR #224, Issue #223)
   - New "Elevation" sub-tab in the Results panel (inspector)
   - SVG chart showing physical pipe elevations and component positions
   - Flowing HGL (green) computed from cumulative head changes with clipping logic
@@ -343,6 +350,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Responsive width via ResizeObserver
   - `buildElevationData()` utility transforms project + solved state into elevation elements
   - 5 unit tests for the data transformation utility
+
+- **Results View Click-to-Inspector Navigation** (PR #228, Issue #226)
+  - Click any row in Components table to navigate inspector to that component
+  - Click any row in Piping table to navigate inspector to the source component
+  - Click any Pump card to navigate inspector to that pump's configuration
+  - Click SVG markers or data table rows in Elevation Profile to navigate to component
+  - Selected items highlighted with accent color (row background or card border)
+  - Inspector auto-opens if closed when a results item is clicked
 
 - **Schematic Zoom Limits and Label Visibility**
   - Minimum zoom set to 33%, maximum zoom set to 125%

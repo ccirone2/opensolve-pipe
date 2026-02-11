@@ -82,17 +82,6 @@
 		return positions;
 	});
 
-	let totalLength = $derived(
-		componentPositions.length > 0
-			? componentPositions[componentPositions.length - 1].cumulativeLength +
-				data
-					.filter((d) => d.type === 'conn')
-					.reduce((sum, d) => sum + (d.length ?? 0), 0) -
-				componentPositions.reduce((sum, p) => sum + 0, 0)
-			: 0
-	);
-
-	// Recalculate total properly
 	let totalPipeLength = $derived(
 		data.filter((d) => d.type === 'conn').reduce((sum, d) => sum + (d.length ?? 0), 0)
 	);
@@ -549,7 +538,7 @@
 
 			<!-- Flowing HGL -->
 			{#if showFlowingHGL && flowingHGLPoints.length > 0}
-				{#each hglPathSegments as segment, idx}
+				{#each hglPathSegments as segment}
 					<path
 						d={segment.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${yScale(p.y).toFixed(1)}`).join(' ')}
 						stroke={COLORS.hglFlow}
@@ -604,7 +593,7 @@
 			{/if}
 
 			<!-- Connection lines -->
-			{#each segments as segment, segIdx}
+			{#each segments as segment}
 				{@const pathPoints = buildConnectionPath(segment)}
 				{@const pathD = pointsToPath(pathPoints)}
 				<path
@@ -618,7 +607,7 @@
 				/>
 
 				<!-- Connection hover areas -->
-				{#each segment.connections as conn, connIdx}
+				{#each segment.connections as conn}
 					{@const isHovered = hoveredItem?.type === 'conn' && hoveredItem?.data.id === conn.id}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<path
@@ -682,7 +671,7 @@
 				{/each}
 
 				<!-- Series boundary markers -->
-				{#each segment.boundaries as boundary, bIdx}
+				{#each segment.boundaries as boundary}
 					{@const segLen = segment.segmentLength || segment.connections.reduce((s, c) => s + (c.length ?? 1), 0)}
 					{@const afterIdx = boundary.afterConnectionIndex}
 					{@const cumConnLen = segment.connections.slice(0, afterIdx + 1).reduce((s, c) => s + (c.length ?? 1), 0)}
@@ -744,7 +733,6 @@
 				{@const color = getComponentColor(comp.name)}
 				{@const isHovered = hoveredItem?.type === 'comp' && hoveredItem?.data.id === comp.id}
 
-				<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 				<g
 					class="cursor-pointer"
 					onmouseenter={() => handleHover('comp', data.indexOf(comp), comp, cx, yScale(comp.p1_el))}
@@ -877,7 +865,6 @@
 				<tbody>
 					{#each data as item, i}
 						{@const isHovered = hoveredItem?.data.id === item.id}
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<tr
 							class="cursor-pointer border-b border-[var(--color-border)] transition-colors {isHovered ? 'bg-[var(--color-accent)]/10' : 'hover:bg-[var(--color-surface-elevated)]'}"
 							onmouseenter={() => {

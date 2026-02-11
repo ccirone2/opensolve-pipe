@@ -8,10 +8,9 @@
 
 	interface Props {
 		onOpenCommandPalette?: () => void;
-		onSolve?: () => void;
 	}
 
-	let { onOpenCommandPalette, onSolve }: Props = $props();
+	let { onOpenCommandPalette }: Props = $props();
 
 	const tabs: { id: SidebarTab; label: string }[] = [
 		{ id: 'tree', label: 'Tree' },

@@ -927,6 +927,87 @@ Rewrite the Curve Preview SVG charts with:
 
 ---
 
+## ADR-023: Surface Pressure Integration in Solver Head Calculations
+
+**Date:** 2026-02-10
+**Status:** Accepted
+**Context:** Issue #225 - HGL calculation: port elevation and surface pressure handling
+
+### Decision
+
+Integrate surface pressure into the hydraulic solver by extending `get_source_head()` with an optional `fluid_props` parameter:
+
+```python
+def get_source_head(
+    component: Component,
+    fluid_props: FluidProperties | None = None,
+) -> float:
+```
+
+When `fluid_props` is provided and the component has non-zero `surface_pressure`, gauge pressure (psi) is converted to feet of head using: `pressure_head_ft = surface_pressure * 2.31 / specific_gravity`.
+
+For the WNTR/EPANET solver, surface pressure is added to the reservoir `base_head` and tank `init_level` before passing to WNTR, since EPANET has no native surface pressure concept.
+
+### Rationale
+
+- **Physical correctness**: Pressurized tanks (e.g., bladder tanks, elevated tanks with gas blanket) have total head = elevation + water level + pressure head. Omitting surface pressure yields incorrect system curves and operating points.
+- **Backward compatibility**: The `fluid_props` parameter is optional with `None` default. Existing callers that don't pass it get identical behavior to before.
+- **Standard conversion**: 2.31 ft/psi is the standard conversion factor for water at standard conditions; dividing by specific gravity handles non-water fluids.
+- **Port elevation independence**: After analysis, HGL (total head) is independent of the observation point elevation. Port elevation affects local pressure head at that point but not the HGL value, so no solver change was needed for port elevation.
+
+### Consequences
+
+**Positive:**
+
+- Pressurized tanks now produce correct HGL values
+- All three solver strategies (simple, branching, looped) handle surface pressure consistently
+- Backward compatible — no changes needed for callers that don't use surface pressure
+
+**Negative:**
+
+- WNTR integration uses a workaround (inflating init_level) since EPANET doesn't natively support surface pressure
+- Surface pressure conversion assumes incompressible fluid (valid for liquids, the only fluids OpenSolve supports)
+
+---
+
+## ADR-024: Results View Click-to-Inspector Navigation Pattern
+
+**Date:** 2026-02-10
+**Status:** Accepted
+**Context:** Issue #226 - Inspector pane shows selected entity details from results views
+
+### Decision
+
+Add click handlers to all four results views (ComponentTable, PipingTable, PumpResultsCard, ElevationProfile) that navigate the inspector panel to the clicked entity using the existing `navigationStore.navigateTo(componentId)` + `workspaceStore.setInspectorOpen(true)` pattern. Selected items are highlighted using the `$currentElementId` reactive store.
+
+Design choices:
+
+1. **Piping rows navigate to source component** — piping exists on connections between components; the source (upstream) component is the natural owner
+2. **Only component markers are clickable in elevation profile** — connection lines span between two components and don't map to a single inspectable entity
+3. **Inspector auto-opens** when a results item is clicked, even if it was previously closed
+4. **Both panels visible simultaneously** — the results overlay (left, max 800px) and inspector sidebar (right) can coexist
+
+### Rationale
+
+- **Existing pattern**: The schematic click handler already uses `navigationStore.navigateTo()` + `workspaceStore.setInspectorOpen(true)`. Replicating this pattern in results views creates a consistent UX.
+- **Source component for piping**: Engineers mentally associate pipe segments with their upstream equipment. Navigating to the source component gives context for the piping configuration.
+- **Auto-open inspector**: If a user clicks a results item, they clearly want to see details. Opening the inspector removes a friction step.
+
+### Consequences
+
+**Positive:**
+
+- Seamless navigation between results data and component configuration
+- Consistent selection highlighting across all results views
+- No new stores or state management — leverages existing `currentElementId`
+
+**Negative:**
+
+- Clicking a piping row navigates to the source component, not the connection itself (connections are not directly editable entities)
+- Connection lines in elevation profile are not clickable (could be confusing if users expect them to be)
+
+---
+
 ## Template for Future ADRs
 
 ```markdown

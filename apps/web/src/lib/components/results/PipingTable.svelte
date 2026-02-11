@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { components, connections } from '$lib/stores';
+	import { components, connections, navigationStore, workspaceStore, currentElementId } from '$lib/stores';
 	import type { SolvedState } from '$lib/models';
 
 	interface Props {
@@ -11,9 +11,15 @@
 
 	interface PipingData {
 		id: string;
+		fromComponentId: string;
 		name: string;
 		type: string;
 		result: typeof results.piping_results[string] | undefined;
+	}
+
+	function handleRowClick(componentId: string) {
+		navigationStore.navigateTo(componentId);
+		workspaceStore.setInspectorOpen(true);
 	}
 
 	// Build a map of component IDs to names for display
@@ -36,6 +42,7 @@
 				const toName = componentNames[conn.to_component_id] || conn.to_component_id;
 				data.push({
 					id: conn.id,
+					fromComponentId: conn.from_component_id,
 					name: `${fromName} → ${toName}`,
 					type: 'pipe',
 					result: results.piping_results[conn.id]
@@ -72,7 +79,10 @@
 		</thead>
 		<tbody class="divide-y divide-[var(--color-border)] bg-[var(--color-surface)]">
 			{#each pipingData as piping}
-				<tr class="hover:bg-[var(--color-surface-elevated)]">
+				<tr
+					class="cursor-pointer hover:bg-[var(--color-surface-elevated)] {$currentElementId === piping.fromComponentId ? 'bg-[var(--color-accent)]/10' : ''}"
+					onclick={() => handleRowClick(piping.fromComponentId)}
+				>
 					<td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-[var(--color-text)]">
 						{piping.name}
 					</td>

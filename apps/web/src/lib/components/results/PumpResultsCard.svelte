@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PumpComponent, PumpCurve, PumpResult } from '$lib/models';
 	import { PUMP_STATUS_LABELS, PUMP_OPERATING_MODE_LABELS } from '$lib/models';
+	import { navigationStore, workspaceStore, currentElementId } from '$lib/stores';
 	import PumpCurveChart from './PumpCurveChart.svelte';
 
 	interface Props {
@@ -45,7 +46,13 @@
 	}
 </script>
 
-<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
+<div
+	class="cursor-pointer rounded-lg border bg-[var(--color-surface)] {$currentElementId === pump.id ? 'border-[var(--color-accent)]' : 'border-[var(--color-border)]'}"
+	onclick={() => { navigationStore.navigateTo(pump.id); workspaceStore.setInspectorOpen(true); }}
+	role="button"
+	tabindex="0"
+	onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { navigationStore.navigateTo(pump.id); workspaceStore.setInspectorOpen(true); } }}
+>
 	<!-- Header -->
 	<div class="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
 		<div>

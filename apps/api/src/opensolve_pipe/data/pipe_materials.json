@@ -1,0 +1,3517 @@
+{
+  "generatedBy": "apps/api/scripts/generate_pipe_data.py",
+  "fluidsVersion": "1.3.1",
+  "units": "m",
+  "materials": [
+    {
+      "id": "carbon_steel",
+      "name": "Carbon steel",
+      "notes": "Roughness: Farshad & Rieke 'Carbon steel, bare', diameter dependent.",
+      "roughness": 3.6e-05,
+      "roughnessModel": {
+        "function": "fluids.friction.roughness_Farshad",
+        "ID": "Carbon steel, bare"
+      },
+      "roughnessSource": "Farshad, F. F., and H. H. Rieke. 'Surface Roughness Design Values for Modern Pipes.' SPE Drilling & Completion 21, no. 3 (2006): 212-215. doi:10.2118/89040-PA; 'Carbon steel, bare', via fluids 1.3.1 fluids.friction.roughness_Farshad (per size: evaluated at the inner diameter; material value: the average)",
+      "dimensionsSource": "ANSI/ASME B36.10M-2004: Welded and Seamless Wrought Steel Pipe. New York: American Society of Mechanical Engineers, 2004; via fluids 1.3.1 fluids.piping.nearest_pipe",
+      "schedules": [
+        {
+          "id": "10",
+          "sizes": [
+            {
+              "nps": "0.125",
+              "nominalSize": 0.003175,
+              "outerDiameter": 0.0103,
+              "wallThickness": 0.00124,
+              "innerDiameter": 0.00782,
+              "roughness": 3.603229913409585e-05
+            },
+            {
+              "nps": "0.25",
+              "nominalSize": 0.00635,
+              "outerDiameter": 0.0137,
+              "wallThickness": 0.00165,
+              "innerDiameter": 0.010400000000000001,
+              "roughness": 3.5917418627673835e-05
+            },
+            {
+              "nps": "0.375",
+              "nominalSize": 0.009524999999999999,
+              "outerDiameter": 0.0171,
+              "wallThickness": 0.00165,
+              "innerDiameter": 0.013800000000000002,
+              "roughness": 3.580381002998871e-05
+            },
+            {
+              "nps": "0.5",
+              "nominalSize": 0.0127,
+              "outerDiameter": 0.0213,
+              "wallThickness": 0.00211,
+              "innerDiameter": 0.017079999999999998,
+              "roughness": 3.571840241146423e-05
+            },
+            {
+              "nps": "0.75",
+              "nominalSize": 0.019049999999999997,
+              "outerDiameter": 0.0267,
+              "wallThickness": 0.00211,
+              "innerDiameter": 0.02248,
+              "roughness": 3.5608671509150757e-05
+            },
+            {
+              "nps": "1",
+              "nominalSize": 0.0254,
+              "outerDiameter": 0.0334,
+              "wallThickness": 0.00277,
+              "innerDiameter": 0.02786,
+              "roughness": 3.5523201676448144e-05
+            },
+            {
+              "nps": "1.25",
+              "nominalSize": 0.03175,
+              "outerDiameter": 0.0422,
+              "wallThickness": 0.00277,
+              "innerDiameter": 0.03666,
+              "roughness": 3.5414159125932954e-05
+            },
+            {
+              "nps": "1.5",
+              "nominalSize": 0.038099999999999995,
+              "outerDiameter": 0.048299999999999996,
+              "wallThickness": 0.00277,
+              "innerDiameter": 0.04276,
+              "roughness": 3.5353162357565345e-05
+            },
+            {
+              "nps": "2",
+              "nominalSize": 0.0508,
+              "outerDiameter": 0.0603,
+              "wallThickness": 0.00277,
+              "innerDiameter": 0.054759999999999996,
+              "roughness": 3.525535559144651e-05
+            },
+            {
+              "nps": "2.5",
+              "nominalSize": 0.0635,
+              "outerDiameter": 0.073,
+              "wallThickness": 0.0030499999999999998,
+              "innerDiameter": 0.0669,
+              "roughness": 3.5176377830412814e-05
+            },
+            {
+              "nps": "3",
+              "nominalSize": 0.07619999999999999,
+              "outerDiameter": 0.0889,
+              "wallThickness": 0.0030499999999999998,
+              "innerDiameter": 0.0828,
+              "roughness": 3.5092471037499765e-05
+            },
+            {
+              "nps": "3.5",
+              "nominalSize": 0.08889999999999999,
+              "outerDiameter": 0.1016,
+              "wallThickness": 0.0030499999999999998,
+              "innerDiameter": 0.0955,
+              "roughness": 3.5036430354108396e-05
+            },
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.0030499999999999998,
+              "innerDiameter": 0.1082,
+              "roughness": 3.498747044430042e-05
+            },
+            {
+              "nps": "5",
+              "nominalSize": 0.127,
+              "outerDiameter": 0.1413,
+              "wallThickness": 0.0034,
+              "innerDiameter": 0.1345,
+              "roughness": 3.490231231178187e-05
+            },
+            {
+              "nps": "6",
+              "nominalSize": 0.15239999999999998,
+              "outerDiameter": 0.1683,
+              "wallThickness": 0.0034,
+              "innerDiameter": 0.1615,
+              "roughness": 3.483087283050163e-05
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.00376,
+              "innerDiameter": 0.21158000000000002,
+              "roughness": 3.472566523895144e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.273,
+              "wallThickness": 0.00419,
+              "innerDiameter": 0.26462,
+              "roughness": 3.4638774304436604e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32380000000000003,
+              "wallThickness": 0.00457,
+              "innerDiameter": 0.31466000000000005,
+              "roughness": 3.457164658494832e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.00635,
+              "innerDiameter": 0.3429,
+              "roughness": 3.453838403037281e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.00635,
+              "innerDiameter": 0.3937,
+              "roughness": 3.448498467123078e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.00635,
+              "innerDiameter": 0.44430000000000003,
+              "roughness": 3.443831667331046e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.00635,
+              "innerDiameter": 0.4953,
+              "roughness": 3.4396429611566544e-05
+            },
+            {
+              "nps": "22",
+              "nominalSize": 0.5588,
+              "outerDiameter": 0.559,
+              "wallThickness": 0.00635,
+              "innerDiameter": 0.5463,
+              "roughness": 3.435869501803958e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.00635,
+              "innerDiameter": 0.5972999999999999,
+              "roughness": 3.43243667557129e-05
+            },
+            {
+              "nps": "26",
+              "nominalSize": 0.6604,
+              "outerDiameter": 0.66,
+              "wallThickness": 0.00792,
+              "innerDiameter": 0.64416,
+              "roughness": 3.4295343721577896e-05
+            },
+            {
+              "nps": "28",
+              "nominalSize": 0.7111999999999999,
+              "outerDiameter": 0.711,
+              "wallThickness": 0.00792,
+              "innerDiameter": 0.69516,
+              "roughness": 3.426608914973364e-05
+            },
+            {
+              "nps": "30",
+              "nominalSize": 0.762,
+              "outerDiameter": 0.762,
+              "wallThickness": 0.00792,
+              "innerDiameter": 0.7461599999999999,
+              "roughness": 3.423892904131132e-05
+            },
+            {
+              "nps": "32",
+              "nominalSize": 0.8128,
+              "outerDiameter": 0.8130000000000001,
+              "wallThickness": 0.00792,
+              "innerDiameter": 0.79716,
+              "roughness": 3.42135847730766e-05
+            },
+            {
+              "nps": "34",
+              "nominalSize": 0.8635999999999999,
+              "outerDiameter": 0.864,
+              "wallThickness": 0.00792,
+              "innerDiameter": 0.84816,
+              "roughness": 3.4189829789422945e-05
+            },
+            {
+              "nps": "36",
+              "nominalSize": 0.9144,
+              "outerDiameter": 0.914,
+              "wallThickness": 0.00792,
+              "innerDiameter": 0.89816,
+              "roughness": 3.4167903226887164e-05
+            }
+          ]
+        },
+        {
+          "id": "20",
+          "sizes": [
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.00635,
+              "innerDiameter": 0.2064,
+              "roughness": 3.4735306977946574e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.273,
+              "wallThickness": 0.00635,
+              "innerDiameter": 0.26030000000000003,
+              "roughness": 3.464516062917887e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32380000000000003,
+              "wallThickness": 0.00635,
+              "innerDiameter": 0.31110000000000004,
+              "roughness": 3.457605256615845e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.00792,
+              "innerDiameter": 0.33976,
+              "roughness": 3.45419428064329e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.00792,
+              "innerDiameter": 0.39056,
+              "roughness": 3.4488077596553416e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.00792,
+              "innerDiameter": 0.44116000000000005,
+              "roughness": 3.4441052381082366e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.48894,
+              "roughness": 3.4401408758750993e-05
+            },
+            {
+              "nps": "22",
+              "nominalSize": 0.5588,
+              "outerDiameter": 0.559,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.5399400000000001,
+              "roughness": 3.4363201622541575e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.59094,
+              "roughness": 3.432848236067769e-05
+            },
+            {
+              "nps": "26",
+              "nominalSize": 0.6604,
+              "outerDiameter": 0.66,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.6346,
+              "roughness": 3.430108748421001e-05
+            },
+            {
+              "nps": "28",
+              "nominalSize": 0.7111999999999999,
+              "outerDiameter": 0.711,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.6856,
+              "roughness": 3.4271404022500044e-05
+            },
+            {
+              "nps": "30",
+              "nominalSize": 0.762,
+              "outerDiameter": 0.762,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.7366,
+              "roughness": 3.424387434083207e-05
+            },
+            {
+              "nps": "32",
+              "nominalSize": 0.8128,
+              "outerDiameter": 0.8130000000000001,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.7876000000000001,
+              "roughness": 3.421820832353262e-05
+            },
+            {
+              "nps": "34",
+              "nominalSize": 0.8635999999999999,
+              "outerDiameter": 0.864,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.8386,
+              "roughness": 3.419417070934842e-05
+            },
+            {
+              "nps": "36",
+              "nominalSize": 0.9144,
+              "outerDiameter": 0.914,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.8886000000000001,
+              "roughness": 3.417199855014307e-05
+            }
+          ]
+        },
+        {
+          "id": "30",
+          "sizes": [
+            {
+              "nps": "0.125",
+              "nominalSize": 0.003175,
+              "outerDiameter": 0.0103,
+              "wallThickness": 0.00145,
+              "innerDiameter": 0.0074,
+              "roughness": 3.605458446937407e-05
+            },
+            {
+              "nps": "0.25",
+              "nominalSize": 0.00635,
+              "outerDiameter": 0.0137,
+              "wallThickness": 0.00185,
+              "innerDiameter": 0.01,
+              "roughness": 3.593319960935153e-05
+            },
+            {
+              "nps": "0.375",
+              "nominalSize": 0.009524999999999999,
+              "outerDiameter": 0.0171,
+              "wallThickness": 0.00185,
+              "innerDiameter": 0.0134,
+              "roughness": 3.58156070196272e-05
+            },
+            {
+              "nps": "0.5",
+              "nominalSize": 0.0127,
+              "outerDiameter": 0.0213,
+              "wallThickness": 0.0024100000000000002,
+              "innerDiameter": 0.01648,
+              "roughness": 3.573271119111399e-05
+            },
+            {
+              "nps": "0.75",
+              "nominalSize": 0.019049999999999997,
+              "outerDiameter": 0.0267,
+              "wallThickness": 0.0024100000000000002,
+              "innerDiameter": 0.02188,
+              "roughness": 3.561946236235511e-05
+            },
+            {
+              "nps": "1",
+              "nominalSize": 0.0254,
+              "outerDiameter": 0.0334,
+              "wallThickness": 0.0029,
+              "innerDiameter": 0.027600000000000003,
+              "roughness": 3.5526932284195235e-05
+            },
+            {
+              "nps": "1.25",
+              "nominalSize": 0.03175,
+              "outerDiameter": 0.0422,
+              "wallThickness": 0.0029700000000000004,
+              "innerDiameter": 0.03626,
+              "roughness": 3.5418510929887495e-05
+            },
+            {
+              "nps": "1.5",
+              "nominalSize": 0.038099999999999995,
+              "outerDiameter": 0.048299999999999996,
+              "wallThickness": 0.00318,
+              "innerDiameter": 0.04194,
+              "roughness": 3.53608300977668e-05
+            },
+            {
+              "nps": "2",
+              "nominalSize": 0.0508,
+              "outerDiameter": 0.0603,
+              "wallThickness": 0.00318,
+              "innerDiameter": 0.05394,
+              "roughness": 3.526131361696418e-05
+            },
+            {
+              "nps": "2.5",
+              "nominalSize": 0.0635,
+              "outerDiameter": 0.073,
+              "wallThickness": 0.00478,
+              "innerDiameter": 0.06344,
+              "roughness": 3.5197305878374335e-05
+            },
+            {
+              "nps": "3",
+              "nominalSize": 0.07619999999999999,
+              "outerDiameter": 0.0889,
+              "wallThickness": 0.00478,
+              "innerDiameter": 0.07934000000000001,
+              "roughness": 3.5109252030337056e-05
+            },
+            {
+              "nps": "3.5",
+              "nominalSize": 0.08889999999999999,
+              "outerDiameter": 0.1016,
+              "wallThickness": 0.00478,
+              "innerDiameter": 0.09204000000000001,
+              "roughness": 3.505091437334468e-05
+            },
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.00478,
+              "innerDiameter": 0.10474,
+              "roughness": 3.500020831047793e-05
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.00704,
+              "innerDiameter": 0.20502,
+              "roughness": 3.473791691955144e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.273,
+              "wallThickness": 0.0078,
+              "innerDiameter": 0.25739999999999996,
+              "roughness": 3.464950815550903e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32380000000000003,
+              "wallThickness": 0.00838,
+              "innerDiameter": 0.30704000000000004,
+              "roughness": 3.458114002381817e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.33654,
+              "roughness": 3.4545626959828043e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.38733999999999996,
+              "roughness": 3.4491275546930365e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.011130000000000001,
+              "innerDiameter": 0.43474,
+              "roughness": 3.444670758622761e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.48260000000000003,
+              "roughness": 3.440643786400822e-05
+            },
+            {
+              "nps": "22",
+              "nominalSize": 0.5588,
+              "outerDiameter": 0.559,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.5336000000000001,
+              "roughness": 3.436774780059693e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.01427,
+              "innerDiameter": 0.5814600000000001,
+              "roughness": 3.4334700836466274e-05
+            },
+            {
+              "nps": "28",
+              "nominalSize": 0.7111999999999999,
+              "outerDiameter": 0.711,
+              "wallThickness": 0.015880000000000002,
+              "innerDiameter": 0.6792400000000001,
+              "roughness": 3.427498153449696e-05
+            },
+            {
+              "nps": "30",
+              "nominalSize": 0.762,
+              "outerDiameter": 0.762,
+              "wallThickness": 0.015880000000000002,
+              "innerDiameter": 0.73024,
+              "roughness": 3.424720039330193e-05
+            },
+            {
+              "nps": "32",
+              "nominalSize": 0.8128,
+              "outerDiameter": 0.8130000000000001,
+              "wallThickness": 0.015880000000000002,
+              "innerDiameter": 0.78124,
+              "roughness": 3.422131578566057e-05
+            },
+            {
+              "nps": "34",
+              "nominalSize": 0.8635999999999999,
+              "outerDiameter": 0.864,
+              "wallThickness": 0.015880000000000002,
+              "innerDiameter": 0.83224,
+              "roughness": 3.419708641016546e-05
+            },
+            {
+              "nps": "36",
+              "nominalSize": 0.9144,
+              "outerDiameter": 0.914,
+              "wallThickness": 0.015880000000000002,
+              "innerDiameter": 0.88224,
+              "roughness": 3.417474780832956e-05
+            }
+          ]
+        },
+        {
+          "id": "40",
+          "sizes": [
+            {
+              "nps": "0.125",
+              "nominalSize": 0.003175,
+              "outerDiameter": 0.0103,
+              "wallThickness": 0.00173,
+              "innerDiameter": 0.00684,
+              "roughness": 3.608637530769585e-05
+            },
+            {
+              "nps": "0.25",
+              "nominalSize": 0.00635,
+              "outerDiameter": 0.0137,
+              "wallThickness": 0.0022400000000000002,
+              "innerDiameter": 0.00922,
+              "roughness": 3.596589761325209e-05
+            },
+            {
+              "nps": "0.375",
+              "nominalSize": 0.009524999999999999,
+              "outerDiameter": 0.0171,
+              "wallThickness": 0.00231,
+              "innerDiameter": 0.012480000000000002,
+              "roughness": 3.584415003999546e-05
+            },
+            {
+              "nps": "0.5",
+              "nominalSize": 0.0127,
+              "outerDiameter": 0.0213,
+              "wallThickness": 0.00277,
+              "innerDiameter": 0.01576,
+              "roughness": 3.5750593859234434e-05
+            },
+            {
+              "nps": "0.75",
+              "nominalSize": 0.019049999999999997,
+              "outerDiameter": 0.0267,
+              "wallThickness": 0.00287,
+              "innerDiameter": 0.020960000000000003,
+              "roughness": 3.563660371140059e-05
+            },
+            {
+              "nps": "1",
+              "nominalSize": 0.0254,
+              "outerDiameter": 0.0334,
+              "wallThickness": 0.0033799999999999998,
+              "innerDiameter": 0.02664,
+              "roughness": 3.55410215621099e-05
+            },
+            {
+              "nps": "1.25",
+              "nominalSize": 0.03175,
+              "outerDiameter": 0.0422,
+              "wallThickness": 0.0035600000000000002,
+              "innerDiameter": 0.03508,
+              "roughness": 3.543163738006132e-05
+            },
+            {
+              "nps": "1.5",
+              "nominalSize": 0.038099999999999995,
+              "outerDiameter": 0.048299999999999996,
+              "wallThickness": 0.00368,
+              "innerDiameter": 0.04094,
+              "roughness": 3.537038883440764e-05
+            },
+            {
+              "nps": "2",
+              "nominalSize": 0.0508,
+              "outerDiameter": 0.0603,
+              "wallThickness": 0.00391,
+              "innerDiameter": 0.05248,
+              "roughness": 3.527215213972365e-05
+            },
+            {
+              "nps": "2.5",
+              "nominalSize": 0.0635,
+              "outerDiameter": 0.073,
+              "wallThickness": 0.0051600000000000005,
+              "innerDiameter": 0.06268,
+              "roughness": 3.52020572788801e-05
+            },
+            {
+              "nps": "3",
+              "nominalSize": 0.07619999999999999,
+              "outerDiameter": 0.0889,
+              "wallThickness": 0.00549,
+              "innerDiameter": 0.07792,
+              "roughness": 3.511635427117792e-05
+            },
+            {
+              "nps": "3.5",
+              "nominalSize": 0.08889999999999999,
+              "outerDiameter": 0.1016,
+              "wallThickness": 0.00574,
+              "innerDiameter": 0.09012,
+              "roughness": 3.5059191182400136e-05
+            },
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.006019999999999999,
+              "innerDiameter": 0.10226,
+              "roughness": 3.500960292667761e-05
+            },
+            {
+              "nps": "5",
+              "nominalSize": 0.127,
+              "outerDiameter": 0.1413,
+              "wallThickness": 0.00655,
+              "innerDiameter": 0.12819999999999998,
+              "roughness": 3.49210701441667e-05
+            },
+            {
+              "nps": "6",
+              "nominalSize": 0.15239999999999998,
+              "outerDiameter": 0.1683,
+              "wallThickness": 0.007110000000000001,
+              "innerDiameter": 0.15408000000000002,
+              "roughness": 3.484922558480195e-05
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.00818,
+              "innerDiameter": 0.20274,
+              "roughness": 3.4742268166596446e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.273,
+              "wallThickness": 0.00927,
+              "innerDiameter": 0.25446,
+              "roughness": 3.465396650331146e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32380000000000003,
+              "wallThickness": 0.010310000000000001,
+              "innerDiameter": 0.30318,
+              "roughness": 3.458604034734179e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.011130000000000001,
+              "innerDiameter": 0.33333999999999997,
+              "roughness": 3.4549323714271376e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.381,
+              "roughness": 3.4497651470223286e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.01427,
+              "innerDiameter": 0.42846,
+              "roughness": 3.44523217748526e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.015090000000000001,
+              "innerDiameter": 0.47782,
+              "roughness": 3.441027389605348e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.017480000000000002,
+              "innerDiameter": 0.57504,
+              "roughness": 3.433897058345017e-05
+            },
+            {
+              "nps": "32",
+              "nominalSize": 0.8128,
+              "outerDiameter": 0.8130000000000001,
+              "wallThickness": 0.017480000000000002,
+              "innerDiameter": 0.77804,
+              "roughness": 3.422288897568545e-05
+            },
+            {
+              "nps": "34",
+              "nominalSize": 0.8635999999999999,
+              "outerDiameter": 0.864,
+              "wallThickness": 0.017480000000000002,
+              "innerDiameter": 0.82904,
+              "roughness": 3.4198561960987097e-05
+            },
+            {
+              "nps": "36",
+              "nominalSize": 0.9144,
+              "outerDiameter": 0.914,
+              "wallThickness": 0.01905,
+              "innerDiameter": 0.8759,
+              "roughness": 3.417750844061569e-05
+            }
+          ]
+        },
+        {
+          "id": "STD",
+          "sizes": [
+            {
+              "nps": "0.125",
+              "nominalSize": 0.003175,
+              "outerDiameter": 0.0103,
+              "wallThickness": 0.00173,
+              "innerDiameter": 0.00684,
+              "roughness": 3.608637530769585e-05
+            },
+            {
+              "nps": "0.25",
+              "nominalSize": 0.00635,
+              "outerDiameter": 0.0137,
+              "wallThickness": 0.0022400000000000002,
+              "innerDiameter": 0.00922,
+              "roughness": 3.596589761325209e-05
+            },
+            {
+              "nps": "0.375",
+              "nominalSize": 0.009524999999999999,
+              "outerDiameter": 0.0171,
+              "wallThickness": 0.00231,
+              "innerDiameter": 0.012480000000000002,
+              "roughness": 3.584415003999546e-05
+            },
+            {
+              "nps": "0.5",
+              "nominalSize": 0.0127,
+              "outerDiameter": 0.0213,
+              "wallThickness": 0.00277,
+              "innerDiameter": 0.01576,
+              "roughness": 3.5750593859234434e-05
+            },
+            {
+              "nps": "0.75",
+              "nominalSize": 0.019049999999999997,
+              "outerDiameter": 0.0267,
+              "wallThickness": 0.00287,
+              "innerDiameter": 0.020960000000000003,
+              "roughness": 3.563660371140059e-05
+            },
+            {
+              "nps": "1",
+              "nominalSize": 0.0254,
+              "outerDiameter": 0.0334,
+              "wallThickness": 0.0033799999999999998,
+              "innerDiameter": 0.02664,
+              "roughness": 3.55410215621099e-05
+            },
+            {
+              "nps": "1.25",
+              "nominalSize": 0.03175,
+              "outerDiameter": 0.0422,
+              "wallThickness": 0.0035600000000000002,
+              "innerDiameter": 0.03508,
+              "roughness": 3.543163738006132e-05
+            },
+            {
+              "nps": "1.5",
+              "nominalSize": 0.038099999999999995,
+              "outerDiameter": 0.048299999999999996,
+              "wallThickness": 0.00368,
+              "innerDiameter": 0.04094,
+              "roughness": 3.537038883440764e-05
+            },
+            {
+              "nps": "2",
+              "nominalSize": 0.0508,
+              "outerDiameter": 0.0603,
+              "wallThickness": 0.00391,
+              "innerDiameter": 0.05248,
+              "roughness": 3.527215213972365e-05
+            },
+            {
+              "nps": "2.5",
+              "nominalSize": 0.0635,
+              "outerDiameter": 0.073,
+              "wallThickness": 0.0051600000000000005,
+              "innerDiameter": 0.06268,
+              "roughness": 3.52020572788801e-05
+            },
+            {
+              "nps": "3",
+              "nominalSize": 0.07619999999999999,
+              "outerDiameter": 0.0889,
+              "wallThickness": 0.00549,
+              "innerDiameter": 0.07792,
+              "roughness": 3.511635427117792e-05
+            },
+            {
+              "nps": "3.5",
+              "nominalSize": 0.08889999999999999,
+              "outerDiameter": 0.1016,
+              "wallThickness": 0.00574,
+              "innerDiameter": 0.09012,
+              "roughness": 3.5059191182400136e-05
+            },
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.006019999999999999,
+              "innerDiameter": 0.10226,
+              "roughness": 3.500960292667761e-05
+            },
+            {
+              "nps": "5",
+              "nominalSize": 0.127,
+              "outerDiameter": 0.1413,
+              "wallThickness": 0.00655,
+              "innerDiameter": 0.12819999999999998,
+              "roughness": 3.49210701441667e-05
+            },
+            {
+              "nps": "6",
+              "nominalSize": 0.15239999999999998,
+              "outerDiameter": 0.1683,
+              "wallThickness": 0.007110000000000001,
+              "innerDiameter": 0.15408000000000002,
+              "roughness": 3.484922558480195e-05
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.00818,
+              "innerDiameter": 0.20274,
+              "roughness": 3.4742268166596446e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.273,
+              "wallThickness": 0.00927,
+              "innerDiameter": 0.25446,
+              "roughness": 3.465396650331146e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32380000000000003,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.30474,
+              "roughness": 3.458405235136854e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.33654,
+              "roughness": 3.4545626959828043e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.38733999999999996,
+              "roughness": 3.4491275546930365e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.43794,
+              "roughness": 3.444387831356924e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.48894,
+              "roughness": 3.4401408758750993e-05
+            },
+            {
+              "nps": "22",
+              "nominalSize": 0.5588,
+              "outerDiameter": 0.559,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.5399400000000001,
+              "roughness": 3.4363201622541575e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.59094,
+              "roughness": 3.432848236067769e-05
+            },
+            {
+              "nps": "26",
+              "nominalSize": 0.6604,
+              "outerDiameter": 0.66,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.6409400000000001,
+              "roughness": 3.429726865282754e-05
+            },
+            {
+              "nps": "28",
+              "nominalSize": 0.7111999999999999,
+              "outerDiameter": 0.711,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.6919400000000001,
+              "roughness": 3.426787100625317e-05
+            },
+            {
+              "nps": "30",
+              "nominalSize": 0.762,
+              "outerDiameter": 0.762,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.74294,
+              "roughness": 3.424058752572087e-05
+            },
+            {
+              "nps": "32",
+              "nominalSize": 0.8128,
+              "outerDiameter": 0.8130000000000001,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.7939400000000001,
+              "roughness": 3.4215135786053087e-05
+            },
+            {
+              "nps": "34",
+              "nominalSize": 0.8635999999999999,
+              "outerDiameter": 0.864,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.84494,
+              "roughness": 3.4191286348129045e-05
+            },
+            {
+              "nps": "36",
+              "nominalSize": 0.9144,
+              "outerDiameter": 0.914,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.8949400000000001,
+              "roughness": 3.416927767044343e-05
+            },
+            {
+              "nps": "38",
+              "nominalSize": 0.9652,
+              "outerDiameter": 0.965,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.9459400000000001,
+              "roughness": 3.4148074301186696e-05
+            },
+            {
+              "nps": "40",
+              "nominalSize": 1.016,
+              "outerDiameter": 1.016,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.99694,
+              "roughness": 3.4127996760725973e-05
+            },
+            {
+              "nps": "42",
+              "nominalSize": 1.0668,
+              "outerDiameter": 1.067,
+              "wallThickness": 0.00953,
+              "innerDiameter": 1.04794,
+              "roughness": 3.410893206390678e-05
+            },
+            {
+              "nps": "44",
+              "nominalSize": 1.1176,
+              "outerDiameter": 1.118,
+              "wallThickness": 0.00953,
+              "innerDiameter": 1.09894,
+              "roughness": 3.409078339847298e-05
+            },
+            {
+              "nps": "46",
+              "nominalSize": 1.1683999999999999,
+              "outerDiameter": 1.168,
+              "wallThickness": 0.00953,
+              "innerDiameter": 1.14894,
+              "roughness": 3.407379918994286e-05
+            },
+            {
+              "nps": "48",
+              "nominalSize": 1.2191999999999998,
+              "outerDiameter": 1.219,
+              "wallThickness": 0.00953,
+              "innerDiameter": 1.19994,
+              "roughness": 3.405722850116334e-05
+            }
+          ]
+        },
+        {
+          "id": "60",
+          "sizes": [
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.010310000000000001,
+              "innerDiameter": 0.19848,
+              "roughness": 3.4750532373483084e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.273,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.2476,
+              "roughness": 3.466457522265825e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32380000000000003,
+              "wallThickness": 0.01427,
+              "innerDiameter": 0.29526,
+              "roughness": 3.459629552446391e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.015090000000000001,
+              "innerDiameter": 0.32542000000000004,
+              "roughness": 3.45586297547856e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.01666,
+              "innerDiameter": 0.37307999999999997,
+              "roughness": 3.450576878462231e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.01905,
+              "innerDiameter": 0.4189,
+              "roughness": 3.446103000211556e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.020620000000000003,
+              "innerDiameter": 0.46676,
+              "roughness": 3.441930060281426e-05
+            },
+            {
+              "nps": "22",
+              "nominalSize": 0.5588,
+              "outerDiameter": 0.559,
+              "wallThickness": 0.02223,
+              "innerDiameter": 0.51454,
+              "roughness": 3.438175137922295e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.02461,
+              "innerDiameter": 0.56078,
+              "roughness": 3.4348629517398466e-05
+            }
+          ]
+        },
+        {
+          "id": "80",
+          "sizes": [
+            {
+              "nps": "0.125",
+              "nominalSize": 0.003175,
+              "outerDiameter": 0.0103,
+              "wallThickness": 0.0024100000000000002,
+              "innerDiameter": 0.0054800000000000005,
+              "roughness": 3.617608352065548e-05
+            },
+            {
+              "nps": "0.25",
+              "nominalSize": 0.00635,
+              "outerDiameter": 0.0137,
+              "wallThickness": 0.00302,
+              "innerDiameter": 0.00766,
+              "roughness": 3.604064275882714e-05
+            },
+            {
+              "nps": "0.375",
+              "nominalSize": 0.009524999999999999,
+              "outerDiameter": 0.0171,
+              "wallThickness": 0.0032,
+              "innerDiameter": 0.0107,
+              "roughness": 3.590598057635657e-05
+            },
+            {
+              "nps": "0.5",
+              "nominalSize": 0.0127,
+              "outerDiameter": 0.0213,
+              "wallThickness": 0.0037300000000000002,
+              "innerDiameter": 0.01384,
+              "roughness": 3.5802649403497455e-05
+            },
+            {
+              "nps": "0.75",
+              "nominalSize": 0.019049999999999997,
+              "outerDiameter": 0.0267,
+              "wallThickness": 0.00391,
+              "innerDiameter": 0.01888,
+              "roughness": 3.567834228444557e-05
+            },
+            {
+              "nps": "1",
+              "nominalSize": 0.0254,
+              "outerDiameter": 0.0334,
+              "wallThickness": 0.00455,
+              "innerDiameter": 0.024300000000000002,
+              "roughness": 3.5577636998372935e-05
+            },
+            {
+              "nps": "1.25",
+              "nominalSize": 0.03175,
+              "outerDiameter": 0.0422,
+              "wallThickness": 0.00485,
+              "innerDiameter": 0.0325,
+              "roughness": 3.546196495502993e-05
+            },
+            {
+              "nps": "1.5",
+              "nominalSize": 0.038099999999999995,
+              "outerDiameter": 0.048299999999999996,
+              "wallThickness": 0.00508,
+              "innerDiameter": 0.03814,
+              "roughness": 3.5398464697526534e-05
+            },
+            {
+              "nps": "2",
+              "nominalSize": 0.0508,
+              "outerDiameter": 0.0603,
+              "wallThickness": 0.00554,
+              "innerDiameter": 0.04922,
+              "roughness": 3.529749650518236e-05
+            },
+            {
+              "nps": "2.5",
+              "nominalSize": 0.0635,
+              "outerDiameter": 0.073,
+              "wallThickness": 0.00701,
+              "innerDiameter": 0.05898,
+              "roughness": 3.522605400032771e-05
+            },
+            {
+              "nps": "3",
+              "nominalSize": 0.07619999999999999,
+              "outerDiameter": 0.0889,
+              "wallThickness": 0.00762,
+              "innerDiameter": 0.07366,
+              "roughness": 3.51384738197469e-05
+            },
+            {
+              "nps": "3.5",
+              "nominalSize": 0.08889999999999999,
+              "outerDiameter": 0.1016,
+              "wallThickness": 0.00808,
+              "innerDiameter": 0.08544,
+              "roughness": 3.5080137264394414e-05
+            },
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.00856,
+              "innerDiameter": 0.09718,
+              "roughness": 3.502958794386205e-05
+            },
+            {
+              "nps": "5",
+              "nominalSize": 0.127,
+              "outerDiameter": 0.1413,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.12224,
+              "roughness": 3.493969427089336e-05
+            },
+            {
+              "nps": "6",
+              "nominalSize": 0.15239999999999998,
+              "outerDiameter": 0.1683,
+              "wallThickness": 0.01097,
+              "innerDiameter": 0.14636000000000002,
+              "roughness": 3.48692943812202e-05
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.19369999999999998,
+              "roughness": 3.4760021641894236e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.273,
+              "wallThickness": 0.015090000000000001,
+              "innerDiameter": 0.24282,
+              "roughness": 3.4672144506466515e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32380000000000003,
+              "wallThickness": 0.017480000000000002,
+              "innerDiameter": 0.28884,
+              "roughness": 3.4604814676990734e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.01905,
+              "innerDiameter": 0.3175,
+              "roughness": 3.456816769668211e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.02144,
+              "innerDiameter": 0.36352,
+              "roughness": 3.451580230701718e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.02383,
+              "innerDiameter": 0.40934,
+              "roughness": 3.446994155522108e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.02619,
+              "innerDiameter": 0.45562,
+              "roughness": 3.442861393814902e-05
+            },
+            {
+              "nps": "22",
+              "nominalSize": 0.5588,
+              "outerDiameter": 0.559,
+              "wallThickness": 0.028579999999999998,
+              "innerDiameter": 0.50184,
+              "roughness": 3.439137651825492e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.03096,
+              "innerDiameter": 0.54808,
+              "roughness": 3.4357443235167e-05
+            }
+          ]
+        },
+        {
+          "id": "XS",
+          "sizes": [
+            {
+              "nps": "0.125",
+              "nominalSize": 0.003175,
+              "outerDiameter": 0.0103,
+              "wallThickness": 0.0024100000000000002,
+              "innerDiameter": 0.0054800000000000005,
+              "roughness": 3.617608352065548e-05
+            },
+            {
+              "nps": "0.25",
+              "nominalSize": 0.00635,
+              "outerDiameter": 0.0137,
+              "wallThickness": 0.00302,
+              "innerDiameter": 0.00766,
+              "roughness": 3.604064275882714e-05
+            },
+            {
+              "nps": "0.375",
+              "nominalSize": 0.009524999999999999,
+              "outerDiameter": 0.0171,
+              "wallThickness": 0.0032,
+              "innerDiameter": 0.0107,
+              "roughness": 3.590598057635657e-05
+            },
+            {
+              "nps": "0.5",
+              "nominalSize": 0.0127,
+              "outerDiameter": 0.0213,
+              "wallThickness": 0.0037300000000000002,
+              "innerDiameter": 0.01384,
+              "roughness": 3.5802649403497455e-05
+            },
+            {
+              "nps": "0.75",
+              "nominalSize": 0.019049999999999997,
+              "outerDiameter": 0.0267,
+              "wallThickness": 0.00391,
+              "innerDiameter": 0.01888,
+              "roughness": 3.567834228444557e-05
+            },
+            {
+              "nps": "1",
+              "nominalSize": 0.0254,
+              "outerDiameter": 0.0334,
+              "wallThickness": 0.00455,
+              "innerDiameter": 0.024300000000000002,
+              "roughness": 3.5577636998372935e-05
+            },
+            {
+              "nps": "1.25",
+              "nominalSize": 0.03175,
+              "outerDiameter": 0.0422,
+              "wallThickness": 0.00485,
+              "innerDiameter": 0.0325,
+              "roughness": 3.546196495502993e-05
+            },
+            {
+              "nps": "1.5",
+              "nominalSize": 0.038099999999999995,
+              "outerDiameter": 0.048299999999999996,
+              "wallThickness": 0.00508,
+              "innerDiameter": 0.03814,
+              "roughness": 3.5398464697526534e-05
+            },
+            {
+              "nps": "2",
+              "nominalSize": 0.0508,
+              "outerDiameter": 0.0603,
+              "wallThickness": 0.00554,
+              "innerDiameter": 0.04922,
+              "roughness": 3.529749650518236e-05
+            },
+            {
+              "nps": "2.5",
+              "nominalSize": 0.0635,
+              "outerDiameter": 0.073,
+              "wallThickness": 0.00701,
+              "innerDiameter": 0.05898,
+              "roughness": 3.522605400032771e-05
+            },
+            {
+              "nps": "3",
+              "nominalSize": 0.07619999999999999,
+              "outerDiameter": 0.0889,
+              "wallThickness": 0.00762,
+              "innerDiameter": 0.07366,
+              "roughness": 3.51384738197469e-05
+            },
+            {
+              "nps": "3.5",
+              "nominalSize": 0.08889999999999999,
+              "outerDiameter": 0.1016,
+              "wallThickness": 0.00808,
+              "innerDiameter": 0.08544,
+              "roughness": 3.5080137264394414e-05
+            },
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.00856,
+              "innerDiameter": 0.09718,
+              "roughness": 3.502958794386205e-05
+            },
+            {
+              "nps": "5",
+              "nominalSize": 0.127,
+              "outerDiameter": 0.1413,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.12224,
+              "roughness": 3.493969427089336e-05
+            },
+            {
+              "nps": "6",
+              "nominalSize": 0.15239999999999998,
+              "outerDiameter": 0.1683,
+              "wallThickness": 0.01097,
+              "innerDiameter": 0.14636000000000002,
+              "roughness": 3.48692943812202e-05
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.19369999999999998,
+              "roughness": 3.4760021641894236e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.273,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.2476,
+              "roughness": 3.466457522265825e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32380000000000003,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.2984,
+              "roughness": 3.4592196808723585e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.3302,
+              "roughness": 3.455298620360652e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.381,
+              "roughness": 3.4497651470223286e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.43160000000000004,
+              "roughness": 3.4449504354921225e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.48260000000000003,
+              "roughness": 3.440643786400822e-05
+            },
+            {
+              "nps": "22",
+              "nominalSize": 0.5588,
+              "outerDiameter": 0.559,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.5336000000000001,
+              "roughness": 3.436774780059693e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.5846,
+              "roughness": 3.433262984653281e-05
+            },
+            {
+              "nps": "26",
+              "nominalSize": 0.6604,
+              "outerDiameter": 0.66,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.6346,
+              "roughness": 3.430108748421001e-05
+            },
+            {
+              "nps": "28",
+              "nominalSize": 0.7111999999999999,
+              "outerDiameter": 0.711,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.6856,
+              "roughness": 3.4271404022500044e-05
+            },
+            {
+              "nps": "30",
+              "nominalSize": 0.762,
+              "outerDiameter": 0.762,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.7366,
+              "roughness": 3.424387434083207e-05
+            },
+            {
+              "nps": "32",
+              "nominalSize": 0.8128,
+              "outerDiameter": 0.8130000000000001,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.7876000000000001,
+              "roughness": 3.421820832353262e-05
+            },
+            {
+              "nps": "34",
+              "nominalSize": 0.8635999999999999,
+              "outerDiameter": 0.864,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.8386,
+              "roughness": 3.419417070934842e-05
+            },
+            {
+              "nps": "36",
+              "nominalSize": 0.9144,
+              "outerDiameter": 0.914,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.8886000000000001,
+              "roughness": 3.417199855014307e-05
+            },
+            {
+              "nps": "38",
+              "nominalSize": 0.9652,
+              "outerDiameter": 0.965,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.9396,
+              "roughness": 3.415064638867018e-05
+            },
+            {
+              "nps": "40",
+              "nominalSize": 1.016,
+              "outerDiameter": 1.016,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.9906,
+              "roughness": 3.413043540909988e-05
+            },
+            {
+              "nps": "42",
+              "nominalSize": 1.0668,
+              "outerDiameter": 1.067,
+              "wallThickness": 0.0127,
+              "innerDiameter": 1.0415999999999999,
+              "roughness": 3.411125037012627e-05
+            },
+            {
+              "nps": "44",
+              "nominalSize": 1.1176,
+              "outerDiameter": 1.118,
+              "wallThickness": 0.0127,
+              "innerDiameter": 1.0926,
+              "roughness": 3.4092992624438664e-05
+            },
+            {
+              "nps": "46",
+              "nominalSize": 1.1683999999999999,
+              "outerDiameter": 1.168,
+              "wallThickness": 0.0127,
+              "innerDiameter": 1.1425999999999998,
+              "roughness": 3.4075910951886184e-05
+            },
+            {
+              "nps": "48",
+              "nominalSize": 1.2191999999999998,
+              "outerDiameter": 1.219,
+              "wallThickness": 0.0127,
+              "innerDiameter": 1.1936,
+              "roughness": 3.405924928467443e-05
+            }
+          ]
+        },
+        {
+          "id": "100",
+          "sizes": [
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.015090000000000001,
+              "innerDiameter": 0.18892,
+              "roughness": 3.476975071914127e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.273,
+              "wallThickness": 0.018260000000000002,
+              "innerDiameter": 0.23648,
+              "roughness": 3.4682419941753623e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32380000000000003,
+              "wallThickness": 0.02144,
+              "innerDiameter": 0.28092,
+              "roughness": 3.46155920612117e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.02383,
+              "innerDiameter": 0.30794,
+              "roughness": 3.458000641808503e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.02619,
+              "innerDiameter": 0.35402,
+              "roughness": 3.452604073458723e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.02936,
+              "innerDiameter": 0.39827999999999997,
+              "roughness": 3.448051777327176e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.03254,
+              "innerDiameter": 0.44292000000000004,
+              "roughness": 3.4439516574855855e-05
+            },
+            {
+              "nps": "22",
+              "nominalSize": 0.5588,
+              "outerDiameter": 0.559,
+              "wallThickness": 0.03493,
+              "innerDiameter": 0.48914,
+              "roughness": 3.4401251186813704e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.03889,
+              "innerDiameter": 0.53222,
+              "roughness": 3.4368744584125015e-05
+            }
+          ]
+        },
+        {
+          "id": "120",
+          "sizes": [
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.011130000000000001,
+              "innerDiameter": 0.09204000000000001,
+              "roughness": 3.505091437334468e-05
+            },
+            {
+              "nps": "5",
+              "nominalSize": 0.127,
+              "outerDiameter": 0.1413,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.1159,
+              "roughness": 3.496054187733234e-05
+            },
+            {
+              "nps": "6",
+              "nominalSize": 0.15239999999999998,
+              "outerDiameter": 0.1683,
+              "wallThickness": 0.01427,
+              "innerDiameter": 0.13976,
+              "roughness": 3.48873194184095e-05
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.018260000000000002,
+              "innerDiameter": 0.18258000000000002,
+              "roughness": 3.47830462359647e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.273,
+              "wallThickness": 0.02144,
+              "innerDiameter": 0.23012000000000002,
+              "roughness": 3.469301157651137e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32380000000000003,
+              "wallThickness": 0.0254,
+              "innerDiameter": 0.273,
+              "roughness": 3.462668118086185e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.02779,
+              "innerDiameter": 0.30002,
+              "roughness": 3.459009920729831e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.03096,
+              "innerDiameter": 0.34448,
+              "roughness": 3.4536605751732645e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.03493,
+              "innerDiameter": 0.38714,
+              "roughness": 3.449147506320555e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.0381,
+              "innerDiameter": 0.4318,
+              "roughness": 3.4449325604189385e-05
+            },
+            {
+              "nps": "22",
+              "nominalSize": 0.5588,
+              "outerDiameter": 0.559,
+              "wallThickness": 0.041280000000000004,
+              "innerDiameter": 0.47644000000000003,
+              "roughness": 3.4411388590535936e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.046020000000000005,
+              "innerDiameter": 0.5179600000000001,
+              "roughness": 3.4379200455125735e-05
+            }
+          ]
+        },
+        {
+          "id": "140",
+          "sizes": [
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.020620000000000003,
+              "innerDiameter": 0.17786000000000002,
+              "roughness": 3.4793251239921984e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.273,
+              "wallThickness": 0.0254,
+              "innerDiameter": 0.22219999999999998,
+              "roughness": 3.4706622856879256e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32380000000000003,
+              "wallThickness": 0.028579999999999998,
+              "innerDiameter": 0.26664,
+              "roughness": 3.463582419325117e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.03175,
+              "innerDiameter": 0.2921,
+              "roughness": 3.4600465088917595e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.03653,
+              "innerDiameter": 0.33333999999999997,
+              "roughness": 3.4549323714271376e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.039670000000000004,
+              "innerDiameter": 0.37766000000000005,
+              "roughness": 3.4501053679692616e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.04445,
+              "innerDiameter": 0.41910000000000003,
+              "roughness": 3.446084577179973e-05
+            },
+            {
+              "nps": "22",
+              "nominalSize": 0.5588,
+              "outerDiameter": 0.559,
+              "wallThickness": 0.047630000000000006,
+              "innerDiameter": 0.46374000000000004,
+              "roughness": 3.442180300976049e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.05237,
+              "innerDiameter": 0.50526,
+              "roughness": 3.438876052729526e-05
+            }
+          ]
+        },
+        {
+          "id": "160",
+          "sizes": [
+            {
+              "nps": "0.5",
+              "nominalSize": 0.0127,
+              "outerDiameter": 0.0213,
+              "wallThickness": 0.00478,
+              "innerDiameter": 0.01174,
+              "roughness": 3.586869756706238e-05
+            },
+            {
+              "nps": "0.75",
+              "nominalSize": 0.019049999999999997,
+              "outerDiameter": 0.0267,
+              "wallThickness": 0.00556,
+              "innerDiameter": 0.01558,
+              "roughness": 3.575519364393583e-05
+            },
+            {
+              "nps": "1",
+              "nominalSize": 0.0254,
+              "outerDiameter": 0.0334,
+              "wallThickness": 0.00635,
+              "innerDiameter": 0.0207,
+              "roughness": 3.5641586063373734e-05
+            },
+            {
+              "nps": "1.25",
+              "nominalSize": 0.03175,
+              "outerDiameter": 0.0422,
+              "wallThickness": 0.00635,
+              "innerDiameter": 0.029500000000000002,
+              "roughness": 3.550045205859794e-05
+            },
+            {
+              "nps": "1.5",
+              "nominalSize": 0.038099999999999995,
+              "outerDiameter": 0.048299999999999996,
+              "wallThickness": 0.00714,
+              "innerDiameter": 0.03402,
+              "roughness": 3.5443815373949626e-05
+            },
+            {
+              "nps": "2",
+              "nominalSize": 0.0508,
+              "outerDiameter": 0.0603,
+              "wallThickness": 0.008740000000000001,
+              "innerDiameter": 0.042820000000000004,
+              "roughness": 3.53526071544233e-05
+            },
+            {
+              "nps": "2.5",
+              "nominalSize": 0.0635,
+              "outerDiameter": 0.073,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.05394,
+              "roughness": 3.526131361696418e-05
+            },
+            {
+              "nps": "3",
+              "nominalSize": 0.07619999999999999,
+              "outerDiameter": 0.0889,
+              "wallThickness": 0.011130000000000001,
+              "innerDiameter": 0.06664,
+              "roughness": 3.517791199209323e-05
+            },
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.01349,
+              "innerDiameter": 0.08732,
+              "roughness": 3.507158683022808e-05
+            },
+            {
+              "nps": "5",
+              "nominalSize": 0.127,
+              "outerDiameter": 0.1413,
+              "wallThickness": 0.015880000000000002,
+              "innerDiameter": 0.10954000000000001,
+              "roughness": 3.4982647606110825e-05
+            },
+            {
+              "nps": "6",
+              "nominalSize": 0.15239999999999998,
+              "outerDiameter": 0.1683,
+              "wallThickness": 0.018260000000000002,
+              "innerDiameter": 0.13178,
+              "roughness": 3.4910299563450464e-05
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.023010000000000003,
+              "innerDiameter": 0.17308,
+              "roughness": 3.480386895758343e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.273,
+              "wallThickness": 0.028579999999999998,
+              "innerDiameter": 0.21584,
+              "roughness": 3.4717913140980154e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32380000000000003,
+              "wallThickness": 0.03332,
+              "innerDiameter": 0.25716000000000006,
+              "roughness": 3.464987016721308e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.03571,
+              "innerDiameter": 0.28418,
+              "roughness": 3.46111191648801e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.040490000000000005,
+              "innerDiameter": 0.32542000000000004,
+              "roughness": 3.45586297547856e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.04524,
+              "innerDiameter": 0.36652,
+              "roughness": 3.451262526436138e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.05001,
+              "innerDiameter": 0.40798,
+              "roughness": 3.447122637981739e-05
+            },
+            {
+              "nps": "22",
+              "nominalSize": 0.5588,
+              "outerDiameter": 0.559,
+              "wallThickness": 0.05398,
+              "innerDiameter": 0.45104000000000005,
+              "roughness": 3.4432509919279224e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.05954,
+              "innerDiameter": 0.49092,
+              "roughness": 3.4399851659953796e-05
+            }
+          ]
+        },
+        {
+          "id": "XXS",
+          "sizes": [
+            {
+              "nps": "0.5",
+              "nominalSize": 0.0127,
+              "outerDiameter": 0.0213,
+              "wallThickness": 0.00747,
+              "innerDiameter": 0.00636,
+              "roughness": 3.611579425218365e-05
+            },
+            {
+              "nps": "0.75",
+              "nominalSize": 0.019049999999999997,
+              "outerDiameter": 0.0267,
+              "wallThickness": 0.00782,
+              "innerDiameter": 0.01106,
+              "roughness": 3.589267549389372e-05
+            },
+            {
+              "nps": "1",
+              "nominalSize": 0.0254,
+              "outerDiameter": 0.0334,
+              "wallThickness": 0.00909,
+              "innerDiameter": 0.015220000000000001,
+              "roughness": 3.5764556655772704e-05
+            },
+            {
+              "nps": "1.25",
+              "nominalSize": 0.03175,
+              "outerDiameter": 0.0422,
+              "wallThickness": 0.0097,
+              "innerDiameter": 0.0228,
+              "roughness": 3.560303487036445e-05
+            },
+            {
+              "nps": "1.5",
+              "nominalSize": 0.038099999999999995,
+              "outerDiameter": 0.048299999999999996,
+              "wallThickness": 0.010150000000000001,
+              "innerDiameter": 0.028,
+              "roughness": 3.5521207443245233e-05
+            },
+            {
+              "nps": "2",
+              "nominalSize": 0.0508,
+              "outerDiameter": 0.0603,
+              "wallThickness": 0.01107,
+              "innerDiameter": 0.03816,
+              "roughness": 3.539825685393557e-05
+            },
+            {
+              "nps": "2.5",
+              "nominalSize": 0.0635,
+              "outerDiameter": 0.073,
+              "wallThickness": 0.01402,
+              "innerDiameter": 0.04496,
+              "roughness": 3.5333302807051835e-05
+            },
+            {
+              "nps": "3",
+              "nominalSize": 0.07619999999999999,
+              "outerDiameter": 0.0889,
+              "wallThickness": 0.01524,
+              "innerDiameter": 0.05842,
+              "roughness": 3.522981807682527e-05
+            },
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.01712,
+              "innerDiameter": 0.08006,
+              "roughness": 3.510569985202896e-05
+            },
+            {
+              "nps": "5",
+              "nominalSize": 0.127,
+              "outerDiameter": 0.1413,
+              "wallThickness": 0.01905,
+              "innerDiameter": 0.1032,
+              "roughness": 3.500601522313263e-05
+            },
+            {
+              "nps": "6",
+              "nominalSize": 0.15239999999999998,
+              "outerDiameter": 0.1683,
+              "wallThickness": 0.02195,
+              "innerDiameter": 0.12440000000000001,
+              "roughness": 3.4932840558703686e-05
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.02223,
+              "innerDiameter": 0.17464,
+              "roughness": 3.480037150719903e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.273,
+              "wallThickness": 0.0254,
+              "innerDiameter": 0.22219999999999998,
+              "roughness": 3.4706622856879256e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32380000000000003,
+              "wallThickness": 0.0254,
+              "innerDiameter": 0.273,
+              "roughness": 3.462668118086185e-05
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stainless_steel",
+      "name": "Stainless steel (13Cr roughness)",
+      "notes": "Roughness: Farshad & Rieke 'Cr13, bare' (13% chromium steel), the cited stainless surface available in fluids; diameter dependent.",
+      "roughness": 5.5e-05,
+      "roughnessModel": {
+        "function": "fluids.friction.roughness_Farshad",
+        "ID": "Cr13, bare"
+      },
+      "roughnessSource": "Farshad, F. F., and H. H. Rieke. 'Surface Roughness Design Values for Modern Pipes.' SPE Drilling & Completion 21, no. 3 (2006): 212-215. doi:10.2118/89040-PA; 'Cr13, bare', via fluids 1.3.1 fluids.friction.roughness_Farshad (per size: evaluated at the inner diameter; material value: the average)",
+      "dimensionsSource": "ANSI/ASME B36.19M-2004: Stainless Steel Pipe. New York: American Society of Mechanical Engineers, 2004; via fluids 1.3.1 fluids.piping.nearest_pipe",
+      "schedules": [
+        {
+          "id": "5S",
+          "sizes": [
+            {
+              "nps": "0.5",
+              "nominalSize": 0.0127,
+              "outerDiameter": 0.0213,
+              "wallThickness": 0.00165,
+              "innerDiameter": 0.018000000000000002,
+              "roughness": 5.344112574224698e-05
+            },
+            {
+              "nps": "0.75",
+              "nominalSize": 0.019049999999999997,
+              "outerDiameter": 0.0267,
+              "wallThickness": 0.00165,
+              "innerDiameter": 0.0234,
+              "roughness": 5.336406562556364e-05
+            },
+            {
+              "nps": "1",
+              "nominalSize": 0.0254,
+              "outerDiameter": 0.0334,
+              "wallThickness": 0.00165,
+              "innerDiameter": 0.030100000000000002,
+              "roughness": 5.329021606248673e-05
+            },
+            {
+              "nps": "1.25",
+              "nominalSize": 0.03175,
+              "outerDiameter": 0.0422,
+              "wallThickness": 0.00165,
+              "innerDiameter": 0.0389,
+              "roughness": 5.321509894484672e-05
+            },
+            {
+              "nps": "1.5",
+              "nominalSize": 0.038099999999999995,
+              "outerDiameter": 0.048299999999999996,
+              "wallThickness": 0.00165,
+              "innerDiameter": 0.045,
+              "roughness": 5.317248139551461e-05
+            },
+            {
+              "nps": "2",
+              "nominalSize": 0.0508,
+              "outerDiameter": 0.0603,
+              "wallThickness": 0.00165,
+              "innerDiameter": 0.057,
+              "roughness": 5.3103394737879966e-05
+            },
+            {
+              "nps": "2.5",
+              "nominalSize": 0.0635,
+              "outerDiameter": 0.073,
+              "wallThickness": 0.00211,
+              "innerDiameter": 0.06878000000000001,
+              "roughness": 5.304855454636854e-05
+            },
+            {
+              "nps": "3",
+              "nominalSize": 0.07619999999999999,
+              "outerDiameter": 0.0889,
+              "wallThickness": 0.00211,
+              "innerDiameter": 0.08468,
+              "roughness": 5.298791148015034e-05
+            },
+            {
+              "nps": "3.5",
+              "nominalSize": 0.08889999999999999,
+              "outerDiameter": 0.1016,
+              "wallThickness": 0.00211,
+              "innerDiameter": 0.09738,
+              "roughness": 5.294720179799062e-05
+            },
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.00211,
+              "innerDiameter": 0.11008,
+              "roughness": 5.2911515456004284e-05
+            },
+            {
+              "nps": "5",
+              "nominalSize": 0.127,
+              "outerDiameter": 0.1413,
+              "wallThickness": 0.00277,
+              "innerDiameter": 0.13576,
+              "roughness": 5.285053058916362e-05
+            },
+            {
+              "nps": "6",
+              "nominalSize": 0.15239999999999998,
+              "outerDiameter": 0.1683,
+              "wallThickness": 0.00277,
+              "innerDiameter": 0.16276,
+              "roughness": 5.2797831364874976e-05
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.00277,
+              "innerDiameter": 0.21356,
+              "roughness": 5.271900892533842e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.2731,
+              "wallThickness": 0.0034,
+              "innerDiameter": 0.26630000000000004,
+              "roughness": 5.265505313776431e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32389999999999997,
+              "wallThickness": 0.00396,
+              "innerDiameter": 0.31598000000000004,
+              "roughness": 5.2605538303843526e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.00396,
+              "innerDiameter": 0.34768,
+              "roughness": 5.2577884542437175e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.00419,
+              "innerDiameter": 0.39802,
+              "roughness": 5.2538796456339984e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.00419,
+              "innerDiameter": 0.44862,
+              "roughness": 5.250422644584372e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.00478,
+              "innerDiameter": 0.49844,
+              "roughness": 5.247382540164232e-05
+            },
+            {
+              "nps": "22",
+              "nominalSize": 0.5588,
+              "outerDiameter": 0.559,
+              "wallThickness": 0.00478,
+              "innerDiameter": 0.54944,
+              "roughness": 5.244571798325988e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.00554,
+              "innerDiameter": 0.59892,
+              "roughness": 5.2420851157409436e-05
+            },
+            {
+              "nps": "30",
+              "nominalSize": 0.762,
+              "outerDiameter": 0.762,
+              "wallThickness": 0.00635,
+              "innerDiameter": 0.7493,
+              "roughness": 5.235630515134277e-05
+            }
+          ]
+        },
+        {
+          "id": "10S",
+          "sizes": [
+            {
+              "nps": "0.125",
+              "nominalSize": 0.003175,
+              "outerDiameter": 0.0103,
+              "wallThickness": 0.00124,
+              "innerDiameter": 0.00782,
+              "roughness": 5.368673090074282e-05
+            },
+            {
+              "nps": "0.25",
+              "nominalSize": 0.00635,
+              "outerDiameter": 0.0137,
+              "wallThickness": 0.00165,
+              "innerDiameter": 0.010400000000000001,
+              "roughness": 5.36026071245471e-05
+            },
+            {
+              "nps": "0.375",
+              "nominalSize": 0.009524999999999999,
+              "outerDiameter": 0.0171,
+              "wallThickness": 0.00165,
+              "innerDiameter": 0.013800000000000002,
+              "roughness": 5.3519279953942475e-05
+            },
+            {
+              "nps": "0.5",
+              "nominalSize": 0.0127,
+              "outerDiameter": 0.0213,
+              "wallThickness": 0.00211,
+              "innerDiameter": 0.017079999999999998,
+              "roughness": 5.34565483844293e-05
+            },
+            {
+              "nps": "0.75",
+              "nominalSize": 0.019049999999999997,
+              "outerDiameter": 0.0267,
+              "wallThickness": 0.00211,
+              "innerDiameter": 0.02248,
+              "roughness": 5.337583930309793e-05
+            },
+            {
+              "nps": "1",
+              "nominalSize": 0.0254,
+              "outerDiameter": 0.0334,
+              "wallThickness": 0.00277,
+              "innerDiameter": 0.02786,
+              "roughness": 5.3312886950628937e-05
+            },
+            {
+              "nps": "1.25",
+              "nominalSize": 0.03175,
+              "outerDiameter": 0.0422,
+              "wallThickness": 0.00277,
+              "innerDiameter": 0.03666,
+              "roughness": 5.32324602246548e-05
+            },
+            {
+              "nps": "1.5",
+              "nominalSize": 0.038099999999999995,
+              "outerDiameter": 0.048299999999999996,
+              "wallThickness": 0.00277,
+              "innerDiameter": 0.04276,
+              "roughness": 5.318741574593666e-05
+            },
+            {
+              "nps": "2",
+              "nominalSize": 0.0508,
+              "outerDiameter": 0.0603,
+              "wallThickness": 0.00277,
+              "innerDiameter": 0.054759999999999996,
+              "roughness": 5.3115105432142836e-05
+            },
+            {
+              "nps": "2.5",
+              "nominalSize": 0.0635,
+              "outerDiameter": 0.073,
+              "wallThickness": 0.0030499999999999998,
+              "innerDiameter": 0.0669,
+              "roughness": 5.305664120573938e-05
+            },
+            {
+              "nps": "3",
+              "nominalSize": 0.07619999999999999,
+              "outerDiameter": 0.0889,
+              "wallThickness": 0.0030499999999999998,
+              "innerDiameter": 0.0828,
+              "roughness": 5.299445497011478e-05
+            },
+            {
+              "nps": "3.5",
+              "nominalSize": 0.08889999999999999,
+              "outerDiameter": 0.1016,
+              "wallThickness": 0.0030499999999999998,
+              "innerDiameter": 0.0955,
+              "roughness": 5.295287911815979e-05
+            },
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.0030499999999999998,
+              "innerDiameter": 0.1082,
+              "roughness": 5.291652869145591e-05
+            },
+            {
+              "nps": "5",
+              "nominalSize": 0.127,
+              "outerDiameter": 0.1413,
+              "wallThickness": 0.0034,
+              "innerDiameter": 0.1345,
+              "roughness": 5.285324106220746e-05
+            },
+            {
+              "nps": "6",
+              "nominalSize": 0.15239999999999998,
+              "outerDiameter": 0.1683,
+              "wallThickness": 0.0034,
+              "innerDiameter": 0.1615,
+              "roughness": 5.280008818738034e-05
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.00376,
+              "innerDiameter": 0.21158000000000002,
+              "roughness": 5.272170981852409e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.2731,
+              "wallThickness": 0.00419,
+              "innerDiameter": 0.26472,
+              "roughness": 5.265677654272176e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32389999999999997,
+              "wallThickness": 0.00457,
+              "innerDiameter": 0.31476,
+              "roughness": 5.2606657583918975e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.00478,
+              "innerDiameter": 0.34604,
+              "roughness": 5.2579251836355635e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.00478,
+              "innerDiameter": 0.39683999999999997,
+              "roughness": 5.253965441830453e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.00478,
+              "innerDiameter": 0.44744,
+              "roughness": 5.2504987008963666e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.00554,
+              "innerDiameter": 0.49692000000000003,
+              "roughness": 5.247470686203023e-05
+            },
+            {
+              "nps": "22",
+              "nominalSize": 0.5588,
+              "outerDiameter": 0.559,
+              "wallThickness": 0.00554,
+              "innerDiameter": 0.54792,
+              "roughness": 5.24465170825946e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.00635,
+              "innerDiameter": 0.5972999999999999,
+              "roughness": 5.2421632073208076e-05
+            },
+            {
+              "nps": "30",
+              "nominalSize": 0.762,
+              "outerDiameter": 0.762,
+              "wallThickness": 0.00792,
+              "innerDiameter": 0.7461599999999999,
+              "roughness": 5.2357514418271645e-05
+            }
+          ]
+        },
+        {
+          "id": "40S",
+          "sizes": [
+            {
+              "nps": "0.125",
+              "nominalSize": 0.003175,
+              "outerDiameter": 0.0103,
+              "wallThickness": 0.00173,
+              "innerDiameter": 0.00684,
+              "roughness": 5.372628211721042e-05
+            },
+            {
+              "nps": "0.25",
+              "nominalSize": 0.00635,
+              "outerDiameter": 0.0137,
+              "wallThickness": 0.0022400000000000002,
+              "innerDiameter": 0.00922,
+              "roughness": 5.3638123603215943e-05
+            },
+            {
+              "nps": "0.375",
+              "nominalSize": 0.009524999999999999,
+              "outerDiameter": 0.0171,
+              "wallThickness": 0.00231,
+              "innerDiameter": 0.012480000000000002,
+              "roughness": 5.354888305616694e-05
+            },
+            {
+              "nps": "0.5",
+              "nominalSize": 0.0127,
+              "outerDiameter": 0.0213,
+              "wallThickness": 0.00277,
+              "innerDiameter": 0.01576,
+              "roughness": 5.348020183459059e-05
+            },
+            {
+              "nps": "0.75",
+              "nominalSize": 0.019049999999999997,
+              "outerDiameter": 0.0267,
+              "wallThickness": 0.00287,
+              "innerDiameter": 0.020960000000000003,
+              "roughness": 5.339639594298133e-05
+            },
+            {
+              "nps": "1",
+              "nominalSize": 0.0254,
+              "outerDiameter": 0.0334,
+              "wallThickness": 0.0033799999999999998,
+              "innerDiameter": 0.02664,
+              "roughness": 5.3326018448030515e-05
+            },
+            {
+              "nps": "1.25",
+              "nominalSize": 0.03175,
+              "outerDiameter": 0.0422,
+              "wallThickness": 0.0035600000000000002,
+              "innerDiameter": 0.03508,
+              "roughness": 5.324536016756347e-05
+            },
+            {
+              "nps": "1.5",
+              "nominalSize": 0.038099999999999995,
+              "outerDiameter": 0.048299999999999996,
+              "wallThickness": 0.00368,
+              "innerDiameter": 0.04094,
+              "roughness": 5.320014104254385e-05
+            },
+            {
+              "nps": "2",
+              "nominalSize": 0.0508,
+              "outerDiameter": 0.0603,
+              "wallThickness": 0.00391,
+              "innerDiameter": 0.05248,
+              "roughness": 5.312753067872956e-05
+            },
+            {
+              "nps": "2.5",
+              "nominalSize": 0.0635,
+              "outerDiameter": 0.073,
+              "wallThickness": 0.0051600000000000005,
+              "innerDiameter": 0.06268,
+              "roughness": 5.307565804520523e-05
+            },
+            {
+              "nps": "3",
+              "nominalSize": 0.07619999999999999,
+              "outerDiameter": 0.0889,
+              "wallThickness": 0.00549,
+              "innerDiameter": 0.07792,
+              "roughness": 5.3012163360240794e-05
+            },
+            {
+              "nps": "3.5",
+              "nominalSize": 0.08889999999999999,
+              "outerDiameter": 0.1016,
+              "wallThickness": 0.00574,
+              "innerDiameter": 0.09012,
+              "roughness": 5.2969769158247585e-05
+            },
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.006019999999999999,
+              "innerDiameter": 0.10226,
+              "roughness": 5.293296422111731e-05
+            },
+            {
+              "nps": "5",
+              "nominalSize": 0.127,
+              "outerDiameter": 0.1413,
+              "wallThickness": 0.00655,
+              "innerDiameter": 0.12819999999999998,
+              "roughness": 5.286718820861689e-05
+            },
+            {
+              "nps": "6",
+              "nominalSize": 0.15239999999999998,
+              "outerDiameter": 0.1683,
+              "wallThickness": 0.007110000000000001,
+              "innerDiameter": 0.15408000000000002,
+              "roughness": 5.2813748416663906e-05
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.00818,
+              "innerDiameter": 0.20274,
+              "roughness": 5.273408681951982e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.2731,
+              "wallThickness": 0.00927,
+              "innerDiameter": 0.25456,
+              "roughness": 5.266811205717028e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32389999999999997,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.30484,
+              "roughness": 5.261592394065755e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.33654,
+              "roughness": 5.2587302624981786e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.38733999999999996,
+              "roughness": 5.2546656673377325e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.43794,
+              "roughness": 5.251118469307183e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.48894,
+              "roughness": 5.2479379468135364e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.59094,
+              "roughness": 5.2424718621691726e-05
+            }
+          ]
+        },
+        {
+          "id": "80S",
+          "sizes": [
+            {
+              "nps": "0.125",
+              "nominalSize": 0.003175,
+              "outerDiameter": 0.0103,
+              "wallThickness": 0.0024100000000000002,
+              "innerDiameter": 0.0054800000000000005,
+              "roughness": 5.379182807725138e-05
+            },
+            {
+              "nps": "0.25",
+              "nominalSize": 0.00635,
+              "outerDiameter": 0.0137,
+              "wallThickness": 0.00302,
+              "innerDiameter": 0.00766,
+              "roughness": 5.3692835382875444e-05
+            },
+            {
+              "nps": "0.375",
+              "nominalSize": 0.009524999999999999,
+              "outerDiameter": 0.0171,
+              "wallThickness": 0.0032,
+              "innerDiameter": 0.0107,
+              "roughness": 5.359422386906169e-05
+            },
+            {
+              "nps": "0.5",
+              "nominalSize": 0.0127,
+              "outerDiameter": 0.0213,
+              "wallThickness": 0.0037300000000000002,
+              "innerDiameter": 0.01384,
+              "roughness": 5.3518427988957444e-05
+            },
+            {
+              "nps": "0.75",
+              "nominalSize": 0.019049999999999997,
+              "outerDiameter": 0.0267,
+              "wallThickness": 0.00391,
+              "innerDiameter": 0.01888,
+              "roughness": 5.342709807416819e-05
+            },
+            {
+              "nps": "1",
+              "nominalSize": 0.0254,
+              "outerDiameter": 0.0334,
+              "wallThickness": 0.00455,
+              "innerDiameter": 0.024300000000000002,
+              "roughness": 5.3352989899741956e-05
+            },
+            {
+              "nps": "1.25",
+              "nominalSize": 0.03175,
+              "outerDiameter": 0.0422,
+              "wallThickness": 0.00485,
+              "innerDiameter": 0.0325,
+              "roughness": 5.3267735955426975e-05
+            },
+            {
+              "nps": "1.5",
+              "nominalSize": 0.038099999999999995,
+              "outerDiameter": 0.048299999999999996,
+              "wallThickness": 0.00508,
+              "innerDiameter": 0.03814,
+              "roughness": 5.322087408503437e-05
+            },
+            {
+              "nps": "2",
+              "nominalSize": 0.0508,
+              "outerDiameter": 0.0603,
+              "wallThickness": 0.00554,
+              "innerDiameter": 0.04922,
+              "roughness": 5.3146273474586823e-05
+            },
+            {
+              "nps": "2.5",
+              "nominalSize": 0.0635,
+              "outerDiameter": 0.073,
+              "wallThickness": 0.00701,
+              "innerDiameter": 0.05898,
+              "roughness": 5.3093422365859824e-05
+            },
+            {
+              "nps": "3",
+              "nominalSize": 0.07619999999999999,
+              "outerDiameter": 0.0889,
+              "wallThickness": 0.00762,
+              "innerDiameter": 0.07366,
+              "roughness": 5.302855858736914e-05
+            },
+            {
+              "nps": "3.5",
+              "nominalSize": 0.08889999999999999,
+              "outerDiameter": 0.1016,
+              "wallThickness": 0.00808,
+              "innerDiameter": 0.08544,
+              "roughness": 5.2985307606398613e-05
+            },
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.00856,
+              "innerDiameter": 0.09718,
+              "roughness": 5.294780050555415e-05
+            },
+            {
+              "nps": "5",
+              "nominalSize": 0.127,
+              "outerDiameter": 0.1413,
+              "wallThickness": 0.00953,
+              "innerDiameter": 0.12224,
+              "roughness": 5.288103216832992e-05
+            },
+            {
+              "nps": "6",
+              "nominalSize": 0.15239999999999998,
+              "outerDiameter": 0.1683,
+              "wallThickness": 0.01097,
+              "innerDiameter": 0.14636000000000002,
+              "roughness": 5.2828681731704024e-05
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.2191,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.19369999999999998,
+              "roughness": 5.274731819052495e-05
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.2731,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.2477,
+              "roughness": 5.26760260489366e-05
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32389999999999997,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.2985,
+              "roughness": 5.2622006384561146e-05
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.3302,
+              "roughness": 5.259280363114676e-05
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.381,
+              "roughness": 5.255142650618204e-05
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.457,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.43160000000000004,
+              "roughness": 5.251539650826641e-05
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.48260000000000003,
+              "roughness": 5.2483146781106975e-05
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.61,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.5846,
+              "roughness": 5.2427828889127134e-05
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pvc",
+      "name": "PVC",
+      "notes": "Roughness: fluids has no PVC entry; Farshad & Rieke 'Plastic coated' is used as the closest cited plastic surface; diameter dependent.",
+      "roughness": 5e-06,
+      "roughnessModel": {
+        "function": "fluids.friction.roughness_Farshad",
+        "ID": "Plastic coated"
+      },
+      "roughnessSource": "Farshad, F. F., and H. H. Rieke. 'Surface Roughness Design Values for Modern Pipes.' SPE Drilling & Completion 21, no. 3 (2006): 212-215. doi:10.2118/89040-PA; 'Plastic coated', via fluids 1.3.1 fluids.friction.roughness_Farshad (per size: evaluated at the inner diameter; material value: the average)",
+      "dimensionsSource": "ASTM D1785-15E01: Specification for Poly(Vinyl Chloride) (PVC) Plastic Pipe, Schedules 40, 80, and 120. ASTM International. doi:10.1520/D1785-15E01; via fluids 1.3.1 fluids.piping.nearest_pipe",
+      "schedules": [
+        {
+          "id": "40D1785",
+          "sizes": [
+            {
+              "nps": "0.125",
+              "nominalSize": 0.003175,
+              "outerDiameter": 0.010287000000000001,
+              "wallThickness": 0.0017272000000000001,
+              "innerDiameter": 0.0068326,
+              "roughness": 5.145790963149542e-06
+            },
+            {
+              "nps": "0.25",
+              "nominalSize": 0.00635,
+              "outerDiameter": 0.013715999999999999,
+              "wallThickness": 0.0022351999999999997,
+              "innerDiameter": 0.0092456,
+              "roughness": 5.130561746459545e-06
+            },
+            {
+              "nps": "0.375",
+              "nominalSize": 0.009524999999999999,
+              "outerDiameter": 0.017145,
+              "wallThickness": 0.0023114,
+              "innerDiameter": 0.0125222,
+              "roughness": 5.11533184135161e-06
+            },
+            {
+              "nps": "0.5",
+              "nominalSize": 0.0127,
+              "outerDiameter": 0.021335999999999997,
+              "wallThickness": 0.0027686000000000004,
+              "innerDiameter": 0.0157988,
+              "roughness": 5.103693281136538e-06
+            },
+            {
+              "nps": "0.75",
+              "nominalSize": 0.019049999999999997,
+              "outerDiameter": 0.026670000000000003,
+              "wallThickness": 0.0028702000000000003,
+              "innerDiameter": 0.0209296,
+              "roughness": 5.089646570656487e-06
+            },
+            {
+              "nps": "1",
+              "nominalSize": 0.0254,
+              "outerDiameter": 0.03340100000000001,
+              "wallThickness": 0.0033782,
+              "innerDiameter": 0.0266446,
+              "roughness": 5.077619024543638e-06
+            },
+            {
+              "nps": "1.25",
+              "nominalSize": 0.03175,
+              "outerDiameter": 0.042164,
+              "wallThickness": 0.003556,
+              "innerDiameter": 0.035052,
+              "roughness": 5.063990674433103e-06
+            },
+            {
+              "nps": "1.5",
+              "nominalSize": 0.038099999999999995,
+              "outerDiameter": 0.04826,
+              "wallThickness": 0.003683,
+              "innerDiameter": 0.040894,
+              "roughness": 5.056346397372353e-06
+            },
+            {
+              "nps": "2",
+              "nominalSize": 0.0508,
+              "outerDiameter": 0.060325000000000004,
+              "wallThickness": 0.0039116,
+              "innerDiameter": 0.0525018,
+              "roughness": 5.043980229257875e-06
+            },
+            {
+              "nps": "2.5",
+              "nominalSize": 0.0635,
+              "outerDiameter": 0.073025,
+              "wallThickness": 0.0051562000000000005,
+              "innerDiameter": 0.06271260000000001,
+              "roughness": 5.035203246702172e-06
+            },
+            {
+              "nps": "3",
+              "nominalSize": 0.07619999999999999,
+              "outerDiameter": 0.0889,
+              "wallThickness": 0.0054864,
+              "innerDiameter": 0.0779272,
+              "roughness": 5.024496289032112e-06
+            },
+            {
+              "nps": "3.5",
+              "nominalSize": 0.08889999999999999,
+              "outerDiameter": 0.1016,
+              "wallThickness": 0.0057404000000000005,
+              "innerDiameter": 0.09011920000000001,
+              "roughness": 5.017343938460562e-06
+            },
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.0060198000000000005,
+              "innerDiameter": 0.1022604,
+              "roughness": 5.0111332292584945e-06
+            },
+            {
+              "nps": "5",
+              "nominalSize": 0.127,
+              "outerDiameter": 0.1413002,
+              "wallThickness": 0.0065532,
+              "innerDiameter": 0.12819380000000002,
+              "roughness": 5.000045839631029e-06
+            },
+            {
+              "nps": "6",
+              "nominalSize": 0.15239999999999998,
+              "outerDiameter": 0.168275,
+              "wallThickness": 0.007112,
+              "innerDiameter": 0.154051,
+              "roughness": 4.991050572000112e-06
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.219075,
+              "wallThickness": 0.008178800000000002,
+              "innerDiameter": 0.2027174,
+              "roughness": 4.977640766728834e-06
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.27305,
+              "wallThickness": 0.009271000000000001,
+              "innerDiameter": 0.254508,
+              "roughness": 4.9665545353484e-06
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32385,
+              "wallThickness": 0.010312400000000001,
+              "innerDiameter": 0.3032252,
+              "roughness": 4.9580372218183906e-06
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.0110998,
+              "innerDiameter": 0.3334004,
+              "roughness": 4.953429825244051e-06
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.381,
+              "roughness": 4.946955662087956e-06
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.4572,
+              "wallThickness": 0.0142748,
+              "innerDiameter": 0.4286504,
+              "roughness": 4.941245945794307e-06
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.015062200000000001,
+              "innerDiameter": 0.4778756,
+              "roughness": 4.9359846120761495e-06
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.6096,
+              "wallThickness": 0.0174498,
+              "innerDiameter": 0.5747004,
+              "roughness": 4.927067998444693e-06
+            }
+          ]
+        },
+        {
+          "id": "80D1785",
+          "sizes": [
+            {
+              "nps": "0.125",
+              "nominalSize": 0.003175,
+              "outerDiameter": 0.010287000000000001,
+              "wallThickness": 0.0024129999999999998,
+              "innerDiameter": 0.005461000000000001,
+              "roughness": 5.157103118236715e-06
+            },
+            {
+              "nps": "0.25",
+              "nominalSize": 0.00635,
+              "outerDiameter": 0.013715999999999999,
+              "wallThickness": 0.0030226000000000003,
+              "innerDiameter": 0.0076708,
+              "roughness": 5.139958875472047e-06
+            },
+            {
+              "nps": "0.375",
+              "nominalSize": 0.009524999999999999,
+              "outerDiameter": 0.017145,
+              "wallThickness": 0.0032004000000000004,
+              "innerDiameter": 0.010744199999999999,
+              "roughness": 5.123014400838286e-06
+            },
+            {
+              "nps": "0.5",
+              "nominalSize": 0.0127,
+              "outerDiameter": 0.021335999999999997,
+              "wallThickness": 0.0037338000000000002,
+              "innerDiameter": 0.0138684,
+              "roughness": 5.110215611527259e-06
+            },
+            {
+              "nps": "0.75",
+              "nominalSize": 0.019049999999999997,
+              "outerDiameter": 0.026670000000000003,
+              "wallThickness": 0.0039116,
+              "innerDiameter": 0.018846800000000004,
+              "roughness": 5.094877589340291e-06
+            },
+            {
+              "nps": "1",
+              "nominalSize": 0.0254,
+              "outerDiameter": 0.03340100000000001,
+              "wallThickness": 0.0045466,
+              "innerDiameter": 0.0243078,
+              "roughness": 5.082188572075098e-06
+            },
+            {
+              "nps": "1.25",
+              "nominalSize": 0.03175,
+              "outerDiameter": 0.042164,
+              "wallThickness": 0.0048514,
+              "innerDiameter": 0.032461199999999996,
+              "roughness": 5.067802832500452e-06
+            },
+            {
+              "nps": "1.5",
+              "nominalSize": 0.038099999999999995,
+              "outerDiameter": 0.04826,
+              "wallThickness": 0.00508,
+              "innerDiameter": 0.0381,
+              "roughness": 5.059854376467191e-06
+            },
+            {
+              "nps": "2",
+              "nominalSize": 0.0508,
+              "outerDiameter": 0.060325000000000004,
+              "wallThickness": 0.005537200000000001,
+              "innerDiameter": 0.0492506,
+              "roughness": 5.047141141050463e-06
+            },
+            {
+              "nps": "2.5",
+              "nominalSize": 0.0635,
+              "outerDiameter": 0.073025,
+              "wallThickness": 0.0070104,
+              "innerDiameter": 0.0590042,
+              "roughness": 5.038211907839221e-06
+            },
+            {
+              "nps": "3",
+              "nominalSize": 0.07619999999999999,
+              "outerDiameter": 0.0889,
+              "wallThickness": 0.00762,
+              "innerDiameter": 0.07366,
+              "roughness": 5.027270015753315e-06
+            },
+            {
+              "nps": "3.5",
+              "nominalSize": 0.08889999999999999,
+              "outerDiameter": 0.1016,
+              "wallThickness": 0.0080772,
+              "innerDiameter": 0.0854456,
+              "roughness": 5.019963086138341e-06
+            },
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.0085598,
+              "innerDiameter": 0.09718040000000001,
+              "roughness": 5.013636132774822e-06
+            },
+            {
+              "nps": "5",
+              "nominalSize": 0.127,
+              "outerDiameter": 0.1413002,
+              "wallThickness": 0.009525,
+              "innerDiameter": 0.1222502,
+              "roughness": 5.002372599600594e-06
+            },
+            {
+              "nps": "6",
+              "nominalSize": 0.15239999999999998,
+              "outerDiameter": 0.168275,
+              "wallThickness": 0.0109728,
+              "innerDiameter": 0.1463294,
+              "roughness": 4.993566445930433e-06
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.219075,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.193675,
+              "roughness": 4.9798672040616864e-06
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.27305,
+              "wallThickness": 0.015062200000000001,
+              "innerDiameter": 0.24292560000000002,
+              "roughness": 4.968822061726649e-06
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32385,
+              "wallThickness": 0.0174498,
+              "innerDiameter": 0.2889504,
+              "roughness": 4.960380760569918e-06
+            },
+            {
+              "nps": "14",
+              "nominalSize": 0.35559999999999997,
+              "outerDiameter": 0.3556,
+              "wallThickness": 0.01905,
+              "innerDiameter": 0.3175,
+              "roughness": 4.955802542567223e-06
+            },
+            {
+              "nps": "16",
+              "nominalSize": 0.4064,
+              "outerDiameter": 0.4064,
+              "wallThickness": 0.0214122,
+              "innerDiameter": 0.3635756,
+              "roughness": 4.949225642145842e-06
+            },
+            {
+              "nps": "18",
+              "nominalSize": 0.4572,
+              "outerDiameter": 0.4572,
+              "wallThickness": 0.023799800000000003,
+              "innerDiameter": 0.4096004,
+              "roughness": 4.9434477823223975e-06
+            },
+            {
+              "nps": "20",
+              "nominalSize": 0.508,
+              "outerDiameter": 0.508,
+              "wallThickness": 0.0261874,
+              "innerDiameter": 0.4556252,
+              "roughness": 4.938291554368336e-06
+            },
+            {
+              "nps": "24",
+              "nominalSize": 0.6095999999999999,
+              "outerDiameter": 0.6096,
+              "wallThickness": 0.0309372,
+              "innerDiameter": 0.5477256,
+              "roughness": 4.92938983199852e-06
+            }
+          ]
+        },
+        {
+          "id": "120D1785",
+          "sizes": [
+            {
+              "nps": "0.5",
+              "nominalSize": 0.0127,
+              "outerDiameter": 0.021335999999999997,
+              "wallThickness": 0.004318,
+              "innerDiameter": 0.0127,
+              "roughness": 5.114625107544537e-06
+            },
+            {
+              "nps": "0.75",
+              "nominalSize": 0.019049999999999997,
+              "outerDiameter": 0.026670000000000003,
+              "wallThickness": 0.004318,
+              "innerDiameter": 0.018033999999999998,
+              "roughness": 5.097079183836128e-06
+            },
+            {
+              "nps": "1",
+              "nominalSize": 0.0254,
+              "outerDiameter": 0.03340100000000001,
+              "wallThickness": 0.00508,
+              "innerDiameter": 0.023241,
+              "roughness": 5.084424298641266e-06
+            },
+            {
+              "nps": "1.25",
+              "nominalSize": 0.03175,
+              "outerDiameter": 0.042164,
+              "wallThickness": 0.005461000000000001,
+              "innerDiameter": 0.031242000000000002,
+              "roughness": 5.069704453610078e-06
+            },
+            {
+              "nps": "1.5",
+              "nominalSize": 0.038099999999999995,
+              "outerDiameter": 0.04826,
+              "wallThickness": 0.005715,
+              "innerDiameter": 0.03683,
+              "roughness": 5.061535717515299e-06
+            },
+            {
+              "nps": "2",
+              "nominalSize": 0.0508,
+              "outerDiameter": 0.060325000000000004,
+              "wallThickness": 0.00635,
+              "innerDiameter": 0.047625,
+              "roughness": 5.048801542106508e-06
+            },
+            {
+              "nps": "2.5",
+              "nominalSize": 0.0635,
+              "outerDiameter": 0.073025,
+              "wallThickness": 0.00762,
+              "innerDiameter": 0.057784999999999996,
+              "roughness": 5.0392429228349505e-06
+            },
+            {
+              "nps": "3",
+              "nominalSize": 0.07619999999999999,
+              "outerDiameter": 0.0889,
+              "wallThickness": 0.00889,
+              "innerDiameter": 0.07112,
+              "roughness": 5.02899916575026e-06
+            },
+            {
+              "nps": "3.5",
+              "nominalSize": 0.08889999999999999,
+              "outerDiameter": 0.1016,
+              "wallThickness": 0.00889,
+              "innerDiameter": 0.08381999999999999,
+              "roughness": 5.0209081383655804e-06
+            },
+            {
+              "nps": "4",
+              "nominalSize": 0.1016,
+              "outerDiameter": 0.1143,
+              "wallThickness": 0.0110998,
+              "innerDiameter": 0.0921004,
+              "roughness": 5.01627479985223e-06
+            },
+            {
+              "nps": "5",
+              "nominalSize": 0.127,
+              "outerDiameter": 0.1413002,
+              "wallThickness": 0.0127,
+              "innerDiameter": 0.1159002,
+              "roughness": 5.004988197543952e-06
+            },
+            {
+              "nps": "6",
+              "nominalSize": 0.15239999999999998,
+              "outerDiameter": 0.168275,
+              "wallThickness": 0.0142748,
+              "innerDiameter": 0.1397254,
+              "roughness": 4.995826923407075e-06
+            },
+            {
+              "nps": "8",
+              "nominalSize": 0.2032,
+              "outerDiameter": 0.219075,
+              "wallThickness": 0.018237200000000002,
+              "innerDiameter": 0.1826006,
+              "roughness": 4.982741547995873e-06
+            },
+            {
+              "nps": "10",
+              "nominalSize": 0.254,
+              "outerDiameter": 0.27305,
+              "wallThickness": 0.0214122,
+              "innerDiameter": 0.2302256,
+              "roughness": 4.971437424222191e-06
+            },
+            {
+              "nps": "12",
+              "nominalSize": 0.30479999999999996,
+              "outerDiameter": 0.32385,
+              "wallThickness": 0.0254,
+              "innerDiameter": 0.27305,
+              "roughness": 4.963132953554295e-06
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

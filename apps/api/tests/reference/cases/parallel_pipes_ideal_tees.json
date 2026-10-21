@@ -1,0 +1,234 @@
+{
+  "name": "parallel_pipes_ideal_tees",
+  "description": "Two dissimilar parallel pipes (one with custom K fittings) between two ideal tees: verifies the flow split, ideal-tee junctions (one EGL per tee, flow entering through a branch port) and port pressures at different pipe velocities.",
+  "source": "closed-form: tests/reference/derivations.py::parallel_pipes_ideal_tees (Darcy-Weisbach + Colebrook; parallel split solved with scipy.optimize.fsolve)",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-parallel-pipes",
+    "metadata": {
+      "name": "Parallel pipes between two ideal tees",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 12.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 3.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "T1",
+        "name": "Tee T1",
+        "elevation": 3.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "T2",
+        "name": "Tee T2",
+        "elevation": 1.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "LIN",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "T1",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1541,
+              "length": 50.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LA",
+        "fromComponentId": "T1",
+        "fromPortId": "run_outlet",
+        "toComponentId": "T2",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 300.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LB",
+        "fromComponentId": "T1",
+        "fromPortId": "branch",
+        "toComponentId": "T2",
+        "toPortId": "branch",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 180.0,
+              "roughness": 0.00015
+            }
+          ],
+          "fittings": [
+            {
+              "type": "custom",
+              "quantity": 2,
+              "pipeIndex": 0,
+              "kOverride": 2.5
+            }
+          ]
+        }
+      },
+      {
+        "id": "LOUT",
+        "fromComponentId": "T2",
+        "fromPortId": "run_outlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1541,
+              "length": 60.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "LIN": 0.026210674875684226,
+      "LA": 0.016974430075834733,
+      "LB": 0.009236244799849493,
+      "LOUT": 0.026210674875684226
+    },
+    "egl": {
+      "R1:port_1": 15.0,
+      "T1:run_inlet": 14.427770283363222,
+      "T1:run_outlet": 14.427770283363222,
+      "T1:branch": 14.427770283363222,
+      "T2:run_inlet": 2.6866756599641346,
+      "T2:branch": 2.6866756599641346,
+      "T2:run_outlet": 2.6866756599641346,
+      "R2:port_1": 2.0
+    },
+    "pressures": {
+      "T1:run_inlet": 110858.48445632319,
+      "T1:run_outlet": 109715.82572339405,
+      "T1:branch": 109970.04066521412,
+      "T2:run_inlet": 14379.375146014521,
+      "T2:branch": 14633.590087834591,
+      "T2:run_outlet": 15522.033878943652
+    }
+  }
+}

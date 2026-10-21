@@ -1,0 +1,208 @@
+{
+  "description": "Inline fitting loss coefficients. Each type maps to one cited fluids 1.3.1 function, evaluated at solve time. 'k' (or 'expansion'/'contraction' for reducers) gives the call: 'function' is a name in fluids.fittings and 'arguments' its keyword arguments. Arguments starting with '$' are filled by the solver: $D = inner diameter of the reference pipe (the segment at pipeIndex), $angle and $radiusRatio = the fitting's fields, $rc = radiusRatio x $D, $D_small / $D_large = the smaller / larger of the two segments a reducer joins. Other values are fixed arguments that define the fitting (e.g. r/D = 1.5 for a long-radius elbow). K is referenced to the velocity in 'referenceDiameter'. A user kOverride always wins and is referenced to pipe pipeIndex (SDD 6.2).",
+  "fluidsVersion": "1.3.1",
+  "fittings": [
+    {
+      "type": "elbow_90_lr",
+      "name": "90° elbow, long radius (r/D = 1.5), welded or flanged",
+      "k": { "function": "bend_rounded_Crane", "arguments": { "Di": "$D", "angle": 90.0, "bend_diameters": 1.5 } },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.bend_rounded_Crane (K = Crane multiplier x ft_Crane(Di), Chebyshev fit to the Crane r/D table)"
+    },
+    {
+      "type": "elbow_90_sr",
+      "name": "90° elbow, short radius (r/D = 1), welded or flanged",
+      "k": { "function": "bend_rounded_Crane", "arguments": { "Di": "$D", "angle": 90.0, "bend_diameters": 1.0 } },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.bend_rounded_Crane (K = Crane multiplier x ft_Crane(Di), Chebyshev fit to the Crane r/D table)"
+    },
+    {
+      "type": "elbow_45_lr",
+      "name": "45° elbow, long radius (r/D = 1.5), welded or flanged",
+      "k": { "function": "bend_rounded_Crane", "arguments": { "Di": "$D", "angle": 45.0, "bend_diameters": 1.5 } },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.bend_rounded_Crane (K = Crane multiplier x ft_Crane(Di), Chebyshev fit to the Crane r/D table, extended to other angles as fluids documents)"
+    },
+    {
+      "type": "elbow_45_sr",
+      "name": "45° elbow, short radius (r/D = 1), welded or flanged",
+      "k": { "function": "bend_rounded_Crane", "arguments": { "Di": "$D", "angle": 45.0, "bend_diameters": 1.0 } },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.bend_rounded_Crane (K = Crane multiplier x ft_Crane(Di), Chebyshev fit to the Crane r/D table, extended to other angles as fluids documents)"
+    },
+    {
+      "type": "elbow_90_threaded",
+      "name": "90° standard elbow, threaded",
+      "k": { "function": "bend_rounded", "arguments": { "Di": "$D", "angle": 90.0, "method": "Crane standard" } },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), standard threaded elbows, via fluids 1.3.1 fluids.fittings.bend_rounded(method='Crane standard') (K = multiplier x ft_Crane(Di))"
+    },
+    {
+      "type": "elbow_45_threaded",
+      "name": "45° standard elbow, threaded",
+      "k": { "function": "bend_rounded", "arguments": { "Di": "$D", "angle": 45.0, "method": "Crane standard" } },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), standard threaded elbows, via fluids 1.3.1 fluids.fittings.bend_rounded(method='Crane standard') (K = multiplier x ft_Crane(Di))"
+    },
+    {
+      "type": "bend",
+      "name": "Pipe bend (any angle and bend radius)",
+      "k": { "function": "bend_rounded_Crane", "arguments": { "Di": "$D", "angle": "$angle", "bend_diameters": "$radiusRatio" } },
+      "parameters": ["angle", "radiusRatio"],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "validRange": "radiusRatio within the r/D table of fluids.fittings.bend_rounded_Crane_ratios; fluids clamps r/D outside it (flagged CORRELATION_OUT_OF_RANGE)",
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.bend_rounded_Crane (K = Crane multiplier x ft_Crane(Di), Chebyshev fit to the Crane r/D table, extended to other angles as fluids documents)"
+    },
+    {
+      "type": "entrance_sharp",
+      "name": "Pipe entrance, sharp-edged (flush)",
+      "k": { "function": "entrance_sharp", "arguments": { "method": "Crane" } },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.entrance_sharp(method='Crane')"
+    },
+    {
+      "type": "entrance_rounded",
+      "name": "Pipe entrance, rounded (flush)",
+      "k": { "function": "entrance_rounded", "arguments": { "Di": "$D", "rc": "$rc", "method": "Crane" } },
+      "parameters": ["radiusRatio"],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "validRange": "radiusRatio (rounding radius / Di) within fluids.fittings.entrance_rounded_ratios_Crane; fluids holds K at the table's end value beyond it (flagged CORRELATION_OUT_OF_RANGE)",
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.entrance_rounded(method='Crane') (interpolated Crane table)"
+    },
+    {
+      "type": "entrance_projecting",
+      "name": "Pipe entrance, projecting inward (re-entrant, Borda mouthpiece)",
+      "k": { "function": "entrance_distance", "arguments": { "Di": "$D", "method": "Crane" } },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.entrance_distance(method='Crane')"
+    },
+    {
+      "type": "exit",
+      "name": "Pipe exit into a large body of liquid",
+      "k": { "function": "exit_normal", "arguments": {} },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "laminarNote": "fluids.fittings.exit_normal docstring: 'It has been found on occasion that K = 2.0 for laminar flow'",
+      "source": "Rennels, D. C., and H. M. Hudson. Pipe Flow: A Practical and Comprehensive Guide. Wiley, 2012; via fluids 1.3.1 fluids.fittings.exit_normal"
+    },
+    {
+      "type": "reducer_sudden",
+      "name": "Sudden reducer (contraction or expansion by flow direction)",
+      "expansion": { "function": "diffuser_sharp", "arguments": { "Di1": "$D_small", "Di2": "$D_large" } },
+      "contraction": { "function": "contraction_sharp", "arguments": { "Di1": "$D_large", "Di2": "$D_small", "method": "Crane" } },
+      "parameters": [],
+      "referenceDiameter": "smaller pipe",
+      "validInLaminarFlow": false,
+      "source": "Expansion: Rennels & Hudson, Pipe Flow (Wiley, 2012), K = (1 - beta^2)^2 on the smaller upstream pipe, via fluids 1.3.1 fluids.fittings.diffuser_sharp. Contraction: Crane Co. TP-410 (2009), K on the smaller downstream pipe, via fluids 1.3.1 fluids.fittings.contraction_sharp(method='Crane')"
+    },
+    {
+      "type": "reducer_conical",
+      "name": "Conical reducer (contraction or expansion by flow direction)",
+      "expansion": { "function": "diffuser_conical", "arguments": { "Di1": "$D_small", "Di2": "$D_large", "angle": "$angle", "method": "Crane" } },
+      "contraction": { "function": "contraction_conical_Crane", "arguments": { "Di1": "$D_large", "Di2": "$D_small", "angle": "$angle" } },
+      "parameters": ["angle"],
+      "referenceDiameter": "smaller pipe",
+      "validInLaminarFlow": false,
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009); expansion via fluids 1.3.1 fluids.fittings.diffuser_conical(method='Crane') (K on the smaller upstream pipe), contraction via fluids.fittings.contraction_conical_Crane (K on the smaller downstream pipe); angle = included cone angle"
+    },
+    {
+      "type": "gate_valve",
+      "name": "Gate valve, full bore, fully open (inline loss only)",
+      "k": { "function": "K_gate_valve_Crane", "arguments": { "D1": "$D", "D2": "$D", "angle": 0.0 } },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "laminarNote": "fluids docstring: 'This method is not valid in the laminar regime and the pressure drop will be underestimated in those conditions.'",
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.K_gate_valve_Crane (fd = ft_Crane(D))"
+    },
+    {
+      "type": "ball_valve",
+      "name": "Ball valve, full bore, fully open (inline loss only)",
+      "k": { "function": "K_ball_valve_Crane", "arguments": { "D1": "$D", "D2": "$D", "angle": 0.0 } },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "laminarNote": "fluids docstring: 'This method is not valid in the laminar regime and the pressure drop will be underestimated in those conditions.'",
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.K_ball_valve_Crane (fd = ft_Crane(D))"
+    },
+    {
+      "type": "globe_valve",
+      "name": "Globe valve, full seat, fully open (inline loss only)",
+      "k": { "function": "K_globe_valve_Crane", "arguments": { "D1": "$D", "D2": "$D" } },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "laminarNote": "fluids docstring: 'This method is not valid in the laminar regime and the pressure drop will be underestimated in those conditions.'",
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.K_globe_valve_Crane (fd = ft_Crane(D))"
+    },
+    {
+      "type": "butterfly_valve",
+      "name": "Butterfly valve, centric, fully open (inline loss only)",
+      "k": { "function": "K_butterfly_valve_Crane", "arguments": { "D": "$D", "style": 0 } },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "laminarNote": "fluids docstring: 'This method is not valid in the laminar regime and the pressure drop will be underestimated in those conditions.'",
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.K_butterfly_valve_Crane (style 0 = centric; size-dependent multiplier of ft_Crane(D))"
+    },
+    {
+      "type": "plug_valve",
+      "name": "Plug valve, straight-through, fully open (inline loss only)",
+      "k": { "function": "K_plug_valve_Crane", "arguments": { "D1": "$D", "D2": "$D", "angle": 0.0, "style": 0 } },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "laminarNote": "fluids docstring: 'This method is not valid in the laminar regime and the pressure drop will be underestimated in those conditions.'",
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.K_plug_valve_Crane (style 0 = straight-through; fd = ft_Crane(D))"
+    },
+    {
+      "type": "swing_check_valve",
+      "name": "Swing check valve, angled pattern, fully open (inline loss only, no check action)",
+      "k": { "function": "K_swing_check_valve_Crane", "arguments": { "D": "$D", "angled": true } },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "laminarNote": "fluids docstring: 'This method is not valid in the laminar regime and the pressure drop will be underestimated in those conditions.'",
+      "patternNote": "Angled pattern only. fluids docstring: 'For angled swing check valves N = 100; for straight valves, N = 50.' The straight pattern is not a library fitting; enter its K as a custom fitting.",
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.K_swing_check_valve_Crane (angled=True, the angled pattern; fd = ft_Crane(D))"
+    },
+    {
+      "type": "lift_check_valve",
+      "name": "Lift check valve, angled pattern, fully open (inline loss only, no check action)",
+      "k": { "function": "K_lift_check_valve_Crane", "arguments": { "D1": "$D", "D2": "$D", "angled": true } },
+      "parameters": [],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": false,
+      "laminarNote": "fluids docstring: 'This method is not valid in the laminar regime and the pressure drop will be underestimated in those conditions.'",
+      "patternNote": "Angled pattern only. fluids docstring: 'For angled lift check valves N = 55; for straight valves, N = 600.' The straight pattern is not a library fitting; enter its K as a custom fitting.",
+      "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.K_lift_check_valve_Crane (angled=True, the angled pattern; fd = ft_Crane(D))"
+    },
+    {
+      "type": "custom",
+      "name": "Custom fitting (user K)",
+      "parameters": ["kOverride"],
+      "referenceDiameter": "pipe",
+      "validInLaminarFlow": true,
+      "source": "User-specified K (kOverride), referenced to the velocity in pipe pipeIndex"
+    }
+  ]
+}

@@ -1,0 +1,127 @@
+{
+  "name": "single_pipe_fittings",
+  "description": "One pipe with a sharp entrance, three long-radius 90-degree elbows, a gate valve and an exit: verifies the fitting K correlations (Crane via fluids), quantities and the K v^2/2g law.",
+  "source": "closed-form: tests/reference/derivations.py::single_pipe_fittings (Darcy-Weisbach + Colebrook; K from fluids entrance_sharp(Crane), bend_rounded_Crane(r/D 1.5), K_gate_valve_Crane, exit_normal; brentq)",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-single-pipe-fittings",
+    "metadata": {
+      "name": "Single pipe with fittings",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 5.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 3.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 60.0,
+              "roughness": 4.6e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_90_lr",
+              "quantity": 3,
+              "pipeIndex": 0
+            },
+            {
+              "type": "gate_valve",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "exit",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.012472700290540617
+    },
+    "egl": {
+      "R1:port_1": 8.0,
+      "R2:port_1": 2.0
+    }
+  }
+}

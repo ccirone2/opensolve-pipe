@@ -71,15 +71,24 @@ The specs are at v0.2.0 (rebuild baseline) and reflect the decisions below. Item
 - Pass criteria: flows, heads and pressures within 0.5% of the reference, or 0.01 m of head, whichever is looser. Mass balance must close at every node to the solver tolerance.
 - Any change to solver or loss-coefficient code must keep the whole suite green. A new component type ships with at least one reference case.
 
+### D7. Solver formulation (M2)
+- The nodal unknown is the **energy grade line** (EGL = z + p/ρg + v²/2g), so pump head and fitting losses enter exactly; HGL and static pressure are derived with the velocity in the connected pipe. Reservoirs and reference nodes are quiescent boundaries (v = 0). EPANET neglects velocity heads, so EPANET comparisons compare our EGL with its heads. *(Correctness; GOALS §4.1.)*
+- Transition zone 2000 ≤ Re < 4000: EPANET 2.2's Dunlop cubic (Hermite in Re/2000 between laminar and the turbulent formula in use), flagged `TRANSITIONAL_FLOW`. `swamee_jain` mode uses EPANET's exact 5.74/Re^0.9 form so EPANET tests compare network algorithms, not friction formulas.
+- Branch legs are imposed exactly as head offsets on a merged head unknown, not iterated with a Jacobian floor (a floor stalled Newton on large mains feeding small tubing).
+- Unknown pipe materials, schedules or sizes are topology issues, reported together with the other topology problems.
+
+### D8. Cited data only (M2)
+- Pipe dimensions come from `fluids.piping` (ASME B36.10M, B36.19M, ASTM D1785) and roughness from Farshad & Rieke (2006) via `fluids`, generated into `data/pipe_materials.json` by a script. Materials without both cited dimensions and roughness (HDPE, ductile iron) are not in v1; users can enter a custom pipe. Never use `fluids`' fuzzy free-text roughness lookup. *(GOALS §4.1.)*
+- Fitting K values come from one named `fluids.fittings` Crane function per fitting type (`data/fittings.json`); a user K overrides it and is labeled as user data.
+
 ---
 
 ## Open spec items
 
 The specs (v0.2.0) reflect D1–D6. These items are still open; see TSD §12 for the full list.
 
-- **Tee and wye K-factors (TSD §4.2):** use Crane's fixed values (20·f_T run, 60·f_T branch) until a flow-ratio correlation is chosen. Never use a loss coefficient without a cited source.
-- **Water property package (TSD §4.6):** `iapws` or CoolProp for IAPWS-95.
-- **EPANET comparisons (TSD §5.2, §10.1):** EPANET's friction formula (Swamee–Jain) differs from exact Colebrook by up to 2.8% in f, so EPANET reference tests run the solver with `method="swamee_jain"`.
+- **Tee and wye K-factors (TSD §4.2):** being implemented in M3 with the Crane TP-410 correlations in `fluids.fittings`. Never use a loss coefficient without a cited source.
+- **EPANET comparisons (TSD §5.2, §10.1):** EPANET's friction formula (Swamee–Jain) differs from exact Colebrook by up to 3.0% in f (measured), so EPANET reference tests run the solver with `frictionMethod = "swamee_jain"`.
 
 ---
 

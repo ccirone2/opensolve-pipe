@@ -1,0 +1,127 @@
+{
+  "name": "library_pipe_builtin_water",
+  "description": "Built-in water at 20 C through carbon steel schedule 40 NPS 4 and NPS 3 library pipes with a sudden reducer: verifies water properties (CoolProp), library inner diameters (ASME B36.10M via fluids) and Farshad roughness.",
+  "source": "closed-form: tests/reference/derivations.py::library_pipe_builtin_water (CoolProp PropsSI('Water') at 101325 Pa; fluids nearest_pipe and roughness_Farshad('Carbon steel, bare', Di); Darcy-Weisbach + Colebrook; K from fluids entrance_sharp(Crane), contraction_sharp(Crane), exit_normal; brentq)",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-library-pipe-water",
+    "metadata": {
+      "name": "Library pipes with built-in water",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "builtin",
+      "fluidId": "water",
+      "temperature": 293.15
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 4.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 0.5,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "carbon_steel",
+              "schedule": "40",
+              "nominalSize": 0.1016,
+              "length": 100.0
+            },
+            {
+              "materialId": "carbon_steel",
+              "schedule": "40",
+              "nominalSize": 0.0762,
+              "length": 50.0
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "reducer_sudden",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "exit",
+              "quantity": 1,
+              "pipeIndex": 1
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.2071504679437,
+      "dynamicViscosity": 0.001001596143120583
+    },
+    "flows": {
+      "L1": 0.01118961086877425
+    },
+    "egl": {
+      "R1:port_1": 6.0,
+      "R2:port_1": 0.5
+    }
+  }
+}

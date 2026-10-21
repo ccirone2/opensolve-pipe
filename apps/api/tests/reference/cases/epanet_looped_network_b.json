@@ -583,6 +583,12 @@
       "J7:run_inlet": 4.010144233703613,
       "J7:run_outlet": 4.010144233703613,
       "J7:branch": 4.010144233703613
-    }
+    },
+    "flags": [
+      {
+        "code": "TRANSITIONAL_FLOW",
+        "connectionId": "Q3"
+      }
+    ]
   }
 }

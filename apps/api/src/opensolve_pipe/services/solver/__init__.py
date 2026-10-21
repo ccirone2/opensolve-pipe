@@ -7,30 +7,16 @@ outside the property source's range. Non-convergence is a result (``converged = 
 not an exception.
 """
 
-from fluids.atmosphere import ATMOSPHERE_1976
-
 from ...models.api import SolveOptions
 from ...models.project import Project
 from ...models.results import SolvedState
 from ..fluids import FluidError, fluid_properties
 from .builder import build_network
 from .errors import TopologyError
+from .npsh import atmospheric_pressure
 from .results import build_solved_state
 from .status import run_outer_loop
 from .version import METHOD_CHANGELOG, METHOD_VERSION
-
-
-def atmospheric_pressure(project: Project) -> tuple[float, str]:
-    """Absolute atmospheric pressure [Pa] and where it came from (D4)."""
-    settings = project.settings
-    if settings.atmospheric_pressure is not None:
-        return settings.atmospheric_pressure, "user override"
-    z = settings.site_elevation
-    p = float(ATMOSPHERE_1976(z).P)
-    return p, (
-        f"US Standard Atmosphere 1976 at the site elevation {z:g} m "
-        "(fluids.atmosphere.ATMOSPHERE_1976)"
-    )
 
 
 def solve_project(project: Project, options: SolveOptions | None = None) -> SolvedState:

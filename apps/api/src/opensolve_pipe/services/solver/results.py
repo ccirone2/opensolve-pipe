@@ -21,30 +21,44 @@ import math
 from collections import defaultdict, deque
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Literal
 
 import CoolProp
 import fluids
+import fluids.fittings
 import numpy as np
 import scipy
 
 from ... import __version__
-from ...models.components import IdealReferenceNode, Plug, Reservoir, TeeBranch, WyeBranch
+from ...models.components import (
+    CheckValve,
+    ControlValve,
+    IdealReferenceNode,
+    Plug,
+    Reservoir,
+    TeeBranch,
+    WyeBranch,
+)
 from ...models.results import (
     BoundaryResult,
     BranchResult,
     ConvergenceReport,
+    CurvePoint,
     FittingResult,
     Flag,
     LinkResult,
     MethodsSection,
     MethodsSummary,
     NodeResult,
+    PumpResult,
     ResidualLocation,
     SegmentResult,
     SolvedState,
     Trace,
+    ValveResult,
 )
-from .builder import BuiltNetwork, ConnectionData, node_key
+from .branches import DARBY_TEE, flow_pattern
+from .builder import BuiltNetwork, ConnectionData, PumpData, ValveData, node_key
 from .elements import segment_state
 from .flags import make_flag
 from .friction import (
@@ -59,7 +73,18 @@ from .friction import (
 )
 from .gga import CONTINUITY_ATOL, CONTINUITY_RTOL, ENERGY_TOL
 from .network import LinkMode, LinkState, SolverNetwork
-from .status import MAX_OUTER_ITERATIONS, OuterLoopResult
+from .npsh import npsh_available
+from .pumps import CURVE_SAMPLES
+from .status import (
+    HTOL,
+    K_TOL,
+    MAX_OUTER_ITERATIONS,
+    OFFSET_TOL,
+    QTOL,
+    OuterLoopResult,
+    Status,
+)
+from .valves import IDEAL_CONTROL_VALVE
 from .version import METHOD_VERSION
 
 ZERO_FLOW_RTOL = 1.0e-12
@@ -70,6 +95,24 @@ convergence test, not the flow resolution, so it would wrongly hide real flows b
 and 1e-9 · max|Q|. Dead ends do not rely on this threshold: the linear solve's error can leave
 them flows near 1e-12 · max|Q| when large-bore stubs make the network ill-conditioned (the
 200-tee review case in tests/unit/test_gga.py), so they are zeroed by topology instead."""
+
+
+SETPOINT_NOT_MET: dict[tuple[str, str], str] = {
+    ("prv", "open"): "fully open, its outlet pressure stays below its setting",
+    ("prv", "closed"): (
+        "closed, the pressure beyond its outlet is above its setting (or nothing upstream "
+        "can supply it), and it stops reverse flow"
+    ),
+    ("psv", "open"): "fully open, its inlet pressure stays above its setting without throttling",
+    ("psv", "closed"): "closed, its inlet pressure cannot reach its setting",
+    ("fcv", "open"): "fully open, the head across it cannot drive its setpoint flow",
+    ("fcv", "closed"): (
+        "closed, the head across it would drive flow in reverse (or one side of it has no "
+        "supply or outlet)"
+    ),
+}
+"""Why an active control valve is not holding its setpoint, by type and final state (the
+EPANET 2.2 status rules, design §5.3)."""
 
 
 def dead_end_links(network: SolverNetwork, states: Sequence[LinkState]) -> list[int]:
@@ -130,6 +173,7 @@ class _Mapper:
         self.g = built.g
         raw = outer.gga.flows
         q_zero = ZERO_FLOW_RTOL * float(np.max(np.abs(raw), initial=0.0)) + CONTINUITY_ATOL
+        self.q_scale = float(np.max(np.abs(raw), initial=0.0))
         self.flows = np.where(np.abs(raw) > q_zero, raw, 0.0)
         self.flows[dead_end_links(built.network, outer.states)] = 0.0
         self.heads = outer.gga.heads
@@ -148,6 +192,12 @@ class _Mapper:
         data = self.built.connections[conn_id]
         segment = data.segments[0] if end == "from" else data.segments[-1]
         return abs(self.connection_flow(conn_id)) / segment.area
+
+    def static_pressure(self, key: str) -> float:
+        """Gauge static pressure at a free port node, ρ g (H − z − v²/(2g)), Pa."""
+        node = self.built.network.nodes[self.built.network.node_index[key]]
+        v = 0.0 if node.fixed_head is not None else self.port_speed(key)
+        return self.rho * self.g * (self.head(key) - node.elevation - v * v / (2.0 * self.g))
 
     def outflow_at_port(self, key: str) -> float:
         """Flow leaving a component through this port into its connection, m³/s."""
@@ -212,8 +262,8 @@ class _Mapper:
                     "NO_VAPOR_PRESSURE",
                     "info",
                     f"fluid '{self.built.fluid.name}' has no vapor pressure; flashing is only "
-                    "detected where the absolute pressure falls to 0 Pa or below (give a vapor "
-                    "pressure for the full check)",
+                    "detected where the absolute pressure falls to 0 Pa or below, and NPSH "
+                    "available is not computed (give a vapor pressure override for both)",
                 )
             )
         for comp in self.built.components.values():
@@ -363,28 +413,71 @@ class _Mapper:
             if any(math.isnan(self.head(k)) for k in keys.values()):
                 continue
             inflow = {pid: -self.outflow_at_port(k) for pid, k in keys.items()}
-            ins = [pid for pid, q in inflow.items() if q > 0]
-            outs = [pid for pid, q in inflow.items() if q < 0]
-            combined: str | None
-            if len(ins) == 1:
-                combined = ins[0]
-                pattern = f"diverging from {combined}"
-            elif len(outs) == 1:
-                combined = outs[0]
-                pattern = f"converging to {combined}"
-            else:
-                combined, pattern = None, "no flow"
-            path_losses: dict[str, float] = {}
+            geometry = self.built.branches[comp.id]
+            tracker = self.outer.branches.get(comp.id)
             k_factors: dict[str, float] = {}
+            in_range = True
+            if tracker is None:  # lossModel 'ideal'
+                kind, combined = flow_pattern(geometry, inflow, self.q_scale)
+                correlation = (
+                    "ideal junction: no loss (lossModel 'ideal', as EPANET models junctions)"
+                )
+            else:
+                solution = tracker.reported
+                kind, combined = solution.kind, solution.combined
+                k_factors = dict(solution.k)
+                correlation = solution.correlation
+                in_range = not (solution.range_notes or tracker.averaged) and (
+                    solution.model in ("crane", "none")
+                )
+                self.branch_flags(comp.id, tracker.averaged, solution.model, solution.range_notes)
+                if tracker.averaged:
+                    correlation += (
+                        "; K held at the mean of the two values the flow split alternated "
+                        "between (a step of the correlation)"
+                    )
+            path_losses: dict[str, float] = {}
             v_ref = 0.0
             if combined is not None:
                 h_c = self.head(keys[combined])
-                sign = 1.0 if combined in ins else -1.0
+                sign = 1.0 if kind == "diverging" else -1.0
                 for pid in keys:
                     if pid != combined:
-                        k_factors[pid] = 0.0
+                        k_factors.setdefault(pid, 0.0)
                         path_losses[pid] = sign * (h_c - self.head(keys[pid]))
-                v_ref = self.port_speed(keys[combined])
+                v_ref = abs(inflow[combined]) / geometry.area[combined]
+            if tracker is not None and tracker.reported.model == "darby" and v_ref > 0.0:
+                # Darby's K is on each run leg's own velocity; reported on the combined-flow
+                # velocity like every other pattern, so that K v_ref²/(2g) is the path loss.
+                own = dict(k_factors)
+                for pid, k in own.items():
+                    v_leg = abs(inflow[pid]) / geometry.area[pid]
+                    k_factors[pid] = k * (v_leg / v_ref) ** 2
+                listed = ", ".join(f"{pid} {k:.6g}" for pid, k in sorted(own.items()))
+                correlation += (
+                    f"; Darby K on each run leg's own velocity: {listed}; listed here on the "
+                    "combined-flow (branch) velocity v_c as K_Darby (v_leg/v_c)²"
+                )
+            dead = tracker.dead_leg if tracker is not None else None
+            if dead is not None and dead in path_losses and v_ref > 0.0:
+                # A held leg's port head is set by the network, inside the zero-flow band:
+                # report the K its head implies on the combined-flow velocity.
+                k_factors[dead] = path_losses[dead] / (v_ref * v_ref / (2.0 * self.g))
+                correlation += (
+                    f"; '{dead}' carries no flow: its head lies between the Crane values for "
+                    "flow out through it and flow in at zero flow (the correlations differ "
+                    "there), so it is held at zero flow and its K is the one its head implies"
+                )
+                if tracker is not None and tracker.partner is not None:
+                    other = f"{tracker.partner[0]}:{tracker.partner[1]}"
+                    correlation += (
+                        f"; the pipe to '{other}' carries no flow either, and its head is the "
+                        "middle of the range of heads both branches allow at zero flow"
+                    )
+            if kind == "none":
+                pattern = "no flow"
+            else:
+                pattern = f"{kind} {'from' if kind == 'diverging' else 'to'} {combined}"
             results[comp.id] = BranchResult(
                 branch_type=comp.branch_type,
                 loss_model=comp.loss_model,
@@ -394,11 +487,311 @@ class _Mapper:
                 k_factors=k_factors,
                 path_head_losses=path_losses,
                 reference_velocity=v_ref,
-                correlation="ideal junction: no loss (lossModel 'ideal', as EPANET models "
-                "junctions)",
-                in_correlation_range=True,
+                correlation=correlation,
+                in_correlation_range=in_range,
             )
         return results
+
+    def branch_flags(self, cid: str, averaged: bool, model: str, notes: list[str]) -> None:
+        for note in notes:
+            self.flags.append(
+                make_flag(
+                    "CORRELATION_OUT_OF_RANGE",
+                    "warning",
+                    f"branch '{cid}': {note}",
+                    component_id=cid,
+                )
+            )
+        if averaged:
+            self.flags.append(
+                make_flag(
+                    "CORRELATION_OUT_OF_RANGE",
+                    "warning",
+                    f"branch '{cid}': the flow split sits at a step of the Crane correlation; "
+                    "K is the mean of the two values on either side",
+                    component_id=cid,
+                )
+            )
+        if model == "darby":
+            self.flags.append(
+                make_flag(
+                    "TEE_PATTERN_FALLBACK",
+                    "warning",
+                    f"tee '{cid}': the combined flow passes through the branch, which the Crane "
+                    f"tee correlations do not cover; each run path uses the Darby 3-K tee "
+                    f"'{DARBY_TEE}' on its own velocity instead",
+                    component_id=cid,
+                )
+            )
+
+    def pump_result(self, pump: PumpData) -> PumpResult | None:
+        comp = pump.component
+        s = comp.speed
+        control = self.outer.controls.get(comp.id)
+        running = control is not None and control.status is Status.OPEN
+        status: Literal["running", "off", "no_flow"] = (
+            "off" if comp.status == "off" else "running" if running else "no_flow"
+        )
+        curve = pump.curve
+        h_s, h_d = self.head(pump.suction), self.head(pump.discharge)
+        if math.isnan(h_s) and math.isnan(h_d):
+            if status == "no_flow":
+                # Held at no flow by the status rules, then closed off on both sides (e.g.
+                # between a foot valve and a discharge check valve): no heads to report, but
+                # the pump still cannot deliver against the system.
+                self.flags.append(
+                    make_flag(
+                        "PUMP_FLOW_REVERSAL",
+                        "invalid",
+                        f"pump '{comp.id}': the system head exceeds its shutoff head "
+                        f"({curve.shutoff_head(s):.6g} m at speed {s:g}); it is held at no "
+                        "flow, and both its sides are closed off",
+                        component_id=comp.id,
+                        details={"shutoffHead": curve.shutoff_head(s)},
+                    )
+                )
+            return None  # isolated
+        # A pump held at no flow with one side closed off (its discharge by a check valve that
+        # the system head keeps shut, or its suction by a closed foot valve) runs dead-headed:
+        # it develops its shutoff head, so the closed-off side's EGL is the other side's ±
+        # s²H₀(0), the zero-flow head the pump puts there (``status.zero_flow_openings``).
+        cut_off = "discharge" if math.isnan(h_d) else "suction" if math.isnan(h_s) else None
+        if cut_off is not None and status != "no_flow":
+            return None  # a pump that is off, or runs inside a closed-off section
+        dead_headed = cut_off is not None
+        if cut_off == "suction":
+            h_s = h_d - curve.shutoff_head(s)
+        q = float(self.flows[pump.link_index]) if running else 0.0
+        head = curve.shutoff_head(s) if dead_headed else h_d - h_s
+        in_range = True
+        efficiency: float | None = None
+        npshr: float | None = None
+        details: dict[str, float | str] = {"flow": q, "speed": s}
+        if running:
+            in_range = curve.in_range(q, s)
+            q_min, q_max = curve.flow_range
+            if not in_range:
+                self.flags.append(
+                    make_flag(
+                        "PUMP_OUTSIDE_CURVE",
+                        "warning",
+                        f"pump '{comp.id}' operates at {q:.6g} m³/s, outside its curve's flow "
+                        f"range at speed {s:g} ({q_min * s:.6g} to {q_max * s:.6g} m³/s); the "
+                        "head is extrapolated along the curve's end slope",
+                        component_id=comp.id,
+                        details={**details, "curve": "head"},
+                    )
+                )
+            eff = curve.efficiency(q, s)
+            if eff is not None:
+                efficiency = eff.value
+                if eff.extrapolated:
+                    self.flags.append(
+                        make_flag(
+                            "PUMP_OUTSIDE_CURVE",
+                            "warning",
+                            f"pump '{comp.id}': the operating flow is outside its efficiency "
+                            "curve; the efficiency is held at the curve's nearest end value",
+                            component_id=comp.id,
+                            details={**details, "curve": "efficiency"},
+                        )
+                    )
+            req = curve.npsh_required(q, s)
+            if req is not None:
+                npshr = req.value
+                if req.extrapolated:
+                    self.flags.append(
+                        make_flag(
+                            "PUMP_OUTSIDE_CURVE",
+                            "warning",
+                            f"pump '{comp.id}': the operating flow is outside its NPSHr curve; "
+                            "NPSHr is extrapolated along the curve's end slope",
+                            component_id=comp.id,
+                            details={**details, "curve": "npshr"},
+                        )
+                    )
+        elif status == "no_flow":
+            shutoff = curve.shutoff_head(s)
+            across = (
+                f"its {cut_off} is closed off, so it runs dead-headed at its shutoff head"
+                if dead_headed
+                else f"the system head across it ({head:.6g} m) exceeds its shutoff head"
+            )
+            self.flags.append(
+                make_flag(
+                    "PUMP_FLOW_REVERSAL",
+                    "invalid",
+                    f"pump '{comp.id}': {across} ({shutoff:.6g} m at speed {s:g}); flow would "
+                    "reverse, and the pump's check holds it at zero",
+                    component_id=comp.id,
+                    details={"headRise": head, "shutoffHead": shutoff},
+                )
+            )
+        hydraulic_power = self.rho * self.g * q * head if running else 0.0
+        shaft_power = hydraulic_power / efficiency if efficiency is not None else None
+        suction_node = self.built.network.nodes[self.built.network.node_index[pump.suction]]
+        p_vap = self.built.fluid.vapor_pressure
+        npsha = (
+            npsh_available(h_s, suction_node.elevation, self.p_atm, p_vap, self.rho, self.g)
+            if p_vap is not None
+            else None
+        )
+        margin = npsha - npshr if npsha is not None and npshr is not None else None
+        if running and margin is not None and margin < 0.0:
+            self.flags.append(
+                make_flag(
+                    "CAVITATION",
+                    "invalid",
+                    f"pump '{comp.id}': NPSH available {npsha:.6g} m is below NPSH required "
+                    f"{npshr:.6g} m (margin {margin:.6g} m); the pump would cavitate",
+                    component_id=comp.id,
+                    port_id="suction",
+                    details={
+                        "npshAvailable": float(npsha or 0.0),
+                        "npshRequired": float(npshr or 0.0),
+                        "npshMargin": margin,
+                    },
+                )
+            )
+        return PumpResult(
+            status=status,
+            speed=s,
+            operating_flow=q,
+            operating_head=head,
+            in_curve_range=in_range,
+            hydraulic_power=hydraulic_power,
+            efficiency=efficiency,
+            shaft_power=shaft_power,
+            npsh_available=npsha,
+            npsh_required=npshr,
+            npsh_margin=margin,
+            suction_absolute_pressure=(
+                self.rho * self.g * (h_s - suction_node.elevation)  # no flow: v = 0
+                if cut_off == "suction"
+                else self.static_pressure(pump.suction)
+            )
+            + self.p_atm,
+            curve=[CurvePoint(flow=f, head=h) for f, h in curve.sample(s, CURVE_SAMPLES)],
+            system_curve=None,
+        )
+
+    def valve_result(self, data: ValveData) -> ValveResult | None:
+        valve = data.component
+        h1, h2 = self.head(data.inlet), self.head(data.outlet)
+        if math.isnan(h1) or math.isnan(h2):
+            self.closed_off_valve_flag(data, math.isnan(h1) and math.isnan(h2))
+            return None  # isolated
+        control = self.outer.controls[valve.id]
+        state: Literal["open", "closed", "active"] = control.status.value
+        q = float(self.flows[data.link_index])
+        p_in, p_out = self.static_pressure(data.inlet), self.static_pressure(data.outlet)
+        setpoint: float | None = None
+        achieved: bool | None = None
+        k_eff: float | None = None
+        cv_eff: float | None = None
+        if isinstance(valve, ControlValve):
+            setpoint = valve.setpoint
+            if control.status is Status.ACTIVE:
+                achieved = True
+                dh = h1 - h2
+                if q > 0.0 and dh > 0.0:
+                    k_eff = 2.0 * self.g * data.reference_area**2 * dh / (q * q)
+                    cv_eff = float(fluids.fittings.K_to_Cv(k_eff, data.reference_diameter))
+            elif valve.valve_type == "prv":
+                achieved = abs(p_out - setpoint) <= self.rho * self.g * HTOL
+            elif valve.valve_type == "psv":
+                achieved = abs(p_in - setpoint) <= self.rho * self.g * HTOL
+            else:
+                achieved = abs(q - setpoint) <= QTOL
+            if valve.status == "active" and not achieved:
+                self.flags.append(
+                    make_flag(
+                        "CONTROL_VALVE_SETPOINT_NOT_MET",
+                        "info",
+                        f"{valve.valve_type.upper()} '{valve.id}' is {state}: "
+                        f"{SETPOINT_NOT_MET[valve.valve_type, state]} (setpoint {setpoint:g})",
+                        component_id=valve.id,
+                        details={"state": state, "setpoint": setpoint},
+                    )
+                )
+        if (
+            isinstance(valve, CheckValve)
+            and valve.status == "active"
+            and control.status is Status.CLOSED
+        ):
+            self.flags.append(
+                make_flag(
+                    "CHECK_VALVE_CLOSED",
+                    "info",
+                    f"check valve '{valve.id}' is closed: the head across it "
+                    f"({h1 - h2:.6g} m) does not exceed its cracking head "
+                    f"({data.cracking_head:.6g} m) in the forward direction",
+                    component_id=valve.id,
+                    details={"headDifference": h1 - h2, "crackingHead": data.cracking_head},
+                )
+            )
+        re = (
+            abs(q)
+            * data.reference_diameter
+            / (data.reference_area * self.built.fluid.kinematic_viscosity)
+        )
+        if data.resistance.crane and 0.0 < re < RE_LAMINAR_MAX:
+            self.flags.append(
+                make_flag(
+                    "CORRELATION_OUT_OF_RANGE",
+                    "warning",
+                    f"valve '{valve.id}': its Crane K is for turbulent flow but the flow is "
+                    f"laminar (Re = {re:.0f}); the loss is likely underestimated",
+                    component_id=valve.id,
+                    details={"reynoldsNumber": re},
+                )
+            )
+        return ValveResult(
+            valve_type=valve.valve_type,
+            state=state,
+            flow=q,
+            head_loss=h1 - h2,
+            pressure_drop=p_in - p_out,
+            k_open=data.resistance.k,
+            reference_diameter=data.reference_diameter,
+            k_effective=k_eff,
+            cv_effective=cv_eff,
+            setpoint=setpoint,
+            setpoint_achieved=achieved,
+        )
+
+    def closed_off_valve_flag(self, data: ValveData, inside: bool) -> None:
+        """The state flag of an active check or control valve that ends closed with the
+        section on one side of it closed off (no head there, so no valve result): the reason
+        the section carries no flow."""
+        valve = data.component
+        control = self.outer.controls[valve.id]
+        if inside or control.status is not Status.CLOSED or valve.status != "active":
+            return
+        if isinstance(valve, CheckValve):
+            self.flags.append(
+                make_flag(
+                    "CHECK_VALVE_CLOSED",
+                    "info",
+                    f"check valve '{valve.id}' is closed: the head across it does not exceed "
+                    f"its cracking head ({data.cracking_head:.6g} m) in the forward direction, "
+                    "and the section on its other side is closed off",
+                    component_id=valve.id,
+                    details={"crackingHead": data.cracking_head},
+                )
+            )
+        elif isinstance(valve, ControlValve):
+            self.flags.append(
+                make_flag(
+                    "CONTROL_VALVE_SETPOINT_NOT_MET",
+                    "info",
+                    f"{valve.valve_type.upper()} '{valve.id}' is closed: "
+                    f"{SETPOINT_NOT_MET[valve.valve_type, 'closed']} (setpoint "
+                    f"{valve.setpoint:g}), and the section on its other side is closed off",
+                    component_id=valve.id,
+                    details={"state": "closed", "setpoint": valve.setpoint},
+                )
+            )
 
     # ------------------------------------------------------------------ report
     def isolated_flags(self) -> None:
@@ -545,8 +938,87 @@ def methods_summary(built: BuiltNetwork, p_atm_source: str) -> MethodsSummary:
                 items=[
                     "Tees and wyes with lossModel 'ideal' are junctions without loss, as in "
                     "EPANET.",
+                    "lossModel 'crane': the path losses follow the solved flow split with the "
+                    "Crane TP-410 tee and lateral correlations (fluids.fittings."
+                    "K_branch_diverging_Crane, K_run_diverging_Crane, K_branch_converging_Crane, "
+                    "K_run_converging_Crane), K on the combined-flow velocity in the run "
+                    "diameter; updated in the outer loop until K changes by less than "
+                    f"{K_TOL:g} and the path loss by less than {OFFSET_TOL:g} m.",
+                    "A tee whose combined flow passes through the branch uses the Darby 3-K tee "
+                    f"'{DARBY_TEE}' per run path on its own velocity (flagged); a wye in that "
+                    "pattern has no cited correlation and is reported as not converged.",
+                    "Zero flow through a leg: the correlations for flow out through a leg and "
+                    "flow in through it give different port heads in the limit of zero flow "
+                    "(for an equal tee's branch, K = 1.0 diverging against -0.9 converging). A "
+                    "leg whose flow keeps reversing between outer iterations is held at zero "
+                    "flow while the head the network gives its port lies between those two "
+                    "limits, and re-opened in the direction the network drives once it leaves "
+                    "them; its K is the one its head implies. Two such legs facing each other "
+                    "across one pipe are held together while their ranges overlap, and the "
+                    "pipe's head is reported at the middle of the overlap.",
+                    "A flow split that keeps stepping across one of the Crane correlation's "
+                    "steps (q = 0.4, 0.5, 0.6) holds K at the mean of the two values on either "
+                    "side (flagged).",
                 ],
-                references=[],
+                references=[
+                    "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe, 2009.",
+                    "Silverberg, P., and R. Darby. Chem. Eng. 106(7), 1999, 101.",
+                ],
+            ),
+            MethodsSection(
+                title="Pumps",
+                items=[
+                    "Head, efficiency and NPSHr curves: monotone piecewise cubic interpolation "
+                    "(SciPy PchipInterpolator) through the entered points; head and NPSHr are "
+                    "extrapolated along the end slope outside the points (flagged), efficiency is "
+                    "held at its end values (flagged).",
+                    "Speed: affinity laws, H(Q) = s² H₀(Q/s), NPSHr(Q) = s² NPSHr₀(Q/s), "
+                    "η(Q) = η₀(Q/s). No viscosity correction of the curves.",
+                    "Integral check: a pump closes when the system head exceeds its shutoff "
+                    "head s² H₀(0) or the flow would reverse (EPANET 2.2 pumpstatus), and is "
+                    "flagged as flow reversal.",
+                ],
+                references=[
+                    "Fritsch, F. N., and R. E. Carlson. SIAM J. Numer. Anal. 17(2), 1980.",
+                ],
+            ),
+            MethodsSection(
+                title="Valves",
+                items=[
+                    "Open valve loss h = K v²/(2g) on the inlet pipe's inner diameter; Cv and Kv "
+                    "converted with fluids.fittings.Cv_to_K / Kv_to_K (ISA-75.01.01); without a "
+                    "resistance, the Crane TP-410 full-bore K for the valve type.",
+                    "Check valves open above their cracking head and close on reverse flow "
+                    "(EPANET 2.2 cvstatus with the cracking head).",
+                    "PRV, PSV and FCV hold the outlet static pressure, inlet static pressure or "
+                    "flow when active; status rules from EPANET 2.2 (hydstatus.c) applied to the "
+                    "energy grade line, with the setpoint head z + p/(ρg) + v²/(2g) at the port; "
+                    "an FCV closes on reverse flow (EPANET's would pass it), and an active FCV "
+                    "opens once the head across it is below its fully open loss at the setpoint "
+                    "(EPANET's waits for a reverse head), as the PRV and PSV rules do. "
+                    f"Control valves without a resistance: {IDEAL_CONTROL_VALVE}.",
+                    f"Status tolerances: {HTOL:g} m in head, {QTOL:g} m³/s in flow.",
+                    "A section closed off by closed pumps or valves carries no flow and has no "
+                    "computed pressure; the closed elements around it are re-tested against the "
+                    "heads it can take at zero flow (a dead-headed pump puts its shutoff head on "
+                    "it), and re-opened when no such head keeps them all closed.",
+                ],
+                references=[
+                    "Rossman, L. A., et al. EPANET 2.2 User Manual. US EPA, 2020.",
+                    "ISA-75.01.01-2007 (60534-2-1 Mod), Flow Equations for Sizing Control Valves.",
+                ],
+            ),
+            MethodsSection(
+                title="Atmosphere and NPSH",
+                items=[
+                    f"Atmospheric pressure: {p_atm_source}.",
+                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), "
+                    "the absolute static plus velocity head above the vapor pressure; margin = "
+                    "NPSHa − NPSHr, flagged as cavitation when negative.",
+                ],
+                references=[
+                    "U.S. Standard Atmosphere, 1976. NOAA, NASA, USAF, Washington, DC, 1976.",
+                ],
             ),
             MethodsSection(
                 title="Fluid properties",
@@ -588,6 +1060,7 @@ def build_solved_state(
 ) -> SolvedState:
     mapper = _Mapper(built, outer, p_atm)
     mapper.input_flags()
+    mapper.flags.extend(outer.flags)
     gga = outer.gga
     trace = Trace(elements={}, methods=methods_summary(built, p_atm_source))
     if not outer.converged:
@@ -627,6 +1100,10 @@ def build_solved_state(
     links = {conn_id: mapper.link_result(data) for conn_id, data in built.connections.items()}
     boundaries = mapper.boundary_results()
     branches = mapper.branch_results()
+    pumps = {cid: pr for cid, d in built.pumps.items() if (pr := mapper.pump_result(d)) is not None}
+    valves = {
+        cid: vr for cid, d in built.valves.items() if (vr := mapper.valve_result(d)) is not None
+    }
     mapper.isolated_flags()
     balance, balance_node = mapper.mass_balance()
     return SolvedState(
@@ -637,8 +1114,8 @@ def build_solved_state(
         atmospheric_pressure=p_atm,
         node_results=nodes,
         link_results=links,
-        pump_results={},
-        valve_results={},
+        pump_results=pumps,
+        valve_results=valves,
         branch_results=branches,
         boundary_results=boundaries,
         flags=mapper.flags,

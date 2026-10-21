@@ -1,0 +1,240 @@
+{
+  "name": "npsh_margin_atmospheric_override",
+  "description": "A pump at 90% speed with an atmospheric pressure override of 95 kPa: verifies that the override replaces the standard atmosphere in NPSH available and the affinity scaling of NPSH required.",
+  "source": "closed-form: tests/reference/derivations_fluids.py::npsh_margin_atmospheric_override (pump curve PCHIP + affinity laws; NPSHa = (H_s - z_s) + (p_atm - p_vap)/(rho g); NPSHr PCHIP; CoolProp water (IAPWS-95) density, viscosity and saturation pressure; Darcy-Weisbach + Colebrook; brentq; p_atm = 95000 Pa override; line fittings: fluids bend_rounded_Crane(Di, 90, bend_diameters=1.5), entrance_sharp(method='Crane'), exit_normal(), K_gate_valve_Crane(Di, Di, 0))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-npsh-margin-atmospheric-override",
+    "metadata": {
+      "name": "NPSH margin with an atmospheric override",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 800.0,
+      "atmosphericPressure": 95000.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "builtin",
+      "fluidId": "water",
+      "temperature": 303.15
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "PU1",
+        "name": "Pump PU1",
+        "elevation": 3.5,
+        "ports": [
+          {
+            "id": "suction",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "discharge",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "pump",
+        "curveId": "PC-A",
+        "speed": 0.9,
+        "status": "on"
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 12.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "PU1",
+        "toPortId": "suction",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1541,
+              "length": 8.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_90_lr",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "PU1",
+        "fromPortId": "discharge",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 100.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "gate_valve",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_90_lr",
+              "quantity": 2,
+              "pipeIndex": 0
+            },
+            {
+              "type": "exit",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": [
+      {
+        "id": "PC-A",
+        "name": "Curve PC-A",
+        "points": [
+          {
+            "flow": 0.0,
+            "head": 45.0
+          },
+          {
+            "flow": 0.01,
+            "head": 44.0
+          },
+          {
+            "flow": 0.02,
+            "head": 41.0
+          },
+          {
+            "flow": 0.03,
+            "head": 35.5
+          },
+          {
+            "flow": 0.04,
+            "head": 27.0
+          }
+        ],
+        "npshrCurve": [
+          {
+            "flow": 0.005,
+            "npshr": 1.6
+          },
+          {
+            "flow": 0.015,
+            "npshr": 2.0
+          },
+          {
+            "flow": 0.025,
+            "npshr": 2.7
+          },
+          {
+            "flow": 0.035,
+            "npshr": 3.8
+          },
+          {
+            "flow": 0.045,
+            "npshr": 5.2
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "fluid": {
+      "density": 995.6494539376417,
+      "dynamicViscosity": 0.0007972217998101543,
+      "vaporPressure": 4246.970836903843
+    },
+    "flows": {
+      "L1": 0.03123709423936177,
+      "L2": 0.03123709423936177
+    },
+    "egl": {
+      "R1:port_1": 2.0,
+      "PU1:suction": 1.7738471519936192,
+      "PU1:discharge": 27.62451170739681,
+      "R2:port_1": 14.0
+    },
+    "pressures": {
+      "PU1:suction": -18250.58822319359,
+      "PU1:discharge": 228361.2796115414
+    },
+    "atmosphericPressure": 95000.0,
+    "pumps": {
+      "PU1": {
+        "status": "running",
+        "operatingFlow": 0.03123709423936177,
+        "operatingHead": 25.85066455540319,
+        "npshAvailable": 7.568517565207536,
+        "npshRequired": 3.0488647963163342,
+        "npshMargin": 4.519652768891202
+      }
+    }
+  }
+}

@@ -149,10 +149,15 @@ class BranchResult(OutputModel):
     combined_port_id: str | None
     port_flows: dict[str, float] = Field(description="m³/s, positive into the component")
     k_factors: dict[str, float] = Field(
-        description="K of the path between the combined port and each other port"
+        description=(
+            "K of the path between the combined port and each other port, on the reference "
+            "velocity: K v_ref²/(2g) is the path's loss"
+        )
     )
     path_head_losses: dict[str, float] = Field(description="EGL loss per path, m")
-    reference_velocity: float = Field(description="Combined-flow velocity, m/s")
+    reference_velocity: float = Field(
+        description="Combined-flow velocity, m/s (in the pipe on the combined port)"
+    )
     correlation: str
     in_correlation_range: bool
 

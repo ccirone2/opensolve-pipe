@@ -15,7 +15,6 @@ from fluids.friction import Colebrook
 from opensolve_pipe.models.piping import Fitting
 from opensolve_pipe.services.solver.elements import (
     HeadOffsetLaw,
-    PendingLaw,
     PipeConnectionLaw,
     PipeSegment,
     segment_state,
@@ -178,11 +177,6 @@ def test_head_offset_law() -> None:
     assert offset.evaluate(0.3) == (0.0, 0.0)
     offset.offset = 1.25
     assert offset.evaluate(-2.0) == (1.25, 0.0)
-
-
-def test_pending_law_raises_not_implemented() -> None:
-    with pytest.raises(NotImplementedError, match="M3"):
-        PendingLaw("pump 'P1'").evaluate(0.0)
 
 
 def test_connection_needs_a_segment() -> None:

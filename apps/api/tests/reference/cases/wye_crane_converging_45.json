@@ -1,0 +1,212 @@
+{
+  "name": "wye_crane_converging_45",
+  "description": "Two reservoirs feeding a 45-degree wye through its straight outlet and lateral, combined flow out of the inlet (the lateral meets the combined flow at 45 degrees): verifies the Crane TP-410 converging K at 45 degrees (fluids), including a negative lateral K.",
+  "source": "closed-form: tests/reference/derivations_branches.py::wye_crane_converging_45 (Darcy-Weisbach + Colebrook lines; path K from fluids K_branch_converging_Crane and K_run_converging_Crane at angle 45 on the combined-flow velocity; fsolve; line fittings: fluids entrance_sharp(method='Crane'), exit_normal())",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-wye-crane-converging-45",
+    "metadata": {
+      "name": "Crane 45-degree wye, converging flow",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "T1",
+        "name": "Wye T1",
+        "elevation": 2.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet_2",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "wye",
+        "angle": 45.0,
+        "lossModel": "crane"
+      },
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 15.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 5.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "R3",
+        "name": "Reservoir R3",
+        "elevation": 14.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 1.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "T1",
+        "toPortId": "outlet_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 50.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "R3",
+        "fromPortId": "port_1",
+        "toComponentId": "T1",
+        "toPortId": "outlet_2",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 35.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L3",
+        "fromComponentId": "T1",
+        "fromPortId": "inlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 80.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "exit",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.026576010234313694,
+      "L2": 0.00749895447306543,
+      "L3": 0.03407496470737913
+    },
+    "egl": {
+      "T1:outlet_1": 15.113189870392612,
+      "R1:port_1": 20.0,
+      "T1:outlet_2": 14.684357882539404,
+      "R3:port_1": 15.0,
+      "T1:inlet": 14.829783279061218,
+      "R2:port_1": 2.0
+    },
+    "pressures": {
+      "T1:outlet_1": 123122.54708576134,
+      "T1:outlet_2": 123726.92088363609,
+      "T1:inlet": 116989.47479251385
+    }
+  }
+}

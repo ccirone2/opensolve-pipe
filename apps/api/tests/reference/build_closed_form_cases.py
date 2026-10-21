@@ -1,4 +1,4 @@
-"""Write ``cases/<name>.json`` for every closed-form derivation in ``derivations.py``.
+"""Write ``cases/<name>.json`` for every closed-form derivation (``closed_form.py`` lists them).
 
 Run from ``apps/api``::
 
@@ -8,7 +8,7 @@ Run from ``apps/api``::
 """
 
 from tests.reference.case_format import write_case
-from tests.reference.derivations import CLOSED_FORM_CASES
+from tests.reference.closed_form import CLOSED_FORM_CASES
 
 
 def main() -> None:

@@ -162,6 +162,7 @@
       "referenceDiameter": "pipe",
       "validInLaminarFlow": false,
       "laminarNote": "fluids docstring: 'This method is not valid in the laminar regime and the pressure drop will be underestimated in those conditions.'",
+      "sizeRange": { "minInches": 2, "maxInches": 24, "note": "fluids 1.3.1 K_butterfly_valve_Crane docstring: N is tabulated for the size ranges 2\"-8\", 10\"-14\" and 16\"-24\" only; the function compares D with those sizes as inches x 0.0254 m (its splits at 0.2286 m and 0.381 m), so D is checked against 2 x 0.0254 m and 24 x 0.0254 m" },
       "source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.K_butterfly_valve_Crane (style 0 = centric; size-dependent multiplier of ft_Crane(D))"
     },
     {

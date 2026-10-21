@@ -12,9 +12,16 @@ from typing import Any
 import pytest
 
 from tests.reference.case_format import ReferenceCase, case_files, case_path, read_case
-from tests.reference.derivations import CLOSED_FORM_CASES
+from tests.reference.closed_form import CLOSED_FORM_CASES
 
-EPANET_CASE_NAMES = ("epanet_looped_network_a", "epanet_looped_network_b")
+EPANET_CASE_NAMES = (
+    "epanet_looped_network_a",
+    "epanet_looped_network_b",
+    "epanet_pump_network",
+    "epanet_prv_network",
+    "epanet_psv_network",
+    "epanet_fcv_network",
+)
 DERIVATION_REL = 1.0e-10
 EPANET_REL = 8 * 2.0**-23  # a few float32 ulps
 

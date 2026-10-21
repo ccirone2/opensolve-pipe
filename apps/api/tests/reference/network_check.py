@@ -1,27 +1,42 @@
 """Self-check tools for the reference cases (used by ``test_derivation_checks.py`` only).
 
 The derivations compute expected values from their own Python parameters. This module re-reads a
-case's *project JSON* and evaluates the energy equation of every connection from that data, so
+case's *project JSON* and evaluates the law of every connection and component from that data, so
 a mismatch between what a derivation solved and what it wrote into the project shows up as a
 residual. It can also solve a whole case as a network (``scipy.optimize.fsolve`` on all heads and
 flows at once), a second, independent route to every expected value, and the way to measure how
 far EPANET's built-in constants move its answers away from our model.
 
-Nothing here is used to produce expected values. Supported elements: what the reference cases
-use (custom and carbon-steel schedule 40 pipes, every fitting type, reservoirs, ideal reference
-nodes, ideal tees and plugs).
+Pumps and valves are solved in the state the case expects (``expected.pumps`` /
+``expected.valves``); ``state_problems`` checks separately that those states are the ones the
+status rules of design §5 select. Nothing here is used to produce expected values. Supported
+elements: what the reference cases use (custom and carbon-steel schedule 40 pipes, every fitting
+type, reservoirs, ideal reference nodes, ideal and Crane tees and wyes, plugs, pumps, isolation,
+check and control valves).
 """
 
 import math
 from collections import defaultdict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import fsolve
 
-from opensolve_pipe.models.components import IdealReferenceNode, Plug, Reservoir, TeeBranch
+from opensolve_pipe.models.components import (
+    CheckValve,
+    Component,
+    ControlValve,
+    IdealReferenceNode,
+    IsolationValve,
+    Plug,
+    Pump,
+    Reservoir,
+    TeeBranch,
+    WyeBranch,
+)
 from opensolve_pipe.models.piping import (
     CUSTOM_MATERIAL_ID,
     Fitting,
@@ -30,6 +45,7 @@ from opensolve_pipe.models.piping import (
 )
 from opensolve_pipe.models.project import Project
 from tests.reference import derivations as dv
+from tests.reference import element_laws as el
 
 FrictionFn = Callable[[float, float], float]
 """Darcy f(Re, ε/D)."""
@@ -51,6 +67,12 @@ EPANET_AC = -5.14214965799093883760e-03  # AA*AB
 # value of the constant is 1/(2·32.2·(π/4)²).
 EPANET_G = 32.2 * 0.3048
 EPANET_MINOR_LOSS_SCALE = 0.02517 * 2.0 * 32.2 * (math.pi / 4.0) ** 2
+# An active EPANET FCV keeps a conductance P = 1/CBIG across the valve (fcvcoeff,
+# hydcoeffs.c:1077-1083, CBIG = 1e8 at hydcoeffs.c:35) and its flow update dq = Y − P·dh
+# (newflows, hydsolver.c:431) settles at Q = q_set + dh/CBIG, in ft and cfs: a leak of
+# dh·(0.3048 m)²/CBIG m³/s for dh in m.
+EPANET_CBIG = 1.0e8
+EPANET_FCV_LEAK = 0.3048**2 / EPANET_CBIG
 
 
 def epanet_friction_factor(re: float, ed: float) -> float:
@@ -85,6 +107,8 @@ class Model:
     friction: FrictionFn
     g: float = dv.G
     k_scale: float = 1.0
+    fcv_leak: float = 0.0
+    """m³/s per m of head across an active FCV (EPANET's 1/CBIG conductance; 0 for ours)."""
 
 
 def our_model(project: Project) -> Model:
@@ -92,7 +116,12 @@ def our_model(project: Project) -> Model:
     return Model(friction=lambda re, ed: dv.friction_factor(re, ed, method))
 
 
-EPANET_MODEL = Model(friction=epanet_friction_factor, g=EPANET_G, k_scale=EPANET_MINOR_LOSS_SCALE)
+EPANET_MODEL = Model(
+    friction=epanet_friction_factor,
+    g=EPANET_G,
+    k_scale=EPANET_MINOR_LOSS_SCALE,
+    fcv_leak=EPANET_FCV_LEAK,
+)
 
 
 def resolve_pipe(pipe: PipeDefinition) -> tuple[float, float]:
@@ -192,47 +221,71 @@ def connection_head_loss(connection: PipeConnection, q: float, nu: float, model:
 
 # --- Nodes ---------------------------------------------------------------------------------------
 
+Valve = IsolationValve | CheckValve | ControlValve
+TwoPort = Pump | IsolationValve | CheckValve | ControlValve
+Branch = TeeBranch | WyeBranch
+
+TWO_PORT_ENDS = {"pump": ("suction", "discharge"), "valve": ("inlet", "outlet")}
+
+
+def fluid_state(project: Project) -> tuple[float, float, float | None]:
+    return dv.fluid_state(project.fluid)
+
 
 def kinematic_viscosity(project: Project) -> float:
-    fluid = project.fluid
-    if fluid.kind == "custom":
-        return fluid.dynamic_viscosity / fluid.density
-    rho, mu = dv.water_properties(fluid.temperature)
+    rho, mu, _ = fluid_state(project)
     return mu / rho
 
 
 def density(project: Project) -> float:
-    fluid = project.fluid
-    return fluid.density if fluid.kind == "custom" else dv.water_properties(fluid.temperature)[0]
+    return fluid_state(project)[0]
+
+
+def component_of(project: Project, component_id: str) -> Component:
+    return next(c for c in project.components if c.id == component_id)
 
 
 def port_elevation(project: Project, key: str) -> float:
     component_id, port_id = key.split(":")
-    for component in project.components:
-        if component.id == component_id:
-            for port in component.ports:
-                if port.id == port_id:
-                    return component.elevation if port.elevation is None else port.elevation
+    component = component_of(project, component_id)
+    for port in component.ports:
+        if port.id == port_id:
+            return component.elevation if port.elevation is None else port.elevation
     raise KeyError(key)
 
 
+def is_crane_branch(component: Component) -> bool:
+    return isinstance(component, TeeBranch | WyeBranch) and component.loss_model == "crane"
+
+
+def branch_kind(component: Branch) -> el.BranchKind:
+    return "tee" if isinstance(component, TeeBranch) else "wye"
+
+
+def branch_angle(component: Branch) -> float:
+    return 90.0 if isinstance(component, TeeBranch) else component.angle
+
+
+def two_port_ends(component: TwoPort) -> tuple[str, str]:
+    """(inlet port key, outlet port key) of a pump or valve."""
+    a, b = TWO_PORT_ENDS[component.type]
+    return f"{component.id}:{a}", f"{component.id}:{b}"
+
+
 def node_of_port(project: Project) -> dict[str, str]:
-    """Solver-independent node per port: one node per ideal tee (its three ports share one EGL),
-    one per plug, and one fixed-head node per boundary port."""
+    """Solver-independent node per port: one node per ideal tee or wye (its three ports share
+    one EGL) and per plug, one fixed-head node per boundary port, and one node per port of a
+    Crane branch, pump or valve."""
     nodes: dict[str, str] = {}
     for component in project.components:
         for port in component.ports:
             key = f"{component.id}:{port.id}"
-            if isinstance(component, TeeBranch):
-                if component.loss_model != "ideal":
-                    raise ValueError("only ideal tees are supported here")
+            if isinstance(component, Plug) or (
+                isinstance(component, TeeBranch | WyeBranch) and component.loss_model == "ideal"
+            ):
                 nodes[key] = component.id
-            elif isinstance(component, Plug):
-                nodes[key] = component.id
-            elif isinstance(component, Reservoir | IdealReferenceNode):
-                nodes[key] = key
             else:
-                raise ValueError(f"unsupported component {component.id}")
+                nodes[key] = key
     return nodes
 
 
@@ -254,17 +307,311 @@ def fixed_heads(project: Project) -> dict[str, float]:
     return heads
 
 
+def element_states(project: Project, expected: Mapping[str, Any]) -> dict[str, str]:
+    """The expected status of every pump and state of every valve (each must be given)."""
+    states: dict[str, str] = {}
+    for component in project.components:
+        if isinstance(component, Pump):
+            states[component.id] = expected["pumps"][component.id]["status"]
+        elif isinstance(component, IsolationValve | CheckValve | ControlValve):
+            states[component.id] = expected["valves"][component.id]["state"]
+    return states
+
+
+def connects_heads(component: TwoPort, state: str) -> bool:
+    """Whether a pump or valve in this state ties its two port heads (a law in Q and ΔH):
+    running pumps, open valves and active PRVs/PSVs do; closed elements and active FCVs (a
+    fixed flow) do not (design §4)."""
+    if isinstance(component, Pump):
+        return state == "running"
+    if state == "active":
+        return isinstance(component, ControlValve) and component.valve_type != "fcv"
+    return state == "open"
+
+
+def isolated_ports(project: Project, states: Mapping[str, str]) -> set[str]:
+    """Ports whose node reaches no fixed head through connections, Crane branches and pumps or
+    valves that tie heads: an isolated section, reported without heads (design §4)."""
+    nodes = node_of_port(project)
+    neighbours: dict[str, set[str]] = defaultdict(set)
+
+    def link(a: str, b: str) -> None:
+        neighbours[nodes[a]].add(nodes[b])
+        neighbours[nodes[b]].add(nodes[a])
+
+    for c in project.connections:
+        link(f"{c.from_component_id}:{c.from_port_id}", f"{c.to_component_id}:{c.to_port_id}")
+    for component in project.components:
+        if is_crane_branch(component):
+            keys = [f"{component.id}:{p.id}" for p in component.ports]
+            link(keys[0], keys[1])
+            link(keys[0], keys[2])
+        elif isinstance(component, Pump | IsolationValve | CheckValve | ControlValve):
+            if connects_heads(component, states[component.id]):
+                link(*two_port_ends(component))
+    reached = {nodes[k] for k in fixed_heads(project)}
+    frontier = list(reached)
+    while frontier:
+        for other in neighbours[frontier.pop()]:
+            if other not in reached:
+                reached.add(other)
+                frontier.append(other)
+    return {key for key, node in nodes.items() if node not in reached}
+
+
+def port_connection(project: Project, key: str) -> tuple[PipeConnection, float, int]:
+    """The connection on a port, the inner diameter of its end segment there, and the sign of
+    its flow as an inflow to the port's component (+1 at the 'to' end, −1 at the 'from' end)."""
+    for c in project.connections:
+        if f"{c.from_component_id}:{c.from_port_id}" == key:
+            return c, resolve_pipe(c.piping.pipes[0])[0], -1
+        if f"{c.to_component_id}:{c.to_port_id}" == key:
+            return c, resolve_pipe(c.piping.pipes[-1])[0], 1
+    raise KeyError(key)
+
+
+def port_inflow(project: Project, key: str, flows: Mapping[str, float]) -> float:
+    """Flow into the port's component through its connection, m³/s."""
+    c, _, sign = port_connection(project, key)
+    return sign * flows[c.id]
+
+
+def port_diameter(project: Project, key: str) -> float:
+    return port_connection(project, key)[1]
+
+
 def energy_residuals(
     project: Project, flows: Mapping[str, float], egl: Mapping[str, float], model: Model
 ) -> dict[str, float]:
-    """H_from − H_to − h(Q) per connection, m, from expected flows and port EGLs."""
+    """H_from − H_to − h(Q) per connection with both ends' EGL known, m."""
     nu = kinematic_viscosity(project)
     out: dict[str, float] = {}
     for c in project.connections:
-        h_from = egl[f"{c.from_component_id}:{c.from_port_id}"]
-        h_to = egl[f"{c.to_component_id}:{c.to_port_id}"]
-        out[c.id] = h_from - h_to - connection_head_loss(c, flows[c.id], nu, model)
+        a, b = f"{c.from_component_id}:{c.from_port_id}", f"{c.to_component_id}:{c.to_port_id}"
+        if a in egl and b in egl:
+            out[c.id] = egl[a] - egl[b] - connection_head_loss(c, flows[c.id], nu, model)
     return out
+
+
+def branch_offsets(
+    project: Project, component: Branch, inflows: Mapping[str, float]
+) -> el.BranchLosses:
+    """Crane path losses of a branch for port inflows keyed by port id (design §5.4)."""
+    diameters = {p.id: port_diameter(project, f"{component.id}:{p.id}") for p in component.ports}
+    return el.branch_losses(
+        branch_kind(component),
+        branch_angle(component),
+        inflows,
+        diameters,
+        kinematic_viscosity(project),
+    )
+
+
+@dataclass(frozen=True)
+class ElementEquations:
+    """Residuals of every component law at a solution: heads in m, flows in m³/s."""
+
+    heads: dict[str, float]
+    flows: dict[str, float]
+
+
+def element_law(
+    project: Project,
+    component: TwoPort,
+    state: str,
+    q: float,
+    h_in: float,
+    h_out: float,
+    model: Model,
+) -> tuple[str, float]:
+    """('head' | 'flow', residual) of a pump's or valve's law in its state (design §2.2-2.3,
+    §5): running pump H_out − H_in − H(Q); open valve ΔH − h_c − K Q|Q|/(2gA²); active PRV
+    H_out − h_set; active PSV H_in − h_set; active FCV Q − q_set; closed or stopped Q."""
+    rho = density(project)
+    key_in, key_out = two_port_ends(component)
+    if isinstance(component, Pump):
+        if state != "running":
+            return "flow", q
+        curve = next(c for c in project.pump_library if c.id == component.curve_id)
+        return "head", h_out - h_in - el.pump_head(curve, component.speed, q)
+    if state == "closed":
+        return "flow", q
+    d_in = port_diameter(project, key_in)
+    if state == "open":
+        k = el.valve_k(component.valve_type, component.resistance, d_in) * model.k_scale
+        h_c = (
+            component.cracking_pressure / (rho * dv.G)
+            if isinstance(component, CheckValve) and component.status == "active"
+            else 0
+        )
+        return "head", h_in - h_out - h_c - el.valve_loss(k, q, d_in, model.g)
+    assert isinstance(component, ControlValve)
+    if component.valve_type == "fcv":
+        return "flow", q - component.setpoint - model.fcv_leak * (h_in - h_out)
+    if component.valve_type == "prv":
+        z, d = port_elevation(project, key_out), port_diameter(project, key_out)
+        return "head", h_out - el.setpoint_head(z, component.setpoint, rho, q, d)
+    z = port_elevation(project, key_in)
+    return "head", h_in - el.setpoint_head(z, component.setpoint, rho, q, d_in)
+
+
+def held_pairs(project: Project, flows: Mapping[str, float]) -> list[tuple[str, str]]:
+    """Connections with no flow that join dead legs of two Crane branches whose other two
+    legs carry flow: a pipe held at zero flow between them (design §5.4). Both its ends take
+    one head, any head inside both legs' zero-flow bands (``el.zero_flow_limits``); the
+    solver reports the middle of the overlap (``held_pair_head``)."""
+    pairs = []
+    for c in project.connections:
+        if flows[c.id] != 0.0:
+            continue
+        ends = (f"{c.from_component_id}:{c.from_port_id}", f"{c.to_component_id}:{c.to_port_id}")
+        if all(_is_dead_crane_leg(project, key, flows) for key in ends):
+            pairs.append(ends)
+    return pairs
+
+
+def _is_dead_crane_leg(project: Project, key: str, flows: Mapping[str, float]) -> bool:
+    component = component_of(project, key.split(":")[0])
+    if not is_crane_branch(component):
+        return False
+    inflows = {p.id: port_inflow(project, f"{component.id}:{p.id}", flows) for p in component.ports}
+    port = key.split(":")[1]
+    return inflows[port] == 0.0 and all(q != 0.0 for p, q in inflows.items() if p != port)
+
+
+def zero_flow_band(
+    project: Project, key: str, flows: Mapping[str, float], head: Callable[[str], float]
+) -> tuple[float, float]:
+    """(low, high) port heads of a dead Crane leg at zero flow (``el.zero_flow_limits``)."""
+    component = component_of(project, key.split(":")[0])
+    assert isinstance(component, TeeBranch | WyeBranch)
+    inflows = {p.id: port_inflow(project, f"{component.id}:{p.id}", flows) for p in component.ports}
+    diameters = {p.id: port_diameter(project, f"{component.id}:{p.id}") for p in component.ports}
+    limits = [
+        head(f"{component.id}:{combined}") + offset
+        for combined, offset in el.zero_flow_limits(
+            branch_kind(component),
+            branch_angle(component),
+            inflows,
+            diameters,
+            kinematic_viscosity(project),
+            key.split(":")[1],
+        )
+    ]
+    return min(limits), max(limits)
+
+
+def held_pair_head(
+    project: Project,
+    pair: tuple[str, str],
+    flows: Mapping[str, float],
+    head: Callable[[str], float],
+) -> float:
+    """The head reported at both ends of a held pipe: the middle of the overlap of the two
+    zero-flow bands (any head in it satisfies both branches at zero flow; the middle is the
+    solver's convention, design §5.4)."""
+    (low_a, high_a), (low_b, high_b) = (zero_flow_band(project, k, flows, head) for k in pair)
+    return 0.5 * (max(low_a, low_b) + min(high_a, high_b))
+
+
+def element_residuals(
+    project: Project,
+    flows: Mapping[str, float],
+    egl: Mapping[str, float],
+    states: Mapping[str, str],
+    model: Model,
+) -> ElementEquations:
+    """Every component law evaluated at expected flows and EGLs: pumps and valves in their
+    states, and the two path equations EGL(p) − EGL(combined) − offset_p of each Crane branch
+    (for a leg held at zero flow, ``held_pairs``, EGL(p) − ``held_pair_head`` instead)."""
+    out = ElementEquations({}, {})
+    held = {
+        key: held_pair_head(project, pair, flows, egl.__getitem__)
+        for pair in held_pairs(project, flows)
+        for key in pair
+    }
+    for component in project.components:
+        if isinstance(component, Pump | IsolationValve | CheckValve | ControlValve):
+            key_in, key_out = two_port_ends(component)
+            q = port_inflow(project, key_in, flows)
+            kind, value = element_law(
+                project,
+                component,
+                states[component.id],
+                q,
+                egl.get(key_in, math.nan),
+                egl.get(key_out, math.nan),
+                model,
+            )
+            (out.heads if kind == "head" else out.flows)[component.id] = value
+        elif isinstance(component, TeeBranch | WyeBranch) and is_crane_branch(component):
+            inflows = {
+                p.id: port_inflow(project, f"{component.id}:{p.id}", flows) for p in component.ports
+            }
+            losses = branch_offsets(project, component, inflows)
+            c = losses.combined_port
+            if c is None:
+                continue
+            for p in component.ports:
+                if p.id != c:
+                    key = f"{component.id}:{p.id}"
+                    if key in held:
+                        out.heads[key] = egl[key] - held[key]
+                    else:
+                        out.heads[key] = (
+                            egl[key] - egl[f"{component.id}:{c}"] - losses.offsets[p.id]
+                        )
+    return out
+
+
+def state_problems(
+    project: Project,
+    flows: Mapping[str, float],
+    egl: Mapping[str, float],
+    states: Mapping[str, str],
+    margin: float,
+    q_rel_tol: float = 1.0e-12,
+    fcv_leak: float = 0.0,
+) -> list[str]:
+    """Pumps and valves whose expected state is not the one the status rules of design §5
+    select at the expected flows and EGLs (margin −HTOL: the rules exactly). fcv_leak: see
+    Model.fcv_leak (EPANET cases)."""
+    rho = density(project)
+    problems = []
+    for component in project.components:
+        if not isinstance(component, Pump | IsolationValve | CheckValve | ControlValve):
+            continue
+        key_in, key_out = two_port_ends(component)
+        q = port_inflow(project, key_in, flows)
+        h_in, h_out = egl.get(key_in, math.nan), egl.get(key_out, math.nan)
+        if isinstance(component, Pump):
+            curve = next(c for c in project.pump_library if c.id == component.curve_id)
+            problem = el.pump_state_problem(
+                component.status,
+                curve,
+                component.speed,
+                states[component.id],
+                q,
+                h_out - h_in,
+                margin,
+            )
+        else:
+            problem = el.valve_state_problem(
+                component,
+                states[component.id],
+                q,
+                h_in,
+                h_out,
+                rho,
+                margin,
+                port_diameter(project, key_in),
+                port_diameter(project, key_out),
+                q_rel_tol,
+                fcv_leak * (h_in - h_out),
+            )
+        if problem:
+            problems.append(f"{component.id}: {problem}")
+    return problems
 
 
 def net_inflow(project: Project, flows: Mapping[str, float]) -> dict[str, float]:
@@ -282,16 +629,11 @@ def net_inflow(project: Project, flows: Mapping[str, float]) -> dict[str, float]
 def end_velocity(project: Project, key: str, flows: Mapping[str, float]) -> float:
     """v at a port: flow / area of the connected pipe's end segment (design §1.1); boundary
     ports report 0."""
-    component_id = key.split(":")[0]
-    component = next(c for c in project.components if c.id == component_id)
+    component = component_of(project, key.split(":")[0])
     if isinstance(component, Reservoir | IdealReferenceNode):
         return 0.0
-    for c in project.connections:
-        if f"{c.from_component_id}:{c.from_port_id}" == key:
-            return dv.velocity(flows[c.id], resolve_pipe(c.piping.pipes[0])[0])
-        if f"{c.to_component_id}:{c.to_port_id}" == key:
-            return dv.velocity(flows[c.id], resolve_pipe(c.piping.pipes[-1])[0])
-    raise KeyError(key)
+    c, d, _ = port_connection(project, key)
+    return dv.velocity(flows[c.id], d)
 
 
 # --- Whole-network solve -------------------------------------------------------------------------
@@ -302,29 +644,57 @@ def solve_network(
     model: Model,
     flow_guess: Mapping[str, float],
     head_guess: Mapping[str, float],
+    states: Mapping[str, str] | None = None,
+    held: Sequence[tuple[str, str]] = (),
 ) -> tuple[dict[str, float], dict[str, float]]:
-    """Solve all connection flows and free-node heads together with fsolve.
+    """Solve all flows and free-node heads together with fsolve.
 
-    Unknowns: Q per connection and H per free node; equations: the energy equation of every
-    connection and continuity at every free node. Returns (flows, EGL per port key).
+    Unknowns: Q per connection outside isolated sections, Q per pump and valve, H per free
+    node. Equations: the energy equation of every connection, each pump's and valve's law in
+    its state (``element_law``), continuity at every free node, and for each Crane branch its
+    continuity plus the path equations of its two non-combined ports. A pipe held at zero
+    flow between two Crane branches (``held``, from ``held_pairs`` of the expected flows) has
+    Q = 0 and no energy equation; each of its ends takes ``held_pair_head`` in place of its
+    path equation. Returns (flows, EGL per port key, isolated ports omitted).
     """
+    states = dict(states or {})
     nu = kinematic_viscosity(project)
     port_nodes = node_of_port(project)
     fixed = fixed_heads(project)
-    free = sorted({n for key, n in port_nodes.items() if key not in fixed})
-    connections = project.connections
-    n_q = len(connections)
+    isolated = isolated_ports(project, states)
+    isolated_nodes = {port_nodes[k] for k in isolated}
+    free = sorted({n for key, n in port_nodes.items() if key not in fixed} - isolated_nodes)
+    held_keys = {key for pair in held for key in pair}
+    held_pair = {key: pair for pair in held for key in pair}
+    connections = [
+        c
+        for c in project.connections
+        if f"{c.from_component_id}:{c.from_port_id}" not in isolated
+        and f"{c.from_component_id}:{c.from_port_id}" not in held_keys
+    ]
+    two_ports = [
+        c
+        for c in project.components
+        if isinstance(c, Pump | IsolationValve | CheckValve | ControlValve)
+    ]
+    branches = [
+        c for c in project.components if isinstance(c, TeeBranch | WyeBranch) and is_crane_branch(c)
+    ]
+    branch_nodes = {f"{b.id}:{p.id}" for b in branches for p in b.ports}
+    n_q, n_e = len(connections), len(two_ports)
 
     def node_head(x: NDArray[np.float64], key: str) -> float:
         if key in fixed:
             return fixed[key]
-        return float(x[n_q + free.index(port_nodes[key])])
+        return float(x[n_q + n_e + free.index(port_nodes[key])])
 
     def residuals(x: NDArray[np.float64]) -> list[float]:
         out: list[float] = []
+        flows = {c.id: 0.0 for c in project.connections}
         inflow = dict.fromkeys(free, 0.0)
         for i, c in enumerate(connections):
             q = float(x[i])
+            flows[c.id] = q
             from_key = f"{c.from_component_id}:{c.from_port_id}"
             to_key = f"{c.to_component_id}:{c.to_port_id}"
             out.append(
@@ -332,17 +702,57 @@ def solve_network(
                 - node_head(x, to_key)
                 - connection_head_loss(c, q, nu, model)
             )
-            if from_key not in fixed:
+            if from_key not in fixed and from_key not in branch_nodes:
                 inflow[port_nodes[from_key]] -= q
-            if to_key not in fixed:
+            if to_key not in fixed and to_key not in branch_nodes:
                 inflow[port_nodes[to_key]] += q
-        return out + [inflow[n] for n in free]
+        for j, component in enumerate(two_ports):
+            q = float(x[n_q + j])
+            key_in, key_out = two_port_ends(component)
+            h_in = math.nan if key_in in isolated else node_head(x, key_in)
+            h_out = math.nan if key_out in isolated else node_head(x, key_out)
+            out.append(
+                element_law(project, component, states[component.id], q, h_in, h_out, model)[1]
+            )
+            if key_in not in isolated:
+                inflow[port_nodes[key_in]] -= q
+            if key_out not in isolated:
+                inflow[port_nodes[key_out]] += q
+        for branch in branches:
+            inflows = {
+                p.id: port_inflow(project, f"{branch.id}:{p.id}", flows) for p in branch.ports
+            }
+            out.append(sum(inflows.values()))
+            losses = branch_offsets(project, branch, inflows)
+            combined = losses.combined_port or branch.ports[0].id
+            for p in branch.ports:
+                if p.id != combined:
+                    key = f"{branch.id}:{p.id}"
+                    if key in held_keys:
+                        target = held_pair_head(
+                            project, held_pair[key], flows, lambda k: node_head(x, k)
+                        )
+                        out.append(node_head(x, key) - target)
+                        continue
+                    out.append(
+                        node_head(x, key)
+                        - node_head(x, f"{branch.id}:{combined}")
+                        - losses.offsets[p.id]
+                    )
+        return out + [inflow[n] for n in free if n not in branch_nodes]
 
-    first_port = {n: key for key, n in sorted(port_nodes.items(), reverse=True)}
-    x0 = [flow_guess[c.id] for c in connections] + [head_guess[first_port[n]] for n in free]
+    first_port = {
+        n: key for key, n in sorted(port_nodes.items(), reverse=True) if key not in isolated
+    }
+    x0 = (
+        [flow_guess[c.id] for c in connections]
+        + [port_inflow(project, two_port_ends(c)[0], flow_guess) for c in two_ports]
+        + [head_guess[first_port[n]] for n in free]
+    )
     solution, _, ier, message = fsolve(residuals, x0, xtol=1.0e-12, full_output=True)
     if ier != 1:
         raise RuntimeError(f"network fsolve failed: {message}")
-    flows = {c.id: float(solution[i]) for i, c in enumerate(connections)}
-    egl = {key: node_head(solution, key) for key in port_nodes}
+    flows = {c.id: 0.0 for c in project.connections}
+    flows.update({c.id: float(solution[i]) for i, c in enumerate(connections)})
+    egl = {key: node_head(solution, key) for key in port_nodes if key not in isolated}
     return flows, egl

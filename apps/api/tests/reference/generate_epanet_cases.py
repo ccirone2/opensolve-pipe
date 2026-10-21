@@ -29,35 +29,54 @@ Conversion rules (design §11; facts from research notes coolprop_wntr_epanet.md
 - The project solves in 'swamee_jain' mode, EPANET's friction formula (with its laminar 64/Re
   below Re 2000 and Dunlop's cubic between 2000 and 4000).
 
-Expected values: the EPANET flow of every connection and, for every reservoir and tee port, the
-EPANET head of its node (EPANET neglects velocity head, so its head is our EGL, design §1.1).
+- Pump → EPANET pump between two junctions (its suction and discharge ports, at the pump's
+  elevation) with a HEAD curve of the same points and the same relative speed. Pump cases use
+  collinear curve points, so EPANET's piecewise-linear curve and our PCHIP coincide (design §11).
+- PRV / PSV / FCV → EPANET valve of the same type between two junctions (its inlet and outlet
+  ports), diameter of the inlet pipe, no minor loss (our control valves default to ideal).
+  FCV setting = our flow setpoint. EPANET's PRV/PSV setting is a pressure head without velocity
+  head (hset = El + setting, hydstatus.c:74, 79), ours is a static pressure at the port, i.e.
+  EGL = z + p_set/(ρg) + v²/(2g) with v in the pipe on that port (design §5.3). The generator
+  therefore iterates setting = p_set/(ρg) + v²/(2g), v from the previous EPANET run's flow in that
+  pipe (v = 0 to start), until the setting changes by less than 1e-12 m, then keeps that run.
+
+Expected values: the EPANET flow of every connection and, for every port, the EPANET head of its
+node (EPANET neglects velocity head, so its head is our EGL, design §1.1); the EPANET status of
+every pump ('running') and valve ('active', 'open' or 'closed'); and the warning flags the
+pipes' friction regimes call for at the EPANET flows (TRANSITIONAL_FLOW, ``regime_flags``).
 """
 
 import ctypes
 import tempfile
 import warnings
+from collections.abc import Mapping
 from pathlib import Path
 
 import wntr
+from fluids.friction import fmethods
 from scipy.constants import gallon
 from wntr.epanet.toolkit import ENepanet
 
-from opensolve_pipe.models.components import Component, Reservoir, TeeBranch
-from opensolve_pipe.models.piping import CUSTOM_MATERIAL_ID
+from opensolve_pipe.models.components import Component, ControlValve, Pump, Reservoir, TeeBranch
+from opensolve_pipe.models.fluids import CustomFluid
+from opensolve_pipe.models.piping import CUSTOM_MATERIAL_ID, PipeConnection
 from opensolve_pipe.models.project import Project
 from tests.reference.case_format import (
     Expected,
     ReferenceCase,
     connect,
+    control_valve,
     custom_fluid,
     custom_pipe,
     fitting,
     ideal_tee,
     make_project,
+    pump,
+    pump_curve,
     reservoir,
     write_case,
 )
-from tests.reference.derivations import G
+from tests.reference.derivations import RE_LAMINAR, RE_TURBULENT, G, area, regime, reynolds
 
 FOOT = 0.3048
 """m per international foot (exact; EPANET's MperFT, types.h:79)."""
@@ -81,7 +100,34 @@ def _epanet_version() -> str:
     return f"{v // 10000}.{(v // 100) % 100}.{v % 100}"
 
 
-def source_text() -> str:
+SETTING_TOLERANCE = 1.0e-12
+"""m; the PRV/PSV setting iteration stops when the setting changes by less than this."""
+MAX_SETTING_ITERATIONS = 50
+
+
+def source_text(project: Project | None = None) -> str:
+    extra = ""
+    if project is not None:
+        types = {c.type for c in project.components}
+        if "pump" in types:
+            extra += (
+                " Pumps: EPANET HEAD curve through the same collinear points (EPANET's "
+                "piecewise-linear curve then equals our PCHIP) at the same relative speed."
+            )
+        if any(isinstance(c, ControlValve) and c.valve_type != "fcv" for c in project.components):
+            extra += (
+                " PRV/PSV: EPANET's setting is a head above the node elevation without velocity "
+                "head, ours a static pressure at the valve port, so the generator iterates "
+                "setting = p_set/(rho g) + v^2/(2g) with v from the previous EPANET run in the "
+                "pipe on that port until the setting changes by < 1e-12 m."
+            )
+        if any(isinstance(c, ControlValve) and c.valve_type == "fcv" for c in project.components):
+            extra += (
+                " FCV: EPANET flow setting = our flow setpoint; an active EPANET FCV keeps a "
+                "1/CBIG conductance (CBIG = 1e8, hydcoeffs.c:35, fcvcoeff) and settles at "
+                "q_set + dh/CBIG in ft and cfs (newflows, hydsolver.c:431), about 1e-6 "
+                "relative here."
+            )
     return (
         f"WNTR {wntr.__version__} EpanetSimulator (EPANET {_epanet_version()}); see "
         "tests/reference/generate_epanet_cases.py. D-W headloss, GPM INP units, accuracy 1e-5, "
@@ -96,7 +142,7 @@ def source_text() -> str:
         "in head loss), its minor-loss constant is 0.02517 against the exact 1/(2g(pi/4)^2) = "
         "0.0251730 in US units (0.012%), its GPM flow-unit constant GPMperCFS = 448.831 "
         f"differs from the exact ft3/(gal/60) by {GPM_PER_CFS_BIAS:.2g} (relative, in flow), "
-        "and its results are float32 (about 1e-7 relative)."
+        "and its results are float32 (about 1e-7 relative)." + extra
     )
 
 
@@ -215,6 +261,147 @@ def looped_network_b() -> Project:
     )
 
 
+def _water() -> CustomFluid:
+    """Water at EPANET's viscosity (see the module docstring)."""
+    return custom_fluid(
+        "Water at EPANET's default viscosity",
+        EPANET_FLUID_DENSITY,
+        NU_EPANET * EPANET_FLUID_DENSITY,
+    )
+
+
+def _pipe(cid: str, a: str, b: str, d: float, length: float, eps: float = 4.5e-5) -> PipeConnection:
+    return connect(cid, a, b, [custom_pipe(d, length, eps)])
+
+
+def pump_network() -> Project:
+    """A pump at speed ratio 0.9 lifting from S1 (head 5 m) into a loop TA-TB-TC that feeds two
+    reservoirs at heads 30 and 25 m. Curve (test input): four collinear points H = 50 − 300 Q,
+    so EPANET's piecewise-linear curve and our PCHIP are the same line (design §11)."""
+    curve = pump_curve("PC-LIN", [(0.0, 50.0), (0.02, 44.0), (0.04, 38.0), (0.06, 32.0)])
+    components: list[Component] = [
+        reservoir("S1", 2.0, 3.0),
+        pump("PU", 1.0, curve.id, speed=0.9),
+        ideal_tee("TA", 3.0),
+        ideal_tee("TB", 6.0),
+        ideal_tee("TC", 4.0),
+        reservoir("S2", 26.0, 4.0),
+        reservoir("S3", 22.0, 3.0),
+    ]
+    connections = [
+        _pipe("P1", "S1:port_1", "PU:suction", 0.2027, 20.0),
+        _pipe("P2", "PU:discharge", "TA:run_inlet", 0.1541, 300.0),
+        _pipe("P3", "TA:run_outlet", "TB:run_inlet", 0.1023, 400.0),
+        _pipe("P4", "TA:branch", "TC:run_inlet", 0.1023, 350.0, 1.5e-4),
+        _pipe("P5", "TB:branch", "TC:branch", 0.0779, 300.0),
+        _pipe("P6", "TB:run_outlet", "S2:port_1", 0.1023, 250.0),
+        _pipe("P7", "TC:run_outlet", "S3:port_1", 0.1023, 200.0),
+    ]
+    return make_project(
+        "ref-epanet-pump-network",
+        "Pump into a looped network (EPANET reference)",
+        _water(),
+        components,
+        connections,
+        friction_method="swamee_jain",
+        pump_library=[curve],
+    )
+
+
+def prv_network() -> Project:
+    """S1 (head 70 m) feeds a high zone (S2, head 50 m) and, through a PRV at 15 m holding
+    200 kPa static at its outlet, a looped low zone (TB-TC) draining to S3 (head 10 m)."""
+    components: list[Component] = [
+        reservoir("S1", 60.0, 10.0),
+        ideal_tee("TA", 30.0),
+        reservoir("S2", 45.0, 5.0),
+        control_valve("PRV1", 15.0, "prv", 200000.0),
+        ideal_tee("TB", 12.0),
+        ideal_tee("TC", 8.0),
+        reservoir("S3", 5.0, 5.0),
+    ]
+    connections = [
+        _pipe("P1", "S1:port_1", "TA:run_inlet", 0.2027, 500.0),
+        _pipe("P2", "TA:run_outlet", "S2:port_1", 0.1541, 400.0),
+        _pipe("P3", "TA:branch", "PRV1:inlet", 0.1023, 200.0),
+        _pipe("P4", "PRV1:outlet", "TB:run_inlet", 0.1023, 150.0),
+        _pipe("P5", "TB:run_outlet", "TC:run_inlet", 0.1023, 300.0),
+        _pipe("P6", "TB:branch", "TC:branch", 0.0779, 250.0),
+        _pipe("P7", "TC:run_outlet", "S3:port_1", 0.1023, 200.0),
+    ]
+    return make_project(
+        "ref-epanet-prv-network",
+        "PRV feeding a looped zone (EPANET reference)",
+        _water(),
+        components,
+        connections,
+        friction_method="swamee_jain",
+    )
+
+
+def psv_network() -> Project:
+    """S1 (head 60 m) supplies a looped main TA-TB to a zone tank S2 (head 35 m); a PSV at
+    10 m, set to 250 kPa static at its inlet, releases the surplus to S3 (head 2 m) while
+    sustaining the main's pressure."""
+    components: list[Component] = [
+        reservoir("S1", 50.0, 10.0),
+        ideal_tee("TA", 20.0),
+        ideal_tee("TB", 18.0),
+        ideal_tee("TC", 12.0),
+        reservoir("S2", 30.0, 5.0),
+        control_valve("PSV1", 10.0, "psv", 250000.0),
+        reservoir("S3", 0.0, 2.0),
+    ]
+    connections = [
+        _pipe("P1", "S1:port_1", "TA:run_inlet", 0.1541, 600.0),
+        _pipe("P2", "TA:run_outlet", "TB:run_inlet", 0.1023, 300.0),
+        _pipe("P3", "TA:branch", "TB:branch", 0.0779, 300.0),
+        _pipe("P4", "TB:run_outlet", "TC:run_inlet", 0.1541, 200.0),
+        _pipe("P5", "TC:run_outlet", "S2:port_1", 0.1023, 200.0),
+        _pipe("P6", "TC:branch", "PSV1:inlet", 0.1023, 100.0),
+        _pipe("P7", "PSV1:outlet", "S3:port_1", 0.1023, 150.0),
+    ]
+    return make_project(
+        "ref-epanet-psv-network",
+        "PSV sustaining a main's pressure (EPANET reference)",
+        _water(),
+        components,
+        connections,
+        friction_method="swamee_jain",
+    )
+
+
+def fcv_network() -> Project:
+    """S1 (head 50 m) → TA; an FCV path (TA → FCV1 at 5 m, 15 L/s → TB) beside a bypass pipe
+    (TA:branch → TB:branch) forms a loop; TB → TC feeds S2 (head 10 m) and S3 (head 15 m)."""
+    components: list[Component] = [
+        reservoir("S1", 40.0, 10.0),
+        ideal_tee("TA", 8.0),
+        control_valve("FCV1", 5.0, "fcv", 0.015),
+        ideal_tee("TB", 4.0),
+        ideal_tee("TC", 2.0),
+        reservoir("S2", 6.0, 4.0),
+        reservoir("S3", 12.0, 3.0),
+    ]
+    connections = [
+        _pipe("P1", "S1:port_1", "TA:run_inlet", 0.1541, 300.0),
+        _pipe("P2", "TA:run_outlet", "FCV1:inlet", 0.1023, 100.0),
+        _pipe("P3", "FCV1:outlet", "TB:run_inlet", 0.1023, 100.0),
+        _pipe("P4", "TA:branch", "TB:branch", 0.0779, 400.0),
+        _pipe("P5", "TB:run_outlet", "TC:run_inlet", 0.1541, 300.0),
+        _pipe("P6", "TC:run_outlet", "S2:port_1", 0.1023, 200.0),
+        _pipe("P7", "TC:branch", "S3:port_1", 0.0779, 250.0),
+    ]
+    return make_project(
+        "ref-epanet-fcv-network",
+        "FCV beside a bypass (EPANET reference)",
+        _water(),
+        components,
+        connections,
+        friction_method="swamee_jain",
+    )
+
+
 EPANET_NETWORKS = {
     "epanet_looped_network_a": (
         looped_network_a,
@@ -229,6 +416,28 @@ EPANET_NETWORKS = {
         "transitional and turbulent flow, with minor losses: verifies the network solution and "
         "the laminar/Dunlop/Swamee-Jain friction regimes against EPANET 2.2.",
     ),
+    "epanet_pump_network": (
+        pump_network,
+        "A pump at 90% speed (collinear four-point curve) lifting into a looped network that "
+        "feeds two reservoirs: verifies the pump operating point, the affinity-law speed "
+        "scaling and the network solution against EPANET 2.2.",
+    ),
+    "epanet_prv_network": (
+        prv_network,
+        "A PRV holding 200 kPa static pressure at its outlet feeds a looped low-pressure zone "
+        "beside a high zone: verifies the active PRV (static-pressure setpoint converted to "
+        "EPANET's head setting) within a network against EPANET 2.2.",
+    ),
+    "epanet_psv_network": (
+        psv_network,
+        "A PSV sustaining 250 kPa static pressure at its inlet on a looped main that also feeds "
+        "a zone tank: verifies the active PSV within a network against EPANET 2.2.",
+    ),
+    "epanet_fcv_network": (
+        fcv_network,
+        "An FCV limiting one path of a loop to 15 L/s while a bypass carries the rest: "
+        "verifies the active FCV within a network against EPANET 2.2.",
+    ),
 }
 
 
@@ -236,7 +445,8 @@ EPANET_NETWORKS = {
 
 
 def _node_names(project: Project) -> dict[str, str]:
-    """EPANET node for every "componentId:portId"."""
+    """EPANET node for every "componentId:portId": one per reservoir and ideal tee (all its
+    ports share it), one junction per port of a pump or control valve."""
     names: dict[str, str] = {}
     for component in project.components:
         if isinstance(component, Reservoir) or (
@@ -244,13 +454,33 @@ def _node_names(project: Project) -> dict[str, str]:
         ):
             for port in component.ports:
                 names[f"{component.id}:{port.id}"] = component.id
+        elif isinstance(component, Pump | ControlValve):
+            for port in component.ports:
+                names[f"{component.id}:{port.id}"] = f"{component.id}_{port.id}"
         else:
             raise ValueError(f"no EPANET equivalent for component {component.id}")
     return names
 
 
-def project_to_wntr(project: Project) -> wntr.network.WaterNetworkModel:
-    """Build the WNTR model of a project as design §11 prescribes (see the module docstring)."""
+def _port_pipe(project: Project, key: str) -> tuple[PipeConnection, float]:
+    """The connection on a port and the inner diameter of its end segment at that port."""
+    for c in project.connections:
+        if f"{c.from_component_id}:{c.from_port_id}" == key:
+            d = c.piping.pipes[0].inner_diameter
+        elif f"{c.to_component_id}:{c.to_port_id}" == key:
+            d = c.piping.pipes[-1].inner_diameter
+        else:
+            continue
+        assert d is not None
+        return c, d
+    raise KeyError(key)
+
+
+def project_to_wntr(
+    project: Project, settings: Mapping[str, float] | None = None
+) -> wntr.network.WaterNetworkModel:
+    """Build the WNTR model of a project as design §11 prescribes (see the module docstring).
+    ``settings``: EPANET head setting (m) per PRV/PSV id, from the setting iteration."""
     fluid = project.fluid
     if fluid.kind != "custom":
         raise ValueError("EPANET cases use a custom fluid with EPANET's viscosity")
@@ -284,7 +514,43 @@ def project_to_wntr(project: Project) -> wntr.network.WaterNetworkModel:
             wn.add_reservoir(component.id, base_head=head)
         elif isinstance(component, TeeBranch):
             wn.add_junction(component.id, base_demand=0.0, elevation=component.elevation)
+        elif isinstance(component, Pump | ControlValve):
+            for port in component.ports:
+                z = component.elevation if port.elevation is None else port.elevation
+                wn.add_junction(f"{component.id}_{port.id}", base_demand=0.0, elevation=z)
     nodes = _node_names(project)
+
+    curves = {curve.id: curve for curve in project.pump_library}
+    for component in project.components:
+        if isinstance(component, Pump):
+            curve = curves[component.curve_id]
+            wn.add_curve(curve.id, "HEAD", [(p.flow, p.head) for p in curve.points])
+            wn.add_pump(
+                component.id,
+                nodes[f"{component.id}:suction"],
+                nodes[f"{component.id}:discharge"],
+                pump_type="HEAD",
+                pump_parameter=curve.id,
+                speed=component.speed,
+                initial_status="OPEN" if component.status == "on" else "CLOSED",
+            )
+        elif isinstance(component, ControlValve):
+            if component.resistance is not None or component.status != "active":
+                raise ValueError(f"{component.id}: EPANET cases use ideal, active valves")
+            _, d_in = _port_pipe(project, f"{component.id}:inlet")
+            if component.valve_type == "fcv":
+                setting = component.setpoint
+            else:
+                setting = (settings or {}).get(component.id, component.setpoint / (rho * G))
+            wn.add_valve(
+                component.id,
+                nodes[f"{component.id}:inlet"],
+                nodes[f"{component.id}:outlet"],
+                diameter=d_in,
+                valve_type=component.valve_type.upper(),
+                minor_loss=0.0,
+                initial_setting=setting,
+            )
 
     for connection in project.connections:
         pipes = connection.piping.pipes
@@ -310,36 +576,124 @@ def project_to_wntr(project: Project) -> wntr.network.WaterNetworkModel:
     return wn
 
 
-def run_epanet(project: Project) -> tuple[dict[str, float], dict[str, float]]:
-    """Solve with EPANET; return (flow per connection, EPANET head per port key)."""
-    wn = project_to_wntr(project)
+EpanetRun = tuple[dict[str, float], dict[str, float], dict[str, int]]
+"""(flow per connection, EPANET head per port key, EPANET status per pump and valve)."""
+
+
+def run_epanet(project: Project, settings: Mapping[str, float] | None = None) -> EpanetRun:
+    """Solve with EPANET; return flows, heads and pump/valve statuses (0 closed, 1 open,
+    2 active, as WNTR reports them)."""
+    wn = project_to_wntr(project, settings)
     with tempfile.TemporaryDirectory() as tmp:
         simulator = wntr.sim.EpanetSimulator(wn)
         results = simulator.run_sim(file_prefix=str(Path(tmp) / "case"), convergence_error=True)
     flow_table = results.link["flowrate"]
     head_table = results.node["head"]
+    status_table = results.link["status"]
     # float() of a float32 is exact, so the JSON holds EPANET's values unchanged.
     flows = {c.id: float(flow_table.loc[0, c.id]) for c in project.connections}
     heads = {key: float(head_table.loc[0, node]) for key, node in _node_names(project).items()}
-    return flows, heads
+    statuses = {
+        c.id: int(status_table.loc[0, c.id])
+        for c in project.components
+        if isinstance(c, Pump | ControlValve)
+    }
+    return flows, heads, statuses
+
+
+def _setting_heads(project: Project, flows: Mapping[str, float]) -> dict[str, float]:
+    """EPANET head setting of every PRV/PSV for the given flows: p_set/(ρg) + v²/(2g), v in the
+    pipe on the outlet (PRV) or inlet (PSV) port (design §5.3, §12)."""
+    fluid = project.fluid
+    assert fluid.kind == "custom"
+    out = {}
+    for c in project.components:
+        if isinstance(c, ControlValve) and c.valve_type in ("prv", "psv"):
+            port = "outlet" if c.valve_type == "prv" else "inlet"
+            connection, d = _port_pipe(project, f"{c.id}:{port}")
+            v = flows[connection.id] / area(d)
+            out[c.id] = c.setpoint / (fluid.density * G) + v * v / (2.0 * G)
+    return out
+
+
+def run_with_settings(project: Project) -> EpanetRun:
+    """Run EPANET, iterating the PRV/PSV head settings to our static-pressure setpoints."""
+    settings = _setting_heads(project, {c.id: 0.0 for c in project.connections})
+    run = run_epanet(project, settings)
+    for _ in range(MAX_SETTING_ITERATIONS):
+        new = _setting_heads(project, run[0])
+        if all(abs(new[k] - settings[k]) < SETTING_TOLERANCE for k in settings):
+            return run
+        settings = new
+        run = run_epanet(project, settings)
+    raise RuntimeError("the PRV/PSV setting iteration did not converge")
+
+
+PUMP_STATUS = {1: "running"}
+VALVE_STATE = {0: "closed", 1: "open", 2: "active"}
+REGIME_MARGIN = 0.01
+"""Every pipe's Reynolds number must clear the regime bounds (2000, 4000, and Swamee–Jain's
+5000) by this fraction, so that EPANET's flows and ours put each pipe in the same regime."""
+
+
+def regime_flags(project: Project, flows: Mapping[str, float]) -> list[dict[str, str]]:
+    """The warning flags the friction regimes call for (design §2.1), from each pipe's
+    Reynolds number at the EPANET flow: TRANSITIONAL_FLOW for 2000 <= Re < 4000. A turbulent
+    pipe outside Swamee & Jain's documented range (fluids.friction.fmethods
+    'Swamee_Jain_1976': 5e3 <= Re <= 1e8, 1e-6 <= ε/D <= 5e-2), or a Reynolds number near a
+    bound, is not allowed in an EPANET case (ValueError)."""
+    bounds = fmethods["Swamee_Jain_1976"]
+    if any(b is None for b in bounds):
+        raise ValueError("fluids documents no complete Swamee-Jain range")
+    re_lo, re_hi, ed_lo, ed_hi = (float(b) for b in bounds if b is not None)
+    nu = NU_EPANET
+    out = []
+    for c in project.connections:
+        pipe = c.piping.pipes[0]
+        assert pipe.inner_diameter is not None
+        assert pipe.roughness is not None
+        re = reynolds(flows[c.id], pipe.inner_diameter, nu)
+        for bound in (RE_LAMINAR, RE_TURBULENT, re_lo):
+            if abs(re - bound) <= REGIME_MARGIN * bound:
+                raise ValueError(f"{c.id}: Re = {re:.1f} is too close to {bound:g}")
+        kind = regime(re)
+        if kind == "transitional":
+            out.append({"code": "TRANSITIONAL_FLOW", "connectionId": c.id})
+        if kind != "laminar" and not ed_lo <= pipe.roughness / pipe.inner_diameter <= ed_hi:
+            raise ValueError(f"{c.id}: ε/D outside the Swamee-Jain range")
+        if kind == "turbulent" and not re_lo <= re <= re_hi:
+            raise ValueError(f"{c.id}: Re = {re:.1f} outside the Swamee-Jain range")
+    return out
 
 
 def build_case(name: str) -> ReferenceCase:
     make, description = EPANET_NETWORKS[name]
     project = make()
-    flows, heads = run_epanet(project)
+    flows, heads, statuses = run_with_settings(project)
     fluid = project.fluid
     assert fluid.kind == "custom"
+    pumps: dict[str, dict[str, float | str]] = {}
+    valves: dict[str, dict[str, str]] = {}
+    for c in project.components:
+        if isinstance(c, Pump):
+            pumps[c.id] = {"status": PUMP_STATUS[statuses[c.id]]}
+        elif isinstance(c, ControlValve):
+            valves[c.id] = {"state": VALVE_STATE[statuses[c.id]]}
+            if valves[c.id]["state"] != "active":
+                raise ValueError(f"{name}: {c.id} is {valves[c.id]['state']} in EPANET")
     return ReferenceCase(
         name=name,
         description=description,
-        source=source_text(),
+        source=source_text(project),
         project=project,
         expected=Expected(
             density=fluid.density,
             dynamic_viscosity=fluid.dynamic_viscosity,
             flows=flows,
             egl=heads,
+            pumps=pumps,
+            valves=valves,
+            flags=regime_flags(project, flows),
         ),
     )
 

@@ -181,6 +181,16 @@ def test_range_warnings_for_clamped_tables() -> None:
     assert warning({"type": "bend", "angle": 90, "radiusRatio": 25, "kOverride": 0.2}) is None
 
 
+@pytest.mark.parametrize(("d", "flagged"), [(0.025, True), (0.1, False), (0.9, True)])
+def test_butterfly_fitting_outside_its_crane_size_table_is_flagged(d: float, flagged: bool) -> None:
+    """K_butterfly_valve_Crane's multiplier is tabulated for 2"-24" only (fluids docstring)."""
+    fit = resolve_fitting(0, Fitting(type="butterfly_valve"), [d])
+    assert fit.k(1.0) == ff.K_butterfly_valve_Crane(D=d, style=0)
+    assert (fit.range_warning is not None) is flagged
+    overridden = resolve_fitting(0, Fitting(type="butterfly_valve", k_override=0.5), [d])
+    assert overridden.range_warning is None
+
+
 def test_correlation_text_names_the_fluids_call() -> None:
     spec = load_fittings()["elbow_90_lr"]
     assert spec.correlation == (

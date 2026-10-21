@@ -8,6 +8,13 @@ here from the link results alone, independently of the solver's own residual rep
 An EGL tolerance of 0.5 % of the head itself depends on the datum and can exceed a connection's
 loss, so the head loss of every connection whose two ports have expected EGLs is also checked,
 EGL(from) − EGL(to) within 0.5 % of the expected difference or 0.01 m (still D6, datum-free).
+
+Cases may also expect (design §12): flags (each must be present, matched on code and on
+componentId / connectionId when given; warning and invalid flags are exhaustive, info flags
+may appear unlisted), the state of every valve and
+status of every pump, pump operating flow and head and NPSH available / required / margin (heads:
+0.5 % or 0.01 m; flows: 0.5 % or the flow floor), the vapor pressure (a property lookup, or
+null when the source has none) and the atmospheric pressure used.
 """
 
 from collections import defaultdict
@@ -59,8 +66,11 @@ def _head_loss_failures(
 
 
 def _check_flags(result: SolvedState, expected: list[dict[str, str]]) -> list[str]:
-    """Every expected flag must be present (design §12); other flags are allowed."""
-    missing = []
+    """Every expected flag must be present (design §12), matched on code and on componentId /
+    connectionId when given. Warning and invalid flags are exhaustive: each one the solver
+    raises must be expected with exactly its code, componentId and connectionId (absent = the
+    flag names none). Info flags (states worth knowing) may appear unlisted."""
+    problems = []
     for want in expected:
         if not any(
             flag.code == want["code"]
@@ -68,8 +78,66 @@ def _check_flags(result: SolvedState, expected: list[dict[str, str]]) -> list[st
             and want.get("connectionId") in (None, flag.connection_id)
             for flag in result.flags
         ):
-            missing.append(f"missing flag {want}")
-    return missing
+            problems.append(f"missing flag {want}")
+    listed = {(w["code"], w.get("componentId"), w.get("connectionId")) for w in expected}
+    for flag in result.flags:
+        if flag.severity == "info":
+            continue
+        if (flag.code, flag.component_id, flag.connection_id) not in listed:
+            problems.append(f"unexpected {flag.severity} flag {flag.code}: {flag.message}")
+    return problems
+
+
+PUMP_FLOW_FIELDS = {"operatingFlow": "operating_flow"}
+PUMP_HEAD_FIELDS = {
+    "operatingHead": "operating_head",
+    "npshAvailable": "npsh_available",
+    "npshRequired": "npsh_required",
+    "npshMargin": "npsh_margin",
+}
+
+
+def _component_failures(result: SolvedState, expected: dict[str, Any]) -> list[str]:
+    """Pump statuses and operating values, valve states (design §12)."""
+    failures = []
+    for pump_id, want in expected.get("pumps", {}).items():
+        got = result.pump_results.get(pump_id)
+        if got is None:
+            failures.append(f"no pump result for {pump_id}")
+            continue
+        if got.status != want["status"]:
+            failures.append(f"pump {pump_id}: status {got.status!r}, expected {want['status']!r}")
+        for fields, floor in ((PUMP_FLOW_FIELDS, FLOW_FLOOR), (PUMP_HEAD_FIELDS, HEAD_FLOOR)):
+            for key, attr in fields.items():
+                if key in want:
+                    value = getattr(got, attr)
+                    if value is None or not _within(value, want[key], floor):
+                        failures.append(
+                            f"pump {pump_id} {key}: got {value!r}, expected {want[key]!r}"
+                        )
+    isolated = {
+        cid
+        for flag in result.flags
+        if flag.code == "ISOLATED_SECTION"
+        for cid in str(flag.details.get("componentIds", "")).split(", ")
+    }
+    for valve_id, want in expected.get("valves", {}).items():
+        got_valve = result.valve_results.get(valve_id)
+        # A valve with a port in an isolated section (no expected EGL there, design §4) has
+        # no defined head loss or pressure drop, which ValveResult requires: its result is
+        # optional, but then an ISOLATED_SECTION flag must name it, and its state must match
+        # when it is reported.
+        bounded = all(f"{valve_id}:{port}" in expected["egl"] for port in ("inlet", "outlet"))
+        if got_valve is None:
+            if bounded:
+                failures.append(f"no valve result for {valve_id}")
+            elif valve_id not in isolated:
+                failures.append(f"{valve_id} has no result and no ISOLATED_SECTION flag")
+        elif got_valve.state != want["state"]:
+            failures.append(
+                f"valve {valve_id}: state {got_valve.state!r}, expected {want['state']!r}"
+            )
+    return failures
 
 
 def test_cases_exist() -> None:
@@ -94,12 +162,25 @@ def test_reference_case(case_path: Path) -> None:
     assert result.fluid.dynamic_viscosity == pytest.approx(
         fluid["dynamicViscosity"], rel=PROPERTY_RELATIVE
     )
+    if "vaporPressure" in fluid:
+        if fluid["vaporPressure"] is None:
+            assert result.fluid.vapor_pressure is None
+        else:
+            assert result.fluid.vapor_pressure == pytest.approx(
+                fluid["vaporPressure"], rel=PROPERTY_RELATIVE
+            )
+    if "atmosphericPressure" in expected:
+        assert result.atmospheric_pressure == pytest.approx(
+            expected["atmosphericPressure"], rel=PROPERTY_RELATIVE
+        )
 
     flows = {cid: link.flow for cid, link in result.link_results.items()}
     assert set(flows) == {c.id for c in project.connections}
     egl = {key: node.egl for key, node in result.node_results.items()}
     pressures = {key: node.pressure for key, node in result.node_results.items()}
-    assert set(expected["egl"]) <= set(egl)
+    # Every port with an expected EGL has a head, and no other port does: ports in an isolated
+    # section (the only ones without an expected EGL) have none (design §4).
+    assert set(egl) == set(expected["egl"])
     assert set(expected.get("pressures", {})) <= set(pressures)
 
     failures = (
@@ -113,6 +194,7 @@ def test_reference_case(case_path: Path) -> None:
         )
         + _head_loss_failures(project, egl, expected["egl"])
         + _check_flags(result, expected.get("flags", []))
+        + _component_failures(result, expected)
     )
     assert not failures, "\n".join(failures)
 

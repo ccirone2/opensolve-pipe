@@ -105,7 +105,13 @@ class TeeBranch(BaseComponent):
 
 
 class WyeBranch(BaseComponent):
-    """Wye (lateral): 'inlet' and 'outlet_1' are the straight run, 'outlet_2' the angled leg."""
+    """Wye (lateral): 'inlet' and 'outlet_1' are the straight run, 'outlet_2' the angled leg.
+
+    Orientation: the angled leg leans toward 'outlet_1' (flow from 'inlet' turns through the
+    wye's angle into 'outlet_2'). Crane's lateral data cover the combined flow through
+    'inlet', dividing or combining; with the combined flow through 'outlet_1' and flow in
+    'outlet_2', that flow turns through 180° minus the angle, and the result is flagged.
+    """
 
     type: Literal["branch"]
     branch_type: Literal["wye"]
@@ -113,7 +119,10 @@ class WyeBranch(BaseComponent):
         default=45.0,
         ge=30.0,
         le=60.0,
-        description="Angle between the branch and the run, degrees (Crane covers 30-60)",
+        description=(
+            "Angle between the angled leg (outlet_2) and the run, degrees, with the leg leaning "
+            "toward outlet_1; Crane covers 30-60 with the combined flow through the inlet"
+        ),
     )
     loss_model: BranchLossModel = "crane"
 

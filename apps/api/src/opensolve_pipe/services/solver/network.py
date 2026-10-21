@@ -4,9 +4,13 @@ Every node's unknown is the energy grade line H = z + p/(ρg) + v²/(2g) (design
 link has a law h(Q) with h = H_start − H_end for flow Q > 0 from start to end (§2).
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
 from typing import Protocol
+
+import numpy as np
+from numpy.typing import NDArray
 
 from ...models.results import Flag
 
@@ -25,23 +29,46 @@ class LinkKind(StrEnum):
 
 
 class LinkMode(Enum):
-    """How a link enters one inner (GGA) solve; set by the outer loop (design §4).
-
-    M3 adds FIXED_FLOW (active FCV), FIXED_DOWNSTREAM_HEAD (active PRV) and
-    FIXED_UPSTREAM_HEAD (active PSV); their setpoint travels in ``LinkState.value``.
-    """
+    """How a link enters one inner (GGA) solve; set by the outer loop (design §4)."""
 
     NORMAL = "normal"
     """The link's law h(Q) applies."""
     CLOSED = "closed"
     """No flow; the link is left out of the network for this solve."""
+    FIXED_FLOW = "fixed_flow"
+    """Active FCV: the flow is ``value`` (m³/s), a demand at the start node and a supply at
+    the end node; the link carries no energy equation and does not connect heads."""
+    FIXED_DOWNSTREAM_HEAD = "fixed_downstream_head"
+    """Active PRV: the end node is held at the setpoint head (see ``LinkState.head``) for this
+    solve, and the link passes whatever flow leaves the end node through its other links."""
+    FIXED_UPSTREAM_HEAD = "fixed_upstream_head"
+    """Active PSV: the start node is held at the setpoint head, and the link passes whatever
+    flow reaches the start node through its other links."""
+
+
+HEAD_FIXING_MODES = (LinkMode.FIXED_DOWNSTREAM_HEAD, LinkMode.FIXED_UPSTREAM_HEAD)
+SPECIAL_MODES = (LinkMode.FIXED_FLOW, *HEAD_FIXING_MODES)
+"""Modes in which a link is not a Newton unknown: its flow follows from the setpoint."""
 
 
 @dataclass(frozen=True)
 class LinkState:
     mode: LinkMode = LinkMode.NORMAL
     value: float = 0.0
-    """Setpoint for the fixed modes (m³/s or m); unused by NORMAL and CLOSED."""
+    """FIXED_FLOW: the flow, m³/s. FIXED_*_HEAD: the static part of the setpoint head,
+    z + p_set/(ρg), m. Unused by NORMAL and CLOSED."""
+    reference_link: int = -1
+    """FIXED_*_HEAD: the link whose flow Q_ref sets the velocity head at the held port."""
+    coefficient: float = 0.0
+    """FIXED_*_HEAD: 1/(2 g A²) of the held port's connected pipe end segment, s²/m⁵."""
+
+    def head(self, flows: Sequence[float] | NDArray[np.float64]) -> float:
+        """Setpoint head H_set = value + coefficient · Q_ref² (EGL, so it includes the port's
+        velocity head; design §5.3), with Q_ref from ``flows`` (lagged by the caller)."""
+        if self.reference_link < 0 or self.coefficient == 0.0:
+            return self.value
+        q = float(flows[self.reference_link])
+        return self.value + self.coefficient * q * q
 
 
 NORMAL = LinkState()

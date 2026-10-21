@@ -1,0 +1,306 @@
+{
+  "name": "isolation_valves_crane_default_k",
+  "description": "Gate, globe, butterfly and ball isolation valves in series with no resistance entered: verifies each type's Crane TP-410 full-bore K (fluids), the valve law K v^2/2g referenced to the inlet pipe, and port pressures where inlet and outlet pipes differ in size.",
+  "source": "closed-form: tests/reference/derivations_valves.py::isolation_valves_crane_default_k (Darcy-Weisbach + Colebrook lines; valve K from fluids K_gate_valve_Crane, K_globe_valve_Crane, K_butterfly_valve_Crane(style 0), K_ball_valve_Crane at the inlet pipe diameter; brentq; line fittings: fluids entrance_sharp(method='Crane'), exit_normal())",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-isolation-valves-crane-default-k",
+    "metadata": {
+      "name": "Isolation valves with Crane default K",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 9.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 3.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "GV1",
+        "name": "Valve GV1",
+        "elevation": 4.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "valve",
+        "valveType": "gate",
+        "status": "active"
+      },
+      {
+        "id": "GL1",
+        "name": "Valve GL1",
+        "elevation": 3.5,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "valve",
+        "valveType": "globe",
+        "status": "active"
+      },
+      {
+        "id": "BF1",
+        "name": "Valve BF1",
+        "elevation": 3.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "valve",
+        "valveType": "butterfly",
+        "status": "active"
+      },
+      {
+        "id": "BV1",
+        "name": "Valve BV1",
+        "elevation": 2.5,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "valve",
+        "valveType": "ball",
+        "status": "active"
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 1.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "GV1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 30.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "GV1",
+        "fromPortId": "outlet",
+        "toComponentId": "GL1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 25.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L3",
+        "fromComponentId": "GL1",
+        "fromPortId": "outlet",
+        "toComponentId": "BF1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 20.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L4",
+        "fromComponentId": "BF1",
+        "fromPortId": "outlet",
+        "toComponentId": "BV1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 20.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L5",
+        "fromComponentId": "BV1",
+        "fromPortId": "outlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 40.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "exit",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.01589314794446064,
+      "L2": 0.01589314794446064,
+      "L3": 0.01589314794446064,
+      "L4": 0.01589314794446064,
+      "L5": 0.01589314794446064
+    },
+    "egl": {
+      "R1:port_1": 12.0,
+      "GV1:inlet": 10.868795540235086,
+      "GV1:outlet": 10.844078144871823,
+      "GL1:inlet": 7.419605997377166,
+      "GL1:outlet": 4.101306903461732,
+      "BF1:inlet": 3.4107132917094045,
+      "BF1:outlet": 3.2716779427910536,
+      "BV1:inlet": 2.581084331038726,
+      "BV1:outlet": 2.5718153077775026,
+      "R2:port_1": 1.0
+    },
+    "pressures": {
+      "GV1:inlet": 65359.46998024807,
+      "GV1:outlet": 61434.54960465539,
+      "GL1:inlet": 32812.633368997376,
+      "GL1:outlet": 4019.328675314297,
+      "BF1:inlet": 2153.982002308715,
+      "BF1:outlet": 793.2379398475096,
+      "BV1:inlet": -1072.1087331580727,
+      "BV1:outlet": -1162.8250039888194
+    },
+    "valves": {
+      "GV1": {
+        "state": "open"
+      },
+      "GL1": {
+        "state": "open"
+      },
+      "BF1": {
+        "state": "open"
+      },
+      "BV1": {
+        "state": "open"
+      }
+    }
+  }
+}

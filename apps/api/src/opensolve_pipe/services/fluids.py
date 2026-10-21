@@ -7,13 +7,24 @@ pressure; at or above it, as saturated liquid (the lowest pressure at which it i
 Liquid density and viscosity depend only weakly on pressure, and the solver treats the fluid
 as incompressible at these properties.
 
-Glycol solutions (CoolProp INCOMP::MEG / INCOMP::MPG) arrive in milestone M3.
+Aqueous ethylene and propylene glycol use CoolProp's incompressible solutions INCOMP::MEG and
+INCOMP::MPG, which implement Melinder (2010): density and viscosity as functions of
+temperature and glycol **mass** fraction, independent of pressure (evaluated at standard
+atmospheric pressure). Only the ranges CoolProp supports are accepted, queried from CoolProp:
+mass fraction in [fraction_min, fraction_max], temperature above the solution's freezing point
+T_freeze(x) and within [Tmin, Tmax]. CoolProp defines no saturation pressure for these
+solutions, so the vapor pressure is unknown (None) unless the user overrides it; the solve then
+carries NO_VAPOR_PRESSURE and NPSH available needs that override.
+
+Overrides (PRD §3.5.3) replace individual calculated values and are labeled 'user'.
 """
 
+from dataclasses import dataclass
 from functools import lru_cache
+from typing import Literal
 
 import CoolProp
-from CoolProp.CoolProp import PhaseSI, PropsSI
+from CoolProp.CoolProp import AbstractState, PhaseSI, PropsSI
 from scipy.constants import atm
 
 from ..models.fluids import (
@@ -39,6 +50,19 @@ _HUBER2009 = (
     "M. L. Huber et al., 'New International Formulation for the Viscosity of H2O', J. Phys. "
     "Chem. Ref. Data 38 (2009) 101-125, doi:10.1063/1.3088050"
 )
+
+
+_MELINDER2010 = (
+    "Å. Melinder, 'Properties of Secondary Working Fluids for Indirect Systems', "
+    "IIF-IIR Publishing, 2010"
+)
+
+GlycolId = Literal["ethylene_glycol", "propylene_glycol"]
+GLYCOLS: dict[GlycolId, tuple[str, str]] = {
+    "ethylene_glycol": ("MEG", "Ethylene glycol (aqueous)"),
+    "propylene_glycol": ("MPG", "Propylene glycol (aqueous)"),
+}
+"""Built-in glycol id -> (CoolProp INCOMP fluid, display name)."""
 
 
 class FluidError(ValueError):
@@ -78,9 +102,101 @@ def _water(temperature: float) -> tuple[float, float, float, str]:
     return rho, mu, p_vap, state
 
 
+@dataclass(frozen=True)
+class GlycolRange:
+    """What CoolProp supports for one INCOMP solution (queried, not tabulated here)."""
+
+    fraction_min: float
+    fraction_max: float
+    t_min: float
+    t_max: float
+    """K. CoolProp's bounds; the lower limit that applies is the freezing point T_freeze(x)."""
+
+
+@lru_cache(maxsize=4)
+def glycol_range(glycol: GlycolId) -> GlycolRange:
+    """Mass-fraction and temperature limits of a glycol solution, from CoolProp: PropsSI
+    'fraction_min', 'fraction_max', 'Tmin' and 'Tmax' of INCOMP::MEG / INCOMP::MPG."""
+    name = f"INCOMP::{GLYCOLS[glycol][0]}"
+    return GlycolRange(
+        fraction_min=float(PropsSI("fraction_min", name)),
+        fraction_max=float(PropsSI("fraction_max", name)),
+        t_min=float(PropsSI("Tmin", name)),
+        t_max=float(PropsSI("Tmax", name)),
+    )
+
+
+@lru_cache(maxsize=256)
+def _freezing_point(fluid: str, fraction: float) -> float:
+    """T_freeze [K] of an INCOMP solution at a mass fraction (CoolProp iT_freeze)."""
+    state = AbstractState("INCOMP", fluid)
+    state.set_mass_fractions([fraction])
+    return float(state.keyed_output(CoolProp.iT_freeze))
+
+
+@lru_cache(maxsize=512)
+def _glycol(glycol: GlycolId, fraction: float, temperature: float) -> tuple[float, float]:
+    """(density kg/m³, dynamic viscosity Pa·s) of an aqueous glycol at a mass fraction."""
+    fluid = GLYCOLS[glycol][0]
+    limits = glycol_range(glycol)
+    if not limits.fraction_min <= fraction <= limits.fraction_max:
+        raise FluidError(
+            f"{GLYCOLS[glycol][1]} mass fraction {fraction:g} is outside the range CoolProp "
+            f"INCOMP::{fluid} supports ({limits.fraction_min:g} to {limits.fraction_max:g})"
+        )
+    t_freeze = _freezing_point(fluid, fraction)
+    if not (temperature > t_freeze and limits.t_min <= temperature <= limits.t_max):
+        raise FluidError(
+            f"{GLYCOLS[glycol][1]} at mass fraction {fraction:g}: temperature {temperature:g} K "
+            f"is outside the supported liquid range (above the freezing point "
+            f"{t_freeze:.6g} K, up to {limits.t_max:g} K; CoolProp INCOMP::{fluid})"
+        )
+    try:
+        state = AbstractState("INCOMP", fluid)
+        state.set_mass_fractions([fraction])
+        state.update(CoolProp.PT_INPUTS, atm, temperature)
+        return float(state.rhomass()), float(state.viscosity())
+    except ValueError as exc:  # CoolProp reports out-of-range input as ValueError
+        raise FluidError(
+            f"{GLYCOLS[glycol][1]} properties unavailable at {temperature:g} K, mass fraction "
+            f"{fraction:g}: {exc}"
+        ) from exc
+
+
+def _glycol_properties(fluid: BuiltinFluid, glycol: GlycolId) -> FluidProperties:
+    if fluid.concentration is None:
+        raise FluidError(
+            f"{GLYCOLS[glycol][1]} needs a concentration (glycol mass fraction, 0 to 1)"
+        )
+    x, temperature = fluid.concentration, fluid.temperature
+    rho, mu = _glycol(glycol, x, temperature)
+    source = (
+        f"CoolProp {CoolProp.__version__} INCOMP::{GLYCOLS[glycol][0]} at mass fraction {x:g}, "
+        f"{temperature:g} K (incompressible solution fit, pressure-independent): {_MELINDER2010}"
+    )
+    props = FluidProperties(
+        name=GLYCOLS[glycol][1],
+        temperature=temperature,
+        concentration=x,
+        density=rho,
+        dynamic_viscosity=mu,
+        kinematic_viscosity=mu / rho,
+        vapor_pressure=None,
+        sources={
+            "density": _library(source),
+            "dynamicViscosity": _library(source),
+            "vaporPressure": _library(
+                f"not available: CoolProp INCOMP::{GLYCOLS[glycol][0]} defines no saturation "
+                "pressure (give a vapor pressure override for NPSH)"
+            ),
+        },
+    )
+    return _apply_overrides(props, fluid.overrides)
+
+
 def _builtin(fluid: BuiltinFluid) -> FluidProperties:
     if fluid.fluid_id != "water":
-        raise FluidError(f"built-in fluid '{fluid.fluid_id}' is not supported yet")
+        return _glycol_properties(fluid, fluid.fluid_id)
     if fluid.concentration is not None:
         raise FluidError("concentration applies to glycol solutions only, not to water")
     rho, mu, p_vap, state = _water(fluid.temperature)

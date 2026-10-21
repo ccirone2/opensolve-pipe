@@ -428,53 +428,6 @@ def test_builtin_water_project() -> None:
         solve_project(make_project(comps, conns, fluid={**fluid, "temperature": 260.0}))
 
 
-def test_m3_elements_raise_not_implemented() -> None:
-    pump = {
-        "type": "pump",
-        "id": "PU",
-        "name": "PU",
-        "elevation": 0,
-        "curveId": "C1",
-        "ports": [{"id": "suction", "nominalSize": 0.1}, {"id": "discharge", "nominalSize": 0.1}],
-    }
-    curve = {
-        "id": "C1",
-        "name": "c",
-        "points": [{"flow": 0, "head": 30}, {"flow": 0.01, "head": 28}, {"flow": 0.02, "head": 20}],
-    }
-    comps = [reservoir("R1"), pump, reservoir("R2")]
-    conns = [
-        connection("L1", ("R1", "port_1"), ("PU", "suction")),
-        connection("L2", ("PU", "discharge"), ("R2", "port_1")),
-    ]
-    with pytest.raises(NotImplementedError, match=r"pump 'PU'.*M3"):
-        solve_project(make_project(comps, conns, pump_library=[curve]))
-
-    valve = {
-        "type": "valve",
-        "valveType": "gate",
-        "id": "V",
-        "name": "V",
-        "elevation": 0,
-        "ports": [{"id": "inlet", "nominalSize": 0.1}, {"id": "outlet", "nominalSize": 0.1}],
-    }
-    conns = [
-        connection("L1", ("R1", "port_1"), ("V", "inlet")),
-        connection("L2", ("V", "outlet"), ("R2", "port_1")),
-    ]
-    with pytest.raises(NotImplementedError, match="gate valve 'V'"):
-        solve_project(make_project([reservoir("R1"), valve, reservoir("R2")], conns))
-
-    comps = [reservoir("R1"), tee("T", loss_model="crane"), reservoir("R2"), plug("X")]
-    conns = [
-        connection("L1", ("R1", "port_1"), ("T", "run_inlet")),
-        connection("L2", ("T", "run_outlet"), ("R2", "port_1")),
-        connection("L3", ("T", "branch"), ("X", "port_1")),
-    ]
-    with pytest.raises(NotImplementedError, match="lossModel 'crane'"):
-        solve_project(make_project(comps, conns))
-
-
 def friction_range_flags(result: SolvedState) -> list[dict[str, float | str]]:
     return [
         f.details

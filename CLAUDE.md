@@ -81,13 +81,19 @@ The specs are at v0.2.0 (rebuild baseline) and reflect the decisions below. Item
 - Pipe dimensions come from `fluids.piping` (ASME B36.10M, B36.19M, ASTM D1785) and roughness from Farshad & Rieke (2006) via `fluids`, generated into `data/pipe_materials.json` by a script. Materials without both cited dimensions and roughness (HDPE, ductile iron) are not in v1; users can enter a custom pipe. Never use `fluids`' fuzzy free-text roughness lookup. *(GOALS §4.1.)*
 - Fitting K values come from one named `fluids.fittings` Crane function per fitting type (`data/fittings.json`); a user K overrides it and is labeled as user data.
 
+### D9. Component models (M3; resolves TSD §12)
+- **Tees and wyes:** Crane TP-410 correlations in `fluids.fittings` (`K_branch/run_diverging/converging_Crane`) on the combined-flow velocity. They cover only a combined flow through a run port: a tee with the combined flow through its branch uses Darby 3-K "Tee, through-branch (as elbow)" per path and is flagged; a wye in that pattern has no cited correlation and is reported as not converged. The wye's lateral leans toward `outlet_1`. `lossModel: 'ideal'` gives EPANET-style junctions. *(GOALS §4.1: no uncited K.)*
+- **Fluids:** CoolProp 8.0.0 (pinned): `Water` (IAPWS-95), `INCOMP::MEG`/`INCOMP::MPG` (Melinder 2010) within CoolProp's queried ranges. Glycols have no vapor pressure in CoolProp, so NPSH needs a user value (flagged otherwise).
+- **Pump curves:** monotone piecewise cubic (`scipy.interpolate.PchipInterpolator`), straight end-slope extrapolation (flagged), affinity laws for speed. No viscosity correction (Later); the trace states it.
+- **Valves:** default K from the Crane function for the valve type at the inlet pipe's diameter; Cv/Kv via `fluids` (ISA-75.01.01). No position-dependent K and no control-valve Cv curve in v1 (no cited characteristic); control valves default to ideal (zero loss when wide open). PRV/PSV setpoints are static pressures at the valve port.
+- **Status logic:** EPANET 2.2 rules translated to EGL, max 30 outer iterations, oscillation → `converged: false` naming the components. Deliberate departures from EPANET: an FCV closes on reverse flow and opens when the head across it is below its fully open loss; closed elements around a closed-off section are re-tested (difference constraints) so a pump and check valve that close together can reopen.
+
 ---
 
-## Open spec items
+## Spec notes
 
-The specs (v0.2.0) reflect D1–D6. These items are still open; see TSD §12 for the full list.
+The specs reflect D1–D9; TSD §12 lists the decided implementation questions and the open (Later) ones.
 
-- **Tee and wye K-factors (TSD §4.2):** being implemented in M3 with the Crane TP-410 correlations in `fluids.fittings`. Never use a loss coefficient without a cited source.
 - **EPANET comparisons (TSD §5.2, §10.1):** EPANET's friction formula (Swamee–Jain) differs from exact Colebrook by up to 3.0% in f (measured), so EPANET reference tests run the solver with `frictionMethod = "swamee_jain"`.
 
 ---

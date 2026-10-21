@@ -17,6 +17,7 @@ from functools import cache
 from typing import Any
 
 import fluids.fittings
+from scipy.constants import inch
 
 from ...models.piping import REDUCER_TYPES, Fitting
 from .library import read_data_json
@@ -51,6 +52,10 @@ class FittingSpec:
     reference_diameter: str
     valid_in_laminar_flow: bool
     source: str
+    size_range: tuple[float, float] | None = None
+    """m. The reference diameters the correlation's table covers (``sizeRange`` in the JSON,
+    tabulated in inches and converted with scipy.constants.inch); None: no size limit."""
+    size_range_note: str = ""
 
     @property
     def correlation(self) -> str:
@@ -78,6 +83,7 @@ def load_fittings() -> dict[str, FittingSpec]:
         calls = {
             key: _call_spec(raw[key]) for key in ("k", "expansion", "contraction") if key in raw
         }
+        size = raw.get("sizeRange")
         specs[raw["type"]] = FittingSpec(
             type=raw["type"],
             name=raw["name"],
@@ -86,8 +92,25 @@ def load_fittings() -> dict[str, FittingSpec]:
             reference_diameter=raw["referenceDiameter"],
             valid_in_laminar_flow=raw["validInLaminarFlow"],
             source=raw["source"],
+            size_range=(
+                None if size is None else (size["minInches"] * inch, size["maxInches"] * inch)
+            ),
+            size_range_note="" if size is None else size["note"],
         )
     return specs
+
+
+def size_warning(spec: FittingSpec, d: float) -> str | None:
+    """A reference diameter outside the sizes a correlation is tabulated for."""
+    if spec.size_range is None:
+        return None
+    lo, hi = spec.size_range
+    if lo <= d <= hi:
+        return None
+    return (
+        f"diameter {d:g} m is outside the sizes the Crane table covers ({lo:g} to {hi:g} m; "
+        f"{spec.size_range_note}); K evaluated with the nearest size class"
+    )
 
 
 def evaluate_call(call: CallSpec, symbols: Mapping[str, float]) -> float:
@@ -128,8 +151,11 @@ class ResolvedFitting:
         return self.correlation_reverse if flow < 0 else self.correlation_forward
 
 
-def _range_warning(fitting: Fitting) -> str | None:
-    """Inputs outside the table a correlation interpolates (fluids clamps silently)."""
+def _range_warning(fitting: Fitting, spec: FittingSpec, d: float) -> str | None:
+    """Inputs outside the table a correlation interpolates (fluids clamps silently), and
+    reference diameters outside the sizes it is tabulated for."""
+    if (size := size_warning(spec, d)) is not None:
+        return size
     if fitting.type == "bend" and fitting.radius_ratio is not None:
         table = fluids.fittings.bend_rounded_Crane_ratios
         lo, hi = float(min(table)), float(max(table))
@@ -188,7 +214,7 @@ def resolve_fitting(index: int, fitting: Fitting, diameters: Sequence[float]) ->
             user_k=True,
             valid_in_laminar_flow=True,
         )
-    common["range_warning"] = _range_warning(fitting)
+    common["range_warning"] = _range_warning(fitting, spec, diameters[i])
     if fitting.type in REDUCER_TYPES:
         d_a, d_b = diameters[i], diameters[i + 1]
         kf, sf, cf = _reducer_direction(spec, d_a, d_b, i, i + 1, fitting.angle)

@@ -3,11 +3,21 @@
 A case file ``cases/<name>.json`` holds::
 
     {"name", "description", "source", "project": <Project API JSON>,
-     "expected": {"fluid": {"density", "dynamicViscosity"},
+     "expected": {"fluid": {"density", "dynamicViscosity", "vaporPressure"?},
                   "flows": {connectionId: m³/s},
                   "egl": {"componentId:portId": m},
                   "pressures": {"componentId:portId": Pa gauge static},   # optional
+                  "atmosphericPressure": Pa absolute,                      # optional
+                  "pumps": {pumpId: {"status", "operatingFlow"?, "operatingHead"?,
+                                     "npshAvailable"?, "npshRequired"?,
+                                     "npshMargin"?}},                      # optional
+                  "valves": {valveId: {"state"}},                          # optional
                   "flags": [{"code", "componentId"?, "connectionId"?}]}}  # optional
+
+``vaporPressure`` may be null (the property source has none). Every pump and valve of a case
+has an expected status or state: the self-checks evaluate each element's law in that state.
+Ports in an isolated section (no fixed head reachable through open elements) have no expected
+EGL, as the solver reports them without a head (design §4).
 
 ``source`` says exactly where the expected values came from. Case files are generated, never
 edited by hand: closed-form cases by ``build_closed_form_cases.py`` from ``derivations.py``, EPANET
@@ -21,13 +31,20 @@ from pathlib import Path
 from typing import Any, Literal
 
 from opensolve_pipe.models.components import (
+    BranchLossModel,
+    CheckValve,
     Component,
+    ControlValve,
+    FlowCoefficient,
     IdealReferenceNode,
+    IsolationValve,
     Plug,
+    Pump,
     Reservoir,
     TeeBranch,
+    WyeBranch,
 )
-from opensolve_pipe.models.fluids import BuiltinFluid, CustomFluid
+from opensolve_pipe.models.fluids import BuiltinFluid, CustomFluid, FluidOverrides
 from opensolve_pipe.models.piping import (
     CUSTOM_MATERIAL_ID,
     Fitting,
@@ -44,10 +61,13 @@ from opensolve_pipe.models.project import (
     SolverOptions,
     UnitPreferences,
 )
+from opensolve_pipe.models.pumps import FlowHeadPoint, FlowNpshrPoint, PumpCurve
 
 CASES_DIR = Path(__file__).parent / "cases"
 TIMESTAMP = "2026-10-21T00:00:00Z"
 FrictionMethod = Literal["colebrook", "swamee_jain"]
+UNCHECKED: Literal["unchecked"] = "unchecked"
+"""Marker: the case makes no claim about the vapor pressure."""
 
 
 @dataclass(frozen=True)
@@ -60,15 +80,27 @@ class Expected:
     egl: dict[str, float]
     pressures: dict[str, float] = field(default_factory=dict)
     flags: list[dict[str, str]] = field(default_factory=list)
+    vapor_pressure: float | Literal["unchecked"] | None = UNCHECKED
+    atmospheric_pressure: float | None = None
+    pumps: dict[str, dict[str, float | str]] = field(default_factory=dict)
+    valves: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
-        out: dict[str, Any] = {
-            "fluid": {"density": self.density, "dynamicViscosity": self.dynamic_viscosity},
-            "flows": self.flows,
-            "egl": self.egl,
+        fluid: dict[str, Any] = {
+            "density": self.density,
+            "dynamicViscosity": self.dynamic_viscosity,
         }
+        if self.vapor_pressure != UNCHECKED:
+            fluid["vaporPressure"] = self.vapor_pressure
+        out: dict[str, Any] = {"fluid": fluid, "flows": self.flows, "egl": self.egl}
         if self.pressures:
             out["pressures"] = self.pressures
+        if self.atmospheric_pressure is not None:
+            out["atmosphericPressure"] = self.atmospheric_pressure
+        if self.pumps:
+            out["pumps"] = self.pumps
+        if self.valves:
+            out["valves"] = self.valves
         if self.flags:
             out["flags"] = self.flags
         return out
@@ -124,8 +156,26 @@ def custom_fluid(name: str, density: float, dynamic_viscosity: float) -> CustomF
     )
 
 
-def builtin_water(temperature: float) -> BuiltinFluid:
-    return BuiltinFluid(kind="builtin", fluid_id="water", temperature=temperature)
+def builtin_water(temperature: float, overrides: FluidOverrides | None = None) -> BuiltinFluid:
+    return BuiltinFluid(
+        kind="builtin", fluid_id="water", temperature=temperature, overrides=overrides
+    )
+
+
+def builtin_glycol(
+    fluid_id: Literal["ethylene_glycol", "propylene_glycol"],
+    temperature: float,
+    concentration: float,
+    overrides: FluidOverrides | None = None,
+) -> BuiltinFluid:
+    """Aqueous glycol at a mass fraction (design §7)."""
+    return BuiltinFluid(
+        kind="builtin",
+        fluid_id=fluid_id,
+        temperature=temperature,
+        concentration=concentration,
+        overrides=overrides,
+    )
 
 
 def reservoir(
@@ -160,6 +210,152 @@ def ideal_tee(cid: str, elevation: float, nominal_size: float = 0.1016) -> TeeBr
         ports=[
             Port(id=p, nominal_size=nominal_size) for p in ("run_inlet", "run_outlet", "branch")
         ],
+    )
+
+
+def crane_tee(cid: str, elevation: float, nominal_size: float = 0.1016) -> TeeBranch:
+    """A tee with flow-split-dependent Crane TP-410 losses (lossModel 'crane', design §5.4)."""
+    return TeeBranch(
+        type="branch",
+        branch_type="tee",
+        loss_model="crane",
+        id=cid,
+        name=f"Tee {cid}",
+        elevation=elevation,
+        ports=[
+            Port(id=p, nominal_size=nominal_size) for p in ("run_inlet", "run_outlet", "branch")
+        ],
+    )
+
+
+def wye(
+    cid: str,
+    elevation: float,
+    angle: float,
+    loss_model: BranchLossModel = "crane",
+    nominal_size: float = 0.1016,
+) -> WyeBranch:
+    return WyeBranch(
+        type="branch",
+        branch_type="wye",
+        angle=angle,
+        loss_model=loss_model,
+        id=cid,
+        name=f"Wye {cid}",
+        elevation=elevation,
+        ports=[Port(id=p, nominal_size=nominal_size) for p in ("inlet", "outlet_1", "outlet_2")],
+    )
+
+
+def pump_curve(
+    cid: str,
+    points: Sequence[tuple[float, float]],
+    npshr: Sequence[tuple[float, float]] | None = None,
+) -> PumpCurve:
+    """A rated-speed pump curve from (flow m³/s, head m) points (test inputs)."""
+    return PumpCurve(
+        id=cid,
+        name=f"Curve {cid}",
+        points=[FlowHeadPoint(flow=q, head=h) for q, h in points],
+        npshr_curve=(
+            None if npshr is None else [FlowNpshrPoint(flow=q, npshr=n) for q, n in npshr]
+        ),
+    )
+
+
+def pump(
+    cid: str,
+    elevation: float,
+    curve_id: str,
+    *,
+    speed: float = 1.0,
+    status: Literal["on", "off"] = "on",
+    nominal_size: float = 0.1016,
+) -> Pump:
+    return Pump(
+        type="pump",
+        id=cid,
+        name=f"Pump {cid}",
+        elevation=elevation,
+        curve_id=curve_id,
+        speed=speed,
+        status=status,
+        ports=[Port(id=p, nominal_size=nominal_size) for p in ("suction", "discharge")],
+    )
+
+
+def _valve_ports(nominal_size: float) -> list[Port]:
+    return [Port(id=p, nominal_size=nominal_size) for p in ("inlet", "outlet")]
+
+
+def flow_coefficient(kind: Literal["K", "Cv", "Kv"], value: float) -> FlowCoefficient:
+    return FlowCoefficient(kind=kind, value=value)
+
+
+def isolation_valve(
+    cid: str,
+    elevation: float,
+    valve_type: Literal["gate", "ball", "butterfly", "globe"],
+    *,
+    status: Literal["active", "isolated"] = "active",
+    resistance: FlowCoefficient | None = None,
+    nominal_size: float = 0.1016,
+) -> IsolationValve:
+    return IsolationValve(
+        type="valve",
+        valve_type=valve_type,
+        id=cid,
+        name=f"Valve {cid}",
+        elevation=elevation,
+        status=status,
+        resistance=resistance,
+        ports=_valve_ports(nominal_size),
+    )
+
+
+def check_valve(
+    cid: str,
+    elevation: float,
+    valve_type: Literal["check", "stop_check"],
+    *,
+    status: Literal["active", "locked_open", "locked_closed"] = "active",
+    cracking_pressure: float = 0.0,
+    resistance: FlowCoefficient | None = None,
+    nominal_size: float = 0.1016,
+) -> CheckValve:
+    return CheckValve(
+        type="valve",
+        valve_type=valve_type,
+        id=cid,
+        name=f"Check valve {cid}",
+        elevation=elevation,
+        status=status,
+        cracking_pressure=cracking_pressure,
+        resistance=resistance,
+        ports=_valve_ports(nominal_size),
+    )
+
+
+def control_valve(
+    cid: str,
+    elevation: float,
+    valve_type: Literal["prv", "psv", "fcv"],
+    setpoint: float,
+    *,
+    status: Literal["active", "failed_open", "failed_closed"] = "active",
+    resistance: FlowCoefficient | None = None,
+    nominal_size: float = 0.1016,
+) -> ControlValve:
+    return ControlValve(
+        type="valve",
+        valve_type=valve_type,
+        id=cid,
+        name=f"Control valve {cid}",
+        elevation=elevation,
+        setpoint=setpoint,
+        status=status,
+        resistance=resistance,
+        ports=_valve_ports(nominal_size),
     )
 
 
@@ -251,6 +447,9 @@ def make_project(
     connections: Sequence[PipeConnection],
     *,
     friction_method: FrictionMethod = "colebrook",
+    pump_library: Sequence[PumpCurve] = (),
+    site_elevation: float = 0.0,
+    atmospheric_pressure: float | None = None,
 ) -> Project:
     return Project(
         schema_version=1,  # the only released schema version (SCHEMA_VERSION)
@@ -258,10 +457,12 @@ def make_project(
         metadata=ProjectMetadata(name=name, created=TIMESTAMP, modified=TIMESTAMP),
         settings=ProjectSettings(
             units=UnitPreferences(),
+            site_elevation=site_elevation,
+            atmospheric_pressure=atmospheric_pressure,
             solver_options=SolverOptions(friction_method=friction_method),
         ),
         fluid=fluid,
         components=list(components),
         connections=list(connections),
-        pump_library=[],
+        pump_library=list(pump_library),
     )

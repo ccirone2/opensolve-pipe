@@ -1,0 +1,163 @@
+{
+  "name": "check_valve_locked_open_reverse",
+  "description": "A swing check valve locked open with the higher head on its outlet side: verifies that it passes reverse flow as an open valve (K v^2/2g on the inlet pipe, no cracking head, no check action).",
+  "source": "closed-form: tests/reference/derivations_valves.py::check_valve_locked_open_reverse (Darcy-Weisbach + Colebrook lines; K from fluids K_swing_check_valve_Crane (angled); locked_open: open law without cracking head (design 5.2); brentq; line fittings: fluids bend_rounded_Crane(Di, 90, bend_diameters=1.5))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-check-valve-locked-open-reverse",
+    "metadata": {
+      "name": "Check valve locked open, reverse flow",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "CV1",
+        "name": "Check valve CV1",
+        "elevation": 1.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "valve",
+        "valveType": "check",
+        "status": "locked_open",
+        "crackingPressure": 7000.0
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 12.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 3.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "CV1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 30.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "CV1",
+        "fromPortId": "outlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 60.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "elbow_90_lr",
+              "quantity": 2,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": -0.03137128032213937,
+      "L2": -0.03137128032213937
+    },
+    "egl": {
+      "R1:port_1": 2.0,
+      "CV1:inlet": 5.8192235500624605,
+      "CV1:outlet": 7.023031901660667,
+      "R2:port_1": 15.0
+    },
+    "pressures": {
+      "CV1:inlet": 39896.78274266609,
+      "CV1:outlet": 51678.49925952423
+    },
+    "valves": {
+      "CV1": {
+        "state": "open"
+      }
+    }
+  }
+}

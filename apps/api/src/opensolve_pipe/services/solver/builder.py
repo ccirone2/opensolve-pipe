@@ -7,6 +7,10 @@ ideal-reference-node ports are fixed-head nodes.
 Links: one per pipe connection (from-port node -> to-port node); pump suction -> discharge;
 valve inlet -> outlet; three legs per tee or wye (center -> port). Plugs add no link.
 
+Laws: pipes (segments and fittings); a pump's curve at its speed; a valve's fully open K on
+the inlet pipe's inner diameter (``valves.valve_resistance``), as a head offset when K = 0
+(an ideal control valve); branch legs as head offsets set by the outer loop (design §2.4).
+
 Every problem that makes the project unsolvable is collected and raised together as one
 ``TopologyError`` (design §1.2), including pipe-library references that do not resolve.
 """
@@ -34,13 +38,16 @@ from ...models.components import (
 from ...models.fluids import FluidProperties
 from ...models.piping import PipeConnection
 from ...models.project import Project
-from .elements import HeadOffsetLaw, PendingLaw, PipeConnectionLaw, PipeSegment
+from .branches import BranchGeometry
+from .elements import HeadOffsetLaw, PipeConnectionLaw, PipeSegment, PumpLaw, ValveLaw
 from .errors import TopologyError, issue
 from .fittings import ResolvedFitting, resolve_fitting
 from .flags import make_flag
 from .friction import COLEBROOK_ED_LIMIT, FrictionMethod
 from .library import LibraryLookupError, ResolvedPipe, resolve_pipe
-from .network import LinkKind, SolverLink, SolverNetwork, SolverNode
+from .network import LinkKind, LinkLaw, SolverLink, SolverNetwork, SolverNode
+from .pumps import PumpCurveModel
+from .valves import Valve, ValveResistance, valve_resistance
 
 G = float(fluids.constants.g)
 """Standard gravity, m/s² (``fluids.constants.g``, design §1.3)."""
@@ -76,6 +83,47 @@ class ConnectionData:
     law: PipeConnectionLaw
 
 
+@dataclass(frozen=True)
+class PortPipe:
+    """The end segment of the pipe connected at a port."""
+
+    link_index: int
+    """Link of the connection."""
+    segment: PipeSegment
+
+    def velocity_head_coefficient(self, g: float) -> float:
+        """1/(2 g A²): v²/(2g) = coefficient · Q² for the connection's flow Q."""
+        return 1.0 / (2.0 * g * self.segment.area**2)
+
+
+@dataclass
+class PumpData:
+    component: Pump
+    link_index: int
+    curve: PumpCurveModel
+    suction: str
+    discharge: str
+    """Node keys of the suction and discharge ports."""
+
+
+@dataclass
+class ValveData:
+    component: Valve
+    link_index: int
+    resistance: ValveResistance
+    reference_diameter: float
+    """Inner diameter of the pipe at the inlet port: K is on this diameter (design §2.3)."""
+    reference_area: float
+    cracking_head: float
+    """crackingPressure / (ρ g) for an active check valve, else 0, m."""
+    law: LinkLaw
+    """The fully open law (ValveLaw, or a zero head offset for K = 0)."""
+    inlet: str
+    outlet: str
+    inlet_pipe: PortPipe
+    outlet_pipe: PortPipe
+
+
 @dataclass
 class BuiltNetwork:
     network: SolverNetwork
@@ -88,6 +136,15 @@ class BuiltNetwork:
     """Node key -> (connection id, 'from' | 'to') for every connected port."""
     branch_legs: dict[str, dict[str, int]] = field(default_factory=dict)
     """Branch component id -> port id -> leg link index."""
+    branches: dict[str, BranchGeometry] = field(default_factory=dict)
+    pumps: dict[str, PumpData] = field(default_factory=dict)
+    valves: dict[str, ValveData] = field(default_factory=dict)
+
+    def port_pipe(self, key: str) -> PortPipe:
+        """The connection and its end segment at port ``key`` ('componentId:portId')."""
+        conn_id, end = self.port_connection[key]
+        data = self.connections[conn_id]
+        return PortPipe(data.link_index, data.segments[0] if end == "from" else data.segments[-1])
 
 
 # --------------------------------------------------------------------------- validation
@@ -391,11 +448,13 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
         built.port_connection[a] = (conn.id, "from")
         built.port_connection[b] = (conn.id, "to")
 
+    curves = {c.id: PumpCurveModel(c) for c in project.pump_library}
     for comp in project.components:
         if isinstance(comp, BranchComponent):
             center = node_index[node_key(comp.id, CENTER_PORT)]
             legs: dict[str, int] = {}
             for port in comp.ports:
+                leg_law = HeadOffsetLaw(0.0)
                 leg = add_link(
                     SolverLink(
                         index=len(links),
@@ -403,36 +462,90 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
                         kind=LinkKind.BRANCH_LEG,
                         start=center,
                         end=node_index[node_key(comp.id, port.id)],
-                        law=HeadOffsetLaw(0.0),
+                        law=leg_law,
                         component_id=comp.id,
                         port_id=port.id,
                     )
                 )
+                leg_law.own = leg.index
                 legs[port.id] = leg.index
             built.branch_legs[comp.id] = legs
+            ends = {p.id: built.port_pipe(node_key(comp.id, p.id)).segment for p in comp.ports}
+            tee = isinstance(comp, TeeBranch)
+            built.branches[comp.id] = BranchGeometry(
+                component_id=comp.id,
+                branch_type=comp.branch_type,
+                angle=comp.angle if isinstance(comp, WyeBranch) else 90.0,
+                run_ports=("run_inlet", "run_outlet") if tee else ("inlet", "outlet_1"),
+                branch_port="branch" if tee else "outlet_2",
+                legs=legs,
+                diameter={pid: seg.diameter for pid, seg in ends.items()},
+                area={pid: seg.area for pid, seg in ends.items()},
+            )
         elif isinstance(comp, Pump):
-            add_link(
+            curve = curves[comp.curve_id]
+            suction, discharge = node_key(comp.id, "suction"), node_key(comp.id, "discharge")
+            link = add_link(
                 SolverLink(
                     index=len(links),
                     key=comp.id,
                     kind=LinkKind.PUMP,
-                    start=node_index[node_key(comp.id, "suction")],
-                    end=node_index[node_key(comp.id, "discharge")],
-                    law=PendingLaw(f"pump '{comp.id}'"),
+                    start=node_index[suction],
+                    end=node_index[discharge],
+                    law=PumpLaw(curve, comp.speed),
+                    initial_flow=curve.mid_flow(comp.speed),
                     component_id=comp.id,
                 )
             )
+            built.pumps[comp.id] = PumpData(comp, link.index, curve, suction, discharge)
         elif isinstance(comp, IsolationValve | CheckValve | ControlValve):
-            add_link(
+            inlet, outlet = node_key(comp.id, "inlet"), node_key(comp.id, "outlet")
+            inlet_pipe, outlet_pipe = built.port_pipe(inlet), built.port_pipe(outlet)
+            d_ref, a_ref = inlet_pipe.segment.diameter, inlet_pipe.segment.area
+            resistance = valve_resistance(comp, d_ref)
+            if resistance.range_note is not None:
+                flags.append(
+                    make_flag(
+                        "CORRELATION_OUT_OF_RANGE",
+                        "warning",
+                        f"valve '{comp.id}': its default Crane K at the inlet pipe's {d_ref:g} m: "
+                        f"{resistance.range_note}",
+                        component_id=comp.id,
+                        details={"referenceDiameter": d_ref},
+                    )
+                )
+            h_c = (
+                comp.cracking_pressure / rho_g
+                if isinstance(comp, CheckValve) and comp.status == "active"
+                else 0.0
+            )
+            valve_law: LinkLaw = (
+                ValveLaw(resistance.k, a_ref, g, h_c) if resistance.k > 0.0 else HeadOffsetLaw(h_c)
+            )
+            link = add_link(
                 SolverLink(
                     index=len(links),
                     key=comp.id,
                     kind=LinkKind.VALVE,
-                    start=node_index[node_key(comp.id, "inlet")],
-                    end=node_index[node_key(comp.id, "outlet")],
-                    law=PendingLaw(f"{comp.valve_type} valve '{comp.id}'"),
+                    start=node_index[inlet],
+                    end=node_index[outlet],
+                    law=valve_law,
+                    initial_flow=INITIAL_VELOCITY * a_ref,
                     component_id=comp.id,
                 )
+            )
+            built.valves[comp.id] = ValveData(
+                component=comp,
+                link_index=link.index,
+                resistance=resistance,
+                reference_diameter=d_ref,
+                reference_area=a_ref,
+                cracking_head=h_c,
+                law=valve_law,
+                inlet=inlet,
+                outlet=outlet,
+                inlet_pipe=inlet_pipe,
+                outlet_pipe=outlet_pipe,
             )
         else:
             assert isinstance(comp, Reservoir | IdealReferenceNode | Plug)  # no internal link

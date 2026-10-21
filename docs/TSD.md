@@ -341,50 +341,21 @@ Each size stores `nps` (designation), `nominalSize` (NPS × 0.0254 m, the stored
 
 ### 4.2 Branch Component Data
 
-**File:** `apps/api/src/opensolve_pipe/data/branch_k_factors.json`
+Tee and wye losses depend on the flow split and direction, so the solver recomputes them in the outer loop (§5.4). Code: `services/solver/branches.py`.
 
-Tee and wye losses depend on the flow split and direction, so the solver recomputes branch K-factors in an outer loop (§5.4).
+**Correlations** (Crane TP-410, 2009, as implemented in `fluids.fittings` 1.3.1): `K_branch_diverging_Crane`, `K_run_diverging_Crane`, `K_branch_converging_Crane`, `K_run_converging_Crane`. They cover the two patterns in which the combined flow passes through a **run** port: dividing (combined in at a run port, out through the other run port and the branch) and combining (in through a run port and the branch, out at the other run port). K is referenced to the combined-flow velocity in the run diameter; D_run is the inner diameter of the pipe on the combined port and D_branch that of the branch pipe. The angle is 90° for a tee and the wye's angle (30–60°) for a wye.
 
-Baseline values for **equal-diameter** standard tees, from Crane TP-410 (f_T is the fully turbulent friction factor for the connected pipe):
+| Situation | Treatment | Flag |
+|-----------|-----------|------|
+| Combined flow through a run port | Crane functions above | — |
+| Tee with the combined flow through the branch (flow in through the branch dividing both ways, or both runs combining into the branch) | Darby 3-K `Tee, Through-branch, (as elbow), flanged, (r/D = 1)` (`fluids.fittings.Darby3K`) per path, on that leg's own velocity; the result lists it on the combined-flow velocity, K_Darby·(v_leg/v_c)², so that K·v_c²/(2g) is the path loss | `TEE_PATTERN_FALLBACK` |
+| … with a run pipe outside the schedule-40 table `Darby3K` maps diameters to nominal sizes on (`fluids.piping.S40i`, 6.84–875.9 mm; below ~4.5 mm its extrapolated NPS is negative and K complex) | Darby K at the table's nearest end | also `CORRELATION_OUT_OF_RANGE` |
+| Wye with the combined flow through `outlet_2` | No cited correlation: not converged | `UNSUPPORTED_FLOW_PATTERN` |
+| Wye with the combined flow at `outlet_1` and flow in the lateral (lateral used against its lean; the flow turns 180° − θ) | Crane K at θ | `CORRELATION_OUT_OF_RANGE` |
+| β = D_branch/D_run > 1, or the two run pipes differ in diameter | Crane K as computed | `CORRELATION_OUT_OF_RANGE` |
+| `lossModel: 'ideal'` | K = 0 on every path (an EPANET-style junction) | — |
 
-| Path | K |
-|------|---|
-| Flow through run | 20 · f_T |
-| Flow through branch | 60 · f_T |
-
-These fixed values ignore the flow ratio and the branch/run diameter ratio. Before implementation, choose a published correlation that covers flow ratio, diameter ratio, and diverging vs converging flow, and record it with its source in the data file. Candidates: Idelchik, *Handbook of Hydraulic Resistance*; Miller, *Internal Flow Systems* (1990); the `fluids` library's tee/wye functions (check which correlation each implements). Until then, the Crane values are used and flagged in results as "flow-ratio independent".
-
-Wye K-factors follow the same rule: no value is used without a cited source. Cross and elbow-with-branch are Later.
-
-**Python Model:**
-
-```python
-# apps/api/src/opensolve_pipe/models/branch.py
-
-from typing import Literal
-
-from pydantic import BaseModel
-
-from .ports import Port
-
-
-class Branch(BaseModel):
-    id: str
-    type: Literal["branch"] = "branch"
-    name: str
-    elevation: float  # m
-    branch_type: Literal["tee", "wye"]  # Later: "cross", "elbow_branch"
-    ports: list[Port]
-
-
-class TeeBranch(Branch):
-    branch_type: Literal["tee"] = "tee"
-
-
-class WyeBranch(Branch):
-    branch_type: Literal["wye"] = "wye"
-    angle: float = 45.0  # degrees
-```
+The wye's straight run is `inlet`–`outlet_1`; the lateral `outlet_2` leans toward `outlet_1`. Crane's lateral geometry therefore applies with the combined flow at `inlet`. A dead lateral (no flow) is pure run flow in either direction: every Crane wye K at q = 0 is the same at any angle, so it is not flagged.
 
 ### 4.3 Reference Node Data
 
@@ -454,42 +425,18 @@ Crane valve and fitting K values use Crane's fully turbulent friction factor `ft
 
 ### 4.6 Fluids Library
 
-**File:** `apps/api/src/opensolve_pipe/data/fluids.json`
+Code: `services/fluids.py`. Properties come from **CoolProp 8.0.0** (pinned, MIT) and every value records its source (`FluidProperties.sources`).
 
-Each temperature-dependent fluid names its property source; the implementation calls or tabulates exactly that source.
+| Fluid id | CoolProp fluid | Property models | Range | Vapor pressure |
+|----------|----------------|-----------------|-------|----------------|
+| `water` | `Water` (HEOS) | IAPWS-95 EOS (Wagner & Pruß 2002); viscosity Huber et al. (2009) | 273.16 K < T ≤ 473.15 K; at 101 325 Pa below the normal boiling point, saturated liquid above it | saturation pressure from the EOS |
+| `ethylene_glycol` | `INCOMP::MEG` | Melinder (2010) fits; mass fraction x | x and T limits queried from CoolProp (`fraction_min/max`, `Tmax`); T must be above the solution's freezing point (`T_freeze`) | not defined by CoolProp |
+| `propylene_glycol` | `INCOMP::MPG` | Melinder (2010) | as above | not defined |
 
-```json
-{
-  "fluids": [
-    {
-      "id": "water",
-      "name": "Water",
-      "type": "temperature_dependent",
-      "property_source": "IAPWS-95 (via the iapws or CoolProp package; pick one and pin it)",
-      "temperature_range_K": [273.16, 373.15]
-    },
-    {
-      "id": "ethylene_glycol",
-      "name": "Ethylene Glycol (aqueous)",
-      "type": "temperature_and_concentration_dependent",
-      "concentration_range_pct": [10, 60],
-      "property_source": "ASHRAE Handbook — Fundamentals, glycol tables"
-    },
-    {
-      "id": "propylene_glycol",
-      "name": "Propylene Glycol (aqueous)",
-      "type": "temperature_and_concentration_dependent",
-      "concentration_range_pct": [10, 60],
-      "property_source": "ASHRAE Handbook — Fundamentals, glycol tables"
-    }
-  ]
-}
-```
-
-User-defined fluids are stored in the project:
+Density, dynamic viscosity and vapor pressure can each be overridden (labeled "user"). Glycol solutions have no vapor pressure in CoolProp, so NPSH available needs a user value; without one the solve flags `NO_VAPOR_PRESSURE` and reports no NPSHa. Out-of-range inputs raise `FluidError` (HTTP 400). Custom fluids carry density, dynamic viscosity and an optional vapor pressure:
 
 ```json
-{ "type": "custom", "name": "Process liquid", "density": 1050, "dynamicViscosity": 0.004, "vaporPressure": 3200 }
+{ "kind": "custom", "name": "Process liquid", "density": 1050, "dynamicViscosity": 0.004, "vaporPressure": 3200 }
 ```
 
 (kg/m³, Pa·s, Pa absolute.) Fuels are Later.
@@ -621,56 +568,51 @@ One solver handles every topology (D1). Code: `apps/api/src/opensolve_pipe/servi
 
 ### 5.3 Element Head-Loss Laws
 
-Every link supplies h(Q) and dh/dQ, with h positive in the direction of positive Q.
+Every link supplies h(Q) and dh/dQ, with h positive in the direction of positive Q (an EGL drop).
 
 | Element | h(Q) | Notes |
 |---------|------|-------|
-| Pipe connection | (f·L/D + ΣK) · Q\|Q\| / (2gA²) | §5.2; ΣK from fittings, resolved per SDD §6.2 |
-| Pump (on) | −s² · H_curve(Q / s) | affinity laws at speed ratio s; curve fitted through the user's points (monotone cubic interpolation, or a quadratic fit when there are ≤ 3 points) |
-| Pump (off) | closed | link removed from the system for that iteration |
-| Isolation valve | K(position) · Q\|Q\| / (2gA²) | isolated → closed |
-| Check / stop-check | open: K · Q\|Q\| / (2gA²); closed when Q would reverse or ΔH < cracking head | status set in the outer loop |
-| PRV / PSV / FCV | active: fixes downstream pressure / upstream pressure / flow; else open or closed | status logic as EPANET's (Rossman, EPANET 2.2 manual), run in the outer loop |
-| Branch path | K_path(flow split) · Q\|Q\| / (2gA_ref²) | K from §4.2, updated in the outer loop |
+| Pipe connection | Σ f·(L/D)·v\|v\|/(2g) + Σ K·v\|v\|/(2g) | §5.2; fittings §4.5 |
+| Pump (on) | −s²·H₀(Q/s) | `pumps.py`: H₀ is a monotone piecewise cubic (`scipy.interpolate.PchipInterpolator`) through the user's points; beyond them, a straight line with the end slope; affinity laws at speed ratio s. Efficiency η₀(Q/s) (held at its end values outside its points) and NPSHr = s²·NPSHr₀(Q/s) (extrapolated like the head curve, never below 0). Operating outside the curve's flow range flags `PUMP_OUTSIDE_CURVE`. No viscosity correction is applied (HI 9.6.7 is Later); the trace says so. |
+| Pump (off / no flow) | closed | |
+| Isolation valve | K·Q\|Q\|/(2gA²) | isolated → closed |
+| Check / stop-check (open) | Δp_crack/(ρg) + K·Q\|Q\|/(2gA²) | status in the outer loop |
+| PRV / PSV / FCV (active) | fixed outlet static pressure / fixed inlet static pressure / fixed flow | the setpoint head includes the port's velocity head, updated every Newton step; the PRV/PSV flow is EPANET's lagged balance flow |
+| Branch leg | head offset (Crane or Darby path loss) | §4.2, §5.4 |
 
-**Cv/Kv to K** for a valve whose connected inner diameter gives flow area A (m²):
+**Valve K** (`valves.py`) is referenced to the inner diameter of the pipe connected to the valve's inlet port (its end segment). K is used as entered; Cv and Kv are converted with `fluids.fittings.Cv_to_K` / `Kv_to_K` (ISA-75.01.01; K = 1.6·10⁹·D⁴/Kv² with Kv = Cv/1.156…). A unit test derives the Crane form K = c·d⁴/Cv² (d in inches) from the Cv definition and exact unit definitions — c = 890.11 — which matches `fluids` to 7·10⁻¹¹ and the published coefficient 891 to 0.1%. Without a resistance: the Crane default for the valve type (`K_gate_valve_Crane`, `K_ball_valve_Crane`, `K_globe_valve_Crane`, `K_butterfly_valve_Crane(style=0)`, `K_swing_check_valve_Crane`, `K_globe_stop_check_valve_Crane(style=0)`), or an ideal control valve (K = 0 when fully open, stated in the trace). The butterfly valve's multiplier is tabulated for 2"–24" only (fluids docstring; `sizeRange` of the `butterfly_valve` fitting in `data/fittings.json`): a butterfly default or inline fitting outside 2–24 × 0.0254 m is flagged `CORRELATION_OUT_OF_RANGE`.
 
-```
-Kv = 0.865 · Cv
-K  = 2.592·10⁹ · A² / Kv²
-```
+Links with zero slope (branch legs, K = 0 valves) are merged exactly as head offsets; a small Jacobian floor remains only for pumps with flat curves and for K > 0 valves near zero flow.
 
-Derived from Kv's definition (m³/h of water at 1 bar ΔP). It agrees with Crane's K = 891·d⁴/Cv² (d in inches) to within 0.2% (checked at 2, 4 and 8 in).
+### 5.4 Outer Loop: Statuses and Branch Losses
 
-### 5.4 Outer Loop: Status and Branch K-Factors
+`status.py`:
 
 ```
 repeat (max 30):
-    solve GGA with current link statuses and branch K-factors
-    update check-valve, pump-off and control-valve statuses from the solved Q and H
-    update branch K-factors from the solved flow split and directions
-until no status changed and max |ΔK| < 1e-4
+    solve GGA with current statuses and branch losses
+    update pump, check-valve and PRV/PSV/FCV statuses (EPANET 2.2 rules, hydstatus.c)
+    update branch losses from the solved split (Crane K, tangent in the split)
+until no status changed and branch K changed by < 1e-4
 ```
 
-If statuses oscillate between two states, stop and return `converged: false` with the oscillating components named in the residual report (SDD §8.2).
+- **Pumps:** a running pump whose head rise would exceed s²·H₀(0) cannot deliver: its integral check holds zero flow (status `no_flow`, flag `PUMP_FLOW_REVERSAL`). A no-flow pump with one side closed off (a closed discharge check valve or foot valve) is reported dead-headed: head s²·H₀(0), the closed-off side's EGL the other side's ± s²·H₀(0); with both sides closed off it has no result but keeps its flag.
+- **Check valves:** close when the flow would reverse or the head difference falls below the cracking head; reopen above it (EPANET `cvstatus` extended with the cracking head). Closed → `CHECK_VALVE_CLOSED` (info).
+- **PRV/PSV/FCV:** EPANET 2.2 `prvstatus`/`psvstatus`/`fcvstatus` translated to EGL. Differences from EPANET: an FCV closes on reverse flow (EPANET lets it pass as an open valve); an active FCV opens once the head across it is below its fully open loss at the setpoint, K_open·Q_set²/(2gA²) (EPANET waits for a reverse head, which leaves a valve with a resistance "throttling" with a K below its fully open K); an active state with no solution falls back to open, then closed, one valve at a time. Not at setpoint → `CONTROL_VALVE_SETPOINT_NOT_MET` (info).
+- **Closed-off sections:** a section cut off by closed elements (the pipe between a pump and a check valve that closed in the same pass) has no head, so its neighbours' rules cannot test it. The closed elements around it are re-tested against the heads it can take at zero flow: each stays closed only for some head (a pump while the far side is more than s²·H₀(0) above the near side, a check valve while its forward head is at most its cracking head, an FCV while it has no forward head, a PRV/PSV per its CLOSED rule), which are difference constraints between section heads; a negative cycle (Bellman–Ford) means no head keeps them all closed, and the elements on it are re-opened. EPANET avoids the question by keeping a 1/CBIG conductance across closed links.
+- **Branches:** the Crane K is linearized in the flow split around the last split and re-centered each iteration (lagging the whole loss made Newton diverge on manifolds of short taps), and the leg's own-flow dependence enters the Jacobian. A leg whose flow would flip direction is held at zero flow while its head lies between the two patterns' zero-flow limits (facing legs of a rung are held as a pair, released one at a time). Where the split sits at a step of the Crane correlation (q = 0.4, 0.5, 0.6), K is held at the mean of the two sides and flagged; elsewhere the K update is under-relaxed.
+- **Oscillation:** a repeated status/pattern state ends the loop with `converged: false`, the oscillating components named in the convergence report, and `NOT_CONVERGED`.
 
 ### 5.5 NPSH Available
 
-At each pump suction port (elevation z_s):
+`npsh.py`. At each pump suction port (elevation z_s, EGL H_s):
 
 ```
-p_abs   = p_gauge(suction) + p_atm
-NPSHa   = p_abs / (ρg) + v_s² / (2g) − p_vap / (ρg)
-NPSH margin = NPSHa − NPSHr(Q)      (when an NPSHr curve is given)
+NPSHa = (H_s − z_s) + (p_atm − p_vap)/(ρg)      = absolute static head + velocity head − vapor head
+NPSH margin = NPSHa − NPSHr(Q)                     (when an NPSHr curve is given; < 0 flags CAVITATION)
 ```
 
-p_atm comes from the project's site elevation via the standard atmosphere, unless overridden:
-
-```
-p_atm = 101 325 · (1 − 2.25577·10⁻⁵ · z)^5.25588   [Pa, z in m]
-```
-
-(Values checked: 101 325 Pa at 0 m, 89 875 Pa at 1 000 m.)
+p_atm is `settings.atmosphericPressure` when set, else `fluids.atmosphere.ATMOSPHERE_1976(siteElevation).P` (US Standard Atmosphere 1976; 101 325 Pa at 0 m, 89 876 Pa at 1 000 m). Any node whose absolute static pressure is below the vapor pressure (or ≤ 0 Pa when none is known) is flagged `BELOW_VAPOR_PRESSURE`; a reservoir surface below its vapor pressure (a boiling tank) is flagged too.
 
 ---
 
@@ -961,18 +903,21 @@ No Docker, database or Redis is needed for v1 development.
 
 ### 10.1 Reference Test Suite (D6)
 
-**Location:** `apps/api/tests/reference/`. Each case in `cases/*.json` holds `name`, `description`, `source` (exactly where the expected values came from), `project` (API JSON) and `expected` (`flows` per connection, `egl` per `componentId:portId`, optional `pressures` and `flags`). One parameterized test (`test_reference_cases.py`) solves every case.
+**Location:** `apps/api/tests/reference/`. Each case in `cases/*.json` holds `name`, `description`, `source` (exactly where the expected values came from), `project` (API JSON) and `expected`: `fluid` (density, viscosity, optionally `vaporPressure`, null where the property source has none), `flows` per connection, `egl` per `componentId:portId` (every port except those in an isolated section), and optionally `pressures` (gauge static), `atmosphericPressure`, `pumps` (status, operating flow and head, NPSH available / required / margin), `valves` (state) and `flags`. One parameterized test (`test_reference_cases.py`) solves every case.
 
 | Source | Use | Generator |
 |--------|-----|-----------|
-| Closed-form derivations | Single pipes (turbulent, laminar, transitional), fittings, series and parallel pipes, reducers in both directions, plugged branches, pressurized reservoirs and reference nodes, library pipe + built-in water | `derivations.py` (first principles: Darcy–Weisbach with `fluids.friction.Colebrook` — the Lambert-W solution, a different code path from the solver's Clamond — or 64/Re; fitting K from the cited `fluids.fittings` functions; SciPy `brentq`/`fsolve`) via `build_closed_form_cases.py` |
-| WNTR/EPANET (dev dependency) | Water-only looped networks | `generate_epanet_cases.py` (WNTR 1.5.0 EpanetSimulator = EPANET 2.2.0) |
+| Closed-form derivations | Single pipes (turbulent, laminar, transitional), fittings, series and parallel pipes, reducers in both directions, plugged branches, pressurized reservoirs and reference nodes, library pipe + built-in water | `derivations.py` (first principles: Darcy–Weisbach with `fluids.friction.Colebrook` — the Lambert-W solution, a different code path from the solver's Clamond — or 64/Re; fitting K from the cited `fluids.fittings` functions; SciPy `brentq`/`fsolve`) |
+| Closed-form derivations (M3) | Pumps (single, reduced speed, beyond the curve, above shutoff, off, series, parallel, a pump and check valve re-opened after a control valve's first solve), isolation valves (Crane defaults, Cv, Kv, K, an isolated section), check valves (cracking pressure, reverse, below cracking, locked open in reverse flow, stop-check locked closed), PRV/PSV/FCV (active, open, closed, an FCV limited by its own open loss, failed open, failed closed), Crane tees and wyes (diverging, converging, dead branch, bullhead fallback, an ideal wye, a reversed lateral), glycols, overrides, NPSH and a siphon | `derivations_pumps.py`, `derivations_valves.py`, `derivations_branches.py`, `derivations_fluids.py`, sharing `element_laws.py` (component laws and status rules written from their definitions) and `line.py` (one-segment lines with fittings) |
+| WNTR/EPANET (dev dependency) | Water-only looped networks; networks with a pump, a PRV, a PSV and an FCV | `generate_epanet_cases.py` (WNTR 1.5.0 EpanetSimulator = EPANET 2.2.0) |
 
-Rules: expected values are never computed with solver code (the suite imports only `opensolve_pipe.models`); `test_derivations_current.py` re-runs every derivation and WNTR run and fails if a JSON is stale; `test_derivation_checks.py` checks each derived solution's energy and mass balance independently.
+`closed_form.py` lists every closed-form generator and `build_closed_form_cases.py` writes their files.
 
-**EPANET runs:** solver in `swamee_jain` mode; custom fluid with EPANET's water viscosity VISCOS = 1.1·10⁻⁵ ft²/s = 1.02193344·10⁻⁶ m²/s (`types.h`); ideal tees as junctions; D-W roughness passed to WNTR in metres; GPM INP units; accuracy 10⁻⁵, headerror 10⁻⁹ ft, flowchange 10⁻¹² gpm. Known biases, all far inside the criteria: EPANET uses g = 32.2 ft/s² (0.08% in head loss), a rounded minor-loss constant 0.02517 (0.01%), the GPM unit constant (−3.8·10⁻⁷) and float32 results. EPANET multi-point pump curves are piecewise linear, so pump cases use collinear points (PCHIP then coincides).
+Rules: expected values are never computed with solver code (the suite imports only `opensolve_pipe.models`); `test_derivations_current.py` re-runs every derivation and WNTR run and fails if a JSON is stale; `test_derivation_checks.py` checks each derived solution independently (`network_check.py`): energy and mass balance, every component law in its expected state, the expected states against the status rules, and a whole-network `fsolve` that must reproduce each closed-form case.
 
-**Pass criteria:** flows within 0.5% of the reference (floor 10⁻⁹ m³/s), EGL within 0.5% or 0.01 m (whichever is looser), and the EGL difference across every connection likewise; pressures within 0.5% or ρg·0.01 m; mass balance checked independently from the link results at every component, plus the solver's own continuity residual. Every new component type ships with at least one reference case.
+**EPANET runs:** solver in `swamee_jain` mode; custom fluid with EPANET's water viscosity VISCOS = 1.1·10⁻⁵ ft²/s = 1.02193344·10⁻⁶ m²/s (`types.h`); ideal tees as junctions; D-W roughness passed to WNTR in metres; GPM INP units; accuracy 10⁻⁵, headerror 10⁻⁹ ft, flowchange 10⁻¹² gpm. Known biases, all far inside the criteria: EPANET uses g = 32.2 ft/s² (0.08% in head loss), a rounded minor-loss constant 0.02517 (0.01%), the GPM unit constant (−3.8·10⁻⁷) and float32 results. EPANET multi-point pump curves are piecewise linear, so pump cases use collinear points (PCHIP then coincides). EPANET's PRV/PSV setting is a head without velocity head, ours a static pressure, so the generator iterates setting = p_set/(ρg) + v²/(2g), v from the previous EPANET run in the pipe on the held port, until it changes by < 10⁻¹² m. An active EPANET FCV keeps a 1/CBIG conductance (CBIG = 10⁸, `fcvcoeff`) and settles at q_set + Δh/CBIG in ft and cfs (about 10⁻⁶ relative); the self-checks allow for that leak. The generator also lists the warning flags the pipes' friction regimes call for at the EPANET flows (`TRANSITIONAL_FLOW`) and refuses a pipe whose Reynolds number sits within 1% of a regime bound or outside Swamee–Jain's documented range.
+
+**Pass criteria:** flows within 0.5% of the reference (floor 10⁻⁹ m³/s), EGL within 0.5% or 0.01 m (whichever is looser), and the EGL difference across every connection likewise; pressures within 0.5% or ρg·0.01 m; pump operating values and NPSH within 0.5% or 0.01 m; the expected pump statuses and valve states; ports with no expected EGL (an isolated section) must have no head, and a valve there with no result must be named by an `ISOLATED_SECTION` flag; every expected flag must be present, and warning and invalid flags are exhaustive (each one raised must be expected with its code and element; info flags may appear unlisted); mass balance checked independently from the link results at every component, plus the solver's own continuity residual. Every new component type ships with at least one reference case.
 
 ### 10.2 Backend Unit Tests
 
@@ -1054,17 +999,17 @@ CORS_ORIGINS=https://opensolve-pipe.app
 
 ## 12. Implementation Questions
 
-**Decided** (recorded in `CLAUDE.md`):
+**Decided** (recorded in `CLAUDE.md` D7–D9):
 
-1. **Transition-zone friction (Re 2000–4000):** EPANET 2.2's Dunlop cubic interpolation, flagged as transitional flow; not a user option (§5.2).
-2. **Water property package:** CoolProp (pinned 8.0.0), `Water` = IAPWS-95 (§4.6).
+1. **Tee and wye K correlation:** Crane TP-410 functions in `fluids.fittings`; Darby 3-K fallback for tees with the combined flow through the branch; uncovered wye patterns are not converged (§4.2).
+2. **Water property package:** CoolProp 8.0.0, `Water` = IAPWS-95; glycols `INCOMP::MEG`/`MPG` (§4.6).
+3. **Transition-zone friction (Re 2000–4000):** EPANET 2.2's Dunlop cubic, flagged as transitional; not a user option (§5.2).
+4. **Pump curve fitting:** PCHIP through the user's points, straight end-slope extrapolation outside them (flagged), affinity laws (§5.3).
+5. **Control-valve status oscillation:** at most 30 outer iterations; a repeated state returns `converged: false` naming the oscillating components (§5.4).
 
-**Open:**
+**Open (Later):**
 
-1. **Tee and wye K correlation:** Crane TP-410 correlations in `fluids.fittings` (M3, §4.2).
-2. **Pump curve fitting:** monotone cubic and behavior beyond the last point (M3, §5.3).
-3. **Control-valve status oscillation** (M3, §5.4).
-4. **Schematic layout algorithm (Later):** dagre, elkjs, or custom?
-5. **Version storage (Later):** git under the hood, or custom versioning in PostgreSQL?
+1. **Schematic layout algorithm:** dagre, elkjs, or custom?
+2. **Version storage:** git under the hood, or custom versioning in PostgreSQL?
 
 *End of TSD*

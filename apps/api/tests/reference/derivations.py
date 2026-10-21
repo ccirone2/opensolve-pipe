@@ -36,6 +36,7 @@ import math
 from collections.abc import Callable
 from typing import Literal
 
+import fluids.atmosphere
 import fluids.constants
 import fluids.fittings
 import fluids.friction
@@ -45,6 +46,7 @@ from CoolProp.CoolProp import PropsSI
 from numpy.typing import NDArray
 from scipy.optimize import brentq, fsolve
 
+from opensolve_pipe.models.fluids import BuiltinFluid, CustomFluid
 from tests.reference.case_format import (
     Expected,
     FrictionMethod,
@@ -340,6 +342,51 @@ def water_properties(temperature: float) -> tuple[float, float]:
     return rho, mu
 
 
+def water_vapor_pressure(temperature: float) -> float:
+    """Saturation pressure of water, Pa: CoolProp ``PropsSI('P', 'T', T, 'Q', 0, 'Water')``
+    (IAPWS-95, Wagner & Pruß 2002; design §7)."""
+    return float(PropsSI("P", "T", temperature, "Q", 0, "Water"))
+
+
+GLYCOL_COOLPROP_NAMES = {"ethylene_glycol": "MEG", "propylene_glycol": "MPG"}
+"""CoolProp incompressible aqueous solutions (Melinder 2010), mass-fraction based (design §7)."""
+
+
+def glycol_properties(
+    fluid_id: str, temperature: float, mass_fraction: float
+) -> tuple[float, float]:
+    """Density and dynamic viscosity of an aqueous glycol from CoolProp
+    ``PropsSI('D'|'V', 'T', T, 'P', 101325, 'INCOMP::MEG[x]')`` (or MPG). The INCOMP fits do not
+    depend on pressure (research notes coolprop_wntr_epanet.md §A.2); CoolProp itself rejects
+    T below the solution's freezing point or x outside [0, 0.6]."""
+    name = f"INCOMP::{GLYCOL_COOLPROP_NAMES[fluid_id]}[{mass_fraction!r}]"
+    rho = float(PropsSI("D", "T", temperature, "P", WATER_REFERENCE_PRESSURE, name))
+    mu = float(PropsSI("V", "T", temperature, "P", WATER_REFERENCE_PRESSURE, name))
+    return rho, mu
+
+
+def fluid_state(fluid: CustomFluid | BuiltinFluid) -> tuple[float, float, float | None]:
+    """(density, dynamic viscosity, vapor pressure or None) of a project fluid (design §7):
+    custom values as entered; built-in water and glycols from CoolProp (glycols have no vapor
+    pressure in CoolProp: None); each user override replaces its one value."""
+    if fluid.kind == "custom":
+        return fluid.density, fluid.dynamic_viscosity, fluid.vapor_pressure
+    if fluid.fluid_id == "water":
+        rho, mu = water_properties(fluid.temperature)
+        p_vap: float | None = water_vapor_pressure(fluid.temperature)
+    else:
+        if fluid.concentration is None:
+            raise ValueError("a glycol needs a concentration")
+        rho, mu = glycol_properties(fluid.fluid_id, fluid.temperature, fluid.concentration)
+        p_vap = None
+    overrides = fluid.overrides
+    if overrides is not None:
+        rho = rho if overrides.density is None else overrides.density
+        mu = mu if overrides.dynamic_viscosity is None else overrides.dynamic_viscosity
+        p_vap = p_vap if overrides.vapor_pressure is None else overrides.vapor_pressure
+    return rho, mu, p_vap
+
+
 def carbon_steel_schedule_40(nps: float) -> tuple[float, float]:
     """Inner diameter (``fluids.piping.nearest_pipe``, ASME B36.10M-2004) and roughness
     (``fluids.friction.roughness_Farshad('Carbon steel, bare', D)``, Farshad & Rieke 2006, at the
@@ -352,6 +399,17 @@ def carbon_steel_schedule_40(nps: float) -> tuple[float, float]:
 
 def _source(name: str, method: str) -> str:
     return f"closed-form: tests/reference/derivations.py::{name} ({method})"
+
+
+def source(name: str, method: str, module: str = "derivations") -> str:
+    """The ``source`` text of a closed-form case derived in ``tests/reference/<module>.py``."""
+    return f"closed-form: tests/reference/{module}.py::{name} ({method})"
+
+
+def standard_atmosphere_pressure(site_elevation: float) -> float:
+    """Atmospheric pressure, Pa absolute, at a geometric elevation: US Standard Atmosphere 1976
+    via ``fluids.atmosphere.ATMOSPHERE_1976(Z).P`` (design §8)."""
+    return float(fluids.atmosphere.ATMOSPHERE_1976(Z=site_elevation).P)
 
 
 # --- Cases -------------------------------------------------------------------------------------

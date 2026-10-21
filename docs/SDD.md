@@ -457,7 +457,8 @@ interface TeeBranch extends BaseComponent {
 interface WyeBranch extends BaseComponent {
   type: 'branch';
   branchType: 'wye';
-  angle: number;                 // degrees between branch and run, 30–60 (the Crane range)
+  angle: number;                 // degrees between the angled leg and the run, 30–60 (the
+                                 // Crane range); the leg leans toward outlet_1
   lossModel: 'crane' | 'ideal';
   ports: [ {id: 'inlet'}, {id: 'outlet_1'}, {id: 'outlet_2'} ];  // inlet–outlet_1: straight run;
                                                                  // outlet_2: angled leg
@@ -466,6 +467,8 @@ interface WyeBranch extends BaseComponent {
 ```
 
 Whether flow is diverging or converging is a solver result, not an input; port names do not constrain flow direction. Losses follow TSD §5.4.
+
+A wye's orientation does matter: its angled leg (`outlet_2`) leans toward `outlet_1`, so flow from `inlet` turns through `angle` into it. Crane's lateral data cover the combined flow through `inlet`, dividing into the run and the lateral or combining from them. With the combined flow through `outlet_1` and flow in the lateral, the lateral's flow turns through 180° − `angle`, outside the data: the solver evaluates K at `angle` and flags CORRELATION_OUT_OF_RANGE. Draw a wye with its inlet on the side the lateral leans away from.
 
 ### 4.6 Plug/Cap Model
 
@@ -615,79 +618,61 @@ interface BranchResult {
 
 ### 5.1 REST API Specification
 
-All request and response values are SI. The frontend converts to display units.
+All request and response values are SI; JSON is camelCase. The OpenAPI schema (`/openapi.json`, exported by `python -m opensolve_pipe.openapi`) is the contract; the frontend types are generated from it.
+
+| Method and path | Request | Response |
+|-----------------|---------|----------|
+| `POST /api/v1/solve` | `{project, options: {includeSystemCurve, systemCurvePoints}}` | `SolveResponse {success, solvedState, computeTime}` |
+| `POST /api/v1/system-curve` | `{project, pumpId, flowMin, flowMax?, numPoints}` | `SystemCurveResponse {pumpId, points, converged[]}` |
+| `GET /api/v1/fluids` | — | `FluidListResponse {fluids: FluidInfo[]}` (ranges, vapor-pressure availability, source) |
+| `GET /api/v1/fluids/{id}/properties?temperature=&concentration=` | — | `FluidPropertiesResponse {fluid, properties: FluidProperties}` |
+| `POST /api/v1/fluids/custom` | `CustomFluid` | `FluidPropertiesResponse` |
+| `GET /api/v1/library` | — | `LibraryResponse {materials (schedules, sizes, dimensions, roughness, sources), fittings (correlation call, reference diameter, source)}` |
+| `GET /api/v1/method-versions` | — | `MethodVersionsResponse {current, versions[{version, date, changes}]}` |
+| `GET /health` | — | `{status: "healthy"}` |
+
+Solver options that change results (`frictionMethod`, `maxIterations`, `tolerance`) live in `project.settings.solverOptions`, so a link always reproduces its results; request `options` only control extras such as system curves.
 
 #### 5.1.1 Solve Network
 
 ```yaml
 POST /api/v1/solve
-Content-Type: application/json
+Request:  { "project": <Project>, "options": { "includeSystemCurve": true, "systemCurvePoints": 41 } }
 
-Request:
-{
-  "project": <Project>,
-  "options": {
-    "maxIterations": 100,
-    "tolerance": 1e-6,
-    "includeSystemCurve": true,
-    "flowRange": [0, 0.03]        // m³/s, for system curve
-  }
-}
+200 OK:   { "success": true, "solvedState": <SolvedState>, "computeTime": 0.012 }
+          # non-convergence is also 200, with success = false and solvedState.converged = false
 
-Response (200 OK):
-{
-  "success": true,
-  "solvedState": <SolvedState>,
-  "computeTime": 0.234           // seconds
-}
-
-Response (422 Unprocessable):
-{
-  "success": false,
-  "error": "TOPOLOGY_ERROR",
-  "message": "No fixed-pressure boundary in the sub-network containing PUMP-1",
-  "details": { ... }
-}
+422:      { "success": false, "error": "TOPOLOGY_ERROR",
+            "message": "The network cannot be solved: 2 topology issue(s).",
+            "issues": [ { "code": "NO_FIXED_HEAD", "message": "...", "componentIds": ["P1"], "connectionIds": [] } ] }
 ```
 
-#### 5.1.2 Get Fluid Properties
+#### 5.1.2 Errors
+
+Every error uses `ErrorResponse {success: false, error, message, issues[]}`:
+
+| Status | `error` | When |
+|--------|---------|------|
+| 400 | `VALIDATION_ERROR` | Request fails the schema; one issue per problem with its field path (submitted values are never echoed) |
+| 400 | `FLUID_ERROR` | Temperature or concentration outside the property source's range |
+| 404 | `NOT_FOUND` | Unknown pump id for a system curve |
+| 413 | `PAYLOAD_TOO_LARGE` | Body over 1 MB |
+| 422 | `TOPOLOGY_ERROR` | Port graph cannot be solved (§3.2.1); every issue listed |
+| 429 | `RATE_LIMITED` | More than 60 solve or system-curve requests per minute from one client |
+
+#### 5.1.3 Get Fluid Properties
 
 ```yaml
 GET /api/v1/fluids/water/properties?temperature=293.15
-
-Response (200 OK):
-{
-  "fluid": "water",
-  "temperature": 293.15,               // K
-  "properties": {
-    "density": 998.2,                  // kg/m³
-    "dynamicViscosity": 1.002e-3,      // Pa·s
-    "kinematicViscosity": 1.004e-6,    // m²/s
-    "vaporPressure": 2339              // Pa absolute
-  },
-  "source": "IAPWS-95"
-}
+200 OK: { "fluid": "water",
+          "properties": { "name": "Water", "temperature": 293.15, "density": …, "dynamicViscosity": …,
+                          "kinematicViscosity": …, "vaporPressure": …,
+                          "sources": { "density": { "origin": "library", "citation": "CoolProp … IAPWS-95 …" }, … } } }
 ```
 
-#### 5.1.3 Export Results (Later)
+#### 5.1.4 Export Results (Later)
 
-```yaml
-POST /api/v1/export
-Content-Type: application/json
-
-Request:
-{
-  "project": <Project>,
-  "solvedState": <SolvedState>,
-  "format": "xlsx",  // or "csv"
-  "units": <UnitPreferences>
-}
-
-Response (200 OK):
-Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-Content-Disposition: attachment; filename="opensolve_pipe_results.xlsx"
-<binary data>
-```
+`POST /api/v1/export` (CSV/XLSX) is Later.
 
 ### 5.2 URL State Encoding
 

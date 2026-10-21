@@ -190,7 +190,7 @@ export interface components {
             inCorrelationRange: boolean;
             /**
              * Kfactors
-             * @description K of the path between the combined port and each other port
+             * @description K of the path between the combined port and each other port, on the reference velocity: K v_ref²/(2g) is the path's loss
              */
             kFactors: {
                 [key: string]: number;
@@ -221,7 +221,7 @@ export interface components {
             };
             /**
              * Referencevelocity
-             * @description Combined-flow velocity, m/s
+             * @description Combined-flow velocity, m/s (in the pipe on the combined port)
              */
             referenceVelocity: number;
         };
@@ -1808,11 +1808,16 @@ export interface components {
         /**
          * WyeBranch
          * @description Wye (lateral): 'inlet' and 'outlet_1' are the straight run, 'outlet_2' the angled leg.
+         *
+         *     Orientation: the angled leg leans toward 'outlet_1' (flow from 'inlet' turns through the
+         *     wye's angle into 'outlet_2'). Crane's lateral data cover the combined flow through
+         *     'inlet', dividing or combining; with the combined flow through 'outlet_1' and flow in
+         *     'outlet_2', that flow turns through 180° minus the angle, and the result is flagged.
          */
         WyeBranch: {
             /**
              * Angle
-             * @description Angle between the branch and the run, degrees (Crane covers 30-60)
+             * @description Angle between the angled leg (outlet_2) and the run, degrees, with the leg leaning toward outlet_1; Crane covers 30-60 with the combined flow through the inlet
              * @default 45
              */
             angle: number;

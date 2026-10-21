@@ -132,3 +132,14 @@ pnpm test && pnpm check && pnpm lint
 - No analytics, tracking or cookies; never log project contents (GOALS §4.5).
 - AI-written code meets the same bar as any other: hydraulic correctness is proven by the reference suite, not by review alone (GOALS §7.2).
 - Keep it simple: build the v1 scope (D5) before anything deferred.
+
+---
+
+## License
+
+The project is licensed **AGPL-3.0-or-later** (full text in `LICENSE`). Use that exact SPDX identifier everywhere license metadata is declared:
+
+- `apps/api/pyproject.toml`: `license = "AGPL-3.0-or-later"` and `license-files = ["LICENSE"]` (PEP 639; copy or symlink the root `LICENSE` into `apps/api/`)
+- `apps/web/package.json`: `"license": "AGPL-3.0-or-later"`
+
+Check new dependencies for licenses compatible with AGPL-3.0 before adding them.

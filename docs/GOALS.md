@@ -105,7 +105,7 @@ A feature enters scope only if it passes **all three**:
 
 ### 7.1 Openness
 
-- **License:** AGPL. Anyone may use, study and modify the code; anyone who runs a modified version as a hosted service must publish their changes.
+- **License:** AGPL-3.0-or-later. Anyone may use, study and modify the code; anyone who runs a modified version as a hosted service must publish their changes.
 - **Contributions:** issues, bug reports and data requests are welcome. Code contributions are accepted by invitation, to keep one consistent vision.
 
 ### 7.2 AI-assisted development

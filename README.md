@@ -63,4 +63,4 @@ OpenSolve Pipe is an engineering aid. Its results support, but do not replace, t
 
 ## License
 
-[GNU Affero General Public License v3.0](LICENSE). You may use, study, modify and share the code; if you run a modified version as a network service, you must offer its users the corresponding source code.
+[GNU Affero General Public License v3.0 or later](LICENSE) (`AGPL-3.0-or-later`). You may use, study, modify and share the code; if you run a modified version as a network service, you must offer its users the corresponding source code.

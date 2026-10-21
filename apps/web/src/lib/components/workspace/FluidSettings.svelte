@@ -60,11 +60,18 @@
 			propertiesError = null;
 			return;
 		}
+		// The library values, for checking: the fluid at its state, without the user's overrides.
 		const { fluidId, temperature, concentration } = fluid;
+		const state: BuiltinFluid = {
+			kind: 'builtin',
+			fluidId,
+			temperature,
+			...(concentration != null ? { concentration } : {})
+		};
 		let cancelled = false;
 		const timer = setTimeout(() => {
 			lib
-				.fluidProperties(fluidId, temperature, concentration)
+				.fluidProperties(state)
 				.then((p) => {
 					if (cancelled) return;
 					properties = p;

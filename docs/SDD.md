@@ -219,7 +219,7 @@ class NavigatorStore {
 
 #### 3.1.3 Results Panel
 
-**Purpose:** Display solved network state and analysis outputs (`components/results/ResultsPanel.svelte`). Solving is never blocked (GOALS §4.6). Solve sends the project with `includeSystemCurve: true`.
+**Purpose:** Display solved network state and analysis outputs (`components/results/ResultsPanel.svelte`). Solving is never blocked (GOALS §4.6). Solve sends the project with `includeSystemCurve: false`: a plain solve meets the PRD §4.2 solve times, and a system curve (a solve per point, for every pump) is fetched only for the pump being viewed (`PumpChart`, CLAUDE.md D10).
 
 The pane shows, top to bottom:
 
@@ -240,7 +240,7 @@ The pane shows, top to bottom:
 | Summary | Fluid properties as used with their sources, atmospheric pressure, each pump's operating point, lowest pressure (gauge and absolute), highest velocity |
 | Nodes | Per component port: elevation, pressure (gauge), absolute pressure, velocity, HGL, EGL; a note on the gauge reference and boundary ports |
 | Links | Per connection: flow, velocity, head loss, Re, Darcy f, regime. Each row expands to its pipe segments (diameter, length, roughness, velocity, Re, f, friction loss) and fittings (quantity, the K each used, its reference diameter and source, head loss), with the flags about each |
-| Pumps | Status, flow, head, speed, efficiency, hydraulic and shaft power, NPSHa, NPSHr, NPSH margin; then each pump's chart (`PumpChart`) |
+| Pumps | Status, flow, head, speed, efficiency, hydraulic and shaft power, NPSHa, NPSHr, NPSH margin; then the chart (`PumpChart`) of one pump at a time, picked from a list when there are several |
 | Valves | Type, state, flow, head loss, pressure drop, K open, K effective, Cv effective, setpoint, setpoint met |
 | Branches | Tee and wye flow pattern, port flows, K per path, the velocity K is on, path losses, correlation |
 | Boundaries | Reservoirs, reference nodes and plugs: EGL, outflow into the network, per port |
@@ -253,7 +253,10 @@ The pane shows, top to bottom:
 - 4 significant figures, and heads to at least 0.01 m (TSD §6.2);
 - each table scrolls inside its own box, and long tables render in chunks.
 
-**`PumpChart`.** Chart.js, loaded only when a chart is shown. It draws the pump curve at the operating speed (solid inside the user's data, dashed where extrapolated), the system curve (`PumpResult.systemCurve`, from the same solve) and the operating point, with axes in display units. A data table of the same points sits under the chart; it is the fallback when there is no canvas.
+**`PumpChart`.** Chart.js, loaded only when a chart is shown. It draws the pump curve at the operating speed (solid inside the user's data, dashed where extrapolated), the system curve and the operating point, with axes in display units. A data table of the same points sits under the chart; it is the fallback when there is no canvas.
+
+- **System curve on demand** (D10). Showing a pump's chart requests its curve, `POST /api/v1/system-curve` with the project exactly as it was solved (`ProjectStore.solvedProject`, never a newer, edited one) and the pump id. The store caches each curve with its solve, sends one request at a time (the server runs one solve per client at a time), drops the cache when a new solve's results arrive, and aborts requests in flight when a solve starts. A curve is only shown with the solve it was computed for.
+- **States, shown as they are.** While the curve is computed, the chart says so (`aria-busy`). A failure shows the server's message with **Try again**; a request cancelled by a newer solve offers to compute it. A point the API could not solve (`head: null`) is a gap in the line, counted under the chart, and its row in the data table gives the API's reason; with no point solved, no line is drawn and the chart says why.
 
 **`TraceView`** shows how one element's results were obtained (GOALS §4.2). On wide screens it is a side panel over the results, which are inert underneath; on narrow ones it is a bottom-sheet dialog. It shows:
 
@@ -281,6 +284,7 @@ Later: design-check warnings (opt-in).
 - **Undo and redo** keep up to 100 steps, each with a label, in page memory only. A burst of edits to one field can merge into one step.
 - **URL.** The project is written to the URL fragment after a 300 ms debounce, and flushed before sharing and leaving (§5.2). The store keeps the encoded project, the link length and the 8,000-character warning.
 - **Results.** It holds the latest solve response, `stale` (by a hydraulic fingerprint of the project without display units, names, metadata or method version), `solving` and a typed error: topology, validation or network. A newer solve supersedes an older one. A failed solve keeps the previous response, marked stale only if the project changed.
+- **System curves.** `solvedProject` is the project as sent for the shown response. `loadSystemCurve(pumpId)` fetches a pump's curve for it (one request at a time) into `systemCurves` (loading, ready, error or cancelled per pump); `systemCurve(response, pumpId)` returns one only for the response whose results are shown. A new response, a load or clearing the results drops them; a solve starting cancels the requests in flight.
 - **Method version.** After a solve that is current, the project records the solve's `methodVersion` (GOALS §4.3) without an undo step. The version the link was opened with is kept for `MethodVersionNotice`.
 
 **`Workspace`** (`workspace.svelte.ts`) joins the store, the `LibraryStore`, the `NavigatorStore`, the visible pane, notices and the element open in the trace view. It offers the graph-edit actions (TSD §8.1). Results tables are rebuilt only when the solve, the display units or the labels they use (names, kinds, ports, connection ends) change, not on every edit.
@@ -289,8 +293,8 @@ Later: design-check warnings (opt-in).
 
 **API client** (`api/client.ts`):
 
-- **Endpoints.** `solve`, `systemCurve`, `getLibrary`, `getFluids`, `fluidProperties`, `customFluidProperties` and `methodVersions` (§5.1).
-- **Requests.** It sends only what each request needs, with `credentials: 'omit'`, `referrerPolicy: 'no-referrer'` and a 60 s timeout. Error responses become typed errors (`TopologyError`, `ValidationError`, `NetworkError`).
+- **Endpoints.** `solve` (with `includeSystemCurve: false` unless asked), `systemCurve`, `getLibrary`, `getFluids`, `fluidProperties` (`POST /api/v1/fluids/properties` with a `FluidDefinition`) and `methodVersions` (§5.1).
+- **Requests.** It sends only what each request needs, with `credentials: 'omit'`, `referrerPolicy: 'no-referrer'` and a 60 s timeout (kept when the caller also passes an abort signal). Project data, the fluid included, travels only in request bodies: no URL carries a project value. Error responses become typed errors (`TopologyError`, `ValidationError`, `NetworkError`).
 - **No other traffic.** No other network requests are made: no analytics, cookies, web fonts or third-party assets. The pages set `<meta name="referrer" content="no-referrer">`.
 
 **Units.** Values are converted between SI and the display units only at input (`NumberField`) and display (formatters), TSD §6.
@@ -346,8 +350,13 @@ WNTR/EPANET is used only in the test suite, as a reference for water-only networ
 GET /api/v1/fluids
   Response: List of available fluids
 
+POST /api/v1/fluids/properties
+  Request: FluidDefinition (built-in at its state, with overrides, or custom), SI
+  Response: FluidProperties as the solver will use them (the web app's request)
+
 GET /api/v1/fluids/{fluid_id}/properties?temperature={T_K}
-  Response: FluidProperties (density, viscosity, vapor_pressure), SI
+  Response: FluidProperties (density, viscosity, vapor_pressure), SI; for API users (the
+  query string can appear in intermediaries' logs)
 
 POST /api/v1/fluids/custom
   Request: CustomFluidDefinition (SI)
@@ -707,9 +716,9 @@ Elements in a section closed off from every fixed-pressure boundary carry no flo
 
 A section that no fixed-pressure boundary reaches but that cannot sit at zero flow (a pump loop behind a closed valve) carries a determined flow at an undetermined pressure level: its connection, pump, valve and branch results are reported (flows, head losses, pump head and power), its ports are absent from `nodeResults`, `PumpResult.npshAvailable` and `suctionAbsolutePressure` are null, a PRV/PSV there has `setpointAchieved: null`, and an element between it and another head has no result. It is flagged `UNDETERMINED_PRESSURE` (`details.componentIds`).
 
-**System curve** (`PumpResult.systemCurve`, filled for every running pump when `SolveOptions.includeSystemCurve`): `systemCurvePoints` flows from 0 to 1.2 × the curve's largest flow × s; at each, the pump is replaced by that fixed flow and the network solved (other pumps keep running, valves follow their rules); head = EGL(discharge) − EGL(suction). Points whose solve does not converge are left out (`POST /system-curve` reports them, §5.1).
+**System curve** (`PumpResult.systemCurve`, filled for every running pump when `SolveOptions.includeSystemCurve`): `systemCurvePoints` flows from 0 to 1.2 × the curve's largest flow × s; at each, the pump is replaced by that fixed flow and the network solved (other pumps keep running, valves follow their rules); head = EGL(discharge) − EGL(suction). Points whose solve does not converge are left out (`POST /system-curve` reports them, §5.1). The web app solves without it and fetches one pump's curve from `POST /system-curve` when its chart is shown (§3.1.3, D10).
 
-**Flags** (GOALS §4.6, on by default) — `Flag {code, severity, message, componentId, connectionId, portId, details}`. Each code has one severity:
+**Flags** (GOALS §4.6, on by default) — `Flag {code, severity, message, componentId, connectionId, portId, details}`. A message names a connection's pipes and fittings as the app numbers them, from 1 ("connection 'L1' pipe 2: …", "fitting 1 (bend)"); `details.segmentIndex` and `details.fittingIndex` are 0-based indexes into `piping.pipes` and `piping.fittings`. Each code has one severity:
 
 | Severity | Codes |
 |---|---|
@@ -738,10 +747,11 @@ interface ElementTrace {
 - **Sources.** `user`: entered (a field set to a value other than its default); `default`: a field holding its model default, whether left out or sent with that value, as the frontend sends every field (e.g. pump speed 1, fitting quantity 1, loss model 'crane'); `library`: pipe tables, correlations, CoolProp, standard constants; `computed`: derived from other inputs (ν = μ/ρ).
 - **Units** are SI strings the frontend converts: `m`, `m³/s`, `m/s`, `Pa(g)`, `Pa(a)`, `Pa (difference)`, `kg/m³`, `Pa·s`, `W`; `''` for dimensionless values; others (`m²`, `m²/s`, `m/s²`, `°`, `K`, `US gpm/psi^0.5`) are shown as reported. No trace value is a bare `Pa`.
 - **Intermediates restate the results** (same numbers as the result fields) or follow from them by the listed equations (v = Q/A; NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/ρg), so a trace never disagrees with the tables.
-- **Content per element type.** Pipe connection: per segment material, schedule/NPS or custom, D and ε with their sources, L, A, v, Re, ε/D, f, regime note with the friction formula and its range, h_f; per fitting type, quantity, K with its fluids call and citation (or "user"), reference diameter, h_j; totals and the EGLs at both ends. Reservoir / reference node: boundary head equation and its inputs, outflow, port pressures, p_atm. Plug: closed-end equations, EGL and pressure. Tee / wye: loss model, angle, port pipe diameters, pattern, port flows, Q_c, q, β, K per path (Crane or Darby call), v_c, path losses, range / fallback notes. Pump: curve points, fit (PCHIP) and extrapolation, speed and affinity laws, operating point, shutoff head, efficiency and power, NPSHa terms (p_atm and its source, p_vap and its source, z_s, EGL_s, velocity head), NPSHr and margin, status reason, "no viscosity correction applied", the system curve when computed. Valves: resistance as entered (K, Cv, Kv with the ISA conversion) or the Crane default with its call, or the ideal control valve; D_ref; K; both port elevations, the velocities and static pressures at both ports (so Δp follows from the trace); cracking head (active check valves only: a locked valve's law has none); status reason (the user setting, or the EPANET 2.2 rule that holds the state written as the inequality that holds, with its solved values); control valves add the setpoint, H_set with its velocity head, hml, K_eff and Cv_eff. Tee / wye and pump traces give their port elevations and port pressures too; a built-in fluid's temperature (and glycol mass fraction) is an input of every trace that uses its properties.
+- **Numbering.** Pipes and fittings are numbered from 1, as in the app ("Pipe 2 Reynolds number Re", "Fitting 1 (reducer_sudden) position: between pipes 1 and 2"); so are pump-curve points ("Head curve point 4").
+- **Content per element type.** Pipe connection: per segment material, schedule/NPS or custom, D and ε with their sources, L, A, v, Re, ε/D, f, regime note with the friction formula and its range, h_f; per fitting type, quantity, K with its fluids call and citation (or "user"), reference diameter, h_j; totals and the EGLs at both ends. Reservoir / reference node: boundary head equation and its inputs, outflow, port pressures, p_atm; the statement that no entrance or exit loss is applied at the boundary unless the connection has an entrance or exit fitting (with the web app's defaults at reservoirs: a sharp-edged entrance and an exit), then, per port, the entrance and exit fittings its connection's piping has. Plug: closed-end equations, EGL and pressure. Tee / wye: loss model, angle, port pipe diameters, pattern, port flows, Q_c, q, β, K per path (Crane or Darby call), v_c, path losses, range / fallback notes. Pump: curve points, fit (PCHIP) and extrapolation, speed and affinity laws, operating point, shutoff head, efficiency and power, NPSHa terms (p_atm and its source, p_vap and its source, z_s, EGL_s, velocity head), NPSHr and margin, status reason, "no viscosity correction applied", the system curve when computed. Valves: resistance as entered (K, Cv, Kv with the ISA conversion) or the Crane default with its call, or the ideal control valve; D_ref; K; both port elevations, the velocities and static pressures at both ports (so Δp follows from the trace); cracking head (active check valves only: a locked valve's law has none); status reason (the user setting, or the EPANET 2.2 rule that holds the state written as the inequality that holds, with its solved values); control valves add the setpoint, H_set with its velocity head, hml, K_eff and Cv_eff. Tee / wye and pump traces give their port elevations and port pressures too; a built-in fluid's temperature (and glycol mass fraction) is an input of every trace that uses its properties.
 - **No result.** An element in a closed-off section, or every element of a solve that did not converge, keeps its inputs, equations and sources, with a note saying why it has no values. An element in a section with an undetermined pressure level (`UNDETERMINED_PRESSURE`) keeps its flows and head differences, with a note saying why its EGLs and pressures are missing.
 
-**Methods summary** (`MethodsSummary {methodVersion, sections[{title, items, references}], assumptions, libraries}`; `services/solver/methods.py`): sections Network solution (GGA, Todini & Pilati 1988, tolerances, this solve's iterations), Pipe friction, Minor losses, Branches, Pumps (PCHIP, affinity laws, no viscosity correction, system curves), Valves, Fluid properties, Atmosphere and NPSH, Conventions (SI, gauge, EGL vs HGL, datum, flow signs); global assumptions (steady, incompressible, isothermal, single-phase, quiescent boundaries, pump integral check, check-valve model, ideal control-valve default); libraries with versions (opensolve-pipe, fluids, CoolProp, numpy, scipy). Written to be pasted into a deliverable.
+**Methods summary** (`MethodsSummary {methodVersion, sections[{title, items, references}], assumptions, libraries}`; `services/solver/methods.py`): sections Network solution (GGA, Todini & Pilati 1988, tolerances, this solve's iterations), Pipe friction, Minor losses, Branches, Pumps (PCHIP, affinity laws, no viscosity correction, system curves), Valves, Fluid properties, Atmosphere and NPSH, Conventions (SI, gauge, EGL vs HGL, datum, flow signs); global assumptions (steady, incompressible, isothermal, single-phase, quiescent boundaries, no entrance or exit loss at a boundary without an entrance or exit fitting and the web app's default fittings at reservoirs, pump integral check, check-valve model, ideal control-valve default); libraries with versions (opensolve-pipe, fluids, CoolProp, numpy, scipy). Written to be pasted into a deliverable.
 
 ---
 
@@ -749,14 +759,26 @@ interface ElementTrace {
 
 ### 5.1 REST API Specification
 
-All request and response values are SI; JSON is camelCase. The OpenAPI schema (`/openapi.json`, exported by `python -m opensolve_pipe.openapi`) is the contract; the frontend types are generated from it.
+All request and response values are SI; JSON is camelCase. The OpenAPI schema (`/openapi.json`, exported by `python -m opensolve_pipe.openapi`) is the contract; the frontend types are generated from it, and the frontend reads its validation from it too: the JSON Schema bounds, and the model rules JSON Schema cannot express, which the models publish as extensions:
+
+| Extension | On | Meaning |
+|-----------|----|---------|
+| `x-port-ids` | each component schema with fixed ports | The exact port ids of the type |
+| `x-port-roles` | the same | Each named port's role (`inlet` / `outlet`) in the type's forward flow direction (pump suction → discharge, valve inlet → outlet, a branch's dividing pattern); it orients new connections, the solver decides the flow |
+| `x-port-count` | `IdealReferenceNode` | The exact number of ports where the ids are free |
+| `x-required-parameters` | `Fitting` | Fields each fitting type needs (`bend`: `angle`, `radiusRatio`; …) |
+| `x-reducer-types`, `x-entrance-types`, `x-exit-types` | `Fitting` | Fittings between two pipes; fittings for the loss where flow leaves or enters a body of liquid |
+| `x-setpoint-bounds` | `ControlValve` | Setpoint bounds by valve type where they differ from the field's (`fcv`: a flow, 0–100 m³/s) |
+
+The validators enforce exactly what the extensions state (`tests/unit/test_schema_rules.py`), which also fails while the frontend's copy of the schema (`apps/web/src/lib/api/openapi.json`, `pnpm gen:types`) is out of date.
 
 | Method and path | Request | Response |
 |-----------------|---------|----------|
 | `POST /api/v1/solve` | `{project, options: {includeSystemCurve, systemCurvePoints}}` | `SolveResponse {success, solvedState, computeTime}` |
-| `POST /api/v1/system-curve` | `{project, pumpId, flowMin, flowMax?, numPoints}` | `SystemCurveResponse {pumpId, flowRange, points[{flow, head \| null, converged, message}], converged[]}`: the pump replaced by each fixed flow, other pumps running; default flows 0 to 1.2 × the curve's largest flow × s |
+| `POST /api/v1/system-curve` | `{project, pumpId, flowMin, flowMax?, numPoints}` | `SystemCurveResponse {pumpId, flowRange, points[{flow, head \| null, converged, message}], converged[]}`: the pump replaced by each fixed flow, other pumps running; default flows 0 to 1.2 × the curve's largest flow × s. The web app's pump chart uses it for the pump being viewed, with the project as solved (D10) |
 | `GET /api/v1/fluids` | — | `FluidListResponse {fluids: FluidInfo[]}`: temperature and concentration ranges queried from CoolProp, glycol `freezingPoints` (the lower temperature bound depends on the concentration), vapor-pressure availability, source, notes |
-| `GET /api/v1/fluids/{id}/properties?temperature=&concentration=` | — | `FluidPropertiesResponse {fluid, properties: FluidProperties}` |
+| `POST /api/v1/fluids/properties` | `FluidDefinition` (a `BuiltinFluid` with its temperature, concentration and overrides, or a `CustomFluid`) | `FluidPropertiesResponse {fluid (the built-in id, or 'custom'), properties: FluidProperties}`: the properties as the solver will use them. The fluid travels in the body, which is never logged; the web app uses this endpoint |
+| `GET /api/v1/fluids/{id}/properties?temperature=&concentration=` | — | `FluidPropertiesResponse`, for a built-in fluid without overrides. For API users: the server's access log keeps only the path, but the query values (a project's fluid state) travel in the URL, where proxies, CDNs and other intermediaries may log them |
 | `POST /api/v1/fluids/custom` | `CustomFluid` | `FluidPropertiesResponse` |
 | `GET /api/v1/library` | — | `LibraryResponse {materials (schedules, sizes, dimensions, roughness, sources), fittings (correlation call, reference diameter, source)}` |
 | `GET /api/v1/method-versions` | — | `MethodVersionsResponse {current, versions[{version, date, changes}]}` |
@@ -797,7 +819,10 @@ Every error uses `ErrorResponse {success: false, error, message, issues[]}`:
 #### 5.1.3 Get Fluid Properties
 
 ```yaml
-GET /api/v1/fluids/water/properties?temperature=293.15
+POST /api/v1/fluids/properties
+Request: { "kind": "builtin", "fluidId": "water", "temperature": 293.15 }
+# GET /api/v1/fluids/water/properties?temperature=293.15 answers the same (its query may be logged
+# by intermediaries)
 200 OK: { "fluid": "water",
           "properties": { "name": "Water", "temperature": 293.15, "density": …, "dynamicViscosity": …,
                           "kinematicViscosity": …, "vaporPressure": …,
@@ -921,7 +946,7 @@ def resolve_k_factor(fitting: Fitting, inner_diameter: float, re: float) -> floa
 
 - v1 stores no project data on the server
 - Projects in links travel in the URL fragment and are never sent to or logged by the server
-- Solve requests carry the project in the request body; request bodies are not logged
+- Solve and system-curve requests carry the project in the request body, and the fluid-properties request the fluid definition; request bodies are not logged. The web app puts no project value in a URL (`GET /fluids/{id}/properties` carries one in its query string; it stays for API users, §5.1)
 - The access log keeps neither the client address nor query strings; uvicorn's trace-level ASGI records (which carry the request scope) are dropped; an unexpected error is logged by exception type and route only (its message can carry project values)
 - Later: stored projects encrypted at rest
 

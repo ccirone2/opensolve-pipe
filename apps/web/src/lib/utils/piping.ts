@@ -16,13 +16,13 @@ import type {
 } from '../api/types';
 import { DEFAULT_PIPE_LENGTH } from './factory';
 import { sameSize } from './labels';
+import { REDUCER_TYPES } from './model-rules';
 
 export const CUSTOM_MATERIAL_ID = 'custom';
 
-const REDUCERS = new Set<Fitting['type']>(['reducer_sudden', 'reducer_conical']);
-
+/** A fitting that sits between two pipes (x-reducer-types, model-rules.ts). */
 export function isReducer(fitting: Pick<Fitting, 'type'>): boolean {
-	return REDUCERS.has(fitting.type);
+	return REDUCER_TYPES.has(fitting.type);
 }
 
 /** Highest valid pipeIndex for a fitting in piping with `pipeCount` pipes. */

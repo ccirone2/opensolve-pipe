@@ -98,6 +98,66 @@ def test_custom_fluid_endpoint_returns_user_values() -> None:
     assert props["sources"]["density"]["origin"] == "user"
 
 
+def test_fluid_definition_properties_are_posted_in_the_body() -> None:
+    """POST /fluids/properties takes the project's fluid definition (the web app's request:
+    nothing about the fluid is in the URL, SDD §7.3) and answers as the GET and the custom
+    endpoint do, overrides included."""
+    water = {"kind": "builtin", "fluidId": "water", "temperature": 293.15}
+    response = client.post("/api/v1/fluids/properties", json=water)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fluid"] == "water"
+    by_query = client.get("/api/v1/fluids/water/properties", params={"temperature": 293.15})
+    assert body["properties"] == by_query.json()["properties"]
+
+    glycol = {
+        "kind": "builtin",
+        "fluidId": "propylene_glycol",
+        "temperature": 290.0,
+        "concentration": 0.3,
+    }
+    posted = client.post("/api/v1/fluids/properties", json=glycol).json()
+    queried = client.get(
+        "/api/v1/fluids/propylene_glycol/properties",
+        params={"temperature": 290.0, "concentration": 0.3},
+    ).json()
+    assert posted == queried
+
+    overridden = {**water, "overrides": {"density": 1001.5}}
+    props = client.post("/api/v1/fluids/properties", json=overridden).json()["properties"]
+    assert props["density"] == 1001.5
+    assert props["sources"]["density"]["origin"] == "user"
+    assert props["dynamicViscosity"] == body["properties"]["dynamicViscosity"]
+
+    oil = {"kind": "custom", "name": "oil", "density": 870.0, "dynamicViscosity": 0.02}
+    custom = client.post("/api/v1/fluids/properties", json=oil).json()
+    assert custom == {
+        **client.post("/api/v1/fluids/custom", json=oil).json(),
+        "fluid": "custom",
+    }
+
+
+def test_fluid_definition_properties_errors_do_not_echo_the_fluid() -> None:
+    hot = {"kind": "builtin", "fluidId": "water", "temperature": 600.0}
+    response = client.post("/api/v1/fluids/properties", json=hot)
+    assert response.status_code == 400
+    assert response.json()["error"] == "FLUID_ERROR"
+
+    unknown = {"kind": "plasma-secret-41c", "name": "x"}
+    response = client.post("/api/v1/fluids/properties", json=unknown)
+    assert response.status_code == 400
+    assert response.json()["error"] == "VALIDATION_ERROR"
+    assert "plasma-secret-41c" not in response.text
+
+    named = {"kind": "custom", "name": "secret-oil-93b", "density": -1, "dynamicViscosity": 0.02}
+    response = client.post("/api/v1/fluids/properties", json=named)
+    assert response.status_code == 400
+    assert "secret-oil-93b" not in response.text
+
+    big = {"kind": "custom", "name": "x" * (MAX_BODY_BYTES + 1)}
+    assert client.post("/api/v1/fluids/properties", json=big).status_code == 413
+
+
 def test_library_lists_materials_and_every_fitting_type() -> None:
     response = client.get("/api/v1/library")
     assert response.status_code == 200

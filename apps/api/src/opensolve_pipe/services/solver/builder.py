@@ -45,6 +45,7 @@ from .errors import TopologyError, issue
 from .fittings import ResolvedFitting, resolve_fitting
 from .flags import make_flag
 from .friction import COLEBROOK_ED_LIMIT, FrictionMethod
+from .labels import fitting_name, pipe_name
 from .library import LibraryLookupError, ResolvedPipe, resolve_pipe
 from .network import LinkKind, LinkLaw, SolverLink, SolverNetwork, SolverNode
 from .pumps import PumpCurveModel
@@ -342,7 +343,7 @@ def _resolve_pipes(project: Project) -> tuple[dict[str, list[ResolvedPipe]], lis
                 resolved_pipe = resolve_pipe(pipe)
             except LibraryLookupError as exc:
                 issues.append(
-                    issue(exc.code, f"connection '{conn.id}' pipe {i}: {exc}", [], [conn.id])
+                    issue(exc.code, f"connection '{conn.id}' {pipe_name(i)}: {exc}", [], [conn.id])
                 )
                 continue
             ed = resolved_pipe.roughness / resolved_pipe.inner_diameter
@@ -350,7 +351,8 @@ def _resolve_pipes(project: Project) -> tuple[dict[str, list[ResolvedPipe]], lis
                 issues.append(
                     issue(
                         "ROUGHNESS_OUT_OF_RANGE",
-                        f"connection '{conn.id}' pipe {i}: roughness {resolved_pipe.roughness:g} m "
+                        f"connection '{conn.id}' {pipe_name(i)}: roughness "
+                        f"{resolved_pipe.roughness:g} m "
                         f"is {ed:.4g} times the inner diameter "
                         f"{resolved_pipe.inner_diameter:g} m; the Colebrook equation has no "
                         f"solution for relative roughness of {COLEBROOK_ED_LIMIT:g} or more",
@@ -387,7 +389,8 @@ def _unrepresentable_pipes(
                 issues.append(
                     issue(
                         "PIPE_SIZE_OUT_OF_RANGE",
-                        f"connection '{conn_id}' pipe {i}: an inner diameter of {d:g} m and a "
+                        f"connection '{conn_id}' {pipe_name(i)}: an inner diameter of {d:g} m "
+                        "and a "
                         f"length of {length:g} m give a pipe resistance that is not a finite "
                         "floating-point number; the solver cannot represent this pipe",
                         [],
@@ -472,7 +475,7 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
                     make_flag(
                         "CORRELATION_OUT_OF_RANGE",
                         "warning",
-                        f"connection '{conn.id}' fitting {fit.index} ({fit.type}): "
+                        f"connection '{conn.id}' {fitting_name(fit.index)} ({fit.type}): "
                         f"{fit.range_warning}",
                         connection_id=conn.id,
                         details={"fittingIndex": fit.index},

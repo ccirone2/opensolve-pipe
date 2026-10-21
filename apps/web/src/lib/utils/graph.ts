@@ -7,6 +7,7 @@
  * All functions are pure and never modify the project.
  */
 import type { Component, PipeConnection, Port, Project } from '../api/types';
+import { namedPortRole } from './model-rules';
 
 /** One step of the navigator's breadcrumb (SDD §3.1.1). */
 export interface NavigationStep {
@@ -253,29 +254,19 @@ export function validPathPrefix(
 	return valid;
 }
 
-const NAMED_ROLES: Record<string, Record<string, PortRole>> = {
-	pump: { suction: 'in', discharge: 'out' },
-	valve: { inlet: 'in', outlet: 'out' },
-	branch: {
-		run_inlet: 'in',
-		run_outlet: 'out',
-		branch: 'out',
-		inlet: 'in',
-		outlet_1: 'out',
-		outlet_2: 'out'
-	}
-};
-
 /**
- * The flow role of a port: from its direction when set ('inlet'/'outlet'), else from the
- * standard port names of pumps, valves, tees and wyes. Boundary and plug ports are 'any'.
- * Roles only orient new connections; the solver decides the actual flow direction.
+ * The flow role of a port: from its direction when set ('inlet'/'outlet'), else from the role
+ * the API gives the port in its type's forward flow direction (x-port-roles: pumps, valves, tees
+ * and wyes; model-rules.ts). Boundary and plug ports are 'any'. Roles only orient new
+ * connections; the solver decides the actual flow direction.
  */
 export function portRole(component: Component, portId: string): PortRole {
 	const port = portById(component, portId);
-	if (port?.direction === 'inlet') return 'in';
-	if (port?.direction === 'outlet') return 'out';
-	return NAMED_ROLES[component.type]?.[portId] ?? 'any';
+	const role =
+		port?.direction === 'inlet' || port?.direction === 'outlet'
+			? port.direction
+			: namedPortRole(component, portId);
+	return role === 'inlet' ? 'in' : role === 'outlet' ? 'out' : 'any';
 }
 
 /** The port flow enters by: the first 'in' port, else the first 'any' port. */

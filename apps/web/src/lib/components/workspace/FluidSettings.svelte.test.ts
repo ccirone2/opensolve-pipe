@@ -24,13 +24,18 @@ const CALCULATED: FluidProperties = {
 async function openFluid(overrides: BuiltinFluid['overrides']) {
 	const project = pumpTransferExample();
 	project.fluid = { kind: 'builtin', fluidId: 'water', temperature: 293.15, overrides };
-	const ws = testWorkspace(project, {
-		library: { fluidProperties: () => Promise.resolve(CALCULATED) }
-	});
+	const fluidProperties = vi.fn(() => Promise.resolve(CALCULATED));
+	const ws = testWorkspace(project, { library: { fluidProperties } });
 	render(WorkspaceView, { workspace: ws });
 	await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
-	// The calculated properties are fetched after a short pause.
+	// The calculated properties are fetched after a short pause, for the fluid's state without
+	// the user's overrides (the library values, for checking).
 	await screen.findByText('Calculated properties', {}, { timeout: 2000 });
+	expect(fluidProperties).toHaveBeenCalledWith({
+		kind: 'builtin',
+		fluidId: 'water',
+		temperature: 293.15
+	});
 	await fireEvent.change(screen.getByRole('combobox', { name: 'Fluid' }), {
 		target: { value: 'custom' }
 	});
@@ -122,6 +127,14 @@ describe('FluidSettings', () => {
 		await fireEvent.change(field);
 		expect(ws.project.fluid).toMatchObject({ concentration: 0.3 });
 		expect(screen.queryByText(/is almost water/)).toBeNull();
+		await vi.waitFor(() =>
+			expect(fluidProperties).toHaveBeenLastCalledWith({
+				kind: 'builtin',
+				fluidId: 'ethylene_glycol',
+				temperature: 293.15,
+				concentration: 0.3
+			})
+		);
 		// The property sources are named, not keyed.
 		expect(
 			await screen.findByText('Dynamic viscosity: made-up citation', {}, { timeout: 2000 })

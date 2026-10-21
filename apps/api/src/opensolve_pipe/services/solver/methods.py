@@ -12,6 +12,7 @@ import numpy as np
 import scipy
 
 from ... import __version__
+from ...models.piping import ENTRANCE_TYPES, EXIT_TYPES
 from ...models.results import MethodsSection, MethodsSummary
 from .branches import DARBY_TEE
 from .builder import BuiltNetwork
@@ -335,6 +336,15 @@ def methods_summary(
             "Steady, incompressible, isothermal, single-phase liquid flow.",
             "Reservoirs and reference nodes are quiescent bodies of liquid (velocity 0) at a "
             "constant head.",
+            "No entrance or exit loss is applied where a pipe meets a reservoir or reference "
+            "node unless the connection's piping has an entrance fitting ("
+            + ", ".join(ENTRANCE_TYPES)
+            + ") or an exit fitting ("
+            + ", ".join(EXIT_TYPES)
+            + "); without one, the EGL at the port equals the boundary head in either flow "
+            "direction. The web app adds a sharp-edged entrance where new piping leaves a "
+            "reservoir and an exit where it enters one (removable), and none at a reference "
+            "node; each boundary's trace lists the entrance and exit fittings at its ports.",
             "Fluid properties are constant at the operating temperature.",
             "Pumps have an integral check: no reverse flow.",
             "Check valves: a disc that opens fully above the cracking pressure and closes on "

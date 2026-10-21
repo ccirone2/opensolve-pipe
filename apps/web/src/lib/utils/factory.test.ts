@@ -18,7 +18,8 @@ import {
 	usedIds
 } from './factory';
 import { INCH } from './units';
-import { modelRuleProblems, projectProblems, requiredPortIds, schemaProblems } from './validate';
+import { requiredPortIds } from './model-rules';
+import { modelRuleProblems, projectProblems, schemaProblems } from './validate';
 
 describe('createEmptyProject', () => {
 	it('is valid, empty and SI', () => {

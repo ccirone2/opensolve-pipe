@@ -8,7 +8,7 @@
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
-	import { DEFAULT_ENTRANCE, ENTRANCE_TYPES, hasReservoirLoss } from '$lib/utils/edit';
+	import { DEFAULT_ENTRANCE, DEFAULT_EXIT, hasReservoirLoss } from '$lib/utils/edit';
 	import { componentById } from '$lib/utils/graph';
 	import { fittingFallbackName } from '$lib/utils/labels';
 	import {
@@ -21,7 +21,7 @@
 		withOptional
 	} from '$lib/utils/piping';
 	import { fittingTypes, schemaBounds } from '$lib/utils/schema-bounds';
-	import { FITTING_PARAMETERS } from '$lib/utils/validate';
+	import { ENTRANCE_TYPES, EXIT_TYPES, FITTING_PARAMETERS } from '$lib/utils/model-rules';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 
 	let { connection }: { connection: PipeConnection } = $props();
@@ -103,7 +103,7 @@
 		})
 	);
 	const entrances = $derived(fittings.filter((f) => ENTRANCE_TYPES.has(f.type)).length);
-	const exits = $derived(fittings.filter((f) => f.type === 'exit').length);
+	const exits = $derived(fittings.filter((f) => EXIT_TYPES.has(f.type)).length);
 	/** Reservoir ends with no entrance or exit fitting for them. */
 	const bareEnds = $derived(
 		reservoirEnds.length === 1
@@ -120,7 +120,7 @@
 		if (ENTRANCE_TYPES.has(fitting.type) && from) {
 			return `Entrance loss where flow leaves ${from.name} into this pipe (a reservoir connection gets a sharp-edged entrance by default; remove it if not wanted).`;
 		}
-		if (fitting.type === 'exit' && to) {
+		if (EXIT_TYPES.has(fitting.type) && to) {
 			return `Exit loss where flow leaves this pipe into ${to.name} (a reservoir connection gets an exit by default; remove it if not wanted).`;
 		}
 		return null;
@@ -156,7 +156,7 @@
 				<button
 					type="button"
 					class="btn py-1.5 text-left whitespace-normal"
-					onclick={() => addReservoirLoss('exit', reservoir.end)}
+					onclick={() => addReservoirLoss(DEFAULT_EXIT, reservoir.end)}
 				>
 					<Icon name="plus" class="size-4" /> Exit (flow enters {reservoir.name})
 				</button>

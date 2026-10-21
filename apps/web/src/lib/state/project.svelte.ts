@@ -10,6 +10,12 @@
  * - Copy-on-write sharing: each change rewrites the current URL (history.replaceState, after a
  *   short debounce). A link copied earlier still opens the project as it was then.
  *
+ * - System curves (D10) are fetched on demand, per pump, for the exact project of the solve whose
+ *   results are shown (`solvedProject`), and cached with that solve: a new solve, a load or
+ *   clearing the results drops them, and a request for an older solve never fills the cache of a
+ *   newer one. Requests go one at a time (the server runs one solve per client at a time), and a
+ *   solve starting cancels them.
+ *
  * Nothing is kept in browser storage; history lives only in this page.
  */
 import { getContext, setContext } from 'svelte';
@@ -19,6 +25,7 @@ import type {
 	SolvedState,
 	SolveOptions,
 	SolveResponse,
+	SystemCurveResponse,
 	TopologyIssue
 } from '../api/types';
 import {
@@ -79,7 +86,23 @@ export interface ResultsState {
 
 export interface Solver {
 	solve(project: Project, options?: Partial<SolveOptions>): Promise<SolveResponse>;
+	/** System curve of one pump (POST /api/v1/system-curve); absent when not available. */
+	systemCurve?(
+		project: Project,
+		pumpId: string,
+		options?: { signal?: AbortSignal }
+	): Promise<SystemCurveResponse>;
 }
+
+/**
+ * The system curve of one pump for the solve whose results are shown: being computed, computed
+ * (points without a head say why), failed, or cancelled because a newer solve started.
+ */
+export type SystemCurveState =
+	| { status: 'loading' }
+	| { status: 'ready'; curve: SystemCurveResponse }
+	| { status: 'error'; message: string }
+	| { status: 'cancelled' };
 
 export interface ProjectStoreOptions {
 	/** Writes the app-relative URL ('/p#…'). Default: history.replaceState, keeping its state. */
@@ -177,6 +200,13 @@ export class ProjectStore {
 	 * one the link was shared with, for the results' method-version notice.
 	 */
 	loadedMethodVersion = $state.raw('');
+	/**
+	 * The project exactly as sent for the solve of `results.response` (null without one): system
+	 * curves are computed for it, never for a newer, edited project.
+	 */
+	solvedProject = $state.raw<Project | null>(null);
+	/** System curves by pump id, for the solve of `results.response` (see systemCurve()). */
+	systemCurves = $state.raw<Readonly<Record<string, SystemCurveState>>>({});
 
 	#undo = $state.raw<readonly HistoryEntry[]>([]);
 	#redo = $state.raw<readonly HistoryEntry[]>([]);
@@ -186,6 +216,10 @@ export class ProjectStore {
 	#responseFingerprint: string | null = null;
 	#errorFingerprint: string | null = null;
 	#timer: ReturnType<typeof setTimeout> | null = null;
+	/** Aborts the system-curve requests in flight or queued (a solve starts, or results go). */
+	#curveRequests = new AbortController();
+	/** The system-curve requests, one after the other. */
+	#curveQueue: Promise<unknown> = Promise.resolve();
 	readonly #options: ProjectStoreOptions;
 
 	constructor(project?: Project, options: ProjectStoreOptions = {}) {
@@ -273,6 +307,7 @@ export class ProjectStore {
 		this.#responseFingerprint = null;
 		this.#errorFingerprint = null;
 		this.results = EMPTY_RESULTS;
+		this.#forgetSystemCurves();
 		this.encoded = encodeProject(this.project);
 		if (options.writeUrl) this.#write();
 	}
@@ -401,6 +436,7 @@ export class ProjectStore {
 	dispose(): void {
 		this.#cancelSync();
 		this.#solveSequence++;
+		this.#curveRequests.abort();
 	}
 
 	/**
@@ -414,13 +450,17 @@ export class ProjectStore {
 		const fingerprint = hydraulicFingerprint(project);
 		const sequence = ++this.#solveSequence;
 		this.results = { ...this.results, solving: true };
+		this.#cancelSystemCurves();
 		try {
 			const solver = this.#options.solver ?? defaultClient();
-			const response = await solver.solve(project, options);
+			// No system curves with the solve (D10): the pump chart fetches its own.
+			const response = await solver.solve(project, { includeSystemCurve: false, ...options });
 			if (sequence !== this.#solveSequence) return;
 			this.#responseFingerprint = fingerprint;
 			this.#errorFingerprint = null;
 			const stale = hydraulicFingerprint(this.project) !== fingerprint;
+			this.#forgetSystemCurves();
+			this.solvedProject = project;
 			this.results = { response, stale, solving: false, error: null, errorStale: false };
 			if (!stale) this.#recordMethodVersion(response);
 		} catch (error) {
@@ -448,6 +488,80 @@ export class ProjectStore {
 		this.#responseFingerprint = null;
 		this.#errorFingerprint = null;
 		this.results = EMPTY_RESULTS;
+		this.#forgetSystemCurves();
+	}
+
+	/**
+	 * The system curve of `pumpId` for the solve `response`, if it has been requested: undefined
+	 * when it has not, or when `response` is not the one whose results are shown (a curve is never
+	 * shown with another solve's results).
+	 */
+	systemCurve(response: SolveResponse | null, pumpId: string): SystemCurveState | undefined {
+		if (!response || response !== this.results.response) return undefined;
+		return this.systemCurves[pumpId];
+	}
+
+	/**
+	 * Compute the system curve of `pumpId` for the solve whose results are shown, from the project
+	 * exactly as solved (POST /api/v1/system-curve), unless it is cached; with `retry`, again after
+	 * a failure or a cancellation. Requests run one at a time; one whose solve is no longer the
+	 * shown one is dropped (or aborted) and never fills the cache.
+	 */
+	loadSystemCurve(pumpId: string, options: { retry?: boolean } = {}): void {
+		const response = this.results.response;
+		const project = this.solvedProject;
+		if (!response || !project) return;
+		const known = this.systemCurves[pumpId];
+		const again = known?.status === 'error' || known?.status === 'cancelled';
+		if (known && !(options.retry && again)) return;
+		const solver = this.#options.solver ?? defaultClient();
+		const set = (state: SystemCurveState) => {
+			if (this.results.response !== response) return; // another solve's results by now
+			this.systemCurves = { ...this.systemCurves, [pumpId]: state };
+		};
+		if (!solver.systemCurve) {
+			set({ status: 'error', message: 'System curves are not available from this server.' });
+			return;
+		}
+		set({ status: 'loading' });
+		const { signal } = this.#curveRequests;
+		const request = async () => {
+			if (signal.aborted || this.results.response !== response) return;
+			try {
+				const curve = await solver.systemCurve!(project, pumpId, { signal });
+				if (!signal.aborted) set({ status: 'ready', curve });
+			} catch (error) {
+				if (signal.aborted) return; // cancelled: #cancelSystemCurves says so
+				set({
+					status: 'error',
+					message: error instanceof Error ? error.message : 'The system curve failed.'
+				});
+			}
+		};
+		this.#curveQueue = this.#curveQueue.then(request, request);
+	}
+
+	/** Abort system-curve requests; the curves they were computing are marked cancelled. */
+	#cancelSystemCurves(): void {
+		this.#curveRequests.abort();
+		this.#curveRequests = new AbortController();
+		const entries = Object.entries(this.systemCurves);
+		if (entries.some(([, state]) => state.status === 'loading')) {
+			this.systemCurves = Object.fromEntries(
+				entries.map(([id, state]) => [
+					id,
+					state.status === 'loading' ? { status: 'cancelled' as const } : state
+				])
+			);
+		}
+	}
+
+	/** Drop the system curves (their solve is no longer the one shown). */
+	#forgetSystemCurves(): void {
+		this.#curveRequests.abort();
+		this.#curveRequests = new AbortController();
+		this.solvedProject = null;
+		this.systemCurves = {};
 	}
 }
 

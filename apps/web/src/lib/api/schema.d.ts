@@ -46,6 +46,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/fluids/properties": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fluid Definition Properties
+         * @description Properties of a fluid definition (the project's ``fluid``: a built-in fluid at its
+         *     temperature and glycol mass fraction, with any overrides, or a custom fluid) as the solver
+         *     will use them, SI, with the source of each value.
+         *
+         *     The definition travels in the request body, which the server never logs (SDD §7.3); the web
+         *     app uses this endpoint. ``fluid`` in the response is the built-in fluid's id, or 'custom'.
+         */
+        post: operations["fluid_definition_properties_api_v1_fluids_properties_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/fluids/{fluid_id}/properties": {
         parameters: {
             query?: never;
@@ -56,6 +81,10 @@ export interface paths {
         /**
          * Fluid Properties
          * @description Properties of a library fluid at a temperature (and glycol mass fraction), SI.
+         *
+         *     For API users. The fluid and its values travel in the URL: the server's access log keeps
+         *     only the path, but proxies and other intermediaries may log the whole URL, query string
+         *     included. POST /api/v1/fluids/properties sends them in the body instead.
          */
         get: operations["fluid_properties_api_v1_fluids__fluid_id__properties_get"];
         put?: never;
@@ -540,7 +569,10 @@ export interface components {
              * @description m, all units of this fitting, signed like the flow
              */
             headLoss: number;
-            /** Index */
+            /**
+             * Index
+             * @description 0-based index into piping.fittings (traces call it Fitting index+1)
+             */
             index: number;
             /**
              * K
@@ -573,7 +605,10 @@ export interface components {
             componentId: string | null;
             /** Connectionid */
             connectionId: string | null;
-            /** Details */
+            /**
+             * Details
+             * @description Values behind the message, SI. segmentIndex and fittingIndex are 0-based indexes into the connection's piping.pipes and piping.fittings; messages number pipes and fittings from 1, as the web app does
+             */
             details: {
                 [key: string]: number | string;
             };
@@ -1475,7 +1510,10 @@ export interface components {
              * @description Friction head loss, m, signed like the flow
              */
             headLoss: number;
-            /** Index */
+            /**
+             * Index
+             * @description 0-based index into piping.pipes (traces call it Pipe index+1)
+             */
             index: number;
             /**
              * Innerdiameter
@@ -1970,6 +2008,57 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CustomFluid"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FluidPropertiesResponse"];
+                };
+            };
+            /** @description Invalid input, or a fluid state out of range */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Other errors */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    fluid_definition_properties_api_v1_fluids_properties_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuiltinFluid"] | components["schemas"]["CustomFluid"];
             };
         };
         responses: {

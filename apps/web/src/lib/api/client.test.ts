@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EXAMPLES } from '../utils/examples';
 import {
 	ApiClient,
@@ -73,18 +73,19 @@ describe('requests', () => {
 			headers: { 'Content-Type': 'application/json' }
 		});
 		expect(Object.keys(init!.headers as object)).toEqual(['Content-Type']);
+		// No system curves with the solve: the pump chart fetches its own (D10).
 		expect(JSON.parse(init!.body as string)).toEqual({
 			project,
-			options: { includeSystemCurve: true, systemCurvePoints: 41 }
+			options: { includeSystemCurve: false, systemCurvePoints: 41 }
 		});
 		expect(init!.signal).toBeInstanceOf(AbortSignal);
 	});
 
 	it('passes solve options', async () => {
 		const { api, fetch } = client([json({})]);
-		await api.solve(project, { includeSystemCurve: false, systemCurvePoints: 11 });
+		await api.solve(project, { includeSystemCurve: true, systemCurvePoints: 11 });
 		expect(JSON.parse(fetch.mock.calls[0]![1]!.body as string).options).toEqual({
-			includeSystemCurve: false,
+			includeSystemCurve: true,
 			systemCurvePoints: 11
 		});
 	});
@@ -122,23 +123,48 @@ describe('requests', () => {
 		});
 	});
 
-	it('requests fluid properties by query, and custom fluids by POST', async () => {
+	it('requests fluid properties by POST, with the fluid in the body and none in the URL', async () => {
 		const properties = { name: 'Water', density: 998 };
 		const { api, fetch } = client([
 			json({ fluid: 'water', properties }),
 			json({ fluid: 'propylene_glycol', properties }),
-			json({ fluid: 'Oil', properties })
+			json({ fluid: 'custom', properties })
 		]);
-		expect(await api.fluidProperties('water', 293.15)).toEqual(properties);
-		await api.fluidProperties('propylene_glycol', 280, 0.3);
+		const water = { kind: 'builtin' as const, fluidId: 'water' as const, temperature: 293.15 };
+		const glycol = {
+			kind: 'builtin' as const,
+			fluidId: 'propylene_glycol' as const,
+			temperature: 280,
+			concentration: 0.3
+		};
 		const oil = { kind: 'custom' as const, name: 'Oil', density: 850, dynamicViscosity: 0.03 };
-		await api.customFluidProperties(oil);
-		expect(fetch.mock.calls.map((c) => c[0])).toEqual([
-			`${BASE}/api/v1/fluids/water/properties?temperature=293.15`,
-			`${BASE}/api/v1/fluids/propylene_glycol/properties?temperature=280&concentration=0.3`,
-			`${BASE}/api/v1/fluids/custom`
+		expect(await api.fluidProperties(water)).toEqual(properties);
+		await api.fluidProperties(glycol);
+		await api.fluidProperties(oil);
+		expect(fetch.mock.calls.map((c) => c[0])).toEqual(
+			Array(3).fill(`${BASE}/api/v1/fluids/properties`)
+		);
+		expect(fetch.mock.calls.map((c) => c[1]!.method)).toEqual(['POST', 'POST', 'POST']);
+		expect(fetch.mock.calls.map((c) => JSON.parse(c[1]!.body as string))).toEqual([
+			water,
+			glycol,
+			oil
 		]);
-		expect(JSON.parse(fetch.mock.calls[2]![1]!.body as string)).toEqual(oil);
+	});
+
+	it('puts no project or fluid values in any URL (GOALS §4.5): only bodies carry them', async () => {
+		const answer = { fluids: [], properties: {}, current: '1.0.0', versions: [], points: [] };
+		const { api, fetch } = client(() => Promise.resolve(json(answer)));
+		await api.solve(project);
+		await api.systemCurve(project, 'P1');
+		await api.fluidProperties({ kind: 'builtin', fluidId: 'water', temperature: 301.2345 });
+		await api.getLibrary();
+		await api.getFluids();
+		await api.methodVersions();
+		expect(fetch).toHaveBeenCalledTimes(6);
+		for (const [url] of fetch.mock.calls) {
+			expect(String(url)).toMatch(/^https:\/\/api\.example\.test\/api\/v1\/[a-z/-]+$/);
+		}
 	});
 
 	it('lists fluids', async () => {
@@ -222,7 +248,9 @@ describe('errors', () => {
 			status: 400,
 			code: 'VALIDATION_ERROR'
 		});
-		const second = await rejection(api.fluidProperties('water', 500));
+		const second = await rejection(
+			api.fluidProperties({ kind: 'builtin', fluidId: 'water', temperature: 500 })
+		);
 		expect(second).toMatchObject({
 			message: 'Temperature out of range',
 			details: ['Temperature out of range', 'Water: 273.16–373 K'],
@@ -304,6 +332,93 @@ describe('errors', () => {
 		const error = await rejection(pending);
 		expect(error).toBeInstanceOf(DOMException);
 		expect((error as DOMException).name).toBe('AbortError');
+	});
+});
+
+describe('cancellation and timeout without AbortSignal.any', () => {
+	// AbortSignal.any is newer than the app's build target (Vite's 'baseline-widely-available':
+	// Safari 16.4+, Chrome 111+, Firefox 114+; it arrived in Safari 17.4, Chrome 116 and
+	// Firefox 124), and Vite does not polyfill APIs. Requests must work without it.
+	const original = Object.getOwnPropertyDescriptor(AbortSignal, 'any');
+	beforeEach(() => {
+		Object.defineProperty(AbortSignal, 'any', { value: undefined, configurable: true });
+	});
+	afterEach(() => {
+		if (original) Object.defineProperty(AbortSignal, 'any', original);
+	});
+
+	/** A fetch that answers `answer` unless its signal aborts first (rejecting with the reason). */
+	function pendingFetch(answer?: Promise<Response>) {
+		return vi.fn(
+			(_input: RequestInfo | URL, init?: RequestInit) =>
+				new Promise<Response>((resolve, reject) => {
+					const signal = init!.signal!;
+					if (signal.aborted) return reject(signal.reason);
+					signal.addEventListener('abort', () => reject(signal.reason));
+					answer?.then(resolve, reject);
+				})
+		);
+	}
+
+	it('sends a request that carries a caller signal', async () => {
+		expect(AbortSignal.any).toBeUndefined();
+		const controller = new AbortController();
+		const fetch = pendingFetch(Promise.resolve(json({ pumpId: 'P1', points: [] })));
+		const api = new ApiClient({ baseUrl: BASE, fetch: fetch as typeof globalThis.fetch });
+		const curve = await api.systemCurve(project, 'P1', { signal: controller.signal });
+		expect(curve).toEqual({ pumpId: 'P1', points: [] });
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(fetch.mock.calls[0]![0]).toBe(`${BASE}/api/v1/system-curve`);
+		expect(fetch.mock.calls[0]![1]!.signal).toBeInstanceOf(AbortSignal);
+	});
+
+	it('passes a caller abort through unchanged', async () => {
+		const controller = new AbortController();
+		const fetch = pendingFetch();
+		const api = new ApiClient({ baseUrl: BASE, fetch: fetch as typeof globalThis.fetch });
+		const pending = api.systemCurve(project, 'P1', { signal: controller.signal });
+		controller.abort();
+		const error = await rejection(pending);
+		expect(error).toBeInstanceOf(DOMException);
+		expect((error as DOMException).name).toBe('AbortError');
+		expect(fetch).toHaveBeenCalledTimes(1);
+	});
+
+	it('rejects at once for a caller signal that is already aborted', async () => {
+		const controller = new AbortController();
+		controller.abort();
+		const fetch = pendingFetch();
+		const api = new ApiClient({ baseUrl: BASE, fetch: fetch as typeof globalThis.fetch });
+		const error = await rejection(api.solve(project, {}, { signal: controller.signal }));
+		expect((error as DOMException).name).toBe('AbortError');
+	});
+
+	it('still times out when the caller gives a signal', async () => {
+		const controller = new AbortController();
+		const fetch = pendingFetch();
+		const api = new ApiClient({
+			baseUrl: BASE,
+			fetch: fetch as typeof globalThis.fetch,
+			timeoutMs: 5
+		});
+		const error = await rejection(api.systemCurve(project, 'P1', { signal: controller.signal }));
+		expect(error).toBeInstanceOf(NetworkError);
+		expect((error as Error).message).toMatch(/did not answer in time/);
+		expect(controller.signal.aborted).toBe(false);
+	});
+
+	it('removes its listener from the caller signal when the request settles', async () => {
+		// The store's signal outlives many requests: listeners must not pile up on it.
+		const controller = new AbortController();
+		const added = vi.spyOn(controller.signal, 'addEventListener');
+		const removed = vi.spyOn(controller.signal, 'removeEventListener');
+		const { api } = client([json({ pumpId: 'P1', points: [] }), new TypeError('Failed to fetch')]);
+		await api.systemCurve(project, 'P1', { signal: controller.signal });
+		await rejection(api.systemCurve(project, 'P1', { signal: controller.signal }));
+		expect(added).toHaveBeenCalledTimes(2);
+		expect(removed.mock.calls).toEqual(
+			added.mock.calls.map(([type, listener]) => [type, listener])
+		);
 	});
 });
 

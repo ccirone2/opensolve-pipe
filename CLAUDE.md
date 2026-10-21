@@ -2,7 +2,7 @@
 
 Free, browser-based tool for steady-state hydraulic analysis of pressurized pipe networks. No install, shareable by URL, equal priority on desktop and mobile.
 
-**Status:** Fresh rebuild. The repo currently holds only the specs; no application code yet.
+**Status:** v1 (core analysis MVP, D5) is implemented: `apps/api` (FastAPI, own GGA solver, reference suite) and `apps/web` (SvelteKit). Not yet deployed.
 
 ---
 
@@ -88,11 +88,14 @@ The specs are at v0.2.0 (rebuild baseline) and reflect the decisions below. Item
 - **Valves:** default K from the Crane function for the valve type at the inlet pipe's diameter; Cv/Kv via `fluids` (ISA-75.01.01). No position-dependent K and no control-valve Cv curve in v1 (no cited characteristic); control valves default to ideal (zero loss when wide open). PRV/PSV setpoints are static pressures at the valve port.
 - **Status logic:** EPANET 2.2 rules translated to EGL, at most 30 outer iterations that change statuses or branch K (iterations that only hold or release a zero-flow tee leg are bounded separately), oscillation → `converged: false` naming the components. Deliberate departures from EPANET: an FCV closes on reverse flow and opens when the head across it is below its fully open loss; closed elements around a closed-off section are re-tested (difference constraints) so a pump and check valve that close together can reopen.
 
-### D10. API, traceability and limits (M4)
+### D10. API, traceability and limits (M4, M7)
 - Every solved element carries a trace (inputs with their source, equations, correlations and data sources with citations, intermediates, notes stating the inequality that set its state); a methods-and-assumptions summary accompanies every solve. A value equal to a field's documented default is labeled "default". *(GOALS §4.2.)*
 - A section with no path to a fixed head but with a running pump circulates: it is solved with an arbitrary reference head and reported with flows and head differences only, flagged `UNDETERMINED_PRESSURE`. PRV/PSV flows are coupled exactly in the Newton step (no lag).
 - Solves run in a small worker pool (one solve per client at a time, bounded queue → 503 `SERVER_BUSY`) with a 45 s budget per request; abandoned requests are cancelled. Responses are gzip-compressed. *(Accessibility at near-zero hosting cost, GOALS §4.4.)*
-- Privacy: request bodies are never logged; the access log drops query strings and client addresses; error messages never echo submitted values. *(GOALS §4.5.)*
+- Privacy: request bodies are never logged; the access log drops query strings and client addresses; request-validation errors (`VALIDATION_ERROR`) never echo submitted values (SDD §5.1.2), while fluid-range, topology and not-found errors name the value or id at fault so it can be fixed (responses go only to the requester and are never logged). The interactive API docs (`/docs`, `/redoc`) load assets from third-party CDNs, so they are served only with `API_DOCS=1` (development); the schema is always at `/openapi.json`. The web app sends project data (fluid included) only in request bodies: `POST /api/v1/fluids/properties` takes a `FluidDefinition`; the `GET /fluids/{id}/properties?…` form stays for API users, though intermediaries may log its query. *(GOALS §4.5.)*
+- System curves on demand (M7): the 41-point curves of every pump cost a solve per point and break the PRD §4.2 solve times, which a plain solve meets. The web app solves with `includeSystemCurve: false`; the pump chart fetches the curve of the pump being viewed from `POST /api/v1/system-curve`, for the exact project that was solved, one request at a time, cached with that solve and dropped by the next. It shows the loading state, failures and points without a head; a curve is never shown with another solve's results. Every pump's trace defines the system curve (H_sys), and the chart says how the curve shown was computed and links to that trace. *(Usability without trading correctness, GOALS §3.)*
+- Boundaries add no entrance or exit loss unless the connection has an entrance or exit fitting; the methods summary and each reservoir and reference-node trace say so, with the web app's default fittings at reservoirs (sharp entrance, exit). Traces, flags and topology issues number a connection's pipes and fittings from 1, as the app does; data indexes (`pipeIndex`, `segmentIndex`, `fittingIndex`) stay 0-based. *(GOALS §4.2.)*
+- Model rules JSON Schema cannot express are published from the Pydantic models as OpenAPI extensions (`x-port-ids`, `x-port-roles`, `x-port-count`, `x-required-parameters`, `x-reducer-types`, `x-entrance-types`, `x-exit-types`, `x-setpoint-bounds`); the web app reads them, with the schema's bounds, from the generated `openapi.json` (`utils/model-rules.ts`) instead of copying them, and an API test fails while that copy is stale.
 - Topology problems are 422 with every issue listed; validation and fluid-range errors 400; all errors share one envelope.
 
 ---
@@ -105,13 +108,14 @@ The specs reflect D1–D10; TSD §12 lists the decided implementation questions 
 
 ---
 
-## Planned layout
+## Layout
 
 ```
 apps/
-  api/   FastAPI backend (Python, uv)   src/opensolve_pipe/{routers,services/solver,models,data,utils}
-  web/   SvelteKit frontend (pnpm)      src/lib/{components,stores,models,utils,api}
-docs/    PRD, SDD, TSD
+  api/   FastAPI backend (Python, uv)   src/opensolve_pipe/{routers,services/solver,models,data}
+                                        tests/{unit,reference}   scripts/
+  web/   SvelteKit frontend (pnpm)      src/lib/{api,components,state,utils,testing}   tests/ (Playwright)
+docs/    GOALS, PRD, SDD, TSD, prompts/
 ```
 
 Add directories when the code that needs them lands; don't scaffold empty ones.

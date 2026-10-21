@@ -447,7 +447,7 @@ describe('notes and tables', () => {
 				flag({
 					code: 'TRANSITIONAL_FLOW',
 					severity: 'warning',
-					message: "connection 'L1' segment 1: made-up",
+					message: "connection 'L1' pipe 2: made-up",
 					connectionId: 'L1',
 					details: { segmentIndex: 1, reynoldsNumber: 2909 }
 				})

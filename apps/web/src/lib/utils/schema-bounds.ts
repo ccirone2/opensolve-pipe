@@ -3,6 +3,7 @@
  * are the source of truth), so inputs reject what the API would reject before it is stored.
  */
 import openapi from '../api/openapi.json';
+import { componentSchemaName, type ComponentTagged } from './model-rules';
 
 export interface Bounds {
 	minimum?: number;
@@ -96,36 +97,12 @@ export function stringLimits(
 	return limits;
 }
 
-const VALVE_SCHEMAS: Readonly<Record<string, string>> = {
-	gate: 'IsolationValve',
-	ball: 'IsolationValve',
-	butterfly: 'IsolationValve',
-	globe: 'IsolationValve',
-	check: 'CheckValve',
-	stop_check: 'CheckValve',
-	prv: 'ControlValve',
-	psv: 'ControlValve',
-	fcv: 'ControlValve'
-};
-
-/** Name of the schema a component is validated against, e.g. 'Reservoir', 'CheckValve'. */
-export function componentSchema(component: {
-	type: string;
-	branchType?: string;
-	valveType?: string;
-}): string {
-	switch (component.type) {
-		case 'reservoir':
-			return 'Reservoir';
-		case 'reference_node':
-			return 'IdealReferenceNode';
-		case 'plug':
-			return 'Plug';
-		case 'pump':
-			return 'Pump';
-		case 'branch':
-			return component.branchType === 'wye' ? 'WyeBranch' : 'TeeBranch';
-		default:
-			return VALVE_SCHEMAS[component.valveType ?? ''] ?? 'IsolationValve';
-	}
+/**
+ * Name of the schema a component is validated against, e.g. 'Reservoir', 'CheckValve' (the
+ * Project.components union, model-rules.ts).
+ */
+export function componentSchema(component: ComponentTagged): string {
+	const name = componentSchemaName(component);
+	if (!name) throw new Error(`No schema for component type "${String(component.type)}"`);
+	return name;
 }

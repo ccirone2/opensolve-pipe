@@ -64,6 +64,7 @@ from .elements import segment_state
 from .flags import make_flag
 from .friction import RE_LAMINAR_MAX, RE_TURBULENT_MIN, FlowRegime, range_warning
 from .gga import CONTINUITY_ATOL, ZERO_FLOW_RTOL
+from .labels import fitting_name, pipe_name
 from .methods import methods_summary
 from .network import LinkMode, LinkState, SolverNetwork
 from .npsh import npsh_available
@@ -316,7 +317,7 @@ class _Mapper:
                     make_flag(
                         "CORRELATION_OUT_OF_RANGE",
                         "warning",
-                        f"connection '{conn.id}' segment {i}: {out_of_range}",
+                        f"connection '{conn.id}' {pipe_name(i)}: {out_of_range}",
                         connection_id=conn.id,
                         details={
                             "segmentIndex": i,
@@ -330,7 +331,8 @@ class _Mapper:
                     make_flag(
                         "TRANSITIONAL_FLOW",
                         "warning",
-                        f"connection '{conn.id}' segment {i}: Re = {st.reynolds:.0f} is in the "
+                        f"connection '{conn.id}' {pipe_name(i)}: Re = {st.reynolds:.0f} is in "
+                        "the "
                         f"transition range ({RE_LAMINAR_MAX:g} to {RE_TURBULENT_MIN:g}); the "
                         "friction factor is interpolated and flow may be unsteady",
                         connection_id=conn.id,
@@ -357,7 +359,7 @@ class _Mapper:
                     make_flag(
                         "CORRELATION_OUT_OF_RANGE",
                         "warning",
-                        f"connection '{conn.id}' fitting {fit.index} ({fit.type}): its K "
+                        f"connection '{conn.id}' {fitting_name(fit.index)} ({fit.type}): its K "
                         f"correlation is for turbulent flow but the flow is laminar "
                         f"(Re = {re:.0f}); the loss is likely underestimated",
                         connection_id=conn.id,

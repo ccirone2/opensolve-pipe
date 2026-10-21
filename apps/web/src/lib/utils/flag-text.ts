@@ -7,8 +7,8 @@
  *
  * The element a flag is about is shown next to the text (a link, a table row or the trace
  * panel), so the text does not start with it. Every number comes from the flag; only units
- * change. Pipes and fittings are numbered from 1, as in the results tables (the API's indexes
- * are 0-based).
+ * change. Pipes and fittings are numbered from 1, as in the results tables and the API's
+ * messages (the segmentIndex and fittingIndex details are 0-based indexes).
  */
 import type { Flag, Project, UnitPreferences } from '../api/types';
 import { componentById, connectionById } from './graph';
@@ -64,9 +64,9 @@ export function messageText(flag: Flag, context: FlagTextContext): string {
 	return capitalize(siText(text, context.prefs));
 }
 
-/** The text after "segment N: " or "fitting N (type): " in a connection flag's message. */
+/** The text after "pipe N: " or "fitting N (type): " in a connection flag's message. */
 function reason(message: string): string {
-	const match = /(?:segment \d+|fitting \d+ \([^)]*\)): (.*)$/s.exec(message);
+	const match = /(?:pipe \d+|fitting \d+ \([^)]*\)): (.*)$/s.exec(message);
 	return match?.[1] ?? message;
 }
 

@@ -272,7 +272,15 @@
           "valveType"
         ],
         "title": "CheckValve",
-        "type": "object"
+        "type": "object",
+        "x-port-ids": [
+          "inlet",
+          "outlet"
+        ],
+        "x-port-roles": {
+          "inlet": "inlet",
+          "outlet": "outlet"
+        }
       },
       "ControlValve": {
         "additionalProperties": false,
@@ -359,7 +367,21 @@
           "setpoint"
         ],
         "title": "ControlValve",
-        "type": "object"
+        "type": "object",
+        "x-port-ids": [
+          "inlet",
+          "outlet"
+        ],
+        "x-port-roles": {
+          "inlet": "inlet",
+          "outlet": "outlet"
+        },
+        "x-setpoint-bounds": {
+          "fcv": {
+            "maximum": 100.0,
+            "minimum": 0.0
+          }
+        }
       },
       "ConvergenceReport": {
         "additionalProperties": false,
@@ -710,7 +732,34 @@
           "type"
         ],
         "title": "Fitting",
-        "type": "object"
+        "type": "object",
+        "x-entrance-types": [
+          "entrance_sharp",
+          "entrance_rounded",
+          "entrance_projecting"
+        ],
+        "x-exit-types": [
+          "exit"
+        ],
+        "x-reducer-types": [
+          "reducer_sudden",
+          "reducer_conical"
+        ],
+        "x-required-parameters": {
+          "bend": [
+            "angle",
+            "radiusRatio"
+          ],
+          "custom": [
+            "kOverride"
+          ],
+          "entrance_rounded": [
+            "radiusRatio"
+          ],
+          "reducer_conical": [
+            "angle"
+          ]
+        }
       },
       "FittingInfo": {
         "additionalProperties": false,
@@ -779,6 +828,7 @@
             "type": "number"
           },
           "index": {
+            "description": "0-based index into piping.fittings (traces call it Fitting index+1)",
             "title": "Index",
             "type": "integer"
           },
@@ -876,6 +926,7 @@
                 }
               ]
             },
+            "description": "Values behind the message, SI. segmentIndex and fittingIndex are 0-based indexes into the connection's piping.pipes and piping.fittings; messages number pipes and fittings from 1, as the web app does",
             "title": "Details",
             "type": "object"
           },
@@ -1344,7 +1395,8 @@
           "pressure"
         ],
         "title": "IdealReferenceNode",
-        "type": "object"
+        "type": "object",
+        "x-port-count": 1
       },
       "IsolationValve": {
         "additionalProperties": false,
@@ -1424,7 +1476,15 @@
           "valveType"
         ],
         "title": "IsolationValve",
-        "type": "object"
+        "type": "object",
+        "x-port-ids": [
+          "inlet",
+          "outlet"
+        ],
+        "x-port-roles": {
+          "inlet": "inlet",
+          "outlet": "outlet"
+        }
       },
       "LibraryResponse": {
         "additionalProperties": false,
@@ -2047,7 +2107,11 @@
           "type"
         ],
         "title": "Plug",
-        "type": "object"
+        "type": "object",
+        "x-port-ids": [
+          "port_1"
+        ],
+        "x-port-roles": {}
       },
       "Port": {
         "additionalProperties": false,
@@ -2391,7 +2455,15 @@
           "curveId"
         ],
         "title": "Pump",
-        "type": "object"
+        "type": "object",
+        "x-port-ids": [
+          "suction",
+          "discharge"
+        ],
+        "x-port-roles": {
+          "discharge": "outlet",
+          "suction": "inlet"
+        }
       },
       "PumpCurve": {
         "additionalProperties": false,
@@ -2804,6 +2876,7 @@
             "type": "number"
           },
           "index": {
+            "description": "0-based index into piping.pipes (traces call it Pipe index+1)",
             "title": "Index",
             "type": "integer"
           },
@@ -3240,7 +3313,17 @@
           "branchType"
         ],
         "title": "TeeBranch",
-        "type": "object"
+        "type": "object",
+        "x-port-ids": [
+          "run_inlet",
+          "run_outlet",
+          "branch"
+        ],
+        "x-port-roles": {
+          "branch": "outlet",
+          "run_inlet": "inlet",
+          "run_outlet": "outlet"
+        }
       },
       "TopologyIssue": {
         "additionalProperties": false,
@@ -3647,7 +3730,17 @@
           "branchType"
         ],
         "title": "WyeBranch",
-        "type": "object"
+        "type": "object",
+        "x-port-ids": [
+          "inlet",
+          "outlet_1",
+          "outlet_2"
+        ],
+        "x-port-roles": {
+          "inlet": "inlet",
+          "outlet_1": "outlet",
+          "outlet_2": "outlet"
+        }
       }
     }
   },
@@ -3746,9 +3839,79 @@
         ]
       }
     },
+    "/api/v1/fluids/properties": {
+      "post": {
+        "description": "Properties of a fluid definition (the project's ``fluid``: a built-in fluid at its\ntemperature and glycol mass fraction, with any overrides, or a custom fluid) as the solver\nwill use them, SI, with the source of each value.\n\nThe definition travels in the request body, which the server never logs (SDD §7.3); the web\napp uses this endpoint. ``fluid`` in the response is the built-in fluid's id, or 'custom'.",
+        "operationId": "fluid_definition_properties_api_v1_fluids_properties_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/BuiltinFluid"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CustomFluid"
+                  }
+                ],
+                "title": "Fluid"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FluidPropertiesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid input, or a fluid state out of range"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request too large"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Other errors"
+          }
+        },
+        "summary": "Fluid Definition Properties",
+        "tags": [
+          "fluids"
+        ]
+      }
+    },
     "/api/v1/fluids/{fluid_id}/properties": {
       "get": {
-        "description": "Properties of a library fluid at a temperature (and glycol mass fraction), SI.",
+        "description": "Properties of a library fluid at a temperature (and glycol mass fraction), SI.\n\nFor API users. The fluid and its values travel in the URL: the server's access log keeps\nonly the path, but proxies and other intermediaries may log the whole URL, query string\nincluded. POST /api/v1/fluids/properties sends them in the body instead.",
         "operationId": "fluid_properties_api_v1_fluids__fluid_id__properties_get",
         "parameters": [
           {

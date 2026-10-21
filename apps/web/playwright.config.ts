@@ -1,7 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-
-const API_PORT = 8000;
-const WEB_PORT = 4173;
+import { API_ORIGIN, API_PORT, WEB_ORIGIN, WEB_PORT } from './tests/servers';
 
 export default defineConfig({
 	testDir: 'tests',
@@ -11,7 +9,7 @@ export default defineConfig({
 	retries: 0,
 	reporter: process.env.CI ? 'github' : 'list',
 	use: {
-		baseURL: `http://localhost:${WEB_PORT}`,
+		baseURL: WEB_ORIGIN,
 		trace: 'retain-on-failure'
 	},
 	projects: [
@@ -34,14 +32,14 @@ export default defineConfig({
 		{
 			command: `uv run uvicorn opensolve_pipe.main:app --port ${API_PORT}`,
 			cwd: '../api',
-			url: `http://localhost:${API_PORT}/health`,
-			env: { CORS_ORIGINS: `http://localhost:${WEB_PORT}` },
+			url: `${API_ORIGIN}/health`,
+			env: { CORS_ORIGINS: WEB_ORIGIN },
 			reuseExistingServer: !process.env.CI
 		},
 		{
 			command: `pnpm build && pnpm preview --port ${WEB_PORT} --strictPort`,
-			url: `http://localhost:${WEB_PORT}`,
-			env: { PUBLIC_API_URL: `http://localhost:${API_PORT}` },
+			url: WEB_ORIGIN,
+			env: { PUBLIC_API_URL: API_ORIGIN },
 			reuseExistingServer: !process.env.CI
 		}
 	]

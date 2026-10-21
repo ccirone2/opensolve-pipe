@@ -1,11 +1,14 @@
 <!--
 	Pump chart (design §5): the pump curve at the operating speed (solid inside its data, dashed
 	where extrapolated), the system curve and the operating point, with axes in display units.
-	A data table under the chart lists the same points. Chart.js is loaded only when a chart is
-	shown.
+	The system curve is computed on demand for the same solve (D10): while it is computed, when it
+	fails and where points have no solution, the chart says so; once shown, it says how it was
+	computed and links to the pump's trace, which defines it. A data table under the chart lists
+	the same points. Chart.js is loaded only when a chart is shown.
 -->
 <script lang="ts">
 	import type { PumpResult, UnitPreferences } from '$lib/api/types';
+	import type { SystemCurveState } from '$lib/state/project.svelte';
 	import { pumpChartData, type ChartPoint } from '$lib/utils/pump-chart';
 	import { formatNumber } from '$lib/utils/units';
 
@@ -14,19 +17,27 @@
 		/** Pump name, for the chart's title and accessible description. */
 		name: string;
 		prefs: UnitPreferences;
-		/** Flow range of the curve's points at rated speed (m³/s), from the project. */
+		/** Flow range of the curve's points at rated speed (m³/s), from the solved project. */
 		ratedRange?: [number, number] | null;
+		/** The pump's system curve for the same solve (undefined: not requested). */
+		system?: SystemCurveState;
+		/** Compute the system curve (again, after a failure or a cancellation). */
+		onretry?: () => void;
+		/** Open the pump's trace, which defines the system curve (H_sys) among its equations. */
+		ontrace?: () => void;
 	}
 
-	let { result, name, prefs, ratedRange = null }: Props = $props();
+	let { result, name, prefs, ratedRange = null, system, onretry, ontrace }: Props = $props();
 	const id = $props.id();
 
 	// The range as numbers, so a new array with the same values does not rebuild the chart.
 	const low = $derived(ratedRange?.[0] ?? null);
 	const high = $derived(ratedRange?.[1] ?? null);
+	const curve = $derived(system?.status === 'ready' ? system.curve : null);
 	const data = $derived(
-		pumpChartData(result, prefs, low !== null && high !== null ? [low, high] : null)
+		pumpChartData(result, prefs, low !== null && high !== null ? [low, high] : null, curve)
 	);
+	const loading = $derived(system?.status === 'loading');
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let unavailable = $state(false);
 	let showTable = $state(false);
@@ -54,7 +65,7 @@
 		const parts = [
 			`Pump curve of ${name} at ${speedText}${off ? ', for reference: the pump is off' : ''}`
 		];
-		if (data.system) parts.push('system curve');
+		if (data.system && data.systemMissing < data.system.length) parts.push('system curve');
 		const op = data.operating;
 		const held = data.held;
 		const at = op
@@ -67,6 +78,14 @@
 			: '';
 		return `${parts.join(' and ')}${at}${extrapolated}.`;
 	});
+
+	/** "41 evenly spaced flows from 0 to 36 L/s": the flows the system curve was solved at. */
+	const systemFlows = $derived(
+		data.system && data.systemSpan
+			? `${data.system.length} evenly spaced flows from ${fmt(data.systemSpan[0])} to ` +
+					`${fmt(data.systemSpan[1])} ${data.flowUnit}`
+			: null
+	);
 
 	const HELD = 'Held at zero flow';
 
@@ -124,7 +143,7 @@
 							}
 						]
 					: []),
-				...(d.system
+				...(d.system && d.systemMissing < d.system.length
 					? [
 							{
 								label: 'System curve',
@@ -133,7 +152,9 @@
 								backgroundColor: SYSTEM,
 								borderWidth: 2,
 								pointRadius: 0,
-								pointHitRadius: 6
+								pointHitRadius: 6,
+								// A point without a solution is a gap, never bridged.
+								spanGaps: false
 							}
 						]
 					: []),
@@ -229,7 +250,7 @@
 	});
 </script>
 
-<figure class="space-y-2" aria-labelledby="{id}-caption">
+<figure class="space-y-2" aria-labelledby="{id}-caption" aria-busy={loading}>
 	<figcaption id="{id}-caption" class="text-sm font-medium">
 		Pump and system curves: {name}
 	</figcaption>
@@ -252,8 +273,55 @@
 			head across the pump.
 		</p>
 	{/if}
-	{#if !data.system}
-		<p class="text-xs text-slate-600">This solve did not return a system curve for this pump.</p>
+	{#if system?.status === 'loading'}
+		<p class="text-xs text-slate-600">Computing the system curve for this solve…</p>
+	{:else if system?.status === 'error'}
+		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+			<p class="text-xs text-red-800">The system curve could not be computed: {system.message}</p>
+			{#if onretry}
+				<button type="button" class="btn btn-quiet px-2 text-blue-800" onclick={onretry}>
+					Try again
+				</button>
+			{/if}
+		</div>
+	{:else if system?.status === 'cancelled' || system === undefined}
+		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+			<p class="text-xs text-slate-600">
+				{system
+					? 'The system curve was not computed: a new solve was started.'
+					: 'The system curve has not been computed for this solve.'}
+			</p>
+			{#if onretry}
+				<button type="button" class="btn btn-quiet px-2 text-blue-800" onclick={onretry}>
+					Compute the system curve
+				</button>
+			{/if}
+		</div>
+	{:else if data.system && data.systemMissing === data.system.length}
+		<p class="text-xs text-slate-700">
+			No point of the system curve has a solution, so it is not drawn; the data table says why.
+		</p>
+	{:else if data.systemMissing}
+		<p class="text-xs text-slate-700">
+			{data.systemMissing} of {data.system?.length} system-curve points have no solution: the line has
+			gaps there, and the data table says why.
+		</p>
+	{/if}
+	{#if systemFlows}
+		<!-- How the curve shown was computed, where it is shown (GOALS §4.2): the request
+			(POST /api/v1/system-curve) returns points without a trace; the pump's trace defines it. -->
+		<p class="text-xs text-slate-600">
+			System curve: the network of this solve, solved again with the pump replaced by each of
+			{systemFlows} (other pumps running, valves following their rules); the system head at each flow
+			is the EGL at the discharge minus the EGL at the suction.
+			{#if ontrace}
+				<button
+					type="button"
+					class="inline-flex min-h-11 items-center px-1 text-left text-blue-800 underline underline-offset-2"
+					onclick={ontrace}>Trace of {name}</button
+				>
+			{/if}
+		</p>
 	{/if}
 	{#if data.extrapolated.length}
 		<p class="text-xs text-slate-600">
@@ -346,6 +414,9 @@
 									<th scope="col" class="px-2 py-1 text-right font-medium"
 										>Head ({data.headUnit})</th
 									>
+									{#if data.systemMissing}
+										<th scope="col" class="px-2 py-1 text-left font-medium">No solution</th>
+									{/if}
 								</tr>
 							</thead>
 							<tbody>
@@ -353,6 +424,9 @@
 									<tr class="border-t border-slate-100">
 										<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
 										<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
+										{#if data.systemMissing}
+											<td class="px-2 py-1 text-xs text-slate-600">{row.note}</td>
+										{/if}
 									</tr>
 								{/each}
 							</tbody>

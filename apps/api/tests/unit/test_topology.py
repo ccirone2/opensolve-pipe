@@ -162,7 +162,7 @@ def test_pipe_library_references_are_reported_with_the_topology(
     [found] = info.value.issues
     assert found.code == code
     assert found.connection_ids == ["P2"]
-    assert "connection 'P2' pipe 0" in found.message
+    assert "connection 'P2' pipe 1:" in found.message  # its first pipe, numbered as in the UI
 
 
 def test_all_issues_are_reported_at_once() -> None:
@@ -191,7 +191,7 @@ def test_roughness_beyond_any_colebrook_solution_is_rejected(ratio: float) -> No
     [found] = info.value.issues
     assert found.code == "ROUGHNESS_OUT_OF_RANGE"
     assert found.connection_ids == ["P2"]
-    assert "connection 'P2' pipe 0" in found.message
+    assert "connection 'P2' pipe 1:" in found.message  # its first pipe, numbered as in the UI
 
 
 def test_roughness_just_inside_the_colebrook_bound_solves() -> None:

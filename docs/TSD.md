@@ -128,6 +128,7 @@ opensolve-pipe/
 │   │   │   │   │   ├── encoding.ts     # URL fragment encode/decode (§4.7)
 │   │   │   │   │   ├── migrations.ts   # schemaVersion upgrades (§4.7)
 │   │   │   │   │   ├── validate.ts     # Ajv schema check, port-graph and model-rule checks (§4.7)
+│   │   │   │   │   ├── model-rules.ts  # Model rules read from openapi.json (x-port-ids, …; §4.7)
 │   │   │   │   │   ├── link-error.ts   # Errors from opening a link
 │   │   │   │   │   ├── units.ts        # Display-unit conversion and formatting (§6)
 │   │   │   │   │   ├── graph.ts        # Port-graph traversal for the navigator (§8.1)
@@ -599,10 +600,10 @@ Tests check that `CURRENT_SCHEMA_VERSION` equals the `schemaVersion` constant in
 
 **Validation** (`validate.ts`):
 
-- **Schema.** `schemaProblems` checks the decoded value against the `Project` schema in `src/lib/api/openapi.json`, the document generated from the API's Pydantic models, so the browser checks the same schema as the API. It uses Ajv 8 (`Ajv2020`, `allErrors`, `strict`); `discriminator` and `components` are declared as annotation keywords. A `oneOf` member (component, fluid) is reported against the schema its tag names (`type`, then `branchType` or `valveType`; fluid `kind`), not against every alternative. Each problem is a sentence that names the element, e.g. `components[0] "R1" › liquidLevel: must be >= 0`.
+- **Schema.** `schemaProblems` checks the decoded value against the `Project` schema in `src/lib/api/openapi.json`, the document generated from the API's Pydantic models, so the browser checks the same schema as the API. It uses Ajv 8 (`Ajv2020`, `allErrors`, `strict`); `discriminator`, `components` and every `x-` extension in the schemas are declared as annotation keywords. A `oneOf` member (component, fluid) is reported against the schema its tag names (`type`, then `branchType` or `valveType`; fluid `kind`), read from the members of the `Project.components` and `Project.fluid` unions, not against every alternative. Each problem is a sentence that names the element, e.g. `components[0] "R1" › liquidLevel: must be >= 0`.
 - **Defaults.** `parseProject` fills in fields the schema gives defaults for, as the API does, so the result satisfies the generated `Project` type.
 - **Port graph.** `referenceProblems` checks that ids are unique, that every connection end names an existing component and port, and that each port has at most one connection. A link with any of these problems does not open.
-- **Model rules.** `modelRuleProblems` mirrors the rules the API models enforce in validators, which JSON Schema cannot express: the port ids per component type, the pipe size source, fitting parameters, increasing curve flows, FCV setpoint range, pump-curve references and ids shared by a component and a connection. A link that breaks only these still opens. The results pane lists the problems, and the solver reports them too.
+- **Model rules.** `modelRuleProblems` checks the rules the API models enforce in validators, which JSON Schema cannot express: the port ids or count per component type, the pipe size source, fitting parameters and reducer positions, increasing curve flows, the FCV setpoint range, pump-curve references and ids shared by a component and a connection (the API's `DUPLICATE_ID`). The rules come from the schema, never from a copy: `model-rules.ts` reads the models' extensions (`x-port-ids`, `x-port-roles`, `x-port-count`, `x-required-parameters`, `x-reducer-types`, `x-entrance-types`, `x-exit-types`, `x-setpoint-bounds`, SDD §5.1) and the ports bound, and the navigator's port roles, the piping editor, the ports editor and the control-valve form use the same functions. `model-rules.test.ts` fails if the app's rules and the schema's disagree; the API's `test_schema_rules.py` fails if an extension and its validator disagree or `openapi.json` is stale. A link that breaks only these still opens. The results pane lists the problems, and the solver reports them too.
 
 **Link errors** (`link-error.ts`): `LinkError.kind` is `corrupt` ("This link is incomplete or damaged … some email and chat apps cut long links short"), `newer_version` (names both format versions and says to reload for the latest app) or `invalid` (with `problems`). `LinkErrorView` shows the message and up to 20 problems. It offers to go back to the project that was open, to start a new project or to go home.
 
@@ -702,9 +703,9 @@ p_atm is `settings.atmosphericPressure` when set, else `fluids.atmosphere.ATMOSP
 
 ### 5.6 Trace, Methods Summary and System Curves
 
-- **Trace** (`trace.py`, shape in SDD §4.10): built after the results from the values the solver used, one `ElementTrace` per component and connection — inputs with their source (user / default / library / computed), equations as plain text, correlations and data sources with citations, intermediates (restating the result fields, or following from them by the listed equations) and notes (regime, state and the rule behind it, assumptions, flags). Unit strings are the ones `apps/web/src/lib/utils/trace.ts` converts (`Pa(g)`, `Pa(a)`, `Pa (difference)`, never bare `Pa`). Elements with no result (closed off, or a solve that did not converge) keep inputs, equations and sources with a note.
+- **Trace** (`trace.py`, shape in SDD §4.10; pipes, fittings and curve points numbered from 1 as in the app, `labels.py`): built after the results from the values the solver used, one `ElementTrace` per component and connection — inputs with their source (user / default / library / computed), equations as plain text, correlations and data sources with citations, intermediates (restating the result fields, or following from them by the listed equations) and notes (regime, state and the rule behind it, assumptions, flags). Unit strings are the ones `apps/web/src/lib/utils/trace.ts` converts (`Pa(g)`, `Pa(a)`, `Pa (difference)`, never bare `Pa`). Elements with no result (closed off, or a solve that did not converge) keep inputs, equations and sources with a note.
 - **Methods summary** (`methods.py`): one `MethodsSummary` per solve — sections Network solution, Pipe friction, Minor losses, Branches, Pumps, Valves, Fluid properties, Atmosphere and NPSH, Conventions; global assumptions; library versions (opensolve-pipe, fluids, CoolProp, numpy, scipy) and `METHOD_VERSION`. Every number in it is a solver constant or a value of the solve.
-- **System curve** (`system_curve.py`): at each flow the pump's link becomes a `FIXED_FLOW` link (`run_outer_loop(..., forced_flows={pump: Q})`; the pump takes no part in the status rules, every other element follows its own), and H_sys(Q) = EGL(discharge) − EGL(suction). Default flows 0 … 1.2 × the curve's largest flow × s. A point whose solve does not converge, or whose forced flow has no way through (a side reaching no fixed head), has no head. `POST /api/v1/system-curve` returns every point with `converged` and a message; `SolveOptions.includeSystemCurve` fills `PumpResult.systemCurve` of each running pump with its converged points. Closed-form tests: `tests/reference/test_system_curves.py` (single line, series and parallel pumps with the other pump running).
+- **System curve** (`system_curve.py`): at each flow the pump's link becomes a `FIXED_FLOW` link (`run_outer_loop(..., forced_flows={pump: Q})`; the pump takes no part in the status rules, every other element follows its own), and H_sys(Q) = EGL(discharge) − EGL(suction). Default flows 0 … 1.2 × the curve's largest flow × s. A point whose solve does not converge, or whose forced flow has no way through (a side reaching no fixed head), has no head. `POST /api/v1/system-curve` returns every point with `converged` and a message; `SolveOptions.includeSystemCurve` fills `PumpResult.systemCurve` of each running pump with its converged points. The web app solves with `includeSystemCurve: false` and requests one pump's curve when its chart is shown (CLAUDE.md D10, SDD §3.1.3); every pump's trace carries the H_sys definition (`trace.SYSTEM_CURVE_EQUATION`), and a solve that computes the curves adds a note on how many points were solved. Closed-form tests: `tests/reference/test_system_curves.py` (single line, series and parallel pumps with the other pump running).
 - **Flag severities** are fixed per code (`flags.FLAG_SEVERITY`); `make_flag` rejects a mismatch, and `tests/unit/test_flags_audit.py` checks each GOALS §4.6 condition.
 
 ---
@@ -810,7 +811,9 @@ async def system_curve_endpoint(request: SystemCurveRequest) -> SystemCurveRespo
     ...  # one SystemCurvePoint {flow, head | None, converged, message} per flow
 ```
 
-`SolveOptions {includeSystemCurve = true, systemCurvePoints = 41}` only adds system curves; options that change results live in `project.settings.solverOptions`.
+`SolveOptions {includeSystemCurve = true, systemCurvePoints = 41}` only adds system curves; options that change results live in `project.settings.solverOptions`. The curves cost a network solve per point for every running pump, so a solve that asks for them can miss the PRD §4.2 solve times a plain solve meets: the web app always sends `includeSystemCurve: false` and fetches the curve of the pump being viewed from `/system-curve`, with the project exactly as solved, one request at a time, cached with that solve (`ProjectStore.loadSystemCurve`, CLAUDE.md D10).
+
+**Fluid properties** (`routers/fluids.py`): `POST /api/v1/fluids/properties` takes a `FluidDefinition` in the body (the union the project's `fluid` uses) and returns `FluidPropertiesResponse`, overrides applied; the web app uses it, so no fluid value is ever in a URL. `GET /api/v1/fluids/{id}/properties?temperature=&concentration=` stays for API users; its query values can appear in intermediaries' logs (SDD §5.1).
 
 ---
 
@@ -970,6 +973,7 @@ pnpm dev
 ```
 
 - **API URL.** The web app calls the API at `PUBLIC_API_URL` (read from `$env/dynamic/public`), default `http://localhost:8000`. The API allows the origins in `CORS_ORIGINS`, default `http://localhost:5173`.
+- **API docs.** The API always serves its schema at `/openapi.json`. FastAPI's interactive pages (`/docs`, `/redoc`) load their scripts, styles, fonts and icon from third parties (jsDelivr, Google Fonts, fastapi.tiangolo.com), so they are served only when `API_DOCS=1` (development; CLAUDE.md D10, GOALS §4.5).
 - **API types.** After changing the API's Pydantic models, run `pnpm gen:types` in `apps/web`. It regenerates `src/lib/api/openapi.json` (via `uv run python -m opensolve_pipe.openapi`) and `src/lib/api/schema.d.ts`; never edit either by hand. CI fails if they are not current.
 - **Static build.** `pnpm build` writes the prerendered site to `apps/web/build/` (`index.html`, `p.html`, `_app/`), and `pnpm preview` serves it. A static build fixes `PUBLIC_API_URL` when it is built (`_app/env.js`).
 
@@ -1054,13 +1058,15 @@ What the tests cover:
   - the 8,000-character warning;
   - stale results by hydraulic fingerprint (display units, names and metadata do not count), and superseded solves;
   - typed solve errors, and the method version recorded without an undo step.
-- **API client** (`api/client.test.ts`): requests carry only the project and options, with no credentials or referrer; error responses map to typed errors.
+- **API client** (`api/client.test.ts`): requests carry only the project and options, with no credentials or referrer; a solve asks for no system curve; fluid properties are posted with the fluid in the body; no request URL carries a value; error responses map to typed errors; cancellation and the timeout work without `AbortSignal.any` (newer than the build target), and no listener is left on the caller's signal.
+- **Model rules** (`utils/model-rules.test.ts`): the component, port, fitting and setpoint rules the app applies are the schema's extensions and bounds, the validator knows every extension keyword, and the API's `DUPLICATE_ID` rule is mirrored.
+- **System curves** (`state/project.test.ts`, `PumpChart.svelte.test.ts`, `ResultsViews.svelte.test.ts`): a curve is requested for the project as solved, once per solve, one request at a time; a new solve drops the cache and cancels requests in flight, and a late answer for an older solve is dropped; the chart shows the loading state, failures with Try again, cancellations and points without a head; the Pumps view shows one pump at a time.
 - **Components** (`*.svelte.test.ts`): Home, the workspace, Share, fluid settings, `NumberField`, valve resistance, the control-valve form, component actions, the panel navigator, the results panel, its views and states, and the pump chart.
 - **Results display** (`utils/results.test.ts`, `trace.test.ts`, `flag-text.test.ts`, `pump-chart.test.ts`): tables, flags, traces and the methods text, and chart data in display units.
 
 **End-to-end tests: Playwright** (`playwright.config.ts`, `pnpm test:e2e`). Tests are `tests/*.e2e.ts`, with shared helpers in `tests/support.ts`. Selectors use accessible roles and names. They run against the real API and the production build:
 
-- **Servers.** The config starts the API (`uv run uvicorn opensolve_pipe.main:app --port 8000` in `apps/api`, with `CORS_ORIGINS=http://localhost:4173`) and the site (`pnpm build && pnpm preview --port 4173 --strictPort`, with `PUBLIC_API_URL=http://localhost:8000`). Outside CI it reuses servers that are already running.
+- **Servers.** The config starts the API (`uv run uvicorn opensolve_pipe.main:app --port 8010` in `apps/api`, with `CORS_ORIGINS=http://localhost:4183`) and the site (`pnpm build && pnpm preview --port 4183 --strictPort`, with `PUBLIC_API_URL=http://localhost:8010`); the ports are in `tests/servers.ts`. Outside CI it reuses servers already running on those ports. They are not the development ports (API 8000, Vite 5173 and 4173), so a development API, whose CORS allows only the dev app, is never reused.
 - **Projects.** Every test runs twice, on Chromium (Playwright's `Desktop Chrome` device):
   - `desktop`: 1280 × 800;
   - `mobile`: 390 × 844, `isMobile`, `hasTouch`, device scale factor 3.
@@ -1071,10 +1077,12 @@ The flows in `tests/` at the time of writing:
 
 - **`home`**: the home page renders.
 - **`navigator`**: each home-page example opens from its link at its start component, and Next walks on. A shared link opens the project directly, and edits make a new link. A damaged link explains what happened.
-- **`pump-system`**: a pump system is built from a new project through the UI, solved, read, shared and reopened; the reopened link shows the same results. The test also checks that the page made requests only to the app's and the API's origins.
+- **`pump-system`**: a pump system is built from a new project through the UI, solved, read, shared and reopened; the reopened link shows the same results. The solve asks for no system curve; showing the pump requests its curve once, for exactly the project solved, and the operating point lies on it; the chart says how the curve was computed and opens the pump's trace, which defines it. The page runs without `AbortSignal.any`, as in the oldest browsers of Vite's default build target (`baseline-widely-available`, e.g. Safari 16.4), since Vite does not polyfill APIs. The test also checks that the page made requests only to the app's and the API's origins.
 - **`gravity-branch`**: a gravity-fed branched network with no pump is built through the navigator. Both branches flow, and their flows add up.
+- **`topology-error`**: networks the solver cannot solve as connected (no reservoir; an unconnected tee branch) list the API's topology issues with names, each linking back to its components, and solve once fixed.
+- **`examples`**: each home-page example, opened from its link and solved unmodified, converges with no flag. Each released schema version's fixture link (`src/lib/utils/__fixtures__/schema-vN.txt`), opened on the test origin, decodes, migrates and converges (the API suite solves the current version's fixture too, `tests/unit/test_released_links.py`).
 - **`results`**: a pipe-only network is opened from a link, solved and shared, and the shared link gives the same results. Results tables fit the screen and scroll inside their own box. A connection of several pipes shows each pipe's velocity and Re.
-- **`workspace`**: an edit made just before leaving by an in-app link is in the link that Back returns to. The workspace fits 320 px without sideways scrolling, and on a phone in landscape the header is one row. Keyboard focus stays on Solve and Undo when they become unavailable. Escape in an edited number field of a dialog reverts the field, not the dialog.
+- **`workspace`**: an edit made just before leaving by an in-app link is in the link that Back returns to. The fluid settings show the API's calculated properties, requested by POST with the fluid in the body; no request URL carries a query string. The workspace fits 320 px without sideways scrolling, and on a phone in landscape the header is one row. Keyboard focus stays on Solve and Undo when they become unavailable. Escape in an edited number field of a dialog reverts the field, not the dialog.
 
 ---
 
@@ -1118,6 +1126,7 @@ PUBLIC_API_URL=https://api.opensolve-pipe.app
 ENVIRONMENT=production
 CORS_ORIGINS=https://opensolve-pipe.app
 FORWARDED_ALLOW_IPS=<the platform proxy's address range>   # §11.2
+# API_DOCS=1 would serve /docs and /redoc, which load third-party assets: development only (§9.2)
 ```
 
 ---

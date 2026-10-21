@@ -46,6 +46,7 @@ from ...models.components import (
     WyeBranch,
 )
 from ...models.fluids import BuiltinFluid, FluidProperties
+from ...models.piping import ENTRANCE_TYPES, EXIT_TYPES, REDUCER_TYPES
 from ...models.results import (
     BoundaryResult,
     BranchResult,
@@ -70,6 +71,7 @@ from .friction import (
     FlowRegime,
     range_warning,
 )
+from .labels import fitting_label, fitting_position, pipe_label, pipe_name
 from .library import USER_SOURCE, load_pipe_materials
 from .methods import (
     CLAMOND,
@@ -85,6 +87,7 @@ from .methods import (
     USSA_1976,
 )
 from .status import HTOL, QTOL, OuterLoopResult, Status, active_state, open_loss
+from .system_curve import DEFAULT_RANGE_FACTOR
 from .valves import CRANE_DEFAULTS, IDEAL_CONTROL_VALVE
 
 Source = Literal["user", "default", "library", "computed"]
@@ -373,7 +376,7 @@ def _no_values_note(t: _Trace, ctx: TraceInputs, isolated: bool) -> None:
 
 
 def _regime_note(i: int, regime: str, re: float, ed: float, method: str) -> str:
-    label = f"Segment {i}"
+    label = pipe_label(i)
     if regime == FlowRegime.NONE:
         return f"{label}: no flow (Re = 0); f is not defined there and is reported as 0."
     if regime == FlowRegime.LAMINAR:
@@ -458,7 +461,7 @@ def _connection_trace(ctx: TraceInputs, data: ConnectionData) -> ElementTrace:
     _fluid(t, ctx, density=False, viscosity=True)
     materials = load_pipe_materials()
     for i, (pipe, defn) in enumerate(zip(data.pipes, conn.piping.pipes, strict=True)):
-        label = f"Segment {i}"
+        label = pipe_label(i)
         material = materials.get(pipe.material_id)
         t.input(
             f"{label} material",
@@ -490,10 +493,15 @@ def _connection_trace(ctx: TraceInputs, data: ConnectionData) -> ElementTrace:
     q = float(ctx.flows[data.link_index])
     crane_fittings = False
     for fit, fdef in zip(data.fittings, conn.piping.fittings, strict=True):
-        label = f"Fitting {fit.index} ({fit.type})"
+        label = f"{fitting_label(fit.index)} ({fit.type})"
         t.input(f"{label} type", fit.type, NO_UNIT, "user")
         t.input(f"{label} quantity n", fit.quantity, NO_UNIT, _given(fdef, "quantity"))
-        t.input(f"{label} segment index", fdef.pipe_index, NO_UNIT, _given(fdef, "pipe_index"))
+        t.input(
+            f"{label} position",
+            fitting_position(fdef.pipe_index, fit.type in REDUCER_TYPES),
+            NO_UNIT,
+            _given(fdef, "pipe_index"),
+        )
         if fdef.k_override is not None:
             t.input(f"{label} K (user)", fdef.k_override, NO_UNIT, "user")
         if fdef.angle is not None:
@@ -513,8 +521,9 @@ def _connection_trace(ctx: TraceInputs, data: ConnectionData) -> ElementTrace:
             if fit.correlation_forward != fit.correlation_reverse:
                 t.note(
                     f"{label}: K depends on the flow direction: from → to, "
-                    f"{fit.correlation_forward} (on segment {fit.segment_forward}); to → from, "
-                    f"{fit.correlation_reverse} (on segment {fit.segment_reverse})."
+                    f"{fit.correlation_forward} (on {pipe_name(fit.segment_forward)}); "
+                    f"to → from, {fit.correlation_reverse} "
+                    f"(on {pipe_name(fit.segment_reverse)})."
                 )
 
     t.equation("A = π D²/4 and v = Q/A (Q: flow from → to; D: segment inner diameter)")
@@ -540,21 +549,23 @@ def _connection_trace(ctx: TraceInputs, data: ConnectionData) -> ElementTrace:
     if link is not None:
         t.value("Flow Q", link.flow, M3S)
         for i, (seg, res) in enumerate(zip(data.segments, link.segments, strict=True)):
-            t.value(f"Segment {i} area A", seg.area, M2)
-            t.value(f"Segment {i} velocity v", res.velocity, MS)
-            t.value(f"Segment {i} Reynolds number Re", res.reynolds_number, NO_UNIT)
-            t.value(f"Segment {i} relative roughness ε/D", seg.relative_roughness, NO_UNIT)
-            t.value(f"Segment {i} friction factor f", res.friction_factor, NO_UNIT)
-            t.value(f"Segment {i} friction head loss h_f", res.head_loss, M)
+            label = pipe_label(i)
+            t.value(f"{label} area A", seg.area, M2)
+            t.value(f"{label} velocity v", res.velocity, MS)
+            t.value(f"{label} Reynolds number Re", res.reynolds_number, NO_UNIT)
+            t.value(f"{label} relative roughness ε/D", seg.relative_roughness, NO_UNIT)
+            t.value(f"{label} friction factor f", res.friction_factor, NO_UNIT)
+            t.value(f"{label} friction head loss h_f", res.head_loss, M)
             t.note(
                 _regime_note(
                     i, res.flow_regime, res.reynolds_number, seg.relative_roughness, method
                 )
             )
         for fr in link.fittings:
-            t.value(f"Fitting {fr.index} K", fr.k, NO_UNIT)
-            t.value(f"Fitting {fr.index} reference diameter", fr.reference_diameter, M)
-            t.value(f"Fitting {fr.index} head loss h_j", fr.head_loss, M)
+            label = fitting_label(fr.index)
+            t.value(f"{label} K", fr.k, NO_UNIT)
+            t.value(f"{label} reference diameter", fr.reference_diameter, M)
+            t.value(f"{label} head loss h_j", fr.head_loss, M)
         t.value("Friction head loss Σh_f", link.friction_head_loss, M)
         t.value("Fittings head loss Σh_j", link.fittings_head_loss, M)
         t.value("Head loss Δh = EGL_from − EGL_to", link.head_loss, M)
@@ -591,6 +602,16 @@ def _port_pressure_values(t: _Trace, ctx: TraceInputs, comp: Component) -> None:
             t.value(f"Port {port.id} static pressure p", node.pressure, PA_G)
 
 
+SYSTEM_CURVE_EQUATION = (
+    "H_sys(Q) = EGL_discharge − EGL_suction with the pump replaced by a fixed flow Q (system "
+    "curve; other pumps keep running, valves follow their rules). Computed on request, at "
+    "evenly spaced flows (default 0 to "
+    f"{DEFAULT_RANGE_FACTOR:g} × the curve's largest flow × s): POST /api/v1/system-curve, "
+    "or with the solve when includeSystemCurve is set"
+)
+"""In every pump's trace, so a system curve shown with the results is defined there whether
+the solve computed it or it was requested afterwards (D10; that response has no trace)."""
+
 PORT_PRESSURE_EQUATION = (
     "p = ρ g (EGL − z_port − v²/(2g)): static gauge pressure at a port (z_port: the port's "
     "elevation; v: the velocity in the pipe connected there, Q/A of its end segment)"
@@ -610,6 +631,47 @@ def _port_state_values(
         label, sub = (labels or {}).get(port.id, (f"Port {port.id}", ""))
         t.value(f"{label} velocity v{sub} (connected pipe)", node.velocity, MS)
         t.value(f"{label} static pressure p{sub}", node.pressure, PA_G)
+
+
+BOUNDARY_LOSS_NOTE = (
+    "No entrance or exit loss is applied where a pipe meets this boundary unless the "
+    "connection's piping has an entrance fitting ("
+    + ", ".join(ENTRANCE_TYPES)
+    + ": the loss where flow leaves the boundary into the pipe) or an exit fitting ("
+    + ", ".join(EXIT_TYPES)
+    + ": the loss where flow leaves the pipe into the boundary). Without one, the EGL at the "
+    "port equals the boundary head H in either flow direction: the velocity head v²/(2g) of the "
+    "connected pipe is gained on entry and given back on exit with no loss. Such a fitting is a "
+    "loss of its connection (see that connection's trace). The web app adds a sharp-edged "
+    "entrance (entrance_sharp) where new piping leaves a reservoir and an exit where it enters "
+    "one, which the user can remove; it adds none at a reference node."
+)
+
+
+def _boundary_loss_notes(t: _Trace, ctx: TraceInputs, comp: Component) -> None:
+    """BOUNDARY_LOSS_NOTE, then which entrance and exit fittings the piping at each port has."""
+    t.note(BOUNDARY_LOSS_NOTE)
+    for port in comp.ports:
+        attached = ctx.built.port_connection.get(node_key(comp.id, port.id))
+        if attached is None:
+            continue
+        conn = ctx.built.connections[attached[0]].connection
+        types = [f.type for f in conn.piping.fittings]
+        entrances = sorted({k for k in types if k in ENTRANCE_TYPES})
+        exits = sorted({k for k in types if k in EXIT_TYPES})
+        found = [
+            *([f"entrance fitting(s) {', '.join(entrances)}"] if entrances else []),
+            *([f"exit fitting(s) {', '.join(exits)}"] if exits else []),
+        ]
+        t.note(
+            f"Port {port.id}, connection '{conn.id}': "
+            + (
+                f"its piping has {' and '.join(found)}."
+                if found
+                else "its piping has no entrance or exit fitting, so no entrance or exit loss "
+                "is applied there."
+            )
+        )
 
 
 def _reservoir_trace(ctx: TraceInputs, comp: Reservoir) -> ElementTrace:
@@ -644,6 +706,7 @@ def _reservoir_trace(ctx: TraceInputs, comp: Reservoir) -> ElementTrace:
         "Quiescent boundary: the liquid level is constant and the liquid at rest (velocity 0); "
         "velocity head develops in the connected pipes."
     )
+    _boundary_loss_notes(t, ctx, comp)
     _no_values_note(t, ctx, result is None)
     _flag_notes(t, ctx)
     return t.build()
@@ -673,6 +736,7 @@ def _reference_trace(ctx: TraceInputs, comp: IdealReferenceNode) -> ElementTrace
         "Ideal reference node: it supplies or takes any flow at its fixed pressure (velocity 0 "
         "at the boundary)."
     )
+    _boundary_loss_notes(t, ctx, comp)
     _no_values_note(t, ctx, result is None)
     _flag_notes(t, ctx)
     return t.build()
@@ -858,14 +922,14 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
     t = _Trace(comp.id, "pump")
     t.input("Pump curve", f"{data.curve.name} ({data.curve.curve_id})", NO_UNIT, "user")
     for i, p in enumerate(curve.points):
-        t.input(f"Head curve point {i}: flow Q₀", p.flow, M3S, "user")
-        t.input(f"Head curve point {i}: head H₀", p.head, M, "user")
+        t.input(f"Head curve point {i + 1}: flow Q₀", p.flow, M3S, "user")
+        t.input(f"Head curve point {i + 1}: head H₀", p.head, M, "user")
     for i, e in enumerate(curve.efficiency_curve or []):
-        t.input(f"Efficiency curve point {i}: flow Q₀", e.flow, M3S, "user")
-        t.input(f"Efficiency curve point {i}: efficiency η₀", e.efficiency, NO_UNIT, "user")
+        t.input(f"Efficiency curve point {i + 1}: flow Q₀", e.flow, M3S, "user")
+        t.input(f"Efficiency curve point {i + 1}: efficiency η₀", e.efficiency, NO_UNIT, "user")
     for i, n in enumerate(curve.npshr_curve or []):
-        t.input(f"NPSHr curve point {i}: flow Q₀", n.flow, M3S, "user")
-        t.input(f"NPSHr curve point {i}: NPSHr₀", n.npshr, M, "user")
+        t.input(f"NPSHr curve point {i + 1}: flow Q₀", n.flow, M3S, "user")
+        t.input(f"NPSHr curve point {i + 1}: NPSHr₀", n.npshr, M, "user")
     t.input("Speed ratio s", s, NO_UNIT, _given(comp, "speed"))
     t.input("Status", comp.status, NO_UNIT, _given(comp, "status"))
     _port_elevation_input(t, comp, "suction", "Suction port elevation z_s")
@@ -882,6 +946,7 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
     t.equation(
         "H = EGL_discharge − EGL_suction: the pump head is the EGL rise (total dynamic head)"
     )
+    t.equation(SYSTEM_CURVE_EQUATION)
     t.equation(
         f"No flow while EGL_discharge − EGL_suction > s² H₀(0) + {HTOL:g} m (the shutoff head) "
         f"or the flow would reverse, Q < −{QTOL:g} m³/s: the pump's integral check"

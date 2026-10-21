@@ -52,10 +52,13 @@
 			old link still opens the project as it was.
 		</p>
 		<p class="text-slate-700">
-			Solving sends the project to the calculation server, which works it out and sends back the
-			results without storing or logging it. The project settings also ask the server for the
-			calculated properties of the chosen fluid; that request names only the fluid, its temperature
-			and concentration, and the server logs only its path, never those values.
+			Solving sends the project to the calculation server, and so does showing a pump's system
+			curve. The server works out the results and sends them back without storing the project or
+			writing it to its logs. To show the calculated properties of the chosen fluid, the fluid
+			settings send the fluid (its type, temperature and concentration) the same way. All of this
+			travels in the body of each request, never in the address it is sent to. The server's log
+			keeps neither project data nor your IP address: for each request, only its method, path, HTTP
+			version and status, and for a request the server fails on, the kind of failure.
 		</p>
 	</section>
 

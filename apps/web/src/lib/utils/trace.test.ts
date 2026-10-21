@@ -144,11 +144,9 @@ describe('trace names and port values as in Build', () => {
 		);
 	});
 
-	it('adds the Build pipe and fitting numbers, and names ports of the element', () => {
-		expect(traceName('Segment 0 length L', project, 'L1')).toBe('Segment 0 (pipe 1) length L');
-		expect(traceName('Fitting 1 (exit) type', project, 'L3')).toBe(
-			'Fitting 1 (fitting 2, exit) type'
-		);
+	it('keeps the API pipe and fitting numbers (from 1, as in Build), and names ports of the element', () => {
+		expect(traceName('Pipe 1 length L', project, 'L1')).toBe('Pipe 1 length L');
+		expect(traceName('Fitting 2 (exit) type', project, 'L3')).toBe('Fitting 2 (exit) type');
 		expect(traceName('Port port_1 outflow', project, 'R1')).toBe('Port 1 outflow');
 		expect(traceName('Port suction static pressure p', project, 'P1')).toBe(
 			'Suction static pressure p'

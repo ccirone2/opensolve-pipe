@@ -1,4 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
+import type { FluidPropertiesResponse } from '../src/lib/api/types';
+import { EXAMPLES } from '../src/lib/utils/examples';
+import { sig4 } from './support';
 
 /** Open the pump transfer example from the home page. */
 async function openExample(page: Page) {
@@ -29,6 +32,34 @@ test('an edit made just before leaving by an in-app link is in the link Back ret
 	await expect(page.getByRole('textbox', { name: 'Project name' })).toHaveValue(
 		'Edited just before leaving'
 	);
+});
+
+test('the fluid settings get the calculated properties with the fluid in the request body', async ({
+	page
+}) => {
+	const urls: string[] = [];
+	page.on('request', (r) => urls.push(r.url()));
+	await openExample(page);
+	const answer = page.waitForResponse((r) => r.url().endsWith('/api/v1/fluids/properties'));
+	await page.getByRole('button', { name: 'Settings' }).click();
+	const response = await answer;
+	expect(response.request().method()).toBe('POST');
+	expect(response.status()).toBe(200);
+	// The project's built-in fluid at its state (no overrides in the example).
+	const fluid = EXAMPLES[0]!.create().fluid;
+	expect(fluid.kind).toBe('builtin');
+	if (fluid.kind !== 'builtin') return;
+	expect(response.request().postDataJSON()).toEqual({
+		kind: 'builtin',
+		fluidId: fluid.fluidId,
+		temperature: fluid.temperature
+	});
+	const { properties } = (await response.json()) as FluidPropertiesResponse;
+	const dialog = page.getByRole('dialog', { name: 'Project settings' });
+	await expect(dialog.getByText('Calculated properties', { exact: true })).toBeVisible();
+	await expect(dialog.getByText(`${sig4(properties.density)} kg/m³`)).toBeVisible();
+	// No request put anything in its address: no query strings (GOALS §4.5).
+	expect(urls.filter((u) => u.includes('?'))).toEqual([]);
 });
 
 test('the workspace fits 320 px without scrolling sideways', async ({ page }, testInfo) => {

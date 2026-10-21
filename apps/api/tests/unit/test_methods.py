@@ -7,6 +7,7 @@ import numpy as np
 import scipy
 
 from opensolve_pipe import __version__
+from opensolve_pipe.models.piping import ENTRANCE_TYPES, EXIT_TYPES
 from opensolve_pipe.models.results import MethodsSummary
 from opensolve_pipe.services.solver import METHOD_VERSION, solve_project
 from opensolve_pipe.services.solver.gga import CONTINUITY_RTOL, ENERGY_TOL
@@ -67,6 +68,22 @@ def test_assumptions_cover_the_global_model() -> None:
         "control valves without an entered resistance are ideal",
     ):
         assert word in text, word
+
+
+def test_assumptions_disclose_entrance_and_exit_losses_at_boundaries() -> None:
+    """GOALS §4.2: no loss is added where a pipe meets a reservoir or reference node unless the
+    piping has an entrance or exit fitting, and the web app's default fittings are stated."""
+    [item] = [a for a in _methods().assumptions if "entrance or exit loss" in a]
+    assert item.startswith(
+        "No entrance or exit loss is applied where a pipe meets a reservoir or reference node "
+        "unless the connection's piping has an entrance fitting ("
+    )
+    for kind in (*ENTRANCE_TYPES, *EXIT_TYPES):
+        assert kind in item
+    assert (
+        "The web app adds a sharp-edged entrance where new piping leaves a reservoir and an "
+        "exit where it enters one (removable), and none at a reference node"
+    ) in item
 
 
 def test_network_section_states_the_tolerances_and_iterations() -> None:

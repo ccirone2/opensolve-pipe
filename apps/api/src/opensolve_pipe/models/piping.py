@@ -2,7 +2,9 @@
 
 from typing import Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
+from pydantic.alias_generators import to_camel
+from pydantic.config import JsonDict
 
 from .base import CamelModel, Identifier
 
@@ -36,6 +38,13 @@ FittingType = Literal[
 components, so that flow splitting is modeled."""
 
 REDUCER_TYPES = ("reducer_sudden", "reducer_conical")
+"""Fittings that sit between two pipe segments (pipeIndex and pipeIndex + 1)."""
+
+ENTRANCE_TYPES = ("entrance_sharp", "entrance_rounded", "entrance_projecting")
+"""Fittings for the loss where flow leaves a body of liquid (a reservoir) into a pipe."""
+
+EXIT_TYPES = ("exit",)
+"""Fittings for the loss where flow leaves a pipe into a body of liquid."""
 
 # Fitting fields each type requires (beyond type, quantity and pipeIndex).
 REQUIRED_PARAMETERS: dict[str, tuple[str, ...]] = {
@@ -43,6 +52,17 @@ REQUIRED_PARAMETERS: dict[str, tuple[str, ...]] = {
     "entrance_rounded": ("radius_ratio",),
     "reducer_conical": ("angle",),
     "custom": ("k_override",),
+}
+
+FITTING_SCHEMA_EXTRA: JsonDict = {
+    # The rules the validators below enforce, published as OpenAPI extensions so clients read
+    # them instead of copying them (the frontend's utils/model-rules.ts).
+    "x-required-parameters": {
+        kind: [to_camel(f) for f in fields] for kind, fields in REQUIRED_PARAMETERS.items()
+    },
+    "x-reducer-types": list(REDUCER_TYPES),
+    "x-entrance-types": list(ENTRANCE_TYPES),
+    "x-exit-types": list(EXIT_TYPES),
 }
 
 
@@ -91,6 +111,8 @@ class PipeDefinition(CamelModel):
 
 class Fitting(CamelModel):
     """An inline fitting, with its loss referenced to the velocity in pipe ``pipeIndex``."""
+
+    model_config = ConfigDict(json_schema_extra=FITTING_SCHEMA_EXTRA)
 
     type: FittingType
     quantity: int = Field(default=1, ge=1, le=1000)

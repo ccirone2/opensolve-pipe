@@ -61,7 +61,7 @@ describe('flag text from code and details', () => {
 			flag({
 				code: 'TRANSITIONAL_FLOW',
 				severity: 'warning',
-				message: "connection 'L1' segment 1: Re = 2909 is in the transition range",
+				message: "connection 'L1' pipe 2: Re = 2909 is in the transition range",
 				connectionId: 'L1',
 				details: { segmentIndex: 1, reynoldsNumber: 2908.8 }
 			}),
@@ -70,13 +70,27 @@ describe('flag text from code and details', () => {
 		expect(text).toMatch(/^Pipe 2: Re = 2909 is in the laminar–turbulent transition range/);
 	});
 
+	it('a pipe outside a correlation range keeps the number the API gives it (from 1)', () => {
+		const text = flagText(
+			flag({
+				code: 'CORRELATION_OUT_OF_RANGE',
+				severity: 'warning',
+				message: "connection 'L1' pipe 2: made-up reason for the test",
+				connectionId: 'L1',
+				details: { segmentIndex: 1, reynoldsNumber: 2.5e8 }
+			}),
+			{ project: pumpProject, prefs: SI_UNITS }
+		);
+		expect(text).toBe('Pipe 2: Made-up reason for the test');
+	});
+
 	it('a fitting is named, numbered from 1, with the reason the API gives', () => {
 		const text = flagText(
 			flag({
 				code: 'CORRELATION_OUT_OF_RANGE',
 				severity: 'warning',
 				message:
-					"connection 'L1' fitting 0 (elbow_90_lr): its K correlation is for turbulent flow (Re = 900)",
+					"connection 'L1' fitting 1 (elbow_90_lr): its K correlation is for turbulent flow (Re = 900)",
 				connectionId: 'L1',
 				details: { fittingIndex: 0, reynoldsNumber: 900 }
 			}),

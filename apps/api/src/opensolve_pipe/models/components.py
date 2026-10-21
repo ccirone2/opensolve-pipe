@@ -1,11 +1,45 @@
 """Components: the nodes of the port graph (SDD §4.2-4.9), v1 scope."""
 
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, ClassVar, Literal, Self
 
-from pydantic import Discriminator, Field, Tag, model_validator
+from pydantic import ConfigDict, Discriminator, Field, Tag, model_validator
+from pydantic.config import JsonDict
 
 from .base import CamelModel, Elevation, GaugePressure, Identifier, Name
 from .ports import Port
+
+PortRole = Literal["inlet", "outlet"]
+"""A port's role in its component's forward flow direction (see BaseComponent.PORT_ROLES)."""
+
+FCV_SETPOINT_RANGE = (0.0, 100.0)
+"""Bounds of an FCV setpoint, m³/s (a flow; PRV and PSV setpoints are gauge pressures)."""
+
+
+def _component_schema_extra(schema: JsonDict, cls: type[Any]) -> None:
+    """Publish the rules the validators below enforce, which JSON Schema cannot express, as
+    OpenAPI extensions, so clients read them instead of copying them (the frontend's
+    ``utils/model-rules.ts``):
+
+    - ``x-port-ids``: the exact set of port ids the component type requires;
+    - ``x-port-roles``: the role of each named port in the type's forward flow direction
+      (``inlet`` / ``outlet``); a port it does not list may take either;
+    - ``x-port-count``: the exact number of ports, when only that is fixed;
+    - ``x-setpoint-bounds``: setpoint bounds by valve type, where they differ from the
+      ``setpoint`` field's own.
+    """
+    ids: tuple[str, ...] | None = getattr(cls, "PORT_IDS", None)
+    if ids is not None:
+        schema["x-port-ids"] = list(ids)
+        roles: dict[str, str] = getattr(cls, "PORT_ROLES", {})
+        schema["x-port-roles"] = dict(roles)
+    count: int | None = getattr(cls, "PORT_COUNT", None)
+    if count is not None:
+        schema["x-port-count"] = count
+    bounds: dict[str, tuple[float, float]] | None = getattr(cls, "SETPOINT_BOUNDS", None)
+    if bounds:
+        schema["x-setpoint-bounds"] = {
+            valve: {"minimum": low, "maximum": high} for valve, (low, high) in bounds.items()
+        }
 
 
 class FlowCoefficient(CamelModel):
@@ -21,22 +55,37 @@ class FlowCoefficient(CamelModel):
 
 
 class BaseComponent(CamelModel):
+    model_config = ConfigDict(json_schema_extra=_component_schema_extra)
+
+    PORT_IDS: ClassVar[tuple[str, ...] | None] = None
+    """The exact port ids of the component type (None: any ids). Published as x-port-ids."""
+    PORT_ROLES: ClassVar[dict[str, PortRole]] = {}
+    """Role of each named port in the type's forward flow direction: positive pump flow
+    (suction -> discharge), a valve's forward direction (inlet -> outlet), a branch's dividing
+    pattern. The solver decides the actual flow direction; clients use the roles to orient new
+    connections. Published as x-port-roles."""
+    PORT_COUNT: ClassVar[int | None] = None
+    """The exact number of ports, for a type whose port ids are free. Published as
+    x-port-count."""
+
     id: Identifier
     name: Name
     elevation: Elevation
     ports: list[Port] = Field(min_length=1, max_length=16)
 
     @model_validator(mode="after")
-    def _check_unique_ports(self) -> Self:
+    def _check_ports(self) -> Self:
         ids = [p.id for p in self.ports]
         if len(set(ids)) != len(ids):
             raise ValueError("duplicate port ids")
+        if self.PORT_IDS is not None and sorted(ids) != sorted(self.PORT_IDS):
+            raise ValueError(f"a {type(self).__name__} must have ports {list(self.PORT_IDS)}")
+        if self.PORT_COUNT is not None and len(ids) != self.PORT_COUNT:
+            raise ValueError(
+                f"a {type(self).__name__} must have exactly {self.PORT_COUNT} port"
+                + ("" if self.PORT_COUNT == 1 else "s")
+            )
         return self
-
-    def _require_ports(self, expected: tuple[str, ...]) -> None:
-        ids = sorted(p.id for p in self.ports)
-        if ids != sorted(expected):
-            raise ValueError(f"a {type(self).__name__} must have ports {list(expected)}")
 
 
 class Reservoir(BaseComponent):
@@ -58,26 +107,19 @@ class IdealReferenceNode(BaseComponent):
     port elevation. Velocity head develops in the connecting piping.
     """
 
+    PORT_COUNT = 1
+
     type: Literal["reference_node"]
     reference_type: Literal["ideal"]
     pressure: GaugePressure = Field(description="Fixed gauge pressure at the port, Pa")
-
-    @model_validator(mode="after")
-    def _check_ports(self) -> Self:
-        if len(self.ports) != 1:
-            raise ValueError("a reference node must have exactly one port")
-        return self
 
 
 class Plug(BaseComponent):
     """Closed end: zero-flow boundary on its single port."""
 
-    type: Literal["plug"]
+    PORT_IDS = ("port_1",)
 
-    @model_validator(mode="after")
-    def _check_ports(self) -> Self:
-        self._require_ports(("port_1",))
-        return self
+    type: Literal["plug"]
 
 
 BranchLossModel = Literal["crane", "ideal"]
@@ -85,6 +127,13 @@ BranchLossModel = Literal["crane", "ideal"]
 
 class TeeBranch(BaseComponent):
     """Standard tee. Diverging or converging flow is a solver result, not an input."""
+
+    PORT_IDS = ("run_inlet", "run_outlet", "branch")
+    PORT_ROLES: ClassVar[dict[str, PortRole]] = {
+        "run_inlet": "inlet",
+        "run_outlet": "outlet",
+        "branch": "outlet",
+    }
 
     type: Literal["branch"]
     branch_type: Literal["tee"]
@@ -96,11 +145,6 @@ class TeeBranch(BaseComponent):
         ),
     )
 
-    @model_validator(mode="after")
-    def _check_ports(self) -> Self:
-        self._require_ports(("run_inlet", "run_outlet", "branch"))
-        return self
-
 
 class WyeBranch(BaseComponent):
     """Wye (lateral): 'inlet' and 'outlet_1' are the straight run, 'outlet_2' the angled leg.
@@ -110,6 +154,13 @@ class WyeBranch(BaseComponent):
     'inlet', dividing or combining; with the combined flow through 'outlet_1' and flow in
     'outlet_2', that flow turns through 180° minus the angle, and the result is flagged.
     """
+
+    PORT_IDS = ("inlet", "outlet_1", "outlet_2")
+    PORT_ROLES: ClassVar[dict[str, PortRole]] = {
+        "inlet": "inlet",
+        "outlet_1": "outlet",
+        "outlet_2": "outlet",
+    }
 
     type: Literal["branch"]
     branch_type: Literal["wye"]
@@ -124,14 +175,12 @@ class WyeBranch(BaseComponent):
     )
     loss_model: BranchLossModel = "crane"
 
-    @model_validator(mode="after")
-    def _check_ports(self) -> Self:
-        self._require_ports(("inlet", "outlet_1", "outlet_2"))
-        return self
-
 
 class Pump(BaseComponent):
     """Fixed-speed centrifugal pump with an integral check (no reverse flow)."""
+
+    PORT_IDS = ("suction", "discharge")
+    PORT_ROLES: ClassVar[dict[str, PortRole]] = {"suction": "inlet", "discharge": "outlet"}
 
     type: Literal["pump"]
     curve_id: Identifier = Field(description="Key into project.pumpLibrary")
@@ -140,19 +189,12 @@ class Pump(BaseComponent):
     )
     status: Literal["on", "off"] = "on"
 
-    @model_validator(mode="after")
-    def _check_ports(self) -> Self:
-        self._require_ports(("suction", "discharge"))
-        return self
-
 
 class _TwoPortValve(BaseComponent):
-    type: Literal["valve"]
+    PORT_IDS = ("inlet", "outlet")
+    PORT_ROLES: ClassVar[dict[str, PortRole]] = {"inlet": "inlet", "outlet": "outlet"}
 
-    @model_validator(mode="after")
-    def _check_ports(self) -> Self:
-        self._require_ports(("inlet", "outlet"))
-        return self
+    type: Literal["valve"]
 
 
 class IsolationValve(_TwoPortValve):
@@ -186,6 +228,10 @@ class ControlValve(_TwoPortValve):
     ideal (no loss when fully open).
     """
 
+    SETPOINT_BOUNDS: ClassVar[dict[str, tuple[float, float]]] = {"fcv": FCV_SETPOINT_RANGE}
+    """Setpoint bounds by valve type, where they differ from the field's (an FCV's is a flow,
+    m³/s). Published as x-setpoint-bounds."""
+
     valve_type: Literal["prv", "psv", "fcv"]
     status: Literal["active", "failed_open", "failed_closed"] = "active"
     setpoint: float = Field(ge=-1.0e5, le=1.0e8)
@@ -193,8 +239,11 @@ class ControlValve(_TwoPortValve):
 
     @model_validator(mode="after")
     def _check_setpoint(self) -> Self:
-        if self.valve_type == "fcv" and not 0 <= self.setpoint <= 100.0:
-            raise ValueError("an FCV setpoint is a flow in m³/s between 0 and 100")
+        bounds = self.SETPOINT_BOUNDS.get(self.valve_type)
+        if bounds is not None and not bounds[0] <= self.setpoint <= bounds[1]:
+            raise ValueError(
+                f"an FCV setpoint is a flow in m³/s between {bounds[0]:g} and {bounds[1]:g}"
+            )
         return self
 
 

@@ -7,7 +7,7 @@
 	import type { Component, PipeConnection, PipeDefinition, Port } from '$lib/api/types';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
-	import { addPort, MAX_PORTS, removePort } from '$lib/utils/edit';
+	import { addPort, canAddPort, removePort } from '$lib/utils/edit';
 	import { connectionAtPort, otherEnd } from '$lib/utils/graph';
 	import { componentName, npsLabel, portLabel, sameSize } from '$lib/utils/labels';
 	import { CUSTOM_MATERIAL_ID, updatePipe, withOptional } from '$lib/utils/piping';
@@ -157,7 +157,7 @@
 		<button
 			type="button"
 			class="btn"
-			disabled={component.ports.length >= MAX_PORTS}
+			disabled={!canAddPort(component)}
 			onclick={() => ws.edit((p) => addPort(p, component.id), 'add a reservoir port')}
 		>
 			<Icon name="plus" class="size-4" /> Add port

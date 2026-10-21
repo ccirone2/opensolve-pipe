@@ -71,13 +71,9 @@ def solve_project(project: Project, options: SolveOptions | None = None) -> Solv
             missing += f"; {len(skipped)} were {skipped[0]}"
         pumps[pid] = pumps[pid].model_copy(update={"system_curve": curve})
         trace = traces[pid]
+        # The pump's trace defines the curve in any case (trace.SYSTEM_CURVE_EQUATION).
         traces[pid] = trace.model_copy(
             update={
-                "equations": [
-                    *trace.equations,
-                    "H_sys(Q) = EGL_discharge − EGL_suction with the pump replaced by a fixed "
-                    "flow Q (system curve; other pumps keep running, valves follow their rules)",
-                ],
                 "notes": [
                     *trace.notes,
                     f"System curve: {len(curve)} of {count} flows from 0 to {upper:.6g} m³/s "

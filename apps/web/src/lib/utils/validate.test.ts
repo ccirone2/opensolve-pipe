@@ -10,9 +10,9 @@ import {
 	projectProblems,
 	ProjectValidationError,
 	referenceProblems,
-	requiredPortIds,
 	schemaProblems
 } from './validate';
+import { requiredPortIds } from './model-rules';
 
 const fixture = fixtureJson as unknown as Project;
 

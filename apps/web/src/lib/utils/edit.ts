@@ -35,6 +35,14 @@ import {
 	portRole,
 	type PortRef
 } from './graph';
+import {
+	ENTRANCE_TYPES,
+	EXIT_TYPES,
+	maxPorts,
+	REDUCER_TYPES,
+	requiredPortCount,
+	requiredPortIds
+} from './model-rules';
 
 export class EditError extends Error {
 	constructor(message: string) {
@@ -43,8 +51,17 @@ export class EditError extends Error {
 	}
 }
 
-/** Reservoirs are the only components with a variable number of ports (API: 1 to 16). */
-export const MAX_PORTS = 16;
+/**
+ * Whether ports can be added to a component: its type fixes neither its port ids nor their
+ * number (in v1, reservoirs) and it has fewer than the schema's maximum (model-rules.ts).
+ */
+export function canAddPort(component: Component): boolean {
+	return (
+		requiredPortIds(component) === null &&
+		requiredPortCount(component) === null &&
+		component.ports.length < maxPorts(component)
+	);
+}
 
 function requireComponent(project: Project, id: string): Component {
 	const component = componentById(project, id);
@@ -118,15 +135,10 @@ function withFlow(project: Project, connection: PipeConnection): PipeConnection 
 	return runsAgainstFlow(project, from, to) ? turnedAround(connection) : connection;
 }
 
-/** Fitting types that describe where a pipe leaves a body of liquid. */
-export const ENTRANCE_TYPES: ReadonlySet<Fitting['type']> = new Set([
-	'entrance_sharp',
-	'entrance_rounded',
-	'entrance_projecting'
-]);
-
 /** The default entrance at a reservoir: sharp-edged (flush), K from Crane TP-410 via the API. */
 export const DEFAULT_ENTRANCE: Fitting['type'] = 'entrance_sharp';
+/** The default exit at a reservoir (the API's exit fitting; K from its cited correlation). */
+export const DEFAULT_EXIT: Fitting['type'] = 'exit';
 
 /**
  * Whether piping at the reservoir end of a connection has an entrance or exit fitting: either
@@ -134,7 +146,7 @@ export const DEFAULT_ENTRANCE: Fitting['type'] = 'entrance_sharp';
  * when it enters).
  */
 export function hasReservoirLoss(piping: PipingSegment): boolean {
-	return piping.fittings.some((f) => f.type === 'exit' || ENTRANCE_TYPES.has(f.type));
+	return piping.fittings.some((f) => EXIT_TYPES.has(f.type) || ENTRANCE_TYPES.has(f.type));
 }
 
 /**
@@ -154,8 +166,8 @@ export function withReservoirLosses(project: Project, connection: PipeConnection
 	) {
 		added.push({ type: DEFAULT_ENTRANCE, quantity: 1, pipeIndex: 0 });
 	}
-	if (isReservoir(connection.toComponentId) && !fittings.some((f) => f.type === 'exit')) {
-		added.push({ type: 'exit', quantity: 1, pipeIndex: Math.max(0, pipes.length - 1) });
+	if (isReservoir(connection.toComponentId) && !fittings.some((f) => EXIT_TYPES.has(f.type))) {
+		added.push({ type: DEFAULT_EXIT, quantity: 1, pipeIndex: Math.max(0, pipes.length - 1) });
 	}
 	if (!added.length) return connection;
 	return { ...connection, piping: { pipes, fittings: [...fittings, ...added] } };
@@ -227,12 +239,12 @@ export function insertComponentInConnection(
 	const { pipes, fittings } = connection.piping;
 	const lastPipe = pipes[pipes.length - 1];
 	if (!lastPipe) throw new EditError(`Connection "${connectionId}" has no pipe.`);
-	const exits = fittings.filter((f) => f.type === 'exit');
+	const exits = fittings.filter((f) => EXIT_TYPES.has(f.type));
 	const upstream: PipeConnection = {
 		...connection,
 		toComponentId: component.id,
 		toPortId: inlet.id,
-		piping: { pipes, fittings: fittings.filter((f) => f.type !== 'exit') }
+		piping: { pipes, fittings: fittings.filter((f) => !EXIT_TYPES.has(f.type)) }
 	};
 	const withComponent = { ...project, components: [...project.components, component] };
 	const downstream = createConnection(
@@ -304,8 +316,6 @@ export function canJoin(project: Project, componentId: string): boolean {
 	return joinPlan(project, componentId) !== null;
 }
 
-const REDUCERS = new Set<Fitting['type']>(['reducer_sudden', 'reducer_conical']);
-
 /**
  * The same piping traversed the other way: pipes reversed, fitting indices mirrored.
  *
@@ -320,7 +330,7 @@ export function reversePiping(piping: PipingSegment): PipingSegment {
 		pipes: [...piping.pipes].reverse(),
 		fittings: piping.fittings.map((f) => ({
 			...f,
-			pipeIndex: Math.max(0, (REDUCERS.has(f.type) ? n - 2 : n - 1) - f.pipeIndex)
+			pipeIndex: Math.max(0, (REDUCER_TYPES.has(f.type) ? n - 2 : n - 1) - f.pipeIndex)
 		}))
 	};
 }
@@ -524,9 +534,11 @@ export function addPort(
 	options: { nominalSize?: number; elevation?: number } = {}
 ): Project {
 	const component = requireComponent(project, componentId);
-	if (component.type !== 'reservoir') throw new EditError('Only reservoirs can have extra ports.');
-	if (component.ports.length >= MAX_PORTS) {
-		throw new EditError(`A reservoir has at most ${MAX_PORTS} ports.`);
+	if (requiredPortIds(component) !== null || requiredPortCount(component) !== null) {
+		throw new EditError('Only reservoirs can have extra ports.');
+	}
+	if (!canAddPort(component)) {
+		throw new EditError(`A reservoir has at most ${maxPorts(component)} ports.`);
 	}
 	const ids = new Set(component.ports.map((p) => p.id));
 	let n = 1;

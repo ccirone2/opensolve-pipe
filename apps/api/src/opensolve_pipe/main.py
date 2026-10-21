@@ -21,6 +21,19 @@ from .workers import ServerBusyError
 
 logging_privacy.install()
 
+
+def interactive_docs_enabled(environ: Mapping[str, str]) -> bool:
+    """Whether to serve FastAPI's interactive docs pages, /docs (Swagger UI) and /redoc.
+
+    Those pages load their scripts, styles, fonts and icon from third parties (jsDelivr,
+    Google Fonts, fastapi.tiangolo.com), so a deployed API would send whoever opens them to
+    those hosts (GOALS §4.5). They are served only with API_DOCS=1, for development; the
+    schema itself is always at /openapi.json."""
+    return environ.get("API_DOCS", "").strip().lower() in {"1", "true", "yes"}
+
+
+_DOCS = interactive_docs_enabled(os.environ)
+
 app = FastAPI(
     title="OpenSolve Pipe API",
     description="Steady-state hydraulic analysis of pressurized pipe networks. All values are SI.",
@@ -28,6 +41,8 @@ app = FastAPI(
     license_info={"name": "AGPL-3.0-or-later", "identifier": "AGPL-3.0-or-later"},
     # One schema per model, so generated frontend types have one name per model.
     separate_input_output_schemas=False,
+    docs_url="/docs" if _DOCS else None,
+    redoc_url="/redoc" if _DOCS else None,
 )
 
 # Order: the last added runs first. CORS must wrap everything so error responses carry it,

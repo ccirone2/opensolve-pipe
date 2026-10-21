@@ -3,7 +3,10 @@
  * and the operating point, in display units, split into the part of the pump curve inside its
  * data (solid) and the extrapolated part outside it (dashed).
  *
- * Every point comes from the PumpResult. The flow range of the curve's data at speed s is
+ * Every point comes from the API: the pump curve and operating point from the PumpResult, the
+ * system curve from POST /api/v1/system-curve for the same solve (D10: fetched on demand). A
+ * system-curve point the API could not solve has no head; it is a gap in the line and a row
+ * that says why in the table, never a value made up here. The flow range of the curve's data at speed s is
  * s × [Q_min, Q_max] of the head-curve points the user entered (the affinity law the solver
  * applies; API PumpResult.curve spans exactly that range). When the curve definition is not
  * available, the span of the sampled curve is used instead.
@@ -13,7 +16,13 @@
  * the curve's end to an operating point outside the range is exactly that extrapolation; it joins
  * two values the API reported and adds none.
  */
-import type { CurvePoint, Project, PumpResult, UnitPreferences } from '../api/types';
+import type {
+	CurvePoint,
+	Project,
+	PumpResult,
+	SystemCurveResponse,
+	UnitPreferences
+} from '../api/types';
 import { componentById } from './graph';
 import { displayUnit, formatNumber, fromSI, unitLabel } from './units';
 
@@ -33,8 +42,12 @@ export interface PumpChartData {
 	curve: ChartPoint[];
 	/** Extrapolated parts of the pump curve (each a polyline): dashed. */
 	extrapolated: ChartPoint[][];
-	/** The system curve, if the solve returned one. */
-	system: ChartPoint[] | null;
+	/** The system curve, when given: a null head is a point the API could not solve (a gap). */
+	system: { x: number; y: number | null }[] | null;
+	/** System-curve points without a head (each row says why). */
+	systemMissing: number;
+	/** The flows the system curve's points span, display unit (SystemCurveResponse.flowRange). */
+	systemSpan: [number, number] | null;
 	/** The operating point, when the pump is running. */
 	operating: ChartPoint | null;
 	/**
@@ -45,7 +58,8 @@ export interface PumpChartData {
 	inCurveRange: boolean;
 	/** Data table rows (formatted): pump curve points, with an extrapolated mark. */
 	curveRows: { flow: string; head: string; extrapolated: boolean }[];
-	systemRows: { flow: string; head: string }[];
+	/** Data table rows of the system curve: '—' and the API's reason for a point with no head. */
+	systemRows: { flow: string; head: string; note: string }[];
 }
 
 /** Flow range (m³/s) of a pump's head-curve points at rated speed, from the project. */
@@ -63,11 +77,13 @@ const RANGE_TOLERANCE = 1e-9;
 /**
  * Chart data for one pump. `ratedRange` is the curve's flow range at rated speed (m³/s), from
  * ratedCurveRange(); without it, the sampled curve's own span is taken as the data range.
+ * `systemCurve` is the pump's system curve for the same solve, when it has been computed.
  */
 export function pumpChartData(
 	result: PumpResult,
 	prefs: UnitPreferences,
-	ratedRange: [number, number] | null = null
+	ratedRange: [number, number] | null = null,
+	systemCurve: SystemCurveResponse | null = null
 ): PumpChartData {
 	const flowUnit = displayUnit('flow', prefs);
 	const headUnit = displayUnit('head', prefs);
@@ -122,9 +138,14 @@ export function pumpChartData(
 
 	const held = result.status === 'no_flow' ? point(operatingSI) : null;
 
-	const system = result.systemCurve?.length
-		? [...result.systemCurve].sort((a, b) => a.flow - b.flow).map(point)
+	const systemPoints = systemCurve?.points.length
+		? [...systemCurve.points].sort((a, b) => a.flow - b.flow)
 		: null;
+	const system =
+		systemPoints?.map((p) => ({
+			x: fromSI(p.flow, flowUnit),
+			y: p.head === null ? null : fromSI(p.head, headUnit)
+		})) ?? null;
 	const fmt = (v: number) => formatNumber(v, 4);
 	return {
 		flowUnit: unitLabel('flow', flowUnit),
@@ -140,6 +161,15 @@ export function pumpChartData(
 			const c = point(p);
 			return { flow: fmt(c.x), head: fmt(c.y), extrapolated: !inside(p.flow) };
 		}),
-		systemRows: (system ?? []).map((c) => ({ flow: fmt(c.x), head: fmt(c.y) }))
+		systemMissing: (system ?? []).filter((c) => c.y === null).length,
+		systemSpan:
+			system && systemCurve
+				? [fromSI(systemCurve.flowRange.min, flowUnit), fromSI(systemCurve.flowRange.max, flowUnit)]
+				: null,
+		systemRows: (system ?? []).map((c, i) => ({
+			flow: fmt(c.x),
+			head: c.y === null ? '—' : fmt(c.y),
+			note: c.y === null ? (systemPoints?.[i]?.message ?? '') : ''
+		}))
 	};
 }

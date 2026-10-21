@@ -112,22 +112,12 @@ export function traceTextValue(value: string, project: Project): string {
 }
 
 /**
- * A trace input or value name, with the numbering and port names used in Build: the API numbers
- * a connection's pipe segments and fittings from 0 ("Segment 0", "Fitting 0 (bend)"), Build from
- * 1, so the Build number is added ("Segment 0 (pipe 1)"); a port id in "Port port_1 outflow" of
- * component `elementId` becomes its label ("Port 1 outflow"). Only names change, never values.
+ * A trace input or value name, with the port names used in Build: a port id in "Port port_1
+ * outflow" of component `elementId` becomes its label ("Port 1 outflow"). Pipes and fittings
+ * need no change: the API numbers them from 1, as Build does ("Pipe 1 length L", "Fitting 2
+ * (exit) type"). Only names change, never values.
  */
 export function traceName(name: string, project: Project, elementId: string): string {
-	const segment = /^Segment (\d+)\b/.exec(name);
-	if (segment) {
-		const n = Number(segment[1]);
-		return `Segment ${n} (pipe ${n + 1})${name.slice(segment[0].length)}`;
-	}
-	const fitting = /^Fitting (\d+) \(/.exec(name);
-	if (fitting) {
-		const n = Number(fitting[1]);
-		return `Fitting ${n} (fitting ${n + 1}, ${name.slice(fitting[0].length)}`;
-	}
 	const port = /^Port ([A-Za-z0-9_-]+)\b/.exec(name);
 	const component = componentById(project, elementId);
 	if (port && component?.ports.some((p) => p.id === port[1])) {

@@ -11,8 +11,8 @@
  */
 import { env } from '$env/dynamic/public';
 import type {
-	CustomFluid,
 	ErrorResponse,
+	FluidDefinition,
 	FluidInfo,
 	FluidListResponse,
 	FluidProperties,
@@ -24,8 +24,7 @@ import type {
 	SolveResponse,
 	SystemCurveRequest,
 	SystemCurveResponse,
-	TopologyIssue,
-	BuiltinFluidId
+	TopologyIssue
 } from './types';
 
 export const DEFAULT_API_URL = 'http://localhost:8000';
@@ -89,7 +88,7 @@ export interface ApiClientOptions {
 }
 
 export interface RequestOptions {
-	/** Abort the request (for example when a newer solve supersedes it). */
+	/** Abort the request (for example when a newer solve supersedes it); the timeout still applies. */
 	signal?: AbortSignal;
 }
 
@@ -123,6 +122,33 @@ function validationDetails(body: unknown): string[] | null {
 	});
 }
 
+/**
+ * A signal that aborts when either `caller` or `timeout` does, with that signal's reason (so a
+ * timeout still rejects with a TimeoutError and a cancellation with the caller's reason).
+ * AbortSignal.any does this, but it is newer than the app's build target (Vite's
+ * 'baseline-widely-available': Safari 16.4+, Chrome 111+, Firefox 114+; AbortSignal.any arrived
+ * in Safari 17.4, Chrome 116 and Firefox 124) and Vite does not polyfill APIs, so the two are
+ * combined here. `release` removes the listeners: the caller's signal may outlive many requests.
+ */
+function eitherSignal(
+	caller: AbortSignal,
+	timeout: AbortSignal
+): { signal: AbortSignal; release: () => void } {
+	const controller = new AbortController();
+	const sources = [caller, timeout];
+	const release = () => {
+		for (const source of sources) source.removeEventListener('abort', onAbort);
+	};
+	function onAbort(this: AbortSignal) {
+		release();
+		controller.abort(this.reason);
+	}
+	const aborted = sources.find((source) => source.aborted);
+	if (aborted) controller.abort(aborted.reason);
+	else for (const source of sources) source.addEventListener('abort', onAbort);
+	return { signal: controller.signal, release };
+}
+
 const UNAVAILABLE =
 	'The calculation server could not be reached. Check your connection and try again; ' +
 	'your project is safe in this page and its link.';
@@ -147,11 +173,31 @@ export class ApiClient {
 		options: RequestOptions = {}
 	): Promise<T> {
 		const fetchImpl = this.#options.fetch ?? ((input, init) => globalThis.fetch(input, init));
+		const timeout = AbortSignal.timeout(this.#options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+		// The caller's signal cancels; the timeout applies either way (until the body is read).
+		const { signal, release } = options.signal
+			? eitherSignal(options.signal, timeout)
+			: { signal: timeout, release: () => {} };
+		try {
+			return await this.#send<T>(fetchImpl, method, path, body, signal, options);
+		} finally {
+			release();
+		}
+	}
+
+	async #send<T>(
+		fetchImpl: typeof fetch,
+		method: 'GET' | 'POST',
+		path: string,
+		body: unknown,
+		signal: AbortSignal,
+		options: RequestOptions
+	): Promise<T> {
 		const init: RequestInit = {
 			method,
 			credentials: 'omit',
 			referrerPolicy: 'no-referrer',
-			signal: options.signal ?? AbortSignal.timeout(this.#options.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+			signal
 		};
 		if (body !== undefined) {
 			init.headers = { 'Content-Type': 'application/json' };
@@ -207,10 +253,14 @@ export class ApiClient {
 		);
 	}
 
-	/** Solve the network (POST /api/v1/solve). Non-convergence is a 200 with success false. */
+	/**
+	 * Solve the network (POST /api/v1/solve). Non-convergence is a 200 with success false.
+	 * System curves are not computed with the solve unless asked for (D10: the app fetches the
+	 * curve of the pump being viewed with systemCurve(), keeping a plain solve fast).
+	 */
 	solve(project: Project, options: Partial<SolveOptions> = {}, request?: RequestOptions) {
 		const solveOptions: SolveOptions = {
-			includeSystemCurve: options.includeSystemCurve ?? true,
+			includeSystemCurve: options.includeSystemCurve ?? false,
 			systemCurvePoints: options.systemCurvePoints ?? 41
 		};
 		return this.#request<SolveResponse>(
@@ -253,34 +303,19 @@ export class ApiClient {
 		return this.#fluids;
 	}
 
-	/** Properties of a built-in fluid (GET /api/v1/fluids/{id}/properties). */
+	/**
+	 * Properties of a fluid definition as the solver will use them (POST
+	 * /api/v1/fluids/properties). The fluid travels in the request body, which the server never
+	 * logs; nothing about it is put in the URL (the API's GET form carries it in the query
+	 * string, which intermediaries may log).
+	 */
 	async fluidProperties(
-		fluidId: BuiltinFluidId,
-		temperature: number,
-		concentration?: number | null,
-		request?: RequestOptions
-	): Promise<FluidProperties> {
-		const query = new URLSearchParams({ temperature: String(temperature) });
-		if (concentration !== undefined && concentration !== null) {
-			query.set('concentration', String(concentration));
-		}
-		const response = await this.#request<FluidPropertiesResponse>(
-			'GET',
-			`/api/v1/fluids/${encodeURIComponent(fluidId)}/properties?${query}`,
-			undefined,
-			request
-		);
-		return response.properties;
-	}
-
-	/** Resolved properties of a custom fluid (POST /api/v1/fluids/custom). */
-	async customFluidProperties(
-		fluid: CustomFluid,
+		fluid: FluidDefinition,
 		request?: RequestOptions
 	): Promise<FluidProperties> {
 		const response = await this.#request<FluidPropertiesResponse>(
 			'POST',
-			'/api/v1/fluids/custom',
+			'/api/v1/fluids/properties',
 			fluid,
 			request
 		);
@@ -313,7 +348,5 @@ export const getLibrary = () => defaultClient().getLibrary();
 export const getFluids = () => defaultClient().getFluids();
 export const fluidProperties = (...args: Parameters<ApiClient['fluidProperties']>) =>
 	defaultClient().fluidProperties(...args);
-export const customFluidProperties = (...args: Parameters<ApiClient['customFluidProperties']>) =>
-	defaultClient().customFluidProperties(...args);
 export const methodVersions = (...args: Parameters<ApiClient['methodVersions']>) =>
 	defaultClient().methodVersions(...args);

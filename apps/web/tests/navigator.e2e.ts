@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { ALLOWED_ORIGINS } from './support';
 
 /** The examples on the home page, their start component and the next one along the walk. */
 const EXAMPLES = [
@@ -62,8 +63,7 @@ test('a shared link opens the project directly, and edits make a new link', asyn
 	await expect(build(page).getByRole('heading', { level: 2, name: 'Elevated tank' })).toBeVisible();
 
 	// Only the app and its calculation server are contacted (GOALS §4.5).
-	const allowed = new Set(['http://localhost:4173', 'http://localhost:8000']);
-	expect([...origins].filter((o) => !allowed.has(o))).toEqual([]);
+	expect([...origins].filter((o) => !ALLOWED_ORIGINS.has(o))).toEqual([]);
 });
 
 test('a damaged link explains what happened', async ({ page }) => {

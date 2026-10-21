@@ -5,7 +5,7 @@
 	import { KIND_LABELS } from '$lib/utils/factory';
 	import { CONTROL_STATUS_LABELS } from '$lib/utils/labels';
 	import { withOptional } from '$lib/utils/piping';
-	import { schemaBounds } from '$lib/utils/schema-bounds';
+	import { setpointBounds as boundsFor } from '$lib/utils/model-rules';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import ResistanceField from '../ResistanceField.svelte';
 
@@ -15,10 +15,8 @@
 	const STATUSES = ['active', 'failed_open', 'failed_closed'] as const;
 
 	const isFlow = $derived(component.valveType === 'fcv');
-	/** FCV setpoints are flows (the API accepts 0–100 m³/s); PRV/PSV setpoints are gauge pressures. */
-	const setpointBounds = $derived(
-		isFlow ? { minimum: 0, maximum: 100 } : schemaBounds('ControlValve', 'setpoint')
-	);
+	/** FCV setpoints are flows, PRV/PSV setpoints gauge pressures; bounds from the API schema. */
+	const setpointBounds = $derived(boundsFor(component.valveType));
 
 	/** A new control valve's setpoint is 0, for the user to set: say what 0 means until then. */
 	const setpointWarning = $derived(

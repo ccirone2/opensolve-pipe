@@ -1,9 +1,13 @@
 <!--
 	Pumps: status, operating point, speed, efficiency, power and NPSH per pump, then the pump and
-	system curves of each pump.
+	system curves of the pump being viewed (one at a time, chosen when there are several). Its
+	system curve is computed on demand for the exact project of this solve and cached with it
+	(D10; ProjectStore.loadSystemCurve).
 -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import type { SolvedState } from '$lib/api/types';
+	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import { ratedCurveRange } from '$lib/utils/pump-chart';
 	import { pumpTable } from '$lib/utils/results';
@@ -13,9 +17,30 @@
 	let { solved }: { solved: SolvedState } = $props();
 	const ws = useWorkspace();
 	const table = $derived(pumpTable(ws.labelsProject, solved, ws.displayUnits));
-	// The curve's data range comes from the project's pump curve while the results are current;
-	// after an edit it may no longer be the curve that was solved, so the sampled curve's own
-	// span (which the API reports over exactly that range) is used instead.
+	/** Pumps with a result, in table order. */
+	const pumps = $derived(table.rows.filter((row) => solved.pumpResults[row.key]));
+	let chosen = $state<string | null>(null);
+	const viewed = $derived(pumps.find((row) => row.key === chosen) ?? pumps[0] ?? null);
+	const result = $derived(viewed ? solved.pumpResults[viewed.key] : undefined);
+	/** The solve response these results come from (a curve is only shown with its own solve). */
+	const response = $derived(
+		ws.store.results.response?.solvedState === solved ? ws.store.results.response : null
+	);
+	const system = $derived(viewed ? ws.store.systemCurve(response, viewed.key) : undefined);
+	// The curve's data range, from the project exactly as solved (the curve that was solved).
+	const ratedRange = $derived(
+		viewed && ws.store.solvedProject && response
+			? ratedCurveRange(ws.store.solvedProject, viewed.key)
+			: null
+	);
+
+	// Compute the system curve of the pump being viewed, once per solve (a new solve resets the
+	// cache; a failure or cancellation waits for "Try again").
+	$effect(() => {
+		const id = viewed?.key;
+		if (!id || !response) return;
+		untrack(() => ws.store.loadSystemCurve(id));
+	});
 </script>
 
 <div class="space-y-4">
@@ -31,17 +56,30 @@
 		computed from the absolute suction pressure and the fluid's vapor pressure; it is not shown when
 		the fluid has no vapor pressure. An off pump has no speed.
 	</p>
-	{#each table.rows as row (row.key)}
-		{@const result = solved.pumpResults[row.key]}
-		{#if result}
-			<div class="card p-3">
+	{#if viewed && result}
+		<div class="card space-y-3 p-3">
+			{#if pumps.length > 1}
+				<SelectField
+					label="Pump chart"
+					hint="The pump and system curves of one pump at a time; each system curve is computed when its pump is shown."
+					value={viewed.key}
+					options={pumps.map((row) => ({ value: row.key, label: row.name }))}
+					onchange={(id) => (chosen = id)}
+				/>
+			{/if}
+			{#key viewed.key}
 				<PumpChart
 					{result}
-					name={row.name}
+					name={viewed.name}
 					prefs={ws.displayUnits}
-					ratedRange={ws.store.results.stale ? null : ratedCurveRange(ws.project, row.key)}
+					{ratedRange}
+					{system}
+					onretry={response
+						? () => ws.store.loadSystemCurve(viewed.key, { retry: true })
+						: undefined}
+					ontrace={() => ws.inspect(viewed.element)}
 				/>
-			</div>
-		{/if}
-	{/each}
+			{/key}
+		</div>
+	{/if}
 </div>

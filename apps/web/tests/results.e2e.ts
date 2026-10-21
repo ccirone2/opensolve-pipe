@@ -1,5 +1,6 @@
 import { gzipSync } from 'node:zlib';
 import { expect, test, type Page } from '@playwright/test';
+import { ALLOWED_ORIGINS } from './support';
 
 /**
  * Results and sharing against the real API: open a pipe-only network from a link, solve it,
@@ -187,8 +188,7 @@ test('solves a pipe-only network, shares it, and the shared link gives the same 
 	await expect(trace.getByText(/Pipe connection · L1/)).toBeVisible();
 
 	// Only the app and its calculation server are contacted (GOALS §4.5).
-	const allowed = new Set(['http://localhost:4173', 'http://localhost:8000']);
-	expect([...origins].filter((o) => !allowed.has(o))).toEqual([]);
+	expect([...origins].filter((o) => !ALLOWED_ORIGINS.has(o))).toEqual([]);
 });
 
 test('results tables fit the screen and scroll inside their own box', async ({ page }) => {

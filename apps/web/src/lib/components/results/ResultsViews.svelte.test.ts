@@ -6,17 +6,27 @@
  */
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { MethodVersionsResponse, Project, SolvedState } from '$lib/api/types';
+import type {
+	MethodVersionsResponse,
+	Project,
+	SolvedState,
+	SolveResponse,
+	SystemCurveResponse
+} from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import {
 	flag,
+	pumpResult,
 	pumpTransferSolved,
 	response,
+	systemCurveResponse,
 	SAMPLE_METHODS,
 	SAMPLE_TRACE
 } from '$lib/testing/results';
 import { testWorkspace, type TestWorkspaceOptions } from '$lib/testing/workspace';
+import { insertComponentInConnection } from '$lib/utils/edit';
 import { pumpTransferExample } from '$lib/utils/examples';
+import { createComponent } from '$lib/utils/factory';
 import { methodsText } from '$lib/utils/trace';
 import { IMPERIAL_UNITS } from '$lib/utils/units';
 
@@ -442,5 +452,101 @@ describe('methods summary', () => {
 		await fireEvent.click(results().getByRole('button', { name: 'Copy as text' }));
 		const area = await results().findByRole('textbox', { name: 'Methods as text' });
 		expect((area as HTMLTextAreaElement).value).toContain('Pipe friction\n- Darcy–Weisbach');
+	});
+});
+
+describe('pump chart: the system curve on demand (D10)', () => {
+	/** A fake system-curve endpoint whose answers the test releases one by one. */
+	function curveEndpoint() {
+		const answers: ((curve: SystemCurveResponse) => void)[] = [];
+		const systemCurve = vi.fn<
+			(
+				project: Project,
+				pumpId: string,
+				options?: { signal?: AbortSignal }
+			) => Promise<SystemCurveResponse>
+		>(() => new Promise<SystemCurveResponse>((resolve) => answers.push(resolve)));
+		return { systemCurve, answers };
+	}
+
+	async function solveAndOpenPumps(project: Project, solved: SolvedState) {
+		const solve = vi.fn<(project: Project) => Promise<SolveResponse>>(() =>
+			Promise.resolve(response(solved))
+		);
+		const { systemCurve, answers } = curveEndpoint();
+		const ws = testWorkspace(project, { solver: { solve, systemCurve } });
+		render(WorkspaceView, { workspace: ws });
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await results().findByRole('heading', { name: 'Converged' });
+		// Nothing is computed until a pump chart is shown.
+		expect(systemCurve).not.toHaveBeenCalled();
+		await openView('Pumps');
+		const panel = within(results().getByRole('tabpanel', { name: 'Pumps' }));
+		return { ws, solve, systemCurve, answers, panel };
+	}
+
+	it('fetches the curve of the pump shown for the project as solved, once per solve', async () => {
+		const { ws, solve, systemCurve, answers, panel } = await solveAndOpenPumps(
+			pumpTransferExample(),
+			pumpTransferSolved()
+		);
+		expect(panel.getByText('Computing the system curve for this solve…')).toBeInTheDocument();
+		await vi.waitFor(() => expect(systemCurve).toHaveBeenCalledTimes(1));
+		const [project, pumpId] = systemCurve.mock.calls[0]!;
+		expect(project).toBe(solve.mock.calls[0]![0]);
+		expect(pumpId).toBe('P1');
+		answers[0]!(systemCurveResponse('P1'));
+		// jsdom has no canvas, so the data tables are shown.
+		const table = await panel.findByRole('table', { name: 'System curve' });
+		expect(within(table).getAllByRole('row')).toHaveLength(5);
+		expect(panel.queryByText(/Computing the system curve/)).toBeNull();
+		// Cached with the solve: another view and back sends nothing.
+		await openView('Links');
+		await openView('Pumps');
+		expect(systemCurve).toHaveBeenCalledTimes(1);
+		// An edit makes the results stale, not the curve another project's: it stays the solve's.
+		ws.edit((p) => {
+			p.connections[0]!.piping.pipes[0]!.length += 5;
+		}, 'change length');
+		expect(ws.store.results.stale).toBe(true);
+		expect(panel.getByRole('table', { name: 'System curve' })).toBeInTheDocument();
+		expect(systemCurve).toHaveBeenCalledTimes(1);
+	});
+
+	it('shows one pump at a time, chosen from the solved pumps', async () => {
+		const base = pumpTransferExample();
+		const booster = createComponent('pump', base, { name: 'Booster pump' });
+		const project = insertComponentInConnection(base, 'L3', booster);
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult(),
+				[booster.id]: pumpResult({ operatingFlow: 0.01, operatingHead: 28 })
+			}
+		});
+		const { systemCurve, answers, panel } = await solveAndOpenPumps(project, solved);
+		const picker = panel.getByRole('combobox', { name: 'Pump chart' });
+		expect(
+			within(picker)
+				.getAllByRole('option')
+				.map((o) => o.textContent)
+		).toEqual(['Transfer pump', 'Booster pump']);
+		expect(panel.getAllByRole('figure')).toHaveLength(1);
+		expect(
+			panel.getByRole('figure', { name: 'Pump and system curves: Transfer pump' })
+		).toBeVisible();
+		await vi.waitFor(() => expect(systemCurve).toHaveBeenCalledTimes(1));
+		answers[0]!(systemCurveResponse('P1'));
+		await panel.findByRole('table', { name: 'System curve' });
+		await fireEvent.change(picker, { target: { value: booster.id } });
+		expect(
+			panel.getByRole('figure', { name: 'Pump and system curves: Booster pump' })
+		).toBeInTheDocument();
+		await vi.waitFor(() => expect(systemCurve).toHaveBeenCalledTimes(2));
+		expect(systemCurve.mock.calls[1]![1]).toBe(booster.id);
+		expect(panel.getByText('Computing the system curve for this solve…')).toBeInTheDocument();
+		// Back to the first pump: its curve is cached.
+		await fireEvent.change(picker, { target: { value: 'P1' } });
+		expect(await panel.findByRole('table', { name: 'System curve' })).toBeInTheDocument();
+		expect(systemCurve).toHaveBeenCalledTimes(2);
 	});
 });

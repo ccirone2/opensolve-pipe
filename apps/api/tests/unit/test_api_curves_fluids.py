@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from opensolve_pipe.main import app
 from opensolve_pipe.services.fluids import WATER_T_MAX
+from opensolve_pipe.services.solver.trace import SYSTEM_CURVE_EQUATION
 from tests.reference import derivations_pumps as dp
 
 _addresses = itertools.count(1)
@@ -120,6 +121,9 @@ def test_solve_fills_the_system_curve_of_running_pumps(client: TestClient) -> No
     notes = state["solvedState"]["trace"]["elements"]["PU1"]["notes"]
     assert any(n.startswith("System curve: 11 of 11 flows") for n in notes)
 
+    equations = state["solvedState"]["trace"]["elements"]["PU1"]["equations"]
+    assert [e for e in equations if e.startswith("H_sys(Q) = ")] == [SYSTEM_CURVE_EQUATION]
+
     off = client.post(
         "/api/v1/solve",
         json={"project": project, "options": {**options, "includeSystemCurve": False}},
@@ -128,6 +132,23 @@ def test_solve_fills_the_system_curve_of_running_pumps(client: TestClient) -> No
     project["components"][1]["status"] = "off"
     stopped = client.post("/api/v1/solve", json={"project": project, "options": options}).json()
     assert stopped["solvedState"]["pumpResults"]["PU1"]["systemCurve"] is None
+
+
+def test_the_pump_trace_defines_the_system_curve_when_the_solve_computes_none(
+    client: TestClient,
+) -> None:
+    """The web app solves without system curves and fetches the shown one from
+    /system-curve (D10), whose response has no trace: the pump's trace still defines the curve
+    it draws (GOALS §4.2), while the note on how many points were solved comes only with a
+    curve computed by the solve."""
+    options = {"includeSystemCurve": False}
+    state = client.post(
+        "/api/v1/solve", json={"project": _pump_project(), "options": options}
+    ).json()["solvedState"]
+    trace = state["trace"]["elements"]["PU1"]
+    assert SYSTEM_CURVE_EQUATION in trace["equations"]
+    assert "POST /api/v1/system-curve" in SYSTEM_CURVE_EQUATION
+    assert not any(n.startswith("System curve:") for n in trace["notes"])
 
 
 def test_solve_response_carries_the_trace_and_methods(client: TestClient) -> None:

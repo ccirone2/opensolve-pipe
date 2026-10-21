@@ -7,15 +7,26 @@
  *   an existing component and port, at most one connection per port.
  * - modelRuleProblems: rules the API models enforce in validators, which JSON Schema cannot
  *   express (port ids per component type, pipe size source, fitting parameters, increasing
- *   curve flows, ...), plus pump-curve references. A project that breaks only these still
- *   opens; the solver reports them too.
+ *   curve flows, ...), plus pump-curve references and ids shared by a component and a
+ *   connection. The rules are read from the schema's extensions (model-rules.ts), never copied.
+ *   A project that breaks only these still opens; the solver reports them too.
  *
  * Every problem is a human-readable sentence that names where it is.
  */
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 import openapi from '../api/openapi.json';
-import type { Component, PipeConnection, Project, UnitPreferences } from '../api/types';
+import type { PipeConnection, Project, UnitPreferences } from '../api/types';
 import { componentName, fittingFallbackName, portLabel } from './labels';
+import {
+	componentSchemaName,
+	fluidSchemaName,
+	missingFittingParameters,
+	REDUCER_TYPES,
+	requiredPortCount,
+	requiredPortIds,
+	schemaExtensions,
+	setpointBounds
+} from './model-rules';
 import { formatValue, SI_UNITS } from './units';
 
 const SCHEMA_ID = 'urn:opensolve-pipe:openapi';
@@ -36,6 +47,8 @@ function getAjv(): Ajv2020 {
 		ajv.addKeyword('discriminator');
 		// The OpenAPI document section that holds the schemas; refs point into it.
 		ajv.addKeyword('components');
+		// Model rules the API publishes as extensions (read by model-rules.ts, checked below).
+		for (const keyword of schemaExtensions()) ajv.addKeyword(keyword);
 		ajv.addSchema({ $id: SCHEMA_ID, components: { schemas: openapi.components.schemas } });
 	}
 	return ajv;
@@ -58,53 +71,16 @@ function validatorFor(name: string): ValidateFunction {
 // Schema problems
 // ---------------------------------------------------------------------------------------------
 
-/** Valve family by valveType, as in the API's component discriminator (models/components.py). */
-const VALVE_SCHEMAS: Record<string, string> = {
-	gate: 'IsolationValve',
-	ball: 'IsolationValve',
-	butterfly: 'IsolationValve',
-	globe: 'IsolationValve',
-	check: 'CheckValve',
-	stop_check: 'CheckValve',
-	prv: 'ControlValve',
-	psv: 'ControlValve',
-	fcv: 'ControlValve'
-};
-
 /**
  * The schema a oneOf member is meant to match, from its tag (component type refined by
- * branchType or valveType; fluid kind). Mirrors the API's discriminators, so problems are
- * reported against the intended schema instead of every alternative.
+ * branchType or valveType; fluid kind), read from the schema's unions (model-rules.ts) as the
+ * API's discriminators pick it, so problems are reported against the intended schema instead of
+ * every alternative.
  */
 function taggedSchema(value: unknown): string | null {
 	if (!isRecord(value)) return null;
-	if ('kind' in value && !('type' in value)) {
-		return value.kind === 'builtin'
-			? 'BuiltinFluid'
-			: value.kind === 'custom'
-				? 'CustomFluid'
-				: null;
-	}
-	switch (value.type) {
-		case 'reservoir':
-			return 'Reservoir';
-		case 'reference_node':
-			return 'IdealReferenceNode';
-		case 'plug':
-			return 'Plug';
-		case 'pump':
-			return 'Pump';
-		case 'branch':
-			return value.branchType === 'tee'
-				? 'TeeBranch'
-				: value.branchType === 'wye'
-					? 'WyeBranch'
-					: null;
-		case 'valve':
-			return typeof value.valveType === 'string' ? (VALVE_SCHEMAS[value.valveType] ?? null) : null;
-		default:
-			return null;
-	}
+	if ('kind' in value && !('type' in value)) return fluidSchemaName(value.kind);
+	return componentSchemaName(value);
 }
 
 function valueAt(root: unknown, pointer: string): unknown {
@@ -327,48 +303,20 @@ export function referenceProblems(project: Project): string[] {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Model rules (mirrors apps/api/src/opensolve_pipe/models validators)
+// Model rules (the API models' validators, read from the schema by model-rules.ts)
 // ---------------------------------------------------------------------------------------------
-
-/** Required port ids per component, as models/components.py `_require_ports`. */
-export function requiredPortIds(component: Component): readonly string[] | null {
-	switch (component.type) {
-		case 'plug':
-			return ['port_1'];
-		case 'branch':
-			return component.branchType === 'tee'
-				? ['run_inlet', 'run_outlet', 'branch']
-				: ['inlet', 'outlet_1', 'outlet_2'];
-		case 'pump':
-			return ['suction', 'discharge'];
-		case 'valve':
-			return ['inlet', 'outlet'];
-		default:
-			return null;
-	}
-}
-
-/** Fitting fields each type needs (models/piping.py REQUIRED_PARAMETERS). */
-export const FITTING_PARAMETERS: Record<
-	string,
-	readonly ('angle' | 'radiusRatio' | 'kOverride')[]
-> = {
-	bend: ['angle', 'radiusRatio'],
-	entrance_rounded: ['radiusRatio'],
-	reducer_conical: ['angle'],
-	custom: ['kOverride']
-};
-const REDUCERS = new Set(['reducer_sudden', 'reducer_conical']);
 
 /**
  * One model-rule problem: `text` names elements by id (validation messages, as the API does);
  * `message` names them as people see them (component names, pipe numbers, display units), for
  * the results pane. `componentId` and `portId` locate it in Build (for a connection, its 'from'
- * end, where its piping opens).
+ * end, where its piping opens). `code` is the API's code for the same problem where the solver
+ * reports it as a topology issue (e.g. DUPLICATE_ID).
  */
 export interface ModelRuleIssue {
 	text: string;
 	message: string;
+	code?: string;
 	componentId?: string;
 	portId?: string;
 	connectionId?: string;
@@ -400,17 +348,18 @@ function pipingIssues(project: Project, connection: PipeConnection): ModelRuleIs
 	});
 	const fields = { angle: 'an angle', radiusRatio: 'a radius ratio', kOverride: 'a K value' };
 	fittings.forEach((fitting, i) => {
-		const missing = (FITTING_PARAMETERS[fitting.type] ?? []).filter((f) => fitting[f] == null);
+		const missing = missingFittingParameters(fitting);
 		if (missing.length) {
 			add(
 				`${where}, fitting ${i + 1} (${fitting.type}) needs ${missing.join(', ')}.`,
 				`${named}, fitting ${i + 1} (${fittingFallbackName(fitting.type).toLowerCase()}) needs ${missing.map((f) => fields[f]).join(' and ')}.`
 			);
 		}
-		const last = REDUCERS.has(fitting.type) ? pipes.length - 2 : pipes.length - 1;
+		const reducer = REDUCER_TYPES.has(fitting.type);
+		const last = reducer ? pipes.length - 2 : pipes.length - 1;
 		if (fitting.pipeIndex > last) {
 			const segments = `${pipes.length} pipe segment${pipes.length === 1 ? '' : 's'}`;
-			const tail = REDUCERS.has(fitting.type) ? ' and a reducer needs a following segment.' : '.';
+			const tail = reducer ? ' and a reducer needs a following segment.' : '.';
 			add(
 				`${where}, fitting ${i + 1} (${fitting.type}) is on pipe ${fitting.pipeIndex + 1}, ` +
 					`but the connection has ${pipes.length} pipe segment(s)${tail}`,
@@ -424,9 +373,6 @@ function pipingIssues(project: Project, connection: PipeConnection): ModelRuleIs
 function increasing(flows: number[]): boolean {
 	return flows.every((q, i) => i === 0 || q > (flows[i - 1] as number));
 }
-
-/** FCV setpoint bounds, m³/s (models/components.py). */
-const FCV_SETPOINT_MAX = 100;
 
 /**
  * Rules the API models check in validators, and pump-curve references, as issues located in the
@@ -456,18 +402,23 @@ export function modelRuleIssues(
 				...at
 			});
 		}
-		if (component.type === 'reference_node' && component.ports.length !== 1) {
+		const count = requiredPortCount(component);
+		if (count !== null && component.ports.length !== count) {
+			const ports = count === 1 ? 'one port' : `${count} ports`;
+			const kind = component.type === 'reference_node' ? 'a reference node' : 'it';
 			issues.push({
-				text: `${where}: a reference node has exactly one port.`,
-				message: `${component.name}: a reference node has exactly one port.`,
+				text: `${where}: ${kind} has exactly ${ports}.`,
+				message: `${component.name}: ${kind} has exactly ${ports}.`,
 				...at
 			});
 		}
 		if (component.type === 'valve' && component.valveType === 'fcv') {
-			if (!(component.setpoint >= 0 && component.setpoint <= FCV_SETPOINT_MAX)) {
+			// An FCV's setpoint is a flow, with bounds of its own (x-setpoint-bounds).
+			const { minimum = -Infinity, maximum = Infinity } = setpointBounds(component.valveType);
+			if (!(component.setpoint >= minimum && component.setpoint <= maximum)) {
 				issues.push({
-					text: `${where}: an FCV setpoint is a flow between 0 and ${FCV_SETPOINT_MAX} m³/s.`,
-					message: `The flow setpoint of ${component.name} must be between ${formatValue(0, 'flow', units)} and ${formatValue(FCV_SETPOINT_MAX, 'flow', units)}.`,
+					text: `${where}: an FCV setpoint is a flow between ${minimum} and ${maximum} m³/s.`,
+					message: `The flow setpoint of ${component.name} must be between ${formatValue(minimum, 'flow', units)} and ${formatValue(maximum, 'flow', units)}.`,
 					...at
 				});
 			}
@@ -480,8 +431,15 @@ export function modelRuleIssues(
 			});
 		}
 		if (connectionIds.has(component.id)) {
+			// The API's DUPLICATE_ID topology issue: results, traces and flags are keyed by id.
 			const text = `Id "${component.id}" is used by both a component and a connection.`;
-			issues.push({ text, message: text, ...at });
+			issues.push({
+				text,
+				message: `${text} Every element needs its own id.`,
+				code: 'DUPLICATE_ID',
+				...at,
+				connectionId: component.id
+			});
 		}
 	}
 	for (const connection of project.connections) issues.push(...pipingIssues(project, connection));

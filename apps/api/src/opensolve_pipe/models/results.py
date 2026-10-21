@@ -46,7 +46,13 @@ class Flag(OutputModel):
     component_id: str | None
     connection_id: str | None
     port_id: str | None
-    details: dict[str, float | str]
+    details: dict[str, float | str] = Field(
+        description=(
+            "Values behind the message, SI. segmentIndex and fittingIndex are 0-based indexes "
+            "into the connection's piping.pipes and piping.fittings; messages number pipes and "
+            "fittings from 1, as the web app does"
+        )
+    )
 
 
 class CurvePoint(OutputModel):
@@ -71,7 +77,7 @@ class NodeResult(OutputModel):
 
 
 class SegmentResult(OutputModel):
-    index: int
+    index: int = Field(description="0-based index into piping.pipes (traces call it Pipe index+1)")
     inner_diameter: float = Field(description="m")
     length: float = Field(description="m")
     roughness: float = Field(description="m")
@@ -83,7 +89,9 @@ class SegmentResult(OutputModel):
 
 
 class FittingResult(OutputModel):
-    index: int
+    index: int = Field(
+        description="0-based index into piping.fittings (traces call it Fitting index+1)"
+    )
     type: str
     quantity: int
     k: float = Field(description="K of one fitting, referenced to referenceDiameter")

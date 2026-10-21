@@ -13,7 +13,8 @@ import type {
 	NodeResult,
 	PumpResult,
 	SolvedState,
-	SolveResponse
+	SolveResponse,
+	SystemCurveResponse
 } from '../api/types';
 
 /** Made-up node values at one port. */
@@ -91,13 +92,35 @@ export function pumpResult(values: Partial<PumpResult> = {}): PumpResult {
 			{ flow: 0.02, head: 22 },
 			{ flow: 0.03, head: 12 }
 		],
-		systemCurve: [
-			{ flow: 0, head: 12 },
-			{ flow: 0.01, head: 14.5 },
-			{ flow: 0.02, head: 22 },
-			{ flow: 0.03, head: 34.5 }
-		],
+		// The app solves without system curves (D10); see systemCurveResponse().
+		systemCurve: null,
 		...values
+	};
+}
+
+/**
+ * A made-up system curve of pump `pumpId` (POST /api/v1/system-curve): 0–0.03 m³/s, through
+ * the operating point of pumpResult(). `missing` lists the indexes of points without a head.
+ */
+export function systemCurveResponse(
+	pumpId = 'P1',
+	missing: readonly number[] = []
+): SystemCurveResponse {
+	const points = [
+		{ flow: 0, head: 12 },
+		{ flow: 0.01, head: 14.5 },
+		{ flow: 0.02, head: 22 },
+		{ flow: 0.03, head: 34.5 }
+	].map((p, i) =>
+		missing.includes(i)
+			? { flow: p.flow, head: null, converged: false, message: 'made-up reason: not converged' }
+			: { ...p, converged: true, message: '' }
+	);
+	return {
+		pumpId,
+		flowRange: { min: 0, max: 0.03, unit: 'm³/s' },
+		points,
+		converged: points.map((p) => p.converged)
 	};
 }
 

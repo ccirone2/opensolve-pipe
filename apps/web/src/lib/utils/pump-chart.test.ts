@@ -3,7 +3,7 @@
  * point is a reported value in display units. Pump results are made-up test inputs.
  */
 import { describe, expect, it } from 'vitest';
-import { pumpResult } from '../testing/results';
+import { pumpResult, systemCurveResponse } from '../testing/results';
 import { pumpTransferExample } from './examples';
 import { pumpChartData, ratedCurveRange } from './pump-chart';
 import { IMPERIAL_UNITS, SI_UNITS } from './units';
@@ -18,7 +18,7 @@ describe('pump chart data', () => {
 	});
 
 	it('maps the curve, system curve and operating point to display units', () => {
-		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03]);
+		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03], systemCurveResponse());
 		expect(data.flowUnit).toBe('L/s');
 		expect(data.headUnit).toBe('m');
 		expect(data.curve.map((p) => [Number(p.x.toFixed(9)), p.y])).toEqual([
@@ -29,10 +29,15 @@ describe('pump chart data', () => {
 		]);
 		expect(data.extrapolated).toEqual([]);
 		expect(data.system?.map((p) => Number(p.x.toFixed(9)))).toEqual([0, 10, 20, 30]);
+		expect(data.system?.map((p) => p.y)).toEqual([12, 14.5, 22, 34.5]);
+		expect(data.systemMissing).toBe(0);
+		// The flows the curve was requested over (SystemCurveResponse.flowRange), in L/s.
+		expect(data.systemSpan?.map((v) => Number(v.toFixed(9)))).toEqual([0, 30]);
 		expect(data.operating).toEqual({ x: expect.closeTo(20, 9), y: 22 });
 		expect(data.range?.map((v) => Number(v.toFixed(9)))).toEqual([0, 30]);
 
 		const us = pumpChartData(pumpResult(), IMPERIAL_UNITS, [0, 0.03]);
+		expect(us.systemSpan).toBeNull();
 		expect(us.flowUnit).toBe('gpm');
 		expect(us.headUnit).toBe('ft');
 		expect(us.operating?.x).toBeCloseTo(0.02 / GPM, 9);
@@ -104,9 +109,9 @@ describe('pump chart data', () => {
 		expect(data.extrapolated).toEqual([]);
 	});
 
-	it('has no operating point when the pump is off, and no system curve when none was returned', () => {
+	it('has no operating point when the pump is off, and no system curve when none is given', () => {
 		const data = pumpChartData(
-			pumpResult({ status: 'off', operatingFlow: 0, operatingHead: -5, systemCurve: null }),
+			pumpResult({ status: 'off', operatingFlow: 0, operatingHead: -5 }),
 			SI_UNITS,
 			[0, 0.03]
 		);
@@ -114,6 +119,18 @@ describe('pump chart data', () => {
 		expect(data.extrapolated).toEqual([]);
 		expect(data.system).toBeNull();
 		expect(data.systemRows).toEqual([]);
+	});
+
+	it('leaves system-curve points without a solution as gaps, with the API’s reason', () => {
+		const data = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03], systemCurveResponse('P1', [1]));
+		expect(data.system?.map((p) => p.y)).toEqual([12, null, 22, 34.5]);
+		expect(data.systemMissing).toBe(1);
+		expect(data.systemRows).toEqual([
+			{ flow: '0', head: '12', note: '' },
+			{ flow: '10', head: '—', note: 'made-up reason: not converged' },
+			{ flow: '20', head: '22', note: '' },
+			{ flow: '30', head: '34.5', note: '' }
+		]);
 	});
 
 	it('formats data-table rows to 4 significant figures', () => {

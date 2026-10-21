@@ -28,9 +28,10 @@ from opensolve_pipe.models.components import (
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.results import ElementTrace, SolvedState
 from opensolve_pipe.services.solver import solve_project
+from opensolve_pipe.services.solver.trace import BOUNDARY_LOSS_NOTE
 from tests.reference.case_format import case_files, read_case
 
-from .helpers import connection, make_project, reservoir, tee
+from .helpers import connection, custom_pipe, make_project, reference_node, reservoir, tee
 
 CASES = case_files()
 
@@ -101,20 +102,20 @@ def test_connection_intermediates_match_the_link_results(
         assert values["Fittings head loss Σh_j"] == link.fittings_head_loss
         for seg in link.segments:
             i = seg.index
-            assert values[f"Segment {i} velocity v"] == seg.velocity
-            assert values[f"Segment {i} Reynolds number Re"] == seg.reynolds_number
-            assert values[f"Segment {i} friction factor f"] == seg.friction_factor
-            assert values[f"Segment {i} friction head loss h_f"] == seg.head_loss
-            assert values[f"Segment {i} relative roughness ε/D"] == pytest.approx(
+            assert values[f"Pipe {i + 1} velocity v"] == seg.velocity
+            assert values[f"Pipe {i + 1} Reynolds number Re"] == seg.reynolds_number
+            assert values[f"Pipe {i + 1} friction factor f"] == seg.friction_factor
+            assert values[f"Pipe {i + 1} friction head loss h_f"] == seg.head_loss
+            assert values[f"Pipe {i + 1} relative roughness ε/D"] == pytest.approx(
                 seg.roughness / seg.inner_diameter, rel=1e-15
             )
-            area = values[f"Segment {i} area A"]
+            area = values[f"Pipe {i + 1} area A"]
             assert area == pytest.approx(math.pi * seg.inner_diameter**2 / 4, rel=1e-15)
             assert seg.velocity == pytest.approx(link.flow / area, rel=1e-12, abs=1e-300)
         for fit in link.fittings:
-            assert values[f"Fitting {fit.index} K"] == fit.k
-            assert values[f"Fitting {fit.index} reference diameter"] == fit.reference_diameter
-            assert values[f"Fitting {fit.index} head loss h_j"] == fit.head_loss
+            assert values[f"Fitting {fit.index + 1} K"] == fit.k
+            assert values[f"Fitting {fit.index + 1} reference diameter"] == fit.reference_diameter
+            assert values[f"Fitting {fit.index + 1} head loss h_j"] == fit.head_loss
         a = f"{conn.from_component_id}:{conn.from_port_id}"
         b = f"{conn.to_component_id}:{conn.to_port_id}"
         if a in state.node_results:
@@ -208,18 +209,18 @@ def test_inputs_restate_the_project(solved: tuple[Project, SolvedState]) -> None
     for conn in project.connections:
         inputs = _inputs(state.trace.elements[conn.id])
         for i, pipe in enumerate(conn.piping.pipes):
-            assert inputs[f"Segment {i} length L"] == pipe.length
+            assert inputs[f"Pipe {i + 1} length L"] == pipe.length
             if pipe.inner_diameter is not None:
-                assert inputs[f"Segment {i} inner diameter D"] == pipe.inner_diameter
+                assert inputs[f"Pipe {i + 1} inner diameter D"] == pipe.inner_diameter
         for j, fit in enumerate(conn.piping.fittings):
-            assert inputs[f"Fitting {j} ({fit.type}) quantity n"] == fit.quantity
+            assert inputs[f"Fitting {j + 1} ({fit.type}) quantity n"] == fit.quantity
     for comp in project.components:
         inputs = _inputs(state.trace.elements[comp.id])
         if isinstance(comp, Pump):
             curve = next(c for c in project.pump_library if c.id == comp.curve_id)
             for i, point in enumerate(curve.points):
-                assert inputs[f"Head curve point {i}: flow Q₀"] == point.flow
-                assert inputs[f"Head curve point {i}: head H₀"] == point.head
+                assert inputs[f"Head curve point {i + 1}: flow Q₀"] == point.flow
+                assert inputs[f"Head curve point {i + 1}: head H₀"] == point.head
             assert inputs["Speed ratio s"] == comp.speed
             assert inputs["Atmospheric pressure p_atm"] == state.atmospheric_pressure
             assert inputs["Vapor pressure p_vap"] == state.fluid.vapor_pressure
@@ -344,17 +345,17 @@ def test_input_sources_distinguish_user_and_default_values() -> None:
     assert tee_inputs["Loss model"].value == "crane"
     assert tee_inputs["Loss model"].source == "default"
     l1 = {i.name: i for i in state.trace.elements["L1"].inputs}
-    assert l1["Fitting 0 (exit) quantity n"].source == "default"
-    assert l1["Segment 0 inner diameter D"].source == "user"
+    assert l1["Fitting 1 (exit) quantity n"].source == "default"
+    assert l1["Pipe 1 inner diameter D"].source == "user"
     assert l1["Fluid dynamic viscosity μ"].source == "user"  # a custom fluid
     assert l1["Kinematic viscosity ν = μ/ρ"].source == "computed"
     l3 = {i.name: i for i in state.trace.elements["L3"].inputs}
-    assert l3["Segment 0 inner diameter D"].source == "library"
-    assert l3["Segment 0 roughness ε"].source == "library"
-    assert l3["Segment 0 NPS (library size)"].value == "4"
+    assert l3["Pipe 1 inner diameter D"].source == "library"
+    assert l3["Pipe 1 roughness ε"].source == "library"
+    assert l3["Pipe 1 NPS (library size)"].value == "4"
     sources = {r.name: r.citation for r in state.trace.elements["L3"].data_sources}
-    assert "ASME B36.10M" in sources["Segment 0 inner diameter"]
-    assert "Farshad" in sources["Segment 0 roughness"]
+    assert "ASME B36.10M" in sources["Pipe 1 inner diameter"]
+    assert "Farshad" in sources["Pipe 1 roughness"]
 
 
 def test_defaults_sent_explicitly_are_labeled_default() -> None:
@@ -545,7 +546,7 @@ def test_trace_citations_and_symbols_are_complete() -> None:
     ]
     trace = solve_project(make_project(comps, conns)).trace.elements["L1"]
     sources = {r.name: r.citation for r in trace.data_sources}
-    assert "fluids has no PVC entry" in sources["Segment 0 roughness"]
+    assert "fluids has no PVC entry" in sources["Pipe 1 roughness"]
     assert any(e.startswith("rc = radiusRatio · D") for e in trace.equations)
     assert any("rc=" in c.name for c in trace.correlations)
 
@@ -587,3 +588,116 @@ def test_locked_open_check_valve_trace_states_the_law_it_uses() -> None:
     )
     valves = next(s for s in state.trace.methods.sections if s.title == "Valves")
     assert any(i.startswith("Active check valves: open loss") for i in valves.items)
+
+
+def test_pipes_and_fittings_are_numbered_from_one_as_in_the_app() -> None:
+    """Traces, flags and the notes name a connection's pipes and fittings as the web app
+    numbers them (Pipe 1, fitting 1); the flags' segmentIndex / fittingIndex stay 0-based
+    indexes into piping.pipes and piping.fittings. Test inputs: an FCV holds the flow at
+    Q = 4.712e-5 m³/s so that Re = 4Q/(πDν) is laminar in pipe 1 (D = 0.04 m) and
+    transitional in pipe 2 (D = 0.02 m)."""
+    fcv = {
+        "type": "valve",
+        "valveType": "fcv",
+        "id": "V1",
+        "name": "V1",
+        "elevation": 0.0,
+        "setpoint": 4.712e-5,
+        "ports": [{"id": "inlet", "nominalSize": 0.04}, {"id": "outlet", "nominalSize": 0.04}],
+    }
+    comps = [reservoir("R1", level=20.0), fcv, reservoir("R2", level=10.0)]
+    conns = [
+        connection("L1", ("R1", "port_1"), ("V1", "inlet"), length=1.0, diameter=0.04),
+        connection(
+            "L2",
+            ("V1", "outlet"),
+            ("R2", "port_1"),
+            pipes=[custom_pipe(10.0, 0.04, 4.5e-5), custom_pipe(10.0, 0.02, 4.5e-5)],
+            fittings=[
+                {"type": "reducer_sudden", "pipeIndex": 0},
+                {"type": "elbow_90_lr", "pipeIndex": 1},
+                {"type": "gate_valve", "pipeIndex": 0},
+            ],
+        ),
+    ]
+    state = solve_project(make_project(comps, conns))
+    assert state.converged
+    regimes = [s.flow_regime for s in state.link_results["L2"].segments]
+    assert regimes == ["laminar", "transitional"]
+
+    trace = state.trace.elements["L2"]
+    inputs = _inputs(trace)
+    assert inputs["Pipe 1 inner diameter D"] == 0.04
+    assert inputs["Pipe 2 inner diameter D"] == 0.02
+    assert inputs["Fitting 1 (reducer_sudden) position"] == "between pipes 1 and 2"
+    assert inputs["Fitting 2 (elbow_90_lr) position"] == "pipe 2"
+    assert inputs["Fitting 3 (gate_valve) position"] == "pipe 1"
+    assert not [i.name for i in trace.inputs if i.name.startswith(("Segment", "Fitting 0"))]
+    values = _values(trace)
+    assert (
+        values["Pipe 2 Reynolds number Re"] == state.link_results["L2"].segments[1].reynolds_number
+    )
+    assert values["Fitting 3 K"] == state.link_results["L2"].fittings[2].k
+    reducer = next(n for n in trace.notes if n.startswith("Fitting 1 (reducer_sudden):"))
+    # Both directions use the velocity in the smaller pipe, pipe 2 (index 1).
+    assert reducer.count("(on pipe 2)") == 2
+    assert "segment" not in reducer
+    assert any(n.startswith("Pipe 1: laminar") for n in trace.notes)
+    assert any(n.startswith("Pipe 2: transitional") for n in trace.notes)
+
+    transitional = next(f for f in state.flags if f.code == "TRANSITIONAL_FLOW")
+    assert transitional.details["segmentIndex"] == 1
+    assert transitional.message.startswith("connection 'L2' pipe 2: Re = ")
+    laminar_k = next(f for f in state.flags if f.code == "CORRELATION_OUT_OF_RANGE")
+    assert laminar_k.details["fittingIndex"] == 2
+    assert laminar_k.message.startswith("connection 'L2' fitting 3 (gate_valve): its K")
+
+
+def test_boundary_traces_disclose_entrance_and_exit_losses() -> None:
+    """Reservoir and reference-node traces state that no entrance or exit loss is applied
+    unless the connection has an entrance or exit fitting, and which ones each port's piping
+    has. The statement holds: without such a fitting the port's EGL is the boundary head.
+    Levels, pressures and pipes are test inputs."""
+    comps = [
+        reservoir("R1", level=20.0, ports=("port_1", "port_2")),
+        reservoir("R2", level=10.0),
+        reference_node("N1", pressure=3.0e5),
+    ]
+    conns = [
+        connection(
+            "P1",
+            ("R1", "port_1"),
+            ("R2", "port_1"),
+            fittings=[{"type": "entrance_sharp"}, {"type": "exit"}],
+        ),
+        connection("P2", ("N1", "port_1"), ("R1", "port_2")),
+    ]
+    state = solve_project(make_project(comps, conns))
+    assert state.converged
+    r1 = state.trace.elements["R1"].notes
+    n1 = state.trace.elements["N1"].notes
+    for notes in (r1, n1, state.trace.elements["R2"].notes):
+        assert BOUNDARY_LOSS_NOTE in notes
+    assert BOUNDARY_LOSS_NOTE.startswith(
+        "No entrance or exit loss is applied where a pipe meets this boundary unless the "
+        "connection's piping has an entrance fitting (entrance_sharp, entrance_rounded, "
+        "entrance_projecting"
+    )
+    assert "The web app adds a sharp-edged entrance (entrance_sharp) where new piping" in (
+        BOUNDARY_LOSS_NOTE
+    )
+    assert (
+        "Port port_1, connection 'P1': its piping has entrance fitting(s) entrance_sharp and "
+        "exit fitting(s) exit."
+    ) in r1
+    no_fitting = (
+        "Port port_2, connection 'P2': its piping has no entrance or exit fitting, so no "
+        "entrance or exit loss is applied there."
+    )
+    assert no_fitting in r1
+    assert no_fitting.replace("port_2", "port_1") in n1
+    # Without a fitting the port's EGL equals the boundary head (the note's claim); the flow
+    # from N1 into R1 is not zero, so the pipes carry a velocity head.
+    assert state.link_results["P2"].flow != 0
+    assert state.node_results["N1:port_1"].egl == state.boundary_results["N1"].egl
+    assert state.node_results["R1:port_2"].egl == state.boundary_results["R1"].egl

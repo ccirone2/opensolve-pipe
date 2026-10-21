@@ -11,8 +11,8 @@
 import { getContext, setContext } from 'svelte';
 import { ApiError, defaultClient } from '../api/client';
 import type {
-	BuiltinFluidId,
 	FittingInfo,
+	FluidDefinition,
 	FluidInfo,
 	FluidProperties,
 	LibraryResponse,
@@ -29,11 +29,8 @@ export type LoadStatus = 'idle' | 'loading' | 'ready' | 'unavailable';
 export interface LibrarySource {
 	getLibrary(): Promise<LibraryResponse>;
 	getFluids(): Promise<FluidInfo[]>;
-	fluidProperties(
-		fluidId: BuiltinFluidId,
-		temperature: number,
-		concentration?: number | null
-	): Promise<FluidProperties>;
+	/** Properties of a fluid definition (POST /api/v1/fluids/properties: the fluid in the body). */
+	fluidProperties(fluid: FluidDefinition): Promise<FluidProperties>;
 	/** The method-version changelog; optional (unavailable when absent). */
 	methodVersions?(): Promise<MethodVersionsResponse>;
 }
@@ -108,13 +105,9 @@ export class LibraryStore {
 		}
 	}
 
-	/** Calculated properties of a built-in fluid (throws when the API cannot answer). */
-	fluidProperties(
-		fluidId: BuiltinFluidId,
-		temperature: number,
-		concentration?: number | null
-	): Promise<FluidProperties> {
-		return this.#source().fluidProperties(fluidId, temperature, concentration);
+	/** Calculated properties of a fluid definition (throws when the API cannot answer). */
+	fluidProperties(fluid: FluidDefinition): Promise<FluidProperties> {
+		return this.#source().fluidProperties(fluid);
 	}
 
 	get materials(): readonly PipeMaterial[] {

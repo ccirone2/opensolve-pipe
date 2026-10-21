@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NetworkError, TopologyError, ValidationError } from '../api/client';
-import type { Project, SolveResponse } from '../api/types';
+import type { Project, SolveResponse, SystemCurveResponse } from '../api/types';
 import { referentialIssues } from '../testing/helpers';
 import { addBranch, deleteComponent, insertComponentInConnection } from '../utils/edit';
 import { decodeProject, encodeProject, fragmentOf } from '../utils/encoding';
@@ -584,5 +584,143 @@ describe('results', () => {
 		pending.resolve(solveResponse());
 		await solving;
 		expect(store.results.response).toBeNull();
+	});
+});
+
+describe('system curves (D10: on demand, per solve)', () => {
+	/** Let pending promise callbacks run. */
+	async function settle() {
+		for (let i = 0; i < 20; i++) await Promise.resolve();
+	}
+
+	function curve(pumpId: string, head: number): SystemCurveResponse {
+		// Made-up test values.
+		return {
+			pumpId,
+			flowRange: { min: 0, max: 0.01, unit: 'm³/s' },
+			points: [{ flow: 0, head, converged: true, message: '' }],
+			converged: [true]
+		};
+	}
+
+	function curveSolver() {
+		const calls: { project: Project; pumpId: string; signal?: AbortSignal }[] = [];
+		const answers: ReturnType<typeof deferred<SystemCurveResponse>>[] = [];
+		const solver: Solver = {
+			solve: vi.fn(async () => solveResponse()),
+			systemCurve: vi.fn((project: Project, pumpId: string, options?: { signal?: AbortSignal }) => {
+				calls.push({ project, pumpId, signal: options?.signal });
+				const answer = deferred<SystemCurveResponse>();
+				answers.push(answer);
+				return answer.promise;
+			})
+		};
+		return { solver, calls, answers };
+	}
+
+	it('solves without system curves', async () => {
+		const { solver } = curveSolver();
+		const { store } = setup({ solver });
+		await store.solve();
+		expect(solver.solve).toHaveBeenCalledWith(expect.anything(), { includeSystemCurve: false });
+	});
+
+	it('computes a curve for the project exactly as solved, once per solve', async () => {
+		const { solver, calls, answers } = curveSolver();
+		const { store } = setup({ solver });
+		const solved = store.project;
+		await store.solve();
+		const response = store.results.response;
+		// The project as sent (the store then records the method version in its own copy).
+		expect(solver.solve).toHaveBeenCalledWith(solved, { includeSystemCurve: false });
+		expect(store.solvedProject).toBe(solved);
+		// An edit after the solve: the curve is still the solved project's.
+		store.update(lengthen(5), 'Change length');
+		expect(store.results.stale).toBe(true);
+		store.loadSystemCurve('P1');
+		expect(store.systemCurve(response, 'P1')).toEqual({ status: 'loading' });
+		await settle();
+		expect(calls).toHaveLength(1);
+		expect(calls[0]!.project).toBe(solved);
+		expect(calls[0]!.project).not.toBe(store.project);
+		expect(calls[0]!.pumpId).toBe('P1');
+		answers[0]!.resolve(curve('P1', 12));
+		await settle();
+		expect(store.systemCurve(response, 'P1')).toEqual({ status: 'ready', curve: curve('P1', 12) });
+		// Cached with the solve: asking again sends nothing.
+		store.loadSystemCurve('P1');
+		await settle();
+		expect(calls).toHaveLength(1);
+		// Never shown with another solve's results.
+		expect(store.systemCurve(solveResponse(), 'P1')).toBeUndefined();
+		expect(store.systemCurve(null, 'P1')).toBeUndefined();
+	});
+
+	it('drops the curves of an older solve, and never fills a newer solve with them', async () => {
+		const { solver, calls, answers } = curveSolver();
+		const { store } = setup({ solver });
+		await store.solve();
+		store.loadSystemCurve('P1');
+		await settle();
+		const first = calls[0]!;
+		// A new solve starts: the request in flight is cancelled and said so.
+		const solving = store.solve();
+		expect(first.signal?.aborted).toBe(true);
+		expect(store.systemCurve(store.results.response, 'P1')).toEqual({ status: 'cancelled' });
+		await solving;
+		// The new solve's cache is empty; the old answer arriving late changes nothing.
+		const newer = store.results.response;
+		expect(store.systemCurve(newer, 'P1')).toBeUndefined();
+		answers[0]!.resolve(curve('P1', 99));
+		await settle();
+		expect(store.systemCurve(newer, 'P1')).toBeUndefined();
+		store.loadSystemCurve('P1');
+		await settle();
+		expect(calls).toHaveLength(2);
+		answers[1]!.resolve(curve('P1', 12));
+		await settle();
+		expect(store.systemCurve(newer, 'P1')).toEqual({ status: 'ready', curve: curve('P1', 12) });
+		// Loading another project, or clearing the results, forgets them.
+		store.clearResults();
+		expect(store.solvedProject).toBeNull();
+		expect(store.systemCurves).toEqual({});
+	});
+
+	it('sends one request at a time', async () => {
+		// Two pump ids (the fake server answers for any id).
+		const { solver, calls, answers } = curveSolver();
+		const { store } = setup({ solver });
+		await store.solve();
+		store.loadSystemCurve('P1');
+		store.loadSystemCurve('P2');
+		await settle();
+		expect(calls.map((c) => c.pumpId)).toEqual(['P1']);
+		answers[0]!.resolve(curve('P1', 12));
+		await settle();
+		expect(calls.map((c) => c.pumpId)).toEqual(['P1', 'P2']);
+		answers[1]!.reject(new NetworkError('Made-up failure.', 503));
+		await settle();
+		const response = store.results.response;
+		expect(store.systemCurve(response, 'P2')).toEqual({
+			status: 'error',
+			message: 'Made-up failure.'
+		});
+		// A failure waits for a retry; then the curve is requested again.
+		store.loadSystemCurve('P2');
+		await settle();
+		expect(calls).toHaveLength(2);
+		store.loadSystemCurve('P2', { retry: true });
+		await settle();
+		expect(calls).toHaveLength(3);
+		expect(store.systemCurve(response, 'P1')).toEqual({ status: 'ready', curve: curve('P1', 12) });
+	});
+
+	it('says so when the server offers no system curves', async () => {
+		const { store } = setup({ solver: { solve: async () => solveResponse() } });
+		store.loadSystemCurve('P1');
+		expect(store.systemCurves).toEqual({}); // nothing solved yet
+		await store.solve();
+		store.loadSystemCurve('P1');
+		expect(store.systemCurve(store.results.response, 'P1')).toMatchObject({ status: 'error' });
 	});
 });

@@ -13,7 +13,7 @@ import {
 	hasReservoirLoss,
 	insertComponentInConnection,
 	joinPlan,
-	MAX_PORTS,
+	canAddPort,
 	plugPort,
 	removePort,
 	removePumpCurve,
@@ -34,6 +34,8 @@ import {
 import { connectionAtPort, freePorts, inletPort, outletPort, portRole } from './graph';
 import fixtureJson from './__fixtures__/schema-v1.json';
 import { projectProblems } from './validate';
+import { maxPorts } from './model-rules';
+import openapi from '../api/openapi.json';
 
 const fixture = fixtureJson as unknown as Project;
 
@@ -780,11 +782,20 @@ describe('reservoir ports', () => {
 		expect(() => removePort(project, 'R1', 'port_1')).toThrow(/already connected/);
 		const alone = projectWith([createComponent('reservoir', createEmptyProject())]);
 		expect(() => removePort(alone, 'R1', 'port_1')).toThrow(/at least one port/);
+		// The bound is the schema's (Reservoir.ports maxItems), not a copy of it.
+		const max = maxPorts(alone.components[0]!);
+		expect(max).toBe(openapi.components.schemas.Reservoir.properties.ports.maxItems);
+		expect(max).toBe(16);
 		let full = alone;
-		for (let i = 1; i < MAX_PORTS; i++) full = addPort(full, 'R1');
-		expect(full.components[0]!.ports).toHaveLength(MAX_PORTS);
+		for (let i = 1; i < max; i++) full = addPort(full, 'R1');
+		expect(full.components[0]!.ports).toHaveLength(max);
 		expectValid(full, '16 ports');
+		expect(canAddPort(full.components[0]!)).toBe(false);
 		expect(() => addPort(full, 'R1')).toThrow(/at most 16/);
+		expect(canAddPort(alone.components[0]!)).toBe(true);
+		for (const kind of ['reference_node', 'plug', 'tee', 'pump', 'gate'] as const) {
+			expect(canAddPort(createComponent(kind, createEmptyProject())), kind).toBe(false);
+		}
 	});
 });
 

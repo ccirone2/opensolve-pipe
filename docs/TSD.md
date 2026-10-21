@@ -2,9 +2,9 @@
 
 # OpenSolve Pipe - Web-Based Hydraulic Network Design Tool
 
-**Version:** 0.1.0 (Draft)
-**Date:** January 2026
-**Status:** Skeleton TSD for Development Planning
+**Version:** 0.2.0 (Rebuild baseline)
+**Date:** October 2026
+**Status:** Aligned with the rebuild decisions D1–D6 in `CLAUDE.md`
 
 ---
 
@@ -24,10 +24,13 @@ This document covers:
 - Data formats and schemas
 - Deployment configuration
 
+Code samples are sketches that show intent, unless a section says the code was tested (§4.7, §5.2).
+
 ### 1.3 References
 
-- PRD: Product Requirements Document v0.1.0
-- SDD: Software Design Document v0.1.0
+- PRD: Product Requirements Document v0.2.0
+- SDD: Software Design Document v0.2.0
+- `CLAUDE.md`: rebuild decisions D1–D6 (take precedence over this document)
 
 ---
 
@@ -37,13 +40,14 @@ This document covers:
 
 | Layer | Technology | Rationale |
 |-------|------------|-----------|
-| Framework | **SvelteKit** | Excellent performance, smaller bundle size, good mobile support, simpler than React for this use case |
+| Framework | **SvelteKit 2 / Svelte 5** (runes) | Excellent performance, smaller bundle size, good mobile support |
 | Language | TypeScript | Type safety, better tooling, self-documenting |
 | Styling | Tailwind CSS | Utility-first, responsive design, consistent look |
-| State | Svelte stores | Built-in, sufficient for component chain model |
-| Charts | Chart.js or Plotly.js | Pump curve visualization |
-| Schematic | SVG + D3.js | Custom symbols, interactive elements |
+| State | Svelte 5 runes (`$state`, `$derived`) in `.svelte.ts` modules | Built-in, sufficient for the project model |
+| Charts | Chart.js | Pump and system curve visualization |
 | Compression | pako (gzip) | URL state compression |
+| Package manager | pnpm | Fast, strict dependency resolution |
+| Schematic (Later) | SVG + D3.js | Custom symbols, interactive elements |
 
 **Alternative Considered:** React with Zustand
 
@@ -55,22 +59,23 @@ This document covers:
 | Layer | Technology | Rationale |
 |-------|------------|-----------|
 | Framework | **FastAPI** | Modern Python, async support, auto OpenAPI docs |
-| Language | Python 3.11+ | Required for hydraulic libraries |
-| Hydraulics | fluids, WNTR | Proven libraries, actively maintained |
-| Validation | Pydantic | FastAPI integration, type coercion |
-| Task Queue | Celery + Redis | Async solve jobs (future, for large networks) |
+| Language | Python 3.12 | Required for hydraulic libraries |
+| Project manager | uv | Lockfile, fast installs, one tool for envs and scripts |
+| Numerics | NumPy, SciPy | Linear algebra for the network solver (sparse once networks grow) |
+| Hydraulics | `fluids` | Colebrook friction, fitting K-factors |
+| Validation | Pydantic v2 | FastAPI integration, type coercion |
+| Test reference (dev only) | WNTR (EPANET) | Independent results for water-only networks (§10) |
 
-### 2.3 Database (Optional)
+Later: a task queue for long solves, if the 5-second target for medium networks cannot be met synchronously.
+
+### 2.3 Database (Later)
+
+v1 has no database (D3). When accounts, short links and version history arrive:
 
 | Component | Technology | Rationale |
 |-----------|------------|-----------|
-| Primary | **PostgreSQL** | Robust, good JSON support for project data |
-| Cache | Redis | Session data, rate limiting, task queue |
-
-**Note:** Database only required when:
-
-- Project exceeds URL-encoding size limit (~50KB compressed)
-- User opts for account-based persistence
+| Primary | PostgreSQL | Robust, good JSON support for project data |
+| Cache | Redis | Rate limiting, sessions |
 
 ### 2.4 Infrastructure
 
@@ -78,7 +83,6 @@ This document covers:
 |-----------|------------|
 | Frontend Hosting | Vercel or Cloudflare Pages |
 | Backend Hosting | Railway, Fly.io, or AWS Lambda |
-| Database | Supabase (PostgreSQL) or Railway |
 | CDN | Cloudflare |
 
 ---
@@ -90,70 +94,63 @@ This document covers:
 ```
 opensolve-pipe/
 ├── apps/
-│   ├── web/                    # SvelteKit frontend
+│   ├── web/                    # SvelteKit frontend (pnpm)
 │   │   ├── src/
 │   │   │   ├── lib/
 │   │   │   │   ├── components/
 │   │   │   │   │   ├── panel/          # Panel navigator components
-│   │   │   │   │   ├── schematic/      # PFD rendering
-│   │   │   │   │   ├── results/        # Results display
-│   │   │   │   │   ├── forms/          # Input forms
+│   │   │   │   │   ├── results/        # Results tables, pump curve chart
 │   │   │   │   │   └── ui/             # Generic UI components
-│   │   │   │   ├── stores/             # Svelte stores
-│   │   │   │   ├── models/             # TypeScript interfaces
-│   │   │   │   ├── utils/              # Helpers, encoding, units
+│   │   │   │   ├── state/              # Project state (*.svelte.ts, runes)
+│   │   │   │   ├── models/             # TypeScript types (generated from OpenAPI where possible)
+│   │   │   │   ├── utils/
+│   │   │   │   │   ├── encoding.ts     # URL fragment encode/decode
+│   │   │   │   │   ├── migrations.ts   # schemaVersion upgrades
+│   │   │   │   │   ├── units.ts        # display-unit conversion
+│   │   │   │   │   └── graph.ts        # port-graph traversal for the navigator
 │   │   │   │   └── api/                # API client
 │   │   │   ├── routes/
 │   │   │   │   ├── +page.svelte        # Home / empty workspace
-│   │   │   │   ├── p/
-│   │   │   │   │   └── [...encoded]/   # Project view (URL-encoded state)
-│   │   │   │   └── api/                # API routes (if using SvelteKit backend)
+│   │   │   │   └── p/
+│   │   │   │       └── +page.svelte    # Project view; state read from location.hash
 │   │   │   └── app.html
-│   │   ├── static/
-│   │   │   └── symbols/                # SVG symbols for schematic
-│   │   ├── tests/
+│   │   ├── tests/                      # Playwright end-to-end tests
 │   │   ├── svelte.config.js
-│   │   ├── tailwind.config.js
 │   │   └── package.json
 │   │
-│   └── api/                    # FastAPI backend
+│   └── api/                    # FastAPI backend (uv)
 │       ├── src/
-│       │   ├── opensolve_pipe/
-│       │   │   ├── __init__.py
-│       │   │   ├── main.py             # FastAPI app entry
-│       │   │   ├── routers/
-│       │   │   │   ├── solve.py
-│       │   │   │   ├── fluids.py
-│       │   │   │   ├── export.py
-│       │   │   │   └── version.py
-│       │   │   ├── services/
-│       │   │   │   ├── solver/
-│       │   │   │   │   ├── simple.py       # Single-path solver
-│       │   │   │   │   ├── network.py      # WNTR wrapper
-│       │   │   │   │   └── adapter.py      # Component chain → solver
-│       │   │   │   ├── fluids.py
-│       │   │   │   └── export.py
-│       │   │   ├── models/
-│       │   │   │   ├── project.py
-│       │   │   │   ├── components.py
-│       │   │   │   ├── results.py
-│       │   │   │   └── fluids.py
-│       │   │   ├── data/
-│       │   │   │   ├── pipe_materials.json
-│       │   │   │   ├── fittings.json
-│       │   │   │   └── fluids.json
-│       │   │   └── utils/
-│       │   │       ├── units.py
-│       │   │       └── k_factors.py
-│       │   └── tests/
+│       │   └── opensolve_pipe/
+│       │       ├── __init__.py
+│       │       ├── main.py             # FastAPI app entry
+│       │       ├── routers/
+│       │       │   ├── solve.py
+│       │       │   └── fluids.py
+│       │       ├── services/
+│       │       │   ├── solver/
+│       │       │   │   ├── builder.py      # Port graph → solver nodes and links
+│       │       │   │   ├── gga.py          # Global Gradient Algorithm core
+│       │       │   │   ├── elements.py     # Head-loss laws: pipe, pump, valves, branches
+│       │       │   │   ├── status.py       # Outer loop: check/control valve status, tee K updates
+│       │       │   │   ├── npsh.py
+│       │       │   │   └── results.py      # Solver output → SolvedState
+│       │       │   └── fluids.py
+│       │       ├── models/
+│       │       │   ├── project.py
+│       │       │   ├── components.py
+│       │       │   ├── results.py
+│       │       │   └── fluids.py
+│       │       └── data/
+│       │           ├── pipe_materials.json
+│       │           ├── fittings.json
+│       │           ├── branch_k_factors.json
+│       │           └── fluids.json
+│       ├── tests/
+│       │   ├── reference/              # Benchmark cases (§10.1)
+│       │   └── unit/
 │       ├── pyproject.toml
+│       ├── uv.lock
 │       └── Dockerfile
-│
-├── packages/
-│   └── shared/                 # Shared TypeScript types (if needed)
-│       ├── src/
-│       │   └── models/
-│       └── package.json
 │
 ├── docs/
 │   ├── PRD.md
@@ -162,39 +159,45 @@ opensolve-pipe/
 │
 ├── .github/
 │   └── workflows/
-│       ├── ci.yml
-│       └── deploy.yml
+│       └── ci.yml
 │
-├── docker-compose.yml
-├── turbo.json                  # Turborepo config (if using)
+├── .gitignore
+├── CLAUDE.md
 └── README.md
 ```
 
+Directories are created when the code that needs them lands.
+
 ### 3.2 Key Files
 
-#### Frontend Entry: `apps/web/src/routes/+page.svelte`
+#### Frontend Entry: `apps/web/src/routes/p/+page.svelte`
 
 ```svelte
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { projectStore } from '$lib/stores/project';
+  import { project, loadFromHash } from '$lib/state/project.svelte';
   import PanelNavigator from '$lib/components/panel/PanelNavigator.svelte';
-  import SchematicViewer from '$lib/components/schematic/SchematicViewer.svelte';
   import ResultsPanel from '$lib/components/results/ResultsPanel.svelte';
 
-  let viewMode: 'panel' | 'schematic' | 'results' = 'panel';
+  let viewMode = $state<'panel' | 'results'>('panel');
+
+  // The project lives in the fragment, which is only available in the browser.
+  onMount(() => {
+    loadFromHash(location.hash.slice(1));
+    const onHashChange = () => loadFromHash(location.hash.slice(1));
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  });
 </script>
 
 <main class="h-screen flex flex-col">
   <header class="h-14 border-b flex items-center px-4">
-    <!-- Navigation, project name, solve button -->
+    <!-- Project name, solve button, share button, view toggle -->
   </header>
 
   <div class="flex-1 flex overflow-hidden">
     {#if viewMode === 'panel'}
       <PanelNavigator />
-    {:else if viewMode === 'schematic'}
-      <SchematicViewer on:elementClick={(e) => openPanel(e.detail.id)} />
     {:else}
       <ResultsPanel />
     {/if}
@@ -202,13 +205,17 @@ opensolve-pipe/
 </main>
 ```
 
+The project route is rendered client-side only (`export const ssr = false` in `p/+page.ts`), since its data is in the fragment.
+
 #### Backend Entry: `apps/api/src/opensolve_pipe/main.py`
 
 ```python
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import solve, fluids, export, version
+from .routers import fluids, solve
 
 app = FastAPI(
     title="OpenSolve Pipe API",
@@ -218,20 +225,17 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(","),
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 app.include_router(solve.router, prefix="/api/v1", tags=["solve"])
 app.include_router(fluids.router, prefix="/api/v1", tags=["fluids"])
-app.include_router(export.router, prefix="/api/v1", tags=["export"])
-app.include_router(version.router, prefix="/api/v1", tags=["version"])
 
 
 @app.get("/health")
-async def health_check():
+async def health_check() -> dict[str, str]:
     return {"status": "healthy"}
 ```
 
@@ -239,19 +243,20 @@ async def health_check():
 
 ## 4. Data Specifications
 
+All project and API values are SI (D4; SDD §4). Library data files also use SI or dimensionless values, except where a published standard is in other units (pipe dimensions in mm, as published in ASME B36.10M). Every library entry carries a `source`.
+
 ### 4.0 Port-Based Connection Architecture
 
-The network uses a port-based architecture where components have defined connection ports, and pipe connections link ports between components.
-
-**TypeScript Implementation:**
+**TypeScript:**
 
 ```typescript
 // apps/web/src/lib/models/ports.ts
 
 export interface Port {
   id: string;
-  nominalSize: number;
+  nominalSize: number;      // m
   direction: 'inlet' | 'outlet' | 'bidirectional';
+  elevation?: number;       // m; defaults to the component elevation
 }
 
 export interface PipeConnection {
@@ -260,10 +265,9 @@ export interface PipeConnection {
   fromPortId: string;
   toComponentId: string;
   toPortId: string;
-  piping?: PipingSegment;
+  piping: PipingSegment;
 }
 
-// Port factory functions for each component type
 export function createPumpPorts(suctionSize: number, dischargeSize: number): Port[] {
   return [
     { id: 'suction', nominalSize: suctionSize, direction: 'inlet' },
@@ -271,51 +275,45 @@ export function createPumpPorts(suctionSize: number, dischargeSize: number): Por
   ];
 }
 
-export function createBranchPorts(branchType: BranchType, sizes: number[]): Port[] {
-  switch (branchType) {
-    case 'tee':
-      return [
-        { id: 'run_inlet', nominalSize: sizes[0], direction: 'inlet' },
-        { id: 'run_outlet', nominalSize: sizes[1], direction: 'outlet' },
-        { id: 'branch', nominalSize: sizes[2], direction: 'bidirectional' }
-      ];
-    case 'cross':
-      return sizes.map((size, i) => ({
-        id: `port_${i + 1}`,
-        nominalSize: size,
-        direction: 'bidirectional' as const
-      }));
-    // ... other branch types
-  }
+export function createTeePorts(runSize: number, branchSize: number): Port[] {
+  return [
+    { id: 'run_inlet', nominalSize: runSize, direction: 'bidirectional' },
+    { id: 'run_outlet', nominalSize: runSize, direction: 'bidirectional' },
+    { id: 'branch', nominalSize: branchSize, direction: 'bidirectional' }
+  ];
 }
 
-export function createReservoirPorts(portConfigs: { size: number }[]): Port[] {
-  return portConfigs.map((config, i) => ({
+export function createReservoirPorts(sizes: number[]): Port[] {
+  return sizes.map((size, i) => ({
     id: `port_${i + 1}`,
-    nominalSize: config.size,
+    nominalSize: size,
     direction: 'bidirectional' as const
   }));
 }
 ```
 
-**Python Implementation:**
+**Python:**
 
 ```python
 # apps/api/src/opensolve_pipe/models/ports.py
 
-from pydantic import BaseModel
-from typing import Literal, List
-from enum import Enum
+from enum import StrEnum
 
-class PortDirection(str, Enum):
+from pydantic import BaseModel, Field
+
+
+class PortDirection(StrEnum):
     INLET = "inlet"
     OUTLET = "outlet"
     BIDIRECTIONAL = "bidirectional"
 
+
 class Port(BaseModel):
     id: str
-    nominal_size: float  # in project units
+    nominal_size: float = Field(gt=0, description="Nominal diameter, m")
     direction: PortDirection
+    elevation: float | None = Field(default=None, description="m above datum")
+
 
 class PipeConnection(BaseModel):
     id: str
@@ -323,12 +321,16 @@ class PipeConnection(BaseModel):
     from_port_id: str
     to_component_id: str
     to_port_id: str
-    piping: "PipingSegment | None" = None
+    piping: "PipingSegment"
 ```
+
+The API uses camelCase JSON (`alias_generator=to_camel`) so it matches the TypeScript models; Python code uses snake_case.
 
 ### 4.1 Pipe Materials Library
 
 **File:** `apps/api/src/opensolve_pipe/data/pipe_materials.json`
+
+Dimensions are stored as outside diameter and wall thickness in mm, as published; the inner diameter is derived (`id = od − 2·wall`). Roughness is absolute, in m.
 
 ```json
 {
@@ -336,320 +338,156 @@ class PipeConnection(BaseModel):
     {
       "id": "carbon_steel",
       "name": "Carbon Steel",
-      "roughness_mm": 0.046,
-      "roughness_in": 0.0018,
+      "roughness_m": 4.6e-5,
+      "roughness_source": "Moody (1944), commercial steel",
+      "dimensions_source": "ASME B36.10M",
       "schedules": {
         "40": {
-          "2.5": { "od_in": 2.875, "id_in": 2.469, "wall_in": 0.203 },
-          "3": { "od_in": 3.500, "id_in": 3.068, "wall_in": 0.216 },
-          "4": { "od_in": 4.500, "id_in": 4.026, "wall_in": 0.237 },
-          "6": { "od_in": 6.625, "id_in": 6.065, "wall_in": 0.280 },
-          "8": { "od_in": 8.625, "id_in": 7.981, "wall_in": 0.322 }
+          "2.5": { "od_mm": 73.0, "wall_mm": 5.16 },
+          "3":   { "od_mm": 88.9, "wall_mm": 5.49 },
+          "4":   { "od_mm": 114.3, "wall_mm": 6.02 },
+          "6":   { "od_mm": 168.3, "wall_mm": 7.11 },
+          "8":   { "od_mm": 219.1, "wall_mm": 8.18 }
         },
         "80": {
-          "2.5": { "od_in": 2.875, "id_in": 2.323, "wall_in": 0.276 },
-          "3": { "od_in": 3.500, "id_in": 2.900, "wall_in": 0.300 },
-          "4": { "od_in": 4.500, "id_in": 3.826, "wall_in": 0.337 }
+          "2.5": { "od_mm": 73.0, "wall_mm": 7.01 },
+          "3":   { "od_mm": 88.9, "wall_mm": 7.62 },
+          "4":   { "od_mm": 114.3, "wall_mm": 8.56 }
         }
       }
     },
-    {
-      "id": "stainless_steel",
-      "name": "Stainless Steel",
-      "roughness_mm": 0.015,
-      "roughness_in": 0.0006,
-      "schedules": { }
-    },
-    {
-      "id": "pvc",
-      "name": "PVC",
-      "roughness_mm": 0.0015,
-      "roughness_in": 0.00006,
-      "schedules": { }
-    },
-    {
-      "id": "hdpe",
-      "name": "HDPE",
-      "roughness_mm": 0.007,
-      "roughness_in": 0.00028,
-      "sdr_series": {
-        "11": { },
-        "17": { }
-      }
-    },
-    {
-      "id": "ductile_iron",
-      "name": "Ductile Iron",
-      "roughness_mm": 0.25,
-      "roughness_in": 0.01,
-      "classes": { }
-    },
-    {
-      "id": "grp",
-      "name": "GRP (Fiberglass)",
-      "roughness_mm": 0.01,
-      "roughness_in": 0.0004,
-      "pressure_classes": { }
-    }
+    { "id": "stainless_steel", "name": "Stainless Steel", "roughness_m": 1.5e-5, "dimensions_source": "ASME B36.19M", "schedules": {} },
+    { "id": "pvc", "name": "PVC", "roughness_m": 1.5e-6, "schedules": {} },
+    { "id": "hdpe", "name": "HDPE", "roughness_m": 7.0e-6, "sdr_series": {} },
+    { "id": "ductile_iron", "name": "Ductile Iron", "roughness_m": 2.5e-4, "classes": {} }
   ]
 }
 ```
+
+Schedule keys are NPS designations (inches). The project stores the nominal size in m; the UI maps it to and from the NPS/DN designation the user picks.
 
 ### 4.2 Branch Component Data
 
 **File:** `apps/api/src/opensolve_pipe/data/branch_k_factors.json`
 
-Branch components use flow-dependent K-factors based on Crane TP-410 and Miller (1990).
+Tee and wye losses depend on the flow split and direction, so the solver recomputes branch K-factors in an outer loop (§5.4).
 
-```json
-{
-  "tee": {
-    "diverging": {
-      "run_to_run": "K = 20 * f_T",
-      "run_to_branch": "K = 60 * f_T * (1 + 3.6 * (Db/Dr)^2)"
-    },
-    "converging": {
-      "run_to_run": "K = 20 * f_T",
-      "branch_to_run": "K = 60 * f_T"
-    }
-  },
-  "wye_45": {
-    "diverging": {
-      "inlet_to_outlet": "K = 16 * f_T",
-      "inlet_to_branch": "K = 30 * f_T"
-    }
-  },
-  "cross": {
-    "notes": "K-factors depend on flow distribution; use WNTR for complex cases"
-  },
-  "elbow_branch": {
-    "main_flow": "K = standard elbow K",
-    "branch_flow": "K = 60 * f_T"
-  }
-}
-```
+Baseline values for **equal-diameter** standard tees, from Crane TP-410 (f_T is the fully turbulent friction factor for the connected pipe):
+
+| Path | K |
+|------|---|
+| Flow through run | 20 · f_T |
+| Flow through branch | 60 · f_T |
+
+These fixed values ignore the flow ratio and the branch/run diameter ratio. Before implementation, choose a published correlation that covers flow ratio, diameter ratio, and diverging vs converging flow, and record it with its source in the data file. Candidates: Idelchik, *Handbook of Hydraulic Resistance*; Miller, *Internal Flow Systems* (1990); the `fluids` library's tee/wye functions (check which correlation each implements). Until then, the Crane values are used and flagged in results as "flow-ratio independent".
+
+Wye K-factors follow the same rule: no value is used without a cited source. Cross and elbow-with-branch are Later.
 
 **Python Model:**
 
 ```python
 # apps/api/src/opensolve_pipe/models/branch.py
 
+from typing import Literal
+
 from pydantic import BaseModel
-from typing import Literal, List
+
 from .ports import Port
+
 
 class Branch(BaseModel):
     id: str
     type: Literal["branch"] = "branch"
     name: str
-    elevation: float
-    branch_type: Literal["tee", "wye", "cross", "elbow_branch"]
-    ports: List[Port]
+    elevation: float  # m
+    branch_type: Literal["tee", "wye"]  # Later: "cross", "elbow_branch"
+    ports: list[Port]
+
 
 class TeeBranch(Branch):
     branch_type: Literal["tee"] = "tee"
-    orientation: Literal["through", "converging", "diverging"] = "diverging"
+
 
 class WyeBranch(Branch):
     branch_type: Literal["wye"] = "wye"
     angle: float = 45.0  # degrees
-
-class CrossBranch(Branch):
-    branch_type: Literal["cross"] = "cross"
-
-class ElbowBranch(Branch):
-    branch_type: Literal["elbow_branch"] = "elbow_branch"
-    main_angle: Literal[45, 90] = 90
-    branch_angle: float = 90.0
 ```
 
 ### 4.3 Reference Node Data
 
-**Python Model:**
-
 ```python
 # apps/api/src/opensolve_pipe/models/reference_node.py
 
+from typing import Literal
+
 from pydantic import BaseModel
-from typing import Literal, List, Optional
+
 from .ports import Port
 
-class FlowPressurePoint(BaseModel):
-    flow: float  # in project units
-    pressure: float  # in project units
 
-class ReferenceNode(BaseModel):
+class IdealReferenceNode(BaseModel):
     id: str
     type: Literal["reference_node"] = "reference_node"
-    name: str
-    elevation: float
-    reference_type: Literal["ideal", "non_ideal"]
-    ports: List[Port]  # Single port
-
-class IdealReferenceNode(ReferenceNode):
     reference_type: Literal["ideal"] = "ideal"
-    pressure: float  # Fixed pressure at this node
+    name: str
+    elevation: float  # m
+    pressure: float  # Pa gauge
+    ports: list[Port]  # exactly one
 
-class NonIdealReferenceNode(ReferenceNode):
-    reference_type: Literal["non_ideal"] = "non_ideal"
-    pressure_flow_curve: List[FlowPressurePoint]
-    max_flow: Optional[float] = None
+
+# Later: NonIdealReferenceNode with pressure_flow_curve and max_flow
 ```
 
 ### 4.4 Plug/Cap Component
 
-Plug/Cap components represent closed ends (dead legs) with zero flow boundary conditions.
-
-**Python Model:**
-
 ```python
 # apps/api/src/opensolve_pipe/models/plug.py
 
+from typing import Literal
+
 from pydantic import BaseModel
-from typing import Literal, List
+
 from .ports import Port
+
 
 class Plug(BaseModel):
     id: str
     type: Literal["plug"] = "plug"
     name: str
-    elevation: float
-    ports: List[Port]  # Single port with zero flow
-
-    def __init__(self, **data):
-        # Plug always has exactly one port
-        if "ports" not in data:
-            data["ports"] = [Port(
-                id="port_1",
-                nominal_size=data.get("nominal_size", 4.0),
-                direction="bidirectional"
-            )]
-        super().__init__(**data)
+    elevation: float  # m
+    ports: list[Port]  # exactly one, id "port_1"
 ```
 
-**Solver Handling:**
-
-In the solver, a Plug component enforces:
-
-- Flow = 0 at the connected port
-- Pressure is calculated based on the connected pipe network
-- Head loss through the plug is undefined (no flow path)
-
-**Use Cases:**
-
-- Dead-end branches in distribution systems
-- Future expansion points (valve + plug)
-- Temporary closures during maintenance modeling
-- Capped tee branches
+**Solver handling:** a plug adds no link. Its port becomes a node with zero demand and only one connection, so the connection's flow is zero and its pressure follows from the rest of the network. Use cases: dead-end branches, future expansion points, capped tee branches.
 
 ### 4.5 Fittings Library (Crane TP-410 Based)
 
 **File:** `apps/api/src/opensolve_pipe/data/fittings.json`
 
+Inline fittings only; tees are Branch components (§4.2). `L_over_D` fittings use K = (L/D) · f_T.
+
 ```json
 {
   "fittings": [
-    {
-      "id": "elbow_90_lr",
-      "name": "90° Long Radius Elbow",
-      "category": "elbow",
-      "k_method": "L_over_D",
-      "L_over_D": 20,
-      "notes": "r/D = 1.5"
-    },
-    {
-      "id": "elbow_90_sr",
-      "name": "90° Short Radius Elbow",
-      "category": "elbow",
-      "k_method": "L_over_D",
-      "L_over_D": 30,
-      "notes": "r/D = 1.0"
-    },
-    {
-      "id": "elbow_45",
-      "name": "45° Elbow",
-      "category": "elbow",
-      "k_method": "L_over_D",
-      "L_over_D": 16
-    },
-    {
-      "id": "tee_through",
-      "name": "Tee (Flow Through Run)",
-      "category": "tee",
-      "k_method": "L_over_D",
-      "L_over_D": 20
-    },
-    {
-      "id": "tee_branch",
-      "name": "Tee (Flow Into Branch)",
-      "category": "tee",
-      "k_method": "L_over_D",
-      "L_over_D": 60
-    },
-    {
-      "id": "gate_valve",
-      "name": "Gate Valve (Fully Open)",
-      "category": "valve",
-      "k_method": "L_over_D",
-      "L_over_D": 8
-    },
-    {
-      "id": "ball_valve",
-      "name": "Ball Valve (Fully Open)",
-      "category": "valve",
-      "k_method": "L_over_D",
-      "L_over_D": 3
-    },
-    {
-      "id": "butterfly_valve",
-      "name": "Butterfly Valve (Fully Open)",
-      "category": "valve",
-      "k_method": "K_fixed",
-      "K": 0.35
-    },
-    {
-      "id": "check_valve_swing",
-      "name": "Swing Check Valve",
-      "category": "valve",
-      "k_method": "L_over_D",
-      "L_over_D": 50
-    },
-    {
-      "id": "entrance_sharp",
-      "name": "Pipe Entrance (Sharp-Edged)",
-      "category": "entrance_exit",
-      "k_method": "K_fixed",
-      "K": 0.5
-    },
-    {
-      "id": "entrance_rounded",
-      "name": "Pipe Entrance (Rounded)",
-      "category": "entrance_exit",
-      "k_method": "K_fixed",
-      "K": 0.04
-    },
-    {
-      "id": "exit",
-      "name": "Pipe Exit",
-      "category": "entrance_exit",
-      "k_method": "K_fixed",
-      "K": 1.0
-    },
-    {
-      "id": "strainer_basket",
-      "name": "Basket Strainer (Clean)",
-      "category": "strainer",
-      "k_method": "K_fixed",
-      "K": 2.0,
-      "notes": "Typical value; verify with manufacturer"
-    }
+    { "id": "elbow_90_lr", "name": "90° Long Radius Elbow", "category": "elbow", "k_method": "L_over_D", "L_over_D": 20, "notes": "r/D = 1.5", "source": "Crane TP-410" },
+    { "id": "elbow_90_sr", "name": "90° Short Radius Elbow", "category": "elbow", "k_method": "L_over_D", "L_over_D": 30, "notes": "r/D = 1.0", "source": "Crane TP-410" },
+    { "id": "elbow_45", "name": "45° Elbow", "category": "elbow", "k_method": "L_over_D", "L_over_D": 16, "source": "Crane TP-410" },
+    { "id": "gate_valve", "name": "Gate Valve (Fully Open)", "category": "valve", "k_method": "L_over_D", "L_over_D": 8, "source": "Crane TP-410" },
+    { "id": "ball_valve", "name": "Ball Valve (Fully Open)", "category": "valve", "k_method": "L_over_D", "L_over_D": 3, "source": "Crane TP-410" },
+    { "id": "butterfly_valve", "name": "Butterfly Valve (Fully Open)", "category": "valve", "k_method": "K_fixed", "K": 0.35, "source": "TBD — Crane gives size-dependent L/D; replace with that" },
+    { "id": "check_valve_swing", "name": "Swing Check Valve", "category": "valve", "k_method": "L_over_D", "L_over_D": 50, "source": "Crane TP-410" },
+    { "id": "entrance_sharp", "name": "Pipe Entrance (Sharp-Edged)", "category": "entrance_exit", "k_method": "K_fixed", "K": 0.5, "source": "Crane TP-410" },
+    { "id": "entrance_rounded", "name": "Pipe Entrance (Rounded)", "category": "entrance_exit", "k_method": "K_fixed", "K": 0.04, "notes": "r/d ≥ 0.15", "source": "Crane TP-410" },
+    { "id": "exit", "name": "Pipe Exit", "category": "entrance_exit", "k_method": "K_fixed", "K": 1.0, "source": "Crane TP-410" }
   ]
 }
 ```
 
-### 4.3 Fluids Library
+### 4.6 Fluids Library
 
 **File:** `apps/api/src/opensolve_pipe/data/fluids.json`
+
+Each temperature-dependent fluid names its property source; the implementation calls or tabulates exactly that source.
 
 ```json
 {
@@ -658,457 +496,380 @@ In the solver, a Plug component enforces:
       "id": "water",
       "name": "Water",
       "type": "temperature_dependent",
-      "property_source": "IAPWS",
-      "temperature_range": { "min_C": 0, "max_C": 100 }
+      "property_source": "IAPWS-95 (via the iapws or CoolProp package; pick one and pin it)",
+      "temperature_range_K": [273.16, 373.15]
     },
     {
-      "id": "ethylene_glycol_30",
-      "name": "Ethylene Glycol (30%)",
-      "type": "temperature_dependent",
-      "concentration_percent": 30,
-      "property_source": "ASHRAE"
+      "id": "ethylene_glycol",
+      "name": "Ethylene Glycol (aqueous)",
+      "type": "temperature_and_concentration_dependent",
+      "concentration_range_pct": [10, 60],
+      "property_source": "ASHRAE Handbook — Fundamentals, glycol tables"
     },
     {
-      "id": "propylene_glycol_30",
-      "name": "Propylene Glycol (30%)",
-      "type": "temperature_dependent",
-      "concentration_percent": 30,
-      "property_source": "ASHRAE"
-    },
-    {
-      "id": "diesel",
-      "name": "Diesel Fuel",
-      "type": "fixed",
-      "properties": {
-        "density_kg_m3": 850,
-        "kinematic_viscosity_m2_s": 3.0e-6,
-        "vapor_pressure_Pa": 500
-      }
-    },
-    {
-      "id": "gasoline",
-      "name": "Gasoline",
-      "type": "fixed",
-      "properties": {
-        "density_kg_m3": 750,
-        "kinematic_viscosity_m2_s": 0.6e-6,
-        "vapor_pressure_Pa": 55000
-      }
+      "id": "propylene_glycol",
+      "name": "Propylene Glycol (aqueous)",
+      "type": "temperature_and_concentration_dependent",
+      "concentration_range_pct": [10, 60],
+      "property_source": "ASHRAE Handbook — Fundamentals, glycol tables"
     }
   ]
 }
 ```
 
-### 4.4 URL Encoding Schema
+User-defined fluids are stored in the project:
 
-**Encoding Pipeline:**
-
-```
-Project Object
-    ↓
-JSON.stringify (deterministic key ordering)
-    ↓
-pako.gzip (compression level 9)
-    ↓
-base64url encode (URL-safe, no padding)
-    ↓
-URL: https://opensolve-pipe.app/p/{encoded}
+```json
+{ "type": "custom", "name": "Process liquid", "density": 1050, "dynamicViscosity": 0.004, "vaporPressure": 3200 }
 ```
 
-**Decoding Pipeline:**
+(kg/m³, Pa·s, Pa absolute.) Fuels are Later.
+
+### 4.7 URL Encoding
+
+**Encoding pipeline:**
 
 ```
-URL parameter
+Project object (SI, includes schemaVersion)
     ↓
-base64url decode
+canonical JSON (keys sorted at every level)
     ↓
-pako.ungzip
+pako.gzip (level 9)
     ↓
-JSON.parse
+base64url (URL-safe, no padding)
     ↓
-Validate against schema
-    ↓
-Project Object
+https://opensolve-pipe.app/p#<encoded>
 ```
 
-**Size Thresholds:**
+**Decoding pipeline:**
 
-| Compressed Size | Storage Strategy |
-|-----------------|------------------|
-| < 2,000 bytes | URL-only (fits in most URL limits) |
-| 2,000 - 50,000 bytes | URL with server fallback key |
-| > 50,000 bytes | Server storage required |
+```
+location.hash (without '#')
+    ↓
+base64url decode → pako.ungzip → JSON.parse
+    ↓
+migrate(project) — apply migrations from its schemaVersion to CURRENT_SCHEMA_VERSION
+    ↓
+validate against the current schema
+    ↓
+Project object
+```
 
-**Implementation:**
+**Implementation** (tested; the base64url helpers and canonical JSON were checked in Node 22 against Node's built-in base64url for all lengths 0–299 bytes and a 200 KB payload):
 
 ```typescript
 // apps/web/src/lib/utils/encoding.ts
 
 import pako from 'pako';
+import { migrate } from './migrations';
 
-const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+export const URL_LENGTH_WARNING = 8000;
+
+/** JSON with object keys sorted at every level, so equal projects encode identically. */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k]]))
+      : v
+  );
+}
 
 export function encodeProject(project: Project): string {
-  const json = JSON.stringify(project, Object.keys(project).sort());
-  const compressed = pako.gzip(json, { level: 9 });
-  return base64urlEncode(compressed);
+  return toBase64Url(pako.gzip(canonicalJson(project), { level: 9 }));
 }
 
 export function decodeProject(encoded: string): Project {
-  const compressed = base64urlDecode(encoded);
-  const json = pako.ungzip(compressed, { to: 'string' });
-  return JSON.parse(json) as Project;
+  const json = pako.ungzip(fromBase64Url(encoded), { to: 'string' });
+  return migrate(JSON.parse(json));
 }
 
-function base64urlEncode(data: Uint8Array): string {
-  let result = '';
-  for (let i = 0; i < data.length; i += 3) {
-    const chunk = (data[i] << 16) | ((data[i + 1] || 0) << 8) | (data[i + 2] || 0);
-    result += BASE64_CHARS[(chunk >> 18) & 63];
-    result += BASE64_CHARS[(chunk >> 12) & 63];
-    result += i + 1 < data.length ? BASE64_CHARS[(chunk >> 6) & 63] : '';
-    result += i + 2 < data.length ? BASE64_CHARS[chunk & 63] : '';
-  }
-  return result;
+function toBase64Url(bytes: Uint8Array): string {
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function fromBase64Url(s: string): Uint8Array {
+  const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(b64 + '==='.slice((b64.length + 3) % 4));
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }
 ```
+
+Do not use `JSON.stringify(project, Object.keys(project).sort())` for canonical ordering: an array replacer filters keys at **every** depth, so nested fields are silently dropped (verified: `{metadata: {name: 'Test'}}` encodes as `{"metadata":{}}`).
+
+**Migrations:**
+
+```typescript
+// apps/web/src/lib/utils/migrations.ts
+
+export const CURRENT_SCHEMA_VERSION = 1;
+
+// MIGRATIONS[n] upgrades a project from version n to n + 1. Never remove an entry.
+const MIGRATIONS: Record<number, (p: any) => any> = {};
+
+export function migrate(raw: any): Project {
+  let p = raw;
+  const from = p.schemaVersion;
+  if (!Number.isInteger(from) || from < 1) throw new Error('Not an OpenSolve Pipe project link');
+  if (from > CURRENT_SCHEMA_VERSION) throw new Error('This link was made with a newer version of OpenSolve Pipe');
+  for (let v = from; v < CURRENT_SCHEMA_VERSION; v++) {
+    p = { ...MIGRATIONS[v](p), schemaVersion: v + 1 };
+  }
+  return validateProject(p);
+}
+```
+
+Every released schema version keeps a fixture link in `apps/web/src/lib/utils/__fixtures__/`; a test decodes each one.
 
 ---
 
 ## 5. Solver Implementation
 
-### 5.1 Simple Solver (Single Path)
+### 5.1 Overview
 
-For networks with no branches, use direct calculation.
+One solver handles every topology (D1). Pipeline:
 
-**File:** `apps/api/src/opensolve_pipe/services/solver/simple.py`
+1. **Validate topology** (`builder.py`): at least one fixed-pressure boundary per connected sub-network; every port connected or plugged; ports referenced by connections exist. Failures raise `TOPOLOGY_ERROR` (HTTP 422).
+2. **Build the solver network** (`builder.py`): each component port becomes a solver node at the port's elevation. Each `PipeConnection` becomes one pipe link (pipe segments in series combined; fitting K-factors summed into `k_minor`, all referenced to that connection's velocity). Each two-port component (pump, valve) becomes a link between its two port nodes. Each branch component becomes short zero-length links from a central node to each port node, carrying the branch K-factor for that path.
+3. **Fixed heads:** reservoir ports get H = component elevation + liquid level + surface pressure / (ρg). Ideal reference nodes get H = elevation + p_gauge / (ρg).
+4. **Solve** with the GGA inner loop (§5.2) inside the status/K outer loop (§5.4).
+5. **Map results** (`results.py`) to `SolvedState`: per port node pressure = ρg(H − z) gauge; per connection flow, velocity, head loss, Re, f; pump operating points and NPSH (§5.5).
+
+### 5.2 GGA Core
+
+The Global Gradient Algorithm (Todini & Pilati, 1988) solves energy balance on every link and continuity at every node by Newton's method, eliminating flows so each iteration solves one symmetric positive-definite system for heads.
+
+**Tested sketch** (`apps/api/src/opensolve_pipe/services/solver/gga.py`, pipes only). This code was run against:
+
+- a reservoir-to-reservoir pipe: reproduces the 20 m head difference to 1e-6 m in 11 iterations
+- a 6-pipe looped network: mass balance closes to 1e-9 m³/s, energy balance on every pipe to 1e-6 m, 8 iterations
+- the same network in WNTR/EPANET 2.2: with `method="swamee_jain"`, flows within 0.10% and heads within 8 mm; with exact Colebrook, flows within 0.26% and heads within 33 mm
+- a network with no boundary: raises `TOPOLOGY_ERROR`
 
 ```python
-"""
-Simple solver for single-path networks (no branches).
-Uses fluids library for head loss calculations.
-"""
-
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
-import numpy as np
-from scipy.interpolate import interp1d
-from scipy.optimize import brentq
+from typing import Literal
 
-from fluids.friction import friction_factor
-from ...models.project import Project, Component, PipingSegment
-from ...models.results import SolvedState, NodeResult, LinkResult, PumpResult
-from .k_factors import resolve_k_factor
+import numpy as np
+from fluids.friction import Swamee_Jain_1976, friction_factor
+
+G = 9.80665  # m/s²
+FrictionMethod = Literal["colebrook", "swamee_jain"]
 
 
 @dataclass
-class SimpleSolverOptions:
-    max_iterations: int = 100
-    tolerance: float = 0.001
-    flow_range: Tuple[float, float] = (0.001, 1000)  # GPM
+class Pipe:
+    start: str
+    end: str
+    length: float  # m
+    diameter: float  # m, inner
+    roughness: float  # m, absolute
+    k_minor: float = 0.0  # sum of fitting K-factors on this run
 
 
-def solve_simple_network(
-    project: Project,
-    options: SimpleSolverOptions = SimpleSolverOptions()
-) -> SolvedState:
-    """
-    Solve a single-path network (pump → components → endpoint).
-
-    Algorithm:
-    1. Generate system curve by calculating total head loss at various flows
-    2. Interpolate pump curve
-    3. Find intersection (operating point)
-    4. Calculate all node/link values at operating point
-    """
-
-    # Extract components in order
-    components = get_ordered_components(project)
-    pump = find_pump(components)
-
-    if pump is None:
-        raise ValueError("No pump found in network")
-
-    # Build pump curve interpolator
-    pump_curve = build_pump_curve(pump)
-
-    # Generate system curve
-    flows, system_heads = generate_system_curve(
-        project, components, options.flow_range
-    )
-
-    # Find operating point
-    operating_point = find_operating_point(
-        pump_curve, flows, system_heads, options.flow_range
-    )
-
-    if operating_point is None:
-        return SolvedState(converged=False, iterations=0)
-
-    # Calculate full results at operating point
-    return calculate_results(
-        project, components, operating_point, pump_curve, flows, system_heads
-    )
+def pipe_headloss(
+    p: Pipe, q: float, nu: float, method: FrictionMethod = "colebrook"
+) -> tuple[float, float]:
+    """Return (h, dh/dQ) in m and s/m² for flow q in m³/s. h carries the sign of q."""
+    area = np.pi * p.diameter**2 / 4
+    re = max(abs(q) / area * p.diameter / nu, 1e-9)
+    if re < 2000:
+        f = 64 / re
+    elif method == "colebrook":
+        f = friction_factor(Re=re, eD=p.roughness / p.diameter)  # exact Colebrook
+    else:
+        f = Swamee_Jain_1976(Re=re, eD=p.roughness / p.diameter)  # EPANET's approximation
+    r = (f * p.length / p.diameter + p.k_minor) / (2 * G * area**2)
+    # Newton slope ignores df/dQ; the floor keeps the matrix non-singular at Q = 0.
+    return r * q * abs(q), max(2 * r * abs(q), 1e-8)
 
 
-def calculate_head_loss(
-    piping: PipingSegment,
-    flow_gpm: float,
-    fluid_props: FluidProperties
-) -> float:
-    """Calculate head loss through a piping segment."""
+@dataclass
+class GgaResult:
+    heads: dict[str, float]  # m, unknown nodes only
+    flows: list[float]  # m³/s, same order as the input pipes
+    iterations: int
+    converged: bool
 
-    if flow_gpm <= 0:
-        return 0.0
 
-    pipe = piping.pipe
+def solve_gga(
+    pipes: list[Pipe],
+    fixed_heads: dict[str, float],  # m, at reservoirs / ideal reference nodes
+    demands: dict[str, float],  # m³/s leaving the network at a node
+    nu: float,  # m²/s
+    method: FrictionMethod = "colebrook",
+    tol: float = 1e-10,
+    max_iter: int = 100,
+) -> GgaResult:
+    if not fixed_heads:
+        raise ValueError("TOPOLOGY_ERROR: network needs at least one fixed-pressure boundary")
+    nodes = sorted({n for p in pipes for n in (p.start, p.end)} - fixed_heads.keys())
+    idx = {n: i for i, n in enumerate(nodes)}
+    nl, nj = len(pipes), len(nodes)
 
-    # Convert units
-    flow_cfs = flow_gpm / 448.831
-    area_ft2 = np.pi * (pipe.inner_diameter_ft / 2) ** 2
-    velocity_fps = flow_cfs / area_ft2
+    a12 = np.zeros((nl, nj))  # link-node incidence: -1 at start, +1 at end
+    h0 = np.zeros(nl)  # contribution of fixed heads (A10 · H0)
+    for k, p in enumerate(pipes):
+        for node, sign in ((p.start, -1.0), (p.end, 1.0)):
+            if node in idx:
+                a12[k, idx[node]] = sign
+            else:
+                h0[k] += sign * fixed_heads[node]
+    q_dem = np.array([demands.get(n, 0.0) for n in nodes])
 
-    # Reynolds number
-    Re = velocity_fps * pipe.inner_diameter_ft / fluid_props.kinematic_viscosity_ft2s
-
-    # Friction factor (Colebrook)
-    relative_roughness = pipe.roughness_ft / pipe.inner_diameter_ft
-    f = friction_factor(Re=Re, eD=relative_roughness)
-
-    # Darcy-Weisbach pipe loss
-    h_pipe = f * (pipe.length_ft / pipe.inner_diameter_ft) * (velocity_fps ** 2) / (2 * 32.174)
-
-    # Fitting losses
-    k_total = sum(
-        resolve_k_factor(fitting, pipe.inner_diameter_in, f)
-        for fitting in piping.fittings
-    )
-    h_fittings = k_total * (velocity_fps ** 2) / (2 * 32.174)
-
-    return h_pipe + h_fittings
+    q = np.full(nl, 1e-3)
+    heads = np.zeros(nj)
+    for it in range(1, max_iter + 1):
+        losses = [pipe_headloss(p, qi, nu, method) for p, qi in zip(pipes, q, strict=True)]
+        h, d = (np.array(col) for col in zip(*losses, strict=True))
+        energy = h + a12 @ heads + h0  # h(Q) − (H_start − H_end)
+        cont = a12.T @ q - q_dem  # inflow − demand at each node
+        dinv = 1 / d
+        # Schur complement: solve for head corrections, then back-substitute flows.
+        lhs = a12.T @ (dinv[:, None] * a12)
+        dh = np.linalg.solve(lhs, cont - a12.T @ (dinv * energy)) if nj else np.zeros(0)
+        dq = -dinv * (energy + a12 @ dh)
+        heads += dh
+        q += dq
+        if np.abs(dq).max() < tol and np.abs(cont).max(initial=0.0) < tol:
+            return GgaResult({n: heads[idx[n]] for n in nodes}, list(q), it, True)
+    return GgaResult({n: heads[idx[n]] for n in nodes}, list(q), max_iter, False)
 ```
 
-### 5.2 Network Solver (WNTR Wrapper)
+**Notes for the production version:**
 
-For branching/looped networks, convert to WNTR model.
+- Generalize `Pipe` to a `Link` protocol whose `headloss(q) → (h, dh/dq)` is supplied by each element type (§5.3).
+- Use `scipy.sparse` and a sparse Cholesky/`spsolve` once networks exceed ~100 nodes.
+- `fluids.friction_factor` defaults to an exact Colebrook solution. EPANET's Darcy–Weisbach uses the Swamee–Jain approximation, which differs from Colebrook by up to **2.8%** in f over Re 5·10³–10⁷ and e/D 10⁻⁶–5·10⁻² (measured). The `swamee_jain` option exists only so EPANET reference tests compare network algorithms rather than friction formulas.
+- Laminar (Re < 2000) uses f = 64/Re. Between 2000 and 4000, decide and document a transition rule (EPANET interpolates); add a reference case in that range.
 
-**File:** `apps/api/src/opensolve_pipe/services/solver/network.py`
+### 5.3 Element Head-Loss Laws
 
-```python
-"""
-Network solver for complex topologies using WNTR/EPANET.
-"""
+Every link supplies h(Q) and dh/dQ, with h positive in the direction of positive Q.
 
-import wntr
-from ...models.project import Project
-from ...models.results import SolvedState
-from .adapter import component_chain_to_wntr, wntr_results_to_solved_state
+| Element | h(Q) | Notes |
+|---------|------|-------|
+| Pipe connection | (f·L/D + ΣK) · Q\|Q\| / (2gA²) | §5.2; ΣK from fittings, resolved per SDD §6.2 |
+| Pump (on) | −s² · H_curve(Q / s) | affinity laws at speed ratio s; curve fitted through the user's points (monotone cubic interpolation, or a quadratic fit when there are ≤ 3 points) |
+| Pump (off) | closed | link removed from the system for that iteration |
+| Isolation valve | K(position) · Q\|Q\| / (2gA²) | isolated → closed |
+| Check / stop-check | open: K · Q\|Q\| / (2gA²); closed when Q would reverse or ΔH < cracking head | status set in the outer loop |
+| PRV / PSV / FCV | active: fixes downstream pressure / upstream pressure / flow; else open or closed | status logic as EPANET's (Rossman, EPANET 2.2 manual), run in the outer loop |
+| Branch path | K_path(flow split) · Q\|Q\| / (2gA_ref²) | K from §4.2, updated in the outer loop |
 
+**Cv/Kv to K** for a valve whose connected inner diameter gives flow area A (m²):
 
-def solve_network(project: Project) -> SolvedState:
-    """
-    Solve a branching/looped network using WNTR.
-
-    Algorithm:
-    1. Convert component chain to WNTR WaterNetworkModel
-    2. Run EPANET simulation
-    3. Convert results back to SolvedState format
-    """
-
-    # Convert our data model to WNTR
-    wn = component_chain_to_wntr(project)
-
-    # Run simulation
-    sim = wntr.sim.EpanetSimulator(wn)
-
-    try:
-        results = sim.run_sim()
-        return wntr_results_to_solved_state(results, project)
-    except Exception as e:
-        return SolvedState(
-            converged=False,
-            iterations=0,
-            error=str(e)
-        )
+```
+Kv = 0.865 · Cv
+K  = 2.592·10⁹ · A² / Kv²
 ```
 
-### 5.3 Solver Adapter (Component Chain → WNTR)
+Derived from Kv's definition (m³/h of water at 1 bar ΔP). It agrees with Crane's K = 891·d⁴/Cv² (d in inches) to within 0.2% (checked at 2, 4 and 8 in).
 
-**File:** `apps/api/src/opensolve_pipe/services/solver/adapter.py`
+### 5.4 Outer Loop: Status and Branch K-Factors
 
-```python
-"""
-Adapter to convert OpenSolve Pipe component chain to WNTR model.
-"""
-
-import wntr
-from ...models.project import Project, Component
-
-
-def component_chain_to_wntr(project: Project) -> wntr.network.WaterNetworkModel:
-    """
-    Convert an OpenSolve Pipe project to a WNTR WaterNetworkModel.
-
-    Mapping:
-    - Reservoir/Tank → WNTR Reservoir or Tank
-    - Junction → WNTR Junction
-    - Pump → WNTR Pump
-    - Piping segments → WNTR Pipes with equivalent minor loss
-    - Valves → WNTR Valves or Pipes with K factor
-    """
-
-    wn = wntr.network.WaterNetworkModel()
-
-    # Set fluid properties
-    # Note: WNTR uses default water properties; custom fluids need workaround
-
-    # First pass: create all nodes
-    for component in project.components:
-        if component.type == 'reservoir':
-            wn.add_reservoir(
-                component.id,
-                base_head=component.elevation + component.water_level
-            )
-        elif component.type == 'tank':
-            wn.add_tank(
-                component.id,
-                elevation=component.elevation,
-                init_level=component.initial_level,
-                min_level=component.min_level,
-                max_level=component.max_level,
-                diameter=component.diameter
-            )
-        elif component.type == 'junction':
-            wn.add_junction(
-                component.id,
-                base_demand=component.demand or 0,
-                elevation=component.elevation
-            )
-        # Add implicit junctions for other components
-        elif component.type in ['pump', 'valve', 'heat_exchanger']:
-            # Create upstream and downstream junction nodes
-            wn.add_junction(f"{component.id}_up", elevation=component.elevation)
-            wn.add_junction(f"{component.id}_down", elevation=component.elevation)
-
-    # Second pass: create links (pipes, pumps, valves)
-    for component in project.components:
-        for conn in component.downstream_connections:
-            target = conn.target_component_id
-            piping = conn.piping
-
-            # Add pipe for piping segment
-            if piping:
-                pipe_id = f"pipe_{component.id}_to_{target}"
-                wn.add_pipe(
-                    pipe_id,
-                    start_node=get_downstream_node(component),
-                    end_node=get_upstream_node(project.get_component(target)),
-                    length=piping.pipe.length_ft * 0.3048,  # Convert to meters
-                    diameter=piping.pipe.inner_diameter_ft * 0.3048,
-                    roughness=piping.pipe.roughness_ft * 1000,  # Convert to mm
-                    minor_loss=calculate_total_k(piping.fittings)
-                )
-
-    # Add pumps
-    for component in project.components:
-        if component.type == 'pump':
-            wn.add_pump(
-                component.id,
-                start_node=f"{component.id}_up",
-                end_node=f"{component.id}_down",
-                pump_type='HEAD',
-                pump_parameter=build_wntr_pump_curve(component.curve, wn)
-            )
-
-    return wn
 ```
+repeat (max 30):
+    solve GGA with current link statuses and branch K-factors
+    update check-valve, pump-off and control-valve statuses from the solved Q and H
+    update branch K-factors from the solved flow split and directions
+until no status changed and max |ΔK| < 1e-4
+```
+
+If statuses oscillate between two states, stop and return `converged: false` with the oscillating components named in the residual report (SDD §8.2).
+
+### 5.5 NPSH Available
+
+At each pump suction port (elevation z_s):
+
+```
+p_abs   = p_gauge(suction) + p_atm
+NPSHa   = p_abs / (ρg) + v_s² / (2g) − p_vap / (ρg)
+NPSH margin = NPSHa − NPSHr(Q)      (when an NPSHr curve is given)
+```
+
+p_atm comes from the project's site elevation via the standard atmosphere, unless overridden:
+
+```
+p_atm = 101 325 · (1 − 2.25577·10⁻⁵ · z)^5.25588   [Pa, z in m]
+```
+
+(Values checked: 101 325 Pa at 0 m, 89 875 Pa at 1 000 m.)
 
 ---
 
 ## 6. Unit Conversion System
 
+Conversions happen only in the frontend, at input and display (D4). The backend and the stored project use SI.
+
 ### 6.1 Unit Registry
 
-**File:** `apps/api/src/opensolve_pipe/utils/units.py`
+**File:** `apps/web/src/lib/utils/units.ts`
 
-```python
-"""
-Unit conversion system supporting mixed units.
-"""
+```typescript
+export type UnitCategory =
+  | 'length' | 'diameter' | 'pressure' | 'head' | 'flow'
+  | 'velocity' | 'density' | 'viscosity' | 'temperature';
 
-from enum import Enum
-from typing import Dict, Tuple
-from dataclasses import dataclass
+// value_SI = value · factor + offset
+const UNITS: Record<string, { category: UnitCategory; factor: number; offset?: number }> = {
+  // Length / diameter / head → m
+  m: { category: 'length', factor: 1 },
+  ft: { category: 'length', factor: 0.3048 },
+  in: { category: 'length', factor: 0.0254 },
+  mm: { category: 'length', factor: 0.001 },
 
+  // Pressure → Pa (gauge or absolute is tracked by the field, not the unit)
+  Pa: { category: 'pressure', factor: 1 },
+  kPa: { category: 'pressure', factor: 1000 },
+  bar: { category: 'pressure', factor: 100000 },
+  psi: { category: 'pressure', factor: 6894.757 },
 
-class UnitCategory(Enum):
-    LENGTH = "length"
-    PRESSURE = "pressure"
-    FLOW = "flow"
-    VELOCITY = "velocity"
-    VISCOSITY = "viscosity"
-    DENSITY = "density"
-    TEMPERATURE = "temperature"
+  // Flow → m³/s
+  'm3/s': { category: 'flow', factor: 1 },
+  'L/s': { category: 'flow', factor: 0.001 },
+  'm3/h': { category: 'flow', factor: 1 / 3600 },
+  gpm: { category: 'flow', factor: 6.30902e-5 },
 
+  // Velocity → m/s
+  'm/s': { category: 'velocity', factor: 1 },
+  'ft/s': { category: 'velocity', factor: 0.3048 },
 
-# Conversion factors to SI base units
-UNIT_CONVERSIONS: Dict[str, Tuple[UnitCategory, float, float]] = {
-    # Length: to meters
-    "m": (UnitCategory.LENGTH, 1.0, 0),
-    "ft": (UnitCategory.LENGTH, 0.3048, 0),
-    "in": (UnitCategory.LENGTH, 0.0254, 0),
-    "mm": (UnitCategory.LENGTH, 0.001, 0),
+  // Temperature → K
+  K: { category: 'temperature', factor: 1 },
+  C: { category: 'temperature', factor: 1, offset: 273.15 },
+  F: { category: 'temperature', factor: 5 / 9, offset: 255.3722 }
+};
 
-    # Pressure: to Pascals
-    "Pa": (UnitCategory.PRESSURE, 1.0, 0),
-    "kPa": (UnitCategory.PRESSURE, 1000.0, 0),
-    "psi": (UnitCategory.PRESSURE, 6894.76, 0),
-    "bar": (UnitCategory.PRESSURE, 100000.0, 0),
-    "ft_H2O": (UnitCategory.PRESSURE, 2989.07, 0),
-    "m_H2O": (UnitCategory.PRESSURE, 9806.65, 0),
-
-    # Flow: to m³/s
-    "m3/s": (UnitCategory.FLOW, 1.0, 0),
-    "L/s": (UnitCategory.FLOW, 0.001, 0),
-    "GPM": (UnitCategory.FLOW, 6.309e-5, 0),
-    "m3/h": (UnitCategory.FLOW, 1/3600, 0),
-
-    # Velocity: to m/s
-    "m/s": (UnitCategory.VELOCITY, 1.0, 0),
-    "ft/s": (UnitCategory.VELOCITY, 0.3048, 0),
-
-    # Temperature: to Kelvin (with offset)
-    "K": (UnitCategory.TEMPERATURE, 1.0, 0),
-    "C": (UnitCategory.TEMPERATURE, 1.0, 273.15),
-    "F": (UnitCategory.TEMPERATURE, 5/9, 255.372),
+export function toSI(value: number, unit: string): number {
+  const u = UNITS[unit];
+  return value * u.factor + (u.offset ?? 0);
 }
 
-
-def convert(value: float, from_unit: str, to_unit: str) -> float:
-    """Convert a value between compatible units."""
-
-    from_cat, from_factor, from_offset = UNIT_CONVERSIONS[from_unit]
-    to_cat, to_factor, to_offset = UNIT_CONVERSIONS[to_unit]
-
-    if from_cat != to_cat:
-        raise ValueError(f"Cannot convert {from_unit} to {to_unit}: incompatible categories")
-
-    # Convert to SI base, then to target
-    si_value = value * from_factor + from_offset
-    return (si_value - to_offset) / to_factor
-
-
-@dataclass
-class UnitPreferences:
-    """User's preferred units for display and input."""
-    length: str = "ft"
-    diameter: str = "in"
-    pressure: str = "psi"
-    head: str = "ft_H2O"
-    flow: str = "GPM"
-    velocity: str = "ft/s"
-    temperature: str = "F"
+export function fromSI(value: number, unit: string): number {
+  const u = UNITS[unit];
+  return (value - (u.offset ?? 0)) / u.factor;
+}
 ```
+
+Pressure expressed as head of liquid (ft or m of fluid) is converted with the project fluid's density (p = ρ·g·h), not a fixed water factor.
+
+### 6.2 Unit Preferences and Pressure Reference
+
+```typescript
+export interface UnitPreferences {
+  length: string;       // 'ft'
+  diameter: string;     // 'in'
+  pressure: string;     // 'psi'
+  head: string;         // 'ft'
+  flow: string;         // 'gpm'
+  velocity: string;     // 'ft/s'
+  temperature: string;  // 'F'
+}
+```
+
+Pressure inputs and outputs are gauge and labeled as such (e.g. "psig", "kPa(g)"). Absolute values are shown only where they are meaningful (NPSH, vapor pressure) and labeled "psia" / "kPa(a)".
 
 ---
 
@@ -1119,80 +880,58 @@ class UnitPreferences:
 **File:** `apps/api/src/opensolve_pipe/routers/solve.py`
 
 ```python
-from fastapi import APIRouter, HTTPException, BackgroundTasks
-from pydantic import BaseModel
-from typing import Optional, List, Tuple
 import asyncio
+import time
+
+from fastapi import APIRouter
+from pydantic import BaseModel
 
 from ..models.project import Project
 from ..models.results import SolvedState
-from ..services.solver import solve_project
+from ..services.solver import TopologyError, solve_project
 
 router = APIRouter()
 
 
-class SolveRequest(BaseModel):
-    project: Project
-    options: Optional[SolveOptions] = None
-
-
 class SolveOptions(BaseModel):
     max_iterations: int = 100
-    tolerance: float = 0.001
+    tolerance: float = 1e-6
     include_system_curve: bool = True
-    flow_range: Tuple[float, float] = (0, 500)
-    flow_unit: str = "GPM"
+    flow_range: tuple[float, float] | None = None  # m³/s; default derived from the pump curves
+
+
+class SolveRequest(BaseModel):
+    project: Project
+    options: SolveOptions = SolveOptions()
 
 
 class SolveResponse(BaseModel):
     success: bool
-    solved_state: Optional[SolvedState] = None
+    solved_state: SolvedState | None = None
     compute_time: float
-    error: Optional[str] = None
+    error: str | None = None
+    message: str | None = None
 
 
 @router.post("/solve", response_model=SolveResponse)
 async def solve_network(request: SolveRequest) -> SolveResponse:
-    """
-    Solve a hydraulic network and return results.
-    """
-    import time
     start = time.perf_counter()
-
-    try:
-        result = await asyncio.to_thread(
-            solve_project,
-            request.project,
-            request.options or SolveOptions()
-        )
-
-        return SolveResponse(
-            success=result.converged,
-            solved_state=result,
-            compute_time=time.perf_counter() - start
-        )
-
-    except Exception as e:
-        return SolveResponse(
-            success=False,
-            error=str(e),
-            compute_time=time.perf_counter() - start
-        )
+    # TopologyError is mapped to HTTP 422 by an exception handler in main.py.
+    result = await asyncio.to_thread(solve_project, request.project, request.options)
+    return SolveResponse(
+        success=result.converged,
+        solved_state=result,
+        compute_time=time.perf_counter() - start,
+    )
 
 
 @router.post("/system-curve")
-async def generate_system_curve(
-    project: Project,
-    flow_min: float = 0,
-    flow_max: float = 500,
-    num_points: int = 51
-) -> List[Tuple[float, float]]:
-    """
-    Generate system curve without finding operating point.
-    Returns list of (flow, head) pairs.
-    """
-    # Implementation
-    pass
+async def system_curve(
+    project: Project, pump_id: str, flow_min: float = 0.0, flow_max: float | None = None,
+    num_points: int = 51,
+) -> list[tuple[float, float]]:
+    """System curve seen by one pump: (flow m³/s, head m) pairs."""
+    ...
 ```
 
 ---
@@ -1203,124 +942,99 @@ async def generate_system_curve(
 
 **File:** `apps/web/src/lib/components/panel/PanelNavigator.svelte`
 
+The navigator walks the port graph (SDD §3.1.1). Graph helpers live in `$lib/utils/graph.ts`:
+
+```typescript
+// apps/web/src/lib/utils/graph.ts
+
+/** Connections attached to a component, with the component at the other end. */
+export function neighbors(project: Project, componentId: string) {
+  return project.connections.flatMap((c) =>
+    c.fromComponentId === componentId ? [{ connection: c, otherId: c.toComponentId }] :
+    c.toComponentId === componentId ? [{ connection: c, otherId: c.fromComponentId }] :
+    []
+  );
+}
+
+/** Ways forward from the end of the path: neighbors not already on it. */
+export function nextOptions(project: Project, path: NavigationStep[]) {
+  const visited = new Set(path.map((s) => s.componentId));
+  const current = path[path.length - 1].componentId;
+  return neighbors(project, current).filter((n) => !visited.has(n.otherId));
+}
+```
+
 ```svelte
 <script lang="ts">
-  import { projectStore, currentElement, navigationPath } from '$lib/stores/project';
-  import ElementPanel from './ElementPanel.svelte';
-  import PipingPanel from './PipingPanel.svelte';
-  import NavigationControls from './NavigationControls.svelte';
+  import { project } from '$lib/state/project.svelte';
+  import { nextOptions } from '$lib/utils/graph';
+  import ComponentPanel from './ComponentPanel.svelte';
+  import ConnectionPanel from './ConnectionPanel.svelte';
+  import PathChooser from './PathChooser.svelte';
 
-  type EditMode = 'element' | 'upstream' | 'downstream';
-  let editMode: EditMode = 'element';
+  let { start }: { start: string } = $props();
 
-  function navigateToElement(elementId: string) {
-    currentElement.set(elementId);
-    editMode = 'element';
+  let path = $state<NavigationStep[]>([{ componentId: start }]);
+  let editMode = $state<'component' | 'connection'>('component');
+  let current = $derived(path[path.length - 1].componentId);
+  let options = $derived(nextOptions(project, path));
+  let choosing = $state(false);
+
+  function next() {
+    if (options.length === 1) go(options[0]);
+    else if (options.length > 1) choosing = true;  // ask which branch to follow
   }
 
-  function addElementAfter() {
-    // Open element type selector, then insert
+  function go(option: { connection: PipeConnection; otherId: string }) {
+    path = [...path, { componentId: option.otherId, viaConnectionId: option.connection.id }];
+    choosing = false;
+    editMode = 'component';
   }
 
-  function addElementBefore() {
-    // Open element type selector, then insert
+  function previous() {
+    if (path.length > 1) path = path.slice(0, -1);
   }
 </script>
 
-<div class="flex flex-col h-full bg-gray-50">
-  <!-- Breadcrumb navigation -->
-  <nav class="px-4 py-2 bg-white border-b">
-    {#each $navigationPath as pathElement, i}
-      <button
-        class="text-blue-600 hover:underline"
-        on:click={() => navigateToElement(pathElement.id)}
-      >
-        {pathElement.name}
+<div class="flex flex-col h-full">
+  <nav class="px-4 py-2 border-b overflow-x-auto whitespace-nowrap">
+    {#each path as step, i (step.componentId)}
+      <button class="hover:underline" onclick={() => (path = path.slice(0, i + 1))}>
+        {project.components.find((c) => c.id === step.componentId)?.name}
       </button>
-      {#if i < $navigationPath.length - 1}
-        <span class="mx-2 text-gray-400">→</span>
-      {/if}
+      {#if i < path.length - 1}<span class="mx-2">→</span>{/if}
     {/each}
   </nav>
 
-  <!-- Mode tabs -->
-  <div class="flex border-b bg-white">
-    <button
-      class="px-4 py-2 {editMode === 'element' ? 'border-b-2 border-blue-500' : ''}"
-      on:click={() => editMode = 'element'}
-    >
-      Element
-    </button>
-    <button
-      class="px-4 py-2 {editMode === 'upstream' ? 'border-b-2 border-blue-500' : ''}"
-      on:click={() => editMode = 'upstream'}
-    >
-      Upstream Piping
-    </button>
-    <button
-      class="px-4 py-2 {editMode === 'downstream' ? 'border-b-2 border-blue-500' : ''}"
-      on:click={() => editMode = 'downstream'}
-    >
-      Downstream Piping
-    </button>
-  </div>
-
-  <!-- Main panel content -->
   <div class="flex-1 overflow-y-auto p-4">
-    {#if editMode === 'element'}
-      <ElementPanel element={$projectStore.getComponent($currentElement)} />
-    {:else if editMode === 'upstream'}
-      <PipingPanel
-        piping={$projectStore.getComponent($currentElement)?.upstreamPiping}
-        direction="upstream"
-      />
+    {#if editMode === 'component'}
+      <ComponentPanel componentId={current} />
     {:else}
-      <PipingPanel
-        piping={$projectStore.getComponent($currentElement)?.downstreamConnections[0]?.piping}
-        direction="downstream"
-      />
+      <ConnectionPanel componentId={current} />
     {/if}
   </div>
 
-  <!-- Navigation controls -->
-  <NavigationControls
-    on:previous={() => navigateToPrevious()}
-    on:next={() => navigateToNext()}
-    on:addBefore={addElementBefore}
-    on:addAfter={addElementAfter}
-  />
+  {#if choosing}
+    <PathChooser {options} onchoose={go} oncancel={() => (choosing = false)} />
+  {/if}
+
+  <footer class="flex justify-between p-2 border-t">
+    <button onclick={previous} disabled={path.length === 1}>← Prev</button>
+    <button onclick={next} disabled={options.length === 0}>Next →</button>
+  </footer>
 </div>
 ```
 
-### 8.2 Schematic Symbols
+### 8.2 Schematic Symbols (Later)
 
 **Location:** `apps/web/static/symbols/`
-
-SVG symbols for schematic rendering:
-
-```
-symbols/
-├── pump.svg
-├── reservoir.svg
-├── tank.svg
-├── junction.svg
-├── valve-gate.svg
-├── valve-ball.svg
-├── valve-check.svg
-├── valve-prv.svg
-├── valve-fcv.svg
-├── heat-exchanger.svg
-├── strainer.svg
-├── orifice.svg
-└── sprinkler.svg
-```
 
 **Symbol Design Guidelines:**
 
 - Simplified, recognizable shapes (not full P&ID complexity)
 - Consistent 48x48 viewBox
-- Single stroke color (#333) for easy theming
-- Clear connection points (left/right for flow)
+- `currentColor` stroke for theming
+- Connection points match port ids
 
 ---
 
@@ -1328,207 +1042,165 @@ symbols/
 
 ### 9.1 Prerequisites
 
-```bash
-# Node.js 18+
-node --version  # v18.x or higher
-
-# Python 3.11+
-python --version  # 3.11 or higher
-
-# Package managers
-npm --version
-pip --version
-```
+- [uv](https://docs.astral.sh/uv/) (installs and manages Python 3.12)
+- Node.js 22 LTS or later
+- pnpm (`corepack enable`)
 
 ### 9.2 Local Development
 
 ```bash
-# Clone repository
-git clone https://github.com/your-org/opensolve-pipe.git
+git clone https://github.com/ccirone2/opensolve-pipe.git
 cd opensolve-pipe
 
-# Install frontend dependencies
-cd apps/web
-npm install
-
-# Install backend dependencies
-cd ../api
-pip install -e ".[dev]"
-
-# Start development servers
-# Terminal 1: Frontend
-cd apps/web
-npm run dev
-
-# Terminal 2: Backend
+# Backend → http://localhost:8000
 cd apps/api
-uvicorn opensolve_pipe.main:app --reload --port 8000
+uv sync
+uv run uvicorn opensolve_pipe.main:app --reload --port 8000
+
+# Frontend → http://localhost:5173 (second terminal)
+cd apps/web
+pnpm install
+pnpm dev
 ```
 
-### 9.3 Docker Development
+### 9.3 Quality Checks
 
-```yaml
-# docker-compose.yml
-version: '3.8'
+```bash
+# apps/api
+uv run pytest
+uv run ruff check . && uv run ruff format --check .
+uv run mypy src
 
-services:
-  web:
-    build: ./apps/web
-    ports:
-      - "5173:5173"
-    volumes:
-      - ./apps/web/src:/app/src
-    environment:
-      - PUBLIC_API_URL=http://localhost:8000
-
-  api:
-    build: ./apps/api
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./apps/api/src:/app/src
-    environment:
-      - ENVIRONMENT=development
-
-  db:
-    image: postgres:15
-    ports:
-      - "5432:5432"
-    environment:
-      - POSTGRES_USER=opensolve_pipe
-      - POSTGRES_PASSWORD=dev_password
-      - POSTGRES_DB=opensolve_pipe
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-volumes:
-  pgdata:
+# apps/web
+pnpm test        # Vitest
+pnpm check       # svelte-check
+pnpm lint        # ESLint + Prettier
+pnpm test:e2e    # Playwright
 ```
+
+No Docker, database or Redis is needed for v1 development.
 
 ---
 
 ## 10. Testing Strategy
 
-### 10.1 Backend Tests
+### 10.1 Reference Test Suite (D6)
+
+**Location:** `apps/api/tests/reference/`
+
+Each case is a data file (the project in API JSON, plus expected results and the source of those results) and is run by one parameterized test.
+
+| Source | Use |
+|--------|-----|
+| Closed-form hand calculations | Single pipes, series and parallel pipes, reservoir-to-reservoir flow, pump on a single pipe |
+| Crane TP-410 and textbook worked examples | Fittings, pumps, NPSH; each case cites the example it reproduces |
+| WNTR/EPANET (dev dependency) | Water-only branching and looped networks; the solver runs with `method="swamee_jain"` so EPANET's friction approximation does not count as error |
+
+**Pass criteria:** flows, heads and pressures within 0.5% of the reference, or 0.01 m of head, whichever is looser; mass balance closes at every node to the solver tolerance. Every new component type ships with at least one reference case.
 
 ```python
-# apps/api/tests/test_solver.py
+# apps/api/tests/reference/test_reference_cases.py
+
+import json
+from pathlib import Path
 
 import pytest
-from opensolve_pipe.services.solver import solve_simple_network
+
 from opensolve_pipe.models.project import Project
-from tests.fixtures import simple_pump_system
+from opensolve_pipe.services.solver import solve_project
+
+CASES = sorted(Path(__file__).parent.glob("cases/*.json"))
 
 
-def test_simple_pump_system_converges(simple_pump_system):
-    """Test that a basic pump-pipe-tank system solves correctly."""
-    result = solve_simple_network(simple_pump_system)
+def close(actual: float, expected: float, abs_tol: float) -> bool:
+    return abs(actual - expected) <= max(0.005 * abs(expected), abs_tol)
+
+
+@pytest.mark.parametrize("case_path", CASES, ids=lambda p: p.stem)
+def test_reference_case(case_path: Path) -> None:
+    case = json.loads(case_path.read_text())
+    result = solve_project(Project.model_validate(case["project"]))
 
     assert result.converged
-    assert result.pump_results['pump-1'].operating_flow > 0
-    assert result.pump_results['pump-1'].operating_head > 0
-
-
-def test_system_curve_shape(simple_pump_system):
-    """System curve should be monotonically increasing with flow."""
-    result = solve_simple_network(simple_pump_system)
-
-    curve = result.pump_results['pump-1'].system_curve
-    for i in range(1, len(curve)):
-        assert curve[i].head >= curve[i-1].head
-
-
-@pytest.mark.parametrize("pipe_diameter,expected_flow_range", [
-    (2.5, (100, 200)),
-    (3.0, (150, 300)),
-    (4.0, (250, 450)),
-])
-def test_pipe_size_affects_flow(simple_pump_system, pipe_diameter, expected_flow_range):
-    """Larger pipes should result in higher operating flow."""
-    simple_pump_system.set_discharge_diameter(pipe_diameter)
-    result = solve_simple_network(simple_pump_system)
-
-    flow = result.pump_results['pump-1'].operating_flow
-    assert expected_flow_range[0] < flow < expected_flow_range[1]
+    for link_id, expected in case["expected"]["flows"].items():
+        assert close(result.link_results[link_id].flow, expected, abs_tol=1e-6)
+    for node_id, expected in case["expected"]["heads"].items():
+        assert close(result.node_results[node_id].hgl, expected, abs_tol=0.01)
 ```
 
-### 10.2 Frontend Tests
+### 10.2 Backend Unit Tests
+
+- Element laws: h(Q) and dh/dQ for each element type, including Q = 0 and reverse flow
+- Cv/Kv → K conversion against Crane's formula
+- Topology validation errors
+- Status logic: check valves close on reverse flow; PRV/PSV/FCV switch between active/open/closed correctly
+- Standard atmosphere and NPSH available
+
+### 10.3 Frontend Tests
 
 ```typescript
 // apps/web/src/lib/utils/encoding.test.ts
 
 import { describe, it, expect } from 'vitest';
-import { encodeProject, decodeProject } from './encoding';
-import { createEmptyProject } from '../stores/project';
+import { canonicalJson, decodeProject, encodeProject } from './encoding';
+import { createEmptyProject } from '../state/project.svelte';
 
 describe('Project encoding', () => {
-  it('should round-trip a simple project', () => {
+  it('round-trips a project, including nested fields', () => {
     const project = createEmptyProject();
     project.metadata.name = 'Test Project';
-
-    const encoded = encodeProject(project);
-    const decoded = decodeProject(encoded);
-
-    expect(decoded.metadata.name).toBe('Test Project');
+    expect(decodeProject(encodeProject(project))).toEqual(project);
   });
 
-  it('should produce URL-safe strings', () => {
-    const project = createEmptyProject();
-    const encoded = encodeProject(project);
-
-    expect(encoded).toMatch(/^[A-Za-z0-9_-]+$/);
+  it('produces URL-safe strings', () => {
+    expect(encodeProject(createEmptyProject())).toMatch(/^[A-Za-z0-9_-]+$/);
   });
 
-  it('should compress effectively', () => {
-    const project = createEmptyProject();
-    const json = JSON.stringify(project);
-    const encoded = encodeProject(project);
+  it('encodes independently of key order', () => {
+    expect(canonicalJson({ b: 1, a: { d: 2, c: 3 } })).toBe(canonicalJson({ a: { c: 3, d: 2 }, b: 1 }));
+  });
 
-    // Compressed should be smaller than raw JSON
-    expect(encoded.length).toBeLessThan(json.length);
+  it('rejects links from a newer schema version', () => {
+    const future = { ...createEmptyProject(), schemaVersion: 999 };
+    expect(() => decodeProject(encodeProject(future))).toThrow(/newer version/);
   });
 });
 ```
+
+Also: one test per fixture link in `__fixtures__/` (every released schema version still decodes), unit conversion round-trips, graph traversal (`nextOptions` at tees and loops), and Playwright flows for create → solve → share → reopen on desktop and mobile viewports.
 
 ---
 
 ## 11. Deployment
 
-### 11.1 Frontend (Vercel)
+### 11.1 Frontend
 
-```json
-// apps/web/vercel.json
-{
-  "buildCommand": "npm run build",
-  "outputDirectory": ".svelte-kit/cloudflare",
-  "framework": "sveltekit"
-}
+SvelteKit with the adapter for the chosen host (`@sveltejs/adapter-vercel` or `@sveltejs/adapter-cloudflare`); no extra build configuration file is needed.
+
+### 11.2 Backend (Railway or Fly.io)
+
+```dockerfile
+# apps/api/Dockerfile
+FROM python:3.12-slim
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+COPY src ./src
+RUN uv sync --frozen --no-dev
+CMD ["uv", "run", "--no-sync", "uvicorn", "opensolve_pipe.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-### 11.2 Backend (Railway)
-
-```toml
-# apps/api/railway.toml
-[build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
-
-[deploy]
-healthcheckPath = "/health"
-healthcheckTimeout = 30
-restartPolicyType = "ON_FAILURE"
-```
+Pin the uv image tag to a specific version when this is implemented. Health check: `GET /health`.
 
 ### 11.3 Environment Variables
 
 ```bash
-# Frontend (.env)
+# Frontend
 PUBLIC_API_URL=https://api.opensolve-pipe.app
 
-# Backend (.env)
+# Backend
 ENVIRONMENT=production
-DATABASE_URL=postgresql://...
-REDIS_URL=redis://...
 CORS_ORIGINS=https://opensolve-pipe.app
 ```
 
@@ -1536,13 +1208,13 @@ CORS_ORIGINS=https://opensolve-pipe.app
 
 ## 12. Open Implementation Questions
 
-1. **Schematic layout algorithm:** Which library for auto-layout? (dagre, elkjs, custom?)
-
-2. **Version control storage:** Use git under the hood, or custom versioning in PostgreSQL?
-
-3. **Real-time collaboration (future):** WebSockets, or polling with conflict resolution?
-
-4. **Pump curve digitization (future):** Use existing library, or train custom model?
+1. **Tee and wye K correlation:** which published correlation covers flow ratio, diameter ratio and direction (§4.2)?
+2. **Water property package:** `iapws` or CoolProp for IAPWS-95 (§4.6)?
+3. **Transition-zone friction (Re 2000–4000):** what rule, and is it a user option (§5.2)?
+4. **Pump curve fitting:** monotone cubic vs polynomial; behavior beyond the last curve point (§5.3).
+5. **Control-valve status oscillation:** damping strategy if EPANET-style status logic oscillates (§5.4).
+6. **Schematic layout algorithm (Later):** dagre, elkjs, or custom?
+7. **Version storage (Later):** git under the hood, or custom versioning in PostgreSQL?
 
 ---
 

@@ -2,9 +2,9 @@
 
 # OpenSolve Pipe - Web-Based Hydraulic Network Design Tool
 
-**Version:** 0.1.0 (Draft)
-**Date:** January 2026
-**Status:** Skeleton SDD for Development Planning
+**Version:** 0.2.0 (Rebuild baseline)
+**Date:** October 2026
+**Status:** Aligned with the rebuild decisions D1–D6 in `CLAUDE.md`
 
 ---
 
@@ -24,10 +24,13 @@ This document covers:
 - Interface contracts
 - Integration patterns
 
+Items marked **(Later)** are outside v1 (PRD §2.3) and are kept here so the v1 design leaves room for them.
+
 ### 1.3 References
 
-- PRD: Product Requirements Document v0.1.0
-- TSD: Technical Specification Document v0.1.0
+- PRD: Product Requirements Document v0.2.0
+- TSD: Technical Specification Document v0.2.0
+- `CLAUDE.md`: rebuild decisions D1–D6 (take precedence over this document)
 
 ---
 
@@ -35,44 +38,40 @@ This document covers:
 
 ### 2.1 Architecture Style
 
-**Hybrid Client-Server Architecture**
+**Hybrid Client-Server Architecture, stateless server**
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         CLIENT (Browser)                         │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │   Panel     │  │  Schematic  │  │   Results / Export      │  │
-│  │  Navigator  │  │   Viewer    │  │      Components         │  │
+│  │   Panel     │  │   Results   │  │  Schematic Viewer       │  │
+│  │  Navigator  │  │   Panel     │  │  (Later)                │  │
 │  └──────┬──────┘  └──────┬──────┘  └────────────┬────────────┘  │
 │         │                │                      │                │
 │  ┌──────┴────────────────┴──────────────────────┴──────────┐    │
 │  │                    State Manager                         │    │
-│  │            (Component Chain Data Model)                  │    │
+│  │      (Port-graph project model, undo/redo, units)        │    │
 │  └──────────────────────────┬───────────────────────────────┘    │
 │                             │                                    │
 │  ┌──────────────────────────┴───────────────────────────────┐    │
-│  │              URL Encoder / Decoder                        │    │
-│  │         (Serialization & Compression)                     │    │
-│  └──────────────────────────┬───────────────────────────────┘    │
-└─────────────────────────────┼───────────────────────────────────┘
-                              │ HTTPS
-┌─────────────────────────────┼───────────────────────────────────┐
+│  │        URL Fragment Encoder / Decoder + Migrations        │    │
+│  └──────────────────────────────────────────────────────────┘    │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │ HTTPS (project sent per request,
+                              │ never stored)
+┌─────────────────────────────┴───────────────────────────────────┐
 │                         SERVER (Python)                          │
-│  ┌──────────────────────────┴───────────────────────────────┐    │
-│  │                      API Gateway                          │    │
-│  │                  (FastAPI / REST)                         │    │
-│  └───────┬─────────────────┬─────────────────┬──────────────┘    │
-│          │                 │                 │                   │
-│  ┌───────┴──────┐  ┌───────┴──────┐  ┌───────┴──────┐           │
-│  │   Solver     │  │   Fluid      │  │   Version    │           │
-│  │   Service    │  │   Property   │  │   Control    │           │
-│  │              │  │   Service    │  │   Service    │           │
-│  └───────┬──────┘  └──────────────┘  └───────┬──────┘           │
-│          │                                   │                   │
-│  ┌───────┴──────┐                    ┌───────┴──────┐           │
-│  │ fluids lib   │                    │   Database   │           │
-│  │ WNTR/EPANET  │                    │  (optional)  │           │
-│  └──────────────┘                    └──────────────┘           │
+│  ┌──────────────────────────────────────────────────────────┐    │
+│  │                  API (FastAPI / REST)                     │    │
+│  └───────┬─────────────────────────────────┬────────────────┘    │
+│          │                                 │                     │
+│  ┌───────┴──────────────┐          ┌───────┴──────┐              │
+│  │   Solver Service     │          │   Fluid      │              │
+│  │  (own GGA network    │          │   Property   │              │
+│  │   solver, `fluids`)  │          │   Service    │              │
+│  └──────────────────────┘          └──────────────┘              │
+│                                                                  │
+│  Later: Version Control Service, Database                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -80,23 +79,26 @@ This document covers:
 
 | Decision | Rationale |
 |----------|-----------|
-| Hybrid architecture | Client handles UI/state; server handles heavy computation |
-| URL-encoded state | Enables sharing without accounts; decentralized by default |
-| Component chain model | Matches user mental model and panel navigation pattern |
-| Python backend | Leverages existing hydraulic libraries (fluids, WNTR) |
+| Hybrid architecture | Client handles UI/state; server handles computation |
+| Project in URL fragment | Sharing without accounts; the fragment is never sent to the server, so project data is never logged or stored (D3) |
+| Port-graph data model | One model for single-path, branching and looped networks; ports carry sizes and elevations (D2) |
+| Own network solver | EPANET cannot model flow-dependent tee losses, real fluid properties, component check/relief valves, or NPSH; a Global Gradient Algorithm solver in Python can (D1) |
+| SI storage | Display units never alter the model; the solver needs no unit handling (D4) |
 | REST API | Simple, well-understood, future API-ready |
 
 ### 2.3 Deployment Model
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   CDN / Static  │     │   API Server    │     │   Database      │
-│   Hosting       │     │   (Python)      │     │   (Optional)    │
-│                 │     │                 │     │                 │
-│  - HTML/CSS/JS  │     │  - FastAPI      │     │  - PostgreSQL   │
-│  - Assets       │     │  - Solver       │     │  - User data    │
-│                 │     │  - Auth         │     │  - Large proj.  │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+┌─────────────────┐     ┌─────────────────┐
+│   CDN / Static  │     │   API Server    │
+│   Hosting       │     │   (Python)      │
+│                 │     │                 │
+│  - HTML/CSS/JS  │     │  - FastAPI      │
+│  - Assets       │     │  - Solver       │
+│                 │     │  - Stateless    │
+└─────────────────┘     └─────────────────┘
+
+Later: database for accounts, short links and version history.
 ```
 
 ---
@@ -113,39 +115,53 @@ This document covers:
 
 ```
 PanelNavigator
-├── ElementPanel
-│   ├── ElementTypeSelector
-│   ├── ElementPropertyForm
-│   └── ElementActions (add/delete/navigate)
-├── PipingPanel
-│   ├── FittingsTable
-│   ├── PipeMaterialSelector
-│   └── PipeDimensionsForm
+├── ComponentPanel
+│   ├── ComponentTypeSelector
+│   ├── ComponentPropertyForm
+│   └── ComponentActions (add before/after, add branch, delete)
+├── ConnectionPanel               // piping of a connection at the current component
+│   ├── PortSelector              // which port's connection is being edited
+│   ├── PipeSegmentsForm          // material, schedule, diameter, length
+│   └── FittingsTable
 ├── NavigationControls
 │   ├── PreviousButton
 │   ├── NextButton
-│   ├── BranchSelector (for junctions)
+│   ├── PathChooser               // shown when more than one way forward
 │   └── Breadcrumb
-└── MiniMap (optional future feature)
+└── MiniMap (Later)
 ```
+
+**Navigation over the port graph:**
+
+- The walk starts at a chosen component (default: the first boundary component, i.e. a reservoir or reference node).
+- **Next** follows a connection from the current component to a component not yet on the breadcrumb. If there is more than one candidate (a tee, a multi-port reservoir), the **PathChooser** asks which one to follow.
+- **Previous** steps back along the breadcrumb.
+- When a loop leads back to a component already on the breadcrumb, Next offers to jump to it rather than extend the path.
+- Every component is reachable by choosing paths, or directly from the results tables.
 
 **State:**
 
 ```typescript
 interface NavigatorState {
-  currentElementId: string;
-  navigationPath: string[];  // Breadcrumb trail
-  editMode: 'element' | 'upstream_piping' | 'downstream_piping';
+  startComponentId: string;
+  path: NavigationStep[];        // breadcrumb; last step is the current component
+  editMode: 'component' | 'connection';
+  activePortId?: string;         // port whose connection is shown in ConnectionPanel
+}
+
+interface NavigationStep {
+  componentId: string;
+  viaConnectionId?: string;      // connection used to arrive here (absent for the start)
 }
 ```
 
-#### 3.1.2 Schematic Viewer
+#### 3.1.2 Schematic Viewer (Later)
 
 **Purpose:** Auto-generated process flow diagram for visualization.
 
 **Responsibilities:**
 
-- Render component chain as directed graph
+- Render the port graph as a directed graph
 - Use simplified custom symbols (not full P&ID)
 - Handle click events to open element in Panel Navigator
 - Software-defined layout (user cannot drag elements)
@@ -166,7 +182,7 @@ interface NavigatorState {
 - Node table (pressures, HGL, EGL)
 - Link table (flows, velocities, head loss)
 - Pump curve graph with system curve overlay
-- Warnings panel (when checks enabled)
+- Warnings panel (Later, when design checks are enabled)
 
 #### 3.1.4 State Manager
 
@@ -174,12 +190,15 @@ interface NavigatorState {
 
 **Responsibilities:**
 
-- Manage component chain data model
-- Track undo/redo history
-- Serialize/deserialize for URL encoding
-- Sync with server for versioning
+- Hold the port-graph project model (SI values)
+- Track undo/redo history within the session
+- Convert between SI and the user's display units at input and display time
+- Serialize/deserialize the project to and from the URL fragment, applying schema migrations on load
+- Later: sync with the server for accounts and version history
 
 ### 3.2 Backend Services
+
+The server is stateless: every request carries the project it needs, and nothing is persisted.
 
 #### 3.2.1 Solver Service
 
@@ -189,18 +208,25 @@ interface NavigatorState {
 
 ```
 POST /api/v1/solve
-  Request: NetworkModel (serialized component chain)
+  Request: Project (port graph, SI)
   Response: SolvedState (flows, pressures, operating points)
 
 POST /api/v1/system-curve
-  Request: NetworkModel + flow range
+  Request: Project + pump id + flow range
   Response: SystemCurve (flow/head pairs)
 ```
 
-**Implementation:**
+**Implementation:** one Global Gradient Algorithm (Todini–Pilati) solver for every topology — the same core method EPANET uses — implemented in Python with Darcy–Weisbach/Colebrook friction from the `fluids` library. See TSD §5. It adds what EPANET lacks:
 
-- Simple networks (single path): Direct calculation using fluids library
-- Branching/looped networks: Convert to WNTR model, solve with EPANET
+- Flow-split-dependent K-factors at tees and wyes (outer iteration)
+- Real fluid density, viscosity and vapor pressure
+- Check, stop-check, PRV, PSV and FCV as components with status logic
+- NPSH available at every pump suction
+- Later: VFD setpoint control, pressure relief valves, non-ideal reference nodes
+
+Preconditions checked before solving (topology errors): at least one fixed-pressure boundary (reservoir or ideal reference node) per connected sub-network; every port connected or explicitly plugged; no connection between incompatible ports.
+
+WNTR/EPANET is used only in the test suite, as a reference for water-only networks.
 
 #### 3.2.2 Fluid Property Service
 
@@ -212,23 +238,22 @@ POST /api/v1/system-curve
 GET /api/v1/fluids
   Response: List of available fluids
 
-GET /api/v1/fluids/{fluid_id}/properties?temperature={T}
-  Response: FluidProperties (density, viscosity, vapor_pressure)
+GET /api/v1/fluids/{fluid_id}/properties?temperature={T_K}
+  Response: FluidProperties (density, viscosity, vapor_pressure), SI
 
 POST /api/v1/fluids/custom
-  Request: CustomFluidDefinition
+  Request: CustomFluidDefinition (SI)
   Response: FluidProperties (validated)
 ```
 
 **Data Sources:**
 
-- Built-in library (water, glycols, fuels)
-- CoolProp or similar for temperature-dependent properties
+- Built-in library (water, ethylene glycol, propylene glycol; fuels Later). The property source is chosen per fluid and cited in the data file (TSD §4.6).
 - User-defined fluids (stored in project state)
 
-#### 3.2.3 Version Control Service
+#### 3.2.3 Version Control Service (Later)
 
-**Purpose:** Git-like versioning for projects.
+**Purpose:** Git-like versioning for projects, once accounts and storage exist.
 
 **Operations:**
 | Operation | Description |
@@ -239,83 +264,75 @@ POST /api/v1/fluids/custom
 | `merge` | Combine two branches |
 | `history` | List all versions with metadata |
 
-**Storage Strategy:**
-
-- Small projects (< 50KB compressed): URL-encoded, no server storage
-- Medium projects: Server storage with URL as reference key
-- Large projects: Full server storage with account required
+In v1, each edited state is simply a new link (PRD §4.4–4.5); there is no server-side history.
 
 ---
 
 ## 4. Data Models
 
-### 4.1 Component Chain Model
+**Units:** every numeric field is stored in SI — m, m³/s, Pa, K, kg/m³, Pa·s, m²/s. Pressures are stored as **gauge** Pa; absolute pressure is derived using the project's atmospheric pressure. Elevations are measured from the project datum. The frontend converts to and from the user's display units; the backend never sees display units.
 
-The primary data structure representing the hydraulic network.
+Models are plain JSON-serializable data (no methods, no `Map`s), because they travel in URLs and API requests.
+
+### 4.1 Project Model
 
 ```typescript
 interface Project {
+  schemaVersion: number;          // integer; bumped on every breaking change, see §5.2
   id: string;
   metadata: ProjectMetadata;
   settings: ProjectSettings;
   fluid: FluidDefinition;
   components: Component[];
+  connections: PipeConnection[];  // edges of the port graph
   pumpLibrary: PumpCurve[];
-  results?: SolvedState;
 }
 
 interface ProjectMetadata {
   name: string;
   description?: string;
-  created: DateTime;
-  modified: DateTime;
-  version: string;
-  parentVersion?: string;  // For branching
+  created: string;                // ISO 8601
+  modified: string;               // ISO 8601
 }
 
 interface ProjectSettings {
-  units: UnitPreferences;
-  enabledChecks: string[];
+  units: UnitPreferences;         // display only
+  siteElevation: number;          // m above sea level
+  atmosphericPressure?: number;   // Pa absolute; overrides the standard-atmosphere value
   solverOptions: SolverOptions;
+  enabledChecks: string[];        // Later (design checks)
 }
 ```
 
+Solved results are not part of `Project` and are not stored in the URL; they are recomputed by solving.
+
 ### 4.2 Component Model
 
-The component model uses a **port-based architecture** where each component has a defined number of connection ports, and pipe connections link ports between components.
+The component model uses a **port-based architecture**: each component has a defined set of connection ports, and pipe connections link ports between components.
 
 ```typescript
 type Component =
   | Reservoir
-  | Tank
   | ReferenceNode
   | Branch
   | Plug
   | Pump
-  | Valve
-  | HeatExchanger
-  | Strainer
-  | Orifice
-  | Sprinkler
-  | UserDefinedElement;
+  | Valve;
+  // Later: Tank, HeatExchanger, Strainer, Orifice, Sprinkler, UserDefinedElement
 
 interface Port {
   id: string;                    // e.g., "suction", "discharge", "branch"
-  nominalSize: number;           // Nominal diameter in project units
+  nominalSize: number;           // nominal diameter, m
   direction: 'inlet' | 'outlet' | 'bidirectional';
-  elevation?: number;            // Optional port-specific elevation (inherits from component if not set)
+  elevation?: number;            // m; inherits the component elevation if not set
 }
 
 interface BaseComponent {
   id: string;
   type: ComponentType;
   name: string;
-  elevation: number;  // In project units
-  ports: Port[];      // All connection ports for this component
-
-  // Helper method to get effective port elevation
-  // Returns port.elevation if set, otherwise returns component elevation
-  getPortElevation(portId: string): number;
+  elevation: number;             // m above project datum
+  ports: Port[];
 }
 
 interface PipeConnection {
@@ -324,44 +341,35 @@ interface PipeConnection {
   fromPortId: string;
   toComponentId: string;
   toPortId: string;
-  piping: PipingSegment;         // Pipes and fittings in this connection
+  piping: PipingSegment;         // pipes and fittings in this connection
 }
 
 interface PipingSegment {
-  pipes: PipeDefinition[];       // One or more pipe segments
-  fittings: Fitting[];           // Inline fittings (elbows, reducers, etc.)
-}
-
-// Legacy support: Connection interface for simple downstream linkage
-interface Connection {
-  targetComponentId: string;
-  targetPortId?: string;         // Optional, defaults to first available inlet
-  piping?: PipingSegment;
+  pipes: PipeDefinition[];       // one or more pipe segments, in order from → to
+  fittings: Fitting[];           // inline fittings (elbows, reducers, inline valves)
 }
 ```
+
+A port's effective elevation is `port.elevation ?? component.elevation`; this is a helper function, not a field.
+
+Positive flow in a `PipeConnection` runs from `from` to `to`.
 
 ### 4.3 Pipe Definition
 
 ```typescript
 interface PipeDefinition {
-  material: PipeMaterial;
-  nominalDiameter: number;
+  materialId: string;            // key into the pipe materials library
   schedule: string;
-  length: number;
-  roughness?: number;  // Override calculated roughness
-
-  // Optional liner
-  liner?: {
-    material: string;
-    thickness: number;
-  };
+  nominalSize: number;           // m (nominal), resolved to an inner diameter from the library
+  length: number;                // m
+  roughness?: number;            // m; overrides the material roughness
 }
 
 interface PipeMaterial {
   id: string;
   name: string;
-  roughness: number;  // Absolute roughness in consistent units
-  schedule: ScheduleData;  // ID/OD lookup table
+  roughness: number;             // absolute roughness, m
+  schedules: ScheduleData;       // OD/wall lookup, mm in the data file (TSD §4.1)
 }
 ```
 
@@ -373,53 +381,54 @@ Reference nodes define pressure boundary conditions for the hydraulic network.
 interface ReferenceNode extends BaseComponent {
   type: 'reference_node';
   referenceType: 'ideal' | 'non_ideal';
-  ports: [Port];  // Single connection port
+  ports: [Port];                 // single connection port
 }
 
 interface IdealReferenceNode extends ReferenceNode {
   referenceType: 'ideal';
-  pressure: number;           // Fixed pressure (in project units)
+  pressure: number;              // Pa gauge, fixed
 }
 
+// Later
 interface NonIdealReferenceNode extends ReferenceNode {
   referenceType: 'non_ideal';
-  pressureFlowCurve: FlowPressurePoint[];  // Pressure vs flow rate
-  maxFlow?: number;           // Maximum flow capacity
+  pressureFlowCurve: FlowPressurePoint[];
+  maxFlow?: number;              // m³/s
 }
 
 interface FlowPressurePoint {
-  flow: number;
-  pressure: number;
+  flow: number;                  // m³/s
+  pressure: number;              // Pa gauge
 }
 ```
 
 ### 4.5 Branch Component Model
 
-Branch components represent fittings where flow splits or combines (tees, wyes, crosses).
+Branch components represent fittings where flow splits or combines.
 
 ```typescript
-type BranchType = 'tee' | 'wye' | 'cross' | 'elbow_branch';
+type BranchType = 'tee' | 'wye' | 'cross' | 'elbow_branch';   // cross, elbow_branch: Later
 
 interface Branch extends BaseComponent {
   type: 'branch';
   branchType: BranchType;
-  ports: Port[];  // 3 ports for tee/wye, 4 for cross
+  ports: Port[];
 }
 
 interface TeeBranch extends Branch {
   branchType: 'tee';
-  orientation: 'through' | 'converging' | 'diverging';
   ports: [
     Port & { id: 'run_inlet' },
     Port & { id: 'run_outlet' },
     Port & { id: 'branch' }
   ];
-  // Branch port may have different size than run ports
+  // Branch port may have a different size than the run ports.
+  // Whether flow is diverging or converging is a solver result, not an input.
 }
 
 interface WyeBranch extends Branch {
   branchType: 'wye';
-  angle: number;  // Angle of wye in degrees (typically 45°)
+  angle: number;                 // degrees (typically 45)
   ports: [
     Port & { id: 'inlet' },
     Port & { id: 'outlet_1' },
@@ -427,6 +436,7 @@ interface WyeBranch extends Branch {
   ];
 }
 
+// Later
 interface CrossBranch extends Branch {
   branchType: 'cross';
   ports: [
@@ -437,10 +447,11 @@ interface CrossBranch extends Branch {
   ];
 }
 
+// Later
 interface ElbowBranch extends Branch {
   branchType: 'elbow_branch';
-  mainAngle: 45 | 90;         // Main elbow angle
-  branchAngle: number;        // Branch takeoff angle
+  mainAngle: 45 | 90;
+  branchAngle: number;           // degrees
   ports: [
     Port & { id: 'inlet' },
     Port & { id: 'outlet' },
@@ -448,6 +459,8 @@ interface ElbowBranch extends Branch {
   ];
 }
 ```
+
+The tee's diverging/converging behavior is determined from the solved flow directions at each outer iteration, so the user does not set an orientation.
 
 ### 4.6 Plug/Cap Model
 
@@ -457,32 +470,29 @@ Plug/Cap components represent closed ends in the piping system with zero flow.
 interface Plug extends BaseComponent {
   type: 'plug';
   ports: [Port & { id: 'port_1'; direction: 'bidirectional' }];
-  // Plug enforces zero flow at this boundary
-  // Useful for:
-  // - Dead-end branches
-  // - Future expansion points
-  // - Temporarily closed connections
+  // Enforces zero flow at this boundary. Used for dead-end branches,
+  // future expansion points, and temporarily closed connections.
 }
 ```
 
 ### 4.7 Reservoir and Tank Models
 
-Reservoirs and tanks support multiple connection ports with different sizes.
-
 ```typescript
 interface Reservoir extends BaseComponent {
   type: 'reservoir';
-  waterLevel: number;         // Water surface elevation above component elevation
-  ports: Port[];              // One or more ports (user-defined)
+  liquidLevel: number;           // m above the component elevation
+  surfacePressure: number;       // Pa gauge on the liquid surface (0 = open to atmosphere)
+  ports: Port[];                 // one or more ports (user-defined)
 }
 
+// Later: variable-level tank (meaningful for extended-period analysis)
 interface Tank extends BaseComponent {
   type: 'tank';
-  diameter: number;
-  initialLevel: number;
-  minLevel: number;
-  maxLevel: number;
-  ports: Port[];              // One or more ports with different sizes
+  diameter: number;              // m
+  initialLevel: number;          // m
+  minLevel: number;              // m
+  maxLevel: number;              // m
+  ports: Port[];
 }
 ```
 
@@ -491,14 +501,14 @@ interface Tank extends BaseComponent {
 ```typescript
 interface Pump extends BaseComponent {
   type: 'pump';
-  curve: PumpCurve;
-  speed: number;  // Fraction of rated speed (1.0 = 100%)
-  status: 'on' | 'off';
-  npshr?: NPSHRCurve;  // Optional NPSH required curve
+  curveId: string;               // key into project.pumpLibrary
+  speed: number;                 // fraction of rated speed (1.0 = 100%), fixed in v1
+  status: 'on' | 'off';          // off = closed, no reverse flow
   ports: [
     Port & { id: 'suction'; direction: 'inlet' },
     Port & { id: 'discharge'; direction: 'outlet' }
   ];
+  // Later: controlMode ('fixed' | 'pressure' | 'flow'), setpoint, viscosityCorrection
 }
 
 interface PumpCurve {
@@ -506,13 +516,14 @@ interface PumpCurve {
   name: string;
   manufacturer?: string;
   model?: string;
-  points: FlowHeadPoint[];
-  efficiencyCurve?: FlowEfficiencyPoint[];  // Optional
+  points: FlowHeadPoint[];                    // m³/s, m
+  efficiencyCurve?: FlowEfficiencyPoint[];    // m³/s, fraction 0–1
+  npshrCurve?: FlowHeadPoint[];               // m³/s, m
 }
 
 interface FlowHeadPoint {
-  flow: number;
-  head: number;
+  flow: number;                  // m³/s
+  head: number;                  // m
 }
 ```
 
@@ -522,7 +533,6 @@ interface FlowHeadPoint {
 interface Valve extends BaseComponent {
   type: 'valve';
   valveType: ValveType;
-  model: 'simplified' | 'detailed';
   ports: [
     Port & { id: 'inlet'; direction: 'inlet' },
     Port & { id: 'outlet'; direction: 'outlet' }
@@ -530,31 +540,41 @@ interface Valve extends BaseComponent {
 }
 
 type ValveType =
-  | 'gate'
-  | 'ball'
-  | 'butterfly'
-  | 'globe'
-  | 'check'
-  | 'stop_check'
-  | 'prv'    // Pressure Reducing
-  | 'psv'    // Pressure Sustaining
-  | 'fcv'    // Flow Control
-  | 'relief';
+  | 'gate' | 'ball' | 'butterfly' | 'globe'   // isolation / throttling
+  | 'check' | 'stop_check'                    // one-way
+  | 'prv' | 'psv' | 'fcv'                     // control
+  | 'relief';                                 // Later
 
-// Simplified model (auto-sized)
-interface SimplifiedControlValve extends Valve {
-  model: 'simplified';
-  setpoint: number;  // Pressure or flow depending on type
+// Valve resistance exactly as the user entered it (see note below)
+interface FlowCoefficient {
+  kind: 'K' | 'Cv' | 'Kv';       // K: dimensionless; Cv: US gpm at 1 psi; Kv: m³/h at 1 bar
+  value: number;
 }
 
-// Detailed model (user-specified Cv)
-interface DetailedControlValve extends Valve {
-  model: 'detailed';
-  setpoint: number;
-  cvCurve: CvPoint[];  // Cv vs position
-  position?: number;   // Optional fixed position
+interface IsolationValve extends Valve {
+  valveType: 'gate' | 'ball' | 'butterfly' | 'globe';
+  status: 'active' | 'isolated';
+  position: number;              // fraction open, 0–1
+  resistance: FlowCoefficient;   // at full open
+}
+
+interface CheckValve extends Valve {
+  valveType: 'check' | 'stop_check';
+  status: 'active' | 'locked_open' | 'locked_closed';
+  resistance: FlowCoefficient;   // when open
+  crackingPressure: number;      // Pa
+}
+
+interface ControlValve extends Valve {
+  valveType: 'prv' | 'psv' | 'fcv';
+  status: 'active' | 'failed_open' | 'failed_closed';
+  setpoint: number;              // Pa gauge (prv: downstream, psv: upstream) or m³/s (fcv)
+  model: 'simplified' | 'detailed';
+  cvCurve?: CvPoint[];           // detailed model: flow coefficient vs position
 }
 ```
+
+**Flow coefficients:** manufacturers publish valve capacity as Cv (US gpm at 1 psi ΔP) or Kv (m³/h at 1 bar ΔP), both defined for water. `FlowCoefficient` stores the value in the user's own convention — the one documented exception to SI storage, because Cv and Kv are defined quantities rather than units — and the solver converts it to a loss coefficient K for the connected inner diameter (TSD §5.3).
 
 ### 4.10 Solved State
 
@@ -562,50 +582,53 @@ interface DetailedControlValve extends Valve {
 interface SolvedState {
   converged: boolean;
   iterations: number;
-  timestamp: DateTime;
+  timestamp: string;             // ISO 8601
 
-  nodeResults: Map<string, NodeResult>;
-  linkResults: Map<string, LinkResult>;       // Results for pipe connections
-  pumpResults: Map<string, PumpResult>;
-  branchResults: Map<string, BranchResult>;   // Flow split/combine results
+  nodeResults: Record<string, NodeResult>;      // keyed by `${componentId}:${portId}`
+  linkResults: Record<string, LinkResult>;      // keyed by connection id
+  pumpResults: Record<string, PumpResult>;      // keyed by component id
+  valveResults: Record<string, ValveResult>;    // keyed by component id
+  branchResults: Record<string, BranchResult>;  // keyed by component id
 
   warnings: Warning[];
 }
 
 interface NodeResult {
-  componentId: string;
-  pressure: number;        // Static pressure
-  dynamicPressure: number;
-  totalPressure: number;
-  hgl: number;             // Hydraulic grade line
-  egl: number;             // Energy grade line
+  pressure: number;              // Pa gauge (static)
+  dynamicPressure: number;       // Pa
+  totalPressure: number;         // Pa gauge
+  hgl: number;                   // m
+  egl: number;                   // m
 }
 
 interface LinkResult {
-  componentId: string;
-  flow: number;
-  velocity: number;
-  headLoss: number;
+  flow: number;                  // m³/s, positive from → to
+  velocity: number;              // m/s
+  headLoss: number;              // m
   reynoldsNumber: number;
   frictionFactor: number;
 }
 
 interface PumpResult {
-  componentId: string;
-  operatingFlow: number;
-  operatingHead: number;
-  npshAvailable: number;
-  npshMargin?: number;     // If NPSH required provided
-  efficiency?: number;      // If efficiency curve provided
-
+  operatingFlow: number;         // m³/s
+  operatingHead: number;         // m
+  npshAvailable: number;         // m
+  npshMargin?: number;           // m, if an NPSHr curve is provided
+  efficiency?: number;           // fraction, if an efficiency curve is provided
+  power?: number;                // W, if an efficiency curve is provided
   systemCurve: FlowHeadPoint[];
 }
 
+interface ValveResult {
+  state: 'active' | 'open' | 'closed';  // solved state of a status-changing valve
+  setpointAchieved?: boolean;
+  position?: number;             // fraction open (detailed model)
+}
+
 interface BranchResult {
-  componentId: string;
-  portFlows: Map<string, number>;      // Flow through each port (positive = into component)
-  totalHeadLoss: number;               // Head loss across the branch fitting
-  kFactors: Map<string, number>;       // Calculated K-factor for each flow path
+  portFlows: Record<string, number>;   // m³/s, positive = into the component
+  totalHeadLoss: number;               // m
+  kFactors: Record<string, number>;    // K for each flow path
 }
 ```
 
@@ -614,6 +637,8 @@ interface BranchResult {
 ## 5. Interface Contracts
 
 ### 5.1 REST API Specification
+
+All request and response values are SI. The frontend converts to display units.
 
 #### 5.1.1 Solve Network
 
@@ -626,9 +651,9 @@ Request:
   "project": <Project>,
   "options": {
     "maxIterations": 100,
-    "tolerance": 0.001,
+    "tolerance": 1e-6,
     "includeSystemCurve": true,
-    "flowRange": [0, 500]  // GPM, for system curve
+    "flowRange": [0, 0.03]        // m³/s, for system curve
   }
 }
 
@@ -636,14 +661,14 @@ Response (200 OK):
 {
   "success": true,
   "solvedState": <SolvedState>,
-  "computeTime": 0.234  // seconds
+  "computeTime": 0.234           // seconds
 }
 
 Response (422 Unprocessable):
 {
   "success": false,
   "error": "TOPOLOGY_ERROR",
-  "message": "Disconnected component: J-003",
+  "message": "No fixed-pressure boundary in the sub-network containing PUMP-1",
   "details": { ... }
 }
 ```
@@ -651,22 +676,23 @@ Response (422 Unprocessable):
 #### 5.1.2 Get Fluid Properties
 
 ```yaml
-GET /api/v1/fluids/water/properties?temperature=68&temperatureUnit=F
+GET /api/v1/fluids/water/properties?temperature=293.15
 
 Response (200 OK):
 {
   "fluid": "water",
-  "temperature": { "value": 68, "unit": "F" },
+  "temperature": 293.15,               // K
   "properties": {
-    "density": { "value": 62.32, "unit": "lb/ft³" },
-    "kinematicViscosity": { "value": 1.08e-5, "unit": "ft²/s" },
-    "dynamicViscosity": { "value": 6.73e-4, "unit": "lb/(ft·s)" },
-    "vaporPressure": { "value": 0.339, "unit": "psia" }
-  }
+    "density": 998.2,                  // kg/m³
+    "dynamicViscosity": 1.002e-3,      // Pa·s
+    "kinematicViscosity": 1.004e-6,    // m²/s
+    "vaporPressure": 2339              // Pa absolute
+  },
+  "source": "IAPWS-95"
 }
 ```
 
-#### 5.1.3 Export Results
+#### 5.1.3 Export Results (Later)
 
 ```yaml
 POST /api/v1/export
@@ -677,7 +703,7 @@ Request:
   "project": <Project>,
   "solvedState": <SolvedState>,
   "format": "xlsx",  // or "csv"
-  "includeSchematic": true
+  "units": <UnitPreferences>
 }
 
 Response (200 OK):
@@ -688,19 +714,33 @@ Content-Disposition: attachment; filename="opensolve_pipe_results.xlsx"
 
 ### 5.2 URL State Encoding
 
-**Format:** `https://opensolve-pipe.app/p/{encoded_state}`
+**Format:** `https://opensolve-pipe.app/p#{encoded_state}`
+
+The project travels in the URL **fragment** (after `#`). Browsers never send the fragment to the server, so project data does not appear in server or CDN logs.
 
 **Encoding Process:**
 
-1. Serialize project to JSON
+1. Serialize the project to canonical JSON (keys sorted at every level)
 2. Compress with gzip
-3. Encode as base64url (URL-safe base64)
-4. If > 2000 characters, store server-side and use short reference key
+3. Encode as base64url (URL-safe base64, no padding)
+
+**Decoding Process:**
+
+1. base64url decode → gunzip → JSON parse
+2. Read `schemaVersion`; apply migrations in order up to the current version
+3. Validate against the current schema
+
+**Rules:**
+
+- A link from any released `schemaVersion` must always open. Breaking model changes bump `schemaVersion` and add a migration; migrations are never removed.
+- A link from a newer `schemaVersion` than the app knows shows a clear error, not a partial load.
+- When the full URL exceeds 8,000 characters, the UI warns that some email and chat clients may truncate it.
+- No server-side fallback in v1 (Later: short links backed by storage).
 
 **Example:**
 
 ```
-https://opensolve-pipe.app/p/H4sIAAAAAAAAA6tWKkktLlGyUlAqS...
+https://opensolve-pipe.app/p#H4sIAAAAAAAAA6tWKkktLlGyUlAqS...
 ```
 
 ---
@@ -710,22 +750,20 @@ https://opensolve-pipe.app/p/H4sIAAAAAAAAA6tWKkktLlGyUlAqS...
 ### 6.1 Solver Integration
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Component  │ --> │  Network    │ --> │   Solver    │
-│   Chain     │     │  Converter  │     │  Adapter    │
-└─────────────┘     └─────────────┘     └──────┬──────┘
-                                               │
-                    ┌──────────────────────────┼──────────────────────────┐
-                    │                          │                          │
-              ┌─────┴─────┐            ┌───────┴───────┐          ┌───────┴───────┐
-              │  Simple   │            │    WNTR /     │          │    Future:    │
-              │  Solver   │            │    EPANET     │          │    Custom     │
-              │ (fluids)  │            │               │          │    Solver     │
-              └───────────┘            └───────────────┘          └───────────────┘
-                   │                          │
-                   │    Single path,          │    Branching,
-                   │    no branches           │    looped networks
-                   │                          │
+┌─────────────┐     ┌──────────────────┐     ┌──────────────────────┐
+│ Port-graph  │ --> │ Network builder  │ --> │ GGA solver           │
+│ Project     │     │ (validate, ports │     │ (Newton on heads and │
+│ (SI)        │     │  → nodes, conns  │     │  flows; outer loops  │
+└─────────────┘     │  → links)        │     │  for tee K and valve │
+                    └──────────────────┘     │  status)             │
+                                             └──────────┬───────────┘
+                                                        │
+                                             ┌──────────┴───────────┐
+                                             │ Results mapper       │
+                                             │ (→ SolvedState)      │
+                                             └──────────────────────┘
+
+Test only: the same networks are converted to WNTR/EPANET to check water results.
 ```
 
 ### 6.2 K-Factor Resolution
@@ -737,16 +775,18 @@ Priority order for fitting K-factors:
 3. Fluids library default
 4. Error if no value available
 
+Every library value and correlation cites its source in the data file.
+
 ```python
-def resolve_k_factor(fitting: Fitting, pipe: PipeDefinition, Re: float) -> float:
+def resolve_k_factor(fitting: Fitting, inner_diameter: float, re: float) -> float:
     if fitting.user_k_factor is not None:
         return fitting.user_k_factor
 
     if crane_available(fitting.type):
-        return crane_k_factor(fitting, pipe.inner_diameter, Re)
+        return crane_k_factor(fitting, inner_diameter, re)
 
     if fluids_available(fitting.type):
-        return fluids_k_factor(fitting, pipe.inner_diameter, Re)
+        return fluids_k_factor(fitting, inner_diameter, re)
 
     raise ValueError(f"No K-factor available for {fitting.type}")
 ```
@@ -759,18 +799,21 @@ def resolve_k_factor(fitting: Fitting, pipe: PipeDefinition, Re: float) -> float
 
 - All numeric inputs bounded to physical ranges
 - String inputs sanitized (component names, etc.)
-- File uploads (CSV, Excel) scanned and validated
+- Request size limit on solve requests
+- Decoded URL projects validated against the schema before use
+- Later: file uploads (CSV, Excel) validated
 
 ### 7.2 Rate Limiting
 
 - Solve requests: 60/minute per IP (unauthenticated)
-- Authenticated users: Higher limits based on tier
+- Later: authenticated users get higher limits based on tier
 
 ### 7.3 Data Privacy
 
-- No project data stored without user consent
-- URL-encoded projects are ephemeral (not server-logged)
-- Stored projects encrypted at rest
+- v1 stores no project data on the server
+- Projects in links travel in the URL fragment and are never sent to or logged by the server
+- Solve requests carry the project in the request body; request bodies are not logged
+- Later: stored projects encrypted at rest
 
 ---
 
@@ -781,7 +824,7 @@ def resolve_k_factor(fitting: Fitting, pipe: PipeDefinition, Re: float) -> float
 | Category | HTTP Code | User Action |
 |----------|-----------|-------------|
 | Validation Error | 400 | Fix input |
-| Topology Error | 422 | Fix model connections |
+| Topology Error | 422 | Fix model connections (e.g., add a fixed-pressure boundary) |
 | Convergence Failure | 200* | Review model, try simpler case |
 | Server Error | 500 | Retry / Report |
 
@@ -789,13 +832,9 @@ def resolve_k_factor(fitting: Fitting, pipe: PipeDefinition, Re: float) -> float
 
 ### 8.2 Convergence Failure Handling
 
-Current behavior (per PRD): Return null results with clear indication of failure.
+v1: return `converged: false`, no results, and the largest flow and continuity residuals with the components they occur at.
 
-Future enhancement: Provide diagnostic information:
-
-- Last iteration state
-- Components with largest residuals
-- Suggested troubleshooting steps
+Later: last iteration state and suggested troubleshooting steps.
 
 ---
 
@@ -805,20 +844,21 @@ Future enhancement: Provide diagnostic information:
 
 New components can be added by:
 
-1. Defining TypeScript interface extending `BaseComponent`
-2. Adding solver adapter for the component type
+1. Defining the TypeScript interface and the Pydantic model
+2. Adding its head-loss law (h and dh/dQ) and any status logic to the solver
 3. Adding UI panel for configuration
-4. Adding schematic symbol
+4. Adding at least one reference test case (TSD §10)
+5. Later: adding a schematic symbol
 
 ### 9.2 Fluid Library
 
 New fluids can be added via:
 
-1. Built-in library extension (code change)
+1. Built-in library extension (code change, with a cited source)
 2. User-defined fluids (runtime, per-project)
 3. Future: Global fluid database (user submissions)
 
-### 9.3 Design Checks
+### 9.3 Design Checks (Later)
 
 Check library is data-driven:
 
@@ -849,13 +889,13 @@ Architecture designed to support public API:
 
 - Lazy loading of UI components
 - Virtual scrolling for large tables
-- Debounced state serialization
+- Debounced state serialization to the URL
 
 ### 10.2 Server-Side
 
-- Solver request queuing for fairness
-- Caching of fluid properties
 - Stateless design for horizontal scaling
+- Caching of fluid properties
+- Sparse linear algebra once networks exceed ~100 components
 
 ### 10.3 Benchmarks (Targets)
 

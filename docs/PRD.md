@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD): OpenSolve Pipe
 
-**Version:** 0.1.0 (Draft)
-**Date:** January 2026
-**Status:** Skeleton PRD for Development Planning
+**Version:** 0.2.0 (Rebuild baseline)
+**Date:** October 2026
+**Status:** Aligned with the rebuild decisions D1–D6 in `CLAUDE.md`
 
 ---
 
@@ -27,10 +27,10 @@ Current hydraulic design tools suffer from one or more of the following limitati
 A web application that:
 
 - Runs entirely in the browser with no installation
-- Provides Git-like version control via shareable URLs
+- Shares any project as a self-contained link, with no account
 - Works equally well on desktop and mobile devices
 - Offers professional-grade steady-state hydraulic analysis
-- Future: Includes accessible cost estimation capabilities
+- Future: version history, collaboration, and cost estimation
 
 ### 1.4 Target Users
 
@@ -46,7 +46,7 @@ A web application that:
 
 ## 2. Scope
 
-### 2.1 In Scope
+### 2.1 In Scope (Product)
 
 - Steady-state hydraulic analysis
 - Single-phase, isothermal flow
@@ -56,7 +56,7 @@ A web application that:
 **Network Topologies:**
 
 - Open systems (once-through flow from source to discharge)
-- Closed systems (recirculating loops)
+- Closed systems (recirculating loops). Like the real system, a closed loop must include a pressurization point, modeled as a reservoir or ideal reference node (e.g., an expansion tank connection).
 - Branching networks (flow divides at tees/wyes)
 - Looped networks (multiple flow paths between points, no limit on number of loops)
 - Any combination of the above
@@ -64,7 +64,7 @@ A web application that:
 **Driving Forces:**
 
 - Pressure-fed systems (pressurized source, e.g., municipal supply, pressurized tank)
-- Gravity-fed systems (elevated reservoir, head tank)
+- Gravity-fed systems (elevated reservoir, head tank), with no pump required
 - Pumped systems, including:
   - Multiple pumps in parallel
   - Multiple pumps in series
@@ -76,6 +76,8 @@ A web application that:
 - Degraded operation (individual pumps off, valves closed)
 - Isolation scenarios (sections of network isolated)
 
+Every model needs at least one fixed-pressure boundary (reservoir or ideal reference node). A model without one is reported as a topology error, not solved.
+
 ### 2.2 Out of Scope (Current Version)
 
 - Transient/water hammer analysis
@@ -85,7 +87,26 @@ A web application that:
 - Heat transfer / temperature changes along network
 - Slurry flow
 
-### 2.3 Future Features (Planned)
+### 2.3 v1 Release Scope
+
+v1 is the core analysis MVP. Everything else in this document is **Later**. The *Release* columns in §3 mark each item.
+
+**In v1:**
+
+- Branching and looped networks
+- Reservoirs, ideal reference nodes, tees, wyes, plugs/caps
+- Pipes with inline fittings
+- Fixed-speed pumps (running/off)
+- Isolation valves (gate, ball, butterfly, globe), check and stop-check valves
+- PRV, PSV, FCV
+- Water, ethylene/propylene glycol solutions, user-defined fluids
+- NPSH available and NPSH margin
+- Panel navigator, results tables, pump/system curve chart
+- Sharing by link (§4.4)
+
+**Later:** VFD and controlled pump modes; HI viscosity correction; pressure relief valves; non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, heat exchangers, strainers, user-defined elements; fuels in the fluid library; auto-generated schematic; CSV/XLSX/image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
+
+### 2.4 Future Features (Planned)
 
 | Feature                            | Priority | Phase |
 | ---------------------------------- | -------- | ----- |
@@ -107,60 +128,61 @@ Users shall be able to model the following components:
 
 #### 3.1.1 Nodes (Zero-Dimensional Elements)
 
-| Component                  | Configuration Options                                               | Connection Ports                         |
-| -------------------------- | ------------------------------------------------------------------- | ---------------------------------------- |
-| Reservoir/Tank             | Constant or variable level, elevation, geometry, port configuration | 1-n ports (user-defined, each with size) |
-| Reference Node (Ideal)     | Elevation, pressure setpoint                                        | 1 port                                   |
-| Reference Node (Non-Ideal) | Elevation, pressure-flow curve, capacity limits                     | 1 port                                   |
-| Branch (Tee)               | Orientation (through/branch flows), port sizes                      | 3 ports                                  |
-| Branch (Wye)               | Angle, port sizes                                                   | 3 ports                                  |
-| Branch (Cross)             | Port sizes                                                          | 4 ports                                  |
-| Branch (Elbow with Branch) | Main angle (90°/45°), branch angle, port sizes                      | 3 ports                                  |
-| Sprinkler/Nozzle           | K-factor, discharge coefficient                                     | 1 port (inlet)                           |
-| Orifice                    | Diameter, Cd, or Cv                                                 | 2 ports                                  |
-| Plug/Cap                   | None (closed end, zero flow boundary)                               | 1 port (no flow)                         |
+| Component                  | Configuration Options                                     | Connection Ports                         | Release |
+| -------------------------- | --------------------------------------------------------- | ---------------------------------------- | ------- |
+| Reservoir                  | Constant level, elevation, port configuration             | 1-n ports (user-defined, each with size) | v1      |
+| Tank (variable level)      | Geometry, level limits                                    | 1-n ports (user-defined, each with size) | Later   |
+| Reference Node (Ideal)     | Elevation, pressure setpoint                              | 1 port                                   | v1      |
+| Reference Node (Non-Ideal) | Elevation, pressure-flow curve, capacity limits           | 1 port                                   | Later   |
+| Branch (Tee)               | Orientation (through/branch flows), port sizes            | 3 ports                                  | v1      |
+| Branch (Wye)               | Angle, port sizes                                         | 3 ports                                  | v1      |
+| Branch (Cross)             | Port sizes                                                | 4 ports                                  | Later   |
+| Branch (Elbow with Branch) | Main angle (90°/45°), branch angle, port sizes            | 3 ports                                  | Later   |
+| Sprinkler/Nozzle           | K-factor, discharge coefficient                           | 1 port (inlet)                           | Later   |
+| Orifice                    | Diameter, Cd, or Cv                                       | 2 ports                                  | Later   |
+| Plug/Cap                   | None (closed end, zero flow boundary)                     | 1 port (no flow)                         | v1      |
 
-**Note:** Junction nodes are deprecated in favor of Branch components which provide explicit fitting geometry and K-factor calculations.
+**Note:** There is no generic junction node. Branch components provide explicit fitting geometry and flow-dependent K-factors.
 
 #### 3.1.2 Links (One-Dimensional Elements)
 
-| Component                 | Configuration Options                                                              |
-| ------------------------- | ---------------------------------------------------------------------------------- |
-| Pipe                      | Material, schedule, diameter, length, roughness                                    |
-| Pump                      | Curve (head vs flow), speed ratio (0-1.0 or %), control mode, viscosity correction |
-| Check Valve               | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed)       |
-| Stop-Check Valve          | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed)       |
-| Gate/Ball/Butterfly Valve | Cv or K-factor, position (0-100% open), status (active/isolated)                   |
-| Globe Valve               | Cv or K-factor, position (0-100% open), status (active/isolated)                   |
-| Pressure Reducing Valve   | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        |
-| Pressure Sustaining Valve | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        |
-| Flow Control Valve        | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        |
-| Pressure Relief Valve     | Setpoint, capacity                                                                 |
-| Heat Exchanger            | Fixed pressure drop, or Cv/K model                                                 |
-| Strainer/Filter           | K-factor (clean and dirty)                                                         |
-| User-Defined Element      | Cv curve or K-factor                                                               |
+| Component                 | Configuration Options                                                              | Release |
+| ------------------------- | ---------------------------------------------------------------------------------- | ------- |
+| Pipe                      | Material, schedule, diameter, length, roughness                                    | v1      |
+| Pump                      | Curve (head vs flow), speed ratio, status; later: control mode, viscosity correction | v1      |
+| Check Valve               | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed)       | v1      |
+| Stop-Check Valve          | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed)       | v1      |
+| Gate/Ball/Butterfly Valve | Cv or K-factor, position (0-100% open), status (active/isolated)                   | v1      |
+| Globe Valve               | Cv or K-factor, position (0-100% open), status (active/isolated)                   | v1      |
+| Pressure Reducing Valve   | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        | v1      |
+| Pressure Sustaining Valve | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        | v1      |
+| Flow Control Valve        | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        | v1      |
+| Pressure Relief Valve     | Setpoint, capacity                                                                 | Later   |
+| Heat Exchanger            | Fixed pressure drop, or Cv/K model                                                 | Later   |
+| Strainer/Filter           | K-factor (clean and dirty)                                                         | Later   |
+| User-Defined Element      | Cv curve or K-factor                                                               | Later   |
 
 ##### 3.1.2.1 Pump Operating Modes
 
 Pumps support multiple operating modes to model real-world control strategies:
 
-| Mode                 | Description                                                 | Required Input              |
-| -------------------- | ----------------------------------------------------------- | --------------------------- |
-| Fixed Speed          | Pump operates at defined speed ratio (1.0 = full speed)     | Speed ratio (0.0-1.0)       |
-| Variable Speed (VFD) | Speed adjusts to maintain setpoint                          | Control variable + setpoint |
-| Controlled Pressure  | VFD maintains constant discharge or differential pressure   | Pressure setpoint           |
-| Controlled Flow      | VFD maintains constant flow rate                            | Flow setpoint               |
-| Off                  | Pump is not running; treated as closed valve or check valve | Status = off                |
+| Mode                 | Description                                                 | Required Input              | Release |
+| -------------------- | ----------------------------------------------------------- | --------------------------- | ------- |
+| Fixed Speed          | Pump operates at defined speed ratio (1.0 = full speed)     | Speed ratio (0.0-1.0)       | v1      |
+| Off                  | Pump is not running; treated as closed valve or check valve | Status = off                | v1      |
+| Variable Speed (VFD) | Speed adjusts to maintain setpoint                          | Control variable + setpoint | Later   |
+| Controlled Pressure  | VFD maintains constant discharge or differential pressure   | Pressure setpoint           | Later   |
+| Controlled Flow      | VFD maintains constant flow rate                            | Flow setpoint               | Later   |
 
-**Viscosity Correction:**
-For fluids more viscous than water, pump performance is automatically corrected using the Hydraulic Institute method (ANSI/HI 9.6.7). Correction factors are applied to:
+**Viscosity Correction (Later):**
+For fluids more viscous than water, pump performance is corrected using the Hydraulic Institute method (ANSI/HI 9.6.7). Correction factors are applied to:
 
 - Head (reduced)
 - Flow (reduced)
 - Efficiency (reduced)
 - Power (increased)
 
-Users may disable viscosity correction for pumps already rated for the operating fluid.
+Users may disable viscosity correction for pumps already rated for the operating fluid. Until this ships, pump curves are used as entered and the UI states that no viscosity correction is applied.
 
 ##### 3.1.2.2 Component Status
 
@@ -196,11 +218,11 @@ A **pipe connection** is a collection of pipes and fittings that connects exactl
 | Entrance/Exit            | Type (sharp, rounded, projecting)               |
 | Inline Valve             | Type, K-factor or Cv                            |
 
-**Note:** Tee fittings are now modeled as Branch components (nodes) rather than inline fittings. This provides more accurate hydraulic modeling for flow splitting/combining scenarios.
+**Note:** Tees are modeled as Branch components (nodes), not inline fittings, so that flow splitting and combining is modeled accurately.
 
 #### 3.1.4 Connection Architecture
 
-The hydraulic network is modeled as a graph where:
+The hydraulic network is modeled as a graph. This port graph is the only project data model:
 
 - **Components** are nodes with one or more **ports**
 - **Pipe connections** are edges connecting exactly two ports
@@ -214,7 +236,8 @@ The hydraulic network is modeled as a graph where:
 | Reference Node   | 1          | port_1                              |
 | Pump             | 2          | suction (inlet), discharge (outlet) |
 | Valve            | 2          | inlet, outlet                       |
-| Branch (Tee/Wye) | 3          | run_inlet, run_outlet, branch       |
+| Branch (Tee)     | 3          | run_inlet, run_outlet, branch       |
+| Branch (Wye)     | 3          | inlet, outlet_1, outlet_2           |
 | Branch (Cross)   | 4          | port_1, port_2, port_3, port_4      |
 | Orifice          | 2          | inlet, outlet                       |
 | Sprinkler        | 1          | inlet                               |
@@ -226,13 +249,16 @@ The hydraulic network is modeled as a graph where:
    - System boundary conditions
    - Representing large municipal supply mains
    - Modeling ideal pressure sources
+   - Pressurization point of a closed loop
 
-2. **Non-Ideal Reference Node**: Pressure varies with flow rate based on a pressure-flow curve. Useful for:
+2. **Non-Ideal Reference Node (Later)**: Pressure varies with flow rate based on a pressure-flow curve. Useful for:
    - Pressure regulators with capacity limits
    - Booster pumps with supply limitations
    - Wells with drawdown curves
 
 ### 3.2 Outputs
+
+All pressures are reported as **gauge** pressure unless labeled absolute (see §3.6).
 
 #### 3.2.1 Solved Network State
 
@@ -242,6 +268,7 @@ For each pipe/link element:
 - Velocity
 - Head loss
 - Reynolds number
+- Friction factor
 
 For each node:
 
@@ -254,12 +281,11 @@ For each node:
 For each pump:
 
 - Operating point (flow, head)
-- Speed (actual, if VFD-controlled)
 - Status (running/off)
-- Power consumption
-- Efficiency (with viscosity correction if applicable)
+- Efficiency and power consumption (when an efficiency curve is provided)
 - NPSH available
-- NPSH margin
+- NPSH margin (when NPSH required is provided)
+- Later: actual speed when VFD-controlled; viscosity-corrected performance
 
 For each control valve:
 
@@ -276,24 +302,25 @@ For each control valve:
 - NPSH available at pump suction
 - NPSH margin (if NPSH required provided)
 
-#### 3.2.3 Export Formats
+#### 3.2.3 Export Formats (Later)
 
 - CSV/Excel: All results in tabular format
 - Image: Schematic/PFD as PNG or SVG
 
 ### 3.3 Data Entry Methods
 
-#### 3.3.1 Panel Navigator (Primary)
+#### 3.3.1 Panel Navigator (Primary, v1)
 
-A wizard-like interface where users navigate element-by-element:
+A wizard-like interface where users move element by element through the network graph:
 
 - View/edit current element properties
-- Define connecting piping (fittings table)
-- Navigate to next/previous element
+- Define the piping (pipes and fittings) of each connection at the current element
+- Navigate to next/previous element along the path being walked
+- At a branch (more than one way forward), choose which path to follow; the breadcrumb records the path taken
 - Add elements before/after current
 - Create branches at current location
 
-#### 3.3.2 Form/Table Entry (Secondary)
+#### 3.3.2 Form/Table Entry (Secondary, Later)
 
 Traditional form-based entry for:
 
@@ -301,7 +328,7 @@ Traditional form-based entry for:
 - Copy/paste from spreadsheets
 - Power users who prefer tabular view
 
-#### 3.3.3 Auto-Generated Schematic (Visualization)
+#### 3.3.3 Auto-Generated Schematic (Visualization, Later)
 
 - Read-only process flow diagram
 - Simplified custom symbols (not full P&ID)
@@ -310,11 +337,11 @@ Traditional form-based entry for:
 
 ### 3.4 Pump Curve Input
 
-| Method           | Description                    |
-| ---------------- | ------------------------------ |
-| Manual table     | Enter flow/head pairs directly |
-| CSV/Excel upload | Import from file               |
-| Project library  | Save and reuse within project  |
+| Method           | Description                    | Release |
+| ---------------- | ------------------------------ | ------- |
+| Manual table     | Enter flow/head pairs directly | v1      |
+| Project library  | Save and reuse within project  | v1      |
+| CSV/Excel upload | Import from file               | Later   |
 
 Future:
 
@@ -325,12 +352,14 @@ Future:
 
 #### 3.5.1 Built-In Library
 
-- Water (temperature-dependent)
-- Ethylene glycol solutions (concentration and temperature)
-- Propylene glycol solutions
-- Common fuels (diesel, gasoline, jet fuel)
+- Water (temperature-dependent) — v1
+- Ethylene glycol solutions (concentration and temperature) — v1
+- Propylene glycol solutions — v1
+- Common fuels (diesel, gasoline, jet fuel) — Later
 
-#### 3.5.2 User-Defined Fluids
+Each built-in fluid cites the source of its property data.
+
+#### 3.5.2 User-Defined Fluids (v1)
 
 Manual entry of:
 
@@ -345,17 +374,21 @@ Manual entry of:
 - User may override calculated values
 - Calculated values displayed for verification
 
-### 3.6 Units
+### 3.6 Units and Reference Conditions
 
 - User-selectable unit system (Imperial, SI, or mixed)
 - Automatic conversion between unit systems
 - Mixed units allowed within same project (e.g., pipe diameter in inches, length in meters)
-- Unit preference saved per-project
+- Unit preference saved per-project. Changing preferences changes only what is displayed; it never changes the model.
+- Pressures are entered and displayed as **gauge**. Absolute values are shown where they matter (NPSH, vapor pressure).
+- Each project has a **site elevation**. Atmospheric pressure is calculated from it (standard atmosphere), and the user may override it.
+- All elevations are measured from a single project datum.
 
 ### 3.7 Calculation Method
 
 - Darcy-Weisbach friction factor (Colebrook equation)
 - No Hazen-Williams option (Darcy-Weisbach is more accurate and general)
+- One network solver handles every topology (single path, branching, looped) and every supported fluid
 
 ---
 
@@ -379,28 +412,32 @@ Manual entry of:
 - Online-only acceptable (no offline requirement)
 - Target 99.5% uptime
 
-### 4.4 Collaboration
+### 4.4 Sharing and Persistence
 
-- All projects shareable via URL
-- No account required for basic use
-- Account required for persistence and sharing
-- Git-like versioning (invisible to user):
-  - Branch
-  - Merge
-  - History
-  - Checkout
-  - Add
-  - Commit
+**v1:**
+
+- Every project is shareable as a link; the whole project is encoded in the link
+- No account, sign-in, or server-side project storage
+- Project data travels only in the link and is never stored or logged by the server
+- Undo/redo within a session; earlier states can be kept by keeping their links
+- Links remain openable after app updates (older links are upgraded on open)
+- The user is warned when a link becomes long enough that some email and chat apps may cut it off
+
+**Later (requires accounts and storage):**
+
+- Short links for large projects
+- Saved projects tied to an account
+- Git-like versioning: history, branch, merge, checkout
 
 ### 4.5 Sharing Behavior
 
 - Shared links are always editable
-- Changes auto-fork the project (copy-on-write)
-- Original URL preserved for owner
+- Editing a shared project produces a new link (copy-on-write)
+- The original link is unchanged and still opens the original state
 
 ---
 
-## 5. Design Checks (Optional)
+## 5. Design Checks (Optional, Later)
 
 Users may enable checks from a library:
 
@@ -433,24 +470,26 @@ Users may enable checks from a library:
 
 ## 6. Success Metrics
 
-| Metric                                | Target            |
-| ------------------------------------- | ----------------- |
-| Time to first solve (new user)        | < 5 minutes       |
-| Mobile usability score                | > 90 (Lighthouse) |
-| Solve accuracy vs EPANET              | < 1% deviation    |
-| User retention (return within 7 days) | > 40%             |
+| Metric                                | Target                                                                       |
+| ------------------------------------- | ---------------------------------------------------------------------------- |
+| Time to first solve (new user)        | < 5 minutes                                                                  |
+| Mobile usability score                | > 90 (Lighthouse)                                                            |
+| Solve accuracy vs reference suite     | Flows, heads, pressures within 0.5% or 0.01 m head (whichever is looser); mass balance closes at every node |
+| User retention (return within 7 days) | > 40%                                                                        |
+
+The reference suite combines Crane TP-410 and textbook worked examples, closed-form hand calculations, and EPANET runs for water-only networks (see TSD §10).
 
 ---
 
 ## 7. Open Questions
 
-1. **Cloud storage threshold:** At what project size do we transition from URL-encoded state to cloud storage?
+1. **Cost estimation scope:** What cost data sources? How granular (component-level, system-level)?
 
-2. **Merge conflict resolution:** How do we handle merge conflicts in the Git-like versioning? Visual diff? Auto-merge with conflicts flagged?
+2. **Versioning (Later):** When history and branching arrive, how are merge conflicts presented — visual diff, or auto-merge with conflicts flagged?
 
-3. **Cost estimation scope:** What cost data sources? How granular (component-level, system-level)?
+3. **Public API (Future):** Authentication method for API keys; usage tiers.
 
-4. **API design:** REST vs GraphQL? Authentication method?
+Resolved by the rebuild decisions: URL vs cloud storage threshold (v1 is link-only), REST vs GraphQL (REST).
 
 ---
 
@@ -475,7 +514,7 @@ Users may enable checks from a library:
 
 **US-004:** As a process engineer, I want to compare different pipe sizes so I can optimize my design for cost and performance.
 
-**US-005:** As a team lead, I want to see the history of changes to a design so I can understand how it evolved.
+**US-005 (Later):** As a team lead, I want to see the history of changes to a design so I can understand how it evolved.
 
 ---
 

@@ -14,7 +14,7 @@ Free, browser-based tool for steady-state hydraulic analysis of pressurized pipe
 | `docs/SDD.md` | Architecture, data models, API contracts |
 | `docs/TSD.md` | Concrete stack, file layout, code sketches |
 
-The three specs are January 2026 drafts written before any implementation. They contradict each other in places, and their code samples are illustrative only.
+The specs are at v0.2.0 (rebuild baseline) and reflect the decisions below. Items marked **Later** are outside v1. Code samples are sketches, except those the TSD marks as tested.
 
 **Precedence when they disagree:** this file's *Rebuild decisions* section → PRD → SDD → TSD. If a spec conflicts with a decision below, follow the decision and update the spec in the same change.
 
@@ -61,7 +61,7 @@ The three specs are January 2026 drafts written before any implementation. They 
 - Panel navigator, results tables and the pump/system curve chart
 - URL sharing
 
-**Deferred:** VFD and controlled-pressure/controlled-flow pump modes; HI viscosity correction; relief valves; non-ideal reference nodes; cross and elbow-branch fittings; tanks with levels; the auto-generated schematic; CSV/XLSX/PNG export; table entry; design checks; cost estimation.
+**Deferred:** VFD and controlled-pressure/controlled-flow pump modes; HI viscosity correction; relief valves; non-ideal reference nodes; cross and elbow-branch fittings; tanks with levels; sprinklers, orifices, heat exchangers, strainers and user-defined elements; fuels in the fluid library; the auto-generated schematic; CSV/XLSX/PNG export; table entry and CSV pump-curve import; design checks; cost estimation.
 
 ### D6. Correctness: reference test suite
 - `apps/api/tests/reference/` holds benchmark cases: Crane TP-410 and textbook worked examples, closed-form hand calculations, and EPANET runs for water-only networks.
@@ -70,12 +70,13 @@ The three specs are January 2026 drafts written before any implementation. They 
 
 ---
 
-## Known spec errata
+## Open spec items
 
-- **TSD §4.2:** the tee and wye K-factor formulas are unsourced. In particular, `60·f_T·(1 + 3.6·(Db/Dr)²)` doesn't match Crane TP-410's standard tee values (20·f_T through the run, 60·f_T through the branch). Verify every formula against a cited source before use, and record the source next to the data.
-- **SDD §3.2.2 vs TSD §4.3:** the fluid property source is CoolProp in one and IAPWS/ASHRAE in the other. Pick one per fluid and cite it in the data file.
-- **SDD §5.2 vs TSD §4.4:** the URL size thresholds conflict. D3 replaces both.
-- **TSD §9:** setup steps (Node 18, `pip`, Docker/Postgres) are replaced by *Tooling* below.
+The specs (v0.2.0) reflect D1–D6. These items are still open; see TSD §12 for the full list.
+
+- **Tee and wye K-factors (TSD §4.2):** use Crane's fixed values (20·f_T run, 60·f_T branch) until a flow-ratio correlation is chosen. Never use a loss coefficient without a cited source.
+- **Water property package (TSD §4.6):** `iapws` or CoolProp for IAPWS-95.
+- **EPANET comparisons (TSD §5.2, §10.1):** EPANET's friction formula (Swamee–Jain) differs from exact Colebrook by up to 2.8% in f, so EPANET reference tests run the solver with `method="swamee_jain"`.
 
 ---
 

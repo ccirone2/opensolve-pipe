@@ -60,3 +60,7 @@ Bug reports, data requests and questions are welcome as [issues](https://github.
 ## Disclaimer
 
 OpenSolve Pipe is an engineering aid. Its results support, but do not replace, the judgment of a qualified engineer, and are provided without warranty.
+
+## License
+
+[GNU Affero General Public License v3.0](LICENSE). You may use, study, modify and share the code; if you run a modified version as a network service, you must offer its users the corresponding source code.

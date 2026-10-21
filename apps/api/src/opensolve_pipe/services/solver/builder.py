@@ -15,6 +15,7 @@ Every problem that makes the project unsolvable is collected and raised together
 ``TopologyError`` (design §1.2), including pipe-library references that do not resolve.
 """
 
+import math
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -139,6 +140,9 @@ class BuiltNetwork:
     branches: dict[str, BranchGeometry] = field(default_factory=dict)
     pumps: dict[str, PumpData] = field(default_factory=dict)
     valves: dict[str, ValveData] = field(default_factory=dict)
+    project: Project | None = None
+    """The project the network was built from (its settings and which fields the user set,
+    for the trace)."""
 
     def port_pipe(self, key: str) -> PortPipe:
         """The connection and its end segment at port ``key`` ('componentId:portId')."""
@@ -194,6 +198,18 @@ def validate_topology(project: Project) -> list[TopologyIssue]:
                 "DUPLICATE_CONNECTION_ID",
                 f"connection id '{dup}' is used more than once",
                 connection_ids=[dup],
+            )
+        )
+    shared = sorted({c.id for c in project.components} & {c.id for c in project.connections})
+    for dup in shared:
+        # Results, traces and flags are keyed by element id across components and connections.
+        issues.append(
+            issue(
+                "DUPLICATE_ID",
+                f"id '{dup}' names both a component and a connection; every element needs its "
+                "own id",
+                [dup],
+                [dup],
             )
         )
     for dup in _duplicates(c.id for c in project.pump_library):
@@ -350,11 +366,43 @@ def _resolve_pipes(project: Project) -> tuple[dict[str, list[ResolvedPipe]], lis
 # --------------------------------------------------------------------------- building
 
 
+def _unrepresentable_pipes(
+    resolved: dict[str, list[ResolvedPipe]], fluid: FluidProperties
+) -> list[TopologyIssue]:
+    """Pipes whose loss coefficients are not finite, positive floating-point numbers: the
+    laminar r = 32 ν L/(g D² A) and the turbulent L/(2 g D A²) (f = 1). A schema-valid but
+    extreme size (an inner diameter of 1e-100 m) underflows D² A to 0, and the solver could
+    only fail on it."""
+    issues: list[TopologyIssue] = []
+    for conn_id, pipes in resolved.items():
+        for i, pipe in enumerate(pipes):
+            d, length = pipe.inner_diameter, pipe.length
+            area = 0.25 * math.pi * d * d
+            try:
+                laminar = 32.0 * fluid.kinematic_viscosity * length / (G * d * d * area)
+                turbulent = length / (2.0 * G * d * area * area)
+            except ZeroDivisionError:
+                laminar = turbulent = math.inf
+            if not all(math.isfinite(c) and c > 0.0 for c in (laminar, turbulent)):
+                issues.append(
+                    issue(
+                        "PIPE_SIZE_OUT_OF_RANGE",
+                        f"connection '{conn_id}' pipe {i}: an inner diameter of {d:g} m and a "
+                        f"length of {length:g} m give a pipe resistance that is not a finite "
+                        "floating-point number; the solver cannot represent this pipe",
+                        [],
+                        [conn_id],
+                    )
+                )
+    return issues
+
+
 def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
     """Validate the project and build its solver network. Raises ``TopologyError``."""
     issues = validate_topology(project)
     resolved, pipe_issues = _resolve_pipes(project)
     issues.extend(pipe_issues)
+    issues.extend(_unrepresentable_pipes(resolved, fluid))
     if issues:
         raise TopologyError(issues)
 
@@ -408,6 +456,7 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
         fluid=fluid,
         g=g,
         friction_method=method,
+        project=project,
     )
 
     for conn in project.connections:

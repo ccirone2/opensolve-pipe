@@ -30,15 +30,13 @@ class BaseComponent(CamelModel):
     def _check_unique_ports(self) -> Self:
         ids = [p.id for p in self.ports]
         if len(set(ids)) != len(ids):
-            raise ValueError(f"component {self.id} has duplicate port ids")
+            raise ValueError("duplicate port ids")
         return self
 
     def _require_ports(self, expected: tuple[str, ...]) -> None:
         ids = sorted(p.id for p in self.ports)
         if ids != sorted(expected):
-            raise ValueError(
-                f"{type(self).__name__} {self.id} must have ports {list(expected)}, got {ids}"
-            )
+            raise ValueError(f"a {type(self).__name__} must have ports {list(expected)}")
 
 
 class Reservoir(BaseComponent):
@@ -67,7 +65,7 @@ class IdealReferenceNode(BaseComponent):
     @model_validator(mode="after")
     def _check_ports(self) -> Self:
         if len(self.ports) != 1:
-            raise ValueError(f"reference node {self.id} must have exactly one port")
+            raise ValueError("a reference node must have exactly one port")
         return self
 
 

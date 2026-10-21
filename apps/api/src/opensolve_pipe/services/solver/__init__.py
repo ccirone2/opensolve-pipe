@@ -9,18 +9,29 @@ not an exception.
 
 from ...models.api import SolveOptions
 from ...models.project import Project
-from ...models.results import SolvedState
+from ...models.results import CurvePoint, SolvedState
 from ..fluids import FluidError, fluid_properties
 from .builder import build_network
 from .errors import TopologyError
 from .npsh import atmospheric_pressure
 from .results import build_solved_state
 from .status import run_outer_loop
+from .system_curve import (
+    FlowRangeError,
+    PumpNotFoundError,
+    curve_flows,
+    default_flow_max,
+    system_curve,
+    system_curve_points,
+)
 from .version import METHOD_CHANGELOG, METHOD_VERSION
 
 
 def solve_project(project: Project, options: SolveOptions | None = None) -> SolvedState:
-    """Solve a project. ``options`` (system curves) take effect from milestone M4."""
+    """Solve a project. With ``options.include_system_curve`` (the API default; None here
+    means no options), every running pump's result also carries its system curve
+    (design §13): ``options.system_curve_points`` flows from 0 to 1.2 × its curve's largest
+    flow × its speed, the points whose solve converged."""
     fluid = fluid_properties(project.fluid)
     built = build_network(project, fluid)
     p_atm, p_atm_source = atmospheric_pressure(project)
@@ -30,14 +41,67 @@ def solve_project(project: Project, options: SolveOptions | None = None) -> Solv
         tolerance=solver_options.tolerance,
         max_iterations=solver_options.max_iterations,
     )
-    return build_solved_state(built, outer, p_atm, p_atm_source)
+    state = build_solved_state(built, outer, p_atm, p_atm_source)
+    if options is None or not options.include_system_curve or not state.converged:
+        return state
+    running = [pid for pid, pr in state.pump_results.items() if pr.status == "running"]
+    if not running:
+        return state
+    # A fresh network: the curves' solves reset and reuse its branch laws.
+    curve_net = build_network(project, fluid)
+    pumps = dict(state.pump_results)
+    traces = dict(state.trace.elements)
+    for pid in running:
+        upper = default_flow_max(curve_net, pid)
+        count = options.system_curve_points
+        flows = curve_flows(0.0, upper, count)
+        points = system_curve_points(
+            curve_net,
+            pid,
+            flows,
+            tolerance=solver_options.tolerance,
+            max_iterations=solver_options.max_iterations,
+            warm=outer,
+        )
+        curve = [CurvePoint(flow=p.flow, head=p.head) for p in points if p.head is not None]
+        skipped = [p.message for p in points if p.message.startswith("not computed")]
+        failed = count - len(curve) - len(skipped)
+        missing = f"; {failed} did not converge" if failed else ""
+        if skipped:  # the request's time budget ran out (budget.py)
+            missing += f"; {len(skipped)} were {skipped[0]}"
+        pumps[pid] = pumps[pid].model_copy(update={"system_curve": curve})
+        trace = traces[pid]
+        traces[pid] = trace.model_copy(
+            update={
+                "equations": [
+                    *trace.equations,
+                    "H_sys(Q) = EGL_discharge − EGL_suction with the pump replaced by a fixed "
+                    "flow Q (system curve; other pumps keep running, valves follow their rules)",
+                ],
+                "notes": [
+                    *trace.notes,
+                    f"System curve: {len(curve)} of {count} flows from 0 to {upper:.6g} m³/s "
+                    "(1.2 × the curve's largest flow × s) solved, each starting from the "
+                    f"solution at the neighbouring flow (the first from this solve){missing}.",
+                ],
+            }
+        )
+    return state.model_copy(
+        update={
+            "pump_results": pumps,
+            "trace": state.trace.model_copy(update={"elements": traces}),
+        }
+    )
 
 
 __all__ = [
     "METHOD_CHANGELOG",
     "METHOD_VERSION",
+    "FlowRangeError",
     "FluidError",
+    "PumpNotFoundError",
     "TopologyError",
     "atmospheric_pressure",
     "solve_project",
+    "system_curve",
 ]

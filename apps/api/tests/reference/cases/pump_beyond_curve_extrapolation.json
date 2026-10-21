@@ -225,6 +225,10 @@
       {
         "code": "PUMP_OUTSIDE_CURVE",
         "componentId": "PU1"
+      },
+      {
+        "code": "NPSH_NOT_CHECKED",
+        "componentId": "PU1"
       }
     ]
   }

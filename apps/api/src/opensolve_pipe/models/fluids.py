@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Discriminator, Field, Tag
 
 from .base import CamelModel, Name, OutputModel
 
@@ -49,7 +49,22 @@ class CustomFluid(CamelModel):
     )
 
 
-FluidDefinition = Annotated[BuiltinFluid | CustomFluid, Field(discriminator="kind")]
+def _fluid_tag(value: object) -> str | None:
+    kind = value.get("kind") if isinstance(value, dict) else getattr(value, "kind", None)
+    return kind if kind in ("builtin", "custom") else None
+
+
+FluidDefinition = Annotated[
+    Annotated[BuiltinFluid, Tag("builtin")] | Annotated[CustomFluid, Tag("custom")],
+    Discriminator(
+        # A callable discriminator, so that an unknown kind gets the custom error below:
+        # pydantic's own message quotes the submitted tag, and errors never echo input
+        # (SDD §5.1.2).
+        _fluid_tag,
+        custom_error_type="invalid_fluid",
+        custom_error_message="unknown fluid kind (expected 'builtin' or 'custom')",
+    ),
+]
 
 
 class PropertySource(OutputModel):

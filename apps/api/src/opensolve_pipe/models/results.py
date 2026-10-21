@@ -32,6 +32,8 @@ FlagCode = Literal[
     "CHECK_VALVE_CLOSED",
     "CONTROL_VALVE_SETPOINT_NOT_MET",
     "ISOLATED_SECTION",
+    "UNDETERMINED_PRESSURE",
+    "NPSH_NOT_CHECKED",
 ]
 
 
@@ -116,10 +118,17 @@ class PumpResult(OutputModel):
     hydraulic_power: float = Field(description="ρgQH, W")
     efficiency: float | None = Field(description="Fraction, if a curve is given")
     shaft_power: float | None = Field(description="W, if efficiency is known")
-    npsh_available: float | None = Field(description="m; None without p_vap")
+    npsh_available: float | None = Field(
+        description="m; None without p_vap or where the pressure level is undetermined"
+    )
     npsh_required: float | None = Field(description="m, if a curve is given")
     npsh_margin: float | None = Field(description="NPSHa - NPSHr, m")
-    suction_absolute_pressure: float = Field(description="Static, Pa absolute")
+    suction_absolute_pressure: float | None = Field(
+        description=(
+            "Static, Pa absolute; None where the pressure level is undetermined "
+            "(UNDETERMINED_PRESSURE)"
+        )
+    )
     curve: list[CurvePoint] = Field(description="Pump curve at the operating speed, sampled")
     system_curve: list[CurvePoint] | None
 
@@ -223,7 +232,12 @@ class Trace(OutputModel):
 
 
 class ResidualLocation(OutputModel):
-    value: float
+    value: float | None = Field(
+        description=(
+            "The largest residual's magnitude (m³/s or m); null when it is not a finite number "
+            "(the iteration diverged there)"
+        )
+    )
     element_id: str | None
 
 

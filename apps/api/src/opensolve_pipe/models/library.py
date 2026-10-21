@@ -11,6 +11,7 @@ class PipeSize(OutputModel):
     outer_diameter: float = Field(description="m")
     wall_thickness: float = Field(description="m")
     inner_diameter: float = Field(description="m")
+    roughness: float = Field(description="Absolute roughness at this size, m")
 
 
 class PipeSchedule(OutputModel):
@@ -21,17 +22,21 @@ class PipeSchedule(OutputModel):
 class PipeMaterial(OutputModel):
     id: str
     name: str
-    roughness: float = Field(description="Absolute roughness, m")
+    roughness: float = Field(description="Representative absolute roughness, m")
     roughness_source: str
     dimensions_source: str
+    notes: str
     schedules: list[PipeSchedule]
 
 
 class FittingInfo(OutputModel):
     type: str
     name: str
-    correlation: str = Field(description="Library function that supplies K")
+    correlation: str = Field(description="Library function call that supplies K")
     parameters: list[str] = Field(description="Fitting fields the correlation uses")
+    reference_diameter: str = Field(description="Pipe whose velocity K is referenced to")
+    valid_in_laminar_flow: bool
+    notes: list[str]
     source: str
 
 

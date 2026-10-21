@@ -68,6 +68,8 @@ class PumpCurveModel:
     """A pump library curve, evaluated at any speed with the affinity laws."""
 
     def __init__(self, curve: PumpCurve) -> None:
+        self.points = curve
+        """The curve as entered (its points, for the trace)."""
         self.curve_id = curve.id
         self.name = curve.name
         self.head_curve = ExtrapolatedPchip(

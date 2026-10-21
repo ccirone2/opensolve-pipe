@@ -108,51 +108,95 @@ Later: database for accounts, short links and version history.
 
 ### 3.1 Frontend Components
 
+The frontend is a static SvelteKit site (TSD §2.1, §3.1) with two pages:
+
+- **Home (`/`)** offers a new project (`/p`) and example projects, each a fixed link: the examples have fixed ids and timestamps, and their values are labeled as illustrative. It also explains that the project lives in the link and what the server receives when solving, and shows the disclaimer, the license and the source code link.
+- **Project (`/p#<encoded>`)** decodes the fragment (§5.2) and opens the **workspace**, or shows a link error. An empty fragment starts a new project.
+
+The **workspace** (`components/workspace/Workspace.svelte`) has a header, a **Build** pane (the panel navigator, §3.1.1) and a **Results** pane (§3.1.3):
+
+- **Header.** Home link, editable project name, Undo and Redo (labelled with the change they undo or redo), Solve, Share (§3.1.5) and Settings. Settings covers the description, fluid, site elevation and atmospheric-pressure override, display units and solver options.
+- **Layout.** From 1024 px the two panes are side by side; on narrow screens they are tabs. The Results tab is marked (icon and text) when the last solve failed, did not converge, has physically invalid flags or is out of date.
+- **Notices.** Info notices fade after 6 s; error notices (e.g. a refused edit) stay until dismissed.
+- **Keyboard.** Outside text fields, Ctrl/⌘+Z undoes, and Ctrl/⌘+Shift+Z or Ctrl/⌘+Y redoes.
+- **Touch and accessibility.** Buttons are at least 44 px tall. Buttons that can become unavailable while focused (Solve, Undo, Redo) use `aria-disabled` so focus stays on them, and tabs follow the WAI-ARIA tabs pattern.
+
 #### 3.1.1 Panel Navigator
 
-**Purpose:** Primary interface for building and editing the hydraulic network.
+**Purpose:** Primary interface for building and editing the hydraulic network. TSD §8.1 has the details.
 
-**Structure:**
+**Structure** (`components/panel/`):
 
 ```
 PanelNavigator
-├── ComponentPanel
-│   ├── ComponentTypeSelector
-│   ├── ComponentPropertyForm
-│   └── ComponentActions (add before/after, add branch, delete)
-├── ConnectionPanel               // piping of a connection at the current component
-│   ├── PortSelector              // which port's connection is being edited
-│   ├── PipeSegmentsForm          // material, schedule, diameter, length
-│   └── FittingsTable
-├── NavigationControls
-│   ├── PreviousButton
-│   ├── NextButton
-│   ├── PathChooser               // shown when more than one way forward
-│   └── Breadcrumb
-└── MiniMap (Later)
+├── Breadcrumb                    // the path walked; each step goes back to that component
+├── Jump to → JumpToDialog        // every component, with a filter; marks those not connected to the start
+├── ComponentPanel                // the current component: type, id, name
+│   ├── ComponentActions          // Add after, Add before, Add branch, Delete
+│   │   ├── AddComponentDialog    // at a free port / into a connection / as a branch (tee or wye)
+│   │   └── DeleteDialog          // optional "Join A and B" (keep the neighbors connected)
+│   ├── Properties tab
+│   │   ├── name, elevation
+│   │   ├── per-type form         // forms/: Reservoir, ReferenceNode, Branch (tee, wye),
+│   │   │                         //   Pump (+ PumpCurveEditor), IsolationValve, CheckValve, ControlValve
+│   │   └── PortsEditor           // port sizes and elevations, what each connects to; reservoir ports
+│   └── Piping tab → ConnectionPanel
+│       ├── port selector         // which port's connection is shown
+│       ├── connected port        // from → to, Go to <other end>, Insert component, Add branch,
+│       │                         //   Disconnect; PipeSegmentForm per pipe (+ Add pipe segment);
+│       │                         //   FittingsEditor
+│       └── free port             // add a component here, plug it, remove it (reservoir),
+│                                 //   or connect it to a free port elsewhere (close a loop)
+├── Previous: <name>   Next: <name | choose | connect <port> | end of path>
+└── PathChooser                   // the ways forward; loops offered as "Jump back to …"
+Later: MiniMap
 ```
+
+An empty project shows "Start the network": choose and add the first component (a boundary is suggested).
 
 **Navigation over the port graph:**
 
-- The walk starts at a chosen component (default: the first boundary component, i.e. a reservoir or reference node).
-- **Next** follows a connection from the current component to a component not yet on the breadcrumb. If there is more than one candidate (a tee, a multi-port reservoir), the **PathChooser** asks which one to follow.
-- **Previous** steps back along the breadcrumb.
-- When a loop leads back to a component already on the breadcrumb, Next offers to jump to it rather than extend the path.
-- Every component is reachable by choosing paths, or directly from the results tables.
+- **Start.** The walk starts at a chosen component. By default this is the first boundary component (a reservoir or reference node), else the first component.
+- **Next.** With one way forward, Next goes there. A way forward is a connection of the current component other than the one it was reached by. With several ways (a tee, a multi-port reservoir), or when a way leads back to a component already on the breadcrumb (a loop), the **PathChooser** asks which to take. A loop is offered as a jump back, which cuts the breadcrumb back to that component instead of extending it. With no way forward but a free port, Next opens that port in the Piping tab so it can be connected.
+- **Previous** steps back along the breadcrumb, and each breadcrumb step goes back to that component.
+- **Jump to** opens any component. If it is on the breadcrumb, the walk goes back to it; otherwise the breadcrumb is rebuilt as the shortest path (fewest connections) from the start. A component not connected to the start begins a new walk.
+- **From the results.** Clicking an element in the results (a table row, a flag, an input problem, a topology issue) starts the walk there. For a connection, the walk starts at its `from` component with the connection's piping open.
+- **After edits.** After an edit, undo or redo the breadcrumb is cut back to the part that still exists in the project. It comes back if an undo restores it.
+- **Edits move the walk.** Each edit action is one undo step, and the walk moves to the change: an added component becomes the current one, and a branch shows its free branch port.
 
-**State:**
+**State** (`state/navigator.svelte.ts`, `NavigatorStore`; `utils/graph.ts`):
 
 ```typescript
-interface NavigatorState {
-  startComponentId: string;
-  path: NavigationStep[];        // breadcrumb; last step is the current component
-  editMode: 'component' | 'connection';
-  activePortId?: string;         // port whose connection is shown in ConnectionPanel
-}
-
 interface NavigationStep {
   componentId: string;
   viaConnectionId?: string;      // connection used to arrive here (absent for the start)
+}
+
+interface NextOption {           // a way forward from the current component
+  connection: PipeConnection;
+  portId: string;                // port of the current component
+  otherId: string;               // component at the other end
+  otherPortId: string;
+  outgoing: boolean;             // the current component is the connection's 'from' end
+  loop: boolean;                 // leads back to a component on the path
+  loopIndex?: number;            // its index in the path
+}
+
+class NavigatorStore {
+  path: NavigationStep[];        // derived: the stored walk, cut to what is valid in the project
+  current: Component | undefined;
+  options: NextOption[];
+  mode: 'component' | 'connection';  // Properties or Piping tab (kept per component)
+  activePortId?: string;         // port whose connection the Piping tab shows
+  next(): 'moved' | 'choose' | 'none';
+  choose(option: NextOption): void;
+  previous(): boolean;
+  goToStep(index: number): void;
+  jumpTo(componentId: string): void;
+  follow(connectionId: string): void;
+  showConnection(portId: string): void;
+  showComponent(): void;
+  restart(componentId?: string): void;
 }
 ```
 
@@ -175,30 +219,90 @@ interface NavigationStep {
 
 #### 3.1.3 Results Panel
 
-**Purpose:** Display solved network state and analysis outputs.
+**Purpose:** Display solved network state and analysis outputs (`components/results/ResultsPanel.svelte`). Solving is never blocked (GOALS §4.6). Solve sends the project with `includeSystemCurve: true`.
 
-**Views:**
+The pane shows, top to bottom:
 
-- Summary (operating points, key metrics)
-- Node table (pressures, HGL, EGL)
-- Link table (flows, velocities, head loss)
-- Pump curve graph with system curve overlay
-- Validity flags (v1): cavitation, pump flow reversal, out-of-range correlations, non-convergence
-- Calculation trace per element: inputs, equations, correlations and data sources used
-- Methods-and-assumptions summary for the whole project
-- Design-check warnings (Later, opt-in)
+- **Status line**, the only live region: "Solving…", "Last solve: converged", "did not converge" or "no results", plus ", out of date".
+- **`ResultsStateNotice`.** The results are out of date when the project changed, in a way that can change them, after the solve. Display units, names and metadata do not count. Results kept from an earlier solve after a later one failed are marked too. Both offer Solve again. The notice also appears in the trace view, so values are never shown without it.
+- **Errors.**
+  - Topology: "The network cannot be solved as connected", with each issue and a link to each component it names.
+  - Validation: the problems.
+  - Network: the API could not be reached, with a message that the project is safe in the page and its link.
+- **`ConvergenceStatus`**: converged or not, the solver's message, iterations, compute time and the calculation-method version. For a solve that did not converge, it gives the largest continuity and energy errors, where they are, and which components kept switching state.
+- **`MethodVersionNotice`.** Shown when the link was last solved with another calculation-method version. It lists what changed between the two (`GET /api/v1/method-versions`, GOALS §4.3).
+- **`FlagsSummary`.** Flags are grouped by severity (physically invalid, warnings, information). Each has an icon and text in display units and names, never color alone, and starts with a link to its element's trace. Long groups show their first flags with "Show all", and a skip button leads past the flags.
+- **Inputs to check.** Problems found in the browser that the solver would also report: no fixed-pressure boundary, ports neither connected nor plugged, a control valve still at setpoint 0, and model-rule problems. Each has a Show button into Build.
+- **Views** (tabs; a view appears only when it has results):
+
+| View | Content |
+|------|---------|
+| Summary | Fluid properties as used with their sources, atmospheric pressure, each pump's operating point, lowest pressure (gauge and absolute), highest velocity |
+| Nodes | Per component port: elevation, pressure (gauge), absolute pressure, velocity, HGL, EGL; a note on the gauge reference and boundary ports |
+| Links | Per connection: flow, velocity, head loss, Re, Darcy f, regime. Each row expands to its pipe segments (diameter, length, roughness, velocity, Re, f, friction loss) and fittings (quantity, the K each used, its reference diameter and source, head loss), with the flags about each |
+| Pumps | Status, flow, head, speed, efficiency, hydraulic and shaft power, NPSHa, NPSHr, NPSH margin; then each pump's chart (`PumpChart`) |
+| Valves | Type, state, flow, head loss, pressure drop, K open, K effective, Cv effective, setpoint, setpoint met |
+| Branches | Tee and wye flow pattern, port flows, K per path, the velocity K is on, path losses, correlation |
+| Boundaries | Reservoirs, reference nodes and plugs: EGL, outflow into the network, per port |
+| Methods | `MethodsSummary` |
+
+**Tables** (`ResultsTable`):
+
+- one row per element, named in a sticky first column whose button opens the element's trace;
+- unit labels under the headings, in the display units, and flags shown inline as badges (`FlagBadge`);
+- 4 significant figures, and heads to at least 0.01 m (TSD §6.2);
+- each table scrolls inside its own box, and long tables render in chunks.
+
+**`PumpChart`.** Chart.js, loaded only when a chart is shown. It draws the pump curve at the operating speed (solid inside the user's data, dashed where extrapolated), the system curve (`PumpResult.systemCurve`, from the same solve) and the operating point, with axes in display units. A data table of the same points sits under the chart; it is the fallback when there is no canvas.
+
+**`TraceView`** shows how one element's results were obtained (GOALS §4.2). On wide screens it is a side panel over the results, which are inert underneath; on narrow ones it is a bottom-sheet dialog. It shows:
+
+- whether the values are current and a solution at all;
+- the element's flags, plus network-wide physically invalid flags;
+- its result rows;
+- the solver's trace (§4.10): inputs with their source badge (User, Default, Library, Computed); equations; correlations and data sources with citations; intermediate values in display units, with the SI value as reported; and notes.
+
+**Show in Build** points the navigator at the element. A deleted element is labelled as such.
+
+**`MethodsSummary`** shows the solve's methods and assumptions (`trace.methods`): sections with items and references, assumptions, and library versions. It reads well on screen and in print. **Copy as text** gives plain text for a report: a heading, the project, the method version, when it was solved, and whether it converged or is out of date. Without clipboard access the text is shown selected.
+
+**Footer** (`SiteFooter`): the disclaimer (GOALS §4.8), About and privacy, the license (AGPL-3.0-or-later) and the source code.
+
+Later: design-check warnings (opt-in).
 
 #### 3.1.4 State Manager
 
-**Purpose:** Single source of truth for application state.
+**Purpose:** Single source of truth for application state (`state/`, Svelte 5 runes classes provided through context).
 
-**Responsibilities:**
+**`ProjectStore`** (`project.svelte.ts`):
 
-- Hold the port-graph project model (SI values)
-- Track undo/redo history within the session
-- Convert between SI and the user's display units at input and display time
-- Serialize/deserialize the project to and from the URL fragment, applying schema migrations on load
-- Later: sync with the server for accounts and version history
+- **The project.** It holds the port-graph project (SI values). The project is replaced, never mutated, and each stored project is deep-frozen.
+- **Changes.** Every change goes through `update(change, label)`. It is applied to a copy and must pass the schema and port-graph checks (`validate.ts`). An invalid change is refused, leaving the project unchanged, so every link the app writes opens again. A change that changes nothing adds no undo step, and `metadata.modified` is updated on each change.
+- **Undo and redo** keep up to 100 steps, each with a label, in page memory only. A burst of edits to one field can merge into one step.
+- **URL.** The project is written to the URL fragment after a 300 ms debounce, and flushed before sharing and leaving (§5.2). The store keeps the encoded project, the link length and the 8,000-character warning.
+- **Results.** It holds the latest solve response, `stale` (by a hydraulic fingerprint of the project without display units, names, metadata or method version), `solving` and a typed error: topology, validation or network. A newer solve supersedes an older one. A failed solve keeps the previous response, marked stale only if the project changed.
+- **Method version.** After a solve that is current, the project records the solve's `methodVersion` (GOALS §4.3) without an undo step. The version the link was opened with is kept for `MethodVersionNotice`.
+
+**`Workspace`** (`workspace.svelte.ts`) joins the store, the `LibraryStore`, the `NavigatorStore`, the visible pane, notices and the element open in the trace view. It offers the graph-edit actions (TSD §8.1). Results tables are rebuilt only when the solve, the display units or the labels they use (names, kinds, ports, connection ends) change, not on every edit.
+
+**`LibraryStore`** (`library.svelte.ts`) holds the API's reference data: pipe materials, schedules and sizes and fitting types (`GET /api/v1/library`), built-in fluids and their ranges (`GET /api/v1/fluids`), and the method-version changelog. It loads them once per page. Hydraulic data is never invented in the browser: when the API cannot be reached these stay empty, and the UI offers what needs no data (custom pipes, custom fluids, fittings by id).
+
+**API client** (`api/client.ts`):
+
+- **Endpoints.** `solve`, `systemCurve`, `getLibrary`, `getFluids`, `fluidProperties`, `customFluidProperties` and `methodVersions` (§5.1).
+- **Requests.** It sends only what each request needs, with `credentials: 'omit'`, `referrerPolicy: 'no-referrer'` and a 60 s timeout. Error responses become typed errors (`TopologyError`, `ValidationError`, `NetworkError`).
+- **No other traffic.** No other network requests are made: no analytics, cookies, web fonts or third-party assets. The pages set `<meta name="referrer" content="no-referrer">`.
+
+**Units.** Values are converted between SI and the display units only at input (`NumberField`) and display (formatters), TSD §6.
+
+**Storage.** Nothing is kept in browser storage. History is the undo stack of the open page plus the links the user keeps.
+
+Later: sync with the server for accounts and version history.
+
+#### 3.1.5 Sharing
+
+- **Share** (`workspace/ShareButton.svelte`) first writes any pending URL change, then copies the full link (the page's origin + `/p#<encoded>`) to the clipboard. Its dialog shows the link selected for copying by hand when the clipboard is unavailable, the link's length in characters, and a warning when it exceeds 8,000 characters. It also explains that the project is in the part after `#`, which browsers do not send to any server, and that edits make a new link while this one keeps opening this version.
+- **Link errors** (`workspace/LinkErrorView.svelte`): a link that cannot be opened shows why (damaged, newer version, or not a valid project, with the problems listed) and what to do. The options are to go back to the open project if there is one, to start a new project, or to go home.
 
 ### 3.2 Backend Services
 
@@ -217,7 +321,7 @@ POST /api/v1/solve
 
 POST /api/v1/system-curve
   Request: Project + pump id + flow range
-  Response: SystemCurve (flow/head pairs)
+  Response: SystemCurve (flow/head pairs: the pump replaced by each fixed flow, §4.10)
 ```
 
 **Implementation:** one Global Gradient Algorithm (Todini–Pilati) solver for every topology — the same core method EPANET uses — implemented in Python with Darcy–Weisbach/Colebrook friction from the `fluids` library. See TSD §5. It adds what EPANET lacks:
@@ -440,7 +544,7 @@ interface IdealReferenceNode extends BaseComponent {
 // Later: NonIdealReferenceNode with pressureFlowCurve and maxFlow
 ```
 
-An ideal reference node is modeled like a reservoir: a body of liquid at rest at the given gauge pressure at the port elevation, so its energy grade line is fixed at `z + p/(ρg)`. Velocity head develops in the connecting piping; add entrance or exit fittings to model the transition.
+An ideal reference node is modeled like a reservoir: a body of liquid at rest at the given gauge pressure at the port elevation, so its energy grade line is fixed at `z + p/(ρg)`. Velocity head develops in the connecting piping; add entrance or exit fittings to model the transition. The solver applies no entrance or exit loss of its own. The web app gives new piping at a reservoir the cited default (GOALS §4.1): a sharp-edged entrance where the piping leaves the reservoir in the expected flow direction (its `from` end), an exit where it arrives (its `to` end). Both are ordinary fittings, shown and removable in the piping, and piping at a reservoir without one says that no such loss is applied.
 
 ### 4.5 Branch Component Model
 
@@ -558,59 +662,86 @@ interface ControlValve extends BaseComponent {
 
 ### 4.10 Solved State
 
+The solver's output (`models/results.py`; the OpenAPI schema is the contract, and the frontend types are generated from it). All values SI; pressures gauge unless the name says absolute; heads from the project datum. `egl` is the solver's nodal unknown (EGL = z + p/ρg + v²/2g) and `hgl = egl − v²/2g`, with v the velocity in the pipe connected at the port (0 at reservoir and reference-node ports).
+
 ```typescript
 interface SolvedState {
-  converged: boolean;
-  iterations: number;
-  timestamp: string;             // ISO 8601
-
-  nodeResults: Record<string, NodeResult>;      // keyed by `${componentId}:${portId}`
-  linkResults: Record<string, LinkResult>;      // keyed by connection id
-  pumpResults: Record<string, PumpResult>;      // keyed by component id
-  valveResults: Record<string, ValveResult>;    // keyed by component id
-  branchResults: Record<string, BranchResult>;  // keyed by component id
-
-  warnings: Warning[];
+  converged: boolean;              // false: every result map is empty (§8.2); trace and flags remain
+  methodVersion: string;           // calculation-method version (GOALS §4.3)
+  timestamp: string;               // ISO 8601, UTC
+  fluid: FluidProperties;          // properties as used, with the source of each
+  atmosphericPressure: number;     // Pa absolute, as used
+  nodeResults: Record<string, NodeResult>;         // `${componentId}:${portId}`; ports with a head only
+  linkResults: Record<string, LinkResult>;         // connection id (every connection)
+  pumpResults: Record<string, PumpResult>;         // component id
+  valveResults: Record<string, ValveResult>;       // component id
+  branchResults: Record<string, BranchResult>;     // tee / wye id
+  boundaryResults: Record<string, BoundaryResult>; // reservoir, reference node, plug id
+  flags: Flag[];
+  convergence: ConvergenceReport;  // iterations, largest residuals and where (value null when not finite: the iteration diverged), oscillating ids, message
+  trace: Trace;                    // per-element trace + methods summary
 }
 
-interface NodeResult {
-  pressure: number;              // Pa gauge (static)
-  dynamicPressure: number;       // Pa
-  totalPressure: number;         // Pa gauge
-  hgl: number;                   // m
-  egl: number;                   // m
-}
+interface NodeResult { componentId; portId; elevation; velocity; pressure; absolutePressure;
+                       dynamicPressure; totalPressure; hgl; egl }
+interface LinkResult { flow; velocity; headLoss /* EGL(from) − EGL(to) */; frictionHeadLoss;
+                       fittingsHeadLoss; reynoldsNumber; frictionFactor; flowRegime;
+                       segments: SegmentResult[]; fittings: FittingResult[] }  // top-level v, Re, f: first segment
+interface SegmentResult { index; innerDiameter; length; roughness; velocity; reynoldsNumber;
+                          frictionFactor; flowRegime: 'none' | 'laminar' | 'transitional' | 'turbulent'; headLoss }
+interface FittingResult { index; type; quantity; k /* one fitting */; referenceDiameter; headLoss; source }
+interface PumpResult { status: 'running' | 'off' | 'no_flow'; speed; operatingFlow; operatingHead /* EGL rise */;
+                       inCurveRange; hydraulicPower; efficiency | null; shaftPower | null;
+                       npshAvailable | null; npshRequired | null; npshMargin | null; suctionAbsolutePressure | null;
+                       curve: CurvePoint[] /* at speed */; systemCurve: CurvePoint[] | null }
+interface ValveResult { valveType; state: 'open' | 'closed' | 'active'; flow; headLoss; pressureDrop; kOpen;
+                        referenceDiameter /* inlet pipe */; kEffective | null; cvEffective | null;
+                        setpoint | null; setpointAchieved | null }
+interface BranchResult { branchType; lossModel; pattern; combinedPortId | null;
+                         portFlows /* positive into the component */; kFactors /* per path, on v_c */;
+                         pathHeadLosses; referenceVelocity /* v_c */; correlation; inCorrelationRange }
+interface BoundaryResult { type: 'reservoir' | 'reference_node' | 'plug'; egl; outflow; portOutflows }
+```
 
-interface LinkResult {
-  flow: number;                  // m³/s, positive from → to
-  velocity: number;              // m/s
-  headLoss: number;              // m
-  reynoldsNumber: number;
-  frictionFactor: number;
-}
+Elements in a section closed off from every fixed-pressure boundary carry no flow and have no head: their ports are absent from `nodeResults`, and their pump, valve, branch or boundary result is absent (flagged `ISOLATED_SECTION`).
 
-interface PumpResult {
-  operatingFlow: number;         // m³/s
-  operatingHead: number;         // m
-  npshAvailable: number;         // m
-  npshMargin?: number;           // m, if an NPSHr curve is provided
-  efficiency?: number;           // fraction, if an efficiency curve is provided
-  power?: number;                // W, if an efficiency curve is provided
-  systemCurve: FlowHeadPoint[];
-}
+A section that no fixed-pressure boundary reaches but that cannot sit at zero flow (a pump loop behind a closed valve) carries a determined flow at an undetermined pressure level: its connection, pump, valve and branch results are reported (flows, head losses, pump head and power), its ports are absent from `nodeResults`, `PumpResult.npshAvailable` and `suctionAbsolutePressure` are null, a PRV/PSV there has `setpointAchieved: null`, and an element between it and another head has no result. It is flagged `UNDETERMINED_PRESSURE` (`details.componentIds`).
 
-interface ValveResult {
-  state: 'active' | 'open' | 'closed';  // solved state of a status-changing valve
-  setpointAchieved?: boolean;
-  position?: number;             // fraction open (detailed model)
-}
+**System curve** (`PumpResult.systemCurve`, filled for every running pump when `SolveOptions.includeSystemCurve`): `systemCurvePoints` flows from 0 to 1.2 × the curve's largest flow × s; at each, the pump is replaced by that fixed flow and the network solved (other pumps keep running, valves follow their rules); head = EGL(discharge) − EGL(suction). Points whose solve does not converge are left out (`POST /system-curve` reports them, §5.1).
 
-interface BranchResult {
-  portFlows: Record<string, number>;   // m³/s, positive = into the component
-  totalHeadLoss: number;               // m
-  kFactors: Record<string, number>;    // K for each flow path
+**Flags** (GOALS §4.6, on by default) — `Flag {code, severity, message, componentId, connectionId, portId, details}`. Each code has one severity:
+
+| Severity | Codes |
+|---|---|
+| `invalid` (physically invalid) | `NOT_CONVERGED` (network-wide; `details.componentIds` names oscillating elements), `CAVITATION`, `BELOW_VAPOR_PRESSURE`, `PUMP_FLOW_REVERSAL`, `UNSUPPORTED_FLOW_PATTERN`, `PORT_ABOVE_LIQUID_LEVEL` |
+| `warning` (unreliable or incomplete) | `CORRELATION_OUT_OF_RANGE` (friction ranges, Crane K in laminar flow, tee/wye ranges, table limits), `PUMP_OUTSIDE_CURVE` (`details.curve`: head, efficiency or npshr), `TRANSITIONAL_FLOW`, `TEE_PATTERN_FALLBACK`, `UNDETERMINED_PRESSURE` (on the pump or FCV driving the flow; `details.componentIds`: the section), `NPSH_NOT_CHECKED` (a running pump with an NPSHr curve whose NPSH available cannot be computed because the fluid has no vapor pressure: cavitation is not checked) |
+| `info` (state) | `NO_VAPOR_PRESSURE` (network-wide), `CHECK_VALVE_CLOSED`, `CONTROL_VALVE_SETPOINT_NOT_MET`, `ISOLATED_SECTION` (`details.componentIds`) |
+
+Every other flag names exactly one component (and port, where it applies) or one connection.
+
+**Trace** (GOALS §4.2; `services/solver/trace.py`): `Trace {elements: Record<id, ElementTrace>, methods: MethodsSummary}`, with one `ElementTrace` for every component and every connection, converged or not:
+
+```typescript
+interface ElementTrace {
+  elementId: string;
+  elementType: 'pipe_connection' | 'reservoir' | 'reference_node' | 'plug' | 'tee' | 'wye' | 'pump'
+             | 'isolation_valve' | 'check_valve' | 'control_valve';
+  inputs: { name; value: number | string | boolean | null; unit; source: 'user' | 'default' | 'library' | 'computed' }[];
+  equations: string[];                         // plain text, every symbol defined
+  correlations: { name; citation }[];          // e.g. the fluids call and Crane TP-410 (2009)
+  dataSources: { name; citation }[];           // pipe standard, roughness source, CoolProp + reference, p_atm
+  intermediates: { name; value: number; unit }[];  // values the solver produced (Re, f, K, v, ΔH, q, NPSHa terms…)
+  notes: string[];                             // regime, state and the rule that set it, assumptions, flags
 }
 ```
+
+- **Sources.** `user`: entered (a field set to a value other than its default); `default`: a field holding its model default, whether left out or sent with that value, as the frontend sends every field (e.g. pump speed 1, fitting quantity 1, loss model 'crane'); `library`: pipe tables, correlations, CoolProp, standard constants; `computed`: derived from other inputs (ν = μ/ρ).
+- **Units** are SI strings the frontend converts: `m`, `m³/s`, `m/s`, `Pa(g)`, `Pa(a)`, `Pa (difference)`, `kg/m³`, `Pa·s`, `W`; `''` for dimensionless values; others (`m²`, `m²/s`, `m/s²`, `°`, `K`, `US gpm/psi^0.5`) are shown as reported. No trace value is a bare `Pa`.
+- **Intermediates restate the results** (same numbers as the result fields) or follow from them by the listed equations (v = Q/A; NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/ρg), so a trace never disagrees with the tables.
+- **Content per element type.** Pipe connection: per segment material, schedule/NPS or custom, D and ε with their sources, L, A, v, Re, ε/D, f, regime note with the friction formula and its range, h_f; per fitting type, quantity, K with its fluids call and citation (or "user"), reference diameter, h_j; totals and the EGLs at both ends. Reservoir / reference node: boundary head equation and its inputs, outflow, port pressures, p_atm. Plug: closed-end equations, EGL and pressure. Tee / wye: loss model, angle, port pipe diameters, pattern, port flows, Q_c, q, β, K per path (Crane or Darby call), v_c, path losses, range / fallback notes. Pump: curve points, fit (PCHIP) and extrapolation, speed and affinity laws, operating point, shutoff head, efficiency and power, NPSHa terms (p_atm and its source, p_vap and its source, z_s, EGL_s, velocity head), NPSHr and margin, status reason, "no viscosity correction applied", the system curve when computed. Valves: resistance as entered (K, Cv, Kv with the ISA conversion) or the Crane default with its call, or the ideal control valve; D_ref; K; both port elevations, the velocities and static pressures at both ports (so Δp follows from the trace); cracking head (active check valves only: a locked valve's law has none); status reason (the user setting, or the EPANET 2.2 rule that holds the state written as the inequality that holds, with its solved values); control valves add the setpoint, H_set with its velocity head, hml, K_eff and Cv_eff. Tee / wye and pump traces give their port elevations and port pressures too; a built-in fluid's temperature (and glycol mass fraction) is an input of every trace that uses its properties.
+- **No result.** An element in a closed-off section, or every element of a solve that did not converge, keeps its inputs, equations and sources, with a note saying why it has no values. An element in a section with an undetermined pressure level (`UNDETERMINED_PRESSURE`) keeps its flows and head differences, with a note saying why its EGLs and pressures are missing.
+
+**Methods summary** (`MethodsSummary {methodVersion, sections[{title, items, references}], assumptions, libraries}`; `services/solver/methods.py`): sections Network solution (GGA, Todini & Pilati 1988, tolerances, this solve's iterations), Pipe friction, Minor losses, Branches, Pumps (PCHIP, affinity laws, no viscosity correction, system curves), Valves, Fluid properties, Atmosphere and NPSH, Conventions (SI, gauge, EGL vs HGL, datum, flow signs); global assumptions (steady, incompressible, isothermal, single-phase, quiescent boundaries, pump integral check, check-valve model, ideal control-valve default); libraries with versions (opensolve-pipe, fluids, CoolProp, numpy, scipy). Written to be pasted into a deliverable.
 
 ---
 
@@ -623,8 +754,8 @@ All request and response values are SI; JSON is camelCase. The OpenAPI schema (`
 | Method and path | Request | Response |
 |-----------------|---------|----------|
 | `POST /api/v1/solve` | `{project, options: {includeSystemCurve, systemCurvePoints}}` | `SolveResponse {success, solvedState, computeTime}` |
-| `POST /api/v1/system-curve` | `{project, pumpId, flowMin, flowMax?, numPoints}` | `SystemCurveResponse {pumpId, points, converged[]}` |
-| `GET /api/v1/fluids` | — | `FluidListResponse {fluids: FluidInfo[]}` (ranges, vapor-pressure availability, source) |
+| `POST /api/v1/system-curve` | `{project, pumpId, flowMin, flowMax?, numPoints}` | `SystemCurveResponse {pumpId, flowRange, points[{flow, head \| null, converged, message}], converged[]}`: the pump replaced by each fixed flow, other pumps running; default flows 0 to 1.2 × the curve's largest flow × s |
+| `GET /api/v1/fluids` | — | `FluidListResponse {fluids: FluidInfo[]}`: temperature and concentration ranges queried from CoolProp, glycol `freezingPoints` (the lower temperature bound depends on the concentration), vapor-pressure availability, source, notes |
 | `GET /api/v1/fluids/{id}/properties?temperature=&concentration=` | — | `FluidPropertiesResponse {fluid, properties: FluidProperties}` |
 | `POST /api/v1/fluids/custom` | `CustomFluid` | `FluidPropertiesResponse` |
 | `GET /api/v1/library` | — | `LibraryResponse {materials (schedules, sizes, dimensions, roughness, sources), fittings (correlation call, reference diameter, source)}` |
@@ -653,12 +784,15 @@ Every error uses `ErrorResponse {success: false, error, message, issues[]}`:
 
 | Status | `error` | When |
 |--------|---------|------|
-| 400 | `VALIDATION_ERROR` | Request fails the schema; one issue per problem with its field path (submitted values are never echoed) |
+| 400 | `VALIDATION_ERROR` | Request fails the schema, or its body is not readable JSON; one issue per problem with its field path (submitted values are never echoed: no input values, tags or ids in messages, and an unknown key is reported as `(unknown field)`); also an empty system-curve flow range (`EMPTY_FLOW_RANGE`) |
 | 400 | `FLUID_ERROR` | Temperature or concentration outside the property source's range |
-| 404 | `NOT_FOUND` | Unknown pump id for a system curve |
+| 404 | `NOT_FOUND` | Unknown pump id for a system curve (checked before the topology); unknown route |
+| 405 | `METHOD_NOT_ALLOWED` | Wrong HTTP method for the route (`Allow` header lists the right one) |
 | 413 | `PAYLOAD_TOO_LARGE` | Body over 1 MB |
 | 422 | `TOPOLOGY_ERROR` | Port graph cannot be solved (§3.2.1); every issue listed |
-| 429 | `RATE_LIMITED` | More than 60 solve or system-curve requests per minute from one client |
+| 429 | `RATE_LIMITED` | More than 60 solve or system-curve requests per minute from one client (`Retry-After`) |
+| 500 | `INTERNAL_ERROR` | An unexpected failure (logged by type and route only); carries the CORS headers like every error |
+| 503 | `SERVER_BUSY` / `TIMEOUT` | The solve pool is full, or this client already has a solve running and one waiting (`Retry-After`); the request's 45 s budget ran out (§7.2) |
 
 #### 5.1.3 Get Fluid Properties
 
@@ -676,33 +810,45 @@ GET /api/v1/fluids/water/properties?temperature=293.15
 
 ### 5.2 URL State Encoding
 
-**Format:** `https://opensolve-pipe.app/p#{encoded_state}`
+**Format:** `https://opensolve-pipe.app/p#{encoded_state}`. The app writes `/p#{encoded_state}` on its own origin, and Share copies the link with the page's origin.
 
-The project travels in the URL **fragment** (after `#`). Browsers never send the fragment to the server, so project data does not appear in server or CDN logs.
+The project travels in the URL **fragment** (after `#`). Browsers never send the fragment to the server, so project data does not appear in server, host or CDN logs. Code and tests: TSD §4.7.
 
-**Encoding Process:**
+**Encoding process** (`encodeProject`):
 
-1. Serialize the project to canonical JSON (keys sorted at every level)
-2. Compress with gzip
-3. Encode as base64url (URL-safe base64, no padding)
+1. Serialize the project to canonical JSON. Object keys are sorted at every level and arrays keep their order, so equal projects give identical links. A non-finite number (NaN, ±Infinity) is refused rather than written as `null`.
+2. Encode as UTF-8 and compress with gzip at level 9 (pako).
+3. Encode as base64url (URL-safe alphabet, no padding).
 
-**Decoding Process:**
+**Decoding process** (`decodeProject`):
 
-1. base64url decode → gunzip → JSON parse
-2. Read `schemaVersion`; apply migrations in order up to the current version
-3. Validate against the current schema
+1. Trim the text and remove a leading `#`.
+2. Decode base64url strictly, then gunzip, decode UTF-8 strictly and parse JSON. Any failure means a **corrupt** link.
+3. Read `schemaVersion` and apply the migrations in order up to the current version. A value that is not an object with a positive integer `schemaVersion` is **invalid** ("does not contain an OpenSolve Pipe project"). A version newer than the app is **newer_version**.
+4. Validate against the current `Project` schema, taken from the OpenAPI document generated from the API models and checked with Ajv. Then fill in schema defaults and check the port graph (unique ids, connection ends that exist, one connection per port). Any problem makes the link **invalid**, with every problem listed as a sentence that names the element.
+5. Solver-level model rules (port ids per component type, pipe size source, fitting parameters, increasing curve flows, pump-curve references) do not stop a link from opening. The results pane lists them, and the solver reports them too.
+
+**Writing links:**
+
+- Every accepted edit, undo or redo rewrites the current history entry's fragment with `history.replaceState`, after a 300 ms debounce.
+- Pending writes are flushed before Share, before an in-app navigation and when the page is hidden, so Back returns to the latest version.
+- Links are copy-on-write: a link copied earlier keeps opening the project as it was then.
+- Each accepted edit changes the project, including `metadata.modified`, so it makes a new link.
+- Undo and redo history lives only in the open page. Nothing is kept in browser storage.
 
 **Rules:**
 
-- A link from any released `schemaVersion` must always open. Breaking model changes bump `schemaVersion` and add a migration; migrations are never removed.
-- A link from a newer `schemaVersion` than the app knows shows a clear error, not a partial load.
-- When the full URL exceeds 8,000 characters, the UI warns that some email and chat clients may truncate it.
-- No server-side fallback in v1 (Later: short links backed by storage).
+- **Longevity.** A link from any released `schemaVersion` must always open. Breaking model changes bump `schemaVersion` (in the API models and in the frontend's `CURRENT_SCHEMA_VERSION`, which a test keeps equal) and add a migration. Migrations are never removed. Each released version keeps a fixture link that a test decodes and pins by SHA-256 (TSD §4.7).
+- **Newer links.** A link from a newer `schemaVersion` than the app knows shows a clear error, not a partial load. The error names both format versions and asks the user to reload for the latest app.
+- **Failed links.** A link that cannot be opened shows a page saying what went wrong (damaged, newer version, or not a valid project with up to 20 problems listed) and what to do. The options are to go back to the open project, to start a new project, or to go home. It never opens a partial project.
+- **Length.** When the full link exceeds 8,000 characters, the Share dialog warns that some email and chat clients may cut it short.
+- **Results.** The link holds the project, not results. The calculation-method version of its last solve (`methodVersion`) is recorded so a later solve with another version can say what changed (GOALS §4.3).
+- **No server fallback** in v1 (Later: short links backed by storage).
 
-**Example:**
+**Example** (the start of the schema-v1 fixture link):
 
 ```
-https://opensolve-pipe.app/p#H4sIAAAAAAAAA6tWKkktLlGyUlAqS...
+https://opensolve-pipe.app/p#H4sIAAAAAAACA7VX227bOBD9FWGeZVdS7Kyj13S7...
 ```
 
 ---
@@ -761,13 +907,14 @@ def resolve_k_factor(fitting: Fitting, inner_diameter: float, re: float) -> floa
 
 - All numeric inputs bounded to physical ranges
 - String inputs sanitized (component names, etc.)
-- Request size limit on solve requests
+- Request bodies up to 1 MB (`PAYLOAD_TOO_LARGE` beyond, whether or not the client declares a length). A project has at most 1,000 components and 2,000 connections, which fits in 1 MB at the sizes the frontend writes (about 230–310 bytes per component, 225–275 per connection); a project with long names or many fittings per connection reaches the byte limit sooner, which is then the effective limit.
 - Decoded URL projects validated against the schema before use
 - Later: file uploads (CSV, Excel) validated
 
 ### 7.2 Rate Limiting
 
-- Solve requests: 60/minute per IP (unauthenticated)
+- Solve requests: 60/minute per IP (unauthenticated); a 429 carries `Retry-After`. Behind the hosting platform's proxy the client IP is the proxy's unless uvicorn trusts the proxy's `X-Forwarded-For` (`FORWARDED_ALLOW_IPS` set to the proxy's address range, TSD §11.2); without it all users share one bucket.
+- Solver work (`workers.py`): solves run in a pool of 2 worker threads holding at most 6 solves (running or waiting for a thread); a client IP's solves run one at a time, a second waiting for the first (a user solving again before the last result came back); a third concurrent solve from one client, or any solve when the pool is full, is refused at once with 503 `SERVER_BUSY`. Each request has a 45 s wall-clock budget from its arrival (below the frontend's 60 s timeout), checked at every Newton and outer iteration: a solve that runs out returns 503 `TIMEOUT`, and system-curve points not reached are reported as not computed (`message`), the solve itself kept. A client that disconnects cancels its solve. `computeTime` is the solver's own time in the worker, without waiting for it.
 - Later: authenticated users get higher limits based on tier
 
 ### 7.3 Data Privacy
@@ -775,6 +922,7 @@ def resolve_k_factor(fitting: Fitting, inner_diameter: float, re: float) -> floa
 - v1 stores no project data on the server
 - Projects in links travel in the URL fragment and are never sent to or logged by the server
 - Solve requests carry the project in the request body; request bodies are not logged
+- The access log keeps neither the client address nor query strings; uvicorn's trace-level ASGI records (which carry the request scope) are dropped; an unexpected error is logged by exception type and route only (its message can carry project values)
 - Later: stored projects encrypted at rest
 
 ---

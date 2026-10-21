@@ -89,6 +89,8 @@ class Project(CamelModel):
     metadata: ProjectMetadata
     settings: ProjectSettings
     fluid: FluidDefinition
-    components: list[Component] = Field(max_length=2000)
-    connections: list[PipeConnection] = Field(max_length=4000)
+    # Bounds that fit the 1 MB request limit (middleware.MAX_BODY_BYTES) at the sizes the
+    # frontend writes (about 230-310 bytes per component, 225-275 per connection): SDD §7.1.
+    components: list[Component] = Field(max_length=1000)
+    connections: list[PipeConnection] = Field(max_length=2000)
     pump_library: list[PumpCurve] = Field(max_length=200)

@@ -11,6 +11,13 @@ threshold and are reported as solved. Links in a dead-end tree (``dead_end_links
 flow by continuity alone and are reported as exactly zero whatever the solver's noise there
 (regime 'none', so no laminar-flow flags).
 
+A floating section (``GgaResult.floating_sections``: no fixed head reaches it, yet it carries
+flow, e.g. a pump loop behind a closed valve) has exact flows and head differences on an
+arbitrary level. Its flows, head losses, pump heads, valve losses and branch losses are
+reported; its EGLs, pressures, NPSH available and PRV/PSV setpoint checks are not (no node
+results), and an UNDETERMINED_PRESSURE warning names it. An element between a floating section
+and any other head has no head across it and no result, like one next to a closed-off section.
+
 Flashing (design §8, GOALS §4.6): every port node and every reservoir's liquid surface is
 checked against the vapor pressure, in absolute pressure. Without a vapor pressure the bound is
 0 Pa absolute: no liquid exists at or below it, since every liquid's vapor pressure is positive,
@@ -23,13 +30,9 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Literal
 
-import CoolProp
-import fluids
 import fluids.fittings
 import numpy as np
-import scipy
 
-from ... import __version__
 from ...models.components import (
     CheckValve,
     ControlValve,
@@ -47,8 +50,6 @@ from ...models.results import (
     FittingResult,
     Flag,
     LinkResult,
-    MethodsSection,
-    MethodsSummary,
     NodeResult,
     PumpResult,
     ResidualLocation,
@@ -61,41 +62,15 @@ from .branches import DARBY_TEE, flow_pattern
 from .builder import BuiltNetwork, ConnectionData, PumpData, ValveData, node_key
 from .elements import segment_state
 from .flags import make_flag
-from .friction import (
-    COLEBROOK_ED_DOCUMENTED_MAX,
-    COLEBROOK_ED_LIMIT,
-    RE_LAMINAR_MAX,
-    RE_TURBULENT_MIN,
-    SWAMEE_JAIN_ED_RANGE,
-    SWAMEE_JAIN_RE_RANGE,
-    FlowRegime,
-    range_warning,
-)
-from .gga import CONTINUITY_ATOL, CONTINUITY_RTOL, ENERGY_TOL
+from .friction import RE_LAMINAR_MAX, RE_TURBULENT_MIN, FlowRegime, range_warning
+from .gga import CONTINUITY_ATOL, ZERO_FLOW_RTOL
+from .methods import methods_summary
 from .network import LinkMode, LinkState, SolverNetwork
 from .npsh import npsh_available
 from .pumps import CURVE_SAMPLES
-from .status import (
-    HTOL,
-    K_TOL,
-    MAX_OUTER_ITERATIONS,
-    OFFSET_TOL,
-    QTOL,
-    OuterLoopResult,
-    Status,
-)
-from .valves import IDEAL_CONTROL_VALVE
+from .status import HTOL, QTOL, HeldStep, OuterLoopResult, Status
+from .trace import TraceInputs, element_traces
 from .version import METHOD_VERSION
-
-ZERO_FLOW_RTOL = 1.0e-12
-"""Relative threshold below which a solved flow is reported as exactly zero. A flow of
-1e-12 · max|Q| is still resolved to about four digits where it meets the largest flow (double
-precision, ε ≈ 2.2e-16). The solver's continuity tolerance (CONTINUITY_RTOL = 1e-9) is a
-convergence test, not the flow resolution, so it would wrongly hide real flows between 1e-12
-and 1e-9 · max|Q|. Dead ends do not rely on this threshold: the linear solve's error can leave
-them flows near 1e-12 · max|Q| when large-bore stubs make the network ill-conditioned (the
-200-tee review case in tests/unit/test_gga.py), so they are zeroed by topology instead."""
-
 
 SETPOINT_NOT_MET: dict[tuple[str, str], str] = {
     ("prv", "open"): "fully open, its outlet pressure stays below its setting",
@@ -175,13 +150,32 @@ class _Mapper:
         q_zero = ZERO_FLOW_RTOL * float(np.max(np.abs(raw), initial=0.0)) + CONTINUITY_ATOL
         self.q_scale = float(np.max(np.abs(raw), initial=0.0))
         self.flows = np.where(np.abs(raw) > q_zero, raw, 0.0)
-        self.flows[dead_end_links(built.network, outer.states)] = 0.0
+        self.dead_links = frozenset(dead_end_links(built.network, outer.states))
+        self.flows[list(self.dead_links)] = 0.0
         self.heads = outer.gga.heads
         self.flags: list[Flag] = list(built.network.flags)
+        self.floating = {
+            v: i for i, section in enumerate(outer.gga.floating_sections) for v in section
+        }
+        """Floating node -> its section (module docstring)."""
 
     # ------------------------------------------------------------------ helpers
     def head(self, key: str) -> float:
+        """The solved EGL at a port node: NaN if closed off, relative if floating."""
         return float(self.heads[self.built.network.node_index[key]])
+
+    def is_floating(self, key: str) -> bool:
+        return self.built.network.node_index[key] in self.floating
+
+    def heads_of(self, *keys: str) -> list[float]:
+        """EGLs of an element's ports for head differences: the solved heads when no port is
+        floating or all are in one floating section, else NaN for the floating ones (a level
+        difference to a floating section is undetermined)."""
+        index = self.built.network.node_index
+        sections = {self.floating.get(index[k]) for k in keys}
+        if len(sections) == 1:
+            return [self.head(k) for k in keys]
+        return [math.nan if self.is_floating(k) else self.head(k) for k in keys]
 
     def connection_flow(self, conn_id: str) -> float:
         return float(self.flows[self.built.connections[conn_id].link_index])
@@ -210,8 +204,12 @@ class _Mapper:
         results: dict[str, NodeResult] = {}
         p_vap = self.built.fluid.vapor_pressure
         for node in self.built.network.nodes:
-            if node.port_id is None or math.isnan(self.heads[node.index]):
-                continue
+            if (
+                node.port_id is None
+                or math.isnan(self.heads[node.index])
+                or node.index in self.floating
+            ):
+                continue  # internal, closed off, or on an undetermined level
             egl = float(self.heads[node.index])
             v = 0.0 if node.fixed_head is not None else self.port_speed(node.key)
             hgl = egl - v * v / (2.0 * self.g)
@@ -366,8 +364,10 @@ class _Mapper:
                         details={"fittingIndex": fit.index, "reynoldsNumber": re},
                     )
                 )
-        h_from = self.head(node_key(conn.from_component_id, conn.from_port_id))
-        h_to = self.head(node_key(conn.to_component_id, conn.to_port_id))
+        h_from, h_to = self.heads_of(
+            node_key(conn.from_component_id, conn.from_port_id),
+            node_key(conn.to_component_id, conn.to_port_id),
+        )
         head_loss = h_from - h_to if not (math.isnan(h_from) or math.isnan(h_to)) else 0.0
         first = segments[0]
         return LinkResult(
@@ -391,8 +391,8 @@ class _Mapper:
                 continue
             keys = [node_key(comp.id, p.id) for p in comp.ports]
             heads = [self.head(k) for k in keys]
-            if any(math.isnan(h) for h in heads):
-                continue  # isolated: no head
+            if any(math.isnan(h) or self.is_floating(k) for h, k in zip(heads, keys, strict=True)):
+                continue  # closed off, or a plug on an undetermined level: no head
             port_outflows = {
                 p.id: self.outflow_at_port(k) for p, k in zip(comp.ports, keys, strict=True)
             }
@@ -410,7 +410,7 @@ class _Mapper:
             if not isinstance(comp, TeeBranch | WyeBranch):
                 continue
             keys = {p.id: node_key(comp.id, p.id) for p in comp.ports}
-            if any(math.isnan(self.head(k)) for k in keys.values()):
+            if any(math.isnan(h) for h in self.heads_of(*keys.values())):
                 continue
             inflow = {pid: -self.outflow_at_port(k) for pid, k in keys.items()}
             geometry = self.built.branches[comp.id]
@@ -427,14 +427,22 @@ class _Mapper:
                 kind, combined = solution.kind, solution.combined
                 k_factors = dict(solution.k)
                 correlation = solution.correlation
-                in_range = not (solution.range_notes or tracker.averaged) and (
+                held = tracker.held_step
+                in_range = not (solution.range_notes or held) and (
                     solution.model in ("crane", "none")
                 )
-                self.branch_flags(comp.id, tracker.averaged, solution.model, solution.range_notes)
-                if tracker.averaged:
+                self.branch_flags(comp.id, held, solution.model, solution.range_notes)
+                if held is not None:
+                    (qa, qb), (ka, kb) = held.splits, held.k_at_splits
+                    listed = "; ".join(
+                        f"'{pid}' {ka[pid]:.6g} at q = {qa:.6g} and {kb[pid]:.6g} at q = {qb:.6g}"
+                        for pid in sorted(ka)
+                    )
                     correlation += (
-                        "; K held at the mean of the two values the flow split alternated "
-                        "between (a step of the correlation)"
+                        f"; K held at the mean of the fluids values at the two flow splits the "
+                        f"solve alternated between ({listed}): the correlation steps at "
+                        f"q = {held.step:g} between them ('{held.port}' path: K jumps from "
+                        f"{held.k_below:.6g} to {held.k_above:.6g})"
                     )
             path_losses: dict[str, float] = {}
             v_ref = 0.0
@@ -492,7 +500,7 @@ class _Mapper:
             )
         return results
 
-    def branch_flags(self, cid: str, averaged: bool, model: str, notes: list[str]) -> None:
+    def branch_flags(self, cid: str, held: HeldStep | None, model: str, notes: list[str]) -> None:
         for note in notes:
             self.flags.append(
                 make_flag(
@@ -502,14 +510,18 @@ class _Mapper:
                     component_id=cid,
                 )
             )
-        if averaged:
+        if held is not None:
+            qa, qb = held.splits
             self.flags.append(
                 make_flag(
                     "CORRELATION_OUT_OF_RANGE",
                     "warning",
-                    f"branch '{cid}': the flow split sits at a step of the Crane correlation; "
-                    "K is the mean of the two values on either side",
+                    f"branch '{cid}': the flow split alternates across a step of the Crane "
+                    f"correlation at q = {held.step:g} (between q = {qa:.4g} and {qb:.4g}), "
+                    "where neither side's K holds; K is the mean of the fluids values at those "
+                    "two splits",
                     component_id=cid,
+                    details={"step": held.step, "splitA": qa, "splitB": qb},
                 )
             )
         if model == "darby":
@@ -533,7 +545,12 @@ class _Mapper:
             "off" if comp.status == "off" else "running" if running else "no_flow"
         )
         curve = pump.curve
-        h_s, h_d = self.head(pump.suction), self.head(pump.discharge)
+        h_s, h_d = self.heads_of(pump.suction, pump.discharge)
+        floating = self.is_floating(pump.suction) and self.is_floating(pump.discharge)
+        if (floating and math.isnan(h_s)) or (
+            not floating and (self.is_floating(pump.suction) or self.is_floating(pump.discharge))
+        ):
+            return None  # beside a floating section: the head across it is undetermined
         if math.isnan(h_s) and math.isnan(h_d):
             if status == "no_flow":
                 # Held at no flow by the status rules, then closed off on both sides (e.g.
@@ -633,10 +650,26 @@ class _Mapper:
         p_vap = self.built.fluid.vapor_pressure
         npsha = (
             npsh_available(h_s, suction_node.elevation, self.p_atm, p_vap, self.rho, self.g)
-            if p_vap is not None
+            if p_vap is not None and not floating
             else None
         )
         margin = npsha - npshr if npsha is not None and npshr is not None else None
+        if running and npshr is not None and p_vap is None and not floating:
+            # GOALS §4.6: cavitation is flagged by default; without a vapor pressure the check
+            # cannot run for this pump, which is itself an unreliable result.
+            self.flags.append(
+                make_flag(
+                    "NPSH_NOT_CHECKED",
+                    "warning",
+                    f"pump '{comp.id}': it has an NPSHr curve (NPSHr {npshr:.6g} m at its "
+                    "operating flow), but the fluid has no vapor pressure, so NPSH available "
+                    "is not computed and cavitation is not checked; give a vapor pressure "
+                    "override",
+                    component_id=comp.id,
+                    port_id="suction",
+                    details={"npshRequired": npshr},
+                )
+            )
         if running and margin is not None and margin < 0.0:
             self.flags.append(
                 make_flag(
@@ -665,7 +698,9 @@ class _Mapper:
             npsh_available=npsha,
             npsh_required=npshr,
             npsh_margin=margin,
-            suction_absolute_pressure=(
+            suction_absolute_pressure=None
+            if floating
+            else (
                 self.rho * self.g * (h_s - suction_node.elevation)  # no flow: v = 0
                 if cut_off == "suction"
                 else self.static_pressure(pump.suction)
@@ -677,10 +712,12 @@ class _Mapper:
 
     def valve_result(self, data: ValveData) -> ValveResult | None:
         valve = data.component
-        h1, h2 = self.head(data.inlet), self.head(data.outlet)
+        h1, h2 = self.heads_of(data.inlet, data.outlet)
         if math.isnan(h1) or math.isnan(h2):
-            self.closed_off_valve_flag(data, math.isnan(h1) and math.isnan(h2))
-            return None  # isolated
+            beside = self.is_floating(data.inlet) or self.is_floating(data.outlet)
+            self.closed_off_valve_flag(data, math.isnan(h1) and math.isnan(h2), beside)
+            return None  # closed off, or beside a floating section
+        floating = self.is_floating(data.inlet)
         control = self.outer.controls[valve.id]
         state: Literal["open", "closed", "active"] = control.status.value
         q = float(self.flows[data.link_index])
@@ -697,13 +734,15 @@ class _Mapper:
                 if q > 0.0 and dh > 0.0:
                     k_eff = 2.0 * self.g * data.reference_area**2 * dh / (q * q)
                     cv_eff = float(fluids.fittings.K_to_Cv(k_eff, data.reference_diameter))
+            elif valve.valve_type == "fcv":
+                achieved = abs(q - setpoint) <= QTOL
+            elif floating:
+                achieved = None  # a pressure setpoint on an undetermined level
             elif valve.valve_type == "prv":
                 achieved = abs(p_out - setpoint) <= self.rho * self.g * HTOL
-            elif valve.valve_type == "psv":
-                achieved = abs(p_in - setpoint) <= self.rho * self.g * HTOL
             else:
-                achieved = abs(q - setpoint) <= QTOL
-            if valve.status == "active" and not achieved:
+                achieved = abs(p_in - setpoint) <= self.rho * self.g * HTOL
+            if valve.status == "active" and achieved is False:
                 self.flags.append(
                     make_flag(
                         "CONTROL_VALVE_SETPOINT_NOT_MET",
@@ -735,6 +774,7 @@ class _Mapper:
             * data.reference_diameter
             / (data.reference_area * self.built.fluid.kinematic_viscosity)
         )
+        coefficient = valve.resistance.kind if valve.resistance is not None else None
         if data.resistance.crane and 0.0 < re < RE_LAMINAR_MAX:
             self.flags.append(
                 make_flag(
@@ -742,6 +782,19 @@ class _Mapper:
                     "warning",
                     f"valve '{valve.id}': its Crane K is for turbulent flow but the flow is "
                     f"laminar (Re = {re:.0f}); the loss is likely underestimated",
+                    component_id=valve.id,
+                    details={"reynoldsNumber": re},
+                )
+            )
+        elif coefficient in ("Cv", "Kv") and 0.0 < re < RE_LAMINAR_MAX:
+            self.flags.append(
+                make_flag(
+                    "CORRELATION_OUT_OF_RANGE",
+                    "warning",
+                    f"valve '{valve.id}': its {coefficient} is converted to K with the "
+                    f"turbulent-flow valve equation (ISA-75.01.01) but the flow is laminar "
+                    f"(Re = {re:.0f}); the Reynolds number factor F_R that corrects it is not "
+                    "applied, so the loss is likely underestimated",
                     component_id=valve.id,
                     details={"reynoldsNumber": re},
                 )
@@ -760,14 +813,20 @@ class _Mapper:
             setpoint_achieved=achieved,
         )
 
-    def closed_off_valve_flag(self, data: ValveData, inside: bool) -> None:
+    def closed_off_valve_flag(self, data: ValveData, inside: bool, floating: bool) -> None:
         """The state flag of an active check or control valve that ends closed with the
         section on one side of it closed off (no head there, so no valve result): the reason
-        the section carries no flow."""
+        the section carries no flow. ``floating``: that side is a floating section instead,
+        whose level is undetermined."""
         valve = data.component
         control = self.outer.controls[valve.id]
         if inside or control.status is not Status.CLOSED or valve.status != "active":
             return
+        other_side = (
+            "the section on its other side has no fixed pressure level (UNDETERMINED_PRESSURE)"
+            if floating
+            else "the section on its other side is closed off"
+        )
         if isinstance(valve, CheckValve):
             self.flags.append(
                 make_flag(
@@ -775,7 +834,7 @@ class _Mapper:
                     "info",
                     f"check valve '{valve.id}' is closed: the head across it does not exceed "
                     f"its cracking head ({data.cracking_head:.6g} m) in the forward direction, "
-                    "and the section on its other side is closed off",
+                    f"and {other_side}",
                     component_id=valve.id,
                     details={"crackingHead": data.cracking_head},
                 )
@@ -787,7 +846,7 @@ class _Mapper:
                     "info",
                     f"{valve.valve_type.upper()} '{valve.id}' is closed: "
                     f"{SETPOINT_NOT_MET[valve.valve_type, 'closed']} (setpoint "
-                    f"{valve.setpoint:g}), and the section on its other side is closed off",
+                    f"{valve.setpoint:g}), and {other_side}",
                     component_id=valve.id,
                     details={"state": "closed", "setpoint": valve.setpoint},
                 )
@@ -826,6 +885,42 @@ class _Mapper:
                 )
             )
 
+    def floating_flags(self) -> None:
+        """UNDETERMINED_PRESSURE for every floating section (module docstring), naming its
+        components and what drives its flow; the flag sits on the first driver (a running pump
+        or an active FCV), or on the first component without one."""
+        net = self.built.network
+        for section in self.outer.gga.floating_sections:
+            nodes = set(section)
+            comp_ids = sorted({net.nodes[v].component_id for v in section})
+            drivers = sorted(
+                link.component_id
+                for link, state in zip(net.links, self.outer.states, strict=True)
+                if link.component_id is not None
+                and link.start in nodes
+                and link.end in nodes
+                and (
+                    (link.component_id in self.built.pumps and state.mode is LinkMode.NORMAL)
+                    or state.mode is LinkMode.FIXED_FLOW
+                )
+            )
+            names = ", ".join(comp_ids)
+            quoted = ", ".join(f"'{cid}'" for cid in comp_ids)
+            driven = f" (driven by {', '.join(f"'{d}'" for d in drivers)})" if drivers else ""
+            self.flags.append(
+                make_flag(
+                    "UNDETERMINED_PRESSURE",
+                    "warning",
+                    f"no reservoir or reference node fixes the pressure of {quoted}, yet flow "
+                    f"circulates there{driven}: the flows and head differences are computed, "
+                    "but not the pressure level, so these elements have no EGL, pressure or NPSH "
+                    "available, and a PRV or PSV there is not checked against its setpoint; add "
+                    "a reservoir or reference node (an expansion tank) to this section to fix it",
+                    component_id=drivers[0] if drivers else comp_ids[0],
+                    details={"componentIds": names},
+                )
+            )
+
     def element_of_link(self, index: int | None) -> str | None:
         if index is None:
             return None
@@ -857,202 +952,10 @@ class _Mapper:
         return float(abs(balance[worst])), worst
 
 
-def methods_summary(built: BuiltNetwork, p_atm_source: str) -> MethodsSummary:
-    method = built.friction_method
-    turbulent = (
-        "Colebrook (1939), solved exactly with fluids.friction.Clamond (Clamond 2009)"
-        if method == "colebrook"
-        else "Swamee & Jain (1976) explicit approximation, in EPANET 2.2's form (hydcoeffs.c)"
-    )
-    fluid = built.fluid
-    return MethodsSummary(
-        method_version=METHOD_VERSION,
-        sections=[
-            MethodsSection(
-                title="Network solution",
-                items=[
-                    "Global Gradient Algorithm (Todini & Pilati 1988): Newton's method on the "
-                    "energy grade line at every node and the flow in every link; sparse direct "
-                    "solve of the Schur complement (SciPy spsolve).",
-                    "Converged when the largest flow change is at most the project tolerance "
-                    f"times the largest flow (plus {CONTINUITY_ATOL:g} m³/s), continuity closes "
-                    f"at every node to {CONTINUITY_RTOL:g} x the largest flow + "
-                    f"{CONTINUITY_ATOL:g} m³/s, and the energy equation holds on every link to "
-                    f"{ENERGY_TOL:g} m.",
-                    "Branch components (tees, wyes) are imposed exactly: each one's ports share "
-                    "one head unknown, offset by the branch's path losses (zero for an ideal "
-                    "junction), and its internal flows follow from continuity; no Jacobian "
-                    "floor is needed.",
-                    f"Flows below {ZERO_FLOW_RTOL:g} x the largest flow (plus "
-                    f"{CONTINUITY_ATOL:g} m³/s) are round-off and reported as zero. Dead-end "
-                    "branches (no way out but the node they hang from) carry no flow by "
-                    "continuity and are reported as exactly zero.",
-                    f"Outer loop for statuses and branch losses: at most {MAX_OUTER_ITERATIONS} "
-                    "iterations.",
-                ],
-                references=[
-                    "Todini, E., and S. Pilati. A gradient algorithm for the analysis of pipe "
-                    "networks. Computer Applications in Water Supply, Vol. 1. Wiley, 1988.",
-                ],
-            ),
-            MethodsSection(
-                title="Pipe friction",
-                items=[
-                    f"Darcy–Weisbach head loss h = f (L/D) v²/(2g), g = {built.g:g} m/s² "
-                    "(standard gravity, fluids.constants.g).",
-                    f"Laminar, Re < {RE_LAMINAR_MAX:g}: f = 64/Re (Hagen–Poiseuille).",
-                    f"Turbulent, Re ≥ {RE_TURBULENT_MIN:g}: {turbulent}.",
-                    f"Transition, {RE_LAMINAR_MAX:g} ≤ Re < {RE_TURBULENT_MIN:g}: cubic "
-                    "interpolation between the laminar and turbulent laws (Dunlop's method, "
-                    "as in EPANET 2.2); flagged as transitional flow.",
-                    "Flagged outside the cited range: Swamee–Jain beyond its documented "
-                    f"{SWAMEE_JAIN_RE_RANGE[0]:g} ≤ Re ≤ {SWAMEE_JAIN_RE_RANGE[1]:g} and "
-                    f"{SWAMEE_JAIN_ED_RANGE[0]:g} ≤ ε/D ≤ {SWAMEE_JAIN_ED_RANGE[1]:g}; Colebrook "
-                    f"beyond ε/D = {COLEBROOK_ED_DOCUMENTED_MAX:g}, the largest relative roughness "
-                    "documented for its explicit approximations (fluids.friction.fmethods). "
-                    f"ε/D ≥ {COLEBROOK_ED_LIMIT:g} has no Colebrook solution and is rejected.",
-                ],
-                references=[
-                    "Colebrook, C. F. J. ICE 11(4), 1939, 133-156.",
-                    "Clamond, D. Ind. Eng. Chem. Res. 48(7), 2009, 3665-3671.",
-                    "Swamee, P. K., and A. K. Jain. J. Hydraulics Div. ASCE 102(5), 1976.",
-                    "Rossman, L. A., et al. EPANET 2.2 User Manual. US EPA, 2020.",
-                ],
-            ),
-            MethodsSection(
-                title="Minor losses",
-                items=[
-                    "Fitting loss h = n K v²/(2g), K from the cited fluids correlation for the "
-                    "fitting type (data/fittings.json) at the reference pipe's inner diameter; "
-                    "a user K overrides it.",
-                    "Crane TP-410 K values use the fully turbulent friction factor ft_Crane(D) "
-                    "and are flagged when the flow is laminar.",
-                ],
-                references=[
-                    "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe, 2009.",
-                    "Rennels, D. C., and H. M. Hudson. Pipe Flow. Wiley, 2012.",
-                ],
-            ),
-            MethodsSection(
-                title="Branches",
-                items=[
-                    "Tees and wyes with lossModel 'ideal' are junctions without loss, as in "
-                    "EPANET.",
-                    "lossModel 'crane': the path losses follow the solved flow split with the "
-                    "Crane TP-410 tee and lateral correlations (fluids.fittings."
-                    "K_branch_diverging_Crane, K_run_diverging_Crane, K_branch_converging_Crane, "
-                    "K_run_converging_Crane), K on the combined-flow velocity in the run "
-                    "diameter; updated in the outer loop until K changes by less than "
-                    f"{K_TOL:g} and the path loss by less than {OFFSET_TOL:g} m.",
-                    "A tee whose combined flow passes through the branch uses the Darby 3-K tee "
-                    f"'{DARBY_TEE}' per run path on its own velocity (flagged); a wye in that "
-                    "pattern has no cited correlation and is reported as not converged.",
-                    "Zero flow through a leg: the correlations for flow out through a leg and "
-                    "flow in through it give different port heads in the limit of zero flow "
-                    "(for an equal tee's branch, K = 1.0 diverging against -0.9 converging). A "
-                    "leg whose flow keeps reversing between outer iterations is held at zero "
-                    "flow while the head the network gives its port lies between those two "
-                    "limits, and re-opened in the direction the network drives once it leaves "
-                    "them; its K is the one its head implies. Two such legs facing each other "
-                    "across one pipe are held together while their ranges overlap, and the "
-                    "pipe's head is reported at the middle of the overlap.",
-                    "A flow split that keeps stepping across one of the Crane correlation's "
-                    "steps (q = 0.4, 0.5, 0.6) holds K at the mean of the two values on either "
-                    "side (flagged).",
-                ],
-                references=[
-                    "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe, 2009.",
-                    "Silverberg, P., and R. Darby. Chem. Eng. 106(7), 1999, 101.",
-                ],
-            ),
-            MethodsSection(
-                title="Pumps",
-                items=[
-                    "Head, efficiency and NPSHr curves: monotone piecewise cubic interpolation "
-                    "(SciPy PchipInterpolator) through the entered points; head and NPSHr are "
-                    "extrapolated along the end slope outside the points (flagged), efficiency is "
-                    "held at its end values (flagged).",
-                    "Speed: affinity laws, H(Q) = s² H₀(Q/s), NPSHr(Q) = s² NPSHr₀(Q/s), "
-                    "η(Q) = η₀(Q/s). No viscosity correction of the curves.",
-                    "Integral check: a pump closes when the system head exceeds its shutoff "
-                    "head s² H₀(0) or the flow would reverse (EPANET 2.2 pumpstatus), and is "
-                    "flagged as flow reversal.",
-                ],
-                references=[
-                    "Fritsch, F. N., and R. E. Carlson. SIAM J. Numer. Anal. 17(2), 1980.",
-                ],
-            ),
-            MethodsSection(
-                title="Valves",
-                items=[
-                    "Open valve loss h = K v²/(2g) on the inlet pipe's inner diameter; Cv and Kv "
-                    "converted with fluids.fittings.Cv_to_K / Kv_to_K (ISA-75.01.01); without a "
-                    "resistance, the Crane TP-410 full-bore K for the valve type.",
-                    "Check valves open above their cracking head and close on reverse flow "
-                    "(EPANET 2.2 cvstatus with the cracking head).",
-                    "PRV, PSV and FCV hold the outlet static pressure, inlet static pressure or "
-                    "flow when active; status rules from EPANET 2.2 (hydstatus.c) applied to the "
-                    "energy grade line, with the setpoint head z + p/(ρg) + v²/(2g) at the port; "
-                    "an FCV closes on reverse flow (EPANET's would pass it), and an active FCV "
-                    "opens once the head across it is below its fully open loss at the setpoint "
-                    "(EPANET's waits for a reverse head), as the PRV and PSV rules do. "
-                    f"Control valves without a resistance: {IDEAL_CONTROL_VALVE}.",
-                    f"Status tolerances: {HTOL:g} m in head, {QTOL:g} m³/s in flow.",
-                    "A section closed off by closed pumps or valves carries no flow and has no "
-                    "computed pressure; the closed elements around it are re-tested against the "
-                    "heads it can take at zero flow (a dead-headed pump puts its shutoff head on "
-                    "it), and re-opened when no such head keeps them all closed.",
-                ],
-                references=[
-                    "Rossman, L. A., et al. EPANET 2.2 User Manual. US EPA, 2020.",
-                    "ISA-75.01.01-2007 (60534-2-1 Mod), Flow Equations for Sizing Control Valves.",
-                ],
-            ),
-            MethodsSection(
-                title="Atmosphere and NPSH",
-                items=[
-                    f"Atmospheric pressure: {p_atm_source}.",
-                    "NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), "
-                    "the absolute static plus velocity head above the vapor pressure; margin = "
-                    "NPSHa − NPSHr, flagged as cavitation when negative.",
-                ],
-                references=[
-                    "U.S. Standard Atmosphere, 1976. NOAA, NASA, USAF, Washington, DC, 1976.",
-                ],
-            ),
-            MethodsSection(
-                title="Fluid properties",
-                items=[
-                    f"{fluid.name}: density {fluid.density:.6g} kg/m³, dynamic viscosity "
-                    f"{fluid.dynamic_viscosity:.6g} Pa·s."
-                ]
-                + [f"{name}: {src.origin}, {src.citation}" for name, src in fluid.sources.items()],
-                references=[],
-            ),
-            MethodsSection(
-                title="Conventions",
-                items=[
-                    "SI units. Pressures are gauge unless labeled absolute; elevations and "
-                    "heads are measured from the project datum.",
-                    "The energy grade line (EGL) is the nodal unknown; HGL = EGL − v²/(2g).",
-                    f"Atmospheric pressure: {p_atm_source}.",
-                ],
-                references=[],
-            ),
-        ],
-        assumptions=[
-            "Steady, incompressible, isothermal, single-phase flow.",
-            "Reservoirs and reference nodes are quiescent bodies of liquid (velocity 0).",
-            "Fluid properties are constant at the operating temperature.",
-        ],
-        libraries={
-            "opensolve-pipe": __version__,
-            "fluids": fluids.__version__,
-            "CoolProp": CoolProp.__version__,
-            "numpy": np.__version__,
-            "scipy": scipy.__version__,
-        },
-    )
+def _finite(value: float) -> float | None:
+    """A residual for the report: None when it is not a finite number (JSON has no inf or
+    NaN; the iteration diverged)."""
+    return value if math.isfinite(value) else None
 
 
 def build_solved_state(
@@ -1062,10 +965,26 @@ def build_solved_state(
     mapper.input_flags()
     mapper.flags.extend(outer.flags)
     gga = outer.gga
-    trace = Trace(elements={}, methods=methods_summary(built, p_atm_source))
+    methods = methods_summary(built, p_atm_source, outer)
     if not outer.converged:
+        details: dict[str, float | str] = {}
+        if outer.oscillating_components:
+            details["componentIds"] = ", ".join(outer.oscillating_components)
+        largest = {
+            "maxContinuityResidualAt": mapper.element_of_node(gga.max_continuity_node),
+            "maxEnergyResidualAt": mapper.element_of_link(gga.max_energy_link),
+        }
+        details |= {k: v for k, v in largest.items() if v is not None}
         mapper.flags.append(
-            make_flag("NOT_CONVERGED", "invalid", f"the solve did not converge: {outer.message}")
+            make_flag(
+                "NOT_CONVERGED",
+                "invalid",
+                f"the solve did not converge: {outer.message}",
+                details=details,
+            )
+        )
+        traces = element_traces(
+            TraceInputs(built, outer, p_atm, p_atm_source, mapper.flows, flags=mapper.flags)
         )
         return SolvedState(
             converged=False,
@@ -1084,16 +1003,17 @@ def build_solved_state(
                 inner_iterations=outer.inner_iterations,
                 outer_iterations=outer.outer_iterations,
                 max_continuity_residual=ResidualLocation(
-                    value=gga.max_continuity,
+                    value=_finite(gga.max_continuity),
                     element_id=mapper.element_of_node(gga.max_continuity_node),
                 ),
                 max_energy_residual=ResidualLocation(
-                    value=gga.max_energy, element_id=mapper.element_of_link(gga.max_energy_link)
+                    value=_finite(gga.max_energy),
+                    element_id=mapper.element_of_link(gga.max_energy_link),
                 ),
                 oscillating_components=outer.oscillating_components,
                 message=outer.message,
             ),
-            trace=trace,
+            trace=Trace(elements=traces, methods=methods),
         )
 
     nodes = mapper.node_results()
@@ -1105,7 +1025,25 @@ def build_solved_state(
         cid: vr for cid, d in built.valves.items() if (vr := mapper.valve_result(d)) is not None
     }
     mapper.isolated_flags()
+    mapper.floating_flags()
     balance, balance_node = mapper.mass_balance()
+    traces = element_traces(
+        TraceInputs(
+            built,
+            outer,
+            p_atm,
+            p_atm_source,
+            mapper.flows,
+            nodes=nodes,
+            links=links,
+            pumps=pumps,
+            valves=valves,
+            branches=branches,
+            boundaries=boundaries,
+            flags=mapper.flags,
+            dead_links=mapper.dead_links,
+        )
+    )
     return SolvedState(
         converged=True,
         method_version=METHOD_VERSION,
@@ -1126,10 +1064,11 @@ def build_solved_state(
                 value=balance, element_id=mapper.element_of_node(balance_node)
             ),
             max_energy_residual=ResidualLocation(
-                value=gga.max_energy, element_id=mapper.element_of_link(gga.max_energy_link)
+                value=_finite(gga.max_energy),
+                element_id=mapper.element_of_link(gga.max_energy_link),
             ),
             oscillating_components=[],
             message=outer.message,
         ),
-        trace=trace,
+        trace=Trace(elements=traces, methods=methods),
     )

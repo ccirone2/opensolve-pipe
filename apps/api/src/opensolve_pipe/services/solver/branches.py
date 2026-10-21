@@ -19,8 +19,9 @@ or the only outflow port (converging).
   combined flow at outlet_1 the lateral flow turns 180° minus that angle, which the data do
   not cover: K is still evaluated at the wye's angle, and the result is flagged (unless the
   lateral carries no flow: pure run flow, whose Crane K at q = 0 does not depend on the
-  angle). The functions assume equal run diameters and cover D_branch <= D_run; outside that
-  the result is flagged.
+  angle). The functions assume equal run diameters and cover D_branch <= D_run, and Crane's
+  data are for turbulent flow; outside that (or with a laminar combined flow, Re < 2000 on v_c
+  in D_run) the result is flagged.
 - Combined port on the branch (flow entering at the branch and dividing into both runs, or
   both runs combining into the branch): fluids has no Crane correlation (research notes
   §1.8.7). Tee: each run leg's path loss uses the Darby 3-K tee "Through-branch, (as elbow),
@@ -48,6 +49,7 @@ Chem. Eng. 106(7), 1999, 101; Crane Co. TP-410 (2009).
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from functools import lru_cache
 from typing import Literal
 
 import fluids.fittings
@@ -55,6 +57,7 @@ import fluids.piping
 import numpy as np
 
 from .elements import KTangent
+from .friction import RE_LAMINAR_MAX
 from .gga import CONTINUITY_ATOL, CONTINUITY_RTOL
 
 DARBY_TEE = "Tee, Through-branch, (as elbow), flanged, (r/D = 1)"
@@ -92,6 +95,21 @@ _CRANE_FUNCTIONS: dict[tuple[Kind, bool], Callable[..., float]] = {
     ("converging", True): fluids.fittings.K_run_converging_Crane,
 }
 """(pattern, run path?) -> the fluids Crane function for that path."""
+
+
+@lru_cache(maxsize=4096)
+def _crane_k_range(
+    kind: Kind, run_path: bool, d_run: float, d_branch: float, angle: float
+) -> tuple[float, float]:
+    """(min, max) of a Crane path's fluids K over Q_SAMPLES splits 0 <= q <= 1 (the range its
+    tangent is held to in Newton). It depends on the geometry only, so it is sampled once per
+    geometry rather than at every outer iteration."""
+    function = _CRANE_FUNCTIONS[(kind, run_path)]
+    samples = [
+        float(function(d_run, d_branch, 1.0 - q, q, angle))
+        for q in np.linspace(0.0, 1.0, Q_SAMPLES)
+    ]
+    return min(samples), max(samples)
 
 
 def k_slope(k_of_q: Callable[[float], float], q: float) -> float:
@@ -174,6 +192,12 @@ class BranchSolution:
                 legs[p] = replace(leg, tangent=KTangent(residual, 0.0, t.q0, t.run_path))
         return replace(self, k=k, legs=legs)
 
+    @property
+    def split(self) -> float | None:
+        """q = Q_branch/Q_c, the split a Crane pattern's K values were evaluated at (None for
+        other models)."""
+        return next((leg.tangent.q0 for leg in self.legs.values() if leg.tangent is not None), None)
+
     def damped(self, k: dict[str, float]) -> "BranchSolution":
         """The same pattern with each Crane path's K moved to ``k`` at the same split, its
         tangent's slope and range kept (a damped outer-loop update); Darby legs unchanged."""
@@ -208,11 +232,29 @@ def flow_pattern(
     return "converging", outs[0]
 
 
+def crane_k(geometry: BranchGeometry, solution: BranchSolution, q: float) -> dict[str, float]:
+    """The fluids Crane K of each path of a Crane pattern (``solution``'s combined port and
+    kind) at the branch flow fraction q = Q_branch/Q_c, called as ``_crane`` calls it with
+    Q_run = 1 − q and Q_branch = q."""
+    assert solution.combined is not None
+    assert solution.kind != "none"
+    run = next(p for p in geometry.run_ports if p != solution.combined)
+    branch = geometry.branch_port
+    d_run, d_branch = geometry.diameter[solution.combined], geometry.diameter[branch]
+    return {
+        port: float(
+            _CRANE_FUNCTIONS[(solution.kind, run_path)](d_run, d_branch, 1.0 - q, q, geometry.angle)
+        )
+        for port, run_path in ((branch, False), (run, True))
+    }
+
+
 def _crane(
     geometry: BranchGeometry,
     kind: Kind,
     combined: str,
     inflow: dict[str, float],
+    kinematic_viscosity: float,
     g: float,
     zero: float,
 ) -> BranchSolution:
@@ -242,7 +284,7 @@ def _crane(
         # Leg p: H_center − H_p = −(K_p − k_common) Q_c|Q_c|/(2 g A_c²), Q_c the combined
         # leg's flow (center -> port; negative when the combined flow enters); the combined
         # leg: H_center − H_c = k_common Q_c|Q_c|/(2 g A_c²). Path c -> p: K_p v_c²/(2g).
-        samples = [k_of_q(q) for q in np.linspace(0.0, 1.0, Q_SAMPLES)] + [k[port] - k_common]
+        k_low, k_high = _crane_k_range(kind, run_path, d_run, d_branch, angle)
         legs[port] = LegLaw(
             -1.0 / (2.0 * g * area_c * area_c),
             combined_leg,
@@ -251,8 +293,8 @@ def _crane(
                 k_slope(k_of_q, q0),
                 q0,
                 run_path,
-                min(samples),
-                max(samples),
+                min(k_low - k_common, k[port] - k_common),
+                max(k_high - k_common, k[port] - k_common),
             ),
         )
     names = (
@@ -261,6 +303,13 @@ def _crane(
         else "K_branch_converging_Crane, K_run_converging_Crane"
     )
     notes = []
+    re = (q_run + q_branch) * d_run / (area_c * kinematic_viscosity)
+    if 0.0 < re < RE_LAMINAR_MAX:
+        notes.append(
+            f"the combined flow is laminar (Re = {re:.0f} on the combined-flow velocity in "
+            f"D_run, below {RE_LAMINAR_MAX:g}); the Crane tee K correlation is for turbulent "
+            "flow, so the loss is likely underestimated"
+        )
     if d_branch > d_run:
         notes.append(
             f"branch diameter {d_branch:g} m exceeds the run diameter {d_run:g} m "
@@ -361,7 +410,7 @@ def branch_solution(
     if combined in geometry.run_ports:
         scale = max(abs(q) for q in inflow.values()) if q_scale is None else q_scale
         zero = PATTERN_ZERO_RTOL * scale + CONTINUITY_ATOL
-        return _crane(geometry, kind, combined, inflow, g, zero)
+        return _crane(geometry, kind, combined, inflow, kinematic_viscosity, g, zero)
     if geometry.branch_type == "tee":
         return _darby(geometry, kind, inflow, kinematic_viscosity, g)
     return BranchSolution(

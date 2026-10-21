@@ -86,13 +86,20 @@ The specs are at v0.2.0 (rebuild baseline) and reflect the decisions below. Item
 - **Fluids:** CoolProp 8.0.0 (pinned): `Water` (IAPWS-95), `INCOMP::MEG`/`INCOMP::MPG` (Melinder 2010) within CoolProp's queried ranges. Glycols have no vapor pressure in CoolProp, so NPSH needs a user value (flagged otherwise).
 - **Pump curves:** monotone piecewise cubic (`scipy.interpolate.PchipInterpolator`), straight end-slope extrapolation (flagged), affinity laws for speed. No viscosity correction (Later); the trace states it.
 - **Valves:** default K from the Crane function for the valve type at the inlet pipe's diameter; Cv/Kv via `fluids` (ISA-75.01.01). No position-dependent K and no control-valve Cv curve in v1 (no cited characteristic); control valves default to ideal (zero loss when wide open). PRV/PSV setpoints are static pressures at the valve port.
-- **Status logic:** EPANET 2.2 rules translated to EGL, max 30 outer iterations, oscillation → `converged: false` naming the components. Deliberate departures from EPANET: an FCV closes on reverse flow and opens when the head across it is below its fully open loss; closed elements around a closed-off section are re-tested (difference constraints) so a pump and check valve that close together can reopen.
+- **Status logic:** EPANET 2.2 rules translated to EGL, at most 30 outer iterations that change statuses or branch K (iterations that only hold or release a zero-flow tee leg are bounded separately), oscillation → `converged: false` naming the components. Deliberate departures from EPANET: an FCV closes on reverse flow and opens when the head across it is below its fully open loss; closed elements around a closed-off section are re-tested (difference constraints) so a pump and check valve that close together can reopen.
+
+### D10. API, traceability and limits (M4)
+- Every solved element carries a trace (inputs with their source, equations, correlations and data sources with citations, intermediates, notes stating the inequality that set its state); a methods-and-assumptions summary accompanies every solve. A value equal to a field's documented default is labeled "default". *(GOALS §4.2.)*
+- A section with no path to a fixed head but with a running pump circulates: it is solved with an arbitrary reference head and reported with flows and head differences only, flagged `UNDETERMINED_PRESSURE`. PRV/PSV flows are coupled exactly in the Newton step (no lag).
+- Solves run in a small worker pool (one solve per client at a time, bounded queue → 503 `SERVER_BUSY`) with a 45 s budget per request; abandoned requests are cancelled. Responses are gzip-compressed. *(Accessibility at near-zero hosting cost, GOALS §4.4.)*
+- Privacy: request bodies are never logged; the access log drops query strings and client addresses; error messages never echo submitted values. *(GOALS §4.5.)*
+- Topology problems are 422 with every issue listed; validation and fluid-range errors 400; all errors share one envelope.
 
 ---
 
 ## Spec notes
 
-The specs reflect D1–D9; TSD §12 lists the decided implementation questions and the open (Later) ones.
+The specs reflect D1–D10; TSD §12 lists the decided implementation questions and the open (Later) ones.
 
 - **EPANET comparisons (TSD §5.2, §10.1):** EPANET's friction formula (Swamee–Jain) differs from exact Colebrook by up to 3.0% in f (measured), so EPANET reference tests run the solver with `frictionMethod = "swamee_jain"`.
 

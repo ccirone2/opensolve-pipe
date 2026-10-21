@@ -569,7 +569,13 @@
               "TOPOLOGY_ERROR",
               "VALIDATION_ERROR",
               "FLUID_ERROR",
-              "NOT_FOUND"
+              "NOT_FOUND",
+              "METHOD_NOT_ALLOWED",
+              "PAYLOAD_TOO_LARGE",
+              "RATE_LIMITED",
+              "SERVER_BUSY",
+              "TIMEOUT",
+              "INTERNAL_ERROR"
             ],
             "title": "Error",
             "type": "string"
@@ -710,13 +716,20 @@
         "additionalProperties": false,
         "properties": {
           "correlation": {
-            "description": "Library function that supplies K",
+            "description": "Library function call that supplies K",
             "title": "Correlation",
             "type": "string"
           },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
           },
           "parameters": {
             "description": "Fitting fields the correlation uses",
@@ -726,6 +739,11 @@
             "title": "Parameters",
             "type": "array"
           },
+          "referenceDiameter": {
+            "description": "Pipe whose velocity K is referenced to",
+            "title": "Referencediameter",
+            "type": "string"
+          },
           "source": {
             "title": "Source",
             "type": "string"
@@ -733,6 +751,10 @@
           "type": {
             "title": "Type",
             "type": "string"
+          },
+          "validInLaminarFlow": {
+            "title": "Validinlaminarflow",
+            "type": "boolean"
           }
         },
         "required": [
@@ -740,6 +762,9 @@
           "name",
           "correlation",
           "parameters",
+          "referenceDiameter",
+          "validInLaminarFlow",
+          "notes",
           "source"
         ],
         "title": "FittingInfo",
@@ -811,7 +836,9 @@
               "PORT_ABOVE_LIQUID_LEVEL",
               "CHECK_VALVE_CLOSED",
               "CONTROL_VALVE_SETPOINT_NOT_MET",
-              "ISOLATED_SECTION"
+              "ISOLATED_SECTION",
+              "UNDETERMINED_PRESSURE",
+              "NPSH_NOT_CHECKED"
             ],
             "title": "Code",
             "type": "string"
@@ -993,6 +1020,7 @@
       },
       "FluidInfo": {
         "additionalProperties": false,
+        "description": "A built-in fluid and the input ranges its property source supports (queried from\nCoolProp). The lower temperature bound is exclusive and, for glycols, depends on the\nconcentration: see ``freezingPoints`` and ``notes``.",
         "properties": {
           "concentrationRange": {
             "anyOf": [
@@ -1004,6 +1032,21 @@
               }
             ],
             "description": "Mass fraction, glycols only"
+          },
+          "freezingPoints": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FreezingPoint"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Glycols: freezing point at mass fractions across the supported range, the (exclusive) lower temperature bound at each; null for water",
+            "title": "Freezingpoints"
           },
           "id": {
             "enum": [
@@ -1018,13 +1061,21 @@
             "title": "Name",
             "type": "string"
           },
+          "notes": {
+            "description": "How the ranges apply, in words",
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
           "source": {
             "title": "Source",
             "type": "string"
           },
           "temperatureRange": {
             "$ref": "#/components/schemas/RangeInfo",
-            "description": "K, over the allowed concentrations"
+            "description": "K, over the allowed concentrations: a glycol's minimum is the lowest of its freezing points over the supported fractions; at a given fraction the lower bound is that fraction's freezing point"
           },
           "vaporPressureAvailable": {
             "title": "Vaporpressureavailable",
@@ -1036,8 +1087,10 @@
           "name",
           "temperatureRange",
           "concentrationRange",
+          "freezingPoints",
           "vaporPressureAvailable",
-          "source"
+          "source",
+          "notes"
         ],
         "title": "FluidInfo",
         "type": "object"
@@ -1208,17 +1261,25 @@
         "title": "FluidPropertiesResponse",
         "type": "object"
       },
-      "HTTPValidationError": {
+      "FreezingPoint": {
+        "additionalProperties": false,
         "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "title": "Detail",
-            "type": "array"
+          "concentration": {
+            "description": "Glycol mass fraction, 0-1",
+            "title": "Concentration",
+            "type": "number"
+          },
+          "temperature": {
+            "description": "Freezing point, K (CoolProp)",
+            "title": "Temperature",
+            "type": "number"
           }
         },
-        "title": "HTTPValidationError",
+        "required": [
+          "concentration",
+          "temperature"
+        ],
+        "title": "FreezingPoint",
         "type": "object"
       },
       "IdealReferenceNode": {
@@ -1809,8 +1870,12 @@
             "title": "Name",
             "type": "string"
           },
+          "notes": {
+            "title": "Notes",
+            "type": "string"
+          },
           "roughness": {
-            "description": "Absolute roughness, m",
+            "description": "Representative absolute roughness, m",
             "title": "Roughness",
             "type": "number"
           },
@@ -1832,6 +1897,7 @@
           "roughness",
           "roughnessSource",
           "dimensionsSource",
+          "notes",
           "schedules"
         ],
         "title": "PipeMaterial",
@@ -1882,6 +1948,11 @@
             "title": "Outerdiameter",
             "type": "number"
           },
+          "roughness": {
+            "description": "Absolute roughness at this size, m",
+            "title": "Roughness",
+            "type": "number"
+          },
           "wallThickness": {
             "description": "m",
             "title": "Wallthickness",
@@ -1893,7 +1964,8 @@
           "nominalSize",
           "outerDiameter",
           "wallThickness",
-          "innerDiameter"
+          "innerDiameter",
+          "roughness"
         ],
         "title": "PipeSize",
         "type": "object"
@@ -2068,7 +2140,7 @@
                 }
               ]
             },
-            "maxItems": 2000,
+            "maxItems": 1000,
             "title": "Components",
             "type": "array"
           },
@@ -2076,18 +2148,11 @@
             "items": {
               "$ref": "#/components/schemas/PipeConnection"
             },
-            "maxItems": 4000,
+            "maxItems": 2000,
             "title": "Connections",
             "type": "array"
           },
           "fluid": {
-            "discriminator": {
-              "mapping": {
-                "builtin": "#/components/schemas/BuiltinFluid",
-                "custom": "#/components/schemas/CustomFluid"
-              },
-              "propertyName": "kind"
-            },
             "oneOf": [
               {
                 "$ref": "#/components/schemas/BuiltinFluid"
@@ -2462,7 +2527,7 @@
                 "type": "null"
               }
             ],
-            "description": "m; None without p_vap",
+            "description": "m; None without p_vap or where the pressure level is undetermined",
             "title": "Npshavailable"
           },
           "npshMargin": {
@@ -2527,9 +2592,16 @@
             "type": "string"
           },
           "suctionAbsolutePressure": {
-            "description": "Static, Pa absolute",
-            "title": "Suctionabsolutepressure",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Static, Pa absolute; None where the pressure level is undetermined (UNDETERMINED_PRESSURE)",
+            "title": "Suctionabsolutepressure"
           },
           "systemCurve": {
             "anyOf": [
@@ -2689,8 +2761,16 @@
             "title": "Elementid"
           },
           "value": {
-            "title": "Value",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The largest residual's magnitude (m³/s or m); null when it is not a finite number (the iteration diverged there)",
+            "title": "Value"
           }
         },
         "required": [
@@ -2772,11 +2852,13 @@
         "properties": {
           "includeSystemCurve": {
             "default": true,
+            "description": "Fill pumpResults[id].systemCurve for every running pump: the head the pump would have to add at each flow, from 0 to 1.2 x its curve's largest flow x its speed",
             "title": "Includesystemcurve",
             "type": "boolean"
           },
           "systemCurvePoints": {
             "default": 41,
+            "description": "Flows per system curve (points whose solve does not converge are left out)",
             "maximum": 201.0,
             "minimum": 5.0,
             "title": "Systemcurvepoints",
@@ -2966,6 +3048,45 @@
         "title": "SolverOptions",
         "type": "object"
       },
+      "SystemCurvePoint": {
+        "additionalProperties": false,
+        "properties": {
+          "converged": {
+            "title": "Converged",
+            "type": "boolean"
+          },
+          "flow": {
+            "description": "m³/s through the pump, suction -> discharge",
+            "title": "Flow",
+            "type": "number"
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EGL(discharge) - EGL(suction), m: the head the pump must add at this flow; null when the point has no solution (see message)",
+            "title": "Head"
+          },
+          "message": {
+            "description": "Why the point has no head ('' when it converged)",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "flow",
+          "head",
+          "converged",
+          "message"
+        ],
+        "title": "SystemCurvePoint",
+        "type": "object"
+      },
       "SystemCurveRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2973,18 +3094,20 @@
             "anyOf": [
               {
                 "exclusiveMinimum": 0.0,
+                "maximum": 100.0,
                 "type": "number"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "m³/s; default 1.2 x the curve's largest flow",
+            "description": "m³/s; default 1.2 x the curve's largest flow x the pump's speed ratio",
             "title": "Flowmax"
           },
           "flowMin": {
             "default": 0.0,
             "description": "m³/s",
+            "maximum": 100.0,
             "minimum": 0.0,
             "title": "Flowmin",
             "type": "number"
@@ -3017,6 +3140,7 @@
       },
       "SystemCurveResponse": {
         "additionalProperties": false,
+        "description": "The system curve seen by one pump: at each flow the pump is replaced by that fixed flow\nand the network solved (other pumps keep running, valves follow their status rules).",
         "properties": {
           "converged": {
             "description": "Whether each point's solve converged",
@@ -3026,10 +3150,14 @@
             "title": "Converged",
             "type": "array"
           },
+          "flowRange": {
+            "$ref": "#/components/schemas/RangeInfo",
+            "description": "m³/s, the flows the points span"
+          },
           "points": {
-            "description": "Head the pump must add (EGL discharge - EGL suction) at each pump flow",
+            "description": "One per requested flow, in flow order",
             "items": {
-              "$ref": "#/components/schemas/CurvePoint"
+              "$ref": "#/components/schemas/SystemCurvePoint"
             },
             "title": "Points",
             "type": "array"
@@ -3041,6 +3169,7 @@
         },
         "required": [
           "pumpId",
+          "flowRange",
           "points",
           "converged"
         ],
@@ -3342,46 +3471,6 @@
         "title": "UnitPreferences",
         "type": "object"
       },
-      "ValidationError": {
-        "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "title": "Location",
-            "type": "array"
-          },
-          "msg": {
-            "title": "Message",
-            "type": "string"
-          },
-          "type": {
-            "title": "Error Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "loc",
-          "msg",
-          "type"
-        ],
-        "title": "ValidationError",
-        "type": "object"
-      },
       "ValveResult": {
         "additionalProperties": false,
         "properties": {
@@ -3575,6 +3664,7 @@
   "paths": {
     "/api/v1/fluids": {
       "get": {
+        "description": "Built-in fluids with the temperature and concentration ranges CoolProp supports for them\n(a glycol's lower temperature bound is its freezing point at the concentration), whether a\nvapor pressure is available, and their sources.",
         "operationId": "list_fluids_api_v1_fluids_get",
         "responses": {
           "200": {
@@ -3596,6 +3686,7 @@
     },
     "/api/v1/fluids/custom": {
       "post": {
+        "description": "Validate a user-defined fluid and return its properties as the solver will use them.",
         "operationId": "custom_fluid_api_v1_fluids_custom_post",
         "requestBody": {
           "content": {
@@ -3626,17 +3717,27 @@
                 }
               }
             },
-            "description": "Bad Request"
+            "description": "Invalid input, or a fluid state out of range"
           },
-          "422": {
+          "413": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request too large"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Other errors"
           }
         },
         "summary": "Custom Fluid",
@@ -3647,6 +3748,7 @@
     },
     "/api/v1/fluids/{fluid_id}/properties": {
       "get": {
+        "description": "Properties of a library fluid at a temperature (and glycol mass fraction), SI.",
         "operationId": "fluid_properties_api_v1_fluids__fluid_id__properties_get",
         "parameters": [
           {
@@ -3716,17 +3818,17 @@
                 }
               }
             },
-            "description": "Bad Request"
+            "description": "Invalid input, or a fluid state out of range"
           },
-          "422": {
+          "default": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Other errors"
           }
         },
         "summary": "Fluid Properties",
@@ -3737,6 +3839,7 @@
     },
     "/api/v1/library": {
       "get": {
+        "description": "Pipe materials (sizes, dimensions, roughness, sources) and fitting types.",
         "operationId": "library_api_v1_library_get",
         "responses": {
           "200": {
@@ -3758,6 +3861,7 @@
     },
     "/api/v1/method-versions": {
       "get": {
+        "description": "Calculation-method versions and what changed in each (GOALS §4.3).",
         "operationId": "method_versions_api_v1_method_versions_get",
         "responses": {
           "200": {
@@ -3779,7 +3883,7 @@
     },
     "/api/v1/solve": {
       "post": {
-        "description": "Solve the network. Non-convergence returns 200 with success = false.",
+        "description": "Solve the network. Non-convergence returns 200 with success = false (SDD §8.1).\ncomputeTime is the solver's own time, without waiting for a worker (workers.py).",
         "operationId": "solve_network_api_v1_solve_post",
         "requestBody": {
           "content": {
@@ -3812,6 +3916,16 @@
             },
             "description": "Invalid input"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request too large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3821,6 +3935,36 @@
               }
             },
             "description": "Topology error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server busy (SERVER_BUSY) or the time budget ran out (TIMEOUT)"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Other errors"
           }
         },
         "summary": "Solve Network",
@@ -3831,8 +3975,8 @@
     },
     "/api/v1/system-curve": {
       "post": {
-        "description": "System curve seen by one pump: the head it must add at each flow.",
-        "operationId": "system_curve_api_v1_system_curve_post",
+        "description": "System curve seen by one pump: the head it must add at each flow (design §13).\n\nAt each flow the pump is replaced by that fixed flow and the network solved; other pumps\nkeep running. Default range: 0 to 1.2 x the curve's largest flow x the pump's speed.\nUnknown pump id: 404 NOT_FOUND; topology and fluid errors as for /solve.",
+        "operationId": "system_curve_endpoint_api_v1_system_curve_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3864,6 +4008,26 @@
             },
             "description": "Invalid input"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown pump id"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request too large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3873,9 +4037,39 @@
               }
             },
             "description": "Topology error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server busy (SERVER_BUSY) or the time budget ran out (TIMEOUT)"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Other errors"
           }
         },
-        "summary": "System Curve",
+        "summary": "System Curve Endpoint",
         "tags": [
           "solve"
         ]

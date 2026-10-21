@@ -11,7 +11,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Fluids */
+        /**
+         * List Fluids
+         * @description Built-in fluids with the temperature and concentration ranges CoolProp supports for them
+         *     (a glycol's lower temperature bound is its freezing point at the concentration), whether a
+         *     vapor pressure is available, and their sources.
+         */
         get: operations["list_fluids_api_v1_fluids_get"];
         put?: never;
         post?: never;
@@ -30,7 +35,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Custom Fluid */
+        /**
+         * Custom Fluid
+         * @description Validate a user-defined fluid and return its properties as the solver will use them.
+         */
         post: operations["custom_fluid_api_v1_fluids_custom_post"];
         delete?: never;
         options?: never;
@@ -45,7 +53,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Fluid Properties */
+        /**
+         * Fluid Properties
+         * @description Properties of a library fluid at a temperature (and glycol mass fraction), SI.
+         */
         get: operations["fluid_properties_api_v1_fluids__fluid_id__properties_get"];
         put?: never;
         post?: never;
@@ -62,7 +73,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Library */
+        /**
+         * Library
+         * @description Pipe materials (sizes, dimensions, roughness, sources) and fitting types.
+         */
         get: operations["library_api_v1_library_get"];
         put?: never;
         post?: never;
@@ -79,7 +93,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Method Versions */
+        /**
+         * Method Versions
+         * @description Calculation-method versions and what changed in each (GOALS §4.3).
+         */
         get: operations["method_versions_api_v1_method_versions_get"];
         put?: never;
         post?: never;
@@ -100,7 +117,8 @@ export interface paths {
         put?: never;
         /**
          * Solve Network
-         * @description Solve the network. Non-convergence returns 200 with success = false.
+         * @description Solve the network. Non-convergence returns 200 with success = false (SDD §8.1).
+         *     computeTime is the solver's own time, without waiting for a worker (workers.py).
          */
         post: operations["solve_network_api_v1_solve_post"];
         delete?: never;
@@ -119,10 +137,14 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * System Curve
-         * @description System curve seen by one pump: the head it must add at each flow.
+         * System Curve Endpoint
+         * @description System curve seen by one pump: the head it must add at each flow (design §13).
+         *
+         *     At each flow the pump is replaced by that fixed flow and the network solved; other pumps
+         *     keep running. Default range: 0 to 1.2 x the curve's largest flow x the pump's speed.
+         *     Unknown pump id: 404 NOT_FOUND; topology and fluid errors as for /solve.
          */
-        post: operations["system_curve_api_v1_system_curve_post"];
+        post: operations["system_curve_endpoint_api_v1_system_curve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -241,8 +263,8 @@ export interface components {
              */
             fluidId: "water" | "ethylene_glycol" | "propylene_glycol";
             /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
+             * Kind
+             * @constant
              */
             kind: "builtin";
             overrides?: components["schemas"]["FluidOverrides"] | null;
@@ -388,8 +410,8 @@ export interface components {
              */
             dynamicViscosity: number;
             /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
+             * Kind
+             * @constant
              */
             kind: "custom";
             /** Name */
@@ -433,7 +455,7 @@ export interface components {
              * Error
              * @enum {string}
              */
-            error: "TOPOLOGY_ERROR" | "VALIDATION_ERROR" | "FLUID_ERROR" | "NOT_FOUND";
+            error: "TOPOLOGY_ERROR" | "VALIDATION_ERROR" | "FLUID_ERROR" | "NOT_FOUND" | "METHOD_NOT_ALLOWED" | "PAYLOAD_TOO_LARGE" | "RATE_LIMITED" | "SERVER_BUSY" | "TIMEOUT" | "INTERNAL_ERROR";
             /** Issues */
             issues: components["schemas"]["TopologyIssue"][];
             /** Message */
@@ -487,20 +509,29 @@ export interface components {
         FittingInfo: {
             /**
              * Correlation
-             * @description Library function that supplies K
+             * @description Library function call that supplies K
              */
             correlation: string;
             /** Name */
             name: string;
+            /** Notes */
+            notes: string[];
             /**
              * Parameters
              * @description Fitting fields the correlation uses
              */
             parameters: string[];
+            /**
+             * Referencediameter
+             * @description Pipe whose velocity K is referenced to
+             */
+            referenceDiameter: string;
             /** Source */
             source: string;
             /** Type */
             type: string;
+            /** Validinlaminarflow */
+            validInLaminarFlow: boolean;
         };
         /** FittingResult */
         FittingResult: {
@@ -537,7 +568,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "NOT_CONVERGED" | "CAVITATION" | "BELOW_VAPOR_PRESSURE" | "PUMP_FLOW_REVERSAL" | "PUMP_OUTSIDE_CURVE" | "TRANSITIONAL_FLOW" | "CORRELATION_OUT_OF_RANGE" | "TEE_PATTERN_FALLBACK" | "UNSUPPORTED_FLOW_PATTERN" | "NO_VAPOR_PRESSURE" | "PORT_ABOVE_LIQUID_LEVEL" | "CHECK_VALVE_CLOSED" | "CONTROL_VALVE_SETPOINT_NOT_MET" | "ISOLATED_SECTION";
+            code: "NOT_CONVERGED" | "CAVITATION" | "BELOW_VAPOR_PRESSURE" | "PUMP_FLOW_REVERSAL" | "PUMP_OUTSIDE_CURVE" | "TRANSITIONAL_FLOW" | "CORRELATION_OUT_OF_RANGE" | "TEE_PATTERN_FALLBACK" | "UNSUPPORTED_FLOW_PATTERN" | "NO_VAPOR_PRESSURE" | "PORT_ABOVE_LIQUID_LEVEL" | "CHECK_VALVE_CLOSED" | "CONTROL_VALVE_SETPOINT_NOT_MET" | "ISOLATED_SECTION" | "UNDETERMINED_PRESSURE" | "NPSH_NOT_CHECKED";
             /** Componentid */
             componentId: string | null;
             /** Connectionid */
@@ -612,10 +643,20 @@ export interface components {
              */
             npshr: number;
         };
-        /** FluidInfo */
+        /**
+         * FluidInfo
+         * @description A built-in fluid and the input ranges its property source supports (queried from
+         *     CoolProp). The lower temperature bound is exclusive and, for glycols, depends on the
+         *     concentration: see ``freezingPoints`` and ``notes``.
+         */
         FluidInfo: {
             /** @description Mass fraction, glycols only */
             concentrationRange: components["schemas"]["RangeInfo"] | null;
+            /**
+             * Freezingpoints
+             * @description Glycols: freezing point at mass fractions across the supported range, the (exclusive) lower temperature bound at each; null for water
+             */
+            freezingPoints: components["schemas"]["FreezingPoint"][] | null;
             /**
              * Id
              * @enum {string}
@@ -623,9 +664,14 @@ export interface components {
             id: "water" | "ethylene_glycol" | "propylene_glycol";
             /** Name */
             name: string;
+            /**
+             * Notes
+             * @description How the ranges apply, in words
+             */
+            notes: string[];
             /** Source */
             source: string;
-            /** @description K, over the allowed concentrations */
+            /** @description K, over the allowed concentrations: a glycol's minimum is the lowest of its freezing points over the supported fractions; at a given fraction the lower bound is that fraction's freezing point */
             temperatureRange: components["schemas"]["RangeInfo"];
             /** Vaporpressureavailable */
             vaporPressureAvailable: boolean;
@@ -707,10 +753,18 @@ export interface components {
             fluid: string;
             properties: components["schemas"]["FluidProperties"];
         };
-        /** HTTPValidationError */
-        HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
+        /** FreezingPoint */
+        FreezingPoint: {
+            /**
+             * Concentration
+             * @description Glycol mass fraction, 0-1
+             */
+            concentration: number;
+            /**
+             * Temperature
+             * @description Freezing point, K (CoolProp)
+             */
+            temperature: number;
         };
         /**
          * IdealReferenceNode
@@ -1012,9 +1066,11 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+            /** Notes */
+            notes: string;
             /**
              * Roughness
-             * @description Absolute roughness, m
+             * @description Representative absolute roughness, m
              */
             roughness: number;
             /** Roughnesssource */
@@ -1051,6 +1107,11 @@ export interface components {
              * @description m
              */
             outerDiameter: number;
+            /**
+             * Roughness
+             * @description Absolute roughness at this size, m
+             */
+            roughness: number;
             /**
              * Wallthickness
              * @description m
@@ -1288,7 +1349,7 @@ export interface components {
             inCurveRange: boolean;
             /**
              * Npshavailable
-             * @description m; None without p_vap
+             * @description m; None without p_vap or where the pressure level is undetermined
              */
             npshAvailable: number | null;
             /**
@@ -1329,9 +1390,9 @@ export interface components {
             status: "running" | "off" | "no_flow";
             /**
              * Suctionabsolutepressure
-             * @description Static, Pa absolute
+             * @description Static, Pa absolute; None where the pressure level is undetermined (UNDETERMINED_PRESSURE)
              */
-            suctionAbsolutePressure: number;
+            suctionAbsolutePressure: number | null;
             /** Systemcurve */
             systemCurve: components["schemas"]["CurvePoint"][] | null;
         };
@@ -1391,8 +1452,11 @@ export interface components {
         ResidualLocation: {
             /** Elementid */
             elementId: string | null;
-            /** Value */
-            value: number;
+            /**
+             * Value
+             * @description The largest residual's magnitude (m³/s or m); null when it is not a finite number (the iteration diverged there)
+             */
+            value: number | null;
         };
         /** SegmentResult */
         SegmentResult: {
@@ -1443,11 +1507,13 @@ export interface components {
         SolveOptions: {
             /**
              * Includesystemcurve
+             * @description Fill pumpResults[id].systemCurve for every running pump: the head the pump would have to add at each flow, from 0 to 1.2 x its curve's largest flow x its speed
              * @default true
              */
             includeSystemCurve: boolean;
             /**
              * Systemcurvepoints
+             * @description Flows per system curve (points whose solve does not converge are left out)
              * @default 41
              */
             systemCurvePoints: number;
@@ -1560,11 +1626,31 @@ export interface components {
              */
             tolerance: number;
         };
+        /** SystemCurvePoint */
+        SystemCurvePoint: {
+            /** Converged */
+            converged: boolean;
+            /**
+             * Flow
+             * @description m³/s through the pump, suction -> discharge
+             */
+            flow: number;
+            /**
+             * Head
+             * @description EGL(discharge) - EGL(suction), m: the head the pump must add at this flow; null when the point has no solution (see message)
+             */
+            head: number | null;
+            /**
+             * Message
+             * @description Why the point has no head ('' when it converged)
+             */
+            message: string;
+        };
         /** SystemCurveRequest */
         SystemCurveRequest: {
             /**
              * Flowmax
-             * @description m³/s; default 1.2 x the curve's largest flow
+             * @description m³/s; default 1.2 x the curve's largest flow x the pump's speed ratio
              */
             flowMax?: number | null;
             /**
@@ -1585,18 +1671,24 @@ export interface components {
              */
             pumpId: string;
         };
-        /** SystemCurveResponse */
+        /**
+         * SystemCurveResponse
+         * @description The system curve seen by one pump: at each flow the pump is replaced by that fixed flow
+         *     and the network solved (other pumps keep running, valves follow their status rules).
+         */
         SystemCurveResponse: {
             /**
              * Converged
              * @description Whether each point's solve converged
              */
             converged: boolean[];
+            /** @description m³/s, the flows the points span */
+            flowRange: components["schemas"]["RangeInfo"];
             /**
              * Points
-             * @description Head the pump must add (EGL discharge - EGL suction) at each pump flow
+             * @description One per requested flow, in flow order
              */
-            points: components["schemas"]["CurvePoint"][];
+            points: components["schemas"]["SystemCurvePoint"][];
             /** Pumpid */
             pumpId: string;
         };
@@ -1741,19 +1833,6 @@ export interface components {
              * @enum {string}
              */
             viscosity: "Pa.s" | "mPa.s" | "cP";
-        };
-        /** ValidationError */
-        ValidationError: {
-            /** Context */
-            ctx?: Record<string, never>;
-            /** Input */
-            input?: unknown;
-            /** Location */
-            loc: (string | number)[];
-            /** Message */
-            msg: string;
-            /** Error Type */
-            type: string;
         };
         /** ValveResult */
         ValveResult: {
@@ -1903,7 +1982,7 @@ export interface operations {
                     "application/json": components["schemas"]["FluidPropertiesResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Invalid input, or a fluid state out of range */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1912,13 +1991,22 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Validation Error */
-            422: {
+            /** @description Request too large */
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Other errors */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -1948,7 +2036,7 @@ export interface operations {
                     "application/json": components["schemas"]["FluidPropertiesResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Invalid input, or a fluid state out of range */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1957,13 +2045,13 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Validation Error */
-            422: {
+            /** @description Other errors */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -2039,6 +2127,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Request too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Topology error */
             422: {
                 headers: {
@@ -2048,9 +2145,36 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server busy (SERVER_BUSY) or the time budget ran out (TIMEOUT) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Other errors */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
-    system_curve_api_v1_system_curve_post: {
+    system_curve_endpoint_api_v1_system_curve_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -2081,8 +2205,53 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Unknown pump id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Topology error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server busy (SERVER_BUSY) or the time budget ran out (TIMEOUT) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Other errors */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };

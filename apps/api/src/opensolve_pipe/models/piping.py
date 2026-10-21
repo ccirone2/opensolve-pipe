@@ -145,9 +145,8 @@ class PipingSegment(CamelModel):
             last = n - 2 if fitting.type in REDUCER_TYPES else n - 1
             if fitting.pipe_index > last:
                 raise ValueError(
-                    f"fittings[{i}] ({fitting.type}) has pipeIndex {fitting.pipe_index}; "
-                    f"the connection has {n} pipe segment(s)"
-                    + (" and a reducer needs a following segment" if last == n - 2 else "")
+                    f"fittings[{i}]: pipeIndex is beyond the connection's pipe segments"
+                    + (" (a reducer needs a following segment)" if last == n - 2 else "")
                 )
         return self
 

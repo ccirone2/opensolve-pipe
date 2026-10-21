@@ -402,7 +402,10 @@ def test_metadata_trace_and_methods() -> None:
     assert result.method_version == METHOD_VERSION
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", result.timestamp)
     assert result.fluid.density == RHO
-    assert result.trace.elements == {}
+    # Every component and connection has a trace (design §13).
+    assert set(result.trace.elements) == {"R1", "T1", "R2", "X1", "P1", "P2", "P3"}
+    assert result.trace.elements["P1"].element_type == "pipe_connection"
+    assert result.trace.elements["T1"].element_type == "tee"
     methods = result.trace.methods
     titles = [s.title for s in methods.sections]
     assert titles[:3] == ["Network solution", "Pipe friction", "Minor losses"]

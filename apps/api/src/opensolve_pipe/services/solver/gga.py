@@ -9,8 +9,12 @@ the fixed-head contribution and D = diag(dh/dQ), each Newton step solves
     (A21 D⁻¹ A12) dH = c − A21 D⁻¹ e,   dQ = −D⁻¹ (e + A12 dH)
 
 The Schur matrix A21 D⁻¹ A12 is a weighted graph Laplacian grounded at the fixed-head nodes,
-symmetric positive definite on every part of the network that reaches a fixed head. It is
-assembled with scipy.sparse and solved with ``scipy.sparse.linalg.spsolve`` (SuperLU).
+symmetric positive definite on every part of the network that reaches a fixed head (an active
+PRV or PSV adds a non-symmetric coupling, below). It is assembled with scipy.sparse and solved
+with SuperLU (``scipy.sparse.linalg.splu``), which raises on an exactly singular matrix: the
+step then fails with a message. (``spsolve`` would instead emit a MatrixRankWarning and return
+NaN, and a warning is subject to the process-wide warning filters, which other libraries
+change: wntr, imported by the reference suite, turns this one into an exception.)
 
 Head-offset links (branch legs, valves with K = 0; design §2.4: h does not depend on the
 link's own flow, so dh/dQ = 0) are not Newton unknowns. Each group of nodes joined by offset
@@ -41,7 +45,14 @@ Control valves in their active states (design §4, EPANET 2.2's scheme):
   Y = Q + Xflow[n2]). FIXED_UPSTREAM_HEAD (active PSV) is the mirror image (hydcoeffs.c:
   1018-1033). The held head includes the port's velocity head from the current flow
   (``LinkState.head``).
-These links do not connect heads. A held node grounds its part of the network.
+These links do not connect heads. A held node grounds its part of the network. The held
+node's flow balance is not lagged in the Newton step: a PRV or PSV passes exactly the flow of
+the pipe on its held port (each port has one connection), so its other port's continuity row
+carries that pipe's flow, which makes the Schur matrix non-symmetric (SuperLU solves it as a
+general sparse matrix). EPANET evaluates the same flow from the previous iterate; both converge
+to the same solution, but the lag converges only linearly, and slowly when most of the flow a
+valve passes returns to its held node around a loop (a PRV in a pump loop whose only other
+anchor is a high-resistance connection to a reservoir).
 
 Parts of the network that reach no fixed (or held) head through NORMAL links are removed
 before solving: their links carry no flow and their nodes get no head. A control valve whose
@@ -50,6 +61,20 @@ upstream (FCV, PRV) or downstream (FCV, PSV) side is such a part cannot pass its
 If that part instead touches another active control valve, the pressure between the two is
 undetermined (two controls in series with nothing fixing the pressure between them): the
 solve is reported as not converged, naming both.
+
+A part that reaches no fixed head cannot always sit at zero flow: a running pump in a loop of
+open pipes adds its shutoff head around the loop at zero flow, and an active FCV with both ports
+in the part forces its flow around it. Its flows are then determined, but its pressure level is
+not (nothing in the part fixes a pressure). Such a part is "floating": it is solved with one of
+its nodes held at an arbitrary reference head (0 m), so its flows and head differences are
+exact and its absolute heads are not results (``GgaResult.floating_sections``). A part can sit
+at zero flow if its links' zero-flow heads h(0) close up around every loop (``ZERO_FLOW_HEAD_TOL``).
+
+A held node fixes a head, but the flow its valve passes is only determined if that flow can
+leave the part, directly or through other valves, towards a fixed-head node: when the valve's
+other port lies in the same part and no fixed head reaches it (an active PSV as the only anchor
+of a pump loop), any flow around the loop holds the setpoint and the solve is not attempted
+(``undetermined_links``; the outer loop opens or closes the valve, EPANET 2.2's badvalve).
 
 Reference: Todini, E., and S. Pilati, "A gradient algorithm for the analysis of pipe
 networks", in Computer Applications in Water Supply, Vol. 1, Wiley, 1988, 1-20.
@@ -63,8 +88,9 @@ import numpy as np
 import scipy.sparse as sp
 from numpy.typing import NDArray
 from scipy.sparse.csgraph import connected_components
-from scipy.sparse.linalg import spsolve
+from scipy.sparse.linalg import splu
 
+from .budget import check_budget
 from .elements import HeadOffsetLaw
 from .network import HEAD_FIXING_MODES, LinkKind, LinkMode, LinkState, SolverNetwork
 
@@ -86,13 +112,39 @@ JACOBIAN_FLOOR_ABSOLUTE = 1.0e-12
 CONTINUITY_RTOL = 1.0e-9
 CONTINUITY_ATOL = 1.0e-14
 """m³/s. Converged only if |inflow − demand| ≤ CONTINUITY_RTOL·Q_scale + CONTINUITY_ATOL at
-every node and the last flow change max|dQ| ≤ tolerance·Q_scale + CONTINUITY_ATOL, where
+every node and summed over the nodes of every component (a valve's two ports, a branch's
+center and ports: the balance a user checks from the connection flows, which per-node residuals
+of opposite sign could otherwise double), and the last flow change max|dQ| ≤
+tolerance·Q_scale + CONTINUITY_ATOL, where
 Q_scale = max|Q| of the current iterate. The initial guess never sets the scale: 1 ft/s in a
 large-bore pipe can exceed the solved flows by orders of magnitude, and a scale taken from it
 stops Newton early (dead-end flows then carry the linear solve's error). The absolute floor
 lets a network whose solved flows are all zero converge."""
 ENERGY_TOL = 1.0e-7
 """m. Converged only if |h(Q) − (H_start − H_end)| ≤ ENERGY_TOL on every link."""
+
+ZERO_FLOW_RTOL = 1.0e-12
+"""Relative threshold below which a solved flow is reported as exactly zero. A flow of
+1e-12 · max|Q| is still resolved to about four digits where it meets the largest flow (double
+precision, ε ≈ 2.2e-16). The solver's continuity tolerance (CONTINUITY_RTOL = 1e-9) is a
+convergence test, not the flow resolution, so it would wrongly hide real flows between 1e-12
+and 1e-9 · max|Q|. Dead ends do not rely on this threshold: the linear solve's error can leave
+them flows near 1e-12 · max|Q| when large-bore stubs make the network ill-conditioned (the
+200-tee review case in tests/unit/test_gga.py), so they are zeroed by topology instead."""
+ZERO_FLOW_HEAD_TOL = 1.0e-9
+"""m. A part of the network that reaches no fixed head can carry zero flow only if the
+zero-flow heads h(0) of its open links (−s²H₀(0) across a running pump, the cracking head
+across an open check valve, 0 for pipes, branch legs and other valves) add up to zero around
+every loop; this is the slack of that test (round-off of the heads added along a loop)."""
+FLOATING_REFERENCE_HEAD = 0.0
+"""m. The arbitrary head held at the first node of a floating part (module docstring)."""
+CHECK_ITERATIONS = 10
+"""Iterations within which the last finite iterate is kept for a status check after a failed
+solve (``GgaResult.check_heads``): EPANET 2.2 checks its control valves' statuses at every
+iteration and other statuses up to MaxCheck = 10 iterations (hydsolver.c:148-187; MAXCHECK,
+input1.c:37), so an active valve whose setting cannot hold leaves its active state early, before
+the iteration diverges; this solver keeps the statuses fixed during an inner solve, and the
+outer loop applies the rules to this early iterate instead (``status._open_bad_valves``)."""
 
 
 @dataclass
@@ -114,8 +166,22 @@ class GgaResult:
     """Control-valve links in a fixed mode whose supply or outlet side reaches no fixed head;
     they were treated as closed (module docstring)."""
     undetermined_links: list[int] = field(default_factory=list)
-    """Active control-valve links in series with no fixed pressure between them (the solve
-    was not attempted)."""
+    """Active control-valve links whose solve is not determined (the solve was not attempted):
+    in series with no fixed pressure between them, or passing a flow that cannot leave towards
+    a fixed head (module docstring)."""
+    floating_sections: list[list[int]] = field(default_factory=list)
+    """The nodes of each floating part (module docstring), first node first. Their heads are
+    relative: exact differences within the part, on an arbitrary level
+    (FLOATING_REFERENCE_HEAD at the first node). They are not in ``isolated_nodes``."""
+
+    check_heads: FloatArray | None = None
+    """EGL per node at the last finite iterate within CHECK_ITERATIONS (None if none)."""
+    check_flows: FloatArray | None = None
+    """Flow per link at that iterate."""
+
+    @property
+    def floating_nodes(self) -> list[int]:
+        return [v for section in self.floating_sections for v in section]
 
 
 def jacobian_slopes(
@@ -225,6 +291,72 @@ def _supply_side(state: LinkState, start: int, end: int) -> list[int]:
     return [start] if state.mode is LinkMode.FIXED_DOWNSTREAM_HEAD else [end]
 
 
+def _drives_circulation(state: LinkState, labels: IntArray, start: int, end: int) -> bool:
+    """An active FCV with a nonzero setpoint and both ports in one part (``labels``): the flow
+    it forces runs around that part, so the part needs no fixed head to supply it."""
+    return (
+        state.mode is LinkMode.FIXED_FLOW
+        and state.value != 0.0
+        and int(labels[start]) == int(labels[end])
+    )
+
+
+def circulating_parts(
+    network: SolverNetwork,
+    states: Sequence[LinkState],
+    labels: IntArray,
+    parts: set[int],
+    skip: set[int],
+) -> set[int]:
+    """The parts (values of ``labels``, the parts joined by NORMAL links) among ``parts`` that
+    cannot carry zero flow (module docstring): one holds an active FCV that drives a
+    circulation (links in ``skip`` are left out), or a loop of NORMAL links whose zero-flow heads
+    h(0) do not close up. At zero flow every NORMAL link drops h(0), H_end = H_start − h(0);
+    the heads follow along a spanning tree of each part, and every other link closes a loop on
+    which they must agree to within ZERO_FLOW_HEAD_TOL."""
+    zeros = np.zeros(len(network.links))
+    circulating: set[int] = set()
+    adjacency: dict[int, list[tuple[int, float]]] = defaultdict(list)
+    for link, state in zip(network.links, states, strict=True):
+        part = int(labels[link.start])
+        if part not in parts or link.index in skip:
+            continue
+        if _drives_circulation(state, labels, link.start, link.end):
+            circulating.add(part)
+        elif state.mode is LinkMode.NORMAL:
+            law = link.law
+            h0 = law.head(zeros) if isinstance(law, HeadOffsetLaw) else law.evaluate(0.0)[0]
+            adjacency[link.start].append((link.end, -h0))
+            adjacency[link.end].append((link.start, h0))
+    level: dict[int, float] = {}
+    for root in sorted(adjacency):
+        if root in level:
+            continue
+        level[root] = 0.0
+        stack = [root]
+        while stack:
+            u = stack.pop()
+            for v, step in adjacency[u]:
+                if v not in level:
+                    level[v] = level[u] + step
+                    stack.append(v)
+                elif abs(level[u] + step - level[v]) > ZERO_FLOW_HEAD_TOL:
+                    circulating.add(int(labels[u]))
+    return circulating
+
+
+def _solve_linear(lhs: sp.csc_matrix, rhs: FloatArray) -> FloatArray | None:
+    """x with lhs·x = rhs (SuperLU, ``splu``), or None if lhs is exactly singular (module
+    docstring: no dependence on the warning filters)."""
+    try:
+        factor = splu(lhs)
+    except RuntimeError as exc:
+        if "singular" in str(exc):
+            return None
+        raise
+    return np.asarray(factor.solve(rhs), dtype=np.float64)
+
+
 def _not_converged(
     n: int, m: int, message: str, isolated: list[int], starved: list[int], undetermined: list[int]
 ) -> GgaResult:
@@ -252,7 +384,29 @@ def solve_gga(
     max_iterations: int,
     initial_flows: FloatArray | None = None,
 ) -> GgaResult:
-    """One inner solve with link modes fixed. Non-convergence is reported, not raised."""
+    """One inner solve with link modes fixed. Non-convergence is reported, not raised.
+
+    A diverging iterate can overflow; numpy is told not to warn about it (``np.errstate``,
+    which numpy keeps in a context variable, so it is thread-safe): the iteration tests its
+    values for finiteness and reports the failure itself, whatever the warning filters."""
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        return _solve_gga(
+            network,
+            states,
+            tolerance=tolerance,
+            max_iterations=max_iterations,
+            initial_flows=initial_flows,
+        )
+
+
+def _solve_gga(
+    network: SolverNetwork,
+    states: Sequence[LinkState],
+    *,
+    tolerance: float,
+    max_iterations: int,
+    initial_flows: FloatArray | None,
+) -> GgaResult:
     nodes, links = network.nodes, network.links
     n, m = len(nodes), len(links)
     if len(states) != m:
@@ -278,7 +432,7 @@ def solve_gga(
     adjacency = sp.coo_matrix(
         (np.ones(int(normal.sum())), (start[normal], end[normal])), shape=(n, n)
     ).tocsr()
-    _, labels = connected_components(adjacency, directed=False)
+    labels = np.asarray(connected_components(adjacency, directed=False)[1], dtype=np.int64)
     starved: list[int] = []
     while True:
         grounded = boundary.copy()
@@ -291,7 +445,7 @@ def solve_gga(
         for k in live:
             side = _supply_side(states[k], int(start[k]), int(end[k]))
             cut = [v for v in side if not reaches_head[v]]
-            if cut:
+            if cut and not _drives_circulation(states[k], labels, int(start[k]), int(end[k])):
                 problem = (k, cut[0])
                 break
         if problem is None:
@@ -302,6 +456,7 @@ def solve_gga(
             for j in live
             if j != k
             and _supply_side(states[j], int(start[j]), int(end[j]))
+            and not _drives_circulation(states[j], labels, int(start[j]), int(end[j]))
             and labels[v] in (labels[start[j]], labels[end[j]])
         ]
         if others:
@@ -317,11 +472,60 @@ def solve_gga(
             )
         starved.append(k)
 
+    # Floating parts: no fixed head reaches them, but they cannot sit at zero flow. One node of
+    # each is held at an arbitrary head, so its flows and head differences are solved.
+    unreached = {int(x) for x in np.unique(labels[~reaches_head])}
+    floating_sections: list[list[int]] = []
+    for part in circulating_parts(network, states, labels, unreached, set(starved)):
+        members = [int(v) for v in np.flatnonzero(labels == part)]
+        floating_sections.append(members)
+        grounded[members[0]] = True
+        h_fixed[members[0]] = FLOATING_REFERENCE_HEAD
+    floating_sections.sort()
+    reaches_head = np.isin(labels, np.unique(labels[grounded]))
+
+    # A held node's valve passes a determined flow only if that flow can leave its part towards
+    # a fixed head, directly or through other held valves (module docstring).
+    live_held = {k: v for k, v in held.items() if k not in starved}
+    anchored = {int(x) for x in np.unique(labels[boundary])}
+    anchored |= {int(labels[section[0]]) for section in floating_sections}
+    grew = True
+    while grew:
+        grew = False
+        for k, v in live_held.items():
+            u = int(start[k]) if v == int(end[k]) else int(end[k])
+            if int(labels[v]) not in anchored and int(labels[u]) in anchored:
+                anchored.add(int(labels[v]))
+                grew = True
+    loose = sorted(k for k, v in live_held.items() if int(labels[v]) not in anchored)
+    if loose:
+        names = ", ".join(links[k].key for k in loose)
+        return _not_converged(
+            n,
+            m,
+            f"the flow through control valve(s) {names} is undetermined: the flow each passes "
+            "returns to it around a loop that no reservoir or reference node anchors, so any "
+            "flow around that loop holds its setpoint",
+            [int(i) for i in np.flatnonzero(~reaches_head)],
+            starved,
+            loose,
+        )
+
     fixed = grounded
     live_special = [k for k in special if k not in starved]
     solve_links = np.flatnonzero(normal & reaches_head[start])
     free = reaches_head & ~fixed
-    free_nodes = np.flatnonzero(free)
+    # Continuity is checked at every free node, and at the held node of each floating part
+    # (its balance is not imposed: it closes through the rest of the part's continuity).
+    checked = free.copy()
+    for section in floating_sections:
+        checked[section[0]] = True
+    free_nodes = np.flatnonzero(checked)
+    component_ids: dict[str, int] = {}
+    node_component = np.array(
+        [component_ids.setdefault(nodes[v].component_id, len(component_ids)) for v in free_nodes],
+        dtype=np.int64,
+    )
 
     heads = np.full(n, np.nan)
     flows = np.zeros(m)
@@ -386,6 +590,21 @@ def solve_gga(
             sign = 1.0 if int(end[r]) == held[k] else -1.0 if int(start[r]) == held[k] else 0.0
             if sign:
                 held_reference.append((k, newton_position[r], sign))
+    # The continuity row of a live PRV's or PSV's other port carries the flow of the pipe on
+    # its held port (module docstring): m21 = A21 + that coupling, used in the Newton step.
+    c_rows: list[int] = []
+    c_cols: list[int] = []
+    c_vals: list[float] = []
+    for k in live_head_fixing:
+        v = held[k]
+        u = int(start[k]) if v == int(end[k]) else int(end[k])
+        if node_col[u] < 0:
+            continue
+        for pos in np.flatnonzero((s == v) | (e == v)).tolist():
+            c_rows.append(int(node_col[u]))
+            c_cols.append(int(pos))
+            c_vals.append(1.0 if int(e[pos]) == v else -1.0)
+    m21 = (a21 + sp.csr_matrix((c_vals, (c_rows, c_cols)), shape=(nf, nl))).tocsr()
 
     def special_flows(q_newton: FloatArray) -> FloatArray:
         """Flows of the live control valves in fixed modes, from the current iterate."""
@@ -452,6 +671,7 @@ def solve_gga(
             isolated_nodes=isolated_nodes,
             isolated_links=isolated_links,
             starved_links=starved,
+            floating_sections=floating_sections,
         )
 
     q = q_init[newton].copy()
@@ -464,8 +684,11 @@ def solve_gga(
     message = ""
     energy_all = np.zeros(solve_links.size)
     continuity_all = np.zeros(free_nodes.size)
+    check_heads: FloatArray | None = None
+    check_flows: FloatArray | None = None
 
     for it in range(max_iterations + 1):
+        check_budget()  # a request's deadline or cancellation (budget.py)
         q_sp = special_flows(q)
         q_all = full_flows(q, q_sp)
         if q_prev is not None:
@@ -494,13 +717,21 @@ def solve_gga(
         if not (np.all(np.isfinite(energy_all)) and np.all(np.isfinite(d))):
             message = "the iteration diverged (non-finite head loss)"
             break
+        if 0 < it <= CHECK_ITERATIONS and np.all(np.isfinite(h_all[reaches_head])):
+            check_heads, check_flows = h_all.copy(), q_all.copy()
         q_scale = float(np.max(np.abs(q_all)))  # the current iterate's flows (see above)
         max_c = float(np.max(np.abs(continuity_all), initial=0.0))
+        max_component = float(
+            np.max(
+                np.abs(np.bincount(node_component, weights=continuity_all)),
+                initial=0.0,
+            )
+        )
         max_e = float(np.max(np.abs(energy_all), initial=0.0))
         if (
             it > 0
             and dq_max <= tolerance * q_scale + CONTINUITY_ATOL
-            and max_c <= CONTINUITY_RTOL * q_scale + CONTINUITY_ATOL
+            and max(max_c, max_component) <= CONTINUITY_RTOL * q_scale + CONTINUITY_ATOL
             and max_e <= ENERGY_TOL
         ):
             converged = True
@@ -526,8 +757,12 @@ def solve_gga(
             extra[pos] += max(sign * 2.0 * st.coefficient * q_ref, 0.0)
         d_inv = 1.0 / jacobian_slopes(d + extra, is_pipe, s, e, n)
         if nf:
-            lhs = (a21 @ sp.diags(d_inv) @ a12).tocsc()
-            dh = np.asarray(spsolve(lhs, continuity - a21 @ (d_inv * energy)), dtype=np.float64)
+            lhs = (m21 @ sp.diags(d_inv) @ a12).tocsc()
+            solved = _solve_linear(lhs, continuity - m21 @ (d_inv * energy))
+            if solved is None:
+                message = "the linear system could not be solved (singular matrix)"
+                break
+            dh = solved
         else:
             dh = np.zeros(0)
         dq = -d_inv * (energy + a12 @ dh)
@@ -556,4 +791,7 @@ def solve_gga(
         isolated_nodes=isolated_nodes,
         isolated_links=isolated_links,
         starved_links=starved,
+        floating_sections=floating_sections,
+        check_heads=check_heads,
+        check_flows=check_flows,
     )

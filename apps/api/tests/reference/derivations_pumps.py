@@ -140,6 +140,21 @@ def solve_pump_line(line: PumpLine, nu: float) -> PumpLineSolution:
     )
 
 
+def npsh_not_checked(
+    curves: dict[str, PumpCurve], statuses: dict[str, str], p_vap: float | None
+) -> list[dict[str, str]]:
+    """NPSH_NOT_CHECKED (warning) on every running pump with an NPSHr curve when the fluid has
+    no vapor pressure: NPSH available, and so the cavitation check, cannot be computed
+    (GOALS §4.6)."""
+    if p_vap is not None:
+        return []
+    return [
+        {"code": "NPSH_NOT_CHECKED", "componentId": pid}
+        for pid, curve in curves.items()
+        if curve.npshr_curve is not None and statuses[pid] == "running"
+    ]
+
+
 def pump_line_case(
     *,
     name: str,
@@ -187,6 +202,7 @@ def pump_line_case(
     if sol.head is not None:
         pump_expected["operatingHead"] = sol.head
     flags = list(sol.flags)
+    flags += npsh_not_checked({"PU1": line.curve}, {"PU1": sol.pump_status}, p_vap)
     expected_vapor: float | Literal["unchecked"] | None = "unchecked"
     p_atm_used: float | None = None
     if npsh:
@@ -265,7 +281,7 @@ def pump_single_pipe() -> ReferenceCase:
         line=line,
         fluid=fluid,
     )
-    _require_flags(case, set())
+    _require_flags(case, {"NPSH_NOT_CHECKED"})  # FLUID_A has no vapor pressure
     return case
 
 
@@ -286,7 +302,7 @@ def pump_single_pipe_reduced_speed() -> ReferenceCase:
         line=line,
         fluid=fluid,
     )
-    _require_flags(case, set())
+    _require_flags(case, {"NPSH_NOT_CHECKED"})  # FLUID_A has no vapor pressure
     return case
 
 
@@ -312,7 +328,7 @@ def pump_beyond_curve_extrapolation() -> ReferenceCase:
         line=line,
         fluid=fluid,
     )
-    _require_flags(case, {"PUMP_OUTSIDE_CURVE"})
+    _require_flags(case, {"PUMP_OUTSIDE_CURVE", "NPSH_NOT_CHECKED"})
     return case
 
 
@@ -435,6 +451,9 @@ def pumps_in_series() -> ReferenceCase:
             "PA": {"status": "running", "operatingFlow": q, "operatingHead": e_a_dis - e_a_suc},
             "PB": {"status": "running", "operatingFlow": q, "operatingHead": e_b_dis - e_b_suc},
         },
+        flags=npsh_not_checked(
+            {"PA": ca, "PB": cb}, {"PA": "running", "PB": "running"}, fluid.vapor_pressure
+        ),
     )
     return ReferenceCase(
         name="pumps_in_series",
@@ -551,6 +570,9 @@ def pumps_in_parallel() -> ReferenceCase:
                 "operatingHead": egl["PB:discharge"] - egl["PB:suction"],
             },
         },
+        flags=npsh_not_checked(
+            {"PA": curve, "PB": curve}, {"PA": "running", "PB": "running"}, fluid.vapor_pressure
+        ),
     )
     return ReferenceCase(
         name="pumps_in_parallel",

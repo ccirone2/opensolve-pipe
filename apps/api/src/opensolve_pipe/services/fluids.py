@@ -24,9 +24,11 @@ from functools import lru_cache
 from typing import Literal
 
 import CoolProp
+import numpy as np
 from CoolProp.CoolProp import AbstractState, PhaseSI, PropsSI
 from scipy.constants import atm
 
+from ..models.api import FluidInfo, FreezingPoint, RangeInfo
 from ..models.fluids import (
     BuiltinFluid,
     CustomFluid,
@@ -92,11 +94,14 @@ def _water(temperature: float) -> tuple[float, float, float, str]:
         if temperature < t_boil and PhaseSI("T", temperature, "P", atm, "Water") == "liquid":
             rho = float(PropsSI("D", "T", temperature, "P", atm, "Water"))
             mu = float(PropsSI("V", "T", temperature, "P", atm, "Water"))
-            state = f"liquid at {atm:g} Pa"
+            state = f"liquid at {temperature:g} K, {atm:g} Pa"
         else:
             rho = float(PropsSI("D", "T", temperature, "Q", 0, "Water"))
             mu = float(PropsSI("V", "T", temperature, "Q", 0, "Water"))
-            state = f"saturated liquid (at or above the normal boiling point {t_boil:.4f} K)"
+            state = (
+                f"saturated liquid at {temperature:g} K (at or above the normal boiling point "
+                f"{t_boil:.4f} K)"
+            )
     except ValueError as exc:  # CoolProp reports out-of-range input as ValueError
         raise FluidError(f"water properties unavailable at {temperature:g} K: {exc}") from exc
     return rho, mu, p_vap, state
@@ -211,7 +216,9 @@ def _builtin(fluid: BuiltinFluid) -> FluidProperties:
         sources={
             "density": _library(f"{_COOLPROP}, {state}: {_IAPWS95}"),
             "dynamicViscosity": _library(f"{_COOLPROP}, {state}: {_HUBER2009}"),
-            "vaporPressure": _library(f"{_COOLPROP}, saturation pressure: {_IAPWS95}"),
+            "vaporPressure": _library(
+                f"{_COOLPROP}, saturation pressure at {fluid.temperature:g} K: {_IAPWS95}"
+            ),
         },
     )
     return _apply_overrides(props, fluid.overrides)
@@ -270,3 +277,79 @@ def fluid_properties(fluid: FluidDefinition) -> FluidProperties:
     if isinstance(fluid, CustomFluid):
         return _custom(fluid)
     return _builtin(fluid)
+
+
+FREEZING_POINT_STEP = 0.05
+"""Mass-fraction spacing of the freezing points listed for each glycol (a display grid: every
+value on it is CoolProp's freezing point at that fraction)."""
+
+
+def _water_info() -> FluidInfo:
+    t_triple = float(PropsSI("Ttriple", "Water"))
+    t_boil = float(PropsSI("T", "P", atm, "Q", 0, "Water"))
+    return FluidInfo(
+        id="water",
+        name="Water",
+        temperature_range=RangeInfo(min=t_triple, max=WATER_T_MAX, unit="K"),
+        concentration_range=None,
+        freezing_points=None,
+        vapor_pressure_available=True,
+        source=f"{_COOLPROP}: density and vapor pressure {_IAPWS95}; viscosity {_HUBER2009}",
+        notes=[
+            f"Temperature above the triple point of water, {t_triple:g} K (CoolProp Ttriple, "
+            f"exclusive), up to {WATER_T_MAX:g} K.",
+            f"Below the normal boiling point ({t_boil:.6g} K at {atm:g} Pa) the properties are "
+            f"those of the liquid at {atm:g} Pa; at or above it, those of the saturated liquid, "
+            "so the system must be pressurized above the vapor pressure (every node is checked "
+            "against it in the solve).",
+            "Vapor pressure: the saturation pressure at the temperature (IAPWS-95).",
+        ],
+    )
+
+
+def _glycol_info(glycol: GlycolId) -> FluidInfo:
+    fluid, name = GLYCOLS[glycol]
+    limits = glycol_range(glycol)
+    count = max(round((limits.fraction_max - limits.fraction_min) / FREEZING_POINT_STEP), 1) + 1
+    fractions = [
+        round(x, 12) for x in np.linspace(limits.fraction_min, limits.fraction_max, count)
+    ]  # round off the float noise of the grid (0.049999... -> 0.05)
+    freezing = [
+        FreezingPoint(concentration=x, temperature=_freezing_point(fluid, x)) for x in fractions
+    ]
+    lowest = min(freezing, key=lambda f: f.temperature)
+    t_low = max(limits.t_min, lowest.temperature)
+    return FluidInfo(
+        id=glycol,
+        name=name,
+        temperature_range=RangeInfo(min=t_low, max=limits.t_max, unit="K"),
+        concentration_range=RangeInfo(
+            min=limits.fraction_min, max=limits.fraction_max, unit="mass fraction"
+        ),
+        freezing_points=freezing,
+        vapor_pressure_available=False,
+        source=(
+            f"CoolProp {CoolProp.__version__} INCOMP::{fluid} (incompressible solution fit, "
+            f"pressure-independent): {_MELINDER2010}"
+        ),
+        notes=[
+            f"Glycol mass fraction {limits.fraction_min:g} to {limits.fraction_max:g} "
+            f"(CoolProp fraction_min, fraction_max of INCOMP::{fluid}).",
+            "The lower temperature bound depends on the concentration: it is the solution's "
+            "freezing point T_freeze(x) (CoolProp iT_freeze), exclusive, and never below "
+            f"CoolProp's Tmin = {limits.t_min:g} K; the upper bound is Tmax = {limits.t_max:g} K. "
+            "freezingPoints lists T_freeze at fractions across the range.",
+            "temperatureRange.min is the lowest of those freezing points "
+            f"({lowest.temperature:.6g} K at mass fraction {lowest.concentration:g}): the lowest "
+            "temperature allowed at any "
+            "supported concentration, not the bound at a given one.",
+            f"No vapor pressure: CoolProp INCOMP::{fluid} defines no saturation pressure, so NPSH "
+            "available and flashing checks need a vapor pressure override.",
+        ],
+    )
+
+
+@lru_cache(maxsize=1)
+def fluid_list() -> tuple[FluidInfo, ...]:
+    """Built-in fluids with the ranges CoolProp supports for them (GET /api/v1/fluids)."""
+    return (_water_info(), _glycol_info("ethylene_glycol"), _glycol_info("propylene_glycol"))

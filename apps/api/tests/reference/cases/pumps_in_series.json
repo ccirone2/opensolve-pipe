@@ -297,6 +297,12 @@
         "operatingFlow": 0.024823562366810062,
         "operatingHead": 20.183132447436385
       }
-    }
+    },
+    "flags": [
+      {
+        "code": "NPSH_NOT_CHECKED",
+        "componentId": "PA"
+      }
+    ]
   }
 }

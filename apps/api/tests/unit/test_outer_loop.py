@@ -1,6 +1,7 @@
 """Outer loop (design §5): oscillation detection, the iteration cap, correlation-step
 averaging of branch K, starved control valves and flow-dependent head offsets."""
 
+import importlib
 import math
 from typing import Any
 
@@ -163,6 +164,106 @@ def test_k_alternating_across_a_correlation_step_is_averaged() -> None:
     )
     assert leg.tangent.dk_dq == 0.0  # held constant, no longer a tangent in q
     assert not _update_branch(built, tracker, above)  # held while the pattern lasts
+
+
+def test_held_k_records_the_two_fluids_values_it_is_the_mean_of() -> None:
+    """The held K is the mean of the fluids values at the two splits, both reported (M4 review:
+    the trace could not reproduce an averaged K)."""
+    built = wye_built()
+    tracker = initial_branches(built)["W"]
+    for fraction in (0.35, 0.45, 0.35):
+        _update_branch(built, tracker, split_flows(built, fraction))
+    held = tracker.held_step
+    assert held is not None
+    assert held.step == 0.4
+    assert held.port == "outlet_2"
+    assert sorted(held.splits) == pytest.approx([0.35, 0.45], rel=1e-12)
+    for q, k in zip(held.splits, held.k_at_splits, strict=True):
+        assert k["outlet_2"] == ff.K_branch_diverging_Crane(0.1, 0.05, 1 - q, q, 45.0)
+        assert k["outlet_1"] == ff.K_run_diverging_Crane(0.1, 0.05, 1 - q, q, 45.0)
+    a, b = held.k_at_splits
+    assert tracker.solution.k == pytest.approx({p: 0.5 * (a[p] + b[p]) for p in a}, rel=1e-15)
+    # fluids 1.3.1 K_branch_diverging_Crane at angle 45° (< 60: H = 1, J = 2), β² = 0.25:
+    # K = G (1 + (q/β²)² − 2 (q/β²) cos 45°), G = 1.1 − 0.7 q up to q = 0.4, 0.85 above.
+    bracket = 1 + (0.4 / 0.25) ** 2 - 2 * (0.4 / 0.25) * math.cos(math.radians(45))
+    assert held.k_below == pytest.approx((1.1 - 0.7 * 0.4) * bracket, rel=1e-6)
+    assert held.k_above == pytest.approx(0.85 * bracket, rel=1e-6)
+
+
+def test_k_alternating_where_the_correlation_has_no_step_is_not_held() -> None:
+    """A tee (90°) with β² = 0.25: neither Crane diverging function steps at q = 0.4, 0.5 or
+    0.6 (fluids 1.3.1: G = 1 for angle >= 75° and β² <= 2/3; M = 0.4 for β² <= 0.4), so a split
+    alternating across those values is under-relaxed, never held at a mean (M4 review: K held
+    30% off the correlation with no step there)."""
+    comps = [
+        reservoir("R1", level=20.0),
+        {
+            "type": "branch",
+            "branchType": "tee",
+            "id": "T",
+            "name": "T",
+            "elevation": 0.0,
+            "lossModel": "crane",
+            "ports": [{"id": p, "nominalSize": 0.1} for p in ("run_inlet", "run_outlet", "branch")],
+        },
+        reservoir("R2", level=10.0),
+        reservoir("R3", level=10.0),
+    ]
+    conns = [
+        connection("L1", ("R1", "port_1"), ("T", "run_inlet"), diameter=0.1),
+        connection("L2", ("T", "run_outlet"), ("R2", "port_1"), diameter=0.1),
+        connection("L3", ("T", "branch"), ("R3", "port_1"), diameter=0.05),
+    ]
+    project = make_project(comps, conns)
+    built = build_network(project, fluid_properties(project.fluid))
+    legs = built.branch_legs["T"]
+
+    def split(q: float) -> np.ndarray:
+        flows = np.zeros(len(built.network.links))
+        flows[legs["run_inlet"]], flows[legs["branch"]] = -0.02, q * 0.02
+        flows[legs["run_outlet"]] = (1 - q) * 0.02
+        return flows
+
+    tracker = initial_branches(built)["T"]
+    low, high = split(0.30), split(0.70)
+    solution = status._solution_from_flows(built, tracker, low)
+    assert status.crane_step(built.branches["T"], solution, 0.3, 0.7) is None
+    for flows in (low, high, low, high, low):
+        _update_branch(built, tracker, flows)
+        assert not tracker.averaged
+
+
+def test_held_k_is_released_when_the_split_leaves_the_step() -> None:
+    """A K held across the step at q = 0.4 returns to the correlation once the solved split
+    leaves the two splits the mean was taken between, or the statuses change (M4 review: K held
+    at the mean while the split sat at q = 1)."""
+    built = wye_built()
+    for leave in (
+        lambda b: (split_flows(b, 0.9), 3),  # the split moved far from the step
+        lambda b: (split_flows(b, 0.38), 1),  # statuses changed before this solve
+    ):
+        tracker = initial_branches(built)["W"]
+        for fraction in (0.35, 0.45, 0.35):
+            _update_branch(built, tracker, split_flows(built, fraction))
+        assert tracker.averaged
+        flows, steady = leave(built)
+        assert _update_branch(built, tracker, flows, steady)
+        assert not tracker.averaged
+        q = tracker.solution.split
+        assert q is not None
+        assert tracker.solution.k["outlet_2"] == pytest.approx(
+            ff.K_branch_diverging_Crane(0.1, 0.05, 1 - q, q, 45.0), rel=1e-12
+        )
+
+
+def test_split_moved_by_status_changes_is_not_held() -> None:
+    """A split that returns to where it was two solves ago while statuses changed in between
+    was moved by the statuses, not by K across a step: not held."""
+    built = wye_built()
+    tracker = initial_branches(built)["W"]
+    for fraction, steady in ((0.35, 1), (0.45, 1), (0.35, 1)):
+        _update_branch(built, tracker, split_flows(built, fraction), steady)
+        assert not tracker.averaged
 
 
 def test_converging_k_is_not_mistaken_for_a_step() -> None:
@@ -415,3 +516,134 @@ def test_leg_law_follows_its_tangent_through_a_reversed_branch_flow() -> None:
     flows = np.array([q_ref, 0.0002])
     assert law.own_slope(flows) == pytest.approx(-2.0 * q_ref * q_ref * 2.0 * (-1 / q_ref))
     assert law.own_slope(np.array([q_ref, 0.004])) == 0.0  # K held at a bound
+
+
+def crane_ladder(rungs: int) -> Any:
+    """A looped ladder (M4 review): a pump feeds rail A, a reservoir feeds rail B, the rails of
+    Crane tees are joined by rung pipes and end in reservoirs; carbon steel sch. 40 4" pipe
+    with two long-radius elbows per connection (test inputs). Most rungs carry no flow: the
+    head across them lies in the band between the Crane values for flow out of and into a
+    tee's branch at zero flow."""
+
+    def pipe(cid: str, a: tuple[str, str], b: tuple[str, str]) -> dict[str, Any]:
+        steel = {"materialId": "carbon_steel", "schedule": "40", "nominalSize": 0.1016}
+        return connection(
+            cid,
+            a,
+            b,
+            pipes=[{**steel, "length": 30.0}],
+            fittings=[{"type": "elbow_90_lr", "quantity": 2}],
+        )
+
+    comps: list[dict[str, Any]] = [
+        reservoir("R0", level=5.0),
+        {
+            "type": "pump",
+            "id": "PU",
+            "name": "PU",
+            "elevation": 0.0,
+            "curveId": "C1",
+            "ports": [
+                {"id": "suction", "nominalSize": 0.1},
+                {"id": "discharge", "nominalSize": 0.1},
+            ],
+        },
+        reservoir("RA", level=10.0),
+        reservoir("RB", level=12.0),
+        reservoir("RBin", level=8.0),
+    ]
+    conns = [pipe("F", ("R0", "port_1"), ("PU", "suction"))]
+    for i in range(rungs):
+        for rail in "AB":
+            comps.append(
+                {
+                    "type": "branch",
+                    "branchType": "tee",
+                    "id": f"T{rail}{i}",
+                    "name": f"T{rail}{i}",
+                    "elevation": 0.0,
+                    "lossModel": "crane",
+                    "ports": [
+                        {"id": p, "nominalSize": 0.1} for p in ("run_inlet", "run_outlet", "branch")
+                    ],
+                }
+            )
+        conns.append(pipe(f"G{i}", (f"TA{i}", "branch"), (f"TB{i}", "branch")))
+    conns.append(pipe("FA", ("PU", "discharge"), ("TA0", "run_inlet")))
+    conns.append(pipe("SB", ("RBin", "port_1"), ("TB0", "run_inlet")))
+    for i in range(rungs - 1):
+        conns.append(pipe(f"A{i}", (f"TA{i}", "run_outlet"), (f"TA{i + 1}", "run_inlet")))
+        conns.append(pipe(f"B{i}", (f"TB{i}", "run_outlet"), (f"TB{i + 1}", "run_inlet")))
+    conns.append(pipe("EA", (f"TA{rungs - 1}", "run_outlet"), ("RA", "port_1")))
+    conns.append(pipe("EB", (f"TB{rungs - 1}", "run_outlet"), ("RB", "port_1")))
+    curve = {
+        "id": "C1",
+        "name": "curve",
+        "points": [
+            {"flow": 0.0, "head": 40.0},
+            {"flow": 0.02, "head": 35.0},
+            {"flow": 0.04, "head": 20.0},
+        ],
+    }
+    return make_project(comps, conns, pump_library=[curve])
+
+
+def test_long_crane_ladder_converges_within_the_status_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """In a long ladder the rung legs join the flow reversals a few at a time, so a repeated
+    status vector (the global cycle test) came only after ~n/9 outer iterations and a
+    505-component ladder hit the 30-iteration cap (M4 review). A leg whose flow reverses back
+    is now held at zero flow at once, and iterations that only hold or release such legs (a
+    finite active set) are not counted: the counted iterations no longer grow with length.
+    Here a 60-rung ladder converges under a cap of 6 counted iterations."""
+    monkeypatch.setattr(status, "MAX_OUTER_ITERATIONS", 6)
+    project = crane_ladder(60)
+    result = solve_project(project)
+    assert result.converged, result.convergence.message
+    assert result.convergence.outer_iterations > 6  # the uncounted hold iterations
+    held = [b for b in result.branch_results.values() if "carries no flow" in b.correlation]
+    assert held  # rungs at zero flow inside their bands
+    flows = {cid: link.flow for cid, link in result.link_results.items()}
+    for comp in project.components:
+        if comp.type != "branch":
+            continue
+        net = sum(
+            flows[c.id] * (1 if c.to_component_id == comp.id else -1)
+            for c in project.connections
+            if comp.id in (c.from_component_id, c.to_component_id)
+        )
+        assert abs(net) <= 1e-9 * max(abs(q) for q in flows.values())
+
+
+def test_system_curve_points_continue_from_their_neighbour(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each system-curve point starts from the neighbouring point's solution, so a curve costs
+    far fewer Newton iterations than solving each from the initial state (M4 review: /solve with
+    the frontend's options took 2.7 s for 19 components, over the PRD's 1 s), and gives the
+    same heads where the solution is unique. And the Crane K range Newton holds a tangent to
+    is sampled once per geometry."""
+    # The package exports a function named system_curve, so the module is fetched by name.
+    sc = importlib.import_module("opensolve_pipe.services.solver.system_curve")
+
+    project = crane_ladder(7)
+    built = build_network(project, fluid_properties(project.fluid))
+    main = status.run_outer_loop(built, tolerance=1e-9, max_iterations=100)
+    flows = sc.curve_flows(0.0, sc.default_flow_max(built, "PU"), 15)
+    newton = {"n": 0}
+    real = sc.run_outer_loop
+
+    def counting(*args: Any, **kwargs: Any) -> Any:
+        result = real(*args, **kwargs)
+        newton["n"] += result.inner_iterations
+        return result
+
+    monkeypatch.setattr(sc, "run_outer_loop", counting)
+    points = sc.system_curve_points(
+        built, "PU", flows, tolerance=1e-9, max_iterations=100, warm=main
+    )
+    continued = newton["n"]
+    cold = 0
+    for q, point in zip(flows, points, strict=True):
+        alone = real(built, tolerance=1e-9, max_iterations=100, forced_flows={"PU": q})
+        cold += alone.inner_iterations
+        assert point.converged
+        assert alone.converged
+    assert continued < 0.8 * cold

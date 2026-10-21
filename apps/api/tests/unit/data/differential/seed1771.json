@@ -1,0 +1,946 @@
+{
+ "source": "M4 differential test (EPANET 2.2 via WNTR), random network seed 1771; test input only, no expected values",
+ "note": "noise flows of opposite sign at the two ports of an open check valve passed the per-node continuity test but left the valve's net inflow above 1e-9 of the largest flow",
+ "project": {
+  "schemaVersion": 1,
+  "methodVersion": "",
+  "id": "fuzz-1771",
+  "metadata": {
+   "name": "Fuzz network 1771",
+   "created": "2026-10-21T00:00:00Z",
+   "modified": "2026-10-21T00:00:00Z"
+  },
+  "settings": {
+   "units": {
+    "length": "m",
+    "diameter": "mm",
+    "pressure": "kPa",
+    "head": "m",
+    "flow": "L/s",
+    "velocity": "m/s",
+    "temperature": "C",
+    "density": "kg/m3",
+    "viscosity": "mPa.s"
+   },
+   "siteElevation": 0.0,
+   "solverOptions": {
+    "frictionMethod": "swamee_jain",
+    "maxIterations": 100,
+    "tolerance": 1e-09
+   }
+  },
+  "fluid": {
+   "kind": "custom",
+   "name": "EPANET water nu",
+   "density": 1185.0,
+   "dynamicViscosity": 0.0012109911264
+  },
+  "components": [
+   {
+    "id": "T0",
+    "name": "Tee T0",
+    "elevation": 10.266,
+    "ports": [
+     {
+      "id": "run_inlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "run_outlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "branch",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "branch",
+    "branchType": "tee",
+    "lossModel": "ideal"
+   },
+   {
+    "id": "T1",
+    "name": "Tee T1",
+    "elevation": 19.543,
+    "ports": [
+     {
+      "id": "run_inlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "run_outlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "branch",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "branch",
+    "branchType": "tee",
+    "lossModel": "ideal"
+   },
+   {
+    "id": "T2",
+    "name": "Tee T2",
+    "elevation": 9.448,
+    "ports": [
+     {
+      "id": "run_inlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "run_outlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "branch",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "branch",
+    "branchType": "tee",
+    "lossModel": "ideal"
+   },
+   {
+    "id": "T3",
+    "name": "Wye T3",
+    "elevation": 3.378,
+    "ports": [
+     {
+      "id": "inlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "outlet_1",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "outlet_2",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "branch",
+    "branchType": "wye",
+    "angle": 60.0,
+    "lossModel": "ideal"
+   },
+   {
+    "id": "T4",
+    "name": "Wye T4",
+    "elevation": 22.664,
+    "ports": [
+     {
+      "id": "inlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "outlet_1",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "outlet_2",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "branch",
+    "branchType": "wye",
+    "angle": 45.0,
+    "lossModel": "ideal"
+   },
+   {
+    "id": "T5",
+    "name": "Tee T5",
+    "elevation": 24.638,
+    "ports": [
+     {
+      "id": "run_inlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "run_outlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "branch",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "branch",
+    "branchType": "tee",
+    "lossModel": "ideal"
+   },
+   {
+    "id": "R0",
+    "name": "Reservoir R0",
+    "elevation": 24.391,
+    "ports": [
+     {
+      "id": "port_1",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "reservoir",
+    "liquidLevel": 0.863,
+    "surfacePressure": 0.0
+   },
+   {
+    "id": "R1",
+    "name": "Reservoir R1",
+    "elevation": 13.213,
+    "ports": [
+     {
+      "id": "port_1",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "reservoir",
+    "liquidLevel": 7.705,
+    "surfacePressure": 0.0
+   },
+   {
+    "id": "RN2",
+    "name": "Reference node RN2",
+    "elevation": 31.402,
+    "ports": [
+     {
+      "id": "port_1",
+      "nominalSize": 0.0508,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "reference_node",
+    "referenceType": "ideal",
+    "pressure": 391141.0
+   },
+   {
+    "id": "R3",
+    "name": "Reservoir R3",
+    "elevation": 11.143,
+    "ports": [
+     {
+      "id": "port_1",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "reservoir",
+    "liquidLevel": 1.921,
+    "surfacePressure": 0.0
+   },
+   {
+    "id": "PRV1",
+    "name": "Control valve PRV1",
+    "elevation": 9.756239104614977,
+    "ports": [
+     {
+      "id": "inlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "outlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "valve",
+    "valveType": "prv",
+    "status": "active",
+    "setpoint": 299110.4
+   },
+   {
+    "id": "FCV2",
+    "name": "Control valve FCV2",
+    "elevation": 23.477611963109542,
+    "ports": [
+     {
+      "id": "inlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "outlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "valve",
+    "valveType": "fcv",
+    "status": "active",
+    "setpoint": 0.02157,
+    "resistance": {
+     "kind": "K",
+     "value": 5.891
+    }
+   },
+   {
+    "id": "PRV3",
+    "name": "Control valve PRV3",
+    "elevation": 8.009251178122181,
+    "ports": [
+     {
+      "id": "inlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "outlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "valve",
+    "valveType": "prv",
+    "status": "active",
+    "setpoint": 332471.8
+   },
+   {
+    "id": "CV4",
+    "name": "Check valve CV4",
+    "elevation": 22.957991863592902,
+    "ports": [
+     {
+      "id": "inlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "outlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "valve",
+    "valveType": "stop_check",
+    "status": "locked_open",
+    "resistance": {
+     "kind": "K",
+     "value": 4.404
+    },
+    "crackingPressure": 0.0
+   },
+   {
+    "id": "PU5",
+    "name": "Pump PU5",
+    "elevation": 23.937884950248016,
+    "ports": [
+     {
+      "id": "suction",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "discharge",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "pump",
+    "curveId": "PC1",
+    "speed": 1.0,
+    "status": "on"
+   },
+   {
+    "id": "PRV6",
+    "name": "Control valve PRV6",
+    "elevation": 19.1748068020218,
+    "ports": [
+     {
+      "id": "inlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "outlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "valve",
+    "valveType": "prv",
+    "status": "active",
+    "setpoint": 2258.3
+   },
+   {
+    "id": "CV7",
+    "name": "Check valve CV7",
+    "elevation": 32.90927635360244,
+    "ports": [
+     {
+      "id": "inlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "outlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "valve",
+    "valveType": "check",
+    "status": "active",
+    "crackingPressure": 0.0
+   },
+   {
+    "id": "FCV8",
+    "name": "Control valve FCV8",
+    "elevation": 8.968103472098942,
+    "ports": [
+     {
+      "id": "inlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "outlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "valve",
+    "valveType": "fcv",
+    "status": "active",
+    "setpoint": 0.046456
+   },
+   {
+    "id": "CV9",
+    "name": "Check valve CV9",
+    "elevation": 17.1727657982534,
+    "ports": [
+     {
+      "id": "inlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     },
+     {
+      "id": "outlet",
+      "nominalSize": 0.1016,
+      "direction": "bidirectional"
+     }
+    ],
+    "type": "valve",
+    "valveType": "stop_check",
+    "status": "active",
+    "crackingPressure": 0.0
+   }
+  ],
+  "connections": [
+   {
+    "id": "C1",
+    "fromComponentId": "T1",
+    "fromPortId": "run_outlet",
+    "toComponentId": "T3",
+    "toPortId": "outlet_2",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.18158511407896544,
+       "length": 1.3875931604359721,
+       "roughness": 0.00021868285966793899
+      }
+     ],
+     "fittings": [
+      {
+       "type": "custom",
+       "quantity": 3,
+       "pipeIndex": 0,
+       "kOverride": 4.599
+      }
+     ]
+    }
+   },
+   {
+    "id": "C2",
+    "fromComponentId": "T3",
+    "fromPortId": "outlet_1",
+    "toComponentId": "PRV1",
+    "toPortId": "outlet",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.23794649241108884,
+       "length": 2.926966338403634,
+       "roughness": 0.0012383474766388598
+      }
+     ],
+     "fittings": []
+    }
+   },
+   {
+    "id": "C3",
+    "fromComponentId": "T4",
+    "fromPortId": "inlet",
+    "toComponentId": "PRV1",
+    "toPortId": "inlet",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.02212752261215504,
+       "length": 1402.049430028795,
+       "roughness": 0.0002301414396612475
+      }
+     ],
+     "fittings": [
+      {
+       "type": "custom",
+       "quantity": 2,
+       "pipeIndex": 0,
+       "kOverride": 1.475
+      },
+      {
+       "type": "custom",
+       "quantity": 3,
+       "pipeIndex": 0,
+       "kOverride": 0.105
+      }
+     ]
+    }
+   },
+   {
+    "id": "C4",
+    "fromComponentId": "T3",
+    "fromPortId": "inlet",
+    "toComponentId": "T0",
+    "toPortId": "branch",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.03983231940684437,
+       "length": 1.4797317233864895,
+       "roughness": 0.0004146862438492932
+      }
+     ],
+     "fittings": []
+    }
+   },
+   {
+    "id": "C5",
+    "fromComponentId": "FCV2",
+    "fromPortId": "outlet",
+    "toComponentId": "T5",
+    "toPortId": "run_inlet",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.06828191204445168,
+       "length": 610.728714755459,
+       "roughness": 1.9191981398223063e-07
+      },
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.3417413586843208,
+       "length": 1.5511512120935078,
+       "roughness": 0.00211411508453387
+      },
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.01040250259366768,
+       "length": 9.565588321695362,
+       "roughness": 3.6947885470760617e-06
+      }
+     ],
+     "fittings": []
+    }
+   },
+   {
+    "id": "C6",
+    "fromComponentId": "FCV2",
+    "fromPortId": "inlet",
+    "toComponentId": "T4",
+    "toPortId": "outlet_2",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.0788499846813552,
+       "length": 246.15926069187316,
+       "roughness": 8.626450971415306e-05
+      }
+     ],
+     "fittings": []
+    }
+   },
+   {
+    "id": "C7",
+    "fromComponentId": "T2",
+    "fromPortId": "branch",
+    "toComponentId": "PRV3",
+    "toPortId": "inlet",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.29415308545737734,
+       "length": 4.7136371559186365,
+       "roughness": 8.709679345185286e-06
+      }
+     ],
+     "fittings": [
+      {
+       "type": "custom",
+       "quantity": 2,
+       "pipeIndex": 0,
+       "kOverride": 3.633
+      },
+      {
+       "type": "custom",
+       "quantity": 1,
+       "pipeIndex": 0,
+       "kOverride": 1.747
+      }
+     ]
+    }
+   },
+   {
+    "id": "C8",
+    "fromComponentId": "T5",
+    "fromPortId": "run_outlet",
+    "toComponentId": "PRV3",
+    "toPortId": "outlet",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.05262017761243827,
+       "length": 34.2459223000451,
+       "roughness": 0.00030115414400245637
+      }
+     ],
+     "fittings": []
+    }
+   },
+   {
+    "id": "C9",
+    "fromComponentId": "T5",
+    "fromPortId": "branch",
+    "toComponentId": "CV4",
+    "toPortId": "inlet",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.1863200540579118,
+       "length": 26.980242069933528,
+       "roughness": 2.5951987160933292e-06
+      }
+     ],
+     "fittings": [
+      {
+       "type": "custom",
+       "quantity": 2,
+       "pipeIndex": 0,
+       "kOverride": 2.485
+      },
+      {
+       "type": "custom",
+       "quantity": 3,
+       "pipeIndex": 0,
+       "kOverride": 4.521
+      }
+     ]
+    }
+   },
+   {
+    "id": "C10",
+    "fromComponentId": "R0",
+    "fromPortId": "port_1",
+    "toComponentId": "CV4",
+    "toPortId": "outlet",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.017702704108781175,
+       "length": 110.71040510027379,
+       "roughness": 1.0869379375194537e-07
+      }
+     ],
+     "fittings": [
+      {
+       "type": "custom",
+       "quantity": 1,
+       "pipeIndex": 0,
+       "kOverride": 4.011
+      }
+     ]
+    }
+   },
+   {
+    "id": "C11",
+    "fromComponentId": "T4",
+    "fromPortId": "outlet_1",
+    "toComponentId": "PU5",
+    "toPortId": "suction",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.37102714708787565,
+       "length": 20.29638777725339,
+       "roughness": 3.0369281881972418e-05
+      },
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.1910813071049402,
+       "length": 278.380602213363,
+       "roughness": 0.00026030419498794224
+      },
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.21018152020670464,
+       "length": 885.5466159034861,
+       "roughness": 0.00033986492370339535
+      }
+     ],
+     "fittings": []
+    }
+   },
+   {
+    "id": "C12",
+    "fromComponentId": "PU5",
+    "fromPortId": "discharge",
+    "toComponentId": "PRV6",
+    "toPortId": "inlet",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.027619260444424865,
+       "length": 528.5220848434365,
+       "roughness": 9.14381196601105e-05
+      }
+     ],
+     "fittings": []
+    }
+   },
+   {
+    "id": "C13",
+    "fromComponentId": "PRV6",
+    "fromPortId": "outlet",
+    "toComponentId": "R1",
+    "toPortId": "port_1",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.047472860682167925,
+       "length": 366.9845338760083,
+       "roughness": 2.536981860949235e-06
+      }
+     ],
+     "fittings": [
+      {
+       "type": "custom",
+       "quantity": 1,
+       "pipeIndex": 0,
+       "kOverride": 1.813
+      }
+     ]
+    }
+   },
+   {
+    "id": "C14",
+    "fromComponentId": "CV7",
+    "fromPortId": "outlet",
+    "toComponentId": "T2",
+    "toPortId": "run_inlet",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.030688883629600153,
+       "length": 1.4225436341636977,
+       "roughness": 1.1651126634005883e-05
+      }
+     ],
+     "fittings": []
+    }
+   },
+   {
+    "id": "C15",
+    "fromComponentId": "CV7",
+    "fromPortId": "inlet",
+    "toComponentId": "RN2",
+    "toPortId": "port_1",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.01555339804040708,
+       "length": 13.72045556635801,
+       "roughness": 8.747283355247791e-05
+      }
+     ],
+     "fittings": [
+      {
+       "type": "custom",
+       "quantity": 3,
+       "pipeIndex": 0,
+       "kOverride": 0.952
+      },
+      {
+       "type": "custom",
+       "quantity": 3,
+       "pipeIndex": 0,
+       "kOverride": 0.948
+      }
+     ]
+    }
+   },
+   {
+    "id": "C16",
+    "fromComponentId": "R3",
+    "fromPortId": "port_1",
+    "toComponentId": "T2",
+    "toPortId": "run_outlet",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.027167311728248267,
+       "length": 63.2419432247243,
+       "roughness": 0.00022971144181287338
+      }
+     ],
+     "fittings": []
+    }
+   },
+   {
+    "id": "C17",
+    "fromComponentId": "FCV8",
+    "fromPortId": "outlet",
+    "toComponentId": "T1",
+    "toPortId": "run_inlet",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.04322680280983045,
+       "length": 53.36306009565724,
+       "roughness": 2.6836645050641216e-05
+      },
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.19952906874675416,
+       "length": 1.976345729076083,
+       "roughness": 1.3977994903247042e-06
+      }
+     ],
+     "fittings": [
+      {
+       "type": "custom",
+       "quantity": 2,
+       "pipeIndex": 1,
+       "kOverride": 1.27
+      }
+     ]
+    }
+   },
+   {
+    "id": "C18",
+    "fromComponentId": "T0",
+    "fromPortId": "run_inlet",
+    "toComponentId": "FCV8",
+    "toPortId": "inlet",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.006253139288920386,
+       "length": 32.458397575799594,
+       "roughness": 1.1229349010153147e-06
+      }
+     ],
+     "fittings": []
+    }
+   },
+   {
+    "id": "C19",
+    "fromComponentId": "T1",
+    "fromPortId": "branch",
+    "toComponentId": "CV9",
+    "toPortId": "outlet",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.17886885466320182,
+       "length": 1058.3922260926681,
+       "roughness": 1.4335756395940494e-06
+      }
+     ],
+     "fittings": []
+    }
+   },
+   {
+    "id": "C20",
+    "fromComponentId": "CV9",
+    "fromPortId": "inlet",
+    "toComponentId": "T0",
+    "toPortId": "run_outlet",
+    "piping": {
+     "pipes": [
+      {
+       "materialId": "custom",
+       "innerDiameter": 0.17483001394654707,
+       "length": 38.168595319820504,
+       "roughness": 1.281959095578815e-06
+      }
+     ],
+     "fittings": []
+    }
+   }
+  ],
+  "pumpLibrary": [
+   {
+    "id": "PC1",
+    "name": "Curve PC1",
+    "points": [
+     {
+      "flow": 0.0,
+      "head": 52.53998393945011
+     },
+     {
+      "flow": 0.0010410436867993801,
+      "head": 40.4428447447643
+     },
+     {
+      "flow": 0.0020820873735987603,
+      "head": 28.345705550078492
+     },
+     {
+      "flow": 0.0031231310603981404,
+      "head": 16.248566355392686
+     }
+    ]
+   }
+  ]
+ }
+}

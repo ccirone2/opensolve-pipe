@@ -1,0 +1,52 @@
+# --- Python (uv) ---
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+# uv.lock is committed
+
+# --- Node / SvelteKit (pnpm) ---
+node_modules/
+.pnpm-store/
+.svelte-kit/
+.vercel/
+.netlify/
+.wrangler/
+/apps/web/build/
+vite.config.*.timestamp-*
+coverage/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Logs ---
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# --- Editors / OS ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+
+# --- Claude Code (local only) ---
+.claude/settings.local.json

@@ -10,13 +10,16 @@ Free, browser-based tool for steady-state hydraulic analysis of pressurized pipe
 
 | Doc | Role |
 |-----|------|
+| `docs/GOALS.md` | Mission, values, priority order, feature gates — read first for any judgment call |
 | `docs/PRD.md` | What to build and for whom |
 | `docs/SDD.md` | Architecture, data models, API contracts |
 | `docs/TSD.md` | Concrete stack, file layout, code sketches |
 
 The specs are at v0.2.0 (rebuild baseline) and reflect the decisions below. Items marked **Later** are outside v1. Code samples are sketches, except those the TSD marks as tested.
 
-**Precedence when they disagree:** this file's *Rebuild decisions* section → PRD → SDD → TSD. If a spec conflicts with a decision below, follow the decision and update the spec in the same change.
+**Precedence when they disagree:** `docs/GOALS.md` → this file's *Rebuild decisions* section → PRD → SDD → TSD. If a spec conflicts with a decision below, follow the decision and update the spec in the same change.
+
+**Priority order for trade-offs** (GOALS §3): correctness → traceability → longevity → accessibility → privacy → usability → breadth.
 
 ---
 
@@ -124,5 +127,8 @@ pnpm test && pnpm check && pnpm lint
 - Backend calculates in SI only. Convert units in the frontend at input/display, never inside the solver.
 - Pydantic models are the API source of truth. Generate frontend types from the OpenAPI schema rather than hand-writing duplicates.
 - Hydraulic data (pipe schedules, roughness, K-factors, fluid properties) lives in versioned JSON under `apps/api/src/opensolve_pipe/data/`, with a source citation per entry.
-- Results-first UI: no warnings unless the user turns design checks on (PRD §4.1, §5).
+- Results-first UI: always solve. Flag physically invalid results by default (cavitation, pump flow reversal, outside a correlation's range, non-convergence); design-practice checks are opt-in (GOALS §4.6).
+- Traceability: every result must be traceable to its inputs, equations, correlations and cited data (GOALS §4.2). A feature isn't done until its traceability output exists.
+- No analytics, tracking or cookies; never log project contents (GOALS §4.5).
+- AI-written code meets the same bar as any other: hydraulic correctness is proven by the reference suite, not by review alone (GOALS §7.2).
 - Keep it simple: build the v1 scope (D5) before anything deferred.

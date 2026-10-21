@@ -24,6 +24,7 @@ Out of scope: transient (water hammer), two-phase, gas and open-channel flow, an
 
 | Document | Contents |
 |----------|----------|
+| [`docs/GOALS.md`](docs/GOALS.md) | Mission, values and priorities that guide decisions |
 | [`docs/PRD.md`](docs/PRD.md) | Product requirements: users, scope, features |
 | [`docs/SDD.md`](docs/SDD.md) | Software design: architecture, data models, API |
 | [`docs/TSD.md`](docs/TSD.md) | Technical spec: stack, layout, implementation notes |
@@ -54,4 +55,8 @@ pnpm dev
 
 ## Contributing
 
-Issues and discussion: <https://github.com/ccirone2/opensolve-pipe/issues>
+Bug reports, data requests and questions are welcome as [issues](https://github.com/ccirone2/opensolve-pipe/issues). Code contributions are accepted by invitation, to keep the project on one consistent vision. See [`docs/GOALS.md`](docs/GOALS.md) for the values that guide decisions.
+
+## Disclaimer
+
+OpenSolve Pipe is an engineering aid. Its results support, but do not replace, the judgment of a qualified engineer, and are provided without warranty.

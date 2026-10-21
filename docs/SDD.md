@@ -30,6 +30,7 @@ Items marked **(Later)** are outside v1 (PRD §2.3) and are kept here so the v1 
 
 - PRD: Product Requirements Document v0.2.0
 - TSD: Technical Specification Document v0.2.0
+- `docs/GOALS.md`: mission, values and priority order (take precedence over everything below)
 - `CLAUDE.md`: rebuild decisions D1–D6 (take precedence over this document)
 
 ---
@@ -182,7 +183,10 @@ interface NavigationStep {
 - Node table (pressures, HGL, EGL)
 - Link table (flows, velocities, head loss)
 - Pump curve graph with system curve overlay
-- Warnings panel (Later, when design checks are enabled)
+- Validity flags (v1): cavitation, pump flow reversal, out-of-range correlations, non-convergence
+- Calculation trace per element: inputs, equations, correlations and data sources used
+- Methods-and-assumptions summary for the whole project
+- Design-check warnings (Later, opt-in)
 
 #### 3.1.4 State Manager
 
@@ -279,6 +283,8 @@ Models are plain JSON-serializable data (no methods, no `Map`s), because they tr
 ```typescript
 interface Project {
   schemaVersion: number;          // integer; bumped on every breaking change, see §5.2
+  methodVersion: string;          // calculation-method version the project was last solved with;
+                                  // used to explain result changes when an old link is reopened (GOALS §4.3)
   id: string;
   metadata: ProjectMetadata;
   settings: ProjectSettings;

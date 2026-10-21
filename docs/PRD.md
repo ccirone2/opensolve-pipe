@@ -34,6 +34,8 @@ A web application that:
 
 ### 1.4 Target Users
 
+**Primary user: working engineers** (process, maintenance, consulting). When user needs conflict, theirs win (`docs/GOALS.md` §1).
+
 | User Type             | Needs                                 | Experience Level |
 | --------------------- | ------------------------------------- | ---------------- |
 | Students              | Learning tool, homework, projects     | Beginner         |
@@ -398,8 +400,10 @@ Manual entry of:
 
 - Mobile and desktop equal priority (responsive design)
 - Minimalist interface with intuitive navigation
-- Results-first presentation (warnings opt-in)
-- No default "nannying"—user controls design checks
+- Results-first presentation: always solve and show results
+- Physically invalid or unreliable results are flagged by default: cavitation (NPSHa < NPSHr), flow reversal through a pump, operation outside a correlation's validated range, non-convergence
+- No default "nannying" on design practice—user controls design checks (§5)
+- Every result is traceable to its inputs, equations, correlations and data sources, and a methods-and-assumptions summary is available for each solved project (GOALS §4.2)
 
 ### 4.2 Performance
 

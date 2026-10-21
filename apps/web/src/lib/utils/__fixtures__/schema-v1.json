@@ -1,0 +1,211 @@
+{
+	"schemaVersion": 1,
+	"methodVersion": "",
+	"id": "fixture-schema-v1",
+	"metadata": {
+		"name": "Schema v1 fixture",
+		"description": "Small but complete project used to check that schema-version-1 links always open. Values are illustrative inputs.",
+		"created": "2026-10-21T00:00:00Z",
+		"modified": "2026-10-21T00:00:00Z"
+	},
+	"settings": {
+		"units": {
+			"length": "ft",
+			"diameter": "in",
+			"pressure": "psi",
+			"head": "ft",
+			"flow": "gpm",
+			"velocity": "ft/s",
+			"temperature": "F",
+			"density": "lb/ft3",
+			"viscosity": "cP"
+		},
+		"siteElevation": 250,
+		"atmosphericPressure": 98000,
+		"solverOptions": { "frictionMethod": "swamee_jain", "maxIterations": 200, "tolerance": 1e-8 }
+	},
+	"fluid": {
+		"kind": "builtin",
+		"fluidId": "water",
+		"temperature": 288.15,
+		"concentration": null,
+		"overrides": { "density": 999.5, "dynamicViscosity": null, "vaporPressure": null }
+	},
+	"components": [
+		{
+			"type": "reservoir",
+			"id": "R1",
+			"name": "Supply tank",
+			"elevation": 0,
+			"liquidLevel": 2.5,
+			"surfacePressure": 0,
+			"ports": [
+				{ "id": "port_1", "nominalSize": 0.1016, "direction": "bidirectional", "elevation": -0.5 }
+			]
+		},
+		{
+			"type": "pump",
+			"id": "P1",
+			"name": "Pump",
+			"elevation": 0.2,
+			"curveId": "C1",
+			"speed": 0.9,
+			"status": "on",
+			"ports": [
+				{ "id": "suction", "nominalSize": 0.1016, "direction": "inlet" },
+				{ "id": "discharge", "nominalSize": 0.0762, "direction": "outlet" }
+			]
+		},
+		{
+			"type": "branch",
+			"branchType": "tee",
+			"id": "T1",
+			"name": "Tee",
+			"elevation": 1,
+			"lossModel": "ideal",
+			"ports": [
+				{ "id": "run_inlet", "nominalSize": 0.0762, "direction": "bidirectional" },
+				{ "id": "run_outlet", "nominalSize": 0.0762, "direction": "bidirectional" },
+				{ "id": "branch", "nominalSize": 0.0508, "direction": "bidirectional" }
+			]
+		},
+		{
+			"type": "valve",
+			"valveType": "gate",
+			"id": "V1",
+			"name": "Gate valve",
+			"elevation": 1,
+			"status": "active",
+			"resistance": { "kind": "Cv", "value": 450 },
+			"ports": [
+				{ "id": "inlet", "nominalSize": 0.0762, "direction": "inlet" },
+				{ "id": "outlet", "nominalSize": 0.0762, "direction": "outlet" }
+			]
+		},
+		{
+			"type": "plug",
+			"id": "PL1",
+			"name": "Capped branch",
+			"elevation": 1,
+			"ports": [{ "id": "port_1", "nominalSize": 0.0508, "direction": "bidirectional" }]
+		},
+		{
+			"type": "reservoir",
+			"id": "R2",
+			"name": "Delivery tank",
+			"elevation": 12,
+			"liquidLevel": 1.5,
+			"surfacePressure": 5000,
+			"ports": [{ "id": "port_1", "nominalSize": 0.0762, "direction": "bidirectional" }]
+		}
+	],
+	"connections": [
+		{
+			"id": "L1",
+			"fromComponentId": "R1",
+			"fromPortId": "port_1",
+			"toComponentId": "P1",
+			"toPortId": "suction",
+			"piping": {
+				"pipes": [
+					{ "materialId": "carbon_steel", "schedule": "40", "nominalSize": 0.1016, "length": 4 }
+				],
+				"fittings": [
+					{ "type": "entrance_rounded", "quantity": 1, "pipeIndex": 0, "radiusRatio": 0.15 }
+				]
+			}
+		},
+		{
+			"id": "L2",
+			"fromComponentId": "P1",
+			"fromPortId": "discharge",
+			"toComponentId": "T1",
+			"toPortId": "run_inlet",
+			"piping": {
+				"pipes": [
+					{
+						"materialId": "carbon_steel",
+						"schedule": "40",
+						"nominalSize": 0.0762,
+						"length": 2,
+						"roughness": 0.0001
+					},
+					{ "materialId": "custom", "innerDiameter": 0.075, "roughness": 0.000005, "length": 6 }
+				],
+				"fittings": [
+					{ "type": "bend", "quantity": 2, "pipeIndex": 1, "angle": 60, "radiusRatio": 3 },
+					{ "type": "reducer_sudden", "quantity": 1, "pipeIndex": 0 },
+					{
+						"type": "custom",
+						"quantity": 1,
+						"pipeIndex": 1,
+						"kOverride": 0.8,
+						"description": "Flow meter"
+					}
+				]
+			}
+		},
+		{
+			"id": "L3",
+			"fromComponentId": "T1",
+			"fromPortId": "run_outlet",
+			"toComponentId": "V1",
+			"toPortId": "inlet",
+			"piping": {
+				"pipes": [
+					{ "materialId": "carbon_steel", "schedule": "40", "nominalSize": 0.0762, "length": 15 }
+				],
+				"fittings": [{ "type": "elbow_90_lr", "quantity": 3, "pipeIndex": 0 }]
+			}
+		},
+		{
+			"id": "L4",
+			"fromComponentId": "V1",
+			"fromPortId": "outlet",
+			"toComponentId": "R2",
+			"toPortId": "port_1",
+			"piping": {
+				"pipes": [
+					{ "materialId": "carbon_steel", "schedule": "40", "nominalSize": 0.0762, "length": 30 }
+				],
+				"fittings": [{ "type": "exit", "quantity": 1, "pipeIndex": 0 }]
+			}
+		},
+		{
+			"id": "L5",
+			"fromComponentId": "T1",
+			"fromPortId": "branch",
+			"toComponentId": "PL1",
+			"toPortId": "port_1",
+			"piping": {
+				"pipes": [
+					{ "materialId": "carbon_steel", "schedule": "40", "nominalSize": 0.0508, "length": 1 }
+				],
+				"fittings": []
+			}
+		}
+	],
+	"pumpLibrary": [
+		{
+			"id": "C1",
+			"name": "Fixture pump curve",
+			"manufacturer": "Illustrative",
+			"model": "Fixture-1",
+			"points": [
+				{ "flow": 0, "head": 35 },
+				{ "flow": 0.008, "head": 32 },
+				{ "flow": 0.016, "head": 25 },
+				{ "flow": 0.024, "head": 14 }
+			],
+			"efficiencyCurve": [
+				{ "flow": 0.004, "efficiency": 0.4 },
+				{ "flow": 0.012, "efficiency": 0.68 },
+				{ "flow": 0.02, "efficiency": 0.62 }
+			],
+			"npshrCurve": [
+				{ "flow": 0.004, "npshr": 1.2 },
+				{ "flow": 0.024, "npshr": 4.5 }
+			]
+		}
+	]
+}

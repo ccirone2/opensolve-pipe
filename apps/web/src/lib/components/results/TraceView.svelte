@@ -1,0 +1,375 @@
+<!--
+	How one element's results were obtained (GOALS §4.2, design §5): whether the values are
+	current and a solution at all, its flags, its result values, and the solver's trace — inputs
+	with where each came from (user, default, library, computed), equations, correlations and
+	data sources with citations, intermediate values in display units where the unit is known,
+	and notes. A side panel over the results on wide screens (the results under it are inert while
+	it is open); a dialog (bottom sheet) on narrow ones.
+-->
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import type { Flag, SolvedState, TraceInput } from '$lib/api/types';
+	import { focusCurrentHeading } from '$lib/components/panel/focus';
+	import Dialog from '$lib/components/ui/Dialog.svelte';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import { componentById, connectionById } from '$lib/utils/graph';
+	import { mediaQuery, WIDE_SCREEN } from '$lib/utils/media.svelte';
+	import {
+		elementDescription,
+		elementName,
+		flagsForElement,
+		rowsForElement,
+		SEVERITY_LABELS,
+		type ElementRef
+	} from '$lib/utils/results';
+	import { formatQuantity, traceName, traceTextValue } from '$lib/utils/trace';
+	import CellValue from './CellValue.svelte';
+	import FlagIcon from './FlagIcon.svelte';
+	import ResultsStateNotice from './ResultsStateNotice.svelte';
+
+	interface Props {
+		element: ElementRef;
+		solved: SolvedState;
+		onclose: () => void;
+	}
+
+	let { element, solved, onclose }: Props = $props();
+	const ws = useWorkspace();
+	const id = $props.id();
+	const wide = mediaQuery(WIDE_SCREEN);
+
+	const exists = $derived(
+		element.kind === 'component'
+			? !!componentById(ws.project, element.id)
+			: !!connectionById(ws.project, element.id)
+	);
+	const name = $derived(elementName(ws.labelsProject, element));
+	const description = $derived(
+		exists
+			? elementDescription(ws.labelsProject, element)
+			: `${element.kind === 'component' ? 'Component' : 'Pipe connection'} · ${element.id} · deleted`
+	);
+	const trace = $derived(solved.trace.elements[element.id]);
+	const flags = $derived(flagsForElement(solved.flags, element));
+	/** Physically invalid flags about the whole network (e.g. NOT_CONVERGED): they apply here too. */
+	const networkFlags = $derived(
+		solved.flags.filter((f) => f.severity === 'invalid' && !f.componentId && !f.connectionId)
+	);
+	const response = $derived(ws.store.results.response);
+	const converged = $derived(
+		response?.solvedState === solved ? response.success && solved.converged : solved.converged
+	);
+	const results = $derived(rowsForElement(ws.labelsProject, solved, ws.displayUnits, element));
+
+	const SOURCE_LABELS: Record<TraceInput['source'], string> = {
+		user: 'User',
+		default: 'Default',
+		library: 'Library',
+		computed: 'Computed'
+	};
+	const SOURCE_STYLES: Record<TraceInput['source'], string> = {
+		user: 'border-blue-300 bg-blue-50 text-blue-900',
+		default: 'border-slate-300 bg-slate-100 text-slate-800',
+		library: 'border-emerald-300 bg-emerald-50 text-emerald-900',
+		computed: 'border-violet-300 bg-violet-50 text-violet-900'
+	};
+
+	/** Point the navigator at the element, show Build, and move focus to what it shows. */
+	function showInBuild() {
+		const target = element; // read before closing: closing clears the inspected element
+		ws.showElement(target);
+		onclose();
+		void focusCurrentHeading();
+	}
+
+	// Side panel: focus its heading when it opens, give focus back when it closes.
+	let heading: HTMLHeadingElement | undefined = $state();
+	onMount(() => {
+		if (!wide.current) return;
+		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+		heading?.focus();
+		return () => {
+			if (opener?.isConnected && opener.checkVisibility?.() !== false) opener.focus();
+		};
+	});
+
+	function keydown(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			onclose();
+		}
+	}
+</script>
+
+{#snippet sectionTitle(text: string, sid: string)}
+	<h3 id="{id}-{sid}" class="section-title">{text}</h3>
+{/snippet}
+
+{#snippet flagItem(flag: Flag)}
+	{@const text = ws.flagText(flag)}
+	<li
+		class={[
+			'flex items-start gap-2 rounded-md border p-2',
+			flag.severity === 'invalid'
+				? 'border-red-300 bg-red-50'
+				: flag.severity === 'warning'
+					? 'border-amber-300 bg-amber-50'
+					: 'border-slate-200 bg-white'
+		]}
+	>
+		<FlagIcon severity={flag.severity} class="mt-0.5 size-4" />
+		<span class="min-w-0 flex-1 break-words">
+			<span class="font-medium">{SEVERITY_LABELS[flag.severity]}:</span>
+			{text}
+			{#if text !== flag.message}
+				<span class="mt-1 block text-xs text-slate-600">
+					Calculation server's message: {flag.message}
+				</span>
+			{/if}
+		</span>
+	</li>
+{/snippet}
+
+{#snippet body()}
+	<div class="space-y-5 text-sm">
+		{#if !exists || !converged || ws.store.results.stale || ws.store.results.error}
+			<div class="space-y-2">
+				{#if !exists}
+					<p class="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900">
+						{element.id} is no longer in the project: it was deleted after this solve. These are the values
+						it had in that solve.
+					</p>
+				{/if}
+				{#if !converged}
+					<p
+						class="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 p-3 font-medium text-red-900"
+					>
+						<Icon name="alert" class="mt-0.5 size-4 shrink-0" />
+						<span>
+							This solve did not converge. The values below are from the last iteration: they are
+							not a solution of the network. Do not use them.
+						</span>
+					</p>
+				{/if}
+				<ResultsStateNotice values />
+			</div>
+		{/if}
+
+		{#if flags.length || networkFlags.length}
+			<section class="space-y-2" aria-labelledby="{id}-flags">
+				{@render sectionTitle(`Flags (${flags.length + networkFlags.length})`, 'flags')}
+				<ul class="space-y-2">
+					{#each flags as flag, i (i)}
+						{@render flagItem(flag)}
+					{/each}
+				</ul>
+				{#if networkFlags.length}
+					<p class="text-xs font-medium text-slate-600">About the whole network:</p>
+					<ul class="space-y-2">
+						{#each networkFlags as flag, i (i)}
+							{@render flagItem(flag)}
+						{/each}
+					</ul>
+				{/if}
+			</section>
+		{/if}
+
+		{#if results.length}
+			<section class="space-y-2" aria-labelledby="{id}-results">
+				{@render sectionTitle('Result values', 'results')}
+				{#each results as group (group.title)}
+					{#each group.rows as row (row.key)}
+						<div class="rounded-md border border-slate-200 bg-white p-2">
+							{#if group.rows.length > 1 || group.title === 'Ports'}
+								<h4 class="mb-1 font-medium">
+									{group.title === 'Ports' ? row.detail : group.title}
+								</h4>
+							{/if}
+							<dl class="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3">
+								{#each group.table.columns as column (column.key)}
+									{@const cell = row.cells[column.key] ?? '—'}
+									<div class={['min-w-0', column.wrap && 'col-span-full']}>
+										<dt class="text-xs text-slate-600">
+											{column.label}{#if column.unit}&nbsp;({column.unit}){/if}
+										</dt>
+										<dd class={['break-words', column.numeric && 'tabular-nums']}>
+											<CellValue {cell} />
+										</dd>
+									</div>
+								{/each}
+							</dl>
+						</div>
+					{/each}
+				{/each}
+			</section>
+		{/if}
+
+		{#if trace}
+			{#if trace.inputs.length}
+				<section class="space-y-2" aria-labelledby="{id}-inputs">
+					{@render sectionTitle('Inputs', 'inputs')}
+					<ul class="divide-y divide-slate-100 rounded-md border border-slate-200 bg-white">
+						{#each trace.inputs as input, i (i)}
+							{@const q = formatQuantity(
+								input.name,
+								typeof input.value === 'string'
+									? traceTextValue(input.value, ws.labelsProject)
+									: input.value,
+								input.unit,
+								ws.displayUnits
+							)}
+							<li class="flex flex-wrap items-baseline gap-x-2 gap-y-1 px-2 py-1.5">
+								<span class="min-w-0 flex-1 basis-40 break-words text-slate-700"
+									>{traceName(input.name, ws.labelsProject, element.id)}</span
+								>
+								<span class="tabular-nums">
+									{q.text}
+									{#if q.si}<span class="text-xs text-slate-500">({q.si})</span>{/if}
+								</span>
+								<span
+									class={[
+										'rounded-full border px-1.5 py-0.5 text-xs font-medium',
+										SOURCE_STYLES[input.source]
+									]}>{SOURCE_LABELS[input.source] ?? input.source}</span
+								>
+							</li>
+						{/each}
+					</ul>
+				</section>
+			{/if}
+
+			{#if trace.equations.length}
+				<section class="space-y-2" aria-labelledby="{id}-equations">
+					{@render sectionTitle('Equations', 'equations')}
+					<ul class="space-y-1">
+						{#each trace.equations as equation, i (i)}
+							<li>
+								<code
+									class="block rounded-md bg-slate-100 px-2 py-1 font-mono text-xs break-words whitespace-pre-wrap"
+									>{equation}</code
+								>
+							</li>
+						{/each}
+					</ul>
+				</section>
+			{/if}
+
+			{#if trace.correlations.length}
+				<section class="space-y-2" aria-labelledby="{id}-correlations">
+					{@render sectionTitle('Correlations', 'correlations')}
+					<ul class="space-y-2">
+						{#each trace.correlations as reference, i (i)}
+							<li>
+								<p class="font-medium">{reference.name}</p>
+								<p class="text-xs break-words text-slate-700">{reference.citation}</p>
+							</li>
+						{/each}
+					</ul>
+				</section>
+			{/if}
+
+			{#if trace.dataSources.length}
+				<section class="space-y-2" aria-labelledby="{id}-sources">
+					{@render sectionTitle('Data sources', 'sources')}
+					<ul class="space-y-2">
+						{#each trace.dataSources as reference, i (i)}
+							<li>
+								<p class="font-medium">{reference.name}</p>
+								<p class="text-xs break-words text-slate-700">{reference.citation}</p>
+							</li>
+						{/each}
+					</ul>
+				</section>
+			{/if}
+
+			{#if trace.intermediates.length}
+				<section class="space-y-2" aria-labelledby="{id}-intermediates">
+					{@render sectionTitle('Intermediate values', 'intermediates')}
+					<dl class="divide-y divide-slate-100 rounded-md border border-slate-200 bg-white">
+						{#each trace.intermediates as value, i (i)}
+							{@const q = formatQuantity(value.name, value.value, value.unit, ws.displayUnits)}
+							<div class="flex flex-wrap items-baseline gap-x-2 px-2 py-1.5">
+								<dt class="min-w-0 flex-1 basis-40 break-words text-slate-700">
+									{traceName(value.name, ws.labelsProject, element.id)}
+								</dt>
+								<dd class="tabular-nums">
+									{q.text}
+									{#if q.si}<span class="text-xs text-slate-500">({q.si})</span>{/if}
+								</dd>
+							</div>
+						{/each}
+					</dl>
+				</section>
+			{/if}
+
+			{#if trace.notes.length}
+				<section class="space-y-2" aria-labelledby="{id}-notes">
+					{@render sectionTitle('Notes', 'notes')}
+					<ul class="list-disc space-y-1 pl-5">
+						{#each trace.notes as note, i (i)}
+							<li class="break-words">{note}</li>
+						{/each}
+					</ul>
+				</section>
+			{/if}
+		{:else}
+			<p class="rounded-md border border-slate-200 bg-slate-50 p-2 text-slate-700">
+				This solve did not return a calculation trace for this element. The methods summary
+				(Methods) describes how every element is calculated.
+			</p>
+		{/if}
+	</div>
+{/snippet}
+
+{#if wide.current}
+	<!-- A region over the results (not an <aside>: it sits inside the Results region). -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<div
+		role="region"
+		aria-labelledby="{id}-title"
+		class="absolute inset-0 z-40 flex flex-col border-l border-slate-200 bg-white shadow-xl"
+		onkeydown={keydown}
+	>
+		<div class="flex items-start gap-2 border-b border-slate-200 py-1 pr-1 pl-4">
+			<div class="min-w-0 flex-1 py-2">
+				<h2
+					bind:this={heading}
+					id="{id}-title"
+					tabindex="-1"
+					class="text-base font-semibold break-words"
+				>
+					{name}
+				</h2>
+				<p class="text-xs break-words text-slate-600">{description}</p>
+			</div>
+			{#if exists}
+				<button
+					type="button"
+					class="btn btn-quiet shrink-0 px-2 text-blue-800"
+					onclick={showInBuild}
+				>
+					Show in Build
+				</button>
+			{/if}
+			<button type="button" class="btn btn-quiet btn-icon" aria-label="Close" onclick={onclose}>
+				<Icon name="close" />
+			</button>
+		</div>
+		<div class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+			{@render body()}
+		</div>
+	</div>
+{:else}
+	<Dialog title={name} {onclose} wide>
+		<p class="-mt-2 mb-3 text-xs break-words text-slate-600">{description}</p>
+		{@render body()}
+		{#snippet footer()}
+			{#if exists}
+				<button type="button" class="btn" onclick={showInBuild}>Show in Build</button>
+			{:else}
+				<button type="button" class="btn" onclick={onclose}>Close</button>
+			{/if}
+		{/snippet}
+	</Dialog>
+{/if}

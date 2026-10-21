@@ -274,17 +274,19 @@ In v1, each edited state is simply a new link (PRD §4.4–4.5); there is no ser
 
 ## 4. Data Models
 
-**Units:** every numeric field is stored in SI — m, m³/s, Pa, K, kg/m³, Pa·s, m²/s. Pressures are stored as **gauge** Pa; absolute pressure is derived using the project's atmospheric pressure. Elevations are measured from the project datum. The frontend converts to and from the user's display units; the backend never sees display units.
+**Source of truth:** the Pydantic models in `apps/api/src/opensolve_pipe/models/`. The frontend types in `apps/web/src/lib/api/schema.d.ts` are generated from the OpenAPI schema (`pnpm gen:types`); never hand-write duplicates. The TypeScript below is a readable summary.
 
-Models are plain JSON-serializable data (no methods, no `Map`s), because they travel in URLs and API requests.
+**Units:** every numeric field is stored in SI — m, m³/s, Pa, K, kg/m³, Pa·s, m²/s. Pressures are stored as **gauge** Pa; absolute pressure is derived using the project's atmospheric pressure. Elevations are measured from the project datum. The frontend converts to and from the user's display units; the backend never sees display units. The one exception is a valve's `FlowCoefficient` (§4.9).
+
+Models are plain JSON-serializable data (no methods, no `Map`s), because they travel in URLs and API requests. JSON is camelCase; unknown fields are rejected. Identifiers match `^[A-Za-z0-9_-]{1,64}$` (no `:`, so node keys `componentId:portId` are unambiguous).
 
 ### 4.1 Project Model
 
 ```typescript
 interface Project {
-  schemaVersion: number;          // integer; bumped on every breaking change, see §5.2
-  methodVersion: string;          // calculation-method version the project was last solved with;
-                                  // used to explain result changes when an old link is reopened (GOALS §4.3)
+  schemaVersion: 1;               // integer; bumped on every breaking change, see §5.2
+  methodVersion: string;          // calculation-method version the project was last solved with
+                                  // ('' if never); used to explain result changes (GOALS §4.3)
   id: string;
   metadata: ProjectMetadata;
   settings: ProjectSettings;
@@ -302,15 +304,46 @@ interface ProjectMetadata {
 }
 
 interface ProjectSettings {
-  units: UnitPreferences;         // display only
-  siteElevation: number;          // m above sea level
+  units: UnitPreferences;         // display only (TSD §6)
+  siteElevation: number;          // m above sea level, -500..9000
   atmosphericPressure?: number;   // Pa absolute; overrides the standard-atmosphere value
   solverOptions: SolverOptions;
-  enabledChecks: string[];        // Later (design checks)
+  // Later: enabledChecks (design checks)
+}
+
+interface SolverOptions {         // options that change results travel with the project
+  frictionMethod: 'colebrook' | 'swamee_jain';  // swamee_jain = EPANET's approximation
+  maxIterations: number;          // Newton iterations per network solve (default 100)
+  tolerance: number;              // largest flow change / largest flow (default 1e-9)
 }
 ```
 
 Solved results are not part of `Project` and are not stored in the URL; they are recomputed by solving.
+
+### 4.1.1 Fluid Definition
+
+```typescript
+type FluidDefinition = BuiltinFluid | CustomFluid;
+
+interface BuiltinFluid {
+  kind: 'builtin';
+  fluidId: 'water' | 'ethylene_glycol' | 'propylene_glycol';
+  temperature: number;            // K
+  concentration?: number;         // glycol mass fraction 0–1 (glycols only)
+  overrides?: { density?: number; dynamicViscosity?: number; vaporPressure?: number };
+}
+
+interface CustomFluid {
+  kind: 'custom';
+  name: string;
+  temperature?: number;           // K, informational
+  density: number;                // kg/m³
+  dynamicViscosity: number;       // Pa·s
+  vaporPressure?: number;         // Pa absolute; needed for NPSH available
+}
+```
+
+Built-in properties come from CoolProp (TSD §4.6). Each resolved value records whether it came from the library or a user override.
 
 ### 4.2 Component Model
 
@@ -318,24 +351,23 @@ The component model uses a **port-based architecture**: each component has a def
 
 ```typescript
 type Component =
-  | Reservoir
-  | ReferenceNode
-  | Branch
-  | Plug
+  | Reservoir | IdealReferenceNode | Plug
+  | TeeBranch | WyeBranch
   | Pump
-  | Valve;
-  // Later: Tank, HeatExchanger, Strainer, Orifice, Sprinkler, UserDefinedElement
+  | IsolationValve | CheckValve | ControlValve;
+  // Later: Tank, NonIdealReferenceNode, CrossBranch, ElbowBranch, ReliefValve, HeatExchanger,
+  // Strainer, Orifice, Sprinkler, UserDefinedElement
 
 interface Port {
   id: string;                    // e.g., "suction", "discharge", "branch"
-  nominalSize: number;           // nominal diameter, m
+  nominalSize: number;           // m (NPS inches × 0.0254); default size for new connections
   direction: 'inlet' | 'outlet' | 'bidirectional';
   elevation?: number;            // m; inherits the component elevation if not set
 }
 
 interface BaseComponent {
   id: string;
-  type: ComponentType;
+  type: 'reservoir' | 'reference_node' | 'plug' | 'branch' | 'pump' | 'valve';
   name: string;
   elevation: number;             // m above project datum
   ports: Port[];
@@ -351,137 +383,101 @@ interface PipeConnection {
 }
 
 interface PipingSegment {
-  pipes: PipeDefinition[];       // one or more pipe segments, in order from → to
-  fittings: Fitting[];           // inline fittings (elbows, reducers, inline valves)
+  pipes: PipeDefinition[];       // one or more pipe segments, in series, in order from → to
+  fittings: Fitting[];           // inline fittings (elbows, reducers, entrances, inline valves)
 }
 ```
 
-A port's effective elevation is `port.elevation ?? component.elevation`; this is a helper function, not a field.
+The union is discriminated by `type`, refined by `branchType` for branches and `valveType` for valves. A port's effective elevation is `port.elevation ?? component.elevation`; this is a helper function, not a field. Positive flow in a `PipeConnection` runs from `from` to `to`. The solver uses the inner diameter of the connected pipe at a port, not the port's nominal size.
 
-Positive flow in a `PipeConnection` runs from `from` to `to`.
-
-### 4.3 Pipe Definition
+### 4.3 Pipe Definition and Fittings
 
 ```typescript
 interface PipeDefinition {
-  materialId: string;            // key into the pipe materials library
-  schedule: string;
-  nominalSize: number;           // m (nominal), resolved to an inner diameter from the library
+  materialId: string;            // key into the pipe materials library, or 'custom'
+  schedule?: string;             // library schedule, e.g. '40', '80', '10S', '40D1785'
+  nominalSize?: number;          // m (NPS inches × 0.0254), resolved to an inner diameter
+  innerDiameter?: number;        // m; required for 'custom', otherwise overrides the library
   length: number;                // m
-  roughness?: number;            // m; overrides the material roughness
+  roughness?: number;            // m; required for 'custom', otherwise overrides the library
 }
 
-interface PipeMaterial {
-  id: string;
-  name: string;
-  roughness: number;             // absolute roughness, m
-  schedules: ScheduleData;       // OD/wall lookup, mm in the data file (TSD §4.1)
+interface Fitting {
+  type: FittingType;
+  quantity: number;              // integer ≥ 1
+  pipeIndex: number;             // pipe segment the fitting sits in (its velocity is the reference);
+                                 // a reducer sits between pipeIndex and pipeIndex + 1
+  kOverride?: number;            // user K (priority 1, §6.2); required for 'custom'
+  angle?: number;                // degrees: bend angle, or a conical reducer's included angle
+  radiusRatio?: number;          // r/D: bend radius, or rounded-entrance radius
+  description?: string;
 }
+
+type FittingType =
+  | 'elbow_90_lr' | 'elbow_90_sr' | 'elbow_45_lr' | 'elbow_45_sr'   // welded/flanged, r/D 1.5 or 1
+  | 'elbow_90_threaded' | 'elbow_45_threaded' | 'bend'             // bend: angle + radiusRatio
+  | 'entrance_sharp' | 'entrance_rounded' | 'entrance_projecting' | 'exit'
+  | 'reducer_sudden' | 'reducer_conical'                           // contraction or expansion by flow direction
+  | 'gate_valve' | 'ball_valve' | 'globe_valve' | 'butterfly_valve' | 'plug_valve'
+  | 'swing_check_valve' | 'lift_check_valve'                       // inline: loss only, no check action
+  | 'custom';
 ```
+
+Each fitting type maps to exactly one cited correlation (TSD §4.5). The pipe materials library (TSD §4.1) holds dimensions and roughness with their sources.
 
 ### 4.4 Reference Node Model
 
 Reference nodes define pressure boundary conditions for the hydraulic network.
 
 ```typescript
-interface ReferenceNode extends BaseComponent {
+interface IdealReferenceNode extends BaseComponent {
   type: 'reference_node';
-  referenceType: 'ideal' | 'non_ideal';
-  ports: [Port];                 // single connection port
-}
-
-interface IdealReferenceNode extends ReferenceNode {
   referenceType: 'ideal';
   pressure: number;              // Pa gauge, fixed
+  ports: [Port];                 // exactly one
 }
 
-// Later
-interface NonIdealReferenceNode extends ReferenceNode {
-  referenceType: 'non_ideal';
-  pressureFlowCurve: FlowPressurePoint[];
-  maxFlow?: number;              // m³/s
-}
-
-interface FlowPressurePoint {
-  flow: number;                  // m³/s
-  pressure: number;              // Pa gauge
-}
+// Later: NonIdealReferenceNode with pressureFlowCurve and maxFlow
 ```
+
+An ideal reference node is modeled like a reservoir: a body of liquid at rest at the given gauge pressure at the port elevation, so its energy grade line is fixed at `z + p/(ρg)`. Velocity head develops in the connecting piping; add entrance or exit fittings to model the transition.
 
 ### 4.5 Branch Component Model
 
 Branch components represent fittings where flow splits or combines.
 
 ```typescript
-type BranchType = 'tee' | 'wye' | 'cross' | 'elbow_branch';   // cross, elbow_branch: Later
-
-interface Branch extends BaseComponent {
+interface TeeBranch extends BaseComponent {
   type: 'branch';
-  branchType: BranchType;
-  ports: Port[];
-}
-
-interface TeeBranch extends Branch {
   branchType: 'tee';
-  ports: [
-    Port & { id: 'run_inlet' },
-    Port & { id: 'run_outlet' },
-    Port & { id: 'branch' }
-  ];
-  // Branch port may have a different size than the run ports.
-  // Whether flow is diverging or converging is a solver result, not an input.
+  lossModel: 'crane' | 'ideal';  // ideal: no fitting loss, as EPANET models junctions
+  ports: [ {id: 'run_inlet'}, {id: 'run_outlet'}, {id: 'branch'} ];
 }
 
-interface WyeBranch extends Branch {
+interface WyeBranch extends BaseComponent {
+  type: 'branch';
   branchType: 'wye';
-  angle: number;                 // degrees (typically 45)
-  ports: [
-    Port & { id: 'inlet' },
-    Port & { id: 'outlet_1' },
-    Port & { id: 'outlet_2' }
-  ];
+  angle: number;                 // degrees between branch and run, 30–60 (the Crane range)
+  lossModel: 'crane' | 'ideal';
+  ports: [ {id: 'inlet'}, {id: 'outlet_1'}, {id: 'outlet_2'} ];  // inlet–outlet_1: straight run;
+                                                                 // outlet_2: angled leg
 }
-
-// Later
-interface CrossBranch extends Branch {
-  branchType: 'cross';
-  ports: [
-    Port & { id: 'port_1' },
-    Port & { id: 'port_2' },
-    Port & { id: 'port_3' },
-    Port & { id: 'port_4' }
-  ];
-}
-
-// Later
-interface ElbowBranch extends Branch {
-  branchType: 'elbow_branch';
-  mainAngle: 45 | 90;
-  branchAngle: number;           // degrees
-  ports: [
-    Port & { id: 'inlet' },
-    Port & { id: 'outlet' },
-    Port & { id: 'branch' }
-  ];
-}
+// Later: CrossBranch (4 ports), ElbowBranch
 ```
 
-The tee's diverging/converging behavior is determined from the solved flow directions at each outer iteration, so the user does not set an orientation.
+Whether flow is diverging or converging is a solver result, not an input; port names do not constrain flow direction. Losses follow TSD §5.4.
 
 ### 4.6 Plug/Cap Model
-
-Plug/Cap components represent closed ends in the piping system with zero flow.
 
 ```typescript
 interface Plug extends BaseComponent {
   type: 'plug';
-  ports: [Port & { id: 'port_1'; direction: 'bidirectional' }];
-  // Enforces zero flow at this boundary. Used for dead-end branches,
-  // future expansion points, and temporarily closed connections.
+  ports: [Port & { id: 'port_1' }];
+  // Zero-flow boundary: dead-end branches, future expansion points, closed connections.
 }
 ```
 
-### 4.7 Reservoir and Tank Models
+### 4.7 Reservoir Model
 
 ```typescript
 interface Reservoir extends BaseComponent {
@@ -490,17 +486,10 @@ interface Reservoir extends BaseComponent {
   surfacePressure: number;       // Pa gauge on the liquid surface (0 = open to atmosphere)
   ports: Port[];                 // one or more ports (user-defined)
 }
-
-// Later: variable-level tank (meaningful for extended-period analysis)
-interface Tank extends BaseComponent {
-  type: 'tank';
-  diameter: number;              // m
-  initialLevel: number;          // m
-  minLevel: number;              // m
-  maxLevel: number;              // m
-  ports: Port[];
-}
+// Later: Tank (variable level, extended-period analysis)
 ```
+
+Every port of a reservoir sees the same energy grade line, `z + liquidLevel + surfacePressure/(ρg)`. A port above the liquid surface is flagged.
 
 ### 4.8 Pump Model
 
@@ -508,12 +497,9 @@ interface Tank extends BaseComponent {
 interface Pump extends BaseComponent {
   type: 'pump';
   curveId: string;               // key into project.pumpLibrary
-  speed: number;                 // fraction of rated speed (1.0 = 100%), fixed in v1
-  status: 'on' | 'off';          // off = closed, no reverse flow
-  ports: [
-    Port & { id: 'suction'; direction: 'inlet' },
-    Port & { id: 'discharge'; direction: 'outlet' }
-  ];
+  speed: number;                 // fraction of the curve's rated speed, 0 < s ≤ 1, fixed in v1
+  status: 'on' | 'off';          // off = closed; a running pump never passes reverse flow
+  ports: [ {id: 'suction'}, {id: 'discharge'} ];
   // Later: controlMode ('fixed' | 'pressure' | 'flow'), setpoint, viscosityCorrection
 }
 
@@ -522,65 +508,50 @@ interface PumpCurve {
   name: string;
   manufacturer?: string;
   model?: string;
-  points: FlowHeadPoint[];                    // m³/s, m
+  points: FlowHeadPoint[];                    // ≥ 3 points, flows strictly increasing (m³/s, m)
   efficiencyCurve?: FlowEfficiencyPoint[];    // m³/s, fraction 0–1
-  npshrCurve?: FlowHeadPoint[];               // m³/s, m
-}
-
-interface FlowHeadPoint {
-  flow: number;                  // m³/s
-  head: number;                  // m
+  npshrCurve?: FlowNpshrPoint[];              // m³/s, m
 }
 ```
 
 ### 4.9 Valve Models
 
 ```typescript
-interface Valve extends BaseComponent {
-  type: 'valve';
-  valveType: ValveType;
-  ports: [
-    Port & { id: 'inlet'; direction: 'inlet' },
-    Port & { id: 'outlet'; direction: 'outlet' }
-  ];
-}
-
-type ValveType =
-  | 'gate' | 'ball' | 'butterfly' | 'globe'   // isolation / throttling
-  | 'check' | 'stop_check'                    // one-way
-  | 'prv' | 'psv' | 'fcv'                     // control
-  | 'relief';                                 // Later
-
-// Valve resistance exactly as the user entered it (see note below)
+// Valve resistance exactly as the user entered it
 interface FlowCoefficient {
   kind: 'K' | 'Cv' | 'Kv';       // K: dimensionless; Cv: US gpm at 1 psi; Kv: m³/h at 1 bar
   value: number;
 }
 
-interface IsolationValve extends Valve {
+interface IsolationValve extends BaseComponent {
+  type: 'valve';
   valveType: 'gate' | 'ball' | 'butterfly' | 'globe';
-  status: 'active' | 'isolated';
-  position: number;              // fraction open, 0–1
-  resistance: FlowCoefficient;   // at full open
+  status: 'active' | 'isolated';             // isolated = closed
+  resistance?: FlowCoefficient;              // at the actual opening; default: Crane full-open K
+  ports: [ {id: 'inlet'}, {id: 'outlet'} ];
 }
 
-interface CheckValve extends Valve {
+interface CheckValve extends BaseComponent {
+  type: 'valve';
   valveType: 'check' | 'stop_check';
   status: 'active' | 'locked_open' | 'locked_closed';
-  resistance: FlowCoefficient;   // when open
-  crackingPressure: number;      // Pa
+  resistance?: FlowCoefficient;              // when open; default: Crane swing / globe stop-check K
+  crackingPressure: number;                  // Pa, default 0
 }
 
-interface ControlValve extends Valve {
+interface ControlValve extends BaseComponent {
+  type: 'valve';
   valveType: 'prv' | 'psv' | 'fcv';
   status: 'active' | 'failed_open' | 'failed_closed';
-  setpoint: number;              // Pa gauge (prv: downstream, psv: upstream) or m³/s (fcv)
-  model: 'simplified' | 'detailed';
-  cvCurve?: CvPoint[];           // detailed model: flow coefficient vs position
+  setpoint: number;              // prv: static gauge Pa at the outlet port; psv: at the inlet port;
+                                 // fcv: m³/s
+  resistance?: FlowCoefficient;  // fully open loss; default: ideal valve (no loss when wide open)
 }
 ```
 
-**Flow coefficients:** manufacturers publish valve capacity as Cv (US gpm at 1 psi ΔP) or Kv (m³/h at 1 bar ΔP), both defined for water. `FlowCoefficient` stores the value in the user's own convention — the one documented exception to SI storage, because Cv and Kv are defined quantities rather than units — and the solver converts it to a loss coefficient K for the connected inner diameter (TSD §5.3).
+**Flow coefficients:** manufacturers publish valve capacity as Cv (US gpm at 1 psi ΔP) or Kv (m³/h at 1 bar ΔP), both defined for water. `FlowCoefficient` stores the value in the user's own convention — the one documented exception to SI storage, because Cv and Kv are defined quantities rather than units — and the solver converts it to a loss coefficient K at the inner diameter of the pipe connected to the valve inlet (TSD §5.3).
+
+**v1 limits:** an isolation valve has no `position` field and a control valve has no Cv-vs-position curve, because no cited opening characteristic is available (GOALS §4.1); enter the resistance at the actual opening instead. Position-dependent models are Later. A check valve, when open, loses `Δp_crack/(ρg) + K·v²/(2g)`; it closes when the pressure difference falls below the cracking pressure or the flow would reverse.
 
 ### 4.10 Solved State
 

@@ -154,11 +154,11 @@ Users shall be able to model the following components:
 | Pump                      | Curve (head vs flow), speed ratio, status; later: control mode, viscosity correction | v1      |
 | Check Valve               | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed)       | v1      |
 | Stop-Check Valve          | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed)       | v1      |
-| Gate/Ball/Butterfly Valve | Cv or K-factor, position (0-100% open), status (active/isolated)                   | v1      |
-| Globe Valve               | Cv or K-factor, position (0-100% open), status (active/isolated)                   | v1      |
-| Pressure Reducing Valve   | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        | v1      |
-| Pressure Sustaining Valve | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        | v1      |
-| Flow Control Valve        | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        | v1      |
+| Gate/Ball/Butterfly Valve | Cv, Kv or K-factor at the actual opening (default: Crane full-open K), status (active/isolated); position-dependent K: Later | v1      |
+| Globe Valve               | Cv, Kv or K-factor at the actual opening (default: Crane full-open K), status (active/isolated); position-dependent K: Later | v1      |
+| Pressure Reducing Valve   | Setpoint, fully open Cv/Kv/K (default: ideal), status (active/failed-open/failed-closed); Cv-vs-position curve: Later | v1      |
+| Pressure Sustaining Valve | Setpoint, fully open Cv/Kv/K (default: ideal), status (active/failed-open/failed-closed); Cv-vs-position curve: Later | v1      |
+| Flow Control Valve        | Setpoint, fully open Cv/Kv/K (default: ideal), status (active/failed-open/failed-closed); Cv-vs-position curve: Later | v1      |
 | Pressure Relief Valve     | Setpoint, capacity                                                                 | Later   |
 | Heat Exchanger            | Fixed pressure drop, or Cv/K model                                                 | Later   |
 | Strainer/Filter           | K-factor (clean and dirty)                                                         | Later   |
@@ -293,7 +293,7 @@ For each control valve:
 
 - Status (active/bypassed/failed)
 - Actual flow/pressure vs setpoint
-- Valve position (% open)
+- Valve position (% open): Later (needs a Cv-vs-position curve); v1 reports the equivalent K and Cv of the throttling loss
 - Whether setpoint is achieved
 
 #### 3.2.2 Pump Analysis

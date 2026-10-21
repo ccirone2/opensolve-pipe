@@ -66,6 +66,9 @@ jobs:
           cache-dependency-path: apps/web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
         working-directory: apps/web
+      - name: Generated API types are up to date
+        run: pnpm gen:types && git diff --exit-code -- src/lib/api
+        working-directory: apps/web
       - run: pnpm exec playwright install --with-deps chromium
         working-directory: apps/web
       - run: pnpm test:e2e

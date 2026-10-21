@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "methodVersion": "",
+  "id": "demo-pump-system",
+  "metadata": {
+    "name": "Pump transfer between two tanks",
+    "created": "2026-10-21T00:00:00Z",
+    "modified": "2026-10-21T00:00:00Z"
+  },
+  "settings": {
+    "units": {
+      "length": "m",
+      "diameter": "mm",
+      "pressure": "kPa",
+      "head": "m",
+      "flow": "L/s",
+      "velocity": "m/s",
+      "temperature": "C",
+      "density": "kg/m3",
+      "viscosity": "mPa.s"
+    },
+    "siteElevation": 0,
+    "solverOptions": { "frictionMethod": "colebrook", "maxIterations": 100, "tolerance": 1e-9 }
+  },
+  "fluid": { "kind": "builtin", "fluidId": "water", "temperature": 293.15 },
+  "components": [
+    {
+      "type": "reservoir",
+      "id": "R1",
+      "name": "Suction tank",
+      "elevation": 0,
+      "liquidLevel": 3,
+      "surfacePressure": 0,
+      "ports": [{ "id": "port_1", "nominalSize": 0.1016, "direction": "bidirectional" }]
+    },
+    {
+      "type": "pump",
+      "id": "P1",
+      "name": "Transfer pump",
+      "elevation": 0,
+      "curveId": "C1",
+      "speed": 1,
+      "status": "on",
+      "ports": [
+        { "id": "suction", "nominalSize": 0.1016, "direction": "inlet" },
+        { "id": "discharge", "nominalSize": 0.0762, "direction": "outlet" }
+      ]
+    },
+    {
+      "type": "valve",
+      "valveType": "gate",
+      "id": "V1",
+      "name": "Discharge isolation valve",
+      "elevation": 0,
+      "status": "active",
+      "ports": [
+        { "id": "inlet", "nominalSize": 0.0762, "direction": "inlet" },
+        { "id": "outlet", "nominalSize": 0.0762, "direction": "outlet" }
+      ]
+    },
+    {
+      "type": "reservoir",
+      "id": "R2",
+      "name": "Discharge tank",
+      "elevation": 10,
+      "liquidLevel": 2,
+      "surfacePressure": 0,
+      "ports": [{ "id": "port_1", "nominalSize": 0.0762, "direction": "bidirectional" }]
+    }
+  ],
+  "connections": [
+    {
+      "id": "L1",
+      "fromComponentId": "R1",
+      "fromPortId": "port_1",
+      "toComponentId": "P1",
+      "toPortId": "suction",
+      "piping": {
+        "pipes": [
+          { "materialId": "carbon_steel", "schedule": "40", "nominalSize": 0.1016, "length": 5 }
+        ],
+        "fittings": [{ "type": "entrance_sharp", "quantity": 1, "pipeIndex": 0 }]
+      }
+    },
+    {
+      "id": "L2",
+      "fromComponentId": "P1",
+      "fromPortId": "discharge",
+      "toComponentId": "V1",
+      "toPortId": "inlet",
+      "piping": {
+        "pipes": [
+          { "materialId": "carbon_steel", "schedule": "40", "nominalSize": 0.0762, "length": 3 }
+        ],
+        "fittings": []
+      }
+    },
+    {
+      "id": "L3",
+      "fromComponentId": "V1",
+      "fromPortId": "outlet",
+      "toComponentId": "R2",
+      "toPortId": "port_1",
+      "piping": {
+        "pipes": [
+          { "materialId": "carbon_steel", "schedule": "40", "nominalSize": 0.0762, "length": 60 }
+        ],
+        "fittings": [
+          { "type": "elbow_90_lr", "quantity": 4, "pipeIndex": 0 },
+          { "type": "exit", "quantity": 1, "pipeIndex": 0 }
+        ]
+      }
+    }
+  ],
+  "pumpLibrary": [
+    {
+      "id": "C1",
+      "name": "Example curve",
+      "points": [
+        { "flow": 0, "head": 30 },
+        { "flow": 0.01, "head": 28 },
+        { "flow": 0.02, "head": 22 },
+        { "flow": 0.03, "head": 12 }
+      ]
+    }
+  ]
+}

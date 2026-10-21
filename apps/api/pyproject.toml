@@ -25,6 +25,8 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "N", "C4", "PT", "NPY"]
+# Engineering notation in docstrings and trace text.
+allowed-confusables = ["ρ", "ν", "μ", "η", "Δ", "·", "−", "×", "–"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -44,8 +46,9 @@ warn_required_dynamic_aliases = true
 testpaths = ["tests"]
 addopts = "-ra"
 filterwarnings = [
+    "error::DeprecationWarning:opensolve_pipe",
     # Starlette recommends httpx2 for its TestClient; httpx still works and is what we pin.
-    "ignore:Using `httpx` with `starlette.testclient` is deprecated:DeprecationWarning",
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
 ]
 
 [tool.coverage.run]

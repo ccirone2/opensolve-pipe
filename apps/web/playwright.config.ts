@@ -5,6 +5,10 @@ export default defineConfig({
 	testDir: 'tests',
 	testMatch: '**/*.e2e.ts',
 	fullyParallel: true,
+	// One worker: every test's browser reaches the one API from the same address, and the API
+	// solves one request per client address at a time (CLAUDE.md D10), so two workers solving at
+	// once raced into SERVER_BUSY (CI run 39726631693).
+	workers: 1,
 	forbidOnly: !!process.env.CI,
 	retries: 0,
 	reporter: process.env.CI ? 'github' : 'list',

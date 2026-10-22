@@ -1080,6 +1080,7 @@ What the tests cover:
 
 **End-to-end tests: Playwright** (`playwright.config.ts`, `pnpm test:e2e`). Tests are `tests/*.e2e.ts`, with shared helpers in `tests/support.ts`. Selectors use accessible roles and names. They run against the real API and the production build:
 
+- **One worker.** Every test's browser reaches the one API from the same address, and the API solves one request per client address at a time (CLAUDE.md D10), so the suite runs in one Playwright worker; with two, tests that solved at the same moment failed with `SERVER_BUSY` (CI run 39726631693).
 - **Servers.** The config starts the API (`uv run uvicorn opensolve_pipe.main:app --port 8010` in `apps/api`, with `CORS_ORIGINS=http://localhost:4183`) and the site (`pnpm build && pnpm preview --port 4183 --strictPort`, with `PUBLIC_API_URL=http://localhost:8010`); the ports are in `tests/servers.ts`. Outside CI it reuses servers already running on those ports. They are not the development ports (API 8000, Vite 5173 and 4173), so a development API, whose CORS allows only the dev app, is never reused.
 - **Projects.** Every test runs twice, on Chromium (Playwright's `Desktop Chrome` device):
   - `desktop`: 1280 × 800;

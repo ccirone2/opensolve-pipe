@@ -17,13 +17,13 @@ Precedence when documents disagree: GOALS → CLAUDE.md decisions → PRD → SD
 
 ## 2. Where things stand
 
-The history is one commit per milestone: M0 `879f537`, M1 `2f722bf`, M2 `56938ee`, M3 `240652f`, M4 `ca34178`, M5+M6 `2edfde3`, M7 `97232f9`. After v1: `f1ada11` (this prompt), `cd715ba` (solver speed with bit-identical results; the step-hold reference case), `95effa5` (the differential test and corpus comparison moved into the repo). CI (`.github/workflows/ci.yml`: API, web, e2e and generated-type drift jobs) passed on every one of them.
+The history is one commit per milestone: M0 `879f537`, M1 `2f722bf`, M2 `56938ee`, M3 `240652f`, M4 `ca34178`, M5+M6 `2edfde3`, M7 `97232f9`. After v1: `f1ada11` (this prompt), `cd715ba` (solver speed with bit-identical results; the step-hold reference case), `95effa5` and `239dd40` (the differential test and corpus comparison moved into the repo, then hardened after an adversarial review), and the VFD design proposal in `docs/proposals/`. CI (`.github/workflows/ci.yml`: API, web, e2e and generated-type drift jobs) passed on every one of them.
 
-Verified state at `95effa5`:
+Verified state at `239dd40`:
 
 | Area | Result |
 |---|---|
-| API pytest | 2,104 passed (including the 50-seed EPANET smoke test); 97% coverage of `opensolve_pipe` |
+| API pytest | 2,105 passed (including the 50-seed EPANET smoke test, whose per-seed classes are pinned); 97% coverage of `opensolve_pipe` |
 | API ruff, ruff format, mypy strict | clean |
 | Web svelte-check, Prettier + ESLint | clean |
 | Web Vitest | 430 passed |
@@ -116,6 +116,7 @@ Pass each item through the GOALS §5 gates first, and stop to ask the owner wher
 5. **Reference case for the K step-hold.** Done in session 2: `wye_crane_step_hold`, written independently of the solver code; it also checks the pair of splits the solver holds between.
 6. **The "default" label.** A value equal to its documented default is labelled "default" even when the user typed it (D10). If the owner wants the distinction, it needs a model marker plus a schema migration.
 7. **After that, deferred scope** (D5 list: VFD modes, HI viscosity correction, relief valves, export, and so on). Each item goes through the GOALS gates and the D5 order, one verified slice at a time, each with reference cases and traces.
+   - VFD modes come first in D5 order. `docs/proposals/vfd-pump-modes.md` is a reviewed design (three independent designs, a three-judge panel; research with sources in `vfd-industry-conventions.md`): slice 1 is Controlled Flow, then discharge pressure, then differential pressure. Its §10 lists the owner's decisions (slice order, minimum-speed default, schemaVersion given the deployment order, D6 for speed, and others). Build nothing from it until the owner has answered them; then record the decisions as a CLAUDE.md decision (D11) and update PRD/SDD/TSD in the same change, as the proposal's §3.7 lists.
 
 ## 7. Report
 

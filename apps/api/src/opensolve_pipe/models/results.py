@@ -31,6 +31,7 @@ FlagCode = Literal[
     "PORT_ABOVE_LIQUID_LEVEL",
     "CHECK_VALVE_CLOSED",
     "CONTROL_VALVE_SETPOINT_NOT_MET",
+    "PUMP_SETPOINT_NOT_MET",
     "ISOLATED_SECTION",
     "UNDETERMINED_PRESSURE",
     "NPSH_NOT_CHECKED",
@@ -115,11 +116,37 @@ class LinkResult(OutputModel):
     fittings: list[FittingResult]
 
 
+class PumpControlResult(OutputModel):
+    """A speed-controlled pump's control (CLAUDE.md D11)."""
+
+    mode: Literal["flow"]
+    setpoint: float = Field(description="m³/s through the pump, suction -> discharge")
+    state: Literal["active", "max_speed", "min_speed", "no_flow", "off"] = Field(
+        description=(
+            "active: the speed holds the setpoint; max_speed / min_speed: the setpoint needs a "
+            "speed outside the drive's range, so the pump runs at that limit as a fixed-speed "
+            "pump; no_flow: the head across it exceeds its shutoff head at maximum speed; off: "
+            "the pump is off and its control is not applied"
+        )
+    )
+    setpoint_achieved: bool | None = Field(
+        description="Whether the solved flow holds the setpoint; None when the pump is off"
+    )
+
+
 class PumpResult(OutputModel):
     status: Literal["running", "off", "no_flow"] = Field(
         description="no_flow: running but the system head exceeds the shutoff head"
     )
-    speed: float = Field(description="Fraction of rated speed")
+    speed: float = Field(
+        description=(
+            "Fraction of rated speed the pump runs at: its set speed, or a speed-controlled "
+            "pump's solved or limit speed"
+        )
+    )
+    control: PumpControlResult | None = Field(
+        description="The speed control's state; None for a fixed-speed pump"
+    )
     operating_flow: float = Field(description="m³/s")
     operating_head: float = Field(description="Total dynamic head, EGL rise, m")
     in_curve_range: bool = Field(description="False when the operating flow is extrapolated")

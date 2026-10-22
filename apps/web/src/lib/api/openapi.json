@@ -886,6 +886,7 @@
               "PORT_ABOVE_LIQUID_LEVEL",
               "CHECK_VALVE_CLOSED",
               "CONTROL_VALVE_SETPOINT_NOT_MET",
+              "PUMP_SETPOINT_NOT_MET",
               "ISOLATED_SECTION",
               "UNDETERMINED_PRESSURE",
               "NPSH_NOT_CHECKED"
@@ -2383,8 +2384,19 @@
       },
       "Pump": {
         "additionalProperties": false,
-        "description": "Fixed-speed centrifugal pump with an integral check (no reverse flow).",
+        "description": "Centrifugal pump with an integral check (no reverse flow): fixed speed, or\nspeed-controlled when ``control`` is given (CLAUDE.md D11).",
         "properties": {
+          "control": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PumpControl"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Speed control (VFD); omitted: fixed speed"
+          },
           "curveId": {
             "description": "Key into project.pumpLibrary",
             "maxLength": 64,
@@ -2425,7 +2437,7 @@
           },
           "speed": {
             "default": 1.0,
-            "description": "Speed as a fraction of the curve's rated speed",
+            "description": "Speed as a fraction of the curve's rated speed; for a speed-controlled pump, its maximum speed",
             "exclusiveMinimum": 0.0,
             "maximum": 1.0,
             "title": "Speed",
@@ -2456,6 +2468,13 @@
         ],
         "title": "Pump",
         "type": "object",
+        "x-ordered-fields": [
+          {
+            "lower": "control.minSpeed",
+            "strict": true,
+            "upper": "speed"
+          }
+        ],
         "x-port-ids": [
           "suction",
           "discharge"
@@ -2464,6 +2483,87 @@
           "discharge": "outlet",
           "suction": "inlet"
         }
+      },
+      "PumpControl": {
+        "additionalProperties": false,
+        "description": "Speed control by a drive (VFD, CLAUDE.md D11): the speed varies between ``min_speed``\nand the pump's ``speed`` (its maximum) to hold the setpoint.",
+        "properties": {
+          "minSpeed": {
+            "description": "Lowest speed the drive runs the pump at, as a fraction of the curve's rated speed; no default (a property of the drive)",
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Minspeed",
+            "type": "number"
+          },
+          "mode": {
+            "const": "flow",
+            "description": "flow: hold the volumetric flow through the pump (suction -> discharge)",
+            "title": "Mode",
+            "type": "string"
+          },
+          "setpoint": {
+            "description": "Flow through the pump, suction -> discharge, m³/s",
+            "exclusiveMinimum": 0.0,
+            "maximum": 100.0,
+            "title": "Setpoint",
+            "type": "number"
+          }
+        },
+        "required": [
+          "mode",
+          "setpoint",
+          "minSpeed"
+        ],
+        "title": "PumpControl",
+        "type": "object"
+      },
+      "PumpControlResult": {
+        "additionalProperties": false,
+        "description": "A speed-controlled pump's control (CLAUDE.md D11).",
+        "properties": {
+          "mode": {
+            "const": "flow",
+            "title": "Mode",
+            "type": "string"
+          },
+          "setpoint": {
+            "description": "m³/s through the pump, suction -> discharge",
+            "title": "Setpoint",
+            "type": "number"
+          },
+          "setpointAchieved": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether the solved flow holds the setpoint; None when the pump is off",
+            "title": "Setpointachieved"
+          },
+          "state": {
+            "description": "active: the speed holds the setpoint; max_speed / min_speed: the setpoint needs a speed outside the drive's range, so the pump runs at that limit as a fixed-speed pump; no_flow: the head across it exceeds its shutoff head at maximum speed; off: the pump is off and its control is not applied",
+            "enum": [
+              "active",
+              "max_speed",
+              "min_speed",
+              "no_flow",
+              "off"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "setpoint",
+          "state",
+          "setpointAchieved"
+        ],
+        "title": "PumpControlResult",
+        "type": "object"
       },
       "PumpCurve": {
         "additionalProperties": false,
@@ -2560,6 +2660,17 @@
       "PumpResult": {
         "additionalProperties": false,
         "properties": {
+          "control": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PumpControlResult"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The speed control's state; None for a fixed-speed pump"
+          },
           "curve": {
             "description": "Pump curve at the operating speed, sampled",
             "items": {
@@ -2649,7 +2760,7 @@
             "title": "Shaftpower"
           },
           "speed": {
-            "description": "Fraction of rated speed",
+            "description": "Fraction of rated speed the pump runs at: its set speed, or a speed-controlled pump's solved or limit speed",
             "title": "Speed",
             "type": "number"
           },
@@ -2693,6 +2804,7 @@
         "required": [
           "status",
           "speed",
+          "control",
           "operatingFlow",
           "operatingHead",
           "inCurveRange",

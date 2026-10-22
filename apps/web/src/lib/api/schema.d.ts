@@ -600,7 +600,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "NOT_CONVERGED" | "CAVITATION" | "BELOW_VAPOR_PRESSURE" | "PUMP_FLOW_REVERSAL" | "PUMP_OUTSIDE_CURVE" | "TRANSITIONAL_FLOW" | "CORRELATION_OUT_OF_RANGE" | "TEE_PATTERN_FALLBACK" | "UNSUPPORTED_FLOW_PATTERN" | "NO_VAPOR_PRESSURE" | "PORT_ABOVE_LIQUID_LEVEL" | "CHECK_VALVE_CLOSED" | "CONTROL_VALVE_SETPOINT_NOT_MET" | "ISOLATED_SECTION" | "UNDETERMINED_PRESSURE" | "NPSH_NOT_CHECKED";
+            code: "NOT_CONVERGED" | "CAVITATION" | "BELOW_VAPOR_PRESSURE" | "PUMP_FLOW_REVERSAL" | "PUMP_OUTSIDE_CURVE" | "TRANSITIONAL_FLOW" | "CORRELATION_OUT_OF_RANGE" | "TEE_PATTERN_FALLBACK" | "UNSUPPORTED_FLOW_PATTERN" | "NO_VAPOR_PRESSURE" | "PORT_ABOVE_LIQUID_LEVEL" | "CHECK_VALVE_CLOSED" | "CONTROL_VALVE_SETPOINT_NOT_MET" | "PUMP_SETPOINT_NOT_MET" | "ISOLATED_SECTION" | "UNDETERMINED_PRESSURE" | "NPSH_NOT_CHECKED";
             /** Componentid */
             componentId: string | null;
             /** Connectionid */
@@ -1297,9 +1297,12 @@ export interface components {
         };
         /**
          * Pump
-         * @description Fixed-speed centrifugal pump with an integral check (no reverse flow).
+         * @description Centrifugal pump with an integral check (no reverse flow): fixed speed, or
+         *     speed-controlled when ``control`` is given (CLAUDE.md D11).
          */
         Pump: {
+            /** @description Speed control (VFD); omitted: fixed speed */
+            control?: components["schemas"]["PumpControl"] | null;
             /**
              * Curveid
              * @description Key into project.pumpLibrary
@@ -1321,7 +1324,7 @@ export interface components {
             ports: components["schemas"]["Port"][];
             /**
              * Speed
-             * @description Speed as a fraction of the curve's rated speed
+             * @description Speed as a fraction of the curve's rated speed; for a speed-controlled pump, its maximum speed
              * @default 1
              */
             speed: number;
@@ -1336,6 +1339,56 @@ export interface components {
              * @constant
              */
             type: "pump";
+        };
+        /**
+         * PumpControl
+         * @description Speed control by a drive (VFD, CLAUDE.md D11): the speed varies between ``min_speed``
+         *     and the pump's ``speed`` (its maximum) to hold the setpoint.
+         */
+        PumpControl: {
+            /**
+             * Minspeed
+             * @description Lowest speed the drive runs the pump at, as a fraction of the curve's rated speed; no default (a property of the drive)
+             */
+            minSpeed: number;
+            /**
+             * Mode
+             * @description flow: hold the volumetric flow through the pump (suction -> discharge)
+             * @constant
+             */
+            mode: "flow";
+            /**
+             * Setpoint
+             * @description Flow through the pump, suction -> discharge, m³/s
+             */
+            setpoint: number;
+        };
+        /**
+         * PumpControlResult
+         * @description A speed-controlled pump's control (CLAUDE.md D11).
+         */
+        PumpControlResult: {
+            /**
+             * Mode
+             * @constant
+             */
+            mode: "flow";
+            /**
+             * Setpoint
+             * @description m³/s through the pump, suction -> discharge
+             */
+            setpoint: number;
+            /**
+             * Setpointachieved
+             * @description Whether the solved flow holds the setpoint; None when the pump is off
+             */
+            setpointAchieved: boolean | null;
+            /**
+             * State
+             * @description active: the speed holds the setpoint; max_speed / min_speed: the setpoint needs a speed outside the drive's range, so the pump runs at that limit as a fixed-speed pump; no_flow: the head across it exceeds its shutoff head at maximum speed; off: the pump is off and its control is not applied
+             * @enum {string}
+             */
+            state: "active" | "max_speed" | "min_speed" | "no_flow" | "off";
         };
         /**
          * PumpCurve
@@ -1362,6 +1415,8 @@ export interface components {
         };
         /** PumpResult */
         PumpResult: {
+            /** @description The speed control's state; None for a fixed-speed pump */
+            control: components["schemas"]["PumpControlResult"] | null;
             /**
              * Curve
              * @description Pump curve at the operating speed, sampled
@@ -1414,7 +1469,7 @@ export interface components {
             shaftPower: number | null;
             /**
              * Speed
-             * @description Fraction of rated speed
+             * @description Fraction of rated speed the pump runs at: its set speed, or a speed-controlled pump's solved or limit speed
              */
             speed: number;
             /**

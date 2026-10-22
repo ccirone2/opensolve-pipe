@@ -25,7 +25,9 @@ def _component_schema_extra(schema: JsonDict, cls: type[Any]) -> None:
       (``inlet`` / ``outlet``); a port it does not list may take either;
     - ``x-port-count``: the exact number of ports, when only that is fixed;
     - ``x-setpoint-bounds``: setpoint bounds by valve type, where they differ from the
-      ``setpoint`` field's own.
+      ``setpoint`` field's own;
+    - ``x-ordered-fields``: pairs of fields (dotted camelCase paths) whose values must be
+      ordered, ``lower`` < ``upper`` when ``strict``, checked when both are present.
     """
     ids: tuple[str, ...] | None = getattr(cls, "PORT_IDS", None)
     if ids is not None:
@@ -40,6 +42,11 @@ def _component_schema_extra(schema: JsonDict, cls: type[Any]) -> None:
         schema["x-setpoint-bounds"] = {
             valve: {"minimum": low, "maximum": high} for valve, (low, high) in bounds.items()
         }
+    ordered: tuple[tuple[str, str], ...] = getattr(cls, "ORDERED_FIELDS", ())
+    if ordered:
+        schema["x-ordered-fields"] = [
+            {"lower": lower, "upper": upper, "strict": True} for lower, upper in ordered
+        ]
 
 
 class FlowCoefficient(CamelModel):
@@ -176,18 +183,60 @@ class WyeBranch(BaseComponent):
     loss_model: BranchLossModel = "crane"
 
 
+class PumpControl(CamelModel):
+    """Speed control by a drive (VFD, CLAUDE.md D11): the speed varies between ``min_speed``
+    and the pump's ``speed`` (its maximum) to hold the setpoint."""
+
+    mode: Literal["flow"] = Field(
+        description="flow: hold the volumetric flow through the pump (suction -> discharge)"
+    )
+    setpoint: float = Field(
+        gt=0,
+        le=FCV_SETPOINT_RANGE[1],
+        description="Flow through the pump, suction -> discharge, m³/s",
+    )
+    min_speed: float = Field(
+        gt=0,
+        lt=1.0,
+        description=(
+            "Lowest speed the drive runs the pump at, as a fraction of the curve's rated "
+            "speed; no default (a property of the drive)"
+        ),
+    )
+
+
 class Pump(BaseComponent):
-    """Fixed-speed centrifugal pump with an integral check (no reverse flow)."""
+    """Centrifugal pump with an integral check (no reverse flow): fixed speed, or
+    speed-controlled when ``control`` is given (CLAUDE.md D11)."""
 
     PORT_IDS = ("suction", "discharge")
     PORT_ROLES: ClassVar[dict[str, PortRole]] = {"suction": "inlet", "discharge": "outlet"}
+    ORDERED_FIELDS: ClassVar[tuple[tuple[str, str], ...]] = (("control.minSpeed", "speed"),)
+    """control.minSpeed < speed (published as x-ordered-fields)."""
 
     type: Literal["pump"]
     curve_id: Identifier = Field(description="Key into project.pumpLibrary")
     speed: float = Field(
-        default=1.0, gt=0, le=1.0, description="Speed as a fraction of the curve's rated speed"
+        default=1.0,
+        gt=0,
+        le=1.0,
+        description=(
+            "Speed as a fraction of the curve's rated speed; for a speed-controlled pump, its "
+            "maximum speed"
+        ),
     )
     status: Literal["on", "off"] = "on"
+    control: PumpControl | None = Field(
+        default=None, description="Speed control (VFD); omitted: fixed speed"
+    )
+
+    @model_validator(mode="after")
+    def _check_speed_limits(self) -> Self:
+        if self.control is not None and not self.control.min_speed < self.speed:
+            raise ValueError(
+                "minSpeed must be below speed (the maximum speed of a speed-controlled pump)"
+            )
+        return self
 
 
 class _TwoPortValve(BaseComponent):

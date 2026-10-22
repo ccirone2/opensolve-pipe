@@ -76,6 +76,7 @@ export function pumpResult(values: Partial<PumpResult> = {}): PumpResult {
 	return {
 		status: 'running',
 		speed: 1,
+		control: null,
 		operatingFlow: 0.02,
 		operatingHead: 22,
 		inCurveRange: true,

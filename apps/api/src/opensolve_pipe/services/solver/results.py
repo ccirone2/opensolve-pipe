@@ -695,6 +695,7 @@ class _Mapper:
         return PumpResult(
             status=status,
             speed=s,
+            control=None,  # fixed speed; speed control is CLAUDE.md D11
             operating_flow=q,
             operating_head=head,
             in_curve_range=in_range,

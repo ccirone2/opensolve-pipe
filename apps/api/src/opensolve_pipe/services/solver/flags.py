@@ -34,6 +34,7 @@ FLAG_SEVERITY: dict[FlagCode, FlagSeverity] = {
     "NO_VAPOR_PRESSURE": "info",
     "CHECK_VALVE_CLOSED": "info",
     "CONTROL_VALVE_SETPOINT_NOT_MET": "info",
+    "PUMP_SETPOINT_NOT_MET": "info",
     "ISOLATED_SECTION": "info",
 }
 """The severity of every flag code (module docstring)."""

@@ -228,6 +228,15 @@ def validate_topology(project: Project) -> list[TopologyIssue]:
                     [comp.id],
                 )
             )
+        if isinstance(comp, Pump) and comp.control is not None:
+            # TODO(D11 slice 1): replaced by the speed-controlled pump model.
+            issues.append(
+                issue(
+                    "CONTROLLED_PUMP_CURVE",
+                    f"pump '{comp.id}' has a speed control, which this build does not solve yet",
+                    [comp.id],
+                )
+            )
 
     if not project.components:
         issues.append(

@@ -648,3 +648,15 @@ All paths are under `apps/web/src/lib`. Desktop and mobile share the same single
 10. **Efficiency at reduced speed.**
     - Options: (a) keep plain affinity, η = η₀(Q/s); (b) Sârbu–Borza as in EPANET 2.2; (c) ORNL's rule below 66.7 %.
     - **Recommend (a)** for now. Treat (b) or (c) as a separate, versioned method change, because it alters existing fixed reduced-speed results.
+### Owner's answers (2026-10-22)
+
+The owner chose slice 1 as recommended, with every recommended option. In detail:
+- **Q1:** (a) Controlled Flow first.
+- **Q2:** (a) the minimum speed is a required input, with no default.
+- **Q3:** (a) the pump runs at minimum speed at low demand.
+- **Q4:** (a) `speed` is the maximum speed, at most 1.
+- **Q6:** (a) speed is checked within 0.5 % relative, and its implied head within 0.01 m.
+- **Q7–Q9:** as recommended.
+- **Q10:** (a) plain affinity laws.
+- **Q5 (schemaVersion):** slice 1 is built on the development branch before the first deployment, so schemaVersion stays 1. Cloudflare Pages for the web app and Cloud Run for the API were chosen, but nothing is deployed yet. If any build is deployed or tagged before slice 1 merges, apply the bump in §3.5.
+- **"Default" label (separate question):** keep the current rule; no model change.

@@ -1085,6 +1085,80 @@ The flows in `tests/` at the time of writing:
 - **`results`**: a pipe-only network is opened from a link, solved and shared, and the shared link gives the same results. Results tables fit the screen and scroll inside their own box. A connection of several pipes shows each pipe's velocity and Re.
 - **`workspace`**: an edit made just before leaving by an in-app link is in the link that Back returns to. The fluid settings show the API's calculated properties, requested by POST with the fluid in the body; no request URL carries a query string. The workspace fits 320 px without sideways scrolling, and on a phone in landscape the header is one row. Keyboard focus stays on Solve and Undo when they become unavailable. Escape in an edited number field of a dialog reverts the field, not the dialog.
 
+### 10.4 Differential Test and Corpus Comparison
+
+**Location:** `apps/api/tests/differential/`. Command-line tools, run from `apps/api`, outside the reference suite. pytest collects only `test_fuzz_smoke.py`. Nothing is written into the repository unless an output directory there is named.
+
+| Module | What it does |
+|--------|--------------|
+| `generator.py` | `generate(seed)`: a random branched or looped network whose every element has an exact EPANET equivalent: reservoirs, ideal reference nodes, ideal tees and wyes, plugs, custom pipes in 1–3 segments with custom K fittings, pumps with collinear curves from Q = 0, isolation valves, check valves (cracking pressure 0), PRV, PSV and FCV, with random statuses and setpoints. `swamee_jain` mode with EPANET's water viscosity (§10.1). The network depends only on the seed. |
+| `epanet_model.py` | The project as an EPANET 2.2 model (WNTR INP, run through the toolkit in double precision), with the mapping and PRV/PSV setting iteration of §10.1. An active check valve is merged into its one-segment inlet pipe as an EPANET CV pipe. Elements can be pinned to a state. If EPANET cannot balance at headerror 10⁻⁹ ft and flowchange 10⁻¹² gpm, looser pairs are tried. An element with no exact equivalent raises `UnsupportedError`. |
+| `checks.py` | The comparison with the §10.1 criteria, allowing twice the bound of the flow EPANET's closed links leak (1/CBIG conductance). Also the independent checks of a solution: continuity at every component; energy on every connection; each pump and valve law in its state; the status rules, written from EPANET 2.2 in EGL form with the departures of §5.4; and, for sections reported without heads, that one set of heads keeps every state. Closed-off sections are tested at zero flow, floating sections with the relative heads the laws give at the reported flows, and PRV/PSV borders by exact enumeration of their regions. The checks read only the solver's results, never its internals. |
+| `state_search.py` | For a network our solver did not converge on: every combination of pinned pump and valve states, up to 729, solved and kept if it passes the checks. |
+| `fuzz.py` | The driver: generates, solves with both, compares, checks and classifies each seed (classes below). |
+| `classes.py` | The class names and `is_critical`. |
+| `stats.py` | A summary of a run: counts per class, and the largest \|Δ\|/tolerance per metric and element kind over the agreeing networks. |
+| `networks.py` | Fixed corpus networks: Crane-tee ladders and the step-hold wye (reference case `wye_crane_step_hold`). |
+| `corpus.py` | Solves every project of the corpus with system curves and dumps each `SolvedState` to `<name>.json`. The corpus is the reference-case projects and the unit-test data networks (41-point curves), six ladders, the step-hold wye at six levels, and fuzz seeds 0–2,999 (11-point curves); 3,092 projects in all. |
+| `compare.py` | Compares two dumps exactly (JSON equality, `timestamp` ignored). It reports identical and different projects, projects missing from either side, and for each difference the number of numeric differences and the largest relative one. Exit status 1 when a project differs. |
+
+**Commands** (from `apps/api`; times are wall-clock on 4 CPUs with 3 workers):
+
+```bash
+uv run python -m tests.differential.fuzz 0 3000 --workers 3 --out /tmp/fuzz   # about 3 min
+uv run python -m tests.differential.stats /tmp/fuzz
+uv run python -m tests.differential.corpus /tmp/corpus --workers 3             # about 1.5 min
+uv run python -m tests.differential.compare /tmp/corpus-before /tmp/corpus
+uv run python -m tests.differential.state_search SEED     # valid states of one network
+uv run python -m tests.differential.generator SEED        # one network's project JSON
+```
+
+`fuzz` writes `results/<seed>.json` (one record per seed) and `findings/<class>/<seed>.json` (a reproducer: the project JSON, both solutions and the diagnosis inputs) to `--out`, a new temporary directory by default. It prints that directory and the critical seeds, and exits with status 1 if there are any. `--strict` compares flows to 0.5% or 10⁻⁷ m³/s without the head-equivalent floor (0.01 m divided by dh/dQ), which accepts almost any flow in a short, large pipe. `corpus` skips projects whose file already exists, so an interrupted run resumes. `--only PREFIX` selects projects by name, and `--dry-run` prints the solver package and corpus tree it would use. The smoke test classifies seeds 0–49 with the real EPANET run; it adds about 10 s to `uv run pytest`.
+
+**Classes** (`status` in a fuzz record; "the checks" are the independent checks above):
+
+| Class | Meaning |
+|-------|---------|
+| `pass` | Flows, head losses, EGLs and pump and valve states agree. |
+| `documented` | They agree once EPANET is pinned where our documented departures apply: an FCV that closes on reverse flow (EPANET's XFCV passes it), an FCV that opens below its fully open loss, and a PRV/PSV that EPANET reports XPRESSURE (no fixed head on one side) held in our state. |
+| `pass_ep_unbalanced` | EPANET does not balance in 200 trials, but its last iterate agrees with ours, states included. |
+| `ours_verified_by_pinned_epanet` | EPANET does not balance, even with our FCV semantics. EPANET with every pump and valve pinned to our final states does balance and agrees with ours, which checks our element laws in our states. |
+| `epanet_unbalanced` | As above, but the pinned run does not balance or disagrees: there is no balanced EPANET reference. |
+| `state_only` | The numbers agree, but a state differs. |
+| `state_only_zero_flow` | As `state_only`, and every element whose state differs carries no more than EPANET's Qtol or its closed-link leak (a state at zero flow). |
+| `a_ours_invalid` | The numbers differ and our result fails the checks. **Critical.** |
+| `d_no_converged_reference` | The numbers differ, ours passes the checks, and EPANET with our FCV semantics does not balance. |
+| `b_stagnant_heads` | Only EGLs differ, and both solutions pass the checks (EPANET's within its tolerances). This is the free level of a zero-flow section, which EPANET's 1/CBIG conductance across closed links fixes. |
+| `b_multiple_steady_states` | Flows or head losses differ, and both solutions pass the checks. |
+| `e_epanet_invalid` | The numbers differ, ours passes the checks, and EPANET's solution breaks continuity, energy or an element law. |
+| `review` | The numbers differ, ours passes the checks, and EPANET's solution keeps the laws but breaks its status rules. |
+| `unsupported` | An element has no exact EPANET equivalent (in seeds 0–2,999: a connection that is the inlet of two check valves). |
+| `epanet_failed` | The first EPANET run failed (`runH` error 110: the equations cannot be solved). |
+| `ours_not_converged`, `both_unconverged` | Our solver did not converge; EPANET balanced or did not. The suffix `_valid_state_exists` means `state_search` found a state that passes the checks with every port headed. |
+| `ours_exception`, `gen_error`, `harness_error` | Our solver, the generator or the harness raised. A harness error is, for example, EPANET failing in a re-run with pins. |
+
+Every converged result of ours is also checked before EPANET runs. A failure is stored in the record's `self_check` and in `findings/self_check_failed`. That is the same check that makes a class `a_ours_invalid`, so a seed is **critical** (`classes.is_critical`) when its `self_check` is non-empty or its class is `a_ours_invalid`: a converged result of ours that fails the independent checks. The smoke test asserts that no seed in its range is critical and that every seed is classified (no `harness_error` or `ours_exception`).
+
+**Seeds 0–2,999** (3,000 networks, 40,717 components, 43,580 connections): pass 1,857; documented 535; state_only_zero_flow 262; pass_ep_unbalanced 127; b_stagnant_heads 82; epanet_unbalanced 42; epanet_failed 29; ours_verified_by_pinned_epanet 27; unsupported 13; b_multiple_steady_states 10; d_no_converged_reference 9; review 3; state_only 2; harness_error 1; e_epanet_invalid 1. None is critical. The largest \|Δ\|/tolerance in the agreeing networks is 0.817 (EGL at a pump port).
+
+**Before/after comparison of a solver change.** Dump the corpus from each tree and compare. `corpus` solves with the `opensolve_pipe` that is importable and reads the corpus from its own tree. Run it from inside a tree's `apps/api`, with that tree's project, so both come from the same tree. It refuses to run if `opensolve_pipe` is imported from another tree. From the repository root:
+
+```bash
+REPO=$(git rev-parse --show-toplevel)
+BEFORE=/tmp/osp-before                          # outside the repository
+git worktree add --detach "$BEFORE" HEAD        # the commit to compare against
+# or, without a worktree: mkdir -p "$BEFORE" && git archive HEAD apps/api | tar -x -C "$BEFORE"
+cd "$BEFORE/apps/api"
+uv run --project "$BEFORE/apps/api" python -m tests.differential.corpus /tmp/corpus-before --dry-run
+uv run --project "$BEFORE/apps/api" python -m tests.differential.corpus /tmp/corpus-before --workers 3
+cd "$REPO/apps/api"
+uv run python -m tests.differential.corpus /tmp/corpus-after --workers 3
+uv run python -m tests.differential.compare /tmp/corpus-before /tmp/corpus-after
+git worktree remove "$BEFORE"                   # --force if tests/differential was copied in
+```
+
+The dry run prints `solver: $BEFORE/apps/api/src/opensolve_pipe`. The first `uv run` in a new tree creates its `.venv`, with that tree's `src` installed in editable mode. A tree from a commit older than `tests/differential` needs that directory copied in before the first `corpus` run (`cp -r "$REPO/apps/api/tests/differential" "$BEFORE/apps/api/tests/"`). The copied tools import `tests/reference` and `tests/unit/helpers` from that tree. A reference case added since the "before" commit shows up as "missing in A".
+
 ---
 
 ## 11. Deployment

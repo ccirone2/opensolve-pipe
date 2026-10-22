@@ -249,6 +249,33 @@ def crane_k(geometry: BranchGeometry, solution: BranchSolution, q: float) -> dic
     }
 
 
+def _crane_path_flows(
+    geometry: BranchGeometry, kind: Kind, combined: str, inflow: dict[str, float]
+) -> tuple[str, float, float]:
+    """(run port, Q_run, Q_branch): the other run port and the flows leaving (diverging) or
+    entering (converging) through it and the branch, as the fluids functions take them."""
+    run = next(p for p in geometry.run_ports if p != combined)
+    sign = -1.0 if kind == "diverging" else 1.0  # flows leaving (diverging) or entering
+    q_run = max(sign * inflow[run], 0.0)
+    q_branch = max(sign * inflow[geometry.branch_port], 0.0)
+    return run, q_run, q_branch
+
+
+def _crane_path_k(
+    geometry: BranchGeometry, kind: Kind, combined: str, inflow: dict[str, float]
+) -> dict[str, float]:
+    """The fluids Crane K of each path (branch port, then the other run port) at these flows."""
+    run, q_run, q_branch = _crane_path_flows(geometry, kind, combined, inflow)
+    branch = geometry.branch_port
+    d_run, d_branch = geometry.diameter[combined], geometry.diameter[branch]
+    return {
+        port: float(
+            _CRANE_FUNCTIONS[(kind, run_path)](d_run, d_branch, q_run, q_branch, geometry.angle)
+        )
+        for port, run_path in ((branch, False), (run, True))
+    }
+
+
 def _crane(
     geometry: BranchGeometry,
     kind: Kind,
@@ -258,18 +285,16 @@ def _crane(
     g: float,
     zero: float,
 ) -> BranchSolution:
-    run = next(p for p in geometry.run_ports if p != combined)
+    run, q_run, q_branch = _crane_path_flows(geometry, kind, combined, inflow)
     branch = geometry.branch_port
     d_run, d_branch = geometry.diameter[combined], geometry.diameter[branch]
-    sign = -1.0 if kind == "diverging" else 1.0  # flows leaving (diverging) or entering
-    q_run, q_branch = max(sign * inflow[run], 0.0), max(sign * inflow[branch], 0.0)
     angle = geometry.angle
     q0 = q_branch / (q_run + q_branch)
     area_c = geometry.area[combined]
     combined_leg = geometry.legs[combined]
     paths = ((branch, False), (run, True))
     functions = {port: _CRANE_FUNCTIONS[(kind, run_path)] for port, run_path in paths}
-    k = {port: float(functions[port](d_run, d_branch, q_run, q_branch, angle)) for port, _ in paths}
+    k = _crane_path_k(geometry, kind, combined, inflow)
     # Only paths that carry flow bound the common part: a dead leg's loss sets nothing but its
     # own port's head, so its remainder, even negative, feeds nothing back into the flows.
     shares = {branch: q_branch, run: q_run}
@@ -331,7 +356,7 @@ def _crane(
             "correlation assumes equal run diameters"
         )
     return BranchSolution(
-        pattern=f"{kind} {'from' if kind == 'diverging' else 'to'} {combined}",
+        pattern=_pattern_name(kind, combined),
         combined=combined,
         kind=kind,
         model="crane",
@@ -380,7 +405,7 @@ def _darby(
         # Leg i: H_center − H_i = K_i Q_i|Q_i|/(2 g A_i²), Q_i the leg's own flow.
         legs[port] = LegLaw(kp / (2.0 * g * area * area), geometry.legs[port], None)
     return BranchSolution(
-        pattern=f"{kind} {'from' if kind == 'diverging' else 'to'} {branch}",
+        pattern=_pattern_name(kind, branch),
         combined=branch,
         kind=kind,
         model="darby",
@@ -394,6 +419,52 @@ def _darby(
         ),
         range_notes=notes,
     )
+
+
+@dataclass(frozen=True)
+class PathK:
+    """What ``branch_solution`` would give for some port flows, without its leg laws: the
+    model, pattern kind and combined port, and the K of each path (``branch_solution``'s ``k``
+    keys; values for a Crane pattern only, a Darby K being on the leg's own velocity)."""
+
+    model: Model
+    kind: Literal["none", "diverging", "converging"]
+    combined: str | None
+    k: dict[str, float | None]
+    pattern: str
+    """``BranchSolution.pattern``."""
+    split: float | None = None
+    """``BranchSolution.split`` (a Crane pattern's q = Q_branch/Q_c)."""
+
+
+def path_k(
+    geometry: BranchGeometry, inflow: dict[str, float], q_scale: float | None = None
+) -> PathK:
+    """The model, pattern and path K values ``branch_solution`` gives for these flows, from the
+    same fluids calls with the same arguments (``_crane_path_k``), without building the leg
+    laws and their tangents (``status._dead_band`` needs only the limits)."""
+    kind, combined = flow_pattern(geometry, inflow, q_scale)
+    if kind == "none" or combined is None:
+        return PathK("none", "none", None, {}, "no flow")
+    if combined in geometry.run_ports:
+        _, q_run, q_branch = _crane_path_flows(geometry, kind, combined, inflow)
+        return PathK(
+            "crane",
+            kind,
+            combined,
+            dict(_crane_path_k(geometry, kind, combined, inflow)),
+            _pattern_name(kind, combined),
+            q_branch / (q_run + q_branch),
+        )
+    if geometry.branch_type == "tee":
+        branch = geometry.branch_port
+        k: dict[str, float | None] = dict.fromkeys(geometry.run_ports)
+        return PathK("darby", kind, branch, k, _pattern_name(kind, branch))
+    return PathK("unsupported", kind, combined, {}, _pattern_name(kind, combined))
+
+
+def _pattern_name(kind: Kind, combined: str) -> str:
+    return f"{kind} {'from' if kind == 'diverging' else 'to'} {combined}"
 
 
 def branch_solution(
@@ -414,7 +485,7 @@ def branch_solution(
     if geometry.branch_type == "tee":
         return _darby(geometry, kind, inflow, kinematic_viscosity, g)
     return BranchSolution(
-        pattern=f"{kind} {'from' if kind == 'diverging' else 'to'} {combined}",
+        pattern=_pattern_name(kind, combined),
         combined=combined,
         kind=kind,
         model="unsupported",

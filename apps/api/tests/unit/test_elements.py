@@ -5,8 +5,10 @@ Expected head losses are written out from Darcy–Weisbach with fluids' own fric
 """
 
 import math
+import random
 from collections.abc import Callable
 
+import numpy as np
 import pytest
 from fluids.constants import g
 from fluids.fittings import contraction_sharp, diffuser_sharp
@@ -14,13 +16,15 @@ from fluids.friction import Colebrook
 
 from opensolve_pipe.models.piping import Fitting
 from opensolve_pipe.services.solver.elements import (
+    HeadOffsetArrays,
     HeadOffsetLaw,
+    KTangent,
     PipeConnectionLaw,
     PipeSegment,
     segment_state,
 )
 from opensolve_pipe.services.solver.fittings import resolve_fitting
-from opensolve_pipe.services.solver.friction import FlowRegime
+from opensolve_pipe.services.solver.friction import FlowRegime, FrictionMethod
 
 NU = 1.0e-6  # m²/s, test input
 L, D, EPS = 50.0, 0.08, 4.5e-5
@@ -182,3 +186,71 @@ def test_head_offset_law() -> None:
 def test_connection_needs_a_segment() -> None:
     with pytest.raises(ValueError, match="at least one segment"):
         PipeConnectionLaw([], [], "colebrook", g)
+
+
+def _random_offset_laws(rng: random.Random, n_links: int) -> list[HeadOffsetLaw]:
+    """Offset laws of every kind the builder makes: constants (valves with K = 0, ideal legs),
+    Darby legs (no tangent, the leg its own reference), Crane legs with tangents whose range
+    the iterate leaves on either side, and references and own flows of either sign or zero."""
+    laws = []
+    for i in range(200):
+        law = HeadOffsetLaw(offset=rng.choice([0.0, rng.uniform(-3.0, 3.0)]))
+        kind = i % 4
+        if kind:
+            law.own = rng.randrange(n_links)
+            reference = law.own if kind == 1 else rng.randrange(n_links)
+            tangent = None
+            if kind >= 2:
+                k0 = rng.uniform(-1.0, 2.0)
+                tangent = KTangent(
+                    k0,
+                    rng.choice([0.0, rng.uniform(-5.0, 5.0)]),
+                    rng.uniform(0.0, 1.0),
+                    kind == 3,
+                    k0 - rng.choice([0.0, rng.uniform(0.0, 0.3)]),
+                    k0 + rng.choice([0.0, rng.uniform(0.0, 0.3)]),
+                )
+            law.set(law.offset, rng.choice([0.0, rng.uniform(-50.0, 50.0)]), reference, tangent)
+        laws.append(law)
+    return laws
+
+
+def test_head_offset_arrays_are_bit_identical_to_the_scalar_laws() -> None:
+    """The GGA evaluates every offset law at once (``HeadOffsetArrays``); each value must be the
+    scalar law's to the last bit, so the vectorized inner loop gives the same results."""
+    rng = random.Random(20261022)
+    n_links = 12
+    laws = _random_offset_laws(rng, n_links)
+    arrays = HeadOffsetArrays(laws)
+    for _ in range(50):
+        flows = np.array(
+            [rng.choice([0.0, -0.0, rng.uniform(-0.05, 0.05)]) for _ in range(n_links)]
+        )
+        with np.errstate(divide="ignore", invalid="ignore"):
+            heads, slopes = arrays.heads(flows), arrays.own_slopes(flows)
+        expected_heads = np.array([law.head(flows) for law in laws])
+        expected_slopes = np.array([law.own_slope(flows) for law in laws])
+        assert heads.tobytes() == expected_heads.tobytes()
+        assert slopes.tobytes() == expected_slopes.tobytes()
+
+
+@pytest.mark.parametrize("method", ["colebrook", "swamee_jain"])
+def test_connection_law_is_the_sum_of_its_segment_states_to_the_bit(method: FrictionMethod) -> None:
+    """``PipeConnectionLaw.evaluate`` precomputes the segment constants for the GGA's inner
+    loop; its values must be those of ``segment_state`` (which the results report) summed over
+    the segments, plus the fittings, to the last bit, in every regime and both directions."""
+    segments = [segment(), segment(30.0, 0.05, 1.0e-4), segment(5.0, 0.1023, 4.6e-5)]
+    diameters = [s.diameter for s in segments]
+    fittings = [resolve_fitting(0, Fitting(type="elbow_90_lr", quantity=2), diameters)]
+    law = PipeConnectionLaw(segments, fittings, method, g)
+    for re in (0.0, 1.0e-3, 500.0, 1999.9, 2000.0, 3000.0, 3999.9, 4000.0, 1.0e5, 3.0e6):
+        for sign in (1.0, -1.0):
+            q = sign * flow_at(re)
+            h, slope = 0.0, 0.0
+            for s in segments:
+                state = segment_state(s, q, method)
+                h += state.head_loss
+                slope += state.slope
+            minor = law._minor_reverse if q < 0 else law._minor_forward
+            expected = (h + minor * q * abs(q), slope + 2.0 * minor * abs(q))
+            assert law.evaluate(q) == expected

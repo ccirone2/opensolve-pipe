@@ -175,7 +175,9 @@ def test_energy_equations_close(path: Path) -> None:
     }
     assert set(residuals) == checked
     assert max(abs(r) for r in residuals.values()) <= tolerance, residuals
-    laws = nc.element_residuals(project, flows, egl, nc.element_states(project, expected), model)
+    laws = nc.element_residuals(
+        project, flows, egl, nc.element_states(project, expected), model, nc.held_split_ks(expected)
+    )
     assert all(abs(r) <= tolerance for r in laws.heads.values()), laws.heads
     assert all(abs(r) <= flow_tolerance for r in laws.flows.values()), laws.flows
 
@@ -318,7 +320,15 @@ def test_network_solve_reproduces_closed_form_case(path: Path) -> None:
     guess_h = {k: h + 0.3 for k, h in expected["egl"].items()}
     states = nc.element_states(project, expected)
     held = nc.held_pairs(project, expected["flows"])
-    flows, egl = nc.solve_network(project, nc.our_model(project), guess_q, guess_h, states, held)
+    flows, egl = nc.solve_network(
+        project,
+        nc.our_model(project),
+        guess_q,
+        guess_h,
+        states,
+        held,
+        nc.held_split_ks(expected),
+    )
     for key, q in expected["flows"].items():
         assert flows[key] == pytest.approx(q, rel=1.0e-9, abs=1.0e-15), key
     assert set(egl) == set(expected["egl"])
@@ -496,6 +506,60 @@ def test_dead_tee_branch_reads_the_same_as_converging() -> None:
     assert expected["pressures"]["T1:branch"] == pytest.approx(
         expected["pressures"]["T1:run_inlet"], rel=1.0e-12
     )
+
+
+@pytest.mark.parametrize(
+    "path", [p for p in CASES if "stepHolds" in read_case(p)["expected"]], ids=lambda p: p.stem
+)
+def test_step_hold_splits_are_the_two_cycle_of_the_tangent_update(path: Path) -> None:
+    """A K held across a Crane step (design §5.4), re-derived from the project JSON with the
+    whole-network solve: the fluids K jumps by more than 1e-4 at the step; the outer update
+    (K linearized about the last split, ``el.tangent_k``) maps splitA to splitB and back, one
+    on each side of the step; with the held K the solved split stays between them; the branch
+    is flagged CORRELATION_OUT_OF_RANGE."""
+    case, project = _load(path)
+    expected = case["expected"]
+    states = nc.element_states(project, expected)
+    model = nc.our_model(project)
+    for cid, hold in nc.step_holds(expected).items():
+        assert {"code": "CORRELATION_OUT_OF_RANGE", "componentId": cid} in expected["flags"]
+        branch = nc.component_of(project, cid)
+        assert isinstance(branch, TeeBranch | WyeBranch)
+
+        def split(rule: el.SplitK, branch: TeeBranch | WyeBranch = branch) -> tuple[float, bool]:
+            flows, _ = nc.solve_network(
+                project, model, expected["flows"], expected["egl"], states, (), {branch.id: rule}
+            )
+            inflows = {
+                p.id: nc.port_inflow(project, f"{branch.id}:{p.id}", flows) for p in branch.ports
+            }
+            losses = nc.branch_offsets(project, branch, inflows)
+            assert losses.combined_port is not None
+            diverging = inflows[losses.combined_port] > 0.0
+            return el.q_ratio(losses, inflows, nc.branch_kind(branch)), diverging
+
+        q_held, diverging = split(hold.rule())
+        assert hold.split_a <= hold.step < hold.split_b
+        assert hold.split_a < q_held < hold.split_b
+        inflows = {
+            p.id: nc.port_inflow(project, f"{branch.id}:{p.id}", expected["flows"])
+            for p in branch.ports
+        }
+        combined = nc.branch_offsets(project, branch, inflows).combined_port
+        assert combined is not None
+        others = [p.id for p in branch.ports if p.id != combined]
+        d_branch = nc.port_diameter(project, f"{cid}:{el.BRANCH_PORT[nc.branch_kind(branch)]}")
+        assert el.BRANCH_PORT[nc.branch_kind(branch)] in others
+        geometry = el.CraneGeometry(
+            nc.branch_angle(branch),
+            nc.port_diameter(project, f"{cid}:{combined}"),
+            d_branch,
+            diverging,
+        )
+        below, above = geometry.k(hold.step), geometry.k(float(np.nextafter(hold.step, 1.0)))
+        assert max(abs(a - b) for a, b in zip(above, below, strict=True)) > 1.0e-4
+        assert split(el.tangent_k(hold.split_a))[0] == pytest.approx(hold.split_b, abs=1.0e-9)
+        assert split(el.tangent_k(hold.split_b))[0] == pytest.approx(hold.split_a, abs=1.0e-9)
 
 
 def test_bullhead_tee_uses_the_darby_fallback_on_each_leg() -> None:

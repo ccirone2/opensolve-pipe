@@ -32,7 +32,13 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .fittings import ResolvedFitting
-from .friction import FlowRegime, FrictionMethod, flow_regime, friction_factor
+from .friction import (
+    RE_LAMINAR_MAX,
+    FlowRegime,
+    FrictionMethod,
+    flow_regime,
+    friction_factor,
+)
 from .library import ResolvedPipe
 from .pumps import PumpCurveModel
 
@@ -124,6 +130,18 @@ class PipeConnectionLaw:
         # Σ n K / (2 g A²) for each flow direction [s²/m⁵].
         self._minor_forward = sum(self._minor_coefficient(f, 1.0) for f in self.fittings)
         self._minor_reverse = sum(self._minor_coefficient(f, -1.0) for f in self.fittings)
+        # Per segment, the constants ``segment_state`` computes from it, each the same
+        # expression: (D, A ν, r_lam, ε/D, L / (2 g D A²)).
+        self._terms = tuple(
+            (
+                s.diameter,
+                s.area * s.kinematic_viscosity,
+                s.laminar_resistance,
+                s.relative_roughness,
+                s.length / (s.diameter * 2.0 * s.g * s.area**2),
+            )
+            for s in self.segments
+        )
 
     def _minor_coefficient(self, fitting: ResolvedFitting, flow: float) -> float:
         area = self.segments[fitting.segment(flow)].area
@@ -134,14 +152,24 @@ class PipeConnectionLaw:
         return self._minor_coefficient(fitting, flow) * flow * abs(flow)
 
     def evaluate(self, flow: float) -> tuple[float, float]:
+        """h and dh/dQ: the sums of ``segment_state``'s head losses and slopes over the
+        segments, written out with its constants precomputed (the GGA's inner loop calls this
+        for every pipe at every iterate), plus the fittings."""
         h = 0.0
         slope = 0.0
-        for segment in self.segments:
-            state = segment_state(segment, flow, self.method)
-            h += state.head_loss
-            slope += state.slope
+        q_abs = abs(flow)
+        for diameter, area_nu, r_lam, ed, c in self._terms:
+            re = q_abs * diameter / area_nu
+            if re < RE_LAMINAR_MAX:  # laminar, or no flow (``flow_regime``)
+                h += r_lam * flow
+                slope += r_lam
+                continue
+            f, df_dre = friction_factor(re, ed, self.method)
+            df_dq = df_dre * diameter / area_nu
+            h += f * c * flow * q_abs
+            slope += c * (2.0 * f * q_abs + df_dq * flow * flow)
         minor = self._minor_reverse if flow < 0 else self._minor_forward
-        return h + minor * flow * abs(flow), slope + 2.0 * minor * abs(flow)
+        return h + minor * flow * q_abs, slope + 2.0 * minor * q_abs
 
 
 @dataclass(frozen=True)
@@ -251,6 +279,64 @@ class HeadOffsetLaw:
         if self.coefficient != 0.0:
             raise ValueError("a flow-dependent head offset is evaluated with head(flows)")
         return self.offset, 0.0
+
+
+class HeadOffsetArrays:
+    """``HeadOffsetLaw.head`` and ``own_slope`` of many laws at once, for the GGA's inner loop.
+
+    Every value is the scalar method's, operation for operation (IEEE arithmetic only, in the
+    same order, and the same comparisons for the branches and for ``min``/``max``), so the
+    results are bit-identical (``tests/unit/test_elements.py``). The laws must not change
+    while the arrays are in use: the outer loop sets them only between inner solves."""
+
+    def __init__(self, laws: Sequence[HeadOffsetLaw]) -> None:
+        self.offset = np.array([law.offset for law in laws], dtype=np.float64)
+        self.coefficient = np.array([law.coefficient for law in laws], dtype=np.float64)
+        self.reference = np.array([law.reference for law in laws], dtype=np.int64)
+        self.own = np.array([law.own for law in laws], dtype=np.int64)
+        tangents = [law.tangent for law in laws]
+        self.has_tangent = np.array([t is not None for t in tangents], dtype=bool)
+        self.k0 = np.array([t.k0 if t else 0.0 for t in tangents], dtype=np.float64)
+        self.dk_dq = np.array([t.dk_dq if t else 0.0 for t in tangents], dtype=np.float64)
+        self.q0 = np.array([t.q0 if t else 0.0 for t in tangents], dtype=np.float64)
+        self.run_path = np.array([bool(t and t.run_path) for t in tangents], dtype=bool)
+        self.k_min = np.array([t.k_min if t else -math.inf for t in tangents], dtype=np.float64)
+        self.k_max = np.array([t.k_max if t else math.inf for t in tangents], dtype=np.float64)
+        self.constant = self.coefficient == 0.0
+        self.size = len(laws)
+
+    def _tangent(self, flows: NDArray[np.float64]) -> tuple[NDArray[np.float64], ...]:
+        """(Q_ref, q, unclipped tangent K) per law (``HeadOffsetLaw.fraction`` and ``k``)."""
+        q_ref = flows[self.reference]
+        ratio = -flows[self.own] / q_ref
+        q = np.where(self.run_path, 1.0 - ratio, ratio)
+        return q_ref, q, self.k0 + self.dk_dq * (q - self.q0)
+
+    def heads(self, flows: NDArray[np.float64]) -> NDArray[np.float64]:
+        """``HeadOffsetLaw.head`` of every law at the given link flows, m."""
+        if self.size == 0:
+            return np.zeros(0)
+        q_ref, _, k = self._tangent(flows)
+        k = np.where(self.k_min > k, self.k_min, k)  # max(k, k_min)
+        k = np.where(self.k_max < k, self.k_max, k)  # min(..., k_max)
+        k = np.where(q_ref == 0.0, self.k0, k)  # no combined flow: k0
+        k = np.where(self.has_tangent, k, 1.0)
+        return np.where(
+            self.constant, self.offset, self.offset + self.coefficient * q_ref * np.abs(q_ref) * k
+        )
+
+    def own_slopes(self, flows: NDArray[np.float64]) -> NDArray[np.float64]:
+        """``HeadOffsetLaw.own_slope`` of every law at the given link flows."""
+        if self.size == 0:
+            return np.zeros(0)
+        q_ref, _, k = self._tangent(flows)
+        dq = -1.0 / q_ref
+        dq = np.where(self.run_path, -dq, dq)
+        tangent = self.coefficient * q_ref * np.abs(q_ref) * self.dk_dq * dq
+        tangent = np.where((k < self.k_min) | (k > self.k_max) | (q_ref == 0.0), 0.0, tangent)
+        own_flow = np.where(self.reference == self.own, 2.0 * self.coefficient * np.abs(q_ref), 0.0)
+        slope = np.where(self.has_tangent, tangent, own_flow)
+        return np.where(self.constant | (self.own < 0), 0.0, slope)
 
 
 class ValveLaw:

@@ -1,0 +1,219 @@
+{
+  "name": "wye_crane_step_hold",
+  "description": "A 45-degree wye with a small lateral (beta^2 = 0.16) whose flow split has no self-consistent value: the Crane TP-410 lateral K jumps up at a split of 0.4, and the network gives a split above 0.4 with the formula below it and below 0.4 with the formula above it. Verifies the step hold: K held at the mean of the fluids values at the two splits the outer iteration alternates between, the flows that K gives, and the CORRELATION_OUT_OF_RANGE flag on the wye.",
+  "source": "closed-form: tests/reference/derivations_branches.py::wye_crane_step_hold (Darcy-Weisbach + Colebrook lines; fluids K_branch_diverging_Crane and K_run_diverging_Crane at angle 45; splits of the outer update with K linearized about the last split (central difference on its side of the step), iterated to its 2-cycle across q = 0.4; path K held at the mean of the fluids values at the two splits (design 5.4); fsolve; line fittings: fluids entrance_sharp(method='Crane'), exit_normal())",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-wye-crane-step-hold",
+    "metadata": {
+      "name": "Crane wye held across a correlation step",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "T1",
+        "name": "Wye T1",
+        "elevation": 2.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet_2",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "wye",
+        "angle": 45.0,
+        "lossModel": "crane"
+      },
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 3.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 4.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 4.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "R3",
+        "name": "Reservoir R3",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 1.98,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "T1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 5.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "T1",
+        "fromPortId": "outlet_1",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 20.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "exit",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L3",
+        "fromComponentId": "T1",
+        "fromPortId": "outlet_2",
+        "toComponentId": "R3",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0409,
+              "length": 0.2,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.036134053373088226,
+      "L2": 0.021700491566467656,
+      "L3": 0.014433561806620566
+    },
+    "egl": {
+      "T1:inlet": 5.670138432912025,
+      "R1:port_1": 7.0,
+      "T1:outlet_1": 5.607073976474847,
+      "R2:port_1": 4.0,
+      "T1:outlet_2": 2.603555178284389,
+      "R3:port_1": 1.98
+    },
+    "pressures": {
+      "T1:inlet": 26275.903673738805,
+      "T1:outlet_1": 31824.34263605413,
+      "T1:outlet_2": -54317.67473506159
+    },
+    "flags": [
+      {
+        "code": "CORRELATION_OUT_OF_RANGE",
+        "componentId": "T1"
+      }
+    ],
+    "stepHolds": {
+      "T1": {
+        "step": 0.4,
+        "splitA": 0.3980744565126768,
+        "splitB": 0.40192024927969283
+      }
+    }
+  }
+}

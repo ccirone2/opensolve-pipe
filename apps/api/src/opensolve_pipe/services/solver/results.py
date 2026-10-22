@@ -425,7 +425,7 @@ class _Mapper:
                     "ideal junction: no loss (lossModel 'ideal', as EPANET models junctions)"
                 )
             else:
-                solution = tracker.reported
+                solution = tracker.reported_solution(self.built)
                 kind, combined = solution.kind, solution.combined
                 k_factors = dict(solution.k)
                 correlation = solution.correlation
@@ -456,7 +456,11 @@ class _Mapper:
                         k_factors.setdefault(pid, 0.0)
                         path_losses[pid] = sign * (h_c - self.head(keys[pid]))
                 v_ref = abs(inflow[combined]) / geometry.area[combined]
-            if tracker is not None and tracker.reported.model == "darby" and v_ref > 0.0:
+            if (
+                tracker is not None
+                and tracker.reported_solution(self.built).model == "darby"
+                and v_ref > 0.0
+            ):
                 # Darby's K is on each run leg's own velocity; reported on the combined-flow
                 # velocity like every other pattern, so that K v_ref²/(2g) is the path loss.
                 own = dict(k_factors)

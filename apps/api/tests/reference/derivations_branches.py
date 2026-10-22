@@ -95,9 +95,11 @@ def solve_branch(
     nu: float,
     guess: Mapping[str, float],
     loss_model: BranchLossModel = "crane",
+    split_k: el.SplitK | None = None,
 ) -> BranchSolution:
     """Solve the system in the module docstring; ``guess`` holds q_p per reservoir port and
-    'E'. A port piped to a plug has q_p = 0 exactly and no energy equation of its own."""
+    'E'. A port piped to a plug has q_p = 0 exactly and no energy equation of its own.
+    ``split_k``: the path K as a rule in the split (``el.branch_losses``), e.g. a held K."""
     ports = list(terminals)
     open_ports = [p for p in ports if terminals[p].level is not None]
     diameters = {p: terminals[p].line.d for p in ports}
@@ -105,7 +107,7 @@ def solve_branch(
     def losses_at(flows: dict[str, float]) -> el.BranchLosses:
         if loss_model == "ideal":
             return ideal_losses(ports)
-        return el.branch_losses(kind, angle, flows, diameters, nu)
+        return el.branch_losses(kind, angle, flows, diameters, nu, split_k=split_k)
 
     def unpack(x: NDArray[np.float64]) -> tuple[dict[str, float], float]:
         flows = dict.fromkeys(ports, 0.0)
@@ -146,14 +148,29 @@ def branch_case(
     pattern: str,
     loss_model: BranchLossModel = "crane",
     flags: Sequence[dict[str, str]] = (),
+    step_hold: el.StepHold | None = None,
 ) -> ReferenceCase:
-    """Solve, guard the pattern and flow regime, and build the case (component id 'T1')."""
+    """Solve, guard the pattern and flow regime, and build the case (component id 'T1').
+
+    ``step_hold`` is the explicit opt-in for a case whose split sits at a Crane step: the
+    branch is solved with K held at the mean of the fluids values at the hold's two splits
+    (``el.held_k``), the step guard is replaced by the hold's own condition (the solved split
+    lies between the two splits, design §5.4), and the hold is recorded in the expected
+    results for the self-checks. Every other case keeps its split STEP_MARGIN clear of the
+    steps."""
     fluid_name, rho, mu = dv.FLUID_A
     nu = mu / rho
-    sol = solve_branch(kind, angle, terminals, nu, guess, loss_model)
+    split_k = None if step_hold is None else step_hold.rule()
+    sol = solve_branch(kind, angle, terminals, nu, guess, loss_model, split_k)
     if sol.losses.pattern != pattern:
         raise ValueError(f"{name}: solved pattern {sol.losses.pattern!r}, expected {pattern!r}")
-    if loss_model == "crane" and not sol.losses.fallback:
+    if step_hold is not None:
+        ratio = el.q_ratio(sol.losses, sol.flows_in, kind)
+        if not step_hold.split_a < ratio < step_hold.split_b:
+            raise ValueError(f"{name}: held split {ratio} outside the hold's interval")
+        if {"code": "CORRELATION_OUT_OF_RANGE", "componentId": "T1"} not in flags:
+            raise ValueError(f"{name}: a step hold is flagged CORRELATION_OUT_OF_RANGE")
+    elif loss_model == "crane" and not sol.losses.fallback:
         ratio = el.q_ratio(sol.losses, sol.flows_in, kind)
         if ratio not in (0.0, 1.0) and el.crane_step_distance(ratio) < STEP_MARGIN:
             raise ValueError(f"{name}: flow ratio {ratio} too close to a Crane step")
@@ -196,6 +213,7 @@ def branch_case(
         egl=egl,
         pressures=pressures,
         flags=flags,
+        step_holds={} if step_hold is None else {"T1": step_hold.to_json()},
     )
     return ReferenceCase(
         name=name,
@@ -569,6 +587,255 @@ def twin_lines_crane_rung() -> ReferenceCase:
     )
 
 
+STEP_LATERAL = Line(0.0409, 0.2)
+"""The step-hold wye's lateral: a 0.2 m nipple of 40.9 mm bore, β² = (40.9/102.3)² = 0.160
+≤ 0.35, with no exit fitting (a boundary adds no exit loss unless the connection has one,
+CLAUDE.md D10), so the wye's own K is most of the lateral path's resistance."""
+STEP_SPLIT_MARGIN = 1.0e-3
+"""Smallest distance of each one-sided split (either Crane formula continued across the step)
+from the step, on its wrong side: the case must lie inside the band of levels with no
+self-consistent split, not at its edge."""
+STEP_HOLD_INSIDE = 0.25
+"""The held split must lie this fraction of the hold's interval clear of both ends (the hold
+is released when the solved split leaves the interval, design §5.4)."""
+STEP_READING_REL = 0.25 * 0.005
+"""A quarter of the D6 relative tolerance: how close every flow must stay under the readings of
+the method the documentation leaves open (``derive_step_hold``)."""
+STEP_READING_HEAD = 0.25 * 0.01
+"""m; a quarter of the D6 head floor, the same bound for every EGL."""
+STEP_VISIBLE_REL = 2 * 0.005
+"""Twice the D6 relative tolerance: the two one-sided solutions' lateral flows must differ by
+more than this, so the K jump is resolved at the D6 tolerance."""
+CYCLE_TOLERANCE = 1.0e-12
+"""Change in both splits below which the 2-cycle iteration has converged (the splits come
+from fsolve solutions good to about 1e-14)."""
+
+
+@dataclass(frozen=True)
+class StepHoldDerivation:
+    """Intermediates of ``wye_crane_step_hold`` (all splits are q = Q_lateral/Q_inlet)."""
+
+    step: float
+    k_below: tuple[float, float]
+    k_above: tuple[float, float]
+    extended_below: BranchSolution
+    extended_above: BranchSolution
+    q_extended_below: float
+    q_extended_above: float
+    hold: el.StepHold
+    held: BranchSolution
+    q_held: float
+    readings: dict[str, BranchSolution]
+
+
+STEP_HOLD_STEP = 0.4
+"""K_branch_diverging_Crane's step at θ < 75° and β² ≤ 0.35 (fluids 1.3.1 source:
+G = 1.1 − 0.7q for q ≤ 0.4, G = 0.85 above)."""
+
+
+def _step_hold_terminals() -> dict[str, Terminal]:
+    return {
+        "inlet": Terminal("R1", 3.0, Line(RUN_LINE, 5.0, (("entrance_sharp", 1),)), 4.0),
+        "outlet_1": Terminal("R2", 0.0, Line(RUN_LINE, 20.0, (("exit", 1),)), 4.0, into_port=False),
+        "outlet_2": Terminal("R3", 0.0, STEP_LATERAL, 1.98, into_port=False),
+    }
+
+
+def _one_formula_k(lo: float, hi: float) -> el.SplitK:
+    """One side's Crane formula continued past the step: the cubic through the fluids values
+    at four splits in [lo, hi], an interval inside one formula's range. On each side of a step
+    the Crane K is a polynomial of degree ≤ 3 in the split (fluids source: G linear times
+    1 + (q/β²)² − 2(q/β²)cos θ; M constant times q²), so the cubic *is* that formula; a guard
+    compares it with fluids at the midpoints."""
+    fits: dict[el.CraneGeometry, list[np.polynomial.Polynomial]] = {}
+
+    def fit(geometry: el.CraneGeometry) -> list[np.polynomial.Polynomial]:
+        if geometry not in fits:
+            nodes = np.linspace(lo, hi, 4)
+            values = np.array([geometry.k(float(s)) for s in nodes])
+            polys = [np.polynomial.Polynomial.fit(nodes, values[:, i], 3) for i in (0, 1)]
+            for mid in 0.5 * (nodes[:-1] + nodes[1:]):
+                for poly, k in zip(polys, geometry.k(float(mid)), strict=True):
+                    if abs(float(poly(mid)) - k) > 1.0e-11 * max(1.0, abs(k)):
+                        raise ValueError(f"the Crane K on [{lo}, {hi}] is not one cubic")
+            fits[geometry] = polys
+        return fits[geometry]
+
+    def rule(geometry: el.CraneGeometry, q: float) -> tuple[float, float]:
+        k_run, k_branch = fit(geometry)
+        return float(k_run(q)), float(k_branch(q))
+
+    return rule
+
+
+def derive_step_hold() -> StepHoldDerivation:
+    """The step hold of ``wye_crane_step_hold`` from the documented method (TSD §5.4).
+
+    1. The step. With q ≤ 0.4, fluids gives K_branch = (1.1 − 0.7q)·B(q), B = 1 + (q/β²)² −
+       2(q/β²)cos 45°; above it 0.85·B(q); K_run = 0.4q² (β² ≤ 0.4) has no step. The documented
+       condition holds: K_branch jumps by more than 1e-4 at q = 0.4 (here by +0.03·B(0.4)).
+       It jumps *up*: a larger lateral K sends less flow to the lateral, so the jump can leave
+       no self-consistent split.
+    2. No self-consistent split. Each side's formula continued across the step
+       (``_one_formula_k``) gives a split on the other side of the step, by more than
+       STEP_SPLIT_MARGIN: the lower formula a split above 0.4, the upper formula one below.
+       Directly: with K frozen at fluids' K(q) for any q on a grid of [0.30, 0.50] the network
+       takes a split s(q) > q below the step and s(q) < q above it, so s(q) = q nowhere.
+    3. The 2-cycle. Each outer update solves the network with the Crane K linearized about the
+       last split q_n on q_n's side of the step (``el.tangent_k``: fluids value and slope at
+       q_n) and returns the solved split. A split below the step therefore leads above it and
+       back: the iteration alternates across the step. Its limit is the 2-cycle
+       q_a = T_above(q_b), q_b = T_below(q_a), q_a ≤ 0.4 < q_b, computed here exactly by
+       iterating T from the one-sided splits of step 2 (T's dependence on its centre is of
+       second order, so the iteration contracts at once). It differs from the one-sided
+       splits by the linearization error of the curved K (½K''(q_b − q_a)², a few 1e-5 in q).
+    4. The hold. K of each path is held at the mean of the fluids values at q_a and q_b
+       (``el.held_k``; for K_run this is the mean of 0.4q², which no step forces but "K is held"
+       does not single out the branch path) and the network solved with these constant K
+       values gives the expected flows and EGLs. Its split lies between q_a and q_b, so the
+       hold is not released, and K no longer changes, so the outer loop ends.
+
+    The documentation leaves open when the alternation is detected (after how many updates,
+    so which pair of splits), whether the under-relaxation of the K update applies before the
+    hold, and whether the run K is held. Readings guard: holding at the one-sided splits of
+    step 2, at the two one-sided limits at the step itself (where an under-relaxed update would
+    bring the pair), or holding the branch K only (run K at the solved split) moves no flow by
+    more than STEP_READING_REL (a quarter of the D6 tolerance) or any EGL by more than
+    STEP_READING_HEAD. A guard also checks that the jump is resolved: the two one-sided
+    solutions' lateral flows differ by more than twice the D6 tolerance, with the held one
+    between them. (It lies 0.8 % from the lower formula's solution but only 0.46 % from the
+    upper's, whose K is steeper in q: the D6 tolerance separates the held result from the
+    former only, in every geometry of this kind that was tried.)
+    """
+    _, rho, mu = dv.FLUID_A
+    nu = mu / rho
+    terminals = _step_hold_terminals()
+    step = STEP_HOLD_STEP
+    geometry = el.CraneGeometry(45.0, RUN_LINE, STEP_LATERAL.d, diverging=True)
+    if not (STEP_LATERAL.d / RUN_LINE) ** 2 <= 0.35:
+        raise ValueError("the lateral must have β² ≤ 0.35 for the q = 0.4 step of G")
+    k_below, k_above = geometry.k(step), geometry.k(float(np.nextafter(step, 1.0)))  # q -> 0.4+
+    if not k_above[1] - k_below[1] > 1.0e-4:
+        raise ValueError("K_branch must jump up by more than 1e-4 at the step")
+    if abs(k_above[0] - k_below[0]) > 1.0e-12:
+        raise ValueError("K_run has no step at this β")
+    guess = {"inlet": 0.035, "outlet_1": -0.021, "outlet_2": -0.014, "E": 5.5}
+
+    def solve(rule: el.SplitK) -> BranchSolution:
+        return solve_branch("wye", 45.0, terminals, nu, guess, split_k=rule)
+
+    def split(sol: BranchSolution) -> float:
+        return el.q_ratio(sol.losses, sol.flows_in, "wye")
+
+    extended_below = solve(_one_formula_k(step - 0.09, step))
+    extended_above = solve(_one_formula_k(step + 0.01, step + 0.09))
+    q_ext_below, q_ext_above = split(extended_below), split(extended_above)
+    if not (q_ext_below > step + STEP_SPLIT_MARGIN and q_ext_above < step - STEP_SPLIT_MARGIN):
+        raise ValueError(f"one-sided splits {q_ext_below}, {q_ext_above} not across the step")
+    just_above = float(np.nextafter(step, 1.0))
+    below_grid = [float(t) for t in np.linspace(step - 0.1, step, 11)]
+    above_grid = [just_above, *(float(t) for t in np.linspace(step, step + 0.1, 11)[1:])]
+    for trial in below_grid:
+        if not split(solve(el.held_k((trial,)))) > trial:
+            raise ValueError(f"a self-consistent split exists below the step near {trial}")
+    for trial in above_grid:
+        if not split(solve(el.held_k((trial,)))) < trial:
+            raise ValueError(f"a self-consistent split exists above the step near {trial}")
+
+    q_a, q_b = q_ext_above, q_ext_below
+    for _ in range(50):
+        new_b = split(solve(el.tangent_k(q_a)))
+        new_a = split(solve(el.tangent_k(new_b)))
+        done = abs(new_a - q_a) < CYCLE_TOLERANCE and abs(new_b - q_b) < CYCLE_TOLERANCE
+        q_a, q_b = new_a, new_b
+        if done:
+            break
+    else:
+        raise ValueError("the tangent update has no 2-cycle")
+    if not q_a <= step < q_b:
+        raise ValueError(f"the 2-cycle {q_a}, {q_b} does not straddle the step")
+    hold = el.StepHold(step, q_a, q_b)
+    held = solve(hold.rule())
+    q_held = split(held)
+    inside = STEP_HOLD_INSIDE * (q_b - q_a)
+    if not (q_a + inside < q_held < q_b - inside):
+        raise ValueError(f"held split {q_held} not well inside [{q_a}, {q_b}]")
+
+    held_branch = hold.rule()(geometry, q_held)[1]
+    readings = {
+        "held at the one-sided splits": solve(el.held_k((q_ext_above, q_ext_below))),
+        "held at the step's one-sided limits": solve(el.held_k((step, just_above))),
+        "branch K held, run K at the solved split": solve(lambda g, q: (g.k(q)[0], held_branch)),
+    }
+    for label, sol in readings.items():
+        for port, flow in held.flows_in.items():
+            if abs(sol.flows_in[port] - flow) > STEP_READING_REL * abs(flow):
+                raise ValueError(f"reading '{label}' moves the {port} flow by more than allowed")
+            if abs(sol.egl[port] - held.egl[port]) > STEP_READING_HEAD:
+                raise ValueError(f"reading '{label}' moves the {port} EGL by more than allowed")
+    lateral = [s.flows_in["outlet_2"] for s in (extended_above, held, extended_below)]
+    if not abs(lateral[0]) < abs(lateral[1]) < abs(lateral[2]):
+        raise ValueError("the held lateral flow must lie between the one-sided ones")
+    if not abs(lateral[2] - lateral[0]) > STEP_VISIBLE_REL * abs(lateral[1]):
+        raise ValueError("the K jump is not resolved at the D6 tolerance")
+    return StepHoldDerivation(
+        step=step,
+        k_below=k_below,
+        k_above=k_above,
+        extended_below=extended_below,
+        extended_above=extended_above,
+        q_extended_below=q_ext_below,
+        q_extended_above=q_ext_above,
+        hold=hold,
+        held=held,
+        q_held=q_held,
+        readings=readings,
+    )
+
+
+def wye_crane_step_hold() -> ReferenceCase:
+    """A 45° wye whose split has no self-consistent value at the q = 0.4 step of the Crane
+    lateral K: R1 (H 7 m) → inlet; outlet_1 (run) → R2 (H 4 m); outlet_2 (a 40.9 mm lateral,
+    β² = 0.160, a 0.2 m nipple without exit fitting) → R3 (H 1.98 m, inside the band of R3
+    levels in which neither Crane formula's split lies on its own side of the step).
+
+    Design §5.4 (TSD): where the split alternates across a step of a Crane correlation, K is
+    held at the mean of the fluids values at the two splits and flagged, until the solved
+    split leaves the interval between them. ``derive_step_hold`` derives the two splits (the
+    2-cycle of the documented tangent update), the held K and the guards; the expected flows
+    and EGLs are the network solved with the held K, and the wye is flagged
+    CORRELATION_OUT_OF_RANGE (warning).
+    """
+    derivation = derive_step_hold()
+    return branch_case(
+        name="wye_crane_step_hold",
+        title="Crane wye held across a correlation step",
+        description=(
+            "A 45-degree wye with a small lateral (beta^2 = 0.16) whose flow split has no "
+            "self-consistent value: the Crane TP-410 lateral K jumps up at a split of 0.4, and "
+            "the network gives a split above 0.4 with the formula below it and below 0.4 with "
+            "the formula above it. Verifies the step hold: K held at the mean of the fluids "
+            "values at the two splits the outer iteration alternates between, the flows that "
+            "K gives, and the CORRELATION_OUT_OF_RANGE flag on the wye."
+        ),
+        method=(
+            "Darcy-Weisbach + Colebrook lines; fluids K_branch_diverging_Crane and "
+            "K_run_diverging_Crane at angle 45; splits of the outer update with K linearized "
+            "about the last split (central difference on its side of the step), iterated to "
+            "its 2-cycle across q = 0.4; path K held at the mean of the fluids values at the "
+            "two splits (design 5.4); fsolve"
+        ),
+        kind="wye",
+        angle=45.0,
+        z_branch=2.0,
+        terminals=_step_hold_terminals(),
+        guess={"inlet": 0.035, "outlet_1": -0.021, "outlet_2": -0.014, "E": 5.5},
+        pattern="diverging from inlet",
+        flags=[{"code": "CORRELATION_OUT_OF_RANGE", "componentId": "T1"}],
+        step_hold=derivation.hold,
+    )
+
+
 def dead_branch_converging_reading(d_run: float, d_branch: float, q: float) -> float:
     """EGL(branch) − EGL(run_inlet) of a dead branch read as *converging* to the run outlet
     (combined flow q out of run_outlet, Q_branch = 0), for a self-check of
@@ -591,5 +858,6 @@ CASES: tuple[Callable[[], ReferenceCase], ...] = (
     wye_crane_converging_45,
     wye_ideal_junction,
     wye_crane_reversed_lateral,
+    wye_crane_step_hold,
     twin_lines_crane_rung,
 )

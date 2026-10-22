@@ -12,12 +12,15 @@ A case file ``cases/<name>.json`` holds::
                                      "npshAvailable"?, "npshRequired"?,
                                      "npshMargin"?}},                      # optional
                   "valves": {valveId: {"state"}},                          # optional
-                  "flags": [{"code", "componentId"?, "connectionId"?}]}}  # optional
+                  "flags": [{"code", "componentId"?, "connectionId"?}],   # optional
+                  "stepHolds": {branchId: {"step", "splitA", "splitB"}}}}  # optional
 
 ``vaporPressure`` may be null (the property source has none). Every pump and valve of a case
 has an expected status or state: the self-checks evaluate each element's law in that state.
 Ports in an isolated section (no fixed head reachable through open elements) have no expected
-EGL, as the solver reports them without a head (design §4).
+EGL, as the solver reports them without a head (design §4). ``stepHolds`` names a Crane branch
+whose K is held across a correlation step (design §5.4) at the mean of the fluids values at
+splitA and splitB: the self-checks evaluate that branch's law with the held K.
 
 ``source`` says exactly where the expected values came from. Case files are generated, never
 edited by hand: closed-form cases by ``build_closed_form_cases.py`` from ``derivations.py``, EPANET
@@ -84,6 +87,7 @@ class Expected:
     atmospheric_pressure: float | None = None
     pumps: dict[str, dict[str, float | str]] = field(default_factory=dict)
     valves: dict[str, dict[str, str]] = field(default_factory=dict)
+    step_holds: dict[str, dict[str, float]] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         fluid: dict[str, Any] = {
@@ -103,6 +107,8 @@ class Expected:
             out["valves"] = self.valves
         if self.flags:
             out["flags"] = self.flags
+        if self.step_holds:
+            out["stepHolds"] = self.step_holds
         return out
 
 

@@ -91,7 +91,7 @@ from scipy.sparse.csgraph import connected_components
 from scipy.sparse.linalg import splu
 
 from .budget import check_budget
-from .elements import HeadOffsetLaw
+from .elements import HeadOffsetArrays, HeadOffsetLaw
 from .network import HEAD_FIXING_MODES, LinkKind, LinkMode, LinkState, SolverNetwork
 
 FloatArray = NDArray[np.float64]
@@ -271,13 +271,47 @@ def merge_offset_links(
     return OffsetGroups(root, shift, parent, parent_link, np.array(order, dtype=np.int64))
 
 
-def group_shifts(groups: OffsetGroups, link_offsets: FloatArray, start: IntArray) -> FloatArray:
-    """Shifts H_root − H_node for new offsets (indexed by link) on the same group trees."""
-    shift = np.zeros(groups.root.size)
-    for v in groups.order.tolist():  # parents before children
-        k, u = int(groups.parent_link[v]), int(groups.parent[v])
-        shift[v] = shift[u] + (link_offsets[k] if start[k] == u else -link_offsets[k])
-    return shift
+@dataclass(frozen=True)
+class GroupLevels:
+    """The group trees of ``OffsetGroups`` by depth, for the passes the GGA makes over them at
+    every iterate. Each level keeps its nodes in ``order``'s order, so every sum below adds the
+    same terms in the same order as a pass over ``order`` one node at a time: the results are
+    bit-identical, with one array operation per level instead of one Python step per node."""
+
+    levels: tuple[tuple[IntArray, IntArray, IntArray, NDArray[np.bool_]], ...]
+    """Per depth (1 = children of a root, ...): nodes v, their parents u, the links k joining
+    them, and whether k starts at u."""
+
+    @classmethod
+    def of(cls, groups: OffsetGroups, start: IntArray) -> "GroupLevels":
+        depth = np.zeros(groups.root.size, dtype=np.int64)
+        for v in groups.order.tolist():  # parents before children
+            depth[v] = depth[groups.parent[v]] + 1
+        order = groups.order
+        levels = []
+        for d in range(1, int(depth[order].max(initial=0)) + 1):
+            v = order[depth[order] == d]
+            u, k = groups.parent[v], groups.parent_link[v]
+            levels.append((v, u, k, start[k] == u))
+        return cls(tuple(levels))
+
+    def shifts(self, link_offsets: FloatArray, n_nodes: int) -> FloatArray:
+        """Shifts H_root − H_node for new offsets (indexed by link) on the same group trees:
+        shift_v = shift_u ± offset_k, parents before children."""
+        shift = np.zeros(n_nodes)
+        for v, u, k, forward in self.levels:
+            shift[v] = shift[u] + np.where(forward, link_offsets[k], -link_offsets[k])
+        return shift
+
+    def subtree_flows(self, q_all: FloatArray, net: FloatArray, end: IntArray) -> None:
+        """Set each offset link's flow from the continuity of the subtree below it (``net``:
+        net inflow per node from every other link, accumulated in place): children before
+        parents, Q_k = −net_v if k ends at v else net_v, then net_u += net_v."""
+        for v, u, k, _ in reversed(self.levels):
+            v_rev, u_rev, k_rev = v[::-1], u[::-1], k[::-1]  # ``order`` reversed, as one by one
+            net_v = net[v_rev]
+            q_all[k_rev] = np.where(end[k_rev] == v_rev, -net_v, net_v)
+            np.add.at(net, u_rev, net_v)
 
 
 def _held_node(state: LinkState, start: int, end: int) -> int:
@@ -542,6 +576,8 @@ def _solve_gga(
         assert isinstance(law, HeadOffsetLaw)
         offset_laws.append(law)
     groups = merge_offset_links(n, offset_links, np.zeros(offset_links.size), start, end, fixed)
+    levels = GroupLevels.of(groups, start)
+    offset_arrays = HeadOffsetArrays(offset_laws)
     root = groups.root
     grouped = np.zeros(n, dtype=bool)
     grouped[groups.order] = True
@@ -573,10 +609,15 @@ def _solve_gga(
     for pos, k in enumerate(newton.tolist()):
         at_node[int(start[k])].append(pos)
         at_node[int(end[k])].append(pos)
-    series = [
-        at_node[int(end[k])][0] if len(at_node[int(end[k])]) == 1 else -1
-        for k in offset_links.tolist()
-    ]
+    series = np.array(
+        [
+            at_node[int(end[k])][0] if len(at_node[int(end[k])]) == 1 else -1
+            for k in offset_links.tolist()
+        ],
+        dtype=np.int64,
+    )
+    in_series = series >= 0
+    series_pos = series[in_series]
 
     fixed_flow = [k for k in live_special if states[k].mode is LinkMode.FIXED_FLOW]
     live_head_fixing = [k for k in live_special if k in held]
@@ -631,22 +672,18 @@ def _solve_gga(
         net = np.bincount(end, weights=q_all, minlength=n) - np.bincount(
             start, weights=q_all, minlength=n
         )  # inflow from every link but the offset links (still 0 here)
-        for v in groups.order[::-1].tolist():  # children before parents
-            k, u = int(groups.parent_link[v]), int(groups.parent[v])
-            # Continuity of v's subtree: its net inflow + flow in through link k = 0.
-            q_all[k] = -net[v] if end[k] == v else net[v]
-            net[u] += net[v]
+        # Continuity of each subtree: its net inflow + flow in through its offset link = 0.
+        levels.subtree_flows(q_all, net, end)
         return q_all
 
     def known_heads(q_all: FloatArray) -> tuple[FloatArray, FloatArray]:
         """Offsets per link and the known part of every head (fixed/held roots − shift)."""
         link_offsets = np.zeros(m)
-        for k, law in zip(offset_links.tolist(), offset_laws, strict=True):
-            link_offsets[k] = law.head(q_all)
+        link_offsets[offset_links] = offset_arrays.heads(q_all)
         h_root = h_fixed.copy()
         for k in live_head_fixing:
             h_root[held[k]] = states[k].head(q_all)
-        shift = group_shifts(groups, link_offsets, start)
+        shift = levels.shifts(link_offsets, n)
         return link_offsets, np.where(root_fixed, h_root[root], 0.0) - shift
 
     def full_heads(h_unknown: FloatArray, known: FloatArray) -> FloatArray:
@@ -745,9 +782,8 @@ def _solve_gga(
             )
             break
         extra = np.zeros(nl)
-        for law, pos in zip(offset_laws, series, strict=True):
-            if pos >= 0:
-                extra[pos] += max(law.own_slope(q_all), 0.0)  # a negative one stays lagged
+        own = offset_arrays.own_slopes(q_all)[in_series]
+        np.add.at(extra, series_pos, np.where(own < 0.0, 0.0, own))  # a negative one stays lagged
         for k, pos, sign in held_reference:
             # H_set = value + c Q_ref² enters the reference pipe's energy residual with the
             # sign of the held node's end; added when it stabilizes (flow toward the held node,

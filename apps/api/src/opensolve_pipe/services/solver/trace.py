@@ -808,7 +808,7 @@ def _branch_trace(ctx: TraceInputs, comp: TeeBranch | WyeBranch) -> ElementTrace
     t.equation("Σ Q_port = 0: continuity (port flows positive into the component)")
     t.equation(PORT_PRESSURE_EQUATION)
     tracker = ctx.outer.branches.get(comp.id)
-    model = tracker.reported.model if tracker is not None else "ideal"
+    model = tracker.reported_solution(ctx.built).model if tracker is not None else "ideal"
     result = ctx.branches.get(comp.id)
     if comp.loss_model == "ideal":
         t.equation("EGL_port = EGL_center for every port: an ideal junction without loss")
@@ -842,8 +842,8 @@ def _branch_trace(ctx: TraceInputs, comp: TeeBranch | WyeBranch) -> ElementTrace
                 "EGL_port = EGL_combined − h_path (diverging) or EGL_combined + h_path (converging)"
             )
             kinds = (
-                [tracker.reported.kind]
-                if tracker is not None and tracker.reported.kind in _CRANE_CALLS
+                [tracker.reported_solution(ctx.built).kind]
+                if tracker is not None and tracker.reported_solution(ctx.built).kind in _CRANE_CALLS
                 else list(_CRANE_CALLS)
             )
             for kind in kinds:

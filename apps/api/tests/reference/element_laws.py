@@ -16,7 +16,7 @@ every coefficient is a cited library call or a definition written out below.
   (Silverberg & Darby 1999) for a tee whose branch carries the combined flow.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -340,6 +340,94 @@ class BranchLosses:
     fallback: bool
 
 
+CRANE_STEPS = (0.4, 0.5, 0.6)
+"""Flow ratios at which the Crane tee functions switch formula (fluids 1.3.1 source: G at 0.4
+or 0.6, M at 0.5, C at 0.4; research notes fluids_reference.md §1.8.5). fluids applies the
+lower formula at the step itself (``Q_ratio <= 0.4`` etc.)."""
+TANGENT_HALF_WIDTH = 1.0e-6
+"""Half-width of the central difference that gives the slope of a Crane K in the split. On
+each side of a step the Crane K is a polynomial of degree at most 3 in the split (G, C, M
+linear or constant times a quadratic, fluids source), so the difference is exact to
+h² K'''/6 ≈ 1e-10 and rounding (≈ 1e-16 K/h): far below anything a case resolves."""
+
+
+@dataclass(frozen=True)
+class CraneGeometry:
+    """One Crane-covered pattern of a branch: angle (°), D_run (the combined port's pipe),
+    D_branch, and whether the flow diverges from the combined port."""
+
+    angle: float
+    d_run: float
+    d_branch: float
+    diverging: bool
+
+    def k(self, q: float) -> tuple[float, float]:
+        """(K_run, K_branch) from the fluids Crane functions at split q = Q_branch/Q_comb,
+        called with Q_comb = 1 (the functions depend on the flows through q only)."""
+        ff = fluids.fittings
+        args = (self.d_run, self.d_branch, 1.0 - q, q, self.angle)
+        if self.diverging:
+            return float(ff.K_run_diverging_Crane(*args)), float(ff.K_branch_diverging_Crane(*args))
+        return float(ff.K_run_converging_Crane(*args)), float(ff.K_branch_converging_Crane(*args))
+
+
+SplitK = Callable[[CraneGeometry, float], tuple[float, float]]
+"""A rule giving (K_run, K_branch) of a Crane pattern at split q, in place of the fluids
+values at the solved split: the outer loop's tangent or a K held across a step (design
+§5.4)."""
+
+
+def held_k(splits: Sequence[float]) -> SplitK:
+    """K held at the mean of the fluids values at ``splits`` (one split: K frozen there),
+    whatever the split: design §5.4's hold across a correlation step."""
+
+    def rule(geometry: CraneGeometry, q: float) -> tuple[float, float]:
+        values = [geometry.k(s) for s in splits]
+        return (
+            sum(v[0] for v in values) / len(values),
+            sum(v[1] for v in values) / len(values),
+        )
+
+    return rule
+
+
+def tangent_k(q0: float, half_width: float = TANGENT_HALF_WIDTH) -> SplitK:
+    """The outer loop's K update (design §5.4): the Crane K linearized in the split about the
+    last split q0, K(q0) + K'(q0)(q − q0), the value and the central-difference slope taken
+    from fluids on q0's side of every step."""
+    if crane_step_distance(q0) <= half_width:
+        raise ValueError(f"split {q0} is within the difference stencil of a Crane step")
+
+    def rule(geometry: CraneGeometry, q: float) -> tuple[float, float]:
+        k0 = geometry.k(q0)
+        up, down = geometry.k(q0 + half_width), geometry.k(q0 - half_width)
+        slope = [(u - d) / (2.0 * half_width) for u, d in zip(up, down, strict=True)]
+        return k0[0] + slope[0] * (q - q0), k0[1] + slope[1] * (q - q0)
+
+    return rule
+
+
+@dataclass(frozen=True)
+class StepHold:
+    """A Crane K held across a correlation step (design §5.4): the outer loop's split
+    alternates between split_a ≤ step < split_b, and K is held at the mean of the fluids values
+    at the two (``held_k``) while the solved split stays between them."""
+
+    step: float
+    split_a: float
+    split_b: float
+
+    def to_json(self) -> dict[str, float]:
+        return {"step": self.step, "splitA": self.split_a, "splitB": self.split_b}
+
+    @classmethod
+    def from_json(cls, data: Mapping[str, float]) -> "StepHold":
+        return cls(data["step"], data["splitA"], data["splitB"])
+
+    def rule(self) -> SplitK:
+        return held_k((self.split_a, self.split_b))
+
+
 def _combined_port(kind: BranchKind, flows: Mapping[str, float]) -> str:
     """The port that carries the combined flow: the one with the largest |q|. A tie (one leg
     carries no flow) goes to a run port, preferring one with inflow, so a dead branch or a
@@ -361,6 +449,7 @@ def branch_losses(
     diameters: Mapping[str, float],
     nu: float,
     g: float = G,
+    split_k: SplitK | None = None,
 ) -> BranchLosses:
     """Crane path losses for one branch component (design §5.4).
 
@@ -376,6 +465,9 @@ def branch_losses(
       Darby3K(Di = D_x, Re = Re_x, name = TEE_FALLBACK_DARBY_NAME) on its own velocity v_x,
       EGL(x) = EGL(branch) ∓ K_x v_x²/(2g) (− when the branch is the inlet), with D_x held
       inside the schedule-40 table (``darby_table_diameter``).
+
+    ``split_k`` replaces the two Crane calls by a rule in the split q = Q_branch/Q_comb (a
+    tangent or a held K, design §5.4); it does not apply to the Darby fallback.
     """
     ff = fluids.fittings
     runs = RUN_PORTS[kind]
@@ -390,22 +482,26 @@ def branch_losses(
         d_run, d_branch = diameters[c], diameters[branch]
         v_c = flows[c] / area(d_run)
         head = v_c * v_c / (2.0 * g)
-        if flows[c] > 0.0:
-            q_run, q_branch = -flows[r], -flows[branch]
+        diverging = flows[c] > 0.0
+        sign = -1.0 if diverging else 1.0
+        q_run, q_branch = sign * flows[r], sign * flows[branch]
+        if split_k is not None:
+            geometry = CraneGeometry(angle, d_run, d_branch, diverging)
+            k_r, k_b = split_k(geometry, q_branch / (q_run + q_branch))
+        elif diverging:
             k_r = float(ff.K_run_diverging_Crane(d_run, d_branch, q_run, q_branch, angle))
             k_b = float(ff.K_branch_diverging_Crane(d_run, d_branch, q_run, q_branch, angle))
-            offsets = {c: 0.0, r: -k_r * head, branch: -k_b * head}
-            pattern = f"diverging from {c}"
         else:
-            q_run, q_branch = flows[r], flows[branch]
             k_r = float(ff.K_run_converging_Crane(d_run, d_branch, q_run, q_branch, angle))
             k_b = float(ff.K_branch_converging_Crane(d_run, d_branch, q_run, q_branch, angle))
-            offsets = {c: 0.0, r: k_r * head, branch: k_b * head}
-            pattern = f"converging to {c}"
+        offsets = {c: 0.0, r: sign * k_r * head, branch: sign * k_b * head}
+        pattern = f"diverging from {c}" if diverging else f"converging to {c}"
         return BranchLosses(pattern, c, offsets, {r: k_r, branch: k_b}, False)
 
     if kind == "wye":
         raise ValueError("no cited correlation for a wye whose outlet_2 carries the combined flow")
+    if split_k is not None:
+        raise ValueError("a split rule applies to the Crane patterns only")
     sign = -1.0 if flows[branch] > 0.0 else 1.0
     offsets = {branch: 0.0}
     k_factors = {}
@@ -462,7 +558,7 @@ def zero_flow_limits(
 def crane_step_distance(q_ratio: float) -> float:
     """Distance of a flow ratio q from the steps of the Crane tee correlations (q = 0.4, 0.5,
     0.6; research notes fluids_reference.md §1.8.5): derivations keep it clear of them."""
-    return min(abs(q_ratio - step) for step in (0.4, 0.5, 0.6))
+    return min(abs(q_ratio - step) for step in CRANE_STEPS)
 
 
 def q_ratio(losses: BranchLosses, flows: Mapping[str, float], kind: BranchKind) -> float:

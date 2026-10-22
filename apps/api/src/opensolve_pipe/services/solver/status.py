@@ -64,7 +64,7 @@ import numpy as np
 
 from ...models.components import CheckValve, ControlValve, IsolationValve, TeeBranch, WyeBranch
 from ...models.results import Flag
-from .branches import BranchGeometry, BranchSolution, branch_solution, crane_k
+from .branches import BranchGeometry, BranchSolution, branch_solution, crane_k, path_k
 from .budget import check_budget
 from .builder import BuiltNetwork, ValveData
 from .elements import HeadOffsetLaw, ValveLaw
@@ -902,6 +902,9 @@ class BranchTracker:
     """The correlation at the final solved split (set when the branch stops changing): its K
     values agree with those the solve used to within K_TOL, and its path losses to within
     OFFSET_TOL."""
+    final_flows: tuple[dict[str, float], float] | None = None
+    """The port inflows and the network's largest flow ``final`` is the branch solution of,
+    when it has not been built yet (``reported`` builds it, the first time it is needed)."""
     dead_leg: str | None = None
     """A leg held at zero flow because its port head lies between the zero-flow heads of the
     pattern with flow out through it and the pattern with flow in (see ``_dead_band``)."""
@@ -911,8 +914,13 @@ class BranchTracker:
     leads straight to another crane-model branch: the two legs are held, and released,
     together (``release_held_legs``)."""
 
-    @property
-    def reported(self) -> BranchSolution:
+    def reported_solution(self, built: BuiltNetwork) -> BranchSolution:
+        """``final`` (built from ``final_flows`` if need be), else the solution in use."""
+        if self.final is None and self.final_flows is not None:
+            inflow, q_scale = self.final_flows
+            nu, g = built.fluid.kinematic_viscosity, built.g
+            self.final = branch_solution(self.geometry, inflow, nu, g, q_scale)
+            self.final_flows = None
         return self.final if self.final is not None else self.solution
 
     @property
@@ -932,6 +940,7 @@ def _apply(built: BuiltNetwork, tracker: BranchTracker, solution: BranchSolution
             law.set(0.0, leg_law.coefficient, leg_law.reference, leg_law.tangent)
     tracker.solution = solution
     tracker.final = None
+    tracker.final_flows = None
     tracker.history.append(solution)
 
 
@@ -999,17 +1008,49 @@ def _hold_dead_legs(
             branches[bid].partner = partner
 
 
+@dataclass(frozen=True)
+class ZeroFlowBand:
+    """A held leg's port heads in the limit of zero flow out through it (``h_out``) and in
+    through it (``h_in``), and the port inflows of the two probes they were evaluated at."""
+
+    h_out: float
+    h_in: float
+    probes: tuple[dict[str, float], dict[str, float]]
+    """Port inflows (positive into the component) with flow just out through the leg, then
+    just in."""
+    q_scale: float
+
+    def solution(self, built: BuiltNetwork, geometry: BranchGeometry, i: int) -> BranchSolution:
+        """The branch solution of probe ``i`` (0: flow out through the leg, 1: in), the pattern
+        a release re-opens the leg with. Built only when a leg is released: the band itself
+        needs only the probes' path K values (``branches.path_k``, the same fluids calls)."""
+        return branch_solution(
+            geometry, self.probes[i], built.fluid.kinematic_viscosity, built.g, self.q_scale
+        )
+
+    @property
+    def limits(self) -> tuple[float, float]:
+        """(low, high). Normally h_out <= h_in; where the run pipes differ in size (outside the
+        correlation's range) the two limits can swap, and the band is the interval between
+        them either way."""
+        return min(self.h_out, self.h_in), max(self.h_out, self.h_in)
+
+
 def _dead_band(
-    built: BuiltNetwork, tracker: BranchTracker, flows: FloatArray, heads: FloatArray
-) -> tuple[float, float, BranchSolution, BranchSolution] | None:
+    built: BuiltNetwork,
+    tracker: BranchTracker,
+    flows: FloatArray,
+    heads: FloatArray,
+    q_scale: float | None = None,
+) -> ZeroFlowBand | None:
     """Port heads of a held leg in the limit of zero flow out through it and in through it,
     from the patterns on either side (they differ at zero flow, e.g. K = 1.0 diverging and
-    −0.9 converging for an equal tee's branch), with the solutions for each direction; None if
-    there is no through flow or a direction has no cited correlation (a wye's lateral carrying
-    the combined flow). A Crane limit is the combined port's EGL ∓ K v_c²/(2g) (diverging: a
-    loss from the combined port; converging: a loss towards it); a Darby limit (a tee run leg
-    with the combined flow in the branch) is the branch port's EGL, the run leg's loss being on
-    its own velocity, which vanishes with its flow."""
+    −0.9 converging for an equal tee's branch); None if there is no through flow or a
+    direction has no cited correlation (a wye's lateral carrying the combined flow). A Crane
+    limit is the combined port's EGL ∓ K v_c²/(2g) (diverging: a loss from the combined port;
+    converging: a loss towards it); a Darby limit (a tee run leg with the combined flow in the
+    branch) is the branch port's EGL, the run leg's loss being on its own velocity, which
+    vanishes with its flow."""
     geometry, dead = tracker.geometry, tracker.dead_leg
     assert dead is not None
     net = built.network
@@ -1021,36 +1062,30 @@ def _dead_band(
     if through == 0.0 or q_in is None or q_out is None:
         return None
     delta = DEAD_LEG_PROBE * through
-    q_scale = float(np.max(np.abs(flows), initial=0.0))
-    result: list[tuple[float, BranchSolution]] = []
+    if q_scale is None:  # the network's largest flow
+        q_scale = float(np.max(np.abs(flows), initial=0.0))
+    limits: list[float] = []
+    probes: list[dict[str, float]] = []
     for sign, other in ((1.0, q_in), (-1.0, q_out)):  # out through the dead leg, then in
         probe = dict(leg_flows)
         probe[dead] = sign * delta
         probe[other] -= sign * delta
-        solution = branch_solution(
-            geometry,
-            {p: -q for p, q in probe.items()},
-            built.fluid.kinematic_viscosity,
-            built.g,
-            q_scale,
-        )
-        if (
-            solution.model not in ("crane", "darby")
-            or solution.combined is None
-            or dead not in solution.k
-        ):
+        inflow = {p: -q for p, q in probe.items()}
+        paths = path_k(geometry, inflow, q_scale)
+        if paths.model not in ("crane", "darby") or paths.combined is None or dead not in paths.k:
             return None
-        c = solution.combined
+        c = paths.combined
         h_c = float(heads[net.node_index[f"{geometry.component_id}:{c}"]])
-        if solution.model == "darby":
+        probes.append(inflow)
+        k_dead = paths.k[dead]
+        if k_dead is None:
             # A Darby run leg's loss is on its own velocity, which vanishes with its flow.
-            result.append((h_c, solution))
+            limits.append(h_c)
             continue
         v_c = through / geometry.area[c]
-        loss = solution.k[dead] * v_c * v_c / (2.0 * built.g)
-        result.append((h_c - loss if solution.kind == "diverging" else h_c + loss, solution))
-    (h_out, out_solution), (h_in, in_solution) = result
-    return h_out, h_in, out_solution, in_solution
+        loss = k_dead * v_c * v_c / (2.0 * built.g)
+        limits.append(h_c - loss if paths.kind == "diverging" else h_c + loss)
+    return ZeroFlowBand(limits[0], limits[1], (probes[0], probes[1]), q_scale)
 
 
 def _solution_from_flows(
@@ -1097,13 +1132,6 @@ def pipe_partner(
     return other_id, other_port
 
 
-def _band_limits(band: tuple[float, float, BranchSolution, BranchSolution]) -> tuple[float, float]:
-    """(low, high) of a zero-flow band. Normally h_out <= h_in; where the run pipes differ in
-    size (outside the correlation's range) the two limits can swap, and the band is the
-    interval between them either way."""
-    return min(band[0], band[1]), max(band[0], band[1])
-
-
 def held_pair_head(
     built: BuiltNetwork,
     a: BranchTracker,
@@ -1114,11 +1142,12 @@ def held_pair_head(
     """The head reported in the pipe between two held legs: the middle of the overlap of the
     two zero-flow bands (any head in it satisfies both tees at zero flow); None if a band is
     unavailable."""
-    band_a = _dead_band(built, a, flows, heads)
-    band_b = _dead_band(built, b, flows, heads)
+    q_scale = float(np.max(np.abs(flows), initial=0.0))
+    band_a = _dead_band(built, a, flows, heads, q_scale)
+    band_b = _dead_band(built, b, flows, heads, q_scale)
     if band_a is None or band_b is None:
         return None
-    (low_a, high_a), (low_b, high_b) = _band_limits(band_a), _band_limits(band_b)
+    (low_a, high_a), (low_b, high_b) = band_a.limits, band_b.limits
     return 0.5 * (max(low_a, low_b) + min(high_a, high_b))
 
 
@@ -1130,7 +1159,9 @@ class _Release:
     """m by which the port head lies outside the band (or the two bands miss each other);
     inf when a band cannot be evaluated."""
     trackers: list[BranchTracker]
-    reopen: list[BranchSolution | None]
+    reopen: list[tuple[ZeroFlowBand, int] | None]
+    """Per tracker, the band and probe (0: flow out through the leg, 1: in) whose pattern it
+    re-opens with (``ZeroFlowBand.solution``); None: the pattern of the solved flows."""
 
 
 def _held_release(
@@ -1139,6 +1170,7 @@ def _held_release(
     flows: FloatArray,
     heads: FloatArray,
     branches: dict[str, BranchTracker],
+    q_scale: float | None = None,
 ) -> _Release | None:
     """The release a held leg needs, or None while holding it is a zero-flow solution.
 
@@ -1151,18 +1183,18 @@ def _held_release(
     A in the mirror case. A leg whose band cannot be evaluated (no through flow, or a direction
     without a cited correlation) is released: holding it could not be shown to be a solution.
     """
-    band = _dead_band(built, tracker, flows, heads)
+    band = _dead_band(built, tracker, flows, heads, q_scale)
     if tracker.partner is not None:
         partner = branches[tracker.partner[0]]
-        band_b = _dead_band(built, partner, flows, heads)
+        band_b = _dead_band(built, partner, flows, heads, q_scale)
         pair = [tracker, partner]
         if band is None or band_b is None:
             return _Release(math.inf, pair, [None, None])
-        (low_a, high_a), (low_b, high_b) = _band_limits(band), _band_limits(band_b)
+        (low_a, high_a), (low_b, high_b) = band.limits, band_b.limits
         if low_a - high_b > HTOL:
-            return _Release(low_a - high_b, pair, [band[2], band_b[3]])  # out of A, into B
+            return _Release(low_a - high_b, pair, [(band, 0), (band_b, 1)])  # out of A, into B
         if low_b - high_a > HTOL:
-            return _Release(low_b - high_a, pair, [band[3], band_b[2]])
+            return _Release(low_b - high_a, pair, [(band, 1), (band_b, 0)])
         return None
     dead = tracker.dead_leg
     assert dead is not None
@@ -1171,11 +1203,11 @@ def _held_release(
         return None  # a dead end beyond the leg: no flow whatever the band
     if band is None:
         return _Release(math.inf, [tracker], [None])
-    low, high = _band_limits(band)
+    low, high = band.limits
     if low - h_port > HTOL:
-        return _Release(low - h_port, [tracker], [band[2]])  # the outside pulls flow out
+        return _Release(low - h_port, [tracker], [(band, 0)])  # the outside pulls flow out
     if h_port - high > HTOL:
-        return _Release(h_port - high, [tracker], [band[3]])  # the outside pushes flow in
+        return _Release(h_port - high, [tracker], [(band, 1)])  # the outside pushes flow in
     return None
 
 
@@ -1191,13 +1223,14 @@ def release_held_legs(
     them all at once can send their flows back and forth."""
     candidates: list[_Release] = []
     seen: set[str] = set()
+    q_scale = float(np.max(np.abs(flows), initial=0.0))
     for bid, tracker in sorted(branches.items()):
         if tracker.dead_leg is None or bid in seen:
             continue
         seen.add(bid)
         if tracker.partner is not None:
             seen.add(tracker.partner[0])
-        release = _held_release(built, tracker, flows, heads, branches)
+        release = _held_release(built, tracker, flows, heads, branches, q_scale)
         if release is not None:
             candidates.append(release)
     if not candidates:
@@ -1207,13 +1240,20 @@ def release_held_legs(
     released: list[str] = []
     for release in chosen:
         for tracker, reopen in zip(release.trackers, release.reopen, strict=True):
-            _release(built, tracker, reopen, flows)
+            pattern = (
+                None if reopen is None else reopen[0].solution(built, tracker.geometry, reopen[1])
+            )
+            _release(built, tracker, pattern, flows)
             released.append(tracker.geometry.component_id)
     return released
 
 
 def _update_branch(
-    built: BuiltNetwork, tracker: BranchTracker, flows: FloatArray, steady_solves: int = 3
+    built: BuiltNetwork,
+    tracker: BranchTracker,
+    flows: FloatArray,
+    steady_solves: int = 3,
+    q_scale: float | None = None,
 ) -> bool:
     """New pattern and K from the solved split (design §5.4); True if the branch changed. A
     held leg stays at zero flow here (``release_held_legs`` decides when it re-opens).
@@ -1221,10 +1261,53 @@ def _update_branch(
     ``steady_solves``: how many of the latest inner solves, this one included, ran with the
     same pump and valve statuses. A split that returns to where it was two solves ago is K
     alternating across a step only if all three solves had the same statuses (otherwise the
-    statuses moved it), and a K held across a step is released once the statuses change."""
+    statuses moved it), and a K held across a step is released once the statuses change.
+    ``q_scale``: the network's largest flow, max |flows| (computed if not given).
+
+    A Crane branch whose pattern stays is decided first from the fluids K values and the split
+    alone (``branches.path_k``, the same calls ``branch_solution`` makes): when it does not
+    change, its leg laws are not built (``final`` is built from the same flows when it is
+    reported). Every other case builds the solution and decides as below; the outcome is the
+    same either way."""
     geometry = tracker.geometry
-    new = _solution_from_flows(built, tracker, flows)
+    inflow = {port: -float(flows[leg]) for port, leg in geometry.legs.items()}
+    if q_scale is None:
+        q_scale = float(np.max(np.abs(flows), initial=0.0))
     old = tracker.solution
+    paths = path_k(geometry, inflow, q_scale)
+    if (
+        paths.model == "crane"
+        and old.model == "crane"
+        and paths.pattern == old.pattern
+        and set(paths.k) == set(old.k)
+        and paths.combined is not None
+    ):
+        if tracker.held_step is not None:
+            if steady_solves >= 2 and tracker.held_step.holds(paths.split):
+                tracker.final = tracker.solution
+                tracker.final_flows = None
+                return False  # held at the mean while the split stays across the step
+        else:
+            k_new = {p: k for p, k in paths.k.items() if k is not None}
+            k_used: dict[str, float] = {}
+            for port in k_new:
+                law = built.network.links[geometry.legs[port]].law
+                assert isinstance(law, HeadOffsetLaw)
+                k_used[port] = (
+                    law.k(flows) + old.k_common if law.tangent is not None else old.k[port]
+                )
+            dk_new = max((abs(k_new[p] - k_used[p]) for p in k_new), default=0.0)
+            offset_new = 0.0
+            v_c = float(flows[geometry.legs[paths.combined]]) / geometry.area[paths.combined]
+            for port in k_new:  # every Crane leg is referenced to the combined leg
+                offset_new = max(
+                    offset_new, abs(k_new[port] - k_used[port]) * v_c * v_c / (2.0 * built.g)
+                )
+            if dk_new <= K_TOL and offset_new <= OFFSET_TOL:
+                tracker.final = None
+                tracker.final_flows = (inflow, q_scale)
+                return False
+    new = branch_solution(geometry, inflow, built.fluid.kinematic_viscosity, built.g, q_scale)
     if new.pattern != old.pattern or new.model != old.model or set(new.k) != set(old.k):
         tracker.held_step = None
         _apply(built, tracker, new)
@@ -1232,6 +1315,7 @@ def _update_branch(
     if tracker.held_step is not None:
         if steady_solves >= 2 and tracker.held_step.holds(new.split):
             tracker.final = tracker.solution
+            tracker.final_flows = None
             return False  # held at the mean while the split stays across the step
         # Other elements' statuses changed, or the split has left the two splits the mean was
         # taken between: the correlation at the solved split applies again (a split that still
@@ -1252,6 +1336,7 @@ def _update_branch(
         d_offset = max(d_offset, abs(new.k[port] - used[port]) * v * v / (2.0 * built.g))
     if dk <= K_TOL and d_offset <= OFFSET_TOL:
         tracker.final = new
+        tracker.final_flows = None
         return False
     previous = tracker.history[-2] if len(tracker.history) >= 2 else None
     if (
@@ -1518,10 +1603,11 @@ def run_outer_loop(
             (n for n, s in enumerate(reversed(solved_statuses)) if s != solved_statuses[-1]),
             len(solved_statuses),
         )
+        q_scale = float(np.max(np.abs(result.flows), initial=0.0))
         changed = released + [
             bid
             for bid, tracker in branches.items()
-            if bid not in released and _update_branch(built, tracker, result.flows, steady)
+            if bid not in released and _update_branch(built, tracker, result.flows, steady, q_scale)
         ]
         before = {cid: c.status for cid, c in controls.items()}
         if not (sequential and changed):

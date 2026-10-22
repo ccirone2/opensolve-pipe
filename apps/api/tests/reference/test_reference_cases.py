@@ -14,7 +14,9 @@ componentId / connectionId when given; warning and invalid flags are exhaustive,
 may appear unlisted), the state of every valve and
 status of every pump, pump operating flow and head and NPSH available / required / margin (heads:
 0.5 % or 0.01 m; flows: 0.5 % or the flow floor), the vapor pressure (a property lookup, or
-null when the source has none) and the atmospheric pressure used.
+null when the source has none) and the atmospheric pressure used. A case that expects a Crane
+K held across a correlation step (``stepHolds``) also checks the two splits the solver reports
+holding between (its flag's details) against the derived pair, to SPLIT_TOLERANCE.
 """
 
 from collections import defaultdict
@@ -33,6 +35,11 @@ FLOW_FLOOR = 1.0e-9  # m³/s
 HEAD_FLOOR = 0.01  # m
 PROPERTY_RELATIVE = 1.0e-6  # fluid properties are inputs or CoolProp lookups, not iterated
 MASS_BALANCE_RELATIVE = 1.0e-9  # of the largest flow
+SPLIT_TOLERANCE = 1.0e-6
+"""Absolute, in the flow split q, for the splits of a step hold: the derived pair is the settled
+2-cycle of the outer update (``derivations_branches.derive_step_hold``), which the solver
+reaches to about 1e-8 before it holds; a hold taken at another pair (an earlier alternation)
+would differ by orders of magnitude more."""
 BOUNDARY_TYPES = ("reservoir", "reference_node")
 
 CASES = case_files()
@@ -140,6 +147,35 @@ def _component_failures(result: SolvedState, expected: dict[str, Any]) -> list[s
     return failures
 
 
+def _step_hold_failures(result: SolvedState, expected: dict[str, Any]) -> list[str]:
+    """The step and the two splits of every expected step hold, from the solver's
+    CORRELATION_OUT_OF_RANGE flag on that branch (details step, splitA, splitB)."""
+    failures = []
+    for cid, want in expected.get("stepHolds", {}).items():
+        reported = [
+            flag.details
+            for flag in result.flags
+            if flag.code == "CORRELATION_OUT_OF_RANGE"
+            and flag.component_id == cid
+            and "splitA" in flag.details
+        ]
+        if len(reported) != 1:
+            failures.append(f"{cid}: {len(reported)} step-hold flags, expected 1")
+            continue
+        got = reported[0]
+        if got["step"] != want["step"]:
+            failures.append(f"{cid}: held at the step {got['step']}, expected {want['step']}")
+        pairs = (
+            sorted([float(got["splitA"]), float(got["splitB"])]),
+            sorted([want["splitA"], want["splitB"]]),
+        )
+        for g, w in zip(*pairs, strict=True):
+            if abs(g - w) > SPLIT_TOLERANCE:
+                failures.append(f"{cid}: held between splits {pairs[0]}, expected {pairs[1]}")
+                break
+    return failures
+
+
 def test_cases_exist() -> None:
     assert CASES, "no reference cases found in tests/reference/cases"
 
@@ -195,6 +231,7 @@ def test_reference_case(case_path: Path) -> None:
         + _head_loss_failures(project, egl, expected["egl"])
         + _check_flags(result, expected.get("flags", []))
         + _component_failures(result, expected)
+        + _step_hold_failures(result, expected)
     )
     assert not failures, "\n".join(failures)
 

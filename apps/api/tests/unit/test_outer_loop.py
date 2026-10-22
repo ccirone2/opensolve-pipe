@@ -486,7 +486,9 @@ def test_dead_band_of_a_run_leg_has_a_darby_limit() -> None:
     heads[index["T:run_inlet"]], heads[index["T:branch"]] = 18.0, 17.5
     band = status._dead_band(built, tracker, flows, heads)
     assert band is not None
-    h_out, h_in, out_solution, in_solution = band
+    h_out, h_in = band.h_out, band.h_in
+    out_solution = band.solution(built, tracker.geometry, 0)
+    in_solution = band.solution(built, tracker.geometry, 1)
     v_c = q / (math.pi * 0.1**2 / 4)
     k_run = ff.K_run_diverging_Crane(0.1, 0.08, 0.0, q, 90.0)
     assert h_out == pytest.approx(18.0 - k_run * v_c**2 / (2 * g), rel=1e-6)

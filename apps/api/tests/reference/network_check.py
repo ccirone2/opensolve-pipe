@@ -394,9 +394,13 @@ def energy_residuals(
 
 
 def branch_offsets(
-    project: Project, component: Branch, inflows: Mapping[str, float]
+    project: Project,
+    component: Branch,
+    inflows: Mapping[str, float],
+    split_k: el.SplitK | None = None,
 ) -> el.BranchLosses:
-    """Crane path losses of a branch for port inflows keyed by port id (design §5.4)."""
+    """Crane path losses of a branch for port inflows keyed by port id (design §5.4);
+    ``split_k`` replaces the fluids K at the split (a K held across a step)."""
     diameters = {p.id: port_diameter(project, f"{component.id}:{p.id}") for p in component.ports}
     return el.branch_losses(
         branch_kind(component),
@@ -404,7 +408,19 @@ def branch_offsets(
         inflows,
         diameters,
         kinematic_viscosity(project),
+        split_k=split_k,
     )
+
+
+def step_holds(expected: Mapping[str, Any]) -> dict[str, el.StepHold]:
+    """Crane branches whose K the case holds across a correlation step (design §5.4)."""
+    return {cid: el.StepHold.from_json(hold) for cid, hold in expected.get("stepHolds", {}).items()}
+
+
+def held_split_ks(expected: Mapping[str, Any]) -> dict[str, el.SplitK]:
+    """The held-K rule of every step hold in a case's expected results: K of each path at the
+    mean of the fluids values at the hold's two splits, read from the project's geometry."""
+    return {cid: hold.rule() for cid, hold in step_holds(expected).items()}
 
 
 @dataclass(frozen=True)
@@ -520,10 +536,13 @@ def element_residuals(
     egl: Mapping[str, float],
     states: Mapping[str, str],
     model: Model,
+    split_ks: Mapping[str, el.SplitK] | None = None,
 ) -> ElementEquations:
     """Every component law evaluated at expected flows and EGLs: pumps and valves in their
     states, and the two path equations EGL(p) − EGL(combined) − offset_p of each Crane branch
-    (for a leg held at zero flow, ``held_pairs``, EGL(p) − ``held_pair_head`` instead)."""
+    (for a leg held at zero flow, ``held_pairs``, EGL(p) − ``held_pair_head`` instead; for a
+    branch in ``split_ks``, offsets from that K rule, e.g. ``held_split_ks``)."""
+    split_ks = split_ks or {}
     out = ElementEquations({}, {})
     held = {
         key: held_pair_head(project, pair, flows, egl.__getitem__)
@@ -548,7 +567,7 @@ def element_residuals(
             inflows = {
                 p.id: port_inflow(project, f"{component.id}:{p.id}", flows) for p in component.ports
             }
-            losses = branch_offsets(project, component, inflows)
+            losses = branch_offsets(project, component, inflows, split_ks.get(component.id))
             c = losses.combined_port
             if c is None:
                 continue
@@ -646,6 +665,7 @@ def solve_network(
     head_guess: Mapping[str, float],
     states: Mapping[str, str] | None = None,
     held: Sequence[tuple[str, str]] = (),
+    split_ks: Mapping[str, el.SplitK] | None = None,
 ) -> tuple[dict[str, float], dict[str, float]]:
     """Solve all flows and free-node heads together with fsolve.
 
@@ -655,9 +675,11 @@ def solve_network(
     continuity plus the path equations of its two non-combined ports. A pipe held at zero
     flow between two Crane branches (``held``, from ``held_pairs`` of the expected flows) has
     Q = 0 and no energy equation; each of its ends takes ``held_pair_head`` in place of its
-    path equation. Returns (flows, EGL per port key, isolated ports omitted).
+    path equation. A branch in ``split_ks`` takes its K from that rule (a K held across a step,
+    or the outer loop's tangent). Returns (flows, EGL per port key, isolated ports omitted).
     """
     states = dict(states or {})
+    split_ks = split_ks or {}
     nu = kinematic_viscosity(project)
     port_nodes = node_of_port(project)
     fixed = fixed_heads(project)
@@ -723,7 +745,7 @@ def solve_network(
                 p.id: port_inflow(project, f"{branch.id}:{p.id}", flows) for p in branch.ports
             }
             out.append(sum(inflows.values()))
-            losses = branch_offsets(project, branch, inflows)
+            losses = branch_offsets(project, branch, inflows, split_ks.get(branch.id))
             combined = losses.combined_port or branch.ports[0].id
             for p in branch.ports:
                 if p.id != combined:

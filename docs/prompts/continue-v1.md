@@ -17,23 +17,23 @@ Precedence when documents disagree: GOALS → CLAUDE.md decisions → PRD → SD
 
 ## 2. Where things stand
 
-The history is one commit per milestone: M0 `879f537`, M1 `2f722bf`, M2 `56938ee`, M3 `240652f`, M4 `ca34178`, M5+M6 `2edfde3`, M7 `97232f9`. CI (`.github/workflows/ci.yml`: API, web, e2e and generated-type drift jobs) passed on every one of them.
+The history is one commit per milestone: M0 `879f537`, M1 `2f722bf`, M2 `56938ee`, M3 `240652f`, M4 `ca34178`, M5+M6 `2edfde3`, M7 `97232f9`. After v1: `f1ada11` (this prompt), `cd715ba` (solver speed with bit-identical results; the step-hold reference case), `95effa5` (the differential test and corpus comparison moved into the repo). CI (`.github/workflows/ci.yml`: API, web, e2e and generated-type drift jobs) passed on every one of them.
 
-Verified state at `97232f9`:
+Verified state at `95effa5`:
 
 | Area | Result |
 |---|---|
-| API pytest | 2,034 passed; 96% coverage of `opensolve_pipe` |
+| API pytest | 2,104 passed (including the 50-seed EPANET smoke test); 97% coverage of `opensolve_pipe` |
 | API ruff, ruff format, mypy strict | clean |
 | Web svelte-check, Prettier + ESLint | clean |
 | Web Vitest | 430 passed |
 | Web Playwright (desktop 1280×800 and mobile 390×844) | 46 passed, 2 skipped by design |
 
-**Reference suite** (`apps/api/tests/reference/`) has 65 cases: 59 closed-form, 6 run through EPANET 2.2 via WNTR 1.5.0. Every v1 component type and fluid has at least one case.
+**Reference suite** (`apps/api/tests/reference/`) has 66 cases: 60 closed-form, 6 run through EPANET 2.2 via WNTR 1.5.0. Every v1 component type and fluid has at least one case.
 - Closed-form cases: worst deviation 9e-7 relative in flow and 3.7 µm in EGL.
 - EPANET cases: worst deviation 0.084% in flow and 6.9 mm in EGL.
 
-**Differential test:** 3,000 random water networks were compared with EPANET. All of them converge and pass an independent check of mass, energy and status rules. 2,808 agree within D6, the worst at 0.82 of the tolerance. The rest have more than one valid steady state, or EPANET gives no usable answer.
+**Differential test** (`apps/api/tests/differential/`, TSD §10.4): 3,000 random water networks were compared with EPANET. All of them converge and pass an independent check of mass, energy and status rules. 2,808 agree within D6, the worst at 0.82 of the tolerance. The rest have more than one valid steady state, or EPANET gives no usable answer.
 
 **Before changing anything, re-run every gate and confirm these numbers.**
 
@@ -93,7 +93,8 @@ Several of these were not obvious, so don't rediscover them. Re-verify any of th
 These methods made v1 trustworthy.
 
 - **Split implementation from reference-writing.** For any solver or physics change, have one agent implement while a second, independent agent writes the reference cases from first principles without reading `services/`. Then integrate: on any mismatch, find the root cause, never the tolerance. Then run adversarial reviews (physics, and the reference suite's independence), then fix with a test that fails before the fix.
-- **Re-run the differential test against EPANET after any status-logic change.** The v1 fuzzer was lost with the build container. Rebuild it from `tests/reference/generate_epanet_cases.py` and `tests/reference/free_levels.py`, and treat any converged result that fails the independent check as critical.
+- **Re-run the differential test against EPANET after any status-logic change:** `uv run python -m tests.differential.fuzz 0 3000 --workers 3` (about 3 minutes on 4 CPUs), then `python -m tests.differential.stats <out dir>`. Any critical seed (a converged result that fails the independent checks) is a bug; the class table at `95effa5` is in TSD §10.4.
+- **Prove that a speed or refactoring change leaves results unchanged:** dump the corpus with the code before and after (`tests.differential.corpus`, from a `git worktree` of the old commit and from the working tree) and compare them (`tests.differential.compare`): every reported value must be identical. If a value changes, it is a method change: bump `METHOD_VERSION` and say why in `METHOD_CHANGELOG`. TSD §10.4 has the exact commands.
 - **Use workflow agents carefully.** With 4 CPUs a workflow runs about 2 agents at a time. Give parallel agents disjoint directories, and tell them not to run `ruff format` or Prettier outside their own paths. If the usage limit stops a workflow, resume it with `resumeFromRunId`, but first check the tree, because a stopped agent may have left edits half done.
 - **Commit one change set at a time, each with every gate green.** Use conventional-commit messages that state what was verified. Develop on the branch the session assigns, push only to it, never force-push, and open a PR only if asked.
 
@@ -107,11 +108,12 @@ Pass each item through the GOALS §5 gates first, and stop to ask the owner wher
    - Write the hosting setup into TSD §11 and the README, and keep hosting cost near zero (GOALS §4.4).
 2. **Tee and wye coverage.** Patterns where the combined flow passes through the branch currently use a Darby 3-K per-path fallback for tees, and wyes report not converged.
    - Implement a flow-split correlation (e.g. Idelchik, *Handbook of Hydraulic Resistance*; Miller, *Internal Flow Systems*) only from a source you actually have in hand. Encode it as cited, versioned data and give it reference cases. Otherwise leave it as it is.
+   - Session 2 searched and found no source in hand: Idelchik's 1966 AEC translation (AEC-tr-6630) is not on OSTI or archive.org, and Bassett, Winterbone & Pearson (2001, *Proc. IMechE C* 215(8), 861–881) is paywalled. The owner has to supply a source.
    - Bump `METHOD_VERSION`.
-3. **System-curve speed.** One 41-point curve takes about 3–4 s on a 99-component network.
-   - Options: fewer or adaptive points, progressive rendering, or reusing the solve's factorization. Keep curve points exact solves; never interpolate between them silently.
-4. **Long Crane-tee ladders.** Above about 800 components they can exceed the 45 s request budget. Profile `services/solver/status.py`'s hold/release passes.
-5. **Reference case for the K step-hold.** Add a closed-form case where a Crane K is held at the mean across a correlation step; today that's covered by unit tests only.
+3. **System-curve speed.** Session 2 made solves and curves about twice as fast on Crane-tee networks with bit-identical results (TSD §5.2): a 41-point curve on a 99-component Crane ladder takes 1.6 s (was 2.8 s), an ideal-tee one 0.2 s.
+   - Left: the first point of a curve starts cold (about a sixth of the curve's time); warm-starting it from the solve, or a secant predictor between points, would cut more but moves curve points at the tolerance level (a method change, and in a network with several valid steady states it could pick another one). Progressive rendering in the web app is the other option. Keep curve points exact solves; never interpolate between them silently.
+4. **Long Crane-tee ladders.** Done in session 2: the 1,000-component limit solves in 4.9 s (was 10.7 s) and an 805-component system curve takes 11.6 s (was 26.8 s), well inside the 45 s budget.
+5. **Reference case for the K step-hold.** Done in session 2: `wye_crane_step_hold`, written independently of the solver code; it also checks the pair of splits the solver holds between.
 6. **The "default" label.** A value equal to its documented default is labelled "default" even when the user typed it (D10). If the owner wants the distinction, it needs a model marker plus a schema migration.
 7. **After that, deferred scope** (D5 list: VFD modes, HI viscosity correction, relief valves, export, and so on). Each item goes through the GOALS gates and the D5 order, one verified slice at a time, each with reference cases and traces.
 

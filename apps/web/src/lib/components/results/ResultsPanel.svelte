@@ -185,7 +185,9 @@
 				error,
 				views:
 					error?.kind === 'topology'
-						? untrack(() => topologyIssueViews(error.issues, ws.project, !results.errorStale))
+						? untrack(() =>
+								topologyIssueViews(error.issues, ws.project, !results.errorStale, ws.units)
+							)
 						: []
 			};
 		}

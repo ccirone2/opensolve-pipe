@@ -36,7 +36,15 @@ EPANET's badvalve options (``_open_bad_valves``).
 
 Statuses fixed by the user (pump 'off', isolation valve 'isolated', check valve 'locked_open'
 or 'locked_closed', control valve 'failed_open' or 'failed_closed') never change. Active
-control valves start ACTIVE (EPANET 2.2 hydraul.c:136-140); every other element starts OPEN.
+control valves start ACTIVE (EPANET 2.2 hydraul.c:136-140), and so do speed-controlled pumps
+that are on; every other element starts OPEN.
+
+Speed-controlled pumps (flow setpoint, CLAUDE.md D11; ``flow_pump_status``): ACTIVE carries the
+setpoint as a fixed flow, the speed recovered afterwards (``pumps.operating_speed``); OPEN is
+the pump at its maximum speed (its own law, exactly a fixed-speed pump at ``speed``);
+MIN_SPEED runs it at its minimum speed (``LinkState.law``); CLOSED is the integral check at
+maximum speed. Every rule compares flows and head differences only, as the fixed pump's, check
+valve's and FCV's do, so the closed-off and floating-section logic applies to them unchanged.
 
 Oscillation: a status vector (statuses and branch patterns) that returns to one solved
 before, other than the previous one, stops the loop with converged = false and the components
@@ -66,11 +74,11 @@ from ...models.components import CheckValve, ControlValve, IsolationValve, TeeBr
 from ...models.results import Flag
 from .branches import BranchGeometry, BranchSolution, branch_solution, crane_k, path_k
 from .budget import check_budget
-from .builder import BuiltNetwork, ValveData
+from .builder import BuiltNetwork, PumpControlData, ValveData
 from .elements import HeadOffsetLaw, ValveLaw
 from .flags import make_flag
-from .gga import FloatArray, GgaResult, solve_gga
-from .network import CLOSED, NORMAL, LinkMode, LinkState
+from .gga import CONTINUITY_ATOL, CONTINUITY_RTOL, FloatArray, GgaResult, solve_gga
+from .network import CLOSED, NORMAL, LinkMode, LinkState, law_of
 
 MAX_OUTER_ITERATIONS = 30
 """Cap on status / branch-loss iterations (build-v1.md §3 decision table)."""
@@ -86,8 +94,12 @@ OFFSET_TOL = 1.0e-6
 
 class Status(StrEnum):
     OPEN = "open"
+    """Open; a speed-controlled pump at its maximum speed."""
     CLOSED = "closed"
     ACTIVE = "active"
+    """A control valve, or a speed-controlled pump, holding its setpoint."""
+    MIN_SPEED = "min_speed"
+    """A speed-controlled pump at its minimum speed (CLAUDE.md D11)."""
 
 
 ControlKind = Literal["pump", "isolation", "check", "prv", "psv", "fcv"]
@@ -126,6 +138,67 @@ def pump_status(status: Status, gain: float, q: float, shutoff: float) -> Status
             return Status.CLOSED
         return Status.OPEN
     return Status.OPEN if gain <= shutoff else Status.CLOSED
+
+
+def flow_pump_status(
+    status: Status,
+    gain: float,
+    q: float,
+    q_set: float,
+    head_min: float,
+    head_max: float,
+    shutoff_min: float,
+    shutoff_max: float,
+) -> Status:
+    """Speed-controlled pump with a flow setpoint (CLAUDE.md D11), gain = EGL_d − EGL_s,
+    head_min / head_max = F(s_min, Q_set) / F(s_max, Q_set), shutoff_min / shutoff_max =
+    F(s_min, 0) / F(s_max, 0) with F(s, Q) = s² H₀(Q/s). The first test that holds wins::
+
+        ACTIVE:    A1 OPEN if gain > F_max + Htol (the setpoint needs more than s_max)
+                   A2 MIN_SPEED if gain < F_min − Htol (it needs less than s_min)
+                   A3 otherwise ACTIVE
+        OPEN:      X1 ACTIVE once Q >= Q_set (EPANET 2.2 fcvstatus: XFCV -> ACTIVE)
+                   X2 otherwise ``pump_status`` at s_max (EPANET 2.2 pumpstatus)
+        MIN_SPEED: N1 ACTIVE once Q <= Q_set
+                   N2 otherwise ``pump_status`` at s_min: CLOSED stays CLOSED, OPEN -> MIN_SPEED
+        CLOSED:    C1 ``pump_status`` at s_max: OPEN once gain <= F(s_max, 0)
+
+    A0 (an ACTIVE pump whose flow the network cannot take or supply, ``GgaResult.
+    starved_links``, goes OPEN: a flow controller that sees no flow runs to maximum speed) is
+    applied where the starved links are known (``_update_controls``)."""
+    if status is Status.ACTIVE:
+        if gain > head_max + HTOL:
+            return Status.OPEN
+        if gain < head_min - HTOL:
+            return Status.MIN_SPEED
+        return Status.ACTIVE
+    if status is Status.OPEN:
+        if q >= q_set:
+            return Status.ACTIVE
+        return pump_status(Status.OPEN, gain, q, shutoff_max)
+    if status is Status.MIN_SPEED:
+        if q <= q_set:
+            return Status.ACTIVE
+        if pump_status(Status.OPEN, gain, q, shutoff_min) is Status.CLOSED:
+            return Status.CLOSED
+        return Status.MIN_SPEED
+    return pump_status(Status.CLOSED, gain, q, shutoff_max)
+
+
+def controlled_pump_status(
+    status: Status, gain: float, q: float, control: PumpControlData
+) -> Status:
+    """``flow_pump_status`` with a pump's control data."""
+    return flow_pump_status(
+        status,
+        gain,
+        q,
+        control.setpoint,
+        control.head_at_min,
+        control.head_at_max,
+        control.shutoff_min,
+        control.shutoff_max,
+    )
 
 
 def prv_status(status: Status, h1: float, h2: float, hset: float, hml: float, q: float) -> Status:
@@ -229,16 +302,16 @@ def initial_controls(
     built: BuiltNetwork, forced: Mapping[str, float] | None = None
 ) -> dict[str, Control]:
     """Initial statuses. A pump in ``forced`` (a system-curve solve) is fixed: its link carries
-    the forced flow (``link_states``) whatever its status."""
+    the forced flow (``link_states``) whatever its status. A speed-controlled pump that is on
+    starts ACTIVE, as active control valves do."""
     controls: dict[str, Control] = {}
     for cid, pump in built.pumps.items():
         off = pump.component.status == "off"
         if forced is not None and cid in forced:
             controls[cid] = Control(cid, "pump", pump.link_index, Status.OPEN, True)
             continue
-        controls[cid] = Control(
-            cid, "pump", pump.link_index, Status.CLOSED if off else Status.OPEN, off
-        )
+        on = Status.ACTIVE if pump.control is not None else Status.OPEN
+        controls[cid] = Control(cid, "pump", pump.link_index, Status.CLOSED if off else on, off)
     for cid, data in built.valves.items():
         valve = data.component
         if isinstance(valve, IsolationValve):
@@ -289,11 +362,21 @@ def link_states(
     forced: Mapping[str, float] | None = None,
 ) -> list[LinkState]:
     """Link modes for the next inner solve. ``forced``: pump id -> flow, m³/s; that pump's
-    link is a FIXED_FLOW link (a system-curve solve, design §13)."""
+    link is a FIXED_FLOW link (a system-curve solve, design §13). A speed-controlled pump holding
+    its setpoint is a FIXED_FLOW link too; at its minimum speed it is a NORMAL link with the
+    minimum-speed law in place of its own (CLAUDE.md D11)."""
     states = [NORMAL for _ in built.network.links]
     for control in controls.values():
         if control.status is Status.CLOSED:
             states[control.link] = CLOSED
+        elif control.kind == "pump" and control.status in (Status.ACTIVE, Status.MIN_SPEED):
+            pump_control = built.pumps[control.component_id].control
+            assert pump_control is not None  # only a speed-controlled pump takes these
+            states[control.link] = (
+                LinkState(LinkMode.FIXED_FLOW, pump_control.setpoint)
+                if control.status is Status.ACTIVE
+                else LinkState(LinkMode.NORMAL, law=pump_control.min_law)
+            )
         elif control.status is Status.ACTIVE:
             states[control.link] = active_state(built, built.valves[control.component_id])
     for tracker in (branches or {}).values():
@@ -366,7 +449,9 @@ def _update_controls(
         link = net.links[control.link]
         a, b = section.get(link.start), section.get(link.end)
         if control.link in starved:
-            control.status = Status.CLOSED
+            # A0 for a speed-controlled pump: no flow reaches its controller, which runs to
+            # maximum speed (CLAUDE.md D11); a control valve closes.
+            control.status = Status.OPEN if control.kind == "pump" else Status.CLOSED
         elif (a is not None or b is not None) and (a != b or control.kind in ("prv", "psv")):
             if a == b and old is not Status.CLOSED and float(flows[control.link]) < -QTOL:
                 control.status = Status.CLOSED  # the reverse-flow rule needs no level
@@ -380,8 +465,12 @@ def _update_controls(
         elif control.kind == "pump":
             pump = built.pumps[control.component_id]
             gain = head(pump.discharge) - head(pump.suction)
-            shutoff = pump.curve.shutoff_head(pump.component.speed)
-            control.status = pump_status(old, gain, flows[control.link], shutoff)
+            if pump.control is None:
+                shutoff = pump.curve.shutoff_head(pump.component.speed)
+                control.status = pump_status(old, gain, flows[control.link], shutoff)
+            else:
+                q = float(flows[control.link])
+                control.status = controlled_pump_status(old, gain, q, pump.control)
         else:
             data = built.valves[control.component_id]
             h1 = head(data.inlet)
@@ -446,7 +535,7 @@ def closed_off_sections(
             continue
         if link.start not in isolated or link.end not in isolated:
             continue
-        law = link.law
+        law = law_of(link, state)
         h0 = law.head(zeros) if isinstance(law, HeadOffsetLaw) else law.evaluate(0.0)[0]
         adjacency[link.start].append((link.end, -h0))  # H_end = H_start − h(0)
         adjacency[link.end].append((link.start, h0))
@@ -1584,11 +1673,16 @@ def run_outer_loop(
                 return finish(outer, False, result.message, [])
             if not opened[0]:
                 members = opened[1]
+                what = (
+                    "opening or closing the active control valves"
+                    if _active_controls(controls, members) == "control valves"
+                    else "taking the active controls out of their active states"
+                )
                 return finish(
                     outer,
                     False,
-                    f"{result.message}; opening or closing the active control valves "
-                    f"({', '.join(members)}) only returns to states already solved",
+                    f"{result.message}; {what} ({', '.join(members)}) only returns to states "
+                    "already solved",
                     members,
                 )
             history.append(_vector(controls, branches))
@@ -1621,6 +1715,9 @@ def run_outer_loop(
             )
             if unsupported:
                 return _unsupported(finish(outer, False, "", []), branches, unsupported)
+            over = _over_controlled(built, result, controls, states)
+            if over is not None:
+                return finish(outer, False, over[0], over[1])
             _fill_held_pairs(built, branches, result)
             message = f"converged: {inner} Newton iterations in {outer} outer iteration(s)"
             return finish(outer, True, message, [])
@@ -1648,7 +1745,7 @@ def run_outer_loop(
             if opened is None or not opened[0]:
                 members = opened[1] if opened is not None else []
                 where = (
-                    f" (control valves: {', '.join(members)})"
+                    f" ({_active_controls(controls, members)}: {', '.join(members)})"
                     if members
                     else f" (crane-model branches: {_id_list(sorted(branches))})"
                     if branches
@@ -1842,13 +1939,26 @@ def _check_changes(
     state: EPANET 2.2 applies these rules at every iteration (hydsolver.c:148-162,
     valvestatus), so a valve whose setting cannot hold (a PRV whose inlet falls below its
     setting, a PSV passing reverse flow) leaves its active state before the iteration
-    diverges."""
+    diverges. Active speed-controlled pumps take the rules A1 and A2 there
+    (``flow_pump_status``: maximum or minimum speed)."""
     heads, flows = result.check_heads, result.check_flows
     if heads is None or flows is None:
         return {}
     net = built.network
     out: dict[str, Status] = {}
     for control in active:
+        if control.kind == "pump":
+            pump = built.pumps[control.component_id]
+            assert pump.control is not None  # only a speed-controlled pump is active
+            h_s = float(heads[net.node_index[pump.suction]])
+            h_d = float(heads[net.node_index[pump.discharge]])
+            q = float(flows[control.link])
+            if not (math.isfinite(h_s) and math.isfinite(h_d) and math.isfinite(q)):
+                continue
+            new = controlled_pump_status(Status.ACTIVE, h_d - h_s, q, pump.control)
+            if new is not Status.ACTIVE:
+                out[control.component_id] = new
+            continue
         data = built.valves[control.component_id]
         valve = data.component
         assert isinstance(valve, ControlValve)
@@ -1891,6 +2001,12 @@ def _open_bad_valves(
     shut, e.g. a PSV whose inlet stays below its setting with no flow. Returns None if no valve
     is active, (False, ids) if every option returns to a state already tried, (True, ids) after
     one.
+
+    Active speed-controlled pumps (CLAUDE.md D11) take part as the valves do: open means
+    maximum speed. Between the open and the closed options, the options with a pump are tried
+    again with their pumps at minimum speed (their valves stay active); options without a pump
+    have no such step, so a network without speed-controlled pumps takes exactly the options
+    above, in the same order.
     """
     active = [c for c in controls.values() if c.status is Status.ACTIVE and not c.fixed]
     if not active:
@@ -1907,15 +2023,93 @@ def _open_bad_valves(
     named = [c for c in active if c.link in result.undetermined_links]
     singles: list[list[Control]] = [[c] for c in (named or active)]
     groups = singles if named else [active, *singles] if len(active) > 1 else [active]
-    for new_status in (Status.OPEN, Status.CLOSED):
+    for new_status in (Status.OPEN, Status.MIN_SPEED, Status.CLOSED):
         for option in groups:
-            for control in option:
+            changed = (
+                [c for c in option if c.kind == "pump"]
+                if new_status is Status.MIN_SPEED
+                else option
+            )
+            if not changed:
+                continue  # no pump in the option: no minimum-speed step
+            for control in changed:
                 control.status = new_status
             if _vector(controls, branches) not in history:
-                return True, sorted(c.component_id for c in option)
-            for control in option:
+                return True, sorted(c.component_id for c in changed)
+            for control in changed:
                 control.status = Status.ACTIVE
     return False, sorted(c.component_id for c in (named or active))
+
+
+def _active_controls(controls: dict[str, Control], members: list[str]) -> str:
+    """How a non-convergence message names the active elements its fallbacks changed: 'control
+    valves' as ever, 'controls' once a speed-controlled pump is among them."""
+    if any(controls[cid].kind == "pump" for cid in members if cid in controls):
+        return "controls"
+    return "control valves"
+
+
+def _over_controlled(
+    built: BuiltNetwork,
+    result: GgaResult,
+    controls: dict[str, Control],
+    states: list[LinkState],
+) -> tuple[str, list[str]] | None:
+    """(message, ids) when a converged state holds a speed-controlled pump in series with
+    another flow control at the same flow, else None (CLAUDE.md D11).
+
+    A speed-controlled pump at a speed limit, or an open FCV, whose solved flow equals its
+    setpoint (to within Qtol, or the inner solve's flow resolution where that is coarser) sits
+    on the edge of regulating: its rule (``flow_pump_status`` X1/N1, ``fcv_status``) compares
+    the flow with the setpoint exactly, so rounding decides whether it stays at the limit. When
+    another active flow control fixes that same flow (two flow pumps, or a flow pump and an
+    FCV, in series with equal setpoints), the state is not unique: any split of the head
+    between them holds both setpoints, and the pressure between them is undetermined (AFT
+    Fathom: no solution; PIPE-FLO: over controlled). Such a state is reported as not
+    converged, naming them, whichever side the rounding fell on. The test: with that element
+    holding its setpoint too, the inner solve finds the pressure between it and another
+    active flow control undetermined (``GgaResult.undetermined_links``). Only states with a
+    speed-controlled pump among those named are concerned, so networks without speed control
+    keep their v1 results; a pump whose control a system-curve solve replaces by a forced flow,
+    or that is off, regulates nothing (``Control.fixed``)."""
+    pumps = {
+        control.link
+        for cid, control in controls.items()
+        if control.kind == "pump" and not control.fixed and built.pumps[cid].control is not None
+    }
+    if not pumps:
+        return None
+    flows = result.flows
+    q_scale = float(np.max(np.abs(flows), initial=0.0))
+    tol = max(QTOL, CONTINUITY_RTOL * q_scale + CONTINUITY_ATOL)
+    for cid, control in sorted(controls.items()):
+        if control.fixed:
+            continue
+        setpoint: float | None = None
+        if control.kind == "pump" and control.status in (Status.OPEN, Status.MIN_SPEED):
+            pump_control = built.pumps[cid].control
+            setpoint = pump_control.setpoint if pump_control is not None else None
+        elif control.kind == "fcv" and control.status is Status.OPEN:
+            valve = built.valves[cid].component
+            assert isinstance(valve, ControlValve)
+            setpoint = valve.setpoint
+        if setpoint is None or abs(float(flows[control.link]) - setpoint) > tol:
+            continue
+        trial = list(states)
+        trial[control.link] = LinkState(LinkMode.FIXED_FLOW, setpoint)
+        check = solve_gga(built.network, trial, tolerance=1.0, max_iterations=0)
+        named = check.undetermined_links
+        if control.link in named and any(k in pumps for k in named):
+            ids = sorted({built.network.links[k].key for k in named})
+            return (
+                f"the controls {', '.join(ids)} are in series with no reservoir or reference "
+                f"node fixing the pressure between them, and '{cid}' carries exactly its "
+                "setpoint flow at its limit, so each could hold its setpoint: their speeds or "
+                "throttling and that pressure are undetermined (over-controlled, e.g. equal "
+                "flow setpoints in series)",
+                ids,
+            )
+    return None
 
 
 def _unsupported(

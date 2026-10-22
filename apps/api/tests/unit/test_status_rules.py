@@ -3,7 +3,9 @@
 The rules are EPANET 2.2's ``src/hydstatus.c`` (tag v2.2, quoted in the research notes §C.3,
 §C.4) written for EGL heads: cvstatus lines 177-202, pumpstatus 205-239 (with linkstatus
 re-opening XHEAD pumps, 131-136), prvstatus 242-299, psvstatus 302-359, fcvstatus 362-398.
-Every head is a test input, set a clear margin (D = 10 htol) from each threshold.
+Every head is a test input, set a clear margin (D = 10 htol) from each threshold. The
+speed-controlled pump's rules (CLAUDE.md D11, ``flow_pump_status``) are tested at the
+tolerance edges themselves: a value on an edge stays, the next double past it changes.
 """
 
 import math
@@ -16,6 +18,7 @@ from opensolve_pipe.services.solver.status import (
     Status,
     check_valve_status,
     fcv_status,
+    flow_pump_status,
     prv_status,
     psv_status,
     pump_status,
@@ -169,3 +172,70 @@ def test_closed_pressure_valves_without_heads_stay_closed(rule: object) -> None:
     assert callable(rule)
     assert rule(CLOSED, NAN, 10.0, HSET, 0.0, 0.0) is CLOSED
     assert rule(CLOSED, 30.0, NAN, HSET, 0.0, 0.0) is CLOSED
+
+
+# --- speed-controlled pump, flow setpoint (CLAUDE.md D11): rules A1-C1 ----------------------
+MIN = Status.MIN_SPEED
+F_MIN, F_MAX = 5.0, 40.0  # F(s_min, Q_set), F(s_max, Q_set), m (test inputs)
+S_MIN, S_MAX = 8.0, 45.0  # shutoff heads at s_min and s_max, m
+QS = 0.02  # setpoint, m³/s
+UP, DOWN = math.inf, -math.inf
+
+
+def flow_rule(status: Status, gain: float, q: float) -> Status:
+    return flow_pump_status(status, gain, q, QS, F_MIN, F_MAX, S_MIN, S_MAX)
+
+
+@pytest.mark.parametrize(
+    ("status", "gain", "q", "expected"),
+    [
+        # ACTIVE: A1 (gain > F_max + Htol), A2 (gain < F_min − Htol), else A3
+        (ACTIVE, F_MAX + HTOL, QS, ACTIVE),  # on the edge: stays
+        (ACTIVE, math.nextafter(F_MAX + HTOL, UP), QS, OPEN),  # A1
+        (ACTIVE, F_MIN - HTOL, QS, ACTIVE),  # on the edge: stays
+        (ACTIVE, math.nextafter(F_MIN - HTOL, DOWN), QS, MIN),  # A2
+        (ACTIVE, 0.5 * (F_MIN + F_MAX), QS, ACTIVE),  # A3
+        # OPEN (maximum speed): X1 once Q >= Q_set, else pumpstatus at s_max (X2)
+        (OPEN, F_MAX, QS, ACTIVE),  # X1 on the edge
+        (OPEN, F_MAX, math.nextafter(QS, DOWN), OPEN),  # X2: stays at maximum speed
+        (OPEN, S_MAX + HTOL, 0.5 * QS, OPEN),  # X2: within the shutoff head + Htol
+        (OPEN, math.nextafter(S_MAX + HTOL, UP), 0.5 * QS, CLOSED),  # X2: above it
+        (OPEN, F_MAX, -QTOL, OPEN),  # reverse flow on the edge
+        (OPEN, F_MAX, math.nextafter(-QTOL, DOWN), CLOSED),  # reverse flow: closed (X2)
+        # MIN_SPEED: N1 once Q <= Q_set, else pumpstatus at s_min (N2)
+        (MIN, F_MIN, QS, ACTIVE),  # N1 on the edge
+        (MIN, F_MIN, math.nextafter(QS, UP), MIN),  # N2: stays at minimum speed
+        (MIN, S_MIN + HTOL, 2 * QS, MIN),  # N2: within its shutoff head + Htol
+        (MIN, math.nextafter(S_MIN + HTOL, UP), 2 * QS, CLOSED),  # N2: above it (rising curve)
+        # CLOSED: C1, pumpstatus at s_max
+        (CLOSED, S_MAX, 0.0, OPEN),  # re-opens at maximum speed once gain <= S_max
+        (CLOSED, math.nextafter(S_MAX, UP), 0.0, CLOSED),
+    ],
+)
+def test_flow_pump_status(status: Status, gain: float, q: float, expected: Status) -> None:
+    assert flow_rule(status, gain, q) is expected
+
+
+def test_flow_pump_band_points_are_kept_by_both_neighbours() -> None:
+    """Inside the Htol band at a limit, a point holds in either state (EPANET's band): an active
+    pump whose head is within Htol above F(s_max, Q_set) stays active, and the same pump at
+    maximum speed, a hair below its setpoint, stays at maximum speed. Likewise at s_min."""
+    above = F_MAX + 0.5 * HTOL
+    assert flow_rule(ACTIVE, above, QS) is ACTIVE
+    assert flow_rule(OPEN, above, QS * (1.0 - 1.0e-12)) is OPEN
+    below = F_MIN - 0.5 * HTOL
+    assert flow_rule(ACTIVE, below, QS) is ACTIVE
+    assert flow_rule(MIN, below, QS * (1.0 + 1.0e-12)) is MIN
+
+
+def test_flow_pump_rules_test_a1_before_a2() -> None:
+    """Where F(s_max, Q_set) < F(s_min, Q_set) (the setpoint beyond the curve's run-out at every
+    speed), a head can satisfy A1 and A2 together: the first test that holds wins."""
+    rule = flow_pump_status(ACTIVE, 10.0, QS, QS, 20.0, 0.0, S_MIN, S_MAX)
+    assert rule is OPEN
+
+
+def test_flow_pump_rules_without_heads_keep_the_state() -> None:
+    """A pump whose heads are not known (NaN) is not switched by the head tests."""
+    assert flow_rule(ACTIVE, NAN, QS) is ACTIVE
+    assert flow_rule(CLOSED, NAN, 0.0) is CLOSED

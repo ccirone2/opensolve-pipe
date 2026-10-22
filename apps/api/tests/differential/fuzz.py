@@ -1,13 +1,25 @@
 """EPANET differential fuzz driver (TSD §10.4).
 
     uv run python -m tests.differential.fuzz START STOP [--workers N] [--out DIR] [--strict]
+                                                        [--profile P]
 
-Each seed in [START, STOP) is generated (``generator``), solved by our solver and by EPANET 2.2
-(``epanet_model``), compared with the D6 criteria and checked independently (``checks``), and
-classified. Writes DIR/results/<seed>.json (one record per network) and
-DIR/findings/<class>/<seed>.json (a reproducer: project API JSON, EPANET's and our numbers and
-the diagnosis inputs). DIR defaults to a new temporary directory, printed first and last;
-``tests.differential.stats DIR`` summarizes a run. The exit status is 1 when a seed is critical.
+Each seed in [START, STOP) is generated (``generator``, in profile P, default 'default'), solved
+by our solver and by EPANET 2.2 (``epanet_model``), compared with the D6 criteria and checked
+independently (``checks``), and classified. Writes DIR/results/<seed>.json (one record per
+network) and DIR/findings/<class>/<seed>.json (a reproducer: project API JSON, EPANET's and our
+numbers and the diagnosis inputs). DIR defaults to a new temporary directory, printed first and
+last; ``tests.differential.stats DIR`` summarizes a run. The exit status is 1 when a seed is
+critical.
+
+Flow-controlled pumps (profile 'flow_control', proposal vfd-pump-modes.md §7.4): every EPANET
+run stands for the state our solver reports for each (``epanet_model.control_pins``); our
+result's control fields are part of the self-check (``checks.control_problems``); the speed is
+compared (``checks.speed_comparison``); and a converged network is searched over its
+controlled pumps' states (``state_search.control_search``): its record's ``control_search``
+holds the valid states found; distinct valid solutions that differ in flowing state
+(``state_search.multiple``) are written to findings/control_multiple_states, alternatives that
+only put more of the network at rest to findings/control_rest_alternatives (the class is not
+changed). A record of a non-default profile names it (``profile``).
 
 The classes and which of them are critical are listed in ``classes.py``.
 """
@@ -30,8 +42,15 @@ from opensolve_pipe.services.solver import solve_project
 from tests.differential import checks as ck
 from tests.differential import epanet_model as em
 from tests.differential.classes import is_critical
-from tests.differential.generator import generate
-from tests.differential.state_search import LIMIT, fully_determined, search
+from tests.differential.generator import DEFAULT, PROFILES, generate
+from tests.differential.state_search import (
+    LIMIT,
+    control_search,
+    distinct,
+    fully_determined,
+    multiple,
+    search,
+)
 from tests.reference import element_laws as el
 
 EP_HTOL = 0.0005 * 0.3048  # EPANET Htol (types.h HTOL 0.0005 ft)
@@ -140,21 +159,27 @@ def run_seed(
     *,
     strict: bool = False,
     workdir: str | None = None,
+    profile: str = DEFAULT,
 ) -> Record:
-    """Classify one seed. Findings (reproducers) go to ``findings_dir`` when given; ``workdir``
-    holds EPANET's files, its own scratch files included (the system temporary directory by
-    default). When anything raises, the record keeps what was computed before (``self_check``
-    included, so ``is_critical`` still sees a failed self-check) with status 'harness_error'."""
+    """Classify one seed of a generator profile. Findings (reproducers) go to ``findings_dir``
+    when given; ``workdir`` holds EPANET's files, its own scratch files included (the system
+    temporary directory by default). When anything raises, the record keeps what was computed
+    before (``self_check`` included, so ``is_critical`` still sees a failed self-check) with
+    status 'harness_error'."""
     out: Record = {"seed": seed}
+    if profile != DEFAULT:  # default records stay as they were
+        out["profile"] = profile
     try:
-        _run_seed(out, findings_dir, strict, workdir)
+        _run_seed(out, findings_dir, strict, workdir, profile)
     except Exception as ex:
         out["status"] = "harness_error"
         out["error"] = "".join(traceback.format_exception(ex))[-1500:]
     return out
 
 
-def _run_seed(out: Record, findings_dir: str | None, strict: bool, workdir: str | None) -> None:
+def _run_seed(
+    out: Record, findings_dir: str | None, strict: bool, workdir: str | None, profile: str
+) -> None:
     """Fill ``out`` (the record) as the seed's classification proceeds."""
     t0 = time.time()
     seed = out["seed"]
@@ -164,7 +189,7 @@ def _run_seed(out: Record, findings_dir: str | None, strict: bool, workdir: str 
             _save(findings_dir, project, out, ep, result, cls)
 
     try:
-        project = generate(seed)
+        project = generate(seed, profile)
     except Exception as ex:  # generator limits
         out["status"] = "gen_error"
         out["error"] = repr(ex)
@@ -182,17 +207,43 @@ def _run_seed(out: Record, findings_dir: str | None, strict: bool, workdir: str 
     out["ours_converged"] = result.converged
     out["ours_message"] = result.convergence.message
     flows_o, egl_o, states_o = ck.ours_solution(project, result)
+    speeds_o = ck.our_speeds(project, result)  # {} without flow-controlled pumps
+    # EPANET stands for our controlled pumps' states (no result, held at no flow: no_flow)
+    held = dict.fromkeys(ck.closed_without_result(project, result), "no_flow")
+    ctl = em.control_pins(project, {**states_o, **held})
+
+    def run_ep(pins: dict[str, str] | None = None) -> tuple[em.EpanetResult, em.Layout]:
+        return em.run_epanet(project, pins={**ctl, **(pins or {})}, workdir=workdir)
+
     out["states_o"] = states_o
+    controlled = [c.id for c in project.components if isinstance(c, Pump) and c.control is not None]
+    if controlled:  # default records stay as they were
+        out["controlled"] = controlled
+        out["speeds_o"] = speeds_o
     if result.converged:
         out["self_check"] = (
             ck.law_problems(project, flows_o, egl_o, states_o)
             + ["status " + s for s in ck.status_problems(project, flows_o, egl_o, states_o)]
             + ck.zero_flow_and_floating(project, flows_o, egl_o, states_o, result)
+            + ck.control_problems(project, result, flows_o, egl_o, states_o)
         )
         if out["self_check"]:
             save(None, result, "self_check_failed")
+        if ctl:  # more than one valid state over the controlled pumps' states?
+            elems, valid = control_search(project)
+            groups = distinct(project, valid)
+            out["control_search"] = {
+                "elements": elems,
+                "valid": [w for w, _, _ in valid],
+                "distinct": [w for w, _, _ in groups],
+                "multiple": multiple(groups),
+            }
+            if out["control_search"]["multiple"]:
+                save(None, result, "control_multiple_states")
+            elif len(groups) > 1:
+                save(None, result, "control_rest_alternatives")
     try:
-        ep, lay = em.run_epanet(project, workdir=workdir)
+        ep, lay = run_ep()
     except em.UnsupportedError as ex:
         out["status"] = "unsupported"
         out["error"] = str(ex)
@@ -227,7 +278,9 @@ def _run_seed(out: Record, findings_dir: str | None, strict: bool, workdir: str 
         # EPANET's relative-error test cannot pass when every flow is a closed-link leak or
         # when CV/XFCV statuses cycle; compare its last iterate, then try our documented FCV
         # semantics, then EPANET pinned to all our states (a check of our element laws).
-        mism_u, rec_u = ck.compare(project, flows_o, egl_o, states_o, ep, lay, strict=strict)
+        mism_u, rec_u = ck.compare(
+            project, flows_o, egl_o, states_o, ep, lay, strict=strict, speeds_o=speeds_o
+        )
         if not mism_u and not state_diffs(states_o, states_e):
             out["records"] = list(rec_u)
             out["status"] = "pass_ep_unbalanced"
@@ -236,7 +289,7 @@ def _run_seed(out: Record, findings_dir: str | None, strict: bool, workdir: str 
         pins, why = fcv_doc_pins(project, states_o, states_e, detected)
         ep_u = None
         if pins:
-            ep_u, lay_u = em.run_epanet(project, pins=pins, workdir=workdir)
+            ep_u, lay_u = run_ep(pins)
             if ep_u.iterations <= em.TRIALS:
                 out["documented_unbalanced"] = why
                 ep, lay = ep_u, lay_u
@@ -245,8 +298,10 @@ def _run_seed(out: Record, findings_dir: str | None, strict: bool, workdir: str 
             else:
                 ep_u = None
         if ep_u is None:
-            epp, layp = em.run_epanet(project, pins=pins_for(states_o), workdir=workdir)
-            misp, recp = ck.compare(project, flows_o, egl_o, states_o, epp, layp, strict=strict)
+            epp, layp = run_ep(pins_for(states_o))
+            misp, recp = ck.compare(
+                project, flows_o, egl_o, states_o, epp, layp, strict=strict, speeds_o=speeds_o
+            )
             out["pinned_iterations"] = epp.iterations
             out["pinned_mismatch"] = [list(m) for m in misp][:20]
             if not misp and epp.iterations <= em.TRIALS:
@@ -256,7 +311,9 @@ def _run_seed(out: Record, findings_dir: str | None, strict: bool, workdir: str 
                 out["status"] = "epanet_unbalanced"
                 save(ep, result, "epanet_unbalanced")
             return
-    mism, rec = ck.compare(project, flows_o, egl_o, states_o, ep, lay, strict=strict)
+    mism, rec = ck.compare(
+        project, flows_o, egl_o, states_o, ep, lay, strict=strict, speeds_o=speeds_o
+    )
     out["records"] = list(rec)
     sdiff = state_diffs(states_o, states_e)
     out["mismatch"] = [list(m) for m in mism]
@@ -270,7 +327,7 @@ def _run_seed(out: Record, findings_dir: str | None, strict: bool, workdir: str 
     detected, _ = documented_pins(project, ep, lay, egl_e)
     pins_doc, why = fcv_doc_pins(project, states_o, states_e, detected)
     if pins_doc:
-        ep2, lay2 = em.run_epanet(project, pins=pins_doc, workdir=workdir)
+        ep2, lay2 = run_ep(pins_doc)
         egl2 = ck.epanet_egl(project, ep2, lay2)
         for _ in range(4):  # departures that appear only once others are pinned
             det2, _ = documented_pins(project, ep2, lay2, egl2)
@@ -281,9 +338,11 @@ def _run_seed(out: Record, findings_dir: str | None, strict: bool, workdir: str 
                 break
             pins_doc.update(more)
             why.update(why2)
-            ep2, lay2 = em.run_epanet(project, pins=pins_doc, workdir=workdir)
+            ep2, lay2 = run_ep(pins_doc)
             egl2 = ck.epanet_egl(project, ep2, lay2)
-        mism2, rec2 = ck.compare(project, flows_o, egl_o, states_o, ep2, lay2, strict=strict)
+        mism2, rec2 = ck.compare(
+            project, flows_o, egl_o, states_o, ep2, lay2, strict=strict, speeds_o=speeds_o
+        )
         out["records_final"] = list(rec2)
         sdiff2 = state_diffs(states_o, em.element_state(project, lay2, ep2))
         out["documented"] = why
@@ -302,6 +361,7 @@ def _run_seed(out: Record, findings_dir: str | None, strict: bool, workdir: str 
     ours_rules = ck.status_problems(project, flows_o, egl_o, states_o)
     ours_laws = ck.law_problems(project, flows_o, egl_o, states_o)
     ours_laws = ours_laws + ck.zero_flow_and_floating(project, flows_o, egl_o, states_o, result)
+    ours_laws = ours_laws + ck.control_problems(project, result, flows_o, egl_o, states_o)
     ep_laws_f, ep_rules_f = ep_valid(project, ep, egl_e, states_e)
     out.update(
         ours_rules=ours_rules,
@@ -348,12 +408,17 @@ def _run_seed(out: Record, findings_dir: str | None, strict: bool, workdir: str 
 
 
 def pin_project(project: Project, states: ck.States) -> Project:
-    """A copy of the project with every pump and valve fixed in the given state."""
+    """A copy of the project with every pump and valve fixed in the given state (a
+    flow-controlled pump at a speed limit as the fixed-speed pump at that speed; active left
+    controlled)."""
     comps = []
     for c in project.components:
         st = states.get(c.id)
         if isinstance(c, Pump) and st == "no_flow":
             c = c.model_copy(update={"status": "off"})
+        elif isinstance(c, Pump) and c.control is not None and st in ("max_speed", "min_speed"):
+            speed = c.control.min_speed if st == "min_speed" else c.speed
+            c = c.model_copy(update={"speed": speed, "control": None})
         elif isinstance(c, CheckValve) and c.status == "active" and st in ("open", "closed"):
             update = {"status": "locked_open" if st == "open" else "locked_closed"}
             c = c.model_copy(update=update)
@@ -391,12 +456,18 @@ def _save(
             "warnings": ep.warnings,
         }
     if result is not None:
+        ctl_results = {k: v for k, v in result.pump_results.items() if v.control is not None}
         rec["ours"] = {
             "converged": result.converged,
             "message": result.convergence.message,
             "flows": {k: v.flow for k, v in result.link_results.items()},
             "egl": {k: v.egl for k, v in result.node_results.items()},
             "pumps": {k: v.status for k, v in result.pump_results.items()},
+            **(
+                {"controls": {k: (v.control.state, v.speed) for k, v in ctl_results.items()}}
+                if ctl_results
+                else {}
+            ),
             "valves": {k: v.state for k, v in result.valve_results.items()},
             "flags": [(f.code, f.severity, f.component_id, f.connection_id) for f in result.flags],
         }
@@ -418,13 +489,22 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="compare flows to 0.5%% or 1e-7 m³/s, without the D6 head-equivalent floor",
     )
+    parser.add_argument(
+        "--profile",
+        choices=PROFILES,
+        default=DEFAULT,
+        help="generator profile (default: default; flow_control's seeds are 10000-12999)",
+    )
     args = parser.parse_args(argv)
     out_dir = args.out or tempfile.mkdtemp(prefix="opensolve-fuzz-")
     results_dir = os.path.join(out_dir, "results")
     os.makedirs(results_dir, exist_ok=True)
     print("output:", out_dir, flush=True)
     work = functools.partial(
-        run_seed, findings_dir=os.path.join(out_dir, "findings"), strict=args.strict
+        run_seed,
+        findings_dir=os.path.join(out_dir, "findings"),
+        strict=args.strict,
+        profile=args.profile,
     )
     critical = []
     with Pool(args.workers) as pool:

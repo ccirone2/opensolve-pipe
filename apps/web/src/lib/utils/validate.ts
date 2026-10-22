@@ -7,8 +7,9 @@
  *   an existing component and port, at most one connection per port.
  * - modelRuleProblems: rules the API models enforce in validators, which JSON Schema cannot
  *   express (port ids per component type, pipe size source, fitting parameters, increasing
- *   curve flows, ...), plus pump-curve references and ids shared by a component and a
- *   connection. The rules are read from the schema's extensions (model-rules.ts), never copied.
+ *   curve flows, ordered fields such as a pump's minimum speed below its maximum, ...), plus
+ *   pump-curve references and ids shared by a component and a connection. The rules are read
+ *   from the schema's extensions (model-rules.ts), never copied.
  *   A project that breaks only these still opens; the solver reports them too.
  *
  * Every problem is a human-readable sentence that names where it is.
@@ -16,11 +17,12 @@
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 import openapi from '../api/openapi.json';
 import type { PipeConnection, Project, UnitPreferences } from '../api/types';
-import { componentName, fittingFallbackName, portLabel } from './labels';
+import { componentName, fieldLabel, fittingFallbackName, portLabel } from './labels';
 import {
 	componentSchemaName,
 	fluidSchemaName,
 	missingFittingParameters,
+	orderViolations,
 	REDUCER_TYPES,
 	requiredPortCount,
 	requiredPortIds,
@@ -47,7 +49,9 @@ function getAjv(): Ajv2020 {
 		ajv.addKeyword('discriminator');
 		// The OpenAPI document section that holds the schemas; refs point into it.
 		ajv.addKeyword('components');
-		// Model rules the API publishes as extensions (read by model-rules.ts, checked below).
+		// Model rules the API publishes as extensions (x-port-ids, x-ordered-fields, ...): read by
+		// model-rules.ts and checked by modelRuleIssues below, not by Ajv, so a project that
+		// breaks only these still opens (the API rejects it when solving).
 		for (const keyword of schemaExtensions()) ajv.addKeyword(keyword);
 		ajv.addSchema({ $id: SCHEMA_ID, components: { schemas: openapi.components.schemas } });
 	}
@@ -422,6 +426,15 @@ export function modelRuleIssues(
 					...at
 				});
 			}
+		}
+		for (const pair of orderViolations(component)) {
+			// Fields the model orders (x-ordered-fields), e.g. control.minSpeed below speed.
+			const order = pair.strict ? 'below' : 'at most';
+			issues.push({
+				text: `${where}: ${pair.lower} must be ${order} ${pair.upper}.`,
+				message: `The ${fieldLabel(component, pair.lower)} of ${component.name} must be ${order} its ${fieldLabel(component, pair.upper)}.`,
+				...at
+			});
 		}
 		if (component.type === 'pump' && !curveIds.has(component.curveId)) {
 			issues.push({

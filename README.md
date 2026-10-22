@@ -11,7 +11,7 @@ Students checking hand calculations, field technicians sizing a retrofit, and pr
 ## v1 scope
 
 - Branching and looped networks of pipes and fittings, with reservoirs, reference pressure nodes, tees, wyes and caps
-- Fixed-speed pumps, isolation and check valves, and pressure-reducing, pressure-sustaining and flow-control valves
+- Fixed-speed pumps and speed-controlled (VFD) pumps holding a flow setpoint, isolation and check valves, and pressure-reducing, pressure-sustaining and flow-control valves
 - Water, glycol solutions and user-defined fluids
 - Darcy–Weisbach / Colebrook friction, with K-factor minor losses from Crane TP-410 (via the `fluids` library)
 - Results: flows, velocities, head loss, pressures, HGL/EGL, pump operating point, system curve, NPSH available
@@ -78,6 +78,71 @@ cd apps/api && uv run python -m tests.reference.generate_epanet_cases     # EPAN
 ```
 
 The reference suite (`apps/api/tests/reference/`) is how hydraulic correctness is established: every case states where its expected values come from (a closed-form derivation or an EPANET run), and tests fail if a case file is stale.
+
+## Deployment
+
+The web app is meant for Cloudflare Pages and the API for Google Cloud Run; neither is deployed yet. [`docs/TSD.md`](docs/TSD.md) §11 explains each setting below and cites its source, and it lists the checks to run after every deployment and the costs. Ordinary use fits within both providers' free tiers.
+
+**1. The API on Cloud Run.** You need a Google Cloud project with billing enabled and the [gcloud CLI](https://cloud.google.com/sdk/docs/install). Replace `PROJECT_ID`, `PROJECT_NUMBER` and `PAGES_PROJECT` (the name you will give the Pages project):
+
+```bash
+gcloud auth login
+gcloud config set project PROJECT_ID
+gcloud config set run/region us-central1
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com iam.googleapis.com
+
+# Let Cloud Build's default service account build and push the image
+gcloud projects add-iam-policy-binding PROJECT_ID --role=roles/run.builder \
+  --member=serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com
+
+# An image repository that keeps the 3 most recent images
+gcloud artifacts repositories create opensolve-pipe --repository-format=docker --location=us-central1
+cat > /tmp/cleanup.json <<'EOF'
+[{"name": "delete-old", "action": {"type": "Delete"}, "condition": {"tagState": "any", "olderThan": "30d"}},
+ {"name": "keep-recent", "action": {"type": "Keep"}, "mostRecentVersions": {"keepCount": 3}}]
+EOF
+gcloud artifacts repositories set-cleanup-policies opensolve-pipe --location=us-central1 --policy=/tmp/cleanup.json
+
+# The API's own identity; it calls no Google API, so it has no roles
+gcloud iam service-accounts create opensolve-pipe-api
+
+# Build (--ignore-file uploads only what the image needs) and deploy
+IMAGE=us-central1-docker.pkg.dev/PROJECT_ID/opensolve-pipe/api:$(git rev-parse --short HEAD)
+gcloud builds submit apps/api --ignore-file=.dockerignore --tag "$IMAGE"
+gcloud run deploy opensolve-pipe-api --image "$IMAGE" \
+  --service-account=opensolve-pipe-api@PROJECT_ID.iam.gserviceaccount.com --allow-unauthenticated \
+  --cpu=1 --memory=1Gi --concurrency=6 --timeout=60 --min-instances=0 --max-instances=1 \
+  --set-env-vars=CORS_ORIGINS=https://PAGES_PROJECT.pages.dev
+
+# Keep Cloud Run's own request log, which records client addresses and query strings, out of storage
+gcloud logging sinks update _Default \
+  --add-exclusion='name=no-run-request-logs,filter=LOG_ID("run.googleapis.com/requests")'
+
+gcloud run services describe opensolve-pipe-api --format='value(status.url)'   # the API's URL
+```
+
+Then, in the console under Billing → Budgets & alerts, create a spend cap budget for this project and Cloud Run (TSD §11.5).
+
+**2. The web app on Cloudflare Pages.** You need a Cloudflare account that can see this GitHub repository.
+- In Workers & Pages → Create → Pages, connect this repository and name the project `PAGES_PROJECT`.
+- Use these build settings:
+  - production branch `main`;
+  - framework preset *None*;
+  - root directory `apps/web`;
+  - build command `pnpm build`;
+  - build output directory `build`.
+- Set these build variables:
+  - `PUBLIC_API_URL` = the API's URL, without a trailing slash;
+  - `NODE_VERSION` = `22.22.0`;
+  - `PNPM_VERSION` = `10.28.0`.
+- Under Settings → Build:
+  - set *Build watch paths* to include `apps/web/*`;
+  - set *Branch control → Preview branches* to *None*.
+- Leave Web Analytics (under Metrics) **off**: the app has no analytics, cookies or third-party requests (GOALS §4.5).
+- If the project's `*.pages.dev` address differs from `https://PAGES_PROJECT.pages.dev`, or when you add a custom domain, list every origin in `CORS_ORIGINS`: `gcloud run services update opensolve-pipe-api --update-env-vars='^;^CORS_ORIGINS=https://a.pages.dev,https://example.org'`.
+- On a custom domain whose zone is on Cloudflare, keep the zone's Web Analytics, Bot Fight Mode and Email Address Obfuscation off (TSD §11.1).
+
+**3. Check** the deployment with TSD §11.4. This step matters most for the client-address check: Google does not document the address its proxy connects from, so only this check shows that each user gets their own rate limit.
 
 ## Contributing
 

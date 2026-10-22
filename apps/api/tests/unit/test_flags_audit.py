@@ -15,6 +15,10 @@ GOALS §4.6 conditions and their flags:
 - a section whose flow is determined but whose pressure level nothing fixes (a pump loop behind
   a closed valve): UNDETERMINED_PRESSURE, warning, on the pump or FCV driving the flow, naming
   the section's components (its pressures and NPSH are not computed).
+
+States worth knowing are info: a speed-controlled pump at a speed limit or with no flow, off its
+setpoint (CLAUDE.md D11), is PUMP_SETPOINT_NOT_MET on the pump, as a control valve off its
+setpoint is CONTROL_VALVE_SETPOINT_NOT_MET: a pump at a limit is a physically valid state.
 """
 
 import math
@@ -396,3 +400,45 @@ def test_a_flowing_section_without_a_pressure_level_is_flagged_on_its_pump() -> 
     assert (flag.component_id, flag.severity) == ("PU", "warning")
     assert flag.details["componentIds"] == "P, PU, T1, T2, V"
     assert result.pump_results["PU"].npsh_available is None
+
+
+def test_a_speed_controlled_pump_off_its_setpoint_is_info_on_the_pump() -> None:
+    """R1 (2 m) -> PU (flow control, 0.05 m³/s, maximum speed 0.9) -> R2 (20 m): the setpoint
+    needs more than the maximum speed, so the pump runs there as a fixed-speed pump (CLAUDE.md
+    D11) and the flag says so, with the state, setpoint, flow and speeds."""
+    comps = [
+        reservoir("R1", level=2.0),
+        {
+            "type": "pump",
+            "id": "PU",
+            "name": "PU",
+            "elevation": 0.0,
+            "curveId": "C1",
+            "speed": 0.9,
+            "control": {"mode": "flow", "setpoint": 0.05, "minSpeed": 0.4},
+            "ports": [
+                {"id": "suction", "nominalSize": 0.1},
+                {"id": "discharge", "nominalSize": 0.1},
+            ],
+        },
+        reservoir("R2", level=20.0),
+    ]
+    conns = [
+        connection("L1", ("R1", "port_1"), ("PU", "suction"), length=10.0),
+        connection("L2", ("PU", "discharge"), ("R2", "port_1"), length=200.0),
+    ]
+    curve = {
+        "id": "C1",
+        "name": "test pump",
+        "points": [
+            {"flow": q, "head": h}
+            for q, h in ((0.0, 45.0), (0.01, 44.0), (0.02, 41.0), (0.03, 35.5), (0.04, 27.0))
+        ],
+    }
+    result = solve_project(make_project(comps, conns, pump_library=[curve]))
+    assert result.converged
+    [flag] = _flags(result, "PUMP_SETPOINT_NOT_MET")
+    assert (flag.component_id, flag.severity) == ("PU", "info")
+    assert set(flag.details) == {"state", "setpoint", "flow", "speed", "minSpeed", "maxSpeed"}
+    assert flag.details["state"] == "max_speed"
+    assert result.pump_results["PU"].speed == 0.9

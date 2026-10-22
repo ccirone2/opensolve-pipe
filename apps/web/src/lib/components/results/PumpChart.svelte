@@ -1,6 +1,8 @@
 <!--
 	Pump chart (design §5): the pump curve at the operating speed (solid inside its data, dashed
-	where extrapolated), the system curve and the operating point, with axes in display units.
+	where extrapolated), the system curve and the operating point, with axes in display units. For
+	a speed-controlled pump (CLAUDE.md D11) the operating speed is the one it was solved to run at,
+	and the labels say so.
 	The system curve is computed on demand for the same solve (D10): while it is computed, when it
 	fails and where points have no solution, the chart says so; once shown, it says how it was
 	computed and links to the pump's trace, which defines it. A data table under the chart lists
@@ -25,9 +27,20 @@
 		onretry?: () => void;
 		/** Open the pump's trace, which defines the system curve (H_sys) among its equations. */
 		ontrace?: () => void;
+		/** Another pump of the solve is speed-controlled and on: it keeps regulating in the system curve. */
+		othersControlled?: boolean;
 	}
 
-	let { result, name, prefs, ratedRange = null, system, onretry, ontrace }: Props = $props();
+	let {
+		result,
+		name,
+		prefs,
+		ratedRange = null,
+		system,
+		onretry,
+		ontrace,
+		othersControlled = false
+	}: Props = $props();
 	const id = $props.id();
 
 	// The range as numbers, so a new array with the same values does not rebuild the chart.
@@ -54,11 +67,29 @@
 
 	const fmt = (v: number) => formatNumber(v, 4);
 	const off = $derived(result.status === 'off');
-	/** "100 % speed", or for an off pump "its set speed (100 %)". */
+	const controlled = $derived(!!result.control);
+	/** How a speed-controlled pump's speed was set: solved for its setpoint, or a drive limit. */
+	const controlNote = $derived.by(() => {
+		switch (result.control?.state) {
+			case 'active':
+				return ' (flow control)';
+			case 'max_speed':
+			case 'no_flow':
+				return ' (flow control, at maximum speed)';
+			case 'min_speed':
+				return ' (flow control, at minimum speed)';
+			default:
+				return '';
+		}
+	});
+	/**
+	 * "100 % speed", "87.32 % speed (flow control)", or for an off pump "its set speed (100 %)"
+	 * ("its maximum speed" for a speed-controlled one).
+	 */
 	const speedText = $derived(
 		off
-			? `its set speed (${formatNumber(result.speed * 100, 4)} %)`
-			: `${formatNumber(result.speed * 100, 4)} % speed`
+			? `its ${controlled ? 'maximum' : 'set'} speed (${formatNumber(result.speed * 100, 4)} %)`
+			: `${formatNumber(result.speed * 100, 4)} % speed${controlNote}`
 	);
 
 	const summary = $derived.by(() => {
@@ -265,7 +296,9 @@
 	{/if}
 	{#if off}
 		<p class="text-xs text-slate-700">
-			This pump is off: it carries no flow. Its curve is shown at its set speed, for reference.
+			This pump is off: it carries no flow. Its curve is shown at its {controlled
+				? 'maximum'
+				: 'set'} speed, for reference{controlled ? '; its flow control is not applied' : ''}.
 		</p>
 	{:else if data.held}
 		<p class="text-xs text-slate-700">
@@ -312,8 +345,10 @@
 			(POST /api/v1/system-curve) returns points without a trace; the pump's trace defines it. -->
 		<p class="text-xs text-slate-600">
 			System curve: the network of this solve, solved again with the pump replaced by each of
-			{systemFlows} (other pumps running, valves following their rules); the system head at each flow
-			is the EGL at the discharge minus the EGL at the suction.
+			{systemFlows} ({controlled ? 'its flow control replaced by that fixed flow; ' : ''}other pumps
+			running{othersControlled ? ', speed-controlled ones regulating to their setpoints' : ''},
+			valves following their rules); the system head at each flow is the EGL at the discharge minus
+			the EGL at the suction.
 			{#if ontrace}
 				<button
 					type="button"

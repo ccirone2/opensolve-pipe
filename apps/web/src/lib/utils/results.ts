@@ -22,7 +22,14 @@ import type {
 	ValveResult
 } from '../api/types';
 import { componentById, connectionById } from './graph';
-import { fittingFallbackName, humanize, kindLabel, portLabel } from './labels';
+import {
+	fittingFallbackName,
+	humanize,
+	kindLabel,
+	portLabel,
+	PUMP_CONTROL_MODE_NAMES,
+	PUMP_CONTROL_STATE_LABELS
+} from './labels';
 import {
 	displayUnit,
 	formatNumber,
@@ -564,7 +571,7 @@ export function fittingTable(
  * and it runs dead-headed at its shutoff head. Without that flag the label stays neutral.
  */
 export function pumpStatusLabel(result: PumpResult, flags: readonly Flag[] = []): string {
-	if (result.status === 'running') return 'Running';
+	if (result.status === 'running') return runningLabel(result.control);
 	if (result.status === 'off') return 'Off';
 	if (result.status !== 'no_flow') return humanize(result.status);
 	const reversal = flags.find((f) => f.code === 'PUMP_FLOW_REVERSAL');
@@ -578,11 +585,62 @@ export function pumpStatusLabel(result: PumpResult, flags: readonly Flag[] = [])
 	return 'No flow (held at zero by its check)';
 }
 
-/** Pumps: operating point, power and NPSH. An off pump has no speed ("—"). */
+/**
+ * A running pump's status: plain 'Running' at a fixed speed; for a speed-controlled pump (CLAUDE.md
+ * D11), whether its speed holds the setpoint or it runs at a limit of its drive. At a limit the
+ * flow can still equal the setpoint (within the solver's flow tolerance; setpointAchieved).
+ */
+function runningLabel(control: PumpResult['control']): string {
+	if (!control) return 'Running';
+	const held = control.setpointAchieved === true;
+	switch (control.state) {
+		case 'active':
+			return 'Running (holding flow setpoint)';
+		case 'max_speed':
+			return held
+				? 'Running at maximum speed (holding flow setpoint)'
+				: 'Running at maximum speed (setpoint not met)';
+		case 'min_speed':
+			return held
+				? 'Running at minimum speed (holding flow setpoint)'
+				: 'Running at minimum speed (above setpoint)';
+		default:
+			return 'Running';
+	}
+}
+
+/**
+ * A pump's control in results: 'Fixed speed', or the mode and setpoint with what the control
+ * achieved ("Flow 12 L/s: held", "Flow 12 L/s: 9.8 L/s at maximum speed"). Every value comes
+ * from the result; only units change.
+ */
+export function pumpControlText(result: PumpResult, prefs: UnitPreferences): string {
+	const control = result.control;
+	if (!control) return 'Fixed speed';
+	const f = new Formatter(prefs);
+	const mode = PUMP_CONTROL_MODE_NAMES[control.mode] ?? humanize(control.mode);
+	const state = PUMP_CONTROL_STATE_LABELS[control.state] ?? humanize(control.state);
+	const limit = control.state === 'max_speed' || control.state === 'min_speed';
+	const achieved =
+		limit && control.setpointAchieved === false
+			? `${f.value(result.operatingFlow, 'flow')} ${state}`
+			: limit
+				? `${PUMP_CONTROL_STATE_LABELS.active} ${state}`
+				: state;
+	return `${mode} ${f.value(control.setpoint, 'flow')}: ${achieved}`;
+}
+
+/**
+ * Pumps: operating point, power and NPSH. An off pump has no speed ("—"). A Control column is
+ * shown only when a pump of the solve is speed-controlled (it keeps narrow tables narrow).
+ */
 export function pumpTable(project: Project, solved: SolvedState, prefs: UnitPreferences): Table {
 	const f = new Formatter(prefs);
+	const results = solved.pumpResults;
+	const controlled = Object.values(results).some((pump) => pump?.control);
 	const columns: Column[] = [
 		text('status', 'Status'),
+		...(controlled ? [text('control', 'Control')] : []),
 		f.column('flow', 'Flow', 'flow'),
 		f.column('head', 'Head', 'head'),
 		f.column('speed', 'Speed', 'fraction'),
@@ -593,12 +651,12 @@ export function pumpTable(project: Project, solved: SolvedState, prefs: UnitPref
 		f.column('npshRequired', 'NPSHr', 'head'),
 		f.column('npshMargin', 'NPSH margin', 'head')
 	];
-	const results = solved.pumpResults;
 	const rows = orderedIds(project, Object.keys(results)).map((id) => {
 		const pump = results[id] as PumpResult;
 		const flags = flagsForElement(solved.flags, { kind: 'component', id });
 		return componentRow(project, solved.flags, id, {
 			status: pumpStatusLabel(pump, flags),
+			...(controlled ? { control: pumpControlText(pump, prefs) } : {}),
 			flow: f.num(pump.operatingFlow, 'flow'),
 			head: f.num(pump.operatingHead, 'head'),
 			speed: pump.status === 'off' ? '—' : f.num(pump.speed, 'fraction'),

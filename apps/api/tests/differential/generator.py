@@ -10,18 +10,44 @@ up as the inlet of two active check valves, which ``epanet_model`` rejects (clas
 viscosity.
 
 All numbers drawn here are random *test inputs*; no reference value is invented. A network
-depends only on its seed (``random.Random(seed)``), so a seed reproduces it.
+depends only on its seed and profile (``random.Random(seed)``), so they reproduce it.
 
-    uv run python -m tests.differential.generator SEED     # print the project JSON
+Profiles (``PROFILES``):
+
+- ``default``: the network above. Its draws are frozen: the 3,000-seed baseline of TSD §10.4,
+  the corpus and the smoke test's pinned classes depend on every seed's network.
+- ``flow_control``: the default network of the same seed with 0-2 flow-controlled pumps
+  (CLAUDE.md D11, proposal vfd-pump-modes.md §7.4) added by a second generator,
+  ``random.Random(f"flow_control:{seed}")``, so the default draws are untouched. An existing
+  pump gets a control, or a new pump (its own collinear curve) is inserted in a connection,
+  which keeps the original connection's segments on one side and gets one new segment on the
+  other: mostly a connection left when dead ends are pruned, so that it can carry flow, half
+  the time one between tees, wyes and boundaries only; sometimes in series with the previous
+  one, then sometimes with an equal setpoint (no determined state, proposal §4.6). The
+  setpoint is a log-uniform fraction of the curve's largest flow at the maximum speed, the
+  minimum speed a uniform fraction of the maximum, so that every state (active, max_speed,
+  min_speed, no_flow, off) occurs. Its documented seed range is ``FLOW_CONTROL_SEEDS``
+  (10,000-12,999), disjoint from the default baseline's 0-2,999.
+
+    uv run python -m tests.differential.generator SEED [--profile P]   # print the project JSON
 """
 
+import argparse
 import json
 import math
 import random
-import sys
 from dataclasses import dataclass, field
 
-from opensolve_pipe.models.components import Component, FlowCoefficient
+from opensolve_pipe.models.components import (
+    Component,
+    FlowCoefficient,
+    IdealReferenceNode,
+    Pump,
+    PumpControl,
+    Reservoir,
+    TeeBranch,
+    WyeBranch,
+)
 from opensolve_pipe.models.piping import PipeConnection, PipeDefinition
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.pumps import PumpCurve
@@ -47,6 +73,12 @@ from tests.reference.derivations import G
 
 FOOT = 0.3048
 NU_EPANET = 1.1e-5 * FOOT**2  # EPANET VISCOS, types.h:53 (m²/s)
+
+DEFAULT = "default"
+FLOW_CONTROL = "flow_control"
+PROFILES = (DEFAULT, FLOW_CONTROL)
+FLOW_CONTROL_SEEDS = range(10_000, 13_000)
+"""The documented seed range of the ``flow_control`` profile (TSD §10.4)."""
 
 Slot = tuple[str, str, float]  # (component id, port id, elevation)
 
@@ -221,7 +253,10 @@ class Gen:
             self.conn(b, cur, single=single)
 
 
-def generate(seed: int) -> Project:
+def generate(seed: int, profile: str = DEFAULT) -> Project:
+    """The network of ``seed`` in ``profile`` (``PROFILES``; module docstring)."""
+    if profile not in PROFILES:
+        raise ValueError(f"unknown generator profile {profile!r}; one of {PROFILES}")
     rng = random.Random(seed)
     g = Gen(rng)
     g.rho = round(rng.uniform(800.0, 1200.0), 3) if rng.random() < 0.5 else 1000.0
@@ -310,10 +345,14 @@ def generate(seed: int) -> Project:
         else:
             g.chain(kb, ka, b[2], a[2])
 
+    pid, name = f"fuzz-{seed}", f"Fuzz network {seed}"
+    if profile == FLOW_CONTROL:  # every default draw is made above: the default is unchanged
+        add_flow_controls(g, seed)
+        pid, name = f"fuzz-flow-control-{seed}", f"Fuzz network {seed} (flow control)"
     fluid = custom_fluid("EPANET water nu", g.rho, NU_EPANET * g.rho)
     return make_project(
-        f"fuzz-{seed}",
-        f"Fuzz network {seed}",
+        pid,
+        name,
         fluid,
         g.components,
         g.connections,
@@ -322,6 +361,139 @@ def generate(seed: int) -> Project:
     )
 
 
-if __name__ == "__main__":
-    project = generate(int(sys.argv[1]) if len(sys.argv) > 1 else 0)
+# --------------------------------------------------------------------------- flow_control profile
+
+
+def with_control(p: Pump, control: PumpControl) -> Pump:
+    """``p`` speed-controlled, validated (control.minSpeed < speed)."""
+    return Pump.model_validate({**p.model_dump(), "control": control.model_dump()})
+
+
+def flow_control(rng: random.Random, curve: PumpCurve, speed: float) -> PumpControl:
+    """A flow control for a pump on ``curve`` at maximum speed ``speed``: setpoint a
+    log-uniform fraction (0.001-1.2) of the curve's largest flow at that speed (the fuzz
+    networks' pumps mostly run far below it), to 6 significant digits, which the EPANET INP
+    writes exactly; minimum speed a uniform fraction (0.1-0.9) of the maximum, to 3 decimals.
+    Random test inputs, as everything here."""
+    q_end = curve.points[-1].flow
+    q_set = speed * q_end * math.exp(rng.uniform(math.log(0.001), math.log(1.2)))
+    q_set = float(f"{max(q_set, 1.0e-6):.6g}")
+    min_speed = round(speed * rng.uniform(0.1, 0.9), 3)
+    return PumpControl(mode="flow", setpoint=q_set, min_speed=min_speed)
+
+
+def through_connections(g: Gen) -> tuple[list[int], list[int]]:
+    """(core, free): indices of the connections left when dead ends are pruned (repeatedly
+    removing a component other than a reservoir or reference node with one connection), where
+    a pump can carry flow between fixed heads unless valves close the way; and those of them
+    between tees, wyes and boundaries only (no pump or valve at either end)."""
+    boundaries = {c.id for c in g.components if isinstance(c, Reservoir | IdealReferenceNode)}
+    alive = set(range(len(g.connections)))
+    while True:
+        degree: dict[str, int] = {}
+        for i in alive:
+            c = g.connections[i]
+            for cid in (c.from_component_id, c.to_component_id):
+                degree[cid] = degree.get(cid, 0) + 1
+        leaves = {cid for cid, n in degree.items() if n == 1 and cid not in boundaries}
+        dead = {
+            i
+            for i in alive
+            if {g.connections[i].from_component_id, g.connections[i].to_component_id} & leaves
+        }
+        if not dead:
+            break
+        alive -= dead
+    inline = {c.id for c in g.components if not isinstance(c, TeeBranch | WyeBranch)} - boundaries
+    core = sorted(alive)
+    free = [
+        i
+        for i in core
+        if not {g.connections[i].from_component_id, g.connections[i].to_component_id} & inline
+    ]
+    return core, free
+
+
+def add_flow_controls(g: Gen, seed: int) -> None:
+    """The ``flow_control`` profile (module docstring): 0-2 flow-controlled pumps drawn from
+    ``random.Random(f"flow_control:{seed}")``, after every draw of the default network."""
+    rng = random.Random(f"{FLOW_CONTROL}:{seed}")
+    g.rng = rng  # new curves and connections draw from the profile's generator
+    curves = {c.id: c for c in g.curves}
+    elevation = {c.id: c.elevation for c in g.components}
+    # the last inserted pump: (its id, its port on the new connection, that connection's id)
+    last: tuple[str, str, str] | None = None
+    last_setpoint = 0.0
+    for _ in range(rng.choices([0, 1, 2], weights=[1, 5, 4])[0]):
+        fixed = [i for i, c in enumerate(g.components) if isinstance(c, Pump) and c.control is None]
+        if fixed and rng.random() < 0.4:  # an existing pump gets a control
+            i = rng.choice(fixed)
+            p = g.components[i]
+            assert isinstance(p, Pump)
+            g.components[i] = with_control(p, flow_control(rng, curves[p.curve_id], p.speed))
+            last = None
+            continue
+        g.n_el += 1
+        cid = f"PU{g.n_el}"
+        g.tags.add("pump")
+        speed = 1.0 if rng.random() < 0.5 else round(rng.uniform(0.6, 1.0), 3)
+        status = "off" if rng.random() < 0.08 else "on"
+        curve_id = g.new_curve()
+        curves[curve_id] = g.curves[-1]
+        control = flow_control(rng, curves[curve_id], speed)
+        if last is not None and rng.random() < 0.3:
+            # in series with the last one, through the connection on its second port; the same
+            # flow direction (four in five), its port facing the last pump the other kind
+            prev_id, prev_port, conn_id = last
+            idx = next(i for i, c in enumerate(g.connections) if c.id == conn_id)
+            facing = "suction" if prev_port == "discharge" else "discharge"
+            if g.connections[idx].from_component_id == prev_id:
+                reverse = facing == "discharge"  # the new pump's first port faces it
+            else:
+                reverse = facing == "suction"  # its second port faces it
+            if rng.random() < 0.2:
+                reverse = not reverse
+            elif rng.random() < 0.3:  # equal setpoints: no determined state (proposal §4.6)
+                control = control.model_copy(update={"setpoint": last_setpoint})
+        else:
+            # mostly where it can carry flow; next to other elements too (status interactions)
+            core, free = through_connections(g)
+            r = rng.random()
+            pool = free if (r < 0.5 and free) else core if (r < 0.85 and core) else []
+            idx = pool[rng.randrange(len(pool))] if pool else rng.randrange(len(g.connections))
+            reverse = rng.random() < 0.3
+        conn = g.connections[idx]
+        za, zb = elevation[conn.from_component_id], elevation[conn.to_component_id]
+        z = rng.uniform(min(za, zb) - 2.0, max(za, zb) + 2.0)
+        new_pump = pump(cid, z, curve_id, speed=speed, status=status)
+        g.components.append(with_control(new_pump, control))
+        elevation[cid] = z
+        first, second = ("discharge", "suction") if reverse else ("suction", "discharge")
+        # the connection keeps its 'from' end and its segments and now ends at the pump; one
+        # new single-segment connection joins the pump's other port to the old 'to' end (a
+        # check valve's inlet connection stays one segment, as epanet_model needs)
+        far = f"{conn.to_component_id}:{conn.to_port_id}"
+        g.connections[idx] = conn.model_copy(update={"to_component_id": cid, "to_port_id": first})
+        if rng.random() < 0.5:
+            new = g.conn(f"{cid}:{second}", far, single=True)
+        else:
+            new = g.conn(far, f"{cid}:{second}", single=True)
+        last, last_setpoint = (cid, second, new.id), control.setpoint
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="python -m tests.differential.generator",
+        description="Print one differential-test network's project JSON (TSD §10.4).",
+    )
+    parser.add_argument("seed", type=int, nargs="?", default=0, help="generator seed")
+    parser.add_argument(
+        "--profile", choices=PROFILES, default=DEFAULT, help="generator profile (default: default)"
+    )
+    args = parser.parse_args(argv)
+    project = generate(args.seed, args.profile)
     print(json.dumps(project.model_dump(mode="json", by_alias=True, exclude_none=True), indent=1))
+
+
+if __name__ == "__main__":
+    main()

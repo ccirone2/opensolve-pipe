@@ -49,6 +49,15 @@ describe('schema fixtures', () => {
 		);
 	});
 
+	it('schema-v1.json gains no pump control when it is read (no default control exists)', () => {
+		const fixture = projects['./__fixtures__/schema-v1.json'] as Project;
+		expect(fixture.components.some((c) => c.type === 'pump')).toBe(true);
+		const parsed = parseProject(structuredClone(fixture));
+		expect(parsed.components.some((c) => 'control' in c)).toBe(false);
+		const text = links['./__fixtures__/schema-v1.txt'] ?? '';
+		expect(decodeProject(fragmentOf(text)).components.some((c) => 'control' in c)).toBe(false);
+	});
+
 	it('schema-v1.txt is a full shareable link', () => {
 		expect(links['./__fixtures__/schema-v1.txt']?.trim()).toMatch(
 			/^https:\/\/opensolve-pipe\.app\/p#[A-Za-z0-9_-]+$/

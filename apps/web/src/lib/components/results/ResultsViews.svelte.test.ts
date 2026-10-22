@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
 	MethodVersionsResponse,
 	Project,
+	Pump,
 	SolvedState,
 	SolveResponse,
 	SystemCurveResponse
@@ -548,5 +549,63 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		await fireEvent.change(picker, { target: { value: 'P1' } });
 		expect(await panel.findByRole('table', { name: 'System curve' })).toBeInTheDocument();
 		expect(systemCurve).toHaveBeenCalledTimes(2);
+	});
+	it('shows the control of speed-controlled pumps and how their system curves treat it', async () => {
+		// Made-up results (CLAUDE.md D11): the transfer pump holds a flow setpoint at a solved
+		// speed; a fixed-speed booster beside it.
+		const base = pumpTransferExample();
+		const booster = createComponent('pump', base, { name: 'Booster pump' });
+		const project = insertComponentInConnection(base, 'L3', booster);
+		(project.components.find((c) => c.id === 'P1') as Pump).control = {
+			mode: 'flow',
+			setpoint: 0.02,
+			minSpeed: 0.4
+		};
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({
+					speed: 0.873214,
+					control: { mode: 'flow', setpoint: 0.02, state: 'active', setpointAchieved: true }
+				}),
+				[booster.id]: pumpResult({ operatingFlow: 0.02, operatingHead: 28 })
+			}
+		});
+		const { answers, panel } = await solveAndOpenPumps(project, solved);
+		const table = panel.getByRole('table', { name: 'Results per pump' });
+		expect(within(table).getByRole('columnheader', { name: 'Control' })).toBeInTheDocument();
+		const row = rowFor(table, 'Transfer pump');
+		expect(cells(row)).toEqual(
+			expect.arrayContaining(['Running (holding flow setpoint)', 'Flow 20 L/s: held', '87.32'])
+		);
+		expect(cells(rowFor(table, 'Booster pump'))).toEqual(
+			expect.arrayContaining(['Running', 'Fixed speed', '100'])
+		);
+		expect(panel.getByText(/A speed-controlled pump's speed is the one it runs at/)).toBeVisible();
+
+		// The chart of the controlled pump: its curve at the solved speed; its own control is
+		// replaced at each point of its system curve.
+		const figure = within(
+			panel.getByRole('figure', { name: 'Pump and system curves: Transfer pump' })
+		);
+		expect(
+			await figure.findByRole('table', { name: 'Pump curve at 87.32 % speed (flow control)' })
+		).toBeInTheDocument();
+		await vi.waitFor(() => expect(answers).toHaveLength(1));
+		answers[0]!(systemCurveResponse('P1'));
+		expect(await figure.findByText(/^System curve: /)).toHaveTextContent(
+			'(its flow control replaced by that fixed flow; other pumps running, valves following their rules)'
+		);
+		// The booster's system curve: the controlled pump keeps regulating.
+		await fireEvent.change(panel.getByRole('combobox', { name: 'Pump chart' }), {
+			target: { value: booster.id }
+		});
+		await vi.waitFor(() => expect(answers).toHaveLength(2));
+		answers[1]!(systemCurveResponse(booster.id));
+		const other = within(
+			panel.getByRole('figure', { name: 'Pump and system curves: Booster pump' })
+		);
+		expect(await other.findByText(/^System curve: /)).toHaveTextContent(
+			'(other pumps running, speed-controlled ones regulating to their setpoints, valves following their rules)'
+		);
 	});
 });

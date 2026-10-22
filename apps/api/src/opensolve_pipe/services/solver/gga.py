@@ -37,8 +37,9 @@ when a branch's velocity head, which the Crane K contains, dominates its path lo
 manifold of short branches).
 
 Control valves in their active states (design §4, EPANET 2.2's scheme):
-- FIXED_FLOW (active FCV): the link is cut; its flow q is a demand at the start node and a
-  supply at the end node (EPANET 2.2 hydcoeffs.c:1069-1084, fcvcoeff).
+- FIXED_FLOW (active FCV, or a speed-controlled pump holding its flow setpoint, CLAUDE.md
+  D11): the link is cut; its flow q is a demand at the start node and a supply at the end node
+  (EPANET 2.2 hydcoeffs.c:1069-1084, fcvcoeff).
 - FIXED_DOWNSTREAM_HEAD (active PRV): the end node is held at the setpoint head; the link's
   flow is whatever leaves that node through its other links, recomputed from the current flows
   after every step and passed to the start node as a demand (hydcoeffs.c:965-981, prvcoeff:
@@ -92,7 +93,7 @@ from scipy.sparse.linalg import splu
 
 from .budget import check_budget
 from .elements import HeadOffsetArrays, HeadOffsetLaw
-from .network import HEAD_FIXING_MODES, LinkKind, LinkMode, LinkState, SolverNetwork
+from .network import HEAD_FIXING_MODES, LinkKind, LinkMode, LinkState, SolverNetwork, law_of
 
 FloatArray = NDArray[np.float64]
 IntArray = NDArray[np.int64]
@@ -358,7 +359,7 @@ def circulating_parts(
         if _drives_circulation(state, labels, link.start, link.end):
             circulating.add(part)
         elif state.mode is LinkMode.NORMAL:
-            law = link.law
+            law = law_of(link, state)
             h0 = law.head(zeros) if isinstance(law, HeadOffsetLaw) else law.evaluate(0.0)[0]
             adjacency[link.start].append((link.end, -h0))
             adjacency[link.end].append((link.start, h0))
@@ -495,11 +496,18 @@ def _solve_gga(
         ]
         if others:
             names = ", ".join(links[j].key for j in [k, *others])
+            message = (
+                f"the pressure between controls {names} is undetermined: no reservoir or "
+                "reference node fixes it, so they cannot all hold their setpoints"
+                if any(links[j].kind is LinkKind.PUMP for j in [k, *others])
+                else f"the pressure between control valves {names} is undetermined: no "
+                "reservoir or reference node fixes it, so the valves cannot all hold their "
+                "setpoints"
+            )
             return _not_converged(
                 n,
                 m,
-                f"the pressure between control valves {names} is undetermined: no reservoir or "
-                "reference node fixes it, so the valves cannot all hold their setpoints",
+                message,
                 [int(i) for i in np.flatnonzero(~reaches_head)],
                 starved,
                 [k, *others],
@@ -567,12 +575,15 @@ def _solve_gga(
     isolated_links = [int(k) for k in np.flatnonzero(normal & ~reaches_head[start])]
 
     # Head-offset links merge their nodes into groups (structure only; shifts per iterate).
-    is_offset = np.array([isinstance(links[k].law, HeadOffsetLaw) for k in solve_links], dtype=bool)
+    is_offset = np.array(
+        [isinstance(law_of(links[k], states[k]), HeadOffsetLaw) for k in solve_links.tolist()],
+        dtype=bool,
+    )
     offset_links = solve_links[is_offset]
     newton = solve_links[~is_offset]
     offset_laws: list[HeadOffsetLaw] = []
-    for k in offset_links:
-        law = links[k].law
+    for k in offset_links.tolist():
+        law = law_of(links[k], states[k])
         assert isinstance(law, HeadOffsetLaw)
         offset_laws.append(law)
     groups = merge_offset_links(n, offset_links, np.zeros(offset_links.size), start, end, fixed)
@@ -597,7 +608,7 @@ def _solve_gga(
     vals = np.concatenate([-np.ones(int((sc >= 0).sum())), np.ones(int((ec >= 0).sum()))])
     a12 = sp.csr_matrix((vals, (rows, cols)), shape=(nl, nf))  # duplicates are summed
     a21 = a12.T.tocsr()
-    laws = [links[k].law for k in newton]
+    laws = [law_of(links[k], states[k]) for k in newton.tolist()]
     is_pipe = np.array([links[k].kind is LinkKind.CONNECTION for k in newton], dtype=bool)
     grouped_free = reaches_head & ~root_fixed
     node_col = col[root]

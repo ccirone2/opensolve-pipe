@@ -7,7 +7,9 @@ every coefficient is a cited library call or a definition written out below.
 - Pump curve (design §2.2): ``scipy.interpolate.PchipInterpolator`` through the rated-speed
   points; outside [Q_min, Q_max] a straight line with the PCHIP's end-point slope (value and
   slope continuous). Affinity laws at speed ratio s: H(Q) = s² H₀(Q/s), NPSHr(Q) = s² NPSHr₀(Q/s)
-  (the PumpCurve model: "Curves are fitted with a monotone piecewise cubic").
+  (the PumpCurve model: "Curves are fitted with a monotone piecewise cubic"). A flow-controlled
+  pump (CLAUDE.md D11) follows this law at its solved or limit speed; its state rules are
+  written out in ``controlled_pump_state_problem`` from proposal vfd-pump-modes.md §4.5.
 - Valve K (design §2.3) at the inner diameter of the pipe on the valve's inlet port: the Crane
   TP-410 full-bore K from ``fluids.fittings`` when no resistance is given (control valves: ideal,
   K = 0); a K as entered; Cv and Kv from their definitions (below), not from fluids' converters.
@@ -31,6 +33,7 @@ from opensolve_pipe.models.components import (
     ControlValve,
     FlowCoefficient,
     IsolationValve,
+    PumpControl,
 )
 from opensolve_pipe.models.pumps import PumpCurve
 from tests.reference.derivations import G, area
@@ -208,6 +211,87 @@ def pump_state_problem(
     if state == "no_flow":
         return None if q == 0.0 and lift - shutoff >= margin else "is not clearly at no flow"
     return f"a pump that is on cannot be {state}"
+
+
+ControlState = Literal["active", "max_speed", "min_speed", "no_flow", "off"]
+CONTROL_STATUS: dict[str, Literal["running", "no_flow", "off"]] = {
+    "active": "running",
+    "max_speed": "running",
+    "min_speed": "running",
+    "no_flow": "no_flow",
+    "off": "off",
+}
+"""PumpResult.status of each control state (proposal vfd-pump-modes.md §2.4)."""
+
+
+def controlled_pump_state_problem(
+    status: Literal["on", "off"],
+    curve: PumpCurve,
+    control: PumpControl,
+    max_speed: float,
+    state: str,
+    q: float,
+    lift: float,
+    margin: float,
+    q_rel_tol: float = 1.0e-12,
+    q_abs_tol: float = 0.0,
+) -> str | None:
+    """None when ``state`` is the control state the rules of proposal vfd-pump-modes.md §4.5
+    select for a flow-controlled pump (CLAUDE.md D11) at flow q and EGL rise lift, every
+    inequality cleared by ``margin`` (m; −HTOL reproduces the rules exactly); otherwise what is
+    wrong. F(s, Q) = s² H₀(Q/s) (``pump_head``), s_max = max_speed (the pump's ``speed``),
+    s_min = control.min_speed, Q_set = control.setpoint, S = F(s, 0):
+
+    - off (status 'off'): closed, Q = 0, the control not applied;
+    - active: Q = Q_set (within q_rel_tol · Q_set + q_abs_tol) and F(s_min, Q_set) ≤ lift ≤
+      F(s_max, Q_set) (rules A1, A2 fail);
+    - max_speed: the fixed-speed pump at s_max with Q < Q_set (X1 fails), running by the v1
+      rule lift ≤ S_max (X2); the flow margin is taken along the curve, F(s_max, Q) −
+      F(s_max, Q_set) ≥ margin. Q = 0 is a pump whose discharge has no flow path (a dead
+      end, rule A0): it holds lift = S_max at zero flow, as a fixed-speed pump at s_max does;
+    - min_speed: the fixed-speed pump at s_min with Q > Q_set (N1 fails), F(s_min, Q_set) −
+      F(s_min, Q) ≥ margin, and running by the v1 rule at s_min, lift ≤ S_min (N2);
+    - no_flow: Q = 0 and lift − S_max ≥ margin (C1 keeps it closed).
+    """
+    if status == "off":
+        return None if state == "off" and q == 0.0 else "a pump that is off is closed"
+    s_min, q_set = control.min_speed, control.setpoint
+    if state == "active":
+        f_min, f_max = pump_head(curve, s_min, q_set), pump_head(curve, max_speed, q_set)
+        ok = (
+            abs(q - q_set) <= q_rel_tol * q_set + q_abs_tol
+            and lift - f_min >= margin
+            and f_max - lift >= margin
+        )
+    elif state == "max_speed":
+        shutoff = shutoff_head(curve, max_speed)
+        if q == 0.0:
+            ok = abs(lift - shutoff) <= 1.0e-9 * max(1.0, shutoff)
+        else:
+            ok = (
+                0.0 < q < q_set
+                and pump_head(curve, max_speed, q) - pump_head(curve, max_speed, q_set) >= margin
+                and shutoff - lift >= margin
+            )
+    elif state == "min_speed":
+        ok = (
+            q > q_set
+            and pump_head(curve, s_min, q_set) - pump_head(curve, s_min, q) >= margin
+            and shutoff_head(curve, s_min) - lift >= margin
+        )
+    elif state == "no_flow":
+        ok = q == 0.0 and lift - shutoff_head(curve, max_speed) >= margin
+    else:
+        return f"a pump that is on cannot be {state}"
+    return None if ok else f"is not clearly {state}"
+
+
+def control_state_speed(control: PumpControl, max_speed: float, state: str) -> float | None:
+    """The speed a limit state runs at (proposal §4.7): s_max at max_speed, no_flow and off,
+    s_min at min_speed; None for active (solved)."""
+    if state == "min_speed":
+        return control.min_speed
+    return None if state == "active" else max_speed
 
 
 QTOL = 1.0e-8

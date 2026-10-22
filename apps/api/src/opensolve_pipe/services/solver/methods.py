@@ -60,6 +60,29 @@ FRITSCH_BUTLAND = (
 )
 ISA_75 = "ISA-75.01.01-2007 (60534-2-1 Mod), Flow Equations for Sizing Control Valves."
 USSA_1976 = "U.S. Standard Atmosphere, 1976. NOAA, NASA, USAF, Washington, DC, 1976."
+BRENT = (
+    "Brent, R. P. Algorithms for Minimization without Derivatives. Prentice-Hall, 1973, ch. 4 "
+    "(scipy.optimize.brentq)."
+)
+EPANET_SPECIFIC_FLOW = (
+    "Rossman, L. A., et al. EPANET 2.2 User Manual, ch. 13 (Frequently Asked Questions, "
+    '"How do I size a pump to meet a specific flow?": the pump closed, a demand equal to the '
+    "flow at its suction node and a negative demand at its discharge node). US EPA, 2020. "
+    "https://usepa.github.io/EPANET2.2/13_questions.html"
+)
+FIXED_SPEED_OVERRIDE = (
+    'Bentley WaterGEMS CONNECT Edition Help, "VSP Interactions with Simple and Logical '
+    'Controls": in Fixed Speed Override a variable-speed pump operates at its maximum speed '
+    "setting and the target is no longer maintained. https://docs.bentley.com/LiveContent/web/"
+    "Bentley%20WaterGEMS%20SS6-v1/en/GUID-31A4A446A15F448E8C7BD7C3B8D1249E.html"
+)
+EPANET_SPEED_EFFICIENCY = (
+    "Rossman, L. A., et al. EPANET 2.2. US EPA, 2020 (source: src/hydraul.c:983-984, the Sarbu "
+    "and Borza pump speed adjustment of efficiency, not applied here)."
+)
+SPEED_CONTROL_DECISION = (
+    "OpenSolve Pipe design decision D11 (CLAUDE.md), from docs/proposals/vfd-pump-modes.md."
+)
 
 
 def libraries() -> dict[str, str]:
@@ -94,6 +117,44 @@ def methods_summary(
             f"This project: friction method '{settings.friction_method}', flow tolerance "
             f"{settings.tolerance:g} (relative to the largest flow), at most "
             f"{settings.max_iterations} Newton iterations per network solve."
+        )
+    controlled = any(pump.control is not None for pump in built.pumps.values())
+    speed_control_items: list[str] = []
+    speed_control_references: list[str] = []
+    system_curve_control = ""
+    if controlled:
+        speed_control_items = [
+            "Speed-controlled pumps (flow setpoint): while the speed that delivers the setpoint "
+            "lies between the pump's minimum speed and its speed (the maximum), the pump carries "
+            "the setpoint as a fixed flow (EPANET 2.2's substitute for a pump of a specific "
+            "flow) and its speed is the root of s² H₀(Q/s) = EGL_d − EGL_s (Brent's method). "
+            "This equals solving the speed with the network: it enters only the pump's own head "
+            "equation. The root is unique where 2 H₀ − (Q/s) H₀' > 0, checked exactly on the "
+            "curve's cubic pieces (a curve that fails is rejected).",
+            "Outside that range the pump runs as a fixed-speed pump at the nearer limit and the "
+            "setpoint is not held (flagged): above it the drive saturates at maximum speed "
+            "(as WaterGEMS' Fixed Speed Override), below it the pump runs at its minimum speed "
+            "and passes more than the setpoint. It returns to regulating once the flow at the "
+            "limit reaches the setpoint (EPANET 2.2 fcvstatus). At zero flow its controller is "
+            "at maximum speed, so it closes and re-opens as a fixed-speed pump at its maximum "
+            "speed (EPANET 2.2 pumpstatus).",
+            "Efficiency and NPSHr at the solved speed by the affinity laws; no reduced-speed "
+            "efficiency correction (EPANET 2.2 applies Sarbu and Borza's).",
+            "Two flow controls in series holding the same flow (two speed-controlled pumps, or "
+            "one and an FCV, with equal setpoints) leave the pressure between them undetermined: "
+            "reported as not converged, naming them.",
+        ]
+        speed_control_references = [
+            EPANET_SPECIFIC_FLOW,
+            BRENT,
+            FIXED_SPEED_OVERRIDE,
+            EPANET_SPEED_EFFICIENCY,
+            SPEED_CONTROL_DECISION,
+        ]
+        system_curve_control = (
+            " A speed-controlled pump's own control is replaced by the fixed flow at each "
+            "point; other speed-controlled pumps keep regulating; its default range uses its "
+            "maximum speed."
         )
     if outer is not None:
         iteration_items.append(
@@ -233,9 +294,15 @@ def methods_summary(
                     "and flows; the first from the network's own solve), so where the "
                     "statuses or branch patterns admit more than one solution the curve follows "
                     "one continuously; a point that fails from there is solved from the initial "
-                    "state.",
+                    "state." + system_curve_control,
+                    *speed_control_items,
                 ],
-                references=[FRITSCH_CARLSON, FRITSCH_BUTLAND, EPANET_STATUS],
+                references=[
+                    FRITSCH_CARLSON,
+                    FRITSCH_BUTLAND,
+                    EPANET_STATUS,
+                    *speed_control_references,
+                ],
             ),
             MethodsSection(
                 title="Valves",

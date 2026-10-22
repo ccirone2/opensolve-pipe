@@ -221,7 +221,14 @@ def test_inputs_restate_the_project(solved: tuple[Project, SolvedState]) -> None
             for i, point in enumerate(curve.points):
                 assert inputs[f"Head curve point {i + 1}: flow Q₀"] == point.flow
                 assert inputs[f"Head curve point {i + 1}: head H₀"] == point.head
-            assert inputs["Speed ratio s"] == comp.speed
+            if comp.control is None:
+                assert inputs["Speed ratio s"] == comp.speed
+            else:  # speed-controlled (CLAUDE.md D11): speed is the maximum speed
+                assert "Speed ratio s" not in inputs
+                assert inputs["Maximum speed s_max (field speed)"] == comp.speed
+                assert inputs["Minimum speed s_min"] == comp.control.min_speed
+                assert inputs["Flow setpoint Q_set"] == comp.control.setpoint
+                assert inputs["Control mode"] == comp.control.mode
             assert inputs["Atmospheric pressure p_atm"] == state.atmospheric_pressure
             assert inputs["Vapor pressure p_vap"] == state.fluid.vapor_pressure
         if isinstance(comp, ControlValve) and comp.valve_type != "fcv":

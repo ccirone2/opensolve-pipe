@@ -26,6 +26,9 @@ code. With Σh the pipe losses around the loop at flow Q:
                                    reservoir's head (lower, it would open): the PRV closes and the
                                    pump circulates through the parallel return, H(Q) = Σh(Q)
 - system curve of a pump in the loop (design §13): H_sys(Q) = Σh(Q), 0 at Q = 0
+- flow-controlled pump in the loop (CLAUDE.md D11, proposal vfd-pump-modes.md §5 "sealed
+  loop", CF12): Q = Q_set around the loop, H = Σh(Q_set), and for the straight curve
+  H₀ = a − b x the speed s* = [b Q + √(b² Q² + 4 a H)]/(2a) (the root of s² H₀(Q/s) = H)
 
 These are not case files: the case format and its self-checks expect an EGL at every port
 outside a closed-off section (test_derivation_checks), and a floating section has none.
@@ -51,6 +54,7 @@ from tests.reference import network_check as nc
 from tests.reference.case_format import (
     control_valve,
     custom_fluid,
+    flow_control,
     ideal_tee,
     isolation_valve,
     make_project,
@@ -58,6 +62,11 @@ from tests.reference.case_format import (
     pump,
     pump_curve,
     reservoir,
+)
+from tests.reference.derivations_pump_control import (
+    collinear_coefficients,
+    require_unique_speed,
+    speed_linear,
 )
 from tests.reference.free_levels import free_level_problems
 from tests.reference.line import Line
@@ -431,3 +440,68 @@ def test_system_curve_of_a_pump_in_a_floating_loop() -> None:
         assert point.head is not None
         want = sum(x.head_loss(point.flow, NU) for x in lines)
         assert point.head == pytest.approx(want, rel=REL)
+
+
+Q_SET_LOOP = 0.012
+"""m³/s: the flow setpoint of the flow-controlled loop pump (test input)."""
+MIN_SPEED_LOOP = 0.4
+"""The loop pump's minimum speed (test input); its maximum is 1."""
+
+
+def controlled_pump_loop() -> Project:
+    """``pump_loop`` with PU1 flow-controlled: Q_set 0.012 m³/s, s ∈ [0.4, 1]."""
+    project = pump_loop()
+    components = [
+        pump("PU1", 0.0, CURVE.id, control=flow_control(Q_SET_LOOP, MIN_SPEED_LOOP))
+        if c.id == "PU1"
+        else c
+        for c in project.components
+    ]
+    return project.model_copy(update={"components": components})
+
+
+def test_flow_controlled_pump_holds_its_setpoint_around_a_floating_loop() -> None:
+    """CF12: the sealed loop (its reservoir behind an isolated valve) with a flow-controlled
+    pump. Active: the loop carries Q_set, the pump's head is the loop's loss at Q_set,
+    H = h3 + h4 + h6, and its speed s* solves s² H₀(Q_set/s) = H (closed form for CURVE,
+    a = 30, b = 500 from its points). The pressure level is undetermined: no EGL, NPSHa or
+    suction pressure, UNDETERMINED_PRESSURE naming the pump; the setpoint is met (no
+    PUMP_SETPOINT_NOT_MET)."""
+    lines = [L_LOOP_A, L_LOOP_B, L_RETURN]
+    q = Q_SET_LOOP
+    h = sum(x.head_loss(q, NU) for x in lines)
+    a, b = collinear_coefficients(CURVE)
+    s_star = speed_linear(a, b, q, h)
+    assert el.pump_head(CURVE, s_star, q) == pytest.approx(h, rel=1.0e-12)
+    require_unique_speed(CURVE, q, MIN_SPEED_LOOP, 1.0)
+    # Clearly active (proposal §4.5): F(s_min, Q_set) < H < F(s_max, Q_set).
+    assert h - el.pump_head(CURVE, MIN_SPEED_LOOP, q) > el.STATE_MARGIN
+    assert el.pump_head(CURVE, 1.0, q) - h > el.STATE_MARGIN
+    for line in lines:
+        dv.require_regime(q, line.d, NU, "turbulent")
+
+    result = solve_project(controlled_pump_loop())
+
+    assert result.converged, result.convergence.message
+    flows = {cid: link.flow for cid, link in result.link_results.items()}
+    for cid in ("L3", "L4", "L6"):
+        assert flows[cid] == pytest.approx(q, rel=REL), cid
+    assert flows["L1"] == flows["L2"] == flows["L5"] == 0.0
+    for cid, line in (("L3", L_LOOP_A), ("L4", L_LOOP_B), ("L6", L_RETURN)):
+        assert result.link_results[cid].head_loss == pytest.approx(line.head_loss(q, NU), rel=REL)
+    pump_result = result.pump_results["PU1"]
+    assert pump_result.status == "running"
+    assert pump_result.control is not None
+    assert pump_result.control.state == "active"
+    assert pump_result.control.setpoint_achieved is True
+    assert pump_result.operating_flow == pytest.approx(q, rel=REL)
+    assert pump_result.operating_head == pytest.approx(h, rel=REL)
+    assert pump_result.speed == pytest.approx(s_star, rel=REL)
+    assert set(result.node_results) == {"R0:port_1", "IV1:inlet"}
+    assert pump_result.npsh_available is None
+    assert pump_result.suction_absolute_pressure is None
+    [flag] = _flags(result, "UNDETERMINED_PRESSURE")
+    assert flag.component_id == "PU1"
+    assert flag.details["componentIds"] == "IV1, PL1, PU1, T1, T2"
+    assert not _flags(result, "PUMP_SETPOINT_NOT_MET")
+    assert not [f for f in result.flags if f.severity == "invalid"]

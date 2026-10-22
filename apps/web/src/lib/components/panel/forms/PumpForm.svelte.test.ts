@@ -1,0 +1,173 @@
+/**
+ * The pump's speed control in the Build panel (CLAUDE.md D11): flow control is entered as a
+ * draft that is written in one undoable edit once the flow setpoint and the minimum speed are
+ * both entered and valid, so the project and its link never hold a partial control or a value
+ * the user did not enter; Fixed speed removes the control in one edit; Speed becomes Maximum
+ * speed. The setpoints and speeds typed here are made-up test inputs.
+ */
+import { fireEvent, render, screen } from '@testing-library/svelte';
+import { describe, expect, it } from 'vitest';
+import type { Project, Pump } from '$lib/api/types';
+import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
+import type { Workspace } from '$lib/state/workspace.svelte';
+import { testWorkspace } from '$lib/testing/workspace';
+import { decodeProject, fragmentOf } from '$lib/utils/encoding';
+import { pumpTransferExample } from '$lib/utils/examples';
+
+function setup(edit?: (project: Project) => void) {
+	const project = pumpTransferExample();
+	edit?.(project);
+	const ws = testWorkspace(project);
+	ws.nav.jumpTo('P1');
+	render(WorkspaceView, { workspace: ws });
+	return ws;
+}
+
+const pumpOf = (project: Project) => project.components.find((c) => c.id === 'P1') as Pump;
+
+/** The pump as the project's link holds it (the URL is written after a short delay). */
+function linkedPump(ws: Workspace): Pump {
+	ws.store.flush();
+	return pumpOf(decodeProject(fragmentOf(ws.store.url)));
+}
+
+const field = (name: string) => screen.getByRole('textbox', { name });
+const control = () => screen.getByRole('combobox', { name: 'Control' });
+/** The form's note about the draft (a live status), if shown. */
+const draftNote = () =>
+	screen.queryAllByRole('status').find((s) => /switch to flow control/.test(s.textContent ?? ''));
+
+/** Type a value into a field and commit it (as leaving the field does). */
+async function enter(name: string, value: string) {
+	const input = field(name);
+	await fireEvent.input(input, { target: { value } });
+	await fireEvent.change(input);
+	return input;
+}
+
+async function chooseControl(value: 'fixed' | 'flow') {
+	await fireEvent.change(control(), { target: { value } });
+}
+
+describe('PumpForm: speed control', () => {
+	it('holds flow control as a draft until it is complete and valid, then writes it in one edit', async () => {
+		const ws = setup();
+		expect(control()).toHaveValue('fixed');
+		expect(field('Speed (%)')).toHaveValue('100');
+
+		await chooseControl('flow');
+		expect(control()).toHaveValue('flow');
+		// Nothing is stored yet, and nothing is invented: both fields start empty.
+		expect(field('Flow setpoint (L/s)')).toHaveValue('');
+		expect(field('Minimum speed (%)')).toHaveValue('');
+		expect(field('Minimum speed (%)')).toHaveAccessibleDescription(
+			/From the drive or pump data; there is no standard default\./
+		);
+		expect(field('Maximum speed (%)')).toHaveAccessibleDescription(
+			/Highest speed the drive runs the pump at/
+		);
+		expect(screen.queryByRole('textbox', { name: 'Speed (%)' })).toBeNull();
+		expect(draftNote()).toHaveTextContent(
+			'Enter the flow setpoint and minimum speed to switch to flow control.'
+		);
+		expect(ws.store.undoDepth).toBe(0);
+		expect('control' in pumpOf(ws.project)).toBe(false);
+
+		// One value: still a draft; the project and its link have no control.
+		await enter('Flow setpoint (L/s)', '12');
+		expect(field('Flow setpoint (L/s)')).toHaveValue('12');
+		expect(ws.store.undoDepth).toBe(0);
+		expect('control' in pumpOf(ws.project)).toBe(false);
+		expect('control' in linkedPump(ws)).toBe(false);
+
+		// A minimum speed at the maximum is refused at the field (control.minSpeed < speed).
+		const minimum = await enter('Minimum speed (%)', '100');
+		expect(minimum).toHaveAttribute('aria-invalid', 'true');
+		expect(screen.getByRole('alert')).toHaveTextContent('Must be less than 100 %.');
+		expect('control' in pumpOf(ws.project)).toBe(false);
+
+		// Both valid: one undoable edit writes the whole control.
+		await enter('Minimum speed (%)', '40');
+		expect(ws.store.undoDepth).toBe(1);
+		expect(ws.store.undoLabel).toBe('switch pump to flow control');
+		const written = { mode: 'flow', setpoint: expect.closeTo(0.012, 15), minSpeed: 0.4 };
+		expect(pumpOf(ws.project).control).toEqual(written);
+		expect(linkedPump(ws).control).toEqual(written);
+		expect(draftNote()).toBeUndefined();
+		expect(field('Flow setpoint (L/s)')).toHaveValue('12');
+		expect(field('Minimum speed (%)')).toHaveValue('40');
+
+		// The maximum speed is bounded below by the minimum speed.
+		await enter('Maximum speed (%)', '30');
+		expect(screen.getByRole('alert')).toHaveTextContent('Must be greater than 40 %.');
+		expect(pumpOf(ws.project).speed).toBe(1);
+		await enter('Maximum speed (%)', '90');
+		expect(pumpOf(ws.project).speed).toBe(0.9);
+		expect(ws.store.undoLabel).toBe('change maximum speed');
+	});
+
+	it('undoes and redoes the switch as one step', async () => {
+		const ws = setup();
+		await chooseControl('flow');
+		await enter('Flow setpoint (L/s)', '12');
+		await enter('Minimum speed (%)', '40');
+		expect(ws.store.undoDepth).toBe(1);
+
+		ws.store.undo();
+		await Promise.resolve();
+		expect('control' in pumpOf(ws.project)).toBe(false);
+		expect(await screen.findByRole('textbox', { name: 'Speed (%)' })).toHaveValue('100');
+		expect(control()).toHaveValue('fixed');
+		expect(screen.queryByRole('textbox', { name: 'Minimum speed (%)' })).toBeNull();
+
+		ws.store.redo();
+		expect(await screen.findByRole('textbox', { name: 'Minimum speed (%)' })).toHaveValue('40');
+		expect(control()).toHaveValue('flow');
+		expect(pumpOf(ws.project).control).toMatchObject({ mode: 'flow', minSpeed: 0.4 });
+	});
+
+	it('removes the control in one edit, and drops a draft without an edit', async () => {
+		const ws = setup((p) => {
+			pumpOf(p).control = { mode: 'flow', setpoint: 0.012, minSpeed: 0.4 };
+		});
+		expect(control()).toHaveValue('flow');
+		expect(field('Flow setpoint (L/s)')).toHaveValue('12');
+
+		// Editing a stored control is one edit per field, bounded by the maximum speed.
+		await enter('Flow setpoint (L/s)', '15');
+		expect(ws.store.undoLabel).toBe('change flow setpoint');
+		expect(pumpOf(ws.project).control?.setpoint).toBeCloseTo(0.015, 15);
+		await enter('Minimum speed (%)', '100');
+		expect(screen.getByRole('alert')).toHaveTextContent('Must be less than 100 %.');
+		await enter('Minimum speed (%)', '50');
+		expect(ws.store.undoLabel).toBe('change minimum speed');
+		expect(ws.store.undoDepth).toBe(2);
+
+		await chooseControl('fixed');
+		expect(ws.store.undoDepth).toBe(3);
+		expect(ws.store.undoLabel).toBe('switch pump to fixed speed');
+		// The field is removed, not left empty or null.
+		expect('control' in pumpOf(ws.project)).toBe(false);
+		expect('control' in linkedPump(ws)).toBe(false);
+		expect(field('Speed (%)')).toHaveValue('100');
+
+		// A draft that is dropped leaves no trace in the history.
+		await chooseControl('flow');
+		await enter('Flow setpoint (L/s)', '12');
+		await chooseControl('fixed');
+		expect(ws.store.undoDepth).toBe(3);
+		expect(draftNote()).toBeUndefined();
+		// Choosing flow again starts from an empty draft.
+		await chooseControl('flow');
+		expect(field('Flow setpoint (L/s)')).toHaveValue('');
+	});
+
+	it('says an off pump does not apply its control', async () => {
+		setup((p) => {
+			const pump = pumpOf(p);
+			pump.status = 'off';
+			pump.control = { mode: 'flow', setpoint: 0.012, minSpeed: 0.4 };
+		});
+		expect(screen.getByText('This pump is off: its flow control is not applied.')).toBeVisible();
+	});
+});

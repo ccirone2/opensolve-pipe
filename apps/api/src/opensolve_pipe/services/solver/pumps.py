@@ -12,20 +12,34 @@ of its curve, since a tangent line soon leaves (0, 1]; that is flagged too.
 Affinity laws at speed ratio s = n/n_rated (geometrically similar operating points):
 Q = s Q₀, H = s² H₀, NPSHr = s² NPSHr₀, η = η₀. So H(Q) = s² H₀(Q/s), dH/dQ = s H₀'(Q/s).
 
+Speed-controlled pumps (CLAUDE.md D11): with F(s, Q) = s² H₀(Q/s), dF/ds = s ψ(Q/s) with
+ψ(x) = 2 H₀(x) − x H₀'(x). Where ψ > 0 the head at a fixed flow rises strictly with speed, so
+one speed gives each head (``speed_uniqueness``, ``operating_speed``).
+
 References: Fritsch, F. N., and R. E. Carlson, SIAM J. Numer. Anal. 17(2), 1980, 238-246.
 Fritsch, F. N., and J. Butland, SIAM J. Sci. Stat. Comput. 5(2), 1984, 300-304.
+Brent, R. P., Algorithms for Minimization without Derivatives, Prentice-Hall, 1973, ch. 4
+(``scipy.optimize.brentq``).
 """
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 
 import numpy as np
 from scipy.interpolate import PchipInterpolator
+from scipy.optimize import brentq
 
 from ...models.pumps import PumpCurve
 
 CURVE_SAMPLES = 41
 """Points of the sampled pump curve reported at the operating speed (display only)."""
+SPEED_XTOL = 1.0e-14
+"""Absolute speed tolerance of the speed root (``operating_speed``): far below any speed a
+drive sets, and above the spacing of doubles near 1 (2.2e-16)."""
+SPEED_RTOL = 4.0 * float(np.finfo(np.float64).eps)
+"""Relative speed tolerance of the speed root: the smallest ``brentq`` accepts (4 ε)."""
 
 
 class ExtrapolatedPchip:
@@ -55,6 +69,26 @@ class ExtrapolatedPchip:
     def clipped(self, x: float) -> float:
         """Value at x held to the curve's range (no extrapolation)."""
         return float(self._pchip(min(max(x, self.x_min), self.x_max)))
+
+    @property
+    def pieces(self) -> list[tuple[float, float, tuple[float, float, float, float]]]:
+        """Each cubic piece as (x_i, x_{i+1}, (c3, c2, c1, c0)): y = c3 t³ + c2 t² + c1 t + c0
+        with t = x − x_i (the PPoly coefficients of the interpolant)."""
+        xs, cs = self._pchip.x, self._pchip.c
+        return [
+            (
+                float(xs[i]),
+                float(xs[i + 1]),
+                (float(cs[0, i]), float(cs[1, i]), float(cs[2, i]), float(cs[3, i])),
+            )
+            for i in range(len(xs) - 1)
+        ]
+
+    @property
+    def ends(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        """((x_min, y, slope), (x_max, y, slope)): the end points and the tangent slopes the
+        curve continues along outside them."""
+        return self._ends
 
 
 @dataclass(frozen=True)
@@ -134,3 +168,147 @@ class PumpCurveModel:
         q_min, q_max = self.flow_range
         flows = np.linspace(q_min * speed, q_max * speed, count)
         return [(float(q), self.head(float(q), speed)[0]) for q in flows]
+
+
+# --------------------------------------------------------------------------- speed control
+
+
+def speed_derivative_factor(curve: PumpCurveModel, x: float) -> float:
+    """ψ(x) = 2 H₀(x) − x H₀'(x) at rated-speed flow x [m]: dF/ds = s ψ(Q/s) for
+    F(s, Q) = s² H₀(Q/s), so the head at a fixed flow rises with speed where ψ > 0."""
+    h0, slope0 = curve.head_curve(x)
+    return 2.0 * h0 - x * slope0
+
+
+@dataclass(frozen=True)
+class SpeedUniqueness:
+    """Where a curve gives one speed for each head at a fixed flow (CLAUDE.md D11)."""
+
+    psi_min: float
+    """The least ψ = 2 H₀ − x H₀' over the rated-speed flows 0 <= x <= x_last (the curve's
+    largest point flow), m. Positive: the speed holding a flow is unique."""
+    psi_min_flow: float
+    """The rated-speed flow x where ``psi_min`` occurs, m³/s."""
+    x_mono: float
+    """ψ > 0 for 0 <= x < x_mono, m³/s: beyond the last point ψ follows the end tangent,
+    ψ = ψ(x_last) + m (x − x_last), which reaches 0 at twice the tangent's zero-head flow when
+    it falls (m < 0); inf when it does not."""
+    interval: tuple[float, float] | None
+    """The lowest and highest rated-speed flows of [0, x_last] at which ψ <= 0, m³/s; None when
+    ψ > 0 there (the curve passes)."""
+
+
+def _real_roots(coefficients: Sequence[float], low: float, high: float) -> list[float]:
+    """Real roots in (low, high) of a polynomial (highest power first). Roots with a small
+    imaginary part (a double root perturbed by rounding) are kept: they only split the
+    interval for the sign test, which evaluates ψ itself."""
+    roots = np.roots(np.asarray(coefficients, dtype=np.float64))
+    scale = max(abs(low), abs(high), 1.0)
+    return sorted(
+        float(r.real) for r in roots if abs(r.imag) <= 1.0e-9 * scale and low < r.real < high
+    )
+
+
+def speed_uniqueness(curve: PumpCurveModel) -> SpeedUniqueness:
+    """The exact test of a curve for speed control (CLAUDE.md D11): ψ > 0 on [0, x_last].
+
+    On each PCHIP piece H₀ = c3 t³ + c2 t² + c1 t + c0 (t = x − x_i), so
+    ψ = −c3 t³ − 3 c3 x_i t² + (c1 − 2 c2 x_i) t + (2 c0 − c1 x_i), a cubic whose least value
+    lies at the piece's ends or where ψ' = −3 c3 t² − 6 c3 x_i t + (c1 − 2 c2 x_i) = 0. Below
+    the first point (x < x_min, the start tangent) ψ is linear. ψ(0) = 2 H₀(0) also needs
+    H₀(0) > 0. The values are evaluated on the curve itself (``speed_derivative_factor``), the
+    polynomial roots only locate the candidates."""
+    head = curve.head_curve
+
+    def psi(x: float) -> float:
+        return speed_derivative_factor(curve, x)
+
+    candidates: list[float] = [0.0]
+    """Where ψ may take its least value."""
+    breaks: list[float] = [0.0]
+    """Points splitting [0, x_last] into stretches of one sign of ψ (ends and roots)."""
+    if head.x_min > 0.0:
+        candidates.append(head.x_min)
+        low, high = psi(0.0), psi(head.x_min)
+        if (low <= 0.0) != (high <= 0.0):  # linear: one root between
+            breaks.append(head.x_min * low / (low - high))
+        breaks.append(head.x_min)
+    for a, b, (c3, c2, c1, c0) in head.pieces:
+        h = b - a
+        critical = _real_roots([-3.0 * c3, -6.0 * c3 * a, c1 - 2.0 * c2 * a], 0.0, h)
+        roots = _real_roots([-c3, -3.0 * c3 * a, c1 - 2.0 * c2 * a, 2.0 * c0 - c1 * a], 0.0, h)
+        candidates += [a, *(a + t for t in critical), b]
+        breaks += [*(a + t for t in roots), b]
+    breaks = sorted(set(breaks))
+    values = [(psi(x), x) for x in candidates]
+    psi_min, psi_min_flow = min(values)
+    nonpositive = [x for v, x in values if v <= 0.0] + [x for x in breaks if psi(x) <= 0.0]
+    for lo, hi in pairwise(breaks):
+        if psi(0.5 * (lo + hi)) <= 0.0:
+            nonpositive += [lo, hi]
+    x_e, _, slope = head.ends[1]
+    psi_e = psi(x_e)
+    x_mono = math.inf if slope >= 0.0 else x_e + max(psi_e, 0.0) / -slope
+    return SpeedUniqueness(
+        psi_min=psi_min,
+        psi_min_flow=psi_min_flow,
+        x_mono=x_mono,
+        interval=(min(nonpositive), max(nonpositive)) if nonpositive else None,
+    )
+
+
+@dataclass(frozen=True)
+class OperatingSpeed:
+    """The speed of a speed-controlled pump holding flow Q against head H (``operating_speed``)."""
+
+    speed: float
+    """s*, within [s_min, s_max]."""
+    lower: float
+    """s_lo = max(s_min, Q/x_mono): F(·, Q) rises strictly with speed on [s_lo, s_max] (held at
+    s_max if it exceeds it)."""
+    residual: float
+    """F(s*, Q) − H, m: at most Htol in size when the pump is active (the head is clamped to
+    the range of F on [s_lo, s_max])."""
+
+
+def operating_speed(
+    curve: PumpCurveModel,
+    flow: float,
+    head: float,
+    min_speed: float,
+    max_speed: float,
+    x_mono: float,
+) -> OperatingSpeed:
+    """The unique speed s* in [s_lo, s_max] with F(s*, Q) = s*² H₀(Q/s*) = H (CLAUDE.md D11).
+
+    Ĥ = clamp(H, F(s_lo, Q), F(s_max, Q)) and s* the root of F(s, Q) = Ĥ by Brent's method
+    (``scipy.optimize.brentq``, Brent 1973), the end speed when Ĥ is at an end. F rises strictly
+    on [s_lo, s_max] (``speed_uniqueness``), so the root is unique and one sign change brackets
+    it. Should s_lo reach s_max (Q beyond x_mono at every speed, where F falls with speed), the
+    speed is s_max."""
+
+    def f(speed: float) -> float:
+        return curve.head(flow, speed)[0]
+
+    s_lo = min_speed if math.isinf(x_mono) else max(min_speed, flow / x_mono)
+    if s_lo >= max_speed:
+        speed = max_speed
+        s_lo = max_speed
+    else:
+        f_lo, f_hi = f(s_lo), f(max_speed)
+        target = min(max(head, f_lo), f_hi)
+        if target <= f_lo:
+            speed = s_lo
+        elif target >= f_hi:
+            speed = max_speed
+        else:
+            speed = float(
+                brentq(
+                    lambda s: f(s) - target,
+                    s_lo,
+                    max_speed,
+                    xtol=SPEED_XTOL,
+                    rtol=SPEED_RTOL,
+                )
+            )
+    return OperatingSpeed(speed=speed, lower=s_lo, residual=f(speed) - head)

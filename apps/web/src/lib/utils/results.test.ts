@@ -4,7 +4,7 @@
  * made-up test inputs (testing/results.ts).
  */
 import { describe, expect, it } from 'vitest';
-import type { BranchResult, SolvedState } from '../api/types';
+import type { BranchResult, PumpResult, SolvedState } from '../api/types';
 import { flag, link, node, pumpResult, pumpTransferSolved } from '../testing/results';
 import { gravityBranchExample, pumpTransferExample } from './examples';
 import {
@@ -27,6 +27,7 @@ import {
 	linkTable,
 	lowestPressureNode,
 	nodeTable,
+	pumpControlText,
 	pumpStatusLabel,
 	pumpTable,
 	rowsForElement,
@@ -522,6 +523,79 @@ describe('pump status', () => {
 			status: 'Off',
 			speed: '—'
 		});
+	});
+});
+
+describe('speed-controlled pumps (CLAUDE.md D11)', () => {
+	// Made-up control results: a flow setpoint of 12 L/s.
+	const control = (
+		state: NonNullable<PumpResult['control']>['state'],
+		setpointAchieved: boolean | null = state === 'active'
+	): PumpResult['control'] => ({ mode: 'flow', setpoint: 0.012, state, setpointAchieved });
+
+	it('says whether a running pump holds its setpoint or runs at a limit of its drive', () => {
+		const at = (state: Parameters<typeof control>[0], achieved?: boolean) =>
+			pumpStatusLabel(pumpResult({ control: control(state, achieved) }));
+		expect(at('active')).toBe('Running (holding flow setpoint)');
+		expect(at('max_speed')).toBe('Running at maximum speed (setpoint not met)');
+		expect(at('min_speed')).toBe('Running at minimum speed (above setpoint)');
+		// At a limit the flow can still equal the setpoint, within the solver's tolerance.
+		expect(at('max_speed', true)).toBe('Running at maximum speed (holding flow setpoint)');
+		expect(at('min_speed', true)).toBe('Running at minimum speed (holding flow setpoint)');
+		// No flow and off read as for a fixed-speed pump.
+		const held = pumpResult({
+			status: 'no_flow',
+			operatingFlow: 0,
+			control: control('no_flow', false)
+		});
+		expect(pumpStatusLabel(held)).toBe('No flow (held at zero by its check)');
+		const off = pumpResult({ status: 'off', control: control('off', null) });
+		expect(pumpStatusLabel(off)).toBe('Off');
+	});
+
+	it('states the setpoint and what the control achieved, in display units', () => {
+		const text = (state: Parameters<typeof control>[0], achieved?: boolean, flow = 0.0098) =>
+			pumpControlText(
+				pumpResult({ operatingFlow: flow, control: control(state, achieved) }),
+				IMPERIAL_UNITS
+			);
+		const setpoint = `${sig4(0.012 / GPM)} gpm`;
+		expect(text('active')).toBe(`Flow ${setpoint}: held`);
+		expect(text('max_speed')).toBe(`Flow ${setpoint}: ${sig4(0.0098 / GPM)} gpm at maximum speed`);
+		expect(text('min_speed', false, 0.015)).toBe(
+			`Flow ${setpoint}: ${sig4(0.015 / GPM)} gpm at minimum speed`
+		);
+		expect(text('max_speed', true)).toBe(`Flow ${setpoint}: held at maximum speed`);
+		expect(text('no_flow', false, 0)).toBe(`Flow ${setpoint}: no flow at maximum speed`);
+		expect(text('off', undefined)).toBe(`Flow ${setpoint}: not applied (pump off)`);
+		expect(pumpControlText(pumpResult(), SI_UNITS)).toBe('Fixed speed');
+		expect(pumpControlText(pumpResult({ control: control('active') }), SI_UNITS)).toBe(
+			'Flow 12 L/s: held'
+		);
+	});
+
+	it('shows a Control column only when a pump of the solve is speed-controlled', () => {
+		const fixed = pumpTable(project, pumpTransferSolved(), SI_UNITS);
+		expect(fixed.columns.map((c) => c.key)).not.toContain('control');
+		expect(fixed.rows[0]!.cells).not.toHaveProperty('control');
+
+		const solved = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({ speed: 0.873214, control: control('active') }),
+				P2: pumpResult({ speed: 1 })
+			}
+		});
+		const table = pumpTable(project, solved, SI_UNITS);
+		expect(table.columns.map((c) => c.key).slice(0, 3)).toEqual(['status', 'control', 'flow']);
+		expect(table.columns.find((c) => c.key === 'control')).toEqual({
+			key: 'control',
+			label: 'Control'
+		});
+		// The solved speed, as for any pump; the fixed pump says it is one.
+		expect(table.rows.map((r) => [r.key, r.cells.status, r.cells.control, r.cells.speed])).toEqual([
+			['P1', 'Running (holding flow setpoint)', 'Flow 12 L/s: held', '87.32'],
+			['P2', 'Running', 'Fixed speed', '100']
+		]);
 	});
 });
 

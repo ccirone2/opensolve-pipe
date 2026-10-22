@@ -308,22 +308,62 @@ def fixed_heads(project: Project) -> dict[str, float]:
 
 
 def element_states(project: Project, expected: Mapping[str, Any]) -> dict[str, str]:
-    """The expected status of every pump and state of every valve (each must be given)."""
+    """The expected status of every pump and state of every valve (each must be given); a
+    speed-controlled pump's control state (``controlState``: active, max_speed, min_speed,
+    no_flow or off) in place of its status."""
     states: dict[str, str] = {}
     for component in project.components:
         if isinstance(component, Pump):
-            states[component.id] = expected["pumps"][component.id]["status"]
+            want = expected["pumps"][component.id]
+            states[component.id] = (
+                want["status"] if component.control is None else want["controlState"]
+            )
         elif isinstance(component, IsolationValve | CheckValve | ControlValve):
             states[component.id] = expected["valves"][component.id]["state"]
     return states
 
 
+PUMP_HEAD_STATES = ("running", "max_speed", "min_speed")
+"""Pump states with a head law: a fixed-speed pump running, and a flow-controlled pump at a
+speed limit, where it is the fixed-speed pump at that speed (proposal vfd-pump-modes.md §4.4).
+An active flow-controlled pump is a fixed flow Q = Q_set instead (§4.2)."""
+
+
+def pump_law_speed(component: Pump, state: str) -> float:
+    """The speed of a pump's head law in a head state: control.minSpeed at min_speed, else
+    the pump's ``speed`` (a controlled pump's maximum)."""
+    if state == "min_speed" and component.control is not None:
+        return component.control.min_speed
+    return component.speed
+
+
+def at_expected_speeds(
+    project: Project, expected: Mapping[str, Any]
+) -> tuple[Project, dict[str, str]]:
+    """The project with every flow-controlled pump replaced by a fixed-speed pump at its
+    expected speed (proposal vfd-pump-modes.md §7.3, M1 and M2), and the element states with
+    each such pump's control state replaced by its pump status (running, no_flow, off)."""
+    controlled = {c.id for c in project.components if isinstance(c, Pump) and c.control is not None}
+    components = [
+        c.model_copy(update={"control": None, "speed": expected["pumps"][c.id]["speed"]})
+        if c.id in controlled
+        else c
+        for c in project.components
+    ]
+    states = {
+        cid: el.CONTROL_STATUS[state] if cid in controlled else state
+        for cid, state in element_states(project, expected).items()
+    }
+    return project.model_copy(update={"components": components}), states
+
+
 def connects_heads(component: TwoPort, state: str) -> bool:
     """Whether a pump or valve in this state ties its two port heads (a law in Q and ΔH):
-    running pumps, open valves and active PRVs/PSVs do; closed elements and active FCVs (a
-    fixed flow) do not (design §4)."""
+    running pumps (and flow-controlled pumps at a speed limit), open valves and active
+    PRVs/PSVs do; closed elements, active FCVs and active flow-controlled pumps (fixed flows)
+    do not (design §4)."""
     if isinstance(component, Pump):
-        return state == "running"
+        return state in PUMP_HEAD_STATES
     if state == "active":
         return isinstance(component, ControlValve) and component.valve_type != "fcv"
     return state == "open"
@@ -441,15 +481,20 @@ def element_law(
     model: Model,
 ) -> tuple[str, float]:
     """('head' | 'flow', residual) of a pump's or valve's law in its state (design §2.2-2.3,
-    §5): running pump H_out − H_in − H(Q); open valve ΔH − h_c − K Q|Q|/(2gA²); active PRV
-    H_out − h_set; active PSV H_in − h_set; active FCV Q − q_set; closed or stopped Q."""
+    §5): running pump H_out − H_in − H(Q) (a flow-controlled pump at a speed limit: H(Q) at
+    that speed; active: Q − Q_set, a fixed flow, proposal vfd-pump-modes.md §4.2); open valve
+    ΔH − h_c − K Q|Q|/(2gA²); active PRV H_out − h_set; active PSV H_in − h_set; active FCV
+    Q − q_set; closed or stopped Q."""
     rho = density(project)
     key_in, key_out = two_port_ends(component)
     if isinstance(component, Pump):
-        if state != "running":
+        if state == "active" and component.control is not None:
+            return "flow", q - component.control.setpoint
+        if state not in PUMP_HEAD_STATES:
             return "flow", q
         curve = next(c for c in project.pump_library if c.id == component.curve_id)
-        return "head", h_out - h_in - el.pump_head(curve, component.speed, q)
+        speed = pump_law_speed(component, state)
+        return "head", h_out - h_in - el.pump_head(curve, speed, q)
     if state == "closed":
         return "flow", q
     d_in = port_diameter(project, key_in)
@@ -594,7 +639,9 @@ def state_problems(
 ) -> list[str]:
     """Pumps and valves whose expected state is not the one the status rules of design §5
     select at the expected flows and EGLs (margin −HTOL: the rules exactly). fcv_leak: see
-    Model.fcv_leak (EPANET cases)."""
+    Model.fcv_leak (EPANET cases); it also bounds how far an active flow-controlled pump's flow
+    may sit from its setpoint in an EPANET case, whose reference run (the EPANET 2.2 FAQ
+    substitute) keeps the pump CLOSED and EPANET lets a closed link pass Δh/CBIG."""
     rho = density(project)
     problems = []
     for component in project.components:
@@ -605,15 +652,29 @@ def state_problems(
         h_in, h_out = egl.get(key_in, math.nan), egl.get(key_out, math.nan)
         if isinstance(component, Pump):
             curve = next(c for c in project.pump_library if c.id == component.curve_id)
-            problem = el.pump_state_problem(
-                component.status,
-                curve,
-                component.speed,
-                states[component.id],
-                q,
-                h_out - h_in,
-                margin,
-            )
+            if component.control is not None:
+                problem = el.controlled_pump_state_problem(
+                    component.status,
+                    curve,
+                    component.control,
+                    component.speed,
+                    states[component.id],
+                    q,
+                    h_out - h_in,
+                    margin,
+                    q_rel_tol,
+                    fcv_leak * abs(h_out - h_in),
+                )
+            else:
+                problem = el.pump_state_problem(
+                    component.status,
+                    curve,
+                    component.speed,
+                    states[component.id],
+                    q,
+                    h_out - h_in,
+                    margin,
+                )
         else:
             problem = el.valve_state_problem(
                 component,

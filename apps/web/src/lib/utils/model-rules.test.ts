@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import openapi from '../api/openapi.json';
-import type { Component, Fitting, FittingType } from '../api/types';
+import type { Component, Fitting, FittingType, Pump } from '../api/types';
 import { projectWith } from '../testing/helpers';
 import { DEFAULT_ENTRANCE, DEFAULT_EXIT, hasReservoirLoss } from './edit';
 import { COMPONENT_KINDS, componentKind, createComponent, createEmptyProject } from './factory';
@@ -16,11 +16,16 @@ import {
 	componentSchemaName,
 	ENTRANCE_TYPES,
 	EXIT_TYPES,
+	fieldValue,
 	FITTING_PARAMETERS,
 	fluidSchemaName,
+	intersectBounds,
 	maxPorts,
 	missingFittingParameters,
 	namedPortRole,
+	orderedBounds,
+	orderedFields,
+	orderViolations,
 	REDUCER_TYPES,
 	requiredPortCount,
 	requiredPortIds,
@@ -123,6 +128,88 @@ describe('component schemas', () => {
 			const project = projectWith([{ ...fcv, setpoint }]);
 			expect(modelRuleProblems(project), String(setpoint)).toHaveLength(problems);
 		}
+	});
+});
+
+describe('ordered fields (x-ordered-fields)', () => {
+	const pump = createComponent('pump', createEmptyProject()) as Pump;
+	/** A flow control for the test (made-up values within the schema's bounds). */
+	const controlled = (minSpeed: number, speed = 1): Pump => ({
+		...pump,
+		speed,
+		control: { mode: 'flow', setpoint: 0.01, minSpeed }
+	});
+
+	it('are the extension of each component schema', () => {
+		for (const component of COMPONENTS) {
+			const name = componentSchema(component);
+			expect(orderedFields(component), name).toEqual(extension(name, 'x-ordered-fields') ?? []);
+		}
+		// The pump's: a speed-controlled pump's minimum speed below its speed (the maximum).
+		expect(orderedFields(pump)).toEqual([
+			{ lower: 'control.minSpeed', upper: 'speed', strict: true }
+		]);
+		expect(orderedFields(createComponent('reservoir', createEmptyProject()))).toEqual([]);
+	});
+
+	it('name fields by dotted path, present and finite only', () => {
+		expect(fieldValue(controlled(0.4), 'control.minSpeed')).toBe(0.4);
+		expect(fieldValue(controlled(0.4), 'speed')).toBe(1);
+		expect(fieldValue(pump, 'control.minSpeed')).toBeNull();
+		expect(fieldValue({ control: { minSpeed: Number.NaN } }, 'control.minSpeed')).toBeNull();
+		expect(fieldValue({ control: 'x' }, 'control.minSpeed')).toBeNull();
+	});
+
+	it('are broken when both values are present and out of order', () => {
+		const pair = orderedFields(pump)[0]!;
+		expect(orderViolations(pump)).toEqual([]);
+		expect(orderViolations(controlled(0.4))).toEqual([]);
+		expect(orderViolations(controlled(0.5, 0.5))).toEqual([pair]);
+		expect(orderViolations(controlled(0.6, 0.5))).toEqual([pair]);
+	});
+
+	it('bound each field by the other one', () => {
+		expect(orderedBounds(controlled(0.4, 0.9), 'control.minSpeed')).toEqual({
+			exclusiveMaximum: 0.9
+		});
+		expect(orderedBounds(controlled(0.4, 0.9), 'speed')).toEqual({ exclusiveMinimum: 0.4 });
+		// A fixed-speed pump's speed is not bounded by a control it does not have.
+		expect(orderedBounds(pump, 'speed')).toEqual({});
+		expect(orderedBounds(pump, 'control.minSpeed')).toEqual({ exclusiveMaximum: 1 });
+		expect(orderedBounds(controlled(0.4), 'elevation')).toEqual({});
+	});
+
+	it('are what the model-rule check enforces', () => {
+		const problems = (minSpeed: number, speed: number) =>
+			modelRuleProblems(projectWith([controlled(minSpeed, speed)])).filter(
+				(p) => !p.includes('pump curve')
+			);
+		expect(problems(0.4, 0.5)).toEqual([]);
+		expect(problems(0.5, 0.5)).toEqual(['Component "P1": control.minSpeed must be below speed.']);
+		expect(problems(0.6, 0.5)).toHaveLength(1);
+		// The same rule as the schema's own bounds on each field, and schema-valid otherwise.
+		expect(schemaProblems(projectWith([controlled(0.6, 0.5)]))).toEqual([]);
+		expect(schemaBounds('PumpControl', 'minSpeed')).toEqual({
+			exclusiveMinimum: 0,
+			exclusiveMaximum: 1
+		});
+	});
+});
+
+describe('intersectBounds', () => {
+	it('keeps the tighter limit on each side, exclusive on a tie', () => {
+		expect(intersectBounds({}, {})).toEqual({});
+		expect(intersectBounds({ exclusiveMinimum: 0, maximum: 1 }, { exclusiveMinimum: 0.4 })).toEqual(
+			{ exclusiveMinimum: 0.4, maximum: 1 }
+		);
+		expect(intersectBounds({ minimum: 0.4 }, { exclusiveMinimum: 0.4 })).toEqual({
+			exclusiveMinimum: 0.4
+		});
+		expect(intersectBounds({ exclusiveMaximum: 1 }, { maximum: 0.9 })).toEqual({ maximum: 0.9 });
+		expect(intersectBounds({ maximum: 1 }, { exclusiveMaximum: 1 })).toEqual({
+			exclusiveMaximum: 1
+		});
+		expect(intersectBounds({ minimum: 2, exclusiveMinimum: 1 }, {})).toEqual({ minimum: 2 });
 	});
 });
 

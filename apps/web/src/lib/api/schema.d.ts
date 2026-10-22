@@ -1600,7 +1600,7 @@ export interface components {
         SolveOptions: {
             /**
              * Includesystemcurve
-             * @description Fill pumpResults[id].systemCurve for every running pump: the head the pump would have to add at each flow, from 0 to 1.2 x its curve's largest flow x its speed
+             * @description Fill pumpResults[id].systemCurve for every running pump: the head the pump would have to add at each flow, from 0 to 1.2 x its curve's largest flow x its speed (a speed-controlled pump's maximum speed)
              * @default true
              */
             includeSystemCurve: boolean;
@@ -1743,7 +1743,7 @@ export interface components {
         SystemCurveRequest: {
             /**
              * Flowmax
-             * @description m³/s; default 1.2 x the curve's largest flow x the pump's speed ratio
+             * @description m³/s; default 1.2 x the curve's largest flow x the pump's speed ratio (a speed-controlled pump's maximum speed)
              */
             flowMax?: number | null;
             /**

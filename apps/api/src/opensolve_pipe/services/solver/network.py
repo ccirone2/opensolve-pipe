@@ -32,12 +32,13 @@ class LinkMode(Enum):
     """How a link enters one inner (GGA) solve; set by the outer loop (design §4)."""
 
     NORMAL = "normal"
-    """The link's law h(Q) applies."""
+    """The link's law h(Q) applies (or the state's override, ``LinkState.law``)."""
     CLOSED = "closed"
     """No flow; the link is left out of the network for this solve."""
     FIXED_FLOW = "fixed_flow"
-    """Active FCV: the flow is ``value`` (m³/s), a demand at the start node and a supply at
-    the end node; the link carries no energy equation and does not connect heads."""
+    """Active FCV, or a speed-controlled pump holding its flow setpoint (CLAUDE.md D11): the
+    flow is ``value`` (m³/s), a demand at the start node and a supply at the end node; the link
+    carries no energy equation and does not connect heads."""
     FIXED_DOWNSTREAM_HEAD = "fixed_downstream_head"
     """Active PRV: the end node is held at the setpoint head (see ``LinkState.head``) for this
     solve, and the link passes whatever flow leaves the end node through its other links."""
@@ -61,6 +62,11 @@ class LinkState:
     """FIXED_*_HEAD: the link whose flow Q_ref sets the velocity head at the held port."""
     coefficient: float = 0.0
     """FIXED_*_HEAD: 1/(2 g A²) of the held port's connected pipe end segment, s²/m⁵."""
+    law: LinkLaw | None = None
+    """NORMAL only: the law that applies for this solve in place of the link's own
+    (``law_of``), e.g. a speed-controlled pump at its minimum speed (CLAUDE.md D11). None: the
+    link's own law. The network itself is never changed, so a solve's states carry everything
+    that differs between solves."""
 
     def head(self, flows: Sequence[float] | NDArray[np.float64]) -> float:
         """Setpoint head H_set = value + coefficient · Q_ref² (EGL, so it includes the port's
@@ -110,3 +116,8 @@ class SolverNetwork:
     node_index: dict[str, int]
     flags: list[Flag] = field(default_factory=list)
     """Flags known before solving (e.g. a reservoir port above the liquid level)."""
+
+
+def law_of(link: SolverLink, state: LinkState) -> LinkLaw:
+    """The law a NORMAL link follows in a solve: the state's override, else its own."""
+    return state.law if state.law is not None else link.law

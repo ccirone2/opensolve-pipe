@@ -1,0 +1,389 @@
+{
+  "name": "pump_flow_control_check_valve_reopen",
+  "description": "A flow-controlled pump and its discharge check valve feed a junction that an FCV with an unreachable setpoint first pushes above the pump's shutoff head at maximum speed, so both close together: verifies that they are re-tested against the zero-flow bound at maximum speed, re-open, and the pump then holds its setpoint.",
+  "source": "closed-form: tests/reference/derivations_pump_control.py::pump_flow_control_check_valve_reopen (flow control (proposal vfd-pump-modes.md 2.4, 4.5): active Q = Q_set with s* from s*^2 H0(Q_set/s*) = EGL_d - EGL_s; at a limit the fixed-speed pump at s_max or s_min; pump curve: scipy PchipInterpolator, linear end-slope extension, affinity laws; check-valve K from fluids K_swing_check_valve_Crane (angled); FCV fully open and ideal; FCV line flow by brentq; s* by brentq on H0(x) = (H/Q^2) x^2; line fittings: fluids entrance_sharp(method='Crane'), exit_normal())",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-pump-flow-control-check-valve-reopen",
+    "metadata": {
+      "name": "Flow-controlled pump and check valve re-opened",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "PU1",
+        "name": "Pump PU1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "suction",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "discharge",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "pump",
+        "curveId": "PC-C",
+        "speed": 0.95,
+        "status": "on",
+        "control": {
+          "mode": "flow",
+          "setpoint": 0.015,
+          "minSpeed": 0.5
+        }
+      },
+      {
+        "id": "CV1",
+        "name": "Check valve CV1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "valve",
+        "valveType": "check",
+        "status": "active",
+        "crackingPressure": 0.0
+      },
+      {
+        "id": "J",
+        "name": "Tee J",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "R3",
+        "name": "Reservoir R3",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 20.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "FCV1",
+        "name": "Control valve FCV1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "valve",
+        "valveType": "fcv",
+        "status": "active",
+        "setpoint": 0.08
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 5.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "PU1",
+        "toPortId": "suction",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 5.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "PU1",
+        "fromPortId": "discharge",
+        "toComponentId": "CV1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 5.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L3",
+        "fromComponentId": "CV1",
+        "fromPortId": "outlet",
+        "toComponentId": "J",
+        "toPortId": "branch",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 20.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L4",
+        "fromComponentId": "R3",
+        "fromPortId": "port_1",
+        "toComponentId": "FCV1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 50.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L5",
+        "fromComponentId": "FCV1",
+        "fromPortId": "outlet",
+        "toComponentId": "J",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 50.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L6",
+        "fromComponentId": "J",
+        "fromPortId": "run_outlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 100.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "exit",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": [
+      {
+        "id": "PC-C",
+        "name": "Curve PC-C",
+        "points": [
+          {
+            "flow": 0.0,
+            "head": 32.0
+          },
+          {
+            "flow": 0.01,
+            "head": 30.0
+          },
+          {
+            "flow": 0.02,
+            "head": 25.0
+          },
+          {
+            "flow": 0.03,
+            "head": 16.0
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.015,
+      "L2": 0.015,
+      "L3": 0.015,
+      "L4": 0.01455082607996938,
+      "L5": 0.01455082607996938,
+      "L6": 0.02955082607996938
+    },
+    "egl": {
+      "R1:port_1": 2.0,
+      "PU1:suction": 1.7604122973639464,
+      "PU1:discharge": 18.048427147313404,
+      "CV1:inlet": 17.89374176387518,
+      "CV1:outlet": 17.618524683601347,
+      "J:branch": 16.999783149848454,
+      "J:run_inlet": 16.999783149848454,
+      "J:run_outlet": 16.999783149848454,
+      "R3:port_1": 20.0,
+      "FCV1:inlet": 18.459944743260717,
+      "FCV1:outlet": 18.459944743260717,
+      "R2:port_1": 5.0
+    },
+    "pressures": {
+      "PU1:suction": 15567.335533623693,
+      "PU1:discharge": 174978.73464022402,
+      "CV1:inlet": 173464.82311556055,
+      "CV1:outlet": 170771.2634504537
+    },
+    "pumps": {
+      "PU1": {
+        "status": "running",
+        "operatingFlow": 0.015,
+        "speed": 0.795673647551532,
+        "controlState": "active",
+        "operatingHead": 16.28801484994946
+      }
+    },
+    "valves": {
+      "CV1": {
+        "state": "open"
+      },
+      "FCV1": {
+        "state": "open"
+      }
+    },
+    "flags": [
+      {
+        "code": "CONTROL_VALVE_SETPOINT_NOT_MET",
+        "componentId": "FCV1"
+      }
+    ]
+  }
+}

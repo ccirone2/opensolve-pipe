@@ -7,7 +7,8 @@ ideal-reference-node ports are fixed-head nodes.
 Links: one per pipe connection (from-port node -> to-port node); pump suction -> discharge;
 valve inlet -> outlet; three legs per tee or wye (center -> port). Plugs add no link.
 
-Laws: pipes (segments and fittings); a pump's curve at its speed; a valve's fully open K on
+Laws: pipes (segments and fittings); a pump's curve at its speed (a speed-controlled pump's
+maximum speed; its minimum-speed law is built once, ``PumpControlData``); a valve's fully open K on
 the inlet pipe's inner diameter (``valves.valve_resistance``), as a head offset when K = 0
 (an ideal control valve); branch legs as head offsets set by the outer loop (design §2.4).
 
@@ -48,7 +49,7 @@ from .friction import COLEBROOK_ED_LIMIT, FrictionMethod
 from .labels import fitting_name, pipe_name
 from .library import LibraryLookupError, ResolvedPipe, resolve_pipe
 from .network import LinkKind, LinkLaw, SolverLink, SolverNetwork, SolverNode
-from .pumps import PumpCurveModel
+from .pumps import PumpCurveModel, SpeedUniqueness, speed_uniqueness
 from .valves import Valve, ValveResistance, valve_resistance
 
 G = float(fluids.constants.g)
@@ -98,6 +99,32 @@ class PortPipe:
         return 1.0 / (2.0 * g * self.segment.area**2)
 
 
+@dataclass(frozen=True)
+class PumpControlData:
+    """A speed-controlled pump's control (CLAUDE.md D11), with the values its status rules use,
+    computed once: F(s, Q) = s² H₀(Q/s) at the setpoint flow Q_set and at zero flow."""
+
+    setpoint: float
+    """Q_set, m³/s through the pump, suction -> discharge."""
+    min_speed: float
+    """s_min."""
+    max_speed: float
+    """s_max: the pump's ``speed`` field."""
+    min_law: PumpLaw
+    """The pump at s_min, the law of its MIN_SPEED state (``LinkState.law``). At s_max it runs
+    on the link's own law, the same object as a fixed-speed pump's."""
+    head_at_min: float
+    """F_min = F(s_min, Q_set), m."""
+    head_at_max: float
+    """F_max = F(s_max, Q_set), m."""
+    shutoff_min: float
+    """S_min = F(s_min, 0), m."""
+    shutoff_max: float
+    """S_max = F(s_max, 0), m."""
+    uniqueness: SpeedUniqueness
+    """The curve's speed-uniqueness test (passed: ``validate_topology``) and x_mono."""
+
+
 @dataclass
 class PumpData:
     component: Pump
@@ -106,6 +133,13 @@ class PumpData:
     suction: str
     discharge: str
     """Node keys of the suction and discharge ports."""
+    control: PumpControlData | None = None
+    """Speed control (CLAUDE.md D11); None for a fixed-speed pump."""
+
+    @property
+    def min_law(self) -> PumpLaw | None:
+        """The minimum-speed law of a speed-controlled pump (None for a fixed-speed one)."""
+        return self.control.min_law if self.control is not None else None
 
 
 @dataclass
@@ -228,12 +262,25 @@ def validate_topology(project: Project) -> list[TopologyIssue]:
                     [comp.id],
                 )
             )
-        if isinstance(comp, Pump) and comp.control is not None:
-            # TODO(D11 slice 1): replaced by the speed-controlled pump model.
+    curves = {c.id: c for c in project.pump_library}
+    checked: dict[str, SpeedUniqueness] = {}
+    for comp in project.components:
+        if not isinstance(comp, Pump) or comp.control is None or comp.curve_id not in curves:
+            continue
+        curve = curves[comp.curve_id]
+        if comp.curve_id not in checked:
+            checked[comp.curve_id] = speed_uniqueness(PumpCurveModel(curve))
+        interval = checked[comp.curve_id].interval
+        if interval is not None:
+            low, high = interval
             issues.append(
                 issue(
                     "CONTROLLED_PUMP_CURVE",
-                    f"pump '{comp.id}' has a speed control, which this build does not solve yet",
+                    f"pump '{comp.id}' is speed-controlled, but its curve '{curve.id}' "
+                    f"({curve.name}) does not give one speed for each head: the head at a fixed "
+                    "flow, s² H₀(Q/s), does not rise with speed s where 2 H₀(x) − x H₀'(x) ≤ 0, "
+                    f"which holds for rated-speed flows x from {low:.6g} to {high:.6g} m³/s; use "
+                    "a curve whose head falls less steeply there, or a fixed speed",
                     [comp.id],
                 )
             )
@@ -558,7 +605,23 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
                     component_id=comp.id,
                 )
             )
-            built.pumps[comp.id] = PumpData(comp, link.index, curve, suction, discharge)
+            control = None
+            if comp.control is not None:
+                q_set, s_min, s_max = comp.control.setpoint, comp.control.min_speed, comp.speed
+                control = PumpControlData(
+                    setpoint=q_set,
+                    min_speed=s_min,
+                    max_speed=s_max,
+                    min_law=PumpLaw(curve, s_min),
+                    head_at_min=curve.head(q_set, s_min)[0],
+                    head_at_max=curve.head(q_set, s_max)[0],
+                    shutoff_min=curve.shutoff_head(s_min),
+                    shutoff_max=curve.shutoff_head(s_max),
+                    uniqueness=speed_uniqueness(curve),
+                )
+            built.pumps[comp.id] = PumpData(
+                comp, link.index, curve, suction, discharge, control=control
+            )
         elif isinstance(comp, IsolationValve | CheckValve | ControlValve):
             inlet, outlet = node_key(comp.id, "inlet"), node_key(comp.id, "outlet")
             inlet_pipe, outlet_pipe = built.port_pipe(inlet), built.port_pipe(outlet)

@@ -8,6 +8,16 @@ Mapping (as ``tests/reference/generate_epanet_cases.py``, TSD §10.1):
   roughness in metres, each segment's 'custom' fittings (K x quantity) as its minor loss.
 - Pump -> EPANET pump between its two port junctions, HEAD curve through the same collinear
   points (first point at Q = 0, so EPANET's Hmax = our shutoff), same speed; 'off' -> CLOSED.
+- Flow-controlled pump (CLAUDE.md D11; proposal vfd-pump-modes.md §7.4), status on: EPANET has
+  no speed control, so it stands for the state our solver reports, given as a pin
+  (``control_pins``): active -> the EPANET 2.2 FAQ substitute for "a pump of a specific flow"
+  (https://usepa.github.io/EPANET2.2/13_questions.html): the pump CLOSED, a demand of Q_set at
+  its suction junction and -Q_set at its discharge junction; max_speed -> OPEN at SPEED = its
+  ``speed`` (the maximum); min_speed -> OPEN at SPEED = control.minSpeed; no_flow -> CLOSED.
+  EPANET's pump rules (pumpstatus) still apply at a speed limit; our rules for the state are
+  checked by ``checks.status_problems``. A pump with no result of ours (isolated) runs at its
+  maximum speed, as our solver holds it there (rule A0), unless ``fuzz`` names it no_flow (held
+  at no flow with both sides closed off, its flag kept: ``checks.closed_without_result``).
 - Isolation valve -> TCV between its port junctions, setting K (= valve K at the inlet pipe's
   diameter: Crane default via fluids, or K/Cv/Kv by definition, element_laws.valve_k),
   diameter = inlet pipe's end segment; 'isolated' -> CLOSED.
@@ -22,14 +32,17 @@ Mapping (as ``tests/reference/generate_epanet_cases.py``, TSD §10.1):
   viscosity multiplier 1 (VISCOS = 1.1e-5 ft²/s); looser headerror / flowchange when EPANET
   cannot meet them (``CRITERIA``).
 
-``pins`` override element states: {element id: 'open' | 'closed' | 'active' | 'running'}.
-A network with an element that has no exact EPANET equivalent raises ``UnsupportedError``.
+``pins`` override element states: {element id: 'open' | 'closed' | 'active' | 'running'}; a
+flow-controlled pump that is on must have one: 'active', 'max_speed', 'min_speed' or 'no_flow'
+('isolated', 'open' and 'running' mean max_speed, 'closed' no_flow). A network with an element
+that has no exact EPANET equivalent raises ``UnsupportedError``.
 """
 
 import ctypes
 import os
 import tempfile
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -99,6 +112,8 @@ class Layout:
     element_link: dict[str, tuple[str, int]] = field(default_factory=dict)  # pump/valve id
     merged_cv: dict[str, str] = field(default_factory=dict)  # check valve id -> connection id
     held_pipe: dict[str, tuple[str, str]] = field(default_factory=dict)  # PRV/PSV -> (conn, end)
+    control_run: dict[str, str] = field(default_factory=dict)  # flow-controlled pump -> its run
+    fixed_flow: dict[str, float] = field(default_factory=dict)  # active ones -> Q_set (FAQ)
     d_in: dict[str, float] = field(default_factory=dict)
     k_open: dict[str, float] = field(default_factory=dict)
     links: list[str] = field(default_factory=list)
@@ -115,8 +130,47 @@ def port_conn(project: Project, key: str) -> tuple[PipeConnection, float, str]:
     raise KeyError(key)
 
 
+CONTROL_RUNS = {
+    "active": "active",
+    "max_speed": "max_speed",
+    "min_speed": "min_speed",
+    "no_flow": "no_flow",
+    "isolated": "max_speed",
+    "open": "max_speed",
+    "running": "max_speed",
+    "closed": "no_flow",
+}
+"""Pin of a flow-controlled pump -> the EPANET run standing for it (module docstring)."""
+
+
+def control_pins(project: Project, states: Mapping[str, str]) -> dict[str, str]:
+    """The pins of the flow-controlled pumps that are on: each one's state in ``states`` (ours,
+    ``checks.our_states``); one we report without a state (isolated, or no result) at its
+    maximum speed, where our solver holds it (rule A0)."""
+    return {
+        c.id: CONTROL_RUNS.get(states.get(c.id, "isolated"), "max_speed")
+        for c in project.components
+        if isinstance(c, Pump) and c.control is not None and c.status == "on"
+    }
+
+
+def control_runs(project: Project, pins: Mapping[str, str]) -> dict[str, str]:
+    """The run of every flow-controlled pump that is on (``CONTROL_RUNS``), from its pin."""
+    runs = {}
+    for c in project.components:
+        if isinstance(c, Pump) and c.control is not None and c.status == "on":
+            pin = pins.get(c.id)
+            if pin not in CONTROL_RUNS:
+                raise ValueError(
+                    f"flow-controlled pump {c.id} needs its state as a pin (got {pin!r}): EPANET"
+                    " stands for the state our solver reports (control_pins)"
+                )
+            runs[c.id] = CONTROL_RUNS[pin]
+    return runs
+
+
 def build_wn(
-    project: Project, settings: dict[str, float], pins: dict[str, str]
+    project: Project, settings: dict[str, float], pins: Mapping[str, str]
 ) -> tuple[Any, Layout]:
     fluid = project.fluid
     rho = fluid.density
@@ -136,6 +190,14 @@ def build_wn(
     o.trials = TRIALS
     wn.options.time.duration = 0
     lay = Layout()
+    lay.control_run = control_runs(project, pins)
+    demand: dict[str, float] = {}  # junction -> base demand (the FAQ substitute's pair)
+    for c in project.components:
+        if isinstance(c, Pump) and lay.control_run.get(c.id) == "active":
+            assert c.control is not None
+            lay.fixed_flow[c.id] = c.control.setpoint
+            demand[f"{c.id}_suction"] = c.control.setpoint
+            demand[f"{c.id}_discharge"] = -c.control.setpoint
 
     merged_inlet_conn: dict[str, str] = {}  # connection id -> check valve id
     for c in project.components:
@@ -181,7 +243,7 @@ def build_wn(
                     continue  # merged into the CV pipe
                 z = c.elevation if p.elevation is None else p.elevation
                 name = f"{c.id}_{p.id}"
-                wn.add_junction(name, base_demand=0.0, elevation=z)
+                wn.add_junction(name, base_demand=demand.get(name, 0.0), elevation=z)
                 lay.node_of_port[key] = name
         else:
             raise UnsupportedError(type(c).__name__)
@@ -197,13 +259,20 @@ def build_wn(
                 wn.add_curve(c.curve_id, "HEAD", [(p.flow, p.head) for p in curve.points])
             pin = pins.get(c.id)
             closed = c.status == "off" or pin in ("closed", "no_flow")
+            speed = c.speed
+            run = lay.control_run.get(c.id)
+            if run is not None:  # flow-controlled: the run standing for our state
+                assert c.control is not None
+                closed = run in ("active", "no_flow")
+                if run == "min_speed":
+                    speed = c.control.min_speed
             wn.add_pump(
                 c.id,
                 lay.node_of_port[f"{c.id}:suction"],
                 lay.node_of_port[f"{c.id}:discharge"],
                 pump_type="HEAD",
                 pump_parameter=c.curve_id,
-                speed=c.speed,
+                speed=speed,
                 initial_status="CLOSED" if closed else "OPEN",
             )
             lay.element_link[c.id] = (c.id, 1)
@@ -399,7 +468,7 @@ cannot always meet them in double precision, so looser ones (accuracy 1e-5 alway
 
 
 def run_epanet(
-    project: Project, pins: dict[str, str] | None = None, workdir: str | None = None
+    project: Project, pins: Mapping[str, str] | None = None, workdir: str | None = None
 ) -> tuple[EpanetResult, Layout]:
     """EPANET's solution with the strictest ``CRITERIA`` level it balances at (its last level's
     unbalanced result otherwise). Each run's temporary directory, in ``workdir`` (the system
@@ -417,7 +486,7 @@ def run_epanet(
 
 def _run_epanet(
     project: Project,
-    pins: dict[str, str] | None,
+    pins: Mapping[str, str] | None,
     workdir: str | None,
     headerror: float,
     flowchange: float,
@@ -459,6 +528,8 @@ def _run_epanet(
         warn.append("unbalanced")
     heads = {key: nh[n] for key, n in lay.node_of_port.items()}
     eflows = {eid: s * lf[name] for eid, (name, s) in lay.element_link.items()}
+    for pid, q_set in lay.fixed_flow.items():  # the FAQ substitute: Q_set past a closed pump
+        eflows[pid] += q_set
     res = EpanetResult(flows, eflows, heads, lf, nh, rs, iters, relerr, settings, n_set, warn)
     res.link_nodes = {
         name: (wn.get_link(name).start_node_name, wn.get_link(name).end_node_name)
@@ -469,13 +540,18 @@ def _run_epanet(
 
 def element_state(project: Project, lay: Layout, res: EpanetResult) -> dict[str, str]:
     """EPANET final state of every pump and valve in our vocabulary (raw status kept in
-    'xfcv'/'xpressure' cases)."""
+    'xfcv'/'xpressure' cases). A flow-controlled pump's is the state its run stands for: active
+    and no_flow as imposed, max_speed / min_speed while EPANET's pump runs, else no_flow."""
     out = {}
     for c in project.components:
         if isinstance(c, Pump):
             raw = res.raw_status[c.id]
+            run = lay.control_run.get(c.id)
             if c.status == "off":
                 out[c.id] = "off"
+            elif run is not None:
+                running = raw in ("OPEN", "XFLOW") and run not in ("active", "no_flow")
+                out[c.id] = run if (running or run == "active") else "no_flow"
             else:
                 out[c.id] = "running" if raw in ("OPEN", "XFLOW") else "no_flow"
         elif isinstance(c, IsolationValve | CheckValve | ControlValve):

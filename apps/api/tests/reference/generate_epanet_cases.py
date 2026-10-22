@@ -44,23 +44,45 @@ Expected values: the EPANET flow of every connection and, for every port, the EP
 node (EPANET neglects velocity head, so its head is our EGL, design §1.1); the EPANET status of
 every pump ('running') and valve ('active', 'open' or 'closed'); and the warning flags the
 pipes' friction regimes call for at the EPANET flows (TRANSITIONAL_FLOW, ``regime_flags``).
+
+Flow-controlled pumps (CLAUDE.md D11; proposal docs/proposals/vfd-pump-modes.md §7.2). EPANET
+2.2 has no flow-controlled pump, so each case states the EPANET run that stands for the state
+the proposal's rules select, and checks that this state holds (``PUMP_CONTROL_RUNS``):
+
+- active: the EPANET 2.2 FAQ substitute, "How do I size a pump to meet a specific flow? Set the
+  status of the pump to CLOSED. At the suction (inlet) node of the pump add a demand equal to
+  the required pump flow and place a negative demand of the same magnitude at the discharge
+  node. After analyzing the network, the difference in heads between the two nodes is what the
+  pump needs to deliver." (https://usepa.github.io/EPANET2.2/13_questions.html). The speed is
+  then the closed-form root of s² H₀(Q_set/s) = H for the straight curve H₀ = a − b x, s* =
+  [b Q + √(b² Q² + 4 a H)]/(2a) (``derivations_pump_control.speed_linear``); the generator
+  asserts that EPANET run at SPEED = s* passes Q_set within D6. A second case finds the speed
+  from EPANET alone: brentq over the relative speed ω ∈ [s_min, s_max] of EPANET runs until the
+  pump passes Q_set (EPANET evaluates h = ω² H₀(q/ω), WNTR writes ω as the pump's SPEED).
+- max_speed / min_speed: EPANET with the pump OPEN at SPEED = s_max / s_min; the generator
+  asserts with the FAQ run at Q_set that the setpoint needs more than F(s_max, Q_set) / less
+  than F(s_min, Q_set), and that the flow at the limit is clearly below / above Q_set.
 """
 
 import ctypes
 import tempfile
 import warnings
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 import wntr
 from fluids.friction import fmethods
 from scipy.constants import gallon
+from scipy.optimize import brentq
 from wntr.epanet.toolkit import ENepanet
 
 from opensolve_pipe.models.components import Component, ControlValve, Pump, Reservoir, TeeBranch
 from opensolve_pipe.models.fluids import CustomFluid
 from opensolve_pipe.models.piping import CUSTOM_MATERIAL_ID, PipeConnection
 from opensolve_pipe.models.project import Project
+from opensolve_pipe.models.pumps import PumpCurve
+from tests.reference import element_laws as el
 from tests.reference.case_format import (
     Expected,
     ReferenceCase,
@@ -69,6 +91,7 @@ from tests.reference.case_format import (
     custom_fluid,
     custom_pipe,
     fitting,
+    flow_control,
     ideal_tee,
     make_project,
     pump,
@@ -77,6 +100,8 @@ from tests.reference.case_format import (
     write_case,
 )
 from tests.reference.derivations import RE_LAMINAR, RE_TURBULENT, G, area, regime, reynolds
+from tests.reference.derivations_pump_control import collinear_coefficients, speed_linear
+from tests.reference.network_check import EPANET_FCV_LEAK
 
 FOOT = 0.3048
 """m per international foot (exact; EPANET's MperFT, types.h:79)."""
@@ -109,10 +134,16 @@ def source_text(project: Project | None = None) -> str:
     extra = ""
     if project is not None:
         types = {c.type for c in project.components}
-        if "pump" in types:
+        controlled = any(isinstance(c, Pump) and c.control is not None for c in project.components)
+        if "pump" in types and not controlled:
             extra += (
                 " Pumps: EPANET HEAD curve through the same collinear points (EPANET's "
                 "piecewise-linear curve then equals our PCHIP) at the same relative speed."
+            )
+        elif controlled:
+            extra += (
+                " Pumps: EPANET HEAD curve through the same collinear points (EPANET's "
+                "piecewise-linear curve then equals our PCHIP), run as stated below."
             )
         if any(isinstance(c, ControlValve) and c.valve_type != "fcv" for c in project.components):
             extra += (
@@ -274,14 +305,26 @@ def _pipe(cid: str, a: str, b: str, d: float, length: float, eps: float = 4.5e-5
     return connect(cid, a, b, [custom_pipe(d, length, eps)])
 
 
-def pump_network() -> Project:
+def pump_network(
+    speed: float = 0.9,
+    control: tuple[float, float] | None = None,
+    pid: str = "ref-epanet-pump-network",
+    name: str = "Pump into a looped network (EPANET reference)",
+) -> Project:
     """A pump at speed ratio 0.9 lifting from S1 (head 5 m) into a loop TA-TB-TC that feeds two
     reservoirs at heads 30 and 25 m. Curve (test input): four collinear points H = 50 − 300 Q,
-    so EPANET's piecewise-linear curve and our PCHIP are the same line (design §11)."""
+    so EPANET's piecewise-linear curve and our PCHIP are the same line (design §11).
+    ``control``: (Q_set, s_min) of a flow control, with ``speed`` its maximum speed."""
     curve = pump_curve("PC-LIN", [(0.0, 50.0), (0.02, 44.0), (0.04, 38.0), (0.06, 32.0)])
     components: list[Component] = [
         reservoir("S1", 2.0, 3.0),
-        pump("PU", 1.0, curve.id, speed=0.9),
+        pump(
+            "PU",
+            1.0,
+            curve.id,
+            speed=speed,
+            control=None if control is None else flow_control(*control),
+        ),
         ideal_tee("TA", 3.0),
         ideal_tee("TB", 6.0),
         ideal_tee("TC", 4.0),
@@ -298,13 +341,63 @@ def pump_network() -> Project:
         _pipe("P7", "TC:run_outlet", "S3:port_1", 0.1023, 200.0),
     ]
     return make_project(
-        "ref-epanet-pump-network",
-        "Pump into a looped network (EPANET reference)",
+        pid,
+        name,
         _water(),
         components,
         connections,
         friction_method="swamee_jain",
         pump_library=[curve],
+    )
+
+
+# The flow-controlled variants of pump_network (test inputs: Q_set m³/s, s_min, s_max).
+E1_CONTROL = (0.018, 0.6, 0.9)
+"""E1/E1b: Q_set between the flows at s_min and s_max, so the pump regulates."""
+E2_CONTROL = (0.025, 0.6, 0.9)
+"""E2: Q_set above the flow at s_max (about 0.021 m³/s), so the pump runs at s_max."""
+E3_CONTROL = (0.014, 0.85, 0.95)
+"""E3: Q_set below the flow at s_min (about 0.0176 m³/s), so the pump runs at s_min."""
+
+
+def _controlled_pump_network(control: tuple[float, float, float], pid: str, name: str) -> Project:
+    q_set, s_min, s_max = control
+    return pump_network(s_max, (q_set, s_min), pid, name)
+
+
+def pump_flow_control_network() -> Project:
+    """E1: pump_network with the pump flow-controlled, Q_set = 0.018 m³/s, s ∈ [0.6, 0.9]."""
+    return _controlled_pump_network(
+        E1_CONTROL,
+        "ref-epanet-pump-flow-control",
+        "Flow-controlled pump into a looped network (EPANET reference)",
+    )
+
+
+def pump_flow_control_speed_network() -> Project:
+    """E1b: the E1 network, its speed found from EPANET runs alone."""
+    return _controlled_pump_network(
+        E1_CONTROL,
+        "ref-epanet-pump-flow-control-speed",
+        "Flow-controlled pump, speed by EPANET runs (EPANET reference)",
+    )
+
+
+def pump_flow_control_max_network() -> Project:
+    """E2: Q_set = 0.025 m³/s, s ∈ [0.6, 0.9]: unreachable at s_max."""
+    return _controlled_pump_network(
+        E2_CONTROL,
+        "ref-epanet-pump-flow-control-max",
+        "Flow-controlled pump at maximum speed (EPANET reference)",
+    )
+
+
+def pump_flow_control_min_network() -> Project:
+    """E3: Q_set = 0.014 m³/s, s ∈ [0.85, 0.95]: exceeded at s_min."""
+    return _controlled_pump_network(
+        E3_CONTROL,
+        "ref-epanet-pump-flow-control-min",
+        "Flow-controlled pump at minimum speed (EPANET reference)",
     )
 
 
@@ -438,6 +531,29 @@ EPANET_NETWORKS = {
         "An FCV limiting one path of a loop to 15 L/s while a bypass carries the rest: "
         "verifies the active FCV within a network against EPANET 2.2.",
     ),
+    "epanet_pump_flow_control": (
+        pump_flow_control_network,
+        "The pump network with its pump flow-controlled at 18 L/s within speeds 0.6 to 0.9: "
+        "verifies the setpoint imposed as the pump's flow (EPANET 2.2's FAQ substitute: pump "
+        "closed, a demand pair at its ports) and the speed recovered from the head across it.",
+    ),
+    "epanet_pump_flow_control_speed": (
+        pump_flow_control_speed_network,
+        "The same flow-controlled pump network, its reference speed found from EPANET alone "
+        "(the relative speed at which EPANET's pump passes 18 L/s, by brentq): an independent "
+        "reference for the solved speed.",
+    ),
+    "epanet_pump_flow_control_max": (
+        pump_flow_control_max_network,
+        "The pump network with a flow setpoint of 25 L/s the pump cannot reach at its maximum "
+        "speed 0.9: verifies that it runs as EPANET's pump at that speed, below its setpoint.",
+    ),
+    "epanet_pump_flow_control_min": (
+        pump_flow_control_min_network,
+        "The pump network with a flow setpoint of 14 L/s that the pump exceeds even at its "
+        "minimum speed 0.85: verifies that it runs as EPANET's pump at that speed, above its "
+        "setpoint.",
+    ),
 }
 
 
@@ -476,11 +592,34 @@ def _port_pipe(project: Project, key: str) -> tuple[PipeConnection, float]:
     raise KeyError(key)
 
 
+@dataclass(frozen=True)
+class PumpRun:
+    """How EPANET runs one pump: OPEN at relative speed ``speed`` (SPEED), or, with
+    ``fixed_flow``, the EPANET 2.2 FAQ substitute for a pump delivering that flow: the pump
+    CLOSED, a demand of the flow at its suction node and its negative at its discharge node."""
+
+    speed: float | None = None
+    fixed_flow: float | None = None
+
+
 def project_to_wntr(
-    project: Project, settings: Mapping[str, float] | None = None
+    project: Project,
+    settings: Mapping[str, float] | None = None,
+    pump_runs: Mapping[str, PumpRun] | None = None,
 ) -> wntr.network.WaterNetworkModel:
     """Build the WNTR model of a project as design §11 prescribes (see the module docstring).
-    ``settings``: EPANET head setting (m) per PRV/PSV id, from the setting iteration."""
+    ``settings``: EPANET head setting (m) per PRV/PSV id, from the setting iteration.
+    ``pump_runs``: how EPANET runs each flow-controlled pump (required for those)."""
+    pump_runs = pump_runs or {}
+    demands: dict[str, float] = {}
+    for component in project.components:
+        if isinstance(component, Pump) and component.control is not None:
+            if component.id not in pump_runs:
+                raise ValueError(f"{component.id}: a flow-controlled pump needs an EPANET run")
+            q = pump_runs[component.id].fixed_flow
+            if q is not None:
+                demands[f"{component.id}_suction"] = q
+                demands[f"{component.id}_discharge"] = -q
     fluid = project.fluid
     if fluid.kind != "custom":
         raise ValueError("EPANET cases use a custom fluid with EPANET's viscosity")
@@ -517,22 +656,26 @@ def project_to_wntr(
         elif isinstance(component, Pump | ControlValve):
             for port in component.ports:
                 z = component.elevation if port.elevation is None else port.elevation
-                wn.add_junction(f"{component.id}_{port.id}", base_demand=0.0, elevation=z)
+                junction = f"{component.id}_{port.id}"
+                wn.add_junction(junction, base_demand=demands.get(junction, 0.0), elevation=z)
     nodes = _node_names(project)
 
     curves = {curve.id: curve for curve in project.pump_library}
     for component in project.components:
         if isinstance(component, Pump):
             curve = curves[component.curve_id]
-            wn.add_curve(curve.id, "HEAD", [(p.flow, p.head) for p in curve.points])
+            run = pump_runs.get(component.id, PumpRun())
+            closed = component.status != "on" or run.fixed_flow is not None
+            if curve.id not in wn.curve_name_list:
+                wn.add_curve(curve.id, "HEAD", [(p.flow, p.head) for p in curve.points])
             wn.add_pump(
                 component.id,
                 nodes[f"{component.id}:suction"],
                 nodes[f"{component.id}:discharge"],
                 pump_type="HEAD",
                 pump_parameter=curve.id,
-                speed=component.speed,
-                initial_status="OPEN" if component.status == "on" else "CLOSED",
+                speed=component.speed if run.speed is None else run.speed,
+                initial_status="CLOSED" if closed else "OPEN",
             )
         elif isinstance(component, ControlValve):
             if component.resistance is not None or component.status != "active":
@@ -580,10 +723,14 @@ EpanetRun = tuple[dict[str, float], dict[str, float], dict[str, int]]
 """(flow per connection, EPANET head per port key, EPANET status per pump and valve)."""
 
 
-def run_epanet(project: Project, settings: Mapping[str, float] | None = None) -> EpanetRun:
+def run_epanet(
+    project: Project,
+    settings: Mapping[str, float] | None = None,
+    pump_runs: Mapping[str, PumpRun] | None = None,
+) -> EpanetRun:
     """Solve with EPANET; return flows, heads and pump/valve statuses (0 closed, 1 open,
     2 active, as WNTR reports them)."""
-    wn = project_to_wntr(project, settings)
+    wn = project_to_wntr(project, settings, pump_runs)
     with tempfile.TemporaryDirectory() as tmp:
         simulator = wntr.sim.EpanetSimulator(wn)
         results = simulator.run_sim(file_prefix=str(Path(tmp) / "case"), convergence_error=True)
@@ -666,25 +813,204 @@ def regime_flags(project: Project, flows: Mapping[str, float]) -> list[dict[str,
     return out
 
 
+# --- Flow-controlled pumps (module docstring) ----------------------------------------------------
+
+D6_RELATIVE = 0.005
+"""The D6 flow criterion (CLAUDE.md D6) the EPANET run at the solved speed must meet."""
+SPEED_XTOL = 1.0e-9
+"""Absolute tolerance of the brentq over EPANET's relative speed (E1b); EPANET's float32 flows
+resolve the speed to about 1e-8."""
+WNTR_SPEED_DIGITS = 11
+"""WNTR writes a pump's SPEED with 11 significant digits ('{speed:15.11g}', wntr/epanet/io.py
+_write_pumps); the reference speed is rounded the same way, so it is the speed EPANET ran."""
+
+
+@dataclass(frozen=True)
+class ControlRun:
+    """The EPANET run standing for a flow-controlled pump's state, and that state's speed."""
+
+    run: EpanetRun
+    state: el.ControlState
+    speed: float
+    method: str
+
+
+def _only_controlled_pump(project: Project) -> Pump:
+    [pu] = [c for c in project.components if isinstance(c, Pump) and c.control is not None]
+    return pu
+
+
+def _pump_flow(project: Project, run: EpanetRun, pid: str) -> float:
+    """The pump's flow: the EPANET flow in the pipe on its suction port."""
+    connection, _ = _port_pipe(project, f"{pid}:suction")
+    sign = 1.0 if connection.to_component_id == pid else -1.0
+    return sign * run[0][connection.id]
+
+
+def _pump_lift(run: EpanetRun, pid: str) -> float:
+    return run[1][f"{pid}:discharge"] - run[1][f"{pid}:suction"]
+
+
+def _faq_run(project: Project, pid: str, q: float) -> EpanetRun:
+    """The EPANET 2.2 FAQ substitute: the pump closed, demand +q at suction, −q at discharge."""
+    return run_epanet(project, pump_runs={pid: PumpRun(fixed_flow=q)})
+
+
+def _speed_run(project: Project, pid: str, speed: float) -> EpanetRun:
+    return run_epanet(project, pump_runs={pid: PumpRun(speed=speed)})
+
+
+def _curve(project: Project, pu: Pump) -> PumpCurve:
+    return next(c for c in project.pump_library if c.id == pu.curve_id)
+
+
+def control_active_faq(project: Project) -> ControlRun:
+    """E1: the FAQ run at Q_set; s* in closed form from EPANET's head difference; asserts the
+    active state is clear by STATE_MARGIN and that EPANET at SPEED = s* passes Q_set (D6)."""
+    pu = _only_controlled_pump(project)
+    assert pu.control is not None
+    q_set = pu.control.setpoint
+    curve = _curve(project, pu)
+    run = _faq_run(project, pu.id, q_set)
+    lift = _pump_lift(run, pu.id)
+    if not (
+        el.pump_head(curve, pu.control.min_speed, q_set) + el.STATE_MARGIN
+        <= lift
+        <= el.pump_head(curve, pu.speed, q_set) - el.STATE_MARGIN
+    ):
+        raise ValueError("the FAQ head must lie clearly inside the speed range's heads")
+    # EPANET gives a closed link the conductance 1/CBIG, so the closed pump passes
+    # (H_s − H_d)/CBIG in ft and cfs: the suction pipe carries Q_set less that leak.
+    leak = EPANET_FCV_LEAK * lift
+    q_pipe = _pump_flow(project, run, pu.id)
+    if abs(q_set - q_pipe - leak) > 8 * 2.0**-23 * q_set:
+        raise RuntimeError(f"suction flow {q_pipe}: not Q_set less the closed-link leak {leak}")
+    a, b = collinear_coefficients(curve)
+    s_star = speed_linear(a, b, q_set, lift)
+    check = _pump_flow(project, _speed_run(project, pu.id, s_star), pu.id)
+    if abs(check - q_set) > D6_RELATIVE * q_set:
+        raise RuntimeError(f"EPANET at SPEED = s* passes {check}, not {q_set}")
+    return ControlRun(
+        run,
+        "active",
+        s_star,
+        " Flow-controlled pump (active): EPANET 2.2 FAQ substitute 'How do I size a pump to "
+        "meet a specific flow? Set the status of the pump to CLOSED. At the suction (inlet) "
+        "node of the pump add a demand equal to the required pump flow and place a negative "
+        "demand of the same magnitude at the discharge node.' "
+        "(https://usepa.github.io/EPANET2.2/13_questions.html); expected speed s* = "
+        "[bQ + sqrt(b^2 Q^2 + 4aH)]/(2a) for the straight curve H0 = a - b x at EPANET's head "
+        f"difference H; EPANET at SPEED = s* passes {check!r} m3/s (Q_set {q_set!r}). EPANET "
+        "gives the closed pump a 1/CBIG conductance (CBIG = 1e8 in ft and cfs), so the pipes "
+        f"at its ports carry Q_set less (H_d - H_s) 0.3048^2/CBIG = {leak!r} m3/s (checked).",
+    )
+
+
+def control_active_speed_search(project: Project) -> ControlRun:
+    """E1b: brentq over EPANET's relative speed ω ∈ [s_min, s_max] for the pump flow Q_set;
+    the reference is the EPANET run at that speed (rounded as WNTR writes it)."""
+    pu = _only_controlled_pump(project)
+    assert pu.control is not None
+    q_set = pu.control.setpoint
+
+    def excess(omega: float) -> float:
+        return _pump_flow(project, _speed_run(project, pu.id, omega), pu.id) - q_set
+
+    omega = float(brentq(excess, pu.control.min_speed, pu.speed, xtol=SPEED_XTOL, rtol=1.0e-12))
+    omega = float(f"{omega:.{WNTR_SPEED_DIGITS}g}")
+    run = _speed_run(project, pu.id, omega)
+    q = _pump_flow(project, run, pu.id)
+    if abs(q - q_set) > 8 * 2.0**-23 * q_set:
+        raise RuntimeError(f"EPANET at the found speed passes {q}, not {q_set}")
+    return ControlRun(
+        run,
+        "active",
+        omega,
+        " Flow-controlled pump (active): reference speed by scipy.optimize.brentq over the "
+        "pump's relative speed (EPANET SPEED, h = w^2 H0(q/w)) between its minimum and maximum "
+        f"speeds, xtol {SPEED_XTOL:g}, for the EPANET pump flow to equal Q_set; expected "
+        f"values from the EPANET run at that speed, rounded to {WNTR_SPEED_DIGITS} digits as "
+        "WNTR writes it.",
+    )
+
+
+def _control_limit(project: Project, state: el.ControlState) -> ControlRun:
+    """E2 / E3: EPANET at SPEED = s_max (max_speed) or s_min (min_speed). Asserts with the FAQ
+    run at Q_set that the setpoint's head lies clearly outside the speed range on that side,
+    and that the flow at the limit is clearly below / above Q_set (along the curve, by
+    STATE_MARGIN), inside the curve points."""
+    pu = _only_controlled_pump(project)
+    assert pu.control is not None
+    q_set = pu.control.setpoint
+    curve = _curve(project, pu)
+    speed = pu.speed if state == "max_speed" else pu.control.min_speed
+    needed = _pump_lift(_faq_run(project, pu.id, q_set), pu.id)
+    at_limit = el.pump_head(curve, speed, q_set)
+    side = needed - at_limit if state == "max_speed" else at_limit - needed
+    if not side >= el.STATE_MARGIN:
+        raise ValueError(f"the setpoint's head must lie clearly beyond the {state} limit")
+    run = _speed_run(project, pu.id, speed)
+    q = _pump_flow(project, run, pu.id)
+    along = el.pump_head(curve, speed, q) - at_limit
+    if not (run[2][pu.id] == 1 and (along if state == "max_speed" else -along) >= el.STATE_MARGIN):
+        raise ValueError(f"EPANET's flow at the {state} limit is not clearly past Q_set")
+    if not el.pump_in_curve_range(curve, speed, q):
+        raise ValueError("the limit's operating point stays inside the curve points")
+    limit = "maximum" if state == "max_speed" else "minimum"
+    return ControlRun(
+        run,
+        state,
+        speed,
+        f" Flow-controlled pump at its {limit} speed: EPANET with the pump OPEN at SPEED = "
+        f"{speed:g}; the FAQ substitute at Q_set needs {needed!r} m, beyond F({speed:g}, Q_set) "
+        f"= {at_limit!r} m.",
+    )
+
+
+PUMP_CONTROL_RUNS: dict[str, Callable[[Project], ControlRun]] = {
+    "epanet_pump_flow_control": control_active_faq,
+    "epanet_pump_flow_control_speed": control_active_speed_search,
+    "epanet_pump_flow_control_max": lambda p: _control_limit(p, "max_speed"),
+    "epanet_pump_flow_control_min": lambda p: _control_limit(p, "min_speed"),
+}
+
+
 def build_case(name: str) -> ReferenceCase:
     make, description = EPANET_NETWORKS[name]
     project = make()
-    flows, heads, statuses = run_with_settings(project)
+    control = PUMP_CONTROL_RUNS[name](project) if name in PUMP_CONTROL_RUNS else None
+    flows, heads, statuses = run_with_settings(project) if control is None else control.run
     fluid = project.fluid
     assert fluid.kind == "custom"
     pumps: dict[str, dict[str, float | str]] = {}
     valves: dict[str, dict[str, str]] = {}
+    flags: list[dict[str, str]] = []
     for c in project.components:
-        if isinstance(c, Pump):
+        if isinstance(c, Pump) and c.control is not None:
+            assert control is not None
+            q = _pump_flow(project, control.run, c.id)
+            pumps[c.id] = {
+                "status": el.CONTROL_STATUS[control.state],
+                "operatingFlow": q,
+                "operatingHead": _pump_lift(control.run, c.id),
+                "speed": control.speed,
+                "controlState": control.state,
+            }
+            if control.state != "active":
+                flags.append({"code": "PUMP_SETPOINT_NOT_MET", "componentId": c.id})
+        elif isinstance(c, Pump):
             pumps[c.id] = {"status": PUMP_STATUS[statuses[c.id]]}
         elif isinstance(c, ControlValve):
             valves[c.id] = {"state": VALVE_STATE[statuses[c.id]]}
             if valves[c.id]["state"] != "active":
                 raise ValueError(f"{name}: {c.id} is {valves[c.id]['state']} in EPANET")
+    source = source_text(project)
+    if control is not None:
+        source += control.method
     return ReferenceCase(
         name=name,
         description=description,
-        source=source_text(project),
+        source=source,
         project=project,
         expected=Expected(
             density=fluid.density,
@@ -693,7 +1019,7 @@ def build_case(name: str) -> ReferenceCase:
             egl=heads,
             pumps=pumps,
             valves=valves,
-            flags=regime_flags(project, flows),
+            flags=flags + regime_flags(project, flows),
         ),
     )
 

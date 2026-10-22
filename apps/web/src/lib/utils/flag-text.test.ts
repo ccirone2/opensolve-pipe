@@ -135,6 +135,48 @@ describe('flag text from code and details', () => {
 		);
 	});
 
+	it('a speed-controlled pump off its setpoint: flows in display units, speeds in %', () => {
+		// Details and message as the API writes them (solver/results.py), made-up values.
+		const notMet = (state: string, flow: number, message: string) =>
+			flag({
+				code: 'PUMP_SETPOINT_NOT_MET',
+				severity: 'info',
+				message,
+				componentId: 'P1',
+				details: { state, setpoint: 0.012, flow, speed: 0.9, minSpeed: 0.4, maxSpeed: 0.9 }
+			});
+		const setpoint = `${sig4(0.012 / GPM)} gpm`;
+		expect(
+			flagText(
+				notMet(
+					'max_speed',
+					0.0098,
+					"pump 'P1' runs at its maximum speed 0.9 and delivers 0.0098 m³/s, below its setpoint 0.012 m³/s (flow control)"
+				),
+				us()
+			)
+		).toBe(
+			`It runs at its maximum speed (90 %) and delivers ${sig4(0.0098 / GPM)} gpm, below its flow setpoint (${setpoint}).`
+		);
+		expect(flagText(notMet('min_speed', 0.015, 'made-up'), us())).toBe(
+			`It runs at its minimum speed (40 %) and passes ${sig4(0.015 / GPM)} gpm, above its flow setpoint (${setpoint}): the system drives more flow through it even at that speed.`
+		);
+		expect(flagText(notMet('no_flow', 0, 'made-up'), us())).toBe(
+			`It has no flow: the head across it exceeds its shutoff head at its maximum speed (90 %), so it delivers none of its flow setpoint (${setpoint}).`
+		);
+		// Without the details it needs, the API's message in names and display units.
+		const bare = flag({
+			code: 'PUMP_SETPOINT_NOT_MET',
+			severity: 'info',
+			message: "pump 'P1' runs at its maximum speed 0.9 and delivers 0.0098 m³/s",
+			componentId: 'P1',
+			details: { state: 'max_speed' }
+		});
+		expect(flagText(bare, { project: pumpProject, prefs: SI_UNITS })).toBe(
+			'Pump “Transfer pump” runs at its maximum speed 0.9 and delivers 9.8 L/s'
+		);
+	});
+
 	it('cavitation, check valve, reservoir port and isolated section', () => {
 		expect(
 			flagText(

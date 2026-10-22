@@ -175,9 +175,15 @@ def test_energy_equations_close(path: Path) -> None:
     }
     assert set(residuals) == checked
     assert max(abs(r) for r in residuals.values()) <= tolerance, residuals
-    laws = nc.element_residuals(
-        project, flows, egl, nc.element_states(project, expected), model, nc.held_split_ks(expected)
+    # A flow-controlled pump is checked by its fixed flow, except in EPANET cases, whose
+    # reference runs are EPANET's own pump law (at the expected speed) or the FAQ substitute
+    # (whose closed pump EPANET lets pass Δh/CBIG): there by its head law at that speed.
+    law_project, states = (
+        nc.at_expected_speeds(project, expected)
+        if _is_epanet(case)
+        else (project, nc.element_states(project, expected))
     )
+    laws = nc.element_residuals(law_project, flows, egl, states, model, nc.held_split_ks(expected))
     assert all(abs(r) <= tolerance for r in laws.heads.values()), laws.heads
     assert all(abs(r) <= flow_tolerance for r in laws.flows.values()), laws.flows
 
@@ -652,3 +658,110 @@ def test_cv_kv_definitions_agree_with_fluids_and_crane(nps: float) -> None:
         assert cv == pytest.approx(float(fluids.fittings.Cv_to_K(value, d)), rel=2.0e-6)
         assert kv == pytest.approx(float(fluids.fittings.Kv_to_K(value, d)), rel=2.0e-6)
         assert cv * value**2 / (d / inch) ** 4 == pytest.approx(891.0, rel=2.0e-3)
+
+
+# --- Flow-controlled pumps (CLAUDE.md D11) ------------------------------------------------------
+
+
+def _controlled_pumps(project: Project) -> list[Pump]:
+    return [c for c in project.components if isinstance(c, Pump) and c.control is not None]
+
+
+CONTROLLED_CASES = [p for p in CASES if _controlled_pumps(_load(p)[1])]
+
+
+def test_controlled_pump_cases_exist() -> None:
+    assert len(CONTROLLED_CASES) >= 20
+
+
+@pytest.mark.parametrize("path", CONTROLLED_CASES, ids=lambda p: p.stem)
+def test_controlled_pump_speed_and_state_are_consistent(path: Path) -> None:
+    """Every flow-controlled pump has a control state and a speed (proposal vfd-pump-modes.md
+    §2.4, §4.7): its status follows the state; a limit state runs at its limit speed; an
+    active pump carries Q_set at a speed inside [s_min, s_max]; and a running pump's speed
+    gives its expected head, F(s, Q) = s² H₀(Q/s) = EGL_d − EGL_s, which is also its
+    operatingHead."""
+    case, project = _load(path)
+    expected = case["expected"]
+    epanet = _is_epanet(case)
+    for pump in _controlled_pumps(project):
+        assert pump.control is not None
+        want = expected["pumps"][pump.id]
+        state, speed = want["controlState"], want["speed"]
+        assert want["status"] == el.CONTROL_STATUS[state], pump.id
+        limit = el.control_state_speed(pump.control, pump.speed, state)
+        if limit is not None:
+            assert speed == limit, pump.id
+        else:
+            assert pump.control.min_speed <= speed <= pump.speed, pump.id
+        q = nc.port_inflow(project, f"{pump.id}:suction", expected["flows"])
+        assert want["operatingFlow"] == q, pump.id
+        if want["status"] != "running":
+            continue
+        egl = expected["egl"]
+        lift = egl[f"{pump.id}:discharge"] - egl[f"{pump.id}:suction"]
+        if state == "active":
+            # EPANET: float32 flows, and the FAQ substitute's closed pump passes Δh/CBIG.
+            allowed = (
+                8 * FLOAT32_REL * pump.control.setpoint + nc.EPANET_FCV_LEAK * abs(lift)
+                if epanet
+                else 0.0
+            )
+            assert abs(q - pump.control.setpoint) <= allowed, pump.id
+        assert want["operatingHead"] == pytest.approx(lift, rel=1.0e-14, abs=1.0e-12), pump.id
+        curve = next(c for c in project.pump_library if c.id == pump.curve_id)
+        tolerance = 8 * FLOAT32_REL * max(abs(h) for h in egl.values()) if epanet else 1.0e-9
+        assert abs(el.pump_head(curve, speed, q) - lift) <= tolerance, pump.id
+
+
+@pytest.mark.parametrize(
+    "path", [p for p in CONTROLLED_CASES if not p.stem.startswith("epanet")], ids=lambda p: p.stem
+)
+def test_controlled_pump_case_is_the_fixed_pump_at_its_speed(path: Path) -> None:
+    """A second route to the flows (proposal §7.3, M1/M2): with every flow-controlled pump
+    replaced by a fixed-speed pump at its expected speed, the whole-network solve (fsolve from
+    a perturbed start, pumps by their head law) reproduces every expected flow and EGL, so an
+    active pump's speed delivers exactly its setpoint."""
+    case, project = _load(path)
+    expected = case["expected"]
+    fixed, states = nc.at_expected_speeds(project, expected)
+    guess_q = {k: 1.2 * q + 1.0e-4 for k, q in expected["flows"].items()}
+    guess_h = {k: h + 0.3 for k, h in expected["egl"].items()}
+    flows, egl = nc.solve_network(fixed, nc.our_model(fixed), guess_q, guess_h, states)
+    for key, q in expected["flows"].items():
+        assert flows[key] == pytest.approx(q, rel=1.0e-9, abs=1.0e-15), key
+    for key, h in expected["egl"].items():
+        assert egl[key] == pytest.approx(h, abs=1.0e-9), key
+
+
+@pytest.mark.parametrize(
+    "curve_name",
+    ["curve_straight", "curve_drooping", "curve_steep_rise"],
+)
+def test_psi_minimum_is_exact_against_dense_sampling(curve_name: str) -> None:
+    """``psi_minimum`` (exact, from the PCHIP's cubic pieces) against ψ = 2H₀ − x H₀' sampled
+    densely, inside the points and on the linear extension beyond them."""
+    from tests.reference import derivations_pump_control as dpc
+    from tests.reference.derivations_pumps import curve_a, curve_b, curve_c
+
+    curves = [getattr(dpc, curve_name)(), curve_a(), curve_b(), curve_c()]
+    for curve in curves:
+        x_end = 2.0 * curve.points[-1].flow
+        exact = dpc.psi_minimum(curve, 0.0, x_end)
+        sampled = min(dpc.psi(curve, float(x)) for x in np.linspace(0.0, x_end, 20001))
+        assert exact <= sampled + 1.0e-9
+        assert exact == pytest.approx(sampled, abs=1.0e-3)
+
+
+def test_drooping_and_steep_curves_have_the_intended_psi() -> None:
+    """CF18's two curves: the drooping one keeps ψ > 0 on its points (accepted, unique
+    speed), the steep one has ψ ≤ 0 inside its points (CONTROLLED_PUMP_CURVE, proposal §4.3)."""
+    from tests.reference import derivations_pump_control as dpc
+
+    for name in ("curve_drooping", "curve_steep_rise"):
+        curve = getattr(dpc, name)()
+        heads = [p.head for p in curve.points]
+        assert max(heads) > heads[0]  # both rise from shutoff before falling
+    assert dpc.psi_minimum(dpc.curve_drooping(), 0.0, dpc.curve_drooping().points[-1].flow) > 0.0
+    steep = dpc.curve_steep_rise()
+    assert dpc.psi_minimum(steep, 0.0, steep.points[-1].flow) <= 0.0

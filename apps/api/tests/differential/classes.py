@@ -46,7 +46,14 @@ Independently of the class, every converged result of ours is checked before EPA
 failure is stored in the record's ``self_check`` (kept in a ``harness_error`` record too) and
 written to findings/self_check_failed. That self-check is the same check that makes a class
 ``a_ours_invalid``, so a record is critical (``is_critical``) when its ``self_check`` is
-non-empty or its class is critical.
+non-empty or its class is critical. With flow-controlled pumps (generator profile
+'flow_control') it includes their rules (proposal vfd-pump-modes.md §4.5), laws, speeds and
+control fields (``checks.control_problems``); EPANET stands for the state we report for each,
+so a state of ours that is wrong shows in the self-check, not as a state difference.
+
+Also independent of the class: a converged network with flow-controlled pumps is searched over
+their states (``state_search.control_search``); more than one distinct valid solution is
+written to findings/control_multiple_states and counted by ``stats.py``.
 """
 
 from collections.abc import Mapping

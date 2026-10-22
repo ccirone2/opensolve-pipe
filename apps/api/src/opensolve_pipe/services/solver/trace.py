@@ -74,18 +74,24 @@ from .friction import (
 from .labels import fitting_label, fitting_position, pipe_label, pipe_name
 from .library import USER_SOURCE, load_pipe_materials
 from .methods import (
+    BRENT,
     CLAMOND,
     COLEBROOK,
     CRANE,
     DARBY,
     EPANET,
+    EPANET_SPECIFIC_FLOW,
+    EPANET_SPEED_EFFICIENCY,
     EPANET_STATUS,
+    FIXED_SPEED_OVERRIDE,
     FRITSCH_BUTLAND,
     FRITSCH_CARLSON,
     ISA_75,
+    SPEED_CONTROL_DECISION,
     SWAMEE_JAIN,
     USSA_1976,
 )
+from .pumps import speed_derivative_factor
 from .status import HTOL, QTOL, OuterLoopResult, Status, active_state, open_loss
 from .system_curve import DEFAULT_RANGE_FACTOR
 from .valves import CRANE_DEFAULTS, IDEAL_CONTROL_VALVE
@@ -918,7 +924,9 @@ def _branch_trace(ctx: TraceInputs, comp: TeeBranch | WyeBranch) -> ElementTrace
 def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
     comp = data.component
     curve = data.curve.points
-    s = comp.speed
+    control = data.control
+    result = ctx.pumps.get(comp.id)
+    s = comp.speed if control is None or result is None else result.speed
     t = _Trace(comp.id, "pump")
     t.input("Pump curve", f"{data.curve.name} ({data.curve.curve_id})", NO_UNIT, "user")
     for i, p in enumerate(curve.points):
@@ -930,7 +938,13 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
     for i, n in enumerate(curve.npshr_curve or []):
         t.input(f"NPSHr curve point {i + 1}: flow Q₀", n.flow, M3S, "user")
         t.input(f"NPSHr curve point {i + 1}: NPSHr₀", n.npshr, M, "user")
-    t.input("Speed ratio s", s, NO_UNIT, _given(comp, "speed"))
+    if control is None:
+        t.input("Speed ratio s", s, NO_UNIT, _given(comp, "speed"))
+    else:
+        t.input("Control mode", "flow", NO_UNIT, "user")
+        t.input("Flow setpoint Q_set", control.setpoint, M3S, "user")
+        t.input("Minimum speed s_min", control.min_speed, NO_UNIT, "user")
+        t.input("Maximum speed s_max (field speed)", comp.speed, NO_UNIT, _given(comp, "speed"))
     t.input("Status", comp.status, NO_UNIT, _given(comp, "status"))
     _port_elevation_input(t, comp, "suction", "Suction port elevation z_s")
     _port_elevation_input(t, comp, "discharge", "Discharge port elevation z_d")
@@ -947,6 +961,17 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
         "H = EGL_discharge − EGL_suction: the pump head is the EGL rise (total dynamic head)"
     )
     t.equation(SYSTEM_CURVE_EQUATION)
+    if control is not None:
+        t.equation(
+            "System curve of this speed-controlled pump: its control is replaced by the fixed "
+            "flow Q at every point (H_sys as for any pump), and its default range uses its "
+            "maximum speed, s = s_max"
+        )
+    if any(other.control is not None and cid != comp.id for cid, other in ctx.built.pumps.items()):
+        t.equation(
+            "The other speed-controlled pumps keep regulating (holding their setpoints within "
+            "their speed ranges) at every point of this system curve"
+        )
     t.equation(
         f"No flow while EGL_discharge − EGL_suction > s² H₀(0) + {HTOL:g} m (the shutoff head) "
         f"or the flow would reverse, Q < −{QTOL:g} m³/s: the pump's integral check"
@@ -981,8 +1006,9 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
         "by relative speed the same way (Rossman et al. 2020).",
     )
     t.correlation("Pump status rule (EPANET 2.2 pumpstatus)", EPANET_STATUS)
+    if control is not None:
+        _speed_control_method(t, ctx, data)
 
-    result = ctx.pumps.get(comp.id)
     if result is not None:
         egl_s = ctx.egl(data.suction)
         egl_d = ctx.egl(data.discharge)
@@ -1047,15 +1073,18 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
         t.value("Efficiency η", result.efficiency, NO_UNIT)
         t.value("Hydraulic power P_hyd", result.hydraulic_power, W)
         t.value("Shaft power P_shaft", result.shaft_power, W)
+        if control is not None:
+            _speed_control_values(t, data, result)
         if result.status == "running":
-            within = _ineq(
-                "EGL_d − EGL_s", result.operating_head, "≤", "s² H₀(0) + Htol", shutoff + HTOL
-            )
-            t.note(
-                f"Running: the head across the pump stays within its shutoff head, {within}, "
-                f"and the flow is forward, {_forward(result.operating_flow)} (EPANET 2.2 "
-                "pumpstatus)."
-            )
+            if control is None:  # a speed-controlled pump's state note says why it runs
+                within = _ineq(
+                    "EGL_d − EGL_s", result.operating_head, "≤", "s² H₀(0) + Htol", shutoff + HTOL
+                )
+                t.note(
+                    f"Running: the head across the pump stays within its shutoff head, "
+                    f"{within}, and the flow is forward, {_forward(result.operating_flow)} "
+                    "(EPANET 2.2 pumpstatus)."
+                )
         elif result.status == "off":
             t.note("Off (status set by the user): closed, no flow.")
         elif cut_off is not None:
@@ -1076,6 +1105,8 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
                 f"{_ineq('EGL_d − EGL_s', result.operating_head, '>', 's² H₀(0)', shutoff)}, "
                 "and its integral check stops the reverse flow (EPANET 2.2 pumpstatus)."
             )
+        if control is not None:
+            _speed_control_state_note(t, data, result)
         if result.npsh_available is None:
             reasons = []
             if ctx.fluid.vapor_pressure is None:
@@ -1085,6 +1116,14 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
             t.note(f"NPSH available is not computed: {'; '.join(reasons)}.")
     if result is None and ctx.converged and comp.status == "off":
         t.note("Off (status set by the user): closed, no flow.")
+    if control is not None and comp.status == "off":
+        t.note("Its speed control is not applied: status off.")
+    if control is not None:
+        t.note(
+            "Efficiency and NPSHr at the speed it runs at by the affinity laws, η = η₀(Q/s) and "
+            "NPSHr = s² NPSHr₀(Q/s): the plain affinity law for efficiency, with no Sârbu–Borza "
+            "reduced-speed correction (EPANET 2.2 applies one, src/hydraul.c:983-984)."
+        )
     t.note(
         f"No viscosity correction applied: the curves are used as entered for {ctx.fluid.name} "
         "(the Hydraulic Institute correction, ANSI/HI 9.6.7, is not in this version)."
@@ -1092,6 +1131,149 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
     _no_values_note(t, ctx, result is None)
     _flag_notes(t, ctx)
     return t.build()
+
+
+SPEED_CONTROL_STATES = {
+    "active": "active, holding its flow setpoint",
+    "max_speed": "at maximum speed, the setpoint not held",
+    "min_speed": "at minimum speed, passing more than the setpoint",
+    "no_flow": "no flow",
+    "off": "off",
+}
+
+
+def _speed_control_method(t: _Trace, ctx: TraceInputs, data: PumpData) -> None:
+    """Equations and sources of a speed-controlled pump (CLAUDE.md D11)."""
+    h, q = f"{HTOL:g} m", f"{QTOL:g} m³/s"
+    t.equation(
+        "Speed control (flow setpoint): the speed s varies within [s_min, s_max] to hold the flow "
+        "Q = Q_set through the pump; F(s, Q) = s² H₀(Q/s) is the head at speed s"
+    )
+    t.equation(
+        "Active: Q = Q_set imposed as a fixed flow (a demand at the suction port, a supply at "
+        "the discharge port; no energy equation of its own)"
+    )
+    t.equation(
+        "s* solves s² H₀(Q_set/s) = EGL_d − EGL_s on [s_lo, s_max] (Brent's method), with "
+        "s_lo = max(s_min, Q_set/x_mono); the head is first held within [F(s_lo, Q_set), "
+        "F(s_max, Q_set)], a change of at most Htol, so s* lies within [s_min, s_max]"
+    )
+    t.equation(
+        "Exact: the speed enters only the pump's head equation, so the Newton system is "
+        "block-triangular and flows and heads do not depend on s"
+    )
+    t.equation(
+        "Unique: d/ds[s² H₀(Q/s)] = s (2 H₀(x) − x H₀'(x)) > 0 with x = Q/s, checked exactly on "
+        "the curve's cubic pieces for 0 ≤ x ≤ x_last (the largest point flow); beyond it the "
+        "end tangent keeps it positive up to x_mono (twice the tangent's zero-head flow when it "
+        "falls, unbounded otherwise)"
+    )
+    t.equation(
+        f"Rules (the first that holds wins; Htol = {h}, Qtol = {q}, H = EGL_d − EGL_s): active "
+        "→ maximum speed if the network cannot supply or take its flow (A0) or H > F(s_max, "
+        "Q_set) + Htol (A1); active → minimum speed if H < F(s_min, Q_set) − Htol (A2)"
+    )
+    t.equation(
+        "Maximum speed → active once Q ≥ Q_set (X1), else the fixed-speed rule at s_max (X2); "
+        "minimum speed → active once Q ≤ Q_set (N1), else the fixed-speed rule at s_min, which "
+        "closes it if H > s_min² H₀(0) + Htol (N2); no flow → maximum speed once "
+        "H ≤ s_max² H₀(0) (C1)"
+    )
+    t.correlation(
+        "Flow-control rule: at its limit, regulating again once the flow reaches the setpoint "
+        "(EPANET 2.2 fcvstatus)",
+        EPANET_STATUS,
+    )
+    t.correlation(
+        "Fixed flow in place of the pump (EPANET 2.2: sizing a pump to meet a specific flow)",
+        EPANET_SPECIFIC_FLOW,
+    )
+    t.correlation("Brent's root-finding method (scipy.optimize.brentq)", BRENT)
+    t.correlation(
+        "Speed limit: at maximum speed it runs as a fixed-speed pump and the setpoint is no "
+        "longer held (WaterGEMS Fixed Speed Override)",
+        FIXED_SPEED_OVERRIDE,
+    )
+    t.correlation("Reduced-speed efficiency correction (not applied)", EPANET_SPEED_EFFICIENCY)
+    t.data("Speed-controlled pump model", SPEED_CONTROL_DECISION)
+
+
+def _speed_control_values(t: _Trace, data: PumpData, result: PumpResult) -> None:
+    """The values a speed-controlled pump's state and speed follow from."""
+    control = data.control
+    assert control is not None
+    curve = data.curve
+    check = control.uniqueness
+    s_lo = (
+        control.min_speed
+        if math.isinf(check.x_mono)
+        else min(max(control.min_speed, control.setpoint / check.x_mono), control.max_speed)
+    )
+    t.value("F(s_min, Q_set) = s_min² H₀(Q_set/s_min)", control.head_at_min, M)
+    t.value("F(s_max, Q_set) = s_max² H₀(Q_set/s_max)", control.head_at_max, M)
+    t.value("Shutoff head at minimum speed s_min² H₀(0)", control.shutoff_min, M)
+    t.value("Shutoff head at maximum speed s_max² H₀(0)", control.shutoff_max, M)
+    t.value("Speed it runs at s", result.speed, NO_UNIT)
+    t.value("Lowest speed of the bracket s_lo = max(s_min, Q_set/x_mono)", s_lo, NO_UNIT)
+    if math.isfinite(check.x_mono):
+        t.value("x_mono (2 H₀ − x H₀' > 0 below it)", check.x_mono, M3S)
+    t.value("Uniqueness margin: least 2 H₀ − x H₀' on [0, x_last]", check.psi_min, M)
+    t.value("Flow at rated speed of that least value", check.psi_min_flow, M3S)
+    if result.status == "running":
+        q, s = result.operating_flow, result.speed
+        t.value(
+            "2 H₀ − x H₀' at the operating point, x = Q/s",
+            speed_derivative_factor(curve, q / s),
+            M,
+        )
+        t.value("Residual F(s, Q) − H", curve.head(q, s)[0] - result.operating_head, M)
+
+
+def _speed_control_state_note(t: _Trace, data: PumpData, result: PumpResult) -> None:
+    """The inequality that set a speed-controlled pump's state, with its values."""
+    control = data.control
+    assert control is not None
+    assert result.control is not None
+    state = result.control.state
+    head, q, s = result.operating_head, result.operating_flow, result.speed
+    q_set = control.setpoint
+    if state == "active":
+        low = _ineq("F(s_min, Q_set) − Htol", control.head_at_min - HTOL, "≤", "H", head)
+        high = _num(control.head_at_max + HTOL)
+        residual = data.curve.head(q_set, s)[0] - head
+        t.note(
+            f"Active, holding its flow setpoint: {low} ≤ F(s_max, Q_set) + Htol = {high} m, "
+            f"so the speed that holds Q_set = {_num(q_set)} m³/s lies within [s_min, s_max]: "
+            f"s* = {_num(s)} (residual F(s*, Q_set) − H = {residual:.3g} m)."
+        )
+    elif state == "max_speed":
+        within = _ineq("H", head, "≤", "s_max² H₀(0) + Htol", control.shutoff_max + HTOL)
+        t.note(
+            "At maximum speed, the setpoint not held: "
+            f"{_ineq('Q', q, '<', 'Q_set', q_set, M3S)}; it runs as a fixed-speed pump at "
+            f"s_max = {_num(control.max_speed)} ({within}, {_forward(q)}) and returns to "
+            "regulating once Q ≥ Q_set (EPANET 2.2 fcvstatus; WaterGEMS Fixed Speed Override)."
+        )
+    elif state == "min_speed":
+        within = _ineq("H", head, "≤", "s_min² H₀(0) + Htol", control.shutoff_min + HTOL)
+        t.note(
+            "At minimum speed, passing more than the setpoint: "
+            f"{_ineq('Q', q, '>', 'Q_set', q_set, M3S)}; it runs as a fixed-speed pump at "
+            f"s_min = {_num(control.min_speed)} ({within}) and returns to regulating once "
+            "Q ≤ Q_set. It keeps running: there is no stop at low demand."
+        )
+    elif state == "no_flow":
+        above = (
+            f"{_ineq('H', head, '>', 's_max² H₀(0)', control.shutoff_max)}; "
+            if head > control.shutoff_max
+            else ""  # dead-headed: H is the shutoff head (the note above)
+        )
+        t.note(
+            f"No flow: {above}its controller sees no flow and runs at maximum speed s_max = "
+            f"{_num(control.max_speed)}, where it closes and re-opens as a fixed-speed pump "
+            "(EPANET 2.2 pumpstatus, C1: re-opens once H ≤ s_max² H₀(0)); it regulates again "
+            "once the head across it lets it deliver flow."
+        )
 
 
 # --------------------------------------------------------------------------- valves

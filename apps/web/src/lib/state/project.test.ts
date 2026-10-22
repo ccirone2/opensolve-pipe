@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NetworkError, TopologyError, ValidationError } from '../api/client';
-import type { Project, SolveResponse, SystemCurveResponse } from '../api/types';
+import type { Project, Pump, SolveResponse, SystemCurveResponse } from '../api/types';
 import { referentialIssues } from '../testing/helpers';
 import { addBranch, deleteComponent, insertComponentInConnection } from '../utils/edit';
 import { decodeProject, encodeProject, fragmentOf } from '../utils/encoding';
@@ -574,6 +574,25 @@ describe('results', () => {
 		const fluid = structuredClone(project);
 		fluid.fluid = { ...fluid.fluid, temperature: 300 } as Project['fluid'];
 		expect(hydraulicFingerprint(fluid)).not.toBe(base);
+	});
+
+	it("changes the fingerprint when a pump's speed control changes", () => {
+		// Made-up control values (CLAUDE.md D11).
+		const project = EXAMPLES[0]!.create();
+		const base = hydraulicFingerprint(project);
+		const controlled = structuredClone(project);
+		const pump = controlled.components.find((c) => c.type === 'pump') as Pump;
+		pump.control = { mode: 'flow', setpoint: 0.012, minSpeed: 0.4 };
+		const withControl = hydraulicFingerprint(controlled);
+		expect(withControl).not.toBe(base);
+		for (const change of [{ setpoint: 0.013 }, { minSpeed: 0.5 }]) {
+			const changed = structuredClone(controlled);
+			const p = changed.components.find((c) => c.type === 'pump') as Pump;
+			p.control = { ...p.control!, ...change };
+			expect(hydraulicFingerprint(changed)).not.toBe(withControl);
+		}
+		delete pump.control;
+		expect(hydraulicFingerprint(controlled)).toBe(base);
 	});
 
 	it('drops a solve that finishes after the project was replaced', async () => {

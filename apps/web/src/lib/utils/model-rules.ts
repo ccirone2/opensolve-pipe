@@ -10,7 +10,9 @@
  *   number of ports when only that is fixed);
  * - on `Fitting`, `x-required-parameters` (fields each fitting type needs), `x-reducer-types`
  *   (fittings between two pipes), `x-entrance-types` and `x-exit-types`;
- * - on `ControlValve`, `x-setpoint-bounds` (an FCV's setpoint is a flow).
+ * - on `ControlValve`, `x-setpoint-bounds` (an FCV's setpoint is a flow);
+ * - on a component schema, `x-ordered-fields` (pairs of fields whose values must be ordered, such
+ *   as a speed-controlled pump's minimum speed below its speed, the maximum).
  *
  * The rest is what the schema states anyway: which schema a component is validated against (the
  * members of the `Project.components` union, by type refined by branchType or valveType, as the
@@ -182,6 +184,126 @@ export function setpointBounds(valveType: string): Bounds {
 		const value = source[key];
 		if (typeof value === 'number') result[key] = value;
 	}
+	return result;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Ordered fields
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Two fields of a component whose values must be ordered (`x-ordered-fields`): `lower` below
+ * `upper` when `strict`, else at most `upper`. Fields are dotted camelCase paths
+ * ('control.minSpeed'); the rule applies when both are present.
+ */
+export interface OrderedFields {
+	lower: string;
+	upper: string;
+	strict: boolean;
+}
+
+/** The ordered field pairs a component's type publishes (`x-ordered-fields`); none when absent. */
+export function orderedFields(component: ComponentTagged): readonly OrderedFields[] {
+	const published = componentSchema(component)?.['x-ordered-fields'];
+	if (published === undefined) return [];
+	if (!Array.isArray(published)) throw new Error('openapi.json: x-ordered-fields is not a list');
+	return published.map((pair: unknown, i) => {
+		if (
+			!isRecord(pair) ||
+			typeof pair.lower !== 'string' ||
+			typeof pair.upper !== 'string' ||
+			typeof pair.strict !== 'boolean'
+		) {
+			throw new Error(`openapi.json: x-ordered-fields[${i}] is not {lower, upper, strict}`);
+		}
+		return { lower: pair.lower, upper: pair.upper, strict: pair.strict };
+	});
+}
+
+/** The finite number at dotted path `path` of `value` ('control.minSpeed'), or null. */
+export function fieldValue(value: unknown, path: string): number | null {
+	let node = value;
+	for (const key of path.split('.')) {
+		if (!isRecord(node)) return null;
+		node = node[key];
+	}
+	return typeof node === 'number' && Number.isFinite(node) ? node : null;
+}
+
+/** The ordered pairs (`x-ordered-fields`) whose two values `component` holds out of order. */
+export function orderViolations(component: ComponentTagged): OrderedFields[] {
+	return orderedFields(component).filter((pair) => {
+		const lower = fieldValue(component, pair.lower);
+		const upper = fieldValue(component, pair.upper);
+		if (lower === null || upper === null) return false;
+		return pair.strict ? !(lower < upper) : !(lower <= upper);
+	});
+}
+
+/**
+ * The bounds the ordered pairs (`x-ordered-fields`) put on field `path` of `component`, from the
+ * values of the fields it is ordered with: below (or at most) each upper field, above (or at
+ * least) each lower one. A pair whose other field is absent adds nothing.
+ */
+export function orderedBounds(component: ComponentTagged, path: string): Bounds {
+	let bounds: Bounds = {};
+	for (const pair of orderedFields(component)) {
+		if (pair.lower === path) {
+			const upper = fieldValue(component, pair.upper);
+			if (upper !== null) {
+				bounds = intersectBounds(
+					bounds,
+					pair.strict ? { exclusiveMaximum: upper } : { maximum: upper }
+				);
+			}
+		}
+		if (pair.upper === path) {
+			const lower = fieldValue(component, pair.lower);
+			if (lower !== null) {
+				bounds = intersectBounds(
+					bounds,
+					pair.strict ? { exclusiveMinimum: lower } : { minimum: lower }
+				);
+			}
+		}
+	}
+	return bounds;
+}
+
+interface Limit {
+	value: number;
+	exclusive: boolean;
+}
+
+/** The tighter of two limits: `higher` for lower limits, else the lower one (exclusive wins a tie). */
+function tighter(a: Limit | null, b: Limit | null, higher: boolean): Limit | null {
+	if (!a) return b;
+	if (!b) return a;
+	if (a.value === b.value) return a.exclusive ? a : b;
+	return a.value > b.value === higher ? a : b;
+}
+
+function limit(value: number | undefined, exclusive: boolean): Limit | null {
+	return value === undefined ? null : { value, exclusive };
+}
+
+/** Bounds that hold where both `a` and `b` hold (the tighter limit on each side). */
+export function intersectBounds(a: Bounds, b: Bounds): Bounds {
+	const low = [
+		limit(a.minimum, false),
+		limit(a.exclusiveMinimum, true),
+		limit(b.minimum, false),
+		limit(b.exclusiveMinimum, true)
+	].reduce((x, y) => tighter(x, y, true), null);
+	const high = [
+		limit(a.maximum, false),
+		limit(a.exclusiveMaximum, true),
+		limit(b.maximum, false),
+		limit(b.exclusiveMaximum, true)
+	].reduce((x, y) => tighter(x, y, false), null);
+	const result: Bounds = {};
+	if (low) result[low.exclusive ? 'exclusiveMinimum' : 'minimum'] = low.value;
+	if (high) result[high.exclusive ? 'exclusiveMaximum' : 'maximum'] = high.value;
 	return result;
 }
 

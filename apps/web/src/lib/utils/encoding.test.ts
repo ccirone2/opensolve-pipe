@@ -1,6 +1,6 @@
 import { gzip } from 'pako';
 import { describe, expect, it } from 'vitest';
-import type { Project } from '../api/types';
+import type { Project, Pump } from '../api/types';
 import { link, projectWith, reverseKeys } from '../testing/helpers';
 import {
 	canonicalJson,
@@ -16,6 +16,7 @@ import {
 import { EXAMPLES } from './examples';
 import { createComponent, createEmptyProject } from './factory';
 import { LinkError } from './link-error';
+import { CURRENT_SCHEMA_VERSION } from './migrations';
 import fixtureJson from './__fixtures__/schema-v1.json';
 
 const fixture = fixtureJson as unknown as Project;
@@ -115,6 +116,28 @@ describe('encodeProject / decodeProject', () => {
 			expect(decodeProject(encodeProject(project))).toEqual(project);
 		}
 		expect(decodeProject(encodeProject(fixture))).toEqual(fixture);
+	});
+
+	it('round-trips a speed-controlled pump: schemaVersion 1, the same link byte for byte', () => {
+		// Made-up control values (CLAUDE.md D11; schemaVersion stays 1, nothing is deployed yet).
+		const project = EXAMPLES[0]!.create();
+		const pump = project.components.find((c) => c.type === 'pump') as Pump;
+		pump.speed = 0.9;
+		pump.control = { mode: 'flow', setpoint: 0.012, minSpeed: 0.4 };
+		const encoded = encodeProject(project);
+		const decoded = decodeProject(encoded);
+		expect(decoded).toEqual(project);
+		expect(decoded.schemaVersion).toBe(1);
+		expect(decoded.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+		expect((decoded.components.find((c) => c.id === pump.id) as Pump).control).toEqual(
+			pump.control
+		);
+		expect(encodeProject(decoded)).toBe(encoded);
+		// Decoding adds nothing to a pump without a control: no default control exists.
+		const fixed = EXAMPLES[0]!.create();
+		const reopened = decodeProject(encodeProject(fixed));
+		expect(reopened.components.some((c) => 'control' in c)).toBe(false);
+		expect(encodeProject(reopened)).toBe(encodeProject(fixed));
 	});
 
 	it('produces URL-safe strings', () => {

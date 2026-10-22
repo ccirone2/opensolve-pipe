@@ -5,6 +5,13 @@ Independent of the solver: link laws from ``tests/reference/network_check.py`` (
 and valve K from ``tests/reference/element_laws.py``, and the status rules re-written here from
 status.py's documented rules (EPANET 2.2 hydstatus.c in EGL form, plus the documented FCV
 departures). Only the solver's *results* are read (``ours_solution``, ``our_states``).
+
+Flow-controlled pumps (CLAUDE.md D11): their state is the reported control state (active,
+max_speed, min_speed, no_flow, off); the rules (``rule_flow_pump``) are written from the state
+machine of proposal vfd-pump-modes.md §4.5 alone, the laws from §4.4 (active: Q = Q_set; at a
+speed limit the fixed-speed pump at that speed), and the reported speed, setpoint flag and
+control fields from §2.4-2.5 and §4.7 (``control_problems``); the speed is compared with the one
+EPANET's head implies (closed form for a linear curve, ``implied_speed``).
 """
 
 import itertools
@@ -25,6 +32,7 @@ from opensolve_pipe.models.components import (
 )
 from opensolve_pipe.models.piping import PipeConnection
 from opensolve_pipe.models.project import Project
+from opensolve_pipe.models.pumps import PumpCurve
 from opensolve_pipe.models.results import SolvedState
 from tests.differential.epanet_model import EpanetResult, Layout
 from tests.reference import element_laws as el
@@ -67,7 +75,7 @@ def conn_slope(conn: PipeConnection, q: float, nu: float, model: nc.Model = OUR_
 
 def element_kind(c: Component) -> str:
     if isinstance(c, Pump):
-        return "pump"
+        return "pump" if c.control is None else "flow_pump"
     if isinstance(c, IsolationValve):
         return "isolation"
     if isinstance(c, CheckValve):
@@ -84,11 +92,18 @@ def element_kind(c: Component) -> str:
 
 
 def our_states(project: Project, result: SolvedState) -> dict[str, str]:
+    """State per pump and valve: a pump's status, a flow-controlled pump's control state;
+    'isolated' without a result."""
     out = {}
     for c in project.components:
         if isinstance(c, Pump):
             pr = result.pump_results.get(c.id)
-            out[c.id] = pr.status if pr else "isolated"
+            if pr is None:
+                out[c.id] = "isolated"
+            elif c.control is not None and pr.control is not None:
+                out[c.id] = pr.control.state
+            else:
+                out[c.id] = pr.status
         elif isinstance(c, IsolationValve | CheckValve | ControlValve):
             vr = result.valve_results.get(c.id)
             out[c.id] = vr.state if vr else "isolated"
@@ -102,6 +117,29 @@ def ours_solution(
     flows = {cid: link.flow for cid, link in result.link_results.items()}
     egl = {key: node.egl for key, node in result.node_results.items()}
     return flows, egl, our_states(project, result)
+
+
+def closed_without_result(project: Project, result: SolvedState) -> set[str]:
+    """Flow-controlled pumps with no result that are held at no flow: both sides closed off,
+    their flags kept (state no_flow), as a fixed-speed pump's (TSD §5.4)."""
+    return {
+        f.component_id
+        for f in result.flags
+        if f.code == "PUMP_SETPOINT_NOT_MET"
+        and f.details.get("state") == "no_flow"
+        and f.component_id is not None
+        and f.component_id not in result.pump_results
+        and any(c.id == f.component_id for c in project.components)
+    }
+
+
+def our_speeds(project: Project, result: SolvedState) -> dict[str, float]:
+    """The reported speed of every flow-controlled pump with a result."""
+    return {
+        c.id: result.pump_results[c.id].speed
+        for c in project.components
+        if isinstance(c, Pump) and c.control is not None and c.id in result.pump_results
+    }
 
 
 def regime(re: float) -> str:
@@ -133,12 +171,14 @@ def compare(
     lay: Layout,
     *,
     strict: bool = False,
+    speeds_o: Mapping[str, float] | None = None,
 ) -> tuple[list[Mismatch], list[Record]]:
     """D6 comparison of our solution with EPANET's. Returns (mismatches, records).
     records: (category, kind, |Δ|, tolerance, reference) for statistics. Flows are also
     allowed EPANET's closed-link leak (``epanet_leak``, twice the bound), and a head loss the
     head that leak flow makes in that connection. ``strict``: the strict flow floor
-    (``STRICT_FLOW_FLOOR``) instead of the D6 head-equivalent floor."""
+    (``STRICT_FLOW_FLOOR``) instead of the D6 head-equivalent floor. ``speeds_o``: our speeds
+    of the flow-controlled pumps (``our_speeds``), compared by ``speed_comparison``."""
     nu = nc.kinematic_viscosity(project)
     leak = 2.0 * epanet_leak(ep)
     mism: list[Mismatch] = []
@@ -186,6 +226,75 @@ def compare(
         rec.append(("egl", port_kind[key], abs(egl_o[key] - he), tol, he))
         if abs(egl_o[key] - he) > tol:
             mism.append(("egl", key, egl_o[key], he, tol))
+    if speeds_o:
+        m2, r2 = speed_comparison(project, speeds_o, states_o, ep, lay)
+        mism += m2
+        rec += r2
+    return mism, rec
+
+
+def collinear_curve(curve: PumpCurve) -> tuple[float, float]:
+    """(a, b) of a curve whose points lie on H₀ = a − b·x from x = 0 (the generator's)."""
+    pts = curve.points
+    if pts[0].flow != 0.0:
+        raise ValueError(f"curve {curve.id} does not start at Q = 0")
+    a = pts[0].head
+    b = (a - pts[-1].head) / pts[-1].flow
+    if any(abs(a - b * p.flow - p.head) > 1e-9 * max(1.0, a) for p in pts):
+        raise ValueError(f"curve {curve.id} is not collinear")
+    return a, b
+
+
+def implied_speed(curve: PumpCurve, q: float, h: float, s_min: float, s_max: float) -> float:
+    """The speed at which the pump passes q against EGL rise h, s²H₀(q/s) = h, for a linear
+    curve H₀ = a − b·x: s = [bq + √(b²q² + 4ah)]/(2a) (ORNL eq. 10 with c = 0,
+    https://www.osti.gov/servlets/purl/1649114; the root on the rising branch, where
+    d/ds[s²H₀(q/s)] = 2as − bq > 0), clamped to [s_min, s_max]; at the vertex when h is below
+    every head of the branch."""
+    a, b = collinear_curve(curve)
+    disc = max(b * b * q * q + 4.0 * a * h, 0.0)
+    return min(max((b * q + disc**0.5) / (2.0 * a), s_min), s_max)
+
+
+def speed_comparison(
+    project: Project,
+    speeds_o: Mapping[str, float],
+    states_o: States,
+    ep: EpanetResult,
+    lay: Layout,
+) -> tuple[list[Mismatch], list[Record]]:
+    """Each flow-controlled pump that is active in our result and in EPANET's run (the FAQ
+    substitute): our speed against the one EPANET's head rise H_e implies (``implied_speed``),
+    within 0.5 % (owner's answer Q6, proposal vfd-pump-modes.md §10), and the head our speed
+    implies at Q_set, s²H₀(Q_set/s), against H_e by the D6 head criterion, 0.5 % or 0.01 m,
+    whichever is looser, as every head loss here (Q6's 0.01 m alone is the reference suite's
+    test against a derived head: EPANET's own constants, g = 32.2 ft/s² and the 0.02517
+    minor-loss factor, move its head differences by a few 1e-4 relative)."""
+    curves = {cv.id: cv for cv in project.pump_library}
+    mism: list[Mismatch] = []
+    rec: list[Record] = []
+    for c in project.components:
+        if not (isinstance(c, Pump) and c.control is not None and c.id in speeds_o):
+            continue
+        if states_o.get(c.id) != "active" or lay.control_run.get(c.id) != "active":
+            continue
+        a, b = f"{c.id}:suction", f"{c.id}:discharge"
+        if a not in ep.heads or b not in ep.heads:
+            continue
+        curve = curves[c.curve_id]
+        h_e = ep.heads[b] - ep.heads[a]
+        q_set = c.control.setpoint
+        s_ref = implied_speed(curve, q_set, h_e, c.control.min_speed, c.speed)
+        s_o = speeds_o[c.id]
+        tol = RELATIVE * s_ref
+        rec.append(("speed", "flow_pump", abs(s_o - s_ref), tol, s_ref))
+        if abs(s_o - s_ref) > tol:
+            mism.append(("speed", c.id, s_o, s_ref, tol))
+        h_o = el.pump_head(curve, s_o, q_set)
+        tolh = max(RELATIVE * abs(h_e), HEAD_FLOOR)
+        rec.append(("speed_head", "flow_pump", abs(h_o - h_e), tolh, h_e))
+        if abs(h_o - h_e) > tolh:
+            mism.append(("speed_head", c.id, h_o, h_e, tolh))
     return mism, rec
 
 
@@ -196,6 +305,54 @@ def rule_pump(status: str, gain: float, q: float, shutoff: float) -> str:
     if status == "running":
         return "no_flow" if (gain > shutoff + HTOL or q < -QTOL) else "running"
     return "running" if gain <= shutoff else "no_flow"
+
+
+def rule_flow_pump(
+    state: str, gain: float, q: float, pump: Pump, curve: PumpCurve, q_slack: float = 0.0
+) -> str:
+    """The next state of a flow-controlled pump that is on, from the state machine of proposal
+    vfd-pump-modes.md §4.5 (the first rule that holds wins), with gain = EGL_d − EGL_s, F(s, Q) =
+    s²H₀(Q/s), F_min/F_max = F(s_min/s_max, Q_set), S_min/S_max = F(s_min/s_max, 0):
+
+    - active: A1 max_speed if gain > F_max + Htol; A2 min_speed if gain < F_min − Htol; else
+      active (A0, a side with no fixed head, cannot be seen in a result with both heads);
+    - max_speed: X1 active if Q ≥ Q_set; X2 the v1 pump rule at S_max (``rule_pump``);
+    - min_speed: N1 active if Q ≤ Q_set; N2 the v1 pump rule at S_min, no_flow if it closes;
+    - no_flow: C1 the v1 pump rule at S_max, max_speed if it opens.
+
+    q_slack widens X1 and N1 (a flow within it of Q_set keeps the limit state): EPANET's Qtol
+    for its solution. Ours take −``FLOW_ROUNDING``·Q_set, so that a flow equal to Q_set but for
+    rounding is Q_set: a pump at a limit carrying its setpoint, as in series with another flow
+    control holding the same flow, is not a fixed point (X1/N1 make it active), the case the
+    solver reports not converged (proposal §4.6)."""
+    assert pump.control is not None
+    q_set, s_min, s_max = pump.control.setpoint, pump.control.min_speed, pump.speed
+    if state == "active":
+        if gain > el.pump_head(curve, s_max, q_set) + HTOL:
+            return "max_speed"
+        if gain < el.pump_head(curve, s_min, q_set) - HTOL:
+            return "min_speed"
+        return "active"
+    if state == "max_speed":
+        if q >= q_set + q_slack:
+            return "active"
+        running = rule_pump("running", gain, q, el.shutoff_head(curve, s_max)) == "running"
+        return "max_speed" if running else "no_flow"
+    if state == "min_speed":
+        if q <= q_set - q_slack:
+            return "active"
+        running = rule_pump("running", gain, q, el.shutoff_head(curve, s_min)) == "running"
+        return "min_speed" if running else "no_flow"
+    if state == "no_flow":
+        opens = rule_pump("no_flow", gain, q, el.shutoff_head(curve, s_max)) == "running"
+        return "max_speed" if opens else "no_flow"
+    return f"a flow-controlled pump that is on cannot be {state}"
+
+
+FLOW_ROUNDING = 1.0e-9
+"""Relative rounding of a flow-controlled pump's flow against its setpoint in X1 and N1 (ours,
+``rule_flow_pump``): a flow carried through a fixed flow elsewhere in series differs from Q_set
+by 1e-17 to 1e-12 relative in the fuzz networks."""
 
 
 def rule_check(status: str, dh: float, q: float, hc: float) -> str:
@@ -251,6 +408,37 @@ def port_d(project: Project, key: str) -> float:
     return nc.port_diameter(project, key)
 
 
+def element_law(
+    project: Project,
+    c: Pump | IsolationValve | CheckValve | ControlValve,
+    state: str,
+    q: float,
+    h_in: float,
+    h_out: float,
+    model: nc.Model,
+) -> tuple[str, float]:
+    """``network_check.element_law``, with a flow-controlled pump's law in its state (proposal
+    vfd-pump-modes.md §4.4): active Q − Q_set (a fixed flow); max_speed / min_speed the
+    fixed-speed pump's head law at s_max (its ``speed``) / s_min; no_flow, off Q."""
+    if not (isinstance(c, Pump) and c.control is not None):
+        return nc.element_law(project, c, state, q, h_in, h_out, model)
+    if state == "active":
+        return "flow", q - c.control.setpoint
+    if state not in ("max_speed", "min_speed"):
+        return "flow", q
+    curve = next(cv for cv in project.pump_library if cv.id == c.curve_id)
+    speed = c.control.min_speed if state == "min_speed" else c.speed
+    return "head", h_out - h_in - el.pump_head(curve, speed, q)
+
+
+def connects_heads(c: Pump | IsolationValve | CheckValve | ControlValve, state: str) -> bool:
+    """``network_check.connects_heads``; a flow-controlled pump ties its port heads at a speed
+    limit (a fixed-speed pump), not while active (a fixed flow) or closed."""
+    if isinstance(c, Pump) and c.control is not None:
+        return state in ("max_speed", "min_speed")
+    return nc.connects_heads(c, state)
+
+
 def status_problems(
     project: Project,
     flows: Flows,
@@ -285,8 +473,15 @@ def status_problems(
         if isinstance(c, Pump):
             if c.status == "off":
                 continue
-            shutoff = el.shutoff_head(curves[c.curve_id], c.speed)
-            good = any(rule_pump(st, h2 - h1 + s, q, shutoff) == st for s in shifts)
+            if c.control is not None:
+                slack = qtol if qtol is not None else -FLOW_ROUNDING * c.control.setpoint
+                curve = curves[c.curve_id]
+                good = any(
+                    rule_flow_pump(st, h2 - h1 + s, q, c, curve, slack) == st for s in shifts
+                )
+            else:
+                shutoff = el.shutoff_head(curves[c.curve_id], c.speed)
+                good = any(rule_pump(st, h2 - h1 + s, q, shutoff) == st for s in shifts)
         elif isinstance(c, IsolationValve):
             good = st == ("closed" if c.status == "isolated" else "open")
         elif isinstance(c, CheckValve):
@@ -360,7 +555,7 @@ def law_problems(
         else:
             if a not in egl or b not in egl:
                 continue
-            kind, r = nc.element_law(project, c, st2, q, egl[a], egl[b], model)
+            kind, r = element_law(project, c, st2, q, egl[a], egl[b], model)
         if kind == "head":
             if abs(r) > abs_h + rel * max(abs(egl[a] - egl[b]), 1.0):
                 out.append(f"law {c.id} ({st}): head residual {r:.3e}")
@@ -386,6 +581,16 @@ def epanet_egl(project: Project, ep: EpanetResult, lay: Layout) -> dict[str, flo
     return egl
 
 
+def active_band(pump: Pump, curve: PumpCurve, s: str, d: str) -> list[Edge]:
+    """Difference constraints (H_v − H_u ≤ w) of an active flow-controlled pump between suction
+    node s and discharge node d: F_min − Htol ≤ H_d − H_s ≤ F_max + Htol (rules A1, A2)."""
+    assert pump.control is not None
+    q_set = pump.control.setpoint
+    f_min = el.pump_head(curve, pump.control.min_speed, q_set)
+    f_max = el.pump_head(curve, pump.speed, q_set)
+    return [(s, d, f_max + HTOL, pump.id), (d, s, -(f_min - HTOL), pump.id)]
+
+
 def zero_flow_infeasible(
     project: Project, egl: Heads, states: States, exclude: Collection[str] = frozenset()
 ) -> list[str]:
@@ -394,9 +599,11 @@ def zero_flow_infeasible(
     difference constraints at Q = 0 (H_v - H_u <= w): a connection, an open isolation valve, a
     locked-open check valve, a failed-open control valve and an ideal junction tie heads
     (zero loss at zero flow); a pump that is on needs H_dis - H_suc >= s^2 H0(0) (dead-headed
-    or no flow); an active check valve or FCV needs H_in - H_out <= HTOL (closed or open at no
-    flow); PRV/PSV and closed elements are left free. Known heads (ours) are fixed. Returns
-    the components on a negative cycle (no head assignment exists) or []."""
+    or no flow; a flow-controlled pump at its maximum speed, proposal vfd-pump-modes.md §4.5,
+    or, reported active, the band of rules A1/A2, ``active_band``); an active check valve or
+    FCV needs H_in - H_out <= HTOL (closed or open at no flow); PRV/PSV and closed elements are
+    left free. Known heads (ours) are fixed. Returns the components on a negative cycle (no
+    head assignment exists) or []."""
     rho = nc.density(project)
     curves = {c.id: c for c in project.pump_library}
     # ports of flowing headless regions (``exclude``) are checked by flowing_headless;
@@ -426,8 +633,11 @@ def zero_flow_infeasible(
         if isinstance(c, Pump):
             if c.status == "on":
                 s, d = f"{c.id}:suction", f"{c.id}:discharge"
-                sh = el.shutoff_head(curves[c.curve_id], c.speed)
-                edges.append((nodes[d], nodes[s], -sh, c.id))  # H_s - H_d <= -sh
+                if states.get(c.id) == "active" and c.control is not None:
+                    edges += active_band(c, curves[c.curve_id], nodes[s], nodes[d])
+                else:  # a flow-controlled pump at zero flow: the fixed pump at s_max (§4.5)
+                    sh = el.shutoff_head(curves[c.curve_id], c.speed)
+                    edges.append((nodes[d], nodes[s], -sh, c.id))  # H_s - H_d <= -sh
         elif isinstance(c, IsolationValve):
             if c.status != "isolated":
                 eq(f"{c.id}:inlet", f"{c.id}:outlet", c.id)
@@ -517,10 +727,10 @@ def flowing_headless(
         if a not in unknown or b not in unknown or st is None or st == "isolated":
             continue
         st2 = {"xfcv": "open", "xpressure": "open"}.get(st, st)
-        if not nc.connects_heads(c, st2):
+        if not connects_heads(c, st2):
             continue
         q = nc.port_inflow(project, a, flows)
-        kind, r = nc.element_law(project, c, st2, q, 0.0, 0.0, OUR_MODEL)
+        kind, r = element_law(project, c, st2, q, 0.0, 0.0, OUR_MODEL)
         assert kind == "head"
         drop = r if isinstance(c, Pump) else -r  # H_in - H_out of the law at q
         edges.append((nodes[a], nodes[b], drop, c.id, q))
@@ -611,10 +821,10 @@ def _floating_rel(
         if a not in unknown or b not in unknown or st is None or st == "isolated":
             continue
         st2 = {"xfcv": "open", "xpressure": "open"}.get(st, st)
-        if not nc.connects_heads(c, st2):
+        if not connects_heads(c, st2):
             continue
         q = nc.port_inflow(project, a, flows)
-        _, r = nc.element_law(project, c, st2, q, 0.0, 0.0, OUR_MODEL)
+        _, r = element_law(project, c, st2, q, 0.0, 0.0, OUR_MODEL)
         drop = r if isinstance(c, Pump) else -r
         edges.append((nodes[a], nodes[b], drop, q))
     for k in unknown:
@@ -735,8 +945,11 @@ def headless_infeasible(project: Project, flows: Flows, egl: Heads, states: Stat
         if isinstance(c, Pump):
             if c.status == "on":
                 s, d = f"{c.id}:suction", f"{c.id}:discharge"
-                sh = el.shutoff_head(curves[c.curve_id], c.speed)
-                base.append((nodes[d], nodes[s], -sh, c.id))
+                if states.get(c.id) == "active" and c.control is not None:
+                    base += active_band(c, curves[c.curve_id], nodes[s], nodes[d])
+                else:  # a flow-controlled pump at zero flow: the fixed pump at s_max (§4.5)
+                    sh = el.shutoff_head(curves[c.curve_id], c.speed)
+                    base.append((nodes[d], nodes[s], -sh, c.id))
         elif isinstance(c, IsolationValve):
             if c.status != "isolated":
                 eq(f"{c.id}:inlet", f"{c.id}:outlet", c.id)
@@ -803,6 +1016,92 @@ def floating_flagged(result: SolvedState) -> set[str]:
         for cid in str(f.details.get("componentIds", "")).split(",")
         if cid.strip()
     }
+
+
+CONTROL_STATUS = {
+    "active": "running",
+    "max_speed": "running",
+    "min_speed": "running",
+    "no_flow": "no_flow",
+    "off": "off",
+}
+"""PumpResult.status of each control state (proposal vfd-pump-modes.md §2.4)."""
+
+
+def control_problems(
+    project: Project, result: SolvedState, flows: Flows, egl: Heads, states: States
+) -> list[str]:
+    """Each flow-controlled pump's reported control against its definition (proposal
+    vfd-pump-modes.md §2.4-2.6, §4.7): mode and setpoint as given; status as its state's
+    (``CONTROL_STATUS``); off exactly when the pump is off; the speed s_max at max_speed and
+    no_flow (and off: the field), s_min at min_speed, and, active, within [s_min, s_max] with
+    |s²H₀(Q_set/s) − H| ≤ Htol at the head rise H (from the EGLs, or the relative heads of a
+    floating section); ``PUMP_SETPOINT_NOT_MET`` exactly when the state is a limit or no_flow
+    with |Q − Q_set| > Qtol (§2.5), and setpointAchieved its negation (None when off). A pump
+    without a result (isolated) has no such flag, unless it is a no-flow pump with both sides
+    closed off, which keeps its flags as a fixed-speed pump does (state no_flow, with
+    PUMP_FLOW_REVERSAL; TSD §5.4). [] for a project without one."""
+    pumps = [c for c in project.components if isinstance(c, Pump) and c.control is not None]
+    if not pumps:
+        return []
+    curves = {cv.id: cv for cv in project.pump_library}
+    floating = _floating_rel(project, flows, egl, states)
+    out = []
+    for c in pumps:
+        assert c.control is not None
+        flagged = any(
+            f.code == "PUMP_SETPOINT_NOT_MET" and f.component_id == c.id for f in result.flags
+        )
+        pr = result.pump_results.get(c.id)
+        if pr is None:  # flagged only as a v1 no-flow pump with both sides closed off is
+            no_flow = [  # (TSD §5.4: no result, its PUMP_FLOW_REVERSAL kept)
+                f.details.get("state") == "no_flow"
+                for f in result.flags
+                if f.code == "PUMP_SETPOINT_NOT_MET" and f.component_id == c.id
+            ]
+            reversal = any(
+                f.code == "PUMP_FLOW_REVERSAL" and f.component_id == c.id for f in result.flags
+            )
+            if flagged and not (all(no_flow) and reversal):
+                out.append(f"control {c.id}: no result, PUMP_SETPOINT_NOT_MET but not no_flow")
+            continue
+        ctl = pr.control
+        if ctl is None:
+            out.append(f"control {c.id}: no control in its result")
+            continue
+        st = ctl.state
+        if ctl.mode != c.control.mode or ctl.setpoint != c.control.setpoint:
+            out.append(f"control {c.id}: mode/setpoint {ctl.mode} {ctl.setpoint!r} not as given")
+        if pr.status != CONTROL_STATUS[st]:
+            out.append(f"control {c.id}: status {pr.status} in state {st}")
+        if (c.status == "off") != (st == "off"):
+            out.append(f"control {c.id}: state {st} with the pump {c.status}")
+        q_set, s_min, s_max = c.control.setpoint, c.control.min_speed, c.speed
+        if st == "active":
+            if not s_min <= pr.speed <= s_max:
+                out.append(f"control {c.id}: active at {pr.speed!r} outside [{s_min}, {s_max}]")
+            a, b = f"{c.id}:suction", f"{c.id}:discharge"
+            gain = None
+            if a in egl and b in egl:
+                gain = egl[b] - egl[a]
+            elif a in floating and b in floating and floating[a][0] == floating[b][0]:
+                gain = floating[b][1] - floating[a][1]
+            if gain is not None:
+                residual = el.pump_head(curves[c.curve_id], pr.speed, q_set) - gain
+                if abs(residual) > HTOL * (1.0 + 1e-6) + 1e-9 * max(1.0, abs(gain)):
+                    out.append(f"control {c.id}: speed {pr.speed!r} residual {residual:.3e} m")
+        elif pr.speed != (s_min if st == "min_speed" else s_max):
+            out.append(f"control {c.id}: speed {pr.speed!r} in state {st}")
+        if st == "off":
+            if ctl.setpoint_achieved is not None or flagged:
+                out.append(f"control {c.id}: off with setpointAchieved/flag")
+            continue
+        missed = st != "active" and abs(pr.operating_flow - q_set) > QTOL
+        if flagged != missed:
+            out.append(f"control {c.id}: PUMP_SETPOINT_NOT_MET {flagged} in state {st}")
+        if ctl.setpoint_achieved is not (not missed):
+            out.append(f"control {c.id}: setpointAchieved {ctl.setpoint_achieved} in state {st}")
+    return out
 
 
 def zero_flow_and_floating(

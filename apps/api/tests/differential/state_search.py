@@ -1,31 +1,50 @@
-"""Brute-force search for valid steady states of a network our solver did not converge on.
+"""Brute-force search for valid steady states of a network.
 
 Pin every status element of a network to each combination of states (the first ``LIMIT``, as
 ``fuzz`` searches), solve with our solver, and keep the solutions that pass the independent
 self-check (laws, status rules of the ORIGINAL project, zero-flow and headless-section
-feasibility). ``fuzz`` counts the fully determined ones (every port headed); so does the CLI.
+feasibility). ``fuzz`` runs it on a network our solver did not converge on and counts the fully
+determined ones (every port headed); so does the CLI.
 
-    uv run python -m tests.differential.state_search SEED [--limit N]
+A flow-controlled pump (CLAUDE.md D11) is pinned over its four states (proposal
+vfd-pump-modes.md §7.4): max_speed and min_speed as the fixed-speed pump at that speed,
+no_flow as the pump off, active as the pump with its speed range widened to
+``ACTIVE_SPEEDS`` (the solver then holds the setpoint wherever any speed can; the original
+range is enforced by the check of the original project's rules A1/A2). ``control_search`` pins
+only the flow-controlled pumps, every other element following the solver's rules: ``fuzz``
+runs it on every converged network with one, to find networks with more than one valid state
+(``distinct``).
+
+    uv run python -m tests.differential.state_search SEED [--limit N] [--profile P] [--controls]
 """
 
 import argparse
 import itertools
 import math
+from collections.abc import Collection
 
 from opensolve_pipe.models.components import CheckValve, Component, ControlValve, Pump
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.services.solver import solve_project
 from tests.differential import checks as ck
-from tests.differential.generator import generate
+from tests.differential.generator import DEFAULT, PROFILES, generate
 
 Solution = tuple[dict[str, str], dict[str, float], dict[str, float]]  # (pins, flows, EGL)
 
 LIMIT = 729
 """Combinations searched by default (the first ``LIMIT``), as in ``fuzz``."""
 
+CONTROL_STATES = ("active", "max_speed", "min_speed", "no_flow")
+"""The pinned states of a flow-controlled pump that is on (proposal vfd-pump-modes.md §2.4)."""
+ACTIVE_SPEEDS = (1.0e-3, 1.0)
+"""(minSpeed, speed) of a flow-controlled pump pinned active: the widest range the model
+allows (0 < minSpeed < speed <= 1), a test device, not a pump's data."""
+
 
 def options(c: Component) -> list[str] | None:
     if isinstance(c, Pump) and c.status == "on":
+        if c.control is not None:
+            return list(CONTROL_STATES)
         return ["running", "no_flow"]
     if isinstance(c, CheckValve) and c.status == "active":
         return ["open", "closed"]
@@ -41,7 +60,15 @@ def pinned(project: Project, combo: dict[str, str]) -> Project:
         if st is None:
             comps.append(c)
             continue
-        if isinstance(c, Pump):
+        if isinstance(c, Pump) and c.control is not None and st != "no_flow":
+            if st == "active":
+                lo, hi = ACTIVE_SPEEDS
+                control = c.control.model_copy(update={"min_speed": lo})
+                c = c.model_copy(update={"speed": hi, "control": control})
+            else:  # the fixed-speed pump at that limit
+                speed = c.control.min_speed if st == "min_speed" else c.speed
+                c = c.model_copy(update={"speed": speed, "control": None})
+        elif isinstance(c, Pump):
             c = c.model_copy(update={"status": "off"}) if st == "no_flow" else c
         elif isinstance(c, CheckValve):
             c = c.model_copy(update={"status": "locked_open" if st == "open" else "locked_closed"})
@@ -51,15 +78,28 @@ def pinned(project: Project, combo: dict[str, str]) -> Project:
     return project.model_copy(update={"components": comps})
 
 
+def as_pinned(want: dict[str, str], states: ck.States) -> dict[str, str]:
+    """Our states of a pinned project as the original project sees them: a pump pinned no_flow
+    (off) at no flow, a flow-controlled pump pinned at a speed limit running at that limit."""
+    st = dict(states)
+    for cid, w in want.items():
+        if w == "no_flow" and states.get(cid) == "off":
+            st[cid] = "no_flow"
+        elif w in ("max_speed", "min_speed") and states.get(cid) == "running":
+            st[cid] = w
+    return st
+
+
 def search(
-    project: Project, limit: int = LIMIT
+    project: Project, limit: int = LIMIT, only: Collection[str] | None = None
 ) -> tuple[list[tuple[str, list[str]]], list[Solution]]:
     """(status elements with their options, valid solutions among the first ``limit``
-    combinations)."""
+    combinations). ``only``: pin only these elements, the others following the solver's
+    rules."""
     elems = []
     for c in project.components:
         opts = options(c)
-        if opts:
+        if opts and (only is None or c.id in only):
             elems.append((c.id, opts))
     combos = list(itertools.product(*[o for _, o in elems]))
     valid = []
@@ -70,11 +110,7 @@ def search(
         if not r.converged:
             continue
         f, h, s = ck.ours_solution(pp, r)
-        # states as the original project sees them
-        st = dict(s)
-        for cid, w in want.items():
-            if w == "no_flow" and s.get(cid) == "off":
-                st[cid] = "no_flow"
+        st = as_pinned(want, s)  # states as the original project sees them
         if any(st.get(cid) not in (w, "isolated") for cid, w in want.items()):
             continue  # an 'active' pin that the solver moved
         probs = ck.law_problems(project, f, h, st) + ck.status_problems(project, f, h, st)
@@ -90,6 +126,68 @@ def fully_determined(project: Project, valid: list[Solution]) -> list[Solution]:
     return [sol for sol in valid if set(sol[2]) == ports]
 
 
+def controlled_pumps(project: Project) -> list[str]:
+    """The flow-controlled pumps that are on."""
+    return [
+        c.id
+        for c in project.components
+        if isinstance(c, Pump) and c.control is not None and c.status == "on"
+    ]
+
+
+def control_search(project: Project) -> tuple[list[tuple[str, list[str]]], list[Solution]]:
+    """``search`` over the flow-controlled pumps' states only (at most 4² combinations from the
+    generator), every other element following the solver's rules."""
+    return search(project, limit=LIMIT, only=set(controlled_pumps(project)))
+
+
+def same(project: Project, a: Solution, b: Solution) -> bool:
+    """Two solutions agree: every flow within 0.5 % or 1e-9 m³/s, and every EGL that both
+    give at a port of a connection carrying flow (more than 1e-9 m³/s in either) within 0.5 % or
+    0.01 m (the D6 criteria, ``checks``). Heads at rest are not compared: a pump at zero flow
+    dead-ended at its maximum speed or closed, with the section behind it at rest, is one
+    physical state reported with or without that section's heads (TSD §5.4)."""
+    flows_a, flows_b = a[1], b[1]
+    if any(
+        abs(q - flows_b[k]) > max(ck.RELATIVE * abs(q), ck.FLOW_FLOOR) for k, q in flows_a.items()
+    ):
+        return False
+    for conn in project.connections:
+        if max(abs(flows_a[conn.id]), abs(flows_b[conn.id])) <= ck.FLOW_FLOOR:
+            continue
+        for k in ck.keys(conn):
+            tol = max(ck.RELATIVE * abs(b[2].get(k, 0.0)), ck.HEAD_FLOOR)
+            if k in a[2] and k in b[2] and abs(a[2][k] - b[2][k]) > tol:
+                return False
+    return True
+
+
+def flowing(sol: Solution) -> frozenset[str]:
+    """The connections a solution has flow in (more than 1e-9 m³/s)."""
+    return frozenset(k for k, q in sol[1].items() if abs(q) > ck.FLOW_FLOOR)
+
+
+def multiple(groups: list[Solution]) -> bool:
+    """Whether distinct valid solutions (``distinct``) include two that differ in flowing
+    state: flow in the same connections (in other amounts), or each in a connection the other
+    has at rest. Otherwise each alternative only puts more of the network at rest (a pump held
+    closed with valves closed around it, at heads that keep them all closed: D9)."""
+    return any(
+        not (flowing(a) < flowing(b) or flowing(b) < flowing(a))
+        for a, b in itertools.combinations(groups, 2)
+    )
+
+
+def distinct(project: Project, valid: list[Solution]) -> list[Solution]:
+    """One of each group of valid solutions that agree (``same``): pins of an isolated pump
+    give its section's one solution several times."""
+    out: list[Solution] = []
+    for sol in valid:
+        if not any(same(project, sol, o) for o in out):
+            out.append(sol)
+    return out
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="python -m tests.differential.state_search",
@@ -102,14 +200,24 @@ def main(argv: list[str] | None = None) -> None:
         default=LIMIT,
         help=f"search the first N combinations (default {LIMIT}, as fuzz)",
     )
+    parser.add_argument(
+        "--profile", choices=PROFILES, default=DEFAULT, help="generator profile (default: default)"
+    )
+    parser.add_argument(
+        "--controls",
+        action="store_true",
+        help="pin only the flow-controlled pumps (control_search, as fuzz on converged networks)",
+    )
     args = parser.parse_args(argv)
-    p = generate(args.seed)
-    elems, valid = search(p, limit=args.limit)
+    p = generate(args.seed, args.profile)
+    only = set(controlled_pumps(p)) if args.controls else None
+    elems, valid = search(p, limit=args.limit, only=only)
     full = fully_determined(p, valid)
     n = math.prod(len(o) for _, o in elems)
     print("elements:", elems)
     print(f"combinations: {n}, searched: {min(n, args.limit)}")
     print(f"valid steady states: {len(valid)}, with every port headed: {len(full)}")
+    print(f"distinct valid steady states: {len(distinct(p, valid))}")
     for sol in valid:
         want, f, _ = sol
         mark = "headed" if sol in full else "headless ports"

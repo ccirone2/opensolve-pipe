@@ -51,6 +51,7 @@ from ...models.results import (
     Flag,
     LinkResult,
     NodeResult,
+    PumpControlResult,
     PumpResult,
     ResidualLocation,
     SegmentResult,
@@ -68,7 +69,7 @@ from .labels import fitting_name, pipe_name
 from .methods import methods_summary
 from .network import LinkMode, LinkState, SolverNetwork
 from .npsh import npsh_available
-from .pumps import CURVE_SAMPLES
+from .pumps import CURVE_SAMPLES, operating_speed
 from .status import HTOL, QTOL, HeldStep, OuterLoopResult, Status
 from .trace import TraceInputs, element_traces
 from .version import METHOD_VERSION
@@ -89,6 +90,26 @@ SETPOINT_NOT_MET: dict[tuple[str, str], str] = {
 }
 """Why an active control valve is not holding its setpoint, by type and final state (the
 EPANET 2.2 status rules, design §5.3)."""
+
+RUNNING = (Status.OPEN, Status.ACTIVE, Status.MIN_SPEED)
+"""Pump statuses in which it runs: open (a speed-controlled pump at its maximum speed), active
+(holding its setpoint) and at its minimum speed (CLAUDE.md D11)."""
+
+VALVE_STATES: dict[Status, Literal["open", "closed", "active"]] = {
+    Status.OPEN: "open",
+    Status.CLOSED: "closed",
+    Status.ACTIVE: "active",
+}
+"""A valve's reported state by its solver status (MIN_SPEED is a pump's only)."""
+
+PumpControlState = Literal["active", "max_speed", "min_speed", "no_flow", "off"]
+CONTROL_STATES: dict[Status, PumpControlState] = {
+    Status.ACTIVE: "active",
+    Status.OPEN: "max_speed",
+    Status.MIN_SPEED: "min_speed",
+    Status.CLOSED: "no_flow",
+}
+"""A speed-controlled pump's control state by its solver status (when it is on)."""
 
 
 def dead_end_links(network: SolverNetwork, states: Sequence[LinkState]) -> list[int]:
@@ -542,16 +563,83 @@ class _Mapper:
                 )
             )
 
+    def pump_speed(self, pump: PumpData, status: Status | None, head: float) -> float:
+        """The speed a pump runs at: its set speed (fixed speed), or a speed-controlled pump's
+        solved speed s* (active, from the head across it, ``pumps.operating_speed``), minimum
+        speed, or maximum speed (at maximum speed, no flow, off)."""
+        control = pump.control
+        if control is None:
+            return pump.component.speed
+        if status is Status.MIN_SPEED:
+            return control.min_speed
+        if status is Status.ACTIVE and math.isfinite(head):
+            return operating_speed(
+                pump.curve,
+                control.setpoint,
+                head,
+                control.min_speed,
+                control.max_speed,
+                control.uniqueness.x_mono,
+            ).speed
+        return control.max_speed
+
+    def pump_control_result(
+        self, pump: PumpData, status: Status | None, q: float, s: float
+    ) -> PumpControlResult | None:
+        """A speed-controlled pump's control state, with PUMP_SETPOINT_NOT_MET when it ends at a
+        limit (or with no flow) off its setpoint by more than Qtol; None for a fixed-speed
+        pump."""
+        control = pump.control
+        if control is None:
+            return None
+        comp = pump.component
+        q_set = control.setpoint
+        if comp.status == "off" or status is None:
+            return PumpControlResult(
+                mode="flow", setpoint=q_set, state="off", setpoint_achieved=None
+            )
+        state = CONTROL_STATES[status]
+        achieved = state == "active" or abs(q - q_set) <= QTOL
+        if not achieved:
+            why = {
+                "max_speed": f"runs at its maximum speed {control.max_speed:g} and delivers "
+                f"{q:.6g} m³/s, below its setpoint",
+                "min_speed": f"runs at its minimum speed {control.min_speed:g} and passes "
+                f"{q:.6g} m³/s, above its setpoint",
+                "no_flow": "has no flow: the head across it exceeds its shutoff head at its "
+                f"maximum speed {control.max_speed:g}, so it delivers none of its setpoint",
+            }[state]
+            self.flags.append(
+                make_flag(
+                    "PUMP_SETPOINT_NOT_MET",
+                    "info",
+                    f"pump '{comp.id}' {why} {q_set:.6g} m³/s (flow control)",
+                    component_id=comp.id,
+                    details={
+                        "state": state,
+                        "setpoint": q_set,
+                        "flow": q,
+                        "speed": s,
+                        "minSpeed": control.min_speed,
+                        "maxSpeed": control.max_speed,
+                    },
+                )
+            )
+        return PumpControlResult(
+            mode="flow", setpoint=q_set, state=state, setpoint_achieved=achieved
+        )
+
     def pump_result(self, pump: PumpData) -> PumpResult | None:
         comp = pump.component
-        s = comp.speed
         control = self.outer.controls.get(comp.id)
-        running = control is not None and control.status is Status.OPEN
+        running = control is not None and control.status in RUNNING
         status: Literal["running", "off", "no_flow"] = (
             "off" if comp.status == "off" else "running" if running else "no_flow"
         )
         curve = pump.curve
         h_s, h_d = self.heads_of(pump.suction, pump.discharge)
+        solver_status = control.status if control is not None else None
+        s = self.pump_speed(pump, solver_status, h_d - h_s)
         floating = self.is_floating(pump.suction) and self.is_floating(pump.discharge)
         if (floating and math.isnan(h_s)) or (
             not floating and (self.is_floating(pump.suction) or self.is_floating(pump.discharge))
@@ -573,6 +661,7 @@ class _Mapper:
                         details={"shutoffHead": curve.shutoff_head(s)},
                     )
                 )
+                self.pump_control_result(pump, solver_status, 0.0, s)
             return None  # isolated
         # A pump held at no flow with one side closed off (its discharge by a check valve that
         # the system head keeps shut, or its suction by a closed foot valve) runs dead-headed:
@@ -650,6 +739,7 @@ class _Mapper:
                     details={"headRise": head, "shutoffHead": shutoff},
                 )
             )
+        control_result = self.pump_control_result(pump, solver_status, q, s)
         hydraulic_power = self.rho * self.g * q * head if running else 0.0
         shaft_power = hydraulic_power / efficiency if efficiency is not None else None
         suction_node = self.built.network.nodes[self.built.network.node_index[pump.suction]]
@@ -695,7 +785,7 @@ class _Mapper:
         return PumpResult(
             status=status,
             speed=s,
-            control=None,  # fixed speed; speed control is CLAUDE.md D11
+            control=control_result,
             operating_flow=q,
             operating_head=head,
             in_curve_range=in_range,
@@ -726,7 +816,7 @@ class _Mapper:
             return None  # closed off, or beside a floating section
         floating = self.is_floating(data.inlet)
         control = self.outer.controls[valve.id]
-        state: Literal["open", "closed", "active"] = control.status.value
+        state = VALVE_STATES[control.status]
         q = float(self.flows[data.link_index])
         p_in, p_out = self.static_pressure(data.inlet), self.static_pressure(data.outlet)
         setpoint: float | None = None

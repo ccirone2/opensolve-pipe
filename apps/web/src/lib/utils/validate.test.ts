@@ -5,6 +5,7 @@ import { EXAMPLES } from './examples';
 import { createComponent, createEmptyProject } from './factory';
 import fixtureJson from './__fixtures__/schema-v1.json';
 import {
+	modelRuleIssues,
 	modelRuleProblems,
 	parseProject,
 	projectProblems,
@@ -231,6 +232,35 @@ describe('modelRuleProblems', () => {
 			'Pump curve "C1": efficiency curve flows must be strictly increasing.',
 			'Pump curve "C1": NPSHr curve flows must be strictly increasing.'
 		]);
+	});
+
+	it("checks a speed-controlled pump's minimum speed is below its maximum (x-ordered-fields)", () => {
+		// Made-up control values: the minimum speed equals the maximum, which the API rejects.
+		const project = example((p) => {
+			const pump = p.components[1] as Extract<Component, { type: 'pump' }>;
+			pump.speed = 0.8;
+			pump.control = { mode: 'flow', setpoint: 0.01, minSpeed: 0.8 };
+		});
+		expect(projectProblems(project)).toEqual([
+			'Component "P1": control.minSpeed must be below speed.'
+		]);
+		expect(modelRuleIssues(project)).toEqual([
+			{
+				text: 'Component "P1": control.minSpeed must be below speed.',
+				message: 'The minimum speed of Transfer pump must be below its maximum speed.',
+				componentId: 'P1'
+			}
+		]);
+		// It still opens: the rule is the API's, reported before a solve, not a broken link.
+		expect(parseProject(structuredClone(project))).toEqual(project);
+		const below = example((p) => {
+			(p.components[1] as Extract<Component, { type: 'pump' }>).control = {
+				mode: 'flow',
+				setpoint: 0.01,
+				minSpeed: 0.5
+			};
+		});
+		expect(projectProblems(below)).toEqual([]);
 	});
 
 	it('checks pipe size sources and fitting parameters', () => {

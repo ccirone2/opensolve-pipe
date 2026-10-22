@@ -5,10 +5,11 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import { TopologyError, ValidationError } from '$lib/api/client';
-import type { Project, SolveResponse } from '$lib/api/types';
+import type { Project, Pump, SolveResponse } from '$lib/api/types';
 import { pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import { gravityBranchExample, pumpTransferExample } from '$lib/utils/examples';
+import { IMPERIAL_UNITS } from '$lib/utils/units';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 
 function results() {
@@ -219,6 +220,42 @@ describe('results pane', () => {
 		expect(item).toHaveTextContent(needs);
 		await fireEvent.click(within(item).getByRole('button', { name: 'Transfer pump' }));
 		expect(ws.nav.current?.id).toBe('P1');
+	});
+
+	it('a speed-controlled pump whose curve gives no single speed: named, in display units', async () => {
+		const project = pumpTransferExample();
+		project.settings.units = { ...IMPERIAL_UNITS };
+		(project.components[1] as Pump).control = { mode: 'flow', setpoint: 0.01, minSpeed: 0.4 };
+		const ws = testWorkspace(project, {
+			solver: {
+				solve: () =>
+					Promise.reject(
+						new TopologyError('The network cannot be solved: 1 topology issue(s).', [
+							{
+								code: 'CONTROLLED_PUMP_CURVE',
+								// Wording of the API (solver/builder.py); made-up interval.
+								message:
+									"pump 'P1' is speed-controlled, but its curve 'C1' (x) does not give one speed " +
+									'for each head: the head at a fixed flow, s² H₀(Q/s), does not rise with speed ' +
+									"s where 2 H₀(x) − x H₀'(x) ≤ 0, which holds for rated-speed flows x from " +
+									'0.0125 to 0.0315 m³/s; use a curve whose head falls less steeply there, or a ' +
+									'fixed speed',
+								componentIds: ['P1'],
+								connectionIds: []
+							}
+						])
+					)
+			}
+		});
+		render(WorkspaceView, { workspace: ws });
+		await solve();
+		const section = await results().findByRole('region', {
+			name: 'The network cannot be solved yet'
+		});
+		const item = within(section).getByRole('listitem');
+		expect(item).toHaveTextContent(/^Transfer pump is speed-controlled, but its pump curve/);
+		expect(item).toHaveTextContent(/for rated-speed flows x from 198\.1 to 499\.3 gpm\./);
+		expect(within(section).queryByText(/'P1'|m³\/s/)).toBeNull();
 	});
 
 	it('names open ports in the server issues, and their links open the port', async () => {

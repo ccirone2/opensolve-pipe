@@ -56,7 +56,7 @@ The specs are at v0.2.0 (rebuild baseline) and reflect the decisions below. Item
 - Branching and looped networks
 - Reservoir, ideal reference node, tee, wye, plug/cap
 - Pipes with fittings
-- Fixed-speed pumps (on/off)
+- Fixed-speed pumps (on/off), and speed-controlled pumps holding a flow setpoint (D11, slice 1)
 - Isolation valves (gate, ball, butterfly, globe) and check valves
 - PRV, PSV and FCV
 - Water, ethylene/propylene glycol and user-defined fluids
@@ -64,11 +64,11 @@ The specs are at v0.2.0 (rebuild baseline) and reflect the decisions below. Item
 - Panel navigator, results tables and the pump/system curve chart
 - URL sharing
 
-**Deferred:** VFD and controlled-pressure/controlled-flow pump modes; HI viscosity correction; relief valves; non-ideal reference nodes; cross and elbow-branch fittings; tanks with levels; sprinklers, orifices, heat exchangers, strainers and user-defined elements; fuels in the fluid library; the auto-generated schematic; CSV/XLSX/PNG export; table entry and CSV pump-curve import; design checks; cost estimation.
+**Deferred:** speed-controlled pumps holding a discharge pressure (slice 2) or a differential pressure (slice 3), suction-pressure control, remote control nodes, mass-flow setpoints, overspeed, sleep at low demand, lead/lag stations and reduced-speed efficiency corrections (D11); HI viscosity correction; relief valves; non-ideal reference nodes; cross and elbow-branch fittings; tanks with levels; sprinklers, orifices, heat exchangers, strainers and user-defined elements; fuels in the fluid library; the auto-generated schematic; CSV/XLSX/PNG export; table entry and CSV pump-curve import; design checks; cost estimation.
 
 ### D6. Correctness: reference test suite
 - `apps/api/tests/reference/` holds benchmark cases: Crane TP-410 and textbook worked examples, closed-form hand calculations, and EPANET runs for water-only networks.
-- Pass criteria: flows, heads and pressures within 0.5% of the reference, or 0.01 m of head, whichever is looser. Mass balance must close at every node to the solver tolerance.
+- Pass criteria: flows, heads and pressures within 0.5% of the reference, or 0.01 m of head, whichever is looser. Mass balance must close at every node to the solver tolerance. A speed-controlled pump's speed (D11) must be within 0.5% (relative) of the reference, and the head it implies, s²H₀(Q/s), within 0.01 m of the reference head.
 - Any change to solver or loss-coefficient code must keep the whole suite green. A new component type ships with at least one reference case.
 
 ### D7. Solver formulation (M2)
@@ -95,14 +95,25 @@ The specs are at v0.2.0 (rebuild baseline) and reflect the decisions below. Item
 - Privacy: request bodies are never logged; the access log drops query strings and client addresses; request-validation errors (`VALIDATION_ERROR`) never echo submitted values (SDD §5.1.2), while fluid-range, topology and not-found errors name the value or id at fault so it can be fixed (responses go only to the requester and are never logged). The interactive API docs (`/docs`, `/redoc`) load assets from third-party CDNs, so they are served only with `API_DOCS=1` (development); the schema is always at `/openapi.json`. The web app sends project data (fluid included) only in request bodies: `POST /api/v1/fluids/properties` takes a `FluidDefinition`; the `GET /fluids/{id}/properties?…` form stays for API users, though intermediaries may log its query. *(GOALS §4.5.)*
 - System curves on demand (M7): the 41-point curves of every pump cost a solve per point and break the PRD §4.2 solve times, which a plain solve meets. The web app solves with `includeSystemCurve: false`; the pump chart fetches the curve of the pump being viewed from `POST /api/v1/system-curve`, for the exact project that was solved, one request at a time, cached with that solve and dropped by the next. It shows the loading state, failures and points without a head; a curve is never shown with another solve's results. Every pump's trace defines the system curve (H_sys), and the chart says how the curve shown was computed and links to that trace. *(Usability without trading correctness, GOALS §3.)*
 - Boundaries add no entrance or exit loss unless the connection has an entrance or exit fitting; the methods summary and each reservoir and reference-node trace say so, with the web app's default fittings at reservoirs (sharp entrance, exit). Traces, flags and topology issues number a connection's pipes and fittings from 1, as the app does; data indexes (`pipeIndex`, `segmentIndex`, `fittingIndex`) stay 0-based. *(GOALS §4.2.)*
-- Model rules JSON Schema cannot express are published from the Pydantic models as OpenAPI extensions (`x-port-ids`, `x-port-roles`, `x-port-count`, `x-required-parameters`, `x-reducer-types`, `x-entrance-types`, `x-exit-types`, `x-setpoint-bounds`); the web app reads them, with the schema's bounds, from the generated `openapi.json` (`utils/model-rules.ts`) instead of copying them, and an API test fails while that copy is stale.
+- Model rules JSON Schema cannot express are published from the Pydantic models as OpenAPI extensions (`x-port-ids`, `x-port-roles`, `x-port-count`, `x-required-parameters`, `x-reducer-types`, `x-entrance-types`, `x-exit-types`, `x-setpoint-bounds`, `x-ordered-fields`); the web app reads them, with the schema's bounds, from the generated `openapi.json` (`utils/model-rules.ts`) instead of copying them, and an API test fails while that copy is stale.
 - Topology problems are 422 with every issue listed; validation and fluid-range errors 400; all errors share one envelope.
+
+### D11. Speed-controlled pumps (VFD), slice 1: flow setpoint
+Design and owner's answers: `docs/proposals/vfd-pump-modes.md`.
+- **Model.** `Pump.control = {mode: "flow", setpoint, minSpeed}`; omitted means fixed speed. The setpoint is the volumetric flow through the pump, suction → discharge, 0 < Q_set ≤ 100 m³/s. For a controlled pump `speed` is the maximum speed (≤ 1). `minSpeed` is required, with no default, and `minSpeed < speed` is a model rule (400) published as `x-ordered-fields`. *(GOALS §4.1: no tool or paper cites a default minimum speed; §4.2: the field's meaning is stated, not inferred.)*
+- **Solve.** While the speed that holds Q_set lies in [minSpeed, speed], the pump is a fixed-flow link (EPANET 2.2's "pump of a specific flow": a demand at the suction, a supply at the discharge), and its speed is recovered afterwards as the unique root of s²H₀(Q_set/s) = EGL_d − EGL_s by Brent's method. This is exact: the speed enters only the pump's own head equation. *(GOALS §4.1: exact, and checkable in closed form and by EPANET.)*
+- **Uniqueness.** A controlled pump's curve must have ψ = 2H₀ − xH₀′ > 0 on [0, x_last], checked exactly on the PCHIP pieces; otherwise `CONTROLLED_PUMP_CURVE` (422). Drooping curves that pass are accepted. *(GOALS §3: a speed that is not unique would be an arbitrary answer.)*
+- **Limits.** Above the range the pump runs as the fixed-speed pump at `speed` (the link's own law, bit-identical), below it at `minSpeed` (a per-solve `LinkState.law` override), and it keeps running at low demand (no sleep). The setpoint is then not held: `PUMP_SETPOINT_NOT_MET` (info). At zero flow it closes and re-opens as the fixed-speed pump at `speed`. *(GOALS §4.6: a pump at a limit is a valid state, flagged as information.)*
+- **Status rules.** A0 (starved → maximum speed), A1/A2 (Htol band on F(s_max, Q_set) and F(s_min, Q_set)), X1/N1 (back to regulating once the flow reaches the setpoint, EPANET 2.2 fcvstatus), X2/N2/C1 (EPANET 2.2 pumpstatus at the limit speed). They compare flows and head differences only, so the closed-off and floating-section logic applies unchanged; the fallbacks add a minimum-speed step between open and closed, and valve-only networks keep the v1 option sequence. Two flow controls in series holding the same flow (equal setpoints, the pressure between them undetermined) are reported as not converged, naming them. No new tolerance: Htol and Qtol. *(GOALS §3: correctness over convergence.)*
+- **Results and traces.** `PumpResult.speed` is the speed the pump runs at, and curve, range, efficiency (plain affinity, η₀(Q/s), no Sârbu–Borza correction), NPSHr and power are at that speed; `PumpResult.control` gives the mode, setpoint, state (active, max_speed, min_speed, no_flow, off) and whether the setpoint is achieved. The trace states the inequality that set the state, the speed root and its residual, s_lo, x_mono and the uniqueness margin; the methods summary describes speed control only when a project uses it. *(GOALS §4.2.)*
+- **System curves.** The viewed pump's control is replaced by the fixed flow (H_sys as for any pump); other controlled pumps keep regulating, and warm starts carry their statuses; the default range uses `speed` (the maximum). *(GOALS §4.2: one definition of H_sys.)*
+- **Versions.** `schemaVersion` stays 1 (nothing deployed before slice 1); `METHOD_VERSION` 1.1.0, whose changelog says results without speed control are unchanged, proven by the corpus comparison (TSD §10.4) ignoring only `pumpResults.*.control` and `methodVersion`. *(GOALS §4.3: a controlled-pump result names a method version that has speed control.)*
 
 ---
 
 ## Spec notes
 
-The specs reflect D1–D10; TSD §12 lists the decided implementation questions and the open (Later) ones.
+The specs reflect D1–D11; TSD §12 lists the decided implementation questions and the open (Later) ones.
 
 - **EPANET comparisons (TSD §5.2, §10.1):** EPANET's friction formula (Swamee–Jain) differs from exact Colebrook by up to 3.0% in f (measured), so EPANET reference tests run the solver with `frictionMethod = "swamee_jain"`.
 
@@ -130,7 +141,7 @@ Add directories when the code that needs them lands; don't scaffold empty ones.
 | Python quality | ruff (lint + format), mypy (strict on `opensolve_pipe`), pytest |
 | Frontend | SvelteKit 2 / Svelte 5 runes, TypeScript, Tailwind, **pnpm** |
 | Frontend quality | ESLint, Prettier, `svelte-check`, Vitest, Playwright |
-| Infra | None until needed: no Turborepo, Docker, Postgres or Redis in v1 |
+| Infra | None until needed: no Turborepo, Postgres or Redis in v1; Docker only for the API's Cloud Run image (`apps/api/Dockerfile`, TSD §11.2) |
 
 Commands, once the apps exist:
 

@@ -98,7 +98,7 @@ v1 is the core analysis MVP. Everything else in this document is **Later**. The 
 - Branching and looped networks
 - Reservoirs, ideal reference nodes, tees, wyes, plugs/caps
 - Pipes with inline fittings
-- Fixed-speed pumps (running/off)
+- Fixed-speed pumps (running/off), and speed-controlled (VFD) pumps holding a flow setpoint (§3.1.2.1; CLAUDE.md D11, slice 1)
 - Isolation valves (gate, ball, butterfly, globe), check and stop-check valves
 - PRV, PSV, FCV
 - Water, ethylene/propylene glycol solutions, user-defined fluids
@@ -106,7 +106,7 @@ v1 is the core analysis MVP. Everything else in this document is **Later**. The 
 - Panel navigator, results tables, pump/system curve chart
 - Sharing by link (§4.4)
 
-**Later:** VFD and controlled pump modes; HI viscosity correction; pressure relief valves; non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, heat exchangers, strainers, user-defined elements; fuels in the fluid library; auto-generated schematic; CSV/XLSX/image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
+**Later:** VFD pressure and differential-pressure control modes (D11 slices 2-3); HI viscosity correction; pressure relief valves; non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, heat exchangers, strainers, user-defined elements; fuels in the fluid library; auto-generated schematic; CSV/XLSX/image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
 
 ### 2.4 Future Features (Planned)
 
@@ -172,9 +172,11 @@ Pumps support multiple operating modes to model real-world control strategies:
 | -------------------- | ----------------------------------------------------------- | --------------------------- | ------- |
 | Fixed Speed          | Pump operates at defined speed ratio (1.0 = full speed)     | Speed ratio (0.0-1.0)       | v1      |
 | Off                  | Pump is not running; treated as closed valve or check valve | Status = off                | v1      |
-| Variable Speed (VFD) | Speed adjusts to maintain setpoint                          | Control variable + setpoint | Later   |
-| Controlled Pressure  | VFD maintains constant discharge or differential pressure   | Pressure setpoint           | Later   |
-| Controlled Flow      | VFD maintains constant flow rate                            | Flow setpoint               | Later   |
+| Variable Speed (VFD) | Speed adjusts to maintain setpoint (the two modes below)    | Control variable + setpoint | Flow: v1 (D11); pressure: Later |
+| Controlled Pressure  | VFD maintains constant discharge or differential pressure   | Pressure setpoint           | Later (D11 slices 2-3) |
+| Controlled Flow      | VFD maintains constant flow rate through the pump           | Flow setpoint and minimum speed (required, no default); the speed ratio is the maximum speed | v1 (D11, slice 1) |
+
+**Controlled Flow (CLAUDE.md D11; design in `docs/proposals/vfd-pump-modes.md`):** the drive varies the speed between the minimum speed and the pump's speed ratio (its maximum, at most 1.0) to hold the volumetric flow through the pump, suction to discharge. The solved speed is reported. Where the setpoint needs a speed above the maximum, the pump runs as a fixed-speed pump at the maximum and delivers less; where the system drives more than the setpoint even at the minimum speed, it runs at the minimum speed and passes more (it does not stop at low demand). Either way the result says the setpoint is not met (an information flag). Efficiency at reduced speed follows the plain affinity law, η₀(Q/s). A pump curve along which the speed holding a flow would not be unique is rejected with a topology issue; two flow controls in series with equal setpoints, where both could hold that flow, are reported as not converged, since the pressure between them is undetermined (where one cannot, the state is unique and is solved).
 
 **Viscosity Correction (Later):**
 For fluids more viscous than water, pump performance is corrected using the Hydraulic Institute method (ANSI/HI 9.6.7). Correction factors are applied to:
@@ -287,7 +289,9 @@ For each pump:
 - Efficiency and power consumption (when an efficiency curve is provided)
 - NPSH available
 - NPSH margin (when NPSH required is provided)
-- Later: actual speed when VFD-controlled; viscosity-corrected performance
+- Speed: the set speed ratio, or a speed-controlled pump's solved speed or the limit speed it runs at (D11)
+- Speed control (when VFD-controlled): mode, setpoint, state (holding the setpoint, at maximum speed, at minimum speed, no flow, off) and whether the setpoint is achieved
+- Later: viscosity-corrected performance
 
 For each control valve:
 

@@ -10,13 +10,18 @@ A case file ``cases/<name>.json`` holds::
                   "atmosphericPressure": Pa absolute,                      # optional
                   "pumps": {pumpId: {"status", "operatingFlow"?, "operatingHead"?,
                                      "npshAvailable"?, "npshRequired"?,
-                                     "npshMargin"?}},                      # optional
+                                     "npshMargin"?, "speed"?,
+                                     "controlState"?}},                    # optional
                   "valves": {valveId: {"state"}},                          # optional
                   "flags": [{"code", "componentId"?, "connectionId"?}],   # optional
                   "stepHolds": {branchId: {"step", "splitA", "splitB"}}}}  # optional
 
 ``vaporPressure`` may be null (the property source has none). Every pump and valve of a case
 has an expected status or state: the self-checks evaluate each element's law in that state.
+A speed-controlled pump (``control`` set, CLAUDE.md D11) also has its ``controlState``
+('active', 'max_speed', 'min_speed', 'no_flow' or 'off', proposal vfd-pump-modes.md §2.4) and
+the ``speed`` it runs at: the solved speed when active, else the limit (``speed``, its maximum,
+or ``control.minSpeed``).
 Ports in an isolated section (no fixed head reachable through open elements) have no expected
 EGL, as the solver reports them without a head (design §4). ``stepHolds`` names a Crane branch
 whose K is held across a correlation step (design §5.4) at the mean of the fluids values at
@@ -43,6 +48,7 @@ from opensolve_pipe.models.components import (
     IsolationValve,
     Plug,
     Pump,
+    PumpControl,
     Reservoir,
     TeeBranch,
     WyeBranch,
@@ -269,6 +275,12 @@ def pump_curve(
     )
 
 
+def flow_control(setpoint: float, min_speed: float) -> PumpControl:
+    """Speed control holding the pump's own flow (CLAUDE.md D11, slice 1): setpoint m³/s,
+    suction → discharge; the speed stays within [min_speed, the pump's speed]."""
+    return PumpControl(mode="flow", setpoint=setpoint, min_speed=min_speed)
+
+
 def pump(
     cid: str,
     elevation: float,
@@ -276,8 +288,10 @@ def pump(
     *,
     speed: float = 1.0,
     status: Literal["on", "off"] = "on",
+    control: PumpControl | None = None,
     nominal_size: float = 0.1016,
 ) -> Pump:
+    """A pump; with ``control`` a speed-controlled pump whose ``speed`` is its maximum."""
     return Pump(
         type="pump",
         id=cid,
@@ -286,6 +300,7 @@ def pump(
         curve_id=curve_id,
         speed=speed,
         status=status,
+        control=control,
         ports=[Port(id=p, nominal_size=nominal_size) for p in ("suction", "discharge")],
     )
 

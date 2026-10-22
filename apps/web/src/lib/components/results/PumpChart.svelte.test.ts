@@ -272,6 +272,72 @@ describe('pump chart', () => {
 		).toBeInTheDocument();
 	});
 
+	it('labels a speed-controlled pump at the speed it was solved to run at, and its state', async () => {
+		withCanvas();
+		const control = (state: 'active' | 'max_speed' | 'min_speed' | 'off') =>
+			({ mode: 'flow', setpoint: 0.02, state, setpointAchieved: state === 'active' }) as const;
+		const view = render(PumpChart, {
+			result: pumpResult({ speed: 0.873214, control: control('active') }),
+			name: 'Transfer pump',
+			prefs: SI_UNITS,
+			ratedRange: [0, 0.03]
+		});
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		const label = (i: number) => (charts[i]!.config as Recorded).data.datasets[0]!.label;
+		expect(label(0)).toBe('Pump curve at 87.32 % speed (flow control)');
+		expect(screen.getByRole('img')).toHaveAccessibleName(
+			/^Pump curve of Transfer pump at 87\.32 % speed \(flow control\); operating point/
+		);
+		// The curve's data range at that speed (the affinity law the solver applies).
+		await fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
+		expect(
+			screen.getByRole('table', { name: 'Pump curve at 87.32 % speed (flow control)' })
+		).toBeInTheDocument();
+
+		await view.rerender({ result: pumpResult({ speed: 0.9, control: control('max_speed') }) });
+		await vi.waitFor(() => expect(charts).toHaveLength(2));
+		expect(label(1)).toBe('Pump curve at 90 % speed (flow control, at maximum speed)');
+		await view.rerender({ result: pumpResult({ speed: 0.4, control: control('min_speed') }) });
+		await vi.waitFor(() => expect(charts).toHaveLength(3));
+		expect(label(2)).toBe('Pump curve at 40 % speed (flow control, at minimum speed)');
+
+		await view.rerender({
+			result: pumpResult({ status: 'off', speed: 0.9, operatingFlow: 0, control: control('off') })
+		});
+		expect(
+			screen.getByText(
+				'This pump is off: it carries no flow. Its curve is shown at its maximum speed, for reference; its flow control is not applied.'
+			)
+		).toBeInTheDocument();
+		expect(screen.getByRole('img')).toHaveAccessibleName(/at its maximum speed \(90 %\)/);
+	});
+
+	it("says a speed-controlled pump's own control is replaced in its system curve", async () => {
+		withCanvas();
+		const control = {
+			mode: 'flow',
+			setpoint: 0.02,
+			state: 'active',
+			setpointAchieved: true
+		} as const;
+		const view = render(PumpChart, {
+			result: pumpResult({ speed: 0.95, control }),
+			name: 'Transfer pump',
+			prefs: SI_UNITS,
+			system: READY
+		});
+		expect(screen.getByText(/^System curve: /)).toHaveTextContent(
+			'replaced by each of 4 evenly spaced flows from 0 to 30 L/s (its flow control replaced by ' +
+				'that fixed flow; other pumps running, valves following their rules)'
+		);
+		// Other speed-controlled pumps keep regulating at each point.
+		await view.rerender({ result: pumpResult(), othersControlled: true });
+		expect(screen.getByText(/^System curve: /)).toHaveTextContent(
+			'(other pumps running, speed-controlled ones regulating to their setpoints, valves ' +
+				'following their rules)'
+		);
+	});
+
 	it('replaces the chart when the result changes and destroys it on unmount', async () => {
 		withCanvas();
 		const view = render(PumpChart, { result: pumpResult(), name: 'P', prefs: SI_UNITS });

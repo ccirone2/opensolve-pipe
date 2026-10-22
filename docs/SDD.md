@@ -334,7 +334,8 @@ POST /api/v1/system-curve
 - Real fluid density, viscosity and vapor pressure
 - Check, stop-check, PRV, PSV and FCV as components with status logic
 - NPSH available at every pump suction
-- Later: VFD setpoint control, pressure relief valves, non-ideal reference nodes
+- Speed-controlled (VFD) pumps holding a flow setpoint (§4.8, CLAUDE.md D11)
+- Later: VFD pressure and differential-pressure control, pressure relief valves, non-ideal reference nodes
 
 Preconditions checked before solving (topology errors): at least one fixed-pressure boundary (reservoir or ideal reference node) per connected sub-network; every port connected or explicitly plugged; no connection between incompatible ports.
 
@@ -613,10 +614,18 @@ Every port of a reservoir sees the same energy grade line, `z + liquidLevel + su
 interface Pump extends BaseComponent {
   type: 'pump';
   curveId: string;               // key into project.pumpLibrary
-  speed: number;                 // fraction of the curve's rated speed, 0 < s ≤ 1, fixed in v1
+  speed: number;                 // fraction of the curve's rated speed, 0 < s ≤ 1; a
+                                 // speed-controlled pump's maximum speed
   status: 'on' | 'off';          // off = closed; a running pump never passes reverse flow
+  control?: PumpControl;         // speed control (VFD, CLAUDE.md D11); omitted = fixed speed
   ports: [ {id: 'suction'}, {id: 'discharge'} ];
-  // Later: controlMode ('fixed' | 'pressure' | 'flow'), setpoint, viscosityCorrection
+  // Later: pressure and differential-pressure control modes, viscosityCorrection
+}
+
+interface PumpControl {
+  mode: 'flow';                  // required; slices 2-3 add pressure modes
+  setpoint: number;              // m³/s through the pump, suction -> discharge, 0 < Q ≤ 100
+  minSpeed: number;              // lowest speed, 0 < minSpeed < speed (x-ordered-fields); no default
 }
 
 interface PumpCurve {
@@ -629,6 +638,8 @@ interface PumpCurve {
   npshrCurve?: FlowNpshrPoint[];              // m³/s, m
 }
 ```
+
+**Speed-controlled pump (flow setpoint, CLAUDE.md D11; design: `docs/proposals/vfd-pump-modes.md`).** The drive varies the speed s within [minSpeed, speed] to hold Q_set. While it can, the pump is a fixed-flow link in the network solve and s is the unique root of s² H₀(Q_set/s) = EGL_d − EGL_s; above the range it runs as the fixed-speed pump at `speed`, below it at `minSpeed` (it keeps running), and at zero flow it closes and re-opens as the fixed-speed pump at `speed`. The rules are those of TSD §5 (A0–C1). A controlled pump's curve must have 2H₀(x) − xH₀′(x) > 0 for 0 ≤ x ≤ its largest point flow, so that the speed is unique; otherwise the project has the topology issue `CONTROLLED_PUMP_CURVE` (422). `minSpeed < speed` is a model rule (400), published as the `x-ordered-fields` extension. Results (§4.10): `PumpResult.speed` is the speed the pump runs at (solved, or the limit), its curve, range, efficiency η₀(Q/s), NPSHr and power are at that speed, and `PumpResult.control` = {mode, setpoint, state: 'active' | 'max_speed' | 'min_speed' | 'no_flow' | 'off', setpointAchieved} (null for a fixed-speed pump). At a limit or with no flow and off its setpoint by more than Qtol, the pump is flagged `PUMP_SETPOINT_NOT_MET` (info). A system curve replaces the viewed pump's control by the fixed flow; other controlled pumps keep regulating; the default range uses `speed`.
 
 ### 4.9 Valve Models
 
@@ -699,10 +710,13 @@ interface LinkResult { flow; velocity; headLoss /* EGL(from) − EGL(to) */; fri
 interface SegmentResult { index; innerDiameter; length; roughness; velocity; reynoldsNumber;
                           frictionFactor; flowRegime: 'none' | 'laminar' | 'transitional' | 'turbulent'; headLoss }
 interface FittingResult { index; type; quantity; k /* one fitting */; referenceDiameter; headLoss; source }
-interface PumpResult { status: 'running' | 'off' | 'no_flow'; speed; operatingFlow; operatingHead /* EGL rise */;
+interface PumpResult { status: 'running' | 'off' | 'no_flow'; speed /* the speed it runs at: set, solved or limit */;
+                       control: PumpControlResult | null /* null: fixed speed (§4.8) */; operatingFlow; operatingHead /* EGL rise */;
                        inCurveRange; hydraulicPower; efficiency | null; shaftPower | null;
                        npshAvailable | null; npshRequired | null; npshMargin | null; suctionAbsolutePressure | null;
                        curve: CurvePoint[] /* at speed */; systemCurve: CurvePoint[] | null }
+interface PumpControlResult { mode: 'flow'; setpoint /* m³/s */;
+                              state: 'active' | 'max_speed' | 'min_speed' | 'no_flow' | 'off'; setpointAchieved: boolean | null }
 interface ValveResult { valveType; state: 'open' | 'closed' | 'active'; flow; headLoss; pressureDrop; kOpen;
                         referenceDiameter /* inlet pipe */; kEffective | null; cvEffective | null;
                         setpoint | null; setpointAchieved | null }
@@ -716,7 +730,7 @@ Elements in a section closed off from every fixed-pressure boundary carry no flo
 
 A section that no fixed-pressure boundary reaches but that cannot sit at zero flow (a pump loop behind a closed valve) carries a determined flow at an undetermined pressure level: its connection, pump, valve and branch results are reported (flows, head losses, pump head and power), its ports are absent from `nodeResults`, `PumpResult.npshAvailable` and `suctionAbsolutePressure` are null, a PRV/PSV there has `setpointAchieved: null`, and an element between it and another head has no result. It is flagged `UNDETERMINED_PRESSURE` (`details.componentIds`).
 
-**System curve** (`PumpResult.systemCurve`, filled for every running pump when `SolveOptions.includeSystemCurve`): `systemCurvePoints` flows from 0 to 1.2 × the curve's largest flow × s; at each, the pump is replaced by that fixed flow and the network solved (other pumps keep running, valves follow their rules); head = EGL(discharge) − EGL(suction). Points whose solve does not converge are left out (`POST /system-curve` reports them, §5.1). The web app solves without it and fetches one pump's curve from `POST /system-curve` when its chart is shown (§3.1.3, D10).
+**System curve** (`PumpResult.systemCurve`, filled for every running pump when `SolveOptions.includeSystemCurve`): `systemCurvePoints` flows from 0 to 1.2 × the curve's largest flow × s; at each, the pump is replaced by that fixed flow, whatever its own speed control, and the network solved (other pumps keep running, other speed-controlled pumps keep regulating, valves follow their rules); head = EGL(discharge) − EGL(suction). For a speed-controlled pump s is its `speed`, the maximum speed (§4.8). Points whose solve does not converge are left out (`POST /system-curve` reports them, §5.1). The web app solves without it and fetches one pump's curve from `POST /system-curve` when its chart is shown (§3.1.3, D10).
 
 **Flags** (GOALS §4.6, on by default) — `Flag {code, severity, message, componentId, connectionId, portId, details}`. A message names a connection's pipes and fittings as the app numbers them, from 1 ("connection 'L1' pipe 2: …", "fitting 1 (bend)"); `details.segmentIndex` and `details.fittingIndex` are 0-based indexes into `piping.pipes` and `piping.fittings`. Each code has one severity:
 
@@ -724,7 +738,7 @@ A section that no fixed-pressure boundary reaches but that cannot sit at zero fl
 |---|---|
 | `invalid` (physically invalid) | `NOT_CONVERGED` (network-wide; `details.componentIds` names oscillating elements), `CAVITATION`, `BELOW_VAPOR_PRESSURE`, `PUMP_FLOW_REVERSAL`, `UNSUPPORTED_FLOW_PATTERN`, `PORT_ABOVE_LIQUID_LEVEL` |
 | `warning` (unreliable or incomplete) | `CORRELATION_OUT_OF_RANGE` (friction ranges, Crane K in laminar flow, tee/wye ranges, table limits), `PUMP_OUTSIDE_CURVE` (`details.curve`: head, efficiency or npshr), `TRANSITIONAL_FLOW`, `TEE_PATTERN_FALLBACK`, `UNDETERMINED_PRESSURE` (on the pump or FCV driving the flow; `details.componentIds`: the section), `NPSH_NOT_CHECKED` (a running pump with an NPSHr curve whose NPSH available cannot be computed because the fluid has no vapor pressure: cavitation is not checked) |
-| `info` (state) | `NO_VAPOR_PRESSURE` (network-wide), `CHECK_VALVE_CLOSED`, `CONTROL_VALVE_SETPOINT_NOT_MET`, `ISOLATED_SECTION` (`details.componentIds`) |
+| `info` (state) | `NO_VAPOR_PRESSURE` (network-wide), `CHECK_VALVE_CLOSED`, `CONTROL_VALVE_SETPOINT_NOT_MET`, `PUMP_SETPOINT_NOT_MET` (a speed-controlled pump at a speed limit or with no flow, off its setpoint; `details`: state, setpoint, flow, speed, minSpeed, maxSpeed), `ISOLATED_SECTION` (`details.componentIds`) |
 
 Every other flag names exactly one component (and port, where it applies) or one connection.
 

@@ -31,7 +31,8 @@ def solve_project(project: Project, options: SolveOptions | None = None) -> Solv
     """Solve a project. With ``options.include_system_curve`` (the API default; None here
     means no options), every running pump's result also carries its system curve
     (design §13): ``options.system_curve_points`` flows from 0 to 1.2 × its curve's largest
-    flow × its speed, the points whose solve converged."""
+    flow × its speed (a speed-controlled pump's maximum speed), the points whose solve
+    converged."""
     fluid = fluid_properties(project.fluid)
     built = build_network(project, fluid)
     p_atm, p_atm_source = atmospheric_pressure(project)
@@ -72,12 +73,13 @@ def solve_project(project: Project, options: SolveOptions | None = None) -> Solv
         pumps[pid] = pumps[pid].model_copy(update={"system_curve": curve})
         trace = traces[pid]
         # The pump's trace defines the curve in any case (trace.SYSTEM_CURVE_EQUATION).
+        speed = "s_max" if curve_net.pumps[pid].control is not None else "s"
         traces[pid] = trace.model_copy(
             update={
                 "notes": [
                     *trace.notes,
                     f"System curve: {len(curve)} of {count} flows from 0 to {upper:.6g} m³/s "
-                    "(1.2 × the curve's largest flow × s) solved, each starting from the "
+                    f"(1.2 × the curve's largest flow × {speed}) solved, each starting from the "
                     f"solution at the neighbouring flow (the first from this solve){missing}.",
                 ],
             }

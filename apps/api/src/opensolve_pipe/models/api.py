@@ -17,7 +17,8 @@ class SolveOptions(CamelModel):
         default=True,
         description=(
             "Fill pumpResults[id].systemCurve for every running pump: the head the pump would "
-            "have to add at each flow, from 0 to 1.2 x its curve's largest flow x its speed"
+            "have to add at each flow, from 0 to 1.2 x its curve's largest flow x its speed (a "
+            "speed-controlled pump's maximum speed)"
         ),
     )
     system_curve_points: int = Field(
@@ -81,7 +82,10 @@ class SystemCurveRequest(CamelModel):
         default=None,
         gt=0,
         le=100.0,
-        description="m³/s; default 1.2 x the curve's largest flow x the pump's speed ratio",
+        description=(
+            "m³/s; default 1.2 x the curve's largest flow x the pump's speed ratio (a "
+            "speed-controlled pump's maximum speed)"
+        ),
     )
     num_points: int = Field(default=41, ge=5, le=201)
 

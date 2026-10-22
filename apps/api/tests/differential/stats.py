@@ -6,7 +6,10 @@ DIR is a ``fuzz --out`` directory (or its ``results`` subdirectory). Prints the 
 the elements covered, and, over the networks that agree with EPANET, the comparisons per metric
 and element kind with the largest |Δ|/tolerance (and the seed where it occurs), the largest
 relative difference and the largest absolute head difference. Ties keep the lowest seed;
-classes with equal counts are listed by name.
+classes with equal counts are listed by name. With flow-controlled pumps (profile
+'flow_control') it also counts their final states (ours, in every record) and the networks with
+more than one distinct valid solution over those states (``control_search``): differing in
+flowing state (``multiple``), or alternatives that only put more of the network at rest.
 """
 
 import argparse
@@ -50,9 +53,9 @@ def report(res: dict[int, dict[str, Any]]) -> list[str]:
             if d / t > a["ratio"]:
                 a["ratio"] = d / t
                 a["where"] = s
-            if m == "flow" and abs(ref) > 1e-5:
+            if m in ("flow", "speed") and abs(ref) > 1e-5:
                 a["rel"] = max(a["rel"], d / abs(ref))
-            if m in ("egl", "headloss"):
+            if m in ("egl", "headloss", "speed_head"):
                 a["abs"] = max(a["abs"], d)
                 if abs(ref) > 1.0:
                     a["rel"] = max(a["rel"], d / abs(ref))
@@ -66,9 +69,33 @@ def report(res: dict[int, dict[str, Any]]) -> list[str]:
             f"{m:9s} {k:22s} {a['n']:7d} {a['ratio']:11.3f} {a['rel']:10.2e} {a['abs']:10.2e}"
             f" {a['where']}"
         )
+    lines += control_report(res)
     critical = sorted(s for s, r in res.items() if is_critical(r))
     lines.append(f"critical (converged, fails the independent checks): {len(critical)} {critical}")
     return lines
+
+
+def control_report(res: dict[int, dict[str, Any]]) -> list[str]:
+    """Flow-controlled pump states and multiple valid states; [] when the run has none."""
+    states = collections.Counter(
+        r["states_o"][pid] for r in res.values() for pid in r.get("controlled", [])
+    )
+    searched = [s for s, r in res.items() if "control_search" in r]
+    if not states and not searched:
+        return []
+    multiple = sorted(s for s in searched if res[s]["control_search"]["multiple"])
+    rest = sorted(
+        s
+        for s in searched
+        if not res[s]["control_search"]["multiple"]
+        and len(res[s]["control_search"]["distinct"]) > 1
+    )
+    return [
+        f"flow-controlled pump states (ours): {dict(sorted(states.items()))}",
+        f"networks searched over their controlled pumps' states: {len(searched)}; distinct valid"
+        f" solutions that differ in flowing state: {len(multiple)} {multiple}; valid"
+        f" alternatives that only put more at rest: {len(rest)} {rest[:20]}",
+    ]
 
 
 def main(argv: list[str] | None = None) -> None:

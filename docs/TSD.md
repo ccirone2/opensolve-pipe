@@ -92,9 +92,9 @@ v1 has no database (D3). When accounts, short links and version history arrive:
 
 | Component | Technology |
 |-----------|------------|
-| Frontend Hosting | Vercel or Cloudflare Pages |
-| Backend Hosting | Railway, Fly.io, or AWS Lambda |
-| CDN | Cloudflare |
+| Frontend Hosting | Cloudflare Pages, static (§11.1; chosen 2026-10-22) |
+| Backend Hosting | Google Cloud Run, one container image (§11.2; chosen 2026-10-22) |
+| CDN | Cloudflare (Pages' own) |
 
 ---
 
@@ -631,7 +631,7 @@ A committed fixture link is never regenerated, even together with its JSON. If t
 
 One solver handles every topology (D1). Code: `apps/api/src/opensolve_pipe/services/solver/`; entry point `solve_project(project, options) -> SolvedState`.
 
-1. **Validate topology** (`builder.py`): every problem is collected and raised together as `TopologyError(issues)` (HTTP 422): `DUPLICATE_COMPONENT_ID`, `DUPLICATE_CONNECTION_ID`, `DUPLICATE_ID` (an id naming both a component and a connection: results, traces and flags share one id space), `DUPLICATE_PUMP_CURVE_ID`, `UNKNOWN_COMPONENT`, `UNKNOWN_PORT`, `UNKNOWN_PUMP_CURVE`, `UNKNOWN_PIPE_MATERIAL`, `UNKNOWN_PIPE_SCHEDULE`, `UNKNOWN_PIPE_SIZE`, `ROUGHNESS_OUT_OF_RANGE`, `PIPE_SIZE_OUT_OF_RANGE` (a pipe whose resistance coefficients are not finite floating-point numbers, e.g. an inner diameter of 1e-100 m), `SELF_CONNECTION`, `PORT_CONNECTED_TWICE`, `UNCONNECTED_PORT` ("connect it or add a plug") and `NO_FIXED_HEAD` (a connected sub-network without a reservoir or reference node; also an empty project).
+1. **Validate topology** (`builder.py`): every problem is collected and raised together as `TopologyError(issues)` (HTTP 422): `DUPLICATE_COMPONENT_ID`, `DUPLICATE_CONNECTION_ID`, `DUPLICATE_ID` (an id naming both a component and a connection: results, traces and flags share one id space), `DUPLICATE_PUMP_CURVE_ID`, `UNKNOWN_COMPONENT`, `UNKNOWN_PORT`, `UNKNOWN_PUMP_CURVE`, `UNKNOWN_PIPE_MATERIAL`, `UNKNOWN_PIPE_SCHEDULE`, `UNKNOWN_PIPE_SIZE`, `ROUGHNESS_OUT_OF_RANGE`, `PIPE_SIZE_OUT_OF_RANGE` (a pipe whose resistance coefficients are not finite floating-point numbers, e.g. an inner diameter of 1e-100 m), `SELF_CONNECTION`, `PORT_CONNECTED_TWICE`, `UNCONNECTED_PORT` ("connect it or add a plug"), `NO_FIXED_HEAD` (a connected sub-network without a reservoir or reference node; also an empty project) and `CONTROLLED_PUMP_CURVE` (a speed-controlled pump whose curve does not give one speed per head, §5.4).
 2. **Build the solver network** (`builder.py`, `network.py`): one node per component port at the port's effective elevation; one link per `PipeConnection` (its segments in series and its fittings); one link per pump and valve between its port nodes; a branch component adds a center node and three legs (center → port).
 3. **Fixed heads:** reservoir ports get H = z + liquidLevel + surfacePressure/(ρg); ideal reference nodes get H = z_port + p/(ρg) (a body of liquid at rest at that pressure).
 4. **Solve** with the GGA inner loop (§5.2) inside the outer loop for statuses and branch losses (§5.4).
@@ -662,6 +662,7 @@ Every link supplies h(Q) and dh/dQ, with h positive in the direction of positive
 |---------|------|-------|
 | Pipe connection | Σ f·(L/D)·v\|v\|/(2g) + Σ K·v\|v\|/(2g) | §5.2; fittings §4.5 |
 | Pump (on) | −s²·H₀(Q/s) | `pumps.py`: H₀ is a monotone piecewise cubic (`scipy.interpolate.PchipInterpolator`) through the user's points; beyond them, a straight line with the end slope; affinity laws at speed ratio s. Efficiency η₀(Q/s) (held at its end values outside its points) and NPSHr = s²·NPSHr₀(Q/s) (extrapolated like the head curve, never below 0). Operating outside the curve's flow range flags `PUMP_OUTSIDE_CURVE`. No viscosity correction is applied (HI 9.6.7 is Later); the trace says so. |
+| Pump (speed-controlled, flow setpoint) | fixed flow Q_set while regulating; −s_max²·H₀(Q/s_max) or −s_min²·H₀(Q/s_min) at a speed limit | D11, §5.4: the regulating pump is a `FIXED_FLOW` link like an active FCV; at s_max it runs on its own law (the fixed pump's), at s_min on a per-solve law override (`LinkState.law`, read through `network.law_of`) |
 | Pump (off / no flow) | closed | |
 | Isolation valve | K·Q\|Q\|/(2gA²) | isolated → closed |
 | Check / stop-check (open) | Δp_crack/(ρg) + K·Q\|Q\|/(2gA²) | status in the outer loop |
@@ -685,6 +686,16 @@ until no status changed and branch K changed by < 1e-4
 ```
 
 - **Pumps:** a running pump whose head rise would exceed s²·H₀(0) cannot deliver: its integral check holds zero flow (status `no_flow`, flag `PUMP_FLOW_REVERSAL`). A no-flow pump with one side closed off (a closed discharge check valve or foot valve) is reported dead-headed: head s²·H₀(0), the closed-off side's EGL the other side's ± s²·H₀(0); with both sides closed off it has no result but keeps its flag.
+- **Speed-controlled pumps, flow setpoint** (CLAUDE.md D11; design and owner's answers in `docs/proposals/vfd-pump-modes.md`). With F(s, Q) = s²·H₀(Q/s), H = EGL_d − EGL_s, F_min/F_max = F(s_min/s_max, Q_set) and S_min/S_max = F(s_min/s_max, 0), the first rule that holds wins (`status.flow_pump_status`):
+
+  | State (solver) | Inner-solve link | Rule |
+  |---|---|---|
+  | active (ACTIVE) | `FIXED_FLOW(Q_set)` | A0 → max if the GGA starves it (a side reaches no fixed head; a controller seeing no flow runs to maximum speed); A1 → max if H > F_max + Htol; A2 → min if H < F_min − Htol |
+  | max_speed (OPEN) | its own law, `PumpLaw(curve, s_max)` | X1 → active once Q ≥ Q_set (EPANET 2.2 `fcvstatus`); X2 `pumpstatus` at S_max |
+  | min_speed (MIN_SPEED) | `LinkState(NORMAL, law=PumpLaw(curve, s_min))` | N1 → active once Q ≤ Q_set; N2 `pumpstatus` at S_min (closes only on a rising stretch) |
+  | no_flow (CLOSED) | closed | C1 `pumpstatus` at S_max: re-opens at maximum speed once H ≤ S_max |
+
+  Speed recovery (after convergence, active only): s_lo = max(s_min, Q_set/x_mono), Ĥ = clamp(H, F(s_lo, Q_set), F_max) (a change of at most Htol by A1/A2), s* the root of F(s, Q_set) = Ĥ on [s_lo, s_max] by `scipy.optimize.brentq` (xtol 1e-14, rtol 4ε; Brent 1973). It is exact, not an approximation: the speed enters only the pump's own head row, so the Newton system with s as an unknown is block-triangular and the flows and heads are those of the fixed-flow solve (EPANET 2.2's FAQ substitute for "a pump of a specific flow"). Uniqueness (`pumps.speed_uniqueness`, at build time): dF/ds = s·ψ(Q/s) with ψ(x) = 2H₀(x) − x·H₀′(x); ψ > 0 must hold on [0, x_last], checked exactly on each PCHIP cubic piece (a cubic in t: its least value at the ends or a root of a quadratic) and on the linear start tangent, else `CONTROLLED_PUMP_CURVE` naming the pump, the curve and the flow interval; beyond x_last the end tangent gives ψ > 0 up to x_mono = 2x₀ (x₀ its zero-head flow) when it falls, unbounded otherwise. Every rule compares flows and head differences only, so the closed-off and floating-section logic (`closed_off_sections`, `zero_flow_openings`, `_level_changes`) applies unchanged, with a CLOSED controlled pump bounded as a fixed pump at s_max. Fallbacks: `_check_changes` applies A1/A2 at a failed solve's early iterate; `_open_bad_valves` tries open (maximum speed), then — for options holding a pump only, with their valves left active — minimum speed, then closed, so a valve-only network takes the v1 option sequence. Two flow controls in series holding the same flow (two controlled pumps, or one and an FCV, with equal setpoints) leave the pressure between them undetermined: a converged state with a controlled pump at a limit, or an open FCV, at its setpoint flow (within Qtol or the GGA's flow resolution) is re-tested with it active, and if the GGA then finds the pressure between it and a flow control undetermined, with a controlled pump among them, the solve is reported not converged naming them (whichever side rounding left the exact X1/N1 and FCV comparisons on); valve-only networks are not concerned. Results: speed s* (active), s_max (max_speed, no_flow), s_min (min_speed); curve, range, η₀(Q/s), NPSHr and power at that speed; `PumpResult.control`; `PUMP_SETPOINT_NOT_MET` (info) at a limit or with no flow off the setpoint by more than Qtol. No new tolerance (Htol, Qtol). Tests: `tests/unit/test_speed_control.py` (uniqueness against dense sampling, the closed-form speed, law override identity, fallback sequences, metamorphic M1/M2), `test_status_rules.py` (the rule table at the tolerance edges).
 - **Check valves:** close when the flow would reverse or the head difference falls below the cracking head; reopen above it (EPANET `cvstatus` extended with the cracking head). Closed → `CHECK_VALVE_CLOSED` (info).
 - **PRV/PSV/FCV:** EPANET 2.2 `prvstatus`/`psvstatus`/`fcvstatus` translated to EGL. Differences from EPANET: an FCV closes on reverse flow (EPANET lets it pass as an open valve); an active FCV opens once the head across it is below its fully open loss at the setpoint, K_open·Q_set²/(2gA²) (EPANET waits for a reverse head, which leaves a valve with a resistance "throttling" with a K below its fully open K); an active state with no solution falls back first to the states the valve rules give at that solve's last finite iterate within 10 iterations (EPANET 2.2 applies the PRV/PSV rules at every iteration, so a valve whose setting cannot hold leaves its active state before the iteration diverges), then to open, then closed, one valve at a time. A PRV or PSV inside a closed-off or floating section, or closed between two such sections, compares its setpoint with their free levels: it closes on reverse flow, and otherwise these valves keep their states if one set of levels holds them all while the closed elements around the sections stay closed (each valve state holds on a union of regions of difference constraints, below; the choices are enumerated, up to 4,096 Bellman–Ford tests). If none does, the fewest elements are let go, the PRVs and PSVs first, then the closed elements, preferring a result not already solved: at levels that hold the others, each takes the state its rule gives there, except that a PRV or PSV that cannot be active (the side it draws from or delivers to reaches no fixed head) closes if it was open and opens if it was closed. Not at setpoint → `CONTROL_VALVE_SETPOINT_NOT_MET` (info).
 - **Closed-off sections:** a section cut off by closed elements (the pipe between a pump and a check valve that closed in the same pass) has no head, so its neighbours' rules cannot test it. The closed elements around it are re-tested against the heads it can take at zero flow: each stays closed only for some head (a pump while the far side is more than s²·H₀(0) above the near side, a check valve while its forward head is at most its cracking head, an FCV while it has no forward head, a PRV/PSV per its CLOSED rule), which are difference constraints between section heads; a negative cycle (Bellman–Ford) means no head keeps them all closed, and the elements on it are re-opened. A floating section is tested the same way, its heads the solved relative heads plus a free level. A pump, check valve or FCV with both ports in one such section follows its rules with the section's heads (a pump held at no flow inside a closed-off loop sees no head across it there and re-opens). EPANET avoids the question by keeping a 1/CBIG conductance across closed links.
@@ -706,7 +717,7 @@ p_atm is `settings.atmosphericPressure` when set, else `fluids.atmosphere.ATMOSP
 
 - **Trace** (`trace.py`, shape in SDD §4.10; pipes, fittings and curve points numbered from 1 as in the app, `labels.py`): built after the results from the values the solver used, one `ElementTrace` per component and connection — inputs with their source (user / default / library / computed), equations as plain text, correlations and data sources with citations, intermediates (restating the result fields, or following from them by the listed equations) and notes (regime, state and the rule behind it, assumptions, flags). Unit strings are the ones `apps/web/src/lib/utils/trace.ts` converts (`Pa(g)`, `Pa(a)`, `Pa (difference)`, never bare `Pa`). Elements with no result (closed off, or a solve that did not converge) keep inputs, equations and sources with a note.
 - **Methods summary** (`methods.py`): one `MethodsSummary` per solve — sections Network solution, Pipe friction, Minor losses, Branches, Pumps, Valves, Fluid properties, Atmosphere and NPSH, Conventions; global assumptions; library versions (opensolve-pipe, fluids, CoolProp, numpy, scipy) and `METHOD_VERSION`. Every number in it is a solver constant or a value of the solve.
-- **System curve** (`system_curve.py`): at each flow the pump's link becomes a `FIXED_FLOW` link (`run_outer_loop(..., forced_flows={pump: Q})`; the pump takes no part in the status rules, every other element follows its own), and H_sys(Q) = EGL(discharge) − EGL(suction). Default flows 0 … 1.2 × the curve's largest flow × s. A point whose solve does not converge, or whose forced flow has no way through (a side reaching no fixed head), has no head. `POST /api/v1/system-curve` returns every point with `converged` and a message; `SolveOptions.includeSystemCurve` fills `PumpResult.systemCurve` of each running pump with its converged points. The web app solves with `includeSystemCurve: false` and requests one pump's curve when its chart is shown (CLAUDE.md D10, SDD §3.1.3); every pump's trace carries the H_sys definition (`trace.SYSTEM_CURVE_EQUATION`), and a solve that computes the curves adds a note on how many points were solved. Closed-form tests: `tests/reference/test_system_curves.py` (single line, series and parallel pumps with the other pump running).
+- **System curve** (`system_curve.py`): at each flow the pump's link becomes a `FIXED_FLOW` link (`run_outer_loop(..., forced_flows={pump: Q})`; the pump takes no part in the status rules, every other element follows its own), and H_sys(Q) = EGL(discharge) − EGL(suction). A speed-controlled pump's own control is replaced by the forced flow, so H_sys is defined as for any pump; other speed-controlled pumps keep regulating, and a warm start copies their statuses (MIN_SPEED included, its law following from it). Default flows 0 … 1.2 × the curve's largest flow × s (a speed-controlled pump's `speed`, its maximum). A point whose solve does not converge, or whose forced flow has no way through (a side reaching no fixed head), has no head. `POST /api/v1/system-curve` returns every point with `converged` and a message; `SolveOptions.includeSystemCurve` fills `PumpResult.systemCurve` of each running pump with its converged points. The web app solves with `includeSystemCurve: false` and requests one pump's curve when its chart is shown (CLAUDE.md D10, SDD §3.1.3); every pump's trace carries the H_sys definition (`trace.SYSTEM_CURVE_EQUATION`), and a solve that computes the curves adds a note on how many points were solved. Closed-form tests: `tests/reference/test_system_curves.py` (single line, series and parallel pumps with the other pump running).
 - **Flag severities** are fixed per code (`flags.FLAG_SEVERITY`); `make_flag` rejects a mismatch, and `tests/unit/test_flags_audit.py` checks each GOALS §4.6 condition.
 
 ---
@@ -1087,33 +1098,36 @@ The flows in `tests/` at the time of writing:
 
 ### 10.4 Differential Test and Corpus Comparison
 
-**Location:** `apps/api/tests/differential/`. Command-line tools, run from `apps/api`, outside the reference suite. pytest collects only `test_fuzz_smoke.py`. Nothing is written into the repository unless an output directory there is named: each EPANET run works in its own temporary directory, which also holds the scratch files EPANET makes in its working directory.
+**Location:** `apps/api/tests/differential/`. Command-line tools, run from `apps/api`, outside the reference suite. pytest collects `test_fuzz_smoke.py` and `test_harness.py` (unit checks of these tools). Nothing is written into the repository unless an output directory there is named: each EPANET run works in its own temporary directory, which also holds the scratch files EPANET makes in its working directory.
 
 | Module | What it does |
 |--------|--------------|
-| `generator.py` | `generate(seed)`: a random branched or looped network meant to have an exact EPANET equivalent for every element: reservoirs, ideal reference nodes, ideal tees and wyes, plugs, custom pipes in 1–3 segments with custom K fittings, pumps with collinear curves from Q = 0, isolation valves, check valves (cracking pressure 0), PRV, PSV and FCV, with random statuses and setpoints. A connection can still end up as the inlet of two active check valves (class `unsupported`). `swamee_jain` mode with EPANET's water viscosity (§10.1). The network depends only on the seed. |
-| `epanet_model.py` | The project as an EPANET 2.2 model (WNTR INP, run through the toolkit in double precision), with the mapping and PRV/PSV setting iteration of §10.1. An active check valve is merged into its one-segment inlet pipe as an EPANET CV pipe. Elements can be pinned to a state. If EPANET cannot balance at headerror 10⁻⁹ ft and flowchange 10⁻¹² gpm, looser pairs are tried. An element with no exact equivalent raises `UnsupportedError`. |
-| `checks.py` | The comparison with the D6 criteria: those of §10.1, with a flow also accepted within the flow that 0.01 m of head loss gives in that connection (0.01 m divided by dh/dQ) and within twice the bound of the flow EPANET's closed links leak (1/CBIG conductance). `fuzz --strict` drops the head-equivalent floor. Also the independent checks of a solution: continuity at every component; energy on every connection; each pump and valve law in its state; the status rules, written from EPANET 2.2 in EGL form with the departures of §5.4; and, for sections reported without heads, that one set of heads keeps every state. Closed-off sections are tested at zero flow, floating sections with the relative heads the laws give at the reported flows, and PRV/PSV borders by exact enumeration of their regions. The checks read only the solver's results, never its internals. |
-| `state_search.py` | For a network our solver did not converge on: every combination of pinned pump and valve states, the first 729 (`--limit` from the command line), solved and kept if it passes the checks. Like `fuzz`, the command line also counts the states that give every port a head. |
-| `fuzz.py` | The driver: generates, solves with both, compares, checks and classifies each seed (classes below). |
+| `generator.py` | `generate(seed)`: a random branched or looped network meant to have an exact EPANET equivalent for every element: reservoirs, ideal reference nodes, ideal tees and wyes, plugs, custom pipes in 1–3 segments with custom K fittings, pumps with collinear curves from Q = 0, isolation valves, check valves (cracking pressure 0), PRV, PSV and FCV, with random statuses and setpoints. A connection can still end up as the inlet of two active check valves (class `unsupported`). `swamee_jain` mode with EPANET's water viscosity (§10.1). The network depends only on the seed and the profile. Profiles (`--profile`): `default`, the network above, whose draws are frozen (the baseline below, the corpus and the smoke test's pinned classes depend on them); and `flow_control` (proposal `vfd-pump-modes.md` §7.4; documented seeds 10,000–12,999), the default network of the seed plus 0–2 flow-controlled pumps (D11) drawn from a second generator, `Random("flow_control:<seed>")`, after every default draw. An existing pump gets a control, or a new pump with its own collinear curve is inserted in a connection (mostly one left when dead ends are pruned, so it can carry flow), sometimes in series with the previous one and then sometimes with an equal setpoint (no determined state, proposal §4.6). Setpoint log-uniform from 0.001 to 1.2 × the curve's largest flow at the maximum speed, minimum speed 0.1–0.9 × the maximum, so that all five control states occur. |
+| `epanet_model.py` | The project as an EPANET 2.2 model (WNTR INP, run through the toolkit in double precision), with the mapping and PRV/PSV setting iteration of §10.1. An active check valve is merged into its one-segment inlet pipe as an EPANET CV pipe. Elements can be pinned to a state. If EPANET cannot balance at headerror 10⁻⁹ ft and flowchange 10⁻¹² gpm, looser pairs are tried. An element with no exact equivalent raises `UnsupportedError`. EPANET has no speed control, so a flow-controlled pump that is on stands for the state our solver reports (`control_pins`, proposal §7.4): active → the EPANET 2.2 FAQ substitute for a pump of a specific flow (the pump CLOSED, a demand of Q_set at its suction junction and −Q_set at its discharge junction, https://usepa.github.io/EPANET2.2/13_questions.html); max_speed / min_speed → OPEN at SPEED = its maximum / minimum speed, under EPANET's own pump rules; no_flow → CLOSED. One we report without a result runs at its maximum speed (rule A0), or CLOSED when it is held at no flow with both sides closed off (its flags kept). |
+| `checks.py` | The comparison with the D6 criteria: those of §10.1, with a flow also accepted within the flow that 0.01 m of head loss gives in that connection (0.01 m divided by dh/dQ) and within twice the bound of the flow EPANET's closed links leak (1/CBIG conductance). `fuzz --strict` drops the head-equivalent floor. Also the independent checks of a solution: continuity at every component; energy on every connection; each pump and valve law in its state; the status rules, written from EPANET 2.2 in EGL form with the departures of §5.4; and, for sections reported without heads, that one set of heads keeps every state. Closed-off sections are tested at zero flow, floating sections with the relative heads the laws give at the reported flows, and PRV/PSV borders by exact enumeration of their regions. The checks read only the solver's results, never its internals. A flow-controlled pump's state is its control state; its rules (`rule_flow_pump`: A1/A2, X1/X2, N1/N2, C1) are written from the state machine of proposal §4.5 alone (a flow within 10⁻⁹ relative of Q_set is Q_set in X1 and N1, so a limit state carrying its setpoint, as in series with another flow control holding the same flow, is not valid), its law in each state from §4.4 (active Q = Q_set, a fixed flow; at a speed limit the fixed-speed pump at that speed), the band of A1/A2 bounds an active one beside a headless section, and `control_problems` checks the reported control: the status of each state, the speed (s_max at max_speed and no_flow, s_min at min_speed; active within [s_min, s_max] with \|s²·H₀(Q_set/s) − H\| ≤ Htol), and `PUMP_SETPOINT_NOT_MET` and `setpointAchieved` as §2.5 defines them. An active pump's speed is compared with the one EPANET's head rise H_e implies (closed form for the generator's linear curves, s = [bQ + √(b²Q² + 4aH)]/(2a), proposal §4.7) within 0.5 % (owner's answer Q6), and the head our speed implies at Q_set with H_e by the D6 head criterion (0.5 % or 0.01 m, whichever is looser), as every head loss here: Q6's 0.01 m alone is the reference suite's test against a derived head, while EPANET's own constants (g = 32.2 ft/s², the 0.02517 minor-loss factor) move its head differences by a few 10⁻⁴ relative (0.015 m across a 46 m pump, flow_control seed 10,062). |
+| `state_search.py` | For a network our solver did not converge on: every combination of pinned pump and valve states, the first 729 (`--limit` from the command line), solved and kept if it passes the checks. Like `fuzz`, the command line also counts the states that give every port a head. A flow-controlled pump is pinned over its four states (proposal §7.4): max_speed and min_speed as the fixed-speed pump at that speed, no_flow as the pump off, and active with its speed range widened to (0.001, 1], the original range enforced by the check of rules A1/A2. `control_search` (`--controls`) pins only the flow-controlled pumps, every other element following the solver's rules. Valid solutions are distinct when a flow differs, or an EGL at a port of a connection with flow, by more than D6; distinct ones that differ in flowing state (flow in the same connections in other amounts, or each in a connection the other has at rest) are *multiple*, while the others only put more of the network at rest (a pump held closed with valves closed around it at heads that keep them closed, D9). |
+| `fuzz.py` | The driver: generates (`--profile`), solves with both, compares, checks and classifies each seed (classes below). With flow-controlled pumps every EPANET run stands for our states, the control checks join the self-check, and every converged network is searched over its controlled pumps' states (`control_search` in the record): multiple valid solutions are written to `findings/control_multiple_states`, alternatives that only put more at rest to `findings/control_rest_alternatives`; the class is not changed. A non-default record names its `profile`. |
 | `classes.py` | The class names and `is_critical`. |
-| `stats.py` | A summary of a run: counts per class, and the largest \|Δ\|/tolerance per metric and element kind over the agreeing networks. |
+| `stats.py` | A summary of a run: counts per class, and the largest \|Δ\|/tolerance per metric and element kind over the agreeing networks (with flow-controlled pumps: `speed` and `speed_head` of kind `flow_pump`, their final states, and the control-search counts). |
 | `networks.py` | Fixed corpus networks: Crane-tee ladders, and a step-hold probe wye (45°, β² = 0.25) scanned over six R3 levels across the q = 0.4 step. The reference case `wye_crane_step_hold` is a different network; it is in the corpus separately as `ref_wye_crane_step_hold`. |
-| `corpus.py` | Solves every project of the corpus with system curves and dumps each `SolvedState` to `<name>.json`. The corpus is the reference-case projects and the unit-test data networks (41-point curves), six ladders, the step-hold probe wye at six levels, and fuzz seeds 0–2,999 (11-point curves); 3,092 projects in all. |
-| `compare.py` | Compares two dumps exactly (JSON equality, `timestamp` ignored). It reports identical and different projects, projects missing from either side, and for each difference the number of numeric differences and the largest relative one. Exit status 1 when a project differs. |
+| `corpus.py` | Solves every project of the corpus with system curves and dumps each `SolvedState` to `<name>.json`. The corpus is the reference-case projects and the unit-test data networks (41-point curves), six ladders, the step-hold probe wye at six levels, and fuzz seeds 0–2,999 (11-point curves): 3,092 projects before speed control; since then the flow-controlled reference cases and the `flow_control` profile's seeds 10,000–10,999 (`fuzzfc_<seed>`, 11-point curves), 4,116 in all. |
+| `compare.py` | Compares two dumps exactly (JSON equality, `timestamp` ignored). It reports identical and different projects, projects missing from either side, and for each difference the number of numeric differences and the largest relative one. Exit status 1 when a project differs. `--ignore PATH` (repeatable) leaves out the values at a path: dict keys and list indices from the root separated by `.`, each segment an `fnmatch` pattern (`*` is any one key or index), the whole path at its depth, a key present on one side only included. Each pattern's count of values left out, and in how many projects, is printed after the totals, so an ignore broader than intended shows. |
 
 **Commands** (from `apps/api`; times are wall-clock on 4 CPUs with 3 workers):
 
 ```bash
 uv run python -m tests.differential.fuzz 0 3000 --workers 3 --out /tmp/fuzz   # about 3 min
 uv run python -m tests.differential.stats /tmp/fuzz
-uv run python -m tests.differential.corpus /tmp/corpus --workers 3             # about 1.5 min
+uv run python -m tests.differential.corpus /tmp/corpus --workers 3             # about 3 min
 uv run python -m tests.differential.compare /tmp/corpus-before /tmp/corpus
 uv run python -m tests.differential.state_search SEED     # valid states of one network
 uv run python -m tests.differential.generator SEED        # one network's project JSON
+uv run python -m tests.differential.fuzz 10000 13000 --workers 3 --profile flow_control --out /tmp/fuzzfc  # 10 min
+uv run python -m tests.differential.state_search SEED --profile flow_control --controls
+uv run python -m tests.differential.generator SEED --profile flow_control
 ```
 
-`fuzz` writes `results/<seed>.json` (one record per seed) and `findings/<class>/<seed>.json` (a reproducer: the project JSON, both solutions and the diagnosis inputs) to `--out`, a new temporary directory by default. It prints that directory and the critical seeds, and exits with status 1 if there are any. `--strict` compares flows to 0.5% or 10⁻⁷ m³/s without the head-equivalent floor (0.01 m divided by dh/dQ), which accepts almost any flow in a short, large pipe. `corpus` writes each dump to a `.tmp` file and renames it into place, so an interrupted run leaves no partial dump. It refuses an output directory that already holds dumps, because they may come from another commit; `--resume` continues an interrupted run there and reuses every existing file as it is, whatever commit wrote it. `--only PREFIX` selects projects by name, and `--dry-run` prints the solver package and corpus tree it would use. `compare` reports a file it cannot read or parse as unreadable, and counts it as different. The smoke test classifies seeds 0–49 with the real EPANET run; it adds about 10 s to `uv run pytest`.
+`fuzz` writes `results/<seed>.json` (one record per seed) and `findings/<class>/<seed>.json` (a reproducer: the project JSON, both solutions and the diagnosis inputs) to `--out`, a new temporary directory by default. It prints that directory and the critical seeds, and exits with status 1 if there are any. `--strict` compares flows to 0.5% or 10⁻⁷ m³/s without the head-equivalent floor (0.01 m divided by dh/dQ), which accepts almost any flow in a short, large pipe. `corpus` writes each dump to a `.tmp` file and renames it into place, so an interrupted run leaves no partial dump. It refuses an output directory that already holds dumps, because they may come from another commit; `--resume` continues an interrupted run there and reuses every existing file as it is, whatever commit wrote it. `--only PREFIX` selects projects by name, and `--dry-run` prints the solver package and corpus tree it would use. `compare` reports a file it cannot read or parse as unreadable, and counts it as different. The smoke test classifies seeds 0–49 with the real EPANET run, and the `flow_control` seeds 10,000–10,024 (which must also reach all five control states, with no multiple valid solutions over their controlled pumps' states); it adds about 25 s to `uv run pytest`.
 
 **Classes** (`status` in a fuzz record; "the checks" are the independent checks above):
 
@@ -1137,9 +1151,11 @@ uv run python -m tests.differential.generator SEED        # one network's projec
 | `ours_not_converged`, `both_unconverged` | Our solver did not converge; EPANET balanced or did not. The suffix `_valid_state_exists` means `state_search` found a state that passes the checks with every port headed. |
 | `ours_exception`, `gen_error`, `harness_error` | Our solver, the generator or the harness raised. A harness error is, for example, EPANET failing in a re-run with pins, or the EPANET library failing to load. Its record keeps what was computed before, `self_check` included. |
 
-Every converged result of ours is also checked before EPANET runs. A failure is stored in the record's `self_check`, which a `harness_error` record keeps, and in `findings/self_check_failed`. That is the same check that makes a class `a_ours_invalid`, so a seed is **critical** (`classes.is_critical`) when its `self_check` is non-empty or its class is `a_ours_invalid`: a converged result of ours that fails the independent checks. For each seed in its range, the smoke test asserts that our solver converged, that EPANET ran, that the seed is not critical, and that its class is the one pinned in the test. The classes are deterministic, so a changed class is a change in our solver's or EPANET's behaviour, to be reviewed before the pinned class is updated.
+Every converged result of ours is also checked before EPANET runs. A failure is stored in the record's `self_check`, which a `harness_error` record keeps, and in `findings/self_check_failed`. That is the same check that makes a class `a_ours_invalid`, so a seed is **critical** (`classes.is_critical`) when its `self_check` is non-empty or its class is `a_ours_invalid`: a converged result of ours that fails the independent checks. For each seed in its range, the smoke test asserts that our solver converged, that EPANET ran, that the seed is not critical, and that its class is the one pinned in the test. The classes are deterministic (the same under PYTHONHASHSEED 0 and 12345, in both profiles), so a changed class is a change in our solver's or EPANET's behaviour, to be reviewed before the pinned class is updated. With flow-controlled pumps the self-check includes their rules, laws and reported control (`checks.py` above). EPANET stands for the state we report for each, so a wrong state of ours shows in the self-check, not as a state difference, and EPANET's solution under that state must also keep our rules (else class `review`); the control search (`state_search.py` above) checks that the state is the only valid one.
 
-**Seeds 0–2,999** (3,000 networks, 40,736 components, 43,600 connections): pass 1,857; documented 535; state_only_zero_flow 262; pass_ep_unbalanced 127; b_stagnant_heads 82; epanet_unbalanced 42; epanet_failed 29; ours_verified_by_pinned_epanet 27; unsupported 13; b_multiple_steady_states 10; d_no_converged_reference 9; review 3; state_only 2; harness_error 1; e_epanet_invalid 1. None is critical. The largest \|Δ\|/tolerance in the agreeing networks is 0.817 (EGL at a pump port).
+**Seeds 0–2,999** (3,000 networks, 40,736 components, 43,600 connections): pass 1,857; documented 535; state_only_zero_flow 262; pass_ep_unbalanced 127; b_stagnant_heads 82; epanet_unbalanced 42; epanet_failed 29; ours_verified_by_pinned_epanet 27; unsupported 13; b_multiple_steady_states 10; d_no_converged_reference 9; review 3; state_only 2; harness_error 1; e_epanet_invalid 1. None is critical. The largest \|Δ\|/tolerance in the agreeing networks is 0.817 (EGL at a pump port). The `flow_control` profile and the speed-control solver left every one of these records unchanged (re-run after both: the same classes, records and diagnoses).
+
+**`flow_control` seeds 10,000–12,999** (3,000 networks, 43,922 components, 46,724 connections; 2,710 with a flow-controlled pump): pass 1,762; documented 465; state_only_zero_flow 300; pass_ep_unbalanced 149; b_stagnant_heads 86; epanet_unbalanced 83; epanet_failed 66; ours_verified_by_pinned_epanet 21; d_no_converged_reference 20; b_multiple_steady_states 17; unsupported 11; review 10; ours_not_converged 5; e_epanet_invalid 2; ours_not_converged_valid_state_exists 2; state_only 1. None is critical. Our final states of the controlled pumps: max_speed 1,955 (most at zero flow, dead-ended, rule A0), min_speed 740, isolated 509, no_flow 441, active 182, off 168. 162 active pumps were compared with EPANET's FAQ substitute: largest \|Δ\|/tolerance 0.339 for the speed and 0.691 for the head it implies (seed 12,846); over all comparisons, 0.979 (EGL at a controlled pump's port). The control search covered 2,584 converged networks: one (11,037) has distinct valid solutions that differ in flowing state, the zero-flow multiplicity of v1 rather than of the control (a pump at maximum speed dead-ended at its shutoff head, or closed with its section's level free, which a PSV beside it compares with; the same with the pumps fixed at that speed), and 38 have alternatives that only put more of the network at rest. Of the 7 not converged, 4 hold two flow controls in series with equal setpoints (no determined state, proposal §4.6), 1 (12,773) has no valid fully determined state among the 729 combinations searched, and 2 (11,738; 12,703) have one that the solver's fallbacks did not reach. In both, outer iterations change several statuses at once and the cycle closes on a step that changes a single status, so the single-change fallback (`_one_change`), which starts only when the step closing a cycle changes several, is never tried (12,703: from PRV4 open and PU5 at maximum speed, the rules move PU5 to active and PRV4 to closed together, while the valid state changes PU5 alone); not converged is the fail-safe result. The same seeds in the default profile (the base networks without the added pumps, run for this comparison: pass 1,869; documented 485; state_only_zero_flow 265; pass_ep_unbalanced 109; b_stagnant_heads 75; epanet_failed 63; epanet_unbalanced 62; ours_verified_by_pinned_epanet 28; d_no_converged_reference 15; unsupported 11; b_multiple_steady_states 10; review 4; e_epanet_invalid 2; harness_error 1; state_only 1; none critical, none not converged): every one of the 290 networks that got no controlled pump has the same class in both profiles. Of the others, apart from the 7 not converged above, the classes that differ from the base network's are EPANET's (unbalanced, failed with runH error 110, or a pinned solution that breaks a status rule, `review`, 8) or v1's documented zero-flow and FCV departures, which a pump's changed flows bring into play: in 107 of the 165 new `state_only_zero_flow` (93 of them with no other difference) a controlled pump dead-ended at maximum speed (rule A0, running at zero flow) is one that EPANET reports closed, as it does a fixed pump against a plug; the 14 new `b_multiple_steady_states` differ in valves and check valves, with the controlled pumps in the same states.
 
 **Before/after comparison of a solver change.** Dump the corpus from each tree and compare. `corpus` solves with the `opensolve_pipe` that is importable and reads the corpus from its own tree. Run it from inside a tree's `apps/api`, with that tree's project, so both come from the same tree. It refuses to run if `opensolve_pipe` is imported from another tree. From the repository root:
 
@@ -1161,62 +1177,259 @@ git worktree remove "$BEFORE"                   # --force if tests/differential 
 
 The dry run prints `solver: $BEFORE/apps/api/src/opensolve_pipe`. The first `uv run` in a new tree creates its `.venv`, with that tree's `src` installed in editable mode. A tree from a commit older than `tests/differential` needs that directory copied in before the first `corpus` run (`cp -r "$REPO/apps/api/tests/differential" "$BEFORE/apps/api/tests/"`). The copied tools import `tests/reference` and `tests/unit/helpers` from that tree. A reference case added since the "before" commit shows up as "missing in A".
 
+**Speed-controlled pumps, slice 1 (proposal §7.5).** The change adds `control` (null) to every pump result and stamps `METHOD_VERSION` 1.1.0, so it is compared with exactly those paths left out:
+
+```bash
+uv run python -m tests.differential.compare "$OUT/before" "$OUT/after" \
+  --ignore 'pumpResults.*.control' --ignore methodVersion --ignore trace.methods.methodVersion
+```
+
+Before = `15dbd1a` (the solver of `cd715ba`), after = the slice-1 working tree: identical 3,092, different 0; the ignores left out 2,577 `control` values in 1,688 projects and the method version in each of the 3,092 (top level and methods summary). The 24 flow-controlled reference cases and the 1,000 `fuzzfc_` networks are "missing in A".
+
 ---
 
 ## 11. Deployment
 
-### 11.1 Frontend
+The owner chose the hosts on 2026-10-22: the web app on **Cloudflare Pages** (static) and the API on **Google Cloud Run**. Nothing is deployed yet. This section records the configuration and the reasons for it; the README's *Deployment* section lists the owner's steps. Provider facts come from the pages linked at the end of the section, read on 2026-10-22. Prices and limits change, so check them again before deploying.
 
-`@sveltejs/adapter-static`: `pnpm build` writes a fully prerendered static site to `apps/web/build/`, which any static host or CDN can serve (§2.4). No frontend server code runs. Requirements on the host:
+### 11.1 Frontend (Cloudflare Pages)
 
-- It must serve `p.html` for `/p` (the default `trailingSlash: 'never'` output) and `index.html` for `/`.
-- It must serve the site from the domain root, because links are root-relative (`paths.relative: false` in `svelte.config.js`).
-- `PUBLIC_API_URL` must be set at build time; it is written into `_app/env.js`.
+`@sveltejs/adapter-static`: `pnpm build` writes a fully prerendered static site to `apps/web/build/` (21 files, 0.9 MB for v1). No frontend server code runs. The host must do three things:
 
-The fragment never reaches the host, so the host's logs never hold project data.
+- **Serve `p.html` for `/p` and `index.html` for `/`** (the default `trailingSlash: 'never'` output). Pages serves an HTML file whose path matches the route, and it redirects `/p.html` to `/p`. With no top-level `404.html`, any other path gets `index.html` (Pages' SPA mode) ([serving][cf-serving]). In `wrangler pages dev`, `/p/` also redirected to `/p` (308), and Chromium kept the fragment across both redirects, so those links still open.
+- **Serve the site from the domain root**, because links are root-relative (`paths.relative: false` in `svelte.config.js`). Use the project's `*.pages.dev` hostname or a custom domain, never a subpath.
+- **Set `PUBLIC_API_URL` at build time.** The build writes it into `_app/env.js`, so changing it needs a new build.
 
-### 11.2 Backend (Railway or Fly.io)
+Project settings (Git integration: Workers & Pages → Create → Pages → connect the repository):
 
-```dockerfile
-# apps/api/Dockerfile
-FROM python:3.12-slim
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-WORKDIR /app
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
-COPY src ./src
-RUN uv sync --frozen --no-dev
-CMD ["uv", "run", "--no-sync", "uvicorn", "opensolve_pipe.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
-```
+| Setting | Value | Why |
+|---|---|---|
+| Production branch | `main` | |
+| Framework preset | None | Pages' SvelteKit preset expects `adapter-cloudflare` and its `.svelte-kit/cloudflare` output ([build configuration][cf-build]) |
+| Root directory | `apps/web` | The app's `package.json` and `pnpm-lock.yaml` are here; the root directory is for monorepos ([build configuration][cf-build]) |
+| Build command | `pnpm build` | |
+| Build output directory | `build` | adapter-static's output |
+| Variable `PUBLIC_API_URL` | the API's URL (§11.2), no trailing slash | Written into `_app/env.js` |
+| Variable `NODE_VERSION` | `22.22.0` | The Node the repository's checks run on. The v3 build image defaults to 22.16.0, ignores `engines`, and may move minor versions without notice ([build image][cf-image]) |
+| Variable `PNPM_VERSION` | `10.28.0` | `packageManager` in `package.json`. The v3 image defaults to pnpm 10.11.1 and reads neither the lockfile's version nor `engines` ([build image][cf-image]) |
+| Build watch paths | include `apps/web/*` | Skips builds for commits that touch only the API or the docs ([watch paths][cf-watch]). The generated `src/lib/api/openapi.json` lives under `apps/web` |
+| Preview branch control | None | Previews are public `*.pages.dev` URLs ([previews][cf-preview]). The API's CORS doesn't allow their origins, so they couldn't solve, and each build counts against the monthly limit ([branch control][cf-branch]) |
 
-Pin the uv image tag to a specific version when this is implemented. Health check: `GET /health`.
+**Response headers.** `apps/web/static/_headers` is copied into the build. Pages applies it and does not serve it ([headers][cf-headers]):
+- `Referrer-Policy: no-referrer` on every response, matching what `app.html` and the API client already set. Pages' default is `strict-origin-when-cross-origin` ([serving][cf-serving]).
+- `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`, because the app is never framed. These are Cloudflare's own hardening example ([headers][cf-headers]). There is no script CSP, because the prerendered pages carry an inline start-up script.
+- `/` and `/p` get Pages' default `Cache-Control: public, max-age=0, must-revalidate` plus `no-transform`. With `no-transform`, a Cloudflare zone can't rewrite the pages to inject a script; Cloudflare documents this for the Web Analytics beacon ([Web Analytics][cf-wa]).
+- `/_app/immutable/*` (content-hashed) gets `public, max-age=31536000, immutable`, the same header SvelteKit's own preview server sends (`@sveltejs/kit/src/exports/vite/preview/index.js`). `_app/env.js` and `_app/version.json` keep the default revalidation, so a rebuild reaches browsers on their next load.
 
-Both platforms put an edge proxy in front of the app, so the TCP peer is the proxy. Set `FORWARDED_ALLOW_IPS` (uvicorn reads it) to the platform's proxy address range, so that uvicorn takes the client address from the proxy's `X-Forwarded-For`: the rate limit and the per-client solve limit key on it (SDD §7.2), and without it every user shares one bucket. Never set it to `*` where clients can reach the app directly, or they can choose their own address. Run uvicorn at its default log level: the app drops client addresses and query strings from the access log and uvicorn's trace-level ASGI records (`logging_privacy.py`), and responses of 1 kB or more are gzip-compressed by the app itself.
+Checked with `wrangler pages dev` 4.149.0 on a build made with `PUBLIC_API_URL` set:
+- All four rules parsed and applied, and `/_headers` was not served.
+- An unknown path got `index.html`.
+
+**Privacy** (GOALS §4.5): no analytics, no cookies, and no requests to third parties.
+- **Pages Web Analytics stays off.** Under Pages project → Metrics, don't enable Web Analytics: enabling it adds a JavaScript beacon to the site on the next deployment ([Pages Web Analytics][cf-wa-pages]).
+- **On a custom domain whose zone is on Cloudflare, keep off the zone features that inject scripts or set cookies:**
+  - Web Analytics' automatic setup, which is on by default for proxied sites that used Browser Insights ([Web Analytics][cf-wa]).
+  - Bot Fight Mode, which sets the `__cf_bm` cookie, and JavaScript detections and challenges, which set `cf_clearance` ([cookies][cf-cookies]).
+  - Email Address Obfuscation, which is on from sign-up and injects `email-decode.min.js` ([obfuscation][cf-email]).
+  - Any other feature that rewrites HTML.
+
+  `no-transform` is a second line of defence for the two pages, not a substitute for these settings.
+- **Checked against the local emulation** with the API running from the exact image command, in Chromium at desktop (1280×800) and mobile (390×844) sizes. Opening the released `schema-v1` link and solving made 14 requests to the site's origin and 3 to the API's, and nothing else. The solve converged with a gzip response, and there were no cookies, no `Set-Cookie` and nothing in `localStorage`. Repeat this on the real site after each deployment (§11.4).
+- The fragment never reaches Cloudflare, so the host never holds project data. Like any host, Cloudflare sees visitors' addresses in order to serve the files.
+
+**Cost:** the Free plan.
+- Requests for static assets are free and unlimited ([pricing][cf-price]).
+- Limits: 500 builds a month, one at a time, 20 minutes each; 20,000 files per site; 25 MiB per file; 100 `_headers` rules ([limits][cf-limits]). The site uses 21 files and 4 rules.
+
+### 11.2 Backend (Google Cloud Run)
+
+**Image.** `apps/api/Dockerfile` is built from `apps/api`. `.dockerignore` keeps the build context to `pyproject.toml`, `uv.lock`, `LICENSE` and `src/` (54 files, 0.8 MiB).
+- **Base images**, pinned by version and digest:
+  - `ghcr.io/astral-sh/uv:0.11.32`, the uv of the `uv_build` constraint.
+  - `python:3.12.15-slim-trixie` (Debian 13).
+
+  To update one, change its tag and digest together (`docker buildx imagetools inspect <image:tag>` prints the digest).
+- **Build stage:** `uv sync --locked --no-dev` installs exactly the runtime dependencies in `uv.lock` (no pytest, mypy or WNTR) and fails if the lock is stale. The app is then installed as a regular, non-editable package with its data files (read through `importlib.resources`). Bytecode is compiled at build time, for faster cold starts.
+- **Runtime stage:** only the virtual environment, owned by root and run by an unprivileged user (uid 10001, no home, no shell).
+- **Command:** `exec uvicorn opensolve_pipe.main:app --host 0.0.0.0 --port "${PORT}" --proxy-headers`.
+  - Cloud Run injects `PORT` (8080 by default) and requires the server to listen on 0.0.0.0 ([container contract][gc-contract]). The image defaults to `PORT=8080` so that `docker run` works too.
+  - One process per instance, because the rate limit and the solve pool are in-process state (`middleware.py`, `workers.py`).
+  - `exec` makes uvicorn PID 1, so it receives the SIGTERM that Cloud Run sends 10 s before SIGKILL ([container contract][gc-contract]).
+  - uvicorn runs at its default log level. The app drops client addresses and query strings from the access log and from uvicorn's trace-level ASGI records (`logging_privacy.py`), and it gzip-compresses responses of 1 kB or more itself.
+- **Health check:** `GET /health`. Cloud Run's default TCP startup probe is enough.
+
+**Client address behind Google's front end.** The rate limit and the per-client solve limit key on the client's address (SDD §7.2), which the app sees only through `X-Forwarded-For`.
+- **The container never sees the client directly.** Cloud Run terminates TLS and proxies each request to the container over HTTP/1, so the container's TCP peer is Google's proxy ([container contract][gc-contract]).
+- **Google's front end appends the client's address to `X-Forwarded-For` and does not check what comes before it.**
+  - For Google's load balancers the header becomes `[<supplied-value>,]<client-ip>,<load-balancer-ip>`, and "the load balancer does not verify any IP addresses that precede" those two ([load balancing][gc-lb]).
+  - The Cloud Run functions header reference shows `X-Forwarded-For: clientIp, proxy1Ip, proxy2Ip` ([headers][gc-fn-headers]).
+  - Google doesn't document the proxy's own source address on Cloud Run. A report from October 2026 found 169.254.169.126, a link-local address ([report][gh-report]).
+- **How uvicorn picks the client.** uvicorn 0.54 (`ProxyHeadersMiddleware`) reads `X-Forwarded-For` only when the TCP peer is in `FORWARDED_ALLOW_IPS`, and then takes the right-most entry that is not in the list. With `*` it takes the left-most entry, which the client writes itself.
+- **What the image sets.** `FORWARDED_ALLOW_IPS` lists every block that IANA's special-purpose registries mark as not globally reachable and that a host can hold ([IPv4][iana4], [IPv6][iana6]): `127.0.0.0/8`, `::1`, `169.254.0.0/16`, `fe80::/10`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10` and `fc00::/7` (RFC 1122, 4291, 3927, 1918, 6598, 4193).
+  - Whichever of these addresses the proxy uses is trusted.
+  - No client on the internet can connect from one of them.
+  - So the address the front end appends is the right-most entry outside the list, and it becomes the key.
+- **Checked locally** with the exact command, where the TCP peer is 127.0.0.1 and `X-Forwarded-For` is sent as the front end would send it:
+  - After 60 requests from one client, the 61st got 429.
+  - Another client got 400, so it has its own bucket.
+  - The first client putting its own entry first (`198.51.100.99, <client>` or `10.1.2.3, <client>`) still got 429.
+  - With `FORWARDED_ALLOW_IPS='*'`, the client-written entry escaped the limit (400).
+  - The access log held no client address and no query string.
+- **After deploying, run the check in §11.4**, because Google doesn't document the proxy's address. If the check shows one shared bucket, the proxy's address is outside these blocks. Then add Google's front-end source ranges, `35.191.0.0/16` and `130.211.0.0/22` ([load balancing][gc-lb], "Request source ranges"), and run the check again.
+- **Put no other proxy in front of the API** (a Cloudflare-proxied hostname, a load balancer) without revisiting this list. Each proxy appends its own address, which would become every user's key. A Cloudflare proxy would also terminate TLS and see the project data in request bodies.
+- **Use the API's `*.run.app` URL as `PUBLIC_API_URL`.** Cloud Run's own domain mapping is in Preview and "not recommended for production services". The alternative is a load balancer, which costs money and appends its own address ([custom domains][gc-domains]).
+
+**Service settings.** Each value comes from the code, from measurement or from Google's documentation:
+
+| Setting | Value | Why |
+|---|---|---|
+| Region | `us-central1`, or another Tier 1 region near the users | The free tier is applied at Tier 1 (us-central1) prices ([pricing][gc-price]) |
+| CPU | 1 | Two solve threads (`SOLVE_WORKERS`) hold the GIL most of the time, so they need about one core. Cloud Run warns that a single-threaded app on several vCPUs leaves them idle and skews CPU-based scaling ([concurrency][gc-concurrency]) |
+| Memory | 1 GiB | See the measured peaks below. 512 MiB (the default and the gen2 minimum) leaves too little headroom ([memory][gc-memory]). An instance over its limit is terminated, and every request still on it ends with a 500 ([container contract][gc-contract]). 1 vCPU allows up to 4 GiB |
+| Concurrency | 6 | `MAX_SOLVES_IN_FLIGHT`: Cloud Run starts another instance, or queues, instead of sending a 7th request that the pool would refuse with `SERVER_BUSY`. The gcloud default is 80 per vCPU ([concurrency][gc-concurrency]) |
+| Request timeout | 60 s | The frontend's own timeout (`DEFAULT_TIMEOUT_MS`). The solve budget is 45 s from the request's arrival, and Cloud Run counts container start-up inside its timeout ([container contract][gc-contract]). The default is 300 s ([timeout][gc-timeout]) |
+| Minimum instances | 0 | Idle instances that aren't minimum instances cost nothing ([pricing][gc-price]). The cost is a cold start once Cloud Run has shut the idle instance down, which can take up to 15 idle minutes ([autoscaling][gc-scaling]). A cold start took about 5 s here to import the app, 3.3–4.0 s of it CoolProp |
+| Maximum instances | 1 at first | The in-memory limits (60 solves a minute per client, one solve at a time) hold exactly only within one instance, and one instance bounds the bill (§11.5). Raise it when traffic needs it |
+| Billing | request-based (the default) | CPU is allocated only while requests are handled ([container contract][gc-contract]), and a solve runs only inside its request |
+| Startup CPU boost | the default (on) | Extra CPU during start-up, billed only then ([CPU][gc-cpu]) |
+| Ingress, authentication | all; unauthenticated allowed | A public API for the web app |
+| Service account | a dedicated one with no roles | The API calls no Google API |
+| `CORS_ORIGINS` | the site's origins | §11.3 |
+
+**Measured** on one 2.8 GHz Xeon core here; Cloud Run's vCPU may be slower.
+- **Memory:** peak RSS was 302 MB for one solve of the largest network the schema allows (999 components, 1,494 connections, Crane tees) and 456 MB with the pool full (6 such solves, 2 running).
+- **Speed:** that network solved in 8.5 s alone and in about 21 s two at a time. Of 7 sent at once:
+  - 4 finished within 42 s;
+  - 2 ran out of the 45 s budget (503 `TIMEOUT` at 45.8 s);
+  - 1 was refused (503 `SERVER_BUSY`).
+- **Small networks:** the pump example solved in 0.05 s.
+- **Response size:** gzip took the largest response from 16.4 MB to 0.47 MB.
+
+**Logs.**
+- **Cloud Run's request log would undo the app's log privacy.** Cloud Run writes a request log entry for every request automatically. Its `httpRequest` holds the client's address (`remoteIp`) and the full URL with its query string ([logging][gc-logging], [LogEntry][gc-logentry]), which would undo `logging_privacy.py` (SDD §7.3).
+- **Exclude it from the project's `_Default` sink:** `gcloud logging sinks update _Default --add-exclusion='name=no-run-request-logs,filter=LOG_ID("run.googleapis.com/requests")'`. Cloud Logging still receives excluded entries but doesn't store them ([routing][gc-routing]).
+- **Usage counts stay available.** Request counts remain available as Cloud Run's request-count metric ([monitoring][gc-monitoring]), and Google Cloud metrics cost nothing ([pricing][gc-obs-price]). The container log (the app's access log, without addresses) is kept.
+
+**Build and images.**
+- **Build:** `gcloud builds submit apps/api --ignore-file=.dockerignore --tag …` builds the Dockerfile in Cloud Build and pushes the image to Artifact Registry. Cloud Build checks `mirror.gcr.io` before Docker Hub ([cache][gc-mirror]).
+- **`--ignore-file` matters.** Without it, gcloud uploads everything in `apps/api` that its default rules don't skip, a local `.venv` included: 23,222 files and 996 MiB here, against 54 files and 0.8 MiB with it. This was checked with gcloud's own file chooser.
+- **Build and deploy are separate commands.** `gcloud run deploy --source` takes no ignore file and writes a `.gcloudignore` into the source directory.
+- **Permissions:** in projects where default service accounts don't get Editor automatically, Cloud Build's default service account needs `roles/run.builder` ([deploying from source][gc-source]).
+- **Cleanup:** a cleanup policy keeps the 3 most recent images ([cleanup][gc-ar-cleanup]). Each image is about 0.1 GiB compressed, estimated from the virtual environment (271 MiB; 79 MiB gzipped) plus the base image.
+
+**Not checked here: building the image.**
+- Docker ran in this session, but the build containers couldn't reach PyPI through the session's TLS-intercepting proxy, and they weren't given its certificate.
+- Everything before the downloads ran: both pinned base images resolved by digest, uv found the image's Python 3.12.15, and `--locked` accepted `uv.lock`.
+- The image's contents were checked another way. The same `uv sync --locked --no-dev --no-editable` went into a fresh virtual environment, which was then run with the image's exact command and environment, including `HOME=/nonexistent` (nothing needs to write to a home directory).
+- The runtime stage's user setup and environment were also built on their own, with a stand-in for uvicorn. The command runs as uid 10001 and as PID 1, and it takes `PORT` from the environment (8080 by default). `/app` is not writable.
+- The first `gcloud builds submit` is therefore the image's first full build.
 
 ### 11.3 Environment Variables
 
 ```bash
-# Frontend (read when the static site is built; default http://localhost:8000)
-PUBLIC_API_URL=https://api.opensolve-pipe.app
+# Frontend: Cloudflare Pages build variables, read when the static site is built
+# (PUBLIC_API_URL defaults to http://localhost:8000)
+PUBLIC_API_URL=https://opensolve-pipe-api-<project-number>.us-central1.run.app   # §11.2, no trailing slash
+NODE_VERSION=22.22.0
+PNPM_VERSION=10.28.0
 
-# Backend
-ENVIRONMENT=production
-CORS_ORIGINS=https://opensolve-pipe.app
-FORWARDED_ALLOW_IPS=<the platform proxy's address range>   # §11.2
+# Backend: Cloud Run service (Cloud Run sets PORT)
+CORS_ORIGINS=https://<pages-project>.pages.dev   # comma-separated; add a custom domain's origin when there is one
+# FORWARDED_ALLOW_IPS is set in the image (§11.2); override it only after the §11.4 check
 # API_DOCS=1 would serve /docs and /redoc, which load third-party assets: development only (§9.2)
 ```
+
+The API reads no other variable (the old `ENVIRONMENT=production` was never read). With gcloud, a value that contains commas needs another delimiter: `--update-env-vars='^;^CORS_ORIGINS=https://a.pages.dev,https://example.org'` (`gcloud topic escaping`).
+
+### 11.4 Checks After Each Deployment
+
+1. **Health and docs:** `curl https://<api>/health` returns `{"status":"healthy"}`, and `/docs` returns 404 (`API_DOCS` is unset).
+2. **Client address (§11.2)**, while maximum instances is 1. The body `{}` is rejected before any solve, so the check costs nothing:
+   ```bash
+   API=https://<api>
+   hit() { curl -s -o /dev/null -w '%{http_code}\n' -H 'content-type: application/json' --data '{}' "$@" "$API/api/v1/solve"; }
+   for i in $(seq 60); do hit > /dev/null; done   # 60 invalid bodies: 400 each, counted by the rate limit
+   hit                                            # 429: this client's minute is used up
+   hit -H 'X-Forwarded-For: 203.0.113.7'          # 429: an entry the client writes does not change its key
+   ```
+   Then, within the same minute, run `hit` from another network (another machine, or this one on a phone's hotspot). It should return 400; 429 means every user shares one bucket.
+3. **Logs:** in Logs Explorer, `LOG_ID("run.googleapis.com/requests")` shows nothing newer than the exclusion. The container log has lines like `- - "POST /api/v1/solve HTTP/1.1" 400`, with no addresses.
+4. **Site**, on a desktop browser and on a phone:
+   - Open the home page's example and solve.
+   - Requests go only to the site and to the API, and Application → Storage shows no cookies.
+   - The page source of `/` and `/p` has no `cloudflareinsights` or `email-decode` script.
+   - `curl -sI https://<site>/p` shows the `_headers` values.
+
+### 11.5 Cost
+
+Free tiers and prices in USD, read on 2026-10-22:
+
+| Item | Free each month | Beyond that |
+|---|---|---|
+| Cloudflare Pages: static requests and bandwidth | Unlimited ([pricing][cf-price]) | — |
+| Cloudflare Pages: builds | 500 ([limits][cf-limits]) | Free plan limit |
+| Cloud Run, request-based billing (per billing account) | 180,000 vCPU-s, 360,000 GiB-s, 2 million requests ([pricing][gc-price]) | $0.000024 per vCPU-s, $0.0000025 per GiB-s, $0.40 per million requests (us-central1) |
+| Outbound data from Cloud Run | 1 GiB within North America ([pricing][gc-price]) | Google Cloud networking prices |
+| Cloud Build | 2,500 build-minutes, e2-standard-2 ([pricing][gc-cb-price]) | $0.006 per minute |
+| Artifact Registry storage | 0.5 GiB ([pricing][gc-ar-price]) | $0.000136986 per GiB-hour (about $0.10 per GiB-month) |
+| Cloud Logging storage | 50 GiB per project ([pricing][gc-obs-price]) | $0.50 per GiB |
+
+- **The free tier covers 50 instance-hours of active time a month.** At 1 vCPU and 1 GiB, an instance costs $0.0000265 per second while it handles requests. The vCPU allowance (180,000 s) is the one that runs out first.
+- **Ordinary use stays at $0.** A typical solve keeps the instance active for well under a second (0.05 s for the pump example).
+- **Worst case with maximum instances 1: about $64 a month.** That is a month of non-stop use (730 h) after the free tier: 2,448,000 vCPU-s × $0.000024 plus 2,268,000 GiB-s × $0.0000025, plus any requests beyond 2 million.
+- **Budgets:** an alerts-only Cloud Billing budget doesn't cap spending ([budgets][gc-budgets]). A spend cap budget on the project and Cloud Run pauses new Cloud Run usage for the rest of the month once its amount is reached. Cloud Run is an eligible service ([spend caps][gc-spend-cap]). Set one at whatever monthly amount the owner accepts, knowing that the API stops when it triggers.
+
+[cf-serving]: https://developers.cloudflare.com/pages/configuration/serving-pages/
+[cf-build]: https://developers.cloudflare.com/pages/configuration/build-configuration/
+[cf-image]: https://developers.cloudflare.com/pages/configuration/build-image/
+[cf-watch]: https://developers.cloudflare.com/pages/configuration/build-watch-paths/
+[cf-preview]: https://developers.cloudflare.com/pages/configuration/preview-deployments/
+[cf-branch]: https://developers.cloudflare.com/pages/configuration/branch-build-controls/
+[cf-headers]: https://developers.cloudflare.com/pages/configuration/headers/
+[cf-limits]: https://developers.cloudflare.com/pages/platform/limits/
+[cf-price]: https://developers.cloudflare.com/pages/functions/pricing/
+[cf-wa-pages]: https://developers.cloudflare.com/pages/how-to/web-analytics/
+[cf-wa]: https://developers.cloudflare.com/web-analytics/get-started/
+[cf-cookies]: https://developers.cloudflare.com/fundamentals/reference/policies-compliances/cloudflare-cookies/
+[cf-email]: https://developers.cloudflare.com/waf/tools/scrape-shield/email-address-obfuscation/
+[gc-contract]: https://docs.cloud.google.com/run/docs/container-contract
+[gc-lb]: https://docs.cloud.google.com/load-balancing/docs/https
+[gc-fn-headers]: https://docs.cloud.google.com/functions/docs/reference/headers
+[gh-report]: https://github.com/zkproofport/proofport-relay/issues/4
+[iana4]: https://www.iana.org/assignments/iana-ipv4-special-registry/
+[iana6]: https://www.iana.org/assignments/iana-ipv6-special-registry/
+[gc-domains]: https://docs.cloud.google.com/run/docs/mapping-custom-domains
+[gc-price]: https://cloud.google.com/run/pricing
+[gc-concurrency]: https://docs.cloud.google.com/run/docs/about-concurrency
+[gc-memory]: https://docs.cloud.google.com/run/docs/configuring/services/memory-limits
+[gc-timeout]: https://docs.cloud.google.com/run/docs/configuring/request-timeout
+[gc-scaling]: https://docs.cloud.google.com/run/docs/about-instance-autoscaling
+[gc-cpu]: https://docs.cloud.google.com/run/docs/configuring/services/cpu
+[gc-logging]: https://docs.cloud.google.com/run/docs/logging
+[gc-logentry]: https://docs.cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry
+[gc-routing]: https://docs.cloud.google.com/logging/docs/routing/overview
+[gc-monitoring]: https://docs.cloud.google.com/run/docs/monitoring
+[gc-obs-price]: https://cloud.google.com/stackdriver/pricing
+[gc-mirror]: https://docs.cloud.google.com/artifact-registry/docs/pull-cached-dockerhub-images
+[gc-source]: https://docs.cloud.google.com/run/docs/deploying-source-code
+[gc-ar-cleanup]: https://docs.cloud.google.com/artifact-registry/docs/repositories/cleanup-policy
+[gc-ar-price]: https://cloud.google.com/artifact-registry/pricing
+[gc-cb-price]: https://cloud.google.com/build/pricing
+[gc-budgets]: https://docs.cloud.google.com/billing/docs/how-to/budgets
+[gc-spend-cap]: https://docs.cloud.google.com/billing/docs/how-to/budgets-spend-caps
 
 ---
 
 ## 12. Implementation Questions
 
-**Decided** (recorded in `CLAUDE.md` D7–D9):
+**Decided** (recorded in `CLAUDE.md` D7–D9 and D11):
 
 1. **Tee and wye K correlation:** Crane TP-410 functions in `fluids.fittings`; Darby 3-K fallback for tees with the combined flow through the branch; uncovered wye patterns are not converged (§4.2).
 2. **Water property package:** CoolProp 8.0.0, `Water` = IAPWS-95; glycols `INCOMP::MEG`/`MPG` (§4.6).
 3. **Transition-zone friction (Re 2000–4000):** EPANET 2.2's Dunlop cubic, flagged as transitional; not a user option (§5.2).
 4. **Pump curve fitting:** PCHIP through the user's points, straight end-slope extrapolation outside them (flagged), affinity laws (§5.3).
 5. **Control-valve status oscillation:** at most 30 counted outer iterations (holding or releasing zero-flow branch legs is not counted, §5.4); once statuses cycle, one status changes per iteration; a repeated state after that returns `converged: false` naming the oscillating components (§5.4).
+6. **Speed-controlled pumps, slice 1 (flow setpoint):** the setpoint is imposed as a fixed flow and the speed recovered by Brent's method, exact by the block-triangular argument; uniqueness by the exact ψ test on the PCHIP pieces (`CONTROLLED_PUMP_CURVE` otherwise); at a limit the pump is the fixed pump at that speed (the link's own law at s_max, a `LinkState.law` override at s_min); rules A0–C1 with EPANET's Htol and Qtol; minimum speed required with no default; `speed` is the maximum (≤ 1); no sleep at low demand; plain affinity efficiency; `schemaVersion` 1; `METHOD_VERSION` 1.1.0 (§5.4; CLAUDE.md D11). Slices 2 (discharge pressure) and 3 (differential pressure) are designed in `docs/proposals/vfd-pump-modes.md` §4.10 and are Later.
 
 **Open (Later):**
 

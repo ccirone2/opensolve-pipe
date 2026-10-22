@@ -14,12 +14,22 @@ class MethodChange(TypedDict):
     changes: list[str]
 
 
-METHOD_VERSION = "1.0.0"
+METHOD_VERSION = "1.1.0"
 
 METHOD_CHANGELOG: list[MethodChange] = [
     {
         "version": "1.0.0",
         "date": "2026-10-21",
         "changes": ["First release of the calculation methods."],
+    },
+    {
+        "version": "1.1.0",
+        "date": "2026-10-22",
+        "changes": [
+            "Adds speed-controlled pumps (flow setpoint): the setpoint flow is imposed in the "
+            "network solve and the speed recovered from the affinity laws, within a minimum and "
+            "maximum speed. Results of projects without speed control are unchanged (corpus "
+            "comparison)."
+        ],
     },
 ]

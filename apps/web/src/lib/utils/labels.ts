@@ -127,6 +127,38 @@ export const CONTROL_STATUS_LABELS = {
 
 export const PUMP_STATUS_LABELS = { on: 'On', off: 'Off' } as const;
 
+/** A pump's control in the Build panel: none (fixed speed), or a mode of `Pump.control`. */
+export const PUMP_CONTROL_LABELS = {
+	fixed: 'Fixed speed',
+	flow: 'Flow control (variable speed)'
+} as const;
+
+/** Short names of the control modes, in results ("Flow 12 L/s: held"). */
+export const PUMP_CONTROL_MODE_NAMES = { flow: 'Flow' } as const;
+
+/** States of a speed-controlled pump's control (PumpControlResult.state), in results. */
+export const PUMP_CONTROL_STATE_LABELS = {
+	active: 'held',
+	max_speed: 'at maximum speed',
+	min_speed: 'at minimum speed',
+	no_flow: 'no flow at maximum speed',
+	off: 'not applied (pump off)'
+} as const;
+
+/**
+ * A component field, named as the panel names it, for model-rule messages ('control.minSpeed' →
+ * 'minimum speed'). A speed-controlled pump's speed is its maximum speed. Other paths are shown
+ * as they are.
+ */
+export function fieldLabel(component: Component, path: string): string {
+	if (component.type === 'pump') {
+		if (path === 'control.minSpeed') return 'minimum speed';
+		if (path === 'control.setpoint') return 'flow setpoint';
+		if (path === 'speed') return component.control ? 'maximum speed' : 'speed';
+	}
+	return path;
+}
+
 export const LOSS_MODEL_LABELS = {
 	crane: 'Crane TP-410 (flow-split dependent K)',
 	ideal: 'Ideal (no fitting loss, as EPANET junctions)'

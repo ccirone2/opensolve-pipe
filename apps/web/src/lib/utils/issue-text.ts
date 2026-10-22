@@ -4,6 +4,11 @@
  * are told in the browser with component and port names, chosen by the issue's code and the ids
  * it lists, never by rewording the server's text. Any other issue keeps the server's message.
  * Every issue links to the components it names (and to the open port, for an unconnected one).
+ *
+ * A speed-controlled pump whose curve does not give one speed for each head
+ * (CONTROLLED_PUMP_CURVE) is told with its names, and the flow interval where the curve fails is
+ * taken from the server's message (an issue has no details) and shown in the display unit; when
+ * the message does not state it in the form expected, the server's message is shown instead.
  */
 import type {
 	FluidDefinition,
@@ -14,7 +19,7 @@ import type {
 } from '../api/types';
 import { componentById, freePorts } from './graph';
 import { fluidSummary, portLabel } from './labels';
-import { formatValue } from './units';
+import { formatValue, SI_UNITS } from './units';
 
 export interface IssueLink {
 	componentId: string;
@@ -30,12 +35,13 @@ export interface IssueView {
 /**
  * How to show the issues of one topology error. `current`: the error is for the project as it
  * is now (not stale), so its open ports can be named from it; otherwise those issues keep the
- * server's message.
+ * server's message. `units` are the display units of values told in the browser (default SI).
  */
 export function topologyIssueViews(
 	issues: readonly TopologyIssue[],
 	project: Project,
-	current: boolean
+	current: boolean,
+	units: UnitPreferences = SI_UNITS
 ): IssueView[] {
 	// Unconnected-port issues name a component, one issue per open port in port order (as the
 	// server lists them). They are named only when the counts agree with the project.
@@ -75,6 +81,29 @@ export function topologyIssueViews(
 				}
 				break;
 			}
+			case 'CONTROLLED_PUMP_CURVE': {
+				const interval = CURVE_INTERVAL.exec(issue.message);
+				const curve =
+					component?.type === 'pump'
+						? project.pumpLibrary.find((c) => c.id === component.curveId)
+						: undefined;
+				if (component && curve && interval) {
+					const [low, high] = [Number(interval[1]), Number(interval[2])];
+					if (Number.isFinite(low) && Number.isFinite(high)) {
+						const from = formatValue(low, 'flow', units, 4, { unit: false });
+						return {
+							text:
+								`${component.name} is speed-controlled, but its pump curve “${curve.name}” does not ` +
+								`give one speed for each head: at a fixed flow the head s²·H₀(Q/s) must rise with ` +
+								`the speed s, and it does not where 2·H₀(x) − x·H₀′(x) ≤ 0, for rated-speed flows x ` +
+								`from ${from} to ${formatValue(high, 'flow', units)}. Use a curve whose head falls ` +
+								`less steeply there, or a fixed speed.`,
+							links
+						};
+					}
+				}
+				break;
+			}
 			case 'NO_FIXED_HEAD':
 				return {
 					text: issue.componentIds.length
@@ -86,6 +115,10 @@ export function topologyIssueViews(
 		return { text: issue.message, links };
 	});
 }
+
+/** The flow interval (m³/s) in the server's CONTROLLED_PUMP_CURVE message. */
+const CURVE_INTERVAL =
+	/flows x from (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) to (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) m³\/s/;
 
 /** "1 problem to fix before the network can be solved:" (pluralized). */
 export function topologySummary(count: number): string {

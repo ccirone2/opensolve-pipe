@@ -1,6 +1,7 @@
 """The model rules JSON Schema cannot express are published in the OpenAPI schema as
 extensions (x-port-ids, x-port-roles, x-port-count, x-required-parameters, x-reducer-types,
-x-entrance-types, x-exit-types, x-setpoint-bounds), which the web app reads instead of copying
+x-entrance-types, x-exit-types, x-setpoint-bounds, x-ordered-fields), which the web app reads
+instead of copying
 (apps/web/src/lib/utils/model-rules.ts). These tests check that each extension states exactly
 what the validators enforce, and that the web app's copy of the schema is the API's current
 one, so a model change cannot leave the two apart."""
@@ -101,6 +102,59 @@ def test_setpoint_bounds_are_what_the_validator_enforces() -> None:
                 )
         # The pressure valves keep the field's own bounds.
         COMPONENTS.validate_python(_component("ControlValve", ports, setpoint=field["maximum"]))
+
+
+def _nested(path: str, value: Any) -> dict[str, Any]:
+    """{'a': {'b': value}} for the dotted camelCase path 'a.b'."""
+    head, _, rest = path.partition(".")
+    return {head: _nested(rest, value) if rest else value}
+
+
+def test_a_speed_controlled_pump_is_a_valid_component() -> None:
+    """A Pump instance with a control (CLAUDE.md D11): flow mode, a setpoint and a minimum
+    speed below its speed; the control is optional (a fixed-speed pump)."""
+    ports = ["suction", "discharge"]
+    control = {"mode": "flow", "setpoint": 0.02, "minSpeed": 0.4}
+    pump = COMPONENTS.validate_python(_component("Pump", ports, speed=0.9, control=control))
+    assert pump.model_dump(by_alias=True)["control"] == control
+    assert COMPONENTS.validate_python(_component("Pump", ports)).model_dump()["control"] is None
+    for missing in ("mode", "setpoint", "minSpeed"):  # all required: no default speed limit
+        partial = {k: v for k, v in control.items() if k != missing}
+        with pytest.raises(ValidationError, match=missing):
+            COMPONENTS.validate_python(_component("Pump", ports, control=partial))
+
+
+PUMP_CONTROL = {"mode": "flow", "setpoint": 0.02}
+"""The rest of a pump control (test inputs), merged with the ordered field it holds."""
+
+
+def _ordered_pump(lower: str, upper: str, low: float, high: float) -> dict[str, Any]:
+    """A pump with the values ``low`` at path ``lower`` and ``high`` at path ``upper``."""
+    fields: dict[str, Any] = {}
+    for path, value in ((upper, high), (lower, low)):
+        for key, item in _nested(path, value).items():
+            fields[key] = {**PUMP_CONTROL, **item} if isinstance(item, dict) else item
+    return _component("Pump", ["suction", "discharge"], **fields)
+
+
+def test_ordered_fields_are_what_the_validators_enforce() -> None:
+    """x-ordered-fields: each pair (dotted camelCase paths) must hold lower < upper (strict)
+    when both are present, which is what the model validator enforces; one alone is free."""
+    published = {
+        name: schema["x-ordered-fields"]
+        for name, schema in SCHEMAS.items()
+        if "x-ordered-fields" in schema
+    }
+    assert published == {"Pump": [{"lower": "control.minSpeed", "upper": "speed", "strict": True}]}
+    for pair in published["Pump"]:
+        lower, upper = pair["lower"], pair["upper"]
+        COMPONENTS.validate_python(_ordered_pump(lower, upper, 0.5, 0.8))
+        COMPONENTS.validate_python(_ordered_pump(lower, upper, math.nextafter(0.8, -math.inf), 0.8))
+        for low in (0.8, 0.95):
+            with pytest.raises(ValidationError, match="minSpeed must be below speed"):
+                COMPONENTS.validate_python(_ordered_pump(lower, upper, low, 0.8))
+        alone = _component("Pump", ["suction", "discharge"], **_nested(upper, 0.2))
+        COMPONENTS.validate_python(alone)
 
 
 VALID_PARAMETERS = {"angle": 45.0, "radiusRatio": 1.5, "kOverride": 0.5}

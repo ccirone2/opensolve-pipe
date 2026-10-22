@@ -22,6 +22,14 @@
 	let chosen = $state<string | null>(null);
 	const viewed = $derived(pumps.find((row) => row.key === chosen) ?? pumps[0] ?? null);
 	const result = $derived(viewed ? solved.pumpResults[viewed.key] : undefined);
+	/** A pump of the solve is speed-controlled (CLAUDE.md D11). */
+	const anyControlled = $derived(Object.values(solved.pumpResults).some((r) => r?.control));
+	/** Another pump than the one viewed is speed-controlled and on: it regulates in its system curve. */
+	const othersControlled = $derived(
+		Object.entries(solved.pumpResults).some(
+			([id, r]) => id !== viewed?.key && r?.control && r.control.state !== 'off'
+		)
+	);
 	/** The solve response these results come from (a curve is only shown with its own solve). */
 	const response = $derived(
 		ws.store.results.response?.solvedState === solved ? ws.store.results.response : null
@@ -54,7 +62,9 @@
 		Head is the rise in the energy grade line across the pump; for a pump held at zero flow it is
 		the head across it (its shutoff head when its discharge is closed off). NPSH available is
 		computed from the absolute suction pressure and the fluid's vapor pressure; it is not shown when
-		the fluid has no vapor pressure. An off pump has no speed.
+		the fluid has no vapor pressure. An off pump has no speed.{#if anyControlled}
+			A speed-controlled pump's speed is the one it runs at: solved to hold its setpoint, or its
+			minimum or maximum speed when the setpoint is out of its drive's range.{/if}
 	</p>
 	{#if viewed && result}
 		<div class="card space-y-3 p-3">
@@ -78,6 +88,7 @@
 						? () => ws.store.loadSystemCurve(viewed.key, { retry: true })
 						: undefined}
 					ontrace={() => ws.inspect(viewed.element)}
+					{othersControlled}
 				/>
 			{/key}
 		</div>

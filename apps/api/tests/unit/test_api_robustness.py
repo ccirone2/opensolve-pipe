@@ -187,7 +187,16 @@ def test_a_component_and_a_connection_sharing_an_id_is_a_topology_issue() -> Non
 
 @pytest.mark.parametrize(
     "case",
-    ["fluid_kind", "extra_key", "duplicate_ports", "wrong_ports", "fitting_index", "flow_range"],
+    [
+        "fluid_kind",
+        "extra_key",
+        "duplicate_ports",
+        "wrong_ports",
+        "fitting_index",
+        "flow_range",
+        "min_speed_order",
+        "pump_setpoint",
+    ],
 )
 def test_validation_errors_do_not_echo_submitted_values(case: str) -> None:
     """SDD §5.1.2: a validation error says where and what, never the submitted values."""
@@ -208,6 +217,21 @@ def test_validation_errors_do_not_echo_submitted_values(case: str) -> None:
             {"type": "elbow_90_lr", "pipeIndex": 97531}
         ]
         secret = "97531"
+    elif case == "min_speed_order":  # x-ordered-fields: control.minSpeed < speed
+        project["components"][1]["speed"] = 0.876543
+        project["components"][1]["control"] = {
+            "mode": "flow",
+            "setpoint": 0.0123457,
+            "minSpeed": 0.912345,
+        }
+        secret = "0.912345"
+    elif case == "pump_setpoint":  # above the 100 m³/s bound
+        project["components"][1]["control"] = {
+            "mode": "flow",
+            "setpoint": 123.4567,
+            "minSpeed": 0.5,
+        }
+        secret = "123.4567"
     else:
         path = "/api/v1/system-curve"
         body = {"project": project, "pumpId": "PU1", "flowMin": 1.23456, "flowMax": 0.654321}
@@ -217,6 +241,12 @@ def test_validation_errors_do_not_echo_submitted_values(case: str) -> None:
     assert secret not in response.text
     if case == "flow_range":
         assert "0.654321" not in response.text
+    if case == "min_speed_order":
+        assert "0.876543" not in response.text
+        assert "0.0123457" not in response.text
+        assert any(
+            "minSpeed must be below speed" in i["message"] for i in response.json()["issues"]
+        )
 
 
 def test_rate_limited_response_says_when_to_retry() -> None:

@@ -1,10 +1,11 @@
 """System curve seen by one pump (design §13, SDD §5.1).
 
 At each flow Q the pump is replaced by a fixed-flow link that carries Q from its suction port to
-its discharge port; every other element keeps its own law and status rules (other pumps keep
-running, check and control valves open, close or throttle as the network drives them), and the
-network is solved with the usual outer loop. The system head at Q is the head the pump would have
-to add there:
+its discharge port, whatever its own control (a speed-controlled pump's control is replaced
+too, CLAUDE.md D11); every other element keeps its own law and status rules (other pumps keep
+running, other speed-controlled pumps keep regulating, check and control valves open, close or
+throttle as the network drives them), and the network is solved with the usual outer loop.
+The system head at Q is the head the pump would have to add there:
 
     H_sys(Q) = EGL(discharge) − EGL(suction)
 
@@ -18,7 +19,8 @@ Points not reached before a request's time budget runs out (``budget.py``) have 
 either, and say so.
 
 Default flow range: 0 to 1.2 × the largest flow of the pump curve's points × the speed ratio s
-(the curve's flow range at the operating speed, by the affinity laws, plus 20 %).
+(the curve's flow range at the operating speed, by the affinity laws, plus 20 %); for a
+speed-controlled pump, s is its ``speed`` field, its maximum speed.
 """
 
 import math
@@ -65,7 +67,8 @@ def find_pump(project: Project, pump_id: str) -> Pump:
 
 
 def default_flow_max(built: BuiltNetwork, pump_id: str) -> float:
-    """1.2 × the curve's largest flow × the speed ratio, m³/s (module docstring)."""
+    """1.2 × the curve's largest flow × the speed ratio (a speed-controlled pump's maximum
+    speed), m³/s (module docstring)."""
     data = built.pumps[pump_id]
     return DEFAULT_RANGE_FACTOR * data.curve.flow_range[1] * data.component.speed
 

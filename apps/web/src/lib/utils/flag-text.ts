@@ -168,6 +168,29 @@ export function flagText(flag: Flag, context: FlagTextContext): string {
 			if (!target) return fallback();
 			return `It is ${state}: it cannot hold its ${target}.`;
 		}
+		case 'PUMP_SETPOINT_NOT_MET': {
+			// A speed-controlled pump at a limit of its drive (CLAUDE.md D11); details from the API.
+			const setpoint = value('setpoint', 'flow');
+			const q = value('flow', 'flow');
+			const state = flag.details.state;
+			if (!setpoint || !q) return fallback();
+			if (state === 'max_speed') {
+				const speed = value('maxSpeed', 'fraction');
+				if (!speed) return fallback();
+				return `It runs at its maximum speed (${speed}) and delivers ${q}, below its flow setpoint (${setpoint}).`;
+			}
+			if (state === 'min_speed') {
+				const speed = value('minSpeed', 'fraction');
+				if (!speed) return fallback();
+				return `It runs at its minimum speed (${speed}) and passes ${q}, above its flow setpoint (${setpoint}): the system drives more flow through it even at that speed.`;
+			}
+			if (state === 'no_flow') {
+				const speed = value('maxSpeed', 'fraction');
+				if (!speed) return fallback();
+				return `It has no flow: the head across it exceeds its shutoff head at its maximum speed (${speed}), so it delivers none of its flow setpoint (${setpoint}).`;
+			}
+			return fallback();
+		}
 		case 'PORT_ABOVE_LIQUID_LEVEL': {
 			const port = value('portElevation', 'length');
 			const surface = value('liquidSurfaceElevation', 'length');

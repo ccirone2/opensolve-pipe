@@ -14,7 +14,11 @@ componentId / connectionId when given; warning and invalid flags are exhaustive,
 may appear unlisted), the state of every valve and
 status of every pump, pump operating flow and head and NPSH available / required / margin (heads:
 0.5 % or 0.01 m; flows: 0.5 % or the flow floor), the vapor pressure (a property lookup, or
-null when the source has none) and the atmospheric pressure used. A case that expects a Crane
+null when the source has none) and the atmospheric pressure used. A speed-controlled pump
+(CLAUDE.md D11) also has its control state, matched exactly, and its speed: within 0.5 % of
+the reference, and the head that speed implies at the reference flow, F(s, Q_ref) =
+s² H₀(Q_ref/s) with H₀ the case curve's PCHIP (``element_laws.pump_head``), within 0.01 m of
+the reference head (owner's answer Q6, proposal vfd-pump-modes.md §7). A case that expects a Crane
 K held across a correlation step (``stepHolds``) also checks the two splits the solver reports
 holding between (its flag's details) against the derived pair, to SPLIT_TOLERANCE.
 """
@@ -25,10 +29,12 @@ from typing import Any
 
 import pytest
 
+from opensolve_pipe.models.components import Pump
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.results import SolvedState
 from tests.reference.case_format import case_files, read_case
 from tests.reference.derivations import G
+from tests.reference.element_laws import pump_head
 
 RELATIVE = 0.005
 FLOW_FLOOR = 1.0e-9  # m³/s
@@ -104,8 +110,33 @@ PUMP_HEAD_FIELDS = {
 }
 
 
-def _component_failures(result: SolvedState, expected: dict[str, Any]) -> list[str]:
-    """Pump statuses and operating values, valve states (design §12)."""
+def _speed_failures(
+    project: Project, pump_id: str, speed: float, want: dict[str, Any]
+) -> list[str]:
+    """A controlled pump's speed (D6 for speed, owner's answer Q6): within 0.5 % of the
+    reference, and, for a running pump, the head it implies at the reference flow within
+    0.01 m of the reference head."""
+    failures = []
+    if abs(speed - want["speed"]) > RELATIVE * abs(want["speed"]):
+        failures.append(f"pump {pump_id} speed: got {speed!r}, expected {want['speed']!r}")
+    if want["status"] == "running" and "operatingHead" in want:
+        component = next(c for c in project.components if c.id == pump_id)
+        assert isinstance(component, Pump)
+        curve = next(c for c in project.pump_library if c.id == component.curve_id)
+        implied = pump_head(curve, speed, want["operatingFlow"])
+        if abs(implied - want["operatingHead"]) > HEAD_FLOOR:
+            failures.append(
+                f"pump {pump_id}: speed {speed!r} implies {implied!r} m at the reference flow, "
+                f"expected {want['operatingHead']!r} m"
+            )
+    return failures
+
+
+def _component_failures(
+    project: Project, result: SolvedState, expected: dict[str, Any]
+) -> list[str]:
+    """Pump statuses, operating values, speeds and control states, valve states (design §12,
+    CLAUDE.md D11)."""
     failures = []
     for pump_id, want in expected.get("pumps", {}).items():
         got = result.pump_results.get(pump_id)
@@ -122,6 +153,14 @@ def _component_failures(result: SolvedState, expected: dict[str, Any]) -> list[s
                         failures.append(
                             f"pump {pump_id} {key}: got {value!r}, expected {want[key]!r}"
                         )
+        if "controlState" in want:
+            state = None if got.control is None else got.control.state
+            if state != want["controlState"]:
+                failures.append(
+                    f"pump {pump_id}: control state {state!r}, expected {want['controlState']!r}"
+                )
+        if "speed" in want:
+            failures += _speed_failures(project, pump_id, got.speed, want)
     isolated = {
         cid
         for flag in result.flags
@@ -230,7 +269,7 @@ def test_reference_case(case_path: Path) -> None:
         )
         + _head_loss_failures(project, egl, expected["egl"])
         + _check_flags(result, expected.get("flags", []))
-        + _component_failures(result, expected)
+        + _component_failures(project, result, expected)
         + _step_hold_failures(result, expected)
     )
     assert not failures, "\n".join(failures)

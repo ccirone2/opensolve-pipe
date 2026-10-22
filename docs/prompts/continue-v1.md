@@ -17,23 +17,23 @@ Precedence when documents disagree: GOALS → CLAUDE.md decisions → PRD → SD
 
 ## 2. Where things stand
 
-The history is one commit per milestone: M0 `879f537`, M1 `2f722bf`, M2 `56938ee`, M3 `240652f`, M4 `ca34178`, M5+M6 `2edfde3`, M7 `97232f9`. After v1: `f1ada11` (this prompt), `cd715ba` (solver speed with bit-identical results; the step-hold reference case), `95effa5` and `239dd40` (the differential test and corpus comparison moved into the repo, then hardened after an adversarial review), and the VFD design proposal in `docs/proposals/`. CI (`.github/workflows/ci.yml`: API, web, e2e and generated-type drift jobs) passed on every one of them.
+The history is one commit per milestone: M0 `879f537`, M1 `2f722bf`, M2 `56938ee`, M3 `240652f`, M4 `ca34178`, M5+M6 `2edfde3`, M7 `97232f9`. After v1: `f1ada11` (this prompt), `cd715ba` (solver speed with bit-identical results; the step-hold reference case), `95effa5` and `239dd40` (the differential test and corpus comparison moved into the repo, then hardened after an adversarial review), the VFD design proposal in `docs/proposals/` (`15dbd1a`), then speed-controlled pumps slice 1 (`0fbe7cc` model contract, `35bbcff` feature and deployment preparation, `ff9a8f3` fixes from a six-dimension adversarial review plus an outer-loop oscillation fallback) and `f65b8c6` (the e2e suite in one worker: two workers raced into the API's one-solve-per-client rule). CI (`.github/workflows/ci.yml`: API, web, e2e and generated-type drift jobs) passed on each of them except `239dd40`, whose e2e failure was that race.
 
-Verified state at `239dd40`:
+Verified state at `f65b8c6`:
 
 | Area | Result |
 |---|---|
-| API pytest | 2,105 passed (including the 50-seed EPANET smoke test, whose per-seed classes are pinned); 97% coverage of `opensolve_pipe` |
+| API pytest | 2,979 passed (including the EPANET smoke tests of both fuzz profiles, whose per-seed classes are pinned); 97% coverage of `opensolve_pipe` |
 | API ruff, ruff format, mypy strict | clean |
 | Web svelte-check, Prettier + ESLint | clean |
-| Web Vitest | 430 passed |
-| Web Playwright (desktop 1280×800 and mobile 390×844) | 46 passed, 2 skipped by design |
+| Web Vitest | 466 passed |
+| Web Playwright (desktop 1280×800 and mobile 390×844, one worker) | 52 passed, 2 skipped by design |
 
-**Reference suite** (`apps/api/tests/reference/`) has 66 cases: 60 closed-form, 6 run through EPANET 2.2 via WNTR 1.5.0. Every v1 component type and fluid has at least one case.
+**Reference suite** (`apps/api/tests/reference/`) has 94 cases: 84 closed-form, 10 run through EPANET 2.2 via WNTR 1.5.0 (28 of them for speed-controlled pumps). Every component type, fluid and pump control state has at least one case.
 - Closed-form cases: worst deviation 9e-7 relative in flow and 3.7 µm in EGL.
-- EPANET cases: worst deviation 0.084% in flow and 6.9 mm in EGL.
+- EPANET cases: worst deviation 0.084% in flow and 7.2 mm in EGL.
 
-**Differential test** (`apps/api/tests/differential/`, TSD §10.4): 3,000 random water networks were compared with EPANET. All of them converge and pass an independent check of mass, energy and status rules. 2,808 agree within D6, the worst at 0.82 of the tolerance. The rest have more than one valid steady state, or EPANET gives no usable answer.
+**Differential test** (`apps/api/tests/differential/`, TSD §10.4): 3,000 random water networks (default profile) compared with EPANET all converge and pass an independent check of mass, energy and status rules; 2,808 agree within D6, the worst at 0.82 of the tolerance; the rest have more than one valid steady state, or EPANET gives no usable answer. The `flow_control` profile (seeds 10,000–12,999, 0–2 flow-controlled pumps added to each network) has 0 critical seeds; its class table is in TSD §10.4. Four of its seeds end not converged, all two flow controls in series with equal setpoints, whose pressure between them is undetermined.
 
 **Before changing anything, re-run every gate and confirm these numbers.**
 
@@ -102,21 +102,26 @@ These methods made v1 trustworthy.
 
 Pass each item through the GOALS §5 gates first, and stop to ask the owner where a choice is theirs to make.
 
-1. **Deployment** (owner decision: pick hosts first).
-   - Web: adapter-static, served from the domain root, with `PUBLIC_API_URL` set at build time.
-   - API: uvicorn with `--proxy-headers` and `FORWARDED_ALLOW_IPS` set to the host's proxy range, so the per-client rate limit isn't shared by all users. Set `CORS_ORIGINS` and leave `API_DOCS` unset.
-   - Write the hosting setup into TSD §11 and the README, and keep hosting cost near zero (GOALS §4.4).
+1. **Deployment.** The owner chose Cloudflare Pages (web) and Google Cloud Run (API). Everything is prepared, and nothing is deployed: `apps/api/Dockerfile`, `.dockerignore`, `apps/web/static/_headers`, TSD §11 (settings, costs with dated citations, checks after each deployment) and the README's Deployment section (the owner's steps). The image was never fully built here: the proxy blocked PyPI. The first Cloud Build is therefore its first complete build, so check it.
+   - **After the first deployment, links in the wild exist.** From then on, any new model field or mode value bumps `schemaVersion` with a migration (proposal §3.5's rule; SDD §5.2), and any result change bumps `METHOD_VERSION`.
 2. **Tee and wye coverage.** Patterns where the combined flow passes through the branch currently use a Darby 3-K per-path fallback for tees, and wyes report not converged.
-   - Implement a flow-split correlation (e.g. Idelchik, *Handbook of Hydraulic Resistance*; Miller, *Internal Flow Systems*) only from a source you actually have in hand. Encode it as cited, versioned data and give it reference cases. Otherwise leave it as it is.
-   - Session 2 searched and found no source in hand: Idelchik's 1966 AEC translation (AEC-tr-6630) is not on OSTI or archive.org, and Bassett, Winterbone & Pearson (2001, *Proc. IMechE C* 215(8), 861–881) is paywalled. The owner has to supply a source.
-   - Bump `METHOD_VERSION`.
-3. **System-curve speed.** Session 2 made solves and curves about twice as fast on Crane-tee networks with bit-identical results (TSD §5.2): a 41-point curve on a 99-component Crane ladder takes 1.6 s (was 2.8 s), an ideal-tee one 0.2 s.
-   - Left: the first point of a curve starts cold (about a sixth of the curve's time); warm-starting it from the solve, or a secant predictor between points, would cut more but moves curve points at the tolerance level (a method change, and in a network with several valid steady states it could pick another one). Progressive rendering in the web app is the other option. Keep curve points exact solves; never interpolate between them silently.
-4. **Long Crane-tee ladders.** Done in session 2: the 1,000-component limit solves in 4.9 s (was 10.7 s) and an 805-component system curve takes 11.6 s (was 26.8 s), well inside the 45 s budget.
-5. **Reference case for the K step-hold.** Done in session 2: `wye_crane_step_hold`, written independently of the solver code; it also checks the pair of splits the solver holds between.
-6. **The "default" label.** A value equal to its documented default is labelled "default" even when the user typed it (D10). If the owner wants the distinction, it needs a model marker plus a schema migration.
-7. **After that, deferred scope** (D5 list: VFD modes, HI viscosity correction, relief valves, export, and so on). Each item goes through the GOALS gates and the D5 order, one verified slice at a time, each with reference cases and traces.
-   - VFD modes come first in D5 order. `docs/proposals/vfd-pump-modes.md` is a reviewed design (three independent designs, a three-judge panel; research with sources in `vfd-industry-conventions.md`): slice 1 is Controlled Flow, then discharge pressure, then differential pressure. Its §10 lists the owner's decisions (slice order, minimum-speed default, schemaVersion given the deployment order, D6 for speed, and others). Build nothing from it until the owner has answered them; then record the decisions as a CLAUDE.md decision (D11) and update PRD/SDD/TSD in the same change, as the proposal's §3.7 lists.
+   - Implement a flow-split correlation only from a source in hand, encoded as cited, versioned data with reference cases, and bump `METHOD_VERSION`.
+   - Session 2 found no source in hand: Idelchik's 1966 AEC translation (AEC-tr-6630) is not on OSTI or archive.org, and Bassett, Winterbone & Pearson (2001, *Proc. IMechE C* 215(8), 861–881) is paywalled. The owner has to supply a source.
+3. **System-curve speed.** Solves and curves are about twice as fast on Crane-tee networks as at v1, with bit-identical results (TSD §5.2): a 41-point curve on a 99-component Crane ladder takes 1.6 s, and the 1,000-component limit solves in 4.9 s.
+   - Further options change curve points at the tolerance level: a warm-started first point, or a secant predictor between points. That makes them a method change. Progressive rendering in the web app is the alternative.
+4. **Speed-controlled pumps, slice 2: discharge-pressure control.** Slice 1 (flow setpoint) is done (CLAUDE.md D11; `docs/proposals/vfd-pump-modes.md` holds the design and the owner's answers). Slice 2 is designed in proposal §4.10. It needs:
+   - the PRV-class level logic for free-level sections;
+   - a velocity-head coupling change shared with PRVs, which is measured on the corpus and versioned on its own first;
+   - its own closed-form and EPANET cases (the FAQ substitute, plus a brentq over EPANET's relative speed);
+   - the fuzz profile extended to pressure control.
+
+   Use the same method as slice 1: design workflow → owner's answers → build (implementer and independent reference author) → integrate (corpus and both fuzz profiles) → six-dimension adversarial review → fixes. Slice 3, differential pressure, comes after it.
+5. **Known limitations to decide on** (TSD §12, open items 3–5):
+   - drooping curves close at s²H₀(0), as in v1 (EPANET 2.2 rejects such curves);
+   - a pump whose only outlet is a series FCV or PRV gets no system-curve points;
+   - a flow setpoint beyond the curve even at maximum speed has two possible limit states. Both are flagged `PUMP_OUTSIDE_CURVE`.
+6. **The "default" label: decided.** The owner keeps the current rule, so a value equal to its documented default is labelled "default" (D10).
+7. **After that, the rest of the deferred scope** (D5 list: HI viscosity correction, relief valves, export, and so on). Each item goes through the GOALS gates and the D5 order, one verified slice at a time, each with reference cases and traces.
 
 ## 7. Report
 

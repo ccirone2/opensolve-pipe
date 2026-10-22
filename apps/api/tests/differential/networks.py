@@ -2,9 +2,11 @@
 
 - ``ladder``: a looped ladder of Crane (or ideal) tees fed by pumps in series, the
   performance probe of M4 (many Crane tees, so many outer iterations).
-- ``step_hold_wye``: a 45° Crane wye with a small lateral (β² = 0.25) between three
-  reservoirs; scanning the third reservoir's level moves the diverging split across q = 0.4,
-  where ``K_branch_diverging_Crane`` steps (the step-hold reference case).
+- ``step_hold_wye``: a step-hold probe, a 45° Crane wye with a small lateral (β² = 0.25)
+  between three reservoirs; scanning the third reservoir's level moves the diverging split
+  across q = 0.4, where ``K_branch_diverging_Crane`` steps. It is not the network of the
+  reference case ``wye_crane_step_hold`` (other levels, pipes and β²), which the corpus holds
+  as ``ref_wye_crane_step_hold``.
 
 All numbers are test inputs (SI); none is a reference value.
 """

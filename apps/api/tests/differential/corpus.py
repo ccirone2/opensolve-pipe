@@ -1,11 +1,14 @@
 """Dump every solved state of a fixed corpus, to compare two versions of the solver exactly.
 
-    uv run python -m tests.differential.corpus OUTDIR [--workers N] [--only PREFIX] [--dry-run]
+    uv run python -m tests.differential.corpus OUTDIR [--workers N] [--only PREFIX] [--resume]
+                                                      [--dry-run]
 
 Solves with the code that is importable (run it from inside the apps/api of the tree to test, see
 TSD §10.4) and writes OUTDIR/<project>.json: the ``SolvedState`` API JSON with system curves, or
 ``{"error": ...}`` / ``{"load_error": ...}``; OUTDIR/_times.json holds each solve's time.
-A project whose file already exists is skipped (so an interrupted run resumes).
+Each file is written to <project>.json.tmp and renamed into place, so an interrupted run leaves
+no partial dump. An OUTDIR that already holds dumps is refused, since they may come from another
+commit; ``--resume`` continues an interrupted run there, keeping every existing file as it is.
 ``tests.differential.compare A B`` compares two dumps.
 
 Corpus (names are the file names):
@@ -13,7 +16,8 @@ Corpus (names are the file names):
 - ``ref_<case>``: every reference case project (``tests/reference/cases``), 41-point curves;
 - ``unit_<name>``: the unit-test data networks (``tests/unit/data/*/``), 41-point curves;
 - ``ladder_<rungs>_<pumps>_<loss>_<library>``: six Crane-tee ladders (``networks.ladder``);
-- ``wye_step_<i>``: the step-hold wye at six levels of R3 (``networks.step_hold_wye``);
+- ``wye_step_<i>``: a step-hold probe wye at six levels of R3 (``networks.step_hold_wye``; not
+  the reference case ``wye_crane_step_hold``, which is ``ref_wye_crane_step_hold``);
 - ``fuzz_<seed>``: the differential-test networks of seeds 0-2999 (``generator``), 11-point
   curves.
 """
@@ -84,6 +88,14 @@ def load(spec: Spec) -> Project:
     raise ValueError(kind)
 
 
+def write_json(path: str, data: Any, **kwargs: Any) -> None:
+    """Write JSON to ``path`` through ``path``.tmp and a rename, so ``path`` is never partial."""
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, **kwargs)
+    os.replace(tmp, path)
+
+
 def run(item: Item, out_dir: str) -> tuple[str, str, float]:
     name, spec = item
     path = os.path.join(out_dir, name + ".json")
@@ -92,8 +104,7 @@ def run(item: Item, out_dir: str) -> tuple[str, str, float]:
     try:
         p = load(spec)
     except Exception as ex:
-        with open(path, "w") as f:
-            json.dump({"load_error": repr(ex)}, f)
+        write_json(path, {"load_error": repr(ex)})
         return name, "load_error", 0.0
     t = time.perf_counter()
     try:
@@ -102,8 +113,7 @@ def run(item: Item, out_dir: str) -> tuple[str, str, float]:
     except Exception as ex:
         d = {"error": repr(ex)}
     dt = time.perf_counter() - t
-    with open(path, "w") as f:
-        json.dump(d, f, sort_keys=True)
+    write_json(path, d, sort_keys=True)
     return name, "ok", dt
 
 
@@ -127,23 +137,33 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--workers", type=int, default=3, help="worker processes (default 3)")
     parser.add_argument("--only", default="", help="only projects whose name starts with this")
     parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue an interrupted run in OUTDIR, keeping every dump already there",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="print the sources and the selection, solve nothing"
     )
     args = parser.parse_args(argv)
     solver, tree = sources()
     todo = [t for t in items() if t[0].startswith(args.only)]
     print(f"solver: {solver}\ncorpus: {tree}\nprojects: {len(todo)}", flush=True)
+    out_dir = os.path.abspath(args.out)
+    held = [f for f in Path(out_dir).glob("*.json") if not f.name.startswith("_")]
+    if held and not args.resume:
+        raise SystemExit(
+            f"{out_dir} already holds {len(held)} dumps, which may come from another commit:"
+            " name a new or empty directory, or pass --resume to continue a run there"
+        )
     if args.dry_run:
         return
-    out_dir = os.path.abspath(args.out)
     os.makedirs(out_dir, exist_ok=True)
     times = {}
     with Pool(args.workers) as pool:
         work = functools.partial(run, out_dir=out_dir)
         for name, _, dt in pool.imap_unordered(work, todo, chunksize=4):
             times[name] = dt
-    with open(os.path.join(out_dir, "_times.json"), "w") as f:
-        json.dump(times, f, indent=0, sort_keys=True)
+    write_json(os.path.join(out_dir, "_times.json"), times, indent=0, sort_keys=True)
     print("done", len(times), "total", round(sum(times.values()), 1), "s")
 
 

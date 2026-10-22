@@ -56,7 +56,7 @@ Quality gates (CI runs all of them):
 
 ```bash
 # apps/api
-uv run pytest                               # unit tests + the reference suite (tests/reference)
+uv run pytest                               # unit tests, the reference suite (tests/reference) and the EPANET differential smoke test (tests/differential, TSD §10.4)
 uv run ruff check . && uv run ruff format --check .
 uv run mypy src                             # strict
 

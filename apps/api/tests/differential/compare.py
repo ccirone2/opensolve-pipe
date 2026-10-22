@@ -6,7 +6,9 @@ For every A/<project>.json (files starting with '_' are skipped) the JSON of B/<
 must be equal, ignoring ``timestamp``; numbers compare with ==, NaN equal to NaN. Prints
 "identical N, different M", the projects missing from either side, and up to 25 different
 projects with their number of numeric differences, the largest relative one and the first three
-other differences (keys, list lengths, values). Exit status 1 when a project differs.
+other differences (keys, list lengths, values). A file that cannot be read or parsed (a dump cut
+short, for example) is listed as unreadable and counts as different. Exit status 1 when a
+project differs.
 """
 
 import argparse
@@ -44,6 +46,14 @@ def walk(a: Any, b: Any, path: str, out: list[Difference]) -> None:
         out.append(("val", path, a, b))
 
 
+def read(path: Path) -> tuple[Any, str | None]:
+    """(parsed JSON, None), or (None, the error) when the file cannot be read or parsed."""
+    try:
+        return json.loads(path.read_text()), None
+    except (OSError, ValueError) as ex:  # ValueError: JSONDecodeError, UnicodeDecodeError
+        return None, f"{type(ex).__name__}: {ex}"
+
+
 def compare_dirs(a_dir: Path, b_dir: Path) -> tuple[list[str], int]:
     """(report lines, number of different projects)."""
     lines = []
@@ -57,8 +67,14 @@ def compare_dirs(a_dir: Path, b_dir: Path) -> tuple[list[str], int]:
         if not fb.exists():
             lines.append(f"missing in B: {name}")
             continue
+        (a, err_a), (b, err_b) = read(fa), read(fb)
+        if err_a or err_b:
+            diff += 1
+            errs = [f"{side} {err}" for side, err in (("A", err_a), ("B", err_b)) if err]
+            lines.append(f"unreadable: {name}: {'; '.join(errs)}")
+            continue
         out: list[Difference] = []
-        walk(json.loads(fa.read_text()), json.loads(fb.read_text()), "", out)
+        walk(a, b, "", out)
         if not out:
             same += 1
             continue

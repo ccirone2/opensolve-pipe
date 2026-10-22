@@ -1,11 +1,13 @@
 """Random network generator for the EPANET differential test.
 
-``generate(seed)`` produces a ``Project`` whose every element has an exact EPANET equivalent (see
-``epanet_model``): reservoirs and ideal reference nodes, ideal tees and wyes (EPANET junctions),
-plugs (dead-end junctions), custom pipes in 1-3 series segments with 'custom' K fittings, pumps
-with collinear 4-point curves from Q = 0, isolation valves (TCV), check valves (CV pipe, cracking
-pressure 0), and PRV / PSV / FCV (EPANET valves). The networks run in 'swamee_jain' mode with a
-custom fluid of EPANET's water viscosity.
+``generate(seed)`` produces a ``Project`` meant to have an exact EPANET equivalent (see
+``epanet_model``) for every element: reservoirs and ideal reference nodes, ideal tees and wyes
+(EPANET junctions), plugs (dead-end junctions), custom pipes in 1-3 series segments with 'custom'
+K fittings, pumps with collinear 4-point curves from Q = 0, isolation valves (TCV), check valves
+(CV pipe, cracking pressure 0), and PRV / PSV / FCV (EPANET valves). A connection can still end
+up as the inlet of two active check valves, which ``epanet_model`` rejects (class
+``unsupported``). The networks run in 'swamee_jain' mode with a custom fluid of EPANET's water
+viscosity.
 
 All numbers drawn here are random *test inputs*; no reference value is invented. A network
 depends only on its seed (``random.Random(seed)``), so a seed reproduces it.

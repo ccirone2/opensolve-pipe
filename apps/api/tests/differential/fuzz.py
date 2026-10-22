@@ -31,7 +31,7 @@ from tests.differential import checks as ck
 from tests.differential import epanet_model as em
 from tests.differential.classes import is_critical
 from tests.differential.generator import generate
-from tests.differential.state_search import search
+from tests.differential.state_search import LIMIT, fully_determined, search
 from tests.reference import element_laws as el
 
 EP_HTOL = 0.0005 * 0.3048  # EPANET Htol (types.h HTOL 0.0005 ft)
@@ -142,17 +142,22 @@ def run_seed(
     workdir: str | None = None,
 ) -> Record:
     """Classify one seed. Findings (reproducers) go to ``findings_dir`` when given; ``workdir``
-    holds EPANET's temporary files (the system temporary directory by default)."""
-    try:
-        return _run_seed(seed, findings_dir, strict, workdir)
-    except Exception as ex:
-        error = "".join(traceback.format_exception(ex))[-1500:]
-        return {"seed": seed, "status": "harness_error", "error": error}
-
-
-def _run_seed(seed: int, findings_dir: str | None, strict: bool, workdir: str | None) -> Record:
-    t0 = time.time()
+    holds EPANET's files, its own scratch files included (the system temporary directory by
+    default). When anything raises, the record keeps what was computed before (``self_check``
+    included, so ``is_critical`` still sees a failed self-check) with status 'harness_error'."""
     out: Record = {"seed": seed}
+    try:
+        _run_seed(out, findings_dir, strict, workdir)
+    except Exception as ex:
+        out["status"] = "harness_error"
+        out["error"] = "".join(traceback.format_exception(ex))[-1500:]
+    return out
+
+
+def _run_seed(out: Record, findings_dir: str | None, strict: bool, workdir: str | None) -> None:
+    """Fill ``out`` (the record) as the seed's classification proceeds."""
+    t0 = time.time()
+    seed = out["seed"]
 
     def save(ep: em.EpanetResult | None, result: SolvedState | None, cls: str) -> None:
         if findings_dir is not None:
@@ -163,7 +168,7 @@ def _run_seed(seed: int, findings_dir: str | None, strict: bool, workdir: str | 
     except Exception as ex:  # generator limits
         out["status"] = "gen_error"
         out["error"] = repr(ex)
-        return out
+        return
     out["n_components"] = len(project.components)
     out["n_connections"] = len(project.connections)
     out["kinds"] = sorted({ck.element_kind(c) for c in project.components})
@@ -173,7 +178,7 @@ def _run_seed(seed: int, findings_dir: str | None, strict: bool, workdir: str | 
         out["status"] = "ours_exception"
         out["error"] = "".join(traceback.format_exception(ex))[-2000:]
         save(None, None, "ours_exception")
-        return out
+        return
     out["ours_converged"] = result.converged
     out["ours_message"] = result.convergence.message
     flows_o, egl_o, states_o = ck.ours_solution(project, result)
@@ -191,12 +196,12 @@ def _run_seed(seed: int, findings_dir: str | None, strict: bool, workdir: str | 
     except em.UnsupportedError as ex:
         out["status"] = "unsupported"
         out["error"] = str(ex)
-        return out
-    except Exception as ex:
+        return
+    except em.EpanetError as ex:  # an EPANET toolkit error; anything else is harness_error
         out["status"] = "epanet_failed"
         out["error"] = repr(ex)
         save(None, result, "epanet_failed")
-        return out
+        return
     egl_e = ck.epanet_egl(project, ep, lay)
     states_e = em.element_state(project, lay, ep)
     out.update(
@@ -210,15 +215,14 @@ def _run_seed(seed: int, findings_dir: str | None, strict: bool, workdir: str | 
         out["ep_laws"], out["ep_rules"] = laws, rules
         out["status"] = "both_unconverged" if ep.iterations > em.TRIALS else "ours_not_converged"
         # does a valid, fully determined steady state exist? (brute force over pinned states)
-        allports = {f"{c.id}:{q.id}" for c in project.components for q in c.ports}
-        _, valid = search(project, limit=729)
-        full = [w for w, _, h in valid if set(h) == allports]
+        _, valid = search(project, limit=LIMIT)
+        full = [w for w, _, _ in fully_determined(project, valid)]
         out["valid_full_states"] = full[:5]
         out["n_valid_full_states"] = len(full)
         if full:
             out["status"] += "_valid_state_exists"
         save(ep, result, out["status"])
-        return out
+        return
     if ep.iterations > em.TRIALS:
         # EPANET's relative-error test cannot pass when every flow is a closed-link leak or
         # when CV/XFCV statuses cycle; compare its last iterate, then try our documented FCV
@@ -227,7 +231,7 @@ def _run_seed(seed: int, findings_dir: str | None, strict: bool, workdir: str | 
         if not mism_u and not state_diffs(states_o, states_e):
             out["records"] = list(rec_u)
             out["status"] = "pass_ep_unbalanced"
-            return out
+            return
         detected, _ = documented_pins(project, ep, lay, egl_e)
         pins, why = fcv_doc_pins(project, states_o, states_e, detected)
         ep_u = None
@@ -251,7 +255,7 @@ def _run_seed(seed: int, findings_dir: str | None, strict: bool, workdir: str | 
             else:
                 out["status"] = "epanet_unbalanced"
                 save(ep, result, "epanet_unbalanced")
-            return out
+            return
     mism, rec = ck.compare(project, flows_o, egl_o, states_o, ep, lay, strict=strict)
     out["records"] = list(rec)
     sdiff = state_diffs(states_o, states_e)
@@ -260,7 +264,7 @@ def _run_seed(seed: int, findings_dir: str | None, strict: bool, workdir: str | 
     if not mism and not sdiff:
         out["status"] = "documented" if out.get("documented_unbalanced") else "pass"
         out["time"] = time.time() - t0
-        return out
+        return
 
     # ---- documented departures (FCV semantics, XPRESSURE): EPANET pinned to ours there
     detected, _ = documented_pins(project, ep, lay, egl_e)
@@ -289,7 +293,7 @@ def _run_seed(seed: int, findings_dir: str | None, strict: bool, workdir: str | 
         if not mism2 and not sdiff2:
             out["status"] = "documented"
             out["time"] = time.time() - t0
-            return out
+            return
         # classify against EPANET with our FCV semantics (its last iterate when unbalanced)
         ep, lay, egl_e, mism, sdiff = ep2, lay2, egl2, mism2, sdiff2
         states_e = em.element_state(project, lay, ep)
@@ -341,7 +345,6 @@ def _run_seed(seed: int, findings_dir: str | None, strict: bool, workdir: str | 
     out["status"] = cls
     save(ep, result, cls)
     out["time"] = time.time() - t0
-    return out
 
 
 def pin_project(project: Project, states: ck.States) -> Project:

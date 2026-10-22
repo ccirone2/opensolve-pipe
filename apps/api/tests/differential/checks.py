@@ -169,7 +169,7 @@ def compare(
         kinds = {port_kind[a], port_kind[b]} - {"junction", "boundary", "plug"}
         cat = "pipe:" + regime(re)
         rec.append(("flow", cat, abs(qo - qe), tol, qe))
-        for k in kinds:
+        for k in sorted(kinds):  # a fixed order, whatever PYTHONHASHSEED
             rec.append(("flow", k, abs(qo - qe), tol, qe))
         if abs(qo - qe) > tol:
             mism.append(("flow", conn.id, qo, qe, tol))

@@ -338,49 +338,58 @@ def _solve_inp(
     tmp: str,
     settings_psi: dict[str, float] | None = None,
 ) -> tuple[dict[str, float], dict[str, str], dict[str, float], int, float, list[str]]:
+    tmp = os.path.abspath(tmp)
+    inp = os.path.abspath(inp)
     en = ENepanet(version=2.2)
-    en.ENopen(inp, os.path.join(tmp, "x.rpt"), os.path.join(tmp, "x.bin"))
-    lib, prj = en.ENlib, en._project
-    d = ctypes.c_double()
-    i = ctypes.c_int()
+    # EPANET makes its own scratch files (mkstemp "enXXXXXX") in the working directory, from
+    # EN_createproject in ENopen until EN_deleteproject in ENclose, so it runs inside tmp.
+    cwd = os.getcwd()
+    os.chdir(tmp)
     try:
-        if settings_psi:
-            for name, val in settings_psi.items():
+        en.ENopen(inp, os.path.join(tmp, "x.rpt"), os.path.join(tmp, "x.bin"))
+        lib, prj = en.ENlib, en._project
+        d = ctypes.c_double()
+        i = ctypes.c_int()
+        try:
+            if settings_psi:
+                for name, val in settings_psi.items():
+                    lib.EN_getlinkindex(prj, name.encode(), ctypes.byref(i))
+                    rc = lib.EN_setlinkvalue(prj, i.value, EN_INITSETTING, ctypes.c_double(val))
+                    if rc:
+                        raise EpanetError(f"setlinkvalue rc={rc}")
+            rc = lib.EN_openH(prj)
+            if rc:
+                raise EpanetError(f"openH rc={rc}")
+            rc = lib.EN_initH(prj, 0)
+            if rc:
+                raise EpanetError(f"initH rc={rc}")
+            t = ctypes.c_long()
+            rc = lib.EN_runH(prj, ctypes.byref(t))
+            warn = []
+            if rc >= 100:
+                raise EpanetError(f"runH error {rc}")
+            if rc:
+                warn.append(f"warning {rc}")
+            lib.EN_getstatistic(prj, EN_ITERATIONS, ctypes.byref(d))
+            iters = int(d.value)
+            lib.EN_getstatistic(prj, EN_RELATIVEERROR, ctypes.byref(d))
+            relerr = d.value
+            lf, rs, nh = {}, {}, {}
+            for name in links:
                 lib.EN_getlinkindex(prj, name.encode(), ctypes.byref(i))
-                rc = lib.EN_setlinkvalue(prj, i.value, EN_INITSETTING, ctypes.c_double(val))
-                if rc:
-                    raise EpanetError(f"setlinkvalue rc={rc}")
-        rc = lib.EN_openH(prj)
-        if rc:
-            raise EpanetError(f"openH rc={rc}")
-        rc = lib.EN_initH(prj, 0)
-        if rc:
-            raise EpanetError(f"initH rc={rc}")
-        t = ctypes.c_long()
-        rc = lib.EN_runH(prj, ctypes.byref(t))
-        warn = []
-        if rc >= 100:
-            raise EpanetError(f"runH error {rc}")
-        if rc:
-            warn.append(f"warning {rc}")
-        lib.EN_getstatistic(prj, EN_ITERATIONS, ctypes.byref(d))
-        iters = int(d.value)
-        lib.EN_getstatistic(prj, EN_RELATIVEERROR, ctypes.byref(d))
-        relerr = d.value
-        lf, rs, nh = {}, {}, {}
-        for name in links:
-            lib.EN_getlinkindex(prj, name.encode(), ctypes.byref(i))
-            lib.EN_getlinkvalue(prj, i.value, EN_FLOW, ctypes.byref(d))
-            lf[name] = d.value / GPM_PER_CFS * FOOT**3
-            lib.EN_getlinkvalue(prj, i.value, EN_PUMP_STATE, ctypes.byref(d))
-            rs[name] = RAW.get(int(d.value), str(d.value))
-        for name in nodes:
-            lib.EN_getnodeindex(prj, name.encode(), ctypes.byref(i))
-            lib.EN_getnodevalue(prj, i.value, EN_HEAD, ctypes.byref(d))
-            nh[name] = d.value * FOOT
-        lib.EN_closeH(prj)
+                lib.EN_getlinkvalue(prj, i.value, EN_FLOW, ctypes.byref(d))
+                lf[name] = d.value / GPM_PER_CFS * FOOT**3
+                lib.EN_getlinkvalue(prj, i.value, EN_PUMP_STATE, ctypes.byref(d))
+                rs[name] = RAW.get(int(d.value), str(d.value))
+            for name in nodes:
+                lib.EN_getnodeindex(prj, name.encode(), ctypes.byref(i))
+                lib.EN_getnodevalue(prj, i.value, EN_HEAD, ctypes.byref(d))
+                nh[name] = d.value * FOOT
+            lib.EN_closeH(prj)
+        finally:
+            en.ENclose()
     finally:
-        en.ENclose()
+        os.chdir(cwd)
     return lf, rs, nh, iters, relerr, warn
 
 
@@ -393,7 +402,8 @@ def run_epanet(
     project: Project, pins: dict[str, str] | None = None, workdir: str | None = None
 ) -> tuple[EpanetResult, Layout]:
     """EPANET's solution with the strictest ``CRITERIA`` level it balances at (its last level's
-    unbalanced result otherwise). ``workdir`` holds the temporary INP and report files."""
+    unbalanced result otherwise). Each run's temporary directory, in ``workdir`` (the system
+    temporary directory by default), holds the INP, the report and EPANET's scratch files."""
     last = None
     for level, (he, fc) in enumerate(CRITERIA):
         res, lay = _run_epanet(project, pins, workdir, he, fc)

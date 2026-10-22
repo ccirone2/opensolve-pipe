@@ -12,8 +12,9 @@ its state, the status rules, and the feasibility of every section reported witho
 - ``pass_ep_unbalanced``: EPANET does not balance (more than ``epanet_model.TRIALS`` trials)
   and its last iterate agrees with ours, states included.
 - ``ours_verified_by_pinned_epanet``: EPANET does not balance, even with our documented FCV
-  semantics, but EPANET with every pump and valve pinned to our final state balances and agrees
-  with ours (a check of our element laws at our states).
+  semantics, but EPANET with every pump at no flow and every valve open or closed pinned to our
+  final state (running pumps and active control valves left to EPANET's rules) balances and its
+  numbers agree with ours (a check of our element laws at our states).
 - ``epanet_unbalanced``: as above, but the pinned EPANET run does not balance or disagrees:
   there is no balanced EPANET reference.
 - ``state_only``: the numbers agree but an element state differs.
@@ -31,18 +32,21 @@ its state, the status rules, and the feasibility of every section reported witho
 - ``review``: the numbers differ, ours passes the checks, EPANET's keeps the laws but breaks its
   status rules.
 - ``unsupported``: an element has no exact EPANET equivalent (``epanet_model.UnsupportedError``).
-- ``epanet_failed``: the first EPANET run raised (for example ``runH error 110``).
+- ``epanet_failed``: the first EPANET run returned an EPANET error (``epanet_model.EpanetError``,
+  for example ``runH error 110``).
 - ``ours_not_converged`` / ``both_unconverged``: our solver did not converge (EPANET balanced /
   did not balance); suffix ``_valid_state_exists`` when the brute-force search over pinned
   states (``state_search``, first 729 combinations) finds a fully determined state that passes
   the checks.
 - ``ours_exception``: our solver raised. ``gen_error``: the generator raised.
-- ``harness_error``: anything else raised (for example EPANET failing in a re-run with pins).
+- ``harness_error``: anything else raised (for example EPANET failing in a re-run with pins, or
+  the EPANET library failing to load). The record keeps what was computed before it raised.
 
 Independently of the class, every converged result of ours is checked before EPANET runs; a
-failure is stored in the record's ``self_check`` and written to findings/self_check_failed.
-That self-check is the same check that makes a class ``a_ours_invalid``, so a record is
-critical (``is_critical``) when its ``self_check`` is non-empty or its class is critical.
+failure is stored in the record's ``self_check`` (kept in a ``harness_error`` record too) and
+written to findings/self_check_failed. That self-check is the same check that makes a class
+``a_ours_invalid``, so a record is critical (``is_critical``) when its ``self_check`` is
+non-empty or its class is critical.
 """
 
 from collections.abc import Mapping

@@ -41,6 +41,11 @@
 	/**
 	 * A flow control being entered: held here, not in the project, until both values are entered
 	 * and valid; then one edit writes it (utils/pump-control.ts). Null when none is being entered.
+	 * A draft lives only while the pump has no control and the draft is not yet valid, so the form
+	 * never shows a flow control the project (and its link) lacks without the note saying so. The
+	 * edit that completes it writes it, whether a control value or the maximum speed. Undo or redo
+	 * can complete it (by bringing back another speed) or make it moot (by bringing back a
+	 * control); it is then dropped, since writing it would be an edit the user did not make.
 	 */
 	let draft = $state<ControlDraft | null>(null);
 	const control = $derived(component.control ?? null);
@@ -49,6 +54,18 @@
 	);
 	const controlled = $derived(mode !== 'fixed');
 	const problem = $derived(!control && draft ? draftProblem(component, draft) : null);
+	$effect(() => {
+		if (draft && !problem) draft = null;
+	});
+
+	/** The note saying the draft is not applied yet: a live region, present before its text. */
+	const uid = $props.id();
+	const noteId = `${uid}-control-note`;
+	let noteElement: HTMLElement | undefined = $state();
+	// Keep a new note in view (e.g. above a phone's bottom bar), as fields do their errors.
+	$effect(() => {
+		if (problem) noteElement?.scrollIntoView?.({ block: 'nearest' });
+	});
 
 	function chooseMode(next: keyof typeof PUMP_CONTROL_LABELS) {
 		if (next === 'fixed') {
@@ -87,6 +104,30 @@
 		return true;
 	}
 
+	/**
+	 * Store the speed. While a control is being entered the speed is its maximum, and a speed
+	 * that completes the draft (above its minimum speed) writes the control with it in one edit.
+	 */
+	function setSpeed(value: number): boolean {
+		const complete =
+			!component.control && draft ? completedControl({ ...component, speed: value }, draft) : null;
+		if (complete) {
+			const written = ws.editComponent<Pump>(component.id, 'switch pump to flow control', (c) => {
+				c.speed = value;
+				c.control = complete;
+			});
+			if (written) draft = null;
+			return written;
+		}
+		return ws.editComponent<Pump>(
+			component.id,
+			controlled ? 'change maximum speed' : 'change pump speed',
+			(c) => {
+				c.speed = value;
+			}
+		);
+	}
+
 	const controlValue = (field: ControlField) => control?.[field] ?? draft?.[field] ?? null;
 </script>
 
@@ -102,18 +143,36 @@
 			c.status = v;
 		})}
 />
-<SelectField
-	label="Control"
-	value={mode}
-	options={[
-		{ value: 'fixed', label: PUMP_CONTROL_LABELS.fixed },
-		{ value: 'flow', label: PUMP_CONTROL_LABELS.flow }
-	]}
-	hint={controlled
-		? 'A drive (VFD) varies the speed, between the minimum and maximum speeds, to hold the flow through the pump.'
-		: 'Flow control: a drive (VFD) varies the speed to hold the flow through the pump.'}
-	onchange={chooseMode}
-/>
+<div class="min-w-0">
+	<SelectField
+		label="Control"
+		value={mode}
+		options={[
+			{ value: 'fixed', label: PUMP_CONTROL_LABELS.fixed },
+			{ value: 'flow', label: PUMP_CONTROL_LABELS.flow }
+		]}
+		hint={controlled
+			? 'A drive (VFD) varies the speed, between the minimum and maximum speeds, to hold the flow through the pump.'
+			: 'Flow control: a drive (VFD) varies the speed to hold the flow through the pump.'}
+		describedby={problem ? noteId : undefined}
+		onchange={chooseMode}
+	/>
+	<div id={noteId} role="status">
+		{#if problem}
+			<p
+				bind:this={noteElement}
+				class="mt-2 flex scroll-mb-4 items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+			>
+				<Icon name="alert" class="mt-0.5 size-4 shrink-0" />
+				<span>
+					{problem === 'incomplete'
+						? 'Enter the flow setpoint and minimum speed to switch to flow control. Until then the pump runs at a fixed speed.'
+						: 'The minimum speed must be below the maximum speed to switch to flow control. Until then the pump runs at a fixed speed.'}
+				</span>
+			</p>
+		{/if}
+	</div>
+</div>
 {#if controlled}
 	<NumberField
 		label="Flow setpoint"
@@ -143,29 +202,8 @@
 	hint={controlled
 		? "Highest speed the drive runs the pump at, as a percentage of the curve's rated speed; at this speed the pump behaves as a fixed-speed pump."
 		: "Fixed speed, as a percentage of the curve's rated speed (affinity laws)."}
-	onchange={(v) =>
-		v !== null &&
-		ws.editComponent<Pump>(
-			component.id,
-			controlled ? 'change maximum speed' : 'change pump speed',
-			(c) => {
-				c.speed = v;
-			}
-		)}
+	onchange={(v) => v !== null && setSpeed(v)}
 />
-{#if problem}
-	<p
-		class="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 sm:col-span-2"
-		role="status"
-	>
-		<Icon name="alert" class="mt-0.5 size-4 shrink-0" />
-		<span>
-			{problem === 'incomplete'
-				? 'Enter the flow setpoint and minimum speed to switch to flow control. Until then the pump runs at a fixed speed.'
-				: 'The minimum speed must be below the maximum speed to switch to flow control. Until then the pump runs at a fixed speed.'}
-		</span>
-	</p>
-{/if}
 {#if controlled && component.status === 'off'}
 	<p class="hint sm:col-span-2">This pump is off: its flow control is not applied.</p>
 {/if}

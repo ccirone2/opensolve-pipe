@@ -6,9 +6,11 @@
  * Every issue links to the components it names (and to the open port, for an unconnected one).
  *
  * A speed-controlled pump whose curve does not give one speed for each head
- * (CONTROLLED_PUMP_CURVE) is told with its names, and the flow interval where the curve fails is
- * taken from the server's message (an issue has no details) and shown in the display unit; when
- * the message does not state it in the form expected, the server's message is shown instead.
+ * (CONTROLLED_PUMP_CURVE) is told with its names, and the curve and the flow interval where it
+ * fails are taken from the server's message (an issue has no details) and shown in the display
+ * unit. The server's message is shown instead when it does not state them in the form expected,
+ * when it names another curve than the pump's, or when the error is not for the project as it is
+ * now (the pump may have been given another curve since the solve was sent).
  */
 import type {
 	FluidDefinition,
@@ -34,8 +36,9 @@ export interface IssueView {
 
 /**
  * How to show the issues of one topology error. `current`: the error is for the project as it
- * is now (not stale), so its open ports can be named from it; otherwise those issues keep the
- * server's message. `units` are the display units of values told in the browser (default SI).
+ * is now (not stale), so its open ports and a controlled pump's curve can be named from it;
+ * otherwise those issues keep the server's message. `units` are the display units of values told
+ * in the browser (default SI).
  */
 export function topologyIssueViews(
 	issues: readonly TopologyIssue[],
@@ -83,9 +86,10 @@ export function topologyIssueViews(
 			}
 			case 'CONTROLLED_PUMP_CURVE': {
 				const interval = CURVE_INTERVAL.exec(issue.message);
+				const named = CURVE_ID.exec(issue.message)?.[1];
 				const curve =
-					component?.type === 'pump'
-						? project.pumpLibrary.find((c) => c.id === component.curveId)
+					current && component?.type === 'pump' && component.curveId === named
+						? project.pumpLibrary.find((c) => c.id === named)
 						: undefined;
 				if (component && curve && interval) {
 					const [low, high] = [Number(interval[1]), Number(interval[2])];
@@ -96,8 +100,8 @@ export function topologyIssueViews(
 								`${component.name} is speed-controlled, but its pump curve “${curve.name}” does not ` +
 								`give one speed for each head: at a fixed flow the head s²·H₀(Q/s) must rise with ` +
 								`the speed s, and it does not where 2·H₀(x) − x·H₀′(x) ≤ 0, for rated-speed flows x ` +
-								`from ${from} to ${formatValue(high, 'flow', units)}. Use a curve whose head falls ` +
-								`less steeply there, or a fixed speed.`,
+								`from ${from} to ${formatValue(high, 'flow', units)}. Use a curve whose head rises ` +
+								`less steeply with flow there (2·H₀(x) > x·H₀′(x)), or a fixed speed.`,
 							links
 						};
 					}
@@ -115,6 +119,9 @@ export function topologyIssueViews(
 		return { text: issue.message, links };
 	});
 }
+
+/** The curve (its id) that the server's CONTROLLED_PUMP_CURVE message names. */
+const CURVE_ID = /is speed-controlled, but its curve '([A-Za-z0-9_-]+)'/;
 
 /** The flow interval (m³/s) in the server's CONTROLLED_PUMP_CURVE message. */
 const CURVE_INTERVAL =

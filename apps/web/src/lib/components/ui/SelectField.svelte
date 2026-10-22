@@ -15,6 +15,8 @@
 		value: T;
 		options: readonly SelectOption<T>[];
 		hint?: string;
+		/** Ids of other elements that describe the select (after its hint), e.g. a note about it. */
+		describedby?: string;
 		hideLabel?: boolean;
 		disabled?: boolean;
 		class?: string;
@@ -26,6 +28,7 @@
 		value,
 		options,
 		hint,
+		describedby,
 		hideLabel = false,
 		disabled = false,
 		class: className = '',
@@ -52,7 +55,7 @@
 		class="input pr-8"
 		{disabled}
 		{value}
-		aria-describedby={hint ? `${id}-hint` : undefined}
+		aria-describedby={[hint && `${id}-hint`, describedby].filter(Boolean).join(' ') || undefined}
 		onchange={(event) => onchange(event.currentTarget.value as T)}
 	>
 		{#each groups as group, g (g)}

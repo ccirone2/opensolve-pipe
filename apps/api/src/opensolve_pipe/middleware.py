@@ -2,15 +2,18 @@
 errors (SDD §5.1.2, §7.1-7.2).
 
 None keeps a record beyond what limiting needs: the rate limiter holds recent request times per
-client address in memory only, and nothing here logs requests, their bodies or the messages of
-the errors they cause (GOALS §4.5).
+client key in memory only, and nothing here logs requests, their bodies, client addresses or
+the messages of the errors they cause (GOALS §4.5).
 
-The client address the rate limiter keys on is the ASGI scope's client. Behind a proxy (the
-deployment platform's edge) that is the proxy's address unless uvicorn is told to trust the
-proxy's X-Forwarded-For (``--forwarded-allow-ips`` / FORWARDED_ALLOW_IPS set to the proxy's
-address range, TSD §11.2): without it every user shares one bucket.
+The client address is the ASGI scope's client. Behind a proxy (the deployment platform's edge)
+that is the proxy's address unless uvicorn is told to trust the proxy's X-Forwarded-For
+(``--forwarded-allow-ips`` / FORWARDED_ALLOW_IPS set to the proxy's address range, TSD §11.2):
+without it every user shares one bucket. The rate limit and the one-solve-per-client rule
+(workers.py) count a client by ``client_key``: its IPv4 address, or the /64 network of its IPv6
+address, because a host can use any address in its /64.
 """
 
+import ipaddress
 import json
 import logging
 import math
@@ -34,6 +37,52 @@ connections) fit in it at the sizes the frontend writes (SDD §7.1)."""
 RATE_LIMIT_REQUESTS = 60
 RATE_LIMIT_WINDOW_S = 60.0
 RATE_LIMITED_PATHS = ("/api/v1/solve", "/api/v1/system-curve")
+
+IPV6_CLIENT_PREFIX = 64
+"""An IPv6 client is counted by the first 64 bits of its address. The other 64 are the
+interface identifier (RFC 4291 §2.5.1), which a host chooses itself: it makes new random ones
+over time (temporary addresses, RFC 8981 §3.4), and RFC 7934 §8 recommends that networks let it
+form new addresses without asking, for example by giving it a /64 of its own. Keyed by the
+whole address, one host could take any number of keys. A site given a shorter prefix (the
+registries encourage /56 blocks for end sites, RFC 6177 §1) still has several /64s; nothing
+here groups those."""
+
+UNKNOWN_CLIENT = "unknown"
+"""The one key shared by every request whose client is not an IP address."""
+
+
+def client_key(host: str | None) -> str:
+    """The key under which the rate limit and the one-solve-per-client rule count a client.
+
+    - IPv4: the address (``198.51.100.7``).
+    - IPv6: its /64 network (``2001:db8:1:2::/64``), whichever way the address is written.
+    - IPv4-mapped IPv6 (``::ffff:198.51.100.7``, RFC 4291 §2.5.5.2, as a dual-stack socket
+      reports an IPv4 peer): the IPv4 address, the same key as when it arrives as IPv4.
+    - A key this function returned (an IPv6 /64 network): itself, so applying it twice is
+      harmless.
+    - Anything else (no client, a Unix socket, a forwarded value that is not an address):
+      ``UNKNOWN_CLIENT``. Such strings share one key, so whoever can choose them gets one
+      bucket in all, not one per string.
+
+    Nothing is logged: the key holds the client's address or its prefix (GOALS §4.5)."""
+    if host is None:
+        return UNKNOWN_CLIENT
+    text = host.strip()
+    try:
+        address = ipaddress.ip_address(text)
+    except ValueError:
+        try:
+            network = ipaddress.IPv6Network(text)  # strict: host bits must be zero
+        except ValueError:
+            return UNKNOWN_CLIENT
+        return str(network) if network.prefixlen == IPV6_CLIENT_PREFIX else UNKNOWN_CLIENT
+    if isinstance(address, ipaddress.IPv4Address):
+        return str(address)
+    if address.ipv4_mapped is not None:
+        return str(address.ipv4_mapped)
+    interface_bits = 128 - IPV6_CLIENT_PREFIX
+    prefix = int(address) >> interface_bits << interface_bits
+    return str(ipaddress.IPv6Network((prefix, IPV6_CLIENT_PREFIX)))
 
 
 async def _error(
@@ -104,7 +153,13 @@ class BodySizeLimit:
 
 
 class RateLimit:
-    """Sliding-window limit on solve requests per client address (unauthenticated, v1)."""
+    """Sliding-window limit on solve requests per client key (``client_key``; unauthenticated,
+    v1).
+
+    Every HTTP request is passed on with the client key in place of the client's host in the
+    scope, so the routes count clients the same way: the solve pool's one-solve-per-client
+    rule takes ``request.client.host`` (routers/solve.py). The scope uvicorn holds is not
+    changed."""
 
     def __init__(
         self,
@@ -120,11 +175,15 @@ class RateLimit:
         self._hits: dict[str, deque[float]] = {}
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope.get("path") not in self.paths:
+        if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
         client = scope.get("client")
-        key = str(client[0]) if client else "unknown"
+        key = client_key(str(client[0]) if client else None)
+        scope = {**scope, "client": (key, client[1] if client else 0)}
+        if scope.get("path") not in self.paths:
+            await self.app(scope, receive, send)
+            return
         now = time.monotonic()
         hits = self._hits.setdefault(key, deque())
         while hits and now - hits[0] > self.window_s:
@@ -144,6 +203,46 @@ class RateLimit:
             for k in [k for k, v in self._hits.items() if not v or now - v[-1] > self.window_s]:
                 del self._hits[k]
         await self.app(scope, receive, send)
+
+
+async def forwarded_for_echo(scope: Scope, receive: Receive, send: Send) -> None:
+    """A diagnostic ASGI app for the deployment's client-address check (TSD §11.2, §11.4),
+    which the API never mounts. Run on its own, with uvicorn's ``--no-proxy-headers
+    --no-access-log``, it answers every request with that request's TCP peer and its
+    X-Forwarded-For value as they arrived. Each requester sees only their own request, and
+    nothing is logged or kept."""
+    if scope["type"] == "lifespan":
+        while True:
+            message = await receive()
+            if message["type"] == "lifespan.startup":
+                await send({"type": "lifespan.startup.complete"})
+            elif message["type"] == "lifespan.shutdown":
+                await send({"type": "lifespan.shutdown.complete"})
+                return
+    if scope["type"] != "http":
+        return
+    client = scope.get("client")
+    forwarded = [
+        value.decode("latin-1")
+        for name, value in scope.get("headers", [])
+        if name == b"x-forwarded-for"
+    ]
+    body = (
+        f"peer: {client[0] if client else '(none)'}\n"
+        f"x-forwarded-for: {', '.join(forwarded) if forwarded else '(none)'}\n"
+    )
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", b"text/plain; charset=utf-8"),
+                (b"x-content-type-options", b"nosniff"),
+                (b"cache-control", b"no-store"),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body.encode()})
 
 
 _errors = logging.getLogger("opensolve_pipe.errors")

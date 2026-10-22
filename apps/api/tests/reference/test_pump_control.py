@@ -247,3 +247,34 @@ def test_controlled_pump_on_a_curve_with_psi_below_zero_is_a_topology_issue() ->
     assert issues, body
     assert any("PU1" in i["componentIds"] for i in issues)
     assert _post_solve(_steep_curve_project(controlled=False)).status_code == 200
+
+
+# --- Zero-flow re-test path ---------------------------------------------------------------------
+
+
+def test_zero_flow_reopen_case_reopens_the_pump_with_its_check_valve(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``pump_flow_control_zero_flow_reopen`` keeps exercising the path it is named for: the
+    flow-controlled pump and its check valve close together, and the outer loop's zero-flow
+    re-test of closed elements around a closed-off section (CLAUDE.md D9, proposal §5)
+    re-opens both. Its values are checked against the case file (closed form) by
+    ``test_reference_cases``; this test only records what the re-test returns, so that the
+    case cannot stop reaching it unnoticed (``pump_flow_control_check_valve_reopen`` never
+    does: its pump starts as a fixed flow and its check valve stays open)."""
+    from opensolve_pipe.services.solver import status
+
+    reopened: list[set[str]] = []
+    retest = status.zero_flow_openings
+
+    def recording_retest(*args: Any, **kwargs: Any) -> Any:
+        out = retest(*args, **kwargs)
+        reopened.append(set(out))
+        return out
+
+    monkeypatch.setattr(status, "zero_flow_openings", recording_retest)
+
+    result = solve_project(dpc.pump_flow_control_zero_flow_reopen().project)
+
+    assert result.converged, result.convergence.message
+    assert any({"PU1", "CV1"} <= ids for ids in reopened), reopened

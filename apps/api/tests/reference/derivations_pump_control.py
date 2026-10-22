@@ -7,22 +7,28 @@ the pump's own flow Q_set (suction → discharge), within [s_min, s_max], s_min 
 law of the rated PCHIP curve (``element_laws.pump_head``) and H = EGL_d − EGL_s the head across
 the pump, its state is (§2.4, §4.5):
 
-- active: Q = Q_set (a fixed flow in the network, §4.2) and s* the root of F(s*, Q_set) = H;
-  it holds while F(s_min, Q_set) ≤ H ≤ F(s_max, Q_set);
+- active: Q = Q_set (a fixed flow in the network, §4.2) and s* the root of F(s*, Q_set) = H
+  on the stable bracket [s_lo, s_max]; it holds while F(s_lo, Q_set) ≤ H ≤ F(s_max, Q_set),
+  s_lo = max(s_min, Q_set/x_mono) (§4.3, ``element_laws.stable_min_speed``);
 - max_speed: the setpoint needs more than s_max, so the pump is the fixed-speed pump at
   s_max with Q < Q_set (setpoint not met, PUMP_SETPOINT_NOT_MET, info);
-- min_speed: the system drives more than Q_set even at s_min, so the pump is the fixed-speed
-  pump at s_min with Q > Q_set (it keeps running; owner's answer Q3);
+- min_speed: H < F(s_lo, Q_set), the lowest head the pump gives at Q_set on the stable
+  bracket (rule A2), so the pump is the fixed-speed pump at s_min with Q > Q_set (it keeps
+  running; owner's answer Q3);
 - no_flow: H exceeds the shutoff head at maximum speed, S_max = F(s_max, 0): the integral
   check holds Q = 0 (PUMP_FLOW_REVERSAL), reported at s_max;
 - off: the v1 off pump; the control is not applied (speed reported: ``speed``).
 
 The speed reported is s* when active, else the limit (§4.7). For one pump between passive
 surroundings the system head Sys(Q) rises with Q and F(s, ·) falls with Q on the curves used
-here, so the states partition by Sys(Q_set) (§4.6): active iff F_min ≤ Sys(Q_set) ≤ F_max,
-max_speed iff Sys(Q_set) > F_max, min_speed iff Sys(Q_set) < F_min (``solve_controlled_line``
-derives the state that way, and every case guards that the competing states fail, all by
-``element_laws.STATE_MARGIN``).
+here, so from the pump's initial ACTIVE status the states partition by Sys(Q_set) (§4.6):
+active iff F_lo ≤ Sys(Q_set) ≤ F_max, max_speed iff Sys(Q_set) > F_max, min_speed iff
+Sys(Q_set) < F_lo, F_lo = F(s_lo, Q_set) (``solve_controlled_line`` derives the state that
+way, and every case guards that the competing states fail, all by
+``element_laws.STATE_MARGIN``). F_lo = F_min = F(s_min, Q_set) unless Q_set/s_min > x_mono;
+then F(·, Q_set) falls on [s_min, s_lo], F_lo < F_min, and a head in [F_lo, F_min) has a
+second speed in (s_min, s_lo) and would let the pump at s_min pass more than Q_set as well:
+rule A2 keeps the pump active there, on [s_lo, s_max] (``pump_flow_control_stable_bracket``).
 
 Speed recovery is done three independent ways, none of them the solver's equation in s:
 the quadratic formula for a straight curve H₀ = a − b x (a s² − b Q s − H = 0, so
@@ -32,7 +38,7 @@ network solve with the pump fixed at the expected speed (``test_derivation_check
 
 Uniqueness of s* (proposal §4.3): d/ds F(s, Q) = s ψ(Q/s), ψ(x) = 2H₀(x) − x H₀'(x). The cases
 compute min ψ exactly on the PCHIP's cubic pieces and its linear end-slope extensions
-(``psi_minimum``) and require it positive over [Q/s_max, Q/s_min].
+(``psi_minimum``) and require it positive over [Q/s_max, Q/s_lo) (``require_unique_speed``).
 
 Pipe law and fittings as in ``line`` (Darcy–Weisbach + Colebrook, fluids fitting functions);
 valves as in ``element_laws``. Every pipe, elevation, curve point, setpoint and speed is a test
@@ -137,9 +143,24 @@ def psi_minimum(curve: PumpCurve, x_lo: float, x_hi: float) -> float:
 
 
 def require_unique_speed(curve: PumpCurve, q: float, s_lo: float, s_hi: float) -> None:
-    """Guard (proposal §4.3): ψ > 0 on [q/s_hi, q/s_lo], so F(·, q) rises strictly on
-    [s_lo, s_hi] and a head in its range has exactly one speed."""
-    if not psi_minimum(curve, q / s_hi, q / s_lo) > 0.0:
+    """Guard (proposal §4.3): ψ > 0 on [q/s_hi, q/s_lo), so F(·, q) rises strictly on
+    [s_lo, s_hi] and a head in its range has exactly one speed there. Inside the points by
+    ψ's exact minimum (``psi_minimum``); on the right tangent ψ is linear,
+    ψ(x) = 2h_e + m (x − 2x_e), so it stays positive from its value at the tangent's start up
+    to x_mono, where it is 0 (``element_laws.x_mono``): q/s_lo may reach x_mono (s_lo =
+    q/x_mono, the minimum of F(·, q)) but not pass it."""
+    x_lo, x_hi = q / s_hi, q / s_lo
+    x_last = curve.points[-1].flow
+    unique = True
+    if x_lo < x_last:
+        unique = psi_minimum(curve, x_lo, min(x_hi, x_last)) > 0.0
+    if x_hi > x_last:
+        unique = (
+            unique
+            and psi(curve, max(x_lo, x_last)) > 0.0
+            and x_hi <= el.x_mono(curve) * (1.0 + 1.0e-12)
+        )
+    if not unique:
         raise ValueError("the speed holding this flow is not unique on the speed range")
 
 
@@ -320,23 +341,28 @@ class ControlledLineSolution:
 def solve_controlled_line(line: ControlledLine, nu: float) -> ControlledLineSolution:
     """The state, flow, speed and port EGLs of a ControlledLine (module docstring).
 
-    With Sys(Q_set), F_min = F(s_min, Q_set) and F_max = F(s_max, Q_set):
-    - F_min + margin ≤ Sys(Q_set) ≤ F_max − margin: active, Q = Q_set,
-      EGL_s = H_R1 − h_L1(Q_set), EGL_d = H_R2 + h_L2(Q_set), s* on the affinity parabola;
+    With Sys(Q_set), s_lo = ``element_laws.stable_min_speed``, F_lo = F(s_lo, Q_set) and
+    F_max = F(s_max, Q_set):
+    - F_lo + margin ≤ Sys(Q_set) ≤ F_max − margin: active, Q = Q_set,
+      EGL_s = H_R1 − h_L1(Q_set), EGL_d = H_R2 + h_L2(Q_set), s* on the affinity parabola
+      between s_lo and s_max;
     - Sys(Q_set) ≥ F_max + margin: the fixed-speed line at s_max (``solve_pump_line``):
       max_speed with Q < Q_set, or no_flow when H_R2 − H_R1 exceeds S_max;
-    - Sys(Q_set) ≤ F_min − margin: the fixed-speed line at s_min, min_speed with Q > Q_set.
-    Sys rises and F(s, ·) falls with Q here, so exactly one of these holds (§4.6).
+    - Sys(Q_set) ≤ F_lo − margin: the fixed-speed line at s_min, min_speed with Q > Q_set
+      (F(s_min, Q_set) ≥ F_lo > Sys(Q_set)).
+    Sys rises and F(s, ·) falls with Q here, so from the initial ACTIVE status exactly one of
+    these is reached (§4.6; module docstring).
     """
     h1, h2 = line.z1 + line.level1, line.z2 + line.level2
     if line.status == "off":
         return ControlledLineSolution("off", 0.0, line.speed, h1, h2)
     q_set, s_min, s_max = line.setpoint, line.min_speed, line.speed
+    s_lo = el.stable_min_speed(line.curve, line.control, s_max)
     sys_set = line.system_head(q_set, nu)
-    f_min, f_max = head(line.curve, s_min, q_set), head(line.curve, s_max, q_set)
-    if f_min + MARGIN <= sys_set <= f_max - MARGIN:
-        require_unique_speed(line.curve, q_set, s_min, s_max)
-        s_star = speed_on_parabola(line.curve, q_set, sys_set, s_min, s_max)
+    f_lo, f_max = head(line.curve, s_lo, q_set), head(line.curve, s_max, q_set)
+    if f_lo + MARGIN <= sys_set <= f_max - MARGIN:
+        require_unique_speed(line.curve, q_set, s_lo, s_max)
+        s_star = speed_on_parabola(line.curve, q_set, sys_set, s_lo, s_max)
         if line.straight:
             a, b = collinear_coefficients(line.curve)
             s_closed = speed_linear(a, b, q_set, sys_set)
@@ -355,7 +381,7 @@ def solve_controlled_line(line: ControlledLine, nu: float) -> ControlledLineSolu
         fixed = solve_pump_line(line.fixed_line(s_max), nu)
         state: ControlState = "max_speed" if fixed.pump_status == "running" else "no_flow"
         return ControlledLineSolution(state, fixed.q, s_max, fixed.egl_suction, fixed.egl_discharge)
-    if sys_set <= f_min - MARGIN:
+    if sys_set <= f_lo - MARGIN:
         fixed = solve_pump_line(line.fixed_line(s_min), nu)
         if fixed.pump_status != "running":
             raise ValueError("a pump at minimum speed below its setpoint runs forward")
@@ -682,6 +708,224 @@ def pump_flow_control_drooping_curve() -> ReferenceCase:
     if not el.shutoff_head(curve, line.speed) - lift >= MARGIN:
         raise ValueError("CF18 keeps the head below the shutoff head at s_max")
     require_flags(case, set())
+    return case
+
+
+def _line_needing(
+    head_at_setpoint: float,
+    z1: float,
+    level1: float,
+    z_pump: float,
+    z2: float,
+    suction: Line,
+    discharge: Line,
+    curve: PumpCurve,
+    setpoint: float,
+    min_speed: float,
+    *,
+    straight: bool = False,
+) -> ControlledLine:
+    """A ControlledLine whose R2 level makes it need ``head_at_setpoint`` at Q_set (as CF3):
+    H_R2 = H_R1 − h_L1(Q_set) + H − h_L2(Q_set), level2 = H_R2 − z2."""
+    _, _, _, nu = _fluid_a()
+    h_r2 = (
+        z1
+        + level1
+        - suction.head_loss(setpoint, nu)
+        + head_at_setpoint
+        - discharge.head_loss(setpoint, nu)
+    )
+    if not h_r2 - z2 > 0.0:
+        raise ValueError("R2 needs a positive liquid level")
+    return ControlledLine(
+        z1,
+        level1,
+        z_pump,
+        z2,
+        h_r2 - z2,
+        suction,
+        discharge,
+        curve,
+        setpoint,
+        min_speed,
+        straight=straight,
+    )
+
+
+def tangent_coefficients(curve: PumpCurve) -> tuple[float, float]:
+    """(A, B) of the right tangent written as a straight curve H₀ = A − B x: with the last
+    point (x_e, h_e) and the PCHIP's end-point slope m (``element_laws.right_tangent``),
+    A = h_e − m x_e and B = −m."""
+    x_e, h_e, m = el.right_tangent(curve)
+    return h_e - m * x_e, -m
+
+
+STABLE_BRACKET_HEAD = -2.0
+"""m: the head the line of ``pump_flow_control_stable_bracket`` needs at its setpoint (test
+input): negative, the pump brakes a gravity flow."""
+STABLE_BRACKET_LINE = Line(0.1541, 60.0, (("exit", 1),))
+"""Discharge line of the stable-bracket and outside-curve cases (test input)."""
+
+
+def pump_flow_control_stable_bracket() -> ReferenceCase:
+    """The straight curve H₀ = a − b x (a = 40, b = 400 from its points) with Q_set =
+    0.05 m³/s and s ∈ [0.1, 1] on a gravity line (R1 above R2) whose R2 level makes it need
+    H = −2 m at Q_set: the pump brakes the flow.
+
+    F(s, Q) = a s² − b Q s is a parabola in s with its minimum at s = bQ/(2a) = 0.25. That is
+    s_lo = Q_set/x_mono, with x_mono = 2a/b = 0.2 m³/s where ψ = 2a − b x reaches 0 (proposal
+    §4.3), and it lies above s_min = 0.1. F(s_lo, Q_set) = −b²Q²/(4a) = −2.5 m < H = −2 m <
+    F(s_min, Q_set) = −1.6 m, so a s² − bQ s − H = 0 has two roots in [s_min, s_max],
+    s± = [bQ ± √(b²Q² + 4aH)]/(2a) = 0.25 ± √5/20, and the pump at s_min would pass more
+    than Q_set as well (checked). Rule A2 tests F(s_lo, Q_set), the lowest head on the stable
+    bracket [s_lo, s_max], so the pump that starts active stays active with s* = s₊, the root
+    on that bracket (closed form; the affinity-parabola route on [s_lo, s_max] must agree).
+    Q_set/s* > 0.04 m³/s, the last point: PUMP_OUTSIDE_CURVE; the straight curve has no NPSHr.
+    """
+    _, _, _, nu = _fluid_a()
+    curve = curve_straight()
+    line = _line_needing(
+        STABLE_BRACKET_HEAD,
+        10.0,
+        3.0,
+        0.5,
+        5.0,
+        SUCTION_A,
+        STABLE_BRACKET_LINE,
+        curve,
+        0.05,
+        0.1,
+        straight=True,
+    )
+    q, h, s_min = line.setpoint, STABLE_BRACKET_HEAD, line.min_speed
+    a, b = collinear_coefficients(curve)
+    s_lo = el.stable_min_speed(curve, line.control, line.speed)
+    if abs(s_lo - b * q / (2.0 * a)) > 1.0e-12 or not s_lo > s_min:
+        raise ValueError("the stable bracket must start at bQ/(2a), above s_min")
+    f_lo, f_min = head(curve, s_lo, q), head(curve, s_min, q)
+    if abs(f_lo + b * b * q * q / (4.0 * a)) > 1.0e-12:
+        raise RuntimeError("F(s_lo, Q_set) is not -b^2 Q^2/(4a)")
+    if not (f_lo + MARGIN <= h <= f_min - MARGIN):
+        raise ValueError("the head must lie between F(s_lo, Q_set) and F(s_min, Q_set)")
+    s_minus = (b * q - math.sqrt(b * b * q * q + 4.0 * a * h)) / (2.0 * a)
+    if not (s_min < s_minus < s_lo and abs(head(curve, s_minus, q) - h) <= 1.0e-12):
+        raise ValueError("the falling stretch [s_min, s_lo] must hold a second root")
+    if not solve_pump_line(line.fixed_line(s_min), nu).q - q > 0.0:
+        raise ValueError("the pump at s_min must pass more than Q_set in this band")
+    case = controlled_line_case(
+        name="pump_flow_control_stable_bracket",
+        title="Flow-controlled pump below its minimum-speed head",
+        description=(
+            "A flow-controlled pump braking a gravity line, its setpoint over its minimum "
+            "speed beyond x_mono, so that the head at its setpoint falls with speed below "
+            "s_lo: the line needs a head between the lowest head on the stable bracket and "
+            "the head at minimum speed. Verifies that the pump stays active (rule A2 on "
+            "F(s_lo, Q_set)) with the speed root on [s_lo, s_max], in closed form for a "
+            "straight curve, and PUMP_OUTSIDE_CURVE at that speed."
+        ),
+        line=line,
+        method=CONTROL_METHOD
+        + "; R2 level set so that H(Q_set) = -2 m; s_lo = Q_set/x_mono, x_mono = 2a/b "
+        "(proposal 4.3); s* = [bQ + sqrt(b^2 Q^2 + 4aH)]/(2a), the root on [s_lo, s_max]",
+    )
+    require_control_state(case, "PU1", "active")
+    speed = float(case.expected.pumps["PU1"]["speed"])
+    if not (s_lo < speed and abs(speed - (b * q / (2.0 * a) + math.sqrt(5.0) / 20.0)) < 1e-12):
+        raise RuntimeError("s* is not 0.25 + sqrt(5)/20")
+    require_flags(case, {"PUMP_OUTSIDE_CURVE"})
+    return case
+
+
+OUTSIDE_CURVE_HEAD = 10.0
+"""m: the head the line of ``pump_flow_control_active_outside_curve`` needs at its setpoint
+(test input)."""
+
+
+def pump_flow_control_active_outside_curve() -> ReferenceCase:
+    """curve_b (points to x_e = 0.045 m³/s, no NPSHr curve) with Q_set = 0.04 m³/s and
+    s ∈ [0.5, 1] on a line whose R2 level makes it need H = 10 m at Q_set:
+    F(s_min, Q_set) < 10 m < F(s_max, Q_set), active.
+
+    The speed s* ≈ 0.84 puts Q_set/s* ≈ 0.048 m³/s beyond the last point, on the right tangent
+    H₀ = h_e + m (x − x_e) = A − B x (A = h_e − m x_e, B = −m, m the PCHIP's end-point slope),
+    while Q_set/s_max = 0.04 m³/s lies inside the points. On the tangent the speed has the
+    straight-curve closed form s* = [BQ + √(B²Q² + 4AH)]/(2A); the affinity-parabola route on
+    the PCHIP with its extension must agree. PUMP_OUTSIDE_CURVE is raised at s*, the speed the
+    pump runs at, not at s_max (proposal §5, "operating point outside the curve points at s*").
+    """
+    curve = curve_b()
+    line = _line_needing(
+        OUTSIDE_CURVE_HEAD, 0.0, 3.0, 0.5, 8.0, SUCTION_A, STABLE_BRACKET_LINE, curve, 0.04, 0.5
+    )
+    case = controlled_line_case(
+        name="pump_flow_control_active_outside_curve",
+        title="Flow-controlled pump beyond its curve points at its solved speed",
+        description=(
+            "A flow-controlled pump holding its setpoint at a speed where its setpoint over "
+            "the speed lies beyond the curve's last point, though it lies inside at maximum "
+            "speed: verifies the speed and head on the curve's straight end-slope extension "
+            "(closed form) and PUMP_OUTSIDE_CURVE evaluated at the solved speed."
+        ),
+        line=line,
+        method=CONTROL_METHOD + "; R2 level set so that H(Q_set) = 10 m; s* on the right tangent "
+        "H0 = A - B x: s* = [BQ + sqrt(B^2 Q^2 + 4AH)]/(2A), and by brentq on "
+        "H0(x) = (H/Q^2) x^2",
+    )
+    require_control_state(case, "PU1", "active")
+    q, speed = line.setpoint, float(case.expected.pumps["PU1"]["speed"])
+    x_e = curve.points[-1].flow
+    if not (q / speed > x_e >= q / line.speed):
+        raise ValueError("Q_set/s* must lie beyond the points and Q_set/s_max inside them")
+    big_a, big_b = tangent_coefficients(curve)
+    if abs(speed_linear(big_a, big_b, q, OUTSIDE_CURVE_HEAD) - speed) > 1.0e-12:
+        raise RuntimeError("the tangent's closed-form speed and the parabola route disagree")
+    require_flags(case, {"PUMP_OUTSIDE_CURVE"})
+    return case
+
+
+def pump_flow_control_min_speed_outside_curve() -> ReferenceCase:
+    """curve_b (points to x_e = 0.045 m³/s, no NPSHr curve) with Q_set = 0.02 m³/s and
+    s ∈ [0.6, 1] on a short line with a 1 m lift: Sys(Q_set) < F(s_lo, Q_set) = F(s_min,
+    Q_set) (Q_set/s_min < x_mono), so the pump runs at s_min (fixed-speed operating point by
+    brentq) above its setpoint.
+
+    Its flow Q has Q/s_min beyond the last point, on the right tangent, and Q/s_max inside the
+    points: PUMP_OUTSIDE_CURVE at s_min, the speed it runs at (proposal §5, min_speed row),
+    with PUMP_SETPOINT_NOT_MET. On the tangent F(s_min, Q) = A s_min² − B s_min Q is linear
+    in Q (A, B as in ``tangent_coefficients``): a brentq on Sys(Q) = A s_min² − B s_min Q,
+    written from those two coefficients alone, must give the same flow.
+    """
+    _, _, _, nu = _fluid_a()
+    curve = curve_b()
+    discharge = Line(0.1023, 30.0, (("gate_valve", 1), ("exit", 1)))
+    line = ControlledLine(0.0, 3.0, 0.5, 2.0, 2.0, SUCTION_A, discharge, curve, 0.02, 0.6)
+    case = controlled_line_case(
+        name="pump_flow_control_min_speed_outside_curve",
+        title="Flow-controlled pump at minimum speed beyond its curve points",
+        description=(
+            "A flow-controlled pump that passes more than its setpoint even at its minimum "
+            "speed, where its flow over that speed lies beyond the curve's last point (inside "
+            "at maximum speed): verifies the operating point on the curve's straight "
+            "end-slope extension at minimum speed, and PUMP_OUTSIDE_CURVE evaluated at "
+            "minimum speed with PUMP_SETPOINT_NOT_MET."
+        ),
+        line=line,
+        method=CONTROL_METHOD
+        + "; fixed-speed operating point at s_min by brentq, cross-checked on the right "
+        "tangent H0 = A - B x",
+    )
+    require_control_state(case, "PU1", "min_speed")
+    q, s_min = float(case.expected.pumps["PU1"]["operatingFlow"]), line.min_speed
+    x_e = curve.points[-1].flow
+    if not (q / s_min > x_e >= q / line.speed):
+        raise ValueError("Q/s_min must lie beyond the points and Q/s_max inside them")
+    big_a, big_b = tangent_coefficients(curve)
+    q_tangent = solve_decreasing(
+        lambda x: big_a * s_min * s_min - big_b * s_min * x - line.system_head(x, nu)
+    )
+    if abs(q_tangent - q) > 1.0e-12 * q:
+        raise RuntimeError("the tangent's operating point and the fixed-speed line disagree")
+    require_flags(case, {"PUMP_OUTSIDE_CURVE", "PUMP_SETPOINT_NOT_MET"})
     return case
 
 
@@ -1560,11 +1804,13 @@ def pump_flow_control_check_valve_reopen() -> ReferenceCase:
     H_R2 + h_L6(Q_set + Q_F) (brentq); then PU1's head from the pump line,
     H = H_J + h_L3 + K_CV v²/(2g) + h_L2 + h_L1 − H_R1 at Q_set, and s* on the parabola.
 
-    The trap (proposal §5, "pump and downstream check valve close together"): FCV1 starts
-    active, forcing 0.08 m³/s into J, which puts J above H_R1 plus the shutoff head at maximum
-    speed, so PU1 and CV1 close together with L2 cut off between them. They must be re-tested
-    against the zero-flow bound of the pump at s_max (−s_max² H₀(0)) and re-open, at maximum
-    speed, then the control holds Q_set.
+    What the first pass does here (guarded below): FCV1 starts active and forces 0.08 m³/s
+    into J, but PU1 starts active too, a fixed flow Q_set (proposal §4.5), so CV1 carries
+    Q_set and stays open. In that pass PU1's head exceeds F(s_max, Q_set) (rule A1: maximum
+    speed) and FCV1's head is negative (it opens), both in one update; at s_max with FCV1
+    open PU1 passes more than Q_set (X1: active). Unlike ``pump_and_check_valve_reopen``, the
+    pump and check valve never close together, so this case does not reach the zero-flow
+    re-test; ``pump_flow_control_zero_flow_reopen`` does.
     """
     fluid, rho, mu, nu = _fluid_a()
     curve = curve_c()
@@ -1607,8 +1853,21 @@ def pump_flow_control_check_valve_reopen() -> ReferenceCase:
         problem = el.valve_state_problem(valve, state, qq, a, b, rho, MARGIN, d_in, d_out)
         if problem:
             raise ValueError(f"{valve.id} {problem}")
-    if not h2 + l6.head_loss(fcv1.setpoint, nu) > h1 + el.shutoff_head(curve, s_max) + MARGIN:
-        raise ValueError("the active FCV must push J above the pump's shutoff head at s_max")
+    # The first pass: PU1 a fixed flow Q_set and FCV1 a fixed flow 0.08 m³/s into J.
+    q1 = qp + fcv1.setpoint
+    hj1 = h2 + l6.head_loss(q1, nu)
+    lift1 = (
+        hj1
+        + l3.head_loss(qp, nu)
+        + el.valve_loss(k_cv, qp, l2.d)
+        + l2.head_loss(qp, nu)
+        - (h1 - l1.head_loss(qp, nu))
+    )
+    if not lift1 - head(curve, s_max, qp) >= MARGIN:
+        raise ValueError("the first pass must send PU1 to maximum speed (rule A1)")
+    fcv_head1 = h3 - l4.head_loss(fcv1.setpoint, nu) - l5.head_loss(fcv1.setpoint, nu) - hj1
+    if not fcv_head1 <= -MARGIN:
+        raise ValueError("the first pass must open FCV1 (head below its open loss)")
     require_unique_speed(curve, qp, control.min_speed, s_max)
     s_star = speed_on_parabola(curve, qp, lift, control.min_speed, s_max)
     egl = {
@@ -1673,11 +1932,12 @@ def pump_flow_control_check_valve_reopen() -> ReferenceCase:
     return ReferenceCase(
         name="pump_flow_control_check_valve_reopen",
         description=(
-            "A flow-controlled pump and its discharge check valve feed a junction that an FCV "
-            "with an unreachable setpoint first pushes above the pump's shutoff head at "
-            "maximum speed, so both close together: verifies that they are re-tested against "
-            "the zero-flow bound at maximum speed, re-open, and the pump then holds its "
-            "setpoint."
+            "The network of pump_and_check_valve_reopen with a flow-controlled pump: an FCV "
+            "with an unreachable setpoint first pushes the junction above the pump's shutoff "
+            "head at maximum speed. The pump starts as a fixed flow, so its check valve stays "
+            "open; verifies that the pump goes to maximum speed as the FCV opens and then "
+            "holds its setpoint, with the check valve open and the FCV fully open, at the "
+            "closed-form values."
         ),
         source=_source(
             "pump_flow_control_check_valve_reopen",
@@ -1688,6 +1948,220 @@ def pump_flow_control_check_valve_reopen() -> ReferenceCase:
         project=project,
         expected=expected,
     )
+
+
+REOPEN_PRV_SETPOINT = 400000.0
+"""Pa gauge: PRV2's static outlet setpoint in ``pump_flow_control_zero_flow_reopen`` (test
+input), far above what its outlet sees once it is open."""
+
+
+def pump_flow_control_zero_flow_reopen() -> ReferenceCase:
+    """CF14's network with R2's line through a PRV: R1 (H 2 m) → L1 → PU1 (curve_c,
+    Q_set = 0.015 m³/s, s ∈ [0.5, 0.95]) → L2 → check valve CV1 → L3 → ideal tee J;
+    R3 (H 20 m) → L4 → FCV1 (0.08 m³/s, ideal) → L5 → J; J → L6 → PRV2 (400 kPa static at its
+    outlet, ideal, z 0) → L7 → R2 (H 5 m).
+
+    The answer: FCV1 and PRV2 cannot reach their setpoints and run fully open (ideal: one EGL
+    at both ports); PU1 holds Q_set; CV1 is open. One unknown, the FCV line's flow Q_F, from
+    H_R3 − h_L4(Q_F) − h_L5(Q_F) = H_J = H_R2 + h_L7(Q_set + Q_F) + h_L6(Q_set + Q_F)
+    (brentq); then PU1's head from the pump line, H = H_J + h_L3 + K_CV v²/(2g) + h_L2 + h_L1
+    − H_R1 at Q_set, and s* on the affinity parabola.
+
+    The trap (proposal §5, "pump and downstream check valve close together"), each step
+    guarded below:
+    1. Control valves and the controlled pump start active (proposal §4.5). PU1 and FCV1 are
+       fixed flows and an active PRV holds only its outlet's head, so J's side of PU1 reaches
+       no fixed head: rule A0 runs PU1 at maximum speed in the first solve. FCV1 forces
+       0.08 m³/s into J while PRV2 passes only Q_prv, the flow its held outlet head drives
+       through L7 (z + p_set/(ρg) + v²/(2g) − h_L7(Q_prv) = H_R2, brentq), Q_prv < 0.08 m³/s:
+       the rest returns through the pump line, Q_r = Q_prv − 0.08 < 0, and J sits at
+       H_R1 − h_L1(Q_r) + F(s_max, Q_r) − h_L2(Q_r) − K_CV v|v|/(2g) − h_L3(Q_r) (signed
+       losses; F on the curve's start-slope extension).
+    2. That reverse flow closes CV1 and PU1 together (F(s_max, Q_r) > S_max), cutting L2 off
+       between them; FCV1's head is negative and PRV2's inlet is below its setpoint head, so
+       both open in the same update.
+    3. With PU1 and CV1 closed, J lies between R3 and R2 at H_J0 (both valves open). No head
+       on L2 keeps both closed: CV1 closed needs it at most H_J0, PU1 closed needs it above
+       H_R1 + S_max (its zero-flow bound at maximum speed, −S_max), and H_J0 − H_R1 < S_max.
+       Both re-open. A bound at minimum speed would not do: H_J0 − H_R1 > S_min.
+    4. PU1 at s_max then passes more than Q_set (its head at Q_set is below F(s_max, Q_set)):
+       X1 makes it active.
+    """
+    fluid, rho, mu, nu = _fluid_a()
+    curve = curve_c()
+    control = flow_control(0.015, 0.5)
+    s_max = 0.95
+    l1 = Line(0.1023, 5.0, (("entrance_sharp", 1),))
+    l2 = Line(0.1023, 5.0)
+    l3 = Line(0.1023, 20.0)
+    l4 = Line(0.1023, 50.0, (("entrance_sharp", 1),))
+    l5 = Line(0.1023, 50.0)
+    l6 = Line(0.1023, 10.0)
+    l7 = Line(0.1023, 90.0, (("exit", 1),))
+    h1, h3, h2 = 2.0, 20.0, 5.0
+    z_prv = 0.0
+    cv1 = check_valve("CV1", 0.0, "check")
+    fcv1 = control_valve("FCV1", 0.0, "fcv", 0.08)
+    prv2 = control_valve("PRV2", z_prv, "prv", REOPEN_PRV_SETPOINT)
+    k_cv = el.valve_k(cv1.valve_type, cv1.resistance, l2.d)
+    qp = control.setpoint
+
+    def h_j(q_out: float) -> float:
+        """EGL at J for a flow q_out from J to R2 through L6, the open PRV2 and L7."""
+        return h2 + l7.head_loss(q_out, nu) + l6.head_loss(q_out, nu)
+
+    def fcv_line(qf: float) -> float:
+        return h3 - l4.head_loss(qf, nu) - l5.head_loss(qf, nu)
+
+    qf = solve_decreasing(lambda x: fcv_line(x) - h_j(qp + x))
+    q = qp + qf
+    require_turbulent(nu, [(qp, l1), (qp, l2), (qp, l3), (qf, l4), (qf, l5), (q, l6), (q, l7)])
+    hj = h_j(q)
+    e_suc = h1 - l1.head_loss(qp, nu)
+    e_cv_out = hj + l3.head_loss(qp, nu)
+    e_cv_in = e_cv_out + el.valve_loss(k_cv, qp, l2.d)
+    e_dis = e_cv_in + l2.head_loss(qp, nu)
+    lift = e_dis - e_suc
+    e_fcv = h3 - l4.head_loss(qf, nu)
+    if abs(e_fcv - (hj + l5.head_loss(qf, nu))) > 1.0e-9:
+        raise RuntimeError("FCV line does not close (ideal open valve)")
+    e_prv = hj - l6.head_loss(q, nu)
+    if abs(e_prv - (h2 + l7.head_loss(q, nu))) > 1.0e-9:
+        raise RuntimeError("PRV line does not close (ideal open valve)")
+    require_state(curve, control, s_max, "active", qp, lift)
+    for valve, state, qq, a, b, d_in, d_out in (
+        (cv1, "open", qp, e_cv_in, e_cv_out, None, None),
+        (fcv1, "open", qf, e_fcv, e_fcv, l4.d, l5.d),
+        (prv2, "open", q, e_prv, e_prv, l6.d, l7.d),
+    ):
+        problem = el.valve_state_problem(valve, state, qq, a, b, rho, MARGIN, d_in, d_out)
+        if problem:
+            raise ValueError(f"{valve.id} {problem}")
+
+    # Step 1: the first solve, PU1 at s_max (A0), FCV1 forcing its setpoint, PRV2 active.
+    def prv_active_line(x: float) -> float:
+        return el.setpoint_head(z_prv, REOPEN_PRV_SETPOINT, rho, x, l7.d) - l7.head_loss(x, nu)
+
+    q_prv = solve_decreasing(lambda x: prv_active_line(x) - h2)
+    q_r = q_prv - fcv1.setpoint
+    if not q_r <= -el.QTOL:
+        raise ValueError("the active PRV must pass less than the FCV forces into J")
+    s_head_max = el.shutoff_head(curve, s_max)
+    lift_r = head(curve, s_max, q_r)
+    hj1 = (
+        h1
+        - l1.head_loss(q_r, nu)
+        + lift_r
+        - l2.head_loss(q_r, nu)
+        - el.valve_loss(k_cv, q_r, l2.d)
+        - l3.head_loss(q_r, nu)
+    )
+    # Step 2: CV1 and PU1 close on the reverse flow; FCV1 and PRV2 open.
+    if not lift_r - s_head_max >= MARGIN:
+        raise ValueError("the reverse flow must put PU1 above its shutoff head at s_max")
+    fcv_head1 = h3 - l4.head_loss(fcv1.setpoint, nu) - l5.head_loss(fcv1.setpoint, nu) - hj1
+    if not fcv_head1 <= -MARGIN:
+        raise ValueError("the first solve must open FCV1 (head below its open loss)")
+    prv_inlet1 = hj1 - l6.head_loss(q_prv, nu)
+    if not (el.setpoint_head(z_prv, REOPEN_PRV_SETPOINT, rho, q_prv, l7.d) - prv_inlet1 >= MARGIN):
+        raise ValueError("the first solve must open PRV2 (inlet below its setpoint head)")
+    # Step 3: the zero-flow re-test with J between R3 and R2.
+    q0 = solve_decreasing(lambda x: fcv_line(x) - h_j(x))
+    hj0 = h_j(q0)
+    s_head_min = el.shutoff_head(curve, control.min_speed)
+    if not (s_head_min + MARGIN <= hj0 - h1 <= s_head_max - MARGIN):
+        raise ValueError("H_J0 - H_R1 must lie between S_min and S_max")
+    # Step 4: at s_max PU1 passes more than Q_set (the active state's F_max bound, above).
+    s_lo = el.stable_min_speed(curve, control, s_max)
+    require_unique_speed(curve, qp, s_lo, s_max)
+    s_star = speed_on_parabola(curve, qp, lift, s_lo, s_max)
+    egl = {
+        "R1:port_1": h1,
+        "PU1:suction": e_suc,
+        "PU1:discharge": e_dis,
+        "CV1:inlet": e_cv_in,
+        "CV1:outlet": e_cv_out,
+        **_tee_egl("J", hj),
+        "R3:port_1": h3,
+        "FCV1:inlet": e_fcv,
+        "FCV1:outlet": e_fcv,
+        "PRV2:inlet": e_prv,
+        "PRV2:outlet": e_prv,
+        "R2:port_1": h2,
+    }
+    project = make_project(
+        "ref-pump-flow-control-zero-flow-reopen",
+        "Flow-controlled pump and check valve closed together, re-opened",
+        fluid,
+        [
+            reservoir("R1", 0.0, h1),
+            pump("PU1", 0.0, curve.id, speed=s_max, control=control),
+            cv1,
+            ideal_tee("J", 0.0),
+            reservoir("R3", 0.0, h3),
+            fcv1,
+            prv2,
+            reservoir("R2", 0.0, h2),
+        ],
+        [
+            l1.connect("L1", "R1:port_1", "PU1:suction"),
+            l2.connect("L2", "PU1:discharge", "CV1:inlet"),
+            l3.connect("L3", "CV1:outlet", "J:branch"),
+            l4.connect("L4", "R3:port_1", "FCV1:inlet"),
+            l5.connect("L5", "FCV1:outlet", "J:run_inlet"),
+            l6.connect("L6", "J:run_outlet", "PRV2:inlet"),
+            l7.connect("L7", "PRV2:outlet", "R2:port_1"),
+        ],
+        pump_library=[curve],
+    )
+    expected = Expected(
+        density=rho,
+        dynamic_viscosity=mu,
+        flows={"L1": qp, "L2": qp, "L3": qp, "L4": qf, "L5": qf, "L6": q, "L7": q},
+        egl=egl,
+        pressures=_pressures(
+            rho,
+            egl,
+            [
+                ("PU1:suction", 0.0, l1.velocity(qp)),
+                ("PU1:discharge", 0.0, l2.velocity(qp)),
+                ("CV1:inlet", 0.0, l2.velocity(qp)),
+                ("CV1:outlet", 0.0, l3.velocity(qp)),
+                ("PRV2:inlet", z_prv, l6.velocity(q)),
+                ("PRV2:outlet", z_prv, l7.velocity(q)),
+            ],
+        ),
+        pumps={"PU1": pump_expected("active", qp, lift, s_star)},
+        valves={"CV1": {"state": "open"}, "FCV1": {"state": "open"}, "PRV2": {"state": "open"}},
+        flags=[
+            {"code": "CONTROL_VALVE_SETPOINT_NOT_MET", "componentId": "FCV1"},
+            {"code": "CONTROL_VALVE_SETPOINT_NOT_MET", "componentId": "PRV2"},
+            *control_flags("PU1", curve, control, "active", qp, s_star, None),
+        ],
+    )
+    case = ReferenceCase(
+        name="pump_flow_control_zero_flow_reopen",
+        description=(
+            "A flow-controlled pump and its discharge check valve feed a junction whose only "
+            "outlet is through a PRV. The PRV starts active and leaves the junction without a "
+            "fixed head, so the pump starts at maximum speed while an FCV with an unreachable "
+            "setpoint forces more flow into the junction than the PRV passes: the surplus "
+            "flows back through the pump line and the pump and check valve close together. "
+            "Verifies that they are re-tested against the pump's zero-flow bound at maximum "
+            "speed (not minimum speed), re-open, and the pump then holds its setpoint with "
+            "both control valves fully open, at the closed-form values."
+        ),
+        source=_source(
+            "pump_flow_control_zero_flow_reopen",
+            CONTROL_METHOD + "; check-valve K from fluids K_swing_check_valve_Crane (angled); "
+            "FCV and PRV fully open and ideal; FCV line flow by brentq; s* by brentq on "
+            "H0(x) = (H/Q^2) x^2; first-solve PRV flow from z + p/(rho g) + v^2/2g by brentq",
+        ),
+        project=project,
+        expected=expected,
+    )
+    require_flags(case, {"CONTROL_VALVE_SETPOINT_NOT_MET"})
+    return case
 
 
 def pump_flow_control_dead_end() -> ReferenceCase:
@@ -1780,7 +2254,11 @@ CASES: tuple[Callable[[], ReferenceCase], ...] = (
     pump_flow_control_series_prv_active,
     pump_flow_control_loop_with_reference,
     pump_flow_control_check_valve_reopen,
+    pump_flow_control_zero_flow_reopen,
     pump_flow_control_dead_end,
     pump_flow_control_off,
     pump_flow_control_drooping_curve,
+    pump_flow_control_stable_bracket,
+    pump_flow_control_active_outside_curve,
+    pump_flow_control_min_speed_outside_curve,
 )

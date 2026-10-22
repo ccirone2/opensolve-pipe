@@ -580,7 +580,17 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		expect(cells(rowFor(table, 'Booster pump'))).toEqual(
 			expect.arrayContaining(['Running', 'Fixed speed', '100'])
 		);
-		expect(panel.getByText(/A speed-controlled pump's speed is the one it runs at/)).toBeVisible();
+		const note = panel.getByText(/A speed-controlled pump's speed is the one it runs at/);
+		expect(note).toBeVisible();
+		// One sentence after another, with a space between them.
+		expect(note.textContent?.replace(/\s+/g, ' ')).toContain(
+			"An off pump has no speed. A speed-controlled pump's speed is the one it runs at"
+		);
+		// A limit is not always a setpoint out of the drive's range: a pump saturated at its
+		// minimum speed can stay there although a higher speed would hold the setpoint (D11).
+		expect(note.textContent?.replace(/\s+/g, ' ')).toContain(
+			'or its minimum or maximum speed when its drive is at a limit'
+		);
 
 		// The chart of the controlled pump: its curve at the solved speed; its own control is
 		// replaced at each point of its system curve.

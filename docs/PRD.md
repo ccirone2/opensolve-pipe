@@ -151,7 +151,7 @@ Users shall be able to model the following components:
 | Component                 | Configuration Options                                                              | Release |
 | ------------------------- | ---------------------------------------------------------------------------------- | ------- |
 | Pipe                      | Material, schedule, diameter, length, roughness                                    | v1      |
-| Pump                      | Curve (head vs flow), speed ratio, status; later: control mode, viscosity correction | v1      |
+| Pump                      | Curve (head vs flow), speed ratio (the maximum speed when speed-controlled), status, speed control holding a flow setpoint (setpoint, minimum speed; CLAUDE.md D11); later: pressure and differential-pressure control modes, viscosity correction | v1      |
 | Check Valve               | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed)       | v1      |
 | Stop-Check Valve          | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed)       | v1      |
 | Gate/Ball/Butterfly Valve | Cv, Kv or K-factor at the actual opening (default: Crane full-open K), status (active/isolated); position-dependent K: Later | v1      |

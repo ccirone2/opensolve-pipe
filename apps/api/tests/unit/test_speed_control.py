@@ -324,6 +324,9 @@ def test_controlled_pump_curve_topology_issue(
         assert "pump 'PU'" in found.message
         assert "curve 'C1'" in found.message
         assert f"from {low:.6g} to {high:.6g} m³/s" in found.message
+        # ψ ≤ 0 needs x H₀' ≥ 2 H₀ ≥ 0 (heads are ≥ 0): the head rises steeply with flow there.
+        assert "head rises less steeply with flow there" in found.message
+        assert "falls" not in found.message
     fixed = pump_line(2.0, 20.0, None, points=points)
     assert not [i for i in validate_topology(fixed) if i.code == "CONTROLLED_PUMP_CURVE"]
 
@@ -590,14 +593,16 @@ def test_check_changes_apply_a1_and_a2_to_active_pumps(
     gain_offset: float, expected: Status | None
 ) -> None:
     """_check_changes: an active pump at the failed solve's early iterate takes A1 (above
-    F(s_max, Q_set) + Htol: maximum speed) or A2 (below F(s_min, Q_set) − Htol: minimum)."""
+    F(s_max, Q_set) + Htol: maximum speed) or A2 (below F(s_lo, Q_set) − Htol: minimum; here
+    s_lo = s_min, Q_set/s_min being within x_mono)."""
     built = build(pump_line(2.0, 20.0, flow_control(0.02)))
     data = built.pumps["PU"]
     assert data.control is not None
+    assert data.control.low_speed == data.control.min_speed
     gain = {
         1.0: data.control.head_at_max + 1.0,
-        -1.0: data.control.head_at_min - 1.0,
-        0.0: 0.5 * (data.control.head_at_min + data.control.head_at_max),
+        -1.0: data.control.head_at_low - 1.0,
+        0.0: 0.5 * (data.control.head_at_low + data.control.head_at_max),
     }[gain_offset]
     heads = np.full(len(built.network.nodes), 10.0)
     heads[built.network.node_index[data.discharge]] = 10.0 + gain
@@ -646,6 +651,78 @@ def test_gga_names_controls_between_two_active_pumps() -> None:
         "the pressure between control valves V1, V2 is undetermined: no reservoir or reference "
         "node fixes it, so the valves cannot all hold their setpoints"
     )
+
+
+# --------------------------------------------------------------------------- the A2 bound
+
+
+def linear_head(s: float, q: float) -> float:
+    """F(s, Q) = s² H₀(Q/s) = a s² − b Q s for the linear test curve."""
+    return LINEAR_A * s * s - LINEAR_B * q * s
+
+
+def test_bracket_low_speed_and_head_of_a_built_pump() -> None:
+    """D11: s_lo = max(s_min, Q_set/x_mono), at most s_max, and F(s_lo, Q_set), the bound of
+    rule A2. For H₀ = a − b x, ψ = 2a − b x, so x_mono = 2a/b; dF/ds = 2a s − b Q is zero at
+    s = b Q/(2a) = Q/x_mono, where F is least."""
+    x_mono = 2.0 * LINEAR_A / LINEAR_B
+    cases = [
+        (0.02, 0.3, 1.0, 0.3),  # Q_set/s_min within x_mono: s_lo = s_min
+        (0.04, 0.1, 1.0, 0.04 / x_mono),  # beyond it: s_lo = Q_set/x_mono
+        (0.2, 0.1, 1.0, 1.0),  # beyond it at every speed: held at s_max
+    ]
+    for q_set, s_min, s_max, s_lo in cases:
+        project = pump_line(2.0, 10.0, flow_control(q_set, s_min), points=linear_points())
+        control = build(project).pumps["PU"].control
+        assert control is not None
+        assert control.uniqueness.x_mono == pytest.approx(x_mono, rel=1e-12)
+        assert control.low_speed == pytest.approx(s_lo, rel=1e-12)
+        assert control.head_at_low == pytest.approx(linear_head(s_lo, q_set), rel=1e-12)
+        assert control.head_at_min == pytest.approx(linear_head(s_min, q_set), rel=1e-12)
+        assert control.head_at_low <= min(control.head_at_min, control.head_at_max)
+        assert control.head_at_low == pytest.approx(
+            min(linear_head(s, q_set) for s in np.linspace(s_min, s_max, 2001)), abs=1e-6
+        )
+
+
+def test_a_head_between_f_lo_and_f_min_is_held_on_the_rising_stretch() -> None:
+    """Findings 2 and 8 of the slice-1 review (D11): with Q_set/s_min beyond x_mono, F(·,
+    Q_set) falls on [s_min, s_lo] and rises on [s_lo, s_max], so F(s_lo, Q_set) < F(s_min,
+    Q_set). A head at Q_set between them is held by a speed in (s_lo, s_max], the root on the
+    stretch a flow controller can regulate on: the pump is active there (rule A2 tests
+    F(s_lo, Q_set)), not at minimum speed passing more than its setpoint. Before, A2 tested
+    F(s_min, Q_set) and reported minimum speed with PUMP_SETPOINT_NOT_MET."""
+    q_set, s_min = 0.04, 0.1
+    s_lo = q_set * LINEAR_B / (2.0 * LINEAR_A)  # Q_set/x_mono = 0.25
+    f_lo, f_min = linear_head(s_lo, q_set), linear_head(s_min, q_set)  # −2.5 m, −1.6 m
+    target = 0.5 * (f_lo + f_min)  # the head at Q_set the network is set to need
+    assert f_lo + HTOL < target < f_min - HTOL
+    # At a fixed flow the head across the pump moves one for one with R2's level.
+    probe = pump_line(100.0, 100.0, flow_control(q_set, s_min), points=linear_points())
+    [point] = system_curve_points(build(probe), "PU", [q_set], tolerance=1e-9, max_iterations=100)
+    assert point.converged
+    assert point.head is not None
+    project = pump_line(
+        100.0, 100.0 + target - point.head, flow_control(q_set, s_min), points=linear_points()
+    )
+    result = solve_project(project, NO_CURVES)
+    assert result.converged
+    pr = result.pump_results["PU"]
+    assert pr.control is not None
+    assert (pr.control.state, pr.control.setpoint_achieved) == ("active", True)
+    assert pr.operating_flow == q_set
+    assert pr.operating_head == pytest.approx(target, abs=1e-6)
+    assert pr.speed == pytest.approx(closed_form_speed(q_set, pr.operating_head), rel=1e-9)
+    assert s_lo < pr.speed <= 1.0
+    assert not [f for f in result.flags if f.code == "PUMP_SETPOINT_NOT_MET"]
+    # M2: the fixed pump at that speed delivers the setpoint.
+    fixed = solve_project(without_control(project, pr.speed), NO_CURVES)
+    assert fixed.pump_results["PU"].operating_flow == pytest.approx(q_set, rel=1e-6)
+    notes = result.trace.elements["PU"].notes
+    assert any(
+        n.startswith("Active, holding its flow setpoint: F(s_lo, Q_set) − Htol = -2.5001 m")
+        for n in notes
+    ), notes
 
 
 # --------------------------------------------------------------------------- results
@@ -771,6 +848,61 @@ def test_no_flow_off_dead_end_and_isolated_controlled_pumps() -> None:
     assert {f.code for f in isolated.flags if f.component_id == "PU"} == {"ISOLATED_SECTION"}
 
 
+def check_valve_line(foot: bool) -> Project:
+    """R1 (2 m) -> [foot check valve F] -> PU (flow control) -> check valve CV -> R2 (60 m):
+    the 58 m lift exceeds the 45 m shutoff head, so the check valve closes the discharge."""
+    comps: list[dict[str, Any]] = [reservoir("R1", level=2.0)]
+    conns: list[dict[str, Any]] = []
+    upstream = ("R1", "port_1")
+    if foot:
+        comps.append(valve("F", "check"))
+        conns.append(connection("L0", upstream, ("F", "inlet"), length=5.0))
+        upstream = ("F", "outlet")
+    comps += [pump("PU", flow_control(0.02)), valve("CV", "check"), reservoir("R2", level=60.0)]
+    conns += [
+        connection("L1", upstream, ("PU", "suction"), length=10.0),
+        connection("L2", ("PU", "discharge"), ("CV", "inlet"), length=10.0),
+        connection("L3", ("CV", "outlet"), ("R2", "port_1"), length=200.0),
+    ]
+    return make_project(comps, conns, pump_library=[curve_dict(CURVE_A)])
+
+
+def test_no_flow_setpoint_flag_states_why_there_is_no_flow() -> None:
+    """PUMP_SETPOINT_NOT_MET at no flow says the head across the pump exceeds its shutoff head
+    only when it does (finding 4 of the slice-1 review), as the trace note does: a pump whose
+    discharge a closed check valve closes off runs dead-headed at exactly its shutoff head, and
+    one closed off on both sides has no head across it at all. ``closedOff`` in the details
+    names the closed-off side(s)."""
+
+    def flag(result: SolvedState) -> Any:
+        [found] = [f for f in result.flags if f.code == "PUMP_SETPOINT_NOT_MET"]
+        return found
+
+    lifted = flag(solve_project(pump_line(2.0, 60.0, flow_control(0.02)), NO_CURVES))
+    assert "the head across it (58 m) exceeds its shutoff head at its maximum speed 1 (45 m)" in (
+        lifted.message
+    )
+    assert "closedOff" not in lifted.details
+
+    result = solve_project(check_valve_line(foot=False), NO_CURVES)
+    pr = result.pump_results["PU"]
+    assert pr.control is not None
+    assert (pr.status, pr.control.state, pr.operating_head) == ("no_flow", "no_flow", 45.0)
+    dead = flag(result)
+    assert "exceeds" not in dead.message
+    assert "its discharge is closed off, so it runs dead-headed at its shutoff head" in (
+        dead.message
+    )
+    assert dead.details["closedOff"] == "discharge"
+
+    result = solve_project(check_valve_line(foot=True), NO_CURVES)
+    assert "PU" not in result.pump_results
+    both = flag(result)
+    assert "exceeds" not in both.message
+    assert "both its sides are closed off" in both.message
+    assert both.details["closedOff"] == "both"
+
+
 def test_floating_loop_with_an_active_pump() -> None:
     """§5: a sealed loop circulates the setpoint; the head across the pump is exact, so is s*;
     UNDETERMINED_PRESSURE names the pump as its driver; NPSH available is not computed."""
@@ -800,7 +932,7 @@ def test_trace_notes_per_state_and_conditional_methods() -> None:
     assert names["Maximum speed s_max (field speed)"].source == "default"
     assert "Speed ratio s" not in names
     assert any(
-        n.startswith("Active, holding its flow setpoint: F(s_min, Q_set) − Htol")
+        n.startswith("Active, holding its flow setpoint: F(s_lo, Q_set) − Htol")
         for n in trace.notes
     )
     values = {v.name for v in trace.intermediates}
@@ -836,6 +968,33 @@ def test_trace_notes_per_state_and_conditional_methods() -> None:
     )
 
 
+def test_an_off_controlled_pump_regulates_nothing_in_the_traces() -> None:
+    """Finding 9 of the slice-1 review: an off speed-controlled pump is closed in the solve and
+    at every system-curve point, so another pump's trace does not say it keeps regulating, and
+    its own trace gives no speed it runs at and no reduced-speed efficiency note."""
+
+    def joined(pb_status: str) -> Project:
+        data = joined_pumps().model_dump(mode="json", by_alias=True, exclude_none=True)
+        for comp in data["components"]:
+            if comp["id"] == "PB":
+                comp["status"] = pb_status
+        return Project.model_validate(data)
+
+    regulating = "The other speed-controlled pumps keep regulating"
+    on = solve_project(joined("on"), NO_CURVES).trace.elements
+    assert any(e.startswith(regulating) for e in on["PA"].equations)
+    assert "Speed it runs at s" in {v.name for v in on["PB"].intermediates}
+    assert any(n.startswith("Efficiency and NPSHr at the speed it runs at") for n in on["PB"].notes)
+
+    result = solve_project(joined("off"), NO_CURVES)
+    assert result.pump_results["PB"].status == "off"
+    traces = result.trace.elements
+    assert not any(e.startswith(regulating) for e in traces["PA"].equations)
+    assert "Speed it runs at s" not in {v.name for v in traces["PB"].intermediates}
+    assert not any(n.startswith("Efficiency and NPSHr at the speed") for n in traces["PB"].notes)
+    assert "Its speed control is not applied: status off." in traces["PB"].notes
+
+
 # --------------------------------------------------------------------------- equal setpoints
 
 
@@ -854,13 +1013,19 @@ def series_pumps(h2: float, q1: float, q2: float) -> Project:
     return make_project(comps, conns, pump_library=[curve_dict(CURVE_A)])
 
 
-@pytest.mark.parametrize("h2", [20.0, 60.0])
+@pytest.mark.parametrize("h2", [5.0, 20.0, 30.0, 40.0, 60.0])
 def test_equal_setpoints_in_series_do_not_converge(h2: float) -> None:
     """§4.6, §5: two flow pumps in series holding the same flow leave the pressure between them
-    undetermined: not converged, naming both, wherever rounding leaves the iteration."""
+    undetermined: not converged, naming both, wherever rounding leaves the iteration, and the
+    message says why (over-controlled), whether the iteration ends converged at a limit
+    (``_over_controlled``) or with statuses cycling (``_equal_setpoints_note``)."""
     result = solve_project(series_pumps(h2, 0.02, 0.02), NO_CURVES)
     assert not result.converged
     assert result.convergence.oscillating_components == ["P1", "P2"]
+    message = result.convergence.message
+    assert message.startswith("the controls P1, P2 are in series"), message
+    assert "pressure between them" in message
+    assert "over-controlled" in message
 
 
 def test_unequal_setpoints_in_series_converge_to_one_state() -> None:
@@ -892,6 +1057,8 @@ def test_flow_pump_and_fcv_with_equal_setpoints_do_not_converge() -> None:
     )
     assert not result.converged
     assert result.convergence.oscillating_components == ["PU", "V"]
+    assert result.convergence.message.startswith("the controls PU, V are in series")
+    assert "over-controlled" in result.convergence.message
 
 
 def test_fcvs_without_speed_control_keep_their_v1_result() -> None:
@@ -928,7 +1095,17 @@ def test_m1_a_pump_at_a_limit_is_the_fixed_pump_at_that_speed(
 ) -> None:
     """M1 (§7.3): re-solved with the control removed and the speed at its limit, the flows,
     heads and statuses are those of the controlled solve (to the solver's tolerance: the two
-    solves start from different flows); from the same flows and states, bit-identical."""
+    solves start from different flows); from the same flows and states, bit-identical.
+
+    M1 holds where the network has one steady state that satisfies every element's rule, as
+    this line does. Where several do (a section closed off at zero flow, whose free level lets
+    the closed elements around it stay closed while another state runs flow there, D9: v1's
+    zero-flow multiplicity), each solve returns the state its iteration reaches, and the two
+    iterations differ: the controlled pump starts active and follows its own rules (A0-C1) on
+    the way, the fixed pump starts open. In flow_control seeds 10,236, 10,647 and 11,214 of the
+    differential test both final states pass the independent checks; they differ in statuses
+    at zero flow (a dead-ended pump running at no flow or held closed) or, in 11,214, in
+    whether a pump loop behind closed valves circulates."""
     project = pump_line(h1, h2, control, speed=speed)
     controlled = solve_project(project, NO_CURVES)
     pr = controlled.pump_results["PU"]

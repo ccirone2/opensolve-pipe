@@ -17,7 +17,8 @@ result's control fields are part of the self-check (``checks.control_problems``)
 compared (``checks.speed_comparison``); and a converged network is searched over its
 controlled pumps' states (``state_search.control_search``): its record's ``control_search``
 holds the valid states found; distinct valid solutions that differ in flowing state
-(``state_search.multiple``) are written to findings/control_multiple_states, alternatives that
+(``state_search.multiple``: neither is the other with more of the network at rest and the same
+flows and heads elsewhere) are written to findings/control_multiple_states, alternatives that
 only put more of the network at rest to findings/control_rest_alternatives (the class is not
 changed). A record of a non-default profile names it (``profile``).
 
@@ -236,7 +237,7 @@ def _run_seed(
                 "elements": elems,
                 "valid": [w for w, _, _ in valid],
                 "distinct": [w for w, _, _ in groups],
-                "multiple": multiple(groups),
+                "multiple": multiple(project, groups),
             }
             if out["control_search"]["multiple"]:
                 save(None, result, "control_multiple_states")

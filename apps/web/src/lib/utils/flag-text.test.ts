@@ -137,13 +137,21 @@ describe('flag text from code and details', () => {
 
 	it('a speed-controlled pump off its setpoint: flows in display units, speeds in %', () => {
 		// Details and message as the API writes them (solver/results.py), made-up values.
-		const notMet = (state: string, flow: number, message: string) =>
+		const notMet = (state: string, flow: number, message: string, closedOff?: string) =>
 			flag({
 				code: 'PUMP_SETPOINT_NOT_MET',
 				severity: 'info',
 				message,
 				componentId: 'P1',
-				details: { state, setpoint: 0.012, flow, speed: 0.9, minSpeed: 0.4, maxSpeed: 0.9 }
+				details: {
+					state,
+					setpoint: 0.012,
+					flow,
+					speed: 0.9,
+					minSpeed: 0.4,
+					maxSpeed: 0.9,
+					...(closedOff === undefined ? {} : { closedOff })
+				}
 			});
 		const setpoint = `${sig4(0.012 / GPM)} gpm`;
 		expect(
@@ -164,6 +172,21 @@ describe('flag text from code and details', () => {
 		expect(flagText(notMet('no_flow', 0, 'made-up'), us())).toBe(
 			`It has no flow: the head across it exceeds its shutoff head at its maximum speed (90 %), so it delivers none of its flow setpoint (${setpoint}).`
 		);
+		// A side closed off (details.closedOff): dead-headed at the shutoff head, not above it.
+		expect(flagText(notMet('no_flow', 0, 'made-up', 'discharge'), us())).toBe(
+			`It has no flow: its discharge is closed off, so it runs dead-headed at its shutoff head at its maximum speed (90 %) and delivers none of its flow setpoint (${setpoint}).`
+		);
+		expect(flagText(notMet('no_flow', 0, 'made-up', 'suction'), us())).toBe(
+			`It has no flow: its suction is closed off, so it runs dead-headed at its shutoff head at its maximum speed (90 %) and delivers none of its flow setpoint (${setpoint}).`
+		);
+		expect(flagText(notMet('no_flow', 0, 'made-up', 'both'), us())).toBe(
+			`It is held at no flow at its maximum speed (90 %) and both its sides are closed off, so it delivers none of its flow setpoint (${setpoint}).`
+		);
+		for (const text of ['discharge', 'suction', 'both'].map((side) =>
+			flagText(notMet('no_flow', 0, 'made-up', side), us())
+		)) {
+			expect(text).not.toMatch(/exceeds/);
+		}
 		// Without the details it needs, the API's message in names and display units.
 		const bare = flag({
 			code: 'PUMP_SETPOINT_NOT_MET',

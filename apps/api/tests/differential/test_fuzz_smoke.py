@@ -20,7 +20,8 @@ and 12345), with the controlled-pump search of every converged network (no netwo
 valid solutions that differ in flowing state), and the seeds together must reach every control
 state (active, max_speed, min_speed, no_flow, off). They take about 15 s (the state search
 solves each network up to 16 more times); the 3,000-seed run is the command-line tool
-(``--profile flow_control``, seeds 10,000-12,999).
+(``--profile flow_control``, seeds 10,000-12,999). Three seeds of that run whose statuses cycle
+are pinned too (``CYCLE_CLASSES``).
 """
 
 import functools
@@ -109,6 +110,23 @@ def test_flow_control_seed_classification(seed: int) -> None:
     record = flow_control_record(seed)
     check_record(record, FLOW_CONTROL_EXPECTED[seed])
     search = record.get("control_search")  # every converged network with one that is on
+    assert search is None or not search["multiple"], search
+
+
+CYCLE_CLASSES = {11_738: "pass", 12_703: "pass", 12_773: "documented"}
+"""Flow-control seeds whose pump and valve statuses cycle after a step that changed several at
+once, the cycle closed by a step that changes one. They converge since the single-change mode
+also starts on such cycles (11,738 and 12,773) and, when it reaches a state again, goes back to
+a state with a change not yet taken (12,703, ``status._backtrack``); before, all three ended not
+converged."""
+
+
+@pytest.mark.parametrize("seed", sorted(CYCLE_CLASSES))
+def test_status_cycles_closed_by_one_change_converge(seed: int) -> None:
+    pytest.importorskip("wntr")
+    record = flow_control_record(seed)
+    check_record(record, CYCLE_CLASSES[seed])
+    search = record.get("control_search")
     assert search is None or not search["multiple"], search
 
 

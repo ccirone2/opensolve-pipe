@@ -176,7 +176,8 @@ def test_closed_pressure_valves_without_heads_stay_closed(rule: object) -> None:
 
 # --- speed-controlled pump, flow setpoint (CLAUDE.md D11): rules A1-C1 ----------------------
 MIN = Status.MIN_SPEED
-F_MIN, F_MAX = 5.0, 40.0  # F(s_min, Q_set), F(s_max, Q_set), m (test inputs)
+F_MIN, F_MAX = 5.0, 40.0  # F(s_lo, Q_set) (A2's bound; F(s_min, Q_set) when s_lo = s_min),
+# F(s_max, Q_set), m (test inputs)
 S_MIN, S_MAX = 8.0, 45.0  # shutoff heads at s_min and s_max, m
 QS = 0.02  # setpoint, m³/s
 UP, DOWN = math.inf, -math.inf
@@ -189,7 +190,7 @@ def flow_rule(status: Status, gain: float, q: float) -> Status:
 @pytest.mark.parametrize(
     ("status", "gain", "q", "expected"),
     [
-        # ACTIVE: A1 (gain > F_max + Htol), A2 (gain < F_min − Htol), else A3
+        # ACTIVE: A1 (gain > F_max + Htol), A2 (gain < F_lo − Htol), else A3
         (ACTIVE, F_MAX + HTOL, QS, ACTIVE),  # on the edge: stays
         (ACTIVE, math.nextafter(F_MAX + HTOL, UP), QS, OPEN),  # A1
         (ACTIVE, F_MIN - HTOL, QS, ACTIVE),  # on the edge: stays
@@ -229,8 +230,9 @@ def test_flow_pump_band_points_are_kept_by_both_neighbours() -> None:
 
 
 def test_flow_pump_rules_test_a1_before_a2() -> None:
-    """Where F(s_max, Q_set) < F(s_min, Q_set) (the setpoint beyond the curve's run-out at every
-    speed), a head can satisfy A1 and A2 together: the first test that holds wins."""
+    """Given a lower bound above F(s_max, Q_set), a head can satisfy A1 and A2 together: the
+    first test that holds wins. (A built pump's bound F(s_lo, Q_set) is at most F(s_max,
+    Q_set), F rising on [s_lo, s_max]; the rule does not rely on it.)"""
     rule = flow_pump_status(ACTIVE, 10.0, QS, QS, 20.0, 0.0, S_MIN, S_MAX)
     assert rule is OPEN
 

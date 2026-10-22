@@ -584,11 +584,19 @@ class _Mapper:
         return control.max_speed
 
     def pump_control_result(
-        self, pump: PumpData, status: Status | None, q: float, s: float
+        self,
+        pump: PumpData,
+        status: Status | None,
+        q: float,
+        s: float,
+        head: float = math.nan,
+        closed_off: str | None = None,
     ) -> PumpControlResult | None:
         """A speed-controlled pump's control state, with PUMP_SETPOINT_NOT_MET when it ends at a
         limit (or with no flow) off its setpoint by more than Qtol; None for a fixed-speed
-        pump."""
+        pump. ``head`` (EGL_d − EGL_s) and ``closed_off`` (the side or sides closed off) say
+        why a no-flow pump has none, as its trace note does: the head across it exceeds its
+        shutoff head only when it does; a dead-headed pump develops exactly that head."""
         control = pump.control
         if control is None:
             return None
@@ -601,28 +609,53 @@ class _Mapper:
         state = CONTROL_STATES[status]
         achieved = state == "active" or abs(q - q_set) <= QTOL
         if not achieved:
+            s_max = control.max_speed
+            if closed_off == "both":
+                no_flow = (
+                    f"has no flow: it is held at no flow at its maximum speed {s_max:g} and "
+                    "both its sides are closed off, so it delivers none of its setpoint"
+                )
+            elif closed_off is not None:
+                no_flow = (
+                    f"has no flow: its {closed_off} is closed off, so it runs dead-headed at its "
+                    f"shutoff head at its maximum speed {s_max:g} "
+                    f"({control.shutoff_max:.6g} m) and delivers none of its setpoint"
+                )
+            elif head > control.shutoff_max:
+                no_flow = (
+                    f"has no flow: the head across it ({head:.6g} m) exceeds its shutoff head "
+                    f"at its maximum speed {s_max:g} ({control.shutoff_max:.6g} m), so it "
+                    "delivers none of its setpoint"
+                )
+            else:
+                no_flow = (
+                    f"has no flow at its maximum speed {s_max:g}, so it delivers none of its "
+                    "setpoint"
+                )
             why = {
-                "max_speed": f"runs at its maximum speed {control.max_speed:g} and delivers "
+                "max_speed": f"runs at its maximum speed {s_max:g} and delivers "
                 f"{q:.6g} m³/s, below its setpoint",
                 "min_speed": f"runs at its minimum speed {control.min_speed:g} and passes "
                 f"{q:.6g} m³/s, above its setpoint",
-                "no_flow": "has no flow: the head across it exceeds its shutoff head at its "
-                f"maximum speed {control.max_speed:g}, so it delivers none of its setpoint",
+                "no_flow": no_flow,
             }[state]
+            details: dict[str, float | str] = {
+                "state": state,
+                "setpoint": q_set,
+                "flow": q,
+                "speed": s,
+                "minSpeed": control.min_speed,
+                "maxSpeed": s_max,
+            }
+            if state == "no_flow" and closed_off is not None:
+                details["closedOff"] = closed_off  # no head exceeds the shutoff head
             self.flags.append(
                 make_flag(
                     "PUMP_SETPOINT_NOT_MET",
                     "info",
                     f"pump '{comp.id}' {why} {q_set:.6g} m³/s (flow control)",
                     component_id=comp.id,
-                    details={
-                        "state": state,
-                        "setpoint": q_set,
-                        "flow": q,
-                        "speed": s,
-                        "minSpeed": control.min_speed,
-                        "maxSpeed": control.max_speed,
-                    },
+                    details=details,
                 )
             )
         return PumpControlResult(
@@ -661,7 +694,7 @@ class _Mapper:
                         details={"shutoffHead": curve.shutoff_head(s)},
                     )
                 )
-                self.pump_control_result(pump, solver_status, 0.0, s)
+                self.pump_control_result(pump, solver_status, 0.0, s, closed_off="both")
             return None  # isolated
         # A pump held at no flow with one side closed off (its discharge by a check valve that
         # the system head keeps shut, or its suction by a closed foot valve) runs dead-headed:
@@ -739,7 +772,7 @@ class _Mapper:
                     details={"headRise": head, "shutoffHead": shutoff},
                 )
             )
-        control_result = self.pump_control_result(pump, solver_status, q, s)
+        control_result = self.pump_control_result(pump, solver_status, q, s, head, cut_off)
         hydraulic_power = self.rho * self.g * q * head if running else 0.0
         shaft_power = hydraulic_power / efficiency if efficiency is not None else None
         suction_node = self.built.network.nodes[self.built.network.node_index[pump.suction]]

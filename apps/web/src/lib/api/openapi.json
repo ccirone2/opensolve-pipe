@@ -2544,7 +2544,7 @@
             "title": "Setpointachieved"
           },
           "state": {
-            "description": "active: the speed holds the setpoint; max_speed / min_speed: the setpoint needs a speed outside the drive's range, so the pump runs at that limit as a fixed-speed pump; no_flow: the head across it exceeds its shutoff head at maximum speed; off: the pump is off and its control is not applied",
+            "description": "active: the speed holds the setpoint; max_speed / min_speed: the pump runs at that limit of its drive as a fixed-speed pump, because no speed it regulates at holds the setpoint (or, at min_speed, its drive is saturated there; its trace states the rule); no_flow: it is held at no flow at maximum speed, because the head across it exceeds its shutoff head or a side is closed off (PUMP_SETPOINT_NOT_MET details.closedOff); off: the pump is off and its control is not applied",
             "enum": [
               "active",
               "max_speed",

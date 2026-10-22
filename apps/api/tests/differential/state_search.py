@@ -13,7 +13,8 @@ no_flow as the pump off, active as the pump with its speed range widened to
 range is enforced by the check of the original project's rules A1/A2). ``control_search`` pins
 only the flow-controlled pumps, every other element following the solver's rules: ``fuzz``
 runs it on every converged network with one, to find networks with more than one valid state
-(``distinct``).
+(``distinct``), and among those the ones whose valid states differ in flowing state
+(``multiple``) rather than only putting more of the network at rest (``at_rest_more``).
 
     uv run python -m tests.differential.state_search SEED [--limit N] [--profile P] [--controls]
 """
@@ -141,19 +142,18 @@ def control_search(project: Project) -> tuple[list[tuple[str, list[str]]], list[
     return search(project, limit=LIMIT, only=set(controlled_pumps(project)))
 
 
-def same(project: Project, a: Solution, b: Solution) -> bool:
-    """Two solutions agree: every flow within 0.5 % or 1e-9 m³/s, and every EGL that both
-    give at a port of a connection carrying flow (more than 1e-9 m³/s in either) within 0.5 % or
-    0.01 m (the D6 criteria, ``checks``). Heads at rest are not compared: a pump at zero flow
-    dead-ended at its maximum speed or closed, with the section behind it at rest, is one
-    physical state reported with or without that section's heads (TSD §5.4)."""
+def agree(project: Project, a: Solution, b: Solution, conns: Collection[str]) -> bool:
+    """Two solutions agree on these connections: each flow within 0.5 % or 1e-9 m³/s, and every
+    EGL that both give at a port of one carrying flow (more than 1e-9 m³/s in either) within
+    0.5 % or 0.01 m (the D6 criteria, ``checks``)."""
     flows_a, flows_b = a[1], b[1]
-    if any(
-        abs(q - flows_b[k]) > max(ck.RELATIVE * abs(q), ck.FLOW_FLOOR) for k, q in flows_a.items()
-    ):
-        return False
     for conn in project.connections:
-        if max(abs(flows_a[conn.id]), abs(flows_b[conn.id])) <= ck.FLOW_FLOOR:
+        if conn.id not in conns:
+            continue
+        q_a, q_b = flows_a[conn.id], flows_b[conn.id]
+        if abs(q_a - q_b) > max(ck.RELATIVE * abs(q_a), ck.FLOW_FLOOR):
+            return False
+        if max(abs(q_a), abs(q_b)) <= ck.FLOW_FLOOR:
             continue
         for k in ck.keys(conn):
             tol = max(ck.RELATIVE * abs(b[2].get(k, 0.0)), ck.HEAD_FLOOR)
@@ -162,18 +162,34 @@ def same(project: Project, a: Solution, b: Solution) -> bool:
     return True
 
 
+def same(project: Project, a: Solution, b: Solution) -> bool:
+    """Two solutions agree (``agree``) on every connection. Heads at rest are not compared: a
+    pump at zero flow dead-ended at its maximum speed or closed, with the section behind it at
+    rest, is one physical state reported with or without that section's heads (TSD §5.4)."""
+    return agree(project, a, b, a[1])
+
+
 def flowing(sol: Solution) -> frozenset[str]:
     """The connections a solution has flow in (more than 1e-9 m³/s)."""
     return frozenset(k for k, q in sol[1].items() if abs(q) > ck.FLOW_FLOOR)
 
 
-def multiple(groups: list[Solution]) -> bool:
+def at_rest_more(project: Project, a: Solution, b: Solution) -> bool:
+    """Whether b is a with more of the network at rest: b has flow in fewer connections, all of
+    which a has flow in, and in those the two agree (``agree``: flows and EGLs)."""
+    return flowing(b) < flowing(a) and agree(project, a, b, flowing(b))
+
+
+def multiple(project: Project, groups: list[Solution]) -> bool:
     """Whether distinct valid solutions (``distinct``) include two that differ in flowing
-    state: flow in the same connections (in other amounts), or each in a connection the other
-    has at rest. Otherwise each alternative only puts more of the network at rest (a pump held
-    closed with valves closed around it, at heads that keep them all closed: D9)."""
+    state: neither is the other with more of the network at rest (``at_rest_more``). They flow
+    in the same connections in other amounts, or each in a connection the other has at rest, or
+    one in a subset of the other's connections but with other flows or heads there (the flowing
+    part redistributed, not only put at rest). Otherwise each alternative only puts more of the
+    network at rest (a pump held closed with valves closed around it, at heads that keep them
+    all closed: D9), the flows and heads of the rest unchanged."""
     return any(
-        not (flowing(a) < flowing(b) or flowing(b) < flowing(a))
+        not (at_rest_more(project, a, b) or at_rest_more(project, b, a))
         for a, b in itertools.combinations(groups, 2)
     )
 
@@ -217,7 +233,11 @@ def main(argv: list[str] | None = None) -> None:
     print("elements:", elems)
     print(f"combinations: {n}, searched: {min(n, args.limit)}")
     print(f"valid steady states: {len(valid)}, with every port headed: {len(full)}")
-    print(f"distinct valid steady states: {len(distinct(p, valid))}")
+    groups = distinct(p, valid)
+    print(
+        f"distinct valid steady states: {len(groups)}, differing in flowing state"
+        f" (multiple): {multiple(p, groups)}"
+    )
     for sol in valid:
         want, f, _ = sol
         mark = "headed" if sol in full else "headless ports"

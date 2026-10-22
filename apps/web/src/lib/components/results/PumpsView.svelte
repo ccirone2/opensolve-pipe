@@ -62,9 +62,10 @@
 		Head is the rise in the energy grade line across the pump; for a pump held at zero flow it is
 		the head across it (its shutoff head when its discharge is closed off). NPSH available is
 		computed from the absolute suction pressure and the fluid's vapor pressure; it is not shown when
-		the fluid has no vapor pressure. An off pump has no speed.{#if anyControlled}
-			A speed-controlled pump's speed is the one it runs at: solved to hold its setpoint, or its
-			minimum or maximum speed when the setpoint is out of its drive's range.{/if}
+		the fluid has no vapor pressure. An off pump has no speed.
+		{#if anyControlled}A speed-controlled pump's speed is the one it runs at: solved to hold its
+			setpoint, or its minimum or maximum speed when its drive is at a limit (its trace states the
+			rule that put it there).{/if}
 	</p>
 	{#if viewed && result}
 		<div class="card space-y-3 p-3">

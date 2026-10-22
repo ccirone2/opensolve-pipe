@@ -35,6 +35,7 @@ from opensolve_pipe.models.components import (
     ControlValve,
     FlowCoefficient,
     Pump,
+    PumpControl,
     TeeBranch,
     WyeBranch,
 )
@@ -678,8 +679,9 @@ def test_controlled_pump_cases_exist() -> None:
 def test_controlled_pump_speed_and_state_are_consistent(path: Path) -> None:
     """Every flow-controlled pump has a control state and a speed (proposal vfd-pump-modes.md
     §2.4, §4.7): its status follows the state; a limit state runs at its limit speed; an
-    active pump carries Q_set at a speed inside [s_min, s_max]; and a running pump's speed
-    gives its expected head, F(s, Q) = s² H₀(Q/s) = EGL_d − EGL_s, which is also its
+    active pump carries Q_set at a speed inside [s_lo, s_max] ⊆ [s_min, s_max], the stretch
+    where F(·, Q_set) rises (§4.3, ``element_laws.stable_min_speed``); and a running pump's
+    speed gives its expected head, F(s, Q) = s² H₀(Q/s) = EGL_d − EGL_s, which is also its
     operatingHead."""
     case, project = _load(path)
     expected = case["expected"]
@@ -693,7 +695,9 @@ def test_controlled_pump_speed_and_state_are_consistent(path: Path) -> None:
         if limit is not None:
             assert speed == limit, pump.id
         else:
-            assert pump.control.min_speed <= speed <= pump.speed, pump.id
+            curve = next(c for c in project.pump_library if c.id == pump.curve_id)
+            s_lo = el.stable_min_speed(curve, pump.control, pump.speed)
+            assert pump.control.min_speed <= s_lo <= speed <= pump.speed, pump.id
         q = nc.port_inflow(project, f"{pump.id}:suction", expected["flows"])
         assert want["operatingFlow"] == q, pump.id
         if want["status"] != "running":
@@ -751,6 +755,34 @@ def test_psi_minimum_is_exact_against_dense_sampling(curve_name: str) -> None:
         sampled = min(dpc.psi(curve, float(x)) for x in np.linspace(0.0, x_end, 20001))
         assert exact <= sampled + 1.0e-9
         assert exact == pytest.approx(sampled, abs=1.0e-3)
+
+
+def test_stable_min_speed_is_capped_at_the_maximum_speed() -> None:
+    """s_lo = max(s_min, Q_set/x_mono), at most s_max (proposal §4.3). The straight curve
+    H₀ = 40 − 400 x has ψ = 2H₀ − x H₀' = 80 − 400 x, so x_mono = 0.2 m³/s. Q_set = 0.01 at
+    s_min = 0.1: Q_set/s_min = 0.1 is within x_mono, s_lo = s_min. Q_set = 0.05: s_lo =
+    Q_set/x_mono = 0.25. Q_set = 0.3: Q_set/s_max is beyond x_mono at s_max = 1 (and 0.8), so
+    F(·, Q_set) falls on the whole range and s_lo = s_max; the active state then has no head
+    band, so a lift between F(s_max, Q_set) and F(1.5, Q_set) (the uncapped Q_set/x_mono) is
+    not an active state: F(1, 0.3) = 40 − 120 = −80 m, F(1.5, 0.3) = 2.25 (40 − 80) = −90 m."""
+    from tests.reference import derivations_pump_control as dpc
+
+    curve = dpc.curve_straight()
+    assert el.x_mono(curve) == pytest.approx(0.2, rel=1.0e-12)
+
+    def control(q_set: float) -> PumpControl:
+        return PumpControl(mode="flow", setpoint=q_set, min_speed=0.1)
+
+    assert el.stable_min_speed(curve, control(0.01), 1.0) == 0.1
+    assert el.stable_min_speed(curve, control(0.05), 1.0) == pytest.approx(0.25, rel=1.0e-12)
+    assert el.stable_min_speed(curve, control(0.3), 1.0) == 1.0
+    assert el.stable_min_speed(curve, control(0.3), 0.8) == 0.8
+    assert el.pump_head(curve, 1.0, 0.3) == pytest.approx(-80.0, rel=1.0e-12)
+    assert el.pump_head(curve, 1.5, 0.3) == pytest.approx(-90.0, rel=1.0e-12)
+    problem = el.controlled_pump_state_problem(
+        "on", curve, control(0.3), 1.0, "active", 0.3, -85.0, -el.HTOL
+    )
+    assert problem is not None
 
 
 def test_drooping_and_steep_curves_have_the_intended_psi() -> None:

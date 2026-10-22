@@ -238,8 +238,8 @@ describe('results pane', () => {
 									"pump 'P1' is speed-controlled, but its curve 'C1' (x) does not give one speed " +
 									'for each head: the head at a fixed flow, s² H₀(Q/s), does not rise with speed ' +
 									"s where 2 H₀(x) − x H₀'(x) ≤ 0, which holds for rated-speed flows x from " +
-									'0.0125 to 0.0315 m³/s; use a curve whose head falls less steeply there, or a ' +
-									'fixed speed',
+									'0.0125 to 0.0315 m³/s; use a curve whose head rises less steeply with flow ' +
+									"there (2 H₀(x) > x H₀'(x)), or a fixed speed",
 								componentIds: ['P1'],
 								connectionIds: []
 							}
@@ -255,7 +255,47 @@ describe('results pane', () => {
 		const item = within(section).getByRole('listitem');
 		expect(item).toHaveTextContent(/^Transfer pump is speed-controlled, but its pump curve/);
 		expect(item).toHaveTextContent(/for rated-speed flows x from 198\.1 to 499\.3 gpm\./);
+		expect(item).toHaveTextContent(/Use a curve whose head rises less steeply with flow there/);
 		expect(within(section).queryByText(/'P1'|m³\/s/)).toBeNull();
+	});
+
+	it('a curve issue that arrives after the pump was given another curve: the server names the curve', async () => {
+		// The solve is sent with curve C1; while it is being computed the pump is given C2, and
+		// the issue about C1 arrives. Telling it with the pump's curve now would blame C2.
+		const project = pumpTransferExample();
+		(project.components[1] as Pump).control = { mode: 'flow', setpoint: 0.01, minSpeed: 0.4 };
+		const sent = project.pumpLibrary[0]!;
+		project.pumpLibrary = [...project.pumpLibrary, { ...sent, id: 'C2', name: 'Other curve' }];
+		let fail: (error: unknown) => void = () => {};
+		const ws = testWorkspace(project, {
+			solver: { solve: () => new Promise<SolveResponse>((_, reject) => (fail = reject)) }
+		});
+		render(WorkspaceView, { workspace: ws });
+		await solve();
+		expect(
+			ws.editComponent<Pump>('P1', 'change pump curve', (c) => {
+				c.curveId = 'C2';
+			})
+		).toBe(true);
+		// Wording of the API (solver/builder.py); made-up interval.
+		const message =
+			`pump 'P1' is speed-controlled, but its curve 'C1' (${sent.name}) does not give one ` +
+			'speed for each head: the head at a fixed flow, s² H₀(Q/s), does not rise with speed s ' +
+			"where 2 H₀(x) − x H₀'(x) ≤ 0, which holds for rated-speed flows x from 0.0125 to " +
+			'0.0315 m³/s; use a curve whose head rises less steeply with flow there ' +
+			"(2 H₀(x) > x H₀'(x)), or a fixed speed";
+		fail(
+			new TopologyError('The network cannot be solved: 1 topology issue(s).', [
+				{ code: 'CONTROLLED_PUMP_CURVE', message, componentIds: ['P1'], connectionIds: [] }
+			])
+		);
+		const section = await results().findByRole('region', {
+			name: 'The network cannot be solved yet'
+		});
+		const item = within(section).getByRole('listitem');
+		expect(item).toHaveTextContent(message);
+		expect(item).not.toHaveTextContent('Other curve');
+		expect(results().getByRole('status')).toHaveTextContent('Last solve: no results, out of date');
 	});
 
 	it('names open ports in the server issues, and their links open the port', async () => {

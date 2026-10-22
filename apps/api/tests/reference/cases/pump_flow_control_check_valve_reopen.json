@@ -1,6 +1,6 @@
 {
   "name": "pump_flow_control_check_valve_reopen",
-  "description": "A flow-controlled pump and its discharge check valve feed a junction that an FCV with an unreachable setpoint first pushes above the pump's shutoff head at maximum speed, so both close together: verifies that they are re-tested against the zero-flow bound at maximum speed, re-open, and the pump then holds its setpoint.",
+  "description": "The network of pump_and_check_valve_reopen with a flow-controlled pump: an FCV with an unreachable setpoint first pushes the junction above the pump's shutoff head at maximum speed. The pump starts as a fixed flow, so its check valve stays open; verifies that the pump goes to maximum speed as the FCV opens and then holds its setpoint, with the check valve open and the FCV fully open, at the closed-form values.",
   "source": "closed-form: tests/reference/derivations_pump_control.py::pump_flow_control_check_valve_reopen (flow control (proposal vfd-pump-modes.md 2.4, 4.5): active Q = Q_set with s* from s*^2 H0(Q_set/s*) = EGL_d - EGL_s; at a limit the fixed-speed pump at s_max or s_min; pump curve: scipy PchipInterpolator, linear end-slope extension, affinity laws; check-valve K from fluids K_swing_check_valve_Crane (angled); FCV fully open and ideal; FCV line flow by brentq; s* by brentq on H0(x) = (H/Q^2) x^2; line fittings: fluids entrance_sharp(method='Crane'), exit_normal())",
   "project": {
     "schemaVersion": 1,

@@ -38,10 +38,11 @@ COPY --from=build /app/.venv /app/.venv
 # These are the address blocks IANA's special-purpose registries mark as not globally
 # reachable (loopback, link-local, private-use, shared and unique-local; RFC 1122, 3927,
 # 1918, 6598, 4291, 4193), so no client on the internet can connect from one of them: on
-# Cloud Run every request arrives through Google's front end, which appends the client's
-# address to X-Forwarded-For, and uvicorn takes the right-most untrusted entry. Never "*":
-# uvicorn then takes the left-most entry, which the client writes itself. TSD §11.2 has the
-# sources; §11.4 the check to run after deploying.
+# Cloud Run every request arrives through Google's front end, which puts the client's address
+# last in X-Forwarded-For (observed, not documented by Google), and uvicorn takes the
+# right-most untrusted entry. Never "*": uvicorn then takes the left-most entry, which the
+# client writes itself. TSD §11.2 has the sources and how to diagnose a shared bucket; §11.4
+# the check to run after deploying. The app keys an IPv6 client by its /64 (middleware.py).
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

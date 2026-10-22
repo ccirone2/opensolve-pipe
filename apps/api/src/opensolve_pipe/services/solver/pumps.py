@@ -257,6 +257,15 @@ def speed_uniqueness(curve: PumpCurveModel) -> SpeedUniqueness:
     )
 
 
+def bracket_low(flow: float, min_speed: float, max_speed: float, x_mono: float) -> float:
+    """s_lo = max(s_min, Q/x_mono), at most s_max: F(·, Q) = s² H₀(Q/s) rises strictly with
+    speed on [s_lo, s_max] (``speed_uniqueness``: ψ(Q/s) > 0 there) and, when s_lo > s_min,
+    falls on [s_min, s_lo], where Q/s is beyond x_mono. F(s_lo, Q) is then the least head the
+    pump gives at Q over its speed range on the rising (controllable) stretch (CLAUDE.md D11)."""
+    low = min_speed if math.isinf(x_mono) else max(min_speed, flow / x_mono)
+    return min(low, max_speed)
+
+
 @dataclass(frozen=True)
 class OperatingSpeed:
     """The speed of a speed-controlled pump holding flow Q against head H (``operating_speed``)."""
@@ -290,10 +299,9 @@ def operating_speed(
     def f(speed: float) -> float:
         return curve.head(flow, speed)[0]
 
-    s_lo = min_speed if math.isinf(x_mono) else max(min_speed, flow / x_mono)
+    s_lo = bracket_low(flow, min_speed, max_speed, x_mono)
     if s_lo >= max_speed:
         speed = max_speed
-        s_lo = max_speed
     else:
         f_lo, f_hi = f(s_lo), f(max_speed)
         target = min(max(head, f_lo), f_hi)

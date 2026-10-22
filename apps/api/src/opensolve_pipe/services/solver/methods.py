@@ -124,14 +124,23 @@ def methods_summary(
     system_curve_control = ""
     if controlled:
         speed_control_items = [
-            "Speed-controlled pumps (flow setpoint): while the speed that delivers the setpoint "
-            "lies between the pump's minimum speed and its speed (the maximum), the pump carries "
-            "the setpoint as a fixed flow (EPANET 2.2's substitute for a pump of a specific "
-            "flow) and its speed is the root of s² H₀(Q/s) = EGL_d − EGL_s (Brent's method). "
+            "Speed-controlled pumps (flow setpoint): F(s, Q) = s² H₀(Q/s) is the pump's head at "
+            "speed s, between its minimum speed s_min and its speed s_max (the maximum). F rises "
+            "with speed on [s_lo, s_max], s_lo = max(s_min, Q/x_mono), where 2 H₀ − (Q/s) H₀' > "
+            "0 (checked exactly on the curve's cubic pieces, a curve that fails being rejected; "
+            "x_mono follows from the curve's end tangent). While a speed in [s_lo, s_max] holds "
+            f"the setpoint, F(s_lo, Q_set) − {HTOL:g} m ≤ EGL_d − EGL_s ≤ F(s_max, Q_set) + "
+            f"{HTOL:g} m (the status head tolerance), the pump carries the setpoint as a fixed "
+            "flow (EPANET 2.2's substitute for a pump of a specific flow) and its speed is the "
+            "unique root of F(s, Q_set) = EGL_d − EGL_s on [s_lo, s_max] (Brent's method). "
             "This equals solving the speed with the network: it enters only the pump's own head "
-            "equation. The root is unique where 2 H₀ − (Q/s) H₀' > 0, checked exactly on the "
-            "curve's cubic pieces (a curve that fails is rejected).",
-            "Outside that range the pump runs as a fixed-speed pump at the nearer limit and the "
+            "equation. s_lo is above s_min only when Q_set/s_min lies beyond x_mono, where head "
+            "falls as speed rises, a stretch no stable flow controller holds. Then, for a head "
+            "at the setpoint between F(s_lo, Q_set) and F(s_min, Q_set), the pump held at s_min "
+            "and passing more than the setpoint is a steady state too (a drive saturated at its "
+            "minimum); the solve starts with the pump active and does not move it to s_min for "
+            "a head in that band.",
+            "Outside that band the pump runs as a fixed-speed pump at the nearer limit and the "
             "setpoint is not held (flagged): above it the drive saturates at maximum speed "
             "(as WaterGEMS' Fixed Speed Override), below it the pump runs at its minimum speed "
             "and passes more than the setpoint. It returns to regulating once the flow at the "
@@ -153,8 +162,8 @@ def methods_summary(
         ]
         system_curve_control = (
             " A speed-controlled pump's own control is replaced by the fixed flow at each "
-            "point; other speed-controlled pumps keep regulating; its default range uses its "
-            "maximum speed."
+            "point; other speed-controlled pumps that are on keep regulating; its default range "
+            "uses its maximum speed."
         )
     if outer is not None:
         iteration_items.append(
@@ -191,9 +200,11 @@ def methods_summary(
                     f"Outer loop for statuses and branch losses: at most {MAX_OUTER_ITERATIONS} "
                     "counted iterations; an iteration that only holds or releases branch legs at "
                     "zero flow is not counted (each branch is held a bounded number of times). "
-                    "Once pump and valve statuses repeat, one status changes per iteration; a "
-                    "status pattern that still repeats is reported as not converged, naming the "
-                    "elements that oscillate.",
+                    "Once pump and valve statuses repeat after an iteration that changed several "
+                    "of them, one status changes per iteration; a status pattern that still "
+                    "repeats goes back to the latest iteration that asked for several changes "
+                    "and takes one not yet taken, and with none left is reported as not "
+                    "converged, naming the elements that oscillate.",
                     "Parts of the network closed off from every reservoir and reference node by "
                     "closed elements carry no flow and have no computed pressure (flagged).",
                     "A closed-off part that cannot carry zero flow (a pump loop behind a closed "

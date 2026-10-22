@@ -9,7 +9,8 @@ every coefficient is a cited library call or a definition written out below.
   slope continuous). Affinity laws at speed ratio s: H(Q) = s² H₀(Q/s), NPSHr(Q) = s² NPSHr₀(Q/s)
   (the PumpCurve model: "Curves are fitted with a monotone piecewise cubic"). A flow-controlled
   pump (CLAUDE.md D11) follows this law at its solved or limit speed; its state rules are
-  written out in ``controlled_pump_state_problem`` from proposal vfd-pump-modes.md §4.5.
+  written out in ``controlled_pump_state_problem`` from proposal vfd-pump-modes.md §4.5, with
+  rule A2 on the stable bracket's lowest head F(s_lo, Q_set) (§4.3, ``stable_min_speed``).
 - Valve K (design §2.3) at the inner diameter of the pipe on the valve's inlet port: the Crane
   TP-410 full-bore K from ``fluids.fittings`` when no resistance is given (control valves: ideal,
   K = 0); a K as entered; Cv and Kv from their definitions (below), not from fluids' converters.
@@ -18,6 +19,7 @@ every coefficient is a cited library call or a definition written out below.
   (Silverberg & Darby 1999) for a tee whose branch carries the combined flow.
 """
 
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
@@ -86,6 +88,32 @@ def shutoff_head(curve: PumpCurve, speed: float) -> float:
 def pump_in_curve_range(curve: PumpCurve, speed: float, q: float) -> bool:
     """Whether Q/s lies inside the curve's flow range (PUMP_OUTSIDE_CURVE otherwise)."""
     return head_fit(curve).contains(q / speed)
+
+
+def right_tangent(curve: PumpCurve) -> tuple[float, float, float]:
+    """(x_e, h_e, m) of the straight extension beyond the last point: H₀(x) = h_e + m (x − x_e),
+    x_e, h_e the last point and m the PCHIP's end-point slope (design §2.2)."""
+    fit = head_fit(curve)
+    last = curve.points[-1]
+    return last.flow, last.head, fit.slope(last.flow)
+
+
+def x_mono(curve: PumpCurve) -> float:
+    """Where ψ(x) = 2H₀(x) − x H₀'(x) reaches 0 on the right tangent (proposal vfd-pump-modes.md
+    §4.3), m³/s: there ψ = 2h_e + m (x − 2x_e), zero at x = 2x_e − 2h_e/m = 2(x_e + h_e/|m|)
+    for m < 0 (twice the tangent's zero-head flow); for m ≥ 0 ψ only grows (∞)."""
+    x_e, h_e, m = right_tangent(curve)
+    return 2.0 * x_e - 2.0 * h_e / m if m < 0.0 else math.inf
+
+
+def stable_min_speed(curve: PumpCurve, control: PumpControl, max_speed: float) -> float:
+    """s_lo = max(s_min, Q_set/x_mono), at most s_max = max_speed (proposal §4.3): F(·, Q_set)
+    rises strictly on [s_lo, s_max] (d/ds F = s ψ(Q_set/s) > 0 there), and falls on
+    [s_min, s_lo] when s_lo > s_min, so F(s_lo, Q_set) is the lowest head the pump gives at
+    Q_set on the stretch of its speed range where it can regulate. When Q_set/s_max is beyond
+    x_mono, F falls on the whole range and s_lo = s_max: no head band is left for the active
+    state (F(s_lo, Q_set) = F(s_max, Q_set)), and a speed above s_max is never used."""
+    return min(max(control.min_speed, control.setpoint / x_mono(curve)), max_speed)
 
 
 def npsh_required(curve: PumpCurve, speed: float, q: float) -> float:
@@ -240,11 +268,13 @@ def controlled_pump_state_problem(
     select for a flow-controlled pump (CLAUDE.md D11) at flow q and EGL rise lift, every
     inequality cleared by ``margin`` (m; −HTOL reproduces the rules exactly); otherwise what is
     wrong. F(s, Q) = s² H₀(Q/s) (``pump_head``), s_max = max_speed (the pump's ``speed``),
-    s_min = control.min_speed, Q_set = control.setpoint, S = F(s, 0):
+    s_min = control.min_speed, Q_set = control.setpoint, S = F(s, 0), s_lo =
+    ``stable_min_speed`` (proposal §4.3):
 
     - off (status 'off'): closed, Q = 0, the control not applied;
-    - active: Q = Q_set (within q_rel_tol · Q_set + q_abs_tol) and F(s_min, Q_set) ≤ lift ≤
-      F(s_max, Q_set) (rules A1, A2 fail);
+    - active: Q = Q_set (within q_rel_tol · Q_set + q_abs_tol) and F(s_lo, Q_set) ≤ lift ≤
+      F(s_max, Q_set) (rules A1, A2 fail; A2 tests the lowest head reachable on the stable
+      bracket [s_lo, s_max], which is F(s_min, Q_set) whenever s_lo = s_min);
     - max_speed: the fixed-speed pump at s_max with Q < Q_set (X1 fails), running by the v1
       rule lift ≤ S_max (X2); the flow margin is taken along the curve, F(s_max, Q) −
       F(s_max, Q_set) ≥ margin. Q = 0 is a pump whose discharge has no flow path (a dead
@@ -257,10 +287,11 @@ def controlled_pump_state_problem(
         return None if state == "off" and q == 0.0 else "a pump that is off is closed"
     s_min, q_set = control.min_speed, control.setpoint
     if state == "active":
-        f_min, f_max = pump_head(curve, s_min, q_set), pump_head(curve, max_speed, q_set)
+        s_lo = stable_min_speed(curve, control, max_speed)
+        f_lo, f_max = pump_head(curve, s_lo, q_set), pump_head(curve, max_speed, q_set)
         ok = (
             abs(q - q_set) <= q_rel_tol * q_set + q_abs_tol
-            and lift - f_min >= margin
+            and lift - f_lo >= margin
             and f_max - lift >= margin
         )
     elif state == "max_speed":

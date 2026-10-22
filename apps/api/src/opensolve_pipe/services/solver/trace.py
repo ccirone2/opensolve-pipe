@@ -967,7 +967,10 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
             "flow Q at every point (H_sys as for any pump), and its default range uses its "
             "maximum speed, s = s_max"
         )
-    if any(other.control is not None and cid != comp.id for cid, other in ctx.built.pumps.items()):
+    if any(
+        other.control is not None and other.component.status == "on" and cid != comp.id
+        for cid, other in ctx.built.pumps.items()
+    ):  # an off pump is closed at every point: it regulates nothing
         t.equation(
             "The other speed-controlled pumps keep regulating (holding their setpoints within "
             "their speed ranges) at every point of this system curve"
@@ -1118,7 +1121,7 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
         t.note("Off (status set by the user): closed, no flow.")
     if control is not None and comp.status == "off":
         t.note("Its speed control is not applied: status off.")
-    if control is not None:
+    if control is not None and comp.status == "on":
         t.note(
             "Efficiency and NPSHr at the speed it runs at by the affinity laws, η = η₀(Q/s) and "
             "NPSHr = s² NPSHr₀(Q/s): the plain affinity law for efficiency, with no Sârbu–Borza "
@@ -1155,8 +1158,9 @@ def _speed_control_method(t: _Trace, ctx: TraceInputs, data: PumpData) -> None:
     )
     t.equation(
         "s* solves s² H₀(Q_set/s) = EGL_d − EGL_s on [s_lo, s_max] (Brent's method), with "
-        "s_lo = max(s_min, Q_set/x_mono); the head is first held within [F(s_lo, Q_set), "
-        "F(s_max, Q_set)], a change of at most Htol, so s* lies within [s_min, s_max]"
+        "s_lo = max(s_min, Q_set/x_mono), at most s_max: F(s, Q_set) rises with s there; the "
+        "head is first held within [F(s_lo, Q_set), F(s_max, Q_set)], a change of at most Htol "
+        "(rules A1, A2), so s* lies within [s_lo, s_max]"
     )
     t.equation(
         "Exact: the speed enters only the pump's head equation, so the Newton system is "
@@ -1166,12 +1170,14 @@ def _speed_control_method(t: _Trace, ctx: TraceInputs, data: PumpData) -> None:
         "Unique: d/ds[s² H₀(Q/s)] = s (2 H₀(x) − x H₀'(x)) > 0 with x = Q/s, checked exactly on "
         "the curve's cubic pieces for 0 ≤ x ≤ x_last (the largest point flow); beyond it the "
         "end tangent keeps it positive up to x_mono (twice the tangent's zero-head flow when it "
-        "falls, unbounded otherwise)"
+        "falls, unbounded otherwise), so for s ≥ s_lo; below s_lo, where Q_set/s is beyond "
+        "x_mono, head falls as speed rises, a stretch no stable flow controller holds"
     )
     t.equation(
         f"Rules (the first that holds wins; Htol = {h}, Qtol = {q}, H = EGL_d − EGL_s): active "
         "→ maximum speed if the network cannot supply or take its flow (A0) or H > F(s_max, "
-        "Q_set) + Htol (A1); active → minimum speed if H < F(s_min, Q_set) − Htol (A2)"
+        "Q_set) + Htol (A1); active → minimum speed if H < F(s_lo, Q_set) − Htol (A2: no speed "
+        "in [s_lo, s_max] holds Q_set)"
     )
     t.equation(
         "Maximum speed → active once Q ≥ Q_set (X1), else the fixed-speed rule at s_max (X2); "
@@ -1204,17 +1210,18 @@ def _speed_control_values(t: _Trace, data: PumpData, result: PumpResult) -> None
     assert control is not None
     curve = data.curve
     check = control.uniqueness
-    s_lo = (
-        control.min_speed
-        if math.isinf(check.x_mono)
-        else min(max(control.min_speed, control.setpoint / check.x_mono), control.max_speed)
-    )
     t.value("F(s_min, Q_set) = s_min² H₀(Q_set/s_min)", control.head_at_min, M)
     t.value("F(s_max, Q_set) = s_max² H₀(Q_set/s_max)", control.head_at_max, M)
     t.value("Shutoff head at minimum speed s_min² H₀(0)", control.shutoff_min, M)
     t.value("Shutoff head at maximum speed s_max² H₀(0)", control.shutoff_max, M)
-    t.value("Speed it runs at s", result.speed, NO_UNIT)
-    t.value("Lowest speed of the bracket s_lo = max(s_min, Q_set/x_mono)", s_lo, NO_UNIT)
+    if result.status != "off":  # an off pump does not run (its curve is shown at s_max)
+        t.value("Speed it runs at s", result.speed, NO_UNIT)
+    t.value(
+        "Lowest speed of the bracket s_lo = max(s_min, Q_set/x_mono), at most s_max",
+        control.low_speed,
+        NO_UNIT,
+    )
+    t.value("F(s_lo, Q_set) = s_lo² H₀(Q_set/s_lo), the bound of rule A2", control.head_at_low, M)
     if math.isfinite(check.x_mono):
         t.value("x_mono (2 H₀ − x H₀' > 0 below it)", check.x_mono, M3S)
     t.value("Uniqueness margin: least 2 H₀ − x H₀' on [0, x_last]", check.psi_min, M)
@@ -1238,13 +1245,14 @@ def _speed_control_state_note(t: _Trace, data: PumpData, result: PumpResult) -> 
     head, q, s = result.operating_head, result.operating_flow, result.speed
     q_set = control.setpoint
     if state == "active":
-        low = _ineq("F(s_min, Q_set) − Htol", control.head_at_min - HTOL, "≤", "H", head)
+        low = _ineq("F(s_lo, Q_set) − Htol", control.head_at_low - HTOL, "≤", "H", head)
         high = _num(control.head_at_max + HTOL)
         residual = data.curve.head(q_set, s)[0] - head
         t.note(
             f"Active, holding its flow setpoint: {low} ≤ F(s_max, Q_set) + Htol = {high} m, "
-            f"so the speed that holds Q_set = {_num(q_set)} m³/s lies within [s_min, s_max]: "
-            f"s* = {_num(s)} (residual F(s*, Q_set) − H = {residual:.3g} m)."
+            f"so the speed that holds Q_set = {_num(q_set)} m³/s lies within [s_lo, s_max] = "
+            f"[{_num(control.low_speed)}, {_num(control.max_speed)}]: s* = {_num(s)} "
+            f"(residual F(s*, Q_set) − H = {residual:.3g} m)."
         )
     elif state == "max_speed":
         within = _ineq("H", head, "≤", "s_max² H₀(0) + Htol", control.shutoff_max + HTOL)

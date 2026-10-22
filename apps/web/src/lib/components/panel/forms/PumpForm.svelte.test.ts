@@ -6,7 +6,8 @@
  * speed. The setpoints and speeds typed here are made-up test inputs.
  */
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { tick } from 'svelte';
+import { describe, expect, it, vi } from 'vitest';
 import type { Project, Pump } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Workspace } from '$lib/state/workspace.svelte';
@@ -160,6 +161,120 @@ describe('PumpForm: speed control', () => {
 		// Choosing flow again starts from an empty draft.
 		await chooseControl('flow');
 		expect(field('Flow setpoint (L/s)')).toHaveValue('');
+	});
+
+	/**
+	 * A complete draft whose minimum speed is not below the maximum speed. The fields' bounds
+	 * refuse that order, so only undo can reach it: it brings back a lower speed under a
+	 * minimum speed already entered.
+	 */
+	async function draftAboveMaximum(ws: Workspace) {
+		await enter('Speed (%)', '60');
+		await enter('Speed (%)', '100');
+		await chooseControl('flow');
+		await enter('Minimum speed (%)', '80');
+		expect(ws.store.undoLabel).toBe('change pump speed');
+		ws.store.undo();
+		await tick();
+		expect(field('Maximum speed (%)')).toHaveValue('60');
+		await enter('Flow setpoint (L/s)', '15');
+		expect(draftNote()).toHaveTextContent(
+			'The minimum speed must be below the maximum speed to switch to flow control. Until then the pump runs at a fixed speed.'
+		);
+		expect('control' in pumpOf(ws.project)).toBe(false);
+		expect(ws.store.undoDepth).toBe(1);
+	}
+
+	it('writes a draft that a maximum speed edit completes, with that speed, in one edit', async () => {
+		const ws = setup();
+		await draftAboveMaximum(ws);
+
+		await enter('Maximum speed (%)', '90');
+		const written = { mode: 'flow', setpoint: expect.closeTo(0.015, 15), minSpeed: 0.8 };
+		expect(pumpOf(ws.project).control).toEqual(written);
+		expect(pumpOf(ws.project).speed).toBe(0.9);
+		expect(linkedPump(ws).control).toEqual(written);
+		expect(ws.store.undoLabel).toBe('switch pump to flow control');
+		expect(ws.store.undoDepth).toBe(2);
+		expect(draftNote()).toBeUndefined();
+		expect(control()).toHaveValue('flow');
+
+		// One step undoes the speed and the control together.
+		ws.store.undo();
+		await tick();
+		expect('control' in pumpOf(ws.project)).toBe(false);
+		expect(pumpOf(ws.project).speed).toBe(0.6);
+		expect(control()).toHaveValue('fixed');
+		expect(field('Speed (%)')).toHaveValue('60');
+	});
+
+	it('drops a draft that undo or redo makes valid: the form never shows a control the project lacks', async () => {
+		const ws = setup();
+		await draftAboveMaximum(ws);
+
+		// Redo brings back 100 %, above the draft's minimum speed. Writing the draft then would be
+		// an edit the user did not make (and would clear what is left to redo), so it is dropped.
+		ws.store.redo();
+		await tick();
+		expect(pumpOf(ws.project).speed).toBe(1);
+		expect('control' in pumpOf(ws.project)).toBe(false);
+		expect(control()).toHaveValue('fixed');
+		expect(field('Speed (%)')).toHaveValue('100');
+		expect(screen.queryByRole('textbox', { name: 'Minimum speed (%)' })).toBeNull();
+		expect(draftNote()).toBeUndefined();
+		expect(ws.store.undoLabel).toBe('change pump speed');
+		expect(ws.store.redoDepth).toBe(0);
+
+		// A draft under a control that undo brings back is dropped too: it would come back,
+		// unasked, when redo removes that control again.
+		await chooseControl('flow');
+		await enter('Flow setpoint (L/s)', '12');
+		await enter('Minimum speed (%)', '40');
+		await chooseControl('fixed');
+		await chooseControl('flow');
+		await enter('Flow setpoint (L/s)', '20');
+		ws.store.undo(); // 'switch pump to fixed speed'
+		await tick();
+		expect(field('Flow setpoint (L/s)')).toHaveValue('12');
+		ws.store.redo();
+		await tick();
+		expect(control()).toHaveValue('fixed');
+		expect(draftNote()).toBeUndefined();
+	});
+
+	it('shows the draft note under the Control select, describes the select by it, and announces it', async () => {
+		const scrolled = vi.fn();
+		const original = Element.prototype.scrollIntoView;
+		Element.prototype.scrollIntoView = scrolled;
+		try {
+			setup();
+			// The live region is present before its text, so the text is announced when it appears.
+			const regions = new Set(screen.queryAllByRole('status'));
+			await chooseControl('flow');
+			const note = draftNote();
+			expect(note).toBeDefined();
+			expect(regions.has(note!)).toBe(true);
+			const incomplete =
+				'Enter the flow setpoint and minimum speed to switch to flow control. Until then the pump runs at a fixed speed.';
+			expect(note).toHaveTextContent(incomplete);
+			expect(control()).toHaveAccessibleDescription(expect.stringContaining(incomplete));
+			// Right under the Control select: after it, before the fields it asks for.
+			const follows = (a: Node, b: Node) =>
+				!!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+			expect(follows(control(), note!)).toBe(true);
+			expect(follows(note!, field('Flow setpoint (L/s)'))).toBe(true);
+			// Kept in view when it appears (e.g. above a phone's bottom bar).
+			expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' });
+			expect(note!.contains(scrolled.mock.contexts.at(-1) as Node)).toBe(true);
+
+			// Once the control is written, the note and the description are gone.
+			await enter('Flow setpoint (L/s)', '12');
+			await enter('Minimum speed (%)', '40');
+			expect(draftNote()).toBeUndefined();
+			expect(control()).not.toHaveAccessibleDescription(/switch to flow control/);
+		} finally {
+			Element.prototype.scrollIntoView = original;
+		}
 	});
 
 	it('says an off pump does not apply its control', async () => {

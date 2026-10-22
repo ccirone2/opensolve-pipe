@@ -16,7 +16,7 @@ Where this comes from: it starts from Design 3, the flow-control first slice, wh
 
 **How it works:**
 1. **While regulating,** the pump link is the existing `FIXED_FLOW` link. The FCV already uses it (`status.py:265-282`), and so do system-curve pumps (`status.py:302-303`). There is no GGA numerics change.
-2. **The speed** is recovered after the solve as the unique root of s²H₀(Q_set/s) = EGL_d − EGL_s. This is exact, not an approximation, because the speed enters only the pump's own head row (§4.2).
+2. **The speed** is recovered after the solve as the unique root of s²H₀(Q_set/s) = EGL_d − EGL_s on [s_lo, s_max], where that head rises with speed (§4.3). This is exact, not an approximation, because the speed enters only the pump's own head row (§4.2).
 3. **At a speed limit** the pump is exactly the v1 fixed-speed pump at that limit:
    - at maximum speed it uses the link's own law, so it is bit-identical;
    - at minimum speed it uses a per-solve law override.
@@ -74,6 +74,8 @@ This follows the convention every surveyed tool uses: the setpoint is imposed in
 | `control.minSpeed` | Minimum speed s_min | **None: required** | No tool or paper cites a default. AFT makes it optional with no value. InfoWorks WS Pro requires a minimum and a maximum (https://help.autodesk.com/cloudhelp/2027/ENU/WSPro-Help/files/GUID-EF90E86C-328E-4BB3-82B4-0D5BBA636862.htm). Bentley and EPANET have none. GOALS §4.1 forbids an uncited number. **Owner decision (Q2).** |
 | Cross-field rule | 0 < minSpeed < speed ≤ 1 | — | A model rule (400), published as `x-ordered-fields` (§3.3). |
 
+Within these limits the drive regulates on [s_lo, `speed`], s_lo = max(minSpeed, Q_set/x_mono), where the head at the setpoint rises with speed (§4.3); s_lo exceeds minSpeed only when Q_set/minSpeed lies beyond x_mono on the curve's end tangent. The curve test of §4.3 makes the speed holding a flow against a head unique there; it does not make the operating state unique on a drooping curve (§4.3, §5).
+
 ### 2.4 States
 
 | `control.state` | Solver status | `PumpResult.status` | `speed` reported | Meaning |
@@ -93,7 +95,7 @@ This follows the convention every surveyed tool uses: the setpoint is imposed in
   - `PUMP_FLOW_REVERSAL` (no_flow, at s_max);
   - `CAVITATION`, `NPSH_NOT_CHECKED` and `BELOW_VAPOR_PRESSURE`;
   - `UNDETERMINED_PRESSURE`, which lists the controlled pump as a driver of a floating section.
-- **New topology issue: `CONTROLLED_PUMP_CURVE` (422).** Raised only where the speed is genuinely not unique (§4.3).
+- **New topology issue: `CONTROLLED_PUMP_CURVE` (422).** Raised only where the speed root is genuinely not unique (§4.3).
 - **No low-speed warning.** No cited threshold exists. The DOE/HI guide warns only qualitatively (https://www1.eere.energy.gov/manufacturing/tech_assistance/pdfs/variable_speed_pumping.pdf), and ORNL's 66.7 % concerns efficiency (https://www.osti.gov/servlets/purl/1649114).
 
 ### 2.6 Results
@@ -182,7 +184,7 @@ Every reader is strict, so any new field, and later any new `mode` value, bumps 
 - Q5 asks which applies.
 
 ### 3.6 METHOD_VERSION decision
-- Bump `version.py:17` to **1.1.0**. Changelog entry: "Adds speed-controlled pumps (flow setpoint): the setpoint flow is imposed in the network solve and the speed recovered from the affinity laws, within a minimum and maximum speed. Results of projects without speed control are unchanged (corpus comparison)."
+- Bump `version.py:17` to **1.1.0**. Changelog entry: "Adds speed-controlled pumps (flow setpoint): the setpoint flow is imposed in the network solve and the speed recovered from the affinity laws, within a minimum and maximum speed. Results of projects without speed control are unchanged (corpus comparison)." As built, the entry says flows, heads, pressures and statuses, and a second line describes the outer loop's oscillation fallback added after the slice-1 review (`version.py`).
 - Rule: `version.py` requires a bump only when results could change, and none do. But GOALS §4.3 says "each project records the calculation-method version that produced its results". A controlled-pump result stamped 1.0.0 would name a version whose changelog has no speed control. Traceability ranks above usability (GOALS §3).
 - Cost: `MethodVersionNotice` appears once on old links (`ResultsPanel.svelte:92-94`), with the "unchanged" text.
 
@@ -204,6 +206,7 @@ Every reader is strict, so any new field, and later any new `mode` value, bumps 
 - H₀(x) is the rated PCHIP with its tangent extension (`pumps.py:31-57`). F(σ, Q) = σ²H₀(Q/σ), which is `PumpCurveModel.head` (`pumps.py:99-102`).
 - s_max = `speed`, s_min = `control.minSpeed`.
 - F_max = F(s_max, Q_set), F_min = F(s_min, Q_set), S_max = F(s_max, 0), S_min = F(s_min, 0).
+- s_lo = max(s_min, Q_set/x_mono), at most s_max, and F_lo = F(s_lo, Q_set) (§4.3; F_lo = F_min when s_lo = s_min).
 - Htol = 1e-4 m and Qtol = 1e-8 m³/s (`status.py:77-80`: EPANET 2.2's Htol and Qtol). No new tolerance is introduced.
 
 ### 4.2 Why imposing the setpoint and recovering the speed is exact
@@ -229,9 +232,12 @@ Where ψ ≠ 0, the Newton iterates of (Q, H) are exactly those of the reduced s
 - For m < 0, ψ reaches 0 at x_mono = 2(x_e + h_e/|m|) = 2x₀, twice the tangent's zero-head flow.
 - For m ≥ 0, ψ only grows from its checked value at x_e, so x_mono = ∞.
 
-**Bracket.** s_lo = max(s_min, Q_set/x_mono). Then F(·, Q_set) is strictly increasing on [s_lo, s_max].
-- If s_lo > s_min, F decreases on [s_min, s_lo], so F(s_lo) < F_min.
-- So any H ≥ F_min − Htol has exactly one root on [s_lo, s_max], up to the Htol band.
+**Bracket.** s_lo = max(s_min, Q_set/x_mono), at most s_max. Then F(·, Q_set) is strictly increasing on [s_lo, s_max].
+- If s_lo > s_min, F decreases on [s_min, s_lo], so F(s_lo) < F_min. On that stretch raising the speed lowers the flow: at a fixed system Sys, Q(s) solves F(s, Q) = Sys(Q), so dQ/ds = (∂F/∂s)/(Sys′ − ∂F/∂Q), whose denominator is positive where F falls with Q and Sys rises; dQ/ds then has the sign of ∂F/∂s. No stable flow controller holds a speed there.
+- So any H in [F_lo − Htol, F_max + Htol], F_lo = F(s_lo, Q_set), has exactly one root on [s_lo, s_max], up to the Htol band, and rule A2 tests F_lo (§4.5). A head in [F_lo, F_min) also has a root on (s_min, s_lo), on the falling stretch; it is not used.
+- As built, A2 first tested F_min. The slice-1 review found the band [F_lo, F_min) sent to minimum speed although a speed in (s_lo, s_max] held the setpoint (curve_a, Q_set 0.03 m³/s, minSpeed 0.15, head −3.3 m at Q_set: speeds 0.2534 and 0.1944 hold it, the solve reported 0.15); A2 now tests F_lo.
+
+**What the test guarantees.** One speed per head at a given flow on [s_lo, s_max]: a unique speed root. Not a unique operating state. §4.6's argument also needs F(σ, ·) to fall with Q; on a drooping curve (head rising from H₀(0) to a peak) it does not everywhere, and the limit rules X2, N2 and C1 close the pump against s²H₀(0), as v1 closes a fixed pump (EPANET 2.2 `pumpstatus`). A running state whose head lies between s²H₀(0) and the curve's peak is then not found: at maximum speed the result is no flow (`PUMP_FLOW_REVERSAL`, invalid); at minimum speed N2 closes against S_min, C1 re-opens against S_max and the solve ends not converged. The review reproduced both with the curve through (flow m³/s, head m) (0, 40), (0.01, 42), (0.02, 41), (0.03, 35), which passes the ψ test. A v1 fixed pump gives the same no-flow result; EPANET 2.2 rejects such curves (error 227). TSD §12 lists it as Open.
 
 **Check on the suite's curve_a** (scratch script):
 - x₀ = 0.067, x_mono = 0.134 m³/s, min ψ on the points = 89.5 m.
@@ -261,7 +267,7 @@ The first test that holds wins.
 |---|---|---|---|---|
 | ACTIVE | A0 | The GGA starves the link (a side reaches no fixed head, `gga.py:465-507`) | OPEN | Own departure. Valves close here (`status.py:368-369`). A flow controller that sees Q = 0 < Q_set runs to maximum speed, where it is the v1 pump. |
 | ACTIVE | A1 | H > F_max + Htol | OPEN | In the style of fcvstatus; Bentley Fixed Speed Override |
-| ACTIVE | A2 | H < F_min − Htol | MIN_SPEED | Mirror of A1 (EPANET has no speed range) |
+| ACTIVE | A2 | H < F_lo − Htol, F_lo = F(s_lo, Q_set) (= F_min when s_lo = s_min) | MIN_SPEED | Mirror of A1 on the stretch the drive can regulate on (§4.3; EPANET has no speed range) |
 | ACTIVE | A3 | Otherwise | ACTIVE | — |
 | OPEN | X1 | Q ≥ Q_set | ACTIVE | EPANET 2.2 fcvstatus, XFCV → ACTIVE once q ≥ setting (https://github.com/OpenWaterAnalytics/EPANET/blob/master/src/hydstatus.c) |
 | OPEN | X2 | Otherwise | `pump_status(OPEN, H, Q, S_max)` | EPANET 2.2 pumpstatus; v1 code unchanged |
@@ -289,12 +295,12 @@ The first test that holds wins.
 - The GGA's undetermined message says "controls" when a pump is named. Text that names only valves is byte-identical.
 
 ### 4.6 Why the final state is unique, and why nothing chatters
-Single pump, passive surroundings: the head the system needs, Sys(Q), increases with Q, and F(σ, ·) decreases with Q. Then:
-- ACTIVE holds ⟺ F_min − Htol ≤ Sys(Q_set) ≤ F_max + Htol;
+Single pump, passive surroundings: the head the system needs, Sys(Q), increases with Q, and F(σ, ·) decreases with Q (not so everywhere on a drooping curve, §4.3). Then:
+- ACTIVE holds ⟺ F_lo − Htol ≤ Sys(Q_set) ≤ F_max + Htol;
 - OPEN holds ⟺ Sys(Q_set) > F_max;
 - MIN_SPEED holds ⟺ Sys(Q_set) < F_min.
 
-So the states partition outside 2·Htol bands. A boundary point satisfies both of its neighbours, which is EPANET's band behaviour. Design 3's scratch sweep found one final state from every start.
+When s_lo = s_min (F_lo = F_min) the states partition outside 2·Htol bands. A boundary point satisfies both of its neighbours, which is EPANET's band behaviour. Design 3's scratch sweep found one final state from every start. When s_lo > s_min, ACTIVE and MIN_SPEED both hold for F_lo ≤ Sys(Q_set) < F_min: the drive at its minimum, passing more than Q_set, is saturated and stays there, and the drive at its root on [s_lo, s_max] holds Q_set. The solve starts ACTIVE and A2 keeps it there; a pump that other statuses' changes bring to MIN_SPEED in that band stays at MIN_SPEED. The band needs Q_set/s_min beyond x_mono, a negative pump head far out on the curve's end tangent (`PUMP_OUTSIDE_CURVE`). When Q_set/s_max itself lies beyond x_mono, s_lo is s_max and no speed in the range is on a rising stretch: a head above F(s_max, Q_set) + Htol gives max_speed (rule A1), and the pump at s_min passing more than Q_set can also satisfy the rules; both lie far out on the curve's end tangent and are flagged `PUMP_OUTSIDE_CURVE`, and which one the solve reports depends on its path (TSD §12, open item).
 
 **Two flow pumps in series, P1 upstream with Q1 < Q2.** Let G(Q) = Sys(Q) − F₁(s_min1, Q) − F₂(s_max2, Q), which increases, with root Q_c. Then:
 - (P1 active, P2 max) holds iff Q_c ≤ Q1;
@@ -303,15 +309,15 @@ So the states partition outside 2·Htol bands. A boundary point satisfies both o
 
 The both-max and both-min states fall outside the two ends by the same argument. The state is therefore unique. Design 3's "smaller setpoint wins" holds only when Q_c ≤ Q1. The judge's "second equilibrium" holds only when the first does not.
 
-With Q1 = Q2 the pressure between the pumps is undetermined, and every fallback returns to a state already tried, so the solve is not converged and names both. AFT calls this "no solution" (https://www.datacor.com/resources/reference-pressure); PIPE-FLO calls it "Over Controlled".
+With Q1 = Q2 the pressure between the pumps is undetermined, and every fallback returns to a state already tried, so the solve is not converged and names both. The message says the pressure between them is undetermined (over-controlled), whether the iteration stops at a converged state with one at a limit carrying the setpoint (`_over_controlled`) or with statuses cycling (`_equal_setpoints_note`: holding the cycling flow controls at their setpoints together leaves that pressure undetermined). AFT calls this "no solution" (https://www.datacor.com/resources/reference-pressure); PIPE-FLO calls it "Over Controlled".
 
 Flow pump with an FCV, or with a downstream PRV: unique by the same monotonicity argument. Reference cases cover both regimes (§7).
 
 ### 4.7 Speed recovery
 This runs after convergence, for ACTIVE only.
-- Ĥ = clamp(H, F(s_lo, Q_set), F_max). The clamp is at most Htol, by A1 and A2.
+- Ĥ = clamp(H, F(s_lo, Q_set), F_max). The clamp is at most Htol, by A1 and A2 (A2 tests F_lo = F(s_lo, Q_set)).
 - s* = `scipy.optimize.brentq(σ ↦ F(σ, Q_set) − Ĥ, s_lo, s_max, xtol=1e-14, rtol=4ε)` (Brent 1973), or the end value when Ĥ equals an end.
-- So s* always lies in [s_min, s_max]. The trace reports the residual |F(s*, Q_set) − H| ≤ Htol.
+- So s* always lies in [s_lo, s_max] ⊆ [s_min, s_max]. The trace reports the residual |F(s*, Q_set) − H| ≤ Htol.
 - Closed-form oracle for a linear curve H₀ = a − bx: s* = [bQ + √(b²Q² + 4aH)]/(2a). This is ORNL eq. (10) with c = 0.
 
 **Speed reported:** ACTIVE s*; OPEN s_max; MIN_SPEED s_min; CLOSED s_max.
@@ -374,8 +380,10 @@ This runs after convergence, for ACTIVE only.
 | Case | Behaviour | Why |
 |---|---|---|
 | Setpoint unreachable at maximum speed | A1 → OPEN: the v1 pump at `speed`, Q < Q_set, `PUMP_SETPOINT_NOT_MET`. If H > S_max + Htol, it goes on to CLOSED (no_flow, `PUMP_FLOW_REVERSAL`). | A drive saturates high (Bentley Fixed Speed Override). At s_max the pump is exactly the fixed pump. |
-| Gravity drives more than Q_set even at s_min | A2 → MIN_SPEED: runs at s_min, Q > Q_set, flagged. `PUMP_OUTSIDE_CURVE` if Q/s_min is beyond the points. | A pump cannot throttle below its minimum. There is no sleep mode (Q3). |
+| Gravity drives more than Q_set even at s_min | A2 (H < F(s_lo, Q_set) − Htol) → MIN_SPEED: runs at s_min, Q > Q_set, flagged. `PUMP_OUTSIDE_CURVE` if Q/s_min is beyond the points. | A pump cannot throttle below its minimum. There is no sleep mode (Q3). |
 | Q_set/s_min beyond run-out (curve_a, 0.0335 m³/s, s_min 0.4) | Solves ACTIVE, with s* unique on [s_lo, s_max]. | §4.3 bracket. Rejecting it would refuse a valid project (GOALS §4.6). |
+| Q_set/s_min beyond x_mono, head at Q_set in [F(s_lo, Q_set), F(s_min, Q_set)) | ACTIVE at the root on [s_lo, s_max]. MIN_SPEED (Q > Q_set) also satisfies the rules there; the solve starts ACTIVE and A2 does not leave it for a head in the band. | §4.3, §4.6: the other root, on [s_min, s_lo], is on the falling stretch no stable controller holds. |
+| Q_set/s_max beyond x_mono (s_lo capped at s_max), head at Q_set above F(s_max, Q_set) + Htol | MAX_SPEED by A1 (Q < Q_set); MIN_SPEED (Q > Q_set) can also satisfy the rules. Both flagged `PUMP_OUTSIDE_CURVE`; the reported one depends on the solve's path. | No speed in the range is on a rising stretch of F(·, Q_set) (§4.3). Recorded as an open item (TSD §12). |
 | Reverse flow | Impossible in ACTIVE (Q ≡ Q_set > 0). At OPEN it closes by EPANET's rule. | Integral check. |
 | Discharge into a plug or a closed valve | A0 → OPEN at s_max, zero flow, head S_max: running, `PUMP_SETPOINT_NOT_MET`. | Identical to a v1 fixed pump at s_max against a plug. A controller that sees zero flow goes to maximum. |
 | Between two closed isolation valves | A0 → OPEN, inside a closed-off section: no pump result and no flag (`results.py:556-575` returns None for a running pump). | Fixes the false `PUMP_FLOW_REVERSAL` (invalid) that a starved → CLOSED rule would raise. Same as a fixed pump. |
@@ -383,9 +391,9 @@ This runs after convergence, for ACTIVE only.
 | Pump and downstream check valve close together | Re-tested by `zero_flow_openings` with −S_max. On a negative cycle, OPEN at s_max, then X1 → ACTIVE. | The D9 reopen rule, unchanged. The bound is the v1 pump at s_max. |
 | Parallel with a fixed pump, or two flow pumps in parallel | Each controlled pump is an independent fixed flow, with its own speed. | Determined. Not Bentley's common-speed battery (deferred). |
 | Two flow pumps in series, unequal setpoints | A unique state set by Q_c (§4.6), reached by the fallbacks with MIN_SPEED options. | Monotone partition. |
-| Two flow pumps in series, equal setpoints; or flow pump and FCV with equal setpoints | Not converged, naming both. | The pressure between them is undetermined (AFT, PIPE-FLO). |
+| Two flow pumps in series, equal setpoints; or flow pump and FCV with equal setpoints | Not converged, naming both; the message says the pressure between them is undetermined (over-controlled). | The pressure between them is undetermined (AFT, PIPE-FLO). |
 | Flow pump and a downstream PRV | PRV open and pump active if no throttling is needed at Q_set; otherwise PRV active and pump at max speed. | Unique (§4.6). Design 2's "undetermined" was wrong. |
-| Drooping curve with ψ > 0 | Accepted; s* unique. | §4.3. |
+| Drooping curve with ψ > 0 | Accepted; the speed root s* is unique, the operating state need not be: the limit rules close the pump against s²H₀(0), as v1 does a fixed pump, so a running state with a head above that is not found (no flow, `PUMP_FLOW_REVERSAL` invalid; or, at minimum speed, not converged). | §4.3. A known v1 limitation (TSD §12 Open); EPANET 2.2 rejects such curves (error 227). |
 | Curve with ψ ≤ 0 inside its points | `CONTROLLED_PUMP_CURVE` (422). | The speed would not be unique. Loosening this later breaks no link. |
 | minSpeed ≥ speed | 400 `VALIDATION_ERROR`, with no values echoed (D10). The form flags it before any solve. | Model rule. |
 | Status off with a control | CLOSED and fixed; `control.state` off; no setpoint flag. | off wins. The trace notes it. |
@@ -427,22 +435,22 @@ This runs after convergence, for ACTIVE only.
   - the residual F(s, Q) − H;
   - all existing pump values at the actual speed.
 - **State notes** state the inequality that set the state, with values, as `_control_rule_values` does for valves (1163-1257). Examples:
-  - "Active: F(s_min, Q_set) − Htol = 2.7199 m ≤ H = 20.000 m ≤ F(s_max, Q_set) + Htol = 41.0001 m; s* = 0.7328 (residual 3e-13 m)."
+  - "Active: F(s_lo, Q_set) − Htol = 2.7199 m ≤ H = 20.000 m ≤ F(s_max, Q_set) + Htol = 41.0001 m, so the speed that holds Q_set lies within [s_lo, s_max]; s* = 0.7328 (residual 3e-13 m)." (s_lo = s_min here, so F(s_lo, Q_set) = F(s_min, Q_set).)
   - "At maximum speed: Q = 0.0182 m³/s < Q_set = 0.025 m³/s; runs as a fixed-speed pump at s_max = 0.9; returns to regulating once Q ≥ Q_set."
   - "No flow: H = 52.1 m > s_max²H₀(0) + Htol = 45.0001 m."
   - "Its control is not applied: status off."
 - **Notes added:** "efficiency at reduced speed by the plain affinity law η = η₀(Q/s), with no Sârbu–Borza correction (EPANET 2.2 applies one)". The no-viscosity-correction note is kept.
 
 **Methods summary (`methods.py:212-237`).** These items are added only when a controlled pump exists, so the summaries of other projects are unchanged:
-1. "Speed-controlled pumps (flow setpoint): while the speed that delivers the setpoint lies between the pump's minimum speed and its speed (the maximum), the pump carries the setpoint as a fixed flow and its speed is the root of s²H₀(Q/s) = EGL_d − EGL_s. This equals solving the speed with the network: it enters only the pump's own head equation. The root is unique where 2H₀ − (Q/s)H₀′ > 0, checked exactly on the curve's cubic pieces."
-2. "Outside that range the pump runs as a fixed-speed pump at the nearer limit and the setpoint is not held (flagged). At zero flow its controller is at maximum speed, so it closes and re-opens as a fixed-speed pump at its maximum speed (EPANET 2.2 pumpstatus)."
+1. "Speed-controlled pumps (flow setpoint): F(s, Q) = s²H₀(Q/s) is the pump's head at speed s, between its minimum speed s_min and its speed s_max (the maximum). F rises with speed on [s_lo, s_max], s_lo = max(s_min, Q/x_mono), where 2H₀ − (Q/s)H₀′ > 0 (checked exactly on the curve's cubic pieces). While a speed in [s_lo, s_max] holds the setpoint, F(s_lo, Q_set) − Htol ≤ EGL_d − EGL_s ≤ F(s_max, Q_set) + Htol, the pump carries the setpoint as a fixed flow and its speed is the unique root of F(s, Q_set) = EGL_d − EGL_s on [s_lo, s_max]. This equals solving the speed with the network: it enters only the pump's own head equation." As built, the item also states when s_lo exceeds s_min and that the pump held at s_min is then a steady state too in the band between F(s_lo, Q_set) and F(s_min, Q_set) (§4.6).
+2. "Outside that band the pump runs as a fixed-speed pump at the nearer limit and the setpoint is not held (flagged). At zero flow its controller is at maximum speed, so it closes and re-opens as a fixed-speed pump at its maximum speed (EPANET 2.2 pumpstatus)."
 3. "Efficiency and NPSHr at the solved speed by the affinity laws; no reduced-speed efficiency correction."
 4. The system-curve item gains: "a speed-controlled pump's own control is replaced by the fixed flow at each point; other speed-controlled pumps keep regulating; default range × its maximum speed."
 
 **Flags.** `PUMP_SETPOINT_NOT_MET` (info) carries details {state, setpoint, flow, speed, minSpeed, maxSpeed}. Its messages by state:
 - max_speed: "runs at its maximum speed 0.9 and delivers X, below its setpoint Y";
 - min_speed: "runs at its minimum speed and passes X, above its setpoint Y";
-- no_flow: "no flow: the head across it exceeds its shutoff head at maximum speed".
+- no_flow, by its cause, as the trace note states it: "has no flow: the head across it (H) exceeds its shutoff head at its maximum speed 1 (S_max)" only when H > S_max; "its discharge (or suction) is closed off, so it runs dead-headed at its shutoff head at its maximum speed" for a dead-headed pump, whose head is S_max exactly; "it is held at no flow at its maximum speed and both its sides are closed off" when it has no head. The last two carry `closedOff` (the side, or "both") in the details.
 
 `CONTROLLED_PUMP_CURVE` gets issue text. The existing flags are evaluated at the actual speed.
 
@@ -452,7 +460,7 @@ This runs after convergence, for ACTIVE only.
 
 **Pass criteria.**
 - D6: flows, heads and pressures within 0.5 % or 0.01 m of head, whichever is looser, with mass balance closing.
-- Speed is new to D6. Proposed: 0.5 % relative, and |F(s, Q) − H_ref| ≤ 0.01 m (Q6).
+- Speed is new to D6. Proposed: 0.5 % relative, and |F(s, Q) − H_ref| ≤ 0.01 m (Q6). As built, the reference suite tests the implied head within 0.01 m of a derived head; the EPANET differential fuzz compares it with EPANET's head rise by D6's head criterion (0.5 % or 0.01 m, whichever is looser), because EPANET's own constants move its head by 8.1–9.2·10⁻⁴ of the path's losses (TSD §10.4, `checks.py`).
 - States must be clear by `STATE_MARGIN` = 0.05 m (`tests/reference/element_laws.py:217`).
 
 **Process (Design 3).** A second agent writes `tests/reference/derivations_pump_control.py` without reading `services/`. It may import `opensolve_pipe.models`, `element_laws` and `line.py` only. Then integration, then an adversarial review.
@@ -474,11 +482,15 @@ This runs after convergence, for ACTIVE only.
 | CF11 `…_series_prv` (both regimes) | The PRV law at H_set; the pump at Q_set or at s_max. | Corrects Design 2's expectation. |
 | CF12 `…_floating_loop` (in `test_floating_sections.py`) | Loop flow Q_set, H = Σh(Q_set), s*. | `UNDETERMINED_PRESSURE`; NPSHa None. |
 | CF13 `…_loop_with_reference` | Heads from the ideal reference node. | Determined loops. |
-| CF14 `…_check_valve_reopen` | Analogue of `pump_and_check_valve_reopen`. | The zero-flow bound at s_max. |
+| CF14 `…_check_valve_reopen` | Analogue of `pump_and_check_valve_reopen`. | As built, not the zero-flow bound (the slice-1 review): the pump starts as a fixed flow, so its check valve never closes; the pump goes to maximum speed (A1) as the FCV opens, then holds its setpoint. |
+| CF14b `…_zero_flow_reopen` | CF14's network with R2's line split by an ideal PRV2 (400 kPa). The active PRV2 leaves the junction without a fixed head, so PU1 starts at s_max (A0); the surplus FCV1 forces past PRV2 (brentq) flows back through the pump line above S_max, so PU1 and CV1 close together; with them closed the junction is 10.60 m above R1, between S_min (8.0 m) and S_max (28.88 m). Final state by brentq on the FCV line, s* from the affinity parabola. | The zero-flow re-test bounds a closed controlled pump by S_max (D9): PU1 and CV1 re-open; a bound at S_min would keep them shut. |
 | CF15 `…_dead_end` | Q = 0, head = S_max; equal to the fixed pump at s_max. | A0 → OPEN. |
 | CF16 `…_isolated` | No pump result and no flag, equal to the fixed pump. | The false-flag fix. |
 | CF17 `…_off` | The v1 off pump. | The control is ignored. |
 | CF18 drooping curves | A curve with ψ > 0 solves with a unique s*; one with ψ ≤ 0 inside its points gives the 422. | The §4.3 test. |
+| CF19 `…_active_outside_curve` | curve_b, Q_set = 0.04 m³/s, s ∈ [0.5, 1], line sized so H = 10 m. s* = 0.838230 by the straight-line formula on the curve's end tangent (the parabola route agrees); Q/s* = 0.0477 is beyond the last point (0.045), Q/s_max inside. | `PUMP_OUTSIDE_CURVE` at the solved speed. |
+| CF20 `…_min_speed_outside_curve` | curve_b, Q_set = 0.02 m³/s, s ∈ [0.6, 1], 1 m lift. min_speed with Q = 0.028718 m³/s (brentq on the end tangent); Q/s_min = 0.0479 is beyond the points, Q/s_max inside. | `PUMP_OUTSIDE_CURVE` at the limit speed, with `PUMP_SETPOINT_NOT_MET`. |
+| CF21 `…_stable_bracket` | Straight curve a = 40, b = 400, Q_set = 0.05 m³/s, s ∈ [0.1, 1], H = −2 m (braking a gravity flow). x_mono = 2a/b = 0.2, s_lo = bQ/2a = 0.25; F(s_lo) = −b²Q²/4a = −2.5 m < H < F(s_min) = −1.6 m. s* = 0.25 + √5/20 = 0.361803. | Rule A2 on F(s_lo, Q_set): active on [s_lo, s_max], not min_speed. |
 | SC1 (`test_system_curves.py`) | H_sys = H2 − H1 + h_L1(Q) + h_L2(Q), whatever the mode; the operating point lies on F(s*, ·). | The system-curve definition. |
 | SC2 | A fixed pump A in parallel with flow pump B. Closed-form H_sys,A(q) while B is active, then B's fixed law past the closed-form saturation flow. | Warm-started statuses carry B's control. |
 
@@ -493,7 +505,7 @@ These use `generate_epanet_cases.py` with WNTR 1.5.0 / EPANET 2.2, `swamee_jain`
 - **E2 `…_max`.** EPANET at SPEED = `speed`. **E3 `…_min`.** EPANET at SPEED = s_min, with Q/s_min inside the points.
 
 ### 7.3 Metamorphic and unit tests
-- **M1.** Any converged project with a pump in max_speed (or min_speed), re-solved with the control removed and speed = s_max (or s_min), gives identical flows, heads and statuses. Bit-identical for max_speed, since the law object is the same.
+- **M1.** A converged project with a pump in max_speed (or min_speed) and one steady state that satisfies every element's rule, re-solved with the control removed and speed = s_max (or s_min), gives identical flows, heads and statuses. Bit-identical for max_speed, since the law object is the same. Where several states satisfy every rule, M1 does not hold, and not because of a solver defect: a section closed off at zero flow has a free level at which the closed elements around it stay closed (D9), so "closed at zero flow" and another state (a dead-ended pump running at no flow, or a pump loop behind closed valves circulating) can both be valid, v1's zero-flow multiplicity. Each solve returns the state its iteration reaches, and the controlled pump's iteration differs from the fixed pump's: it starts ACTIVE and follows A0–C1 on the way (X1 makes it regulate whenever its flow reaches Q_set at s_max), where the fixed pump starts OPEN. The slice-1 review found this in `flow_control` seeds 10,236, 10,647 and 11,214 of the differential test: both final states pass the independent checks (`tests/differential/checks.py`); 10,236 and 10,647 have the same flows and differ in statuses at zero flow (the pump dead-ended running at no flow, or held closed), 11,214 in whether a pump loop behind closed valves circulates (0.000878 m³/s). Started OPEN instead, the controlled solve reaches the fixed solve's state in 10,647 and 11,214, but not in 10,236, where the path differs through X1. The unit test checks M1 on a line with one steady state.
 - **M2.** Re-solved fixed at s*, the pump flow equals Q_set within D6.
 - **Unit tests:**
   - the rule table at ±Htol and ±Qtol, with boundary points kept by both neighbours;
@@ -517,7 +529,7 @@ These use `generate_epanet_cases.py` with WNTR 1.5.0 / EPANET 2.2, `swamee_jain`
 - 3,000 seeds with zero critical. The smoke test on seeds 0–49 stays green.
 
 ### 7.5 No-regression proof
-- The corpus is dumped before and after (TSD §10.4). `compare.py` ignores exactly two paths: `pumpResults.*.control` (new, null) and `methodVersion`. All 3,092 projects must otherwise be identical.
+- The corpus is dumped before and after (TSD §10.4). `compare.py` leaves out exactly two paths: `pumpResults.*.control` (new) only where it is null or absent on both sides (`--ignore-null`), so a control result on a pump of the old corpus is a difference, and `methodVersion` (`--ignore`, at the top level and in the methods summary). All 3,092 projects must otherwise be identical.
 - The whole reference suite and `test_released_links.py` stay green.
 
 ### 7.6 Gates for slices 2 and 3

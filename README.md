@@ -95,10 +95,11 @@ gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregi
 gcloud projects add-iam-policy-binding PROJECT_ID --role=roles/run.builder \
   --member=serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com
 
-# An image repository that keeps the 3 most recent images
+# An image repository that deletes every image except the 3 most recent
+# (the Delete rule matches every image; the Keep rule wins where both match)
 gcloud artifacts repositories create opensolve-pipe --repository-format=docker --location=us-central1
 cat > /tmp/cleanup.json <<'EOF'
-[{"name": "delete-old", "action": {"type": "Delete"}, "condition": {"tagState": "any", "olderThan": "30d"}},
+[{"name": "delete-all", "action": {"type": "Delete"}, "condition": {"tagState": "any"}},
  {"name": "keep-recent", "action": {"type": "Keep"}, "mostRecentVersions": {"keepCount": 3}}]
 EOF
 gcloud artifacts repositories set-cleanup-policies opensolve-pipe --location=us-central1 --policy=/tmp/cleanup.json
@@ -111,7 +112,7 @@ IMAGE=us-central1-docker.pkg.dev/PROJECT_ID/opensolve-pipe/api:$(git rev-parse -
 gcloud builds submit apps/api --ignore-file=.dockerignore --tag "$IMAGE"
 gcloud run deploy opensolve-pipe-api --image "$IMAGE" \
   --service-account=opensolve-pipe-api@PROJECT_ID.iam.gserviceaccount.com --allow-unauthenticated \
-  --cpu=1 --memory=1Gi --concurrency=6 --timeout=60 --min-instances=0 --max-instances=1 \
+  --cpu=1 --memory=1Gi --concurrency=20 --timeout=60 --min-instances=0 --max-instances=1 \
   --set-env-vars=CORS_ORIGINS=https://PAGES_PROJECT.pages.dev
 
 # Keep Cloud Run's own request log, which records client addresses and query strings, out of storage
@@ -121,7 +122,7 @@ gcloud logging sinks update _Default \
 gcloud run services describe opensolve-pipe-api --format='value(status.url)'   # the API's URL
 ```
 
-Then, in the console under Billing → Budgets & alerts, create a spend cap budget for this project and Cloud Run (TSD §11.5).
+Then, in the console under Billing → Budgets & alerts, create a spend cap budget for this project and Cloud Run (TSD §11.5). Don't skip it. One instance bounds CPU and memory charges, at about $64 a month, but request fees and outbound data are charged per request and per byte, and only the spend cap bounds them.
 
 **2. The web app on Cloudflare Pages.** You need a Cloudflare account that can see this GitHub repository.
 - In Workers & Pages → Create → Pages, connect this repository and name the project `PAGES_PROJECT`.
@@ -142,7 +143,7 @@ Then, in the console under Billing → Budgets & alerts, create a spend cap budg
 - If the project's `*.pages.dev` address differs from `https://PAGES_PROJECT.pages.dev`, or when you add a custom domain, list every origin in `CORS_ORIGINS`: `gcloud run services update opensolve-pipe-api --update-env-vars='^;^CORS_ORIGINS=https://a.pages.dev,https://example.org'`.
 - On a custom domain whose zone is on Cloudflare, keep the zone's Web Analytics, Bot Fight Mode and Email Address Obfuscation off (TSD §11.1).
 
-**3. Check** the deployment with TSD §11.4. This step matters most for the client-address check: Google does not document the address its proxy connects from, so only this check shows that each user gets their own rate limit.
+**3. Check** the deployment with TSD §11.4. This step matters most for the client-address check. Google documents neither the address its proxy connects from nor where it puts the client's address in `X-Forwarded-For`, so only this check shows that each user gets their own rate limit. Run it over IPv6 too where you can, since the API keys an IPv6 client by its /64. If it fails, TSD §11.2 shows how to find out why.
 
 ## Contributing
 

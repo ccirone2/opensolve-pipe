@@ -1,5 +1,7 @@
-import { expect, test, type Page } from '@playwright/test';
-import type { PumpResult, SolvedState, SystemCurveResponse } from '../src/lib/api/types';
+import { gzipSync } from 'node:zlib';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import type { Pump, PumpResult, SolvedState, SystemCurveResponse } from '../src/lib/api/types';
+import { pumpTransferExample } from '../src/lib/utils/examples';
 import {
 	ALLOWED_ORIGINS,
 	buildPane,
@@ -10,6 +12,7 @@ import {
 	setNumber,
 	showPane,
 	sig4,
+	solve,
 	solveConverged,
 	tableTexts
 } from './support';
@@ -52,6 +55,23 @@ async function openExamplePump(page: Page) {
 }
 
 /**
+ * The element is wholly in the viewport and not covered (e.g. by the panel's Previous/Next bar):
+ * the element at its centre is inside it.
+ */
+async function expectInView(locator: Locator) {
+	await expect(locator).toBeInViewport({ ratio: 1 });
+	await expect
+		.poll(() =>
+			locator.evaluate((element) => {
+				const box = element.getBoundingClientRect();
+				const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+				return !!hit && element.contains(hit);
+			})
+		)
+		.toBe(true);
+}
+
+/**
  * The speed s the API reports is consistent with the entered curve: at x = Q/s the monotone
  * cubic through monotone points (Fritsch–Carlson) lies between the heads of the points either
  * side, so s²·H(x_{i+1}) ≤ H ≤ s²·H(x_i) for the head H the pump adds.
@@ -88,6 +108,11 @@ test('switch a pump to flow control, solve, read its speed and state, share and 
 	await control.selectOption({ label: 'Flow control (variable speed)' });
 	const note = panel.getByText(/^Enter the flow setpoint and minimum speed to switch/);
 	await expect(note).toBeVisible();
+	// The note is in view where the choice was made, and describes the Control select.
+	await expectInView(note);
+	await expect(control).toHaveAccessibleDescription(
+		/Enter the flow setpoint and minimum speed to switch to flow control\. Until then the pump runs at a fixed speed\./
+	);
 	await expect(panel.getByRole('textbox', { name: 'Minimum speed (%)' })).toHaveValue('');
 	await expect(panel.getByRole('textbox', { name: 'Maximum speed (%)' })).toHaveValue('100');
 	await setNumber(panel, 'Flow setpoint (L/s)', String(SETPOINT));
@@ -119,6 +144,11 @@ test('switch a pump to flow control, solve, read its speed and state, share and 
 	const speedShown = sig4(pump.speed * 100);
 	const curveAnswer = page.waitForResponse((r) => r.url().endsWith('/api/v1/system-curve'));
 	const table = await pumpTable(page);
+	await expect(
+		resultsPane(page).getByText(/^Head is the rise in the energy grade line/)
+	).toContainText(
+		"An off pump has no speed. A speed-controlled pump's speed is the one it runs at"
+	);
 	expect(await cellText(table, 'Transfer pump', 'Status')).toBe('Running (holding flow setpoint)');
 	expect(await cellText(table, 'Transfer pump', 'Control')).toBe(`Flow ${SETPOINT} L/s: held`);
 	expect(await cellText(table, 'Transfer pump', 'Speed %')).toBe(speedShown);
@@ -215,4 +245,116 @@ test('switch a pump to flow control, solve, read its speed and state, share and 
 
 	// Only the app and its calculation server were contacted (GOALS §4.5).
 	expect([...origins].filter((o) => !ALLOWED_ORIGINS.has(o))).toEqual([]);
+});
+
+test('a flow control that a maximum speed completes after an undo is written, and solved', async ({
+	page
+}) => {
+	// Undo brings back a maximum speed (60 %) below the minimum speed entered (80 %); entering a
+	// maximum speed above it completes the control, which is then in the project and its solve.
+	await openExamplePump(page);
+	const panel = buildPane(page);
+	await setNumber(panel, 'Speed (%)', '60');
+	await setNumber(panel, 'Speed (%)', '100');
+	const control = panel.getByRole('combobox', { name: 'Control' });
+	await control.selectOption({ label: 'Flow control (variable speed)' });
+	await setNumber(panel, 'Minimum speed (%)', '80');
+	await page.getByRole('button', { name: 'Undo change pump speed' }).click();
+	await expect(panel.getByRole('textbox', { name: 'Maximum speed (%)' })).toHaveValue('60');
+	await setNumber(panel, 'Flow setpoint (L/s)', String(SETPOINT));
+	const note = panel.getByText(/^The minimum speed must be below the maximum speed/);
+	await expect(note).toBeVisible();
+
+	await setNumber(panel, 'Maximum speed (%)', '90');
+	await expect(note).toBeHidden();
+	await expect(control).toHaveValue('flow');
+	await expect(
+		page.getByRole('button', { name: 'Undo switch pump to flow control' })
+	).toBeVisible();
+	const { status, body, request } = await solve(page);
+	const sent = request.project.components.find((c) => c.id === 'P1') as Pump;
+	expect(sent.speed).toBe(0.9);
+	expect(sent.control).toEqual({ mode: 'flow', setpoint: SETPOINT / 1000, minSpeed: 0.8 });
+	expect(status).toBe(200);
+	expect(body.solvedState?.pumpResults.P1?.control).toMatchObject({
+		mode: 'flow',
+		setpoint: SETPOINT / 1000
+	});
+});
+
+test("a controlled pump's curve issue: told with its names, and in the server's words once the pump has another curve", async ({
+	page
+}) => {
+	// The pump-transfer example with its pump under flow control on a curve whose head rises
+	// steeply between its points (the reference suite's PC-R test curve, made-up points), so the
+	// API reports CONTROLLED_PUMP_CURVE; the example's own curve is in the library as C2.
+	const project = pumpTransferExample();
+	const own = project.pumpLibrary[0]!;
+	project.pumpLibrary = [
+		{
+			id: 'C1',
+			name: 'Steep curve',
+			points: [
+				{ flow: 0, head: 5 },
+				{ flow: 0.01, head: 6 },
+				{ flow: 0.02, head: 30 },
+				{ flow: 0.03, head: 33 },
+				{ flow: 0.04, head: 20 }
+			]
+		},
+		{ ...own, id: 'C2', name: 'Good curve' }
+	];
+	const pump = project.components.find((c) => c.id === 'P1') as Pump;
+	pump.curveId = 'C1';
+	pump.control = { mode: 'flow', setpoint: SETPOINT / 1000, minSpeed: MIN_SPEED / 100 };
+	const encoded = gzipSync(Buffer.from(JSON.stringify(project))).toString('base64url');
+	await page.goto(`/p#${encoded}`);
+	await expect(currentHeading(page)).toHaveText('Suction tank');
+	await buildPane(page).getByRole('button', { name: /^Next/ }).click();
+	await expect(currentHeading(page)).toHaveText('Transfer pump');
+	const item = resultsPane(page)
+		.getByRole('region', { name: 'The network cannot be solved yet' })
+		.getByRole('listitem');
+
+	// For the project as it is: told with its names, and the advice points at the rising head.
+	expect((await solve(page)).status).toBe(422);
+	await showPane(page, 'Results');
+	await expect(item).toHaveCount(1);
+	await expect(item).toContainText(
+		'Transfer pump is speed-controlled, but its pump curve “Steep curve” does not give one speed'
+	);
+	await expect(item).toContainText(
+		'Use a curve whose head rises less steeply with flow there (2·H₀(x) > x·H₀′(x)), or a fixed speed.'
+	);
+
+	// Solved again, held until the pump has been given C2.
+	let release: () => void = () => {};
+	const held = new Promise<void>((resolve) => (release = resolve));
+	await page.route('**/api/v1/solve', async (route) => {
+		await held;
+		await route.continue();
+	});
+	const answer = page.waitForResponse(
+		(r) => r.url().endsWith('/api/v1/solve') && r.request().method() === 'POST'
+	);
+	await page.getByRole('button', { name: 'Solve', exact: true }).click();
+	await showPane(page, 'Build');
+	await buildPane(page)
+		.getByRole('combobox', { name: 'Pump curve' })
+		.selectOption({ label: 'Good curve (C2)' });
+	release();
+	const response = await answer;
+	expect(response.status()).toBe(422);
+	const [issue] = ((await response.json()) as { issues: { message: string }[] }).issues;
+	expect(issue!.message).toMatch(
+		/^pump 'P1' is speed-controlled, but its curve 'C1' \(Steep curve\)/
+	);
+
+	await showPane(page, 'Results');
+	await expect(item).toHaveCount(1);
+	await expect(item).toContainText(issue!.message);
+	await expect(item).not.toContainText('Good curve');
+	await expect(resultsPane(page).getByRole('status')).toHaveText(
+		'Last solve: no results, out of date'
+	);
 });

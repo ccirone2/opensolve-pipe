@@ -50,8 +50,12 @@ Oscillation: a status vector (statuses and branch patterns) that returns to one 
 before, other than the previous one, stops the loop with converged = false and the components
 that changed in the cycle (design §5). Three fallbacks come first. Pump and valve statuses that
 change together can step over the state that holds them all (a PSV and a pump, each rule
-reacting to the other's previous state): the first such cycle sends the loop back to the state
-just solved, and from then on one status changes per outer iteration (``_one_change``). A branch
+reacting to the other's previous state): the first cycle in which a step changed several of them
+sends the loop back to the state just solved (on into the state it repeats when the step closing
+the cycle changed one status, so that state's changes are split when they come round again), and
+from then on one status changes per outer iteration (``_one_change``); a state reached again in
+that mode goes back to the latest state where the rules asked for several changes and takes one
+not taken there, if it leads to pump and valve statuses not yet reached (``_backtrack``). A branch
 leg whose flow keeps reversing is held at zero flow while its port head lies between the
 zero-flow limits of the patterns on either side (``_dead_band``); two such legs facing each
 other across one pipe are held together while their bands overlap; held legs are released one
@@ -145,17 +149,22 @@ def flow_pump_status(
     gain: float,
     q: float,
     q_set: float,
-    head_min: float,
+    head_low: float,
     head_max: float,
     shutoff_min: float,
     shutoff_max: float,
 ) -> Status:
     """Speed-controlled pump with a flow setpoint (CLAUDE.md D11), gain = EGL_d − EGL_s,
-    head_min / head_max = F(s_min, Q_set) / F(s_max, Q_set), shutoff_min / shutoff_max =
-    F(s_min, 0) / F(s_max, 0) with F(s, Q) = s² H₀(Q/s). The first test that holds wins::
+    head_low / head_max = F(s_lo, Q_set) / F(s_max, Q_set), shutoff_min / shutoff_max =
+    F(s_min, 0) / F(s_max, 0) with F(s, Q) = s² H₀(Q/s) and s_lo = max(s_min, Q_set/x_mono)
+    (``pumps.bracket_low``). F(·, Q_set) rises strictly on [s_lo, s_max], so every head in
+    [F_lo, F_max] is held by one speed there. F_lo = F(s_min, Q_set) unless Q_set/s_min is
+    beyond x_mono; then F falls on [s_min, s_lo], where head falls as speed rises, which no
+    stable flow controller holds, and F_lo is the least head the pump gives at Q_set on the
+    stretch it can regulate on. The first test that holds wins::
 
         ACTIVE:    A1 OPEN if gain > F_max + Htol (the setpoint needs more than s_max)
-                   A2 MIN_SPEED if gain < F_min − Htol (it needs less than s_min)
+                   A2 MIN_SPEED if gain < F_lo − Htol (no speed in [s_lo, s_max] holds it)
                    A3 otherwise ACTIVE
         OPEN:      X1 ACTIVE once Q >= Q_set (EPANET 2.2 fcvstatus: XFCV -> ACTIVE)
                    X2 otherwise ``pump_status`` at s_max (EPANET 2.2 pumpstatus)
@@ -169,7 +178,7 @@ def flow_pump_status(
     if status is Status.ACTIVE:
         if gain > head_max + HTOL:
             return Status.OPEN
-        if gain < head_min - HTOL:
+        if gain < head_low - HTOL:
             return Status.MIN_SPEED
         return Status.ACTIVE
     if status is Status.OPEN:
@@ -194,7 +203,7 @@ def controlled_pump_status(
         gain,
         q,
         control.setpoint,
-        control.head_at_min,
+        control.head_at_low,
         control.head_at_max,
         control.shutoff_min,
         control.shutoff_max,
@@ -1566,6 +1575,14 @@ def _cycle_members(history: list[StatusVector], start: int) -> list[str]:
     return sorted(members)
 
 
+def _changed_together(cycle: list[StatusVector], controls: dict[str, Control]) -> bool:
+    """Whether a step of the cycle changed several pump and valve statuses at once."""
+    return any(
+        sum(1 for (cid, s), (_, t) in zip(a, b, strict=True) if cid in controls and s != t) > 1
+        for a, b in itertools.pairwise(cycle)
+    )
+
+
 def run_outer_loop(
     built: BuiltNetwork,
     *,
@@ -1597,6 +1614,9 @@ def run_outer_loop(
     iteration (``_one_change``)."""
     tried: set[StatusVector] = set()
     """States reached before single-change mode, avoided by it where it can."""
+    splits: list[tuple[dict[str, Status], dict[str, Status]]] = []
+    """Single-change mode: the statuses at each state where the rules asked for several
+    changes, and the statuses asked for (``_backtrack``)."""
     restarts = 0
     inner = 0
     result: GgaResult | None = None
@@ -1681,7 +1701,8 @@ def run_outer_loop(
                 return finish(
                     outer,
                     False,
-                    f"{result.message}; {what} ({', '.join(members)}) only returns to states "
+                    _equal_setpoints_note(built, controls, states, members)
+                    + f"{result.message}; {what} ({', '.join(members)}) only returns to states "
                     "already solved",
                     members,
                 )
@@ -1707,6 +1728,7 @@ def run_outer_loop(
         if not (sequential and changed):
             updates = _update_controls(built, result, controls, states, solved_before)
             if single and len(set(updates)) > 1:
+                splits.append((before, {cid: controls[cid].status for cid in updates}))
                 updates = _one_change(controls, branches, before, updates, tried | set(history))
             changed += updates
         if not changed:
@@ -1787,22 +1809,34 @@ def run_outer_loop(
                 flows = np.asarray(result.flows, dtype=np.float64)
                 continue
             proposed = [cid for cid, c in controls.items() if c.status is not before[cid]]
-            if not single and len(proposed) > 1:
+            cycle = [*history[history.index(vector) :], vector]
+            if not single and (len(proposed) > 1 or _changed_together(cycle, controls)):
                 # Statuses that change together can step over the state that holds them all
-                # (a PSV and a pump, each rule reacting to the other's previous state): go back
-                # to the state just solved and change one status at a time from now on.
+                # (a PSV and a pump, each rule reacting to the other's previous state): change
+                # one status at a time from now on. When this step changed several, go back to
+                # the state just solved first; when only an earlier step of the cycle did, go
+                # on into the repeated state, whose changes are split as they come round again.
                 single = True
                 tried = set(history) | {vector}
-                _one_change(controls, branches, before, proposed, tried)
-                vector = _vector(controls, branches)
+                if len(proposed) > 1:
+                    splits.append((before, {cid: controls[cid].status for cid in proposed}))
+                    _one_change(controls, branches, before, proposed, tried)
+                    vector = _vector(controls, branches)
                 history = [history[-1], vector]
+                states = link_states(built, controls, branches, forced)
+                flows = np.asarray(result.flows, dtype=np.float64)
+                continue
+            if single and _backtrack(controls, splits, [*history, *tried, vector]):
+                # Single-change mode came back to a state: take a change not taken before.
+                history.append(_vector(controls, branches))
                 states = link_states(built, controls, branches, forced)
                 flows = np.asarray(result.flows, dtype=np.float64)
                 continue
             return finish(
                 outer,
                 False,
-                "statuses oscillate between states already solved (components: "
+                _equal_setpoints_note(built, controls, states, members)
+                + "statuses oscillate between states already solved (components: "
                 f"{', '.join(members)}){_range_hint(branches, members)}",
                 members,
             )
@@ -1877,6 +1911,26 @@ def _one_change(
         controls[cid].status = before[cid]
     controls[order[0]].status = proposed[order[0]]
     return [order[0]]
+
+
+def _backtrack(
+    controls: dict[str, Control],
+    splits: list[tuple[dict[str, Status], dict[str, Status]]],
+    reached: list[StatusVector],
+) -> bool:
+    """Single-change mode came back to a state already reached: go back to the latest state
+    where the rules asked for several changes (``splits``) and take one of them, in component
+    id order, that leads to pump and valve statuses not in ``reached``. False when there is
+    none; then nothing changes."""
+    seen = {vector[: len(controls)] for vector in reached}
+    for before, asked in reversed(splits):
+        for cid in sorted(asked):
+            statuses = {**before, cid: asked[cid]}
+            if tuple((k, statuses[k].value) for k in sorted(statuses)) not in seen:
+                for k, status in statuses.items():
+                    controls[k].status = status
+                return True
+    return False
 
 
 def _range_hint(branches: dict[str, BranchTracker], members: list[str]) -> str:
@@ -2110,6 +2164,55 @@ def _over_controlled(
                 ids,
             )
     return None
+
+
+def _equal_setpoints_note(
+    built: BuiltNetwork,
+    controls: dict[str, Control],
+    states: list[LinkState],
+    members: list[str],
+) -> str:
+    """For a solve that ends not converged, the reason when the elements whose statuses cycle
+    include flow controls in series with equal setpoints (two speed-controlled pumps, or one
+    and an FCV), else ''. Their statuses cycle because the pressure between them is
+    undetermined (proposal §4.6): held at their setpoints together, the inner solve finds that
+    pressure undetermined (``GgaResult.undetermined_links``), the test ``_over_controlled``
+    makes for a converged state. Only cycles with a speed-controlled pump among the named
+    controls are concerned, so valve-only messages keep their v1 words."""
+    pumps = {
+        control.link
+        for cid, control in controls.items()
+        if control.kind == "pump" and not control.fixed and built.pumps[cid].control is not None
+    }
+    setpoints: dict[int, float] = {}
+    for cid in members:
+        control = controls.get(cid)
+        if control is None or control.fixed:
+            continue
+        if control.link in pumps:
+            pump_control = built.pumps[cid].control
+            assert pump_control is not None
+            setpoints[control.link] = pump_control.setpoint
+        elif control.kind == "fcv":
+            valve = built.valves[cid].component
+            assert isinstance(valve, ControlValve)
+            setpoints[control.link] = valve.setpoint
+    if len(setpoints) < 2 or not setpoints.keys() & pumps:
+        return ""
+    trial = list(states)
+    for link, setpoint in setpoints.items():
+        trial[link] = LinkState(LinkMode.FIXED_FLOW, setpoint)
+    check = solve_gga(built.network, trial, tolerance=1.0, max_iterations=0)
+    named = sorted(k for k in set(check.undetermined_links) if k in setpoints)
+    values = [setpoints[k] for k in named]
+    if len(named) < 2 or not any(k in pumps for k in named) or max(values) - min(values) > QTOL:
+        return ""
+    ids = ", ".join(sorted(built.network.links[k].key for k in named))
+    return (
+        f"the controls {ids} are in series with equal flow setpoints and no reservoir or "
+        "reference node fixing the pressure between them, so each could hold its setpoint: "
+        "their speeds or throttling and that pressure are undetermined (over-controlled); "
+    )
 
 
 def _unsupported(

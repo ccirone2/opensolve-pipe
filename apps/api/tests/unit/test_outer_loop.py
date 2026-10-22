@@ -68,6 +68,55 @@ def test_oscillating_status_stops_the_loop(monkeypatch: pytest.MonkeyPatch) -> N
     assert result.node_results == {}
 
 
+def _controls(**statuses: Status) -> dict[str, status.Control]:
+    return {
+        cid: status.Control(cid, "check", i, st, False)
+        for i, (cid, st) in enumerate(sorted(statuses.items()))
+    }
+
+
+def _statuses(controls: dict[str, status.Control]) -> status.StatusVector:
+    return status._vector(controls, {})
+
+
+def test_a_cycle_with_a_step_that_changed_several_statuses_is_told_apart() -> None:
+    """``_changed_together``: single-change mode also starts on a cycle that a one-status step
+    closes when an earlier step of it changed several statuses (flow_control seeds 11,738 and
+    12,703 of the differential test). Branch patterns are not statuses."""
+    o = Status.OPEN
+    controls = _controls(A=o, B=o, C=o)
+    v1 = (("A", "open"), ("B", "open"), ("C", "open"), ("T", "x"))
+    v2 = (("A", "closed"), ("B", "closed"), ("C", "open"), ("T", "x"))  # two at once
+    v3 = (("A", "closed"), ("B", "open"), ("C", "open"), ("T", "y"))  # one, and a branch
+    assert status._changed_together([v1, v2, v3, v1], controls)
+    assert not status._changed_together([v1, v3, v1], controls)
+    assert not status._changed_together([v2, v3, v2], {"A": controls["A"]})
+
+
+def test_backtracking_takes_another_change_of_the_latest_split() -> None:
+    """``_backtrack``: back at a state already reached, single-change mode returns to the
+    latest state where the rules asked for several changes and takes one of them, in
+    component id order, whose statuses are not reached yet; with none left, nothing changes
+    and the solve ends not converged."""
+    o, c, a = Status.OPEN, Status.CLOSED, Status.ACTIVE
+    before = {"A": o, "B": o, "C": a}
+    first = ({"A": o, "B": o, "C": o}, {"A": c, "C": a})  # an older split
+    latest = (before, {"A": c, "B": c})
+    controls = _controls(A=c, B=o, C=a)
+    reached = [_statuses(_controls(A=o, B=o, C=a)), _statuses(_controls(A=c, B=o, C=a))]
+    assert status._backtrack(controls, [first, latest], reached)
+    assert {k: v.status for k, v in controls.items()} == {"A": o, "B": c, "C": a}
+
+    reached.append(_statuses(controls))  # both changes of the latest split taken
+    assert status._backtrack(controls, [first, latest], reached)
+    assert {k: v.status for k, v in controls.items()} == {"A": c, "B": o, "C": o}
+
+    reached.append(_statuses(controls))
+    reached.append(_statuses(_controls(A=o, B=o, C=a)))
+    assert not status._backtrack(controls, [first, latest], reached)
+    assert {k: v.status for k, v in controls.items()} == {"A": c, "B": o, "C": o}
+
+
 def test_outer_loop_gives_up_after_its_cap(monkeypatch: pytest.MonkeyPatch) -> None:
     """A branch whose K never settles (forced here) exhausts the 30 outer iterations."""
     real = status.branch_solution

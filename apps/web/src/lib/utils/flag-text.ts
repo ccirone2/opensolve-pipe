@@ -187,6 +187,16 @@ export function flagText(flag: Flag, context: FlagTextContext): string {
 			if (state === 'no_flow') {
 				const speed = value('maxSpeed', 'fraction');
 				if (!speed) return fallback();
+				// closedOff (the API's details): the side or sides closed off. Then no head exceeds
+				// the shutoff head: a pump with one side closed off develops exactly that head.
+				const closedOff = flag.details.closedOff;
+				if (closedOff === 'both') {
+					return `It is held at no flow at its maximum speed (${speed}) and both its sides are closed off, so it delivers none of its flow setpoint (${setpoint}).`;
+				}
+				if (closedOff === 'suction' || closedOff === 'discharge') {
+					return `It has no flow: its ${closedOff} is closed off, so it runs dead-headed at its shutoff head at its maximum speed (${speed}) and delivers none of its flow setpoint (${setpoint}).`;
+				}
+				if (closedOff !== undefined) return fallback();
 				return `It has no flow: the head across it exceeds its shutoff head at its maximum speed (${speed}), so it delivers none of its flow setpoint (${setpoint}).`;
 			}
 			return fallback();

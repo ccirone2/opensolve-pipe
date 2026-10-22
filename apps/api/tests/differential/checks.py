@@ -267,9 +267,14 @@ def speed_comparison(
     substitute): our speed against the one EPANET's head rise H_e implies (``implied_speed``),
     within 0.5 % (owner's answer Q6, proposal vfd-pump-modes.md §10), and the head our speed
     implies at Q_set, s²H₀(Q_set/s), against H_e by the D6 head criterion, 0.5 % or 0.01 m,
-    whichever is looser, as every head loss here (Q6's 0.01 m alone is the reference suite's
-    test against a derived head: EPANET's own constants, g = 32.2 ft/s² and the 0.02517
-    minor-loss factor, move its head differences by a few 1e-4 relative)."""
+    whichever is looser, as every head loss here. Q6's 0.01 m alone is the reference suite's
+    test against a derived head. Here H_e carries EPANET's constants (``nc.EPANET_MODEL``):
+    at the flows the setpoint fixes, its friction losses are 8.1e-4 lower (g = 32.2 ft/s²,
+    hydcoeffs.c:98) and its minor losses 9.2e-4 lower (0.02517, input1.c:618) than ours, so
+    H_e differs from ours by 8.1e-4 to 9.2e-4 of those losses, whatever H is, plus the effect
+    of the Δh/CBIG the substitute's closed pump leaks past Q_set. A flat 0.01 m fails once those
+    losses pass 11-12 m (TSD §10.4 gives the run's figures). Criticality does not rest on this
+    comparison: ``control_problems`` holds our speed to Htol against our own head rise."""
     curves = {cv.id: cv for cv in project.pump_library}
     mism: list[Mismatch] = []
     rec: list[Record] = []
@@ -312,9 +317,11 @@ def rule_flow_pump(
 ) -> str:
     """The next state of a flow-controlled pump that is on, from the state machine of proposal
     vfd-pump-modes.md §4.5 (the first rule that holds wins), with gain = EGL_d − EGL_s, F(s, Q) =
-    s²H₀(Q/s), F_min/F_max = F(s_min/s_max, Q_set), S_min/S_max = F(s_min/s_max, 0):
+    s²H₀(Q/s), F_lo/F_max = F(s_lo/s_max, Q_set), s_lo = max(s_min, Q_set/x_mono) at most s_max
+    (§4.3, ``element_laws.stable_min_speed``: F(·, Q_set) rises on [s_lo, s_max], and F_lo =
+    F(s_min, Q_set) when s_lo = s_min), S_min/S_max = F(s_min/s_max, 0):
 
-    - active: A1 max_speed if gain > F_max + Htol; A2 min_speed if gain < F_min − Htol; else
+    - active: A1 max_speed if gain > F_max + Htol; A2 min_speed if gain < F_lo − Htol; else
       active (A0, a side with no fixed head, cannot be seen in a result with both heads);
     - max_speed: X1 active if Q ≥ Q_set; X2 the v1 pump rule at S_max (``rule_pump``);
     - min_speed: N1 active if Q ≤ Q_set; N2 the v1 pump rule at S_min, no_flow if it closes;
@@ -330,7 +337,8 @@ def rule_flow_pump(
     if state == "active":
         if gain > el.pump_head(curve, s_max, q_set) + HTOL:
             return "max_speed"
-        if gain < el.pump_head(curve, s_min, q_set) - HTOL:
+        s_lo = el.stable_min_speed(curve, pump.control, s_max)
+        if gain < el.pump_head(curve, s_lo, q_set) - HTOL:
             return "min_speed"
         return "active"
     if state == "max_speed":
@@ -583,12 +591,14 @@ def epanet_egl(project: Project, ep: EpanetResult, lay: Layout) -> dict[str, flo
 
 def active_band(pump: Pump, curve: PumpCurve, s: str, d: str) -> list[Edge]:
     """Difference constraints (H_v − H_u ≤ w) of an active flow-controlled pump between suction
-    node s and discharge node d: F_min − Htol ≤ H_d − H_s ≤ F_max + Htol (rules A1, A2)."""
+    node s and discharge node d: F_lo − Htol ≤ H_d − H_s ≤ F_max + Htol (rules A1, A2; F_lo =
+    F(s_lo, Q_set), ``rule_flow_pump``)."""
     assert pump.control is not None
     q_set = pump.control.setpoint
-    f_min = el.pump_head(curve, pump.control.min_speed, q_set)
+    s_lo = el.stable_min_speed(curve, pump.control, pump.speed)
+    f_lo = el.pump_head(curve, s_lo, q_set)
     f_max = el.pump_head(curve, pump.speed, q_set)
-    return [(s, d, f_max + HTOL, pump.id), (d, s, -(f_min - HTOL), pump.id)]
+    return [(s, d, f_max + HTOL, pump.id), (d, s, -(f_lo - HTOL), pump.id)]
 
 
 def zero_flow_infeasible(
@@ -1028,16 +1038,25 @@ CONTROL_STATUS = {
 """PumpResult.status of each control state (proposal vfd-pump-modes.md §2.4)."""
 
 
+SPEED_ROUNDING = 1.0e-12
+"""Relative rounding allowed below s_lo when an active pump's speed is checked: ours computes
+x_mono = x_e + ψ(x_e)/(−m), ``element_laws.x_mono`` the same closed form as 2x_e − 2h_e/m, so the
+two s_lo differ by a few ulps; a speed held at s_lo (a head clamped to F(s_lo, Q_set)) must not
+fail on that."""
+
+
 def control_problems(
     project: Project, result: SolvedState, flows: Flows, egl: Heads, states: States
 ) -> list[str]:
     """Each flow-controlled pump's reported control against its definition (proposal
     vfd-pump-modes.md §2.4-2.6, §4.7): mode and setpoint as given; status as its state's
     (``CONTROL_STATUS``); off exactly when the pump is off; the speed s_max at max_speed and
-    no_flow (and off: the field), s_min at min_speed, and, active, within [s_min, s_max] with
-    |s²H₀(Q_set/s) − H| ≤ Htol at the head rise H (from the EGLs, or the relative heads of a
-    floating section); ``PUMP_SETPOINT_NOT_MET`` exactly when the state is a limit or no_flow
-    with |Q − Q_set| > Qtol (§2.5), and setpointAchieved its negation (None when off). A pump
+    no_flow (and off: the field), s_min at min_speed, and, active, within [s_lo, s_max] (§4.3,
+    s_lo = max(s_min, Q_set/x_mono) at most s_max: the stretch where F(·, Q_set) rises, which
+    holds one root; ``SPEED_ROUNDING`` below s_lo is rounding) with |s²H₀(Q_set/s) − H| ≤ Htol
+    at the head rise H (from the EGLs, or the relative heads of a floating section);
+    ``PUMP_SETPOINT_NOT_MET`` exactly when the state is a limit or no_flow with |Q − Q_set| >
+    Qtol (§2.5), and setpointAchieved its negation (None when off). A pump
     without a result (isolated) has no such flag, unless it is a no-flow pump with both sides
     closed off, which keeps its flags as a fixed-speed pump does (state no_flow, with
     PUMP_FLOW_REVERSAL; TSD §5.4). [] for a project without one."""
@@ -1078,8 +1097,9 @@ def control_problems(
             out.append(f"control {c.id}: state {st} with the pump {c.status}")
         q_set, s_min, s_max = c.control.setpoint, c.control.min_speed, c.speed
         if st == "active":
-            if not s_min <= pr.speed <= s_max:
-                out.append(f"control {c.id}: active at {pr.speed!r} outside [{s_min}, {s_max}]")
+            s_lo = el.stable_min_speed(curves[c.curve_id], c.control, s_max)
+            if not s_lo * (1.0 - SPEED_ROUNDING) <= pr.speed <= s_max:
+                out.append(f"control {c.id}: active at {pr.speed!r} outside [{s_lo}, {s_max}]")
             a, b = f"{c.id}:suction", f"{c.id}:discharge"
             gain = None
             if a in egl and b in egl:

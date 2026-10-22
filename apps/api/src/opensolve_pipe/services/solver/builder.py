@@ -49,7 +49,7 @@ from .friction import COLEBROOK_ED_LIMIT, FrictionMethod
 from .labels import fitting_name, pipe_name
 from .library import LibraryLookupError, ResolvedPipe, resolve_pipe
 from .network import LinkKind, LinkLaw, SolverLink, SolverNetwork, SolverNode
-from .pumps import PumpCurveModel, SpeedUniqueness, speed_uniqueness
+from .pumps import PumpCurveModel, SpeedUniqueness, bracket_low, speed_uniqueness
 from .valves import Valve, ValveResistance, valve_resistance
 
 G = float(fluids.constants.g)
@@ -117,6 +117,14 @@ class PumpControlData:
     """F_min = F(s_min, Q_set), m."""
     head_at_max: float
     """F_max = F(s_max, Q_set), m."""
+    low_speed: float
+    """s_lo = max(s_min, Q_set/x_mono), at most s_max (``pumps.bracket_low``): F(·, Q_set)
+    rises strictly on [s_lo, s_max], where the speed is solved; s_lo = s_min unless Q_set/s_min
+    is beyond x_mono."""
+    head_at_low: float
+    """F_lo = F(s_lo, Q_set), m: the least head the pump gives at Q_set on [s_lo, s_max], the
+    bound of rule A2 (F_min when s_lo = s_min; below F_min otherwise, F falling on
+    [s_min, s_lo])."""
     shutoff_min: float
     """S_min = F(s_min, 0), m."""
     shutoff_max: float
@@ -280,7 +288,8 @@ def validate_topology(project: Project) -> list[TopologyIssue]:
                     f"({curve.name}) does not give one speed for each head: the head at a fixed "
                     "flow, s² H₀(Q/s), does not rise with speed s where 2 H₀(x) − x H₀'(x) ≤ 0, "
                     f"which holds for rated-speed flows x from {low:.6g} to {high:.6g} m³/s; use "
-                    "a curve whose head falls less steeply there, or a fixed speed",
+                    "a curve whose head rises less steeply with flow there (2 H₀(x) > x H₀'(x)), "
+                    "or a fixed speed",
                     [comp.id],
                 )
             )
@@ -608,6 +617,8 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
             control = None
             if comp.control is not None:
                 q_set, s_min, s_max = comp.control.setpoint, comp.control.min_speed, comp.speed
+                uniqueness = speed_uniqueness(curve)
+                s_lo = bracket_low(q_set, s_min, s_max, uniqueness.x_mono)
                 control = PumpControlData(
                     setpoint=q_set,
                     min_speed=s_min,
@@ -615,9 +626,11 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
                     min_law=PumpLaw(curve, s_min),
                     head_at_min=curve.head(q_set, s_min)[0],
                     head_at_max=curve.head(q_set, s_max)[0],
+                    low_speed=s_lo,
+                    head_at_low=curve.head(q_set, s_lo)[0],
                     shutoff_min=curve.shutoff_head(s_min),
                     shutoff_max=curve.shutoff_head(s_max),
-                    uniqueness=speed_uniqueness(curve),
+                    uniqueness=uniqueness,
                 )
             built.pumps[comp.id] = PumpData(
                 comp, link.index, curve, suction, discharge, control=control

@@ -1,8 +1,9 @@
 """Unit checks of the differential test's own pieces (TSD §10.4) for flow-controlled pumps and the
 corpus comparison: the rule checker written from proposal vfd-pump-modes.md §4.5 at its
 tolerance edges, the closed-form implied speed, the 'flow_control' generator profile, the EPANET
-substitutes, and ``compare --ignore``. Fast; no EPANET run (the WNTR model build is skipped
-where WNTR is not installed).
+substitutes, the control search's split of distinct valid states into multiple states and
+alternatives at rest, and ``compare --ignore`` and ``--ignore-null``. Fast; no EPANET run (the
+WNTR model build is skipped where WNTR is not installed).
 """
 
 import json
@@ -17,6 +18,7 @@ from opensolve_pipe.models.project import Project
 from tests.differential import checks as ck
 from tests.differential import compare
 from tests.differential import epanet_model as em
+from tests.differential import state_search as ss
 from tests.differential.generator import DEFAULT, FLOW_CONTROL, generate
 from tests.reference import element_laws as el
 from tests.reference.case_format import pump, pump_curve
@@ -63,6 +65,42 @@ S_MIN_SHUT, S_MAX_SHUT = head(S_MIN, 0.0), head(S_MAX, 0.0)
 )
 def test_rule_flow_pump(state: str, gain: float, q: float, expected: str) -> None:
     assert ck.rule_flow_pump(state, gain, q, PUMP, CURVE) == expected
+
+
+def _pump_with(q_set: float, s_min: float, s_max: float = S_MAX) -> Pump:
+    return pump("PU", 0.0, "PC", speed=s_max).model_copy(
+        update={"control": PumpControl(mode="flow", setpoint=q_set, min_speed=s_min)}
+    )
+
+
+def test_rule_a2_tests_the_lowest_head_of_the_stable_bracket() -> None:
+    """A2 bounds by F(s_lo, Q_set), s_lo = max(s_min, Q_set/x_mono) (proposal §4.3, §4.5). On
+    the test curve x_mono = 2A/B = 0.04 m³/s; Q_set = 0.004 with s_min = 0.05 gives s_lo = 0.1,
+    F(s_lo, Q_set) = 0.01 (40 − 80) = −0.4 m below F(s_min, Q_set) = 0.0025 (40 − 160) = −0.3 m.
+    A head between them is held by a speed on [s_lo, s_max]: active, not min_speed."""
+    low = _pump_with(0.004, 0.05)
+    f_lo, f_min = head(0.1, 0.004), head(0.05, 0.004)
+    assert f_lo == pytest.approx(-0.4, rel=1e-12)
+    assert f_min == pytest.approx(-0.3, rel=1e-12)
+    assert ck.rule_flow_pump("active", -0.35, 0.004, low, CURVE) == "active"
+    assert ck.rule_flow_pump("active", f_lo - HTOL, 0.004, low, CURVE) == "active"
+    assert ck.rule_flow_pump("active", f_lo - 2 * HTOL, 0.004, low, CURVE) == "min_speed"
+    band = ck.active_band(low, CURVE, "s", "d")
+    assert band == [("s", "d", head(S_MAX, 0.004) + HTOL, "PU"), ("d", "s", -(f_lo - HTOL), "PU")]
+
+
+def test_rule_a2_with_the_bracket_capped_at_the_maximum_speed() -> None:
+    """s_lo is at most s_max: Q_set = 0.04 at s_max = 0.9 puts Q_set/s_max = 0.0444 beyond
+    x_mono = 0.04, so F(·, Q_set) falls on the whole range and only F(s_max, Q_set) ± Htol is
+    active. The uncapped Q_set/x_mono = 1.0 would give F(1, Q_set) = 40 − 80 = −40 m, below
+    F(s_max, Q_set) = 0.81 (40 − 2000 · 0.04/0.9) = −39.6 m, and accept a head between them."""
+    capped = _pump_with(0.04, 0.5)
+    f_max = head(S_MAX, 0.04)
+    assert head(1.0, 0.04) == pytest.approx(-40.0, rel=1e-12)
+    assert f_max == pytest.approx(-39.6, rel=1e-12)
+    assert ck.rule_flow_pump("active", f_max, 0.04, capped, CURVE) == "active"
+    assert ck.rule_flow_pump("active", -39.8, 0.04, capped, CURVE) == "min_speed"
+    assert ck.rule_flow_pump("active", f_max + 2 * HTOL, 0.04, capped, CURVE) == "max_speed"
 
 
 def test_rule_flow_pump_slack_widens_x1_and_n1() -> None:
@@ -155,6 +193,24 @@ def test_active_substitute_is_the_faq_demand_pair() -> None:
     assert str(wn2.get_link(p.id).initial_status).upper().endswith("OPEN")
 
 
+@pytest.mark.parametrize(
+    ("seed", "multiple"),
+    [
+        # a pump at its minimum speed carrying flow, or closed: the closed one's solution has
+        # flow in a subset of the other's connections, with other flows there
+        (11_285, True),
+        # the closed pump's solution has the other's flows where it has flow
+        (10_065, False),
+    ],
+)
+def test_control_search_multiple_compares_shared_flows(seed: int, multiple: bool) -> None:
+    project = generate(seed, FLOW_CONTROL)
+    _, valid = ss.control_search(project)
+    a, b = ss.distinct(project, valid)
+    assert ss.flowing(b) < ss.flowing(a) or ss.flowing(a) < ss.flowing(b)
+    assert ss.multiple(project, [a, b]) is multiple
+
+
 def write(directory: Path, name: str, data: object) -> None:
     directory.mkdir(exist_ok=True)
     (directory / f"{name}.json").write_text(json.dumps(data))
@@ -182,4 +238,42 @@ def test_compare_ignore(tmp_path: Path) -> None:
     _, diff = compare.compare_dirs(a, b, ["pumpResults.*.control", "methodVersion", "x.0"])
     assert diff == 1
     _, diff = compare.compare_dirs(a, b, ["pumpResults.*.control", "version"])
+    assert diff == 1
+
+
+def test_compare_ignore_null(tmp_path: Path) -> None:
+    a, b = tmp_path / "a", tmp_path / "b"
+    before = {"pumpResults": {"P1": {"speed": 1.0}, "P2": {"speed": 1.0, "control": None}}}
+    control = {"mode": "flow", "setpoint": 0.01, "state": "max_speed", "setpointAchieved": False}
+    write(a, "p", before)
+    write(b, "p", {"pumpResults": {"P1": {"speed": 1.0, "control": None}, "P2": {"speed": 1.0}}})
+    lines, diff = compare.compare_dirs(a, b, ignore_null=["pumpResults.*.control"])
+    assert diff == 0
+    assert "ignored pumpResults.*.control (null or absent): 2 values in 1 projects" in lines
+    # a control result where the old dump has none is a difference (--ignore would hide it)
+    write(b, "p", {"pumpResults": {"P1": {"speed": 1.0, "control": control}, "P2": {"speed": 1.0}}})
+    lines, diff = compare.compare_dirs(a, b, ignore_null=["pumpResults.*.control"])
+    assert diff == 1
+    assert "ignored pumpResults.*.control (null or absent): 1 values in 1 projects" in lines
+    _, diff = compare.compare_dirs(a, b, ["pumpResults.*.control"])
+    assert diff == 0
+    # null on one side, a value on the other; and equal values, compared as usual
+    write(b, "p", {"pumpResults": {"P1": {"speed": 1.0}, "P2": {"speed": 1.0, "control": control}}})
+    _, diff = compare.compare_dirs(a, b, ignore_null=["pumpResults.*.control"])
+    assert diff == 1
+    write(a, "p", {"pumpResults": {"P1": {"speed": 1.0, "control": control}}})
+    write(b, "p", {"pumpResults": {"P1": {"speed": 1.0, "control": control}}})
+    lines, diff = compare.compare_dirs(a, b, ignore_null=["pumpResults.*.control"])
+    assert diff == 0
+    assert "ignored pumpResults.*.control (null or absent): 0 values in 0 projects" in lines
+    write(b, "p", {"pumpResults": {"P1": {"speed": 1.0, "control": {**control, "setpoint": 0.02}}}})
+    _, diff = compare.compare_dirs(a, b, ignore_null=["pumpResults.*.control"])
+    assert diff == 1
+    # list items too
+    write(a, "p", {"x": [1, None]})
+    write(b, "p", {"x": [1, None]})
+    _, diff = compare.compare_dirs(a, b, ignore_null=["x.*"])
+    assert diff == 0
+    write(b, "p", {"x": [1, 2]})
+    _, diff = compare.compare_dirs(a, b, ignore_null=["x.*"])
     assert diff == 1

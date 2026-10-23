@@ -67,6 +67,7 @@ A web application that:
 
 - Pressure-fed systems (pressurized source, e.g., municipal supply, pressurized tank)
 - Gravity-fed systems (elevated reservoir, head tank), with no pump required
+- Known loads: a fixed flow withdrawn from or injected into the network at a point (assigned-flow node), e.g. a process user, a coil or a fire-flow demand
 - Pumped systems, including:
   - Multiple pumps in parallel
   - Multiple pumps in series
@@ -78,7 +79,7 @@ A web application that:
 - Degraded operation (individual pumps off, valves closed)
 - Isolation scenarios (sections of network isolated)
 
-Every model needs at least one fixed-pressure boundary (reservoir or ideal reference node). A model without one is reported as a topology error, not solved.
+Every model needs at least one fixed-pressure boundary (reservoir or ideal reference node). A model without one is reported as a topology error, not solved. An assigned-flow node fixes a flow, not a pressure, so it never counts as that boundary.
 
 ### 2.2 Out of Scope (Current Version)
 
@@ -96,7 +97,7 @@ v1 is the core analysis MVP. Everything else in this document is **Later**. The 
 **In v1:**
 
 - Branching and looped networks
-- Reservoirs, ideal reference nodes, tees, wyes, plugs/caps
+- Reservoirs, ideal reference nodes, assigned-flow nodes, tees, wyes, plugs/caps
 - Pipes with inline fittings
 - Fixed-speed pumps (running/off)
 - Isolation valves (gate, ball, butterfly, globe), check and stop-check valves
@@ -106,13 +107,15 @@ v1 is the core analysis MVP. Everything else in this document is **Later**. The 
 - Panel navigator, results tables, pump/system curve chart
 - Sharing by link (§4.4)
 
-**Later:** VFD and controlled pump modes; HI viscosity correction; pressure relief valves; non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, heat exchangers, strainers, user-defined elements; fuels in the fluid library; auto-generated schematic; CSV/XLSX/image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
+**Later:** VFD and controlled pump modes; HI viscosity correction; pressure relief valves; three-way valves; differential-pressure control valve mode; scenario manager (§3.8); goal seek (§3.9); non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, heat exchangers, strainers, user-defined elements; fuels in the fluid library; auto-generated schematic; CSV/XLSX/image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
 
 ### 2.4 Future Features (Planned)
 
 | Feature                            | Priority | Phase |
 | ---------------------------------- | -------- | ----- |
 | Cost estimation utility            | High     | 2     |
+| Scenario manager (§3.8)            | High     | 2     |
+| Goal seek (§3.9)                   | Medium   | 2     |
 | Pipe sizing optimization           | Medium   | 2     |
 | Global pump database               | Medium   | 2     |
 | Pump curve digitization from image | Medium   | 3     |
@@ -136,6 +139,7 @@ Users shall be able to model the following components:
 | Tank (variable level)      | Geometry, level limits                                    | 1-n ports (user-defined, each with size) | Later   |
 | Reference Node (Ideal)     | Elevation, pressure setpoint                              | 1 port                                   | v1      |
 | Reference Node (Non-Ideal) | Elevation, pressure-flow curve, capacity limits           | 1 port                                   | Later   |
+| Assigned Flow              | Elevation, flow (demand out of or supply into the network) | 1 port                                  | v1      |
 | Branch (Tee)               | Orientation (through/branch flows), port sizes            | 3 ports                                  | v1      |
 | Branch (Wye)               | Angle, port sizes                                         | 3 ports                                  | v1      |
 | Branch (Cross)             | Port sizes                                                | 4 ports                                  | Later   |
@@ -159,6 +163,8 @@ Users shall be able to model the following components:
 | Pressure Reducing Valve   | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        | v1      |
 | Pressure Sustaining Valve | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        | v1      |
 | Flow Control Valve        | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        | v1      |
+| Differential Pressure Control Valve | Pressure-drop setpoint across the valve, Cv curve, status (active/failed-open/failed-closed) | Later   |
+| Three-Way Valve           | Mixing or diverting; Cv per path vs position, status                               | Later   |
 | Pressure Relief Valve     | Setpoint, capacity                                                                 | Later   |
 | Heat Exchanger            | Fixed pressure drop, or Cv/K model                                                 | Later   |
 | Strainer/Filter           | K-factor (clean and dirty)                                                         | Later   |
@@ -236,11 +242,13 @@ The hydraulic network is modeled as a graph. This port graph is the only project
 | ---------------- | ---------- | ----------------------------------- |
 | Reservoir/Tank   | 1-n        | port_1, port_2, ... (user-defined)  |
 | Reference Node   | 1          | port_1                              |
+| Assigned Flow    | 1          | port_1                              |
 | Pump             | 2          | suction (inlet), discharge (outlet) |
 | Valve            | 2          | inlet, outlet                       |
 | Branch (Tee)     | 3          | run_inlet, run_outlet, branch       |
 | Branch (Wye)     | 3          | inlet, outlet_1, outlet_2           |
 | Branch (Cross)   | 4          | port_1, port_2, port_3, port_4      |
+| Three-Way Valve (Later) | 3   | common, port_a, port_b              |
 | Orifice          | 2          | inlet, outlet                       |
 | Sprinkler        | 1          | inlet                               |
 | Plug/Cap         | 1          | port_1 (zero flow boundary)         |
@@ -257,6 +265,13 @@ The hydraulic network is modeled as a graph. This port graph is the only project
    - Pressure regulators with capacity limits
    - Booster pumps with supply limitations
    - Wells with drawdown curves
+
+**Assigned Flow Node:** Fixes the flow leaving (demand) or entering (supply) the network at its port, regardless of pressure; the pressure there is a result. Useful for:
+   - Process users, coils and terminal units with a known design flow
+   - Fire-flow and other point demands
+   - Injection points with a known flow (e.g. a metered make-up or dosing connection)
+
+An assigned-flow node is not a pressure boundary: a sub-network whose only boundaries are assigned-flow nodes has no unique solution and is a topology error. If closing a valve or stopping a pump cuts an assigned-flow node off from every fixed-pressure boundary, the solve reports the node as disconnected rather than returning a result.
 
 ### 3.2 Outputs
 
@@ -295,6 +310,11 @@ For each control valve:
 - Actual flow/pressure vs setpoint
 - Valve position (% open)
 - Whether setpoint is achieved
+
+For each assigned-flow node:
+
+- Assigned flow (as entered)
+- Static pressure and HGL at the node (flagged when the absolute pressure is below the fluid's vapor pressure)
 
 #### 3.2.2 Pump Analysis
 
@@ -391,6 +411,26 @@ Manual entry of:
 - Darcy-Weisbach friction factor (Colebrook equation)
 - No Hazen-Williams option (Darcy-Weisbach is more accurate and general)
 - One network solver handles every topology (single path, branching, looped) and every supported fluid
+
+### 3.8 Scenarios (Later)
+
+A scenario manager keeps several operating or design cases in one project and compares them, instead of the user keeping one URL per case. It serves the degraded-operation and isolation states in §2.1 and US-004.
+
+- A project holds the **base** model and any number of named **scenarios**. A scenario stores only its overrides of base values, so editing the base updates every scenario that doesn't override that value.
+- Overridable values: component status, valve position and setpoint, pump speed ratio, reservoir level and surface pressure, reference-node pressure, assigned flow, pipe size, length and material, fluid and temperature. Adding or removing components or connections in a scenario is out of scope for the first release; it keeps scenarios small in the URL and makes every difference from the base a list of values.
+- Solve one scenario or all of them. A comparison table shows chosen results side by side with differences from the base; the pump/system curve chart can overlay scenarios.
+- Scenarios travel in the shared URL with the rest of the project; the long-link warning (§4.4) applies to the whole encoded project.
+- Traceability: every result shows which scenario produced it and lists that scenario's overrides.
+
+### 3.9 Goal Seek (Later)
+
+Goal seek finds the input values that make chosen results hit target values, e.g. "what impeller speed gives 3 bar at the far user?" or "what reservoir level delivers 20 L/s?".
+
+- The user picks one or more **variables** (an input from the overridable list in §3.8, with lower and upper bounds) and the same number of **goals** (a result such as a pressure at a port, a flow in a connection, a pump head or an NPSH margin, with a target value).
+- Each goal-seek run repeats the full network solve; it never approximates the network.
+- Output: the variable values found, each goal's achieved value and residual, and the iteration count. If a target can't be reached within the bounds, report the closest achievable value and flag the goal as not met; never clamp silently.
+- The result never changes the model on its own. The user applies the found values to the base or to a scenario.
+- Goal seek is a design aid that finds an input. It is separate from control valves and (Later) VFD control, which are devices that act inside a single solve.
 
 ---
 

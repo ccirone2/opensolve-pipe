@@ -30,7 +30,7 @@ The specs are at v0.2.0 (rebuild baseline) and reflect the decisions below. Item
 - One solver for every topology (single-path, branching, looped). The TSD's separate "simple solver" and WNTR wrapper (TSD §5) are dropped.
 - The solver must handle what EPANET cannot: flow-split-dependent tee/wye K-factors, real fluid properties (density, viscosity, vapor pressure), check valves and other valves as components, and NPSH available. Later: VFD setpoint control, relief valves.
 - Gravity-fed and pressure-fed systems with no pump are valid inputs.
-- Every network, including closed loops, needs at least one fixed-pressure boundary (reservoir or ideal reference node). Report a topology error when one is missing.
+- Every network, including closed loops, needs at least one fixed-pressure boundary (reservoir or ideal reference node). Report a topology error when one is missing. Assigned-flow nodes fix a flow, not a pressure, so they never count as that boundary.
 - WNTR/EPANET is a **test-only** dependency, used as a reference for water-only cases.
 
 ### D2. Data model: port graph is canonical
@@ -54,7 +54,7 @@ The specs are at v0.2.0 (rebuild baseline) and reflect the decisions below. Item
 ### D5. v1 scope: core analysis MVP
 **In v1:**
 - Branching and looped networks
-- Reservoir, ideal reference node, tee, wye, plug/cap
+- Reservoir, ideal reference node, assigned-flow node (fixed demand or supply), tee, wye, plug/cap
 - Pipes with fittings
 - Fixed-speed pumps (on/off)
 - Isolation valves (gate, ball, butterfly, globe) and check valves
@@ -64,7 +64,7 @@ The specs are at v0.2.0 (rebuild baseline) and reflect the decisions below. Item
 - Panel navigator, results tables and the pump/system curve chart
 - URL sharing
 
-**Deferred:** VFD and controlled-pressure/controlled-flow pump modes; HI viscosity correction; relief valves; non-ideal reference nodes; cross and elbow-branch fittings; tanks with levels; sprinklers, orifices, heat exchangers, strainers and user-defined elements; fuels in the fluid library; the auto-generated schematic; CSV/XLSX/PNG export; table entry and CSV pump-curve import; design checks; cost estimation.
+**Deferred:** VFD and controlled-pressure/controlled-flow pump modes; HI viscosity correction; relief valves; three-way valves; the differential-pressure mode for control valves; scenario manager; goal seek; non-ideal reference nodes; cross and elbow-branch fittings; tanks with levels; sprinklers, orifices, heat exchangers, strainers and user-defined elements; fuels in the fluid library; the auto-generated schematic; CSV/XLSX/PNG export; table entry and CSV pump-curve import; design checks; cost estimation.
 
 ### D6. Correctness: reference test suite
 - `apps/api/tests/reference/` holds benchmark cases: Crane TP-410 and textbook worked examples, closed-form hand calculations, and EPANET runs for water-only networks.

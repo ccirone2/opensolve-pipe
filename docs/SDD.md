@@ -218,7 +218,13 @@ POST /api/v1/solve
 POST /api/v1/system-curve
   Request: Project + pump id + flow range
   Response: SystemCurve (flow/head pairs)
+
+POST /api/v1/goal-seek                  (Later)
+  Request: Project + GoalSeekRequest (§4.13), optional scenario id
+  Response: GoalSeekResult + SolvedState at the found values
 ```
+
+`/solve` and `/system-curve` take an optional scenario id (Later, §4.12); the server applies that scenario's overrides to the base before building the network, so the solver only ever sees a plain project.
 
 **Implementation:** one Global Gradient Algorithm (Todini–Pilati) solver for every topology — the same core method EPANET uses — implemented in Python with Darcy–Weisbach/Colebrook friction from the `fluids` library. See TSD §5. It adds what EPANET lacks:
 
@@ -228,7 +234,7 @@ POST /api/v1/system-curve
 - NPSH available at every pump suction
 - Later: VFD setpoint control, pressure relief valves, non-ideal reference nodes
 
-Preconditions checked before solving (topology errors): at least one fixed-pressure boundary (reservoir or ideal reference node) per connected sub-network; every port connected or explicitly plugged; no connection between incompatible ports.
+Preconditions checked before solving (topology errors): at least one fixed-pressure boundary (reservoir or ideal reference node) per connected sub-network, where assigned-flow nodes do not count; every port connected or explicitly plugged; no connection between incompatible ports.
 
 WNTR/EPANET is used only in the test suite, as a reference for water-only networks.
 
@@ -292,6 +298,7 @@ interface Project {
   components: Component[];
   connections: PipeConnection[];  // edges of the port graph
   pumpLibrary: PumpCurve[];
+  scenarios?: Scenario[];         // Later (§4.12); adding it bumps schemaVersion
 }
 
 interface ProjectMetadata {
@@ -320,11 +327,12 @@ The component model uses a **port-based architecture**: each component has a def
 type Component =
   | Reservoir
   | ReferenceNode
+  | AssignedFlow
   | Branch
   | Plug
   | Pump
   | Valve;
-  // Later: Tank, HeatExchanger, Strainer, Orifice, Sprinkler, UserDefinedElement
+  // Later: Tank, HeatExchanger, Strainer, Orifice, Sprinkler, UserDefinedElement, ThreeWayValve
 
 interface Port {
   id: string;                    // e.g., "suction", "discharge", "branch"
@@ -549,6 +557,7 @@ type ValveType =
   | 'gate' | 'ball' | 'butterfly' | 'globe'   // isolation / throttling
   | 'check' | 'stop_check'                    // one-way
   | 'prv' | 'psv' | 'fcv'                     // control
+  | 'pdcv'                                    // Later: differential-pressure control
   | 'relief';                                 // Later
 
 // Valve resistance exactly as the user entered it (see note below)
@@ -575,6 +584,7 @@ interface ControlValve extends Valve {
   valveType: 'prv' | 'psv' | 'fcv';
   status: 'active' | 'failed_open' | 'failed_closed';
   setpoint: number;              // Pa gauge (prv: downstream, psv: upstream) or m³/s (fcv)
+                                 // Later, pdcv: Pa pressure drop, inlet minus outlet
   model: 'simplified' | 'detailed';
   cvCurve?: CvPoint[];           // detailed model: flow coefficient vs position
 }
@@ -635,6 +645,69 @@ interface BranchResult {
   portFlows: Record<string, number>;   // m³/s, positive = into the component
   totalHeadLoss: number;               // m
   kFactors: Record<string, number>;    // K for each flow path
+}
+```
+
+### 4.11 Assigned Flow Model
+
+```typescript
+interface AssignedFlow extends BaseComponent {
+  type: 'assigned_flow';
+  flow: number;                  // m³/s; positive = leaving the network (demand),
+                                 // negative = entering it (supply)
+  ports: [Port & { id: 'port_1'; direction: 'bidirectional' }];
+}
+```
+
+The pressure at the port is a result (`NodeResult`), not an input. An assigned-flow node is not a fixed-pressure boundary (§3.2.1). Solver mapping: TSD §4.8.
+
+### 4.12 Scenario Model (Later)
+
+```typescript
+interface Scenario {
+  id: string;
+  name: string;
+  description?: string;
+  overrides: Override[];         // applied in order on top of the base project
+}
+
+interface Override {
+  target: { kind: 'component' | 'connection' | 'fluid'; id?: string };
+  field: string;                 // camelCase field name on the target, from an allow-list
+  value: unknown;                // SI, validated as the field's own type
+}
+```
+
+Overrides may change values only, never topology (PRD §3.8). An override whose target no longer exists (the base component was deleted) is kept, reported as orphaned and ignored, so the user can see and remove it.
+
+### 4.13 Goal Seek Model (Later)
+
+```typescript
+interface GoalSeekRequest {
+  variables: GoalVariable[];
+  goals: Goal[];                 // same length as variables
+  maxIterations?: number;        // outer iterations, default 50
+}
+
+interface GoalVariable {
+  target: Override['target'];
+  field: string;                 // same allow-list as scenario overrides
+  lower: number;                 // SI bounds
+  upper: number;
+}
+
+interface Goal {
+  result: 'pressure' | 'flow' | 'pumpHead' | 'npshMargin' | 'velocity';
+  key: string;                   // NodeResult / LinkResult / PumpResult key (§4.10)
+  target: number;                // SI
+  tolerance?: number;            // SI; default from D6 (0.5% or 0.01 m of head)
+}
+
+interface GoalSeekResult {
+  converged: boolean;
+  iterations: number;
+  values: Record<string, number>;          // variable values found, keyed by `${id}.${field}`
+  achieved: { goal: Goal; value: number; residual: number; met: boolean }[];
 }
 ```
 

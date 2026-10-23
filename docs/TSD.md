@@ -622,6 +622,29 @@ export function migrate(raw: any): Project {
 
 Every released schema version keeps a fixture link in `apps/web/src/lib/utils/__fixtures__/`; a test decodes each one.
 
+### 4.8 Assigned Flow Node
+
+```python
+# apps/api/src/opensolve_pipe/models/assigned_flow.py
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from .ports import Port
+
+
+class AssignedFlow(BaseModel):
+    id: str
+    type: Literal["assigned_flow"] = "assigned_flow"
+    name: str
+    elevation: float  # m
+    flow: float = Field(description="m³/s; positive leaves the network, negative enters it")
+    ports: list[Port]  # exactly one, id "port_1"
+```
+
+**Solver handling:** like a plug, an assigned-flow node adds no link. Its port becomes a node whose demand is `flow`, passed straight into the GGA `demands` (§5.2); `flow = 0` behaves exactly as a plug. It never enters `fixed_heads`, so it doesn't satisfy the boundary check in §5.1. After each outer-loop status update (§5.4), any node with a nonzero demand that has no open path to a fixed head is reported as disconnected (EPANET's "system disconnected" condition) instead of being solved, because the head matrix would be singular.
+
 ---
 
 ## 5. Solver Implementation
@@ -632,7 +655,7 @@ One solver handles every topology (D1). Pipeline:
 
 1. **Validate topology** (`builder.py`): at least one fixed-pressure boundary per connected sub-network; every port connected or plugged; ports referenced by connections exist. Failures raise `TOPOLOGY_ERROR` (HTTP 422).
 2. **Build the solver network** (`builder.py`): each component port becomes a solver node at the port's elevation. Each `PipeConnection` becomes one pipe link (pipe segments in series combined; fitting K-factors summed into `k_minor`, all referenced to that connection's velocity). Each two-port component (pump, valve) becomes a link between its two port nodes. Each branch component becomes short zero-length links from a central node to each port node, carrying the branch K-factor for that path.
-3. **Fixed heads:** reservoir ports get H = component elevation + liquid level + surface pressure / (ρg). Ideal reference nodes get H = elevation + p_gauge / (ρg).
+3. **Fixed heads and demands:** reservoir ports get H = component elevation + liquid level + surface pressure / (ρg). Ideal reference nodes get H = elevation + p_gauge / (ρg). Assigned-flow ports get a demand equal to their flow (§4.8); every other node's demand is zero.
 4. **Solve** with the GGA inner loop (§5.2) inside the status/K outer loop (§5.4).
 5. **Map results** (`results.py`) to `SolvedState`: per port node pressure = ρg(H − z) gauge; per connection flow, velocity, head loss, Re, f; pump operating points and NPSH (§5.5).
 
@@ -756,6 +779,7 @@ Every link supplies h(Q) and dh/dQ, with h positive in the direction of positive
 | Isolation valve | K(position) · Q\|Q\| / (2gA²) | isolated → closed |
 | Check / stop-check | open: K · Q\|Q\| / (2gA²); closed when Q would reverse or ΔH < cracking head | status set in the outer loop |
 | PRV / PSV / FCV | active: fixes downstream pressure / upstream pressure / flow; else open or closed | status logic as EPANET's (Rossman, EPANET 2.2 manual), run in the outer loop |
+| PDCV (Later) | active: fixes inlet minus outlet pressure; else open or closed | EPANET's PBV is the closest reference for its active state |
 | Branch path | K_path(flow split) · Q\|Q\| / (2gA_ref²) | K from §4.2, updated in the outer loop |
 
 **Cv/Kv to K** for a valve whose connected inner diameter gives flow area A (m²):
@@ -796,6 +820,18 @@ p_atm = 101 325 · (1 − 2.25577·10⁻⁵ · z)^5.25588   [Pa, z in m]
 ```
 
 (Values checked: 101 325 Pa at 0 m, 89 875 Pa at 1 000 m.)
+
+### 5.6 Scenarios and Goal Seek (Later)
+
+Both sit outside the network solver, so §5.1–5.5 don't change.
+
+**Scenarios** (`services/scenarios.py`): `apply_scenario(project, scenario_id) → Project` copies the base, applies each override after validating its field against the allow-list and the field's Pydantic type, and returns a plain `Project` for the builder. Orphaned overrides are returned as warnings. Solving all scenarios is one independent solve per scenario.
+
+**Goal seek** (`services/goal_seek.py`): an outer loop that sets the variables, runs the full solve (§5.1) and reads the goal results.
+
+- One variable: bracketed root finding on `goal(x) − target` with `scipy.optimize.brentq` over the variable's bounds. If the sign doesn't change across the bounds, minimize |residual| with `scipy.optimize.minimize_scalar(method="bounded")` and report the goal as not met.
+- Several variables: `scipy.optimize.least_squares` with bounds and a finite-difference Jacobian (each step costs n + 1 solves), residuals scaled by each goal's tolerance.
+- A non-converged inner solve at any trial point fails the run with that point named, rather than being used as a residual.
 
 ---
 
@@ -1095,6 +1131,8 @@ Each case is a data file (the project in API JSON, plus expected results and the
 | Closed-form hand calculations | Single pipes, series and parallel pipes, reservoir-to-reservoir flow, pump on a single pipe |
 | Crane TP-410 and textbook worked examples | Fittings, pumps, NPSH; each case cites the example it reproduces |
 | WNTR/EPANET (dev dependency) | Water-only branching and looped networks; the solver runs with `method="swamee_jain"` so EPANET's friction approximation does not count as error |
+| Assigned-flow node | Closed-form: reservoir → pipe → assigned flow, pressure at the node from Darcy–Weisbach; EPANET: the same node as a junction demand in a looped network |
+| Goal seek (Later) | Closed-form inverses: reservoir level for a target flow through one pipe; pump speed ratio for a target duty point via the affinity laws |
 
 **Pass criteria:** flows, heads and pressures within 0.5% of the reference, or 0.01 m of head, whichever is looser; mass balance closes at every node to the solver tolerance. Every new component type ships with at least one reference case.
 
@@ -1215,6 +1253,8 @@ CORS_ORIGINS=https://opensolve-pipe.app
 5. **Control-valve status oscillation:** damping strategy if EPANET-style status logic oscillates (§5.4).
 6. **Schematic layout algorithm (Later):** dagre, elkjs, or custom?
 7. **Version storage (Later):** git under the hood, or custom versioning in PostgreSQL?
+8. **Scenario override addressing (Later):** a field allow-list (§5.6) or JSON Pointer paths? The allow-list is safer; pointers are more general.
+9. **Three-way valve characteristic (Later):** which published Cv-vs-position data (linear, equal-percentage, per path) to cite?
 
 ---
 

@@ -116,10 +116,11 @@ Pass each item through the GOALS §5 gates first, and stop to ask the owner wher
    - the fuzz profile extended to pressure control.
 
    Use the same method as slice 1: design workflow → owner's answers → build (implementer and independent reference author) → integrate (corpus and both fuzz profiles) → six-dimension adversarial review → fixes. Slice 3, differential pressure, comes after it.
-5. **Known limitations to decide on** (TSD §12, open items 3–5):
-   - drooping curves close at s²H₀(0), as in v1 (EPANET 2.2 rejects such curves);
-   - a pump whose only outlet is a series FCV or PRV gets no system-curve points;
-   - a flow setpoint beyond the curve even at maximum speed has two possible limit states. Both are flagged `PUMP_OUTSIDE_CURVE`.
+5. **Known limitations: decided** by the owner on 2026-10-23 (TSD §12, decided items 7 and 8, open item 3):
+   - drooping curves close at s²H₀(0), as in v1 (EPANET 2.2 rejects such curves): kept, documented;
+   - a flow setpoint beyond the curve even at maximum speed is invalid input, the topology issue `CONTROLLED_PUMP_SETPOINT`;
+   - system curves report every point whose flow passes with a determined head, through a series FCV, PRV or PSV too, and each point without one says why (TSD §5.6);
+   - the web app's Cancel stops a running solve or system curve (PRD §4.2).
 6. **The "default" label: decided.** The owner keeps the current rule, so a value equal to its documented default is labelled "default" (D10).
 7. **After that, the rest of the deferred scope** (D5 list: HI viscosity correction, relief valves, export, and so on). Each item goes through the GOALS gates and the D5 order, one verified slice at a time, each with reference cases and traces.
 

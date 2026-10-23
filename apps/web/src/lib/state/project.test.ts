@@ -87,6 +87,7 @@ describe('loading', () => {
 			stale: false,
 			solving: false,
 			error: null,
+			cancelled: false,
 			errorStale: false
 		});
 		expect(store.encoded).toBe(encodeProject(project));
@@ -393,7 +394,8 @@ describe('results', () => {
 		await solving;
 		expect(solver.solve).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 'example-pump-transfer' }),
-			{ includeSystemCurve: false }
+			{ includeSystemCurve: false },
+			{ signal: expect.any(AbortSignal) }
 		);
 		expect(store.results).toMatchObject({ stale: false, solving: false, error: null });
 		expect(store.solved?.methodVersion).toBe('2.1.0');
@@ -523,6 +525,7 @@ describe('results', () => {
 			stale: false,
 			solving: false,
 			error: null,
+			cancelled: false,
 			errorStale: false
 		});
 	});
@@ -606,6 +609,143 @@ describe('results', () => {
 	});
 });
 
+describe('cancelling a solve (PRD §4.2)', () => {
+	/** A solver whose answers the test gives, recording each request's signal. */
+	function heldSolver() {
+		const calls: { signal?: AbortSignal; answer: ReturnType<typeof deferred<SolveResponse>> }[] =
+			[];
+		const solver: Solver = {
+			solve: (_project, _options, request) => {
+				const answer = deferred<SolveResponse>();
+				calls.push({ signal: request?.signal, answer });
+				return answer.promise;
+			}
+		};
+		return { solver, calls };
+	}
+
+	it('aborts the request, and drops an answer that still arrives', async () => {
+		const { solver, calls } = heldSolver();
+		const { store } = setup({ solver });
+		const solving = store.solve();
+		expect(store.results.solving).toBe(true);
+		const signal = calls[0]!.signal!;
+		expect(signal.aborted).toBe(false);
+		expect(store.cancelSolve()).toBe(true);
+		expect(signal.aborted).toBe(true);
+		// Nothing earlier to show: no results, and the latest solve was cancelled.
+		expect(store.results).toEqual({
+			response: null,
+			stale: false,
+			solving: false,
+			error: null,
+			cancelled: true,
+			errorStale: false
+		});
+		calls[0]!.answer.resolve(solveResponse('9.9.9'));
+		await solving;
+		expect(store.results.response).toBeNull();
+		expect(store.results.cancelled).toBe(true);
+		expect(store.project.methodVersion).toBe(''); // not solved with it
+	});
+
+	it("drops a failure that arrives after it (the client's abort error, or any other)", async () => {
+		const { solver, calls } = heldSolver();
+		const { store } = setup({ solver });
+		for (const error of [
+			new DOMException('The operation was aborted.', 'AbortError'),
+			new NetworkError('Made-up failure.')
+		]) {
+			const solving = store.solve();
+			store.cancelSolve();
+			calls.at(-1)!.answer.reject(error);
+			await solving;
+			expect(store.results).toMatchObject({ error: null, solving: false, cancelled: true });
+		}
+	});
+
+	it('keeps the results shown before it, current or out of date by the same rules', async () => {
+		const { solver, calls } = heldSolver();
+		const { store } = setup({ solver });
+		const first = store.solve();
+		calls[0]!.answer.resolve(solveResponse('1.0.0'));
+		await first;
+		const response = store.results.response;
+		expect(response).not.toBeNull();
+		// Solved again unchanged, and cancelled: the results are still the current project's.
+		void store.solve();
+		store.cancelSolve();
+		expect(store.results).toEqual({
+			response,
+			stale: false,
+			solving: false,
+			error: null,
+			cancelled: true,
+			errorStale: false
+		});
+		// Changed, solved and cancelled: they are out of date, and current again after undo.
+		store.update(lengthen(5), 'Change length');
+		void store.solve();
+		expect(store.results).toMatchObject({ solving: true, cancelled: false });
+		store.cancelSolve();
+		expect(store.results).toMatchObject({ response, stale: true, cancelled: true });
+		store.undo();
+		expect(store.results).toMatchObject({ response, stale: false, cancelled: true });
+		// The next solve that answers replaces them.
+		const next = store.solve();
+		calls.at(-1)!.answer.resolve(solveResponse('1.0.0'));
+		await next;
+		expect(store.results).toMatchObject({ stale: false, solving: false, cancelled: false });
+		expect(store.results.response).not.toBe(response);
+	});
+
+	it('keeps the error of an earlier solve, with its staleness', async () => {
+		const { solver, calls } = heldSolver();
+		const { store } = setup({ solver });
+		const failed = store.solve();
+		calls[0]!.answer.reject(new NetworkError('Offline'));
+		await failed;
+		void store.solve();
+		store.cancelSolve();
+		expect(store.results).toEqual({
+			response: null,
+			stale: false,
+			solving: false,
+			error: { kind: 'network', message: 'Offline' },
+			cancelled: true,
+			errorStale: false
+		});
+		store.update(lengthen(5), 'Change length');
+		expect(store.results).toMatchObject({ stale: true, errorStale: true, cancelled: true });
+	});
+
+	it('does nothing when no solve is in progress', () => {
+		const { store } = setup();
+		const before = store.results;
+		expect(store.cancelSolve()).toBe(false);
+		expect(store.results).toBe(before);
+	});
+
+	it('aborts a solve that is superseded, or whose results are no longer wanted', () => {
+		const { solver, calls } = heldSolver();
+		const { store } = setup({ solver });
+		void store.solve();
+		void store.solve(); // a newer solve
+		expect(calls[0]!.signal!.aborted).toBe(true);
+		expect(calls[1]!.signal!.aborted).toBe(false);
+		store.load(EXAMPLES[1]!.create());
+		expect(calls[1]!.signal!.aborted).toBe(true);
+		void store.solve();
+		store.clearResults();
+		expect(calls[2]!.signal!.aborted).toBe(true);
+		// None of these is a cancellation by the user.
+		expect(store.results.cancelled).toBe(false);
+		void store.solve();
+		store.dispose();
+		expect(calls[3]!.signal!.aborted).toBe(true);
+	});
+});
+
 describe('system curves (D10: on demand, per solve)', () => {
 	/** Let pending promise callbacks run. */
 	async function settle() {
@@ -622,7 +762,11 @@ describe('system curves (D10: on demand, per solve)', () => {
 		};
 	}
 
-	function curveSolver() {
+	/**
+	 * A fake server whose answers the test gives. With `rejectOnAbort`, an aborted request
+	 * rejects at once, as the API client's does; without it, an answer can still arrive after it.
+	 */
+	function curveSolver({ rejectOnAbort = false } = {}) {
 		const calls: { project: Project; pumpId: string; signal?: AbortSignal }[] = [];
 		const answers: ReturnType<typeof deferred<SystemCurveResponse>>[] = [];
 		const solver: Solver = {
@@ -630,6 +774,11 @@ describe('system curves (D10: on demand, per solve)', () => {
 			systemCurve: vi.fn((project: Project, pumpId: string, options?: { signal?: AbortSignal }) => {
 				calls.push({ project, pumpId, signal: options?.signal });
 				const answer = deferred<SystemCurveResponse>();
+				if (rejectOnAbort) {
+					options?.signal?.addEventListener('abort', () =>
+						answer.reject(new DOMException('The operation was aborted.', 'AbortError'))
+					);
+				}
 				answers.push(answer);
 				return answer.promise;
 			})
@@ -641,7 +790,11 @@ describe('system curves (D10: on demand, per solve)', () => {
 		const { solver } = curveSolver();
 		const { store } = setup({ solver });
 		await store.solve();
-		expect(solver.solve).toHaveBeenCalledWith(expect.anything(), { includeSystemCurve: false });
+		expect(solver.solve).toHaveBeenCalledWith(
+			expect.anything(),
+			{ includeSystemCurve: false },
+			{ signal: expect.any(AbortSignal) }
+		);
 	});
 
 	it('computes a curve for the project exactly as solved, once per solve', async () => {
@@ -651,7 +804,11 @@ describe('system curves (D10: on demand, per solve)', () => {
 		await store.solve();
 		const response = store.results.response;
 		// The project as sent (the store then records the method version in its own copy).
-		expect(solver.solve).toHaveBeenCalledWith(solved, { includeSystemCurve: false });
+		expect(solver.solve).toHaveBeenCalledWith(
+			solved,
+			{ includeSystemCurve: false },
+			{ signal: expect.any(AbortSignal) }
+		);
 		expect(store.solvedProject).toBe(solved);
 		// An edit after the solve: the curve is still the solved project's.
 		store.update(lengthen(5), 'Change length');
@@ -685,7 +842,10 @@ describe('system curves (D10: on demand, per solve)', () => {
 		// A new solve starts: the request in flight is cancelled and said so.
 		const solving = store.solve();
 		expect(first.signal?.aborted).toBe(true);
-		expect(store.systemCurve(store.results.response, 'P1')).toEqual({ status: 'cancelled' });
+		expect(store.systemCurve(store.results.response, 'P1')).toEqual({
+			status: 'cancelled',
+			by: 'solve'
+		});
 		await solving;
 		// The new solve's cache is empty; the old answer arriving late changes nothing.
 		const newer = store.results.response;
@@ -732,6 +892,94 @@ describe('system curves (D10: on demand, per solve)', () => {
 		await settle();
 		expect(calls).toHaveLength(3);
 		expect(store.systemCurve(response, 'P1')).toEqual({ status: 'ready', curve: curve('P1', 12) });
+	});
+
+	it('cancels one curve: its request is aborted, a late answer dropped, and it waits for a retry', async () => {
+		const { solver, calls, answers } = curveSolver();
+		const { store } = setup({ solver });
+		await store.solve();
+		const response = store.results.response;
+		store.loadSystemCurve('P1');
+		await settle();
+		store.cancelSystemCurve('P1');
+		expect(calls[0]!.signal?.aborted).toBe(true);
+		expect(store.systemCurve(response, 'P1')).toEqual({ status: 'cancelled', by: 'user' });
+		answers[0]!.resolve(curve('P1', 99));
+		await settle();
+		expect(store.systemCurve(response, 'P1')).toEqual({ status: 'cancelled', by: 'user' });
+		// Shown again, it waits for a retry; then it is computed for the project as solved.
+		store.loadSystemCurve('P1');
+		await settle();
+		expect(calls).toHaveLength(1);
+		store.loadSystemCurve('P1', { retry: true });
+		await settle();
+		expect(calls).toHaveLength(2);
+		expect(calls[1]!.project).toBe(store.solvedProject);
+		answers[1]!.resolve(curve('P1', 12));
+		await settle();
+		expect(store.systemCurve(response, 'P1')).toEqual({ status: 'ready', curve: curve('P1', 12) });
+		// Only a curve being computed can be cancelled.
+		store.cancelSystemCurve('P1');
+		store.cancelSystemCurve('P2');
+		expect(store.systemCurves).toEqual({ P1: { status: 'ready', curve: curve('P1', 12) } });
+	});
+
+	it('cancelling one curve leaves the others, and the next request goes', async () => {
+		// Two more pump ids (the fake server answers for any id).
+		const { solver, calls, answers } = curveSolver({ rejectOnAbort: true });
+		const { store } = setup({ solver });
+		await store.solve();
+		const response = store.results.response;
+		for (const id of ['P1', 'P2', 'P3']) store.loadSystemCurve(id);
+		await settle();
+		expect(calls.map((c) => c.pumpId)).toEqual(['P1']);
+		// P2, waiting its turn, is never sent; P1, in flight, is aborted; P3 goes next.
+		store.cancelSystemCurve('P2');
+		store.cancelSystemCurve('P1');
+		await settle();
+		expect(calls.map((c) => c.pumpId)).toEqual(['P1', 'P3']);
+		expect(calls[0]!.signal?.aborted).toBe(true);
+		expect(calls[1]!.signal?.aborted).toBe(false);
+		answers[1]!.resolve(curve('P3', 7));
+		await settle();
+		expect(store.systemCurves).toEqual({
+			P1: { status: 'cancelled', by: 'user' },
+			P2: { status: 'cancelled', by: 'user' },
+			P3: { status: 'ready', curve: curve('P3', 7) }
+		});
+		expect(store.systemCurve(response, 'P3')).toEqual({ status: 'ready', curve: curve('P3', 7) });
+	});
+
+	it('a cancelled solve leaves the curves of the results shown: computed ones stay', async () => {
+		const { solver, calls, answers } = curveSolver({ rejectOnAbort: true });
+		const { store } = setup({ solver });
+		await store.solve();
+		const response = store.results.response;
+		store.loadSystemCurve('P1');
+		await settle();
+		answers[0]!.resolve(curve('P1', 12));
+		await settle();
+		store.loadSystemCurve('P2');
+		await settle();
+		// A new solve starts (and is held): P2's request is aborted, then the solve is cancelled.
+		const held = deferred<SolveResponse>();
+		vi.mocked(solver.solve).mockImplementationOnce(() => held.promise);
+		const solving = store.solve();
+		expect(calls[1]!.signal?.aborted).toBe(true);
+		store.cancelSolve();
+		expect(store.results.response).toBe(response);
+		expect(store.systemCurve(response, 'P1')).toEqual({ status: 'ready', curve: curve('P1', 12) });
+		expect(store.systemCurve(response, 'P2')).toEqual({ status: 'cancelled', by: 'solve' });
+		// P2 can be computed again, for the solve still shown.
+		store.loadSystemCurve('P2', { retry: true });
+		await settle();
+		expect(calls).toHaveLength(3);
+		expect(calls[2]!.project).toBe(store.solvedProject);
+		// The cancelled solve's late answer changes nothing.
+		held.resolve(solveResponse('9.9.9'));
+		await solving;
+		expect(store.results.response).toBe(response);
+		expect(store.systemCurve(response, 'P2')).toEqual({ status: 'loading' });
 	});
 
 	it('says so when the server offers no system curves', async () => {

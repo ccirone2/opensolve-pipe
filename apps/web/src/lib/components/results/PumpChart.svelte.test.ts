@@ -1,9 +1,11 @@
 /**
  * Pump chart: what is drawn (Chart.js is replaced by a recorder; jsdom has no canvas), the data
- * table under it, and the states of the system curve fetched for the solve (loading, failed,
- * cancelled, points without a solution). The pump results and curves are made-up test inputs.
+ * table under it, and the states of the system curve fetched for the solve (loading with Cancel,
+ * failed, cancelled, points without a solution). The pump results and curves are made-up test
+ * inputs.
  */
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SystemCurveState } from '$lib/state/project.svelte';
 import { pumpResult, systemCurveResponse } from '$lib/testing/results';
@@ -116,7 +118,7 @@ describe('pump chart', () => {
 		]);
 		const system = screen.getByRole('table', { name: 'System curve' });
 		expect(within(system).getAllByRole('row')).toHaveLength(5);
-		expect(within(system).queryByRole('columnheader', { name: 'No solution' })).toBeNull();
+		expect(within(system).queryByRole('columnheader', { name: 'Why no head' })).toBeNull();
 		expect(screen.getByText(/Operating point:/)).toHaveTextContent(
 			'Operating point: 20 L/s at 22 m'
 		);
@@ -205,7 +207,7 @@ describe('pump chart', () => {
 			result: pumpResult(),
 			name: 'P',
 			prefs: SI_UNITS,
-			system: { status: 'cancelled' },
+			system: { status: 'cancelled', by: 'solve' },
 			onretry
 		});
 		expect(
@@ -219,7 +221,108 @@ describe('pump chart', () => {
 		expect(screen.queryByRole('table', { name: 'System curve' })).toBeNull();
 	});
 
-	it('draws points without a solution as gaps and lists why in the table', async () => {
+	it('offers Cancel while the system curve is computed; cancelled, it offers to compute it', async () => {
+		const oncancel = vi.fn();
+		const onretry = vi.fn();
+		const props = { result: pumpResult(), name: 'P', prefs: SI_UNITS, oncancel, onretry };
+		const view = render(PumpChart, { ...props, system: { status: 'loading' } });
+		const cancel = screen.getByRole('button', { name: 'Cancel the system curve' });
+		expect(cancel).toHaveTextContent(/^Cancel$/);
+		// A keyboard user presses it: the store marks the curve cancelled by the user.
+		cancel.focus();
+		await fireEvent.click(cancel);
+		expect(oncancel).toHaveBeenCalledTimes(1);
+		await view.rerender({ ...props, system: { status: 'cancelled', by: 'user' } });
+		await tick();
+		expect(screen.queryByRole('button', { name: 'Cancel the system curve' })).toBeNull();
+		expect(screen.queryByText(/Computing the system curve/)).toBeNull();
+		const again = screen.getByRole('button', { name: 'Compute the system curve' });
+		expect(again).toHaveAccessibleDescription(
+			'The system curve was not computed: you cancelled it.'
+		);
+		// The focus goes to what replaced Cancel, not to the page.
+		expect(document.activeElement).toBe(again);
+		expect(screen.getByRole('figure')).toHaveAttribute('aria-busy', 'false');
+		await fireEvent.click(again);
+		expect(onretry).toHaveBeenCalledTimes(1);
+	});
+
+	it('moves the focus from Cancel to the chart when the curve arrives, and to Try again when it fails', async () => {
+		withCanvas();
+		const props = { result: pumpResult(), name: 'P', prefs: SI_UNITS, oncancel: vi.fn() };
+		const view = render(PumpChart, { ...props, onretry: vi.fn(), system: { status: 'loading' } });
+		screen.getByRole('button', { name: 'Cancel the system curve' }).focus();
+		await view.rerender({ ...props, onretry: vi.fn(), system: READY });
+		await tick();
+		expect(document.activeElement).toBe(
+			screen.getByRole('figure', { name: 'Pump and system curves: P' })
+		);
+		await view.rerender({ ...props, system: { status: 'loading' } });
+		screen.getByRole('button', { name: 'Cancel the system curve' }).focus();
+		await view.rerender({ ...props, system: { status: 'error', message: 'Made-up message.' } });
+		await tick();
+		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Try again' }));
+		expect(document.activeElement).toHaveAccessibleDescription(
+			'The system curve could not be computed: Made-up message.'
+		);
+	});
+
+	it('moves the focus to Cancel when the curve is computed again from Compute or Try again', async () => {
+		const props = {
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			oncancel: vi.fn(),
+			onretry: vi.fn()
+		};
+		const view = render(PumpChart, { ...props, system: { status: 'cancelled', by: 'user' } });
+		const again = screen.getByRole('button', { name: 'Compute the system curve' });
+		// A keyboard user presses it: the store starts the curve again.
+		again.focus();
+		await fireEvent.click(again);
+		expect(props.onretry).toHaveBeenCalledTimes(1);
+		await view.rerender({ ...props, system: { status: 'loading' } });
+		await tick();
+		const cancel = () => screen.getByRole('button', { name: 'Cancel the system curve' });
+		expect(document.activeElement).toBe(cancel());
+		await view.rerender({ ...props, system: { status: 'error', message: 'Made-up message.' } });
+		await tick();
+		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Try again' }));
+		await view.rerender({ ...props, system: { status: 'loading' } });
+		await tick();
+		expect(document.activeElement).toBe(cancel());
+		// With no way to cancel, the chart takes the focus.
+		await view.rerender({ ...props, system: { status: 'error', message: 'Made-up message.' } });
+		await tick();
+		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Try again' }));
+		await view.rerender({ ...props, oncancel: undefined, system: { status: 'loading' } });
+		await tick();
+		expect(document.activeElement).toBe(
+			screen.getByRole('figure', { name: 'Pump and system curves: P' })
+		);
+		// Focus elsewhere stays where it is.
+		await view.rerender({ ...props, system: { status: 'cancelled', by: 'user' } });
+		const table = screen.getByRole('button', { name: 'Show data table' });
+		table.focus();
+		await view.rerender({ ...props, system: { status: 'loading' } });
+		await tick();
+		expect(document.activeElement).toBe(table);
+	});
+
+	it('leaves the focus alone when Cancel did not have it, and offers no Cancel without a way to', async () => {
+		const props = { result: pumpResult(), name: 'P', prefs: SI_UNITS, oncancel: vi.fn() };
+		const view = render(PumpChart, { ...props, system: { status: 'loading' } });
+		const table = screen.getByRole('button', { name: 'Show data table' });
+		table.focus();
+		await view.rerender({ ...props, system: { status: 'cancelled', by: 'user' } });
+		await tick();
+		expect(document.activeElement).toBe(table);
+		await view.rerender({ ...props, oncancel: undefined, system: { status: 'loading' } });
+		expect(screen.getByText('Computing the system curve for this solve…')).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /^Cancel/ })).toBeNull();
+	});
+
+	it('draws points without a head as gaps and lists why in the table', async () => {
 		withCanvas();
 		const curve = systemCurveResponse('P1', [1]);
 		render(PumpChart, {
@@ -236,11 +339,12 @@ describe('pump chart', () => {
 		expect(system.spanGaps).toBe(false);
 		expect(
 			screen.getByText(
-				'1 of 4 system-curve points have no solution: the line has gaps there, and the data table says why.'
+				'1 of 4 system-curve points have no head: the line has gaps there, and the data table says why for each (no steady state carries the flow, its head is undetermined, its solve did not converge, or it was not computed).'
 			)
 		).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
 		const table = screen.getByRole('table', { name: 'System curve' });
+		expect(within(table).getByRole('columnheader', { name: 'Why no head' })).toBeInTheDocument();
 		const rows = within(table)
 			.getAllByRole('row')
 			.slice(1)
@@ -253,7 +357,7 @@ describe('pump chart', () => {
 		expect(rows[0]).toEqual(['0', '12', '']);
 	});
 
-	it('says when no point of the system curve has a solution, and draws none', async () => {
+	it('says when no point of the system curve has a head, and draws none', async () => {
 		withCanvas();
 		const curve = systemCurveResponse('P1', [0, 1, 2, 3]);
 		render(PumpChart, {
@@ -267,7 +371,7 @@ describe('pump chart', () => {
 		expect(labels).not.toContain('System curve');
 		expect(
 			screen.getByText(
-				'No point of the system curve has a solution, so it is not drawn; the data table says why.'
+				'No point of the system curve has a head, so it is not drawn; the data table says why for each (no steady state carries the flow, its head is undetermined, its solve did not converge, or it was not computed).'
 			)
 		).toBeInTheDocument();
 	});

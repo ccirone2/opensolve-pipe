@@ -113,8 +113,13 @@ describe('results pane', () => {
 		render(WorkspaceView, { workspace: ws });
 		const solved = ws.project;
 		await solve();
-		// The app solves without system curves (D10): the pump chart fetches its own.
-		expect(solveFn).toHaveBeenCalledWith(solved, { includeSystemCurve: false });
+		// The app solves without system curves (D10): the pump chart fetches its own. The request
+		// carries a signal, so Cancel can abort it.
+		expect(solveFn).toHaveBeenCalledWith(
+			solved,
+			{ includeSystemCurve: false },
+			{ signal: expect.any(AbortSignal) }
+		);
 		expect(await results().findByText('Did not converge')).toBeInTheDocument();
 		expect(results().getByText('Iteration limit reached')).toBeInTheDocument();
 		expect(results().getByText(/Did not converge for example-pump-transfer/)).toBeInTheDocument();

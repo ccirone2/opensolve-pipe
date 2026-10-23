@@ -12,6 +12,11 @@ import { IMPERIAL_UNITS } from './units';
 const IN = 0.0254;
 const GPM = (231 * IN ** 3) / 60; // m³/s, US gallon = 231 in³
 const sig4 = (v: number) => String(Number(v.toPrecision(4)));
+/** Rounded toward zero to 4 significant digits: how a bound a value must stay below is shown. */
+const down4 = (v: number) => {
+	const scale = 10 ** (3 - Math.floor(Math.log10(Math.abs(v))));
+	return String(Math.trunc(v * scale) / scale);
+};
 
 function controlledProject() {
 	const project = pumpTransferExample();
@@ -90,5 +95,129 @@ describe('CONTROLLED_PUMP_CURVE', () => {
 		expect(topologyIssueViews([gone], project, true)[0]!.text).toBe(gone.message);
 		const noCurve = { ...project, pumpLibrary: [] };
 		expect(topologyIssueViews([curveIssue()], noCurve, true)[0]!.text).toBe(curveIssue().message);
+	});
+});
+
+/**
+ * The API's CONTROLLED_PUMP_SETPOINT issue for pump P1 on curve C1, in the wording of
+ * solver/builder.py (made-up values, as Python's :.6g prints them).
+ */
+function setpointMessage(
+	values: { setpoint?: string; speed?: string; curve?: string; xMono?: string; bound?: string } = {}
+): string {
+	const {
+		setpoint = '0.045',
+		speed = '0.9',
+		curve = "'C1' (Made-up curve)",
+		xMono = '0.0402',
+		bound = '0.03618'
+	} = values;
+	return (
+		`pump 'P1' is speed-controlled to hold ${setpoint} m³/s, but no speed up to its maximum ` +
+		`speed ${speed} can hold it on its curve ${curve}: at that flow the head s² H₀(Q/s) falls ` +
+		'as the speed s rises, at every speed, because Q/s lies beyond x_mono = ' +
+		`${xMono} m³/s, twice the flow at which the curve's end tangent reaches zero head; ` +
+		`setpoints must be below ${bound} m³/s (the maximum speed × x_mono), so use a smaller ` +
+		'setpoint or a curve that extends to higher flows'
+	);
+}
+
+function setpointIssue(message = setpointMessage()): TopologyIssue {
+	return { code: 'CONTROLLED_PUMP_SETPOINT', message, componentIds: ['P1'], connectionIds: [] };
+}
+
+/** The pump-transfer example with P1 under flow control at 90 % maximum speed (made-up). */
+function setpointProject() {
+	const project = pumpTransferExample();
+	const pump = project.components[1] as Pump;
+	pump.speed = 0.9;
+	pump.control = { mode: 'flow', setpoint: 0.045, minSpeed: 0.4 };
+	return project;
+}
+
+describe('CONTROLLED_PUMP_SETPOINT', () => {
+	it('names the pump and its curve, with the setpoint and the bound in the display unit', () => {
+		const project = setpointProject();
+		const curve = project.pumpLibrary[0]!.name;
+		const [view] = topologyIssueViews([setpointIssue()], project, true, IMPERIAL_UNITS);
+		expect(view!.text).toBe(
+			`Transfer pump is speed-controlled to hold ${sig4(0.045 / GPM)} gpm, but no speed up to ` +
+				`its maximum speed (90 %) can hold that flow on its pump curve “${curve}”: at that ` +
+				'flow the head s²·H₀(Q/s) falls as the speed s rises, at every speed, because Q/s lies ' +
+				"beyond x_mono, twice the flow at which the curve's end tangent reaches zero head. Use " +
+				`a setpoint below ${down4(0.03618 / GPM)} gpm (the maximum speed × x_mono), or a curve ` +
+				'that extends to higher flows.'
+		);
+		// 0.03618 m³/s is 573.46 gpm: rounded to the nearest it would read 573.5 gpm, and a
+		// setpoint of 573.48 gpm, below that, is above the bound and rejected again.
+		expect(down4(0.03618 / GPM)).toBe('573.4');
+		expect(573.48 * GPM).toBeGreaterThan(0.03618);
+		expect(view!.text).not.toMatch(/'P1'|'C1'|m³\/s/);
+		expect(view!.links).toEqual([{ componentId: 'P1' }]);
+		// SI by default.
+		const si = topologyIssueViews([setpointIssue()], project, true)[0]!.text;
+		expect(si).toContain('to hold 45 L/s, but no speed up to its maximum speed (90 %)');
+		expect(si).toContain('Use a setpoint below 36.18 L/s (the maximum speed × x_mono)');
+	});
+
+	it('reads a bound printed with an exponent', () => {
+		const message = setpointMessage({ setpoint: '2e-05', xMono: '1.5e-05', bound: '1.35e-05' });
+		const project = setpointProject();
+		(project.components[1] as Pump).control!.setpoint = 2e-5;
+		expect(topologyIssueViews([setpointIssue(message)], project, true)[0]!.text).toContain(
+			'Use a setpoint below 0.0135 L/s'
+		);
+	});
+
+	it("takes the bound from the message's end, whatever the curve's name says", () => {
+		const message = setpointMessage({
+			curve:
+				"'C1' (setpoints must be below 9 m³/s (the maximum speed × x_mono), so use a smaller setpoint or a curve that extends to higher flows)"
+		});
+		const text = topologyIssueViews([setpointIssue(message)], setpointProject(), true)[0]!.text;
+		expect(text).toContain('Use a setpoint below 36.18 L/s');
+	});
+
+	it("keeps the server's message when the error is not for the project as it is now", () => {
+		// The solve was sent with curve C1; the pump was given curve C2 while it was solving.
+		const project = setpointProject();
+		project.pumpLibrary = [
+			...project.pumpLibrary,
+			{ ...project.pumpLibrary[0]!, id: 'C2', name: 'Other curve' }
+		];
+		(project.components[1] as Pump).curveId = 'C2';
+		const stale = topologyIssueViews([setpointIssue()], project, false)[0]!;
+		expect(stale).toEqual({ text: setpointMessage(), links: [{ componentId: 'P1' }] });
+		// A message about another curve than the pump's is never told as about the pump's curve.
+		expect(topologyIssueViews([setpointIssue()], project, true)[0]!.text).toBe(setpointMessage());
+		// Nor is a current one told from the project once it is not (stale = false is the rule).
+		expect(topologyIssueViews([setpointIssue()], setpointProject(), false)[0]!.text).toBe(
+			setpointMessage()
+		);
+	});
+
+	it("keeps the server's message when it does not state the curve and bound as expected", () => {
+		const project = setpointProject();
+		for (const message of [
+			"pump 'P1' is speed-controlled to hold 0.045 m³/s, but no speed can hold it",
+			setpointMessage().replace('setpoints must be below 0.03618', 'setpoints must be below about'),
+			setpointMessage().replace(' (the maximum speed × x_mono)', ''),
+			`${setpointMessage()}.`,
+			setpointMessage({ curve: 'C1 (Made-up curve)' })
+		]) {
+			expect(topologyIssueViews([setpointIssue(message)], project, true)[0]).toEqual({
+				text: message,
+				links: [{ componentId: 'P1' }]
+			});
+		}
+		// A pump that no longer exists, a curve the project does not have, or a pump without flow
+		// control.
+		const gone = { ...setpointIssue(), componentIds: ['P9'] };
+		expect(topologyIssueViews([gone], project, true)[0]!.text).toBe(gone.message);
+		const noCurve = { ...project, pumpLibrary: [] };
+		expect(topologyIssueViews([setpointIssue()], noCurve, true)[0]!.text).toBe(setpointMessage());
+		const fixed = setpointProject();
+		delete (fixed.components[1] as Pump).control;
+		expect(topologyIssueViews([setpointIssue()], fixed, true)[0]!.text).toBe(setpointMessage());
 	});
 });

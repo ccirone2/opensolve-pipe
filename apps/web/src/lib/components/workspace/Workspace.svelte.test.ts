@@ -1,9 +1,13 @@
 /**
  * The workspace page structure: landmarks and headings, the Build / Results tabs on narrow
- * screens, and the header's buttons that keep focus while unavailable.
+ * screens, the header's buttons that keep focus while unavailable, and Cancel while a solve runs.
+ * The solve results are made-up test inputs (testing/results.ts); the API is replaced by fakes.
  */
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { tick } from 'svelte';
+import { describe, expect, it, vi } from 'vitest';
+import type { Project, SolveResponse } from '$lib/api/types';
+import { pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { createEmptyProject } from '$lib/utils/factory';
@@ -59,5 +63,121 @@ describe('workspace', () => {
 		await fireEvent.click(undo);
 		expect(document.activeElement).toBe(undo);
 		expect(screen.getByText(/Add a component in Build to start the network/)).toBeInTheDocument();
+	});
+});
+
+describe('cancelling a solve (PRD §4.2)', () => {
+	/** A solve endpoint whose answers the test gives, recording each request's signal. */
+	function heldSolve() {
+		const signals: (AbortSignal | undefined)[] = [];
+		const answers: ((answer: SolveResponse) => void)[] = [];
+		const solve = vi.fn(
+			(_project: Project, _options?: unknown, request?: { signal?: AbortSignal }) => {
+				signals.push(request?.signal);
+				return new Promise<SolveResponse>((resolve) => answers.push(resolve));
+			}
+		);
+		return { solve, signals, answers };
+	}
+
+	const results = () => within(screen.getByRole('region', { name: 'Results' }));
+
+	it('shows Cancel while a solve runs; it aborts the solve, says so, and Solve takes the focus', async () => {
+		const { solve, signals, answers } = heldSolve();
+		const ws = testWorkspace(pumpTransferExample(), { solver: { solve } });
+		render(WorkspaceView, { workspace: ws });
+		expect(screen.queryByRole('button', { name: 'Cancel solve' })).toBeNull();
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		expect(screen.getByRole('button', { name: 'Solving…' })).toHaveAttribute(
+			'aria-disabled',
+			'true'
+		);
+		expect(results().getByRole('status')).toHaveTextContent(/^Solving…$/);
+		const cancel = screen.getByRole('button', { name: 'Cancel solve' });
+		// Inside the Project toolbar, right before Solve (so that Solve keeps its place).
+		expect(cancel.closest('[role="toolbar"]')).toHaveAccessibleName('Project');
+		expect(cancel.nextElementSibling).toHaveAccessibleName('Solving…');
+		// A keyboard user presses it.
+		cancel.focus();
+		await fireEvent.click(cancel);
+		await tick();
+		expect(signals[0]?.aborted).toBe(true);
+		expect(screen.queryByRole('button', { name: 'Cancel solve' })).toBeNull();
+		const solveButton = screen.getByRole('button', { name: 'Solve' });
+		expect(document.activeElement).toBe(solveButton);
+		expect(solveButton).toHaveAttribute('aria-disabled', 'false');
+		// Said in the live status line, and in the pane.
+		expect(results().getByRole('status')).toHaveTextContent(/^Solve cancelled$/);
+		expect(
+			results().getByText(
+				'The solve was cancelled before it finished, so there are no results yet.'
+			)
+		).toBeInTheDocument();
+		// Its answer arrives anyway: it is dropped.
+		answers[0]!(response(pumpTransferSolved()));
+		await tick();
+		expect(ws.store.results.response).toBeNull();
+		expect(results().queryByRole('heading', { name: 'Converged' })).toBeNull();
+		// Solving again works, and the note goes.
+		await fireEvent.click(solveButton);
+		expect(results().queryByText(/The solve was cancelled/)).toBeNull();
+		answers[1]!(response(pumpTransferSolved()));
+		expect(await results().findByRole('heading', { name: 'Converged' })).toBeInTheDocument();
+		expect(results().getByRole('status')).toHaveTextContent(/^Last solve: converged$/);
+		expect(signals[1]?.aborted).toBe(false);
+	});
+
+	it('ignores the second click of a double click on Solve and on Cancel, not a keyboard press', async () => {
+		const { solve, signals } = heldSolve();
+		render(WorkspaceView, {
+			workspace: testWorkspace(pumpTransferExample(), { solver: { solve } })
+		});
+		const solveButton = screen.getByRole('button', { name: 'Solve' });
+		await fireEvent.click(solveButton, { detail: 1 });
+		expect(signals).toHaveLength(1);
+		// Cancel comes in before Solve, which stays the same button in the same place.
+		const cancel = screen.getByRole('button', { name: 'Cancel solve' });
+		expect(cancel.nextElementSibling).toBe(solveButton);
+		expect(solveButton).toHaveAccessibleName('Solving…');
+		// A double click's second click (detail 2) does nothing, on Cancel as on Solve.
+		await fireEvent.click(cancel, { detail: 2 });
+		expect(signals[0]?.aborted).toBe(false);
+		await fireEvent.click(cancel, { detail: 1 });
+		expect(signals[0]?.aborted).toBe(true);
+		expect(solveButton).toHaveAccessibleName('Solve');
+		await fireEvent.click(solveButton, { detail: 2 });
+		expect(signals).toHaveLength(1);
+		// A keyboard press (detail 0) solves.
+		await fireEvent.click(solveButton, { detail: 0 });
+		expect(signals).toHaveLength(2);
+		expect(signals[1]?.aborted).toBe(false);
+	});
+
+	it('gives Solve the focus when the solve answers while Cancel has it', async () => {
+		const { solve, answers } = heldSolve();
+		render(WorkspaceView, {
+			workspace: testWorkspace(pumpTransferExample(), { solver: { solve } })
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		screen.getByRole('button', { name: 'Cancel solve' }).focus();
+		answers[0]!(response(pumpTransferSolved()));
+		await results().findByRole('heading', { name: 'Converged' });
+		await tick();
+		expect(screen.queryByRole('button', { name: 'Cancel solve' })).toBeNull();
+		expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Solve' }));
+	});
+
+	it('leaves the focus where it is when Cancel did not have it', async () => {
+		const { solve, answers } = heldSolve();
+		render(WorkspaceView, {
+			workspace: testWorkspace(pumpTransferExample(), { solver: { solve } })
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		const name = screen.getByRole('textbox', { name: 'Project name' });
+		name.focus();
+		answers[0]!(response(pumpTransferSolved()));
+		await results().findByRole('heading', { name: 'Converged' });
+		await tick();
+		expect(document.activeElement).toBe(name);
 	});
 });

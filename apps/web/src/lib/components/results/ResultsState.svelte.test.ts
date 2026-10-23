@@ -248,6 +248,90 @@ describe('results state', () => {
 		expect(results().getByRole('status')).toHaveTextContent('Last solve: no results, out of date');
 	});
 
+	it('after a cancelled solve: the earlier results stay, current or out of date as before', async () => {
+		let calls = 0;
+		const solve = vi.fn(
+			() =>
+				++calls === 1
+					? Promise.resolve(response(pumpTransferSolved()))
+					: new Promise<SolveResponse>(() => {}) // held until cancelled
+		);
+		const ws = testWorkspace(pumpTransferExample(), { solver: { solve } });
+		render(WorkspaceView, { workspace: ws });
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await results().findByRole('heading', { name: 'Converged' });
+		const note =
+			'The solve was cancelled before it finished. What is shown below is from an earlier solve.';
+		const tab = () => screen.getByRole('tab', { name: /^Results/ });
+
+		// Solved again unchanged, and cancelled: the results are still current.
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Cancel solve' }));
+		expect(results().getByRole('status')).toHaveTextContent(
+			/^Solve cancelled\. Last finished solve: converged$/
+		);
+		expect(results().getByText(note)).toBeInTheDocument();
+		expect(results().getByRole('heading', { name: 'Converged' })).toBeInTheDocument();
+		expect(results().queryByText(/Results are out of date/)).toBeNull();
+		expect(tab()).toHaveAccessibleName('Results');
+
+		// Changed, solved and cancelled: out of date, said as after any change.
+		ws.store.update((p) => {
+			p.connections[0]!.piping.pipes[0]!.length = 500;
+		}, 'change length');
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		expect(results().queryByText(note)).toBeNull();
+		await fireEvent.click(screen.getByRole('button', { name: 'Cancel solve' }));
+		expect(results().getByRole('status')).toHaveTextContent(
+			/^Solve cancelled\. Last finished solve: converged, out of date$/
+		);
+		expect(results().getByText(note)).toBeInTheDocument();
+		expect(
+			results().getByText(/^Results are out of date: the project changed after this solve\./)
+		).toBeInTheDocument();
+		expect(results().getByRole('button', { name: 'Solve again' })).toHaveAttribute(
+			'aria-disabled',
+			'false'
+		);
+		expect(tab()).toHaveAccessibleName('Results (out of date)');
+		// Back to the solved project: current again.
+		ws.store.undo();
+		await tick();
+		expect(results().queryByText(/Results are out of date/)).toBeNull();
+		expect(results().getByRole('status')).toHaveTextContent(
+			/^Solve cancelled\. Last finished solve: converged$/
+		);
+	});
+
+	it('after a failed solve and a cancelled one: the failed one is the last that finished', async () => {
+		let calls = 0;
+		const solve = vi.fn(
+			() =>
+				++calls === 1
+					? Promise.resolve(response(pumpTransferSolved()))
+					: calls === 2
+						? Promise.reject(new NetworkError('The calculation server could not be reached.', 0))
+						: new Promise<SolveResponse>(() => {}) // held until cancelled
+		);
+		const ws = testWorkspace(pumpTransferExample(), { solver: { solve } });
+		render(WorkspaceView, { workspace: ws });
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await results().findByRole('heading', { name: 'Converged' });
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		expect(await results().findByText(/could not be reached/)).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Cancel solve' }));
+		expect(results().getByRole('status')).toHaveTextContent(
+			/^Solve cancelled\. Last finished solve: no results$/
+		);
+		expect(results().getByText(/could not be reached/)).toBeInTheDocument();
+		expect(
+			results().getByText(
+				'The last solve that finished failed. The results below are from the previous solve of this same project.'
+			)
+		).toBeInTheDocument();
+	});
+
 	it('marks the Results tab when results are out of date or physically invalid', async () => {
 		const { ws } = await solveWith(
 			pumpTransferSolved({

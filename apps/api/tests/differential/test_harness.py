@@ -15,6 +15,7 @@ pytest.importorskip("wntr")  # checks reads EPANET results (a dev dependency, so
 
 from opensolve_pipe.models.components import Pump, PumpControl
 from opensolve_pipe.models.project import Project
+from opensolve_pipe.services.solver.builder import validate_topology
 from tests.differential import checks as ck
 from tests.differential import compare
 from tests.differential import epanet_model as em
@@ -93,7 +94,10 @@ def test_rule_a2_with_the_bracket_capped_at_the_maximum_speed() -> None:
     """s_lo is at most s_max: Q_set = 0.04 at s_max = 0.9 puts Q_set/s_max = 0.0444 beyond
     x_mono = 0.04, so F(·, Q_set) falls on the whole range and only F(s_max, Q_set) ± Htol is
     active. The uncapped Q_set/x_mono = 1.0 would give F(1, Q_set) = 40 − 80 = −40 m, below
-    F(s_max, Q_set) = 0.81 (40 − 2000 · 0.04/0.9) = −39.6 m, and accept a head between them."""
+    F(s_max, Q_set) = 0.81 (40 − 2000 · 0.04/0.9) = −39.6 m, and accept a head between them.
+    The API rejects such a setpoint (Q_set >= s_max x_mono, CONTROLLED_PUMP_SETPOINT) since the
+    owner's decision of 2026-10-23, so no fuzz network has one; this checks the checker's rule
+    on its own."""
     capped = _pump_with(0.04, 0.5)
     f_max = head(S_MAX, 0.04)
     assert head(1.0, 0.04) == pytest.approx(-40.0, rel=1e-12)
@@ -161,6 +165,26 @@ def test_flow_control_profile_adds_to_the_default_network(seed: int) -> None:
         ck.collinear_curve(curves[p.curve_id])  # the closed-form speed applies
     # through the API JSON, as the corpus loads it
     assert Project.model_validate(fc.model_dump(mode="json", by_alias=True)) == fc
+
+
+REJECTED_BEFORE = (10_443, 10_532, 11_131, 11_253, 12_108)
+"""flow_control seeds whose equal-setpoint copy drew a setpoint at or beyond the new pump's
+s_max x_mono (an independent scan with element_laws.x_mono), which the API rejects since the
+owner's decision of 2026-10-23 (CONTROLLED_PUMP_SETPOINT). The generator now keeps that pump's
+own drawn setpoint there, decided after the draws, so every other seed's network is unchanged
+(all 3,000 seeds of both profiles compared as canonical JSON)."""
+
+
+@pytest.mark.parametrize("seed", REJECTED_BEFORE)
+def test_flow_control_profile_draws_no_rejected_setpoint(seed: int) -> None:
+    project = generate(seed, FLOW_CONTROL)
+    curves = {cv.id: cv for cv in project.pump_library}
+    pumps = controlled(project)
+    assert pumps
+    for p in pumps:
+        assert p.control is not None
+        assert p.control.setpoint < p.speed * el.x_mono(curves[p.curve_id])
+    assert validate_topology(project) == []
 
 
 def test_control_pins_and_runs() -> None:

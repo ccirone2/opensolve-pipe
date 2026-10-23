@@ -5,6 +5,7 @@
  * made-up test inputs (testing/results.ts); the API is replaced by fakes.
  */
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
 	MethodVersionsResponse,
@@ -512,6 +513,41 @@ describe('pump chart: the system curve on demand (D10)', () => {
 		expect(ws.store.results.stale).toBe(true);
 		expect(panel.getByRole('table', { name: 'System curve' })).toBeInTheDocument();
 		expect(systemCurve).toHaveBeenCalledTimes(1);
+	});
+
+	it('cancels the curve being computed; computed again on request, it is shown', async () => {
+		const { systemCurve, answers, panel } = await solveAndOpenPumps(
+			pumpTransferExample(),
+			pumpTransferSolved()
+		);
+		await vi.waitFor(() => expect(systemCurve).toHaveBeenCalledTimes(1));
+		const signal = systemCurve.mock.calls[0]![2]?.signal;
+		expect(signal?.aborted).toBe(false);
+		const cancel = panel.getByRole('button', { name: 'Cancel the system curve' });
+		cancel.focus();
+		await fireEvent.click(cancel);
+		await tick();
+		expect(signal?.aborted).toBe(true);
+		expect(panel.queryByText(/Computing the system curve/)).toBeNull();
+		const again = panel.getByRole('button', { name: 'Compute the system curve' });
+		expect(again).toHaveAccessibleDescription(
+			'The system curve was not computed: you cancelled it.'
+		);
+		expect(document.activeElement).toBe(again);
+		// Its answer arrives anyway: it is dropped.
+		answers[0]!(systemCurveResponse('P1'));
+		await vi.waitFor(() => expect(answers).toHaveLength(1));
+		await tick();
+		expect(panel.queryByRole('table', { name: 'System curve' })).toBeNull();
+		// Another view and back: still cancelled, and nothing is sent until asked.
+		await openView('Links');
+		await openView('Pumps');
+		expect(systemCurve).toHaveBeenCalledTimes(1);
+		await fireEvent.click(panel.getByRole('button', { name: 'Compute the system curve' }));
+		await vi.waitFor(() => expect(systemCurve).toHaveBeenCalledTimes(2));
+		expect(systemCurve.mock.calls[1]![0]).toBe(systemCurve.mock.calls[0]![0]);
+		answers[1]!(systemCurveResponse('P1'));
+		expect(await panel.findByRole('table', { name: 'System curve' })).toBeInTheDocument();
 	});
 
 	it('shows one pump at a time, chosen from the solved pumps', async () => {

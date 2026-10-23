@@ -3043,7 +3043,7 @@
           },
           "systemCurvePoints": {
             "default": 41,
-            "description": "Flows per system curve (points whose solve does not converge are left out)",
+            "description": "Flows per system curve (points without a head are left out: POST /api/v1/system-curve gives each point's reason)",
             "maximum": 201.0,
             "minimum": 5.0,
             "title": "Systemcurvepoints",
@@ -3237,6 +3237,7 @@
         "additionalProperties": false,
         "properties": {
           "converged": {
+            "description": "True when the point has a head: its solve converged to a steady state that carries the flow with a determined head",
             "title": "Converged",
             "type": "boolean"
           },
@@ -3254,11 +3255,11 @@
                 "type": "null"
               }
             ],
-            "description": "EGL(discharge) - EGL(suction), m: the head the pump must add at this flow; null when the point has no solution (see message)",
+            "description": "EGL(discharge) - EGL(suction), m: the head the pump must add at this flow; null when no steady state carries the flow, its head is undetermined or its solve did not converge (see message)",
             "title": "Head"
           },
           "message": {
-            "description": "Why the point has no head ('' when it converged)",
+            "description": "Why the point has no head ('' when it has one)",
             "title": "Message",
             "type": "string"
           }
@@ -3328,7 +3329,7 @@
         "description": "The system curve seen by one pump: at each flow the pump is replaced by that fixed flow\nand the network solved (other pumps keep running, valves follow their status rules).",
         "properties": {
           "converged": {
-            "description": "Whether each point's solve converged",
+            "description": "Whether each point has a head (each point's converged)",
             "items": {
               "type": "boolean"
             },

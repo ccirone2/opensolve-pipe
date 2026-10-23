@@ -23,11 +23,12 @@ Profiles (``PROFILES``):
   which keeps the original connection's segments on one side and gets one new segment on the
   other: mostly a connection left when dead ends are pruned, so that it can carry flow, half
   the time one between tees, wyes and boundaries only; sometimes in series with the previous
-  one, then sometimes with an equal setpoint (no determined state, proposal §4.6). The
-  setpoint is a log-uniform fraction of the curve's largest flow at the maximum speed, the
-  minimum speed a uniform fraction of the maximum, so that every state (active, max_speed,
-  min_speed, no_flow, off) occurs. Its documented seed range is ``FLOW_CONTROL_SEEDS``
-  (10,000-12,999), disjoint from the default baseline's 0-2,999.
+  one, then sometimes with an equal setpoint (no determined state, proposal §4.6), unless that
+  setpoint is at or beyond the new pump's maximum speed × x_mono, which the API rejects
+  (CONTROLLED_PUMP_SETPOINT). The setpoint is a log-uniform fraction of the curve's largest
+  flow at the maximum speed, the minimum speed a uniform fraction of the maximum, so that every
+  state (active, max_speed, min_speed, no_flow, off) occurs. Its documented seed range is
+  ``FLOW_CONTROL_SEEDS`` (10,000-12,999), disjoint from the default baseline's 0-2,999.
 
     uv run python -m tests.differential.generator SEED [--profile P]   # print the project JSON
 """
@@ -51,6 +52,7 @@ from opensolve_pipe.models.components import (
 from opensolve_pipe.models.piping import PipeConnection, PipeDefinition
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.pumps import PumpCurve
+from tests.reference import element_laws as el
 from tests.reference.case_format import (
     check_valve,
     connect,
@@ -453,7 +455,11 @@ def add_flow_controls(g: Gen, seed: int) -> None:
                 reverse = facing == "suction"  # its second port faces it
             if rng.random() < 0.2:
                 reverse = not reverse
-            elif rng.random() < 0.3:  # equal setpoints: no determined state (proposal §4.6)
+            elif rng.random() < 0.3 and last_setpoint < speed * el.x_mono(curves[curve_id]):
+                # equal setpoints: no determined state (proposal §4.6); the pump keeps its own
+                # drawn setpoint where the copy would be at or beyond s_max x_mono, which the
+                # API rejects (CONTROLLED_PUMP_SETPOINT), decided after the draws so that every
+                # other seed's network is unchanged
                 control = control.model_copy(update={"setpoint": last_setpoint})
         else:
             # mostly where it can carry flow; next to other elements too (status interactions)

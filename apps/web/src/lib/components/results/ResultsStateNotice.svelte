@@ -4,7 +4,7 @@
 	of this same project (offers to solve again, e.g. after a network error), or of an earlier
 	version of it (the failure is about the current project, so solving again cannot help until it
 	is fixed). Shown with the results and inside an element's trace, so values are never shown
-	without it.
+	without it. After a cancelled solve, the failed one is the last solve that finished.
 -->
 <script lang="ts">
 	import Icon from '$lib/components/ui/Icon.svelte';
@@ -15,6 +15,7 @@
 	const ws = useWorkspace();
 	const results = $derived(ws.store.results);
 	const these = $derived(values ? 'These values are' : 'The results below are');
+	const lastSolve = $derived(results.cancelled ? 'The last solve that finished' : 'The last solve');
 	/** The latest solve was of the current project and failed; the response is from before. */
 	const failedNow = $derived(!!results.error && !results.errorStale && !!results.response);
 </script>
@@ -25,7 +26,7 @@
 	>
 		<Icon name="alert" class="size-4 shrink-0" />
 		<p class="min-w-0 flex-1 basis-48">
-			The last solve failed{values ? '' : ' (see above)'}. {these} from an earlier version of the project,
+			{lastSolve} failed{values ? '' : ' (see above)'}. {these} from an earlier version of the project,
 			before your last changes.
 		</p>
 	</div>
@@ -35,7 +36,7 @@
 	>
 		<Icon name="alert" class="size-4 shrink-0" />
 		<p class="min-w-0 flex-1 basis-48">
-			The last solve failed. {these} from the previous solve of this same project.
+			{lastSolve} failed. {these} from the previous solve of this same project.
 		</p>
 		<button
 			type="button"

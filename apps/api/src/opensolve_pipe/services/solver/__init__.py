@@ -67,7 +67,11 @@ def solve_project(project: Project, options: SolveOptions | None = None) -> Solv
         curve = [CurvePoint(flow=p.flow, head=p.head) for p in points if p.head is not None]
         skipped = [p.message for p in points if p.message.startswith("not computed")]
         failed = count - len(curve) - len(skipped)
-        missing = f"; {failed} did not converge" if failed else ""
+        missing = (
+            f"; {failed} have no head (POST /api/v1/system-curve gives each point's reason)"
+            if failed
+            else ""
+        )
         if skipped:  # the request's time budget ran out (budget.py)
             missing += f"; {len(skipped)} were {skipped[0]}"
         pumps[pid] = pumps[pid].model_copy(update={"system_curve": curve})
@@ -80,7 +84,9 @@ def solve_project(project: Project, options: SolveOptions | None = None) -> Solv
                     *trace.notes,
                     f"System curve: {len(curve)} of {count} flows from 0 to {upper:.6g} m³/s "
                     f"(1.2 × the curve's largest flow × {speed}) solved, each starting from the "
-                    f"solution at the neighbouring flow (the first from this solve){missing}.",
+                    "solution at the neighbouring flow (the first from this solve; a point "
+                    "without a head is solved again from other starts, as the methods summary "
+                    f"states){missing}.",
                 ],
             }
         )

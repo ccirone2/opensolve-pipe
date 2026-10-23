@@ -18,19 +18,31 @@ a result for every pump; these scenarios have none of that by design:
   curve's points means F(s, Q) = s² H₀(Q/s) falls with s somewhere (d/ds F = s ψ(Q/s)), so a
   flow there can be held at two speeds: a controlled pump on such a curve is the 422 topology
   issue CONTROLLED_PUMP_CURVE (SDD §5.1.2 error envelope), while a fixed-speed pump on the same
-  curve is not (the rule is about the speed's uniqueness only).
+  curve is not (the rule is about the speed's uniqueness only);
+- a setpoint beyond the curve even at maximum speed (owner's decision 2026-10-23, TSD §12
+  decided item 7, was open item 5): Q_set ≥ s_max · x_mono means F(·, Q_set) falls at every
+  speed of the drive, so no speed controls it and two limit states both satisfy the rules: the
+  422 topology issue CONTROLLED_PUMP_SETPOINT, in the owner's exact words, for a curve that
+  passes the ψ test; just below the bound the setpoint is solved, and a curve whose end tangent
+  does not fall never triggers it.
 
 Expected values are derived here or in ``derivations_pump_control`` from closed forms, never
 from the solver.
 """
 
+import math
+import re
+from collections.abc import Callable
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from scipy.interpolate import PchipInterpolator
 
-from opensolve_pipe.models.components import Pump
+from opensolve_pipe.models.api import SolveResponse
+from opensolve_pipe.models.components import Pump, PumpControl
 from opensolve_pipe.models.project import Project
+from opensolve_pipe.models.pumps import PumpCurve
 from opensolve_pipe.services.solver import solve_project
 from tests.reference import derivations as dv
 from tests.reference import derivations_pump_control as dpc
@@ -43,6 +55,7 @@ from tests.reference.case_format import (
     isolation_valve,
     make_project,
     pump,
+    pump_curve,
     reservoir,
 )
 from tests.reference.derivations_pumps import DISCHARGE_A, SUCTION_A, curve_a, curve_b
@@ -51,6 +64,7 @@ from tests.reference.line import Line
 NU = dv.FLUID_A[2] / dv.FLUID_A[1]
 RELATIVE = 0.005
 FLOW_FLOOR = 1.0e-9
+HEAD_FLOOR = 0.01  # m
 
 
 # --- Over-control ---------------------------------------------------------------------------------
@@ -247,6 +261,231 @@ def test_controlled_pump_on_a_curve_with_psi_below_zero_is_a_topology_issue() ->
     assert issues, body
     assert any("PU1" in i["componentIds"] for i in issues)
     assert _post_solve(_steep_curve_project(controlled=False)).status_code == 200
+
+
+# --- Setpoint beyond the curve at maximum speed (CONTROLLED_PUMP_SETPOINT) ----------------------
+#
+# Owner's decision (2026-10-23), from proposal vfd-pump-modes.md §4.3: d/ds F(s, Q) = s ψ(Q/s),
+# ψ(x) = 2H₀(x) − x H₀'(x). Beyond the last point (x_e, h_e) H₀ is the end tangent
+# h_e + m (x − x_e), m the PCHIP's slope at x_e, so ψ(x) = 2h_e + m (x − 2x_e): for m < 0 it is
+# zero at x_mono = 2x_e − 2h_e/m = 2(x_e + h_e/|m|), twice the tangent's zero-head flow, and
+# negative beyond; for m ≥ 0 it only grows (x_mono = ∞). With Q_set ≥ s_max · x_mono, every speed
+# s ≤ s_max has Q_set/s ≥ x_mono, so F(·, Q_set) falls on the whole speed range: no speed
+# controls the flow, and the input is rejected (422 TOPOLOGY_ERROR, CONTROLLED_PUMP_SETPOINT).
+# Just below, Q_set/s_max < x_mono and F(·, Q_set) still rises near s_max: a valid setpoint.
+#
+# The line (test inputs): R1 (H 3 m) → SUCTION_A → PU1 (s ∈ [0.5, s_max]) → DISCHARGE_A → R2
+# (H 20 m), the pump_single_pipe line. Its static lift, 17 m, is above the shutoff head at
+# s_min, 0.25 · H₀(0) (10 m for curve_straight, 11.25 m for curve_a), so the pump at s_min
+# passes nothing; it is below the shutoff head at s_max (25.6 m, 36.45 m).
+
+SETPOINT_RULE_MIN_SPEED = 0.5
+SETPOINT_RULE_STEP = 1.0e-6
+"""Relative distance of the setpoints tested either side of the bound s_max · x_mono."""
+SETPOINT_BOUND = re.compile(r"setpoints must be below (\S+) m³/s")
+
+
+def end_slope(curve: PumpCurve) -> float:
+    """m = H₀'(x_e): the slope of scipy's PchipInterpolator through the rated points at the
+    last point, the slope of the straight extension beyond it (design §2.2)."""
+    xs = [p.flow for p in curve.points]
+    pchip = PchipInterpolator(xs, [p.head for p in curve.points])
+    return float(pchip.derivative()(xs[-1]))
+
+
+def x_mono_of(curve: PumpCurve) -> float:
+    """x_mono = 2x_e − 2h_e/m on a falling end tangent (m < 0), else ∞ (section comment)."""
+    last = curve.points[-1]
+    m = end_slope(curve)
+    return 2.0 * last.flow - 2.0 * last.head / m if m < 0.0 else math.inf
+
+
+def setpoint_issue_message(
+    pump_id: str, q_set: float, speed: float, curve: PumpCurve, x_mono: float
+) -> str:
+    """The CONTROLLED_PUMP_SETPOINT message, in the format the owner fixed (2026-10-23)."""
+    return (
+        f"pump '{pump_id}' is speed-controlled to hold {q_set:.6g} m³/s, but no speed up to "
+        f"its maximum speed {speed:.6g} can hold it on its curve '{curve.id}' ({curve.name}): "
+        "at that flow the head s² H₀(Q/s) falls as the speed s rises, at every speed, because "
+        f"Q/s lies beyond x_mono = {x_mono:.6g} m³/s, twice the flow at which the curve's end "
+        f"tangent reaches zero head; setpoints must be below {speed * x_mono:.6g} m³/s (the "
+        "maximum speed × x_mono), so use a smaller setpoint or a curve that extends to higher "
+        "flows"
+    )
+
+
+def _setpoint_project(curve: PumpCurve, speed: float, setpoint: float) -> Project:
+    """The section's line with PU1 flow-controlled to ``setpoint`` on ``curve``, s ∈ [0.5,
+    speed]."""
+    control = flow_control(setpoint, SETPOINT_RULE_MIN_SPEED)
+    return make_project(
+        f"ref-pump-flow-control-setpoint-{curve.id.lower()}",
+        "Flow-controlled pump near its setpoint bound",
+        custom_fluid(*dv.FLUID_A),
+        [
+            reservoir("R1", 0.0, 3.0),
+            pump("PU1", 0.5, curve.id, speed=speed, control=control),
+            reservoir("R2", 18.0, 2.0),
+        ],
+        [
+            SUCTION_A.connect("L1", "R1:port_1", "PU1:suction"),
+            DISCHARGE_A.connect("L2", "PU1:discharge", "R2:port_1"),
+        ],
+        pump_library=[curve],
+    )
+
+
+def curve_rising_end() -> PumpCurve:
+    """A curve that dips and rises at its last point (test input). scipy's PCHIP slope is 0 at
+    the dip (0.02 m³/s: the secants −400 and +50 m/(m³/s) on either side change sign) and its
+    one-sided end slope (3 · 50 − (−400))/2 = 275 is clipped to 3 · 50 = 150 (the secants
+    change sign and |275| > 3 · 50): the end tangent rises, x_mono = ∞. ψ > 0 on the points."""
+    return pump_curve("PC-UP", [(0.0, 40.0), (0.01, 38.0), (0.02, 34.0), (0.03, 34.5)])
+
+
+def curve_flat_end() -> PumpCurve:
+    """A curve whose last two points have one head (test input): the last secant is 0, so
+    scipy's PCHIP end slope is 0 (its sign differs from the secant's): a flat end tangent,
+    x_mono = ∞. ψ > 0 on the points."""
+    return pump_curve("PC-FLAT", [(0.0, 40.0), (0.01, 38.0), (0.02, 34.0), (0.03, 34.0)])
+
+
+FALLING_END_CURVES: list[tuple[Callable[[], PumpCurve], float, float]] = [
+    # curve_straight, H₀ = 40 − 400 x: PCHIP reproduces collinear points, so m = −400 and
+    # x_mono = 2(0.04 + 24/400) = 0.2 m³/s = 2a/b; s_max = 0.8 (test input), bound 0.16 m³/s.
+    (dpc.curve_straight, 0.8, 0.2),
+    # curve_a (equal spacing h = 0.01): scipy's one-sided end slope ((2h + h) δ₄ − h δ₃)/(2h)
+    # = (3 δ₄ − δ₃)/2 with δ₄ = (27 − 35.5)/0.01 = −850 and δ₃ = (35.5 − 41)/0.01 = −550 gives
+    # m = −1000 (δ₄'s sign, |m| ≤ 3|δ₄|: not clipped), x_mono = 2(0.04 + 27/1000) = 0.134 m³/s
+    # (proposal §4.3's check); s_max = 0.9 (test input), bound 0.1206 m³/s.
+    (curve_a, 0.9, 0.134),
+]
+
+
+@pytest.mark.parametrize(
+    ("make_curve", "speed", "x_mono_closed_form"),
+    FALLING_END_CURVES,
+    ids=lambda v: v.__name__ if callable(v) else str(v),
+)
+def test_flow_setpoint_beyond_the_curve_at_maximum_speed_is_a_topology_issue(
+    make_curve: Callable[[], PumpCurve], speed: float, x_mono_closed_form: float
+) -> None:
+    """Q_set = s_max · x_mono · (1 + 1e-6): HTTP 422 TOPOLOGY_ERROR whose only issue is
+    CONTROLLED_PUMP_SETPOINT naming the pump, the bound in its message s_max · x_mono to six
+    significant digits, the message the owner's format with the values derived here."""
+    curve = make_curve()
+    x_mono = x_mono_of(curve)
+    assert x_mono == pytest.approx(x_mono_closed_form, rel=1.0e-12)
+    assert x_mono == pytest.approx(el.x_mono(curve), rel=1.0e-12)
+    # The curve passes the ψ test, so the setpoint check runs (owner: after it).
+    assert dpc.psi_minimum(curve, 0.0, curve.points[-1].flow) > 0.0
+    bound = speed * x_mono
+    q_set = bound * (1.0 + SETPOINT_RULE_STEP)
+    # Q_set/s_max lies on the end tangent beyond x_mono: ψ < 0 there, and at every lower speed.
+    assert q_set / speed > x_mono > curve.points[-1].flow
+    assert dpc.psi(curve, q_set / speed) < 0.0
+
+    response = _post_solve(_setpoint_project(curve, speed, q_set))
+
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["success"] is False
+    assert body["error"] == "TOPOLOGY_ERROR"
+    assert [i["code"] for i in body["issues"]] == ["CONTROLLED_PUMP_SETPOINT"], body
+    [issue] = body["issues"]
+    assert issue["componentIds"] == ["PU1"]
+    found = SETPOINT_BOUND.search(issue["message"])
+    assert found is not None, issue["message"]
+    assert found.group(1) == f"{bound:.6g}"
+    assert issue["message"] == setpoint_issue_message("PU1", q_set, speed, curve, x_mono)
+
+
+@pytest.mark.parametrize(
+    ("make_curve", "speed", "x_mono_closed_form"),
+    FALLING_END_CURVES,
+    ids=lambda v: v.__name__ if callable(v) else str(v),
+)
+def test_flow_setpoint_just_below_the_bound_is_solved(
+    make_curve: Callable[[], PumpCurve], speed: float, x_mono_closed_form: float
+) -> None:
+    """Q_set = s_max · x_mono · (1 − 1e-6): not rejected. The state is not asserted (near the
+    bound the drive's band [F(s_lo, Q_set), F(s_max, Q_set)] is a few 1e-11 m wide); the
+    result must satisfy the rules of proposal §4.5 exactly (``controlled_pump_state_problem``
+    with margin −Htol) at its reported flow and EGL rise, run at the speed its state gives, and
+    lie on the pump's law and on the line's system head, H = H_R2 − H_R1 + h_L1(Q) + h_L2(Q)
+    (D6: 0.5 % or 0.01 m)."""
+    curve = make_curve()
+    assert x_mono_of(curve) == pytest.approx(x_mono_closed_form, rel=1.0e-12)
+    q_set = speed * x_mono_of(curve) * (1.0 - SETPOINT_RULE_STEP)
+    assert dpc.psi(curve, q_set / speed) > 0.0  # F(·, Q_set) still rises at s_max
+    control = flow_control(q_set, SETPOINT_RULE_MIN_SPEED)
+
+    response = _post_solve(_setpoint_project(curve, speed, q_set))
+
+    assert response.status_code == 200, response.text
+    state = SolveResponse.model_validate(response.json()).solved_state
+    assert state.converged, state.convergence.message
+    got = state.pump_results["PU1"]
+    assert got.control is not None
+    q = got.operating_flow
+    lift = state.node_results["PU1:discharge"].egl - state.node_results["PU1:suction"].egl
+    problem = el.controlled_pump_state_problem(
+        "on", curve, control, speed, got.control.state, q, lift, -el.HTOL, q_abs_tol=el.QTOL
+    )
+    assert problem is None, f"PU1 {problem}: Q = {q!r}, H = {lift!r}"
+    limit_speed = el.control_state_speed(control, speed, got.control.state)
+    if limit_speed is not None:
+        assert got.speed == pytest.approx(limit_speed, rel=1.0e-12)
+    if got.status == "running":
+        want = el.pump_head(curve, got.speed, q)
+        assert abs(lift - want) <= max(RELATIVE * abs(want), HEAD_FLOOR), (lift, want)
+    system = 20.0 - 3.0 + SUCTION_A.head_loss(q, NU) + DISCHARGE_A.head_loss(q, NU)
+    assert abs(lift - system) <= max(RELATIVE * abs(system), HEAD_FLOOR), (lift, system)
+
+
+def test_flow_setpoint_check_runs_only_on_curves_that_pass_the_psi_test() -> None:
+    """``curve_steep_rise`` fails the ψ test and has a falling end tangent (x_mono finite): a
+    setpoint 1.5 × s_max · x_mono gives CONTROLLED_PUMP_CURVE and no CONTROLLED_PUMP_SETPOINT
+    (owner: the setpoint check runs after the ψ test, for a curve that passes it)."""
+    curve = dpc.curve_steep_rise()
+    assert dpc.psi_minimum(curve, 0.0, curve.points[-1].flow) <= 0.0
+    x_mono = x_mono_of(curve)
+    assert math.isfinite(x_mono)
+    assert x_mono == pytest.approx(el.x_mono(curve), rel=1.0e-12)
+
+    response = _post_solve(_setpoint_project(curve, 1.0, 1.5 * x_mono))
+
+    assert response.status_code == 422, response.text
+    codes = [i["code"] for i in response.json()["issues"]]
+    assert "CONTROLLED_PUMP_CURVE" in codes
+    assert "CONTROLLED_PUMP_SETPOINT" not in codes
+
+
+SETPOINT_MAXIMUM = float(PumpControl.model_json_schema()["properties"]["setpoint"]["maximum"])
+"""The largest setpoint the model accepts, m³/s (its published schema bound)."""
+
+
+@pytest.mark.parametrize("make_curve", [curve_rising_end, curve_flat_end], ids=lambda f: f.__name__)
+@pytest.mark.parametrize("setpoint", [0.05, 1.0, SETPOINT_MAXIMUM])
+def test_flow_setpoint_on_a_curve_whose_end_tangent_does_not_fall_is_never_rejected(
+    make_curve: Callable[[], PumpCurve], setpoint: float
+) -> None:
+    """An end tangent with m ≥ 0 keeps ψ(x) = 2h_e + m (x − 2x_e) ≥ ψ(x_e) > 0 at every flow
+    beyond the points, so F(·, Q) rises with the speed at every setpoint: no setpoint up to the
+    model's maximum is rejected (owner: x_mono infinite never triggers the check). s_max = 0.9;
+    0.05 m³/s already puts Q_set/s_max beyond the last point. Only the absence of a topology
+    issue is asserted: on a curve that rises again the operating state is not the subject."""
+    curve = make_curve()
+    assert end_slope(curve) >= 0.0
+    assert x_mono_of(curve) == math.inf
+    assert el.x_mono(curve) == math.inf
+    assert dpc.psi_minimum(curve, 0.0, curve.points[-1].flow) > 0.0
+    assert setpoint / 0.9 > curve.points[-1].flow
+
+    response = _post_solve(_setpoint_project(curve, 0.9, setpoint))
+
+    assert response.status_code == 200, response.text
 
 
 # --- Zero-flow re-test path ---------------------------------------------------------------------

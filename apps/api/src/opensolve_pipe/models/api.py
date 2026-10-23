@@ -25,7 +25,10 @@ class SolveOptions(CamelModel):
         default=41,
         ge=5,
         le=201,
-        description="Flows per system curve (points whose solve does not converge are left out)",
+        description=(
+            "Flows per system curve (points without a head are left out: POST "
+            "/api/v1/system-curve gives each point's reason)"
+        ),
     )
 
 
@@ -95,11 +98,17 @@ class SystemCurvePoint(OutputModel):
     head: float | None = Field(
         description=(
             "EGL(discharge) - EGL(suction), m: the head the pump must add at this flow; "
-            "null when the point has no solution (see message)"
+            "null when no steady state carries the flow, its head is undetermined or its "
+            "solve did not converge (see message)"
         )
     )
-    converged: bool
-    message: str = Field(description="Why the point has no head ('' when it converged)")
+    converged: bool = Field(
+        description=(
+            "True when the point has a head: its solve converged to a steady state that "
+            "carries the flow with a determined head"
+        )
+    )
+    message: str = Field(description="Why the point has no head ('' when it has one)")
 
 
 class SystemCurveResponse(OutputModel):
@@ -109,7 +118,9 @@ class SystemCurveResponse(OutputModel):
     pump_id: str
     flow_range: RangeInfo = Field(description="m³/s, the flows the points span")
     points: list[SystemCurvePoint] = Field(description="One per requested flow, in flow order")
-    converged: list[bool] = Field(description="Whether each point's solve converged")
+    converged: list[bool] = Field(
+        description="Whether each point has a head (each point's converged)"
+    )
 
 
 class FreezingPoint(OutputModel):

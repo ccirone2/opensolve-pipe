@@ -67,7 +67,7 @@ stays between them; on a smooth stretch the update is under-relaxed instead.
 
 import itertools
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal
@@ -308,11 +308,20 @@ class Control:
 
 
 def initial_controls(
-    built: BuiltNetwork, forced: Mapping[str, float] | None = None
+    built: BuiltNetwork,
+    forced: Mapping[str, float] | None = None,
+    *,
+    open_valves: bool = False,
+    held_open: Collection[str] = (),
 ) -> dict[str, Control]:
     """Initial statuses. A pump in ``forced`` (a system-curve solve) is fixed: its link carries
     the forced flow (``link_states``) whatever its status. A speed-controlled pump that is on
-    starts ACTIVE, as active control valves do."""
+    starts ACTIVE, as active control valves do; with ``open_valves`` the control valves start
+    OPEN instead, the state EPANET 2.2's badvalve gives a valve it takes out of its active
+    state (hydsolver.c:215-265, ``_open_bad_valves``), and the rules then re-activate those
+    that can hold their setpoints (a system-curve point's last start, ``system_curve``). A
+    control valve in ``held_open`` is fixed OPEN, as 'failed_open' holds it (a system-curve
+    point at an FCV's switch, ``system_curve``)."""
     controls: dict[str, Control] = {}
     for cid, pump in built.pumps.items():
         off = pump.component.status == "off"
@@ -333,8 +342,11 @@ def initial_controls(
             controls[cid] = Control(cid, "check", data.link_index, status, valve.status != "active")
         else:
             assert isinstance(valve, ControlValve)
+            if cid in held_open:
+                controls[cid] = Control(cid, valve.valve_type, data.link_index, Status.OPEN, True)
+                continue
             status = {
-                "active": Status.ACTIVE,
+                "active": Status.OPEN if open_valves else Status.ACTIVE,
                 "failed_open": Status.OPEN,
                 "failed_closed": Status.CLOSED,
             }[valve.status]
@@ -1590,12 +1602,16 @@ def run_outer_loop(
     max_iterations: int,
     forced_flows: Mapping[str, float] | None = None,
     warm: "OuterLoopResult | None" = None,
+    open_valves: bool = False,
+    held_open: Collection[str] = (),
 ) -> OuterLoopResult:
     """The outer loop (module docstring). ``forced_flows``: pump id -> flow, m³/s, for a
     system-curve solve: each such pump is replaced by a fixed flow (design §13) and takes no
     part in the status rules; every other element follows its rules as in a normal solve.
-    ``warm``: a converged solve of the same network to start from (``_warm_start``)."""
-    controls = initial_controls(built, forced_flows)
+    ``warm``: a converged solve of the same network to start from (``_warm_start``).
+    ``open_valves``: active control valves start open; ``held_open``: these control valves are
+    held open, out of the rules (``initial_controls``)."""
+    controls = initial_controls(built, forced_flows, open_valves=open_valves, held_open=held_open)
     branches = initial_branches(built)
     forced = dict(forced_flows or {})
     flows: FloatArray | None = None

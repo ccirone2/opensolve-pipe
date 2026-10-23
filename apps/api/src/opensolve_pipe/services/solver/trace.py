@@ -1158,9 +1158,10 @@ def _speed_control_method(t: _Trace, ctx: TraceInputs, data: PumpData) -> None:
     )
     t.equation(
         "s* solves s² H₀(Q_set/s) = EGL_d − EGL_s on [s_lo, s_max] (Brent's method), with "
-        "s_lo = max(s_min, Q_set/x_mono), at most s_max: F(s, Q_set) rises with s there; the "
-        "head is first held within [F(s_lo, Q_set), F(s_max, Q_set)], a change of at most Htol "
-        "(rules A1, A2), so s* lies within [s_lo, s_max]"
+        "s_lo = max(s_min, Q_set/x_mono) below s_max (a setpoint of s_max x_mono or more is "
+        "rejected: no speed up to s_max holds it): F(s, Q_set) rises with s there; the head is "
+        "first held within [F(s_lo, Q_set), F(s_max, Q_set)], a change of at most Htol (rules "
+        "A1, A2), so s* lies within [s_lo, s_max]"
     )
     t.equation(
         "Exact: the speed enters only the pump's head equation, so the Newton system is "
@@ -1217,7 +1218,7 @@ def _speed_control_values(t: _Trace, data: PumpData, result: PumpResult) -> None
     if result.status != "off":  # an off pump does not run (its curve is shown at s_max)
         t.value("Speed it runs at s", result.speed, NO_UNIT)
     t.value(
-        "Lowest speed of the bracket s_lo = max(s_min, Q_set/x_mono), at most s_max",
+        "Lowest speed of the bracket s_lo = max(s_min, Q_set/x_mono), below s_max",
         control.low_speed,
         NO_UNIT,
     )

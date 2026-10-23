@@ -28,17 +28,30 @@ keeps running: a SciPy PchipInterpolator built from the curve points), never wit
   and Q_B < Q_set comes from its leg balance (brentq), the parallel formula above. B's own
   curve has A fixed and running.
 
+- a pump whose only way out is an FCV or a PRV in series (TSD §5.6, §12 decided item 8, was
+  open item 4; owner's decision 2026-10-23), through the public POST /api/v1/system-curve: every
+  flow the valve passes with a determined head has that head (q = 0 included: the valve, below
+  its setpoint, is wide open), and every other flow has none, with a message that says which
+  (an undetermined head at the switch flow, with the open-valve head as its floor; no steady
+  state above it) and never that the flow has no way through (the valve is a way through). The
+  derivation is written out above ``series_valve_network``.
+
 Every flow is checked at the default range, 0 to 1.2 × the curve's largest flow × s (design §13;
-for a flow-controlled pump s is its maximum speed), within 0.5 % or 0.01 m (D6).
+for a flow-controlled pump s is its maximum speed), within 0.5 % or 0.01 m (D6); the series
+valves' switch flows are also requested on their own and after points below them, and FCV
+setpoints on the default range's grid are checked there.
 """
 
+import re
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 import pytest
+from fastapi.testclient import TestClient
 from scipy.optimize import brentq
 
-from opensolve_pipe.models.components import Pump, Reservoir
+from opensolve_pipe.models.api import SystemCurvePoint, SystemCurveResponse
+from opensolve_pipe.models.components import ControlValve, Pump, Reservoir
 from opensolve_pipe.models.piping import PipeConnection
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.pumps import PumpCurve
@@ -47,6 +60,7 @@ from tests.reference import derivations as dv
 from tests.reference import derivations_pump_control as dpc
 from tests.reference import derivations_pumps as dp
 from tests.reference import element_laws as el
+from tests.reference.case_format import control_valve, flow_coefficient, flow_control, pump
 from tests.reference.line import Line
 
 RELATIVE = 0.005
@@ -299,3 +313,335 @@ def test_flow_controlled_pump_system_curve_beside_a_fixed_pump() -> None:
         return (h_t2 + lb2.head_loss(q, NU)) - (h_t1 - lb1.head_loss(q, NU))
 
     _check(project, "PB", expected)
+
+
+# --- A pump whose only way out is a series FCV or PRV (TSD §5.6, §12 decided item 8) -----------
+#
+# Network (test inputs): R1 (H_R1 = 3 m) → L1 (SUCTION_A) → PU1 (curve_a at rated speed, or
+# flow-controlled to 0.025 m³/s, s ∈ [0.5, 1]: its control is replaced by the forced flow, so
+# H_sys is the same) → L2 (SERIES_BETWEEN) → V → L3 (SERIES_DISCHARGE) → R2. Custom fluid A,
+# Darcy–Weisbach + Colebrook and the fluids fitting functions through ``line.Line``. V has a
+# fully open K entered by the user (on L2's diameter, the pipe on its inlet port), so its fully
+# open loss is h_V(q) = K q|q|/(2g A₂²) (``element_laws.valve_loss``).
+#
+# With the pump replaced by the fixed flow q there is no other branch: q passes L1, L2, V and
+# L3. The valve can be open (it passes q with h_V), active or closed (it passes nothing), and a
+# state is a steady state only if its law passes q and its rules hold. With V open,
+#     H_sys(q) = H_R2 − H_R1 + h_L1(q) + h_L2(q) + h_V(q) + h_L3(q)
+# (``_open_valve_heads``); at q = 0 every loss vanishes and H_sys(0) = H_R2 − H_R1.
+#
+# FCV1, setpoint Q_F = 0.015 m³/s, K 3.0; R2 at H 20 m:
+# - active, it passes Q_F: with q ≠ Q_F the section between PU1 and FCV1 gains q − Q_F with no
+#   fixed head to take it, not a steady state;
+# - 0 ≤ q < Q_F: open. EPANET 2.2 fcvstatus keeps an open FCV open while q < Q_F, and our FCV
+#   closes only on reverse flow or a reverse head (TSD §5.4), which an open valve passing q ≥ 0
+#   does not see (EGL_in − EGL_out = h_V(q) ≥ 0). At q = 0 nothing reaches the setpoint and
+#   nothing flows backwards, so the valve is wide open and H_sys(0) = H_R2 − H_R1 (a closed FCV
+#   at zero flow would leave L2's head undetermined, but nothing closes it: a starved start is
+#   not physics);
+# - q = Q_F: active, with any drop at or above h_V(Q_F) (an active FCV opens only when the head
+#   across it falls below its fully open loss, TSD §5.4): every H_sys ≥ H_sys,open(Q_F) is a
+#   steady state, the head is undetermined;
+# - q > Q_F: open fails (q ≥ Q_F makes it active), active passes Q_F ≠ q, closed passes nothing:
+#   no steady state (an ideal flow source against a valve holding Q_F). The valve stays a way
+#   through (it never closes on forward flow), so the message must not say there is none.
+#
+# PRV1 at z_V = 2 m, setpoint p_set = 170 kPa static at its outlet, K 2.0; R2 at H 12 m:
+# - whatever the valve does, R2 and L3 fix its outlet EGL at flow q, h_out(q) = H_R2 + h_L3(q);
+#   its setpoint head is h_set(q) = z_V + p_set/(ρg) + v₃²/(2g) (``element_laws.setpoint_head``,
+#   v₃ in L3). D(q) = h_out(q) − h_set(q) = H_R2 − z_V − p_set/(ρg) + (h_L3(q) − v₃²/(2g))
+#   rises with q (L3's friction, gate valve and elbows; its exit's K = 1 cancels v₃²/(2g)),
+#   from D(0) = 12 − 2 − 17.37 = −7.37 m to its root Q_prv (brentq) ≈ 0.0211 m³/s;
+# - q < Q_prv (D < 0, q = 0 included): open. EPANET 2.2 prvstatus keeps an open PRV open while
+#   h_out < h_set; active would hold h_out = h_set, and with R2 that fixes L3's flow at Q_prv ≠ q.
+#   At q = 0 the outlet is below its setpoint, so the PRV is wide open: H_sys(0) = H_R2 − H_R1;
+# - q = Q_prv: open, or active with any inlet head h_in ≥ h_set + h_V (prvstatus ACTIVE): every
+#   H_sys ≥ H_sys,open(Q_prv) is a steady state, the head between PU1 and PRV1 is undetermined;
+# - q > Q_prv (D > 0): open fails (h_out ≥ h_set makes it active), active cannot lower h_out to
+#   h_set (R2 and the flow fix it above), closed passes nothing: no steady state. A PRV cannot
+#   take its outlet pressure below what the pipe beyond it imposes at that flow. (So the PRV is
+#   active and the head undetermined only at q = Q_prv itself, not over a range of flows.)
+#
+# Each flow sampled is kept clear of the switch (FCV: |q − Q_F| ≥ 1 % of Q_F; PRV: |D(q)| ≥
+# STATE_MARGIN), the open valve's rules are checked there with element_laws.valve_state_problem
+# (q > 0), and each flow is turbulent in every line (Crane K, design §2.3). The switch flow itself
+# is requested on its own (flowMin = Q_switch) and as the last of points below it (flowMax =
+# Q_switch, which numpy.linspace returns exactly): its head is undetermined, and its message
+# must say so, naming the valve and the floor H_sys,open(Q_switch). FCV setpoints of 0.012,
+# 0.018 and 0.024 m³/s (test inputs) lie on the default range's grid (steps of 0.0012 m³/s,
+# where linspace gives 0.018000000000000002 for the second, a forced flow 3.5e-18 m³/s above the
+# setpoint, far inside the status rules' Qtol = 1e-8 m³/s): that grid point is the switch.
+
+SeriesValve = Literal["fcv", "prv"]
+SERIES_VALVE_PUMP_CONTROL = (0.025, 0.5)
+"""(Q_set m³/s, s_min) of the flow-controlled pump variant (test inputs)."""
+RHO = dv.FLUID_A[1]
+
+
+def series_valve_network(
+    valve_type: SeriesValve, controlled: bool, q_f: float = 0.015
+) -> dpc.Series:
+    """The section's network with FCV1 (setpoint q_f, R2 at H 20 m) or PRV1 (R2 at H 12 m)."""
+    control = flow_control(*SERIES_VALVE_PUMP_CONTROL) if controlled else None
+    pu1 = pump("PU1", 0.5, "PC-A", control=control)
+    valve: ControlValve
+    if valve_type == "fcv":
+        valve = control_valve("FCV1", 0.5, "fcv", q_f, resistance=flow_coefficient("K", 3.0))
+        h2 = 20.0
+    else:
+        valve = control_valve("PRV1", 2.0, "prv", 170000.0, resistance=flow_coefficient("K", 2.0))
+        h2 = 12.0
+    lines = [dp.SUCTION_A, dpc.SERIES_BETWEEN, dpc.SERIES_DISCHARGE]
+    return dpc.Series(0.0, 3.0, h2 - 2.0, 2.0, lines, [pu1, valve])
+
+
+def _series_valve(chain: dpc.Series) -> ControlValve:
+    valve = chain.elements[1]
+    assert isinstance(valve, ControlValve)
+    return valve
+
+
+def _open_valve_heads(chain: dpc.Series, q: float) -> tuple[float, float, float]:
+    """(H_sys, EGL at the valve inlet, EGL at its outlet) at flow q with the valve fully open:
+    EGL_out = H_R2 + h_L3(q), EGL_in = EGL_out + h_V(q), EGL_d = EGL_in + h_L2(q),
+    EGL_s = H_R1 − h_L1(q), H_sys = EGL_d − EGL_s."""
+    l1, l2, l3 = chain.lines
+    valve = _series_valve(chain)
+    k = el.valve_k(valve.valve_type, valve.resistance, l2.d)
+    h_out = chain.h2 + l3.head_loss(q, NU)
+    h_in = h_out + el.valve_loss(k, q, l2.d)
+    return h_in + l2.head_loss(q, NU) - (chain.h1 - l1.head_loss(q, NU)), h_in, h_out
+
+
+def _prv_excess(chain: dpc.Series, q: float) -> float:
+    """D(q) = h_out(q) − h_set(q): the outlet EGL R2 and L3 impose, less the setpoint head."""
+    valve = _series_valve(chain)
+    l3 = chain.lines[2]
+    h_set = el.setpoint_head(valve.elevation, valve.setpoint, RHO, q, l3.d)
+    return chain.h2 + l3.head_loss(q, NU) - h_set
+
+
+def switch_flow(chain: dpc.Series) -> float:
+    """Q_F (the FCV's setpoint) or Q_prv (D(Q_prv) = 0, brentq; D(0) < 0 and D rises)."""
+    valve = _series_valve(chain)
+    if valve.valve_type == "fcv":
+        return valve.setpoint
+    return dp.solve_decreasing(lambda q: -_prv_excess(chain, q))
+
+
+def passes_with_a_head(chain: dpc.Series, q: float) -> bool:
+    """Whether the valve is open at the forced flow q (the section comment), guarding that q
+    is clear of the switch and that the open valve's rules hold there."""
+    valve = _series_valve(chain)
+    if valve.valve_type == "fcv":
+        q_f = valve.setpoint
+        assert abs(q - q_f) >= 0.01 * q_f, f"q = {q} is too close to the FCV setpoint"
+        is_open = q < q_f
+    else:
+        excess = _prv_excess(chain, q)
+        assert abs(excess) >= el.STATE_MARGIN, f"q = {q}: D(q) = {excess} is too close to 0"
+        is_open = excess < 0.0
+    if q > 0.0:
+        for line in chain.lines:
+            dv.require_regime(q, line.d, NU, "turbulent")
+        _, h_in, h_out = _open_valve_heads(chain, q)
+        d_in, d_out = chain.lines[1].d, chain.lines[2].d
+        problem = el.valve_state_problem(
+            valve, "open", q, h_in, h_out, RHO, el.STATE_MARGIN, d_in, d_out
+        )
+        assert (problem is None) == is_open, (q, problem)
+    return is_open
+
+
+def _post_system_curve(project: Project, pump_id: str, **flows: float | int) -> SystemCurveResponse:
+    """POST /api/v1/system-curve; ``flows`` are request fields (flowMin, flowMax, numPoints)."""
+    from opensolve_pipe.main import app
+
+    body = {"project": project.model_dump(mode="json", exclude_none=True), "pumpId": pump_id}
+    with TestClient(app) as client:
+        response = client.post("/api/v1/system-curve", json=body | flows)
+    assert response.status_code == 200, response.text
+    return SystemCurveResponse.model_validate(response.json())
+
+
+FLOOR = re.compile(r"at or above (\S+) m \(with the valve fully open\)")
+"""The floor of the heads at a valve's switch, as the undetermined-head message states it."""
+
+
+def _no_head_problem(
+    point: SystemCurvePoint, category: str, chain: dpc.Series | None = None
+) -> str | None:
+    """What is wrong with a point that must have no head (category: 'no steady state' or
+    'undetermined head'): it has a head, no message, or a message saying the flow has no way
+    through (there is one: the valve); a no-steady-state point's message must say there is no
+    steady state and not call its head undetermined; an undetermined-head point's message must
+    say its head is undetermined, not that no steady state carries the flow, and (with
+    ``chain``) name the valve and state the floor H_sys,open(q) within 0.5 % or 0.01 m (D6)."""
+    text = point.message.lower()
+    if point.head is not None:
+        return f"Q = {point.flow!r}: {category}, but head {point.head!r}"
+    if not text:
+        return f"Q = {point.flow!r}: {category}, but no message"
+    if "no way through" in text:
+        return f"Q = {point.flow!r}: {category} with a way through, message {point.message!r}"
+    if category == "no steady state":
+        if "undetermined" in text or "no steady state" not in text:
+            return f"Q = {point.flow!r}: no steady state, message {point.message!r}"
+        return None
+    if not text.startswith("the head across the pump is undetermined") or (
+        "no steady state" in text
+    ):
+        return f"Q = {point.flow!r}: undetermined head, message {point.message!r}"
+    if chain is not None:
+        valve = _series_valve(chain)
+        floor = FLOOR.search(point.message)
+        want, _, _ = _open_valve_heads(chain, point.flow)
+        if f"'{valve.id}'" not in point.message or floor is None:
+            return f"Q = {point.flow!r}: undetermined head, message {point.message!r}"
+        if not _within_d6(float(floor.group(1)), want):
+            return f"Q = {point.flow!r}: floor {floor.group(1)} m, expected {want!r}"
+    return None
+
+
+SERIES_VALVE_CASES = [
+    pytest.param(valve, controlled, id=f"{valve}-{'flow-controlled' if controlled else 'fixed'}")
+    for valve in ("fcv", "prv")
+    for controlled in (False, True)
+]
+
+
+@pytest.mark.parametrize(("valve_type", "controlled"), SERIES_VALVE_CASES)
+def test_series_valve_system_curve_has_every_determined_head(
+    valve_type: SeriesValve, controlled: bool
+) -> None:
+    """The default range (0 to 1.2 × 0.04 × 1 = 0.048 m³/s, 41 points, as the web app asks):
+    below the switch flow the open-valve H_sys(q), H_sys(0) = H_R2 − H_R1 included, within
+    0.5 % or 0.01 m (D6); above it no head (no steady state), and no 'no way through'."""
+    chain = series_valve_network(valve_type, controlled)
+    project = chain.project(
+        f"system_curve_series_{valve_type}", f"Pump through a series {valve_type}", [dp.curve_a()]
+    )
+    q_switch = switch_flow(chain)
+
+    result = _post_system_curve(project, "PU1")
+
+    assert result.flow_range.min == 0.0
+    assert result.flow_range.max == pytest.approx(1.2 * 0.04 * 1.0, rel=1.0e-15)
+    assert len(result.points) == POINTS
+    failures = []
+    regimes = {True: 0, False: 0}
+    for point in result.points:
+        is_open = passes_with_a_head(chain, point.flow)
+        regimes[is_open] += 1
+        if not is_open:
+            assert point.flow > q_switch
+            problem = _no_head_problem(point, "no steady state")
+            if problem:
+                failures.append(problem)
+            continue
+        assert point.flow < q_switch
+        want, _, _ = _open_valve_heads(chain, point.flow)
+        if point.flow == 0.0:
+            assert want == chain.h2 - chain.h1
+        if point.head is None or not point.converged:
+            failures.append(f"Q = {point.flow!r}: no head ({point.message!r}), expected {want!r}")
+        elif not _within_d6(point.head, want):
+            failures.append(f"Q = {point.flow!r}: got {point.head!r}, expected {want!r}")
+    # Both sides of the switch are sampled.
+    assert regimes[True] >= 5, regimes
+    assert regimes[False] >= 5, regimes
+    assert not failures, "\n".join(failures)
+
+
+@pytest.mark.parametrize(("valve_type", "controlled"), SERIES_VALVE_CASES)
+def test_series_valve_system_curve_at_the_switch_flow_has_no_head(
+    valve_type: SeriesValve, controlled: bool
+) -> None:
+    """Points from Q_switch to 1.25 Q_switch: at Q_switch (flowMin, the first point) the valve
+    passes the flow with any head at or above the open-valve head, so the head is undetermined;
+    above it there is no steady state. None has a head or a 'no way through' message."""
+    chain = series_valve_network(valve_type, controlled)
+    project = chain.project(
+        f"system_curve_series_{valve_type}_switch",
+        f"Pump through a series {valve_type}, at its switch flow",
+        [dp.curve_a()],
+    )
+    q_switch = switch_flow(chain)
+    if valve_type == "prv":
+        assert abs(_prv_excess(chain, q_switch)) <= 1.0e-12
+
+    result = _post_system_curve(
+        project, "PU1", flowMin=q_switch, flowMax=1.25 * q_switch, numPoints=5
+    )
+
+    first, *rest = result.points
+    assert first.flow == pytest.approx(q_switch, rel=1.0e-12)
+    failures = [_no_head_problem(first, "undetermined head", chain)]
+    for point in rest:
+        assert not passes_with_a_head(chain, point.flow)
+        failures.append(_no_head_problem(point, "no steady state"))
+    problems = [f for f in failures if f]
+    assert not problems, "\n".join(problems)
+
+
+@pytest.mark.parametrize(("valve_type", "controlled"), SERIES_VALVE_CASES)
+def test_series_valve_system_curve_reaches_the_switch_flow_from_points_below_it(
+    valve_type: SeriesValve, controlled: bool
+) -> None:
+    """Points from Q_switch/2 to Q_switch (flowMax, the last point, exactly Q_switch): each
+    below it continues from the one before with the open-valve H_sys(q), and the last, solved
+    from the point before it, has an undetermined head, as when it is requested on its own (the
+    message names the valve and the floor H_sys,open(Q_switch)), not 'no steady state'."""
+    chain = series_valve_network(valve_type, controlled)
+    project = chain.project(
+        f"system_curve_series_{valve_type}_to_switch",
+        f"Pump through a series {valve_type}, up to its switch flow",
+        [dp.curve_a()],
+    )
+    q_switch = switch_flow(chain)
+
+    result = _post_system_curve(
+        project, "PU1", flowMin=0.5 * q_switch, flowMax=q_switch, numPoints=5
+    )
+
+    *below, last = result.points
+    assert last.flow == q_switch
+    failures = []
+    for point in below:
+        assert passes_with_a_head(chain, point.flow)
+        want, _, _ = _open_valve_heads(chain, point.flow)
+        if point.head is None or not _within_d6(point.head, want):
+            failures.append(f"Q = {point.flow!r}: got {point.head!r} ({point.message!r})")
+    failures.append(_no_head_problem(last, "undetermined head", chain) or "")
+    problems = [f for f in failures if f]
+    assert not problems, "\n".join(problems)
+
+
+@pytest.mark.parametrize("q_f", [0.012, 0.018, 0.024])
+def test_series_fcv_setpoint_on_the_default_grid(q_f: float) -> None:
+    """An FCV setpoint that the default range samples (section comment): every grid point
+    below it has the open-valve H_sys(q), the grid point at it has an undetermined head with
+    the floor H_sys,open(Q_F), and every point above it has no steady state."""
+    chain = series_valve_network("fcv", False, q_f)
+    project = chain.project(
+        "system_curve_series_fcv_on_grid",
+        "Pump through a series FCV set on the grid",
+        [dp.curve_a()],
+    )
+
+    result = _post_system_curve(project, "PU1")
+
+    assert len(result.points) == POINTS
+    [at] = [p for p in result.points if abs(p.flow - q_f) <= 1.0e-15]
+    failures = [_no_head_problem(at, "undetermined head", chain)]
+    for point in result.points:
+        if point is at:
+            continue
+        if passes_with_a_head(chain, point.flow):
+            want, _, _ = _open_valve_heads(chain, point.flow)
+            if point.head is None or not _within_d6(point.head, want):
+                failures.append(f"Q = {point.flow!r}: got {point.head!r} ({point.message!r})")
+        else:
+            failures.append(_no_head_problem(point, "no steady state"))
+    problems = [f for f in failures if f]
+    assert not problems, "\n".join(problems)

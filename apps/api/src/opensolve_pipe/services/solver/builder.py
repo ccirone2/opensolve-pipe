@@ -118,9 +118,10 @@ class PumpControlData:
     head_at_max: float
     """F_max = F(s_max, Q_set), m."""
     low_speed: float
-    """s_lo = max(s_min, Q_set/x_mono), at most s_max (``pumps.bracket_low``): F(·, Q_set)
-    rises strictly on [s_lo, s_max], where the speed is solved; s_lo = s_min unless Q_set/s_min
-    is beyond x_mono."""
+    """s_lo = max(s_min, Q_set/x_mono) (``pumps.bracket_low``): F(·, Q_set) rises strictly on
+    [s_lo, s_max], where the speed is solved; s_lo = s_min unless Q_set/s_min is beyond x_mono.
+    s_lo < s_max: a setpoint of s_max x_mono or more is rejected (CONTROLLED_PUMP_SETPOINT,
+    ``validate_topology``)."""
     head_at_low: float
     """F_lo = F(s_lo, Q_set), m: the least head the pump gives at Q_set on [s_lo, s_max], the
     bound of rule A2 (F_min when s_lo = s_min; below F_min otherwise, F falling on
@@ -130,7 +131,8 @@ class PumpControlData:
     shutoff_max: float
     """S_max = F(s_max, 0), m."""
     uniqueness: SpeedUniqueness
-    """The curve's speed-uniqueness test (passed: ``validate_topology``) and x_mono."""
+    """The curve's speed-uniqueness test (passed: ``validate_topology``) and x_mono, with
+    Q_set < s_max x_mono (also checked there)."""
 
 
 @dataclass
@@ -278,9 +280,9 @@ def validate_topology(project: Project) -> list[TopologyIssue]:
         curve = curves[comp.curve_id]
         if comp.curve_id not in checked:
             checked[comp.curve_id] = speed_uniqueness(PumpCurveModel(curve))
-        interval = checked[comp.curve_id].interval
-        if interval is not None:
-            low, high = interval
+        check = checked[comp.curve_id]
+        if check.interval is not None:
+            low, high = check.interval
             issues.append(
                 issue(
                     "CONTROLLED_PUMP_CURVE",
@@ -290,6 +292,28 @@ def validate_topology(project: Project) -> list[TopologyIssue]:
                     f"which holds for rated-speed flows x from {low:.6g} to {high:.6g} m³/s; use "
                     "a curve whose head rises less steeply with flow there (2 H₀(x) > x H₀'(x)), "
                     "or a fixed speed",
+                    [comp.id],
+                )
+            )
+            continue
+        # Owner's decision (2026-10-23, TSD §12): Q_set >= s_max x_mono puts Q_set/s beyond
+        # x_mono at every s <= s_max, where F(·, Q_set) falls as the speed rises, so no speed in
+        # the drive's range controls it (and two limit states would both satisfy the rules).
+        # The quotient form of the same test as well, so that s_lo = max(s_min, Q_set/x_mono)
+        # is below s_max in floating point too (``pumps.bracket_low``).
+        q_set, speed, x_mono = comp.control.setpoint, comp.speed, check.x_mono
+        if math.isfinite(x_mono) and (q_set >= speed * x_mono or q_set / x_mono >= speed):
+            issues.append(
+                issue(
+                    "CONTROLLED_PUMP_SETPOINT",
+                    f"pump '{comp.id}' is speed-controlled to hold {q_set:.6g} m³/s, but no "
+                    f"speed up to its maximum speed {speed:.6g} can hold it on its curve "
+                    f"'{curve.id}' ({curve.name}): at that flow the head s² H₀(Q/s) falls as the "
+                    "speed s rises, at every speed, because Q/s lies beyond x_mono = "
+                    f"{x_mono:.6g} m³/s, twice the flow at which the curve's end tangent reaches "
+                    f"zero head; setpoints must be below {speed * x_mono:.6g} m³/s (the maximum "
+                    "speed × x_mono), so use a smaller setpoint or a curve that extends to higher "
+                    "flows",
                     [comp.id],
                 )
             )

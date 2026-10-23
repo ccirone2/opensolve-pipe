@@ -8,9 +8,13 @@
  * A speed-controlled pump whose curve does not give one speed for each head
  * (CONTROLLED_PUMP_CURVE) is told with its names, and the curve and the flow interval where it
  * fails are taken from the server's message (an issue has no details) and shown in the display
- * unit. The server's message is shown instead when it does not state them in the form expected,
- * when it names another curve than the pump's, or when the error is not for the project as it is
- * now (the pump may have been given another curve since the solve was sent).
+ * unit. So is a flow setpoint that no speed up to the maximum can hold (CONTROLLED_PUMP_SETPOINT),
+ * with the curve and the bound the setpoint must stay below taken from the message (shown rounded
+ * toward zero, so that every setpoint below the value shown is below it), and the setpoint and
+ * maximum speed from the project. The server's message is shown instead when it does
+ * not state them in the form expected, when it names another curve than the pump's, or when the
+ * error is not for the project as it is now (the pump may have been given another curve since the
+ * solve was sent).
  */
 import type {
 	FluidDefinition,
@@ -108,6 +112,30 @@ export function topologyIssueViews(
 				}
 				break;
 			}
+			case 'CONTROLLED_PUMP_SETPOINT': {
+				const bound = Number(SETPOINT_BOUND.exec(issue.message)?.[1]);
+				const named = SETPOINT_CURVE_ID.exec(issue.message)?.[1];
+				const pump = component?.type === 'pump' ? component : undefined;
+				const curve =
+					current && pump?.control && pump.curveId === named
+						? project.pumpLibrary.find((c) => c.id === named)
+						: undefined;
+				if (pump?.control && curve && Number.isFinite(bound)) {
+					return {
+						text:
+							`${pump.name} is speed-controlled to hold ` +
+							`${formatValue(pump.control.setpoint, 'flow', units)}, but no speed up to its ` +
+							`maximum speed (${formatValue(pump.speed, 'fraction', units)}) can hold that flow ` +
+							`on its pump curve “${curve.name}”: at that flow the head s²·H₀(Q/s) falls as the ` +
+							`speed s rises, at every speed, because Q/s lies beyond x_mono, twice the flow at ` +
+							`which the curve's end tangent reaches zero head. Use a setpoint below ` +
+							`${formatValue(bound, 'flow', units, 4, { towardZero: true })} (the maximum ` +
+							`speed × x_mono), or a curve that extends to higher flows.`,
+						links
+					};
+				}
+				break;
+			}
 			case 'NO_FIXED_HEAD':
 				return {
 					text: issue.componentIds.length
@@ -126,6 +154,16 @@ const CURVE_ID = /is speed-controlled, but its curve '([A-Za-z0-9_-]+)'/;
 /** The flow interval (m³/s) in the server's CONTROLLED_PUMP_CURVE message. */
 const CURVE_INTERVAL =
 	/flows x from (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) to (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) m³\/s/;
+
+/** The curve (its id) that the server's CONTROLLED_PUMP_SETPOINT message names. */
+const SETPOINT_CURVE_ID = /can hold it on its curve '([A-Za-z0-9_-]+)'/;
+
+/**
+ * The bound (m³/s) the setpoint must stay below, at the end of the server's
+ * CONTROLLED_PUMP_SETPOINT message (anchored there: the curve's name, earlier in it, is free text).
+ */
+const SETPOINT_BOUND =
+	/setpoints must be below (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) m³\/s \(the maximum speed × x_mono\), so use a smaller setpoint or a curve that extends to higher flows$/;
 
 /** "1 problem to fix before the network can be solved:" (pluralized). */
 export function topologySummary(count: number): string {

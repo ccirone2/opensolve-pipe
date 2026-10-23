@@ -14,8 +14,10 @@ from typing import Any
 
 import numpy as np
 import pytest
+from fastapi.testclient import TestClient
 from scipy.interpolate import PchipInterpolator
 
+from opensolve_pipe.main import app
 from opensolve_pipe.models.api import SolveOptions
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.pumps import PumpCurve
@@ -23,6 +25,7 @@ from opensolve_pipe.models.results import SolvedState
 from opensolve_pipe.services.fluids import fluid_properties
 from opensolve_pipe.services.solver import solve_project
 from opensolve_pipe.services.solver.builder import BuiltNetwork, build_network, validate_topology
+from opensolve_pipe.services.solver.errors import TopologyError
 from opensolve_pipe.services.solver.gga import GgaResult, solve_gga
 from opensolve_pipe.services.solver.network import NORMAL, LinkMode, LinkState
 from opensolve_pipe.services.solver.pumps import (
@@ -329,6 +332,159 @@ def test_controlled_pump_curve_topology_issue(
         assert "falls" not in found.message
     fixed = pump_line(2.0, 20.0, None, points=points)
     assert not [i for i in validate_topology(fixed) if i.code == "CONTROLLED_PUMP_CURVE"]
+
+
+# --------------------------------------------------------------------------- the setpoint bound
+
+
+def end_tangent_x_mono(points: list[tuple[float, float]]) -> float:
+    """x_mono from a fresh PchipInterpolator's end tangent (§4.3): beyond the last point
+    ψ = 2 h_e + m (x − 2 x_e), zero at 2 (x_e + h_e/|m|), twice the tangent's zero-head flow,
+    when m < 0; ψ never reaches 0 there when m >= 0."""
+    xs = np.array([p[0] for p in points])
+    ys = np.array([p[1] for p in points])
+    x_e, h_e = float(xs[-1]), float(ys[-1])
+    m = float(PchipInterpolator(xs, ys)(x_e, 1))
+    return 2.0 * (x_e + h_e / -m) if m < 0.0 else math.inf
+
+
+def setpoint_message(q_set: float, speed: float, x_mono: float) -> str:
+    """CONTROLLED_PUMP_SETPOINT in the owner's words (decision of 2026-10-23), for pump PU on
+    curve C1 ('curve C1'), with the expected values."""
+    return (
+        f"pump 'PU' is speed-controlled to hold {q_set:.6g} m³/s, but no speed up to its "
+        f"maximum speed {speed:.6g} can hold it on its curve 'C1' (curve C1): at that flow the "
+        "head s² H₀(Q/s) falls as the speed s rises, at every speed, because Q/s lies beyond "
+        f"x_mono = {x_mono:.6g} m³/s, twice the flow at which the curve's end tangent reaches "
+        f"zero head; setpoints must be below {speed * x_mono:.6g} m³/s (the maximum speed × "
+        "x_mono), so use a smaller setpoint or a curve that extends to higher flows"
+    )
+
+
+@pytest.mark.parametrize("shape", ["linear", "pchip"])
+@pytest.mark.parametrize("speed", [1.0, 0.8])
+@pytest.mark.parametrize("margin", [-1.0e-6, -1.0e-9, 1.0e-9, 1.0e-6])
+def test_setpoint_beyond_the_curve_at_maximum_speed_is_a_topology_issue(
+    shape: str, speed: float, margin: float
+) -> None:
+    """Owner's decision (2026-10-23, TSD §12): Q_set >= s_max x_mono puts Q_set/s beyond x_mono
+    at every s <= s_max, where F(s, Q_set) = s² H₀(Q_set/s) falls as s rises, so no speed in
+    the drive's range controls it: a topology issue naming the pump. Just below the bound the
+    pump is built and F(·, Q_set) rises on [s_lo, s_max] with s_lo < s_max. x_mono: 2a/b for
+    H₀ = a − b x (ψ = 2a − b x), and from the end tangent of a fresh PCHIP for curve_a."""
+    points = linear_points() if shape == "linear" else CURVE_A
+    x_mono = 2.0 * LINEAR_A / LINEAR_B if shape == "linear" else end_tangent_x_mono(points)
+    q_set = speed * x_mono * (1.0 + margin)
+    project = pump_line(2.0, 20.0, flow_control(q_set, 0.3), speed=speed, points=points)
+    issues = [i for i in validate_topology(project) if i.code == "CONTROLLED_PUMP_SETPOINT"]
+    if margin < 0.0:
+        assert not issues
+        control = build(project).pumps["PU"].control
+        assert control is not None
+        assert control.uniqueness.x_mono == pytest.approx(x_mono, rel=1e-12)
+        assert control.low_speed == pytest.approx(q_set / x_mono, rel=1e-12)
+        assert control.low_speed < control.max_speed == speed
+    else:
+        [found] = issues
+        assert found.component_ids == ["PU"]
+        assert found.connection_ids == []
+        assert found.message == setpoint_message(q_set, speed, x_mono)
+        with pytest.raises(TopologyError) as raised:
+            build(project)
+        assert [i.code for i in raised.value.issues] == ["CONTROLLED_PUMP_SETPOINT"]
+    # a fixed-speed pump on the same curve has no setpoint to hold
+    fixed = pump_line(2.0, 20.0, None, speed=speed, points=points)
+    assert not [i for i in validate_topology(fixed) if i.code == "CONTROLLED_PUMP_SETPOINT"]
+
+
+def test_every_accepted_setpoint_leaves_a_bracket_below_the_maximum_speed() -> None:
+    """Rounding: a setpoint one ulp below s_max x_mono can still give Q_set/x_mono >= s_max in
+    floating point, which would put s_lo = max(s_min, Q_set/x_mono) at s_max (no band for the
+    active state). Such a setpoint is rejected too, so every accepted one builds with
+    s_lo < s_max. The inputs are made from the curve's x_mono as the solver computes it, since
+    the case lies within an ulp of it; the test asserts the invariant, not a value."""
+    x_mono = speed_uniqueness(curve_model(linear_points())).x_mono
+    below = [
+        (float(speed), math.nextafter(float(speed) * x_mono, 0.0))
+        for speed in np.round(np.linspace(0.3, 1.0, 2001), 6)
+    ]
+    rounding = [(s, q) for s, q in below if q / x_mono >= s]
+    plain = [(s, q) for s, q in below if q / x_mono < s]
+    assert rounding  # the rounding case is among the inputs
+    for speed, q_set in rounding[:8] + plain[:8]:
+        project = pump_line(
+            2.0, 20.0, flow_control(q_set, 0.2), speed=speed, points=linear_points()
+        )
+        issues = [i.code for i in validate_topology(project)]
+        if (speed, q_set) in rounding:
+            assert issues == ["CONTROLLED_PUMP_SETPOINT"]
+            continue
+        assert not issues
+        control = build(project).pumps["PU"].control
+        assert control is not None
+        assert control.low_speed < control.max_speed, (speed, q_set)
+
+
+def test_a_rising_end_tangent_never_bounds_the_setpoint() -> None:
+    """A curve whose end tangent does not fall keeps ψ > 0 beyond its last point (x_mono = ∞):
+    no setpoint is beyond it, however large (here 100 m³/s, the model's largest)."""
+    points = [(0.0, 40.0), (0.01, 42.0), (0.02, 45.0)]  # rising, ψ = 2 H₀ − x H₀' > 0 on it
+    assert math.isinf(end_tangent_x_mono(points))
+    project = pump_line(2.0, 20.0, flow_control(100.0, 0.3), points=points)
+    assert not validate_topology(project)
+    control = build(project).pumps["PU"].control
+    assert control is not None
+    assert math.isinf(control.uniqueness.x_mono)
+
+
+def test_a_curve_that_fails_the_uniqueness_test_gets_no_setpoint_issue() -> None:
+    """The setpoint bound is tested only on curves that pass the ψ test (CONTROLLED_PUMP_CURVE
+    comes first): a failing curve with a setpoint far beyond its end tangent has that issue
+    alone."""
+    points = [(0.0, 0.5), (0.01, 0.6), (0.02, 30.0), (0.03, 25.0)]  # ψ < 0 on the steep rise
+    assert end_tangent_x_mono(points) < 10.0
+    project = pump_line(2.0, 20.0, flow_control(10.0, 0.3), points=points)
+    assert [i.code for i in validate_topology(project)] == ["CONTROLLED_PUMP_CURVE"]
+
+
+def test_setpoint_issue_is_listed_with_every_other_issue() -> None:
+    """The API's 422 lists every topology issue together (design §1.2): the setpoint bound of PU
+    (curve C1), the uniqueness test of PB (curve C2), an unknown curve and an unconnected port."""
+    q_set = 1.25 * 2.0 * LINEAR_A / LINEAR_B
+    steep = [(0.0, 0.5), (0.01, 0.6), (0.02, 30.0), (0.03, 25.0)]
+    comps = [
+        reservoir("R1", level=2.0),
+        pump("PU", flow_control(q_set, 0.3)),
+        pump("PB", flow_control(0.01, 0.3), curve="C2"),
+        pump("PC", curve="NONE"),
+        reservoir("R2", level=20.0),
+        plug("X"),
+    ]
+    conns = [
+        connection("L1", ("R1", "port_1"), ("PU", "suction"), length=10.0),
+        connection("L2", ("PU", "discharge"), ("PB", "suction"), length=10.0),
+        connection("L3", ("PB", "discharge"), ("PC", "suction"), length=10.0),
+        connection("L4", ("PC", "discharge"), ("R2", "port_1"), length=200.0),
+    ]
+    library = [curve_dict(linear_points()), curve_dict(steep, "C2")]
+    project = make_project(comps, conns, pump_library=library)
+    body = project.model_dump(mode="json", by_alias=True, exclude_none=True)
+    response = TestClient(app).post("/api/v1/solve", json={"project": body})
+    assert response.status_code == 422
+    found = response.json()
+    assert found["error"] == "TOPOLOGY_ERROR"
+    codes = sorted(i["code"] for i in found["issues"])
+    assert codes == [
+        "CONTROLLED_PUMP_CURVE",
+        "CONTROLLED_PUMP_SETPOINT",
+        "UNCONNECTED_PORT",
+        "UNKNOWN_PUMP_CURVE",
+    ]
+    [setpoint] = [i for i in found["issues"] if i["code"] == "CONTROLLED_PUMP_SETPOINT"]
+    assert setpoint["componentIds"] == ["PU"]
+    assert setpoint["message"] == setpoint_message(q_set, 1.0, 2.0 * LINEAR_A / LINEAR_B)
+    [curve] = [i for i in found["issues"] if i["code"] == "CONTROLLED_PUMP_CURVE"]
+    assert curve["componentIds"] == ["PB"]
 
 
 # --------------------------------------------------------------------------- the speed root
@@ -662,15 +818,20 @@ def linear_head(s: float, q: float) -> float:
 
 
 def test_bracket_low_speed_and_head_of_a_built_pump() -> None:
-    """D11: s_lo = max(s_min, Q_set/x_mono), at most s_max, and F(s_lo, Q_set), the bound of
+    """D11: s_lo = max(s_min, Q_set/x_mono), below s_max, and F(s_lo, Q_set), the bound of
     rule A2. For H₀ = a − b x, ψ = 2a − b x, so x_mono = 2a/b; dF/ds = 2a s − b Q is zero at
-    s = b Q/(2a) = Q/x_mono, where F is least."""
+    s = b Q/(2a) = Q/x_mono, where F is least. A setpoint beyond x_mono at every speed (Q_set =
+    0.2 > s_max x_mono = 0.16) was held at s_lo = s_max; since the owner's decision of
+    2026-10-23 it is rejected (CONTROLLED_PUMP_SETPOINT)."""
     x_mono = 2.0 * LINEAR_A / LINEAR_B
     cases = [
         (0.02, 0.3, 1.0, 0.3),  # Q_set/s_min within x_mono: s_lo = s_min
         (0.04, 0.1, 1.0, 0.04 / x_mono),  # beyond it: s_lo = Q_set/x_mono
-        (0.2, 0.1, 1.0, 1.0),  # beyond it at every speed: held at s_max
     ]
+    beyond = pump_line(2.0, 10.0, flow_control(0.2, 0.1), points=linear_points())
+    with pytest.raises(TopologyError) as raised:
+        build(beyond)  # beyond it at every speed
+    assert [i.code for i in raised.value.issues] == ["CONTROLLED_PUMP_SETPOINT"]
     for q_set, s_min, s_max, s_lo in cases:
         project = pump_line(2.0, 10.0, flow_control(q_set, s_min), points=linear_points())
         control = build(project).pumps["PU"].control

@@ -301,6 +301,29 @@ describe('errors', () => {
 		expect((offline as Error).message).toMatch(/could not be reached/);
 	});
 
+	it("maps the server's busy, time-budget, rate-limit and failure envelopes to NetworkError", async () => {
+		const envelope = (status: number, error: string, message: string) =>
+			new Response(JSON.stringify({ success: false, error, message, issues: [] }), {
+				status,
+				headers: { 'Content-Type': 'application/json' }
+			});
+		const busy = 'The calculation server is busy (or still solving your previous request).';
+		const { api } = client([
+			envelope(503, 'SERVER_BUSY', busy),
+			envelope(503, 'TIMEOUT', 'The solve did not finish: the time budget ran out.'),
+			envelope(429, 'RATE_LIMITED', 'Too many requests; try again in a minute.'),
+			envelope(500, 'INTERNAL_ERROR', 'The calculation server failed on this request.')
+		]);
+		for (const status of [503, 503, 429, 500]) {
+			const error = await rejection(api.solve(project));
+			expect(error).toBeInstanceOf(NetworkError);
+			expect(error).not.toBeInstanceOf(ValidationError);
+			expect(error).toMatchObject({ status });
+		}
+		const again = client([envelope(503, 'SERVER_BUSY', busy)]).api;
+		expect((await rejection(again.solve(project))) as Error).toMatchObject({ message: busy });
+	});
+
 	it('times out', async () => {
 		const fetch = vi.fn(
 			(_input: RequestInfo | URL, init?: RequestInit) =>

@@ -3,12 +3,16 @@
 	where extrapolated), the system curve and the operating point, with axes in display units. For
 	a speed-controlled pump (CLAUDE.md D11) the operating speed is the one it was solved to run at,
 	and the labels say so.
-	The system curve is computed on demand for the same solve (D10): while it is computed, when it
-	fails and where points have no solution, the chart says so; once shown, it says how it was
-	computed and links to the pump's trace, which defines it. A data table under the chart lists
-	the same points. Chart.js is loaded only when a chart is shown.
+	The system curve is computed on demand for the same solve (D10): while it is computed (with
+	Cancel), when it fails or was cancelled and where points have no head (no steady state, an
+	undetermined head, no convergence, not computed), the chart says so; once shown, it says how it
+	was computed and links to the pump's trace, which defines it. A data table under the chart lists
+	the same points, and why each without a head has none. The focus follows the control a keyboard
+	user pressed from Cancel to the button that computes the curve again, and back. Chart.js is
+	loaded only when a chart is shown.
 -->
 <script lang="ts">
+	import { tick, untrack } from 'svelte';
 	import type { PumpResult, UnitPreferences } from '$lib/api/types';
 	import type { SystemCurveState } from '$lib/state/project.svelte';
 	import { pumpChartData, type ChartPoint } from '$lib/utils/pump-chart';
@@ -25,6 +29,8 @@
 		system?: SystemCurveState;
 		/** Compute the system curve (again, after a failure or a cancellation). */
 		onretry?: () => void;
+		/** Cancel the system curve while it is computed. */
+		oncancel?: () => void;
 		/** Open the pump's trace, which defines the system curve (H_sys) among its equations. */
 		ontrace?: () => void;
 		/** Another pump of the solve is speed-controlled and on: it keeps regulating in the system curve. */
@@ -38,6 +44,7 @@
 		ratedRange = null,
 		system,
 		onretry,
+		oncancel,
 		ontrace,
 		othersControlled = false
 	}: Props = $props();
@@ -51,6 +58,10 @@
 		pumpChartData(result, prefs, low !== null && high !== null ? [low, high] : null, curve)
 	);
 	const loading = $derived(system?.status === 'loading');
+	let figure: HTMLElement | undefined = $state();
+	let cancelButton: HTMLButtonElement | undefined = $state();
+	/** The button that computes the curve again (failed, cancelled or not computed). */
+	let retryButton: HTMLButtonElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let unavailable = $state(false);
 	let showTable = $state(false);
@@ -119,6 +130,29 @@
 	);
 
 	const HELD = 'Held at zero flow';
+	/** Why a system-curve point has no head, as the API's messages say (TSD §5.6). */
+	const NO_HEAD_REASONS =
+		'(no steady state carries the flow, its head is undetermined, its solve did not converge, ' +
+		'or it was not computed)';
+
+	// Before the DOM drops Cancel when the curve stops loading (cancelled, computed or failed): if
+	// it has the focus, what replaces it takes it: the button to compute it again, else the chart.
+	$effect.pre(() => {
+		if (loading) return;
+		const cancel = untrack(() => cancelButton);
+		if (!cancel || document.activeElement !== cancel) return;
+		void tick().then(() => (retryButton ?? figure)?.focus());
+	});
+
+	// And back: before the DOM drops the button that computes the curve again (Compute the system
+	// curve, Try again) as the curve starts loading, if it has the focus, Cancel takes it, else the
+	// chart.
+	$effect.pre(() => {
+		if (!loading) return;
+		const retry = untrack(() => retryButton);
+		if (!retry || document.activeElement !== retry) return;
+		void tick().then(() => (cancelButton ?? figure)?.focus());
+	});
 
 	/** Legend markers: curves as a line (dashed where dashed), points as their marker. */
 	function legendStyle(label: string | undefined): 'circle' | 'rectRot' | 'line' {
@@ -281,7 +315,13 @@
 	});
 </script>
 
-<figure class="space-y-2" aria-labelledby="{id}-caption" aria-busy={loading}>
+<figure
+	bind:this={figure}
+	class="space-y-2"
+	aria-labelledby="{id}-caption"
+	aria-busy={loading}
+	tabindex="-1"
+>
 	<figcaption id="{id}-caption" class="text-sm font-medium">
 		Pump and system curves: {name}
 	</figcaption>
@@ -307,37 +347,69 @@
 		</p>
 	{/if}
 	{#if system?.status === 'loading'}
-		<p class="text-xs text-slate-600">Computing the system curve for this solve…</p>
+		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+			<p id="{id}-curve-state" class="text-xs text-slate-600">
+				Computing the system curve for this solve…
+			</p>
+			{#if oncancel}
+				<button
+					bind:this={cancelButton}
+					type="button"
+					class="btn btn-quiet px-2 text-blue-800"
+					aria-label="Cancel the system curve"
+					onclick={oncancel}
+				>
+					Cancel
+				</button>
+			{/if}
+		</div>
 	{:else if system?.status === 'error'}
 		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-			<p class="text-xs text-red-800">The system curve could not be computed: {system.message}</p>
+			<p id="{id}-curve-state" class="text-xs text-red-800">
+				The system curve could not be computed: {system.message}
+			</p>
 			{#if onretry}
-				<button type="button" class="btn btn-quiet px-2 text-blue-800" onclick={onretry}>
+				<button
+					bind:this={retryButton}
+					type="button"
+					class="btn btn-quiet px-2 text-blue-800"
+					aria-describedby="{id}-curve-state"
+					onclick={onretry}
+				>
 					Try again
 				</button>
 			{/if}
 		</div>
 	{:else if system?.status === 'cancelled' || system === undefined}
 		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-			<p class="text-xs text-slate-600">
-				{system
-					? 'The system curve was not computed: a new solve was started.'
-					: 'The system curve has not been computed for this solve.'}
+			<p id="{id}-curve-state" class="text-xs text-slate-600">
+				{!system
+					? 'The system curve has not been computed for this solve.'
+					: system.by === 'user'
+						? 'The system curve was not computed: you cancelled it.'
+						: 'The system curve was not computed: a new solve was started.'}
 			</p>
 			{#if onretry}
-				<button type="button" class="btn btn-quiet px-2 text-blue-800" onclick={onretry}>
+				<button
+					bind:this={retryButton}
+					type="button"
+					class="btn btn-quiet px-2 text-blue-800"
+					aria-describedby="{id}-curve-state"
+					onclick={onretry}
+				>
 					Compute the system curve
 				</button>
 			{/if}
 		</div>
 	{:else if data.system && data.systemMissing === data.system.length}
 		<p class="text-xs text-slate-700">
-			No point of the system curve has a solution, so it is not drawn; the data table says why.
+			No point of the system curve has a head, so it is not drawn; the data table says why for each
+			{NO_HEAD_REASONS}.
 		</p>
 	{:else if data.systemMissing}
 		<p class="text-xs text-slate-700">
-			{data.systemMissing} of {data.system?.length} system-curve points have no solution: the line has
-			gaps there, and the data table says why.
+			{data.systemMissing} of {data.system?.length} system-curve points have no head: the line has gaps
+			there, and the data table says why for each {NO_HEAD_REASONS}.
 		</p>
 	{/if}
 	{#if systemFlows}
@@ -450,7 +522,7 @@
 										>Head ({data.headUnit})</th
 									>
 									{#if data.systemMissing}
-										<th scope="col" class="px-2 py-1 text-left font-medium">No solution</th>
+										<th scope="col" class="px-2 py-1 text-left font-medium">Why no head</th>
 									{/if}
 								</tr>
 							</thead>

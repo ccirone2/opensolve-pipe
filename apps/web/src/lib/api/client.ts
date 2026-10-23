@@ -6,8 +6,10 @@
  * Errors are typed so the UI can say what to do (SDD §8.1):
  * - TopologyError: the network cannot be solved as connected (422 TOPOLOGY_ERROR);
  * - ValidationError: the request was rejected as invalid input (400, or 422 from validation);
- * - NetworkError: the API could not be reached or did not answer as documented (offline,
- *   timeout, 5xx, or an endpoint the server does not provide yet).
+ * - NetworkError: the API could not be reached, could not do the work now, or did not answer as
+ *   documented (offline, timeout, 429 or 5xx, with the server's message when it sent the error
+ *   envelope: busy, still solving the previous request, the time budget ran out; or an endpoint
+ *   the server does not provide yet).
  */
 import { env } from '$env/dynamic/public';
 import type {
@@ -233,6 +235,11 @@ export class ApiClient {
 		if (isErrorResponse(data)) {
 			if (data.error === 'TOPOLOGY_ERROR') {
 				throw new TopologyError(data.message, data.issues, response.status);
+			}
+			if (response.status === 429 || response.status >= 500) {
+				// Not about the project: the server is busy (SERVER_BUSY, e.g. still solving a
+				// request just cancelled), out of time (TIMEOUT), rate-limited or failed.
+				throw new NetworkError(data.message, response.status);
 			}
 			const details = [data.message, ...data.issues.map((i) => i.message)].filter(Boolean);
 			throw new ValidationError(data.message, details, response.status, data.error);

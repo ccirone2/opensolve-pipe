@@ -24,7 +24,8 @@
 		| 'flag'
 		| 'info'
 		| 'down'
-		| 'external';
+		| 'external'
+		| 'spinner';
 </script>
 
 <script lang="ts">
@@ -101,5 +102,8 @@
 	{:else if name === 'external'}
 		<path d="M14 4h6v6M20 4l-9 9" />
 		<path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+	{:else if name === 'spinner'}
+		<!-- Three quarters of a circle; spun with motion-safe:animate-spin where used. -->
+		<path d="M12 3a9 9 0 1 0 9 9" />
 	{/if}
 </svg>

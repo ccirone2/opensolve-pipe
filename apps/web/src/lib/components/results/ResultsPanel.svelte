@@ -5,7 +5,8 @@
 	flags by severity, and the results by view: Summary, Nodes, Links, Pumps, Valves, Branches,
 	Boundaries, Methods. Rows and flags open an element's results and trace, and point the
 	navigator at it. Input problems the solver would also report are listed so they can be fixed
-	first; solving is never blocked. Only the short status line is a live region.
+	first; solving is never blocked. After a cancelled solve, a note says so above what earlier
+	solves left. Only the short status line is a live region.
 
 	Tables are built once per solve and display units (and when names change), not on every edit,
 	and a view stays rendered (hidden) once visited, so switching views is quick on large networks.
@@ -197,13 +198,16 @@
 	/** The live status line: short, so a solve's outcome is announced without the lists. */
 	const status = $derived.by(() => {
 		if (results.solving) return 'Solving…';
-		if (results.error) return `Last solve: no results${results.errorStale ? ', out of date' : ''}`;
-		const stale = results.stale ? ', out of date' : '';
-		if (response && solved) {
+		let last = '';
+		if (results.error) last = `no results${results.errorStale ? ', out of date' : ''}`;
+		else if (response && solved) {
 			const outcome = response.success && solved.converged ? 'converged' : 'did not converge';
-			return `Last solve: ${outcome}${stale}`;
+			last = `${outcome}${results.stale ? ', out of date' : ''}`;
 		}
-		return '';
+		// After a cancelled solve, what is shown is from the last solve that finished.
+		if (results.cancelled)
+			return last ? `Solve cancelled. Last finished solve: ${last}` : 'Solve cancelled';
+		return last ? `Last solve: ${last}` : '';
 	});
 
 	/** WAI-ARIA tabs: arrow keys, Home and End move between the views. */
@@ -256,6 +260,18 @@
 					{ws.project.metadata.description}
 				</p>
 			</section>
+		{/if}
+		{#if results.cancelled}
+			<div
+				class="flex items-start gap-2 rounded-md border border-slate-300 bg-slate-50 p-3 text-sm text-slate-800"
+			>
+				<Icon name="info" class="mt-0.5 size-4 shrink-0" />
+				<p class="min-w-0 flex-1">
+					{response || results.error
+						? 'The solve was cancelled before it finished. What is shown below is from an earlier solve.'
+						: 'The solve was cancelled before it finished, so there are no results yet.'}
+				</p>
+			</div>
 		{/if}
 		{#if !failedNow}<ResultsStateNotice />{/if}
 

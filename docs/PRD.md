@@ -413,7 +413,7 @@ Manual entry of:
 
 - Simple systems (< 20 components): < 1 second solve time
 - Medium systems (20-100 components): < 5 seconds
-- Large systems (100+ components): Progress indicator with cancel option
+- Large systems (100+ components): Progress indicator with cancel option. v1: while a solve runs, the header shows a spinner with "Solving…" and a Cancel button, and while a pump's system curve is computed its chart says so and offers Cancel; the progress shown is that the work is running, not how far it has got (the solve is one request). Cancel aborts the request, the server stops the work, and the results shown before stay, labelled current or out of date as before.
 
 ### 4.3 Availability
 

@@ -1606,7 +1606,7 @@ export interface components {
             includeSystemCurve: boolean;
             /**
              * Systemcurvepoints
-             * @description Flows per system curve (points whose solve does not converge are left out)
+             * @description Flows per system curve (points without a head are left out: POST /api/v1/system-curve gives each point's reason)
              * @default 41
              */
             systemCurvePoints: number;
@@ -1721,7 +1721,10 @@ export interface components {
         };
         /** SystemCurvePoint */
         SystemCurvePoint: {
-            /** Converged */
+            /**
+             * Converged
+             * @description True when the point has a head: its solve converged to a steady state that carries the flow with a determined head
+             */
             converged: boolean;
             /**
              * Flow
@@ -1730,12 +1733,12 @@ export interface components {
             flow: number;
             /**
              * Head
-             * @description EGL(discharge) - EGL(suction), m: the head the pump must add at this flow; null when the point has no solution (see message)
+             * @description EGL(discharge) - EGL(suction), m: the head the pump must add at this flow; null when no steady state carries the flow, its head is undetermined or its solve did not converge (see message)
              */
             head: number | null;
             /**
              * Message
-             * @description Why the point has no head ('' when it converged)
+             * @description Why the point has no head ('' when it has one)
              */
             message: string;
         };
@@ -1772,7 +1775,7 @@ export interface components {
         SystemCurveResponse: {
             /**
              * Converged
-             * @description Whether each point's solve converged
+             * @description Whether each point has a head (each point's converged)
              */
             converged: boolean[];
             /** @description m³/s, the flows the points span */

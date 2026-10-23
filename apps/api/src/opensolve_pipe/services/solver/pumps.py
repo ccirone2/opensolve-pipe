@@ -14,7 +14,9 @@ Q = s Q₀, H = s² H₀, NPSHr = s² NPSHr₀, η = η₀. So H(Q) = s² H₀(Q
 
 Speed-controlled pumps (CLAUDE.md D11): with F(s, Q) = s² H₀(Q/s), dF/ds = s ψ(Q/s) with
 ψ(x) = 2 H₀(x) − x H₀'(x). Where ψ > 0 the head at a fixed flow rises strictly with speed, so
-one speed gives each head (``speed_uniqueness``, ``operating_speed``).
+one speed gives each head (``speed_uniqueness``, ``operating_speed``). Beyond x_mono, where the
+curve's falling end tangent takes ψ to 0, the head falls as the speed rises; a setpoint that
+lies there at every speed up to the maximum is rejected (``bracket_low``).
 
 References: Fritsch, F. N., and R. E. Carlson, SIAM J. Numer. Anal. 17(2), 1980, 238-246.
 Fritsch, F. N., and J. Butland, SIAM J. Sci. Stat. Comput. 5(2), 1984, 300-304.
@@ -258,10 +260,13 @@ def speed_uniqueness(curve: PumpCurveModel) -> SpeedUniqueness:
 
 
 def bracket_low(flow: float, min_speed: float, max_speed: float, x_mono: float) -> float:
-    """s_lo = max(s_min, Q/x_mono), at most s_max: F(·, Q) = s² H₀(Q/s) rises strictly with
-    speed on [s_lo, s_max] (``speed_uniqueness``: ψ(Q/s) > 0 there) and, when s_lo > s_min,
-    falls on [s_min, s_lo], where Q/s is beyond x_mono. F(s_lo, Q) is then the least head the
-    pump gives at Q over its speed range on the rising (controllable) stretch (CLAUDE.md D11)."""
+    """s_lo = max(s_min, Q/x_mono): F(·, Q) = s² H₀(Q/s) rises strictly with speed on
+    [s_lo, s_max] (``speed_uniqueness``: ψ(Q/s) > 0 there) and, when s_lo > s_min, falls on
+    [s_min, s_lo], where Q/s is beyond x_mono. F(s_lo, Q) is then the least head the pump gives
+    at Q over its speed range on the rising (controllable) stretch (CLAUDE.md D11). A setpoint
+    Q >= s_max x_mono, which no speed up to s_max controls, is rejected before a network is
+    built (CONTROLLED_PUMP_SETPOINT, ``builder.validate_topology``), so s_lo < s_max there; the
+    result is still held at s_max, a guard for any other caller."""
     low = min_speed if math.isinf(x_mono) else max(min_speed, flow / x_mono)
     return min(low, max_speed)
 
@@ -273,8 +278,8 @@ class OperatingSpeed:
     speed: float
     """s*, within [s_min, s_max]."""
     lower: float
-    """s_lo = max(s_min, Q/x_mono): F(·, Q) rises strictly with speed on [s_lo, s_max] (held at
-    s_max if it exceeds it)."""
+    """s_lo = max(s_min, Q/x_mono): F(·, Q) rises strictly with speed on [s_lo, s_max]
+    (``bracket_low``)."""
     residual: float
     """F(s*, Q) − H, m: at most Htol in size when the pump is active (the head is clamped to
     the range of F on [s_lo, s_max])."""
@@ -293,8 +298,9 @@ def operating_speed(
     Ĥ = clamp(H, F(s_lo, Q), F(s_max, Q)) and s* the root of F(s, Q) = Ĥ by Brent's method
     (``scipy.optimize.brentq``, Brent 1973), the end speed when Ĥ is at an end. F rises strictly
     on [s_lo, s_max] (``speed_uniqueness``), so the root is unique and one sign change brackets
-    it. Should s_lo reach s_max (Q beyond x_mono at every speed, where F falls with speed), the
-    speed is s_max."""
+    it. A setpoint with Q beyond x_mono at every speed up to s_max (Q >= s_max x_mono, where F
+    falls with speed throughout) is rejected before a network is built (``bracket_low``);
+    should s_lo still reach s_max here, the speed is s_max (a guard)."""
 
     def f(speed: float) -> float:
         return curve.head(flow, speed)[0]

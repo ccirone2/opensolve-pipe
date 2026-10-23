@@ -5,6 +5,7 @@ import {
 	CATEGORY_UNITS,
 	displayUnit,
 	formatNumber,
+	formatNumberTowardZero,
 	formatValue,
 	fromSI,
 	IMPERIAL_UNITS,
@@ -205,6 +206,25 @@ describe('formatting and parsing', () => {
 		expect(formatNumber(101325, 6)).toBe('101325');
 		expect(formatNumber(Number.NaN)).toBe('—');
 		expect(formatNumber(Infinity)).toBe('—');
+	});
+
+	it('formats a bound rounded toward zero, so that a value below what is shown is below it', () => {
+		expect(formatNumberTowardZero(573.46469)).toBe('573.4');
+		expect(formatNumberTowardZero(-573.46469)).toBe('-573.4');
+		expect(formatNumberTowardZero(9.99961)).toBe('9.999');
+		expect(formatNumberTowardZero(12345)).toBe('12340');
+		expect(formatNumberTowardZero(0.000013579)).toBe('1.357e-5');
+		// Exact at 4 digits, or within floating-point error of it: not a digit lower.
+		expect(formatNumberTowardZero(36.18)).toBe('36.18');
+		expect(formatNumberTowardZero(36.17999999999999)).toBe('36.18');
+		expect(formatNumberTowardZero(80)).toBe('80');
+		expect(formatNumberTowardZero(1.35e-5)).toBe('1.35e-5');
+		expect(formatNumberTowardZero(0)).toBe('0');
+		expect(formatNumberTowardZero(Number.NaN)).toBe('—');
+		const bound = 0.03618; // m³/s: 573.46 gpm, 36.18 L/s
+		expect(formatValue(bound, 'flow', IMPERIAL_UNITS, 4, { towardZero: true })).toBe('573.4 gpm');
+		expect(formatValue(bound, 'flow', SI_UNITS, 4, { towardZero: true })).toBe('36.18 L/s');
+		expect(formatValue(bound, 'flow', IMPERIAL_UNITS)).toBe('573.5 gpm');
 	});
 
 	it('formats SI values in the display unit', () => {

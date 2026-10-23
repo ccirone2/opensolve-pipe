@@ -2,7 +2,7 @@
 	Pumps: status, operating point, speed, efficiency, power and NPSH per pump, then the pump and
 	system curves of the pump being viewed (one at a time, chosen when there are several). Its
 	system curve is computed on demand for the exact project of this solve and cached with it
-	(D10; ProjectStore.loadSystemCurve).
+	(D10; ProjectStore.loadSystemCurve), and can be cancelled while it is computed.
 -->
 <script lang="ts">
 	import { untrack } from 'svelte';
@@ -88,6 +88,7 @@
 					onretry={response
 						? () => ws.store.loadSystemCurve(viewed.key, { retry: true })
 						: undefined}
+					oncancel={response ? () => ws.store.cancelSystemCurve(viewed.key) : undefined}
 					ontrace={() => ws.inspect(viewed.element)}
 					{othersControlled}
 				/>

@@ -143,6 +143,11 @@ export async function tableTexts(table: Locator): Promise<string[]> {
 
 /** A number as shown in the results: 4 significant figures. */
 export const sig4 = (value: number) => String(Number(value.toPrecision(4)));
+/** Rounded toward zero to 4 significant digits: how a bound a value must stay below is shown. */
+export const down4 = (value: number) => {
+	const scale = 10 ** (3 - Math.floor(Math.log10(Math.abs(value))));
+	return String(Math.trunc(value * scale) / scale);
+};
 
 /**
  * Half a unit in the last displayed digit of a number shown as `text` ("12.81" → 0.005): the

@@ -7,6 +7,7 @@ import {
 	buildPane,
 	cellText,
 	currentHeading,
+	down4,
 	resultsPane,
 	resultsView,
 	setNumber,
@@ -22,13 +23,15 @@ import {
  * pump-transfer example's pump is switched to flow control, solved, and its solved speed and
  * state read in the results table and the pump chart; the link is shared and reopened with the
  * same results; an unreachable setpoint runs the pump at its maximum speed with the information
- * flag; switching back to fixed speed is undone in one step.
+ * flag; switching back to fixed speed is undone in one step. A setpoint that no speed up to the
+ * maximum can hold on the curve is rejected, and told with names and the bound in display units.
  *
  * Network: the home page's pump-transfer example (illustrative, made-up inputs), whose pump curve
  * at rated speed is 0 L/s at 30 m, 10 L/s at 28 m, 20 L/s at 22 m and 30 L/s at 12 m. The flow
  * setpoints and the minimum speed below are made-up test inputs.
  */
-const CURVE = [
+type Point = { flow: number; head: number };
+const CURVE: Point[] = [
 	{ flow: 0, head: 30 },
 	{ flow: 10, head: 28 },
 	{ flow: 20, head: 22 },
@@ -357,4 +360,62 @@ test("a controlled pump's curve issue: told with its names, and in the server's 
 	await expect(resultsPane(page).getByRole('status')).toHaveText(
 		'Last solve: no results, out of date'
 	);
+});
+
+test('a flow setpoint no speed can hold on the curve: rejected, and told with its names and bound', async ({
+	page
+}) => {
+	// A setpoint must be below the maximum speed × x_mono (CLAUDE.md D11; the owner's decision of
+	// 2026-10-23), x_mono being twice the flow at which the curve's end tangent reaches zero head.
+	// The API's curve is SciPy's PchipInterpolator, whose end slope is the one-sided three-point
+	// estimate of C. Moler, Numerical Computing with MATLAB (2004), §3.6:
+	// d = ((2h₁ + h₂)δ₁ − h₁δ₂)/(h₁ + h₂), with the last interval h₁, δ₁ and the one before h₂, δ₂;
+	// here −1.2 m per L/s, of the sign of δ₁ and δ₂, so it is not limited. The tangent
+	// 12 − 1.2(x − 30) is zero at 40 L/s: x_mono = 80 L/s, the bound at 100 % maximum speed.
+	const [before, prev, last] = CURVE.slice(-3) as [Point, Point, Point];
+	const h1 = last.flow - prev.flow;
+	const h2 = prev.flow - before.flow;
+	const d1 = (last.head - prev.head) / h1;
+	const d2 = (prev.head - before.head) / h2;
+	const slope = ((2 * h1 + h2) * d1 - h1 * d2) / (h1 + h2);
+	expect(Math.sign(slope)).toBe(Math.sign(d1));
+	const xMono = 2 * (last.flow - last.head / slope); // L/s
+	expect(xMono).toBeCloseTo(80, 12);
+	const beyond = 90; // L/s, a made-up setpoint at or above the bound
+
+	await openExamplePump(page);
+	const panel = buildPane(page);
+	await panel
+		.getByRole('combobox', { name: 'Control' })
+		.selectOption({ label: 'Flow control (variable speed)' });
+	await setNumber(panel, 'Flow setpoint (L/s)', String(beyond));
+	await setNumber(panel, 'Minimum speed (%)', String(MIN_SPEED));
+	const { status, body } = await solve(page);
+	expect(status).toBe(422);
+	expect(body.issues).toEqual([
+		expect.objectContaining({ code: 'CONTROLLED_PUMP_SETPOINT', componentIds: ['P1'] })
+	]);
+	expect(body.issues![0]!.message).toContain(`setpoints must be below ${xMono / 1000} m³/s`);
+
+	await showPane(page, 'Results');
+	const item = resultsPane(page)
+		.getByRole('region', { name: 'The network cannot be solved yet' })
+		.getByRole('listitem');
+	await expect(item).toHaveCount(1);
+	const curve = pumpTransferExample().pumpLibrary[0]!.name;
+	await expect(item).toContainText(
+		`Transfer pump is speed-controlled to hold ${beyond} L/s, but no speed up to its maximum ` +
+			`speed (100 %) can hold that flow on its pump curve “${curve}”:`
+	);
+	await expect(item).toContainText(
+		`Use a setpoint below ${down4(xMono)} L/s (the maximum speed × x_mono), or a curve that ` +
+			'extends to higher flows.'
+	);
+	await expect(item).not.toContainText('m³/s');
+	await expect(item.getByRole('button', { name: 'Transfer pump' })).toBeVisible();
+
+	// A setpoint below the bound solves (at the maximum speed: it is beyond what the pump gives).
+	await showPane(page, 'Build');
+	await setNumber(panel, 'Flow setpoint (L/s)', String(UNREACHABLE));
+	await solveConverged(page);
 });

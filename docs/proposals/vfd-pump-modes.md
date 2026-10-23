@@ -160,6 +160,7 @@ class Pump(BaseComponent):
 ### 3.4 Topology issue `CONTROLLED_PUMP_CURVE`
 - It sits in `builder.py` next to `UNKNOWN_PUMP_CURVE` (220-230).
 - It is raised for a controlled pump whose curve fails the exact uniqueness test of §4.3. The message names the pump, the curve and the flow interval.
+- Added by the owner's decision of 2026-10-23 (TSD §12): `CONTROLLED_PUMP_SETPOINT`, after this test on a curve that passes it, for a setpoint Q_set ≥ s_max·x_mono, which no speed in the drive's range controls (§4.3). The message names the pump, the setpoint, the maximum speed, the curve, x_mono and the bound s_max·x_mono.
 
 ### 3.5 schemaVersion decision
 Facts:
@@ -232,7 +233,7 @@ Where ψ ≠ 0, the Newton iterates of (Q, H) are exactly those of the reduced s
 - For m < 0, ψ reaches 0 at x_mono = 2(x_e + h_e/|m|) = 2x₀, twice the tangent's zero-head flow.
 - For m ≥ 0, ψ only grows from its checked value at x_e, so x_mono = ∞.
 
-**Bracket.** s_lo = max(s_min, Q_set/x_mono), at most s_max. Then F(·, Q_set) is strictly increasing on [s_lo, s_max].
+**Bracket.** s_lo = max(s_min, Q_set/x_mono), at most s_max (below it since the owner's decision of 2026-10-23, which rejects Q_set ≥ s_max·x_mono as `CONTROLLED_PUMP_SETPOINT`, §3.4). Then F(·, Q_set) is strictly increasing on [s_lo, s_max].
 - If s_lo > s_min, F decreases on [s_min, s_lo], so F(s_lo) < F_min. On that stretch raising the speed lowers the flow: at a fixed system Sys, Q(s) solves F(s, Q) = Sys(Q), so dQ/ds = (∂F/∂s)/(Sys′ − ∂F/∂Q), whose denominator is positive where F falls with Q and Sys rises; dQ/ds then has the sign of ∂F/∂s. No stable flow controller holds a speed there.
 - So any H in [F_lo − Htol, F_max + Htol], F_lo = F(s_lo, Q_set), has exactly one root on [s_lo, s_max], up to the Htol band, and rule A2 tests F_lo (§4.5). A head in [F_lo, F_min) also has a root on (s_min, s_lo), on the falling stretch; it is not used.
 - As built, A2 first tested F_min. The slice-1 review found the band [F_lo, F_min) sent to minimum speed although a speed in (s_lo, s_max] held the setpoint (curve_a, Q_set 0.03 m³/s, minSpeed 0.15, head −3.3 m at Q_set: speeds 0.2534 and 0.1944 hold it, the solve reported 0.15); A2 now tests F_lo.
@@ -383,7 +384,7 @@ This runs after convergence, for ACTIVE only.
 | Gravity drives more than Q_set even at s_min | A2 (H < F(s_lo, Q_set) − Htol) → MIN_SPEED: runs at s_min, Q > Q_set, flagged. `PUMP_OUTSIDE_CURVE` if Q/s_min is beyond the points. | A pump cannot throttle below its minimum. There is no sleep mode (Q3). |
 | Q_set/s_min beyond run-out (curve_a, 0.0335 m³/s, s_min 0.4) | Solves ACTIVE, with s* unique on [s_lo, s_max]. | §4.3 bracket. Rejecting it would refuse a valid project (GOALS §4.6). |
 | Q_set/s_min beyond x_mono, head at Q_set in [F(s_lo, Q_set), F(s_min, Q_set)) | ACTIVE at the root on [s_lo, s_max]. MIN_SPEED (Q > Q_set) also satisfies the rules there; the solve starts ACTIVE and A2 does not leave it for a head in the band. | §4.3, §4.6: the other root, on [s_min, s_lo], is on the falling stretch no stable controller holds. |
-| Q_set/s_max beyond x_mono (s_lo capped at s_max), head at Q_set above F(s_max, Q_set) + Htol | MAX_SPEED by A1 (Q < Q_set); MIN_SPEED (Q > Q_set) can also satisfy the rules. Both flagged `PUMP_OUTSIDE_CURVE`; the reported one depends on the solve's path. | No speed in the range is on a rising stretch of F(·, Q_set) (§4.3). Recorded as an open item (TSD §12). |
+| Q_set/s_max beyond x_mono (Q_set ≥ s_max·x_mono) | `CONTROLLED_PUMP_SETPOINT` (422), after the ψ test, naming the bound s_max·x_mono. (As first built, s_lo was capped at s_max: MAX_SPEED by A1 and MIN_SPEED could both satisfy the rules, both flagged `PUMP_OUTSIDE_CURVE`, the reported one depending on the solve's path.) | No speed in the range is on a rising stretch of F(·, Q_set) (§4.3). The owner's decision of 2026-10-23: invalid input (TSD §12). |
 | Reverse flow | Impossible in ACTIVE (Q ≡ Q_set > 0). At OPEN it closes by EPANET's rule. | Integral check. |
 | Discharge into a plug or a closed valve | A0 → OPEN at s_max, zero flow, head S_max: running, `PUMP_SETPOINT_NOT_MET`. | Identical to a v1 fixed pump at s_max against a plug. A controller that sees zero flow goes to maximum. |
 | Between two closed isolation valves | A0 → OPEN, inside a closed-off section: no pump result and no flag (`results.py:556-575` returns None for a running pump). | Fixes the false `PUMP_FLOW_REVERSAL` (invalid) that a starved → CLOSED rule would raise. Same as a fixed pump. |
@@ -393,7 +394,7 @@ This runs after convergence, for ACTIVE only.
 | Two flow pumps in series, unequal setpoints | A unique state set by Q_c (§4.6), reached by the fallbacks with MIN_SPEED options. | Monotone partition. |
 | Two flow pumps in series, equal setpoints; or flow pump and FCV with equal setpoints | Not converged, naming both; the message says the pressure between them is undetermined (over-controlled). | The pressure between them is undetermined (AFT, PIPE-FLO). |
 | Flow pump and a downstream PRV | PRV open and pump active if no throttling is needed at Q_set; otherwise PRV active and pump at max speed. | Unique (§4.6). Design 2's "undetermined" was wrong. |
-| Drooping curve with ψ > 0 | Accepted; the speed root s* is unique, the operating state need not be: the limit rules close the pump against s²H₀(0), as v1 does a fixed pump, so a running state with a head above that is not found (no flow, `PUMP_FLOW_REVERSAL` invalid; or, at minimum speed, not converged). | §4.3. A known v1 limitation (TSD §12 Open); EPANET 2.2 rejects such curves (error 227). |
+| Drooping curve with ψ > 0 | Accepted; the speed root s* is unique, the operating state need not be: the limit rules close the pump against s²H₀(0), as v1 does a fixed pump, so a running state with a head above that is not found (no flow, `PUMP_FLOW_REVERSAL` invalid; or, at minimum speed, not converged). | §4.3. A known v1 limitation, kept by the owner's decision of 2026-10-23 (TSD §12); EPANET 2.2 rejects such curves (error 227). |
 | Curve with ψ ≤ 0 inside its points | `CONTROLLED_PUMP_CURVE` (422). | The speed would not be unique. Loosening this later breaks no link. |
 | minSpeed ≥ speed | 400 `VALIDATION_ERROR`, with no values echoed (D10). The form flags it before any solve. | Model rule. |
 | Status off with a control | CLOSED and fixed; `control.state` off; no setpoint flag. | off wins. The trace notes it. |

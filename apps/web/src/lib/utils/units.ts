@@ -214,9 +214,25 @@ export function formatNumber(value: number, sig = 4): string {
 	return `${trimmed}e${exponent.replace('+', '')}`;
 }
 
+/**
+ * `value` rounded toward zero to `sig` significant digits, for a bound a value must stay below
+ * (above, if negative): "below 573.4 gpm", where 573.46 rounded to the nearest, 573.5, would
+ * admit values at or beyond the bound. A value within floating-point error of its rounding to
+ * the nearest (36.17999999999999 for 36.18) keeps that rounding rather than losing a digit.
+ */
+export function formatNumberTowardZero(value: number, sig = 4): string {
+	if (!Number.isFinite(value) || value === 0) return formatNumber(value, sig);
+	const nearest = Number(formatNumber(value, sig));
+	if (Math.abs(nearest) <= Math.abs(value) * (1 + 1e-12)) return formatNumber(nearest, sig);
+	const scale = 10 ** (sig - 1 - Math.floor(Math.log10(Math.abs(value))));
+	return formatNumber(Math.trunc(value * scale) / scale, sig);
+}
+
 export interface FormatOptions extends LabelOptions {
 	/** Append the unit label (default true). */
 	unit?: boolean;
+	/** Round toward zero, for a bound (`formatNumberTowardZero`); to the nearest by default. */
+	towardZero?: boolean;
 }
 
 /**
@@ -232,7 +248,8 @@ export function formatValue(
 ): string {
 	if (si === null || si === undefined || !Number.isFinite(si)) return '—';
 	const unit = displayUnit(category, prefs);
-	const text = formatNumber(fromSI(si, unit), sig);
+	const shown = fromSI(si, unit);
+	const text = options.towardZero ? formatNumberTowardZero(shown, sig) : formatNumber(shown, sig);
 	if (options.unit === false) return text;
 	const label = unitLabel(category, unit, options);
 	if (!label) return text;

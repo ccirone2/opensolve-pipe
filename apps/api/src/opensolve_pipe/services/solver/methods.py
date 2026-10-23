@@ -49,6 +49,11 @@ DARBY = (
     "Silverberg, P., and R. Darby. Correlate pressure drops through fittings. Chem. Eng. "
     "106(7), 1999, 101."
 )
+FORD_FULKERSON = (
+    "Ford, L. R., and D. R. Fulkerson. Maximal flow through a network. Canadian Journal of "
+    "Mathematics 8, 1956, 399-404 (the max-flow min-cut theorem: the flows no state carries "
+    "through a pump on its system curve)."
+)
 FRITSCH_CARLSON = (
     "Fritsch, F. N., and R. E. Carlson. Monotone piecewise cubic interpolation. SIAM J. Numer. "
     "Anal. 17(2), 1980, 238-246."
@@ -128,7 +133,9 @@ def methods_summary(
             "speed s, between its minimum speed s_min and its speed s_max (the maximum). F rises "
             "with speed on [s_lo, s_max], s_lo = max(s_min, Q/x_mono), where 2 H₀ − (Q/s) H₀' > "
             "0 (checked exactly on the curve's cubic pieces, a curve that fails being rejected; "
-            "x_mono follows from the curve's end tangent). While a speed in [s_lo, s_max] holds "
+            "x_mono follows from the curve's end tangent, and a setpoint of s_max x_mono or "
+            "more, where F falls with speed at every speed up to s_max so that no speed holds "
+            "it, is rejected too). While a speed in [s_lo, s_max] holds "
             f"the setpoint, F(s_lo, Q_set) − {HTOL:g} m ≤ EGL_d − EGL_s ≤ F(s_max, Q_set) + "
             f"{HTOL:g} m (the status head tolerance), the pump carries the setpoint as a fixed "
             "flow (EPANET 2.2's substitute for a pump of a specific flow) and its speed is the "
@@ -302,16 +309,35 @@ def methods_summary(
                     "− EGL(suction). Default flows: 0 to "
                     f"{DEFAULT_RANGE_FACTOR:g} x the curve's largest flow x s. Each point "
                     "starts from the solution at the neighbouring flow (statuses, branch losses "
-                    "and flows; the first from the network's own solve), so where the "
-                    "statuses or branch patterns admit more than one solution the curve follows "
-                    "one continuously; a point that fails from there is solved from the initial "
-                    "state." + system_curve_control,
+                    "and flows; the first from the network's own solve when the solve computes "
+                    "the curves, from the initial state otherwise), so where the statuses or "
+                    "branch patterns admit more than one solution the curve follows one "
+                    "continuously; a point that fails from there is solved from the initial "
+                    "state, and one that still has no head while the flow has a way through "
+                    "(unless a control valve in series is at its switch, below) is solved again "
+                    "from the initial state (if it did not start there) and from it with its "
+                    "active control valves open, the first solve that gives a head, or finds a "
+                    "control valve in series at its switch, being used (with none, the point "
+                    "keeps its first result) and the next point starting from the result used; "
+                    "a flowing point is not solved again when its flow exceeds what every way "
+                    "from the pump's discharge back to its suction can pass that way (an FCV at "
+                    "most its setpoint, a check valve, PRV, PSV or pump nothing in reverse: a "
+                    "cut, Ford and Fulkerson), since no steady state carries it, and one whose "
+                    "flow is that limit, where every steady state passes each FCV of the cut at "
+                    "its setpoint, is also solved with each such FCV held open, to find whether "
+                    "it sits at its switch. A point has no head where no "
+                    "steady state carries its flow, where its head is undetermined (a side of "
+                    "the pump with no fixed pressure, or a control valve in series at its "
+                    "switch, which could also hold the flow throttled with any higher head) or "
+                    "where its solve does not converge; its message says which."
+                    + system_curve_control,
                     *speed_control_items,
                 ],
                 references=[
                     FRITSCH_CARLSON,
                     FRITSCH_BUTLAND,
                     EPANET_STATUS,
+                    FORD_FULKERSON,
                     *speed_control_references,
                 ],
             ),

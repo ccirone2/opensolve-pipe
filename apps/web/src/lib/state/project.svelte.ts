@@ -15,6 +15,9 @@
  *   clearing the results drops them, and a request for an older solve never fills the cache of a
  *   newer one. Requests go one at a time (the server runs one solve per client at a time), and a
  *   solve starting cancels them.
+ * - A solve and a system curve can be cancelled (PRD §4.2): the request is aborted (the server
+ *   stops the work of a client that has gone, D10), an answer that still arrives is dropped, and
+ *   what was shown before stays, current or out of date by the same rules.
  *
  * Nothing is kept in browser storage; history lives only in this page.
  */
@@ -76,6 +79,12 @@ export interface ResultsState {
 	/** Why the latest solve gave no results (`response`, if any, is from an earlier solve). */
 	error: ResultsError | null;
 	/**
+	 * True when the latest solve was cancelled before it answered (cancelSolve()): `response` and
+	 * `error`, if any, are from earlier solves, as stale as the project's changes make them.
+	 * Cleared when a solve starts.
+	 */
+	cancelled: boolean;
+	/**
 	 * True when the project changed, in a way that can change the results, after the solve that
 	 * gave `error` (false without an error). With an error that is not stale and a stale
 	 * `response`, the latest solve of the current project failed and the response is from an
@@ -85,7 +94,12 @@ export interface ResultsState {
 }
 
 export interface Solver {
-	solve(project: Project, options?: Partial<SolveOptions>): Promise<SolveResponse>;
+	/** Solve (POST /api/v1/solve); `request.signal` aborts it (cancelled, or no longer wanted). */
+	solve(
+		project: Project,
+		options?: Partial<SolveOptions>,
+		request?: { signal?: AbortSignal }
+	): Promise<SolveResponse>;
 	/** System curve of one pump (POST /api/v1/system-curve); absent when not available. */
 	systemCurve?(
 		project: Project,
@@ -96,13 +110,14 @@ export interface Solver {
 
 /**
  * The system curve of one pump for the solve whose results are shown: being computed, computed
- * (points without a head say why), failed, or cancelled because a newer solve started.
+ * (points without a head say why), failed, or cancelled before it was computed, `by` a newer
+ * solve starting or by the user (cancelSystemCurve()).
  */
 export type SystemCurveState =
 	| { status: 'loading' }
 	| { status: 'ready'; curve: SystemCurveResponse }
 	| { status: 'error'; message: string }
-	| { status: 'cancelled' };
+	| { status: 'cancelled'; by: 'solve' | 'user' };
 
 export interface ProjectStoreOptions {
 	/** Writes the app-relative URL ('/p#…'). Default: history.replaceState, keeping its state. */
@@ -124,6 +139,7 @@ const EMPTY_RESULTS: ResultsState = Object.freeze({
 	stale: false,
 	solving: false,
 	error: null,
+	cancelled: false,
 	errorStale: false
 });
 
@@ -216,8 +232,10 @@ export class ProjectStore {
 	#responseFingerprint: string | null = null;
 	#errorFingerprint: string | null = null;
 	#timer: ReturnType<typeof setTimeout> | null = null;
-	/** Aborts the system-curve requests in flight or queued (a solve starts, or results go). */
-	#curveRequests = new AbortController();
+	/** Aborts the solve request in flight (cancelled, superseded, or its results no longer wanted). */
+	#solveRequest: AbortController | null = null;
+	/** The system-curve requests in flight or queued, to abort them. */
+	#curveRequests: readonly { pumpId: string; controller: AbortController }[] = [];
 	/** The system-curve requests, one after the other. */
 	#curveQueue: Promise<unknown> = Promise.resolve();
 	readonly #options: ProjectStoreOptions;
@@ -303,7 +321,7 @@ export class ProjectStore {
 		this.#undo = [];
 		this.#redo = [];
 		this.#mergeable = false;
-		this.#solveSequence++;
+		this.#dropSolve();
 		this.#responseFingerprint = null;
 		this.#errorFingerprint = null;
 		this.results = EMPTY_RESULTS;
@@ -435,33 +453,48 @@ export class ProjectStore {
 	/** Stop pending work (when the page is destroyed). */
 	dispose(): void {
 		this.#cancelSync();
-		this.#solveSequence++;
-		this.#curveRequests.abort();
+		this.#dropSolve();
+		this.#abortCurveRequests();
 	}
 
 	/**
 	 * Solve the current project. Results arriving after the project changed are kept but
-	 * marked stale; a newer solve supersedes an older one. A failed solve keeps the previous
+	 * marked stale; a newer solve supersedes an older one (whose request is aborted, as it is
+	 * when the project is replaced or the results cleared). A failed solve keeps the previous
 	 * response (it is stale only if the project changed since it was computed). On success the
 	 * project records the method version it was solved with (traceability), without an undo step.
 	 */
 	async solve(options?: Partial<SolveOptions>): Promise<void> {
 		const project = this.project;
 		const fingerprint = hydraulicFingerprint(project);
-		const sequence = ++this.#solveSequence;
-		this.results = { ...this.results, solving: true };
+		this.#dropSolve();
+		const sequence = this.#solveSequence;
+		const request = new AbortController();
+		this.#solveRequest = request;
+		this.results = { ...this.results, solving: true, cancelled: false };
 		this.#cancelSystemCurves();
 		try {
 			const solver = this.#options.solver ?? defaultClient();
 			// No system curves with the solve (D10): the pump chart fetches its own.
-			const response = await solver.solve(project, { includeSystemCurve: false, ...options });
+			const response = await solver.solve(
+				project,
+				{ includeSystemCurve: false, ...options },
+				{ signal: request.signal }
+			);
 			if (sequence !== this.#solveSequence) return;
 			this.#responseFingerprint = fingerprint;
 			this.#errorFingerprint = null;
 			const stale = hydraulicFingerprint(this.project) !== fingerprint;
 			this.#forgetSystemCurves();
 			this.solvedProject = project;
-			this.results = { response, stale, solving: false, error: null, errorStale: false };
+			this.results = {
+				response,
+				stale,
+				solving: false,
+				error: null,
+				cancelled: false,
+				errorStale: false
+			};
 			if (!stale) this.#recordMethodVersion(response);
 		} catch (error) {
 			if (sequence !== this.#solveSequence) return;
@@ -469,7 +502,30 @@ export class ProjectStore {
 			// The previous response (if any) stays; it is stale only if the project changed since.
 			const failed = { ...this.results, solving: false, error: toResultsError(error) };
 			this.results = { ...failed, ...this.#staleness(this.project, failed) };
+		} finally {
+			if (this.#solveRequest === request) this.#solveRequest = null;
 		}
+	}
+
+	/**
+	 * Cancel the solve in progress (PRD §4.2): its request is aborted, and its answer, if one still
+	 * arrives, is dropped. The response and error shown before it started stay, each current or
+	 * stale as the project's changes since make it, and `results.cancelled` says the latest solve
+	 * gave nothing. System curves it cancelled when it started stay cancelled. Returns false when
+	 * no solve is in progress.
+	 */
+	cancelSolve(): boolean {
+		if (!this.results.solving) return false;
+		this.#dropSolve();
+		this.results = { ...this.results, solving: false, cancelled: true };
+		return true;
+	}
+
+	/** Forget the solve in flight, if any: its answer is dropped and its request aborted. */
+	#dropSolve(): void {
+		this.#solveSequence++;
+		this.#solveRequest?.abort();
+		this.#solveRequest = null;
 	}
 
 	#recordMethodVersion(response: SolveResponse): void {
@@ -484,7 +540,7 @@ export class ProjectStore {
 
 	/** Forget results and errors (e.g. after the user dismisses an error). */
 	clearResults(): void {
-		this.#solveSequence++;
+		this.#dropSolve();
 		this.#responseFingerprint = null;
 		this.#errorFingerprint = null;
 		this.results = EMPTY_RESULTS;
@@ -505,7 +561,7 @@ export class ProjectStore {
 	 * Compute the system curve of `pumpId` for the solve whose results are shown, from the project
 	 * exactly as solved (POST /api/v1/system-curve), unless it is cached; with `retry`, again after
 	 * a failure or a cancellation. Requests run one at a time; one whose solve is no longer the
-	 * shown one is dropped (or aborted) and never fills the cache.
+	 * shown one, or that is cancelled, is dropped (or aborted) and never fills the cache.
 	 */
 	loadSystemCurve(pumpId: string, options: { retry?: boolean } = {}): void {
 		const response = this.results.response;
@@ -524,33 +580,51 @@ export class ProjectStore {
 			return;
 		}
 		set({ status: 'loading' });
-		const { signal } = this.#curveRequests;
+		const controller = new AbortController();
+		this.#abortCurveRequests(pumpId);
+		this.#curveRequests = [...this.#curveRequests, { pumpId, controller }];
+		const { signal } = controller;
 		const request = async () => {
-			if (signal.aborted || this.results.response !== response) return;
 			try {
+				if (signal.aborted || this.results.response !== response) return;
 				const curve = await solver.systemCurve!(project, pumpId, { signal });
 				if (!signal.aborted) set({ status: 'ready', curve });
 			} catch (error) {
-				if (signal.aborted) return; // cancelled: #cancelSystemCurves says so
+				if (signal.aborted) return; // cancelled: whoever cancelled it says so
 				set({
 					status: 'error',
 					message: error instanceof Error ? error.message : 'The system curve failed.'
 				});
+			} finally {
+				this.#curveRequests = this.#curveRequests.filter((r) => r.controller !== controller);
 			}
 		};
 		this.#curveQueue = this.#curveQueue.then(request, request);
 	}
 
+	/**
+	 * Cancel the system curve of `pumpId` while it is computed or waits its turn (the pump chart's
+	 * Cancel): its request is aborted, an answer that still arrives is dropped, and the curve is
+	 * marked cancelled by the user until it is asked for again (loadSystemCurve with `retry`).
+	 * Other pumps' requests go on.
+	 */
+	cancelSystemCurve(pumpId: string): void {
+		if (this.systemCurves[pumpId]?.status !== 'loading') return;
+		this.#abortCurveRequests(pumpId);
+		this.systemCurves = { ...this.systemCurves, [pumpId]: { status: 'cancelled', by: 'user' } };
+	}
+
 	/** Abort system-curve requests; the curves they were computing are marked cancelled. */
 	#cancelSystemCurves(): void {
-		this.#curveRequests.abort();
-		this.#curveRequests = new AbortController();
+		this.#abortCurveRequests();
 		const entries = Object.entries(this.systemCurves);
 		if (entries.some(([, state]) => state.status === 'loading')) {
 			this.systemCurves = Object.fromEntries(
 				entries.map(([id, state]) => [
 					id,
-					state.status === 'loading' ? { status: 'cancelled' as const } : state
+					state.status === 'loading'
+						? { status: 'cancelled' as const, by: 'solve' as const }
+						: state
 				])
 			);
 		}
@@ -558,10 +632,16 @@ export class ProjectStore {
 
 	/** Drop the system curves (their solve is no longer the one shown). */
 	#forgetSystemCurves(): void {
-		this.#curveRequests.abort();
-		this.#curveRequests = new AbortController();
+		this.#abortCurveRequests();
 		this.solvedProject = null;
 		this.systemCurves = {};
+	}
+
+	/** Abort the system-curve requests of `pumpId` (default: all of them). */
+	#abortCurveRequests(pumpId?: string): void {
+		const aborted = (r: { pumpId: string }) => pumpId === undefined || r.pumpId === pumpId;
+		for (const r of this.#curveRequests) if (aborted(r)) r.controller.abort();
+		this.#curveRequests = this.#curveRequests.filter((r) => !aborted(r));
 	}
 }
 

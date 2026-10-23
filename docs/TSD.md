@@ -623,6 +623,30 @@ A committed fixture link is never regenerated, even together with its JSON. If t
 - `flush()` writes a pending change at once. It runs before Share, before in-app navigation and when the page is hidden (§3.2).
 - The full link is `location.origin + '/p#' + encoded`, or `https://opensolve-pipe.app` when the origin is unknown. `urlTooLong` is true when the full link is longer than `URL_LENGTH_WARNING` characters.
 
+### 4.8 Assigned Flow Node
+
+```python
+# apps/api/src/opensolve_pipe/models/components.py (beside Plug)
+
+
+class AssignedFlow(BaseComponent):
+    """Fixed flow out of (demand, positive) or into (supply, negative) the network at its port."""
+
+    PORT_IDS = ("port_1",)
+
+    type: Literal["assigned_flow"]
+    flow: float = Field(ge=-100.0, le=100.0, description="m³/s; positive leaves the network")  # D11 flow bound
+```
+
+**Solver handling:** like a plug, an assigned-flow node adds no link. Its port becomes a node whose demand is `flow`, added to the GGA's `q_demand` the same way a `FIXED_FLOW` link's demand and supply are (§5.2); `flow = 0` behaves exactly as a plug. It is never a fixed head, so it doesn't satisfy `NO_FIXED_HEAD` (§5.1).
+
+Rules the existing solver assumes and that change with nodal demands:
+
+- **Dead-end trees** (`results.dead_end_links`) assume no nodal demands: a free node with one open link is treated as passing no flow. A node with a nonzero assigned flow is never pruned, nor is the path from it to the rest of the network.
+- **Isolated sections** (§5.2) are removed only if they can sit at zero flow; a section holding a nonzero assigned flow cannot. If it has no fixed head through open links (a valve closed or a pump stopped on its only path), the solve reports it as not converged naming the node (EPANET's "system disconnected"), as the GGA already does for a fixed-flow link that cuts off a part with no fixed head. A floating section (one node held at an arbitrary head) can hold assigned flows only if they sum to zero.
+- **Flow controls in series:** an assigned flow fed only through an FCV or a flow-controlled pump (D11) with a different setpoint has no solution, and one with an equal setpoint leaves the pressure between them undetermined; both are reported as not converged naming them, as D11 does for two flow controls in series.
+- **Results:** port EGL and static pressure as for any port; `BELOW_VAPOR_PRESSURE` applies.
+
 ---
 
 ## 5. Solver Implementation
@@ -633,7 +657,7 @@ One solver handles every topology (D1). Code: `apps/api/src/opensolve_pipe/servi
 
 1. **Validate topology** (`builder.py`): every problem is collected and raised together as `TopologyError(issues)` (HTTP 422): `DUPLICATE_COMPONENT_ID`, `DUPLICATE_CONNECTION_ID`, `DUPLICATE_ID` (an id naming both a component and a connection: results, traces and flags share one id space), `DUPLICATE_PUMP_CURVE_ID`, `UNKNOWN_COMPONENT`, `UNKNOWN_PORT`, `UNKNOWN_PUMP_CURVE`, `UNKNOWN_PIPE_MATERIAL`, `UNKNOWN_PIPE_SCHEDULE`, `UNKNOWN_PIPE_SIZE`, `ROUGHNESS_OUT_OF_RANGE`, `PIPE_SIZE_OUT_OF_RANGE` (a pipe whose resistance coefficients are not finite floating-point numbers, e.g. an inner diameter of 1e-100 m), `SELF_CONNECTION`, `PORT_CONNECTED_TWICE`, `UNCONNECTED_PORT` ("connect it or add a plug"), `NO_FIXED_HEAD` (a connected sub-network without a reservoir or reference node; also an empty project) and `CONTROLLED_PUMP_CURVE` (a speed-controlled pump whose curve does not give one speed per head, §5.4).
 2. **Build the solver network** (`builder.py`, `network.py`): one node per component port at the port's effective elevation; one link per `PipeConnection` (its segments in series and its fittings); one link per pump and valve between its port nodes; a branch component adds a center node and three legs (center → port).
-3. **Fixed heads:** reservoir ports get H = z + liquidLevel + surfacePressure/(ρg); ideal reference nodes get H = z_port + p/(ρg) (a body of liquid at rest at that pressure).
+3. **Fixed heads and demands:** reservoir ports get H = z + liquidLevel + surfacePressure/(ρg); ideal reference nodes get H = z_port + p/(ρg) (a body of liquid at rest at that pressure). Assigned-flow ports get a demand equal to their flow (§4.8); every other port's demand is zero.
 4. **Solve** with the GGA inner loop (§5.2) inside the outer loop for statuses and branch losses (§5.4).
 5. **Map results** (`results.py`) to `SolvedState` (SDD §4.10), with physics flags, the per-element trace and the methods summary (§5.6).
 
@@ -666,6 +690,7 @@ Every link supplies h(Q) and dh/dQ, with h positive in the direction of positive
 | Pump (off / no flow) | closed | |
 | Isolation valve | K·Q\|Q\|/(2gA²) | isolated → closed |
 | Check / stop-check (open) | Δp_crack/(ρg) + K·Q\|Q\|/(2gA²) | status in the outer loop |
+| PDCV (active, Later) | fixed difference of inlet and outlet static pressure | EPANET 2.2's PBV is the closest reference for the active state; its status rules need their own derivation |
 | PRV / PSV / FCV (active) | fixed outlet static pressure / fixed inlet static pressure / fixed flow | the setpoint head includes the port's velocity head, updated every Newton step; the PRV/PSV flow is the flow of the pipe on its held port, coupled exactly in the Newton step (§5.2) |
 | Branch leg | head offset (Crane or Darby path loss) | §4.2, §5.4 |
 
@@ -721,6 +746,18 @@ p_atm is `settings.atmosphericPressure` when set, else `fluids.atmosphere.ATMOSP
 - **Methods summary** (`methods.py`): one `MethodsSummary` per solve — sections Network solution, Pipe friction, Minor losses, Branches, Pumps, Valves, Fluid properties, Atmosphere and NPSH, Conventions; global assumptions; library versions (opensolve-pipe, fluids, CoolProp, numpy, scipy) and `METHOD_VERSION`. Every number in it is a solver constant or a value of the solve.
 - **System curve** (`system_curve.py`): at each flow the pump's link becomes a `FIXED_FLOW` link (`run_outer_loop(..., forced_flows={pump: Q})`; the pump takes no part in the status rules, every other element follows its own), and H_sys(Q) = EGL(discharge) − EGL(suction). A speed-controlled pump's own control is replaced by the forced flow, so H_sys is defined as for any pump; other speed-controlled pumps that are on keep regulating (an off one stays closed, and no trace says it regulates), and a warm start copies their statuses (MIN_SPEED included, its law following from it). Default flows 0 … 1.2 × the curve's largest flow × s (a speed-controlled pump's `speed`, its maximum). A point whose solve does not converge, or whose forced flow has no way through (a side reaching no fixed head), has no head. Known limitation (v1, not specific to speed control; §12 Open): a pump whose only way out is an FCV or PRV in series gets no point with a head. Each point is warm-started from the previous converged one, and only a point that fails to converge is retried cold. At q = 0 the forced flow has no supply side, so the valve, starting active, is starved and closed; that point converges, every later point inherits the closed valve (one of its ports is then in a closed-off section, where it keeps its state), the forced pump stays starved, and each point converges with no head and the message that the flow has no way through, which is not true: solved cold, the low flows the valve passes have heads (reference cases `pump_flow_control_series_fcv_*` and `_prv_*`). `POST /api/v1/system-curve` returns every point with `converged` and a message; `SolveOptions.includeSystemCurve` fills `PumpResult.systemCurve` of each running pump with its converged points. The web app solves with `includeSystemCurve: false` and requests one pump's curve when its chart is shown (CLAUDE.md D10, SDD §3.1.3); every pump's trace carries the H_sys definition (`trace.SYSTEM_CURVE_EQUATION`), and a solve that computes the curves adds a note on how many points were solved. Closed-form tests: `tests/reference/test_system_curves.py` (single line, series and parallel pumps with the other pump running).
 - **Flag severities** are fixed per code (`flags.FLAG_SEVERITY`); `make_flag` rejects a mismatch, and `tests/unit/test_flags_audit.py` checks each GOALS §4.6 condition.
+
+### 5.7 Scenarios and Goal Seek (Later)
+
+Both sit outside the network solver, so §5.1–5.6 don't change.
+
+**Scenarios** (`services/scenarios.py`): `apply_scenario(project, scenario_id) → Project` copies the base, applies each override after validating its field against the allow-list and the field's Pydantic type, and returns a plain `Project` for the builder. Orphaned overrides are returned as warnings. Solving all scenarios is one independent solve per scenario.
+
+**Goal seek** (`services/goal_seek.py`): an outer loop that sets the variables, runs the full solve (§5.1) and reads the goal results.
+
+- One variable: bracketed root finding on `goal(x) − target` with `scipy.optimize.brentq` over the variable's bounds. If the sign doesn't change across the bounds, minimize |residual| with `scipy.optimize.minimize_scalar(method="bounded")` and report the goal as not met.
+- Several variables: `scipy.optimize.least_squares` with bounds and a finite-difference Jacobian (each step costs n + 1 solves), residuals scaled by each goal's tolerance.
+- A non-converged inner solve at any trial point fails the run with that point named, rather than being used as a residual.
 
 ---
 
@@ -1024,6 +1061,8 @@ No Docker, database or Redis is needed for v1 development.
 | Closed-form derivations (M4 differential test) | A PSV open beside a dead-headed pump (a status cycle), a PRV inside a pump loop anchored by a no-flow pipe (the lagged PRV flow); floating sections — a pump loop behind an isolated valve, an active FCV in such a loop, a pump re-opening inside a closed-off loop, a PSV as a loop's only anchor, a PRV in a loop whose level a closed FCV bounds, the system curve of a pump in such a loop (`test_floating_sections.py`, not case files: a floating section has no EGLs); the differential networks themselves (`tests/unit/data/differential`, `test_differential_regressions.py`), checked with the independent laws and, where sections report no heads, with `free_levels.py` (one set of section levels must hold every pump and valve state) | `derivations_status.py`, `test_floating_sections.py`, `free_levels.py` |
 | Closed-form derivations (M3) | Pumps (single, reduced speed, beyond the curve, above shutoff, off, series, parallel, a pump and check valve re-opened after a control valve's first solve), isolation valves (Crane defaults, Cv, Kv, K, an isolated section), check valves (cracking pressure, reverse, below cracking, locked open in reverse flow, stop-check locked closed), PRV/PSV/FCV (active, open, closed, an FCV limited by its own open loss, failed open, failed closed), Crane tees and wyes (diverging, converging, dead branch, bullhead fallback, an ideal wye, a reversed lateral, a wye whose split has no self-consistent value at a correlation step: K held at the mean across it, with the held pair of splits checked against the derived 2-cycle), glycols, overrides, NPSH and a siphon | `derivations_pumps.py`, `derivations_valves.py`, `derivations_branches.py`, `derivations_fluids.py`, sharing `element_laws.py` (component laws and status rules written from their definitions) and `line.py` (one-segment lines with fittings) |
 | WNTR/EPANET (dev dependency) | Water-only looped networks; networks with a pump, a PRV, a PSV and an FCV | `generate_epanet_cases.py` (WNTR 1.5.0 EpanetSimulator = EPANET 2.2.0) |
+| Assigned-flow node (to add) | Closed-form: reservoir → pipe → assigned demand and supply, at the end of a dead-end branch and mid-line; EPANET: the same nodes as junction demands in a looped network | `derivations.py`, `generate_epanet_cases.py` |
+| Goal seek (Later) | Closed-form inverses: reservoir level for a target flow through one pipe; pump speed for a duty point via the affinity laws | a new derivation module |
 
 `closed_form.py` lists every closed-form generator and `build_closed_form_cases.py` writes their files.
 
@@ -1498,5 +1537,7 @@ Free tiers and prices in USD, read on 2026-10-22:
 3. **Drooping pump curves (known v1 limitation):** a curve whose head rises from H₀(0) to a peak is accepted (v1 checks only that its flows increase; a speed-controlled pump's curve must also pass the ψ test, which makes the speed root unique, not the operating state), but the closing rule tests the head across the pump against s²·H₀(0) (EPANET 2.2 `pumpstatus`), not the curve's peak. A running state whose head lies between them is then not found: the pump is held at no flow (`PUMP_FLOW_REVERSAL`, invalid), or a speed-controlled pump at minimum speed cycles between N2 (closing against S_min) and C1 (re-opening against S_max) and the solve ends not converged (§5.4). EPANET 2.2 rejects such curves (error 227, invalid head curve). Options: reject them, or close against s²·max H₀ (a method change for fixed pumps too).
 4. **System curves through a series FCV or PRV (known v1 limitation):** a pump whose only way out is an FCV or PRV in series gets no system-curve point with a head, because the starved zero-flow point warm-starts the others with the valve closed (§5.6). Option: do not warm-start from a point whose forced pump was starved, or retry such a point cold.
 5. **A flow setpoint beyond the curve even at maximum speed:** when Q_set/s_max lies beyond x_mono (twice the flow at which the end tangent reaches zero head), no speed in the drive's range is on a rising stretch of F(·, Q_set); both limit states can satisfy the rules there, and the solve reports the one its path reaches, flagged `PUMP_OUTSIDE_CURVE` (§5.4). Option: report such a setpoint as unreachable (a topology issue) once the owner decides whether it is a valid input.
+6. **Scenario override addressing:** a field allow-list (§5.7) or JSON Pointer paths? The allow-list is safer; pointers are more general.
+7. **Three-way valve characteristic:** which published Cv-vs-position data (linear, equal-percentage, per path) to cite?
 
 *End of TSD*

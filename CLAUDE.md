@@ -180,3 +180,8 @@ The project is licensed **AGPL-3.0-or-later** (full text in `LICENSE`). Use that
 - `apps/web/package.json`: `"license": "AGPL-3.0-or-later"`
 
 Check new dependencies for licenses compatible with AGPL-3.0 before adding them.
+
+Legal notices in the web app (AGPL-3.0 §0 and §13; TSD §11.1):
+- The footer and home page show `Copyright © 2026 Chris Cirone` (`COPYRIGHT` in `apps/web/src/lib/components/links.ts`).
+- The source and license links point at the commit the build was made from (`CF_PAGES_COMMIT_SHA`, else `git rev-parse HEAD`, passed as SvelteKit's `version.name` in `svelte.config.js`). Never hard-code a branch.
+- The build writes `third-party-licenses.txt` with the license of every npm package in the client bundle (`apps/web/src/plugins/third-party-licenses.ts`); a bundled package without a license file fails the build.

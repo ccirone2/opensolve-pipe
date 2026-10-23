@@ -114,7 +114,7 @@ opensolve-pipe/
 │   │   │   │   │   ├── types.ts        # Short names for the generated types
 │   │   │   │   │   └── client.ts       # API client (fetch), typed errors
 │   │   │   │   ├── components/
-│   │   │   │   │   ├── Home.svelte     # Home page; SiteFooter.svelte; links.ts (app links, disclaimer)
+│   │   │   │   │   ├── Home.svelte     # Home page; SiteFooter.svelte; links.ts (app links, disclaimer, legal links)
 │   │   │   │   │   ├── workspace/      # Workspace layout, header, Share, project settings, fluid, link errors
 │   │   │   │   │   ├── panel/          # Panel navigator: breadcrumb, path chooser, jump-to, component and
 │   │   │   │   │   │   │               #   connection panels, add/delete dialogs, ports, pipes, fittings
@@ -139,7 +139,10 @@ opensolve-pipe/
 │   │   │   │   │   ├── trace.ts        # Trace values and the methods text for display
 │   │   │   │   │   ├── …               # flag-text, labels, piping, pump-chart, schema-bounds, media, scroll-focus
 │   │   │   │   │   └── __fixtures__/   # schema-v<N>.txt (a shared link) and schema-v<N>.json (§4.7)
+│   │   │   │   ├── notices.ts          # Name of the third-party licenses file (§11.1)
 │   │   │   │   └── testing/            # Unit-test helpers and made-up results (not used by the app)
+│   │   │   ├── plugins/
+│   │   │   │   └── third-party-licenses.ts  # Vite plugin: writes third-party-licenses.txt (§11.1)
 │   │   │   ├── routes/
 │   │   │   │   ├── +layout.ts          # prerender = true
 │   │   │   │   ├── +layout.svelte      # Imports layout.css (Tailwind and component classes)
@@ -154,7 +157,7 @@ opensolve-pipe/
 │   │   ├── tests/                      # Playwright end-to-end tests (*.e2e.ts)
 │   │   ├── playwright.config.ts
 │   │   ├── vite.config.ts              # Vite plugins and the Vitest projects (§10.3)
-│   │   ├── svelte.config.js            # adapter-static, runes mode
+│   │   ├── svelte.config.js            # adapter-static, runes mode, version = the commit (§11.1)
 │   │   ├── eslint.config.js, prettier.config.js, tsconfig.json, .npmrc
 │   │   ├── package.json
 │   │   └── pnpm-lock.yaml
@@ -1240,7 +1243,7 @@ The owner chose the hosts on 2026-10-22: the web app on **Cloudflare Pages** (st
 
 ### 11.1 Frontend (Cloudflare Pages)
 
-`@sveltejs/adapter-static`: `pnpm build` writes a fully prerendered static site to `apps/web/build/` (21 files, 0.9 MB for v1). No frontend server code runs. The host must do three things:
+`@sveltejs/adapter-static`: `pnpm build` writes a fully prerendered static site to `apps/web/build/` (22 files, 0.9 MB for v1). No frontend server code runs. The host must do three things:
 
 - **Serve `p.html` for `/p` and `index.html` for `/`** (the default `trailingSlash: 'never'` output). Pages serves an HTML file whose path matches the route, and it redirects `/p.html` to `/p`. With no top-level `404.html`, any other path gets `index.html` (Pages' SPA mode) ([serving][cf-serving]). In `wrangler pages dev`, `/p/` also redirected to `/p` (308), and Chromium kept the fragment across both redirects, so those links still open.
 - **Serve the site from the domain root**, because links are root-relative (`paths.relative: false` in `svelte.config.js`). Use the project's `*.pages.dev` hostname or a custom domain, never a subpath.
@@ -1271,6 +1274,11 @@ Checked with `wrangler pages dev` 4.149.0 on a build made with `PUBLIC_API_URL` 
 - All four rules parsed and applied, and `/_headers` was not served.
 - An unknown path got `index.html`.
 
+**Legal notices** (AGPL-3.0-or-later; the licenses of the bundled packages):
+- **Source of this version.** AGPL-3.0 §13 requires offering users of a network service the source of the version they use. `svelte.config.js` takes the commit being built from `CF_PAGES_COMMIT_SHA`, which Pages sets in every build ([build configuration][cf-build]), else from `git rev-parse HEAD`, and passes it as SvelteKit's `version.name`. `links.ts` reads it from `$app/environment` and links the source to `…/tree/<commit>` and the license to `…/blob/<commit>/LICENSE`. A build without git gets SvelteKit's default version (a timestamp) and links to the repository.
+- **Third-party licenses.** The MIT, BSD-3-Clause and Zlib licenses of the bundled packages require their notices with every copy, and the minifier strips them from the JavaScript. `src/plugins/third-party-licenses.ts`, a Vite plugin, reads the npm packages of every module in the client build's chunks, plus Tailwind (generated into the CSS), and writes their license texts to `third-party-licenses.txt` at the site root. It reads the bundle, not `package.json`: the Svelte and SvelteKit runtimes are dev dependencies but ship, and a dependency that is never imported does not. A bundled package without a license field or file fails the build. For v1 it lists 11 packages, all MIT except fast-uri (BSD-3-Clause) and pako (MIT AND Zlib).
+- **Copyright.** The footer and the home page show `Copyright © 2026 Chris Cirone`, with the license and the no-warranty disclaimer: the "Appropriate Legal Notices" an interactive interface must display (AGPL-3.0 §0, §5d).
+
 **Privacy** (GOALS §4.5): no analytics, no cookies, and no requests to third parties.
 - **Pages Web Analytics stays off.** Under Pages project → Metrics, don't enable Web Analytics: enabling it adds a JavaScript beacon to the site on the next deployment ([Pages Web Analytics][cf-wa-pages]).
 - **On a custom domain whose zone is on Cloudflare, keep off the zone features that inject scripts or set cookies:**
@@ -1285,7 +1293,7 @@ Checked with `wrangler pages dev` 4.149.0 on a build made with `PUBLIC_API_URL` 
 
 **Cost:** the Free plan.
 - Requests for static assets are free and unlimited ([pricing][cf-price]).
-- Limits: 500 builds a month, one at a time, 20 minutes each; 20,000 files per site; 25 MiB per file; 100 `_headers` rules ([limits][cf-limits]). The site uses 21 files and 4 rules.
+- Limits: 500 builds a month, one at a time, 20 minutes each; 20,000 files per site; 25 MiB per file; 100 `_headers` rules ([limits][cf-limits]). The site uses 22 files and 4 rules.
 
 ### 11.2 Backend (Google Cloud Run)
 

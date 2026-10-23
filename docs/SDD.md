@@ -110,7 +110,7 @@ Later: database for accounts, short links and version history.
 
 The frontend is a static SvelteKit site (TSD §2.1, §3.1) with two pages:
 
-- **Home (`/`)** offers a new project (`/p`) and example projects, each a fixed link: the examples have fixed ids and timestamps, and their values are labeled as illustrative. It also explains that the project lives in the link and what the server receives when solving, and shows the disclaimer, the license and the source code link.
+- **Home (`/`)** offers a new project (`/p`) and example projects, each a fixed link: the examples have fixed ids and timestamps, and their values are labeled as illustrative. It also explains that the project lives in the link and what the server receives when solving, and shows the disclaimer, the copyright notice, the license, the source code link and the third-party licenses link.
 - **Project (`/p#<encoded>`)** decodes the fragment (§5.2) and opens the **workspace**, or shows a link error. An empty fragment starts a new project.
 
 The **workspace** (`components/workspace/Workspace.svelte`) has a header, a **Build** pane (the panel navigator, §3.1.1) and a **Results** pane (§3.1.3):
@@ -270,7 +270,7 @@ The pane shows, top to bottom:
 
 **`MethodsSummary`** shows the solve's methods and assumptions (`trace.methods`): sections with items and references, assumptions, and library versions. It reads well on screen and in print. **Copy as text** gives plain text for a report: a heading, the project, the method version, when it was solved, and whether it converged or is out of date. Without clipboard access the text is shown selected.
 
-**Footer** (`SiteFooter`): the disclaimer (GOALS §4.8), About and privacy, the license (AGPL-3.0-or-later) and the source code.
+**Footer** (`SiteFooter`): the disclaimer (GOALS §4.8), the copyright notice, About and privacy, the license (AGPL-3.0-or-later) and the source code, both at the commit the build was made from, and the third-party licenses (TSD §11.1).
 
 Later: design-check warnings (opt-in).
 

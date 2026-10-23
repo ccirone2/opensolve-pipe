@@ -327,7 +327,13 @@ POST /api/v1/solve
 POST /api/v1/system-curve
   Request: Project + pump id + flow range
   Response: SystemCurve (flow/head pairs: the pump replaced by each fixed flow, §4.10)
+
+POST /api/v1/goal-seek                  (Later)
+  Request: Project + GoalSeekRequest (§4.13), optional scenario id
+  Response: GoalSeekResult + SolvedState at the found values
 ```
+
+`/solve` and `/system-curve` take an optional scenario id (Later, §4.12); the server applies that scenario's overrides to the base before building the network, so the solver only ever sees a plain project.
 
 **Implementation:** one Global Gradient Algorithm (Todini–Pilati) solver for every topology — the same core method EPANET uses — implemented in Python with Darcy–Weisbach/Colebrook friction from the `fluids` library. See TSD §5. It adds what EPANET lacks:
 
@@ -338,7 +344,7 @@ POST /api/v1/system-curve
 - Speed-controlled (VFD) pumps holding a flow setpoint (§4.8, CLAUDE.md D11)
 - Later: VFD pressure and differential-pressure control, pressure relief valves, non-ideal reference nodes
 
-Preconditions checked before solving (topology errors): at least one fixed-pressure boundary (reservoir or ideal reference node) per connected sub-network; every port connected or explicitly plugged; no connection between incompatible ports; a speed-controlled pump's curve gives one speed per head (`CONTROLLED_PUMP_CURVE`) and its setpoint is one some speed up to its maximum can hold (`CONTROLLED_PUMP_SETPOINT`, §4.8).
+Preconditions checked before solving (topology errors): at least one fixed-pressure boundary (reservoir or ideal reference node) per connected sub-network, where assigned-flow nodes do not count; every port connected or explicitly plugged; no connection between incompatible ports; a speed-controlled pump's curve gives one speed per head (`CONTROLLED_PUMP_CURVE`) and its setpoint is one some speed up to its maximum can hold (`CONTROLLED_PUMP_SETPOINT`, §4.8).
 
 WNTR/EPANET is used only in the test suite, as a reference for water-only networks.
 
@@ -409,6 +415,7 @@ interface Project {
   components: Component[];
   connections: PipeConnection[];  // edges of the port graph
   pumpLibrary: PumpCurve[];
+  scenarios?: Scenario[];         // Later (§4.12)
 }
 
 interface ProjectMetadata {
@@ -466,12 +473,12 @@ The component model uses a **port-based architecture**: each component has a def
 
 ```typescript
 type Component =
-  | Reservoir | IdealReferenceNode | Plug
+  | Reservoir | IdealReferenceNode | AssignedFlow | Plug
   | TeeBranch | WyeBranch
   | Pump
   | IsolationValve | CheckValve | ControlValve;
   // Later: Tank, NonIdealReferenceNode, CrossBranch, ElbowBranch, ReliefValve, HeatExchanger,
-  // Strainer, Orifice, Sprinkler, UserDefinedElement
+  // Strainer, Orifice, Sprinkler, UserDefinedElement, ThreeWayValve
 
 interface Port {
   id: string;                    // e.g., "suction", "discharge", "branch"
@@ -669,10 +676,10 @@ interface CheckValve extends BaseComponent {
 
 interface ControlValve extends BaseComponent {
   type: 'valve';
-  valveType: 'prv' | 'psv' | 'fcv';
+  valveType: 'prv' | 'psv' | 'fcv';  // Later: 'pdcv' (differential-pressure control)
   status: 'active' | 'failed_open' | 'failed_closed';
   setpoint: number;              // prv: static gauge Pa at the outlet port; psv: at the inlet port;
-                                 // fcv: m³/s
+                                 // fcv: m³/s; Later, pdcv: Pa, inlet minus outlet static pressure
   resistance?: FlowCoefficient;  // fully open loss; default: ideal valve (no loss when wide open)
 }
 ```
@@ -767,6 +774,69 @@ interface ElementTrace {
 - **No result.** An element in a closed-off section, or every element of a solve that did not converge, keeps its inputs, equations and sources, with a note saying why it has no values. An element in a section with an undetermined pressure level (`UNDETERMINED_PRESSURE`) keeps its flows and head differences, with a note saying why its EGLs and pressures are missing.
 
 **Methods summary** (`MethodsSummary {methodVersion, sections[{title, items, references}], assumptions, libraries}`; `services/solver/methods.py`): sections Network solution (GGA, Todini & Pilati 1988, tolerances, this solve's iterations), Pipe friction, Minor losses, Branches, Pumps (PCHIP, affinity laws, no viscosity correction, system curves), Valves, Fluid properties, Atmosphere and NPSH, Conventions (SI, gauge, EGL vs HGL, datum, flow signs); global assumptions (steady, incompressible, isothermal, single-phase, quiescent boundaries, no entrance or exit loss at a boundary without an entrance or exit fitting and the web app's default fittings at reservoirs, pump integral check, check-valve model, ideal control-valve default); libraries with versions (opensolve-pipe, fluids, CoolProp, numpy, scipy). Written to be pasted into a deliverable.
+
+### 4.11 Assigned Flow Model
+
+```typescript
+interface AssignedFlow extends BaseComponent {
+  type: 'assigned_flow';
+  flow: number;                  // m³/s; positive = leaving the network (demand),
+                                 // negative = entering it (supply)
+  ports: [Port & { id: 'port_1' }];
+}
+```
+
+The pressure at the port is a result (`NodeResult`), not an input. An assigned-flow node is not a fixed-pressure boundary (§3.2.1), so a sub-network with no reservoir or reference node is still `NO_FIXED_HEAD`. Its trace gives the flow as entered with the sign convention, the port's elevation, EGL, velocity head and static pressure, and the continuity equation at the port. Solver mapping: TSD §4.8.
+
+### 4.12 Scenario Model (Later)
+
+```typescript
+interface Scenario {
+  id: string;
+  name: string;
+  description?: string;
+  overrides: Override[];         // applied in order on top of the base project
+}
+
+interface Override {
+  target: { kind: 'component' | 'connection' | 'fluid'; id?: string };
+  field: string;                 // camelCase field name on the target, from an allow-list
+  value: unknown;                // SI, validated as the field's own type
+}
+```
+
+Overrides may change values only, never topology (PRD §3.8). An override whose target no longer exists (the base component was deleted) is kept, reported as orphaned and ignored, so the user can see and remove it.
+
+### 4.13 Goal Seek Model (Later)
+
+```typescript
+interface GoalSeekRequest {
+  variables: GoalVariable[];
+  goals: Goal[];                 // same length as variables
+  maxIterations?: number;        // outer iterations, default 50
+}
+
+interface GoalVariable {
+  target: Override['target'];
+  field: string;                 // same allow-list as scenario overrides
+  lower: number;                 // SI bounds
+  upper: number;
+}
+
+interface Goal {
+  result: 'pressure' | 'flow' | 'pumpHead' | 'npshMargin' | 'velocity';
+  key: string;                   // NodeResult / LinkResult / PumpResult key (§4.10)
+  target: number;                // SI
+  tolerance?: number;            // SI; default from D6 (0.5%, or 0.01 m of head for heads and pressures)
+}
+
+interface GoalSeekResult {
+  converged: boolean;
+  iterations: number;
+  values: Record<string, number>;          // variable values found, keyed by `${id}.${field}`
+  achieved: { goal: Goal; value: number; residual: number; met: boolean }[];
+}
+```
 
 ---
 

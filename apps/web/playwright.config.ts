@@ -34,7 +34,10 @@ export default defineConfig({
 	],
 	webServer: [
 		{
-			command: `uv run uvicorn opensolve_pipe.main:app --port ${API_PORT}`,
+			// The shipped app with the per-client rate limit raised (apps/api/tests/e2e_app.py): every
+			// test reaches it from one address, and on a fast runner the suite sends more than 60 solve
+			// and system-curve requests a minute (CI run 40004435327, 429 RATE_LIMITED).
+			command: `uv run uvicorn tests.e2e_app:app --port ${API_PORT}`,
 			cwd: '../api',
 			url: `${API_ORIGIN}/health`,
 			env: { CORS_ORIGINS: WEB_ORIGIN },

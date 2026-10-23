@@ -1,0 +1,128 @@
+{
+  "name": "series_reducer_expansion_reverse_flow",
+  "description": "Two segments and a sudden reducer with flow against the connection direction (small to large): verifies negative flow, signed losses and that the reducer acts as an expansion (fluids diffuser_sharp on the small pipe) when the flow reverses.",
+  "source": "closed-form: tests/reference/derivations.py::series_reducer_expansion_reverse_flow (Darcy-Weisbach + Colebrook per segment; fluids diffuser_sharp (Rennels), entrance_sharp(Crane), exit_normal; brentq)",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-series-reducer-expansion",
+    "metadata": {
+      "name": "Series pipes with a sudden expansion (reverse flow)",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "RA",
+        "name": "Reservoir RA",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 1.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "RB",
+        "name": "Reservoir RB",
+        "elevation": 6.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 1.5,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "RA",
+        "fromPortId": "port_1",
+        "toComponentId": "RB",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 40.0,
+              "roughness": 4.5e-05
+            },
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 25.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "exit",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "reducer_sudden",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 1
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": -0.007207605153729156
+    },
+    "egl": {
+      "RA:port_1": 1.0,
+      "RB:port_1": 7.5
+    }
+  }
+}

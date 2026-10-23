@@ -1,0 +1,122 @@
+{
+  "name": "fluid_property_override",
+  "description": "Propylene glycol with a user viscosity and vapor pressure: verifies that overrides replace individual properties (viscosity and vapor pressure from the user, density from CoolProp) and that the flow follows the overridden viscosity.",
+  "source": "closed-form: tests/reference/derivations_fluids.py::fluid_property_override (CoolProp PropsSI('D', T, 101325 Pa, 'INCOMP::MPG[0.3]'); viscosity and vapor pressure as overridden; Darcy-Weisbach + Colebrook; brentq; line fittings: fluids entrance_sharp(method='Crane'), exit_normal())",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-fluid-property-override",
+    "metadata": {
+      "name": "Glycol with property overrides",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "builtin",
+      "fluidId": "propylene_glycol",
+      "temperature": 278.15,
+      "concentration": 0.3,
+      "overrides": {
+        "dynamicViscosity": 0.0045,
+        "vaporPressure": 900.0
+      }
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 5.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 1.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 50.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "exit",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 1029.8933693668425,
+      "dynamicViscosity": 0.0045,
+      "vaporPressure": 900.0
+    },
+    "flows": {
+      "L1": 0.004544943768691397
+    },
+    "egl": {
+      "R1:port_1": 7.0,
+      "R2:port_1": 1.0
+    }
+  }
+}

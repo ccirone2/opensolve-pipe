@@ -1,0 +1,18 @@
+# Build context for the API image (Dockerfile): only pyproject.toml, uv.lock, LICENSE and src/
+# are used. Everything else stays out, so local environments, caches and test data never reach
+# the image or the upload to Cloud Build (TSD §11.2).
+.venv/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+tests/
+scripts/
+.python-version
+.env
+.env.*

@@ -1,0 +1,10 @@
+node_modules
+/.svelte-kit
+/build
+.env
+.env.*
+!.env.example
+vite.config.ts.timestamp-*
+test-results
+playwright-report
+blob-report

@@ -1,0 +1,216 @@
+{
+  "name": "pump_flow_control_stable_bracket",
+  "description": "A flow-controlled pump braking a gravity line, its setpoint over its minimum speed beyond x_mono, so that the head at its setpoint falls with speed below s_lo: the line needs a head between the lowest head on the stable bracket and the head at minimum speed. Verifies that the pump stays active (rule A2 on F(s_lo, Q_set)) with the speed root on [s_lo, s_max], in closed form for a straight curve, and PUMP_OUTSIDE_CURVE at that speed.",
+  "source": "closed-form: tests/reference/derivations_pump_control.py::pump_flow_control_stable_bracket (flow control (proposal vfd-pump-modes.md 2.4, 4.5): active Q = Q_set with s* from s*^2 H0(Q_set/s*) = EGL_d - EGL_s; at a limit the fixed-speed pump at s_max or s_min; pump curve: scipy PchipInterpolator, linear end-slope extension, affinity laws; R2 level set so that H(Q_set) = -2 m; s_lo = Q_set/x_mono, x_mono = 2a/b (proposal 4.3); s* = [bQ + sqrt(b^2 Q^2 + 4aH)]/(2a), the root on [s_lo, s_max]; line fittings: fluids bend_rounded_Crane(Di, 90, bend_diameters=1.5), entrance_sharp(method='Crane'), exit_normal())",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-pump-flow-control-stable-bracket",
+    "metadata": {
+      "name": "Flow-controlled pump below its minimum-speed head",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 10.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 3.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "PU1",
+        "name": "Pump PU1",
+        "elevation": 0.5,
+        "ports": [
+          {
+            "id": "suction",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "discharge",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "pump",
+        "curveId": "PC-S",
+        "speed": 1.0,
+        "status": "on",
+        "control": {
+          "mode": "flow",
+          "setpoint": 0.05,
+          "minSpeed": 0.1
+        }
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 5.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.7919679412670195,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "PU1",
+        "toPortId": "suction",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1541,
+              "length": 6.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_90_lr",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "PU1",
+        "fromPortId": "discharge",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1541,
+              "length": 60.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "exit",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": [
+      {
+        "id": "PC-S",
+        "name": "Curve PC-S",
+        "points": [
+          {
+            "flow": 0.0,
+            "head": 40.0
+          },
+          {
+            "flow": 0.01,
+            "head": 36.0
+          },
+          {
+            "flow": 0.02,
+            "head": 32.0
+          },
+          {
+            "flow": 0.03,
+            "head": 28.0
+          },
+          {
+            "flow": 0.04,
+            "head": 24.0
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.05,
+      "L2": 0.05
+    },
+    "egl": {
+      "R1:port_1": 13.0,
+      "PU1:suction": 12.505543526829909,
+      "PU1:discharge": 10.505543526829909,
+      "R2:port_1": 7.7919679412670195
+    },
+    "pressures": {
+      "PU1:suction": 113912.36520332373,
+      "PU1:discharge": 94338.29180332374
+    },
+    "pumps": {
+      "PU1": {
+        "status": "running",
+        "operatingFlow": 0.05,
+        "speed": 0.3618033988749896,
+        "controlState": "active",
+        "operatingHead": -2.0
+      }
+    },
+    "flags": [
+      {
+        "code": "PUMP_OUTSIDE_CURVE",
+        "componentId": "PU1"
+      }
+    ]
+  }
+}

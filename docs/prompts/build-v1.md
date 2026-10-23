@@ -57,8 +57,8 @@ Work through these in order. Each milestone ends with all quality gates green (�
 **M2 — Solver core**
 - Start from the tested GGA sketch in TSD §5.2. Generalize it to a link protocol returning `(h, dh/dQ)`; move to `scipy.sparse` when it's simple to do so.
 - Network builder (TSD §5.1): port graph → solver nodes and links; topology validation with clear `TOPOLOGY_ERROR` messages.
-- Pipes with fittings, reservoirs, ideal reference nodes, plugs, assigned-flow nodes (TSD §4.8).
-- Reference suite infrastructure (TSD §10.1) with first cases: single pipe (closed-form), series and parallel pipes (closed-form), reservoir-to-reservoir, reservoir to an assigned-flow node (closed-form), and two looped water networks compared to WNTR/EPANET (solver in `swamee_jain` mode).
+- Pipes with fittings, reservoirs, ideal reference nodes, plugs.
+- Reference suite infrastructure (TSD §10.1) with first cases: single pipe (closed-form), series and parallel pipes (closed-form), reservoir-to-reservoir, and two looped water networks compared to WNTR/EPANET (solver in `swamee_jain` mode).
 
 **M3 — Components and fluids**
 - Pumps (fixed speed, on/off, affinity laws), isolation valves, check and stop-check valves, PRV/PSV/FCV with status logic, tees and wyes with the outer K-factor loop (TSD §5.3–5.4).

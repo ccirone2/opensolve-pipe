@@ -1,0 +1,229 @@
+{
+  "name": "series_reducer_conical_both_directions",
+  "description": "A conical contraction with forward flow and a conical expansion with reverse flow (connection drawn against the flow), plus a rounded entrance and an exit: verifies the direction-dependent conical reducer correlations, their small-pipe reference velocity and the cone angle input.",
+  "source": "closed-form: tests/reference/derivations.py::series_reducer_conical_both_directions (Darcy-Weisbach + Colebrook per segment; K from fluids contraction_conical_Crane(angle), diffuser_conical(angle, method='Crane'), entrance_rounded(Crane), exit_normal; brentq)",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-series-reducer-conical",
+    "metadata": {
+      "name": "Conical reducers in both flow directions",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 9.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "T1",
+        "name": "Tee T1",
+        "elevation": 3.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "P1",
+        "name": "Plug P1",
+        "elevation": 4.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.0254,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "plug"
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 1.5,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "T1",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 30.0,
+              "roughness": 4.5e-05
+            },
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 20.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_rounded",
+              "quantity": 1,
+              "pipeIndex": 0,
+              "radiusRatio": 0.06
+            },
+            {
+              "type": "reducer_conical",
+              "quantity": 1,
+              "pipeIndex": 0,
+              "angle": 30.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "R2",
+        "fromPortId": "port_1",
+        "toComponentId": "T1",
+        "toPortId": "run_outlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 45.0,
+              "roughness": 4.5e-05
+            },
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 15.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "exit",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "reducer_conical",
+              "quantity": 1,
+              "pipeIndex": 0,
+              "angle": 20.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L3",
+        "fromComponentId": "T1",
+        "fromPortId": "branch",
+        "toComponentId": "P1",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0409,
+              "length": 3.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.007572344865143949,
+      "L2": -0.007572344865143949,
+      "L3": 0.0
+    },
+    "egl": {
+      "R1:port_1": 11.0,
+      "T1:run_inlet": 5.750062251857721,
+      "T1:run_outlet": 5.750062251857721,
+      "T1:branch": 5.750062251857721,
+      "P1:port_1": 5.750062251857721,
+      "R2:port_1": 1.5
+    },
+    "pressures": {
+      "T1:run_inlet": 20809.135384565267,
+      "T1:run_outlet": 20809.135384565267,
+      "T1:branch": 26914.960186216158,
+      "P1:port_1": 17127.923486216157
+    }
+  }
+}

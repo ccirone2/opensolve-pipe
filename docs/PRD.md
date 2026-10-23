@@ -99,7 +99,7 @@ v1 is the core analysis MVP. Everything else in this document is **Later**. The 
 - Branching and looped networks
 - Reservoirs, ideal reference nodes, assigned-flow nodes, tees, wyes, plugs/caps
 - Pipes with inline fittings
-- Fixed-speed pumps (running/off)
+- Fixed-speed pumps (running/off), and speed-controlled (VFD) pumps holding a flow setpoint (§3.1.2.1; CLAUDE.md D11, slice 1)
 - Isolation valves (gate, ball, butterfly, globe), check and stop-check valves
 - PRV, PSV, FCV
 - Water, ethylene/propylene glycol solutions, user-defined fluids
@@ -107,7 +107,7 @@ v1 is the core analysis MVP. Everything else in this document is **Later**. The 
 - Panel navigator, results tables, pump/system curve chart
 - Sharing by link (§4.4)
 
-**Later:** VFD and controlled pump modes; HI viscosity correction; pressure relief valves; three-way valves; differential-pressure control valve mode; scenario manager (§3.8); goal seek (§3.9); non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, heat exchangers, strainers, user-defined elements; fuels in the fluid library; auto-generated schematic; CSV/XLSX/image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
+**Later:** VFD pressure and differential-pressure control modes (D11 slices 2-3); HI viscosity correction; pressure relief valves; three-way valves; differential-pressure control valve mode; scenario manager (§3.8); goal seek (§3.9); non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, heat exchangers, strainers, user-defined elements; fuels in the fluid library; auto-generated schematic; CSV/XLSX/image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
 
 ### 2.4 Future Features (Planned)
 
@@ -155,16 +155,16 @@ Users shall be able to model the following components:
 | Component                 | Configuration Options                                                              | Release |
 | ------------------------- | ---------------------------------------------------------------------------------- | ------- |
 | Pipe                      | Material, schedule, diameter, length, roughness                                    | v1      |
-| Pump                      | Curve (head vs flow), speed ratio, status; later: control mode, viscosity correction | v1      |
+| Pump                      | Curve (head vs flow), speed ratio (the maximum speed when speed-controlled), status, speed control holding a flow setpoint (setpoint, minimum speed; CLAUDE.md D11); later: pressure and differential-pressure control modes, viscosity correction | v1      |
 | Check Valve               | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed)       | v1      |
 | Stop-Check Valve          | Cv or K-factor, cracking pressure, status (active/locked-open/locked-closed)       | v1      |
-| Gate/Ball/Butterfly Valve | Cv or K-factor, position (0-100% open), status (active/isolated)                   | v1      |
-| Globe Valve               | Cv or K-factor, position (0-100% open), status (active/isolated)                   | v1      |
-| Pressure Reducing Valve   | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        | v1      |
-| Pressure Sustaining Valve | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        | v1      |
-| Flow Control Valve        | Setpoint, Cv curve or auto-sized, status (active/failed-open/failed-closed)        | v1      |
-| Differential Pressure Control Valve | Pressure-drop setpoint across the valve, Cv curve, status (active/failed-open/failed-closed) | Later   |
-| Three-Way Valve           | Mixing or diverting; Cv per path vs position, status                               | Later   |
+| Gate/Ball/Butterfly Valve | Cv, Kv or K-factor at the actual opening (default: Crane full-open K), status (active/isolated); position-dependent K: Later | v1      |
+| Globe Valve               | Cv, Kv or K-factor at the actual opening (default: Crane full-open K), status (active/isolated); position-dependent K: Later | v1      |
+| Pressure Reducing Valve   | Setpoint, fully open Cv/Kv/K (default: ideal), status (active/failed-open/failed-closed); Cv-vs-position curve: Later | v1      |
+| Pressure Sustaining Valve | Setpoint, fully open Cv/Kv/K (default: ideal), status (active/failed-open/failed-closed); Cv-vs-position curve: Later | v1      |
+| Flow Control Valve        | Setpoint, fully open Cv/Kv/K (default: ideal), status (active/failed-open/failed-closed); Cv-vs-position curve: Later | v1      |
+| Differential Pressure Control Valve | Pressure-drop setpoint across the valve (inlet minus outlet), fully open Cv/Kv/K, status (active/failed-open/failed-closed) | Later   |
+| Three-Way Valve           | Mixing or diverting; Cv per path at the actual position (a cited characteristic is needed for position-dependent Cv), status | Later   |
 | Pressure Relief Valve     | Setpoint, capacity                                                                 | Later   |
 | Heat Exchanger            | Fixed pressure drop, or Cv/K model                                                 | Later   |
 | Strainer/Filter           | K-factor (clean and dirty)                                                         | Later   |
@@ -178,9 +178,11 @@ Pumps support multiple operating modes to model real-world control strategies:
 | -------------------- | ----------------------------------------------------------- | --------------------------- | ------- |
 | Fixed Speed          | Pump operates at defined speed ratio (1.0 = full speed)     | Speed ratio (0.0-1.0)       | v1      |
 | Off                  | Pump is not running; treated as closed valve or check valve | Status = off                | v1      |
-| Variable Speed (VFD) | Speed adjusts to maintain setpoint                          | Control variable + setpoint | Later   |
-| Controlled Pressure  | VFD maintains constant discharge or differential pressure   | Pressure setpoint           | Later   |
-| Controlled Flow      | VFD maintains constant flow rate                            | Flow setpoint               | Later   |
+| Variable Speed (VFD) | Speed adjusts to maintain setpoint (the two modes below)    | Control variable + setpoint | Flow: v1 (D11); pressure: Later |
+| Controlled Pressure  | VFD maintains constant discharge or differential pressure   | Pressure setpoint           | Later (D11 slices 2-3) |
+| Controlled Flow      | VFD maintains constant flow rate through the pump           | Flow setpoint and minimum speed (required, no default); the speed ratio is the maximum speed | v1 (D11, slice 1) |
+
+**Controlled Flow (CLAUDE.md D11; design in `docs/proposals/vfd-pump-modes.md`):** the drive varies the speed between the minimum speed and the pump's speed ratio (its maximum, at most 1.0) to hold the volumetric flow through the pump, suction to discharge. The solved speed is reported. Where the setpoint needs a speed above the maximum, the pump runs as a fixed-speed pump at the maximum and delivers less; where the system drives more than the setpoint even at the minimum speed, it runs at the minimum speed and passes more (it does not stop at low demand). Either way the result says the setpoint is not met (an information flag). Efficiency at reduced speed follows the plain affinity law, η₀(Q/s). A pump curve along which the speed holding a flow would not be unique is rejected with a topology issue; two flow controls in series with equal setpoints, where both could hold that flow, are reported as not converged, since the pressure between them is undetermined (where one cannot, the state is unique and is solved).
 
 **Viscosity Correction (Later):**
 For fluids more viscous than water, pump performance is corrected using the Hydraulic Institute method (ANSI/HI 9.6.7). Correction factors are applied to:
@@ -302,13 +304,15 @@ For each pump:
 - Efficiency and power consumption (when an efficiency curve is provided)
 - NPSH available
 - NPSH margin (when NPSH required is provided)
-- Later: actual speed when VFD-controlled; viscosity-corrected performance
+- Speed: the set speed ratio, or a speed-controlled pump's solved speed or the limit speed it runs at (D11)
+- Speed control (when VFD-controlled): mode, setpoint, state (holding the setpoint, at maximum speed, at minimum speed, no flow, off) and whether the setpoint is achieved
+- Later: viscosity-corrected performance
 
 For each control valve:
 
 - Status (active/bypassed/failed)
 - Actual flow/pressure vs setpoint
-- Valve position (% open)
+- Valve position (% open): Later (needs a Cv-vs-position curve); v1 reports the equivalent K and Cv of the throttling loss
 - Whether setpoint is achieved
 
 For each assigned-flow node:
@@ -417,7 +421,7 @@ Manual entry of:
 A scenario manager keeps several operating or design cases in one project and compares them, instead of the user keeping one URL per case. It serves the degraded-operation and isolation states in §2.1 and US-004.
 
 - A project holds the **base** model and any number of named **scenarios**. A scenario stores only its overrides of base values, so editing the base updates every scenario that doesn't override that value.
-- Overridable values: component status, valve position and setpoint, pump speed ratio, reservoir level and surface pressure, reference-node pressure, assigned flow, pipe size, length and material, fluid and temperature. Adding or removing components or connections in a scenario is out of scope for the first release; it keeps scenarios small in the URL and makes every difference from the base a list of values.
+- Overridable values: component status, valve resistance and setpoint, pump speed ratio and speed-control setpoint, reservoir level and surface pressure, reference-node pressure, assigned flow, pipe size, length and material, fluid and temperature. Adding or removing components or connections in a scenario is out of scope for the first release; it keeps scenarios small in the URL and makes every difference from the base a list of values.
 - Solve one scenario or all of them. A comparison table shows chosen results side by side with differences from the base; the pump/system curve chart can overlay scenarios.
 - Scenarios travel in the shared URL with the rest of the project; the long-link warning (§4.4) applies to the whole encoded project.
 - Traceability: every result shows which scenario produced it and lists that scenario's overrides.

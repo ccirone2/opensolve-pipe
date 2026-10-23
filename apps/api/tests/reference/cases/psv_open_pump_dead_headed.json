@@ -1,0 +1,321 @@
+{
+  "name": "psv_open_pump_dead_headed",
+  "description": "A PSV feeds a junction drained by a long small pipe; a pump on the same junction lifts to a reservoir above its shutoff head. Verifies the state that holds both (PSV fully open, pump at no flow) and its flow, which the status logic once stepped over by changing both statuses on every pass (M4 differential test).",
+  "source": "closed-form: tests/reference/derivations_status.py::psv_open_pump_dead_headed (Darcy-Weisbach lines in swamee_jain mode (EPANET's 5.74/Re^0.9 form, laminar 64/Re); ideal open PSV; pump held at no flow; flow by scipy.optimize.brentq)",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-psv-open-pump-dead-headed",
+    "metadata": {
+      "name": "PSV open beside a dead-headed pump",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "swamee_jain",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Water at EPANET's default viscosity",
+      "density": 1000.0,
+      "dynamicViscosity": 0.00102193344
+    },
+    "components": [
+      {
+        "id": "RA",
+        "name": "Reservoir RA",
+        "elevation": 11.906,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 9.902,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "RB",
+        "name": "Reservoir RB",
+        "elevation": 46.038,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 7.601,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "RC",
+        "name": "Reservoir RC",
+        "elevation": 2.443,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 11.36,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "PSV1",
+        "name": "Control valve PSV1",
+        "elevation": 7.5174,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "valve",
+        "valveType": "psv",
+        "status": "active",
+        "setpoint": 125643.5
+      },
+      {
+        "id": "T1",
+        "name": "Tee T1",
+        "elevation": 3.831,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "PU1",
+        "name": "Pump PU1",
+        "elevation": 3.0,
+        "ports": [
+          {
+            "id": "suction",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "discharge",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "pump",
+        "curveId": "PC1",
+        "speed": 0.876,
+        "status": "on"
+      }
+    ],
+    "connections": [
+      {
+        "id": "C1",
+        "fromComponentId": "RA",
+        "fromPortId": "port_1",
+        "toComponentId": "PSV1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1026,
+              "length": 11.3,
+              "roughness": 1e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "C2",
+        "fromComponentId": "PSV1",
+        "fromPortId": "outlet",
+        "toComponentId": "T1",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.2715,
+              "length": 210.9,
+              "roughness": 1e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "C3",
+        "fromComponentId": "T1",
+        "fromPortId": "run_outlet",
+        "toComponentId": "PU1",
+        "toPortId": "suction",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0611,
+              "length": 104.1,
+              "roughness": 1e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "C4",
+        "fromComponentId": "PU1",
+        "fromPortId": "discharge",
+        "toComponentId": "RB",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0133,
+              "length": 45.7,
+              "roughness": 1e-06
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "C5",
+        "fromComponentId": "T1",
+        "fromPortId": "branch",
+        "toComponentId": "RC",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0221,
+              "length": 1455.7,
+              "roughness": 4.4e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": [
+      {
+        "id": "PC1",
+        "name": "Curve PC1",
+        "points": [
+          {
+            "flow": 0.0,
+            "head": 34.2264
+          },
+          {
+            "flow": 0.053101,
+            "head": 25.4758
+          },
+          {
+            "flow": 0.106202,
+            "head": 16.7252
+          },
+          {
+            "flow": 0.159303,
+            "head": 7.9746
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "fluid": {
+      "density": 1000.0,
+      "dynamicViscosity": 0.00102193344
+    },
+    "flows": {
+      "C1": 9.40092555180042e-05,
+      "C2": 9.40092555180042e-05,
+      "C3": 0.0,
+      "C4": 0.0,
+      "C5": 9.40092555180042e-05
+    },
+    "egl": {
+      "RA:port_1": 21.808,
+      "PSV1:inlet": 21.80795929744745,
+      "PSV1:outlet": 21.80795929744745,
+      "T1:run_inlet": 21.80794380464835,
+      "T1:run_outlet": 21.80794380464835,
+      "T1:branch": 21.80794380464835,
+      "PU1:suction": 21.80794380464835,
+      "PU1:discharge": 53.638999999999996,
+      "RB:port_1": 53.638999999999996,
+      "RC:port_1": 13.802999999999999
+    },
+    "pressures": {
+      "PSV1:inlet": 140142.44868825833,
+      "PU1:suction": 184442.92211185474,
+      "PU1:discharge": 496598.94934999995
+    },
+    "pumps": {
+      "PU1": {
+        "status": "no_flow",
+        "operatingFlow": 0.0
+      }
+    },
+    "valves": {
+      "PSV1": {
+        "state": "open"
+      }
+    },
+    "flags": [
+      {
+        "code": "PUMP_FLOW_REVERSAL",
+        "componentId": "PU1"
+      },
+      {
+        "code": "CONTROL_VALVE_SETPOINT_NOT_MET",
+        "componentId": "PSV1"
+      }
+    ]
+  }
+}

@@ -1,0 +1,325 @@
+{
+  "name": "pump_flow_control_series_pumps_qc_below",
+  "description": "Two flow-controlled pumps in series against a high lift: verifies that the pump with the smaller setpoint holds it while the other runs at maximum speed (the unique state of proposal 4.6 for Q_c <= Q1).",
+  "source": "closed-form: tests/reference/derivations_pump_control.py::pump_flow_control_series_pumps_qc_below (flow control (proposal vfd-pump-modes.md 2.4, 4.5): active Q = Q_set with s* from s*^2 H0(Q_set/s*) = EGL_d - EGL_s; at a limit the fixed-speed pump at s_max or s_min; pump curve: scipy PchipInterpolator, linear end-slope extension, affinity laws; G(Q) = Sys - F1(s_min1, Q) - F2(s_max2, Q), Q_c by brentq (proposal 4.6); line fittings: fluids bend_rounded_Crane(Di, 90, bend_diameters=1.5), entrance_sharp(method='Crane'), exit_normal(), K_gate_valve_Crane(Di, Di, 0))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-pump-flow-control-series-pumps-qc-below",
+    "metadata": {
+      "name": "Flow-controlled pumps in series, the first holding",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 3.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "P1",
+        "name": "Pump P1",
+        "elevation": 0.5,
+        "ports": [
+          {
+            "id": "suction",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "discharge",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "pump",
+        "curveId": "PC-B",
+        "speed": 1.0,
+        "status": "on",
+        "control": {
+          "mode": "flow",
+          "setpoint": 0.015,
+          "minSpeed": 0.6
+        }
+      },
+      {
+        "id": "P2",
+        "name": "Pump P2",
+        "elevation": 1.0,
+        "ports": [
+          {
+            "id": "suction",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "discharge",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "pump",
+        "curveId": "PC-A",
+        "speed": 1.0,
+        "status": "on",
+        "control": {
+          "mode": "flow",
+          "setpoint": 0.025,
+          "minSpeed": 0.5
+        }
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 53.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "P1",
+        "toPortId": "suction",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1541,
+              "length": 6.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "P1",
+        "fromPortId": "discharge",
+        "toComponentId": "P2",
+        "toPortId": "suction",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 20.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L3",
+        "fromComponentId": "P2",
+        "fromPortId": "discharge",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 120.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "gate_valve",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_90_lr",
+              "quantity": 3,
+              "pipeIndex": 0
+            },
+            {
+              "type": "exit",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": [
+      {
+        "id": "PC-B",
+        "name": "Curve PC-B",
+        "points": [
+          {
+            "flow": 0.0,
+            "head": 30.0
+          },
+          {
+            "flow": 0.015,
+            "head": 28.5
+          },
+          {
+            "flow": 0.03,
+            "head": 24.0
+          },
+          {
+            "flow": 0.045,
+            "head": 16.0
+          }
+        ]
+      },
+      {
+        "id": "PC-A",
+        "name": "Curve PC-A",
+        "points": [
+          {
+            "flow": 0.0,
+            "head": 45.0
+          },
+          {
+            "flow": 0.01,
+            "head": 44.0
+          },
+          {
+            "flow": 0.02,
+            "head": 41.0
+          },
+          {
+            "flow": 0.03,
+            "head": 35.5
+          },
+          {
+            "flow": 0.04,
+            "head": 27.0
+          }
+        ],
+        "npshrCurve": [
+          {
+            "flow": 0.005,
+            "npshr": 1.6
+          },
+          {
+            "flow": 0.015,
+            "npshr": 2.0
+          },
+          {
+            "flow": 0.025,
+            "npshr": 2.7
+          },
+          {
+            "flow": 0.035,
+            "npshr": 3.8
+          },
+          {
+            "flow": 0.045,
+            "npshr": 5.2
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.015,
+      "L2": 0.015,
+      "L3": 0.015
+    },
+    "egl": {
+      "R1:port_1": 3.0,
+      "P1:suction": 2.9593389164179125,
+      "P1:discharge": 16.84130864800688,
+      "P2:suction": 16.222567114253987,
+      "P2:discharge": 59.02036123190105,
+      "R2:port_1": 55.0
+    },
+    "pressures": {
+      "P1:suction": 23746.87054197162,
+      "P1:discharge": 158271.10323626213,
+      "P2:suction": 147321.9387876083,
+      "P2:discharge": 566185.5204960641
+    },
+    "pumps": {
+      "P1": {
+        "status": "running",
+        "operatingFlow": 0.015,
+        "speed": 0.7150386065370341,
+        "controlState": "active",
+        "operatingHead": 13.881969731588967
+      },
+      "P2": {
+        "status": "running",
+        "operatingFlow": 0.015,
+        "speed": 1.0,
+        "controlState": "max_speed",
+        "operatingHead": 42.79779411764706
+      }
+    },
+    "flags": [
+      {
+        "code": "PUMP_SETPOINT_NOT_MET",
+        "componentId": "P2"
+      },
+      {
+        "code": "NPSH_NOT_CHECKED",
+        "componentId": "P2"
+      }
+    ]
+  }
+}

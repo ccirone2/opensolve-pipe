@@ -1,0 +1,6 @@
+pnpm-lock.yaml
+/static/
+/build/
+/.svelte-kit/
+src/lib/api/schema.d.ts
+src/lib/api/openapi.json

@@ -1,0 +1,128 @@
+{
+  "name": "fluid_meg_solution",
+  "description": "Aqueous ethylene glycol (30% by mass, 10 C) between two reservoirs: verifies the MEG density and viscosity (CoolProp INCOMP::MEG, Melinder 2010), no vapor pressure (NO_VAPOR_PRESSURE) and the resulting flow.",
+  "source": "closed-form: tests/reference/derivations_fluids.py::fluid_meg_solution (CoolProp PropsSI('D'/'V', T, 101325 Pa, 'INCOMP::MEG[0.3]'); Darcy-Weisbach + Colebrook; K from fluids entrance_sharp(Crane), bend_rounded_Crane, exit_normal; brentq)",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-fluid-meg-solution",
+    "metadata": {
+      "name": "Ethylene glycol solution",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "builtin",
+      "fluidId": "ethylene_glycol",
+      "temperature": 283.15,
+      "concentration": 0.3
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 6.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 1.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 70.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_90_lr",
+              "quantity": 3,
+              "pipeIndex": 0
+            },
+            {
+              "type": "exit",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 1041.81268177996,
+      "dynamicViscosity": 0.002982996578124414,
+      "vaporPressure": null
+    },
+    "flows": {
+      "L1": 0.011975174656650538
+    },
+    "egl": {
+      "R1:port_1": 8.0,
+      "R2:port_1": 1.0
+    },
+    "flags": [
+      {
+        "code": "NO_VAPOR_PRESSURE"
+      }
+    ]
+  }
+}

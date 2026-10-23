@@ -1,0 +1,221 @@
+{
+  "name": "pump_flow_control_min_speed_outside_curve",
+  "description": "A flow-controlled pump that passes more than its setpoint even at its minimum speed, where its flow over that speed lies beyond the curve's last point (inside at maximum speed): verifies the operating point on the curve's straight end-slope extension at minimum speed, and PUMP_OUTSIDE_CURVE evaluated at minimum speed with PUMP_SETPOINT_NOT_MET.",
+  "source": "closed-form: tests/reference/derivations_pump_control.py::pump_flow_control_min_speed_outside_curve (flow control (proposal vfd-pump-modes.md 2.4, 4.5): active Q = Q_set with s* from s*^2 H0(Q_set/s*) = EGL_d - EGL_s; at a limit the fixed-speed pump at s_max or s_min; pump curve: scipy PchipInterpolator, linear end-slope extension, affinity laws; fixed-speed operating point at s_min by brentq, cross-checked on the right tangent H0 = A - B x; line fittings: fluids bend_rounded_Crane(Di, 90, bend_diameters=1.5), entrance_sharp(method='Crane'), exit_normal(), K_gate_valve_Crane(Di, Di, 0))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-pump-flow-control-min-speed-outside-curve",
+    "metadata": {
+      "name": "Flow-controlled pump at minimum speed beyond its curve points",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 3.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "PU1",
+        "name": "Pump PU1",
+        "elevation": 0.5,
+        "ports": [
+          {
+            "id": "suction",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "discharge",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "pump",
+        "curveId": "PC-B",
+        "speed": 1.0,
+        "status": "on",
+        "control": {
+          "mode": "flow",
+          "setpoint": 0.02,
+          "minSpeed": 0.6
+        }
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 2.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "PU1",
+        "toPortId": "suction",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1541,
+              "length": 6.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_90_lr",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "PU1",
+        "fromPortId": "discharge",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 30.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "gate_valve",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "exit",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": [
+      {
+        "id": "PC-B",
+        "name": "Curve PC-B",
+        "points": [
+          {
+            "flow": 0.0,
+            "head": 30.0
+          },
+          {
+            "flow": 0.015,
+            "head": 28.5
+          },
+          {
+            "flow": 0.03,
+            "head": 24.0
+          },
+          {
+            "flow": 0.045,
+            "head": 16.0
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.02871825850333809,
+      "L2": 0.02871825850333809
+    },
+    "egl": {
+      "R1:port_1": 3.0,
+      "PU1:suction": 2.83271388324434,
+      "PU1:discharge": 7.922593066942487,
+      "R2:port_1": 4.0
+    },
+    "pressures": {
+      "PU1:suction": 21647.242834328685,
+      "PU1:discharge": 66553.54768152964
+    },
+    "pumps": {
+      "PU1": {
+        "status": "running",
+        "operatingFlow": 0.02871825850333809,
+        "speed": 0.6,
+        "controlState": "min_speed",
+        "operatingHead": 5.089879183698147
+      }
+    },
+    "flags": [
+      {
+        "code": "PUMP_SETPOINT_NOT_MET",
+        "componentId": "PU1"
+      },
+      {
+        "code": "PUMP_OUTSIDE_CURVE",
+        "componentId": "PU1"
+      }
+    ]
+  }
+}

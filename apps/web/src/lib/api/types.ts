@@ -1,0 +1,82 @@
+/**
+ * Convenient names for the generated API types. The Pydantic models in apps/api are the source
+ * of truth; regenerate schema.d.ts with `pnpm gen:types` after changing them.
+ */
+import type { components } from './schema';
+
+type S = components['schemas'];
+
+export type Project = S['Project'];
+export type ProjectSettings = S['ProjectSettings'];
+export type ProjectMetadata = S['ProjectMetadata'];
+export type UnitPreferences = S['UnitPreferences'];
+export type SolverOptions = S['SolverOptions'];
+export type Port = S['Port'];
+export type PortDirection = S['PortDirection'];
+export type PipeConnection = S['PipeConnection'];
+export type PipingSegment = S['PipingSegment'];
+export type PipeDefinition = S['PipeDefinition'];
+export type Fitting = S['Fitting'];
+export type FittingType = Fitting['type'];
+export type FlowCoefficient = S['FlowCoefficient'];
+export type Reservoir = S['Reservoir'];
+export type IdealReferenceNode = S['IdealReferenceNode'];
+export type Plug = S['Plug'];
+export type TeeBranch = S['TeeBranch'];
+export type WyeBranch = S['WyeBranch'];
+export type Pump = S['Pump'];
+export type IsolationValve = S['IsolationValve'];
+export type CheckValve = S['CheckValve'];
+export type ControlValve = S['ControlValve'];
+export type Component = Project['components'][number];
+export type ComponentType = Component['type'];
+export type PumpCurve = S['PumpCurve'];
+export type FlowHeadPoint = S['FlowHeadPoint'];
+export type FlowEfficiencyPoint = S['FlowEfficiencyPoint'];
+export type FlowNpshrPoint = S['FlowNpshrPoint'];
+export type BuiltinFluid = S['BuiltinFluid'];
+export type CustomFluid = S['CustomFluid'];
+export type FluidDefinition = Project['fluid'];
+export type FluidOverrides = S['FluidOverrides'];
+export type BuiltinFluidId = BuiltinFluid['fluidId'];
+
+export type SolveRequest = S['SolveRequest'];
+export type SolveOptions = S['SolveOptions'];
+export type SolveResponse = S['SolveResponse'];
+export type ErrorResponse = S['ErrorResponse'];
+export type TopologyIssue = S['TopologyIssue'];
+export type SolvedState = S['SolvedState'];
+export type NodeResult = S['NodeResult'];
+export type LinkResult = S['LinkResult'];
+export type PumpResult = S['PumpResult'];
+export type ValveResult = S['ValveResult'];
+export type BranchResult = S['BranchResult'];
+export type BoundaryResult = S['BoundaryResult'];
+export type Flag = S['Flag'];
+export type ElementTrace = S['ElementTrace'];
+export type MethodsSummary = S['MethodsSummary'];
+export type MethodsSection = S['MethodsSection'];
+export type Trace = S['Trace'];
+export type TraceInput = S['TraceInput'];
+export type TraceValue = S['TraceValue'];
+export type Reference = S['Reference'];
+export type ConvergenceReport = S['ConvergenceReport'];
+export type ResidualLocation = S['ResidualLocation'];
+export type SegmentResult = S['SegmentResult'];
+export type FittingResult = S['FittingResult'];
+export type PropertySource = S['PropertySource'];
+export type MethodVersionInfo = S['MethodVersionInfo'];
+export type CurvePoint = S['CurvePoint'];
+export type LibraryResponse = S['LibraryResponse'];
+export type PipeMaterial = S['PipeMaterial'];
+export type PipeSchedule = S['PipeSchedule'];
+export type PipeSize = S['PipeSize'];
+export type FittingInfo = S['FittingInfo'];
+export type FluidInfo = S['FluidInfo'];
+export type RangeInfo = S['RangeInfo'];
+export type FluidProperties = S['FluidProperties'];
+export type SystemCurveRequest = S['SystemCurveRequest'];
+export type SystemCurveResponse = S['SystemCurveResponse'];
+export type FluidListResponse = S['FluidListResponse'];
+export type FluidPropertiesResponse = S['FluidPropertiesResponse'];
+export type MethodVersionsResponse = S['MethodVersionsResponse'];

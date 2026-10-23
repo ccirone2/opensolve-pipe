@@ -1,0 +1,795 @@
+{
+ "schemaVersion": 1,
+ "id": "rich-37",
+ "metadata": {
+  "name": "rich 37",
+  "created": "2026-01-01T00:00:00Z",
+  "modified": "2026-01-01T00:00:00Z"
+ },
+ "settings": {
+  "units": {},
+  "siteElevation": 2393.3,
+  "solverOptions": {
+   "frictionMethod": "colebrook"
+  }
+ },
+ "fluid": {
+  "kind": "builtin",
+  "fluidId": "ethylene_glycol",
+  "temperature": 327.09,
+  "concentration": 0.37
+ },
+ "components": [
+  {
+   "type": "branch",
+   "branchType": "tee",
+   "id": "T0",
+   "name": "T0",
+   "elevation": 15.451,
+   "ports": [
+    {
+     "id": "run_inlet",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "run_outlet",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "branch",
+     "nominalSize": 0.1016
+    }
+   ],
+   "lossModel": "crane"
+  },
+  {
+   "type": "branch",
+   "branchType": "tee",
+   "id": "T1",
+   "name": "T1",
+   "elevation": 15.841,
+   "ports": [
+    {
+     "id": "run_inlet",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "run_outlet",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "branch",
+     "nominalSize": 0.1016
+    }
+   ]
+  },
+  {
+   "type": "branch",
+   "branchType": "tee",
+   "id": "T2",
+   "name": "T2",
+   "elevation": 18.02,
+   "ports": [
+    {
+     "id": "run_inlet",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "run_outlet",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "branch",
+     "nominalSize": 0.1016
+    }
+   ],
+   "lossModel": "crane"
+  },
+  {
+   "type": "branch",
+   "branchType": "tee",
+   "id": "T3",
+   "name": "T3",
+   "elevation": 22.084,
+   "ports": [
+    {
+     "id": "run_inlet",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "run_outlet",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "branch",
+     "nominalSize": 0.1016
+    }
+   ]
+  },
+  {
+   "type": "branch",
+   "branchType": "wye",
+   "id": "T4",
+   "name": "T4",
+   "elevation": 29.138,
+   "ports": [
+    {
+     "id": "inlet",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "outlet_1",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "outlet_2",
+     "nominalSize": 0.1016
+    }
+   ],
+   "angle": 30.0,
+   "lossModel": "crane"
+  },
+  {
+   "type": "branch",
+   "branchType": "tee",
+   "id": "T5",
+   "name": "T5",
+   "elevation": 27.891,
+   "ports": [
+    {
+     "id": "run_inlet",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "run_outlet",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "branch",
+     "nominalSize": 0.1016
+    }
+   ],
+   "lossModel": "crane"
+  },
+  {
+   "type": "reservoir",
+   "id": "R0",
+   "name": "R0",
+   "elevation": 30.156,
+   "liquidLevel": 0.824,
+   "ports": [
+    {
+     "id": "port_1",
+     "nominalSize": 0.1016
+    }
+   ]
+  },
+  {
+   "type": "reference_node",
+   "referenceType": "ideal",
+   "id": "RN1",
+   "name": "RN1",
+   "elevation": 17.933,
+   "pressure": 251986.0,
+   "ports": [
+    {
+     "id": "port_1",
+     "nominalSize": 0.1016
+    }
+   ]
+  },
+  {
+   "type": "reference_node",
+   "referenceType": "ideal",
+   "id": "RN2",
+   "name": "RN2",
+   "elevation": 45.062,
+   "pressure": 219428.7,
+   "ports": [
+    {
+     "id": "port_1",
+     "nominalSize": 0.1016
+    }
+   ]
+  },
+  {
+   "type": "plug",
+   "id": "PL1",
+   "name": "PL1",
+   "elevation": 18.02,
+   "ports": [
+    {
+     "id": "port_1",
+     "nominalSize": 0.1016
+    }
+   ]
+  },
+  {
+   "type": "valve",
+   "valveType": "prv",
+   "id": "PRV1",
+   "name": "PRV1",
+   "elevation": 30.787,
+   "setpoint": 346230.2,
+   "ports": [
+    {
+     "id": "inlet",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "outlet",
+     "nominalSize": 0.1016
+    }
+   ]
+  },
+  {
+   "type": "valve",
+   "valveType": "fcv",
+   "id": "FCV2",
+   "name": "FCV2",
+   "elevation": 28.043,
+   "setpoint": 0.002772,
+   "ports": [
+    {
+     "id": "inlet",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "outlet",
+     "nominalSize": 0.1016
+    }
+   ]
+  },
+  {
+   "type": "pump",
+   "id": "PU3",
+   "name": "PU3",
+   "elevation": 37.389,
+   "curveId": "PC1",
+   "ports": [
+    {
+     "id": "suction",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "discharge",
+     "nominalSize": 0.1016
+    }
+   ],
+   "speed": 0.841
+  },
+  {
+   "type": "valve",
+   "valveType": "stop_check",
+   "id": "CV4",
+   "name": "CV4",
+   "elevation": 22.169,
+   "ports": [
+    {
+     "id": "inlet",
+     "nominalSize": 0.1016
+    },
+    {
+     "id": "outlet",
+     "nominalSize": 0.1016
+    }
+   ],
+   "resistance": {
+    "kind": "Cv",
+    "value": 1245.58
+   }
+  }
+ ],
+ "connections": [
+  {
+   "id": "C1",
+   "fromComponentId": "T1",
+   "fromPortId": "run_inlet",
+   "toComponentId": "T5",
+   "toPortId": "run_outlet",
+   "piping": {
+    "pipes": [
+     {
+      "materialId": "carbon_steel",
+      "schedule": "40",
+      "nominalSize": 0.0254,
+      "length": 1.536
+     }
+    ],
+    "fittings": [
+     {
+      "type": "entrance_sharp",
+      "pipeIndex": 0
+     },
+     {
+      "type": "lift_check_valve",
+      "pipeIndex": 0
+     },
+     {
+      "type": "globe_valve"
+     }
+    ]
+   }
+  },
+  {
+   "id": "C2",
+   "fromComponentId": "T1",
+   "fromPortId": "branch",
+   "toComponentId": "T3",
+   "toPortId": "run_inlet",
+   "piping": {
+    "pipes": [
+     {
+      "materialId": "custom",
+      "innerDiameter": 0.13124,
+      "length": 1.365,
+      "roughness": 9.740188433000182e-07
+     },
+     {
+      "materialId": "custom",
+      "innerDiameter": 0.3172,
+      "length": 39.503,
+      "roughness": 0.00043741365239551385
+     }
+    ],
+    "fittings": [
+     {
+      "type": "elbow_90_sr",
+      "pipeIndex": 0
+     },
+     {
+      "type": "entrance_projecting",
+      "pipeIndex": 1
+     },
+     {
+      "type": "elbow_90_lr",
+      "quantity": 2,
+      "pipeIndex": 0
+     }
+    ]
+   }
+  },
+  {
+   "id": "C3",
+   "fromComponentId": "PRV1",
+   "fromPortId": "inlet",
+   "toComponentId": "T4",
+   "toPortId": "inlet",
+   "piping": {
+    "pipes": [
+     {
+      "materialId": "carbon_steel",
+      "schedule": "140",
+      "nominalSize": 0.2032,
+      "length": 26.657
+     },
+     {
+      "materialId": "custom",
+      "innerDiameter": 0.17587,
+      "length": 530.469,
+      "roughness": 6.642317874679774e-05
+     }
+    ],
+    "fittings": []
+   }
+  },
+  {
+   "id": "C4",
+   "fromComponentId": "T5",
+   "fromPortId": "run_inlet",
+   "toComponentId": "PRV1",
+   "toPortId": "outlet",
+   "piping": {
+    "pipes": [
+     {
+      "materialId": "carbon_steel",
+      "schedule": "140",
+      "nominalSize": 0.2032,
+      "length": 3.107
+     },
+     {
+      "materialId": "custom",
+      "innerDiameter": 0.1001,
+      "length": 39.283,
+      "roughness": 1.2008007421138631e-07
+     }
+    ],
+    "fittings": [
+     {
+      "type": "reducer_conical",
+      "pipeIndex": 0,
+      "angle": 10.0
+     }
+    ]
+   }
+  },
+  {
+   "id": "C5",
+   "fromComponentId": "T2",
+   "fromPortId": "branch",
+   "toComponentId": "T4",
+   "toPortId": "outlet_1",
+   "piping": {
+    "pipes": [
+     {
+      "materialId": "pvc",
+      "schedule": "80D1785",
+      "nominalSize": 0.127,
+      "length": 44.63
+     }
+    ],
+    "fittings": [
+     {
+      "type": "entrance_rounded",
+      "radiusRatio": 0.2
+     },
+     {
+      "type": "lift_check_valve",
+      "pipeIndex": 0
+     }
+    ]
+   }
+  },
+  {
+   "id": "C6",
+   "fromComponentId": "T3",
+   "fromPortId": "run_outlet",
+   "toComponentId": "T0",
+   "toPortId": "run_outlet",
+   "piping": {
+    "pipes": [
+     {
+      "materialId": "carbon_steel",
+      "schedule": "STD",
+      "nominalSize": 0.508,
+      "length": 248.826,
+      "roughness": 0.0006969
+     }
+    ],
+    "fittings": [
+     {
+      "type": "elbow_45_threaded"
+     }
+    ]
+   }
+  },
+  {
+   "id": "C7",
+   "fromComponentId": "T0",
+   "fromPortId": "branch",
+   "toComponentId": "FCV2",
+   "toPortId": "outlet",
+   "piping": {
+    "pipes": [
+     {
+      "materialId": "carbon_steel",
+      "schedule": "120",
+      "nominalSize": 0.30479999999999996,
+      "length": 203.139
+     },
+     {
+      "materialId": "custom",
+      "innerDiameter": 0.23847,
+      "length": 1.52,
+      "roughness": 0.0001262146799175254
+     }
+    ],
+    "fittings": [
+     {
+      "type": "swing_check_valve",
+      "quantity": 2,
+      "pipeIndex": 1
+     },
+     {
+      "type": "lift_check_valve",
+      "quantity": 2,
+      "pipeIndex": 0
+     },
+     {
+      "type": "globe_valve",
+      "pipeIndex": 1
+     },
+     {
+      "type": "reducer_sudden",
+      "pipeIndex": 0
+     }
+    ]
+   }
+  },
+  {
+   "id": "C8",
+   "fromComponentId": "R0",
+   "fromPortId": "port_1",
+   "toComponentId": "FCV2",
+   "toPortId": "inlet",
+   "piping": {
+    "pipes": [
+     {
+      "materialId": "custom",
+      "innerDiameter": 0.00829,
+      "length": 4.572,
+      "roughness": 1.4421675049045285e-06
+     },
+     {
+      "materialId": "carbon_steel",
+      "schedule": "120",
+      "nominalSize": 0.1016,
+      "length": 1.304
+     },
+     {
+      "materialId": "custom",
+      "innerDiameter": 0.01796,
+      "length": 10.162,
+      "roughness": 6.596335348897886e-05
+     }
+    ],
+    "fittings": [
+     {
+      "type": "elbow_90_threaded",
+      "pipeIndex": 2
+     },
+     {
+      "type": "elbow_45_threaded",
+      "pipeIndex": 1
+     },
+     {
+      "type": "butterfly_valve",
+      "pipeIndex": 2
+     }
+    ]
+   }
+  },
+  {
+   "id": "C9",
+   "fromComponentId": "T5",
+   "fromPortId": "branch",
+   "toComponentId": "RN1",
+   "toPortId": "port_1",
+   "piping": {
+    "pipes": [
+     {
+      "materialId": "custom",
+      "innerDiameter": 0.16469,
+      "length": 382.574,
+      "roughness": 0.001693931624564988
+     }
+    ],
+    "fittings": [
+     {
+      "type": "elbow_45_lr",
+      "pipeIndex": 0
+     }
+    ]
+   }
+  },
+  {
+   "id": "C10",
+   "fromComponentId": "PU3",
+   "fromPortId": "suction",
+   "toComponentId": "T3",
+   "toPortId": "branch",
+   "piping": {
+    "pipes": [
+     {
+      "materialId": "carbon_steel",
+      "schedule": "60",
+      "nominalSize": 0.2032,
+      "length": 598.313
+     },
+     {
+      "materialId": "carbon_steel",
+      "schedule": "30",
+      "nominalSize": 0.1016,
+      "length": 711.386
+     }
+    ],
+    "fittings": [
+     {
+      "type": "elbow_45_sr",
+      "pipeIndex": 0
+     },
+     {
+      "type": "entrance_sharp",
+      "quantity": 3,
+      "pipeIndex": 1
+     },
+     {
+      "type": "elbow_45_threaded",
+      "pipeIndex": 0
+     },
+     {
+      "type": "reducer_sudden",
+      "pipeIndex": 0
+     }
+    ]
+   }
+  },
+  {
+   "id": "C11",
+   "fromComponentId": "CV4",
+   "fromPortId": "inlet",
+   "toComponentId": "PU3",
+   "toPortId": "discharge",
+   "piping": {
+    "pipes": [
+     {
+      "materialId": "carbon_steel",
+      "schedule": "140",
+      "nominalSize": 0.4064,
+      "length": 10.382
+     }
+    ],
+    "fittings": [
+     {
+      "type": "plug_valve",
+      "quantity": 2
+     },
+     {
+      "type": "entrance_sharp",
+      "quantity": 2,
+      "pipeIndex": 0
+     }
+    ]
+   }
+  },
+  {
+   "id": "C12",
+   "fromComponentId": "CV4",
+   "fromPortId": "outlet",
+   "toComponentId": "RN2",
+   "toPortId": "port_1",
+   "piping": {
+    "pipes": [
+     {
+      "materialId": "carbon_steel",
+      "schedule": "120",
+      "nominalSize": 0.1016,
+      "length": 8.485
+     }
+    ],
+    "fittings": [
+     {
+      "type": "globe_valve",
+      "pipeIndex": 0
+     }
+    ]
+   }
+  },
+  {
+   "id": "C13",
+   "fromComponentId": "T2",
+   "fromPortId": "run_outlet",
+   "toComponentId": "PL1",
+   "toPortId": "port_1",
+   "piping": {
+    "pipes": [
+     {
+      "materialId": "custom",
+      "innerDiameter": 0.16313,
+      "length": 13.082,
+      "roughness": 0.00017845462781486526
+     }
+    ],
+    "fittings": []
+   }
+  },
+  {
+   "id": "C14",
+   "fromComponentId": "T1",
+   "fromPortId": "run_outlet",
+   "toComponentId": "T2",
+   "toPortId": "run_inlet",
+   "piping": {
+    "pipes": [
+     {
+      "materialId": "custom",
+      "innerDiameter": 0.28469,
+      "length": 16.023,
+      "roughness": 9.702106882576006e-05
+     },
+     {
+      "materialId": "custom",
+      "innerDiameter": 0.33752,
+      "length": 21.918,
+      "roughness": 1.2724493015371795e-06
+     },
+     {
+      "materialId": "pvc",
+      "schedule": "80D1785",
+      "nominalSize": 0.03175,
+      "length": 558.528
+     }
+    ],
+    "fittings": [
+     {
+      "type": "elbow_90_threaded",
+      "quantity": 2,
+      "pipeIndex": 2
+     },
+     {
+      "type": "exit",
+      "quantity": 3,
+      "pipeIndex": 1
+     },
+     {
+      "type": "globe_valve",
+      "quantity": 1,
+      "pipeIndex": 0
+     }
+    ]
+   }
+  },
+  {
+   "id": "C15",
+   "fromComponentId": "T0",
+   "fromPortId": "run_inlet",
+   "toComponentId": "T4",
+   "toPortId": "outlet_2",
+   "piping": {
+    "pipes": [
+     {
+      "materialId": "custom",
+      "innerDiameter": 0.14713,
+      "length": 73.542,
+      "roughness": 8.26654245439676e-06
+     },
+     {
+      "materialId": "stainless_steel",
+      "schedule": "5S",
+      "nominalSize": 0.127,
+      "length": 3.812
+     }
+    ],
+    "fittings": []
+   }
+  }
+ ],
+ "pumpLibrary": [
+  {
+   "id": "PC1",
+   "name": "Curve PC1",
+   "points": [
+    {
+     "flow": 0.009093215513929494,
+     "head": 18.2011079339813
+    },
+    {
+     "flow": 0.03273339570212409,
+     "head": 16.02820171337334
+    },
+    {
+     "flow": 0.0563735758903187,
+     "head": 7.500292568300691
+    }
+   ],
+   "efficiencyCurve": [
+    {
+     "flow": 0.022549430356127484,
+     "efficiency": 0.653
+    },
+    {
+     "flow": 0.039461503123223086,
+     "efficiency": 0.556
+    },
+    {
+     "flow": 0.050736218301286835,
+     "efficiency": 0.585
+    }
+   ],
+   "npshrCurve": [
+    {
+     "flow": 0.01691207276709561,
+     "npshr": 1.0506088622929421
+    },
+    {
+     "flow": 0.03382414553419122,
+     "npshr": 2.1012177245858843
+    },
+    {
+     "flow": 0.0563735758903187,
+     "npshr": 3.151826586878826
+    }
+   ]
+  }
+ ]
+}

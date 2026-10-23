@@ -1,0 +1,217 @@
+{
+  "name": "pressurized_reservoir_to_reference_node",
+  "description": "A reservoir under 250 kPa gauge surface pressure supplies an ideal reference node held at 120 kPa gauge, 12 m higher, through a tee with a plugged branch: verifies surfacePressure and reference-node heads (p/(rho g) with rho = 1050), an explicit port elevation, and static pressures at boundary, run, branch and plug ports.",
+  "source": "closed-form: tests/reference/derivations.py::pressurized_reservoir_to_reference_node (Darcy-Weisbach + Colebrook; K from fluids entrance_sharp(Crane), bend_rounded_Crane(r/D 1.5), K_gate_valve_Crane; brentq)",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-pressurized-reservoir",
+    "metadata": {
+      "name": "Pressurized reservoir feeding a fixed-pressure main",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Brine (custom input)",
+      "density": 1050.0,
+      "dynamicViscosity": 0.0013
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional",
+            "elevation": 0.4
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 250000.0
+      },
+      {
+        "id": "T1",
+        "name": "Tee T1",
+        "elevation": 6.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "P1",
+        "name": "Plug P1",
+        "elevation": 9.5,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.0254,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "plug"
+      },
+      {
+        "id": "N1",
+        "name": "Reference node N1",
+        "elevation": 12.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.0508,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reference_node",
+        "referenceType": "ideal",
+        "pressure": 120000.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "T1",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0627,
+              "length": 35.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_90_lr",
+              "quantity": 2,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "T1",
+        "fromPortId": "run_outlet",
+        "toComponentId": "N1",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 50.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "elbow_90_lr",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "gate_valve",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L3",
+        "fromComponentId": "T1",
+        "fromPortId": "branch",
+        "toComponentId": "P1",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0266,
+              "length": 4.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 1050.0,
+      "dynamicViscosity": 0.0013
+    },
+    "flows": {
+      "L1": 0.002860568923530938,
+      "L2": 0.002860568923530938,
+      "L3": 0.0
+    },
+    "egl": {
+      "R1:port_1": 26.278957451855433,
+      "T1:run_inlet": 25.661904262766523,
+      "T1:run_outlet": 25.661904262766523,
+      "T1:branch": 25.661904262766523,
+      "P1:port_1": 25.661904262766523,
+      "N1:port_1": 23.65389957689061
+    },
+    "pressures": {
+      "R1:port_1": 266475.172,
+      "T1:run_inlet": 202007.6602228735,
+      "T1:run_outlet": 201541.54204529955,
+      "T1:branch": 202458.2841103823,
+      "P1:port_1": 166418.84536038229,
+      "N1:port_1": 120000.0
+    }
+  }
+}

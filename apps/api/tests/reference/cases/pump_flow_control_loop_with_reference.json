@@ -1,0 +1,305 @@
+{
+  "name": "pump_flow_control_loop_with_reference",
+  "description": "A flow-controlled pump circulating around a loop whose only boundary is an ideal reference node on a stub: verifies the loop flow at the setpoint, heads fixed by the reference node, and the speed from the loop's head loss.",
+  "source": "closed-form: tests/reference/derivations_pump_control.py::pump_flow_control_loop_with_reference (flow control (proposal vfd-pump-modes.md 2.4, 4.5): active Q = Q_set with s* from s*^2 H0(Q_set/s*) = EGL_d - EGL_s; at a limit the fixed-speed pump at s_max or s_min; pump curve: scipy PchipInterpolator, linear end-slope extension, affinity laws; reference node head z + p/(rho g); straight curve: s* = [bQ + sqrt(b^2 Q^2 + 4aH)]/(2a))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-pump-flow-control-loop-with-reference",
+    "metadata": {
+      "name": "Flow-controlled pump in a loop anchored by a reference node",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "RN",
+        "name": "Reference node RN",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.0508,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reference_node",
+        "referenceType": "ideal",
+        "pressure": 150000.0
+      },
+      {
+        "id": "T1",
+        "name": "Tee T1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "PU1",
+        "name": "Pump PU1",
+        "elevation": 0.5,
+        "ports": [
+          {
+            "id": "suction",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "discharge",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "pump",
+        "curveId": "PC-S",
+        "speed": 1.0,
+        "status": "on",
+        "control": {
+          "mode": "flow",
+          "setpoint": 0.02,
+          "minSpeed": 0.5
+        }
+      },
+      {
+        "id": "T2",
+        "name": "Tee T2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "PL1",
+        "name": "Plug PL1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.0254,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "plug"
+      }
+    ],
+    "connections": [
+      {
+        "id": "L0",
+        "fromComponentId": "RN",
+        "fromPortId": "port_1",
+        "toComponentId": "T1",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 10.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L3",
+        "fromComponentId": "T1",
+        "fromPortId": "run_outlet",
+        "toComponentId": "PU1",
+        "toPortId": "suction",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 50.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L4",
+        "fromComponentId": "PU1",
+        "fromPortId": "discharge",
+        "toComponentId": "T2",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 50.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L5",
+        "fromComponentId": "T2",
+        "fromPortId": "run_outlet",
+        "toComponentId": "PL1",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 10.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L6",
+        "fromComponentId": "T2",
+        "fromPortId": "branch",
+        "toComponentId": "T1",
+        "toPortId": "branch",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 400.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": [
+      {
+        "id": "PC-S",
+        "name": "Curve PC-S",
+        "points": [
+          {
+            "flow": 0.0,
+            "head": 40.0
+          },
+          {
+            "flow": 0.01,
+            "head": 36.0
+          },
+          {
+            "flow": 0.02,
+            "head": 32.0
+          },
+          {
+            "flow": 0.03,
+            "head": 28.0
+          },
+          {
+            "flow": 0.04,
+            "head": 24.0
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L0": 0.0,
+      "L3": 0.02,
+      "L4": 0.02,
+      "L5": 0.0,
+      "L6": 0.02
+    },
+    "egl": {
+      "RN:port_1": 15.32639598664221,
+      "T1:run_inlet": 15.32639598664221,
+      "T1:run_outlet": 15.32639598664221,
+      "T1:branch": 15.32639598664221,
+      "PU1:suction": 12.650006308292363,
+      "PU1:discharge": 39.41390309179083,
+      "T2:run_inlet": 36.73751341344098,
+      "T2:run_outlet": 36.73751341344098,
+      "T2:branch": 36.73751341344098,
+      "PL1:port_1": 36.73751341344098
+    },
+    "pressures": {
+      "PU1:suction": 115958.09679505142,
+      "PU1:discharge": 377897.3368501628,
+      "PL1:port_1": 359551.3920440891
+    },
+    "pumps": {
+      "PU1": {
+        "status": "running",
+        "operatingFlow": 0.02,
+        "speed": 0.9240736736405681,
+        "controlState": "active",
+        "operatingHead": 26.763896783498463
+      }
+    }
+  }
+}

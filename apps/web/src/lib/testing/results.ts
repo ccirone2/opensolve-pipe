@@ -1,0 +1,270 @@
+/**
+ * Hand-built solve results for component tests. Not used by the app.
+ *
+ * TEST INPUTS ONLY: every number here is made up to exercise the display (unit conversion,
+ * labels, flags, traces). None is computed by any method, and none is a hydraulic result of the
+ * example projects whose ids they borrow for names.
+ */
+import type {
+	ElementTrace,
+	Flag,
+	LinkResult,
+	MethodsSummary,
+	NodeResult,
+	PumpResult,
+	SolvedState,
+	SolveResponse,
+	SystemCurveResponse
+} from '../api/types';
+
+/** Made-up node values at one port. */
+export function node(
+	componentId: string,
+	portId: string,
+	values: Partial<NodeResult> = {}
+): NodeResult {
+	return {
+		componentId,
+		portId,
+		elevation: 0,
+		velocity: 0,
+		pressure: 0,
+		absolutePressure: 101325,
+		dynamicPressure: 0,
+		totalPressure: 0,
+		hgl: 0,
+		egl: 0,
+		...values
+	};
+}
+
+/** Made-up values for a connection of one pipe segment. */
+export function link(values: Partial<LinkResult> = {}): LinkResult {
+	return {
+		flow: 0.02,
+		velocity: 2,
+		headLoss: 1,
+		frictionHeadLoss: 0.8,
+		fittingsHeadLoss: 0.2,
+		reynoldsNumber: 200000,
+		frictionFactor: 0.02,
+		flowRegime: 'turbulent',
+		segments: [
+			{
+				index: 0,
+				innerDiameter: 0.1,
+				length: 10,
+				roughness: 0.00005,
+				velocity: 2,
+				reynoldsNumber: 200000,
+				frictionFactor: 0.02,
+				flowRegime: 'turbulent',
+				headLoss: 0.8
+			}
+		],
+		fittings: [],
+		...values
+	};
+}
+
+export function flag(values: Partial<Flag> & Pick<Flag, 'code' | 'severity' | 'message'>): Flag {
+	return { componentId: null, connectionId: null, portId: null, details: {}, ...values };
+}
+
+/** A made-up pump result: curve 0–0.03 m³/s, operating at 0.02 m³/s and 22 m. */
+export function pumpResult(values: Partial<PumpResult> = {}): PumpResult {
+	return {
+		status: 'running',
+		speed: 1,
+		control: null,
+		operatingFlow: 0.02,
+		operatingHead: 22,
+		inCurveRange: true,
+		hydraulicPower: 4000,
+		efficiency: 0.7,
+		shaftPower: 5000,
+		npshAvailable: 12,
+		npshRequired: 3,
+		npshMargin: 9,
+		suctionAbsolutePressure: 120000,
+		curve: [
+			{ flow: 0, head: 30 },
+			{ flow: 0.01, head: 28 },
+			{ flow: 0.02, head: 22 },
+			{ flow: 0.03, head: 12 }
+		],
+		// The app solves without system curves (D10); see systemCurveResponse().
+		systemCurve: null,
+		...values
+	};
+}
+
+/**
+ * A made-up system curve of pump `pumpId` (POST /api/v1/system-curve): 0–0.03 m³/s, through
+ * the operating point of pumpResult(). `missing` lists the indexes of points without a head.
+ */
+export function systemCurveResponse(
+	pumpId = 'P1',
+	missing: readonly number[] = []
+): SystemCurveResponse {
+	const points = [
+		{ flow: 0, head: 12 },
+		{ flow: 0.01, head: 14.5 },
+		{ flow: 0.02, head: 22 },
+		{ flow: 0.03, head: 34.5 }
+	].map((p, i) =>
+		missing.includes(i)
+			? { flow: p.flow, head: null, converged: false, message: 'made-up reason: not converged' }
+			: { ...p, converged: true, message: '' }
+	);
+	return {
+		pumpId,
+		flowRange: { min: 0, max: 0.03, unit: 'm³/s' },
+		points,
+		converged: points.map((p) => p.converged)
+	};
+}
+
+export const SAMPLE_METHODS: MethodsSummary = {
+	methodVersion: '1.0.0',
+	sections: [
+		{
+			title: 'Pipe friction',
+			items: ['Darcy–Weisbach head loss.', 'Colebrook friction factor.'],
+			references: ['Colebrook, C. F. (1939).']
+		}
+	],
+	assumptions: ['Steady, incompressible flow.'],
+	libraries: { fluids: '1.3.1', scipy: '1.18.1' }
+};
+
+/** A made-up trace for connection L1 with every kind of entry. */
+export const SAMPLE_TRACE: ElementTrace = {
+	elementId: 'L1',
+	elementType: 'pipe_connection',
+	inputs: [
+		{ name: 'Length', value: 5, unit: 'm', source: 'user' },
+		{ name: 'Inner diameter', value: 0.1023, unit: 'm', source: 'library' },
+		{ name: 'Friction method', value: 'colebrook', unit: '', source: 'default' },
+		{ name: 'Flow', value: 0.02, unit: 'm³/s', source: 'computed' }
+	],
+	equations: ['h_f = f (L/D) v²/(2g)'],
+	correlations: [{ name: 'Colebrook (1939)', citation: 'Colebrook, C. F. J. ICE 11(4), 1939.' }],
+	dataSources: [{ name: 'ASME B36.10M', citation: 'ASME B36.10M-2018, Table 1.' }],
+	intermediates: [
+		{ name: 'Velocity', value: 2.5, unit: 'm/s' },
+		{ name: 'Reynolds number', value: 250000, unit: '' },
+		{ name: 'Wall shear stress', value: 3.2, unit: 'N/m²' }
+	],
+	notes: ['Made-up trace for tests.']
+};
+
+/** A made-up converged state for the pump transfer example (R1, P1, V1, R2; L1–L3). */
+export function pumpTransferSolved(values: Partial<SolvedState> = {}): SolvedState {
+	return {
+		converged: true,
+		methodVersion: '1.0.0',
+		timestamp: '2026-10-21T00:00:00Z',
+		fluid: {
+			name: 'Water',
+			temperature: 293.15,
+			concentration: null,
+			density: 998,
+			dynamicViscosity: 0.001,
+			kinematicViscosity: 1.002e-6,
+			vaporPressure: 2339,
+			sources: {
+				density: { origin: 'library', citation: 'Made-up citation for tests (density).' }
+			}
+		},
+		atmosphericPressure: 101325,
+		nodeResults: {
+			'R1:port_1': node('R1', 'port_1', {
+				pressure: 29400,
+				absolutePressure: 130725,
+				hgl: 3,
+				egl: 3
+			}),
+			'P1:suction': node('P1', 'suction', {
+				pressure: 20000,
+				absolutePressure: 121325,
+				velocity: 2,
+				hgl: 2,
+				egl: 2.2
+			}),
+			'P1:discharge': node('P1', 'discharge', {
+				pressure: 100000,
+				absolutePressure: 201325,
+				velocity: 4,
+				hgl: 10,
+				egl: 10.8
+			}),
+			'V1:inlet': node('V1', 'inlet', { pressure: 90000, absolutePressure: 191325, velocity: 4 }),
+			'V1:outlet': node('V1', 'outlet', { pressure: 89000, absolutePressure: 190325, velocity: 4 }),
+			'R2:port_1': node('R2', 'port_1', {
+				elevation: 10,
+				pressure: 19600,
+				absolutePressure: 120925,
+				hgl: 12,
+				egl: 12
+			})
+		},
+		linkResults: {
+			L1: link({
+				flow: 0.02,
+				fittings: [
+					{
+						index: 0,
+						type: 'entrance_sharp',
+						quantity: 1,
+						k: 0.5,
+						referenceDiameter: 0.1,
+						headLoss: 0.1,
+						source: 'Made-up source for tests (entrance K).'
+					}
+				]
+			}),
+			L2: link({ flow: 0.02, velocity: 4 }),
+			L3: link({ flow: 0.02, velocity: 4, headLoss: 8 })
+		},
+		pumpResults: { P1: pumpResult() },
+		valveResults: {
+			V1: {
+				valveType: 'gate',
+				state: 'open',
+				flow: 0.02,
+				headLoss: 0.1,
+				pressureDrop: 1000,
+				kOpen: 0.14,
+				referenceDiameter: 0.078,
+				kEffective: null,
+				cvEffective: null,
+				setpoint: null,
+				setpointAchieved: null
+			}
+		},
+		branchResults: {},
+		boundaryResults: {
+			R1: { type: 'reservoir', egl: 3, outflow: 0.02, portOutflows: { port_1: 0.02 } },
+			R2: { type: 'reservoir', egl: 12, outflow: -0.02, portOutflows: { port_1: -0.02 } }
+		},
+		flags: [],
+		convergence: {
+			innerIterations: 6,
+			outerIterations: 1,
+			maxContinuityResidual: { value: 0, elementId: 'P1:suction' },
+			maxEnergyResidual: { value: 1e-12, elementId: 'L3' },
+			oscillatingComponents: [],
+			message: 'converged: 6 Newton iterations in 1 outer iteration(s)'
+		},
+		trace: { elements: {}, methods: SAMPLE_METHODS },
+		...values
+	};
+}
+
+export function response(
+	solvedState: SolvedState,
+	values: Partial<SolveResponse> = {}
+): SolveResponse {
+	return { success: solvedState.converged, computeTime: 0.25, solvedState, ...values };
+}

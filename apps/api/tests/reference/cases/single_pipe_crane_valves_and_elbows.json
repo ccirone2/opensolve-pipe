@@ -1,0 +1,179 @@
+{
+  "name": "single_pipe_crane_valves_and_elbows",
+  "description": "One pipe with a projecting entrance, short- and long-radius and threaded elbows, a 60-degree bend and fully open ball, globe, butterfly, plug, swing-check and lift-check valves: verifies each library fitting's K correlation and fixed arguments end to end.",
+  "source": "closed-form: tests/reference/derivations.py::single_pipe_crane_valves_and_elbows (Darcy-Weisbach + Colebrook; K from fluids entrance_distance(Crane), bend_rounded_Crane (r/D 1, 1.5, 3), bend_rounded(Crane standard), K_ball_valve_Crane, K_globe_valve_Crane, K_butterfly_valve_Crane(style 0), K_plug_valve_Crane(style 0), K_swing_check_valve_Crane(angled), K_lift_check_valve_Crane(angled), exit_normal; brentq)",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-single-pipe-crane-fittings",
+    "metadata": {
+      "name": "Single pipe with Crane valves, elbows and bends",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 12.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 3.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 80.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_projecting",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_90_sr",
+              "quantity": 2,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_45_lr",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_45_sr",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_90_threaded",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_45_threaded",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "bend",
+              "quantity": 1,
+              "pipeIndex": 0,
+              "angle": 60.0,
+              "radiusRatio": 3.0
+            },
+            {
+              "type": "ball_valve",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "globe_valve",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "butterfly_valve",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "plug_valve",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "swing_check_valve",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "lift_check_valve",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "exit",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.025385044195137443
+    },
+    "egl": {
+      "R1:port_1": 15.0,
+      "R2:port_1": 2.0
+    }
+  }
+}

@@ -1,0 +1,863 @@
+"""Closed-form expected results for Crane tees and wyes (design §2.4, §5.4, §12).
+
+Each case is one branch component whose three ports are piped to reservoirs (or a plug). With
+q_p the flow *into* the component at port p and E the EGL of the combined-flow port, the
+unknowns (q_a, q_b, q_c, E) solve, with scipy.optimize.fsolve,
+
+    q_a + q_b + q_c = 0                                   (continuity)
+    H_terminal(p) − h_line,p(q_p) = E + offset_p(q)       (energy, each port to a reservoir)
+    q_p = 0                                               (a port piped to a plug)
+
+where offset_p = EGL(p) − EGL(combined) comes from the Crane TP-410 tee functions of
+``fluids.fittings`` called directly (the cited source; ``element_laws.branch_losses``): diverging
+offsets are −K v_c²/(2g), converging +K v_c²/(2g), v_c the combined flow over the combined port's
+pipe area; a tee whose branch carries the combined flow uses Darby 3-K per run leg on the leg's
+own velocity (design §5.4 fallback, flag TEE_PATTERN_FALLBACK). Guards check the solved pattern
+and keep the flow ratio clear of the steps of the Crane correlations.
+
+Every pipe, elevation and level is a test input. Independence: nothing here imports
+``opensolve_pipe.services``.
+"""
+
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+
+import fluids.fittings
+import numpy as np
+from numpy.typing import NDArray
+from scipy.optimize import fsolve
+
+from opensolve_pipe.models.components import BranchLossModel, Component
+from opensolve_pipe.models.piping import PipeConnection
+from tests.reference import derivations as dv
+from tests.reference import element_laws as el
+from tests.reference.case_format import (
+    Expected,
+    ReferenceCase,
+    crane_tee,
+    custom_fluid,
+    make_project,
+    plug,
+    reservoir,
+    wye,
+)
+from tests.reference.line import Line, require_turbulent
+
+STEP_MARGIN = 0.05
+"""Smallest allowed distance of the solved flow ratio from a Crane correlation step."""
+
+
+def _source(name: str, method: str) -> str:
+    return dv.source(name, method, "derivations_branches")
+
+
+@dataclass(frozen=True)
+class Terminal:
+    """What one branch port is piped to: a reservoir (z, level) or a plug (z), through a line
+    drawn from the terminal to the port (``into_port``) or from the port to the terminal."""
+
+    cid: str
+    z: float
+    line: Line
+    level: float | None = None  # None: a plug
+    into_port: bool = True
+
+    def component(self) -> Component:
+        if self.level is None:
+            return plug(self.cid, self.z)
+        return reservoir(self.cid, self.z, self.level)
+
+    def connection(self, cid: str, port_key: str) -> PipeConnection:
+        own = f"{self.cid}:port_1"
+        if self.into_port:
+            return self.line.connect(cid, own, port_key)
+        return self.line.connect(cid, port_key, own)
+
+
+@dataclass(frozen=True)
+class BranchSolution:
+    flows_in: dict[str, float]
+    egl: dict[str, float]
+    losses: el.BranchLosses
+
+
+def ideal_losses(ports: list[str]) -> el.BranchLosses:
+    """lossModel 'ideal' (design §2.4): no loss on any path, one EGL at every port (an
+    EPANET-style junction)."""
+    zero = dict.fromkeys(ports, 0.0)
+    return el.BranchLosses("ideal", None, zero, dict(zero), False)
+
+
+def solve_branch(
+    kind: el.BranchKind,
+    angle: float,
+    terminals: Mapping[str, Terminal],
+    nu: float,
+    guess: Mapping[str, float],
+    loss_model: BranchLossModel = "crane",
+    split_k: el.SplitK | None = None,
+) -> BranchSolution:
+    """Solve the system in the module docstring; ``guess`` holds q_p per reservoir port and
+    'E'. A port piped to a plug has q_p = 0 exactly and no energy equation of its own.
+    ``split_k``: the path K as a rule in the split (``el.branch_losses``), e.g. a held K."""
+    ports = list(terminals)
+    open_ports = [p for p in ports if terminals[p].level is not None]
+    diameters = {p: terminals[p].line.d for p in ports}
+
+    def losses_at(flows: dict[str, float]) -> el.BranchLosses:
+        if loss_model == "ideal":
+            return ideal_losses(ports)
+        return el.branch_losses(kind, angle, flows, diameters, nu, split_k=split_k)
+
+    def unpack(x: NDArray[np.float64]) -> tuple[dict[str, float], float]:
+        flows = dict.fromkeys(ports, 0.0)
+        flows.update({p: float(x[i]) for i, p in enumerate(open_ports)})
+        return flows, float(x[len(open_ports)])
+
+    def residuals(x: NDArray[np.float64]) -> list[float]:
+        flows, e = unpack(x)
+        offsets = losses_at(flows).offsets
+        out = [sum(flows.values())]
+        for p in open_ports:
+            t = terminals[p]
+            assert t.level is not None
+            out.append(t.z + t.level - t.line.head_loss(flows[p], nu) - (e + offsets[p]))
+        return out
+
+    x0 = [guess[p] for p in open_ports] + [guess["E"]]
+    solution, _, ier, message = fsolve(residuals, x0, xtol=1.0e-13, full_output=True)
+    if ier != 1 or max(abs(r) for r in residuals(solution)) > 1.0e-11:
+        raise RuntimeError(f"fsolve failed: {message}")
+    flows, e = unpack(solution)
+    losses = losses_at(flows)
+    egl = {p: e + losses.offsets[p] for p in ports}
+    return BranchSolution(flows, egl, losses)
+
+
+def branch_case(
+    *,
+    name: str,
+    title: str,
+    description: str,
+    method: str,
+    kind: el.BranchKind,
+    angle: float,
+    z_branch: float,
+    terminals: Mapping[str, Terminal],
+    guess: Mapping[str, float],
+    pattern: str,
+    loss_model: BranchLossModel = "crane",
+    flags: Sequence[dict[str, str]] = (),
+    step_hold: el.StepHold | None = None,
+) -> ReferenceCase:
+    """Solve, guard the pattern and flow regime, and build the case (component id 'T1').
+
+    ``step_hold`` is the explicit opt-in for a case whose split sits at a Crane step: the
+    branch is solved with K held at the mean of the fluids values at the hold's two splits
+    (``el.held_k``), the step guard is replaced by the hold's own condition (the solved split
+    lies between the two splits, design §5.4), and the hold is recorded in the expected
+    results for the self-checks. Every other case keeps its split STEP_MARGIN clear of the
+    steps."""
+    fluid_name, rho, mu = dv.FLUID_A
+    nu = mu / rho
+    split_k = None if step_hold is None else step_hold.rule()
+    sol = solve_branch(kind, angle, terminals, nu, guess, loss_model, split_k)
+    if sol.losses.pattern != pattern:
+        raise ValueError(f"{name}: solved pattern {sol.losses.pattern!r}, expected {pattern!r}")
+    if step_hold is not None:
+        ratio = el.q_ratio(sol.losses, sol.flows_in, kind)
+        if not step_hold.split_a < ratio < step_hold.split_b:
+            raise ValueError(f"{name}: held split {ratio} outside the hold's interval")
+        if {"code": "CORRELATION_OUT_OF_RANGE", "componentId": "T1"} not in flags:
+            raise ValueError(f"{name}: a step hold is flagged CORRELATION_OUT_OF_RANGE")
+    elif loss_model == "crane" and not sol.losses.fallback:
+        ratio = el.q_ratio(sol.losses, sol.flows_in, kind)
+        if ratio not in (0.0, 1.0) and el.crane_step_distance(ratio) < STEP_MARGIN:
+            raise ValueError(f"{name}: flow ratio {ratio} too close to a Crane step")
+    require_turbulent(nu, [(q, terminals[p].line) for p, q in sol.flows_in.items() if q != 0.0])
+
+    branch = crane_tee("T1", z_branch) if kind == "tee" else wye("T1", z_branch, angle, loss_model)
+    components: list[Component] = [branch]
+    connections = []
+    flows: dict[str, float] = {}
+    egl: dict[str, float] = {}
+    pressures: dict[str, float] = {}
+    for i, (port, t) in enumerate(terminals.items()):
+        cid = f"L{i + 1}"
+        key = f"T1:{port}"
+        components.append(t.component())
+        connections.append(t.connection(cid, key))
+        q_in = sol.flows_in[port]
+        flows[cid] = q_in if t.into_port or q_in == 0.0 else -q_in
+        egl[key] = sol.egl[port]
+        # The terminal's EGL: a reservoir's head; a plug's port shares the dead leg's EGL.
+        egl[f"{t.cid}:port_1"] = sol.egl[port] if t.level is None else t.z + t.level
+        pressures[key] = dv.static_pressure(rho, sol.egl[port], z_branch, t.line.velocity(q_in))
+        if t.level is None:
+            pressures[f"{t.cid}:port_1"] = dv.static_pressure(rho, sol.egl[port], t.z, 0.0)
+    flags = list(flags)
+    if sol.losses.fallback:
+        flags.append({"code": "TEE_PATTERN_FALLBACK", "componentId": "T1"})
+
+    project = make_project(
+        f"ref-{name.replace('_', '-')}",
+        title,
+        custom_fluid(fluid_name, rho, mu),
+        components,
+        connections,
+    )
+    expected = Expected(
+        density=rho,
+        dynamic_viscosity=mu,
+        flows=flows,
+        egl=egl,
+        pressures=pressures,
+        flags=flags,
+        step_holds={} if step_hold is None else {"T1": step_hold.to_json()},
+    )
+    return ReferenceCase(
+        name=name,
+        description=description,
+        source=_source(name, method),
+        project=project,
+        expected=expected,
+    )
+
+
+CRANE_METHOD = (
+    "Darcy-Weisbach + Colebrook lines; path K from fluids K_branch_{0}_Crane and "
+    "K_run_{0}_Crane at angle {1} on the combined-flow velocity; fsolve"
+)
+
+RUN_LINE = 0.1023
+"""m; run pipes of every tee and wye case (equal run diameters, as the Crane correlation
+assumes)."""
+
+
+def tee_crane_diverging() -> ReferenceCase:
+    """R1 → run_inlet; run_outlet → R2; branch (77.9 mm, β = 0.76) → R3. Diverging from the
+    run inlet: EGL(run_outlet) = E − K_run v_c²/2g, EGL(branch) = E − K_branch v_c²/2g."""
+    terminals = {
+        "run_inlet": Terminal("R1", 15.0, Line(RUN_LINE, 40.0, (("entrance_sharp", 1),)), 5.0),
+        "run_outlet": Terminal(
+            "R2", 0.0, Line(RUN_LINE, 60.0, (("exit", 1),)), 5.0, into_port=False
+        ),
+        "branch": Terminal("R3", 4.0, Line(0.0779, 30.0, (("exit", 1),)), 4.0, into_port=False),
+    }
+    return branch_case(
+        name="tee_crane_diverging",
+        title="Crane tee, diverging flow",
+        description=(
+            "A tee splitting flow from its run inlet to the run outlet and the branch, each "
+            "piped to a reservoir: verifies the Crane TP-410 diverging tee K (run and branch, "
+            "fluids) on the combined-flow velocity and the flow split it produces."
+        ),
+        method=CRANE_METHOD.format("diverging", 90),
+        kind="tee",
+        angle=90.0,
+        z_branch=2.0,
+        terminals=terminals,
+        guess={"run_inlet": 0.03, "run_outlet": -0.02, "branch": -0.01, "E": 18.0},
+        pattern="diverging from run_inlet",
+    )
+
+
+def tee_crane_converging() -> ReferenceCase:
+    """R1 → run_inlet and R3 → branch (102.3 mm, β = 1) join; run_outlet → R2. Converging to
+    the run outlet: EGL(run_inlet) = E + K_run v_c²/2g, EGL(branch) = E + K_branch v_c²/2g."""
+    terminals = {
+        "run_inlet": Terminal("R1", 15.0, Line(RUN_LINE, 50.0, (("entrance_sharp", 1),)), 5.0),
+        "branch": Terminal("R3", 14.0, Line(RUN_LINE, 35.0, (("entrance_sharp", 1),)), 1.5),
+        "run_outlet": Terminal(
+            "R2", 0.0, Line(RUN_LINE, 80.0, (("exit", 1),)), 2.0, into_port=False
+        ),
+    }
+    return branch_case(
+        name="tee_crane_converging",
+        title="Crane tee, converging flow",
+        description=(
+            "Two reservoirs feeding a tee through its run inlet and branch, combined flow out of "
+            "the run outlet: verifies the Crane TP-410 converging tee K (run and branch, fluids; "
+            "the branch K is negative at this split) and the resulting flows."
+        ),
+        method=CRANE_METHOD.format("converging", 90),
+        kind="tee",
+        angle=90.0,
+        z_branch=2.0,
+        terminals=terminals,
+        guess={"run_inlet": 0.02, "branch": 0.015, "run_outlet": -0.035, "E": 8.0},
+        pattern="converging to run_outlet",
+    )
+
+
+def tee_crane_dead_branch() -> ReferenceCase:
+    """Run flow R1 → R2 through a Crane tee whose branch (52.5 mm, β² = 0.26) is piped to a
+    plug 2 m above the tee.
+
+    The branch carries no flow, so the run sees K_run(q = 0) = 0 and the dead branch
+    EGL(branch) = E − K_branch(q = 0) v_c²/2g with K_branch_diverging(q = 0) = 1: the branch
+    port has the run's static head. With β² ≤ 0.35 the converging reading of the same pattern
+    (K_branch_converging(q = 0) = −1 on the run outlet) gives the same EGL; a self-check
+    compares the two. The plug takes the dead leg's EGL.
+    """
+    terminals = {
+        "run_inlet": Terminal("R1", 10.0, Line(RUN_LINE, 50.0, (("entrance_sharp", 1),)), 2.0),
+        "run_outlet": Terminal(
+            "R2", 0.0, Line(RUN_LINE, 70.0, (("exit", 1),)), 1.0, into_port=False
+        ),
+        "branch": Terminal("P1", 4.0, Line(0.0525, 6.0), None, into_port=False),
+    }
+    return branch_case(
+        name="tee_crane_dead_branch",
+        title="Crane tee with a plugged branch",
+        description=(
+            "Run flow through a Crane tee whose branch is piped to a plug: verifies zero branch "
+            "flow, no run loss at q = 0, and the dead branch at the run's static head "
+            "(K_branch(q = 0) on the combined velocity), passed on to the plug."
+        ),
+        method=CRANE_METHOD.format("diverging", 90),
+        kind="tee",
+        angle=90.0,
+        z_branch=2.0,
+        terminals=terminals,
+        guess={"run_inlet": 0.03, "run_outlet": -0.03, "branch": 0.0, "E": 10.0},
+        pattern="diverging from run_inlet",
+    )
+
+
+def tee_crane_bullhead_fallback() -> ReferenceCase:
+    """R1 → branch; the flow divides into both run legs (77.9 mm each) to R2 and R3: a bullhead
+    tee, which the Crane functions do not cover. Design §5.4 fallback: each run leg x loses
+    K_x v_x²/2g, K_x = Darby3K(Di = D_x, Re = Re_x, 'Tee, Through-branch, (as elbow), flanged,
+    (r/D = 1)') on its own velocity; TEE_PATTERN_FALLBACK (warning) is expected."""
+    terminals = {
+        "branch": Terminal("R1", 15.0, Line(RUN_LINE, 40.0, (("entrance_sharp", 1),)), 5.0),
+        "run_inlet": Terminal("R2", 0.0, Line(0.0779, 50.0, (("exit", 1),)), 4.0, into_port=False),
+        "run_outlet": Terminal("R3", 2.0, Line(0.0779, 35.0, (("exit", 1),)), 4.0, into_port=False),
+    }
+    return branch_case(
+        name="tee_crane_bullhead_fallback",
+        title="Bullhead tee (Darby 3-K fallback)",
+        description=(
+            "Flow entering a Crane tee through its branch and dividing into both run legs: "
+            "verifies the uncovered-pattern fallback (Darby 3-K 'tee through-branch as elbow' "
+            "per run leg on its own velocity and Reynolds number) and the TEE_PATTERN_FALLBACK "
+            "flag."
+        ),
+        method=(
+            "Darcy-Weisbach + Colebrook lines; run-leg K from fluids Darby3K(Di, Re, "
+            "'Tee, Through-branch, (as elbow), flanged, (r/D = 1)'); fsolve"
+        ),
+        kind="tee",
+        angle=90.0,
+        z_branch=2.0,
+        terminals=terminals,
+        guess={"branch": 0.03, "run_inlet": -0.017, "run_outlet": -0.013, "E": 17.0},
+        pattern="diverging from branch",
+    )
+
+
+def wye_crane_diverging_45() -> ReferenceCase:
+    """A 45° wye: R1 → inlet; outlet_1 (run) → R2; outlet_2 (77.9 mm lateral) → R3. Diverging
+    from the inlet with the Crane functions at angle 45°."""
+    terminals = {
+        "inlet": Terminal("R1", 14.0, Line(RUN_LINE, 40.0, (("entrance_sharp", 1),)), 4.0),
+        "outlet_1": Terminal("R2", 0.0, Line(RUN_LINE, 60.0, (("exit", 1),)), 4.0, into_port=False),
+        "outlet_2": Terminal("R3", 4.0, Line(0.0779, 30.0, (("exit", 1),)), 2.0, into_port=False),
+    }
+    return branch_case(
+        name="wye_crane_diverging_45",
+        title="Crane 45-degree wye, diverging flow",
+        description=(
+            "A 45-degree wye dividing flow from its inlet into the straight outlet and the "
+            "lateral: verifies the Crane TP-410 diverging K at 45 degrees (fluids) and the "
+            "wye's port roles."
+        ),
+        method=CRANE_METHOD.format("diverging", 45),
+        kind="wye",
+        angle=45.0,
+        z_branch=2.0,
+        terminals=terminals,
+        guess={"inlet": 0.03, "outlet_1": -0.02, "outlet_2": -0.01, "E": 16.0},
+        pattern="diverging from inlet",
+    )
+
+
+def wye_crane_converging_45() -> ReferenceCase:
+    """A 45° wye: R1 → outlet_1 (run) and R3 → outlet_2 (the lateral, 102.3 mm) join; inlet →
+    R2. Converging to the inlet. The lateral leans toward outlet_1 (the wye's diverging
+    orientation, which its port names give), so flow entering through it meets the combined
+    flow leaving through the inlet at 45°: the geometry of Crane's converging lateral. (A
+    combined flow leaving through outlet_1 would make the lateral flow turn 135°.)"""
+    terminals = {
+        "outlet_1": Terminal("R1", 15.0, Line(RUN_LINE, 50.0, (("entrance_sharp", 1),)), 5.0),
+        "outlet_2": Terminal("R3", 14.0, Line(RUN_LINE, 35.0, (("entrance_sharp", 1),)), 1.0),
+        "inlet": Terminal("R2", 0.0, Line(RUN_LINE, 80.0, (("exit", 1),)), 2.0, into_port=False),
+    }
+    return branch_case(
+        name="wye_crane_converging_45",
+        title="Crane 45-degree wye, converging flow",
+        description=(
+            "Two reservoirs feeding a 45-degree wye through its straight outlet and lateral, "
+            "combined flow out of the inlet (the lateral meets the combined flow at 45 "
+            "degrees): verifies the Crane TP-410 converging K at 45 degrees (fluids), "
+            "including a negative lateral K."
+        ),
+        method=CRANE_METHOD.format("converging", 45),
+        kind="wye",
+        angle=45.0,
+        z_branch=2.0,
+        terminals=terminals,
+        guess={"outlet_1": 0.02, "outlet_2": 0.015, "inlet": -0.035, "E": 8.0},
+        pattern="converging to inlet",
+    )
+
+
+def wye_ideal_junction() -> ReferenceCase:
+    """The wye_crane_diverging_45 network with lossModel 'ideal': a junction with one EGL E at
+    all three ports (design §2.4), so the split follows from the lines alone:
+        q_in + q_1 + q_2 = 0,   H_p − h_line,p(q_p) = E   (fsolve)."""
+    terminals = {
+        "inlet": Terminal("R1", 14.0, Line(RUN_LINE, 40.0, (("entrance_sharp", 1),)), 4.0),
+        "outlet_1": Terminal("R2", 0.0, Line(RUN_LINE, 60.0, (("exit", 1),)), 4.0, into_port=False),
+        "outlet_2": Terminal("R3", 4.0, Line(0.0779, 30.0, (("exit", 1),)), 2.0, into_port=False),
+    }
+    return branch_case(
+        name="wye_ideal_junction",
+        title="Ideal wye junction",
+        description=(
+            "A 45-degree wye with lossModel 'ideal' dividing flow from its inlet: verifies that "
+            "an ideal branch is a junction with one EGL at all three ports (no path loss, as "
+            "EPANET models junctions) and the split the lines alone give."
+        ),
+        method="Darcy-Weisbach + Colebrook lines; ideal junction (one EGL, design 2.4); fsolve",
+        kind="wye",
+        angle=45.0,
+        z_branch=2.0,
+        terminals=terminals,
+        guess={"inlet": 0.03, "outlet_1": -0.02, "outlet_2": -0.01, "E": 16.0},
+        pattern="ideal",
+        loss_model="ideal",
+    )
+
+
+def wye_crane_reversed_lateral() -> ReferenceCase:
+    """A 45° wye used against its lean: R1 → outlet_1, dividing into the inlet (→ R2) and the
+    lateral outlet_2 (→ R3). The lateral leans toward outlet_1, so its flow turns 135°, which
+    Crane's lateral data do not cover; design §5.4 still evaluates the Crane diverging
+    functions at the wye's 45° (combined port outlet_1, run port inlet) and flags the wye
+    CORRELATION_OUT_OF_RANGE (warning)."""
+    terminals = {
+        "outlet_1": Terminal("R1", 14.0, Line(RUN_LINE, 40.0, (("entrance_sharp", 1),)), 4.0),
+        "inlet": Terminal("R2", 0.0, Line(RUN_LINE, 60.0, (("exit", 1),)), 4.0, into_port=False),
+        "outlet_2": Terminal("R3", 4.0, Line(0.0779, 30.0, (("exit", 1),)), 2.0, into_port=False),
+    }
+    return branch_case(
+        name="wye_crane_reversed_lateral",
+        title="Crane wye used against its lean",
+        description=(
+            "A 45-degree wye with the combined flow entering through outlet_1 and dividing "
+            "into the inlet and the lateral, whose flow turns 135 degrees: verifies the Crane "
+            "diverging K evaluated at the wye's angle and the CORRELATION_OUT_OF_RANGE flag on "
+            "the reversed lateral."
+        ),
+        method=CRANE_METHOD.format("diverging", 45),
+        kind="wye",
+        angle=45.0,
+        z_branch=2.0,
+        terminals=terminals,
+        guess={"outlet_1": 0.03, "inlet": -0.02, "outlet_2": -0.01, "E": 16.0},
+        pattern="diverging from outlet_1",
+        flags=[{"code": "CORRELATION_OUT_OF_RANGE", "componentId": "T1"}],
+    )
+
+
+def twin_lines_crane_rung() -> ReferenceCase:
+    """Two nearly balanced lines, R1 (H 30 m) → A → TM1 → B → R2 (H 0) and R3 (H 30.05 m) → C →
+    TM2 → D → R4 (H 0), identical 102.3 mm pipes, joined by a 20 m rung X between the branches
+    of their Crane tees.
+
+    With X carrying no flow each line is a series run through its tee:
+        H_in − H_out = h_A(Q) + K_run v²/(2g) + h_B(Q)   (brentq),
+    K_run = K_run_diverging_Crane(D, D, Q, 0, 90) (q = 0). At zero branch flow a tee's branch
+    port can sit anywhere between the readings with flow just leaving it (diverging, K_branch
+    = K_branch_diverging_Crane at q = 0) and just entering it (converging, K_branch_converging_
+    Crane at q = 0), so X stays dead while its head lies in both tees' bands
+    (``el.zero_flow_limits``). Both rung ports take one head, the middle of the overlap of the
+    two bands: the convention the solver reports (design §5.4, held legs); guards check that
+    the bands overlap with margin and the middle lies in both.
+    """
+    fluid_name, rho, mu = dv.FLUID_A
+    nu = mu / rho
+    run_in = Line(RUN_LINE, 50.0, (("entrance_sharp", 1),))
+    run_out = Line(RUN_LINE, 50.0, (("exit", 1),))
+    rung = Line(RUN_LINE, 20.0)
+    z_tee, z_res = 1.0, 0.0
+    lines = {"TM1": ("R1", 30.0, "R2", 0.0), "TM2": ("R3", 30.05, "R4", 0.0)}
+    diameters = {"run_inlet": RUN_LINE, "run_outlet": RUN_LINE, "branch": rung.d}
+    components: list[Component] = []
+    connections = []
+    flows: dict[str, float] = {}
+    egl: dict[str, float] = {}
+    pressures: dict[str, float] = {}
+    bands = []
+    names = iter("ABCD")
+    # q = 0 for any run flow: the Crane run K at zero branch flow (Q_run = 1 m³/s stands in).
+    k_run = float(fluids.fittings.K_run_diverging_Crane(RUN_LINE, rung.d, 1.0, 0.0, 90.0))
+    for tee_id, (src, h_src, dst, h_dst) in lines.items():
+
+        def loss(q: float) -> float:
+            return (
+                run_in.head_loss(q, nu)
+                + k_run * dv.velocity(q, RUN_LINE) ** 2 / (2.0 * dv.G)
+                + run_out.head_loss(q, nu)
+            )
+
+        q = dv.solve_flow(loss, h_src - h_dst)
+        require_turbulent(nu, [(q, run_in), (q, run_out)])
+        e_in = h_src - run_in.head_loss(q, nu)
+        e_out = h_dst + run_out.head_loss(q, nu)
+        tee_flows = {"run_inlet": q, "run_outlet": -q, "branch": 0.0}
+        (c_out, off_out), (c_in, off_in) = el.zero_flow_limits(
+            "tee", 90.0, tee_flows, diameters, nu, "branch"
+        )
+        heads = {"run_inlet": e_in, "run_outlet": e_out}
+        limits = (heads[c_out] + off_out, heads[c_in] + off_in)
+        bands.append((min(limits), max(limits)))
+        a, b = next(names), next(names)
+        components += [
+            reservoir(src, z_res, h_src - z_res),
+            crane_tee(tee_id, z_tee),
+            reservoir(dst, z_res, h_dst - z_res),
+        ]
+        connections += [
+            run_in.connect(a, f"{src}:port_1", f"{tee_id}:run_inlet"),
+            run_out.connect(b, f"{tee_id}:run_outlet", f"{dst}:port_1"),
+        ]
+        flows |= {a: q, b: q}
+        egl |= {
+            f"{src}:port_1": h_src,
+            f"{tee_id}:run_inlet": e_in,
+            f"{tee_id}:run_outlet": e_out,
+            f"{dst}:port_1": h_dst,
+        }
+        pressures |= {
+            f"{tee_id}:run_inlet": dv.static_pressure(rho, e_in, z_tee, run_in.velocity(q)),
+            f"{tee_id}:run_outlet": dv.static_pressure(rho, e_out, z_tee, run_out.velocity(q)),
+        }
+    low, high = max(b[0] for b in bands), min(b[1] for b in bands)
+    if not high - low > 2 * STEP_MARGIN * (high - low) + 0.02:
+        raise ValueError("the two zero-flow bands must overlap clearly (more than 2 x 0.01 m)")
+    h_rung = 0.5 * (low + high)
+    if not all(b[0] < h_rung < b[1] for b in bands):
+        raise ValueError("the rung head must lie inside both bands")
+    connections.append(rung.connect("X", "TM1:branch", "TM2:branch"))
+    flows["X"] = 0.0
+    egl |= {"TM1:branch": h_rung, "TM2:branch": h_rung}
+    pressures |= {
+        key: dv.static_pressure(rho, h_rung, z_tee, 0.0) for key in ("TM1:branch", "TM2:branch")
+    }
+    project = make_project(
+        "ref-twin-lines-crane-rung",
+        "Twin lines joined by a dead rung",
+        custom_fluid(fluid_name, rho, mu),
+        components,
+        connections,
+    )
+    expected = Expected(
+        density=rho, dynamic_viscosity=mu, flows=flows, egl=egl, pressures=pressures
+    )
+    return ReferenceCase(
+        name="twin_lines_crane_rung",
+        description=(
+            "Two nearly balanced lines joined by a rung between the branches of their Crane "
+            "tees, the rung head inside both tees' zero-flow bands: verifies that the rung "
+            "carries no flow (held at zero flow between the diverging and converging Crane "
+            "readings at q = 0), each line's series flow with K_run at q = 0, and the rung head "
+            "reported at the middle of the two bands' overlap."
+        ),
+        source=_source(
+            "twin_lines_crane_rung",
+            "Darcy-Weisbach + Colebrook lines; K_run_diverging_Crane at q = 0; zero-flow band "
+            "of each branch from fluids K_branch_diverging_Crane and K_branch_converging_Crane "
+            "at q -> 0; rung head = middle of the bands' overlap (design 5.4); brentq",
+        ),
+        project=project,
+        expected=expected,
+    )
+
+
+STEP_LATERAL = Line(0.0409, 0.2)
+"""The step-hold wye's lateral: a 0.2 m nipple of 40.9 mm bore, β² = (40.9/102.3)² = 0.160
+≤ 0.35, with no exit fitting (a boundary adds no exit loss unless the connection has one,
+CLAUDE.md D10), so the wye's own K is most of the lateral path's resistance."""
+STEP_SPLIT_MARGIN = 1.0e-3
+"""Smallest distance of each one-sided split (either Crane formula continued across the step)
+from the step, on its wrong side: the case must lie inside the band of levels with no
+self-consistent split, not at its edge."""
+STEP_HOLD_INSIDE = 0.25
+"""The held split must lie this fraction of the hold's interval clear of both ends (the hold
+is released when the solved split leaves the interval, design §5.4)."""
+STEP_READING_REL = 0.25 * 0.005
+"""A quarter of the D6 relative tolerance: how close every flow must stay under the readings of
+the method the documentation leaves open (``derive_step_hold``)."""
+STEP_READING_HEAD = 0.25 * 0.01
+"""m; a quarter of the D6 head floor, the same bound for every EGL."""
+STEP_VISIBLE_REL = 2 * 0.005
+"""Twice the D6 relative tolerance: the two one-sided solutions' lateral flows must differ by
+more than this, so the K jump is resolved at the D6 tolerance."""
+CYCLE_TOLERANCE = 1.0e-12
+"""Change in both splits below which the 2-cycle iteration has converged (the splits come
+from fsolve solutions good to about 1e-14)."""
+
+
+@dataclass(frozen=True)
+class StepHoldDerivation:
+    """Intermediates of ``wye_crane_step_hold`` (all splits are q = Q_lateral/Q_inlet)."""
+
+    step: float
+    k_below: tuple[float, float]
+    k_above: tuple[float, float]
+    extended_below: BranchSolution
+    extended_above: BranchSolution
+    q_extended_below: float
+    q_extended_above: float
+    hold: el.StepHold
+    held: BranchSolution
+    q_held: float
+    readings: dict[str, BranchSolution]
+
+
+STEP_HOLD_STEP = 0.4
+"""K_branch_diverging_Crane's step at θ < 75° and β² ≤ 0.35 (fluids 1.3.1 source:
+G = 1.1 − 0.7q for q ≤ 0.4, G = 0.85 above)."""
+
+
+def _step_hold_terminals() -> dict[str, Terminal]:
+    return {
+        "inlet": Terminal("R1", 3.0, Line(RUN_LINE, 5.0, (("entrance_sharp", 1),)), 4.0),
+        "outlet_1": Terminal("R2", 0.0, Line(RUN_LINE, 20.0, (("exit", 1),)), 4.0, into_port=False),
+        "outlet_2": Terminal("R3", 0.0, STEP_LATERAL, 1.98, into_port=False),
+    }
+
+
+def _one_formula_k(lo: float, hi: float) -> el.SplitK:
+    """One side's Crane formula continued past the step: the cubic through the fluids values
+    at four splits in [lo, hi], an interval inside one formula's range. On each side of a step
+    the Crane K is a polynomial of degree ≤ 3 in the split (fluids source: G linear times
+    1 + (q/β²)² − 2(q/β²)cos θ; M constant times q²), so the cubic *is* that formula; a guard
+    compares it with fluids at the midpoints."""
+    fits: dict[el.CraneGeometry, list[np.polynomial.Polynomial]] = {}
+
+    def fit(geometry: el.CraneGeometry) -> list[np.polynomial.Polynomial]:
+        if geometry not in fits:
+            nodes = np.linspace(lo, hi, 4)
+            values = np.array([geometry.k(float(s)) for s in nodes])
+            polys = [np.polynomial.Polynomial.fit(nodes, values[:, i], 3) for i in (0, 1)]
+            for mid in 0.5 * (nodes[:-1] + nodes[1:]):
+                for poly, k in zip(polys, geometry.k(float(mid)), strict=True):
+                    if abs(float(poly(mid)) - k) > 1.0e-11 * max(1.0, abs(k)):
+                        raise ValueError(f"the Crane K on [{lo}, {hi}] is not one cubic")
+            fits[geometry] = polys
+        return fits[geometry]
+
+    def rule(geometry: el.CraneGeometry, q: float) -> tuple[float, float]:
+        k_run, k_branch = fit(geometry)
+        return float(k_run(q)), float(k_branch(q))
+
+    return rule
+
+
+def derive_step_hold() -> StepHoldDerivation:
+    """The step hold of ``wye_crane_step_hold`` from the documented method (TSD §5.4).
+
+    1. The step. With q ≤ 0.4, fluids gives K_branch = (1.1 − 0.7q)·B(q), B = 1 + (q/β²)² −
+       2(q/β²)cos 45°; above it 0.85·B(q); K_run = 0.4q² (β² ≤ 0.4) has no step. The documented
+       condition holds: K_branch jumps by more than 1e-4 at q = 0.4 (here by +0.03·B(0.4)).
+       It jumps *up*: a larger lateral K sends less flow to the lateral, so the jump can leave
+       no self-consistent split.
+    2. No self-consistent split. Each side's formula continued across the step
+       (``_one_formula_k``) gives a split on the other side of the step, by more than
+       STEP_SPLIT_MARGIN: the lower formula a split above 0.4, the upper formula one below.
+       Directly: with K frozen at fluids' K(q) for any q on a grid of [0.30, 0.50] the network
+       takes a split s(q) > q below the step and s(q) < q above it, so s(q) = q nowhere.
+    3. The 2-cycle. Each outer update solves the network with the Crane K linearized about the
+       last split q_n on q_n's side of the step (``el.tangent_k``: fluids value and slope at
+       q_n) and returns the solved split. A split below the step therefore leads above it and
+       back: the iteration alternates across the step. Its limit is the 2-cycle
+       q_a = T_above(q_b), q_b = T_below(q_a), q_a ≤ 0.4 < q_b, computed here exactly by
+       iterating T from the one-sided splits of step 2 (T's dependence on its centre is of
+       second order, so the iteration contracts at once). It differs from the one-sided
+       splits by the linearization error of the curved K (½K''(q_b − q_a)², a few 1e-5 in q).
+    4. The hold. K of each path is held at the mean of the fluids values at q_a and q_b
+       (``el.held_k``; for K_run this is the mean of 0.4q², which no step forces but "K is held"
+       does not single out the branch path) and the network solved with these constant K
+       values gives the expected flows and EGLs. Its split lies between q_a and q_b, so the
+       hold is not released, and K no longer changes, so the outer loop ends.
+
+    The documentation leaves open when the alternation is detected (after how many updates,
+    so which pair of splits), whether the under-relaxation of the K update applies before the
+    hold, and whether the run K is held. Readings guard: holding at the one-sided splits of
+    step 2, at the two one-sided limits at the step itself (where an under-relaxed update would
+    bring the pair), or holding the branch K only (run K at the solved split) moves no flow by
+    more than STEP_READING_REL (a quarter of the D6 tolerance) or any EGL by more than
+    STEP_READING_HEAD. A guard also checks that the jump is resolved: the two one-sided
+    solutions' lateral flows differ by more than twice the D6 tolerance, with the held one
+    between them. (It lies 0.8 % from the lower formula's solution but only 0.46 % from the
+    upper's, whose K is steeper in q: the D6 tolerance separates the held result from the
+    former only, in every geometry of this kind that was tried.)
+    """
+    _, rho, mu = dv.FLUID_A
+    nu = mu / rho
+    terminals = _step_hold_terminals()
+    step = STEP_HOLD_STEP
+    geometry = el.CraneGeometry(45.0, RUN_LINE, STEP_LATERAL.d, diverging=True)
+    if not (STEP_LATERAL.d / RUN_LINE) ** 2 <= 0.35:
+        raise ValueError("the lateral must have β² ≤ 0.35 for the q = 0.4 step of G")
+    k_below, k_above = geometry.k(step), geometry.k(float(np.nextafter(step, 1.0)))  # q -> 0.4+
+    if not k_above[1] - k_below[1] > 1.0e-4:
+        raise ValueError("K_branch must jump up by more than 1e-4 at the step")
+    if abs(k_above[0] - k_below[0]) > 1.0e-12:
+        raise ValueError("K_run has no step at this β")
+    guess = {"inlet": 0.035, "outlet_1": -0.021, "outlet_2": -0.014, "E": 5.5}
+
+    def solve(rule: el.SplitK) -> BranchSolution:
+        return solve_branch("wye", 45.0, terminals, nu, guess, split_k=rule)
+
+    def split(sol: BranchSolution) -> float:
+        return el.q_ratio(sol.losses, sol.flows_in, "wye")
+
+    extended_below = solve(_one_formula_k(step - 0.09, step))
+    extended_above = solve(_one_formula_k(step + 0.01, step + 0.09))
+    q_ext_below, q_ext_above = split(extended_below), split(extended_above)
+    if not (q_ext_below > step + STEP_SPLIT_MARGIN and q_ext_above < step - STEP_SPLIT_MARGIN):
+        raise ValueError(f"one-sided splits {q_ext_below}, {q_ext_above} not across the step")
+    just_above = float(np.nextafter(step, 1.0))
+    below_grid = [float(t) for t in np.linspace(step - 0.1, step, 11)]
+    above_grid = [just_above, *(float(t) for t in np.linspace(step, step + 0.1, 11)[1:])]
+    for trial in below_grid:
+        if not split(solve(el.held_k((trial,)))) > trial:
+            raise ValueError(f"a self-consistent split exists below the step near {trial}")
+    for trial in above_grid:
+        if not split(solve(el.held_k((trial,)))) < trial:
+            raise ValueError(f"a self-consistent split exists above the step near {trial}")
+
+    q_a, q_b = q_ext_above, q_ext_below
+    for _ in range(50):
+        new_b = split(solve(el.tangent_k(q_a)))
+        new_a = split(solve(el.tangent_k(new_b)))
+        done = abs(new_a - q_a) < CYCLE_TOLERANCE and abs(new_b - q_b) < CYCLE_TOLERANCE
+        q_a, q_b = new_a, new_b
+        if done:
+            break
+    else:
+        raise ValueError("the tangent update has no 2-cycle")
+    if not q_a <= step < q_b:
+        raise ValueError(f"the 2-cycle {q_a}, {q_b} does not straddle the step")
+    hold = el.StepHold(step, q_a, q_b)
+    held = solve(hold.rule())
+    q_held = split(held)
+    inside = STEP_HOLD_INSIDE * (q_b - q_a)
+    if not (q_a + inside < q_held < q_b - inside):
+        raise ValueError(f"held split {q_held} not well inside [{q_a}, {q_b}]")
+
+    held_branch = hold.rule()(geometry, q_held)[1]
+    readings = {
+        "held at the one-sided splits": solve(el.held_k((q_ext_above, q_ext_below))),
+        "held at the step's one-sided limits": solve(el.held_k((step, just_above))),
+        "branch K held, run K at the solved split": solve(lambda g, q: (g.k(q)[0], held_branch)),
+    }
+    for label, sol in readings.items():
+        for port, flow in held.flows_in.items():
+            if abs(sol.flows_in[port] - flow) > STEP_READING_REL * abs(flow):
+                raise ValueError(f"reading '{label}' moves the {port} flow by more than allowed")
+            if abs(sol.egl[port] - held.egl[port]) > STEP_READING_HEAD:
+                raise ValueError(f"reading '{label}' moves the {port} EGL by more than allowed")
+    lateral = [s.flows_in["outlet_2"] for s in (extended_above, held, extended_below)]
+    if not abs(lateral[0]) < abs(lateral[1]) < abs(lateral[2]):
+        raise ValueError("the held lateral flow must lie between the one-sided ones")
+    if not abs(lateral[2] - lateral[0]) > STEP_VISIBLE_REL * abs(lateral[1]):
+        raise ValueError("the K jump is not resolved at the D6 tolerance")
+    return StepHoldDerivation(
+        step=step,
+        k_below=k_below,
+        k_above=k_above,
+        extended_below=extended_below,
+        extended_above=extended_above,
+        q_extended_below=q_ext_below,
+        q_extended_above=q_ext_above,
+        hold=hold,
+        held=held,
+        q_held=q_held,
+        readings=readings,
+    )
+
+
+def wye_crane_step_hold() -> ReferenceCase:
+    """A 45° wye whose split has no self-consistent value at the q = 0.4 step of the Crane
+    lateral K: R1 (H 7 m) → inlet; outlet_1 (run) → R2 (H 4 m); outlet_2 (a 40.9 mm lateral,
+    β² = 0.160, a 0.2 m nipple without exit fitting) → R3 (H 1.98 m, inside the band of R3
+    levels in which neither Crane formula's split lies on its own side of the step).
+
+    Design §5.4 (TSD): where the split alternates across a step of a Crane correlation, K is
+    held at the mean of the fluids values at the two splits and flagged, until the solved
+    split leaves the interval between them. ``derive_step_hold`` derives the two splits (the
+    2-cycle of the documented tangent update), the held K and the guards; the expected flows
+    and EGLs are the network solved with the held K, and the wye is flagged
+    CORRELATION_OUT_OF_RANGE (warning).
+    """
+    derivation = derive_step_hold()
+    return branch_case(
+        name="wye_crane_step_hold",
+        title="Crane wye held across a correlation step",
+        description=(
+            "A 45-degree wye with a small lateral (beta^2 = 0.16) whose flow split has no "
+            "self-consistent value: the Crane TP-410 lateral K jumps up at a split of 0.4, and "
+            "the network gives a split above 0.4 with the formula below it and below 0.4 with "
+            "the formula above it. Verifies the step hold: K held at the mean of the fluids "
+            "values at the two splits the outer iteration alternates between, the flows that "
+            "K gives, and the CORRELATION_OUT_OF_RANGE flag on the wye."
+        ),
+        method=(
+            "Darcy-Weisbach + Colebrook lines; fluids K_branch_diverging_Crane and "
+            "K_run_diverging_Crane at angle 45; splits of the outer update with K linearized "
+            "about the last split (central difference on its side of the step), iterated to "
+            "its 2-cycle across q = 0.4; path K held at the mean of the fluids values at the "
+            "two splits (design 5.4); fsolve"
+        ),
+        kind="wye",
+        angle=45.0,
+        z_branch=2.0,
+        terminals=_step_hold_terminals(),
+        guess={"inlet": 0.035, "outlet_1": -0.021, "outlet_2": -0.014, "E": 5.5},
+        pattern="diverging from inlet",
+        flags=[{"code": "CORRELATION_OUT_OF_RANGE", "componentId": "T1"}],
+        step_hold=derivation.hold,
+    )
+
+
+def dead_branch_converging_reading(d_run: float, d_branch: float, q: float) -> float:
+    """EGL(branch) − EGL(run_inlet) of a dead branch read as *converging* to the run outlet
+    (combined flow q out of run_outlet, Q_branch = 0), for a self-check of
+    tee_crane_dead_branch: EGL(run_outlet) = EGL(run_inlet) − K_run_converging v²/2g and
+    EGL(branch) = EGL(run_outlet) + K_branch_converging v²/2g, both K at Q_branch = 0 from
+    fluids (Crane TP-410), v on the run pipe."""
+    ff = fluids.fittings
+    head = dv.velocity(q, d_run) ** 2 / (2.0 * dv.G)
+    k_run = float(ff.K_run_converging_Crane(d_run, d_branch, q, 0.0, 90.0))
+    k_branch = float(ff.K_branch_converging_Crane(d_run, d_branch, q, 0.0, 90.0))
+    return (k_branch - k_run) * head
+
+
+CASES: tuple[Callable[[], ReferenceCase], ...] = (
+    tee_crane_diverging,
+    tee_crane_converging,
+    tee_crane_dead_branch,
+    tee_crane_bullhead_fallback,
+    wye_crane_diverging_45,
+    wye_crane_converging_45,
+    wye_ideal_junction,
+    wye_crane_reversed_lateral,
+    wye_crane_step_hold,
+    twin_lines_crane_rung,
+)

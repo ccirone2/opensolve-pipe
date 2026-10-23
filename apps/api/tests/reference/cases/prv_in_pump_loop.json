@@ -1,0 +1,373 @@
+{
+  "name": "prv_in_pump_loop",
+  "description": "A pump circulates around a loop that returns partly through an active PRV and partly through a bypass; the only reservoir hangs on a long small pipe that carries no flow. Verifies the loop and PRV flows, which a PRV flow lagged by one iteration (EPANET's scheme) approached too slowly to converge in 100 iterations (M4 differential test).",
+  "source": "closed-form: tests/reference/derivations_status.py::prv_in_pump_loop (Darcy-Weisbach + Colebrook lines; PRV setpoint head z + p_set/(rho g) + v^2/(2g) on the outlet pipe; pump curve: scipy PchipInterpolator through the points; loop and PRV flows by scipy.optimize.fsolve)",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-prv-in-pump-loop",
+    "metadata": {
+      "name": "PRV inside a pump loop",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "S1",
+        "name": "Reservoir S1",
+        "elevation": 10.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 5.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "TA",
+        "name": "Tee TA",
+        "elevation": 2.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "PU",
+        "name": "Pump PU",
+        "elevation": 1.0,
+        "ports": [
+          {
+            "id": "suction",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "discharge",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "pump",
+        "curveId": "PC-L",
+        "speed": 1.0,
+        "status": "on"
+      },
+      {
+        "id": "TB",
+        "name": "Tee TB",
+        "elevation": 3.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "PRV",
+        "name": "Control valve PRV",
+        "elevation": 2.5,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "valve",
+        "valveType": "prv",
+        "status": "active",
+        "setpoint": 150000.0
+      },
+      {
+        "id": "TC",
+        "name": "Tee TC",
+        "elevation": 2.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      }
+    ],
+    "connections": [
+      {
+        "id": "P0",
+        "fromComponentId": "S1",
+        "fromPortId": "port_1",
+        "toComponentId": "TA",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0158,
+              "length": 600.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "P1",
+        "fromComponentId": "TA",
+        "fromPortId": "run_outlet",
+        "toComponentId": "PU",
+        "toPortId": "suction",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 30.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "P2",
+        "fromComponentId": "PU",
+        "fromPortId": "discharge",
+        "toComponentId": "TB",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 40.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "P3",
+        "fromComponentId": "TB",
+        "fromPortId": "run_outlet",
+        "toComponentId": "PRV",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 25.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "P4",
+        "fromComponentId": "PRV",
+        "fromPortId": "outlet",
+        "toComponentId": "TC",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 35.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "P5",
+        "fromComponentId": "TB",
+        "fromPortId": "branch",
+        "toComponentId": "TC",
+        "toPortId": "branch",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0409,
+              "length": 120.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "P6",
+        "fromComponentId": "TC",
+        "fromPortId": "run_outlet",
+        "toComponentId": "TA",
+        "toPortId": "branch",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 60.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": [
+      {
+        "id": "PC-L",
+        "name": "Curve PC-L",
+        "points": [
+          {
+            "flow": 0.0,
+            "head": 40.0
+          },
+          {
+            "flow": 0.01,
+            "head": 34.0
+          },
+          {
+            "flow": 0.02,
+            "head": 28.0
+          },
+          {
+            "flow": 0.03,
+            "head": 22.0
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "P0": 0.0,
+      "P1": 0.012899151296280517,
+      "P2": 0.012899151296280517,
+      "P3": 0.008995813955048405,
+      "P4": 0.008995813955048405,
+      "P5": 0.003903337341232112,
+      "P6": 0.012899151296280517
+    },
+    "egl": {
+      "S1:port_1": 15.0,
+      "TA:run_inlet": 15.0,
+      "TA:run_outlet": 15.0,
+      "TA:branch": 15.0,
+      "PU:suction": 14.302564769683222,
+      "PU:discharge": 46.56307399191491,
+      "TB:run_inlet": 45.63316035149254,
+      "TB:run_outlet": 45.63316035149254,
+      "TB:branch": 45.63316035149254,
+      "PRV:inlet": 44.48090249615964,
+      "PRV:outlet": 18.00803145809962,
+      "TC:run_inlet": 16.394870460633555,
+      "TC:run_outlet": 16.394870460633555,
+      "TC:branch": 16.394870460633555
+    },
+    "pressures": {
+      "PRV:outlet": 150000.0,
+      "PU:suction": 128963.72175610262
+    },
+    "pumps": {
+      "PU": {
+        "status": "running",
+        "operatingFlow": 0.012899151296280517,
+        "operatingHead": 32.26050922223169
+      }
+    },
+    "valves": {
+      "PRV": {
+        "state": "active"
+      }
+    }
+  }
+}

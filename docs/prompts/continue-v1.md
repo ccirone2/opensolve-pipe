@@ -102,7 +102,7 @@ These methods made v1 trustworthy.
 
 Pass each item through the GOALS §5 gates first, and stop to ask the owner where a choice is theirs to make.
 
-1. **Deployment.** The owner chose Cloudflare Pages (web) and Google Cloud Run (API). Everything is prepared, and nothing is deployed: `apps/api/Dockerfile`, `.dockerignore`, `apps/web/static/_headers`, TSD §11 (settings, costs with dated citations, checks after each deployment) and the README's Deployment section (the owner's steps). The image was never fully built here: the proxy blocked PyPI. The first Cloud Build is therefore its first complete build, so check it.
+1. **Deployment.** The owner chose Cloudflare Pages (web) and Google Cloud Run (API). Everything is prepared, and nothing is deployed: `apps/api/Dockerfile`, `.dockerignore`, `apps/web/static/_headers`, TSD §11 (settings, costs with dated citations, checks after each deployment) and the README's Deployment section (the owner's steps). The image was built and run here in session 3 (TSD §11.2: identical results on all 94 reference cases, the client-key and log checks, and the whole e2e suite against it); what remains is §11.4, which tests Google's front end.
    - **After the first deployment, links in the wild exist.** From then on, any new model field or mode value bumps `schemaVersion` with a migration (proposal §3.5's rule; SDD §5.2), and any result change bumps `METHOD_VERSION`.
 2. **Tee and wye coverage.** Patterns where the combined flow passes through the branch currently use a Darby 3-K per-path fallback for tees, and wyes report not converged.
    - Implement a flow-split correlation only from a source in hand, encoded as cited, versioned data with reference cases, and bump `METHOD_VERSION`.

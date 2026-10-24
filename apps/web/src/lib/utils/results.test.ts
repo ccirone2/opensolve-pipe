@@ -5,9 +5,18 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { BranchResult, PumpResult, SolvedState } from '../api/types';
-import { flag, link, node, pumpResult, pumpTransferSolved } from '../testing/results';
+import { assignedFlowProject } from '../testing/helpers';
+import {
+	assignedFlowSolved,
+	flag,
+	link,
+	node,
+	pumpResult,
+	pumpTransferSolved
+} from '../testing/results';
 import { gravityBranchExample, pumpTransferExample } from './examples';
 import {
+	assignedFlowTable,
 	availableViews,
 	boundaryTable,
 	branchBases,
@@ -693,5 +702,96 @@ describe('SI quantities in API text', () => {
 		});
 		const row = branchTable(gravityBranchExample(), solved, SI_UNITS).rows[0]!;
 		expect(cellLines(row.cells.correlation!)).toEqual(['Made-up correlation (D_run = 102.3 mm)']);
+	});
+});
+
+describe('assigned-flow nodes (SDD §4.11, PRD §3.2.1)', () => {
+	const demand = assignedFlowProject(0.012);
+	const solved = assignedFlowSolved();
+
+	it('have a table of their own: the flow as entered, the static pressure, HGL and flags', () => {
+		const table = assignedFlowTable(demand, solved, SI_UNITS, demand);
+		expect(table.columns.map((c) => [c.key, c.label, c.unit])).toEqual([
+			['direction', 'Direction', undefined],
+			['flow', 'Assigned flow', 'L/s'],
+			['elevation', 'Elevation', 'm'],
+			['pressure', 'Pressure', 'kPa(g)'],
+			['absolutePressure', 'Absolute pressure', 'kPa(a)'],
+			['hgl', 'HGL', 'm']
+		]);
+		expect(table.rows).toHaveLength(1);
+		const [row] = table.rows;
+		expect([row!.name, row!.detail]).toEqual([
+			'Process user',
+			'Assigned flow (demand or supply) · AF1'
+		]);
+		expect(row!.cells).toEqual({
+			direction: 'Demand',
+			flow: '12',
+			elevation: '2',
+			pressure: '-99',
+			absolutePressure: '2.325',
+			hgl: '-8.1'
+		});
+		expect(row!.flags.map((f) => f.code)).toEqual(['BELOW_VAPOR_PRESSURE']);
+	});
+
+	it('show a supply by its direction and magnitude, in US units', () => {
+		const supply = assignedFlowProject(-0.012);
+		const row = assignedFlowTable(supply, solved, IMPERIAL_UNITS, supply).rows[0]!;
+		expect(row.cells.direction).toBe('Supply');
+		expect(row.cells.flow).toBe(sig4(0.012 / GPM));
+		expect(row.cells.pressure).toBe(sig4(-99000 / PSI));
+		expect(row.cells.hgl).toBe(String(Number((-8.1 / FT).toFixed(2))));
+		expect(assignedFlowTable(supply, solved, IMPERIAL_UNITS, supply).columns[1]!.unit).toBe('gpm');
+	});
+
+	it('show the flow of the project as solved, not as edited since; none without it', () => {
+		// The project shown was edited after the solve (made-up values): the flow is the solved one.
+		const edited = assignedFlowProject(0.02);
+		expect(assignedFlowTable(edited, solved, SI_UNITS, demand).rows[0]!.cells.flow).toBe('12');
+		const unknown = assignedFlowTable(edited, solved, SI_UNITS, null).rows[0]!.cells;
+		expect([unknown.direction, unknown.flow]).toEqual(['—', '—']);
+		// A flow of 0 has no direction: the node is a closed end, as a plug.
+		const zero = assignedFlowProject(0);
+		expect(assignedFlowTable(zero, solved, SI_UNITS, zero).rows[0]!.cells).toMatchObject({
+			direction: 'None (as a plug)',
+			flow: '0'
+		});
+	});
+
+	it('are not boundaries: the boundary table and the views keep them apart', () => {
+		expect(boundaryTable(demand, solved, SI_UNITS).rows.map((r) => r.key)).toEqual(['R1']);
+		expect(availableViews(solved)).toEqual([
+			'summary',
+			'nodes',
+			'links',
+			'boundaries',
+			'assignedFlows',
+			'methods'
+		]);
+		// Only reservoirs and reference nodes: no assigned-flow view.
+		expect(availableViews(pumpTransferSolved())).not.toContain('assignedFlows');
+		// Closed off or on an undetermined level, the node has no result and no row.
+		const none = assignedFlowSolved({
+			boundaryResults: { R1: solved.boundaryResults.R1! }
+		});
+		expect(assignedFlowTable(demand, none, SI_UNITS, demand).rows).toEqual([]);
+		expect(availableViews(none)).not.toContain('assignedFlows');
+	});
+
+	it('collects the node’s rows for its trace', () => {
+		const groups = rowsForElement(
+			demand,
+			solved,
+			SI_UNITS,
+			{ kind: 'component', id: 'AF1' },
+			demand
+		);
+		expect(groups.map((g) => [g.title, g.rows.map((r) => r.detail)])).toEqual([
+			['Assigned flow', ['Assigned flow (demand or supply) · AF1']],
+			['Ports', ['Port 1']]
+		]);
+		expect(groups[0]!.rows[0]!.cells.flow).toBe('12');
 	});
 });

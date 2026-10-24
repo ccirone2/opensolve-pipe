@@ -26,15 +26,19 @@ the flow. From the initial state the rules open it again at a flowing point belo
 but at zero flow nothing drives it open, so that point needs the open start. No other start is
 tried for a flowing point beyond what every way from the pump's discharge back to its suction
 can pass that way (``flow_limit``: a cut of FCVs at their setpoints and one-way elements against
-the flow), which no steady state carries; a point at that limit is also solved with each FCV of
-the cut held open, to find whether it sits at its switch (``_held_open_switch``). A point with
-no head says which case it is and why (``SystemCurvePointResult.message``):
+the flow), which no steady state carries, nor for a point below the least flow that assigned
+flows need through the pump (the limit's floor: a demand on its discharge side that a one-way
+element keeps every fixed head from feeding, or a supply on its suction side that one keeps from
+draining); a point at the limit is also solved with each FCV of the cut held open, to find
+whether it sits at its switch (``_held_open_switch``). A point with no head says which case it
+is and why (``SystemCurvePointResult.message``):
 
 - no way through: a side of the pump reaches no reservoir or reference node, nor the pump's
   other side, through elements that statuses set by the user leave open, so no steady state
   carries a forced flow (at zero flow the head is undetermined); no other start is tried;
-- no steady state carries it: its flow is beyond the cut's limit, whose elements are named
-  with their rules (a series FCV above its setpoint, a check valve against the flow);
+- no steady state carries it: its flow is beyond the cut's limit, or below the floor that
+  assigned flows set, and the elements across the cut are named with their rules (a series FCV
+  above its setpoint, a check valve against the flow), with the assigned-flow nodes counted;
 - no steady state found: from every start the status rules close elements that cut a side of
   the pump off (a PRV whose outlet side needs more than its setting, a PSV whose inlet would
   fall below it), named with their rules;
@@ -69,9 +73,12 @@ from ..fluids import fluid_properties
 from .budget import SolveDeadlineError
 from .builder import BuiltNetwork, PumpData, build_network
 from .gga import CONTINUITY_ATOL, CONTINUITY_RTOL, solve_gga
+from .network import LinkMode, LinkState
 from .status import (
     HTOL,
+    KIND_NAMES,
     QTOL,
+    RULES,
     Control,
     OuterLoopResult,
     Status,
@@ -125,35 +132,14 @@ def curve_flows(flow_min: float, flow_max: float, count: int) -> list[float]:
     return [float(q) for q in np.linspace(flow_min, flow_max, count)]
 
 
-RULES = {
-    "fcv": "an FCV passes neither reverse flow nor more than its setpoint",
-    "prv": (
-        "a PRV passes no reverse flow, and no flow while the pressure its outlet side needs is "
-        "above its setting"
-    ),
-    "psv": (
-        "a PSV passes no reverse flow, and no flow while the pressure at its inlet would fall "
-        "below its setting"
-    ),
-    "check": "a check valve passes no reverse flow",
-    "pump": "a pump passes no reverse flow, nor any flow against more than its shutoff head",
-}
-"""What each status rule that can close an element allows through, in words (``status``)."""
-KIND_NAMES = {
-    "fcv": "FCV",
-    "prv": "PRV",
-    "psv": "PSV",
-    "check": "check valve",
-    "isolation": "valve",
-    "pump": "pump",
-}
-
-
 def has_way_through(built: BuiltNetwork, pump_id: str) -> bool:
     """Whether a forced flow through the pump can pass for some statuses: both of its sides
     reach a reservoir or reference node, or each other, through the network's links other than
     the pump's own, leaving out those that a status set by the user closes (a pump 'off', a
-    valve 'isolated', 'locked_closed' or 'failed_closed'). Every other element can open."""
+    valve 'isolated', 'locked_closed' or 'failed_closed'). Every other element can open. An
+    assigned-flow node is no way through: it fixes a flow, not a pressure (TSD §4.8), so a side
+    that reaches only such nodes has no head at the one flow they could take, and no steady
+    state at any other."""
     net = built.network
     pump_link = built.pumps[pump_id].link_index
     blocked = {
@@ -176,15 +162,23 @@ def has_way_through(built: BuiltNetwork, pump_id: str) -> bool:
 
 @dataclass(frozen=True)
 class FlowLimit:
-    """An upper bound on the forced flow that any steady state carries (``flow_limit``)."""
+    """An upper bound on the forced flow that any steady state carries (``flow_limit``), with
+    the lower bound that assigned flows can set (``floor``, the same fields)."""
 
     flow: float
-    """m³/s: the capacity of the cut found; inf when every way is unlimited."""
+    """m³/s: the capacity of the cut found, with the assigned flows it counts; inf when every
+    way is unlimited. For a floor: the least forced flow, m³/s."""
     elements: tuple[tuple[Control, float], ...]
     """The elements across the cut with what each passes that way, m³/s, in id order: an FCV
-    passed forwards its setpoint, a one-way element passed backwards 0."""
+    passed forwards its setpoint, a one-way element passed backwards 0 (for a floor, that way
+    is from the pump's suction to its discharge)."""
     margin_nodes: int
     """The nodes on the pump's side of the cut, whose continuity residuals the margin allows."""
+    assigned: tuple[str, ...] = ()
+    """The assigned-flow nodes (nonzero flow) whose flows the bound counts, in id order."""
+    floor: "FlowLimit | None" = None
+    """The least forced flow any steady state carries, when assigned flows set one above zero
+    (``flow_limit``); None otherwise."""
 
 
 def flow_limit(built: BuiltNetwork, pump_id: str) -> FlowLimit:
@@ -192,14 +186,35 @@ def flow_limit(built: BuiltNetwork, pump_id: str) -> FlowLimit:
     allow, by the max-flow min-cut theorem (Ford, L. R., and D. R. Fulkerson, "Maximal flow
     through a network", Canadian Journal of Mathematics 8, 1956, 399-404): the flow from the
     pump's discharge back to its suction, through the network and the fixed-head nodes (joined
-    in one node: reservoirs and reference nodes supply or take any flow; v1 has no demands),
-    is at most the capacity of any cut between them. Capacities, from the status rules
-    (``status``): an FCV the rules govern passes at most its setpoint forward and no reverse
-    flow (``fcv_status``: open below it, active at it, closed on reverse flow); a check valve,
-    PRV, PSV or pump they govern passes no reverse flow; a pipe, branch leg, open isolation
-    valve or element a status set by the user holds open passes any flow either way; one it
-    holds closed passes none. The cuts tried are the nodes the discharge reaches through
-    unlimited ways and the nodes that reach the suction so; the smaller is returned."""
+    in one node: reservoirs and reference nodes supply or take any flow), is at most the
+    capacity of any cut between them. Capacities, from the status rules (``status``): an FCV
+    the rules govern passes at most its setpoint forward and no reverse flow (``fcv_status``:
+    open below it, active at it, closed on reverse flow); a check valve, PRV, PSV or pump they
+    govern passes no reverse flow; a pipe, branch leg, open isolation valve or element a status
+    set by the user holds open passes any flow either way; one it holds closed passes none. The
+    cuts tried are the nodes the discharge reaches through unlimited ways and the nodes that
+    reach the suction so; the smaller is returned.
+
+    Assigned flows (TSD §4.8) are fixed supplies and demands: a flow with them exists only if
+    the net supply inside every node set S is at most the capacity leaving S (Gale, D., "A
+    theorem on flows in networks", Pacific Journal of Mathematics 7(2), 1957, 1073-1082). The
+    forced flow Q is a supply at the discharge and a demand at the suction, an assigned flow d
+    a demand at its node, and the joined fixed-head node supplies the net of all of them, Σd.
+    For S, the discharge's side (the suction outside it): Q − Σ_{d in S} d + [fixed heads in S]
+    Σd ≤ capacity out of S. For the suction's side T, with S its complement: Q ≤ capacity into
+    T − Σ_{d in T} d + [fixed heads in T] Σd. So a demand on the pump's side of a cut that no
+    fixed head reaches takes part of the forced flow, and one beyond it adds to what the cut must
+    pass.
+
+    The same condition read the other way bounds Q from below (``FlowLimit.floor``): the net
+    supply inside S is also at least minus the capacity entering it. The cuts tried are the
+    nodes that reach the discharge through unlimited ways (S: Q ≥ Σ_{d in S} d − [fixed heads in
+    S] Σd − capacity into S) and the nodes the suction reaches so (T: Q ≥ [fixed heads in T] Σd
+    − Σ_{d in T} d − capacity out of T), each with the pump's other port outside it and a
+    limited element across it; the larger is the floor. A demand on the discharge's side that a
+    one-way element keeps every fixed head from feeding, or a supply on the suction's side that
+    one keeps from draining, passes only through the pump. Without assigned flows no floor is
+    above zero, and none is computed."""
     net = built.network
     data = built.pumps[pump_id]
     controls = {c.link: c for c in initial_controls(built, {pump_id: 0.0}).values()}
@@ -246,19 +261,59 @@ def flow_limit(built: BuiltNetwork, pump_id: str) -> FlowLimit:
         return seen
 
     suction, discharge = net.node_index[data.suction], net.node_index[data.discharge]
-    best = FlowLimit(math.inf, (), 0)
+    demands = {node.index: node.demand for node in net.nodes if node.demand != 0.0}
+    total = math.fsum(demands.values())
+    floor: FlowLimit | None = None
+    if demands:  # the floor (docstring): without assigned flows none is above zero
+        feeding = reach(discharge, behind)  # the discharge's side: limited arcs enter it
+        fed = reach(suction, ahead)  # the suction's side: limited arcs leave it
+        for side, across, sign, other in (
+            (
+                feeding,
+                [(cap, c) for a, b, cap, c in limited if a not in feeding and b in feeding],
+                1,
+                suction,
+            ),
+            (
+                fed,
+                [(cap, c) for a, b, cap, c in limited if a in fed and b not in fed],
+                -1,
+                discharge,
+            ),
+        ):
+            counted = [v for v in demands if hub in side or v in side]
+            if other in side or not across or not counted:
+                continue
+            inside = math.fsum(d for v, d in demands.items() if v in side)
+            least = sign * (inside - (total if hub in side else 0.0)) - math.fsum(
+                cap for cap, _ in across
+            )
+            if least > 0.0 and (floor is None or least > floor.flow):
+                elements = tuple(sorted(((c, cap) for cap, c in across), key=_by_id))
+                nodes = tuple(sorted({net.nodes[v].component_id for v in counted}))
+                floor = FlowLimit(least, elements, len(side), nodes)
+    best = FlowLimit(math.inf, (), 0, floor=floor)
     reached = reach(discharge, ahead)  # the discharge's side: limited arcs leave it
     reaching = reach(suction, behind)  # the suction's side: limited arcs enter it
     if suction in reached:
         return best
-    for side, across in (
-        (reached, [(cap, c) for a, b, cap, c in limited if a in reached and b not in reached]),
-        (reaching, [(cap, c) for a, b, cap, c in limited if a not in reaching and b in reaching]),
+    for side, across, sign in (
+        (reached, [(cap, c) for a, b, cap, c in limited if a in reached and b not in reached], 1),
+        (
+            reaching,
+            [(cap, c) for a, b, cap, c in limited if a not in reaching and b in reaching],
+            -1,
+        ),
     ):
         capacity = math.fsum(cap for cap, _ in across)
+        counted = [v for v in demands if hub in side or v in side]
+        if counted:  # Gale's condition (docstring)
+            inside = math.fsum(d for v, d in demands.items() if v in side)
+            capacity += sign * (inside - (total if hub in side else 0.0))
         if across and capacity < best.flow:
             elements = tuple(sorted(((c, cap) for cap, c in across), key=_by_id))
-            best = FlowLimit(capacity, elements, len(side))
+            nodes = tuple(sorted({net.nodes[v].component_id for v in counted}))
+            best = FlowLimit(capacity, elements, len(side), nodes, floor)
     return best
 
 
@@ -279,9 +334,16 @@ def _beyond_limit(q: float, limit: FlowLimit) -> bool:
     return q > limit.flow + _margin(q, limit)
 
 
+def _below_floor(q: float, limit: FlowLimit) -> bool:
+    """Whether q is below the limit's floor by more than the floor's margin (``_margin``)."""
+    floor = limit.floor
+    return floor is not None and q < floor.flow - _margin(q, floor)
+
+
 def _at_limit(q: float, limit: FlowLimit) -> bool:
-    """Whether a positive, finite limit is q to within the margin (``_margin``): every steady
-    state then passes each FCV across the cut at its setpoint (``_held_open_switch``)."""
+    """Whether a positive, finite limit (or floor) is q to within the margin (``_margin``):
+    every steady state then passes each FCV across the cut at its setpoint
+    (``_held_open_switch``)."""
     return 0.0 < limit.flow < math.inf and abs(q - limit.flow) <= _margin(q, limit)
 
 
@@ -289,15 +351,54 @@ def _beyond_message(limit: FlowLimit) -> str:
     """Why no steady state carries a flow beyond the limit (``flow_limit``), in words."""
     controls = [c for c, _ in limit.elements]
     kinds = [kind for kind in RULES if any(c.kind == kind for c in controls)]
+    rules = "; ".join(RULES[kind] for kind in kinds)
     which = "which passes" if len(controls) == 1 else "which together pass"
     amount = f"at most {limit.flow:.6g} m³/s" if limit.flow > 0.0 else "no flow"
+    if limit.assigned:
+        if limit.flow < 0.0:  # the assigned flows need more than the cut passes
+            ending = (
+                f"the pump would have to pass {-limit.flow:.6g} m³/s in reverse: no forced flow "
+                "from its suction to its discharge, zero included, has a steady state"
+            )
+        else:
+            ending = f"the pump can pass {amount}"
+        return (
+            "no steady state carries this flow: every way from the pump's discharge back to its "
+            "suction, through the network or a reservoir or reference node, passes "
+            f"{_names(controls)}, {which} {_passed(limit)} that way ({rules}), and with the "
+            f"flows of assigned-flow node(s) {_quoted(limit.assigned)}, which take or supply "
+            f"their flows whatever the pressure, {ending}"
+        )
     return (
         "no steady state carries this flow: every way from the pump's discharge back to its "
-        "suction, through the network or a reservoir or reference node, passes "
-        f"{_names(controls)}, {which} {amount} that way ("
-        + "; ".join(RULES[kind] for kind in kinds)
-        + ")"
+        f"suction, through the network or a reservoir or reference node, passes "
+        f"{_names(controls)}, {which} {amount} that way ({rules})"
     )
+
+
+def _below_message(floor: FlowLimit) -> str:
+    """Why no steady state carries a flow below the floor (``flow_limit``), in words."""
+    controls = [c for c, _ in floor.elements]
+    kinds = [kind for kind in RULES if any(c.kind == kind for c in controls)]
+    rules = "; ".join(RULES[kind] for kind in kinds)
+    which = "which passes" if len(controls) == 1 else "which together pass"
+    return (
+        "no steady state carries this flow: every way from the pump's suction to its discharge, "
+        "through the network or a reservoir or reference node, passes "
+        f"{_names(controls)}, {which} {_passed(floor)} that way ({rules}), and with the flows "
+        f"of assigned-flow node(s) {_quoted(floor.assigned)}, which take or supply their flows "
+        f"whatever the pressure, the pump must pass at least {floor.flow:.6g} m³/s"
+    )
+
+
+def _passed(limit: FlowLimit) -> str:
+    """What the elements across a cut pass that way together, in words."""
+    passed = math.fsum(cap for _, cap in limit.elements)
+    return f"at most {passed:.6g} m³/s" if passed > 0.0 else "no flow"
+
+
+def _quoted(ids: Sequence[str]) -> str:
+    return ", ".join(f"'{cid}'" for cid in ids)
 
 
 def _names(controls: list[Control]) -> str:
@@ -352,7 +453,11 @@ def _switch_message(
 ) -> str | None:
     """Why the head is undetermined, if nothing fixes the pressure between this open valve
     at its switch and the pump: the inner solve's test with the valve active
-    (``GgaResult.undetermined_links``, as ``status._over_controlled`` makes it)."""
+    (``GgaResult.undetermined_links``, as ``status._over_controlled`` makes it). Throttled, the
+    valve loses more head than fully open: across the pump that is a higher head when the valve
+    draws from the part of the network the discharge is in or delivers into the suction's (as a
+    valve in series does), a lower one when it delivers into the discharge's part or draws from
+    the suction's (a valve beside the pump feeding an assigned flow there, ``_head_side``)."""
     trial = list(outer.states)
     trial[control.link] = active_state(built, built.valves[control.component_id])
     check = solve_gga(built.network, trial, tolerance=1.0, max_iterations=0)
@@ -360,10 +465,32 @@ def _switch_message(
         return None
     return (
         f"the head across the pump is undetermined: at this flow {what}, so the valve "
-        "could also hold it throttled, with any head across the pump at or above "
-        f"{head:.6g} m (with the valve fully open), and no reservoir or reference node "
-        "fixes the pressure between the valve and the pump"
+        "could also hold it throttled, with any head across the pump at or "
+        f"{_head_side(built, trial, data, control)} {head:.6g} m (with the valve fully open), "
+        "and no reservoir or reference node fixes the pressure between the valve and the pump"
     )
+
+
+def _head_side(
+    built: BuiltNetwork, trial: Sequence[LinkState], data: PumpData, control: Control
+) -> str:
+    """'below' when the valve delivers into the part of the network the pump's discharge is in,
+    or draws from the suction's (the parts joined by NORMAL links in ``trial``), else 'above'
+    (``_switch_message``)."""
+    net = built.network
+    joined = [
+        link for link, state in zip(net.links, trial, strict=True) if state.mode is LinkMode.NORMAL
+    ]
+    start = np.array([link.start for link in joined], dtype=np.int64)
+    end = np.array([link.end for link in joined], dtype=np.int64)
+    n = len(net.nodes)
+    graph = coo_matrix((np.ones(len(joined)), (start, end)), shape=(n, n))
+    labels = connected_components(graph, directed=False)[1]
+    link = net.links[control.link]  # inlet -> outlet
+    inlet, outlet = int(labels[link.start]), int(labels[link.end])
+    discharge = int(labels[net.node_index[data.discharge]])
+    suction = int(labels[net.node_index[data.suction]])
+    return "below" if outlet == discharge or inlet == suction else "above"
 
 
 def _at_switch(
@@ -455,16 +582,16 @@ def _held_open_switch(
     tolerance: float,
     max_iterations: int,
 ) -> _Solved | None:
-    """A point at the limit (``_at_limit``) whose FCV across the cut sits at its switch, else
-    None. Every steady state there passes each FCV of the cut at its setpoint, where the rules
-    turn an open FCV active as soon as its solved flow reaches its setpoint (``fcv_status``,
-    with no tolerance) and an active one beside the forced flow is starved: from every start
-    the FCV may end closed, though it passes the flow. So each FCV of the cut is held open in
-    turn (``status.initial_controls``), every other element following its rules from the
-    initial state: if the network then carries the flow with a determined head while the FCV
-    passes its setpoint, the FCV is at its switch, and the head is undetermined if nothing
-    fixes the pressure between it and the pump (``_switch_message``). A network that carries
-    no steady state there even so (a PRV beyond the FCV that passes nothing) keeps its
+    """A point at the limit, or at its floor (``_at_limit``), whose FCV across the cut sits at
+    its switch, else None. Every steady state there passes each FCV of the cut at its setpoint,
+    where the rules turn an open FCV active as soon as its solved flow reaches its setpoint
+    (``fcv_status``, with no tolerance) and an active one beside the forced flow is starved:
+    from every start the FCV may end closed, though it passes the flow. So each FCV of the cut
+    is held open in turn (``status.initial_controls``), every other element following its rules
+    from the initial state: if the network then carries the flow with a determined head while
+    the FCV passes its setpoint, the FCV is at its switch, and the head is undetermined if
+    nothing fixes the pressure between it and the pump (``_switch_message``). A network that
+    carries no steady state there even so (a PRV beyond the FCV that passes nothing) keeps its
     result."""
     for control, capacity in limit.elements:
         if control.kind != "fcv" or capacity <= 0.0:
@@ -569,7 +696,8 @@ def system_curve_points(
     active), and the first of these that gives a head or finds a valve at its switch is used;
     when none does, the point keeps the result it had, unless its flow is the limit of a cut
     of FCVs and one of them, held open, sits at its switch (``_held_open_switch``); a flowing
-    point beyond ``flow_limit`` is not, since no steady state carries it. The next point
+    point beyond ``flow_limit``, or below its floor, is not, since no steady state carries it.
+    The next point
     continues from the result used (not from a solve with an FCV held open). The outer loop
     applies its own branch laws to the network, so one built network serves every point."""
     data = built.pumps[pump_id]
@@ -591,7 +719,8 @@ def system_curve_points(
             else "the last converged point's solution"
         )
         opened = False
-        beyond = _beyond_limit(float(q), limit)
+        below = _below_floor(float(q), limit)
+        beyond = below or _beyond_limit(float(q), limit)  # no steady state carries it
         try:
             outer = run_outer_loop(
                 built,
@@ -628,12 +757,13 @@ def system_curve_points(
                 read = _read(built, data, q, start_open)
                 if read.kind in found:
                     outer, solved, retry = start_open, read, False
-            if retry and _at_limit(float(q), limit):
+            at = next((b for b in (limit, limit.floor) if b and _at_limit(float(q), b)), None)
+            if retry and at is not None:
                 switch = _held_open_switch(
                     built,
                     data,
                     float(q),
-                    limit,
+                    at,
                     tolerance=tolerance,
                     max_iterations=max_iterations,
                 )
@@ -652,9 +782,11 @@ def system_curve_points(
             points.append(SystemCurvePointResult(float(q), solved.head, True, ""))
         else:
             message = (
-                _beyond_message(limit)
-                if beyond and solved.kind != "switch"
-                else _message(q, solved, way_through, warm_start, opened)
+                _message(q, solved, way_through, warm_start, opened)
+                if not beyond or solved.kind == "switch"
+                else _below_message(limit.floor)
+                if below and limit.floor is not None
+                else _beyond_message(limit)
             )
             points.append(SystemCurvePointResult(float(q), None, False, message))
     return points

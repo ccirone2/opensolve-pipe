@@ -1,0 +1,462 @@
+{
+  "name": "epanet_assigned_flow_network",
+  "description": "A looped gravity network between two reservoirs with two assigned demands and one assigned supply, each an EPANET junction demand at the end of its own pipe: verifies nodal demands and supplies in a looped network (continuity with demands, the flow split and the EGL at every node) against EPANET 2.2.",
+  "source": "WNTR 1.5.0 EpanetSimulator (EPANET 2.2.0); see tests/reference/generate_epanet_cases.py. D-W headloss, GPM INP units, accuracy 1e-5, headerror 1e-9 ft and flowchange 1e-12 gpm (EPANET reads both in the INP units, input1.c:595-596; WNTR writes them unconverted); viscosity VISCOS = 1.1e-5 ft2/s = 1.02193344e-6 m2/s (the project's custom fluid has the same nu; its density, 1000 kg/m3, does not affect the comparison because friction depends only on nu and a surface-pressure head p/(rho g) is converted with the same rho and g on both sides); solver run in 'swamee_jain' mode. Known EPANET biases, all far inside the 0.5% criterion: EPANET's head-loss coefficients use g = 32.2 ft/s2 = 9.81456 m/s2 against our 9.80665 (0.08% in head loss), its minor-loss constant is 0.02517 against the exact 1/(2g(pi/4)^2) = 0.0251730 in US units (0.012%), its GPM flow-unit constant GPMperCFS = 448.831 differs from the exact ft3/(gal/60) by -3.8e-07 (relative, in flow), and its results are float32 (about 1e-7 relative). Assigned-flow nodes: EPANET junctions with base demand = the assigned flow (WNTR writes it in GPM, Q/(gallon/60) to 11 significant digits), no pattern (multiplier 1) and the demand-driven model (DDA, EPANET 2.2's default); EPANET's reported demand at each equals the assigned flow (checked). EPANET's GPM constant applies to a demand both ways, so it is reported unchanged while EPANET's hydraulics carry it about 3.8e-7 high (relative).",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-epanet-assigned-flow-network",
+    "metadata": {
+      "name": "Demands and a supply on a looped network (EPANET reference)",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "swamee_jain",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Water at EPANET's default viscosity",
+      "density": 1000.0,
+      "dynamicViscosity": 0.00102193344
+    },
+    "components": [
+      {
+        "id": "S1",
+        "name": "Reservoir S1",
+        "elevation": 30.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 5.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "TA",
+        "name": "Tee TA",
+        "elevation": 16.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "TB",
+        "name": "Tee TB",
+        "elevation": 14.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "TC",
+        "name": "Tee TC",
+        "elevation": 15.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "TD",
+        "name": "Tee TD",
+        "elevation": 12.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "TE",
+        "name": "Tee TE",
+        "elevation": 10.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "S2",
+        "name": "Reservoir S2",
+        "elevation": 18.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "D1",
+        "name": "Assigned flow D1",
+        "elevation": 13.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "assigned_flow",
+        "flow": 0.015
+      },
+      {
+        "id": "D2",
+        "name": "Assigned flow D2",
+        "elevation": 9.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "assigned_flow",
+        "flow": 0.01
+      },
+      {
+        "id": "D3",
+        "name": "Assigned flow D3",
+        "elevation": 15.5,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "assigned_flow",
+        "flow": -0.004
+      }
+    ],
+    "connections": [
+      {
+        "id": "P1",
+        "fromComponentId": "S1",
+        "fromPortId": "port_1",
+        "toComponentId": "TA",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.2027,
+              "length": 500.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "P2",
+        "fromComponentId": "TA",
+        "fromPortId": "run_outlet",
+        "toComponentId": "TB",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1541,
+              "length": 300.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "P3",
+        "fromComponentId": "TA",
+        "fromPortId": "branch",
+        "toComponentId": "TC",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 400.0,
+              "roughness": 0.00015
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "P4",
+        "fromComponentId": "TB",
+        "fromPortId": "run_outlet",
+        "toComponentId": "TD",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 350.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "P5",
+        "fromComponentId": "TC",
+        "fromPortId": "run_outlet",
+        "toComponentId": "TD",
+        "toPortId": "branch",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 300.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "P6",
+        "fromComponentId": "TD",
+        "fromPortId": "run_outlet",
+        "toComponentId": "TE",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1541,
+              "length": 250.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "P7",
+        "fromComponentId": "TE",
+        "fromPortId": "run_outlet",
+        "toComponentId": "S2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 200.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "P8",
+        "fromComponentId": "TB",
+        "fromPortId": "branch",
+        "toComponentId": "D1",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 50.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "P9",
+        "fromComponentId": "TE",
+        "fromPortId": "branch",
+        "toComponentId": "D2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 60.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "P10",
+        "fromComponentId": "D3",
+        "fromPortId": "port_1",
+        "toComponentId": "TC",
+        "toPortId": "branch",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 40.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 1000.0,
+      "dynamicViscosity": 0.00102193344
+    },
+    "flows": {
+      "P1": 0.03142670914530754,
+      "P2": 0.024807244539260864,
+      "P3": 0.006619462743401527,
+      "P4": 0.009807243011891842,
+      "P5": 0.01061946339905262,
+      "P6": 0.020426707342267036,
+      "P7": 0.010426705703139305,
+      "P8": 0.014999999664723873,
+      "P9": 0.010000000707805157,
+      "P10": 0.004000000189989805
+    },
+    "egl": {
+      "S1:port_1": 35.0,
+      "TA:run_inlet": 32.931007385253906,
+      "TA:run_outlet": 32.931007385253906,
+      "TA:branch": 32.931007385253906,
+      "TB:run_inlet": 29.819337844848633,
+      "TB:run_outlet": 29.819337844848633,
+      "TB:branch": 29.819337844848633,
+      "TC:run_inlet": 29.796375274658203,
+      "TC:run_outlet": 29.796375274658203,
+      "TC:branch": 29.796375274658203,
+      "TD:run_inlet": 24.932453155517578,
+      "TD:run_outlet": 24.932453155517578,
+      "TD:branch": 24.932453155517578,
+      "TE:run_inlet": 23.132856369018555,
+      "TE:run_outlet": 23.132856369018555,
+      "TE:branch": 23.132856369018555,
+      "S2:port_1": 20.0,
+      "D1:port_1": 23.647777557373047,
+      "D2:port_1": 19.726505279541016,
+      "D3:port_1": 32.705387115478516
+    }
+  }
+}

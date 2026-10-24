@@ -1,4 +1,4 @@
-"""Components: the nodes of the port graph (SDD §4.2-4.9), v1 scope."""
+"""Components: the nodes of the port graph (SDD §4.2-4.9, §4.11), v1 scope."""
 
 from typing import Annotated, Any, ClassVar, Literal, Self
 
@@ -13,6 +13,10 @@ PortRole = Literal["inlet", "outlet"]
 
 FCV_SETPOINT_RANGE = (0.0, 100.0)
 """Bounds of an FCV setpoint, m³/s (a flow; PRV and PSV setpoints are gauge pressures)."""
+
+ASSIGNED_FLOW_RANGE = (-FCV_SETPOINT_RANGE[1], FCV_SETPOINT_RANGE[1])
+"""Bounds of an assigned flow, m³/s: the flow bound of an FCV or a speed-controlled pump's
+setpoint (CLAUDE.md D11), in either direction (TSD §4.8)."""
 
 
 def _component_schema_extra(schema: JsonDict, cls: type[Any]) -> None:
@@ -127,6 +131,24 @@ class Plug(BaseComponent):
     PORT_IDS = ("port_1",)
 
     type: Literal["plug"]
+
+
+class AssignedFlow(BaseComponent):
+    """Fixed flow out of (demand, positive) or into (supply, negative) the network at its port,
+    whatever the pressure there, which is a result (SDD §4.11). Not a fixed-pressure boundary:
+    it never satisfies NO_FIXED_HEAD. A flow of 0 behaves exactly as a plug."""
+
+    PORT_IDS = ("port_1",)
+
+    type: Literal["assigned_flow"]
+    flow: float = Field(
+        ge=ASSIGNED_FLOW_RANGE[0],
+        le=ASSIGNED_FLOW_RANGE[1],
+        description=(
+            "Flow at the port, m³/s: positive leaves the network (demand), negative enters it "
+            "(supply)"
+        ),
+    )
 
 
 BranchLossModel = Literal["crane", "ideal"]
@@ -332,6 +354,7 @@ Component = Annotated[
     Annotated[Reservoir, Tag("reservoir")]
     | Annotated[IdealReferenceNode, Tag("reference_node")]
     | Annotated[Plug, Tag("plug")]
+    | Annotated[AssignedFlow, Tag("assigned_flow")]
     | Annotated[TeeBranch, Tag("branch:tee")]
     | Annotated[WyeBranch, Tag("branch:wye")]
     | Annotated[Pump, Tag("pump")]

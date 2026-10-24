@@ -202,8 +202,42 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * AssignedFlow
+         * @description Fixed flow out of (demand, positive) or into (supply, negative) the network at its port,
+         *     whatever the pressure there, which is a result (SDD §4.11). Not a fixed-pressure boundary:
+         *     it never satisfies NO_FIXED_HEAD. A flow of 0 behaves exactly as a plug.
+         */
+        AssignedFlow: {
+            /**
+             * Elevation
+             * @description Elevation above the project datum, m
+             */
+            elevation: number;
+            /**
+             * Flow
+             * @description Flow at the port, m³/s: positive leaves the network (demand), negative enters it (supply)
+             */
+            flow: number;
+            /**
+             * Id
+             * @description Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Ports */
+            ports: components["schemas"]["Port"][];
+            /**
+             * Type
+             * @constant
+             */
+            type: "assigned_flow";
+        };
+        /**
          * BoundaryResult
-         * @description Reservoir or reference node: the head it holds and the flow it supplies.
+         * @description Reservoir or reference node: the head it holds and the flow it supplies. Plug or
+         *     assigned-flow node: the EGL at its port and the flow through it (an assigned-flow node's
+         *     outflow is minus its assigned flow, as solved).
          */
         BoundaryResult: {
             /**
@@ -224,7 +258,7 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "reservoir" | "reference_node" | "plug";
+            type: "reservoir" | "reference_node" | "plug" | "assigned_flow";
         };
         /** BranchResult */
         BranchResult: {
@@ -1222,7 +1256,7 @@ export interface components {
          */
         Project: {
             /** Components */
-            components: (components["schemas"]["Reservoir"] | components["schemas"]["IdealReferenceNode"] | components["schemas"]["Plug"] | components["schemas"]["TeeBranch"] | components["schemas"]["WyeBranch"] | components["schemas"]["Pump"] | components["schemas"]["IsolationValve"] | components["schemas"]["CheckValve"] | components["schemas"]["ControlValve"])[];
+            components: (components["schemas"]["Reservoir"] | components["schemas"]["IdealReferenceNode"] | components["schemas"]["Plug"] | components["schemas"]["AssignedFlow"] | components["schemas"]["TeeBranch"] | components["schemas"]["WyeBranch"] | components["schemas"]["Pump"] | components["schemas"]["IsolationValve"] | components["schemas"]["CheckValve"] | components["schemas"]["ControlValve"])[];
             /** Connections */
             connections: components["schemas"]["PipeConnection"][];
             /** Fluid */

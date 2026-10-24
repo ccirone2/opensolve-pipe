@@ -18,7 +18,7 @@ import {
 	updateComponent,
 	updateConnection
 } from '../utils/edit';
-import { createComponent, type ComponentKind } from '../utils/factory';
+import { createComponent, type ComponentKind, type EnteredValues } from '../utils/factory';
 import type { ElementRef } from '../utils/results';
 import {
 	componentById,
@@ -168,9 +168,12 @@ export class Workspace {
 		return this.edit((p) => updateConnection(p, id, (c) => change(c) ?? c), label);
 	}
 
-	/** Add the first component of an empty project (or a separate one) and show it. */
-	addStandalone(kind: ComponentKind): string | null {
-		const component = createComponent(kind, this.project);
+	/**
+	 * Add the first component of an empty project (or a separate one) and show it. `values` are
+	 * what the user entered for a kind with no default (an assigned-flow node's flow).
+	 */
+	addStandalone(kind: ComponentKind, values: EnteredValues = {}): string | null {
+		const component = createComponent(kind, this.project, values);
 		const ok = this.edit(
 			(p) => ({ ...p, components: [...p.components, component] }),
 			`add ${component.name}`
@@ -182,13 +185,20 @@ export class Workspace {
 
 	/**
 	 * Add a component at a free port of `componentId`, connected with a default pipe sized to the
-	 * port, and walk on to it. The new component starts at the same elevation.
+	 * port, and walk on to it. The new component starts at the same elevation. `values` are what
+	 * the user entered for a kind with no default (an assigned-flow node's flow).
 	 */
-	addAfter(componentId: string, portId: string, kind: ComponentKind): string | null {
+	addAfter(
+		componentId: string,
+		portId: string,
+		kind: ComponentKind,
+		values: EnteredValues = {}
+	): string | null {
 		const existing = componentById(this.project, componentId);
 		const port = existing ? portById(existing, portId) : undefined;
 		if (!existing || !port) return null;
 		const component = createComponent(kind, this.project, {
+			...values,
 			elevation: port.elevation ?? existing.elevation,
 			nominalSize: port.nominalSize
 		});

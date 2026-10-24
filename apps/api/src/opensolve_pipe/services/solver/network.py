@@ -92,6 +92,9 @@ class SolverNode:
     elevation: float
     fixed_head: float | None = None
     """EGL held by a boundary (reservoir or reference-node port), m; None for free nodes."""
+    demand: float = 0.0
+    """Flow leaving the network at this node, m³/s (negative: entering): an assigned-flow
+    node's port (TSD §4.8); 0 at every other node. Never set on a fixed-head node."""
 
 
 @dataclass

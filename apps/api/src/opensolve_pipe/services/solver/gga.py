@@ -77,10 +77,27 @@ other port lies in the same part and no fixed head reaches it (an active PSV as 
 of a pump loop), any flow around the loop holds the setpoint and the solve is not attempted
 (``undetermined_links``; the outer loop opens or closes the valve, EPANET 2.2's badvalve).
 
+Assigned flows (TSD §4.8) are nodal demands: an assigned-flow node's flow leaves the network at
+its port (a supply enters it), so its continuity row reads inflow − demand = 0, as a FIXED_FLOW
+link's demand and supply do. They change three of the rules above, since a part holding a
+nonzero assigned flow cannot sit at zero flow:
+- a part that no fixed head reaches and that holds assigned flows is never removed as isolated:
+  if they sum to zero (to the continuity tolerance) it is floating, solved like a pump loop;
+  otherwise no steady state carries them (EPANET's "system disconnected"), and the part is
+  "disconnected" (``GgaResult.disconnected_sections``): it is left out of the solve, the rest of
+  the network solved, and the outer loop either re-opens an element that connects it or reports
+  the solve as not converged, naming its nodes;
+- a control in a fixed mode whose supply or outlet side is such a part is not starved: the flows
+  it and the nodes fix meet there with nothing to fix a pressure, so the solve is not attempted
+  and names them (``undetermined_links``, ``undetermined_nodes``), as for two controls in
+  series: they hold no steady state unless the flows balance, and then the pressure there is
+  undetermined.
+
 Reference: Todini, E., and S. Pilati, "A gradient algorithm for the analysis of pipe
 networks", in Computer Applications in Water Supply, Vol. 1, Wiley, 1988, 1-20.
 """
 
+import math
 from collections import defaultdict, deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -170,10 +187,21 @@ class GgaResult:
     """Active control-valve links whose solve is not determined (the solve was not attempted):
     in series with no fixed pressure between them, or passing a flow that cannot leave towards
     a fixed head (module docstring)."""
+    undetermined_nodes: list[int] = field(default_factory=list)
+    """Assigned-flow nodes (nonzero flow) in the part where the flows of the controls in
+    ``undetermined_links`` meet with no fixed head (module docstring); [] otherwise."""
+    undetermined_imbalance: float = 0.0
+    """With ``undetermined_nodes``: the net flow those controls and nodes fix into that part,
+    m³/s; zero when they balance, and then only the pressure there is undetermined."""
     floating_sections: list[list[int]] = field(default_factory=list)
     """The nodes of each floating part (module docstring), first node first. Their heads are
     relative: exact differences within the part, on an arbitrary level
     (FLOATING_REFERENCE_HEAD at the first node). They are not in ``isolated_nodes``."""
+    disconnected_sections: list[list[int]] = field(default_factory=list)
+    """The nodes of each part that no fixed head reaches and whose assigned flows do not sum to
+    zero (module docstring): not solved (no heads, no flows), and not in ``isolated_nodes``.
+    ``converged`` then says whether the rest of the network converged; the result is not a
+    steady state of the whole network."""
 
     check_heads: FloatArray | None = None
     """EGL per node at the last finite iterate within CHECK_ITERATIONS (None if none)."""
@@ -315,6 +343,53 @@ class GroupLevels:
             np.add.at(net, u_rev, net_v)
 
 
+def assigned_balance(demands: Sequence[float]) -> tuple[float, bool]:
+    """The net assigned flow of a part, m³/s, and whether it is zero to the continuity
+    tolerance (CONTINUITY_RTOL × the largest of them + CONTINUITY_ATOL): only then can a part
+    that no fixed head reaches carry them (module docstring)."""
+    total = math.fsum(demands)
+    scale = max((abs(d) for d in demands), default=0.0)
+    return total, abs(total) <= CONTINUITY_RTOL * scale + CONTINUITY_ATOL
+
+
+def _assigned_words(demand: float) -> str:
+    """An assigned flow in words: 'takes 0.01 m³/s out of the network'."""
+    if demand > 0.0:
+        return f"takes {demand:.6g} m³/s out of the network"
+    return f"supplies {-demand:.6g} m³/s into the network"
+
+
+def assigned_flow_terms(network: SolverNetwork, nodes: Sequence[int]) -> str:
+    """The assigned flows of these nodes in words: "'D1' takes 0.01 m³/s out of the network"."""
+    return ", ".join(
+        f"'{network.nodes[v].component_id}' {_assigned_words(network.nodes[v].demand)}"
+        for v in nodes
+    )
+
+
+def assigned_flow_list(network: SolverNetwork, nodes: Sequence[int]) -> tuple[str, int]:
+    """The nonzero assigned flows of these nodes in words, as a list ("'D1' (takes 0.01 m³/s
+    out of the network) and 'S1' (supplies 0.01 m³/s into the network)"), and their number."""
+    found = [network.nodes[v] for v in nodes]
+    terms = [f"'{n.component_id}' ({_assigned_words(n.demand)})" for n in found if n.demand]
+    if len(terms) <= 1:
+        return "".join(terms), len(terms)
+    return ", ".join(terms[:-1]) + " and " + terms[-1], len(terms)
+
+
+def disconnected_message(network: SolverNetwork, sections: Sequence[Sequence[int]]) -> str:
+    """Why a solve with ``GgaResult.disconnected_sections`` has no steady state."""
+    listed, count = assigned_flow_list(network, [v for section in sections for v in section])
+    which, carried = (
+        ("node", "that flow") if count == 1 else ("nodes", "their flows, which do not balance")
+    )
+    return (
+        f"no reservoir or reference node reaches assigned-flow {which} {listed} through open "
+        f"elements, so no steady state carries {carried} (an assigned-flow node fixes a flow, "
+        "not a pressure; EPANET reports such a part as disconnected)"
+    )
+
+
 def _held_node(state: LinkState, start: int, end: int) -> int:
     return end if state.mode is LinkMode.FIXED_DOWNSTREAM_HEAD else start
 
@@ -344,13 +419,17 @@ def circulating_parts(
     skip: set[int],
 ) -> set[int]:
     """The parts (values of ``labels``, the parts joined by NORMAL links) among ``parts`` that
-    cannot carry zero flow (module docstring): one holds an active FCV that drives a
-    circulation (links in ``skip`` are left out), or a loop of NORMAL links whose zero-flow heads
-    h(0) do not close up. At zero flow every NORMAL link drops h(0), H_end = H_start − h(0);
-    the heads follow along a spanning tree of each part, and every other link closes a loop on
-    which they must agree to within ZERO_FLOW_HEAD_TOL."""
+    cannot carry zero flow (module docstring): one holds a nonzero assigned flow, or an active
+    FCV that drives a circulation (links in ``skip`` are left out), or a loop of NORMAL links
+    whose zero-flow heads h(0) do not close up. At zero flow every NORMAL link drops h(0),
+    H_end = H_start − h(0); the heads follow along a spanning tree of each part, and every other
+    link closes a loop on which they must agree to within ZERO_FLOW_HEAD_TOL."""
     zeros = np.zeros(len(network.links))
-    circulating: set[int] = set()
+    circulating: set[int] = {
+        int(labels[node.index])
+        for node in network.nodes
+        if node.demand != 0.0 and int(labels[node.index]) in parts
+    }
     adjacency: dict[int, list[tuple[int, float]]] = defaultdict(list)
     for link, state in zip(network.links, states, strict=True):
         part = int(labels[link.start])
@@ -393,7 +472,14 @@ def _solve_linear(lhs: sp.csc_matrix, rhs: FloatArray) -> FloatArray | None:
 
 
 def _not_converged(
-    n: int, m: int, message: str, isolated: list[int], starved: list[int], undetermined: list[int]
+    n: int,
+    m: int,
+    message: str,
+    isolated: list[int],
+    starved: list[int],
+    undetermined: list[int],
+    nodes: list[int] | None = None,
+    imbalance: float = 0.0,
 ) -> GgaResult:
     return GgaResult(
         heads=np.full(n, np.nan),
@@ -408,7 +494,46 @@ def _not_converged(
         isolated_nodes=isolated,
         starved_links=starved,
         undetermined_links=undetermined,
+        undetermined_nodes=nodes or [],
+        undetermined_imbalance=imbalance,
     )
+
+
+def _fed_message(
+    network: SolverNetwork,
+    states: Sequence[LinkState],
+    labels: IntArray,
+    part: int,
+    controls: list[int],
+    fed: list[int],
+) -> tuple[str, float]:
+    """The message of a solve whose controls in fixed modes (``controls``) meet assigned-flow
+    nodes (``fed``) in a part that no fixed head reaches (module docstring), and the net flow
+    they fix into that part, m³/s."""
+    links = network.links
+    terms: list[str] = []
+    fixed_in = 0.0
+    for j in controls:
+        link, state = links[j], states[j]
+        into = int(labels[link.end]) == part
+        if state.mode is LinkMode.FIXED_FLOW:
+            fixed_in += state.value if into else -state.value
+            way = "into" if into else "out of"
+            terms.append(f"'{link.key}' passes {state.value:.6g} m³/s {way} it")
+        else:  # a PRV draws from its inlet side, a PSV delivers to its outlet side
+            terms.append(f"'{link.key}' {'delivers into' if into else 'draws from'} it")
+    total = math.fsum(network.nodes[v].demand for v in fed)
+    pump = any(links[j].kind is LinkKind.PUMP for j in controls)
+    what = "controls" if pump else "control valves"
+    names = ", ".join(f"'{links[j].key}'" for j in controls)
+    nodes = ", ".join(f"'{network.nodes[v].component_id}'" for v in fed)
+    message = (
+        f"the flows that {what} {names} and assigned-flow node(s) {nodes} fix meet in a part of "
+        f"the network that no reservoir or reference node reaches ({', '.join(terms)}; "
+        f"{assigned_flow_terms(network, fed)}): they hold no steady state unless those flows "
+        "balance, and then nothing fixes the pressure there"
+    )
+    return message, fixed_in - total
 
 
 def solve_gga(
@@ -449,6 +574,8 @@ def _solve_gga(
 
     boundary = np.array([node.fixed_head is not None for node in nodes], dtype=bool)
     h_fixed = np.array([node.fixed_head or 0.0 for node in nodes], dtype=np.float64)
+    demand = np.array([node.demand for node in nodes], dtype=np.float64)
+    assigned = [int(v) for v in np.flatnonzero(demand != 0.0)]  # nonzero assigned flows
     start = np.array([link.start for link in links], dtype=np.int64)
     end = np.array([link.end for link in links], dtype=np.int64)
     normal = np.array([s.mode is LinkMode.NORMAL for s in states], dtype=bool)
@@ -494,6 +621,22 @@ def _solve_gga(
             and not _drives_circulation(states[j], labels, int(start[j]), int(end[j]))
             and labels[v] in (labels[start[j]], labels[end[j]])
         ]
+        fed = [u for u in assigned if labels[u] == labels[v]]
+        if fed:
+            # Assigned flows where the control's flow goes or comes from (module docstring).
+            message, imbalance = _fed_message(
+                network, states, labels, int(labels[v]), [k, *others], fed
+            )
+            return _not_converged(
+                n,
+                m,
+                message,
+                [int(i) for i in np.flatnonzero(~reaches_head)],
+                starved,
+                [k, *others],
+                fed,
+                imbalance,
+            )
         if others:
             names = ", ".join(links[j].key for j in [k, *others])
             message = (
@@ -515,16 +658,25 @@ def _solve_gga(
         starved.append(k)
 
     # Floating parts: no fixed head reaches them, but they cannot sit at zero flow. One node of
-    # each is held at an arbitrary head, so its flows and head differences are solved.
+    # each is held at an arbitrary head, so its flows and head differences are solved. A part
+    # whose assigned flows do not sum to zero has no steady state: it is disconnected.
     unreached = {int(x) for x in np.unique(labels[~reaches_head])}
     floating_sections: list[list[int]] = []
+    disconnected_sections: list[list[int]] = []
     for part in circulating_parts(network, states, labels, unreached, set(starved)):
         members = [int(v) for v in np.flatnonzero(labels == part)]
+        if assigned and not assigned_balance(demand[members].tolist())[1]:
+            disconnected_sections.append(members)
+            continue
         floating_sections.append(members)
         grounded[members[0]] = True
         h_fixed[members[0]] = FLOATING_REFERENCE_HEAD
     floating_sections.sort()
+    disconnected_sections.sort()
     reaches_head = np.isin(labels, np.unique(labels[grounded]))
+    cut_off = np.zeros(n, dtype=bool)
+    for section in disconnected_sections:
+        cut_off[section] = True
 
     # A held node's valve passes a determined flow only if that flow can leave its part towards
     # a fixed head, directly or through other held valves (module docstring).
@@ -571,8 +723,10 @@ def _solve_gga(
 
     heads = np.full(n, np.nan)
     flows = np.zeros(m)
-    isolated_nodes = [int(i) for i in np.flatnonzero(~reaches_head)]
-    isolated_links = [int(k) for k in np.flatnonzero(normal & ~reaches_head[start])]
+    isolated_nodes = [int(i) for i in np.flatnonzero(~reaches_head & ~cut_off)]
+    isolated_links = [
+        int(k) for k in np.flatnonzero(normal & ~reaches_head[start] & ~cut_off[start])
+    ]
 
     # Head-offset links merge their nodes into groups (structure only; shifts per iterate).
     is_offset = np.array(
@@ -613,6 +767,7 @@ def _solve_gga(
     grouped_free = reaches_head & ~root_fixed
     node_col = col[root]
     in_rows = np.flatnonzero(node_col >= 0)
+    demand_rows = np.bincount(node_col[in_rows], weights=demand[in_rows], minlength=nf)
 
     # The Newton link in series with each offset link at its end node (a branch leg's port
     # node joins the leg and one pipe): it takes the offset's own-flow slope in the Jacobian.
@@ -670,7 +825,9 @@ def _solve_gga(
             - np.bincount(start, weights=q_sp, minlength=n)
         )
         for k in live_head_fixing:
-            balance = float(inflow[held[k]])  # net inflow into the held node, other links
+            # Net inflow into the held node from its other links, less its demand (0: a valve
+            # port is never an assigned-flow node's).
+            balance = float(inflow[held[k]] - demand[held[k]])
             # PRV: it supplies what leaves its outlet node; PSV: it passes what arrives.
             q_sp[k] = -balance if states[k].mode is LinkMode.FIXED_DOWNSTREAM_HEAD else balance
         return q_sp
@@ -680,9 +837,11 @@ def _solve_gga(
         continuity inside their groups."""
         q_all = q_sp.copy()
         q_all[newton] = q_newton
-        net = np.bincount(end, weights=q_all, minlength=n) - np.bincount(
-            start, weights=q_all, minlength=n
-        )  # inflow from every link but the offset links (still 0 here)
+        net = (
+            np.bincount(end, weights=q_all, minlength=n)
+            - np.bincount(start, weights=q_all, minlength=n)
+            - demand
+        )  # inflow from every link but the offset links (still 0 here), less the demand
         # Continuity of each subtree: its net inflow + flow in through its offset link = 0.
         levels.subtree_flows(q_all, net, end)
         return q_all
@@ -703,6 +862,11 @@ def _solve_gga(
         h[grouped_free] += h_unknown[col[root[grouped_free]]]
         return h
 
+    disconnected = (
+        f"; not solved: {disconnected_message(network, disconnected_sections)}"
+        if disconnected_sections
+        else ""
+    )
     if solve_links.size == 0 and not live_special:
         _, known = known_heads(np.zeros(m))
         heads[fixed] = known[fixed]
@@ -715,11 +879,12 @@ def _solve_gga(
             max_continuity_node=None,
             max_energy=0.0,
             max_energy_link=None,
-            message="no flow paths to solve",
+            message="no flow paths to solve" + disconnected,
             isolated_nodes=isolated_nodes,
             isolated_links=isolated_links,
             starved_links=starved,
             floating_sections=floating_sections,
+            disconnected_sections=disconnected_sections,
         )
 
     q = q_init[newton].copy()
@@ -752,7 +917,7 @@ def _solve_gga(
             start, weights=q_sp, minlength=n
         )
         supply = np.bincount(node_col[in_rows], weights=sp_inflow[in_rows], minlength=nf)
-        continuity = a21 @ q + supply
+        continuity = a21 @ q + supply - demand_rows
         # Residuals of the whole network in this state (offset links and merged nodes too).
         h_all = full_heads(h_free, known)
         h_links = link_offsets.copy()
@@ -761,7 +926,7 @@ def _solve_gga(
         inflow = np.bincount(end, weights=q_all, minlength=n) - np.bincount(
             start, weights=q_all, minlength=n
         )
-        continuity_all = inflow[free_nodes]
+        continuity_all = inflow[free_nodes] - demand[free_nodes]
         if not (np.all(np.isfinite(energy_all)) and np.all(np.isfinite(d))):
             message = "the iteration diverged (non-finite head loss)"
             break
@@ -783,7 +948,7 @@ def _solve_gga(
             and max_e <= ENERGY_TOL
         ):
             converged = True
-            message = f"converged in {iterations} iterations"
+            message = f"converged in {iterations} iterations{disconnected}"
             break
         if it == max_iterations:
             message = (
@@ -820,6 +985,8 @@ def _solve_gga(
         q += dq
         iterations = it + 1
 
+    if not converged:
+        message += disconnected  # the part left out has no steady state in these statuses
     heads[reaches_head] = full_heads(h_free, known)[reaches_head]
     assert q_prev is not None  # the loop runs at least once
     flows[:] = q_prev  # the iterate the residuals and heads above belong to
@@ -839,6 +1006,7 @@ def _solve_gga(
         isolated_links=isolated_links,
         starved_links=starved,
         floating_sections=floating_sections,
+        disconnected_sections=disconnected_sections,
         check_heads=check_heads,
         check_flows=check_flows,
     )

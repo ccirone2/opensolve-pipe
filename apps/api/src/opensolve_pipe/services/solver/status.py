@@ -28,6 +28,11 @@ against the heads that section can take at zero flow (``zero_flow_openings``). A
 carries flow with no fixed head (``GgaResult.floating_sections``) has exact head differences on
 a free level; the rules use its heads where they test differences only, and test the PRVs and
 PSVs in it, or in a closed-off section, over the levels it can take (``_update_controls``).
+A section that no fixed head reaches but whose assigned flows do not sum to zero
+(``GgaResult.disconnected_sections``, TSD §4.8) has no steady state: its level would run away
+(down with a net demand, up with a net supply), so the closed elements around it whose rules
+open at such a level are re-opened (``disconnected_openings``); with none, the solve is
+reported as not converged, naming its assigned-flow nodes and the elements closed around it.
 
 EPANET applies the PRV/PSV rules at every Newton iteration; here statuses change between inner
 solves. An active state with no solution (the inner solve fails) therefore falls back first to
@@ -81,7 +86,14 @@ from .budget import check_budget
 from .builder import BuiltNetwork, PumpControlData, ValveData
 from .elements import HeadOffsetLaw, ValveLaw
 from .flags import make_flag
-from .gga import CONTINUITY_ATOL, CONTINUITY_RTOL, FloatArray, GgaResult, solve_gga
+from .gga import (
+    CONTINUITY_ATOL,
+    CONTINUITY_RTOL,
+    FloatArray,
+    GgaResult,
+    disconnected_message,
+    solve_gga,
+)
 from .network import CLOSED, NORMAL, LinkMode, LinkState, law_of
 
 MAX_OUTER_ITERATIONS = 30
@@ -107,6 +119,37 @@ class Status(StrEnum):
 
 
 ControlKind = Literal["pump", "isolation", "check", "prv", "psv", "fcv"]
+
+RULES = {
+    "fcv": "an FCV passes neither reverse flow nor more than its setpoint",
+    "prv": (
+        "a PRV passes no reverse flow, and no flow while the pressure its outlet side needs is "
+        "above its setting"
+    ),
+    "psv": (
+        "a PSV passes no reverse flow, and no flow while the pressure at its inlet would fall "
+        "below its setting"
+    ),
+    "check": "a check valve passes no reverse flow",
+    "pump": "a pump passes no reverse flow, nor any flow against more than its shutoff head",
+}
+"""What each status rule that can close an element allows through, in words."""
+KIND_NAMES = {
+    "fcv": "FCV",
+    "prv": "PRV",
+    "psv": "PSV",
+    "check": "check valve",
+    "isolation": "valve",
+    "pump": "pump",
+}
+"""How a message names an element of each kind."""
+FIXED_CLOSED = {
+    "off": "off",
+    "isolated": "isolated",
+    "locked_closed": "locked closed",
+    "failed_closed": "failed closed",
+}
+"""The statuses a user sets that close an element, in words."""
 
 
 # --------------------------------------------------------------------------- status rules
@@ -442,7 +485,10 @@ def _update_controls(
 
     An element between such a section and any other head keeps its state here (a closed-off
     side has no head, NaN, for the rules); ``zero_flow_openings`` re-tests it if it is closed,
-    against every level the section can take."""
+    against every level the section can take. An element with a port in a disconnected section
+    (``GgaResult.disconnected_sections``: assigned flows with no fixed head) keeps its state
+    too; ``disconnected_openings`` re-opens it if it is closed and its rule opens it as that
+    section's level runs away."""
     net = built.network
     heads, flows = result.heads, result.flows
     starved = set(result.starved_links)
@@ -451,6 +497,7 @@ def _update_controls(
         if result.isolated_nodes or result.floating_sections
         else ({}, {})
     )
+    cut_off = {v for nodes in result.disconnected_sections for v in nodes}
 
     def head(key: str) -> float:
         """The head the rules see: a section's shift (exact differences inside it)."""
@@ -473,6 +520,8 @@ def _update_controls(
             # A0 for a speed-controlled pump: no flow reaches its controller, which runs to
             # maximum speed (CLAUDE.md D11); a control valve closes.
             control.status = Status.OPEN if control.kind == "pump" else Status.CLOSED
+        elif link.start in cut_off or link.end in cut_off:
+            pass  # beside a disconnected section, which has no head (``disconnected_openings``)
         elif (a is not None or b is not None) and (a != b or control.kind in ("prv", "psv")):
             if a == b and old is not Status.CLOSED and float(flows[control.link]) < -QTOL:
                 control.status = Status.CLOSED  # the reverse-flow rule needs no level
@@ -525,7 +574,87 @@ def _update_controls(
     for cid in zero_flow_openings(built, result, still_closed, states):
         controls[cid].status = Status.OPEN
         changed.append(cid)
+    if cut_off:
+        closed = {cid: c for cid, c in still_closed.items() if c.status is Status.CLOSED}
+        for cid, status in disconnected_openings(built, result, closed, avoid).items():
+            controls[cid].status = status
+            changed.append(cid)
     return changed
+
+
+def _runaway_status(
+    built: BuiltNetwork, control: Control, h1: float, h2: float, flows: FloatArray
+) -> Status:
+    """The status a closed element's rule gives it with one port's head at ±inf (the level of a
+    disconnected section running away) and the other at its solved head (``h1``: start node,
+    ``h2``: end node). A pump's, check valve's or FCV's rule then depends on the sign of the
+    difference alone, so an unknown other head (NaN) is taken as any finite value; a PRV's or
+    PSV's compares it with the setpoint, so with an unknown other head the valve is taken to
+    open whenever its flow could run toward the section (its rules decide in the next solve)."""
+    if control.kind in ("pump", "check", "fcv"):
+        h1, h2 = (0.0 if math.isnan(h) else h for h in (h1, h2))
+    if control.kind == "pump":
+        pump = built.pumps[control.component_id]
+        if pump.control is not None:
+            return controlled_pump_status(Status.CLOSED, h2 - h1, 0.0, pump.control)
+        return pump_status(
+            Status.CLOSED, h2 - h1, 0.0, pump.curve.shutoff_head(pump.component.speed)
+        )
+    data = built.valves[control.component_id]
+    if control.kind == "check":
+        return check_valve_status(Status.CLOSED, h1 - h2, 0.0, data.cracking_head)
+    if control.kind == "fcv":
+        valve = data.component
+        assert isinstance(valve, ControlValve)
+        return fcv_status(Status.CLOSED, h1, h2, 0.0, valve.setpoint)
+    if math.isnan(h1) or math.isnan(h2):
+        forward = h1 == math.inf or h2 == -math.inf  # a supply at the inlet, a demand beyond
+        return Status.OPEN if forward else Status.CLOSED
+    rule = prv_status if control.kind == "prv" else psv_status
+    return rule(Status.CLOSED, h1, h2, setpoint_head(built, data, flows), 0.0, 0.0)
+
+
+def disconnected_openings(
+    built: BuiltNetwork,
+    result: GgaResult,
+    closed: dict[str, Control],
+    avoid: Callable[[dict[str, Status]], bool] | None = None,
+) -> dict[str, Status]:
+    """Closed elements bordering a disconnected section (``GgaResult.disconnected_sections``:
+    assigned flows that do not sum to zero where no fixed head reaches) that are re-opened, with
+    the status their rule gives them (``_runaway_status``).
+
+    Such a section has no steady state: with a net demand its level falls without bound, with a
+    net supply it rises (EPANET 2.2 keeps a 1/CBIG conductance across closed links, through
+    which its cut-off heads do just that, and its rules then open the links). Each closed element
+    with one port in the section is tested at that level: a pump, check valve or FCV opens when
+    the section is on the side the flow would run to (a demand beyond its outlet, a supply at
+    its inlet), never against its one-way rule. All the elements that open are re-opened
+    together, unless ``avoid`` rejects that state (already solved), then each alone; {} when
+    every one leads to a state already solved."""
+    if not closed or not result.disconnected_sections:
+        return {}
+    net = built.network
+    level: dict[int, float] = {}
+    for nodes in result.disconnected_sections:
+        total = math.fsum(net.nodes[v].demand for v in nodes)
+        for v in nodes:
+            level[v] = -math.inf if total > 0.0 else math.inf
+    opening: dict[str, Status] = {}
+    for cid, control in sorted(closed.items()):
+        link = net.links[control.link]
+        if (link.start in level) == (link.end in level):
+            continue  # not on a border of a disconnected section
+        h1, h2 = (level.get(v, float(result.heads[v])) for v in (link.start, link.end))
+        status = _runaway_status(built, control, h1, h2, result.flows)
+        if status is not Status.CLOSED:
+            opening[cid] = status
+    if not opening or avoid is None or not avoid(opening):
+        return opening
+    for cid, status in opening.items():
+        if not avoid({cid: status}):
+            return {cid: status}
+    return {}
 
 
 # --------------------------------------------------------------------------- closed-off sections
@@ -546,6 +675,10 @@ def closed_off_sections(
     −s²H₀(0) across a running pump, the cracking head across an open check valve), taken along
     a spanning tree. A floating section (``GgaResult.floating_sections``) carries flow; its
     shifts are its solved heads, which are exact differences on an arbitrary level.
+
+    Assigned flows (TSD §4.8) change neither: a part with a nonzero assigned flow is never
+    isolated (it cannot sit at zero flow), and is floating only if its assigned flows sum to
+    zero, its solved heads then including them; otherwise it is disconnected, in neither list.
     """
     net = built.network
     isolated = set(result.isolated_nodes)
@@ -680,7 +813,9 @@ def zero_flow_openings(
 
     A floating section (``GgaResult.floating_sections``) is one more section with a free level
     X: it carries flow, and its heads are X plus its solved relative heads, so the elements
-    bordering it are tested the same way.
+    bordering it are tested the same way. Neither kind holds assigned flows that do not balance
+    (``closed_off_sections``); an element whose other side is a disconnected section gives no
+    constraint here (``disconnected_openings`` tests it).
     """
     if not closed or not (result.isolated_nodes or result.floating_sections):
         return []
@@ -702,6 +837,7 @@ def _border_constraints(
     net = built.network
     heads = result.heads
     ground = max(section.values()) + 1  # the variable of the known heads (value 0)
+    cut_off = {v for nodes in result.disconnected_sections for v in nodes}
 
     def term(node: int) -> tuple[int, float]:
         """(variable, constant): H_node = x_variable + constant."""
@@ -721,6 +857,8 @@ def _border_constraints(
         link = net.links[control.link]
         if link.start not in section and link.end not in section:
             continue
+        if link.start in cut_off or link.end in cut_off:
+            continue  # its other side has no level at all (``disconnected_openings``)
         if control.kind == "pump":
             pump = built.pumps[cid]
             difference(cid, link.start, link.end, -pump.curve.shutoff_head(pump.component.speed))
@@ -1706,7 +1844,8 @@ def run_outer_loop(
                 else None
             )
             if opened is None:
-                return finish(outer, False, result.message, [])
+                note, named = _over_control_note(built, controls, states, [])
+                return finish(outer, False, note + result.message, named)
             if not opened[0]:
                 members = opened[1]
                 what = (
@@ -1714,13 +1853,14 @@ def run_outer_loop(
                     if _active_controls(controls, members) == "control valves"
                     else "taking the active controls out of their active states"
                 )
+                note, named = _over_control_note(built, controls, states, members)
                 return finish(
                     outer,
                     False,
-                    _equal_setpoints_note(built, controls, states, members)
+                    note
                     + f"{result.message}; {what} ({', '.join(members)}) only returns to states "
                     "already solved",
-                    members,
+                    named,
                 )
             history.append(_vector(controls, branches))
             states = link_states(built, controls, branches, forced)
@@ -1756,6 +1896,12 @@ def run_outer_loop(
             over = _over_controlled(built, result, controls, states)
             if over is not None:
                 return finish(outer, False, over[0], over[1])
+            if result.disconnected_sections:
+                note, named, balanced = _assigned_flow_note(built, controls, states)
+                if balanced:  # not unique rather than missing: the over-control alone says why
+                    return finish(outer, False, note.removesuffix("; "), named)
+                report = _disconnected_report(built, result, controls, states)
+                return finish(outer, False, note + report, named)
             _fill_held_pairs(built, branches, result)
             message = f"converged: {inner} Newton iterations in {outer} outer iteration(s)"
             return finish(outer, True, message, [])
@@ -1789,12 +1935,13 @@ def run_outer_loop(
                     if branches
                     else ""
                 )
+                note, named = _over_control_note(built, controls, states, members, equal=False)
                 return finish(
                     outer,
                     False,
-                    f"{failed[vector].message}; the status and branch-loss updates keep "
+                    f"{note}{failed[vector].message}; the status and branch-loss updates keep "
                     f"returning to this state{where}",
-                    members,
+                    named,
                 )
             vector = _vector(controls, branches)
         if vector != history[-1] and vector in history[:-1]:
@@ -1848,33 +1995,35 @@ def run_outer_loop(
                 states = link_states(built, controls, branches, forced)
                 flows = np.asarray(result.flows, dtype=np.float64)
                 continue
+            note, named = _over_control_note(built, controls, states, members)
             return finish(
                 outer,
                 False,
-                _equal_setpoints_note(built, controls, states, members)
-                + "statuses oscillate between states already solved (components: "
+                note + "statuses oscillate between states already solved (components: "
                 f"{', '.join(members)}){_range_hint(branches, members)}",
-                members,
+                named,
             )
         if counted >= MAX_OUTER_ITERATIONS:
             last = sorted(set(changed))
+            note, named = _over_control_note(built, controls, states, last, equal=False)
             return finish(
                 outer,
                 False,
-                f"statuses or branch losses still changing after {outer} outer "
+                f"{note}statuses or branch losses still changing after {outer} outer "
                 f"iterations (last changed: {', '.join(last)}){_range_hint(branches, last)}",
-                last,
+                named,
             )
         history.append(vector)
         states = link_states(built, controls, branches, forced)
         flows = np.asarray(result.flows, dtype=np.float64)
     # Reached only when the last outer iteration ended in a fallback (a branch restart, a held
     # leg or sequential mode) that would need another solve.
+    note, named = _over_control_note(built, controls, states, [], equal=False)
     return finish(
         outer,
         False,
-        f"statuses or branch losses still changing after {outer} outer iterations",
-        [],
+        f"{note}statuses or branch losses still changing after {outer} outer iterations",
+        named,
     )
 
 
@@ -2141,13 +2290,21 @@ def _over_controlled(
     active flow control undetermined (``GgaResult.undetermined_links``). Only states with a
     speed-controlled pump among those named are concerned, so networks without speed control
     keep their v1 results; a pump whose control a system-curve solve replaces by a forced flow,
-    or that is off, regulates nothing (``Control.fixed``)."""
+    or that is off, regulates nothing (``Control.fixed``).
+
+    An assigned-flow node fixes a flow too (TSD §4.8): a flow control at its limit that alone
+    feeds assigned-flow nodes taking its setpoint flow (the inner solve names them,
+    ``GgaResult.undetermined_nodes``, with flows that balance to within that tolerance) is
+    over-controlled the same way, whether or not it is a pump; only networks with assigned flows
+    are concerned. The ids returned are the controls': the nodes, which have no status, are named
+    in the message only (``ConvergenceReport.oscillating_components``)."""
     pumps = {
         control.link
         for cid, control in controls.items()
         if control.kind == "pump" and not control.fixed and built.pumps[cid].control is not None
     }
-    if not pumps:
+    assigned = any(node.demand != 0.0 for node in built.network.nodes)
+    if not pumps and not assigned:
         return None
     flows = result.flows
     q_scale = float(np.max(np.abs(flows), initial=0.0))
@@ -2169,7 +2326,18 @@ def _over_controlled(
         trial[control.link] = LinkState(LinkMode.FIXED_FLOW, setpoint)
         check = solve_gga(built.network, trial, tolerance=1.0, max_iterations=0)
         named = check.undetermined_links
-        if control.link in named and any(k in pumps for k in named):
+        if control.link in named and check.undetermined_nodes:
+            if abs(check.undetermined_imbalance) <= tol:
+                ids, nodes = _assigned_ids(built, check)
+                return (
+                    f"the control(s) {_quoted(ids)} and assigned-flow node(s) "
+                    f"{_quoted(nodes)} fix the same flow with no reservoir or reference node "
+                    f"fixing the pressure between them, and '{cid}' carries exactly its "
+                    "setpoint flow at its limit, so it could hold its setpoint: its throttling "
+                    "or speed and that pressure are undetermined (over-controlled)",
+                    ids,
+                )
+        elif control.link in named and any(k in pumps for k in named):
             ids = sorted({built.network.links[k].key for k in named})
             return (
                 f"the controls {', '.join(ids)} are in series with no reservoir or reference "
@@ -2229,6 +2397,157 @@ def _equal_setpoints_note(
         "reference node fixing the pressure between them, so each could hold its setpoint: "
         "their speeds or throttling and that pressure are undetermined (over-controlled); "
     )
+
+
+def _assigned_ids(built: BuiltNetwork, check: GgaResult) -> tuple[list[str], list[str]]:
+    """The ids of the controls and the assigned-flow nodes an inner solve names as meeting with
+    no fixed head between them (``GgaResult.undetermined_nodes``)."""
+    net = built.network
+    controls = sorted({net.links[k].key for k in check.undetermined_links})
+    nodes = sorted({net.nodes[v].component_id for v in check.undetermined_nodes})
+    return controls, nodes
+
+
+def _quoted(ids: list[str]) -> str:
+    return ", ".join(f"'{i}'" for i in ids)
+
+
+def _assigned_flow_note(
+    built: BuiltNetwork, controls: dict[str, Control], states: list[LinkState]
+) -> tuple[str, list[str], bool]:
+    """For a solve that ends not converged, the reason when a flow control alone feeds
+    assigned-flow nodes (TSD §4.8), with the ids of the controls it names (the nodes, which have
+    no status, are named in the message only: ``ConvergenceReport.oscillating_components``) and
+    whether it is over-controlled, else ('', [], False). Held at its setpoint, the inner solve
+    names it and those nodes (``GgaResult.undetermined_nodes``). With flows that balance to
+    within Qtol, any throttling or speed holds it, and the pressure between them is
+    undetermined, so its status flips between its limit (where the nodes' flow is its setpoint,
+    on the edge of its rule) and holding it: over-controlled, a state that is not unique rather
+    than missing. When it is the only control named and the nodes' net flow through it is one it
+    never passes (reverse flow, or more than an FCV's setpoint), no steady state carries their
+    flows in these statuses (a plain inner-solve failure in its open state would otherwise be
+    all the message says). Each FCV and speed-controlled pump that the rules govern is tested
+    alone; networks without assigned flows are not concerned."""
+    net = built.network
+    if not any(node.demand != 0.0 for node in net.nodes):
+        return "", [], False
+    for cid, control in sorted(controls.items()):
+        if control.fixed:
+            continue
+        setpoint: float | None = None
+        if control.kind == "pump":
+            pump_control = built.pumps[cid].control
+            setpoint = pump_control.setpoint if pump_control is not None else None
+        elif control.kind == "fcv":
+            valve = built.valves[cid].component
+            assert isinstance(valve, ControlValve)
+            setpoint = valve.setpoint
+        if setpoint is None:
+            continue
+        trial = list(states)
+        trial[control.link] = LinkState(LinkMode.FIXED_FLOW, setpoint)
+        check = solve_gga(net, trial, tolerance=1.0, max_iterations=0)
+        if control.link not in check.undetermined_links or not check.undetermined_nodes:
+            continue
+        ids, nodes = _assigned_ids(built, check)
+        if abs(check.undetermined_imbalance) <= QTOL:
+            return (
+                f"the control(s) {_quoted(ids)} and assigned-flow node(s) {_quoted(nodes)} "
+                "fix the same flow with no reservoir or reference node fixing the pressure "
+                "between them, so the control could hold it at any throttling or speed: that "
+                "and the pressure are undetermined (over-controlled); ",
+                ids,
+                True,
+            )
+        if check.undetermined_links != [control.link]:
+            continue
+        # The nodes' net flow and the control's fixed flow into their part (imbalance = fixed
+        # flow in − net flow out): the flow they need through the control, forward positive.
+        total = math.fsum(net.nodes[v].demand for v in check.undetermined_nodes)
+        forward = total if check.undetermined_imbalance + total > 0.0 else -total
+        if forward < -QTOL:
+            amount = f"they would send {-forward:.6g} m³/s back through it"
+        elif control.kind == "fcv" and forward > setpoint + QTOL:
+            amount = (
+                f"they take {forward:.6g} m³/s through it, more than its setpoint "
+                f"({setpoint:.6g} m³/s)"
+            )
+        else:
+            continue  # it passes their flow open (an FCV) or at a speed limit (a pump)
+        return (
+            f"in these statuses only {KIND_NAMES[control.kind]} '{cid}' can connect "
+            f"assigned-flow node(s) {_quoted(nodes)} to a reservoir or reference node, and "
+            f"{amount} ({RULES[control.kind]}), so no steady state carries their flows; ",
+            [cid],
+            False,
+        )
+    return "", [], False
+
+
+def _over_control_note(
+    built: BuiltNetwork,
+    controls: dict[str, Control],
+    states: list[LinkState],
+    members: list[str],
+    *,
+    equal: bool = True,
+) -> tuple[str, list[str]]:
+    """The note a not-converged message starts with when flow controls are over-controlled, or
+    one alone feeds assigned flows it cannot pass, and the ids the solve names:
+    ``_equal_setpoints_note`` (when ``equal``, as before), else ``_assigned_flow_note`` with the
+    ids of its controls added to ``members``; ('', members) otherwise."""
+    note = _equal_setpoints_note(built, controls, states, members) if equal else ""
+    if note:
+        return note, members
+    extra, ids, _ = _assigned_flow_note(built, controls, states)
+    if not ids:
+        return "", members
+    return extra, sorted({*members, *ids})
+
+
+def _closed_element(built: BuiltNetwork, control: Control, starved: bool) -> str:
+    """How a message names a closed element and why it is closed: the status the user set, a
+    side with no fixed head (``GgaResult.starved_links``), or its status rule."""
+    cid = control.component_id
+    name = f"{KIND_NAMES[control.kind]} '{cid}'"
+    if control.fixed:
+        status = (
+            built.pumps[cid].component.status
+            if control.kind == "pump"
+            else built.valves[cid].component.status
+        )
+        return f"{name} ({FIXED_CLOSED.get(status, status)})"
+    if starved:
+        return f"{name} (closed: a side of it reaches no reservoir or reference node)"
+    return f"{name} (closed by its status rule: {RULES[control.kind]})"
+
+
+def _disconnected_report(
+    built: BuiltNetwork, result: GgaResult, controls: dict[str, Control], states: list[LinkState]
+) -> str:
+    """Why a solve whose rules leave a disconnected section (``GgaResult.
+    disconnected_sections``) has no steady state: its assigned-flow nodes, and the elements
+    closed around it (``disconnected_openings`` re-opens none of them)."""
+    net = built.network
+    cut_off = {v for nodes in result.disconnected_sections for v in nodes}
+    starved = set(result.starved_links)
+    by_link = {c.link: c for c in controls.values()}
+    around: list[str] = []
+    for link, state in zip(net.links, states, strict=True):
+        if (link.start in cut_off) == (link.end in cut_off):
+            continue
+        if state.mode is not LinkMode.CLOSED and link.index not in starved:
+            continue
+        control = by_link.get(link.index)
+        if control is not None:
+            around.append(_closed_element(built, control, link.index in starved))
+        elif link.port_id is not None and link.component_id is not None:
+            branch = built.branches[link.component_id].branch_type
+            around.append(
+                f"{branch} '{link.component_id}' (its {link.port_id} leg held at zero flow)"
+            )
+    closed = f"; closed around it: {', '.join(sorted(around))}" if around else ""
+    return disconnected_message(net, result.disconnected_sections) + closed
 
 
 def _unsupported(

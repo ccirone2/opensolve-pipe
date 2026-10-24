@@ -6,8 +6,8 @@
 - Every case file: a valid Project; energy equations of every connection and the law of every
   pump, valve and Crane branch re-evaluated from the *project JSON* close with the expected
   values; every pump and valve state is the one design §5's status rules select; continuity
-  holds; ideal-branch ports share one EGL and only isolated ports lack one; expected pressures
-  follow p = ρ g (H − z − v²/2g).
+  holds (an assigned-flow node withdrawing its flow); ideal-branch ports share one EGL and only
+  isolated ports lack one; expected pressures follow p = ρ g (H − z − v²/2g).
 - Second routes to the answers: the parallel split by nested brentq (the case uses fsolve), a
   whole-network fsolve of every case from a perturbed start, NPSH available from the absolute
   suction pressure, the PRV/PSV static setpoint at its port, the dead tee branch read as
@@ -347,11 +347,20 @@ def _has_components(path: Path) -> bool:
     return bool({"pumps", "valves"} & set(read_case(path)["expected"]))
 
 
+def _has_assigned_flows(path: Path) -> bool:
+    return any(c["type"] == "assigned_flow" for c in read_case(path)["project"]["components"])
+
+
+def _heads_pinned(path: Path) -> bool:
+    """No pump, valve or assigned flow: every head lies between reservoirs' fixed heads."""
+    return not (_has_components(path) or _has_assigned_flows(path))
+
+
 EPANET_CASES = [p for p in CASES if p.stem.startswith("epanet")]
 
 
 @pytest.mark.parametrize(
-    "path", [p for p in EPANET_CASES if not _has_components(p)], ids=lambda p: p.stem
+    "path", [p for p in EPANET_CASES if _heads_pinned(p)], ids=lambda p: p.stem
 )
 def test_epanet_case_agrees_with_our_model_inside_the_criterion(path: Path) -> None:
     """Our model (g = 9.80665, exact minor-loss constant, fluids' Swamee–Jain) solved as a
@@ -373,14 +382,16 @@ def test_epanet_case_agrees_with_our_model_inside_the_criterion(path: Path) -> N
 
 
 @pytest.mark.parametrize(
-    "path", [p for p in EPANET_CASES if _has_components(p)], ids=lambda p: p.stem
+    "path", [p for p in EPANET_CASES if not _heads_pinned(p)], ids=lambda p: p.stem
 )
 def test_epanet_component_case_agrees_with_our_model_inside_half_the_criterion(
     path: Path,
 ) -> None:
-    """Pump and control-valve networks: heads next to a pump or a fixed-flow valve are not
-    pinned by reservoirs, so EPANET's g = 32.2 ft/s² (0.08 % in every head loss) moves them by
-    a few mm (measured: up to 1.9 mm at the pump, 6.9 mm at the FCV). Our model still lands
+    """Pump, control-valve and demand networks: heads next to a pump or a fixed-flow valve, or
+    along a path whose flow an assigned demand fixes, are not pinned by reservoirs, so EPANET's
+    g = 32.2 ft/s² (0.08 % in every head loss) moves them by a few mm (measured: up to 1.9 mm
+    at the pump, 6.9 mm at the FCV, 7.1 mm at a demand of the gravity network and 16.4 mm at
+    the far demand of the pumped one, 0.08 % of the 20 m lost on its way). Our model still lands
     inside half of the D6 criterion: flows within 0.25 %, every EGL and every connection's
     EGL drop within max(0.25 %, 5 mm). Solving with EPANET's constants instead reproduces EPANET
     to float32 precision (test_energy_equations_close)."""

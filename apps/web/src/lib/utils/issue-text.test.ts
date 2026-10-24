@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Pump, TopologyIssue } from '../api/types';
+import { assignedFlowProject } from '../testing/helpers';
 import { pumpTransferExample } from './examples';
 import { topologyIssueViews } from './issue-text';
 import { IMPERIAL_UNITS } from './units';
@@ -219,5 +220,48 @@ describe('CONTROLLED_PUMP_SETPOINT', () => {
 		const fixed = setpointProject();
 		delete (fixed.components[1] as Pump).control;
 		expect(topologyIssueViews([setpointIssue()], fixed, true)[0]!.text).toBe(setpointMessage());
+	});
+});
+
+describe('NO_FIXED_HEAD', () => {
+	/** The API's issue for a part without a reservoir or reference node (solver/builder.py). */
+	function noHeadIssue(componentIds: string[], assigned: boolean): TopologyIssue {
+		return {
+			code: 'NO_FIXED_HEAD',
+			message:
+				'this part of the network has no fixed-pressure boundary; add a reservoir or reference ' +
+				`node (components: ${componentIds.join(', ')})` +
+				(assigned ? '; assigned-flow nodes fix a flow, not a pressure, so they are not one' : ''),
+			componentIds,
+			connectionIds: ['L1']
+		};
+	}
+
+	it('says that an assigned-flow node in the part is not a fixed-pressure boundary', () => {
+		// Its reservoir replaced by a reference-less end: the part holds only AF1 and a plug.
+		const project = assignedFlowProject(0.004);
+		project.components[0] = {
+			id: 'PL1',
+			name: 'End cap',
+			elevation: 0,
+			type: 'plug',
+			ports: [{ id: 'port_1', nominalSize: 0.1016, direction: 'bidirectional' }]
+		};
+		project.connections[0]!.fromComponentId = 'PL1';
+		const [view] = topologyIssueViews([noHeadIssue(['AF1', 'PL1'], true)], project, true);
+		expect(view).toEqual({
+			text:
+				'This part of the network has no fixed-pressure boundary: add a reservoir or reference ' +
+				'node to it. Assigned-flow nodes fix a flow, not a pressure, so they do not count as one.',
+			links: [{ componentId: 'AF1' }, { componentId: 'PL1' }]
+		});
+	});
+
+	it('says nothing of assigned-flow nodes in a part without one', () => {
+		const project = pumpTransferExample();
+		const [view] = topologyIssueViews([noHeadIssue(['P1', 'V1'], false)], project, true);
+		expect(view!.text).toBe(
+			'This part of the network has no fixed-pressure boundary: add a reservoir or reference node to it.'
+		);
 	});
 });

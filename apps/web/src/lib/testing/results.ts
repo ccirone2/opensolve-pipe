@@ -262,6 +262,58 @@ export function pumpTransferSolved(values: Partial<SolvedState> = {}): SolvedSta
 	};
 }
 
+/**
+ * A made-up state for testing/helpers.ts assignedFlowProject (R1 → L1 → AF1, a demand of
+ * 0.012 m³/s): AF1's port below the vapor pressure, flagged.
+ */
+export function assignedFlowSolved(values: Partial<SolvedState> = {}): SolvedState {
+	return pumpTransferSolved({
+		nodeResults: {
+			'R1:port_1': node('R1', 'port_1', {
+				pressure: 196000,
+				absolutePressure: 297325,
+				hgl: 20,
+				egl: 20
+			}),
+			'AF1:port_1': node('AF1', 'port_1', {
+				elevation: 2,
+				velocity: 1.5,
+				pressure: -99000,
+				absolutePressure: 2325,
+				hgl: -8.1,
+				egl: -8
+			})
+		},
+		linkResults: { L1: link({ flow: 0.012, velocity: 1.5 }) },
+		pumpResults: {},
+		valveResults: {},
+		boundaryResults: {
+			R1: { type: 'reservoir', egl: 20, outflow: 0.012, portOutflows: { port_1: 0.012 } },
+			AF1: { type: 'assigned_flow', egl: -8, outflow: -0.012, portOutflows: { port_1: -0.012 } }
+		},
+		flags: [
+			flag({
+				code: 'BELOW_VAPOR_PRESSURE',
+				severity: 'invalid',
+				message:
+					"absolute pressure at 'AF1:port_1' (2325 Pa) is below the vapor pressure (2339 Pa); the liquid would flash",
+				componentId: 'AF1',
+				portId: 'port_1',
+				details: { absolutePressure: 2325, vaporPressure: 2339 }
+			})
+		],
+		convergence: {
+			innerIterations: 2,
+			outerIterations: 1,
+			maxContinuityResidual: { value: 0, elementId: 'AF1:port_1' },
+			maxEnergyResidual: { value: 1e-12, elementId: 'L1' },
+			oscillatingComponents: [],
+			message: 'converged: 2 Newton iterations in 1 outer iteration(s)'
+		},
+		...values
+	});
+}
+
 export function response(
 	solvedState: SolvedState,
 	values: Partial<SolveResponse> = {}

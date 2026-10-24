@@ -1,0 +1,169 @@
+{
+  "name": "assigned_flow_check_valve",
+  "description": "A 15 L/s demand fed through a swing check valve with a 5 kPa cracking pressure: verifies that the forced forward flow holds the valve open and the open law h_c + K v^2/2g at the demand's flow.",
+  "source": "closed-form: tests/reference/derivations_assigned_flow.py::assigned_flow_check_valve (assigned flow (SDD 4.11, TSD 4.8): a free node whose connection carries Q_a, no head equation of its own; static pressure with v in the connected pipe; the line carries Q_a by continuity, heads stepped from R1; h_c = p_crack/(rho g); K from fluids K_swing_check_valve_Crane (angled); line fittings: fluids bend_rounded_Crane(Di, 90, bend_diameters=1.5), entrance_sharp(method='Crane'))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-assigned-flow-check-valve",
+    "metadata": {
+      "name": "Assigned demand through a check valve",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 8.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "CV1",
+        "name": "Check valve CV1",
+        "elevation": 1.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "valve",
+        "valveType": "check",
+        "status": "active",
+        "crackingPressure": 5000.0
+      },
+      {
+        "id": "AF1",
+        "name": "Assigned flow AF1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "assigned_flow",
+        "flow": 0.015
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "CV1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 30.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "CV1",
+        "fromPortId": "outlet",
+        "toComponentId": "AF1",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 60.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "elbow_90_lr",
+              "quantity": 2,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.015,
+      "L2": 0.015
+    },
+    "egl": {
+      "R1:port_1": 10.0,
+      "CV1:inlet": 8.986985380172829,
+      "CV1:outlet": 8.200888433677587,
+      "AF1:port_1": 6.267270482708164
+    },
+    "pressures": {
+      "CV1:inlet": 76507.03481030636,
+      "CV1:outlet": 68813.4751451995,
+      "AF1:port_1": 59676.12199528295
+    },
+    "valves": {
+      "CV1": {
+        "state": "open"
+      }
+    }
+  }
+}

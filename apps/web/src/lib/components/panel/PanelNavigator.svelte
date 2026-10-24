@@ -6,7 +6,7 @@
 <script lang="ts">
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
-	import type { ComponentKind } from '$lib/utils/factory';
+	import { missingEntry, type ComponentKind, type EnteredValues } from '$lib/utils/factory';
 	import { componentById, onwardFreePort, type NextOption } from '$lib/utils/graph';
 	import { portLabel } from '$lib/utils/labels';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
@@ -14,6 +14,7 @@
 	import ComponentPanel from './ComponentPanel.svelte';
 	import JumpToDialog from './JumpToDialog.svelte';
 	import { kindOptions } from './kinds';
+	import NewComponentFields from './NewComponentFields.svelte';
 	import PathChooser from './PathChooser.svelte';
 
 	const ws = useWorkspace();
@@ -22,6 +23,9 @@
 	let choosing = $state(false);
 	let jumping = $state(false);
 	let firstKind = $state<ComponentKind>('reservoir');
+	/** Values entered for a kind with no default for them (see NewComponentFields). */
+	let firstValues = $state<EnteredValues>({});
+	let firstMissing = $state<string | null>(null);
 
 	const current = $derived(nav.current);
 	const previous = $derived.by(() => {
@@ -125,7 +129,8 @@
 				class="flex flex-wrap items-end gap-2"
 				onsubmit={(event) => {
 					event.preventDefault();
-					ws.addStandalone(firstKind);
+					firstMissing = missingEntry(firstKind, firstValues);
+					if (!firstMissing) ws.addStandalone(firstKind, firstValues);
 				}}
 			>
 				<SelectField
@@ -133,8 +138,21 @@
 					value={firstKind}
 					options={kindOptions()}
 					class="min-w-48 flex-1"
-					onchange={(v) => (firstKind = v)}
+					onchange={(v) => {
+						firstKind = v;
+						firstMissing = null;
+					}}
 				/>
+				{#if firstKind === 'assigned_flow'}
+					<div class="grid basis-full gap-3 sm:grid-cols-2">
+						<NewComponentFields
+							kind={firstKind}
+							units={ws.units}
+							bind:values={firstValues}
+							bind:error={firstMissing}
+						/>
+					</div>
+				{/if}
 				<button type="submit" class="btn btn-primary">
 					<Icon name="plus" class="size-4" /> Add
 				</button>

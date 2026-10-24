@@ -1,7 +1,8 @@
 import { gzip } from 'pako';
 import { describe, expect, it } from 'vitest';
 import type { Project, Pump } from '../api/types';
-import { link, projectWith, reverseKeys } from '../testing/helpers';
+import openapi from '../api/openapi.json';
+import { assignedFlowProject, link, projectWith, reverseKeys } from '../testing/helpers';
 import {
 	canonicalJson,
 	decodeProject,
@@ -17,6 +18,7 @@ import { EXAMPLES } from './examples';
 import { createComponent, createEmptyProject } from './factory';
 import { LinkError } from './link-error';
 import { CURRENT_SCHEMA_VERSION } from './migrations';
+import { toSI } from './units';
 import fixtureJson from './__fixtures__/schema-v1.json';
 
 const fixture = fixtureJson as unknown as Project;
@@ -138,6 +140,43 @@ describe('encodeProject / decodeProject', () => {
 		const reopened = decodeProject(encodeProject(fixed));
 		expect(reopened.components.some((c) => 'control' in c)).toBe(false);
 		expect(encodeProject(reopened)).toBe(encodeProject(fixed));
+	});
+
+	it('round-trips assigned-flow nodes exactly: a demand, a supply and 0; schemaVersion 1', () => {
+		// Made-up flows (SDD §4.11), among them values typed in display units and the schema's
+		// bounds. An additive component type: schemaVersion stays 1 (nothing deployed yet).
+		const { minimum, maximum } = openapi.components.schemas.AssignedFlow.properties.flow;
+		for (const flow of [
+			0.012,
+			-0.012,
+			0,
+			-toSI(37.5, 'gpm'),
+			toSI(12.5, 'm3/h'),
+			minimum,
+			maximum
+		]) {
+			const project = assignedFlowProject(flow);
+			const encoded = encodeProject(project);
+			const decoded = decodeProject(encoded);
+			expect(decoded).toEqual(project);
+			const node = decoded.components.find((c) => c.id === 'AF1');
+			expect(node?.type === 'assigned_flow' && node.flow, String(flow)).toBe(flow);
+			expect(decoded.schemaVersion).toBe(1);
+			expect(encodeProject(decoded)).toBe(encoded);
+		}
+	});
+
+	it('refuses an assigned flow beyond the schema bounds, or without a flow', () => {
+		const { maximum } = openapi.components.schemas.AssignedFlow.properties.flow;
+		const beyond = assignedFlowProject(-(maximum * 1.5));
+		const error = decodeError(encodeRaw(beyond));
+		expect(error.kind).toBe('invalid');
+		expect(error.problems.join(' ')).toMatch(/"AF1" › flow: must be >= -/);
+		const missing = structuredClone(assignedFlowProject(0.004)) as unknown as {
+			components: Record<string, unknown>[];
+		};
+		delete missing.components[1]!.flow;
+		expect(decodeError(encodeRaw(missing)).kind).toBe('invalid');
 	});
 
 	it('produces URL-safe strings', () => {

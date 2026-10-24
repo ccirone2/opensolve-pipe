@@ -22,6 +22,16 @@ flows and heads elsewhere) are written to findings/control_multiple_states, alte
 only put more of the network at rest to findings/control_rest_alternatives (the class is not
 changed). A record of a non-default profile names it (``profile``).
 
+Assigned-flow nodes (profile 'assigned_flow', TSD §4.8): a network that has no steady state
+because of them, from the project alone (``checks.assigned_flow_expectations``), must not
+converge, and its message should state one of those reasons (classes ``no_steady_state`` and
+``no_steady_state_other_message``; EPANET's run is recorded, not compared, and no state search
+is made); a converged one fails the self-check. The node's results join the self-check
+(``checks.assigned_flow_problems``), and a project with a zero assigned flow is solved again
+with plugs in those nodes' places, which must give the same result bit for bit, converged or
+not (``plug_twin_problems``). A record of a project with assigned-flow nodes holds their flows
+(``assigned_flows``) and the expected reasons (``expected``).
+
 The classes and which of them are critical are listed in ``classes.py``.
 """
 
@@ -33,10 +43,11 @@ import sys
 import tempfile
 import time
 import traceback
+from collections.abc import Mapping
 from multiprocessing import Pool
 from typing import Any
 
-from opensolve_pipe.models.components import CheckValve, ControlValve, Pump
+from opensolve_pipe.models.components import AssignedFlow, CheckValve, ControlValve, Plug, Pump
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.results import SolvedState
 from opensolve_pipe.services.solver import solve_project
@@ -154,6 +165,54 @@ def ep_valid(
     return laws, rules
 
 
+def plug_twin(project: Project) -> Project | None:
+    """The project with each assigned-flow node of zero flow replaced by a plug with its id,
+    name, elevation and port (TSD §4.8: flow = 0 behaves exactly as a plug); None without one."""
+    zero = {c.id for c in project.components if isinstance(c, AssignedFlow) and c.flow == 0.0}
+    if not zero:
+        return None
+    comps = [
+        Plug(type="plug", id=c.id, name=c.name, elevation=c.elevation, ports=c.ports)
+        if c.id in zero
+        else c
+        for c in project.components
+    ]
+    return project.model_copy(update={"components": comps})
+
+
+def plug_twin_problems(project: Project, result: SolvedState) -> list[str]:
+    """How our result differs from our result for ``plug_twin``: whether it converged, every
+    connection's flow, every port's EGL and every pump's and valve's state must be identical,
+    bit for bit. [] without a zero assigned flow."""
+    twin = plug_twin(project)
+    if twin is None:
+        return []
+    other = solve_project(twin)
+    out = []
+    if result.converged != other.converged:
+        out.append(f"zero assigned flow unlike a plug: converged {result.converged}")
+    (f1, h1, s1), (f2, h2, s2) = ck.ours_solution(project, result), ck.ours_solution(twin, other)
+    pairs: list[tuple[str, Mapping[str, object], Mapping[str, object]]] = [
+        ("flows", f1, f2),
+        ("EGLs", h1, h2),
+        ("states", s1, s2),
+    ]
+    for name, a, b in pairs:
+        diff = sorted(k for k in a.keys() | b.keys() if a.get(k) != b.get(k))
+        if diff:
+            out.append(f"zero assigned flow unlike a plug: {name} at {diff[:6]}")
+    return out
+
+
+def no_steady_state(out: Record, result: SolvedState, expected: list[ck.Expectation]) -> str:
+    """The class of a network that has no steady state (``expected``) and that our solver did
+    not converge on: whether its message states one of the expected reasons."""
+    message = result.convergence.message
+    named = [e.kind for e in expected if e.named(message)]
+    out["expected_named"] = named
+    return "no_steady_state" if named else "no_steady_state_other_message"
+
+
 def run_seed(
     seed: int,
     findings_dir: str | None = None,
@@ -221,28 +280,49 @@ def _run_seed(
     if controlled:  # default records stay as they were
         out["controlled"] = controlled
         out["speeds_o"] = speeds_o
+    assigned = {c.id: c.flow for c in project.components if isinstance(c, AssignedFlow)}
+    expected = ck.assigned_flow_expectations(project)  # [] without a nonzero assigned flow
+    if assigned:  # likewise
+        out["assigned_flows"] = assigned
+        out["expected"] = [[e.kind, e.text] for e in expected]
+    twin = plug_twin_problems(project, result)  # converged or not
     if result.converged:
         out["self_check"] = (
             ck.law_problems(project, flows_o, egl_o, states_o)
             + ["status " + s for s in ck.status_problems(project, flows_o, egl_o, states_o)]
             + ck.zero_flow_and_floating(project, flows_o, egl_o, states_o, result)
             + ck.control_problems(project, result, flows_o, egl_o, states_o)
+            + ck.undetermined_heads(project, egl_o, states_o)
+            + ck.assigned_flow_problems(project, result, flows_o)
+            + twin
         )
-        if out["self_check"]:
-            save(None, result, "self_check_failed")
-        if ctl:  # more than one valid state over the controlled pumps' states?
-            elems, valid = control_search(project)
-            groups = distinct(project, valid)
-            out["control_search"] = {
-                "elements": elems,
-                "valid": [w for w, _, _ in valid],
-                "distinct": [w for w, _, _ in groups],
-                "multiple": multiple(project, groups),
-            }
-            if out["control_search"]["multiple"]:
-                save(None, result, "control_multiple_states")
-            elif len(groups) > 1:
-                save(None, result, "control_rest_alternatives")
+    elif twin:
+        out["self_check"] = twin
+    if out.get("self_check"):
+        save(None, result, "self_check_failed")
+    if result.converged and ctl:  # more than one valid state over the controlled pumps' states?
+        elems, valid = control_search(project)
+        groups = distinct(project, valid)
+        out["control_search"] = {
+            "elements": elems,
+            "valid": [w for w, _, _ in valid],
+            "distinct": [w for w, _, _ in groups],
+            "multiple": multiple(project, groups),
+        }
+        if out["control_search"]["multiple"]:
+            save(None, result, "control_multiple_states")
+        elif len(groups) > 1:
+            save(None, result, "control_rest_alternatives")
+    if not result.converged and expected:  # no steady state: EPANET's run is only recorded
+        status = no_steady_state(out, result, expected)
+        try:
+            ep, _ = run_ep()
+            out.update(ep_iterations=ep.iterations, ep_warnings=ep.warnings)
+        except (em.UnsupportedError, em.EpanetError) as ex:
+            out["ep_error"] = repr(ex)
+        out["status"] = status
+        save(None, result, status)
+        return
     try:
         ep, lay = run_ep()
     except em.UnsupportedError as ex:
@@ -363,6 +443,8 @@ def _run_seed(
     ours_laws = ck.law_problems(project, flows_o, egl_o, states_o)
     ours_laws = ours_laws + ck.zero_flow_and_floating(project, flows_o, egl_o, states_o, result)
     ours_laws = ours_laws + ck.control_problems(project, result, flows_o, egl_o, states_o)
+    ours_laws = ours_laws + ck.undetermined_heads(project, egl_o, states_o)
+    ours_laws = ours_laws + ck.assigned_flow_problems(project, result, flows_o)
     ep_laws_f, ep_rules_f = ep_valid(project, ep, egl_e, states_e)
     out.update(
         ours_rules=ours_rules,
@@ -494,7 +576,10 @@ def main(argv: list[str] | None = None) -> None:
         "--profile",
         choices=PROFILES,
         default=DEFAULT,
-        help="generator profile (default: default; flow_control's seeds are 10000-12999)",
+        help=(
+            "generator profile (default: default; flow_control's seeds are 10000-12999,"
+            " assigned_flow's 20000-22999)"
+        ),
     )
     args = parser.parse_args(argv)
     out_dir = args.out or tempfile.mkdtemp(prefix="opensolve-fuzz-")

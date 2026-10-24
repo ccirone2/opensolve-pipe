@@ -21,6 +21,7 @@ import type {
 	UnitPreferences,
 	ValveResult
 } from '../api/types';
+import { DIRECTION_NAMES, flowDirection } from './assigned-flow';
 import { componentById, connectionById } from './graph';
 import {
 	fittingFallbackName,
@@ -847,10 +848,22 @@ export function branchBases(solved: SolvedState): Set<BranchVelocityBasis> {
 const BOUNDARY_TYPES: Readonly<Record<BoundaryResult['type'], string>> = {
 	reservoir: 'Reservoir',
 	reference_node: 'Reference node',
-	plug: 'Plug'
+	plug: 'Plug',
+	assigned_flow: 'Assigned flow'
 };
 
-/** Boundaries: the head each holds and the flow it supplies (positive into the network). */
+/**
+ * The API reports assigned-flow nodes with the boundaries (a BoundaryResult of type
+ * 'assigned_flow'), but they fix a flow, not a pressure: they have a table of their own.
+ */
+function isAssignedFlowResult(result: BoundaryResult | undefined): boolean {
+	return result?.type === 'assigned_flow';
+}
+
+/**
+ * Boundaries (reservoirs, reference nodes and plugs): the head each holds and the flow it supplies
+ * (positive into the network). Assigned-flow nodes are in assignedFlowTable.
+ */
 export function boundaryTable(
 	project: Project,
 	solved: SolvedState,
@@ -864,7 +877,8 @@ export function boundaryTable(
 		{ key: 'portOutflows', label: 'Per port', unit: f.unit('flow'), numeric: true }
 	];
 	const results = solved.boundaryResults;
-	const rows = orderedIds(project, Object.keys(results)).map((id) => {
+	const ids = Object.keys(results).filter((id) => !isAssignedFlowResult(results[id]));
+	const rows = orderedIds(project, ids).map((id) => {
 		const boundary = results[id] as BoundaryResult;
 		return componentRow(project, solved.flags, id, {
 			type: BOUNDARY_TYPES[boundary.type] ?? humanize(boundary.type),
@@ -876,9 +890,61 @@ export function boundaryTable(
 	return { columns, rows };
 }
 
+/**
+ * Assigned-flow nodes (SDD §4.11, PRD §3.2.1): the flow as entered (its direction and magnitude),
+ * and the static pressure and HGL at the node, with the node's flags (e.g. BELOW_VAPOR_PRESSURE).
+ * The flow is the input of this solve, read from `inputs`, the project exactly as it was solved
+ * (ProjectStore.solvedProject), so it matches the row's results after later edits; every other
+ * value is from the solved state. A node without a solved pressure (closed off, or on an
+ * undetermined level) has no row, as in the other tables.
+ */
+export function assignedFlowTable(
+	project: Project,
+	solved: SolvedState,
+	prefs: UnitPreferences,
+	inputs: Project | null
+): Table {
+	const f = new Formatter(prefs);
+	const columns: Column[] = [
+		text('direction', 'Direction'),
+		f.column('flow', 'Assigned flow', 'flow'),
+		f.column('elevation', 'Elevation', 'length'),
+		f.column('pressure', 'Pressure', 'pressure', { gauge: true }),
+		f.column('absolutePressure', 'Absolute pressure', 'pressure', { absolute: true }),
+		f.column('hgl', 'HGL', 'head')
+	];
+	const results = solved.boundaryResults;
+	const ids = Object.keys(results).filter((id) => isAssignedFlowResult(results[id]));
+	const rows = orderedIds(project, ids).map((id) => {
+		const boundary = results[id] as BoundaryResult;
+		const portId = Object.keys(boundary.portOutflows)[0];
+		const node = portId === undefined ? undefined : solved.nodeResults[`${id}:${portId}`];
+		const input = inputs?.components.find((c) => c.id === id);
+		const flow = input?.type === 'assigned_flow' ? input.flow : null;
+		const direction = flow === null ? null : flowDirection(flow);
+		return componentRow(project, solved.flags, id, {
+			direction: flow === null ? '—' : direction ? DIRECTION_NAMES[direction] : 'None (as a plug)',
+			flow: flow === null ? '—' : f.num(Math.abs(flow), 'flow'),
+			elevation: f.num(node?.elevation, 'length'),
+			pressure: f.num(node?.pressure, 'pressure'),
+			absolutePressure: f.num(node?.absolutePressure, 'pressure'),
+			hgl: f.num(node?.hgl, 'head')
+		});
+	});
+	return { columns, rows };
+}
+
 /** The views of the results pane, in tab order. */
 export type ResultsView =
-	'summary' | 'nodes' | 'links' | 'pumps' | 'valves' | 'branches' | 'boundaries' | 'methods';
+	| 'summary'
+	| 'nodes'
+	| 'links'
+	| 'pumps'
+	| 'valves'
+	| 'branches'
+	| 'boundaries'
+	| 'assignedFlows'
+	| 'methods';
 
 export const VIEW_LABELS: Readonly<Record<ResultsView, string>> = {
 	summary: 'Summary',
@@ -888,29 +954,36 @@ export const VIEW_LABELS: Readonly<Record<ResultsView, string>> = {
 	valves: 'Valves',
 	branches: 'Branches',
 	boundaries: 'Boundaries',
+	assignedFlows: 'Assigned flows',
 	methods: 'Methods'
 };
 
 /** Views that have something to show: element tables without results are left out. */
 export function availableViews(solved: SolvedState): ResultsView[] {
 	const has = (map: Readonly<Record<string, unknown>>) => Object.keys(map).length > 0;
+	const boundaries = Object.values(solved.boundaryResults);
 	const views: ResultsView[] = ['summary'];
 	if (has(solved.nodeResults)) views.push('nodes');
 	if (has(solved.linkResults)) views.push('links');
 	if (has(solved.pumpResults)) views.push('pumps');
 	if (has(solved.valveResults)) views.push('valves');
 	if (has(solved.branchResults)) views.push('branches');
-	if (has(solved.boundaryResults)) views.push('boundaries');
+	if (boundaries.some((b) => !isAssignedFlowResult(b))) views.push('boundaries');
+	if (boundaries.some((b) => isAssignedFlowResult(b))) views.push('assignedFlows');
 	views.push('methods');
 	return views;
 }
 
-/** Rows (from any table) for one element, for the trace view's result values. */
+/**
+ * Rows (from any table) for one element, for the trace view's result values. `inputs` is the
+ * project as solved (see assignedFlowTable).
+ */
 export function rowsForElement(
 	project: Project,
 	solved: SolvedState,
 	prefs: UnitPreferences,
-	element: ElementRef
+	element: ElementRef,
+	inputs: Project | null = null
 ): { title: string; table: Table; rows: Row[] }[] {
 	const tables: { title: string; table: Table }[] =
 		element.kind === 'connection'
@@ -920,6 +993,10 @@ export function rowsForElement(
 					{ title: 'Valve', table: valveTable(project, solved, prefs) },
 					{ title: 'Branch', table: branchTable(project, solved, prefs) },
 					{ title: 'Boundary', table: boundaryTable(project, solved, prefs) },
+					{
+						title: 'Assigned flow',
+						table: assignedFlowTable(project, solved, prefs, inputs)
+					},
 					{ title: 'Ports', table: nodeTable(project, solved, prefs) }
 				];
 	return tables

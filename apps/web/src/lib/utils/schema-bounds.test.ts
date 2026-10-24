@@ -55,12 +55,16 @@ describe('schema lookups', () => {
 
 	it('names the schema of every kind of component', () => {
 		const project = createEmptyProject();
-		const schemas = COMPONENT_KINDS.map((k) => componentSchema(createComponent(k, project)));
+		// An assigned-flow node's flow has no default; 0.004 m³/s is a made-up test input.
+		const schemas = COMPONENT_KINDS.map((k) =>
+			componentSchema(createComponent(k, project, { flow: 0.004 }))
+		);
 		expect(new Set(schemas)).toEqual(
 			new Set([
 				'Reservoir',
 				'IdealReferenceNode',
 				'Plug',
+				'AssignedFlow',
 				'TeeBranch',
 				'WyeBranch',
 				'Pump',

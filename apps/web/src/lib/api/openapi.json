@@ -1,9 +1,71 @@
 {
   "components": {
     "schemas": {
+      "AssignedFlow": {
+        "additionalProperties": false,
+        "description": "Fixed flow out of (demand, positive) or into (supply, negative) the network at its port,\nwhatever the pressure there, which is a result (SDD §4.11). Not a fixed-pressure boundary:\nit never satisfies NO_FIXED_HEAD. A flow of 0 behaves exactly as a plug.",
+        "properties": {
+          "elevation": {
+            "description": "Elevation above the project datum, m",
+            "maximum": 10000.0,
+            "minimum": -10000.0,
+            "title": "Elevation",
+            "type": "number"
+          },
+          "flow": {
+            "description": "Flow at the port, m³/s: positive leaves the network (demand), negative enters it (supply)",
+            "maximum": 100.0,
+            "minimum": -100.0,
+            "title": "Flow",
+            "type": "number"
+          },
+          "id": {
+            "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "ports": {
+            "items": {
+              "$ref": "#/components/schemas/Port"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Ports",
+            "type": "array"
+          },
+          "type": {
+            "const": "assigned_flow",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "elevation",
+          "ports",
+          "type",
+          "flow"
+        ],
+        "title": "AssignedFlow",
+        "type": "object",
+        "x-port-ids": [
+          "port_1"
+        ],
+        "x-port-roles": {}
+      },
       "BoundaryResult": {
         "additionalProperties": false,
-        "description": "Reservoir or reference node: the head it holds and the flow it supplies.",
+        "description": "Reservoir or reference node: the head it holds and the flow it supplies. Plug or\nassigned-flow node: the EGL at its port and the flow through it (an assigned-flow node's\noutflow is minus its assigned flow, as solved).",
         "properties": {
           "egl": {
             "description": "m",
@@ -26,7 +88,8 @@
             "enum": [
               "reservoir",
               "reference_node",
-              "plug"
+              "plug",
+              "assigned_flow"
             ],
             "title": "Type",
             "type": "string"
@@ -2184,6 +2247,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/Plug"
+                },
+                {
+                  "$ref": "#/components/schemas/AssignedFlow"
                 },
                 {
                   "$ref": "#/components/schemas/TeeBranch"

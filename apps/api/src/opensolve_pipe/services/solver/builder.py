@@ -2,10 +2,12 @@
 
 Nodes: one per component port (key 'componentId:portId', at the port's effective elevation),
 plus one internal center node per branch component ('componentId:#center'). Reservoir and
-ideal-reference-node ports are fixed-head nodes.
+ideal-reference-node ports are fixed-head nodes; an assigned-flow node's port is a free node
+whose demand is its flow (TSD §4.8).
 
 Links: one per pipe connection (from-port node -> to-port node); pump suction -> discharge;
-valve inlet -> outlet; three legs per tee or wye (center -> port). Plugs add no link.
+valve inlet -> outlet; three legs per tee or wye (center -> port). Plugs and assigned-flow nodes
+add no link.
 
 Laws: pipes (segments and fittings); a pump's curve at its speed (a speed-controlled pump's
 maximum speed; its minimum-speed law is built once, ``PumpControlData``); a valve's fully open K on
@@ -26,6 +28,7 @@ from scipy.constants import foot
 
 from ...models.api import TopologyIssue
 from ...models.components import (
+    AssignedFlow,
     CheckValve,
     Component,
     ControlValve,
@@ -410,11 +413,17 @@ def validate_topology(project: Project) -> list[TopologyIssue]:
         if not group_connections[root]:
             continue  # a lone component: its unconnected ports are already reported
         if not any(isinstance(components[c], BoundaryComponent) for c in comp_ids):
+            assigned = any(isinstance(components[c], AssignedFlow) for c in comp_ids)
             issues.append(
                 issue(
                     "NO_FIXED_HEAD",
                     "this part of the network has no fixed-pressure boundary; add a reservoir "
-                    f"or reference node (components: {', '.join(sorted(comp_ids))})",
+                    f"or reference node (components: {', '.join(sorted(comp_ids))})"
+                    + (
+                        "; assigned-flow nodes fix a flow, not a pressure, so they are not one"
+                        if assigned
+                        else ""
+                    ),
                     sorted(comp_ids),
                     sorted(group_connections[root]),
                 )
@@ -538,6 +547,8 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
                     )
             elif isinstance(comp, IdealReferenceNode):
                 node.fixed_head = z + comp.pressure / rho_g
+            elif isinstance(comp, AssignedFlow):
+                node.demand = comp.flow
         if isinstance(comp, BranchComponent):
             add_node(node_key(comp.id, CENTER_PORT), comp, None, comp.elevation)
 
@@ -709,5 +720,5 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
                 outlet_pipe=outlet_pipe,
             )
         else:
-            assert isinstance(comp, Reservoir | IdealReferenceNode | Plug)  # no internal link
+            assert isinstance(comp, Reservoir | IdealReferenceNode | Plug | AssignedFlow)
     return built

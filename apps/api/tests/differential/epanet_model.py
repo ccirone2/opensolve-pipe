@@ -4,6 +4,12 @@ Mapping (as ``tests/reference/generate_epanet_cases.py``, TSD §10.1):
 
 - Reservoir -> EPANET reservoir, head z + level + p_s/(ρg); ideal reference node -> reservoir
   with head z_port + p/(ρg). Ideal tee / wye and plug -> junction (zero demand).
+- Assigned-flow node (SDD §4.11) -> junction at its port's elevation whose base demand is its
+  flow: EPANET's demand is the flow withdrawn at the junction, positive out of the network as
+  ours (TSD §4.8: the node's flow is its port's demand in the GGA), in m³/s in the WNTR model,
+  which the INP writes in GPM to 11 significant digits; demand-driven analysis (DDA, EPANET's
+  default and WNTR's, set explicitly: the demand is taken whatever the pressure) and the default
+  pattern multiplier 1.
 - Connection with n segments -> n EPANET pipes in series (intermediate junctions), D-W
   roughness in metres, each segment's 'custom' fittings (K x quantity) as its minor loss.
 - Pump -> EPANET pump between its two port junctions, HEAD curve through the same collinear
@@ -51,6 +57,7 @@ from wntr.epanet.io import InpFile
 from wntr.epanet.toolkit import ENepanet
 
 from opensolve_pipe.models.components import (
+    AssignedFlow,
     CheckValve,
     ControlValve,
     IdealReferenceNode,
@@ -187,6 +194,7 @@ def build_wn(
     o.flowchange = 1.0e-12
     o.viscosity = 1.0
     o.specific_gravity = 1.0
+    o.demand_model = "DDA"  # demands taken whatever the pressure (assigned flows, the FAQ pair)
     o.trials = TRIALS
     wn.options.time.duration = 0
     lay = Layout()
@@ -232,6 +240,11 @@ def build_wn(
         elif isinstance(c, Plug):
             wn.add_junction(c.id, base_demand=0.0, elevation=c.elevation)
             lay.node_of_port[f"{c.id}:port_1"] = c.id
+        elif isinstance(c, AssignedFlow):
+            p = c.ports[0]
+            z = c.elevation if p.elevation is None else p.elevation
+            wn.add_junction(c.id, base_demand=c.flow, elevation=z)
+            lay.node_of_port[f"{c.id}:{p.id}"] = c.id
         elif isinstance(c, Pump | IsolationValve | CheckValve | ControlValve):
             for p in c.ports:
                 key = f"{c.id}:{p.id}"

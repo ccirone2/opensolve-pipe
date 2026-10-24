@@ -4,6 +4,7 @@ import { KIND_LABELS, type ComponentKind } from '$lib/utils/factory';
 
 const GROUPS: readonly { group: string; kinds: readonly ComponentKind[] }[] = [
 	{ group: 'Boundaries and ends', kinds: ['reservoir', 'reference_node', 'plug'] },
+	{ group: 'Flows in and out', kinds: ['assigned_flow'] },
 	{ group: 'Branches', kinds: ['tee', 'wye'] },
 	{ group: 'Pumps', kinds: ['pump'] },
 	{ group: 'Isolation valves', kinds: ['gate', 'ball', 'butterfly', 'globe'] },

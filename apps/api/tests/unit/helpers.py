@@ -58,6 +58,18 @@ def plug(cid: str, *, elevation: float = 0.0) -> dict[str, Any]:
     }
 
 
+def assigned_flow(cid: str, flow: float, *, elevation: float = 0.0) -> dict[str, Any]:
+    """Assigned-flow node: ``flow`` m³/s leaves the network at its port (negative: enters)."""
+    return {
+        "type": "assigned_flow",
+        "id": cid,
+        "name": cid,
+        "elevation": elevation,
+        "flow": flow,
+        "ports": _ports(["port_1"]),
+    }
+
+
 def tee(cid: str, *, elevation: float = 0.0, loss_model: str = "ideal") -> dict[str, Any]:
     return {
         "type": "branch",

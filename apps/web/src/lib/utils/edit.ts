@@ -33,7 +33,8 @@ import {
 	outletPort,
 	portById,
 	portRole,
-	type PortRef
+	type PortRef,
+	type PortRole
 } from './graph';
 import {
 	ENTRANCE_TYPES,
@@ -102,14 +103,15 @@ function replaceAt<T>(items: readonly T[], index: number, ...replacements: T[]):
 
 /**
  * True when a connection from `from` to `to` would run against the expected flow: it leaves a
- * port that receives flow (a pump suction, a valve inlet, a tee's run inlet) or arrives at one
- * that delivers it, and turning it around agrees with both ends' roles (ports with role 'any',
- * such as reservoir ports, accept either direction).
+ * port that receives flow (a pump suction, a valve inlet, a tee's run inlet, an assigned-flow
+ * demand) or arrives at one that delivers it (an assigned-flow supply), and turning it around
+ * agrees with both ends' roles (ports with role 'any', such as reservoir ports, accept either
+ * direction; see flowRole).
  */
 function runsAgainstFlow(project: Project, from: PortRef, to: PortRef): boolean {
 	const role = (ref: PortRef) => {
 		const component = componentById(project, ref.componentId);
-		return component ? portRole(component, ref.portId) : 'any';
+		return component ? flowRole(component, ref.portId) : 'any';
 	};
 	const fromRole = role(from);
 	const toRole = role(to);
@@ -174,13 +176,40 @@ export function withReservoirLosses(project: Project, connection: PipeConnection
 }
 
 /**
+ * The role a port plays for the expected flow: its own role (portRole), except at an
+ * assigned-flow node, whose entered flow fixes it (SDD §4.11): a demand (flow > 0) receives flow
+ * at its port, a supply (flow < 0) delivers it, and a flow of 0 has no direction.
+ */
+export function flowRole(component: Component, portId: string): PortRole {
+	if (component.type === 'assigned_flow') {
+		return component.flow > 0 ? 'in' : component.flow < 0 ? 'out' : 'any';
+	}
+	return portRole(component, portId);
+}
+
+/**
+ * Whether a component added at a free port goes upstream of it, by the expected flow (see
+ * addComponentAtPort): when the existing port receives flow (a pump suction, a valve inlet, a
+ * tee's run inlet, an assigned-flow demand), or when it takes either direction (a reservoir
+ * port) and every port of the new component delivers flow (an assigned-flow supply).
+ */
+export function addsUpstream(existing: Component, portId: string, added: Component): boolean {
+	const role = flowRole(existing, portId);
+	if (role !== 'any') return role === 'in';
+	return added.ports.length > 0 && added.ports.every((p) => flowRole(added, p.id) === 'out');
+}
+
+/**
  * Add `newComponent` at a free port of an existing component, connected to the new
  * component's first suitable port with a default pipe sized to the existing port (and the
  * default entrance or exit fitting where it meets a reservoir, see withReservoirLosses).
  *
- * The connection is oriented with the expected flow: when the existing port receives flow
- * (a pump suction, a valve inlet, a tee's run inlet) the new component is upstream and is
- * connected by its outlet; otherwise it is downstream and connected by its inlet.
+ * The connection is oriented with the expected flow (addsUpstream): when the existing port
+ * receives flow (a pump suction, a valve inlet, a tee's run inlet, an assigned-flow demand), or
+ * takes either direction while the new component only delivers flow (an assigned-flow supply),
+ * the new component is upstream and is connected by its outlet; otherwise it is downstream and
+ * connected by its inlet. So a supply added after a reservoir runs into it, and gets the exit
+ * loss there, as the flow it enters does.
  */
 export function addComponentAtPort(
 	project: Project,
@@ -190,7 +219,7 @@ export function addComponentAtPort(
 ): Project {
 	const { component, port } = requireFreePort(project, { componentId, portId });
 	requireNewComponent(project, newComponent);
-	const upstream = portRole(component, portId) === 'in';
+	const upstream = addsUpstream(component, portId, newComponent);
 	const newPort = upstream ? outletPort(newComponent) : inletPort(newComponent);
 	if (!newPort) throw new EditError(`"${newComponent.id}" has no port to connect.`);
 	const existingEnd = { componentId, portId };

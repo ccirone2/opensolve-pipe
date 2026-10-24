@@ -13,6 +13,8 @@ import {
 	defaultPiping,
 	ID_PREFIX,
 	KIND_LABELS,
+	MissingFlowError,
+	missingEntry,
 	newId,
 	newProjectId,
 	usedIds
@@ -76,6 +78,7 @@ describe('ids', () => {
 		expect(createComponent('tee', project).id).toBe('T1');
 		expect(createComponent('wye', project).id).toBe('Y1');
 		expect(createComponent('pump', project).id).toBe('P1');
+		expect(createComponent('assigned_flow', project, { flow: 0.004 }).id).toBe('AF1');
 		for (const kind of [
 			'gate',
 			'ball',
@@ -97,7 +100,12 @@ describe('createComponent', () => {
 	it('makes every kind valid against the API schema and model rules', () => {
 		const project = pumpTransferExample(); // has a pump curve
 		for (const kind of COMPONENT_KINDS) {
-			const component = createComponent(kind, project, { elevation: 2.5, nominalSize: 3 * INCH });
+			// An assigned-flow node's flow has no default: given here as a user enters it (made-up).
+			const component = createComponent(kind, project, {
+				elevation: 2.5,
+				nominalSize: 3 * INCH,
+				flow: -0.004
+			});
 			const alone = { ...project, components: [...project.components, component] };
 			expect(schemaProblems(alone), kind).toEqual([]);
 			// A new pump's own curve is still to be entered; nothing else is missing.
@@ -161,6 +169,34 @@ describe('createComponent', () => {
 			components: [createComponent('reservoir', project, { id: 'C1' })]
 		};
 		expect(createComponent('pump', withC1)).toMatchObject({ curveId: 'C2' });
+	});
+
+	it('makes an assigned-flow node only with the flow the user entered: it has no default', () => {
+		// SDD §4.11: one port, the flow as given (m³/s, positive leaves the network). No flow is
+		// cited as a default, so none is invented, not even 0. Flows are made-up inputs.
+		const project = createEmptyProject();
+		expect(createComponent('assigned_flow', project, { flow: -0.0125 })).toEqual({
+			id: 'AF1',
+			name: 'Assigned flow AF1',
+			elevation: 0,
+			type: 'assigned_flow',
+			flow: -0.0125,
+			ports: [{ id: 'port_1', nominalSize: DEFAULT_NOMINAL_SIZE, direction: 'bidirectional' }]
+		});
+		expect(createComponent('assigned_flow', project, { flow: 0 })).toMatchObject({ flow: 0 });
+		expect(() => createComponent('assigned_flow', project)).toThrow(MissingFlowError);
+		expect(() => createComponent('assigned_flow', project, { flow: Number.NaN })).toThrow(
+			MissingFlowError
+		);
+		// Where it is added, the user is asked for it first.
+		expect(missingEntry('assigned_flow', {})).toBe(
+			'Enter the flow: an assigned-flow node has no default flow.'
+		);
+		expect(missingEntry('assigned_flow', { flow: 0 })).toBeNull();
+		for (const kind of COMPONENT_KINDS.filter((k) => k !== 'assigned_flow')) {
+			expect(missingEntry(kind, {}), kind).toBeNull();
+		}
+		expect(KIND_LABELS.assigned_flow).toBe('Assigned flow (demand or supply)');
 	});
 
 	it('takes an explicit id and name', () => {

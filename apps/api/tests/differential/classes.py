@@ -38,6 +38,14 @@ its state, the status rules, and the feasibility of every section reported witho
   did not balance); suffix ``_valid_state_exists`` when the brute-force search over pinned
   states (``state_search``, first 729 combinations) finds a fully determined state that passes
   the checks.
+- ``no_steady_state``: the project alone shows that its assigned flows have no steady state
+  (``checks.assigned_flow_expectations``: no pattern of flows carries them, or they force flow
+  controls to their setpoints with nothing fixing the pressure, TSD §4.8), our solver did not
+  converge, and its message states one of those reasons (names an assigned-flow node of the
+  part concerned and, for flow controls held at their setpoints, the controls and that the
+  pressure is undetermined). EPANET's run is recorded, not compared.
+- ``no_steady_state_other_message``: as ``no_steady_state``, but the message states another
+  reason (for example a head-dependent one where the network has several), to be reviewed.
 - ``ours_exception``: our solver raised. ``gen_error``: the generator raised.
 - ``harness_error``: anything else raised (for example EPANET failing in a re-run with pins, or
   the EPANET library failing to load). The record keeps what was computed before it raised.
@@ -46,7 +54,12 @@ Independently of the class, every converged result of ours is checked before EPA
 failure is stored in the record's ``self_check`` (kept in a ``harness_error`` record too) and
 written to findings/self_check_failed. That self-check is the same check that makes a class
 ``a_ours_invalid``, so a record is critical (``is_critical``) when its ``self_check`` is
-non-empty or its class is critical. With flow-controlled pumps (generator profile
+non-empty or its class is critical. With assigned-flow nodes (generator profile
+'assigned_flow') it includes their results and that the network has a steady state at all
+(a converged result where ``assigned_flow_expectations`` says there is none fails it), and a
+project with a zero assigned flow must solve as with plugs in those nodes' places, bit for
+bit, converged or not (``fuzz.plug_twin_problems``; a difference is a ``self_check`` failure
+even when our solver did not converge). With flow-controlled pumps (generator profile
 'flow_control') it includes their rules (proposal vfd-pump-modes.md §4.5), laws, speeds and
 control fields (``checks.control_problems``); EPANET stands for the state we report for each,
 so a state of ours that is wrong shows in the self-check, not as a state difference.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Component } from '../api/types';
-import { link, projectWith } from '../testing/helpers';
+import { assignedFlowProject, link, projectWith } from '../testing/helpers';
 import { closedLoopExample, gravityBranchExample, pumpTransferExample } from './examples';
 import { createComponent, createEmptyProject } from './factory';
 import {
@@ -279,6 +279,27 @@ describe('defaultStart', () => {
 		expect(isBoundary(node)).toBe(true);
 		expect(isBoundary(pump)).toBe(false);
 	});
+
+	it('never starts at an assigned-flow node: it fixes a flow, not a pressure (SDD §4.11)', () => {
+		const project = assignedFlowProject(0.004);
+		const demand = project.components[1]!;
+		expect(isBoundary(demand)).toBe(false);
+		expect(defaultStart({ ...project, components: [demand, project.components[0]!] })).toBe('R1');
+		expect(defaultStart(projectWith([demand]))).toBe('AF1');
+	});
+});
+
+describe('an assigned-flow node on the walk', () => {
+	it('ends it, as a plug does: one port, and no way onward', () => {
+		const project = assignedFlowProject(-0.004);
+		const path = step(project, [{ componentId: 'R1' }], 'AF1');
+		expect(nextOptions(project, path)).toEqual([]);
+		expect(freePorts(project, 'AF1')).toEqual([]);
+		expect(onwardFreePort(project, 'AF1')).toBeUndefined();
+		// Unconnected, its port is the way to connect it.
+		const alone = projectWith([project.components[1]!]);
+		expect(onwardFreePort(alone, 'AF1')?.id).toBe('port_1');
+	});
 });
 
 describe('reachable and pathTo', () => {
@@ -344,7 +365,8 @@ describe('validPathPrefix', () => {
 describe('port roles', () => {
 	it('come from port direction, then from standard port names', () => {
 		const roles = (kind: Parameters<typeof createComponent>[0]) => {
-			const c = createComponent(kind, empty);
+			// An assigned-flow node's flow has no default: given here (made-up input).
+			const c = createComponent(kind, empty, { flow: 0.004 });
 			return Object.fromEntries(c.ports.map((p) => [p.id, portRole(c, p.id)]));
 		};
 		expect(roles('pump')).toEqual({ suction: 'in', discharge: 'out' });
@@ -353,6 +375,7 @@ describe('port roles', () => {
 		expect(roles('wye')).toEqual({ inlet: 'in', outlet_1: 'out', outlet_2: 'out' });
 		expect(roles('reservoir')).toEqual({ port_1: 'any' });
 		expect(roles('plug')).toEqual({ port_1: 'any' });
+		expect(roles('assigned_flow')).toEqual({ port_1: 'any' });
 	});
 
 	it('pick the inlet and outlet ports', () => {

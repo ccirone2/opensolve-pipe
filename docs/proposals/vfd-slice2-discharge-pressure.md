@@ -1,6 +1,6 @@
 # Speed-controlled pumps, slice 2: discharge-pressure control
 
-**Status: design, not built.** The owner answered §13's questions on 2026-10-23 (recorded at the end of §13). Q1 was answered (c), not the recommendation, and §5.11 was redesigned for it in an owner-answer revision (§14.4); a review of that revision and the fixes it led to are recorded there too (§14.4.1). This is the build-ready design of slice 2 of `vfd-pump-modes.md` (§4.10 there sketches it). Where this document and that sketch disagree, this document holds; §2.10 lists the corrections.
+**Status: design, not built.** The owner answered §13's questions on 2026-10-23 (recorded at the end of §13). Q1 was answered (c), not the recommendation, and §5.11 was redesigned for it in an owner-answer revision (§14.4); a review of that revision and the fixes it led to are recorded there too (§14.4.1). After C1's first build the owner answered again on 2026-10-24 (Q7 (b), end of §13): C1 is redesigned in §2.11, with three new questions, Q8–Q10 (Q9 split in two after the redesign's review, §2.11.15). This is the build-ready design of slice 2 of `vfd-pump-modes.md` (§4.10 there sketches it). Where this document and that sketch disagree, this document holds; §2.10 lists the corrections.
 
 Written against `f9d402b` (branch `ccr-efab8cb5-vzm6cg`) by a design workflow: three independent designs, each taking one angle — **E** (solver exactness), **C** (edge cases) and **V** (verification) — then a judge, **J**, who resolved their conflicts against the code and re-measured the points where they disagreed. A two-lens adversarial review followed (physics and numerics, **PN**; verification and governance, **RVG**), each finding checked by a skeptic, and a reviser, **R**, re-checked the upheld findings against the code, re-measured where needed and revised this document; §14 records every finding and what was done. After the owner's answers, Q1 (c) was designed by two more designs, **ZE** (enumeration) and **ZS** (control stability), and a judge, **ZJ**, who merged them (§5.11, §14.4). A review of the merged design followed (**ZR**, each finding checked by a skeptic), and a reviser, **ZF**, re-checked each upheld finding against the code and by experiment and revised this document (§14.4.1). Every file:line reference is to `f9d402b` unless it says "working tree". No repository file was changed to measure anything. Every number marked *measured* names who measured it and with which scratch script (Appendix B). A number without that mark is derived in the text.
 
@@ -73,7 +73,7 @@ While this design was written, another session left an uncommitted change in the
 - Stations that share one transmitter, run at equal speed or stage lead/lag pumps. These need the US 8,265,911 review, proposal §9.1 item 8.
 - Reduced-speed efficiency corrections.
 - A falling-static-pressure check for PRVs (§12, risk 7).
-- An exact Newton step on the whole downstream response of a held head, where the outlet pipe alone loses at most one velocity head (§2.3, risk 15).
+- An exact Newton step on the whole downstream response of a held head, where the outlet pipe alone loses at most one velocity head (§2.3, risk 15). *(No longer Later: it is C1, §2.11, after the owner's answer Q7 (b).)*
 - Cheaper zone searches (§5.11.12–§5.11.13): symmetry between interchangeable members, ZE's monotone-network certificate and corner pruning; and whether the index sum of §5.11.5 should ever refuse. (The cap on candidate inner solves is built in slice 2, §5.11.6.)
 - Broader zone searches, if the fuzz's documented classes 5 and 6 (§9.5) find stable states the search misses: a joint search of zones that change together (two zones joined by a PRV or PSV that ends open), and a second, cold attempt for a candidate whose single attempt did not converge.
 
@@ -168,7 +168,7 @@ d_inv = 1.0 / jacobian_slopes(slope, is_pipe, s, e, n)
 
 **Two held heads on one pipe** (a pump discharge → pipe → PSV inlet). The positive terms are summed first, and the negative ones are then tested on the sum, so the order of `held_reference` does not matter (E).
 
-**Amendment A1 (2026-10-24, after the build's review, findings N1 and N2; not adopted).** The owner chose instead to design a broader fix first (Q7 (b), §13, owner's answers of 2026-10-24); C1's first build, with A1, was not committed (it is kept as a patch for that design). The rule above, built as specified, fails where the outlet pipe ends at a free node whose head carries lagged dependences on that pipe's flow. The review measured it and its skeptic reproduced it; this amendment narrows the rule. §2.7's criteria are unchanged and were run again on it (§2.4, the note at its end).
+**Amendment A1 (2026-10-24, after the build's review, findings N1 and N2; not adopted).** The owner chose instead to design a broader fix first (Q7 (b), §13, owner's answers of 2026-10-24); C1's first build, with A1, was not committed (it is kept as a patch for that design). **That design is §2.11, which replaces the rule above and this amendment as C1;** both stay here as the record. The rule above, built as specified, fails where the outlet pipe ends at a free node whose head carries lagged dependences on that pipe's flow. The review measured it and its skeptic reproduced it; this amendment narrows the rule. §2.7's criteria are unchanged and were run again on it (§2.4, the note at its end).
 - *Mechanism* (N1). A Crane (or Darby) tee's leg offsets K·c·Q_comb² depend on the combined flow, which is the outlet pipe's own flow when the pipe ends at the tee's combined port; only a leg's own-flow part enters the Jacobian (`gga.py` module docstring), so that dependence stays lagged. In 1.1.0 the lagged velocity-head term (+cQ²) and these lagged offsets partly cancel. With only the velocity-head term exact (combined/slope ≈ 0.40 on the review's network, far above 10⁻⁶), the step overshoots with a multiplier near −1: the outlet pipe's flow alternates with period 2 (0.024, 0.033, 0.025, 0.031 m³/s, ... around 0.0273) and the inner solve never converges, where 1.1.0's converges in 8 iterations. A Newton link between the pipe and the tee (a gate or ball valve) carries the same effect (the skeptic's `gate.json`), so neither lagging the term only where the far node's group has flow-dependent offsets nor adding those offsets' derivative to the slope removes it (the review's two options; the first measured by the skeptic).
 - *Measured* (fixer, `c0c1fix/families_summary.txt`; 9,002 networks, the review's families `proj{A,E,F,G,Gsj,H,I}.json` and the skeptic's `mine.json` and `gate.json`: a PRV's outlet pipe into a Crane or ideal tee, directly, through a spool with a K, through a gate or ball valve, two PRVs in parallel into a tee, and spools into a tank; each solved by `d78a8ef`, by the rule as first built and by A1, with the fuzz harness's independent status check and, for Swamee–Jain, its law check). The rule as first built: 85 converged solves end not converged; 31 networks that converge in both reach another state (N2: the review's network into a tee's branch has V active at 5.85·10⁻⁴ m³/s at 1.1.0 and closed at the first build, both states rule-valid, the largest flow moving by 1.1·10⁻³ of itself); 110 that 1.1.0 left not converged converge.
 - *The amended rule.* The negative term of a held downstream head enters only where the reference pipe's far end is a fixed or held node too: a reservoir or reference node, or a port that another active PRV or PSV holds (`known_far` in `held_reference`); there it enters with the threshold above, tested on the positive terms' sum. Both of the pipe's end heads then depend on no flow but the pipe's own, so its flow is set by its own energy equation and the step for it is Newton's step for that equation: exact, quadratic near a regular root. The rest of the network sees that flow through the held node's exact coupling (the system is block-triangular there). Elsewhere the term stays lagged, as in 1.1.0.
@@ -211,7 +211,7 @@ These are the lagged answers' own convergence error.
   | (0.3, 1.0) m | ≈ 1.23 | converged in 82–90 iterations |
 
 - *Measured* (PN skeptic, `s1_tee_long.py`, C1 applied, `max_iterations` 2000): (0.3, 0.3) converges in 169–182 inner iterations and (0.5, 0.5) in 108–113. The cause is the rate of the lag, not the fixed point.
-- So where r_ref ≤ 1 < r_tot ≲ 1.2, an active PRV, and in C2 an active pressure pump, can end **not converged** at the default settings, although a valid active state exists (§6 row 2; cases VH7 and PVH5). C1 does not change this. An exact step on the whole response (the held-head term is a rank-one change of the Schur matrix, applicable by Sherman–Morrison with the existing factor at the cost of one extra solve) would; it is a separate method change, needing its own measurement and corpus run, and is Later (§1.5, risk 15).
+- So where r_ref ≤ 1 < r_tot ≲ 1.2, an active PRV, and in C2 an active pressure pump, can end **not converged** at the default settings, although a valid active state exists (§6 row 2; cases VH7 and PVH5). C1 does not change this. An exact step on the whole response (the held-head term is a rank-one change of the Schur matrix, applicable by Sherman–Morrison with the existing factor at the cost of one extra solve) would; it is a separate method change, needing its own measurement and corpus run, and is Later (§1.5, risk 15). *(Superseded, 2026-10-24: the owner chose that step for C1, Q7 (b). It is designed and measured in §2.11, which also shows that the rank-one update with the existing factor alone makes N1 worse, §2.11.2, so the step includes the branch offsets' flow dependences.)*
 
 **The fixed point is unchanged in both cases.** Only the path and the rate change.
 
@@ -287,7 +287,7 @@ So the two iterations reach the same fixed point to about 10⁻¹² of the flow;
 | With item 2 masked, against J's dump without the sentence | all 4,120 identical: the sentence changes nothing else, and the run reproduces J's |
 | Exact mode with the §2.7 ignores (`methodVersion`, `trace.methods.methodVersion`, `convergence.*`, items 4 and 2) | 3,617 identical, 503 different: 421 of the 924 projects of J's comparison differ only in iteration counts; the 503 are the numeric differences that the within-tolerance mode judges (largest relative ones at round-off flows, such as fuzz_215 and fuzzfc_10272, which `ZERO_FLOW_RTOL` excludes) |
 
-**Re-measured at the build** (2026-10-24, on `d78a8ef`, 5,140 projects: the corpus above plus the `assigned_flow` profile, its reference cases and VH1–VH6; the build was not committed, so these counts live here and in its measurement files, not in TSD §10.4). With the rule as first built, criteria 1, 2 and 4–7 were met and criterion 3 failed in 22 projects, but the build's review found regressions outside the corpus, which amendment A1 (§2.2) removes. With A1, run again in full: criteria 1, 2 and 4–8 are met. Criterion 3 is not met as stated, in 3 projects, and is put to the owner (2026-10-24): fuzzaf_20323 and fuzzaf_20611, which converge in neither tree, differ only in their `NOT_CONVERGED` flag, which repeats fields of the ignored `convergence.*` (the elements where round-off residuals lie); fuzzfc_10246's five connections that carry at most 1.13·10⁻¹² m³/s at 1.1.0 (below Qtol) carry exactly 0 at 1.2.0, so their flow-regime labels and a nearly closed PRV's K_eff differ (every number present on both sides is within tolerance). One state changes, at zero flow (fuzz_205, PRV9 open → closed, both states valid); the first build's state changes (fuzz_1656, fuzzaf_20055) and fuzzaf_20938's head differences are gone. Worst at default settings: flows 1.1·10⁻⁹ of the largest flow, heads 1.4·10⁻⁷ m; at 10⁻¹³, flows 5.2·10⁻¹². The fuzz: 0 critical in all three profiles; one record changes class (`flow_control` seed 11,194, as in §2.5) and one changes states only (default seed 205). The design's text above is kept as measured on `f9d402b`.
+**Re-measured at the build** (2026-10-24, on `d78a8ef`, 5,140 projects: the corpus above plus the `assigned_flow` profile, its reference cases and VH1–VH6; the build was not committed, so these counts live here and in its measurement files, not in TSD §10.4). With the rule as first built, criteria 1, 2 and 4–7 were met and criterion 3 failed in 22 projects, but the build's review found regressions outside the corpus, which amendment A1 (§2.2) removes. With A1, run again in full: criteria 1, 2 and 4–8 are met. Criterion 3 is not met as stated, in 3 projects, and is put to the owner (2026-10-24): fuzzaf_20323 and fuzzaf_20611, which converge in neither tree, differ only in their `NOT_CONVERGED` flag, which repeats fields of the ignored `convergence.*` (the elements where round-off residuals lie); fuzzfc_10246's five connections that carry at most 1.13·10⁻¹² m³/s at 1.1.0 (below Qtol) carry exactly 0 at 1.2.0, so their flow-regime labels and a nearly closed PRV's K_eff differ (every number present on both sides is within tolerance). One state changes, at zero flow (fuzz_205, PRV9 open → closed, both states valid); the first build's state changes (fuzz_1656, fuzzaf_20055) and fuzzaf_20938's head differences are gone. Worst at default settings: flows 1.1·10⁻⁹ of the largest flow, heads 1.4·10⁻⁷ m; at 10⁻¹³, flows 5.2·10⁻¹². The fuzz: 0 critical in all three profiles; one record changes class (`flow_control` seed 11,194, as in §2.5) and one changes states only (default seed 205). The design's text above is kept as measured on `f9d402b`. **The redesigned C1 (§2.11) has its own measurements on the corpus, at the fixed point and on the fuzz (§2.11.8), and its own handling of criterion 3 (§2.11.10).**
 
 ### 2.5 Measured on the differential fuzz
 
@@ -357,7 +357,7 @@ Numbers at the round-off scale of `ZERO_FLOW_RTOL` are excluded and counted.
 7. **The fixed point** (RVG-3). Both trees dump the whole corpus, system curves included, with every project's solver options overridden to tolerance 10⁻¹³ and `max_iterations` 1000. Every project converged in both trees agrees within 10⁻¹¹ × its largest flow in flows, 10⁻⁸ m or 10⁻¹¹ relative (whichever is looser) in heads, the same in pressures as heads of ρg, and 10⁻¹¹ relative in speeds, with states as in criterion 4. (The relative term matters only for system-curve points with very large heads, such as fuzz_2745's 1.49·10⁸ m, where one unit in the last place is 3·10⁻⁸ m.) A project that converges in neither tree, or in only one, or that stalls at the `ENERGY_TOL` floor, is listed by name with its reason, never dropped; one that converges at 1.2.0 only is a criterion-5 change. These thresholds were set by R from the preliminary measurement of §2.4 on `f9d402b` (main solves of the 2,164 active-status-PRV projects: worst 8.42·10⁻¹³ in flow, 6.92·10⁻¹⁰ m in head, speeds identical, one project, fuzzfc_10070, not converged in either by design), with a margin of at least 12×; they are stated now, before the build's run.
 8. **Fuzz.** Both profiles are re-run in full, with 0 critical. Every changed class is listed with its self-check, and smoke-test pins are updated only for reviewed seeds. Seed 1656 lies outside every smoke range (0–49, 10,000–10,024, 11,738, 12,703, 12,773).
 
-Owner question Q5 approves these criteria.
+Owner question Q5 approves these criteria. For the redesigned C1, §2.11.11 states how they apply and adds criteria 9–12 (the adversarial families, exactness, the code path, performance). §2.11.10 gives criterion 3's investigation and its recommended handling, put to the owner as Q9 (C0b) and Q10 (criterion 3).
 
 ### 2.8 Versions and texts
 
@@ -383,6 +383,8 @@ The wording is revised from the first draft (RVG-3, RVG-20, PN3): "within the so
 
   It states the code's test as it is: the slope is the pipe's own with the positive term of a valve holding its far end, summed first (the review's findings T2 and T3 on the first texts, which named a branch path in series as part of the test and left out that positive term).
 
+**For the redesigned C1** the changelog entry, the methods sentence, the docstrings and the doc changes are in §2.11.13. The texts above are the record of the first rule and of A1.
+
 **`gga.py`:** the module docstring (`gga.py:49-56`) and the comment at `gga.py:799-801`. That comment says "a PRV: converges exactly when its setpoint is feasible", which §2.1 shows is not true within 100 iterations.
 
 **No trace change.** The equations of the converged state are unchanged.
@@ -407,6 +409,13 @@ The wording is revised from the first draft (RVG-3, RVG-20, PN3): "within the so
 | VH5 | no exit; setpoint above R2's static head | < 1 | PRV open, the unique valid state (*measured*, V; RVG `rv7_vh5_states.py`: closed goes to active, only open is valid). The derivation enumerates closed, active and open and shows the two others fail by `STATE_MARGIN`. |
 | VH6 | 1 m spool, no exit; setpoint head V = 2.5 m (p_set 24,467.6 Pa), below the open state's outlet static head P_open by at least `STATE_MARGIN` | < 1 | PRV closed, the unique valid state |
 | VH7 | 0.3 m spool without fittings → ideal tee (branch to a plug) → 0.3 m with an exit → R2 | r_ref < 1, r_tot ≈ 1.11 | Documented limitation (§2.3): a unit test, not a case file. At the default 100 iterations: not converged, today and with C1. With `max_iterations` 300: converged active, at the closed-form flow, which the test derives with `line.Line` (*measured*, R `m6_tee_300.py` with C1, which applies no exact term here: 169–182 inner iterations in 1 outer iteration; the (0.5, 0.5) m variant 108–113) |
+
+**Under the redesigned C1** (measured in §2.11.8; tests in §2.11.12), the outcomes change:
+- VH1–VH3 converge in 5–9 iterations, and VH4 in 7 (JG).
+- VH7 converges at the default 100 iterations in 6–8 (ideal or Crane tee, JG) and becomes a case file instead of a documented limitation.
+- Cases VH8–VH10 are added.
+
+The rows above record the first rule.
 
 **VH6's derivation** (PN4, RVG-5). As written before the review ("setpoint below R2's static head"), VH6 had three rule-valid states. Its inputs are now chosen so that CLOSED is unique, and the derivation proves it with reference laws only:
 - P_open, the outlet static head with the PRV open, from the line laws (brentq on H_R1 − H_R2 = h_L1(Q) + h_L2(Q), then H_R2 + h_L2(Q_open) − c·Q_open²); require V ≤ P_open − `STATE_MARGIN`, so that OPEN fails X1 ("H2 ≥ Hset + Htol").
@@ -440,6 +449,691 @@ The wording is revised from the first draft (RVG-3, RVG-20, PN3): "within the so
    - the falling-static-pressure multiplicity and the other second states (§5.10);
    - parallel pressure pumps (§5.11: rule S and the zone search);
    - the slow lag where the outlet pipe alone loses at most one velocity head (§2.3).
+
+### 2.11 C1 as redesigned (owner's answer Q7 (b), 2026-10-24)
+
+**Status: design, measured on prototypes, not built; revised after its review (§2.11.15).** This subsection is C1 from now on. It replaces the rule of §2.2 and its amendment A1, which stay above as the record; where §2.1–§2.10 and this subsection disagree, this subsection holds.
+
+**Status of the open questions (2026-10-24; the design team's note, not the owner's words):**
+- The broader fix is designed here: three designs, a judge's merge, the measurements of §2.11.8, and the review's corrections (§2.11.15).
+- The one new acceptance class, state changes of class D in the adversarial families (D1 and D2, §2.11.9), is Q8.
+- C0b, the two defect fixes found by the investigation of criterion 3, with its own criteria and its METHOD_VERSION, is Q9 (§2.11.10).
+- Criterion 3's handling after C0b is Q10 (§2.11.10).
+- Neither C0b nor C1 is committed until those answers.
+
+**How it was made.** After the owner's answers of 2026-10-24 (§13), a design workflow wrote three independent designs, each from one angle:
+- **RU**, a rank update of the existing step;
+- **OC**, exact cross terms of the branch offsets;
+- **VA**, verification.
+
+It also ran an investigation of criterion 3 (**C3**). A judge (**JG**) then scored the designs, checked the disputed claims against the code and by experiment, and merged them. A two-lens review of the merge followed (numerics, **RN**; verification, **RV**), each finding checked by a skeptic, and a reviser re-checked the upheld findings against the code and by experiment and revised this subsection (§2.11.15).
+
+**Provenance.** Every script named below lives in `…/scratchpad/c1-redesign/<label>/`, where `…/scratchpad/` is this session's scratch directory, `/tmp/claude-0/-home-user-opensolve-pipe/e3247eb5-2f4d-5fa4-86e2-449a266a4fbe/scratchpad/`, and the labels are `rank-update/`, `offset-cross-terms/`, `verification/`, `crit3/` and `judge/`, and, for the review of §2.11.15, `review-numerics/`, `review-verification/`, `skeptic-numerics/`, `skeptic-verification/` and the reviser's `revise/`. Every measurement:
+- ran on a clean `git archive` copy of `d0beec5`, whose solver is `d78a8ef`'s (`git diff d78a8ef d0beec5 -- apps/api/src` is empty);
+- printed or recorded the `opensolve_pipe.__file__` of that copy;
+- wrote no repository file.
+
+A number marked *measured* names who measured it and with which script. The judge's, the review's and the reviser's large outputs were kept in `/dev/shm` and are not preserved. Their scripts, prototype diffs and the files named below are.
+
+#### 2.11.1 The rule, and how the designs were merged
+
+**The rule.** At an inner iterate where an active PRV passes forward flow in its outlet pipe, the step is Newton's exact step for the whole inner system. The PRVs' velocity-head terms enter with their derivatives, and so does every flow dependence of the branch-leg offsets. Four gates decide whether the step is taken, and they apply to every such PRV together:
+- **R:** each PRV's own rule keeps it active at the iterate's heads;
+- **L:** no held term would stay lagged: no live active PSV has a negative held term (reverse flow in its reference pipe; added after the review, RN-3);
+- **C:** the held-head modes are locally stable for the iteration that is exact in everything but the held terms (for one PRV, the static pressure at the port rises with the flow);
+- **T:** the step keeps each PRV's outlet flow forward.
+
+Otherwise the iterate takes 1.1.0's step, operation for operation (§2.11.4). It is built as change set C1, after C0b and before C2, with its own METHOD_VERSION (1.3.0 if C0b takes 1.2.0, as Q9 recommends; §2.11.13).
+
+**Where the parts come from.**
+
+| Part | Source | Basis |
+|---|---|---|
+| Gates R and T, and their order | VA | Of the three designs' variants, the only one measured with 0 converged → not converged both on the 9,002 networks of the review (§2.2) and on VA's 2,232 new ones (JG reproduced it bit for bit, §2.11.8). A1, measured on both sets after the merge (RV1), also has 0, and no state change; the owner rejected A1 (§13), so it is evidence here, not an option (§2.11.8) |
+| Gate L | The review (RN-3) | It makes §2.11.6 item 2 hold by construction for every held term. It changes nothing in the families with PSVs, and changes numbers within criterion 3's tolerance in 13 corpus projects, with no state, convergence or flag change (§2.11.4) |
+| The exact Jacobian in the GGA's own variables: subtree incidence, cross terms, negative own slopes, the root port's placement | RU, VA | Finite-difference checks by RU, VA and JG (§2.11.8) |
+| Gate C as a spectral test of the held-mode multiplier | RU | It states what the gate tests: the local stability, at the iterate, of the iteration that is exact in everything but the held terms, a physical criterion (for one PRV, r_tot > 1/(1 − τ): the static pressure at the port rises with the flow). It does not test that 1.1.0's iteration would converge there (RN-1, §2.11.4). It rejects negative-stiffness modes, which VA's P-matrix test passes (§2.11.4). Results are identical to VA's test wherever R and T apply (JG) |
+| One linear-algebra path: a sparse LU of the whole Newton system | RU's KKT path, VA's block system | Simplest to verify. Measured equal to RU's Woodbury path (RU) and to VA's dense solve (JG). Cost in §2.11.5 |
+| Derivative identities (Euler, vectorised against scalar) as unit tests; the finding that the negative own slopes must enter | OC | OC, `tools/check_derivs.py`, `make_proto.py` |
+| Criterion 3's findings and their handling | C3 | §2.11.10 |
+
+**Not adopted.**
+
+| Not adopted | From | Why |
+|---|---|---|
+| The outer-loop amendment S1 | RU | It changes the outer loop of every project. Its by-construction bit-identity becomes only empirical. It is not needed with R and T. JG measured RU's rule with S1 leaving 3 converged solves not converged on VA's new families (§2.11.8) |
+| First-appearance stickiness | OC | It keeps per-solve state. The 2 regressions remain without it (OC) |
+| The bordered system and the tee-centre parametrisation | OC | A third linear-algebra form. Its head step is quadratic only over two iterations (§2.11.3) |
+| The P-matrix form of gate C | VA | See above |
+| The Woodbury path | RU | A second path. It is 5× slower at 1,000 components (RU) |
+| Counting exact steps in the methods item "This solve" | VA's Q6 | The count is a path detail. The converged equations, which the traces state, do not depend on it |
+
+**Scores.** 5 is best. The rows are in the order the brief weighs them.
+
+| Criterion | RU (EDR + S1) | OC | VA (X-RT) | Chosen |
+|---|---|---|---|---|
+| Correctness and exactness | 5: exact Newton; spectral gate | 4: exact flow step, head step quadratic over two iterations; its test passes negative-stiffness modes | 4: exact Jacobian; P-matrix test passes negative-stiffness modes (never at an iterate R passes, JG) | 5 |
+| Regression safety | 2: 0 → not-converged on the 9,002 only with S1; 3 on the new families (JG); 24 changed states on the 9,002 (12 valve states and 12 other, JG at 10⁻⁶ of the largest flow; RU's own count, 28, is the count at a threshold of 10⁻⁷, which adds 4 G networks at 2.3–3.7·10⁻⁷, and its list `rank-update/results/changed28.txt` has 30 names, adding 2 I networks at 1.05·10⁻⁹; the reviser's check of `j_edrS.json` against `j_off.json`) | 2: 2 converged → not converged; 22 changed results | 4 (5 before the review): 0 / 0 on the 9,002; 8 changes of class D on the new families, 6 of them D2, and 66 more state changes in the review's families (§2.11.9) | 4 (5 before the review), as VA |
+| Bit-identity for untouched networks | 3: S1 changes every project's outer loop (identity measured, not constructed) | 5 | 5 | 5 |
+| Cost | 4: measured; Woodbury above 64 columns slow; BLAS threads | 3: bordered assembly about 2× per exact iterate (prototype) | 3: dense prototype, build path not timed | 4 (§2.11.5) |
+| Verifiability | 4 | 4 | 5: new families, criteria, test plan | 5 |
+| Maintenance | 3: two linear-algebra paths and an outer-loop change | 2: stickiness state, bordered system, two parametrisations | 3: three gates | 3: four gates, one linear-algebra path |
+
+A1 has no column: the owner rejected it before the merge. Measured after it (RV1, §2.11.8), it has 0 converged → not converged and 0 state changes on the 9,002 and on the 2,232, and converges 16 networks that the chosen rule does not; the chosen rule converges 52 + 57 that A1 does not.
+
+#### 2.11.2 Why the velocity-head term alone cannot be made exact
+
+RU's one-dimensional model makes the point. Take one PRV and its outlet pipe, with:
+- p: the pipe's slope;
+- w = 2cQ: the velocity-head slope;
+- g: the downstream head's flow derivative that 1.1.0's step sees;
+- l: the part 1.1.0 lags, the offsets' dependence on the combined flow.
+
+Then r_tot = (p + g + l)/w, and the error multiplier per iteration is:
+
+| Step | Multiplier |
+|---|---|
+| 1.1.0 (w and l lagged) | (w − l)/(p + g): the two lags partly cancel |
+| The first build, or a rank-one update of the existing factor (w exact, l lagged) | −l/(p + g − w): near −1 on the review's network, the period-2 oscillation of N1 |
+| l exact, w lagged | w/(p + g + l) = 1/r_tot |
+| Everything exact | 0: Newton, quadratic |
+
+So the literal form of Q7 (b), "a rank-one Sherman–Morrison update with the existing factor", reproduces N1 wherever it applies, and applies more often than the first rule's local test.
+
+Gate C (§2.11.4) bounds the third row, w/(p + g + l) = 1/r_tot, not 1.1.0's multiplier (w − l)/(p + g) (RN-1). The two differ: where l > p + g + w, the third row is below 1 while |w − l| > p + g, so gate C passes and 1.1.0's lag diverges. Gate C is therefore a criterion of physical stability (the static pressure at the port rises with the flow), not of reachability by 1.1.0's iteration (§2.11.6 item 3).
+
+*Measured* on the 9,002 networks against `d78a8ef`, by all three designs, each with its own gate:
+
+| Measured by | Script | Converged → not converged | State changes |
+|---|---|---|---|
+| RU | `rank-update/sweep.py`, `EDR_MODE=heldonly` | 176 | 40 |
+| OC | `offset-cross-terms/make_proto.py`, `OC_VH=global OC_CROSS=none` | 204 | 51 |
+| VA | `verification/c1proto.py`, mode `sm0` | 195 | 39 |
+
+The first build had 85 and 31. **The exact step must include the branch offsets' flow dependences.**
+
+#### 2.11.3 The inner residual and its exact Jacobian
+
+The step is exact for the residual **as `gga.py` evaluates it**, in the GGA's own unknowns (RU, VA). OC used the tee centre as the head unknown instead. That gives the same flow step, but its head step converges quadratically only over two iterations, so the build does not use it.
+
+**Unknowns and residuals** (`gga.py:562-1012`):
+- q is the flows of the nl Newton links (pipes, valves with K > 0, pumps); h is the heads of the nf free group roots.
+- Every link flow is linear in q: Q_all = L·q + constants (`special_flows`, `full_flows`, `gga.py:816-847`). L is:
+  - the identity on Newton links;
+  - ± the balance of the held node for an active PRV or PSV;
+  - the continuity of the subtree T_k below an offset link k (a branch leg, or an ideal valve): Q_k = s_k·Σ_{u∈T_k}(inflow at u from the other links − demand_u), with s_k = −1 where k ends at its child node and +1 otherwise (`GroupLevels.subtree_flows`, `gga.py:335-344`).
+- Energy: E_j = h_j(q_j) + (A12·h)_j + κ_{e_j}(q) − κ_{s_j}(q). κ_v is the known part of node v's head (`known_heads`, `gga.py:849-857`):
+  - for a node of a free group, κ_v = −shift_v, with shift_v = Σ σ_k·o_k(q) over the offset links k on the path from the root to v; σ_k = +1 where k starts at its parent, so σ_k = −s_k;
+  - at a node held by an active PRV or PSV, κ_v = V + c·Q_ref².
+- Continuity: C = M21·q − b. It is linear, and M21 (A21 plus the held ports' coupling, `gga.py:801-814`) is already its exact Jacobian.
+
+**Branch offsets** (`HeadOffsetLaw`, `elements.py:194-283`). Each is o = offset + a·Q_r|Q_r|·K(φ), where:
+- Q_r is the reference leg's flow and Q_o the leg's own;
+- φ = −Q_o/Q_r on a branch path and 1 + Q_o/Q_r on a run path;
+- K is the tangent k0 + K′(φ − φ0), held inside [k_min, k_max] (`KTangent`, `elements.py:176-191`).
+
+Its partial derivatives:
+- **Own flow:** ∂o/∂Q_o = a·Q_r|Q_r|·K′·∂φ/∂Q_o, with ∂φ/∂Q_o = −1/Q_r on a branch path and +1/Q_r on a run path. This is today's `own_slope`, of either sign.
+- **Reference flow:** ∂o/∂Q_r = a·(2|Q_r|·K + Q_r|Q_r|·K′·∂φ/∂Q_r), with ∂φ/∂Q_r = +Q_o/Q_r² on a branch path and −Q_o/Q_r² on a run path. This is the cross term 1.1.0 lags.
+- **Special cases:**
+  - K′ = 0 where K is held at a bound or Q_r = 0, which is the law as evaluated there;
+  - a law without a tangent (a Darby fallback leg, or `k_common`) has its own leg as its reference, and the single derivative 2a|Q|;
+  - an ideal leg and a K = 0 valve have no derivative.
+- **Euler check.** The flow-dependent part is homogeneous of degree 2, so Q_o·∂o/∂Q_o + Q_r·∂o/∂Q_r = 2(o − offset). *Measured* by OC (`offset-cross-terms/tools/check_derivs.py`) on 2,400 samples of the four `fluids` Crane functions: this identity holds to 1.6·10⁻¹² relative, and central differences agree to 1.3·10⁻⁵, the remainder at the clip bounds.
+
+**The exact Jacobian.** Let G be the subtree incidence, G[k, j] = s_k·([e_j ∈ T_k] − [s_j ∈ T_k]) for offset link k and Newton link j. G[k, j] is both ∂Q_k/∂q_j and ∂(κ_{e_j} − κ_{s_j})/∂o_k, because σ_k = −s_k (RU). Then
+
+  ∂E/∂q = diag(h′) + Gᵀ·(diag(α)·G_own + diag(β)·G_ref) + Σ_i δ_i·e_{r_i}·e_{r_i}ᵀ,  ∂E/∂h = A12,  ∂C/∂q = M21,  ∂C/∂h = 0,
+
+where:
+- α_k = ∂o_k/∂Q_own and β_k = ∂o_k/∂Q_ref;
+- G_own and G_ref are the rows of G at each law's own and reference legs;
+- r_i is the reference pipe of held node i, and δ_i = sign_i·2c_i·Q_ref,i.
+
+Every port node has exactly one connection, a pipe link (`builder.py:560-592`), and its component's internal links. So a group's subtree flows are sums of the flows of the pipes at its ports, and G needs only the Newton links. The build asserts that no group node carries a control-valve link or a demand.
+
+**What the step uses.** 1.1.0's step uses B0 = `jacobian_slopes`(h′ + the positive own slopes on the pipe in series with each leg + the positive held terms) (`gga.py:960-970`). The exact system is
+
+  J_off = B0 − diag(own⁺) + C_L,  C_L = Gᵀ·(diag(α)·G_own + diag(β)·G_ref),  J = J_off + Σ_{i∈P} δ_i·e_{r_i}·e_{r_i}ᵀ,
+
+where P is the set of live active PRVs whose term δ_i is negative, that is, with forward flow in the outlet pipe.
+
+C_L holds three things that 1.1.0's step lacks (RU):
+1. The cross terms β: the N1 mechanism.
+2. The negative own slopes. Lagged, they made the step up to 31 % short: *measured* by OC (`offset-cross-terms/make_proto.py`, `OC_FDCHECK`, network `H Ls0.05 K1 run_inlet h12 h3 15 La0.5 Lb10`), with own slope −44.7 and a linear rate of 0.30.
+3. The root port leg's placement. The root is the first port (`builder.py:553`, `merge_offset_links`), so the root port leg's offset moves the other ports' heads, not the root's.
+
+C_L's nonzero columns are the pipes at the ports of the branches whose offsets depend on the flow (Crane and Darby legs). Ideal tees and ideal valves add none. *Measured* by RU (`rank-update/edr.py`, `STATS["kmax"]`), the number of such columns plus held terms: at most 5 on the 9,002, 33 on a 10-rung Crane ladder, and 1,473 on the 1,000-component ladder.
+
+#### 2.11.4 The step
+
+At each inner iterate, today's code runs unchanged up to `d_inv` (`gga.py:960-970`). The redesigned step is tried only where **P is not empty**, that is, where a live active PRV passes forward flow in its outlet pipe. It is taken only if all four gates pass, for every PRV of P together:
+
+1. **Gate R: the PRV's rule keeps it active.** For every PRV of P, at the iterate's heads, H1 − hml(Q) ≥ H_set − Htol. This is the "stays active" test of `prv_status` (`status.py:256-280`), with:
+   - hml the fully open loss at the valve's flow, 0 for an ideal valve;
+   - H_set = V + cQ_ref² at the iterate;
+   - Htol = `HTOL`.
+
+   It needs no solve.
+
+   **Gate L: no held term stays lagged.** No live active PSV has a negative held term at the iterate, that is, sign·2c·Q_ref < 0 in the `held_reference` loop (`gga.py:963-969`), the term that 1.1.0 and resolution R1 of §2.2 lag through `max(term, 0.0)` (a PSV under reverse flow, a transient its own rule closes). It needs no solve either. Added after the review (RN-3): without it such a term stayed lagged at an accepted iterate, and gate C's M (item 3) does not contain it, so nothing bounded that mode's multiplier. *Measured* (review, `review-numerics/` with the `sparsepsv` instrumented copy, RN_PSV_REJECT=1, reproduced by the skeptic with `skeptic-numerics/make_psv.py`): on 1,152 networks with PSVs (the review's PZ2 144 and PZ3 864, VA's ND 144), no accepted exact step had a live PSV with a negative held term, and the rule with the gate is bit-identical to the rule without it on all 1,152 (`review-numerics/results/psv_reject_cmp.txt`). On ND, 8 iterates with such a PSV reached the exact step and gate T rejected all 8 (the skeptic).
+
+   *Measured* by the reviser on the other sets (`revise/psv_count.py` on a clean `d0beec5` tree with `judge/make_sparse.py` and the skeptic's counter `skeptic-numerics/make_psv.py`, which counts the accepted exact steps at which a live active PSV has a negative held term; `SKN_PSV_REJECT=1` rejects them, which is gate L in results, though not in cost):
+   - every family network with a PSV (1,520: the 32 PRV-and-PSV networks of the 9,002, in the first review's `projA.json`, the review's PZ 336, PZ2 144 and PZ3 864, VA's ND 144): 0 such iterates among 2,398 accepted exact steps (`revise/psv_count_families.txt`), so gate L changes nothing there;
+   - the corpus, its 1,158 projects with a PRV and a PSV, main solves and system curves: **492 such iterates in 73 projects**, among 5,929 accepted exact steps (`revise/psv_count_corpus.txt`). The review's "zero measured cost" therefore held for the families only;
+   - the fuzz seeds the corpus does not hold (`flow_control` 11,000–12,999 and `assigned_flow` 21,000–22,999; 1,000 with a PRV and a PSV): 801 such iterates in 76 seeds (`revise/psv_count_fuzzrest.txt`).
+
+   Gate L can change results only in projects with such an iterate (elsewhere it never fires). The 73 corpus projects were dumped with their system curves in 1.1.0, in the chosen rule and in the chosen rule with gate L (`revise/dump_names.py`), and compared with `compare.py` and §2.7's ignores (`revise/cmp73_*.txt`): with gate L against without it, 60 identical and 13 within tolerance (worst 1.44·10⁻³ of criterion 3's head tolerance and 3.3·10⁻⁴ of its flow tolerance), none different, so no state, convergence or flag changes; against 1.1.0, 49 identical with gate L (45 without), 23 within tolerance and 1 different, `fuzzaf_20050`, by its flag's residual locations only (defect 1 of §2.11.10), as without gate L. On the 148 fuzz seeds where it acts (the corpus's 72 that are fuzz seeds and the 76 above: 47 default, 58 `flow_control`, 43 `assigned_flow`), the fuzz harness was run seed by seed with and without gate L (`revise/fuzz_one.sh`; the fixer's `c0c1fix/tools/fuzzdiff.py`, `revise/fuzzdiff_gateL_148.txt`): the class table is unchanged, 0 critical, self-checks empty, no state differs, and 28 records differ in their numbers only.
+2. **Assemble and factor.** Build the whole Newton system with J_off, K_off = [J_off, A12; M21, 0], and factor it with one sparse LU (SuperLU's `splu`, as `_solve_linear` uses). Solve it for:
+   - the right-hand side −(E, C), giving x₀;
+   - the |P| unit vectors at the reference pipes' energy rows, giving the responses Z, whose entries at those rows are Z_PP.
+3. **Gate C: the held-head modes are stable for the iteration.** M = −Z_PP·Δ, with Δ = diag δ_i, is the error multiplier, in held coordinates, of an iteration exact in everything but the held terms (RU). It is not 1.1.0's multiplier, since 1.1.0 lags the offsets' flow dependences too (§2.11.2, RN-1). Every eigenvalue λ of M must have Re λ ≥ 0 and |λ| ≤ 1 − τ, with τ = `JACOBIAN_FLOOR_RELATIVE` = 10⁻⁶.
+   - For one PRV, M = 1/r_tot. Here r_tot is the loss of the whole path beyond the port, branch losses included, in velocity heads of the outlet pipe. The test then reads r_tot ≥ 1/(1 − τ): the static pressure at the port rises with the flow, since dP/dQ = 2cQ(r_tot − 1).
+   - Re λ ≥ 0 rejects a negative downstream stiffness (r_tot < 0, a static pressure that falls with the flow), which |λ| ≤ 1 − τ alone would pass.
+4. **The exact step,** by Sherman–Morrison–Woodbury on the same factor: x = x₀ − Z·(I + Δ·Z_PP)⁻¹·Δ·x₀[P]. This is algebraically the solution of [J, A12; M21, 0]·(dq, dh) = −(E, C).
+5. **Gate T: the step keeps the outlet flows forward.** For every PRV of P, (q_r + dq_r)·q_r > 0.
+6. **Otherwise** (a gate fails, the factor is singular, or the step is not finite): 1.1.0's step, computed by today's code (`gga.py:970-983`), operation for operation. Gates R and L are tested before the factor, so an iterate where either fails costs what it costs today.
+
+**Why each gate.** Each was measured by removing it (VA, `verification/c1proto.py` modes `x1`, `x1t`, `x1r`; JG, `judge/judge_c1.py`). The counts are converged → not converged / state changes on the 9,002 networks, then on VA's 2,232 new ones (`verification/gen_new.py`):
+
+| Gates | Measured by | 9,002 | 2,232 new |
+|---|---|---|---|
+| C alone | VA (JG with the spectral C: the same) | 2 / 12, and 12 other tee patterns (JG) | 3 / 20 (JG: 3 / 18) |
+| C and T (no R) | VA | 2 / 7 | 3 / 18 |
+| C and R (no T) | VA | 0 / 4 | 1 / 8 |
+| **R, C and T** | VA, reproduced by JG | **0 / 0** | **0 / 8** |
+
+Gate L was added after these runs. It changes nothing in the families (gate L above): the rows stand for R, L, C and T. In the corpus it changes 13 projects within tolerance (gate L above), so the corpus measurements of §2.11.8 stand within criterion 3's tolerances; the build re-runs everything with all four gates (criteria 1–9).
+
+- **All-or-nothing.** Partial exactness is the N1 mechanism (§2.11.2). OC measured the variant that drops only the weakest held head from a failed joint test: 6 converged → not converged (G family, two parallel PRVs).
+- **C** keeps 1.1.0's step where the iteration that is exact in everything but the held terms is not locally stable at the iterate: for one PRV, r_tot < 1/(1 − τ), a static pressure at the port that does not rise with the flow. That is a physical stability criterion of the held state. It is **not** a test that 1.1.0's iteration reaches the root (RN-1): 1.1.0 also lags the offsets, its multiplier in §2.11.2's model is (w − l)/(p + g), and gate C passes where 1.1.0's lag diverges (l > p + g + w). So Newton can converge an inner solve to a root that repels 1.1.0's iteration, and the outer loop, steered by that inner solve, can end in another valid state (class D2, §2.11.9).
+  - *Measured* (review, `review-numerics/lag_at_root.py` and `cycle.py`; the skeptic, `skeptic-numerics/lag_growth.py`; the reviser, the same script on its own clean `d0beec5` trees, `revise/lag_growth_NC_h6.txt`): on `NC Ls10.0 branch h6.0 h38.0 Lm0.5 Lb0.5 colebrook`, the first two inner solves are identical in both trees; the third (index 2), with V `FIXED_DOWNSTREAM_HEAD`, takes exact steps and converges in 7 iterations to Q_S = 0.00883123 m³/s. From that root × (1 + 10⁻⁹), 1.1.0's step (`EDR_OFF=1`, the same statuses and K tangents) moves away by a factor of 1.930 per iteration, constant over the first 15 iterations (1.31·10⁻¹⁰ → 1.30·10⁻⁶ m³/s after 15), and does not converge in 1,000 iterations, ending 4.51·10⁻³ m³/s from the root; run from its own warm start with 1,000 iterations, 1.1.0's iterate of S wanders between 0.00275 and 0.0389 m³/s. The same holds on `NC … h12.0 h330.0 … swamee_jain` (root 0.0206347 m³/s; a 10⁻⁹ perturbation ends 0.0113 m³/s away). At the final outer iterate the new root attracts 1.1.0 (it converges from × (1 + 10⁻³) in 20 iterations): the difference lies in the intermediate inner solves.
+  - Where C fails, the behaviour is 1.1.0's, including the r_tot ≤ 1 multiplicity of §2.3 (risk 7; VH5, VH6).
+  - The spectral form differs from VA's P-matrix test of I − M only where M has an eigenvalue with a negative real part. *Measured* by JG (`judge/judge_c1.py`, counters `neg_eig`, `pm_only`, `spec_only`): with C alone this happened at 27 iterates of the 9,002 networks and 41 of the 2,232, which the P-matrix test passed. With R it happened at none.
+  - With R and T the two forms give bit-identical results on all 11,234 networks. On the 2,232 there were 6 iterates where the spectral test passed and the P-matrix test failed; T rejected all 6.
+- **R.** Where a PRV's rule rejects its active state at the iterate, the inner solve is iterating on a state the outer loop will change. Newton converges it, where 1.1.0's lag usually fails and its fallback (`_open_bad_valves` on the early check iterate, `CHECK_ITERATIONS`) chooses the next statuses. The two paths then reach different warm starts and, in networks with several valid states, other final states or the outer loop's own oscillation (VA: the I family, at 0.2034 m³/s through a 102 mm line with the inlet far below the setpoint).
+
+  R keeps 1.1.0's evidence for the outer loop wherever the rule rejects the active state.
+  - The rule's own form used here, H1 − hml ≥ H_set − Htol, and VA's measured form, H1 ≥ H_set, give bit-identical results on all 11,234 networks (JG).
+  - *Measured* gate counts (JG, reproducing VA) on the 9,002: 303,011 iterates with P non-empty; R rejected 255,786, C 1,822 and T 329; 45,074 took the exact step; no factor was singular.
+- **T** is a trust guard. A step that drives a PRV's outlet flow to zero or into reverse leaves the regime in which its term is negative, and the PRV's rule closes it on reverse flow. Without T, Newton jumped in the G family (parallel PRVs at equal setpoints) to the root with V1 reversed (VA).
+
+**C2.** A regulating discharge-pressure pump's held discharge joins P. Gate R then uses the pump's own rule ("stays regulating", §5.4), gate C the same multiplier over P, and gate T the pump's flow. Rule S (§5.11.4) remains the verdict on states: gate C is an iteration criterion only. §5–§6 and the PVH cases are re-checked with this step when C2 is built.
+
+#### 2.11.5 Linear algebra and cost
+
+**One path.** Every exact iterate uses one sparse LU of the (nl + nf) saddle system K_off with SuperLU, then 1 + |P| solves and an eigenvalue problem of size |P|. The corpus has at most 7 active-status PRVs in a project (VA). C_L is assembled from index lists precomputed once per inner solve (G and the own and reference rows), with one `np.add.at` per iterate. RU measured that its per-iterate SciPy assembly cost 3.9 ms per call in the prototype.
+
+**Why not the alternatives.**
+- **Woodbury on today's Schur factor** (RU, up to 64 columns) reuses today's factor, but adds a dense k × k system and nl × k products. *Measured* by RU (`rank-update/timing.py`): 40.6 s against 8.66 s for the sparse LU at 490 rungs. Its dense products used multithreaded BLAS, 38.2 s against 0.45 s at 50 rungs under load with default threads.
+- **OC's bordered Schur system** is a third form.
+- RU measured its KKT path against its Woodbury path on the 9,002: the same convergence and states, flows within 8.8·10⁻¹¹ of the largest flow, inner iterations 250,105 → 250,119.
+
+**Cost per exact iterate.** One extra factorization of a matrix about twice the size of today's Schur matrix, plus 1 + |P| solves. Today's factor is computed only where the exact step is rejected after R and L passed. An iterate where R or L fails costs what it costs today. The fraction of iterates that pay is small: on the 9,002, 45,074 + 2,151 of 303,011 iterates with P non-empty (JG).
+
+**Measured** (JG, `judge/timing.py` with `judge/edrj.py` and `judge/make_sparse.py`, best of 3, `OPENBLAS_NUM_THREADS=1`; the machine otherwise idle, load average below 1; files `judge/results/timing_active.txt` and `judge/results/timing.txt`):
+
+| Network (components) | 1.1.0 | Chosen rule (prototype) | Inner iterations | Correction columns (max) |
+|---|---|---|---|---|
+| Crane ladder, active PRV (100 kPa) on the feed, 10 rungs (26) | 0.083 s | 0.112 s | 38 → 22 | 33 |
+| 50 rungs (106) | 0.250 s | 0.292 s | 53 → 30 | 153 |
+| 150 rungs (306) | 1.144 s | 1.293 s | 116 → 81 | 453 |
+| 300 rungs (606) | 3.326 s | 3.601 s | 165 → 127 | 903 |
+| 490 rungs (986) | 7.437 s | 8.536 s (1.15×) | 243 → 191 | 1,473 |
+| The same ladders with the PRV open (300 kPa; gate R rejects every iterate) | 0.088–8.999 s | 0.092–9.055 s | identical (43–352) | none taken |
+| The 200-tee stub chain of `test_gga.py` with Crane tees and an active PRV after RA | 0.651 s | 0.722 s | 12 → 10 | 401 |
+| The same with gate valves on the stubs | 0.723 s | 0.780 s | 12 → 10 | 401 |
+
+In the chain, both trees end with the continuity residual at or below 7.3·10⁻¹⁷ m³/s (0 with the new step) and every plugged stub at exactly 0, so the sparse LU of the saddle system kept its accuracy where the review's ill-conditioned case needs it.
+
+The prototype builds G with Python loops once per inner solve, and C_L with SciPy products at every iterate. Its ratio to 1.1.0 is 1.15× at 986 components and 1.35× at 26 components. The corpus total was 909 s against 1,071 s, but those runs were not controlled: they were dumped with 2 workers while other sweeps ran, so the figure is not a measurement of the build. Criterion 12 is the gate.
+
+**Workers.** The API's worker pool and the Dockerfile pin BLAS to one thread (`OPENBLAS_NUM_THREADS=1`; RU measured an 85× slowdown under load otherwise). The exact path's dense work is the |P| × |P| eigenvalue problem, so the pin matters less than for RU's Woodbury path. It costs nothing.
+
+#### 2.11.6 What is exact, what stays lagged, and why that is safe
+
+**Exact at an accepted iterate:** every flow dependence of the inner residual as evaluated. That covers:
+- the held heads of the PRVs of P;
+- the branch offsets' dependences on the combined flow and on their own flows, of both signs;
+- the held ports' coupling, already exact;
+- the fixed flows, which are constants.
+
+**Not a derivative at an accepted iterate:**
+- The `jacobian_slopes` floors of non-pipe Newton links (`gga.py:216-238`). This regularization is unchanged and applies as in 1.1.0's step: every non-pipe link's slope is replaced by max(slope, floor), the floor being 10⁻⁶ of the adjacent pipe slopes (at least `JACOBIAN_FLOOR_ABSOLUTE`). It stiffens a valve at Q = 0 or a flat stretch of a pump curve, and it also replaces a negative slope by the positive floor: a fixed-speed pump on the rising stretch of a drooping curve has dh/dQ = −H′ < 0 (`PumpLaw.evaluate` returns the negated curve slope). At such an iterate the step is not Newton's for that link (RN-3).
+- A kink of the law: K at a bound of the correlation's range, Q_ref = 0, the laminar–turbulent switch. Here the step uses the derivative of the piece the iterate is on, which is one of the two one-sided derivatives (JG's finite-difference check, §2.11.8).
+
+The outer loop's re-centring of the K tangents and its status changes lie outside the inner system, as before.
+
+**Never part of an accepted step:** the negative held term of a PSV under reverse flow. Gate L takes 1.1.0's step wherever a live active PSV has one, so it is lagged there as in 1.1.0 (a transient that the PSV's own rule closes; resolution R1 of §2.2 stands).
+
+**Lagged as in 1.1.0 (1.1.0's step):**
+- every iterate of a project with no PRV whose status is `active`;
+- every iterate at which no active PRV passes forward flow in its outlet pipe. There the branch offsets' cross terms and negative own slopes stay lagged, so a Crane network without an active PRV keeps 1.1.0's linear rate. Making them exact everywhere is a separate, later method change, OC's "network-wide" variant. It changes every Crane project: *measured* by OC (`offset-cross-terms/tools/corpus.sh`), it changes 21 of the 22 Crane projects of the corpus without an active PRV;
+- every iterate at which a gate fails.
+
+**Why this is safe** (correctness first, GOALS §3):
+1. **The fixed point is unchanged.** Each iterate takes either 1.1.0's step or Newton's step for the same residual. The residuals, the stop test (`gga.py:944-950`), the status rules and the outer loop are unchanged. A converged result therefore satisfies the same equations to the same tolerances, and is accepted under the same rules, as in 1.1.0. The step changes the path and the rate, never what counts as a solution.
+2. **The N1 overshoot cannot occur.** At an accepted iterate no flow dependence of the residual is lagged, by construction: the step is all-or-nothing over P and over every offset, and gate L excludes the one held term the step would otherwise still lag (a PSV's under reverse flow; a PRV's negative term is in P, and every positive term already enters 1.1.0's slopes). The floors of the first bullet above are not a lag of a flow dependence but a replacement of a slope, the same in both steps. So the first build's mixed map is never used: velocity head exact, offsets lagged, multiplier −(B0 + C_H)⁻¹·C_L. Near a regular root where the gates hold strictly, the iteration is Newton's, quadratic up to the floors. Near a root where gate C fails strictly, it is 1.1.0's.
+3. **Gate C targets only held states whose static pressure rises with the flow; it does not keep Newton to 1.1.0's roots.** Gate C admits the exact step only where the iteration that is exact in everything but the held terms is locally stable at the iterate: for one PRV, r_tot > 1/(1 − τ). That is a physical stability criterion of the held state. It is not reachability by 1.1.0, whose multiplier is (w − l)/(p + g) (§2.11.2): gate C passes where 1.1.0's lag diverges, and Newton can then converge an inner solve to a root that 1.1.0's iteration is repelled from, so that the outer loop ends in another valid state (RN-1; class D2, §2.11.9). r_tot ≤ 1 keeps 1.1.0's behaviour (risk 7).
+4. **The outer loop sees 1.1.0's evidence where the active state is rejected** (gate R), and Newton's overshoot through zero flow is refused (gate T). These two are path safeguards, not part of Newton's method: they only make 1.1.0's step be chosen more often. Gate R also keeps 16 E-family lines not converged that A1 converges (§2.11.8).
+5. **Failure is honest.** A singular factor, a non-finite step or a failed gate gives 1.1.0's step, never an error. A solve that does not converge says so, with 1.1.0's message.
+
+**What is not proven.** Newton has no globalization here beyond R and T:
+- That no converged result is invalid is proven, by item 1.
+- That no converged solve becomes not converged, and that states change only in the classes named in §2.11.9, is measured, not proven (§2.11.8, §2.11.14).
+- That the state reached is one 1.1.0 would reach with more iterations is false in general: class D2 (§2.11.9) is measured where it is not.
+
+#### 2.11.7 Bit-identity
+
+**By construction.** These iterates run 1.1.0's operations in 1.1.0's order:
+- an iterate at which P is empty;
+- an iterate at which gate R or gate L fails, since gate R reads only the iterate's own heads and gate L only its own flows.
+
+An iterate at which R and L pass but C or T fails, or the factor is singular, also takes 1.1.0's step, computed by today's code after the discarded attempt. The build keeps that code path byte-identical, not refactored (VA). Hence:
+- A project with **no PRV whose status is `active`** is bit-identical to 1.1.0 in every solved value, trace, flag and system-curve point, its methods summary included (criterion 1, unchanged). A PRV can be ACTIVE at an iterate only if its status is `active` (§2.2).
+- An inner solve none of whose iterates takes the exact step is bit-identical, and so is an outer loop all of whose inner solves are.
+
+**Measured** (§2.11.8):
+- all 2,458 corpus projects without an active-status PRV are identical in exact mode;
+- 4,818 of the 9,002 networks and 1,509 of the 2,232 are bit-identical, iteration counts included.
+
+#### 2.11.8 Measurements
+
+Unless marked otherwise, every row below was *measured* by JG. Rows and bullets marked with the review's finding ids (RN-…, RV…) were measured after the merge by the review on its own clean `d0beec5` trees with the judge's prototype (`judge/make_sparse.py`, the chosen rule), reproduced by its skeptics, and, where §2.11.15 says so, re-run by the reviser.
+
+**Harness and reproductions** (JG, `judge/sweep.py` and `judge/famcmp2.py`, copies of VA's `sweep.py` and `famcmp.py`, with `judge/make_list.py` and `judge/run_batch.sh`):
+
+| Check | Result |
+|---|---|
+| The judge's prototype with its step switched off, on the 9,002 | Reproduces the fixer's `d78a8ef` results (`c0c1fix/families_results.tar.gz`, `fam_head.json`) on all 9,002 networks (flows, EGLs, states, convergence and inner iterations; 499,577 = 499,577) |
+| The same, on the 2,232 | Reproduces VA's `new_off.json` on all 2,232 |
+| The judge's copy of VA's prototype (`judge/judge_c1.py`, `judge/make_proto.py`) | Reproduces VA's `res_x1rt.json` and `new_x1rt.json` bit for bit, with the same gate counts |
+| The judge's rebuild of RU's EDR + S1 from its two diffs and `edr.py` on a fresh archive | Equals RU's tree file for file, and reproduces RU's `fam_rkS.json` bit for bit |
+
+**The networks.**
+- The 9,002 of the review and its skeptic (§2.2): `c0c1/review-numerics/proj{A,E,F,G,Gsj,H,I}.json`, `c0c1/skeptic-numerics/{mine,gate}.json`.
+- VA's 2,232 (`verification/gen_new.py`), in ten families, each with both friction models:
+  - three PRVs into a two-tee header;
+  - PRVs in series through a tee;
+  - a PRV into a Crane tee's branch or run with a second supply;
+  - a PRV into a Crane wye;
+  - a PRV then a PSV, and a PSV then a PRV;
+  - a flow-controlled pump or an FCV beside a PRV;
+  - an assigned flow below a PRV;
+  - a PRV in a pump loop;
+  - no exit beyond a free node, and the VH7 layout.
+
+**Results against `d78a8ef`.** Each network was solved with the fuzz harness's independent status checks, and with its law checks for Swamee–Jain. "Other state" means the same valve states but a flow differing by more than 10⁻⁶ of the largest flow: another tee pattern or root.
+
+| Rule | Measured by | Set | Identical | Conv. → not | Not → conv. | Valve-state changes | Other state | Check failures | Inner iterations |
+|---|---|---|---|---|---|---|---|---|---|
+| 1.1.0 | fixer | 9,002 | — | — | (128 not conv.) | — | — | 0 | 499,577 |
+| First build (§2.2) | fixer | 9,002 | 2,487 | 85 | 110 | 31 | — | 0 | 378,212 |
+| A1 | fixer | 9,002 | 7,615 | 0 | 60 | 0 | 0 | 0 | 448,221 |
+| A1 | review (RV1), skeptic, reviser | 2,232 | 1,944 | 0 | 0 | 0 | 0 | 0 | 264,424 → 244,124 |
+| RU: EDR + S1 | RU, JG | 9,002 | 1,997 | 0 | 114 | 12 | 12 | 0 | 250,105 |
+| RU: EDR + S1 | JG | 2,232 | 642 | **3** | 62 | 17 | 0 | 0 | 264,424 → 136,930 |
+| OC: proposed | OC | 9,002 | 2,007 | 2 | 115 | 8 | 12 | 0 | 255,631 |
+| **Chosen (R, C, T)** | VA, JG | 9,002 | **4,818** | **0** | **96** | **0** | **0** | **0** | **378,066** |
+| **Chosen (R, C, T)** | VA, JG | 2,232 | **1,509** | **0** | **57** | **8** | **0** | **0** | 264,424 → **201,486** (VA's dense path and JG's dense copy; JG's sparse path 201,492, the 2 iteration counts below) |
+| **Chosen (R, C, T)**, sparse | review (RN-2), reviser | the review's 5,244 | **3,008** | **0** | **120** | **66** | **0** | **0** | 653,801 → 461,967 |
+| Both trees at `max_iterations` 1,000 | review (RN-1, RN-2) | 9,002 | 4,803 | 0 | 27 | 0 | 0 | 0 | 1,399,540 → 1,230,904 |
+| Both trees at `max_iterations` 1,000 | review (RN-1), skeptic | 2,232 | 1,494 | 0 | 0 | 6 (NC, D2) | 0 | 0 | 867,892 → 799,737 |
+| Both trees at `max_iterations` 1,000 | review, reviser | TD, NZ2, TT of the 5,244 (1,168) | 328 | 0 | 0 | 0 | 0 | 0 | 484,498 → 397,697 |
+| Both trees at `max_iterations` 1,000 | reviser | the rest of the 5,244 (4,076) | 2,650 | 0 | 24 | 0 | 0 | 0 | 1,863,538 → 1,705,404 |
+
+- **RU's three regressions on the new families** are all NA networks: `NA s(0.05, 0.5, 3.0) none Lh0.3 Lm0.5 crane h(10.0, 10.01, 9.99)` with both friction models, and `NA s(0.05, 0.5, 3.0) none Lh5.0 Lm0.5 crane h(12.0, 10.0, 8.0) colebrook`. They converge at 1.1.0 and under the chosen rule. RU's claim of 0 regressions therefore holds for the 9,002 only.
+- **The first build's 85 regressions and the 96 conversions** (corrected after RV7; the reviser re-ran the skeptic's `skeptic-verification/cmp1.py` as `revise/cmp1.py` on the same records). The chosen rule converges all 85 of the first build's regressions, which converged at 1.1.0, in 1.1.0's valve states. Its 96 conversions (A 18, E 26, G 24, Gsj 24, mine 4) are other networks, none of the 85; they include 48 of the 50 networks that the first build converged and A1 gave up.
+- **Against A1** (RV1; the review, `review-verification/cmp_a1_chosen.py`, `cmp_off_a1.txt`; the skeptic, `skeptic-verification/cmp1.py`, `cmp2.py`; the reviser, `revise/cmp1.py`, `revise/cmp2.py`). A1 was measured on both sets: on the 9,002 by the fixer (`c0c1fix/families_results.tar.gz`, `fam_fix1.json`), on the 2,232 by the review (regenerated with `verification/gen_new.py`, names equal to `n_off.json`, swept with `judge/sweep.py`, `review-verification/new_a1.json.gz`). It has 0 converged → not converged and 0 state changes on both. On the 9,002 it converges 16 networks that the chosen rule leaves not converged (all E family, below), and the chosen rule converges 52 that A1 does not (G 24, Gsj 24, mine 4); on the 2,232 A1 converges none of 1.1.0's 134 not-converged networks and the chosen rule 57.
+- **Not converged in both** (32):
+  - 16 E-family lines, all with setpoint 5.01 m against a tank at 5 m and μ = 0.001 Pa·s: 13 with d = 0.03 m and 3 with d = 0.1023 m (`E L0.003 h5.01 rev0 d0.1023 mu0.001 H1500.0`, its `rev1` twin and `E L0.01 h5.01 rev1 d0.1023 mu0.001 H1500.0`). **A1 converges all 16**, in 9–16 inner iterations with V active, and so does the first build; the chosen rule takes 112–116. The cause is gate R, not r_tot: the first exact step leaves an iterate that gate R then rejects for 99 iterations, and 1.1.0's lag, with r_tot − 1 ≈ 3·10⁻⁵, would need about 7·10⁵ (JG, `judge/one.py` on `E|E L0.0001 h5.01 rev0 d0.03 mu0.001 H1500.0`). The review reproduced three of them (`review-verification/e_lines.py`: a clean `d0beec5` archive and the judge's sparse tree not converged at 114, 113 and 112; A1 converged at 12, 11 and 13, V active).
+  - 8 G and 8 Gsj networks: two PRVs in parallel. The first build converges 1 G and 1 Gsj of them.
+
+  1.1.0 does not converge any of them.
+- **Worst same-state change:** 3.71·10⁻⁷ of the largest flow (`G L10.05 L20.05 h8.0 h8.01 Lm30.0 ex1 crane`: 1.1.0's own lag error), and 1.67·10⁻⁶ m in EGL.
+
+**The sparse path against the dense prototype** (JG, `judge/edrj.py`, `judge/make_sparse.py`, `judge/prototype_sparse_gga.diff`):
+- on the 9,002, the same convergence, states and inner iterations, with flows within 4.2·10⁻¹³ of the largest;
+- on the 2,232, the same convergence and states, 2 iteration counts different, and flows within 2.3·10⁻¹².
+
+**Exactness** (JG, `judge/judge_c1.py` with `C1V_FDCHECK`, and `judge/fd.py`). At every iterate that passed gates R and C, each column of the analytic energy Jacobian was compared with a central difference of the GGA's own residual, rebuilt from its closures with heads fixed and flows varied. The check runs before gate T, so the counts include iterates that T then rejected (RN-3, RV6).
+
+| Set | Networks checked | Iterates checked (R and C passed) | Median relative column error | Iterates above 10⁻⁵ |
+|---|---|---|---|---|
+| 9,002 (8 per sub-family) | 104 sampled, 43 with an accepted iterate | 386 | 1.5·10⁻⁹ | 52: 13 kinks, 39 finite-difference noise (4 of them in the F family, confirmed by a step sweep) |
+| 2,232 (all) | 790 with an accepted iterate | 8,405: 8,195 took the exact step, 210 were rejected by T (from the gate counts of `n_x1rt_sp`) | 5.4·10⁻⁹ | 860 kinks, 308 finite-difference noise, 8 with a PSV in reverse flow, all 8 rejected by T (the skeptic of RV6) and, with gate L, refused before the factor |
+
+How the iterates above 10⁻⁵ were classified:
+- **Kink:** one one-sided difference equals the analytic column within 10⁻⁵ and the two one-sided differences disagree. For example, on `G L10.05 L20.05 h8.0 h8.01 Lm0.5 ex0 crane`, with a leg at 3.7·10⁻²⁷ m³/s, the backward difference is −24.39 against an analytic −24.39, and the forward difference −86.24.
+- **Finite-difference noise:** central differences over steps of 10⁻⁷ to 10⁻⁴ vary by more than the discrepancy. This happens in the F family's heads of 2,000–8,000 m and in columns of order 10⁻⁵.
+- **PSV in reverse flow:** the NDa layout. Its PSV's negative term is lagged by design (R1), and is the whole difference: FD −2,057.8 against an analytic 177.5. These 8 iterates took no exact step; gate L now refuses them before the factor.
+
+`judge/fd.py` first left 13 iterates unexplained: the 8 NDa iterates and 5 that JG reclassified as finite-difference noise by a step sweep whose output was not kept. The skeptic of RV6 re-ran the sweep on those 5 (`skeptic-verification/fd_sweep.py`, output `fd_sweep_out.txt`): over steps of 10⁻⁷ to 10⁻⁴ their errors vary by more than the discrepancy, at links carrying about 0 m³/s. No discrepancy remained unexplained in these sets (a statement about the sets checked, RN-4). RU (`rank-update/fdcheck.py`) and VA (`c1proto.py`, `C1V_FDCHECK`) found the same on their networks: medians 5·10⁻¹⁰ to 8·10⁻⁹ and worst 2.1·10⁻⁶, respectively.
+
+**Local convergence.** Flow change per iterate of the last active inner solve, *measured* by VA (`verification/rate.py`):
+- `mine`: 1.8·10⁻⁵, 7.0·10⁻⁹, 1.1·10⁻¹⁵, 0, where 1.1.0's ratio is 0.2 per step;
+- `gate`: 1.7·10⁻⁸, 5.4·10⁻¹⁵, 0;
+- a PRV line with a 0.5 m exit spool, cold start: 6.4·10⁻³, 3.9·10⁻⁴, 1.3·10⁻⁶, 1.5·10⁻¹¹, 0, where 1.1.0's ratio is 0.91.
+
+**Reference cases** (JG, `judge/vh_check.py`, VA's `vh_check.py` on the judge's trees):
+
+| Case | 1.1.0 | Chosen rule |
+|---|---|---|
+| VH1 (0.5 m), VH2 (1 m), VH3 (0.05 m) | not converged, 111 inner iterations | converged in 7, 5 and 9 iterations, 1 outer; flows within 9.0·10⁻¹⁷ m³/s and EGLs within 6.4·10⁻¹⁴ m of the case's expected values |
+| VH4 (5 m) | 38 iterations | 7 |
+| VH5, VH6 | open in 109, closed in 14 | bit-identical |
+| VH7, ideal tee, (0.3, 0.3) and (0.5, 0.5) m at 1, 2 and 3 m/s | not converged at 100 iterations (113); at 300, converged in 108–182 with relative error 5.1–9.7·10⁻⁹ | converged in 6–7 iterations at 100, within 1.0·10⁻¹³ relative of the closed form (`brentq` on `line.Line`) |
+
+VH7 with a Crane tee, its branch plugged (JG, `judge/vh_check_model.py` with `VH7_MODEL=crane`): converged active in 7–8 iterations at 100, within 3.4·10⁻¹² relative of the ideal-tee closed form (the Crane run K is 0 at zero branch flow). 1.1.0 is not converged at 100 (326 inner iterations), and at 300 converges in 109–183 with relative error 4.4–8.8·10⁻⁹.
+
+**Corpus.** 5,140 projects: HEAD's 5,134 plus VH1–VH6, with system curves. Both trees were dumped by their own `corpus.py` (JG, `judge/run_corpus.sh`), and compared with `compare.py` using `--group 'Valve type=prv,Status=active'`.
+- **Exact mode:** 4,741 identical and 399 different. All 2,458 projects without an active-status PRV are identical; 2,283 of the 2,682 with one are identical.
+- **Within tolerance,** with the §2.7 ignores (`methodVersion`, `trace.methods.methodVersion`, `convergence`, `trace.methods.sections.0.items.4` and `.2`): 4,810 identical, 319 within tolerance, 11 different:
+  - VH1–VH3: not converged → converged (criterion 5);
+  - `fuzz_2197`: PU4 gains curve points, 7 → 11 (criterion 5);
+  - six `fuzzaf` projects, not converged in both, differing only in their `NOT_CONVERGED` flag's `maxContinuityResidualAt` or `maxEnergyResidualAt`: `fuzzaf_20050`, `fuzzaf_20415`, `fuzzaf_20650`, `fuzzaf_20661`, `fuzzaf_20756` and `fuzzaf_20846` (§2.11.10);
+  - `fuzzfc_10246`: one system-curve head, PU9's point 1, 6,117.667716 against 6,117.667800 m, 1.36× its tolerance of 10⁻⁸ relative. At tolerance 10⁻¹³ and 1,000 iterations both trees give 6,117.667734779023 m (JG, `judge/redump.py`).
+- **Worst changes** (JG, `judge/measure.py`, VA's):
+
+  | Quantity | Worst change | Where |
+  |---|---|---|
+  | Flow | 1.08·10⁻⁹ of the largest flow | `fuzzaf_20328` |
+  | Head | 1.37·10⁻⁷ m | |
+  | Pressure | 8.2·10⁻⁸ m of head | |
+  | Speed | 5.4·10⁻¹⁵ relative | |
+  | System-curve head | 1.36·10⁻⁸ relative above 1 m (`fuzzfc_10246`); 3.9·10⁻³ m on a 1.49·10⁸ m point (`fuzz_2745`) | |
+
+  - No state changes.
+  - Converged-flag changes: only VH1–VH3. Curve-point changes: only `fuzz_2197`.
+  - Inner iterations: 118,722 → 117,975, fewer in 136 projects and more in 9. The largest rise is `fuzzfc_10809`, 44 → 77, with the same states: an intermediate inner solve fails in both trees.
+- **A1's three criterion-3 projects:** `fuzzaf_20323` and `fuzzaf_20611` are identical, and `fuzzfc_10246` differs only in the curve point above.
+
+**The fixed point** (criterion 7): both trees dumped in full, system curves included, with `--solver-options tolerance=1e-13,max_iterations=1000` (JG, `judge/tight_corpus.sh`), and compared with `compare.py --within-tolerance --fixed-point`. Results:
+- 4,851 identical, 281 within the fixed-point tolerances, 8 different.
+- All 2,458 projects without an active-status PRV are identical.
+- Worst, relative to criterion 7's tolerances:
+
+  | Quantity | Worst | Where |
+  |---|---|---|
+  | Flow | 0.82× | `fuzzfc_10144`, T0's inlet |
+  | Head | 0.069× | `fuzzfc_10679` |
+  | Pressure | 0.069× | `fuzzfc_10679` |
+  | Speed | 6.8·10⁻⁵× | |
+  | System-curve head | 0.018× | |
+
+  So criterion 7 needs no absolute flow term here: RU and VA had asked for one, from `fuzz_153` and `fuzzfc_10144` on their prototypes.
+- No state differs.
+- The 8 different:
+  - 7 `fuzzaf` projects, not converged in both, that differ only in the `NOT_CONVERGED` flag's residual locations: `fuzzaf_20050`, `fuzzaf_20527`, `fuzzaf_20658`, `fuzzaf_20661`, `fuzzaf_20756`, `fuzzaf_20770` and `fuzzaf_20846` (defect 1 of §2.11.10);
+  - VH3 (`ref_prv_velocity_head_exit_spool_0_05m`), which converges only under the new rule. 1.1.0 needs more than 1,000 iterations at r ≈ 1.01.
+
+File: `judge/results/cmp_tight.txt`.
+
+**Differential fuzz,** all three profiles in full (JG, `judge/run_fuzz.sh`, against the `d78a8ef` records of `c0c1/fuzz_results.tar.gz`, with the fixer's `c0c1fix/tools/fuzzdiff.py`):
+
+| Profile | Seeds | Class table | Critical | Self-checks | Same-class record differences | States-only changes |
+|---|---|---|---|---|---|---|
+| default | 0–2,999 | unchanged | 0 | empty | 155 | none |
+| `flow_control` | 10,000–12,999 | unchanged | 0 | empty | 158 | seed 11,075: FCV1, PRV2 and CV3 go from isolated to open, closed and closed, at exactly 0 m³/s (VA measured the same) |
+| `assigned_flow` | 20,000–22,999 | unchanged | 0 | empty | 117 | none |
+
+No changed seed is pinned in the smoke tests (0–49, 10,000–10,024, 11,738, 12,703, 12,773, 20,000–20,025, 20,035). VA re-validated the "before" records on seeds 1,650–1,659 with HEAD. Files: `judge/results/fuzzdiff_{default,fc,af}.txt`.
+
+#### 2.11.9 The changed states and their classes
+
+The corpus and the fuzz have **no** state change at nonzero flow: the fuzz's one states-only record (`flow_control` seed 11,075) is at exactly 0 m³/s, criterion 4's class. The 9,002 networks have **none**. At default settings, against `d78a8ef`, VA's 2,232 have **8** and the review's 5,244 have **66** (RN-2); every one passes the independent checks on both sides.
+
+**The classes** (revised after RN-1 and RN-2). A state change in the families is of **class D** if both states pass the independent status and law checks, with each project's own friction model. It is:
+- **D1** if 1.1.0 (`d78a8ef`) run with `max_iterations` 1,000 reaches the new rule's default-settings state: the same valve states and flows within criterion 3's flow tolerance (10⁻⁸ of the largest flow). 1.1.0's state at the default 100 iterations was then an artefact of its slow lag and its fallback, and more iterations of 1.1.0 remove it.
+- **D2** otherwise: 1.1.0 with 1,000 iterations still ends in its own state. Gate C is not a reachability test (§2.11.4, §2.11.6 item 3), and these are the changes it allows.
+
+A change whose flows agree within that tolerance, an element reported closed on one side and without a result on the other, is a **zero-flow label change**: criterion 4's class, listed, not class D.
+
+**What "both states pass the checks" covers** (the reviser, while re-checking RN-2). The independent status check tests every pump and valve that has a result and both port heads; it skips an element without a result (`tests/differential/checks.py:485-489`: state "isolated", or a port head missing). Such an element is a PRV closed beside a section that v1 isolates (its section without a source, or behind a held zero-flow tee leg), which v1's own free-level rules accept and the checker does not re-test. In 48 of the 62 changes at nonzero flow one side has such a PRV: 1.1.0's side in NA's 2, NC's 6 (every D2 change), 14 TD and 2 TT; both sides in the 24 TD changes where the demand moves to the other PRV. Only NZ2's 12 and PZ3's 2 are checked element by element on both sides (`revise/` count on the dumps of §2.11.15).
+
+The first text of this subsection defined class D by four conditions (VA, `verification/paths.py`, `verification/recheck.py`): both states valid; 1.1.0's path had failed active inner solves; the new path has none; the new active state stable by ±1 Pa re-solves over the setpoint. The review showed conditions 2–4 unsound (RN-2, reproduced by its skeptic with VA's scripts): condition 3 rejects changes with the same mechanism (the NZ2 tank variants and both PZ3 networks, whose cold-start active inner solve fails in the new path too, diverging to 1.95·10³² m³/s in both trees while gate C rejects every iterate), and condition 4 is undefined for a PRV that feeds only assigned demands or whose setpoint lies within 1 Pa of a boundary (r_tot = −5.9·10¹⁰ and +4.1·10¹⁰, the sign by noise, on TD; none on NZ2, where ±1 Pa flips the state). The 1,000-iteration run is free of tolerances of its own and classifies every case found.
+
+**VA's 2,232: 8 changes, in 4 networks of 2 families (NA, NC), each in both friction models:**
+
+| Network | 1.1.0 | Chosen rule | 1.1.0 at 1,000 iterations | Class |
+|---|---|---|---|---|
+| `NA s(0.05, 0.05, 0.05) k1 Lh5.0 Lm30.0 crane h(10.0, 10.01, 9.99)` | V2 and V3 active, V1 without a result (closed, its section isolated), 524 inner iterations | all three active, 33 | all three active, 291; flows within 1.14·10⁻⁹ of the largest | D1 |
+| `NC Ls10.0 branch h6.0 h38.0 Lm0.5 Lb0.5` | V without a result (closed with its leg held), 171 | V active at 0.0029987 m³/s, 38 | V without a result, 1,071 | **D2** |
+| `NC Ls10.0 branch h9.0 h315.0 Lm0.5 Lb0.5` | the same, 186 | V active at 0.0078347 m³/s, 45 | the same, 1,086 | **D2** |
+| `NC Ls10.0 branch h12.0 h330.0 Lm0.5 Lb0.5` | the same, 191 | V active at 0.0059812 m³/s, 42 | the same, 1,091 | **D2** |
+
+(Flows and counts for Colebrook; the Swamee–Jain twins agree within 0.2 %. *Measured* by the review, RN-1 and RN-2, `review-numerics/results/va_cmp_1000.txt`; the skeptic, `skeptic-numerics/results/nc_head1000_vs_new100.txt`; and the reviser on its own trees, `revise/changes_va8_d1d2.txt`.)
+
+**The D2 networks (NC's 6).** Both states pass the independent checks, 1.1.0's with V unchecked (above: V has no result, closed beside its held branch leg), and the new active state's r_tot is 24.5–55.7 by VA's ±1 Pa re-solves (defined here: V's outlet path ends at tanks). The mechanism is RN-1's (§2.11.4, gate C): the third inner solve takes exact steps and converges to a root that repels 1.1.0's lag, with a growth factor of 1.930 per iteration from 10⁻⁹ (h6/h38); 1.1.0's iterate there wanders between 0.00275 and 0.0389 m³/s for 1,000 iterations, its fallback then closes V with its branch leg held, and it ends there after 1,071 inner iterations. On h12/h330 the root is 0.0206347 m³/s and a 10⁻⁹ perturbation ends 0.0113 m³/s away. At the final statuses the new root attracts 1.1.0 too (from × (1 + 10⁻³) in 20 iterations): the two methods differ in the inner solves that steer the outer loop, not at the final state.
+
+**The review's 5,244: 66 changes, in 4 families** (RN-2; generators `review-numerics/gen_rn.py`, `gen_rn2.py`, `gen_rn3.py`; the review, `review-numerics/results/rn_cmp.txt`, `rn2_cmp.txt`, `rn3_cmp.txt`; reproduced by the reviser on its own clean trees, `revise/rn_cmp_default.txt`: 3,008 identical, 0 converged → not converged, 120 not converged → converged, 0 check failures, inner iterations 653,801 → 461,967):
+
+| Family | Changes | Zero-flow label changes | At nonzero flow |
+|---|---|---|---|
+| TD: two PRVs in parallel into a Crane tee that feeds only an assigned demand | 46 | 8 (one PRV closed against without a result; flows within 8.1·10⁻¹¹ of the largest) | 38: in 24 the whole demand moves from one PRV to the other (`TD L13.0 L23.0 h8.0,8.5 q0.08 Lm0.5 branch colebrook`: V1 active carrying 0.08 m³/s at 1.1.0, V2 active carrying 0.08 under the new rule); in 14 one PRV active becomes both active |
+| TT: two PRVs into one Crane tee (run inlet and branch), the run outlet to an assigned demand | 6 | 4 | 2: one PRV active becomes both active |
+| NZ2: a PRV 10⁻⁶ to 10⁻⁴ m above the tank head, through a Crane tee | 12 | 0 | 12: closed → active at 4.8·10⁻⁵ to 2.8·10⁻³ m³/s (Qtol is 10⁻⁸ m³/s) |
+| PZ3: a PRV and a PSV at nearly zero flow on one tee | 2 | 0 | 2: the PSV closed → active at 0.036 m³/s |
+
+So 66 changes, 12 of them zero-flow label changes and 54 at nonzero flow. *Measured* by the reviser (`revise/classify.py`, `revise/changes66_d1d2.txt`): with `max_iterations` 1,000, 1.1.0 reaches the new rule's default-settings state in all 66, with flows within 5.95·10⁻⁹ of the largest flow. **All 54 are D1** (the review measured the same; its skeptic on TD and NZ2, `skeptic-numerics/results/README.txt`). The review had given NZ2's new flows as 4.8·10⁻⁵ to 7.0·10⁻⁴ m³/s; the reviser's dump has 2.8·10⁻³ m³/s in the dh 10⁻⁴ tank variants.
+
+**In all** at default settings: 56 changes of class D1 (NA 2, TD 38, TT 2, NZ2 12, PZ3 2), 6 of class D2 (NC), and 12 zero-flow label changes, in 6 families. Accepting D1 and D2 in the adversarial families, each named and checked, is question Q8 (§13).
+
+#### 2.11.10 Criterion 3: the investigation and its handling
+
+The owner did not accept A1's three criterion-3 exceptions before further investigation (§13). C3 investigated them, and the 22 first-build failures (`crit3/`, scripts named there).
+
+**Findings.** None is a C1 regression of a fixed point or a state. They come from three defects that already exist in 1.1.0:
+
+1. **The `NOT_CONVERGED` flag names a location for round-off residuals.** The location is `np.argmax` of residuals that are all within tolerance, or exactly 0, which returns the first node or link (`gga.py:993-994`; the flag is built at `results.py:1122-1137`).
+   - `fuzzaf_20323`: 2.08·10⁻¹⁷ m³/s and 3.63·10⁻¹⁵ m at 1.1.0, exactly 0 at A1.
+   - `fuzzaf_20611` is the same.
+   - All 384 corpus projects that do not converge at 1.1.0 end with both residuals inside the stop tolerances, so every location their flags name is noise (C3, `crit3/resid.py`).
+   - In the exit for "keep returning to a failed state", the message describes the failed solve while the flag reports the last solve's residuals.
+2. **The energy stop test has a round-off floor.** `ENERGY_TOL` = 10⁻⁷ m is below one unit in the last place of heads above about 6·10⁸ m.
+   - At A1, an inner solve of `fuzzfc_10246`, with EGLs up to 7.0·10⁸ m, stuck at 1.19–2.38·10⁻⁷ m for 91 iterations. It was then treated as failed, and the outer loop took another path to the same statuses.
+   - *Measured* (C3, `crit3/floor_scan.py`; JG re-read `crit3/results/scan_main_head.json` and `scan_main_a1.json`): on the main solves of 5,134 projects, 54 projects stall at 1.1.0 (2,217 iterations) and 26 inner solves fail there; at A1, 57, 2,539 and 29.
+   - With a round-off-aware test in 1.1.0 (`crit3/results/proto_head_fe_vs_head.diff`), the final state of 9 projects changes between valid states: `fuzz_1446`, `fuzz_2522`, `fuzz_586`, `fuzzaf_20131`, `fuzzfc_10302`, `fuzzfc_10535`, `fuzzfc_10660`, `fuzzfc_10775` and `fuzzfc_10931`. The floor decides which of several valid states 1.1.0 reports (C3, `crit3/selfcheck.py`).
+3. **Zero-by-continuity reporting covers only dead-end trees.** It does not cover a link into a part with no source: `fuzzfc_10246`'s five links carry 1.13·10⁻¹² m³/s at 1.1.0 where the exact value is 0. 18 converged corpus projects report such a flow, up to 7.15·10⁻¹⁰ of the largest (`fuzz_2258`) (C3, `crit3/bridge_scan.py`).
+
+In addition, criterion 3's head tolerance does not match its flow tolerance on high-resistance paths. On `fuzzaf_20938` (first build), a flow error the stop test allows moves heads by about 4·10⁻⁶ m, and 1.1.0 itself lies 3.98·10⁻⁶ m from its own fixed point (C3, `crit3/vs_tight.py`).
+
+**Under the redesigned rule** (JG, §2.11.8), criterion 3 fails as written in 7 corpus projects:
+- the six `NOT_CONVERGED` flag-location projects, which are defect 1;
+- `fuzzfc_10246`'s system-curve point, which is the tolerance mismatch above, in system-curve heads. On a 6,117.67 m point at 0.196 L/s, 1.1.0 lies 1.9·10⁻⁵ m and the new rule 6.5·10⁻⁵ m from the common fixed point. Which side of the tolerance the default solve lands on depends on round-off: VA's dense prototype had it within tolerance.
+
+`fuzzaf_20323`, `fuzzaf_20611` and `fuzzfc_10246`'s labels no longer differ. *Measured* (JG, `judge/redump.py`, with C3's flag prototype `crit3/results/proto_head_fl_vs_head.diff` applied to both trees; `judge/results/fl_cmp.txt`): the six flag projects, `fuzzaf_20323` and `fuzzaf_20611` are identical, and only `fuzzfc_10246`'s curve point remains.
+
+**What that measurement does not cover** (RV2). It re-dumped 9 named projects only (8 identical, 1 different), with fix (a) alone. Fix (b) was applied to neither tree of C1's comparison, and the flag projects of the tight run (`fuzzaf_20527`, `20658`, `20770`, `judge/results/cmp_tight.txt`) were not re-dumped. The set of flag projects depends on the solve path, so it cannot be predicted from one run:
+- VA's dense prototype: `fuzzaf_20050`, `20135`, `20415`, `20650`, `20756`, `20846`;
+- JG's sparse prototype: `fuzzaf_20050`, `20415`, `20650`, `20661`, `20756`, `20846`;
+- the tight settings: `fuzzaf_20050`, `20527`, `20658`, `20661`, `20756`, `20770`, `20846`.
+
+Fix (b) changes paths too (C3's self-check: `fuzz_1446` 119 → 49 inner iterations, `fuzz_2522` 107 → 20), so C1's comparison on top of C0b can differ elsewhere. **Criterion 3 under C0b is therefore expected, not measured.** Before it is claimed met, the build dumps the full corpus at default settings and at criterion 7's settings with both C0b fixes in both trees, and reports the result (§2.11.11).
+
+**Recommended handling.**
+
+1. **C0b, a separate change set committed before C1, with its own acceptance criteria (below), its own corpus and fuzz comparison, its own changelog lines and, recommended, its own METHOD_VERSION,** holds the two code fixes. Both trees of C1's comparison then share them. Approving C0b is Q9.
+
+   | Fix | Defect | What it does | Expected effect |
+   |---|---|---|---|
+   | a. Flag locations (traceability, GOALS §4.2) | 1 | The flag names a residual's location only where the residual exceeds its stop tolerance. The failed-state exit reports the residuals of the solve its message describes | Changes only flags of not-converged results. Since all 384 not-converged corpus projects end inside both stop tolerances (largest ratios 0.81 continuity, 0.60 energy; `crit3/results/resid_all_head.txt`, re-counted by RV3), it removes the location from every one of their flags. Not measured on the corpus |
+   | b. Round-off-aware energy test (correctness, GOALS §3) | 2 | \|residual\| ≤ `ENERGY_TOL` + 4ε × the largest of the link's end heads and its loss, as C3 prototyped (`crit3/results/proto_head_fe_vs_head.diff`) | A method change. C3 measured, on the 58 stalling projects of `crit3/stall_names.txt` (main solves only), 9 final states moving between valid states, all at zero flow (below). Its methods text states the test. Proposal §12 risk 2 is closed |
+
+   **The 9 state changes are all at zero flow** (RV3: the review, `review-verification/states_flows.py`; its skeptic, `skeptic-verification/sf_head.txt`, `sf_fe.txt`; *measured* again by the reviser with exact flows, `revise/states_exact.py` on a clean `d0beec5` archive and the same archive with fix (b)'s diff): every element whose state changes carries exactly 0.0 m³/s on each side that reports it, and most changes are between a state and no result (an isolated section). For example `fuzz_1446` FCV4 closed → open at 0, `fuzzfc_10775` PU10 no_flow → running at 0 and FCV6 and PU13 gaining results at 0, `fuzz_2522` CV1, PRV2 and PRV3 losing their results. All 9 converge in both trees, in fewer inner iterations with fix (b) (for example 119 → 49, 107 → 20, 128 → 18). So they fall in criterion 4's class.
+
+   **C0b's own acceptance criteria** (RV3; stated before its build runs, in the form of §2.7). C0b is compared with 1.1.0 (`d0beec5`, or the HEAD it is committed on):
+   - **B1. Identity where the stop test's verdict does not change.** Fix (b) changes only the energy stop test, so an inner solve whose every iterate gets the same verdict from both tests runs the same operations. The build counts, with an instrumented run, the iterates whose verdict changes; every project with none is bit-identical in every solved value, trace, flag and system-curve point, apart from the methods sentence of B5 and, in a not-converged result, the flag fields of B2. A project with no changed verdict that differs otherwise blocks.
+   - **B2. Flags.** Only `NOT_CONVERGED` flags of not-converged results change, and only in their residual locations and, in the failed-state exit, in the residuals reported.
+   - **B3. States and convergence.** States change only at zero flow through the changed element (criterion 4's class), convergence only from not converged to converged, and curve-point counts only upward; each change listed by name and self-checked (criterion 6's form).
+   - **B4. The full corpus**, system curves included, at default settings and at criterion 7's settings; at the tight settings every number of a project converged in both within criterion 7's tolerances, and every project not converged in either, or in one, listed by name with its reason.
+   - **B5. Methods text.** The sentence that states the energy test, pinned byte for byte (criterion 2's form).
+   - **B6. Fuzz.** The three profiles' class tables unchanged, 0 critical, every changed record listed (criterion 8's form).
+   - **B7. System-curve stall scan.** C3's `crit3/floor_scan.py` extended to the system-curve solves, before and after: every curve point whose head changes is listed, and none goes from a head to no head.
+   - **B8.** The reference suite and the unit tests green (D6).
+
+   C1's comparison then runs with both trees at C0b, and C1's criteria (§2.7, §2.11.11) are measured against C0b, not against 1.1.0.
+
+   **METHOD_VERSION** (RV4). The owner's answer of 2026-10-24 gives C1 "its own design, measurement and METHOD_VERSION". Fix (b) is a method change, so a C0b that shares 1.2.0 with C1 would make 1.2.0 label two different methods between the two commits, and C1's changelog line "projects without a PRV whose status is active are unchanged" would hold only relative to C0b. The recommendation is therefore **C0b as 1.2.0 and C1 as 1.3.0** (C2 then 1.4.0, §1.4 item 3's rule; §1.2, §4.6 and risk 11 follow when the owner answers). Sharing 1.2.0, as the owner's decisions of 2026-10-23 shared 1.1.0 (D11), departs from that answer and is offered only as the alternative (Q9 (b)); with it, C1's changelog line is phrased relative to C0b's lines and 1.2.0's net effect against 1.1.0 is stated (§2.11.13).
+2. **Defect 3** is optional and not needed by C1. If it is built, it needs a new trace note (the dead-end note would be wrong for a link into a pump loop). C3 recommends against zeroing flows below Qtol or raising `ZERO_FLOW_RTOL`, since both would hide real small flows.
+3. **Criterion 3 stays as written, with one addition for the measured class of numbers at the solver's resolution.** A number outside its default-settings tolerance passes only if both trees agree at criterion 7's tight settings within criterion 7's tolerance. It is listed by name with both default values and the fixed-point value (today: `fuzzfc_10246`). The comparator gains no ignore paths. Fix (a) removes the flag class at the source, and the round-off exclusion of §2.7 already covers labels at round-off flows. The tolerance mismatch is put to the owner as Q10, separately from C0b (Q9), because criterion 3 is the owner's (Q5, and the answer of 2026-10-24). Whether `fuzzfc_10246` is still the only number it covers once C0b is in both trees is expected, not measured (above).
+
+#### 2.11.11 How the §2.7 criteria apply
+
+Criteria 1–8 keep their definitions and are re-run by the build on the HEAD it commits on, after C0b.
+
+| # | Criterion | Applied to the redesigned rule (JG unless stated) |
+|---|---|---|
+| 1 | Identity without an active-status PRV | 2,458 of 2,458 identical (§2.11.8); by construction (§2.11.7) |
+| 2 | Methods sentence | The sentence of §2.11.13, byte for byte, exactly where an active-status PRV exists. Not measurable on the prototypes, whose summaries were not changed |
+| 3 | Within tolerance | Without C0b: not met in 7 projects (§2.11.10). With C0b: **expected, not measured** (RV2), to be met except `fuzzfc_10246`'s curve point, which the addition of §2.11.10 item 3 handles (Q10). Fix (a) was re-dumped on 9 named projects only and fix (b) in neither tree; the build dumps the full corpus at default settings and at criterion 7's settings with both C0b fixes in both trees, and reports the result before claiming this criterion |
+| 4 | States change only at zero flow | Met: no state change in the corpus |
+| 5 | Convergence and curve-point counts change only from not converged to converged | Met: VH1–VH3, and `fuzz_2197`'s points |
+| 6 | Named and self-checked | VH1–VH3, `fuzz_2197`, `fuzzfc_10246`, and the fuzz records of §2.11.8 |
+| 7 | Fixed point | Every number is within the fixed-point tolerances (worst flow 0.82× in `fuzzfc_10144`, heads 0.069×, speeds 6.8·10⁻⁵×, curve heads 0.018×), with no state difference. Different: 7 `fuzzaf` projects not converged in both, by flag locations only (defect 1; expected to go with C0b's fix (a), not measured: RV2), and VH3, which converges only under the new rule (a criterion-5 change, listed) |
+| 8 | Fuzz | Met: class tables unchanged in all three profiles, 0 critical; the one states-only record (`flow_control` seed 11,075, zero flow) is listed with its empty self-check |
+
+New criteria, stated before the build runs:
+- **9. Families.** The 9,002 networks, VA's 2,232 and the review's 5,244 (RN-2), against `d78a8ef` (or C0b's HEAD), each set swept twice: at default settings, and with both trees at `max_iterations` 1,000. In both runs: 0 converged → not converged and 0 independent-check failures. At default settings, state changes only of class D (§2.11.9: D1 or D2 by 1.1.0's 1,000-iteration run, within criterion 3's flow tolerance) or zero-flow label changes, each named with its class and checked on both sides, a PRV without a result included (a check of its closed state against the levels its isolated section can take, which `checks.py` skips today); D2 only as Q8 allows. The generators and tools are committed under `tests/differential/held_heads/`: the first review's `gen*.py`, its skeptic's, VA's `gen_new.py`, this review's `gen_rn.py`, `gen_rn2.py`, `gen_rn3.py` and `genlib.py` (the TD, TT, NZ2 and PZ3 layouts among them), `sweep.py`, `famcmp2.py` and the reviser's `classify.py`. A new state change outside these classes, or any regression, blocks.
+- **10. Exactness.** The finite-difference test of §2.11.12 (U1, U2).
+- **11. Code path.** Bit-identity by code path (U8), gate L included.
+- **12. Performance.** Measured controlled, on a quiet runner, with the budgets of §2.11.5: the corpus total within 1.25× of 1.1.0's, the 986-component ladder with an active PRV within 1.5×, and U11.
+
+#### 2.11.12 Tests
+
+**Unit tests** (`tests/unit/test_gga_held.py`, `test_elements.py`):
+- **U1. Exact Jacobian.** At every accepted iterate of VH1, VH7 (ideal and Crane), the review's N1 network and its gate and ball variants, N2 (into the branch), a 3-tee Crane ladder fed by a PRV and two PRVs into a Crane tee, the analytic Jacobian equals central differences of the GGA residual within 10⁻⁵ relative per column. At a kink it equals one of the one-sided differences, and the test asserts which.
+- **U2. Step.** The SMW step equals a dense solve of the exact system within 10⁻⁹ relative.
+- **U3. Derivatives** (OC):
+  - `HeadOffsetArrays.reference_slopes` (new) is bit-identical to the scalar `HeadOffsetLaw.reference_slope`;
+  - the Euler identity holds within 10⁻¹²;
+  - central differences agree away from the clip bounds.
+- **U4. Quadratic convergence:** e_{k+1} ≤ 100·e_k² over the last three iterates of VH1, VH7 and N1.
+- **U5. Gate C:**
+  - at M = 1 − τ ± ε;
+  - at r_tot < 1 (the VH5 and VH6 lines);
+  - with a constructed negative stiffness (rejected);
+  - two PRVs with real and complex eigenvalues.
+- **U6. Gate R:** on `I Ls5.0 run_inlet h6.0 h32.0 La0.5 Lb0.5 d30.1023`, the iterates whose PRV fails its rule take 1.1.0's step, and the solve ends at 1.1.0's state, its flows within 10⁻⁸ of the largest flow.
+- **U7. Gate T:** on `G L13.0 L23.0 h8.0 h8.0 Lm30.0 ex0 crane`, the reversing step is rejected, and the solve ends in 1.1.0's state, both PRVs active.
+- **U8. Code path:**
+  - the exact-step function is never called without an active-status PRV (monkeypatched to raise);
+  - a gated iterate's arrays equal those of a kept reference copy of 1.1.0's step;
+  - a PSV with forward or reverse flow takes 1.1.0's step;
+  - gate L: an iterate with a PRV in P and a live active PSV in reverse flow (an NDa or PZ3 network at such an iterate) takes 1.1.0's step, before any factor (RN-3).
+- **U9. Order:** two held heads on one pipe give the same step in either `held_reference` order.
+- **U10. Inner solves:** every inner solve of the outer loops of N1, N2 and the gate network converges, with exact steps taken.
+- **U11. Performance:** the 986-component Crane ladder with an active PRV, and the 200-tee review chain with Crane tees and an active PRV, converge within the budgets of criterion 12, the chain's plugged stubs at exactly 0.
+- **U12. Structure:** no group node carries a control-valve link or a demand (the assertion of §2.11.3).
+- **U13. Gate C is not reachability (a documented D2 case):** on `NC Ls10.0 branch h6.0 h38.0 Lm0.5 Lb0.5 colebrook`, the third inner solve takes exact steps and converges; from its root × (1 + 10⁻⁹), 1.1.0's step grows the deviation by more than 1.5 per iteration over the first 10 iterations; the project ends with V active under the new rule (D2, §2.11.9).
+
+**Reference cases** (`tests/reference/derivations_velocity_head.py`):
+- VH1–VH6 as built. VH1–VH3 now pass; they fail at 1.1.0.
+- **VH7** becomes a case file at the default 100 iterations: the ideal tee with its branch plugged, at 1, 2 and 3 m/s, against the closed form (`brentq` on `line.Line`).
+- **VH8:** PRV → 10 m pipe → a Crane tee's run → tanks at 5 and 8 m with exits, the review's N1 network. Its independent solution is `brentq` on the network equations, with the `fluids` Crane K at the solved split (`derivations_branches`), to D6's 0.5 %.
+- **VH9:** VH8 with a gate valve between the pipe and the tee.
+- **VH10:** two PRVs in parallel with exits, only if its derivation shows one valid, stable state.
+
+**Fuzz.** No new profile. The families of criterion 9 are deterministic grids and are run at every C1 and C2 build. The three existing profiles are run under criterion 8.
+
+#### 2.11.13 Texts and METHOD_VERSION
+
+**`version.py`:** C1's own METHOD_VERSION, after C0b's (RV4, §2.11.10): **"1.3.0"**, with C0b as "1.2.0" (Q9 (a), recommended; C2 then becomes 1.4.0). The changelog entry:
+
+> An active PRV holds its outlet at its setpoint head, which includes the velocity head in its outlet pipe. Where an active PRV passes forward flow, Newton's step now includes the flow derivative of that velocity head and of every branch loss's dependence on the flows (before, both were taken from the previous iteration), at each iteration where, for every such PRV, its own rule keeps it active at that iteration's heads, no active PSV passes reverse flow, the network beyond the held ports responds stably (for one PRV, the path beyond its port loses more than one velocity head of the outlet pipe), and the step keeps its outlet flow forward; at every other iteration the step is that of methods 1.1.0 and 1.2.0. An active PRV whose path beyond its port loses only a little more than one velocity head (a short spool with an exit into a tank, or a short spool into a tee and a main) now converges in a few iterations, where it took up to 100 or did not converge, except where the first exact step leaves an iteration at which the PRV's rule rejects its active state (the step is then the previous method's). Both iterations have the same fixed point (corpus at a tolerance of 10⁻¹³: flows within [8.2·10⁻¹²] of each project's largest flow, heads within [7·10⁻¹⁰] m). Compared with 1.2.0, projects without a PRV whose status is active are unchanged. With default settings the corpus of [5,140] projects differs from 1.2.0 by at most [1.1·10⁻⁹] of each project's largest flow, [1.4·10⁻⁷] m in heads and [1.4·10⁻⁸] relative in system-curve heads; solves that did not converge may now converge ([3], all of them reference cases added with this change; none of the [5,134] existing projects), one pump gained four system-curve points, and no state changed; a network with several valid states may end in another of them, including one that the previous method would not reach with more iterations (measured only in adversarial test networks, none in the corpus or the fuzz).
+
+The bracketed numbers are re-measured by the build, against C0b.
+
+**If C0b and C1 share 1.2.0** (Q9 (b), which departs from the owner's "own METHOD_VERSION"): the same entry follows C0b's lines in 1.2.0, with "compared with 1.2.0" and "differs from 1.2.0" read as "compared with C0b's lines above", and 1.2.0's entry ends with its net effect against 1.1.0, measured by the build: projects without a PRV whose status is active changed only by C0b (states only at zero flow, convergence only from not converged to converged, the energy test's methods sentence, and the residual locations in not-converged flags), and the rest within C1's bounds of C0b's results.
+
+**`methods.py`:** one sentence, appended after one space to the Network-solution item (`trace.methods.sections.0.items.2`), only where the project has a PRV whose status is `active`:
+
+> Where an active PRV holds its outlet with forward flow, Newton's step is exact at each iteration where, for every such PRV, its rule keeps it active at that iteration's heads, no active PSV passes reverse flow, the held heads are stable for the iteration (every eigenvalue of the error multiplier of the iteration that takes only the held heads' velocity-head terms from the previous iteration has a nonnegative real part and a modulus of at most 1 − 1e-06; for one PRV, the path beyond its port loses more than one velocity head of its outlet pipe, so that the static pressure at the port rises with the flow), and the step keeps its outlet flow forward: its velocity head and every branch loss's dependence on the flows then enter with their derivatives; otherwise they are taken from the previous iteration, as in method 1.1.0.
+
+- 1e-06 is printed from `JACOBIAN_FLOOR_RELATIVE` with `:g`.
+- `test_methods.py` pins the sentence byte for byte. It also pins the sentence's presence on a project with an active-status PRV, and its absence on one whose PRVs are all failed open or closed and on one with only a PSV.
+- C2 extends the condition to "or a discharge-pressure pump that is on".
+
+**`gga.py`:**
+- The module docstring:
+  - the branch-leg paragraph ("Only the dependence on other links' flows is lagged") gains the exception;
+  - the held-node paragraph gains the step.
+- The comment at the `held_reference` loop (`gga.py:963-969`), which states gate L.
+- `JACOBIAN_FLOOR_RELATIVE`'s docstring gains its use as the gate C threshold.
+
+**No trace change.** The equations of the converged state are unchanged. `schemaVersion` stays 1.
+
+**Docs:**
+- TSD §5.2 (held nodes, branch legs) and the §5.3 PRV row.
+- TSD §10.4: criteria 1–12, the commands, and the results.
+- TSD §12 gains a new decided item for C1's exact step (a new entry: item 6 at HEAD is slice 1's speed control, and the slow-lag item existed only in the uncommitted first build; RV10). Its limitation: the step is the previous method's at iterates where a gate fails. That covers r_tot ≤ 1/(1 − τ) (gate C), an active state the PRV's rule rejects at the iterate (gate R, which also keeps the 16 E-family lines of §2.11.8 not converged where A1 converges them), a live active PSV in reverse flow (gate L), and a step that would reverse an outlet flow (gate T); and that, where several valid states exist, the state reached can differ from the one the previous method reaches even with more iterations (class D2, §2.11.9).
+- CLAUDE.md D10's sentence "PRV/PSV flows are coupled exactly in the Newton step (no lag)." gains (RV10): "; where an active PRV passes forward flow, so are its velocity-head term and every branch loss's flow dependence (the exact Newton step of the inner system) at iterations where the PRV's rule keeps it active, no active PSV passes reverse flow, its held head is stable for the iteration (`JACOBIAN_FLOOR_RELATIVE`) and the step keeps its flow forward; elsewhere they are lagged, as in 1.1.0 (METHOD_VERSION 1.3.0, or 1.2.0 if shared with C0b, Q9; proposal vfd-slice2-discharge-pressure.md §2.11)". D7 notes the branch-leg exception.
+- Proposal §1.5 (Later) and §12 risk 15 now point here.
+
+#### 2.11.14 Risks and open items
+
+1. **Path safeguards, not a proof.** Gates R, L and T preserve 1.1.0's path. They are not part of Newton's method, and a layout outside the families could show a new change class. Mitigations: criterion 9 at every C1 and C2 build, and the family generators committed.
+2. **Multiplicity.** Wherever the step changes the path, the outer loop can reach another rule-valid state. Measured at default settings (§2.11.9): 8 in VA's 2,232 (NA 2 of class D1, NC 6 of class D2) and 66 in the review's 5,244, in 4 more families (54 at nonzero flow, all D1; 12 zero-flow label changes); 0 at nonzero flow in the corpus and the fuzz, and 0 in the 9,002. Gate C does not keep Newton to roots 1.1.0 reaches (RN-1), so a D2 change is a state 1.1.0 does not reach with more iterations. These families are path-dependent in both methods. *Measured* by the reviser (TD, NZ2 and TT, 1,168 networks, both trees at 100 and at 1,000 iterations; `revise/cmp_tdnztt_*.txt`): 1.1.0 itself changes 70 states on TD and NZ2 (58 + 12, as the review's skeptic counted) and 14 on TT between 100 and 1,000 iterations; in 20 more networks (TD 12, TT 8) both methods agree at default settings and both end in another state at 1,000; and at 1,000 iterations the two methods agree on every state of the 1,168 (0 changes, 0 converged → not converged). PRV multiplicity stays undetected in v1 (risk 7).
+3. **Residual non-convergence.** 32 networks of the 9,002 stay not converged, as in 1.1.0: the 16 E-family lines, which **A1 and the first build converge** in 9–16 inner iterations, and 16 parallel-PRV networks, 2 of which the first build converges. For the E lines the cause is gate R after the first exact step (§2.11.8), not r_tot. This narrower limitation is documented in TSD §12. A variant that, where gate R fails, takes A1's exact velocity-head term (where the outlet pipe's far end is known) instead of 1.1.0's step could converge them; it is neither designed nor measured, and A1 itself was rejected by the owner (RV1).
+4. **Cost.** The KKT factor runs at every accepted iterate. It is timed in §2.11.5 on the prototype, and the build must meet criterion 12 on a quiet runner. SuperLU on an indefinite saddle system relies on partial pivoting. JG measured the 200-tee review chain with Crane tees and an active PRV (it converges in 10 iterations against 1.1.0's 12, with up to 401 correction columns, a continuity residual of 0 and its plugged stubs at exactly 0; `judge/timing.py`), but not every ill-conditioned layout.
+5. **C2.** The held discharge of a pressure pump needs its own gate R (the pump's rules), and gate C must be reconciled with rule S's P-matrix verdict. §5–§6 and the PVH cases are to be re-measured.
+6. **Corpus coverage.** The corpus holds few projects with both an active PRV and a Crane branch: OC counted 4. The adversarial families carry that evidence and are part of the acceptance run (criterion 9).
+7. **C0b first.** Criterion 3's result depends on C0b landing first, and on top of C0b it is expected, not measured (RV2). Fix (b) moves 9 corpus states of 1.1.0 between valid states, all at zero flow, on the 58 stalling projects C3 ran; it needs its own measurement under criteria B1–B8 (§2.11.10), including C3's stall scan of the system curves, which has not been run.
+8. **Gate L's effect** is measured, not proven, to be small: nothing in the 1,520 family networks with PSVs; numbers within tolerance in 13 of the 73 corpus projects where it acts, with no state, convergence or flag change (§2.11.4). It was not added to the judge's full corpus, fixed-point and fuzz runs, which the build repeats with all four gates.
+
+#### 2.11.15 Review of the redesign and its disposition
+
+A two-lens review of §2.11 as merged (numerics, **RN**; verification, **RV**), each finding checked by a skeptic who re-ran the reviewer's scripts in its own clean `d0beec5` trees, raised 18 findings; the skeptics upheld 13 (RV9 in part) and rejected 5. The reviser (label `revise/`) re-checked every upheld finding against the code at `d0beec5` and, where the fix rests on numbers, by experiment in its own clean trees under `/dev/shm` (a `git archive` of `d0beec5`, and the same with `judge/make_sparse.py`, the chosen rule; `opensolve_pipe.__file__` printed by every run), before changing the design.
+
+**What the reviser re-measured** (scripts and summaries in `revise/`):
+- RN-1's growth at the exact root (`lag_growth_NC_h6.txt`, the skeptic's `lag_growth.py`): 1.930 per iteration from 10⁻⁹, constant over the first 15 iterations.
+- The review's 5,244 networks regenerated from its generators and swept in both trees at default settings (`rn_cmp_default.txt`): 3,008 identical, 0 converged → not converged, 120 not converged → converged, 44 not converged in both, 66 valve-state changes, 0 other-state changes, 0 check failures, inner iterations 653,801 → 461,967, the review's numbers exactly.
+- The 66 classified (`classify.py`, `changes66_default.txt`, `changes66_d1d2.txt`): 12 zero-flow label changes (TD 8, TT 4; flows within 8.1·10⁻¹¹ of the largest), 54 at nonzero flow (TD 38, NZ2 12, TT 2, PZ3 2); 1.1.0 at 1,000 iterations reaches the new rule's default-settings state in all 66, flows within 5.95·10⁻⁹.
+- VA's 8 (`changes_va8_d1d2.txt`): NA's 2 D1 (within 1.14·10⁻⁹), NC's 6 D2.
+- TD, NZ2 and TT (1,168) in both trees at 1,000 iterations (`cmp_tdnztt_*.txt`): 0 state changes and 0 converged → not converged between the trees; 1.1.0 changes 84 states between 100 and 1,000 iterations (TD 58, NZ2 12, TT 14).
+- The rest of the 5,244 (4,076) in both trees at 1,000 iterations (`cmp_rest_head1000_vs_sparse1000.txt`): 2,650 identical, 0 converged → not converged, 24 not converged → converged, 0 state changes, 0 check failures. With TD, NZ2 and TT, the whole 5,244 at 1,000 iterations has no state change and no converged → not converged.
+- The A1 comparisons (`cmp1.py`, `cmp2.py`, the skeptic's scripts re-pointed): the counts of §2.11.8, and RU's change count against `j_edrS.json` (RV13).
+- C0b's 9 state changes with exact flows (`states_exact.py`): every changed element at exactly 0.0 m³/s.
+- Gate L's reach and effect (`psv_count.py`, `dump_names.py`, `cmp73_*.txt`, `fuzz_one.sh`, `fuzzdiff_gateL_148.txt`): 0 iterates where it acts in the 1,520 family networks with PSVs; 492 in 73 corpus projects and 801 in 76 fuzz seeds outside the corpus; on the 73, 13 change within tolerance and nothing else; on the 148 fuzz seeds, no class, state, critical or self-check change (§2.11.4).
+- The independent checks' coverage of the changed states (a count on the dumps above): in 48 of the 62 changes at nonzero flow one side has a PRV without a result, which `checks.py` skips (§2.11.9).
+
+**Upheld:**
+
+| ID | Severity | Finding | Re-checked against | What was done |
+|---|---|---|---|---|
+| RN-1 | major | Gate C's safety argument was false: it said gate C admits the exact step only where the lag would converge, "so the roots Newton converges to are roots 1.1.0's iteration reaches too". Gate C tests the iteration that lags only the held terms, not 1.1.0's, which lags the offsets too; in §2.11.2's model it passes where 1.1.0 diverges (l > p + g + w). Newton then converges inner solves to roots that repel 1.1.0, and the state changes stay with more iterations | The algebra of §2.11.2; the reviser's run of `lag_growth.py` on its own trees (growth 1.930 per iteration at NC h6/h38's third inner solve); 1.1.0 at 1,000 iterations on VA's 8: NC's 6 still in 1.1.0's state after 1,071–1,091 inner iterations, NA's 2 in the new state | Both sentences removed (§2.11.4 bullet C, §2.11.6 item 3) and replaced by the stability statement (for one PRV, r_tot > 1/(1 − τ), static pressure rising with the flow), with the measurement; §2.11.2 states which multiplier gate C bounds; §2.11.1's table; the methods sentence names the iteration whose multiplier it is; class D split into D1 and D2 with D2's evidence (§2.11.9); "what is not proven" gains D2; U13; Q8 puts D2 to the owner (options (a) and (a′)); the changelog's multiplicity sentence and the TSD §12 text say the state can differ from the one the previous method reaches with more iterations |
+| RN-2 | major | Class-D changes are far more common than 8 in 4 layouts, and occur on simple layouts; conditions 3 and 4 of the class are unsound (condition 3 rejects changes with the same mechanism; condition 4 is undefined for PRVs feeding only assigned demands or set within 1 Pa of a boundary); 1.1.0 at 1,000 iterations is a checkable criterion | The reviser's sweeps above. The skeptic's correction holds: 12 of the 66 are zero-flow label changes, 54 at nonzero flow. One more correction: NZ2's new flows reach 2.8·10⁻³ m³/s (dh 10⁻⁴ tank variants), not 7.0·10⁻⁴ | §2.11.9 rewritten: D1/D2 by 1.1.0's 1,000-iteration run within criterion 3's flow tolerance, zero-flow label changes under criterion 4, the old conditions and why they were dropped, the review's families with their counts; criterion 9 (the 5,244 added, a 1,000-iteration run of both trees, the TD/TT/NZ2/PZ3 generators committed); risk 2 (counts, and the path dependence of these families in 1.1.0 itself); Q8's counts, before the owner answers |
+| RN-3 | minor | §2.11.6 item 2 ("no flow dependence is lagged at an accepted iterate") contradicted the PSV exception listed above it, and nothing bounded that mode; the floor bullet understated the floors, which also replace a negative slope of a non-pipe link | `gga.py:963-969` (`max(sign·2c·Q_ref, 0.0)`), `gga.py:238` (`np.maximum(slopes, floor)` for non-pipes), `elements.py:374-375` (a pump's slope is the negated curve slope); the review's 1,152 PSV networks (0 accepted exact steps with a reversed PSV; bit-identical with the rejection). **Corrected by the reviser:** the fix's "zero measured cost" holds for the families only. In the corpus the chosen rule takes 492 exact steps with a reversed active PSV, in 73 projects, and in 76 more fuzz seeds; gate L changes 13 of the 73 within tolerance and nothing else, and no fuzz class, state or critical record (above) | Gate L added (§2.11.1, §2.11.4 item 1 with its measured reach and effect, §2.11.7, §2.11.13's changelog, methods sentence, `gga.py` comment and D10 text), knowing its corpus effect: it makes item 2 true by construction at a measured cost of 13 projects' numbers within tolerance, which correctness first (GOALS §3) accepts; the floor bullet reworded; the PSV term moved to "never part of an accepted step"; item 2 holds by construction; U8 gains the case; the exactness table relabelled (iterates checked before gate T; the 8 NDa iterates were rejected by T); risk 8 |
+| RV1 | major | The redesign was compared with 1.1.0 only, never with A1; measured, A1 has 0 regressions and 0 state changes on both sets and converges 16 networks the chosen rule does not; "the only variant measured with 0 regressions" was false, and Q8 was framed without this | The reviser's `cmp1.py`/`cmp2.py`: A1 converges 16 E-family lines the chosen rule does not (9–16 against 112–116 inner iterations), the first build 18 (E 16, G 1, Gsj 1); on the 2,232 A1 is 1,944 identical, 0 / 0, 0 state changes, 264,424 → 244,124; the chosen rule converges 52 + 57 that A1 does not | A1's 2,232 row and an "Against A1" bullet (§2.11.8); the E-line bullet names gate R as the cause and says A1 converges them; "the only variant" sentence replaced (§2.11.1); the TSD §12 text names gate R; Q8 states the trade, with A1 as evidence and not an option (the skeptic's mitigation: the owner rejected A1); risk 3 names the possible variant (A1's term where gate R fails) as neither designed nor measured, the finding's optional part |
+| RV2 | major | "With C0b: met except `fuzzfc_10246`'s curve point" was a prediction: C0b was never applied to either tree of C1's comparison | `judge/results/fl_cmp.txt` and `judge/redump.py` (9 named projects, fix (a) only: 8 identical, 1 different); the tight-run flag projects not re-dumped (`cmp_tight.txt`); fix (b)'s path changes, reproduced by the reviser (`fuzz_1446` 119 → 49, `fuzz_2522` 107 → 20) | §2.11.10's paragraph on what the measurement does not cover, with the path-dependent flag sets; criterion 3 and 7 rows marked expected, not measured, with the dumps the build must make first; risk 7; Q10 |
+| RV3 | major | C0b had no acceptance criteria, its measurement was partial, and Q9 (a) bundled it with the criterion-3 addition | `crit3/stall_names.txt` (58 projects, main solves), `crit3/results/resid_all_head.txt` (384 rows, largest ratios 0.81 and 0.60); the reviser's exact-flow re-measurement of the 9 changes (all at exactly 0.0 m³/s) | C0b's criteria B1–B8 (§2.11.10); the zero-flow result reported; fix (a)'s effect on the 384 flags stated and marked unmeasured; Q9 (C0b) split from Q10 (criterion 3) |
+| RV4 | major | One METHOD_VERSION 1.2.0 for C0b and C1 contradicted the owner's "own METHOD_VERSION" for C1, unflagged, and made C1's "unchanged" changelog line false against 1.1.0 | The owner's answers of 2026-10-24 (§13); §1.2 and §4.6 (C2 is 1.3.0); §1.4 item 3 (each takes the next minor version) | Recommended C0b as 1.2.0 and C1 as 1.3.0 (C2 then 1.4.0), §2.11.10, §2.11.13, Q9 (a); sharing kept only as Q9 (b), flagged as the departure, with C1's line relative to C0b and 1.2.0's net effect against 1.1.0; §1.2, §4.6 and risk 11 follow the answer |
+| RV7 | minor | "They include all 85 of the first build's regressions" cannot be true: the 85 converged at 1.1.0 | `revise/cmp1.py`: intersection 0; all 85 converge under the chosen rule in 1.1.0's valve states; 48 of the 50 A1 gave up are among the 96 | The bullet reworded as the finding proposed |
+| RV9 | minor | Q8 said the redesign "changes none in … the corpus or the fuzz", but the fuzz has a states-only change at zero flow | §2.11.8's fuzz table (`flow_control` seed 11,075 at exactly 0 m³/s) | Q8 and §2.11.9 say "no state change at nonzero flow". The finding's second part (name seed 11,005) was refuted by the skeptic: it is one of the 158 same-class record differences the table counts, none a state change; not applied |
+| RV10 | minor | Three cross-references pointed to text that does not exist at HEAD | `git show HEAD:docs/TSD.md` (§12 item 6 is slice 1's speed control; no slow-lag item); `git show HEAD:CLAUDE.md` (D10 has only "PRV/PSV flows are coupled exactly in the Newton step (no lag)."); proposal §12 risk 2 is the round-off floor | §2.11.13's Docs bullets (a new TSD §12 entry; the D10 sentence named exactly); §2.11.10's fix (b) row ("proposal §12 risk 2") |
+| RV11 | minor | The changelog counted VH1–VH3, added by C1 itself, as corpus conversions, and its convergence claim was contradicted by the 16 E-family lines | §2.11.8 (converged-flag changes only VH1–VH3; `judge/results/cmp_tol.txt`); RV1's E lines | Changelog: "([3], all of them reference cases added with this change; none of the [5,134] existing projects)", and the gate-R exception to the convergence claim |
+| RV12 | minor | A design-team status note sat inside the owner's answers of 2026-10-24 | §13 as written | Moved to the head of §2.11; the answers block holds only the owner's answers |
+| RV13 | minor | Some numbers were attributed or counted inconsistently: RU's "28 changed states" against 24; 201,492 attributed to VA; "d = 0.03 m" for all 16 E lines | The reviser's check of `j_edrS.json` against `j_off.json`: 12 valve-state and 12 other-state changes at 10⁻⁶ of the largest flow, 28 at 10⁻⁷ (4 G networks at 2.3–3.7·10⁻⁷), and RU's `changed28.txt` lists 30 names (2 I networks at 1.05·10⁻⁹); `n_x1rt_sp`/`n_x1rt_pm` total 201,486 and `n_sparse` 201,492; 3 of the 16 E lines have d = 0.1023 m | Scores table, results table and the E-line bullet corrected |
+
+**Rejected (recorded, not applied):**
+
+| ID | Finding | Skeptic's reason for rejecting it |
+|---|---|---|
+| RN-4 | No exactness defect was found on the new layouts, but U1 as specified would fail on valid kinks, JG's "no discrepancy remained unexplained" holds only for the sample checked, the FD leaves the continuity manifold and crosses the clip at a dead tee leg, and the classifier's 10⁻⁵ tolerance is below the FD noise at small flows | Not a defect in the design. U1 already says "at a kink it equals one of the one-sided differences, and the test asserts which"; in the reviewer's NZ2 dead-leg case the backward difference equals the analytic column (−0.03271 both). The "42 unexplained" come from the reviewer's own classifier tolerance, and the reviewer found no exactness defect. None of the networks shown is in U1's list, and JG's FD on the VH7 layout (the NH family, Crane tees with the branch plugged) marks every iterate "ok" (`judge/results/fd_new.txt`). JG's statement is for JG's own sets. Continuity-preserving perturbations and a step sweep are reasonable ways to implement the test, not corrections to it. (The reviser added "in these sets" to the statement, §2.11.8.) |
+| RV5 | Two owner-level choices are presented as decided: the literal Q7 (b) is replaced by a different, gated method, and new acceptance criteria, performance budgets among them, are added | Refuted. The owner's answer is "the exact Newton step on the whole downstream response of a held head"; the Sherman–Morrison phrase described how to build it. §2.11.2 shows, with three independent measurements (176, 195 and 204 regressions), that the literal rank-one form reproduces N1, and §2.11.1 and §2.11.4 state the gates and their counts; the changelog and the methods text state the gating. The design is a proposal the owner reads, marked not built. Criteria 10–12 only add gates; none relaxes an owner criterion, and the one that does relax (criterion 9's class D) is put to the owner as Q8 |
+| RV6 | The proof claim that no flow dependence is lagged at an accepted iterate, so the mixed map is never used, is contradicted by the design's own measurement, and the exactness summary overstates what was explained | The central claim is refuted: in `judge_c1.py` the FD check runs after gates R and C but before T; `n_x1rt_sp` shows exact = 0 for every NDa "h20.0,25.0 h38.0" network, with trust = 1 in exactly the 8 Ls0.5/Ls3.0 ones, so gate T refused the 8 PSV iterates; 8,195 exact + 210 trust = 8,405, the table's count. NDa is identical to 1.1.0 (36/36). The 5 reclassified iterates vary by more than the discrepancy over steps of 10⁻⁷ to 10⁻⁴ (`skeptic-verification/fd_sweep.py`, `fd_sweep_out.txt`). Its residual nits (name the PSV exception in item 2; the 8,405 include the 210 T-rejected; no sweep output was kept) were applied with RN-3 (§2.11.6, §2.11.8) |
+| RV8 | §2.11 does not report the API test suite on the prototype, though D6 requires it green for a solver change, and the only preserved record shows failures | Not a defect of the design text. §2.11 makes no claim about the suite; D6's rule applies to the change when it is built, and the build runs it. The VA record (`pytest_x1rt.txt`) is not cited. The reviewer's own run of the build-path prototype gives 3,737 passed; its 4 failures are artefacts of the copy (the missing `derivations_velocity_head.py`, the released-link fixtures and `apps/web`). A suite line would be a nicety, as in §2.6 |
+| RV14 | Criterion 9 builds in Q8 (a) while Q8 is open, and criterion 7's stall listing is not reported for the redesign | Refuted as a defect. Criterion 9's link to Q8 is explicit (§2.11.9 ends with Q8; Q8 (a) is "criterion 9 as stated"), so the class-D clause cannot be read as settled. Criterion 7's by-name listing is a build-time record, and §2.11.11 says the build re-runs criteria 1–8 after C0b; the prototype's non-converged list is preserved (`judge/results/cmp_tight.txt`, 385 not converged or not solved on a side). Marking criterion 9 "subject to Q8" would be cosmetic. (Criterion 9 now says "D2 only as Q8 allows", which the D2 split needed anyway.) |
+
+**A reviser's observation, not a finding of the review.** While re-checking RN-2, the reviser found that the independent status check skips a pump or valve without a result (`tests/differential/checks.py:485-489`), so "both states pass the checks" does not cover a PRV closed beside a section v1 isolates. One side has such a PRV in 48 of the 62 changes at nonzero flow, 1.1.0's side of every D2 change among them. §2.11.9 and Q8 now say so, and criterion 9 requires a check of those PRVs.
+
+**Effect on the owner questions:**
+- Q7: its answered note says four gates.
+- Q8: rewritten with the corrected counts (8 + 66 changes; D1 56, D2 6, 12 zero-flow label changes), D2 put explicitly (new option (a′): accept D1 only), and the trade against A1 shown as evidence; recommendation still (a).
+- Q9: now C0b alone, with its criteria and its METHOD_VERSION; recommendation (a), C0b 1.2.0 and C1 1.3.0, with sharing 1.2.0 flagged as a departure (b).
+- Q10: new, the criterion-3 addition split from the former Q9; recommendation (a), measured on top of C0b before it is claimed.
+
+**Sections changed by this round:** the header (Q8–Q10); §2.7's last paragraph (Q9 and Q10); §2.11's status and provenance; §2.11.1 (the rule's gates, the parts table, the scores, A1's note); §2.11.2 (gate C's multiplier); §2.11.4 (gate L with its measured reach and effect, gate C's item 3 and bullet C with RN-1's measurement, the gate table's note); §2.11.5 (the cost of gates R and L); §2.11.6 (floors, the PSV term, items 2–4, what is not proven); §2.11.7; §2.11.8 (the introduction, the A1 row, the 2,232 row's iterations, the rows for the review's 5,244 and for 1,000 iterations, the conversion, A1 and E-line bullets, the exactness table and its classification); §2.11.9 (rewritten, with the checks' coverage); §2.11.10 (what the re-dump does not cover, fix (a)'s effect, the zero-flow result, criteria B1–B8, METHOD_VERSION, item 3); §2.11.11 (rows 3 and 7, criteria 9 and 11); §2.11.12 (U8, U13); §2.11.13 (version, changelog, the shared alternative, methods sentence, `gga.py` comment, Docs); §2.11.14 (risks 1, 2, 3, 7, new 8); this §2.11.15; §13 (Q7's note, Q8, Q9, new Q10, the status bullets removed from the answers block); Appendix B (the review's and the reviser's labels).
 
 ---
 
@@ -1957,7 +2651,7 @@ Desktop and mobile share the single-column panel form, so no layout is device-sp
     - "no flow at minimum speed" is dead-heading (no sleep, Q4).
 13. **Slice-1 limitations carry over:** drooping curves (TSD §12 item 3) and the x_mono band at solve time (§5.6 item 6). Items 4 and 5 are being resolved by the work in progress of §1.4, and the build rebases onto it.
 14. **Patent US 8,265,911** (listed active to 2030-11-27) recites tank control nodes, extended periods, fixed-flow updates and batteries. Slice 2 holds the pump's own port in a steady state, with no tank and no battery; under Q1 (c) parallel pumps are independent controllers, each holding its own port, with no common speed, battery or lead/lag staging. US 7,013,248 (a fixed control-node head in the GGA) is listed as expired. This is not a legal reading.
-15. **The slow lag where the outlet pipe alone loses at most one velocity head** (r_ref ≤ 1 < r_tot ≲ 1.2; §2.3, PN3). An active PRV, and an active pressure pump, there can end not converged at the default 100 iterations although a valid state exists (measured for a PRV: r_tot ≈ 1.11 not converged, 1.23 converged in 82–90). C1 does not change it. An exact step on the whole response by Sherman–Morrison is a possible later method change, with its own measurement and corpus run.
+15. **The slow lag where the outlet pipe alone loses at most one velocity head** (r_ref ≤ 1 < r_tot ≲ 1.2; §2.3, PN3). An active PRV, and an active pressure pump, there can end not converged at the default 100 iterations although a valid state exists (measured for a PRV: r_tot ≈ 1.11 not converged, 1.23 converged in 82–90). C1 does not change it. An exact step on the whole response by Sherman–Morrison is a possible later method change, with its own measurement and corpus run. *(Superseded: the redesigned C1, §2.11, takes the exact step. VH7 and the review's networks now converge. What remains is listed in §2.11.14 item 3.)*
 16. **A path-pinned case.** PCF10 pins ACTIVE in the x_mono band by D11's path rule. A future rule change that alters the path could move it to the other valid state; the case's derivation names both, so that change would show as a deliberate case update, not a silent one.
 17. **Rule S rests on steady-state gains and ideal valves** (Q1 (c), §5.11.4). A state that passes S is one that some decentralized integral tuning holds with integrity, not one every tuning holds; the drives' dynamics and the PRV, PSV and FCV loops are not modelled. A state that fails S is refused even where a particular tuning without integrity might hold it (exit S3); the message says which.
 18. **The natural input of identical boosters on fitting-less spools ends not converged** (Q1 (c)): the default start reaches the symmetric state, which rule S refuses (§5.11.5). The message names a state the drives can hold where the search finds one, and the fix (a fitting or check valve that loses more than one velocity head on each discharge). On the web app's default Crane headers no such case was measured: pinned solves reached no second state in 28 networks (ZJ), and PZ8's speed-space scan found no unstable state (ZR).
@@ -2033,6 +2727,53 @@ Desktop and mobile share the single-column panel form, so no layout is device-sp
      - (b) Before C2, add an exact Newton step on the whole downstream response (a rank-one Sherman–Morrison update with the existing factor) as its own change set, with its own corpus measurement and METHOD_VERSION.
    - **Recommend (a).**
    - Why: the result it gives is honest (not converged, never a wrong state; GOALS §3); (b) is a new solver change in the most numerically delicate code, not yet designed or measured; the fuzz count says whether it matters in practice.
+   - **Answered (b)** by the owner on 2026-10-24, after C1's first build (answers below). This replaces the answer (a) of 2026-10-23. The step is designed and measured in §2.11. The rank-one update with the existing factor alone was measured to make N1 worse (§2.11.2), so the exact step includes the branch offsets' flow dependences, behind four gates (three at the merge; gate L added after its review, §2.11.15).
+8. **State changes in the adversarial families** (§2.11.9; criterion 9 of §2.11.11; added by the redesign of C1, revised after its review, RN-1, RN-2, RV1, RV9).
+   - **What was measured** at default settings, against 1.1.0:
+     - The 9,002 networks of the first review: no state change. The corpus and the fuzz: no state change at nonzero flow (one fuzz record, `flow_control` seed 11,075, changes labels at exactly 0 m³/s).
+     - VA's 2,232: 8 changes, in 4 networks of 2 families, each with both friction models. NA's 2 are of **class D1**: 1.1.0 run with 1,000 iterations reaches the new rule's state. NC's 6 are of **class D2**: 1.1.0 with 1,000 iterations still ends with the PRV closed and its tee leg held, while the new rule ends with it active (r_tot 24.5–55.7, a static pressure that rises with the flow).
+     - The review's 5,244: 66 changes, in 4 more families (two PRVs in parallel into a Crane tee that feeds only an assigned demand, 46; two PRVs into one Crane tee, 6; a PRV set 10⁻⁶ to 10⁻⁴ m above a tank head, 12; a PRV and a PSV at nearly zero flow, 2). 12 are zero-flow label changes; the 54 at nonzero flow are all D1 (flows within 5.95·10⁻⁹ of 1.1.0's at 1,000 iterations).
+     - In every case both states pass the independent checks, so neither is shown wrong, and the inputs admit several valid states (PRV multiplicity, risk 7). The checks skip a PRV without a result (closed beside a section v1 isolates, valid by v1's own free-level rules): one side has one in 48 of the 62 changes at nonzero flow, among them 1.1.0's side of every D2 change (§2.11.9).
+     - D2 exists because gate C tests the stability of the held state, not that 1.1.0's iteration would reach the same root. In NC's networks Newton converges an intermediate inner solve to a root that repels 1.1.0's lag (growth 1.93 per iteration), and the outer loop then takes another path (§2.11.4). An earlier text said gate C kept Newton to roots 1.1.0 reaches; that was wrong and is withdrawn.
+   - **The trade against A1** (evidence only: you rejected A1 on 2026-10-24, and it is not offered again). On the two sets both were measured on (the 9,002 and the 2,232), A1 changes no state, leaves no converged solve not converged, and converges 60 + 0 networks that 1.1.0 does not. The chosen rule also leaves no converged solve not converged; it converges 96 + 57 (and 120 of the review's 5,244, where A1 was not run), changes the 8 states above on the 2,232, and leaves 16 networks not converged that A1 converges (E-family lines, held back by gate R; risk 3 of §2.11.14).
+   - Options:
+     - (a) Accept D1 and D2 in the families: criterion 9 as stated in §2.11.11 (each change named with its class, both states checked; zero-flow label changes listed under criterion 4), with criterion 4 strict for the corpus and the fuzz.
+     - (a′) Accept D1 only. A D2 change blocks, and C1 waits for more design that removes NC's 6 (none is designed or measured).
+     - (b) Require no state change in the families. This needs more design (for example a second-state test for PRVs, risk 7), and C1 waits for it.
+     - (c) Report not converged where two valid states are found (the PRVs' second-state tests, Later).
+   - **Recommend (a).**
+   - Why:
+     - Neither state is shown wrong in either class: both satisfy every rule the independent checks test, and the PRVs they skip are valid by v1's own free-level rules, so correctness is not at stake (GOALS §3); criterion 9 now also requires an independent check of those PRVs.
+     - D1: 1.1.0's state at its default 100 iterations is an artefact of its slow lag and its fallback; given more iterations, 1.1.0 itself reaches the new rule's state.
+     - D2: where several valid states exist, two iterations may reach different ones. That is the precedent you accepted in D11 (a controlled pump re-solved as the fixed pump "may reach different ones, since their iterations differ") and v1's semantics for PRV multiplicity (risk 7; Q6 (a)). The new state is the stable active one, reached by an inner solve that converged; 1.1.0's comes from its fallback after its lag diverged.
+     - These families are path-dependent in 1.1.0 itself: on TD, NZ2 and TT, 1.1.0 changes 84 states between 100 and 1,000 iterations, and with 1,000 iterations the two methods agree on every state there (§2.11.14 risk 2).
+     - No link has been deployed, and the corpus and the fuzz show no state change at nonzero flow (GOALS §3, longevity).
+     - (a′), (b) and (c) need design that is not done; (b) and (c) change what a PRV result means, which belongs with PRV multiplicity (risk 7, Later).
+9. **C0b, the two defect fixes found by the investigation of criterion 3, and its METHOD_VERSION** (§2.11.10). This question was split from the criterion-3 question (now Q10) after the review (RV3, RV4), so that C0b, which holds a method change, is approved on its own.
+   - **What C0b is.** Fix (a), traceability: the `NOT_CONVERGED` flag names a residual's location only where the residual exceeds its stop tolerance, and the failed-state exit reports the residuals of the solve its message describes. Fix (b), a method change: the energy stop test allows the round-off floor of the heads it subtracts, |residual| ≤ `ENERGY_TOL` + 4ε × the largest of the link's end heads and its loss.
+   - **What was measured, and what was not.** On the 58 projects that stall at the floor (main solves), fix (b) changes 9 final states; every changed element carries exactly 0 m³/s on both sides, and all 9 converge in both trees, in fewer inner iterations. Fix (a) was re-dumped on 9 named projects only; since all 384 not-converged corpus projects end with their residuals inside the stop tolerances, it removes the location from every one of their flags. Neither fix has run on the full corpus, the fuzz or the system-curve stall scan; criteria B1–B8 (§2.11.10) state what the build must show, before it runs.
+   - Options:
+     - (a) Build C0b before C1, under B1–B8, as **METHOD_VERSION 1.2.0**; C1 becomes 1.3.0 and C2 1.4.0.
+     - (b) Build C0b under B1–B8, sharing the unreleased 1.2.0 with C1, each with its own changelog lines. **This departs from your answer that C1 has its own METHOD_VERSION**: between the two commits 1.2.0 would label two methods, and C1's "unchanged" line holds only relative to C0b, so 1.2.0's entry states its net effect against 1.1.0 (§2.11.13).
+     - (c) Build fix (a) only, in C0b as 1.2.0, and leave fix (b) as a later method change (proposal §12 risk 2 stays open).
+     - (d) No C0b: amend the comparator instead (Q10 (b)).
+   - **Recommend (a).**
+   - Why:
+     - It follows your instruction: each change set has its own method version (GOALS §4.3).
+     - Both defects are real and pre-existing: the flag names locations for round-off (GOALS §4.2), and the energy floor treats converged solves as failed and lets round-off choose among valid states (GOALS §3).
+     - The state changes measured so far are all at zero flow, criterion 4's class, and B1–B8 turn the rest into a measurement.
+     - (c) leaves the correctness defect in v1, and (d) leaves both.
+10. **Criterion 3's handling after C0b** (§2.11.10 item 3; the second half of the former Q9). The owner's answer of 2026-10-24 reserved this until the three exceptions of A1 were investigated.
+    - **What was found.** Under the redesigned rule, criterion 3 fails as written in 7 corpus projects: six by their `NOT_CONVERGED` flag's residual locations (defect 1, which C0b's fix (a) removes at the source), and `fuzzfc_10246`'s system-curve point, 1.36× its tolerance at default settings, where both trees give the same value at a tolerance of 10⁻¹³ (a mismatch between criterion 3's head tolerance and the solver's resolution on that path). With C0b in both trees, the outcome is **expected, not measured** (RV2): the set of flag projects depends on the solve path, and fix (b) changes paths.
+    - Options:
+      - (a) Criterion 3 as written, with one addition: a number outside its default-settings tolerance passes only if both trees agree within criterion 7's tolerance at criterion 7's settings, and it is listed by name with its values (today, `fuzzfc_10246`'s point).
+      - (b) Amend the comparator instead, with no code fix before C1: ignore the flag's residual locations where neither side converged, exclude the labels of elements at round-off flow, and derive head tolerances from the path's head loss (C3's max(10⁻⁶ m, 2·10⁻⁸ × the largest link head loss)).
+      - (c) Keep criterion 3 strict and list each exception by name at every run.
+    - **Recommend (a)**, measured on top of C0b (both trees, full corpus, default and criterion 7's settings) before it is claimed met.
+    - Why:
+      - The addition covers only numbers shown to agree at the fixed point, and adds no ignore path to the comparator.
+      - (b) widens the comparator for every project and, without C0b, leaves both defects in v1.
+      - (c) makes every future run depend on hand-kept lists.
 ---
 
 ### Owner's answers (2026-10-23)
@@ -2101,6 +2842,8 @@ Desktop and mobile share the single-column panel form, so no layout is device-sp
 | R32 | Which solves and tests run with no regulating pressure pump, and on which blocks (ZR F5) | The perturbed solves whenever P = A ∪ L is not empty; the P-matrix test only on blocks with a regulating pressure pump | V3 and V4 need V1's r where nothing regulates (J `j5`, PN1); flow pumps keep slice 1's behaviour outside such blocks |
 
 ## Appendix B. Measurements
+
+**The redesigned C1 (§2.11).** Its scripts live in `…/scratchpad/c1-redesign/<label>/` (labels `rank-update/`, `offset-cross-terms/`, `verification/`, `crit3/` and `judge/`; for its review, §2.11.15, `review-numerics/`, `review-verification/`, `skeptic-numerics/`, `skeptic-verification/` and the reviser's `revise/`). §2.11 names the script with each measured number, and its provenance paragraph states how the runs were isolated.
 
 Every script lives in this session's scratch directory, `…/scratchpad/slice2-design/<label>/`. They were run from `apps/api` with `uv run python`. No measurement wrote a repository file. The working-tree changes that appeared during J's runs belong to the concurrent session of §1.4.
 - J's corpus and default-fuzz runs ended before those changes began.

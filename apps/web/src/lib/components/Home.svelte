@@ -3,7 +3,7 @@
 	import { EXAMPLES } from '$lib/utils/examples';
 	import { encodeProject } from '$lib/utils/encoding';
 	import Icon from './ui/Icon.svelte';
-	import { DISCLAIMER, projectHref, SOURCE_URL } from './links';
+	import { COPYRIGHT, DISCLAIMER, NOTICES_URL, projectHref, SOURCE_URL } from './links';
 	// Example links are stable: the examples have fixed ids and timestamps.
 	const examples = EXAMPLES.map((e) => ({ ...e, href: projectHref(encodeProject(e.create())) }));
 </script>
@@ -65,11 +65,16 @@
 	<section class="mt-12 space-y-3 border-t border-slate-200 pt-6 text-sm text-slate-600">
 		<p>{DISCLAIMER}</p>
 		<p>
-			OpenSolve Pipe is free software, licensed under the GNU Affero General Public License v3.0 or
-			later (AGPL-3.0-or-later). <a
+			{COPYRIGHT}. OpenSolve Pipe is free software, licensed under the GNU Affero General Public
+			License v3.0 or later (AGPL-3.0-or-later).
+			<a
 				href={SOURCE_URL}
 				rel="external noopener noreferrer"
 				class="text-blue-800 underline underline-offset-2">Source code</a
+			>
+			of this version. It includes open source packages under their own licenses:
+			<a href={NOTICES_URL} rel="external" class="text-blue-800 underline underline-offset-2"
+				>third-party licenses</a
 			>.
 		</p>
 	</section>

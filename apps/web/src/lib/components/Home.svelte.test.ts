@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { decodeProject, fragmentOf } from '$lib/utils/encoding';
 import { EXAMPLES } from '$lib/utils/examples';
 import Home from './Home.svelte';
+import { SOURCE_URL } from './links';
 
 describe('Home', () => {
 	it('shows the product name', () => {
@@ -43,6 +44,13 @@ describe('Home', () => {
 				/OpenSolve Pipe is an engineering aid\. Its results support, but do not replace, the judgment\s+of a qualified engineer, and are provided without warranty\./
 			)
 		).toBeInTheDocument();
-		expect(screen.getByText(/AGPL-3\.0-or-later/)).toBeInTheDocument();
+		expect(screen.getByText(/AGPL-3\.0-or-later/)).toHaveTextContent(
+			/^Copyright © 2026 Chris Cirone\. OpenSolve Pipe is free software/
+		);
+		expect(screen.getByRole('link', { name: 'Source code' })).toHaveAttribute('href', SOURCE_URL);
+		expect(screen.getByRole('link', { name: 'third-party licenses' })).toHaveAttribute(
+			'href',
+			'/third-party-licenses.txt'
+		);
 	});
 });

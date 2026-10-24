@@ -22,6 +22,16 @@ state (active, max_speed, min_speed, no_flow, off). They take about 15 s (the st
 solves each network up to 16 more times); the 3,000-seed run is the command-line tool
 (``--profile flow_control``, seeds 10,000-12,999). Three seeds of that run whose statuses cycle
 are pinned too (``CYCLE_CLASSES``).
+
+The generator profile 'assigned_flow' (assigned-flow nodes, TSD §4.8) is pinned on its seeds
+20,000-20,024 (``ASSIGNED_FLOW_CLASSES``, deterministic under PYTHONHASHSEED 0 and 12345) and
+on seeds of its 3,000-seed run with reasons the range lacks (``ASSIGNED_FLOW_EXTRA``). A network
+the project alone shows to have no steady state (``checks.assigned_flow_expectations``) must
+not converge, with a message that states one of the expected reasons (``no_steady_state``);
+every other one must converge with EPANET run, as above. Together they must reach every
+expected reason, networks with demands and with supplies that agree with EPANET, and a zero
+assigned flow (solved again with a plug in its place, ``fuzz.plug_twin_problems``). They take
+about 10 s.
 """
 
 import functools
@@ -138,3 +148,78 @@ def test_flow_control_seeds_reach_every_state() -> None:
         for pid in record.get("controlled", [])
     }
     assert {"active", "max_speed", "min_speed", "no_flow", "off"} <= states, states
+
+
+ASSIGNED_FLOW_CLASSES = {
+    "pass": "20002 20003 20006 20007 20010 20013 20014 20016 20017 20021 20023",
+    "no_steady_state": "20001 20005 20011 20012 20015",
+    "documented": "20000 20008 20009 20020",
+    "b_stagnant_heads": "20004 20024",
+    "epanet_unbalanced": "20018 20019",
+    "e_epanet_invalid": "20022",
+}
+"""The seeds of each class in the generator profile 'assigned_flow'."""
+
+ASSIGNED_FLOW_EXPECTED = {
+    int(seed): cls for cls, seeds in ASSIGNED_FLOW_CLASSES.items() for seed in seeds.split()
+}
+ASSIGNED_FLOW_SEEDS = range(20_000, 20_025)
+
+ASSIGNED_FLOW_EXTRA = {20_025: "no_steady_state", 20_035: "no_steady_state"}
+"""Seeds of the 3,000-seed 'assigned_flow' run pinned for a reason the range above lacks: an
+assigned flow equal to the setpoint of the flow-controlled pump that alone feeds it (20,025,
+over-controlled, where the range has FCVs), and a demand closed off by a pump that is off
+(20,035, disconnected)."""
+
+AGREEING = ("pass", "documented", "pass_ep_unbalanced", "ours_verified_by_pinned_epanet")
+
+
+@functools.cache
+def assigned_flow_record(seed: int) -> dict[str, Any]:
+    from tests.differential.fuzz import run_seed
+
+    return run_seed(seed, profile="assigned_flow")
+
+
+def test_every_assigned_flow_seed_has_one_class() -> None:
+    assert sorted(ASSIGNED_FLOW_EXPECTED) == list(ASSIGNED_FLOW_SEEDS)
+    n = sum(len(s.split()) for s in ASSIGNED_FLOW_CLASSES.values())
+    assert n == len(ASSIGNED_FLOW_SEEDS)
+
+
+def check_assigned_flow_record(record: dict[str, Any], expected: str) -> None:
+    """As ``check_record``; a network without a steady state must not converge, and its
+    message must state an expected reason (class ``no_steady_state``)."""
+    if expected != "no_steady_state":
+        check_record(record, expected)
+        assert not record.get("expected"), record["expected"]
+        return
+    detail = {k: record.get(k) for k in (*DETAIL_KEYS, "expected", "ours_message")}
+    assert not is_critical(record), detail
+    assert record.get("ours_converged") is False, detail
+    assert record["expected"], detail
+    assert record["expected_named"], detail
+    assert record["status"] == expected, detail
+
+
+@pytest.mark.parametrize("seed", [*ASSIGNED_FLOW_SEEDS, *sorted(ASSIGNED_FLOW_EXTRA)])
+def test_assigned_flow_seed_classification(seed: int) -> None:
+    pytest.importorskip("wntr")
+    expected = ASSIGNED_FLOW_EXPECTED.get(seed) or ASSIGNED_FLOW_EXTRA[seed]
+    check_assigned_flow_record(assigned_flow_record(seed), expected)
+
+
+def test_assigned_flow_seeds_reach_every_reason() -> None:
+    pytest.importorskip("wntr")
+    records = [assigned_flow_record(s) for s in [*ASSIGNED_FLOW_SEEDS, *ASSIGNED_FLOW_EXTRA]]
+    reasons = {
+        reason for r in records if r["status"] == "no_steady_state" for reason, _ in r["expected"]
+    }
+    assert reasons == {"disconnected", "no_flow_path", "over_controlled"}, reasons
+    flows = [r.get("assigned_flows", {}).values() for r in records]
+    agreeing = [
+        q for r, f in zip(records, flows, strict=True) if r["status"] in AGREEING for q in f
+    ]
+    assert any(q > 0 for q in agreeing)  # a demand
+    assert any(q < 0 for q in agreeing)  # a supply
+    assert any(q == 0 for f in flows for q in f)  # a zero flow, solved again as a plug

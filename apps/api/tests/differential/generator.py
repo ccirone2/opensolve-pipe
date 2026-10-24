@@ -29,6 +29,27 @@ Profiles (``PROFILES``):
   flow at the maximum speed, the minimum speed a uniform fraction of the maximum, so that every
   state (active, max_speed, min_speed, no_flow, off) occurs. Its documented seed range is
   ``FLOW_CONTROL_SEEDS`` (10,000-12,999), disjoint from the default baseline's 0-2,999.
+- ``assigned_flow``: the default network of the same seed with 0-4 assigned-flow nodes (SDD
+  §4.11, TSD §4.8) added by a third generator, ``random.Random(f"assigned_flow:{seed}")``, so
+  the default draws are untouched (and no ``flow_control`` draw is made). A node takes the
+  place of a plug at a free tee or wye port, whose dead-end connection it keeps (45 %), or ends
+  a new dead-end connection from the free port of a new ideal tee inserted in a connection
+  (mostly one left when dead ends are pruned, so that the node's flow passes through the
+  network's loops and elements; the connection keeps its segments on one side and gets one new
+  segment on the other). One node in four is fed through a flow control in its dead end: an
+  FCV (``Gen.element``) or a flow-controlled pump (as in ``flow_control``), facing the node's
+  flow four times in five; its flow is then the control's setpoint (two times in five: the
+  control and the node fix the same flow, no determined pressure between them, TSD §4.8 "Flow
+  controls in series") or a log-uniform 0.3-3 times it, a supply three times in ten.
+  Otherwise (a free node) the flow is a log-uniform 0.02-2 m/s in the narrowest segment of the
+  node's connection; a demand (out of the network) two times in three, a supply one time in
+  four, and 0 (a plug, TSD §4.8) one time in twelve; one free node in five takes minus the
+  previous free node's flow, a balanced pair that a closed valve can leave in a floating
+  section. Flows are rounded to 6 significant digits (EPANET's INP carries a demand in GPM to
+  11). Many of these networks have no steady state by construction (demands behind elements
+  that pass no flow towards them, flow controls in series), which the differential test
+  expects (``checks.assigned_flow_expectations``). Its documented seed range is
+  ``ASSIGNED_FLOW_SEEDS`` (20,000-22,999), disjoint from the other profiles'.
 
     uv run python -m tests.differential.generator SEED [--profile P]   # print the project JSON
 """
@@ -38,11 +59,14 @@ import json
 import math
 import random
 from dataclasses import dataclass, field
+from typing import Literal
 
 from opensolve_pipe.models.components import (
     Component,
+    ControlValve,
     FlowCoefficient,
     IdealReferenceNode,
+    Plug,
     Pump,
     PumpControl,
     Reservoir,
@@ -54,6 +78,7 @@ from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.pumps import PumpCurve
 from tests.reference import element_laws as el
 from tests.reference.case_format import (
+    assigned_flow,
     check_valve,
     connect,
     control_valve,
@@ -78,9 +103,12 @@ NU_EPANET = 1.1e-5 * FOOT**2  # EPANET VISCOS, types.h:53 (m²/s)
 
 DEFAULT = "default"
 FLOW_CONTROL = "flow_control"
-PROFILES = (DEFAULT, FLOW_CONTROL)
+ASSIGNED_FLOW = "assigned_flow"
+PROFILES = (DEFAULT, FLOW_CONTROL, ASSIGNED_FLOW)
 FLOW_CONTROL_SEEDS = range(10_000, 13_000)
 """The documented seed range of the ``flow_control`` profile (TSD §10.4)."""
+ASSIGNED_FLOW_SEEDS = range(20_000, 23_000)
+"""The documented seed range of the ``assigned_flow`` profile (TSD §10.4)."""
 
 Slot = tuple[str, str, float]  # (component id, port id, elevation)
 
@@ -351,6 +379,9 @@ def generate(seed: int, profile: str = DEFAULT) -> Project:
     if profile == FLOW_CONTROL:  # every default draw is made above: the default is unchanged
         add_flow_controls(g, seed)
         pid, name = f"fuzz-flow-control-{seed}", f"Fuzz network {seed} (flow control)"
+    elif profile == ASSIGNED_FLOW:  # likewise
+        add_assigned_flows(g, seed)
+        pid, name = f"fuzz-assigned-flow-{seed}", f"Fuzz network {seed} (assigned flow)"
     fluid = custom_fluid("EPANET water nu", g.rho, NU_EPANET * g.rho)
     return make_project(
         pid,
@@ -485,6 +516,131 @@ def add_flow_controls(g: Gen, seed: int) -> None:
         else:
             new = g.conn(far, f"{cid}:{second}", single=True)
         last, last_setpoint = (cid, second, new.id), control.setpoint
+
+
+# --------------------------------------------------------------------------- assigned_flow profile
+
+
+def free_flow(rng: random.Random, d: float) -> float:
+    """A free node's flow (module docstring): a log-uniform 0.02-2 m/s in diameter d, to 6
+    significant digits, out of the network (positive) two times in three, into it (negative)
+    one time in four, and 0 one time in twelve. Random test inputs, as everything here."""
+    r = rng.random()
+    if r < 1.0 / 12.0:
+        return 0.0
+    v = math.exp(rng.uniform(math.log(0.02), math.log(2.0)))
+    q = float(f"{v * math.pi * d * d / 4.0:.6g}")
+    return q if r < 0.75 else -q
+
+
+def controlled_flow(rng: random.Random, setpoint: float) -> float:
+    """The magnitude of a node's flow behind a flow control of this setpoint: the setpoint two
+    times in five (over-controlled), else a log-uniform 0.3-3 times it, to 6 significant
+    digits."""
+    if rng.random() < 0.4:
+        return setpoint
+    return float(f"{setpoint * math.exp(rng.uniform(math.log(0.3), math.log(3.0))):.6g}")
+
+
+def add_assigned_flows(g: Gen, seed: int) -> None:
+    """The ``assigned_flow`` profile (module docstring): 0-4 assigned-flow nodes drawn from
+    ``random.Random(f"assigned_flow:{seed}")``, after every draw of the default network."""
+    rng = random.Random(f"{ASSIGNED_FLOW}:{seed}")
+    g.rng = rng  # new curves, elements and connections draw from the profile's generator
+    elevation = {c.id: c.elevation for c in g.components}
+    previous = 0.0  # the last free node's flow (for a balanced pair)
+
+    def link(a: str, b: str) -> PipeConnection:
+        return g.conn(a, b) if rng.random() < 0.5 else g.conn(b, a)
+
+    for k in range(1, rng.choices([0, 1, 2, 3, 4], weights=[1, 4, 4, 2, 1])[0] + 1):
+        af = f"AF{k}"
+        plugs = [i for i, c in enumerate(g.components) if isinstance(c, Plug)]
+        dead_end: PipeConnection | None = None  # the connection kept from a plug
+        if plugs and rng.random() < 0.45:  # in a plug's place, its dead-end connection kept
+            i = rng.choice(plugs)
+            plug_id, z = g.components[i].id, g.components[i].elevation
+            g.components.pop(i)
+            ci = next(
+                j
+                for j, c in enumerate(g.connections)
+                if plug_id in (c.from_component_id, c.to_component_id)
+            )
+            dead_end = g.connections[ci]
+            end = "to" if dead_end.to_component_id == plug_id else "from"
+        else:  # a new ideal tee in a connection, mostly one left when dead ends are pruned
+            core, _ = through_connections(g)
+            if core and rng.random() < 0.8:
+                ci = core[rng.randrange(len(core))]
+            else:
+                ci = rng.randrange(len(g.connections))
+            conn = g.connections[ci]
+            za, zb = elevation[conn.from_component_id], elevation[conn.to_component_id]
+            z = round(rng.uniform(min(za, zb), max(za, zb)), 3)
+            tee = f"TA{k}"
+            ports = ["run_inlet", "run_outlet", "branch"]
+            rng.shuffle(ports)
+            g.components.append(ideal_tee(tee, z))
+            elevation[tee] = z
+            far = f"{conn.to_component_id}:{conn.to_port_id}"
+            g.connections[ci] = conn.model_copy(
+                update={"to_component_id": tee, "to_port_id": ports[0]}
+            )
+            if rng.random() < 0.5:  # one segment: a check valve's inlet connection stays one
+                g.conn(f"{tee}:{ports[1]}", far, single=True)
+            else:
+                g.conn(far, f"{tee}:{ports[1]}", single=True)
+            attach = f"{tee}:{ports[2]}"
+        r = rng.random()
+        if r < 0.25:  # fed through a flow control: an FCV or a flow-controlled pump
+            zc = rng.uniform(z - 2.0, z + 2.0)
+            if r < 0.125:
+                cid, first, second = g.element("fcv", zc)
+                fcv = g.components[-1]
+                assert isinstance(fcv, ControlValve)
+                setpoint = fcv.setpoint
+            else:
+                g.n_el += 1
+                cid, first, second = f"PU{g.n_el}", "suction", "discharge"
+                g.tags.add("pump")
+                speed = 1.0 if rng.random() < 0.5 else round(rng.uniform(0.6, 1.0), 3)
+                status: Literal["on", "off"] = "off" if rng.random() < 0.08 else "on"
+                curve_id = g.new_curve()
+                control = flow_control(rng, g.curves[-1], speed)
+                new_pump = pump(cid, zc, curve_id, speed=speed, status=status)
+                g.components.append(with_control(new_pump, control))
+                setpoint = control.setpoint
+            elevation[cid] = zc
+            q = controlled_flow(rng, setpoint)
+            supply = rng.random() < 0.3
+            facing = rng.random() < 0.8  # its forward direction is the node's flow
+            if supply == facing:  # forward away from the node: its second port on the network
+                first, second = second, first
+            near = f"{cid}:{first}"  # the control's port on the network side
+            if dead_end is not None:
+                g.connections[ci] = dead_end.model_copy(
+                    update={f"{end}_component_id": cid, f"{end}_port_id": first}
+                )
+            else:
+                link(attach, near)
+            link(f"{cid}:{second}", f"{af}:port_1")
+            flow = -q if supply else q
+        else:  # a free node
+            if dead_end is not None:
+                g.connections[ci] = dead_end.model_copy(
+                    update={f"{end}_component_id": af, f"{end}_port_id": "port_1"}
+                )
+                pipes = dead_end.piping.pipes
+            else:
+                pipes = link(attach, f"{af}:port_1").piping.pipes
+            if previous != 0.0 and rng.random() < 0.2:
+                flow = -previous  # a balanced pair
+            else:
+                d = min(p.inner_diameter for p in pipes if p.inner_diameter is not None)
+                flow = free_flow(rng, d)
+            previous = flow
+        g.components.append(assigned_flow(af, z, flow))
+        elevation[af] = z
 
 
 def main(argv: list[str] | None = None) -> None:

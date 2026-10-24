@@ -40,8 +40,13 @@ type JsonObject = Record<string, unknown>;
 const SCHEMAS = openapi.components.schemas as unknown as Record<string, JsonObject>;
 const extension = (schema: string, key: string) => SCHEMAS[schema]![key];
 
-/** One component of every kind the app creates, with its schema. */
-const COMPONENTS = COMPONENT_KINDS.map((kind) => createComponent(kind, createEmptyProject()));
+/**
+ * One component of every kind the app creates, with its schema. An assigned-flow node's flow has
+ * no default: as the user does where it is added, it is given one (0.004 m³/s, made-up input).
+ */
+const COMPONENTS = COMPONENT_KINDS.map((kind) =>
+	createComponent(kind, createEmptyProject(), { flow: 0.004 })
+);
 
 describe('component schemas', () => {
 	it('are the members of the Project.components union, and every kind maps to one', () => {

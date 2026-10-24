@@ -60,7 +60,13 @@
 	const converged = $derived(
 		response?.solvedState === solved ? response.success && solved.converged : solved.converged
 	);
-	const results = $derived(rowsForElement(ws.labelsProject, solved, ws.displayUnits, element));
+	// The project as solved gives the inputs some tables show as entered (an assigned flow).
+	const inputs = $derived(
+		ws.store.results.response?.solvedState === solved ? ws.store.solvedProject : null
+	);
+	const results = $derived(
+		rowsForElement(ws.labelsProject, solved, ws.displayUnits, element, inputs)
+	);
 
 	const SOURCE_LABELS: Record<TraceInput['source'], string> = {
 		user: 'User',

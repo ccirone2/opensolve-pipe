@@ -12,13 +12,26 @@ machine of proposal vfd-pump-modes.md §4.5 alone, the laws from §4.4 (active: 
 speed limit the fixed-speed pump at that speed), and the reported speed, setpoint flag and
 control fields from §2.4-2.5 and §4.7 (``control_problems``); the speed is compared with the one
 EPANET's head implies (closed form for a linear curve, ``implied_speed``).
+
+Assigned-flow nodes (SDD §4.11, TSD §4.8): continuity at the node's port takes its flow as a
+demand (``network_check.net_inflow``, so ``law_problems`` checks it, ours and EPANET's); the
+networks that have no steady state because of them follow from the project alone
+(``assigned_flow_expectations``): assigned flows that no pattern of flows can carry through the
+elements' one-way rules and FCV setpoints (a minimum cut, ``_short_side``), or that force flow
+controls to their setpoints with nothing fixing the pressure behind them; and the node's
+reported results are checked against their definitions (``assigned_flow_problems``). Every head
+we report must be determined (``undetermined_heads``, for every network: nodes with demands are
+where a head could be reported that nothing fixes).
 """
 
 import itertools
+import math
 from collections import defaultdict
 from collections.abc import Collection, Mapping
+from dataclasses import dataclass
 
 from opensolve_pipe.models.components import (
+    AssignedFlow,
     CheckValve,
     Component,
     ControlValve,
@@ -88,6 +101,8 @@ def element_kind(c: Component) -> str:
         return "junction"
     if isinstance(c, Plug):
         return "plug"
+    if isinstance(c, AssignedFlow):
+        return "assigned_flow"
     return type(c).__name__
 
 
@@ -1134,3 +1149,453 @@ def zero_flow_and_floating(
     zf = zero_flow_infeasible(project, egl_o, states_o, fports)
     hb = headless_infeasible(project, flows_o, egl_o, states_o)
     return ([f"zero flow impossible in a headless section: {zf}"] if zf else []) + fprob + hb
+
+
+# --------------------------------------------------------------------------- assigned flows
+# Written from the specs alone (TSD §4.8, PRD §3.1, §3.2.1, SDD §4.11): an assigned-flow node
+# withdraws its flow at its port (positive, a demand) or injects it (negative, a supply)
+# whatever the pressure there, and is never a fixed head.
+
+
+@dataclass(frozen=True)
+class Expectation:
+    """A reason why a network has no steady state (``assigned_flow_expectations``)."""
+
+    kind: str
+    every: tuple[str, ...]  # ids a message must name
+    any_of: tuple[str, ...]  # ids it must name at least one of (the assigned-flow nodes)
+    text: str
+    word: str | None = None  # a word it must say
+
+    def named(self, message: str) -> bool:
+        """Whether a not-converged message states this reason: it names (quoted, as the
+        solver's messages quote ids) every id of ``every`` and one of ``any_of``, and says
+        ``word``."""
+        return (
+            all(f"'{i}'" in message for i in self.every)
+            and any(f"'{i}'" in message for i in self.any_of)
+            and (self.word is None or self.word in message.lower())
+        )
+
+
+def statically_closed(c: Component) -> bool:
+    """A pump or valve closed whatever the heads, so at zero flow: an isolated isolation valve,
+    a locked-closed check valve, a failed-closed control valve, a pump that is off."""
+    if isinstance(c, IsolationValve):
+        return c.status == "isolated"
+    if isinstance(c, CheckValve):
+        return c.status == "locked_closed"
+    if isinstance(c, ControlValve):
+        return c.status == "failed_closed"
+    if isinstance(c, Pump):
+        return c.status == "off"
+    return False
+
+
+def two_way(c: Component) -> bool:
+    """A pump or valve that passes flow either way in every state: an isolation valve that is
+    not isolated, a locked-open check valve, a failed-open control valve."""
+    if isinstance(c, IsolationValve):
+        return c.status != "isolated"
+    if isinstance(c, CheckValve):
+        return c.status == "locked_open"
+    if isinstance(c, ControlValve):
+        return c.status == "failed_open"
+    return False
+
+
+def one_way_capacity(c: Component) -> float | None:
+    """The most a pump or valve that passes no reverse flow under its rules can pass forwards
+    (inlet to outlet, suction to discharge) in any of its states; None for any other element.
+    An active check valve (``rule_check``), PRV or PSV (``rule_prv``, ``rule_psv``) and a pump
+    that is on (``rule_pump``; a flow-controlled one the same rule at a speed limit, X2/N2, and
+    Q_set > 0 active) pass no reverse flow open or running and none closed, any forward flow
+    (at its minimum speed a flow-controlled pump passes more than Q_set, N1); an active FCV
+    (``rule_fcv`` with the departure of D9) at most its setpoint: active it passes Q_set, open
+    its rule makes it active at Q ≥ Q_set, closed nothing."""
+    if isinstance(c, ControlValve) and c.status == "active":
+        return c.setpoint if c.valve_type == "fcv" else math.inf
+    if isinstance(c, CheckValve) and c.status == "active":
+        return math.inf
+    if isinstance(c, Pump) and c.status == "on":
+        return math.inf
+    return None
+
+
+def flow_setpoint(c: Component) -> float | None:
+    """The flow a flow control fixes while it regulates: an active FCV's setpoint, a
+    flow-controlled pump's Q_set when it is on (D11); None for any other element."""
+    if isinstance(c, ControlValve) and c.status == "active" and c.valve_type == "fcv":
+        return c.setpoint
+    if isinstance(c, Pump) and c.status == "on" and c.control is not None:
+        return c.control.setpoint
+    return None
+
+
+@dataclass
+class FlowGraph:
+    """The network for flow feasibility (``flow_graph``): blocks of nodes joined by connections,
+    ideal junctions and two-way elements (``two_way``), and the one-way elements between them."""
+
+    block: dict[str, str]  # port key -> block
+    fixed: set[str]  # blocks with a reservoir or reference node port
+    demand: dict[str, float]  # block -> net assigned flow out of the network there, m³/s
+    magnitude: dict[str, float]  # block -> sum of the magnitudes of its assigned flows
+    nodes: dict[str, tuple[str, ...]]  # block -> its assigned-flow nodes with a nonzero flow
+    one_way: list[tuple[str, str, str, float]]  # (id, block in, block out, ``one_way_capacity``)
+    closed: list[tuple[str, str, str]]  # statically closed elements: (id, block, block)
+
+
+def flow_graph(project: Project) -> FlowGraph:
+    """``FlowGraph`` of a project (nodes: ``network_check.node_of_port``)."""
+    nodes = nc.node_of_port(project)
+    parent = {n: n for n in nodes.values()}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        parent[find(nodes[a])] = find(nodes[b])
+
+    for conn in project.connections:
+        union(*keys(conn))
+    elements = [
+        c
+        for c in project.components
+        if isinstance(c, Pump | IsolationValve | CheckValve | ControlValve)
+    ]
+    for c in elements:
+        if two_way(c):
+            union(*nc.two_port_ends(c))
+    block = {k: find(n) for k, n in nodes.items()}
+    fixed = {
+        block[f"{c.id}:{p.id}"]
+        for c in project.components
+        if isinstance(c, Reservoir | IdealReferenceNode)
+        for p in c.ports
+    }
+    demand: dict[str, float] = defaultdict(float)
+    magnitude: dict[str, float] = defaultdict(float)
+    ids: dict[str, tuple[str, ...]] = defaultdict(tuple)
+    for key, q in nc.assigned_flows(project).items():
+        b = block[key]
+        demand[b] += q
+        magnitude[b] += abs(q)
+        if q != 0.0:
+            ids[b] += (key.split(":")[0],)
+    one_way, closed = [], []
+    for c in elements:
+        a, b = nc.two_port_ends(c)
+        cap = one_way_capacity(c)
+        if cap is not None:
+            one_way.append((c.id, block[a], block[b], cap))
+        elif statically_closed(c):
+            closed.append((c.id, block[a], block[b]))
+    return FlowGraph(block, fixed, dict(demand), dict(magnitude), dict(ids), one_way, closed)
+
+
+def _short_side(g: FlowGraph) -> set[str]:
+    """The blocks without a fixed head on one side of a minimum cut of the flow network whose
+    maximum flow tells whether the assigned flows have a flow pattern at all: a source feeding
+    every block's net supply, a sink taking every block's net demand, the fixed-head blocks
+    merged into one node whose net demand is minus the others' total (continuity over the whole
+    network), and each one-way element an arc of its capacity. Every pattern of flows that
+    keeps continuity and each element's rule (``one_way_capacity``; statically closed
+    elements carry nothing, connections and two-way elements anything inside a block) is such
+    a flow, so one that does not saturate the source has none (max-flow min-cut theorem, Ford
+    and Fulkerson 1956; Edmonds-Karp augmenting paths). set() when it saturates."""
+    src, sink, fix = "__source__", "__sink__", "__fixed__"
+    cap: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+
+    def node(b: str) -> str:
+        return fix if b in g.fixed else b
+
+    for _, a, b, c in g.one_way:
+        if node(a) != node(b):
+            cap[node(a)][node(b)] += c
+            cap[node(b)][node(a)] += 0.0  # the residual arc
+    free = {b: d for b, d in g.demand.items() if b not in g.fixed}
+    free[fix] = -sum(free.values())
+    for b, d in free.items():
+        if d > 0.0:
+            cap[b][sink] += d
+            cap[sink][b] += 0.0
+        elif d < 0.0:
+            cap[src][b] += -d
+            cap[b][src] += 0.0
+    total = sum(cap[src].values())
+    if total == 0.0:
+        return set()
+    eps = 1.0e-12 * total  # rounding of the augmenting flows
+    flow: dict[tuple[str, str], float] = defaultdict(float)
+
+    def residual(u: str, v: str) -> float:
+        return cap[u][v] - flow[(u, v)] + flow[(v, u)]
+
+    def reached() -> dict[str, str | None]:
+        pred: dict[str, str | None] = {src: None}
+        queue = [src]
+        for u in queue:
+            for v in sorted(cap[u]):
+                if v not in pred and residual(u, v) > eps:
+                    pred[v] = u
+                    queue.append(v)
+        return pred
+
+    sent = 0.0
+    while True:
+        pred = reached()
+        if sink not in pred:
+            break
+        path, v = [], sink
+        while (u := pred[v]) is not None:
+            path.append((u, v))
+            v = u
+        push = min(residual(u, v) for u, v in path)
+        for u, v in path:
+            back = min(push, flow[(v, u)])  # cancel reverse flow first
+            flow[(v, u)] -= back
+            flow[(u, v)] += push - back
+        sent += push
+    if sent >= total - eps:
+        return set()
+    side = set(pred) - {src}
+    if fix in side:
+        side = set(cap) - side - {src, sink}
+    return side - {fix}
+
+
+def assigned_flow_expectations(project: Project) -> list[Expectation]:
+    """Why the network has no steady state because of its assigned flows, from the project alone
+    (TSD §4.8, PRD §3.1; [] when nothing says so, and for a project without a nonzero assigned
+    flow). Each is a part P of the network that no fixed head reaches (blocks of ``flow_graph``)
+    with a net assigned flow d out of the network, whose crossing elements are one-way elements
+    (``one_way_capacity``) and statically closed ones:
+
+    - ``disconnected``: no one-way element crosses P's boundary (it is closed off by statically
+      closed elements, PRD §3.1) and d ≠ 0: continuity over P fails;
+    - ``no_flow_path``: d exceeds what the one-way elements into P can pass forwards, or −d
+      what those out of it can (they pass nothing backwards): continuity over P fails whatever
+      the heads. P is found from a minimum cut (``_short_side``) and checked on its own, with a
+      margin of Qtol per crossing element and 1e-9 of the flows concerned;
+    - ``over_controlled``: P's crossing elements other than statically closed ones are flow
+      controls (``flow_setpoint``), P holds no active PRV or PSV (which would hold a head in
+      it), and continuity forces each to its setpoint: one control passing d (into P) or −d
+      (out of it) equal to its Q_set, or several FCVs all into P (or all out of it) with |d|
+      the sum of their setpoints. Each control then regulates (an open FCV at Q_set turns
+      active, rule_fcv; a flow-controlled pump at a limit carrying Q_set too, X1/N1), fixing a
+      flow and no head, so nothing fixes the pressure in P (TSD §4.8 "Flow controls in
+      series"; equal within ``FLOW_ROUNDING``). The message names the controls and says the
+      pressure is undetermined.
+
+    A not-converged message states an expectation when it names one of P's assigned-flow nodes
+    and, for ``over_controlled``, the controls and that the pressure is undetermined
+    (``Expectation.named``)."""
+    afs = nc.assigned_flows(project)
+    if not any(afs.values()):
+        return []
+    g = flow_graph(project)
+    out: list[Expectation] = []
+
+    def components(blocks: set[str], arcs: list[tuple[str, str, str, float]]) -> list[set[str]]:
+        parent = {b: b for b in blocks}
+
+        def find(x: str) -> str:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for _, a, b, _ in arcs:
+            if a in parent and b in parent:
+                parent[find(a)] = find(b)
+        groups: dict[str, set[str]] = defaultdict(set)
+        for b in blocks:
+            groups[find(b)].add(b)
+        return sorted(groups.values(), key=sorted)
+
+    def crossing(part: set[str]) -> tuple[list[tuple[str, float, bool]], list[str]]:
+        """(one-way elements crossing: id, capacity, whether forwards into the part; closed)."""
+        arcs = [(i, c, b in part) for i, a, b, c in g.one_way if (a in part) != (b in part)]
+        shut = [i for i, a, b in g.closed if (a in part) != (b in part)]
+        return arcs, shut
+
+    def assigned(part: set[str]) -> tuple[float, float, tuple[str, ...]]:
+        d = sum(g.demand.get(b, 0.0) for b in sorted(part))  # a fixed order of the sums
+        mag = sum(g.magnitude.get(b, 0.0) for b in sorted(part))
+        ids = tuple(sorted(i for b in part for i in g.nodes.get(b, ())))
+        return d, mag, ids
+
+    short = _short_side(g)
+    for part in components(short, g.one_way):
+        d, mag, ids = assigned(part)
+        arcs, shut = crossing(part)
+        cap_in = sum(c for _, c, into in arcs if into)
+        cap_out = sum(c for _, c, into in arcs if not into)
+        finite = sum(c for _, c, _ in arcs if math.isfinite(c))
+        margin = QTOL * (len(arcs) + 1) + 1.0e-9 * (mag + finite)
+        if d - cap_in <= margin and -d - cap_out <= margin:
+            continue
+        where = f"assigned flows {list(ids)} (net {d:.6g} m³/s out of the network)"
+        if not arcs:
+            out.append(Expectation("disconnected", (), ids, f"{where} closed off by {shut}"))
+        else:
+            text = (
+                f"{where} in a part no fixed head reaches, which one-way elements"
+                f" {[i for i, _, _ in arcs]} can feed at most {cap_in:.6g} and drain at most"
+                f" {cap_out:.6g} m³/s ({shut} closed)"
+            )
+            out.append(Expectation("no_flow_path", (), ids, text))
+    # parts joined by every one-way element but the flow controls
+    controls = {c.id: q for c in project.components if (q := flow_setpoint(c)) is not None}
+    fcvs = {c.id for c in project.components if isinstance(c, ControlValve) and c.id in controls}
+    held = {
+        c.id
+        for c in project.components
+        if isinstance(c, ControlValve) and c.status == "active" and c.valve_type != "fcv"
+    }
+    others = [arc for arc in g.one_way if arc[0] not in controls]
+    for part in components(set(g.block.values()) - g.fixed, others):
+        d, _, ids = assigned(part)
+        arcs, _ = crossing(part)
+        if not ids or not arcs or any(i not in controls for i, _, _ in arcs):
+            continue  # reached through an element that is not a flow control, or none at all
+        if any(i in held and a in part for i, a, _, _ in others):
+            continue  # an active PRV or PSV in it may hold a head
+        if len(arcs) > 1 and not (
+            all(i in fcvs for i, _, _ in arcs) and len({into for _, _, into in arcs}) == 1
+        ):
+            continue  # the flows are not forced
+        forced = d if arcs[0][2] else -d
+        total = sum(controls[i] for i, _, _ in arcs)
+        if abs(forced - total) <= FLOW_ROUNDING * total:
+            names = tuple(i for i, _, _ in arcs)
+            text = (
+                f"assigned flows {list(ids)} force {list(names)} to their setpoints"
+                f" ({forced:.6g} m³/s): the pressure between them is undetermined"
+            )
+            out.append(Expectation("over_controlled", names, ids, text, "undetermined"))
+    return out
+
+
+def undetermined_heads(project: Project, egl: Heads, states: States) -> list[str]:
+    """Ports we report a head at whose head nothing determines (TSD §4.8 "Flow controls in
+    series": a node fed only through a fixed flow). Each must reach a fixed head through
+    connections, ideal junctions and pumps and valves that tie their two port heads in their
+    reported state (a running pump or a flow-controlled pump at a speed limit, ``connects_heads``;
+    an open valve), or the port whose head an active PRV (outlet) or PSV (inlet) holds at its
+    setpoint. An active FCV or flow-controlled pump fixes a flow, not a head, and an active PRV
+    or PSV does not tie its other port. [] when every reported head is determined."""
+    nodes = nc.node_of_port(project)
+    parent = {n: n for n in nodes.values()}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        parent[find(nodes[a])] = find(nodes[b])
+
+    held = set()
+    for conn in project.connections:
+        union(*keys(conn))
+    for c in project.components:
+        if isinstance(c, Reservoir | IdealReferenceNode):
+            held |= {f"{c.id}:{p.id}" for p in c.ports}
+        elif isinstance(c, Pump | IsolationValve | CheckValve | ControlValve):
+            st = states.get(c.id)
+            a, b = nc.two_port_ends(c)
+            if isinstance(c, Pump):
+                if st is not None and connects_heads(c, st):
+                    union(a, b)
+            elif st == "open":
+                union(a, b)
+            elif st == "active" and isinstance(c, ControlValve) and c.valve_type != "fcv":
+                held.add(b if c.valve_type == "prv" else a)
+    determined = {find(nodes[k]) for k in held}
+    loose = sorted(k for k in egl if k in nodes and find(nodes[k]) not in determined)
+    if not loose:
+        return []
+    return [f"undetermined heads reported at {loose[:6]}{' ...' if len(loose) > 6 else ''}"]
+
+
+VAPOR_MARGIN = 1.0
+"""Pa: an absolute pressure this close to the vapor pressure (or to 0) is not checked against
+BELOW_VAPOR_PRESSURE (either is right at the threshold)."""
+
+
+def assigned_flow_problems(project: Project, result: SolvedState, flows: Flows) -> list[str]:
+    """A converged result with assigned-flow nodes against the specs: no
+    ``assigned_flow_expectations`` (each says there is no steady state); a node whose port has
+    a head has a boundary result (PRD §3.2.1), and a boundary result is of type assigned_flow,
+    has the flow its connection carries into the network as its outflow, minus the node's flow
+    within the continuity tolerance (TSD §5.2, as ``law_problems``), and its port's EGL (a node
+    without a head is at rest in a closed-off section, a plug's case, or in a floating section,
+    which ``flowing_headless`` checks); at a port with a head (PRD §3.2.1, TSD §4.8 "Results"):
+    the port's elevation, the speed |Q|/A of the connection's end segment, HGL = EGL − v²/(2g),
+    static pressure ρg(EGL − z − v²/(2g)) (TSD §5.1), absolute pressure = static +
+    atmospheric, and BELOW_VAPOR_PRESSURE on the node exactly when the absolute pressure is
+    below the vapor pressure, or at most 0 Pa when the fluid has none (TSD §5.5;
+    ``VAPOR_MARGIN``). [] for a project without one."""
+    afs = [c for c in project.components if isinstance(c, AssignedFlow)]
+    if not afs:
+        return []
+    out = [f"converged although {e.text}" for e in assigned_flow_expectations(project)]
+    abs_q = 1e-9 * max((abs(q) for q in flows.values()), default=0.0) + 1e-14  # as law_problems
+    rho, _, p_vap = nc.fluid_state(project)
+    threshold = 0.0 if p_vap is None else p_vap
+    for c in afs:
+        key = f"{c.id}:{c.ports[0].id}"
+        node = result.node_results.get(key)
+        br = result.boundary_results.get(c.id)
+        if br is not None:
+            if br.type != "assigned_flow":
+                out.append(f"assigned flow {c.id}: boundary result of type {br.type}")
+            sent = -nc.port_inflow(project, key, flows)  # into the network through its pipe
+            if abs(br.outflow - sent) > 1e-12 * abs(sent) or abs(br.outflow + c.flow) > abs_q:
+                out.append(
+                    f"assigned flow {c.id}: outflow {br.outflow!r}, its connection {sent!r},"
+                    f" flow {c.flow!r}"
+                )
+            if node is not None and abs(br.egl - node.egl) > 1e-9 * max(1.0, abs(node.egl)):
+                out.append(f"assigned flow {c.id}: boundary EGL {br.egl!r}, port {node.egl!r}")
+        if node is None:
+            continue
+        if br is None:
+            out.append(f"assigned flow {c.id}: a head at its port and no boundary result")
+        z = nc.port_elevation(project, key)
+        _, d, _ = nc.port_connection(project, key)
+        v = abs(nc.port_inflow(project, key, flows)) / area(d)
+        hv = v * v / (2.0 * G)
+        p = rho * G * (node.egl - z - hv)
+        flagged = any(
+            f.code == "BELOW_VAPOR_PRESSURE" and f.component_id == c.id for f in result.flags
+        )
+        below = (
+            node.absolute_pressure < threshold
+            if p_vap is not None
+            else (node.absolute_pressure <= 0.0)
+        )
+        bad = []
+        if abs(node.elevation - z) > 1e-12 * max(1.0, abs(z)):
+            bad.append(f"elevation {node.elevation!r} (port {z!r})")
+        if abs(abs(node.velocity) - v) > 1e-9 * v + 1e-12:
+            bad.append(f"velocity {node.velocity!r} (|Q|/A {v!r})")
+        if abs(node.hgl - (node.egl - hv)) > 1e-9 * max(1.0, abs(node.egl)):
+            bad.append(f"HGL {node.hgl!r} (EGL − v²/2g {node.egl - hv!r})")
+        if abs(node.pressure - p) > 1e-6 + 1e-9 * abs(p):
+            bad.append(f"pressure {node.pressure!r} (ρg(H − z − v²/2g) {p!r})")
+        p_abs = node.pressure + result.atmospheric_pressure
+        if abs(node.absolute_pressure - p_abs) > 1e-6 + 1e-12 * abs(p_abs):
+            bad.append(f"absolute pressure {node.absolute_pressure!r} (p + p_atm {p_abs!r})")
+        if abs(node.absolute_pressure - threshold) > VAPOR_MARGIN and flagged != below:
+            bad.append(
+                f"BELOW_VAPOR_PRESSURE {flagged} at absolute {node.absolute_pressure:.6g} Pa"
+            )
+        out += [f"assigned flow {c.id}: {b}" for b in bad]
+    return out

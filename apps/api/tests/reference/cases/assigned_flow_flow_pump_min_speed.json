@@ -1,0 +1,247 @@
+{
+  "name": "assigned_flow_flow_pump_min_speed",
+  "description": "A flow-controlled pump set to 8 L/s whose only outlet is a 16 L/s assigned demand: verifies that the demand fixes the flow, so the pump runs at its minimum speed above its setpoint (PUMP_SETPOINT_NOT_MET) rather than the solve failing.",
+  "source": "closed-form: tests/reference/derivations_assigned_flow.py::assigned_flow_flow_pump_min_speed (assigned flow (SDD 4.11, TSD 4.8): a free node whose connection carries Q_a, no head equation of its own; static pressure with v in the connected pipe; the line carries Q_a by continuity, heads stepped from R1; flow-controlled pump (D11) at its limit speed s: rise s^2 H0(Q_a/s) on the scipy PchipInterpolator curve; line fittings: fluids bend_rounded_Crane(Di, 90, bend_diameters=1.5), entrance_sharp(method='Crane'), K_gate_valve_Crane(Di, Di, 0))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-assigned-flow-flow-pump-min-speed",
+    "metadata": {
+      "name": "Flow-controlled pump feeding a larger demand",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 3.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "PU1",
+        "name": "Pump PU1",
+        "elevation": 0.5,
+        "ports": [
+          {
+            "id": "suction",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "discharge",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "pump",
+        "curveId": "PC-A",
+        "speed": 1.0,
+        "status": "on",
+        "control": {
+          "mode": "flow",
+          "setpoint": 0.008,
+          "minSpeed": 0.6
+        }
+      },
+      {
+        "id": "AF1",
+        "name": "Assigned flow AF1",
+        "elevation": 5.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "assigned_flow",
+        "flow": 0.016
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "PU1",
+        "toPortId": "suction",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1541,
+              "length": 6.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_90_lr",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "PU1",
+        "fromPortId": "discharge",
+        "toComponentId": "AF1",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 60.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "gate_valve",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_90_lr",
+              "quantity": 2,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": [
+      {
+        "id": "PC-A",
+        "name": "Curve PC-A",
+        "points": [
+          {
+            "flow": 0.0,
+            "head": 45.0
+          },
+          {
+            "flow": 0.01,
+            "head": 44.0
+          },
+          {
+            "flow": 0.02,
+            "head": 41.0
+          },
+          {
+            "flow": 0.03,
+            "head": 35.5
+          },
+          {
+            "flow": 0.04,
+            "head": 27.0
+          }
+        ],
+        "npshrCurve": [
+          {
+            "flow": 0.005,
+            "npshr": 1.6
+          },
+          {
+            "flow": 0.015,
+            "npshr": 2.0
+          },
+          {
+            "flow": 0.025,
+            "npshr": 2.7
+          },
+          {
+            "flow": 0.035,
+            "npshr": 3.8
+          },
+          {
+            "flow": 0.045,
+            "npshr": 5.2
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.016,
+      "L2": 0.016
+    },
+    "egl": {
+      "R1:port_1": 3.0,
+      "PU1:suction": 2.9461524054175325,
+      "PU1:discharge": 16.492146803176638,
+      "AF1:port_1": 14.280695644954378
+    },
+    "pressures": {
+      "PU1:suction": 23573.34318414057,
+      "PU1:discharge": 154624.87273083744,
+      "AF1:port_1": 88939.65393505868
+    },
+    "pumps": {
+      "PU1": {
+        "status": "running",
+        "operatingFlow": 0.016,
+        "speed": 0.6,
+        "controlState": "min_speed",
+        "operatingHead": 13.545994397759104
+      }
+    },
+    "flags": [
+      {
+        "code": "PUMP_SETPOINT_NOT_MET",
+        "componentId": "PU1"
+      },
+      {
+        "code": "NPSH_NOT_CHECKED",
+        "componentId": "PU1"
+      }
+    ]
+  }
+}

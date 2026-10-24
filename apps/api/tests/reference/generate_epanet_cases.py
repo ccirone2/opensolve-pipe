@@ -32,6 +32,16 @@ Conversion rules (design §11; facts from research notes coolprop_wntr_epanet.md
 - Pump → EPANET pump between two junctions (its suction and discharge ports, at the pump's
   elevation) with a HEAD curve of the same points and the same relative speed. Pump cases use
   collinear curve points, so EPANET's piecewise-linear curve and our PCHIP coincide (design §11).
+- Assigned-flow node → EPANET junction at its port's elevation whose base demand is the node's
+  flow (TSD §10.1: "each node a junction whose base demand is its flow (demand-driven, no
+  pattern; each run checks EPANET's reported demand)"; positive = demand, negative = supply, as
+  in EPANET). WNTR writes it in the INP's GPM (``from_si``: Q/(gallon/60), 11
+  significant digits) under the default pattern (multiplier 1: WNTR's default pattern '1' is
+  not defined, and EPANET then applies none), with the demand-driven model (``demand_model``
+  'DDA', EPANET 2.2's default; WNTR writes DEMAND MODEL only for PDA). A demand passes through
+  EPANET's GPM constant both ways, so EPANET reports it as given while its hydraulics carry it
+  3.8e-7 high (relative); ``run_epanet`` checks EPANET's reported demand at every such junction
+  against the assigned flow (a pressure-driven run would deliver less where pressure is low).
 - PRV / PSV / FCV → EPANET valve of the same type between two junctions (its inlet and outlet
   ports), diameter of the inlet pipe, no minor loss (our control valves default to ideal).
   FCV setting = our flow setpoint. EPANET's PRV/PSV setting is a pressure head without velocity
@@ -77,7 +87,14 @@ from scipy.constants import gallon
 from scipy.optimize import brentq
 from wntr.epanet.toolkit import ENepanet
 
-from opensolve_pipe.models.components import Component, ControlValve, Pump, Reservoir, TeeBranch
+from opensolve_pipe.models.components import (
+    AssignedFlow,
+    Component,
+    ControlValve,
+    Pump,
+    Reservoir,
+    TeeBranch,
+)
 from opensolve_pipe.models.fluids import CustomFluid
 from opensolve_pipe.models.piping import CUSTOM_MATERIAL_ID, PipeConnection
 from opensolve_pipe.models.project import Project
@@ -86,6 +103,7 @@ from tests.reference import element_laws as el
 from tests.reference.case_format import (
     Expected,
     ReferenceCase,
+    assigned_flow,
     connect,
     control_valve,
     custom_fluid,
@@ -144,6 +162,15 @@ def source_text(project: Project | None = None) -> str:
             extra += (
                 " Pumps: EPANET HEAD curve through the same collinear points (EPANET's "
                 "piecewise-linear curve then equals our PCHIP), run as stated below."
+            )
+        if any(isinstance(c, AssignedFlow) for c in project.components):
+            extra += (
+                " Assigned-flow nodes: EPANET junctions with base demand = the assigned flow "
+                "(WNTR writes it in GPM, Q/(gallon/60) to 11 significant digits), no pattern "
+                "(multiplier 1) and the demand-driven model (DDA, EPANET 2.2's default); "
+                "EPANET's reported demand at each equals the assigned flow (checked). EPANET's "
+                "GPM constant applies to a demand both ways, so it is reported unchanged while "
+                "EPANET's hydraulics carry it about 3.8e-7 high (relative)."
             )
         if any(isinstance(c, ControlValve) and c.valve_type != "fcv" for c in project.components):
             extra += (
@@ -495,6 +522,80 @@ def fcv_network() -> Project:
     )
 
 
+def assigned_flow_network() -> Project:
+    """A gravity loop TA-TB-TD-TC fed by S1 (head 35 m) and draining to S2 (head 20 m) through
+    TE, with three assigned-flow nodes as EPANET junction demands at the ends of their own
+    pipes (TSD §10.1 plan): D1 draws 15 L/s from TB, D2 10 L/s from TE, and D3 supplies 4 L/s
+    into TC (flow −0.004 m³/s). All pipe data, elevations and flows are test inputs."""
+    components: list[Component] = [
+        reservoir("S1", 30.0, 5.0),
+        ideal_tee("TA", 16.0),
+        ideal_tee("TB", 14.0),
+        ideal_tee("TC", 15.0),
+        ideal_tee("TD", 12.0),
+        ideal_tee("TE", 10.0),
+        reservoir("S2", 18.0, 2.0),
+        assigned_flow("D1", 13.0, 0.015),
+        assigned_flow("D2", 9.0, 0.010),
+        assigned_flow("D3", 15.5, -0.004),
+    ]
+    connections = [
+        _pipe("P1", "S1:port_1", "TA:run_inlet", 0.2027, 500.0),
+        _pipe("P2", "TA:run_outlet", "TB:run_inlet", 0.1541, 300.0),
+        _pipe("P3", "TA:branch", "TC:run_inlet", 0.1023, 400.0, 1.5e-4),
+        _pipe("P4", "TB:run_outlet", "TD:run_inlet", 0.1023, 350.0),
+        _pipe("P5", "TC:run_outlet", "TD:branch", 0.1023, 300.0),
+        _pipe("P6", "TD:run_outlet", "TE:run_inlet", 0.1541, 250.0),
+        _pipe("P7", "TE:run_outlet", "S2:port_1", 0.1023, 200.0),
+        _pipe("P8", "TB:branch", "D1:port_1", 0.0779, 50.0),
+        _pipe("P9", "TE:branch", "D2:port_1", 0.0779, 60.0),
+        _pipe("P10", "D3:port_1", "TC:branch", 0.0525, 40.0),
+    ]
+    return make_project(
+        "ref-epanet-assigned-flow-network",
+        "Demands and a supply on a looped network (EPANET reference)",
+        _water(),
+        components,
+        connections,
+        friction_method="swamee_jain",
+    )
+
+
+def assigned_flow_pump_network() -> Project:
+    """A pump at speed ratio 0.9 (the pump_network curve, H = 50 − 300 Q) lifting from S1
+    (head 5 m) into a loop TA-TB-TC whose only outlets are two assigned demands, D1 (12 L/s at
+    TB) and D2 (8 L/s at TC): the demands fix every flow but the loop's split, and S1 is the
+    only fixed head. All pipe data, elevations and flows are test inputs."""
+    curve = pump_curve("PC-LIN", [(0.0, 50.0), (0.02, 44.0), (0.04, 38.0), (0.06, 32.0)])
+    components: list[Component] = [
+        reservoir("S1", 2.0, 3.0),
+        pump("PU", 1.0, curve.id, speed=0.9),
+        ideal_tee("TA", 3.0),
+        ideal_tee("TB", 6.0),
+        ideal_tee("TC", 4.0),
+        assigned_flow("D1", 8.0, 0.012),
+        assigned_flow("D2", 5.0, 0.008),
+    ]
+    connections = [
+        _pipe("P1", "S1:port_1", "PU:suction", 0.2027, 20.0),
+        _pipe("P2", "PU:discharge", "TA:run_inlet", 0.1541, 300.0),
+        _pipe("P3", "TA:run_outlet", "TB:run_inlet", 0.1023, 400.0),
+        _pipe("P4", "TA:branch", "TC:run_inlet", 0.1023, 350.0, 1.5e-4),
+        _pipe("P5", "TB:branch", "TC:branch", 0.0779, 300.0),
+        _pipe("P6", "TB:run_outlet", "D1:port_1", 0.0779, 150.0),
+        _pipe("P7", "TC:run_outlet", "D2:port_1", 0.0779, 100.0),
+    ]
+    return make_project(
+        "ref-epanet-assigned-flow-pump-network",
+        "Pump feeding demands on a loop (EPANET reference)",
+        _water(),
+        components,
+        connections,
+        friction_method="swamee_jain",
+        pump_library=[curve],
+    )
+
+
 EPANET_NETWORKS = {
     "epanet_looped_network_a": (
         looped_network_a,
@@ -530,6 +631,19 @@ EPANET_NETWORKS = {
         fcv_network,
         "An FCV limiting one path of a loop to 15 L/s while a bypass carries the rest: "
         "verifies the active FCV within a network against EPANET 2.2.",
+    ),
+    "epanet_assigned_flow_network": (
+        assigned_flow_network,
+        "A looped gravity network between two reservoirs with two assigned demands and one "
+        "assigned supply, each an EPANET junction demand at the end of its own pipe: verifies "
+        "nodal demands and supplies in a looped network (continuity with demands, the flow "
+        "split and the EGL at every node) against EPANET 2.2.",
+    ),
+    "epanet_assigned_flow_pump_network": (
+        assigned_flow_pump_network,
+        "A pump at 90% speed feeding a loop whose only outlets are two assigned demands, as "
+        "EPANET junction demands: verifies a network driven by its demands (the pump's flow is "
+        "their sum, its head read from its curve) against EPANET 2.2.",
     ),
     "epanet_pump_flow_control": (
         pump_flow_control_network,
@@ -573,6 +687,8 @@ def _node_names(project: Project) -> dict[str, str]:
         elif isinstance(component, Pump | ControlValve):
             for port in component.ports:
                 names[f"{component.id}:{port.id}"] = f"{component.id}_{port.id}"
+        elif isinstance(component, AssignedFlow):
+            names[f"{component.id}:port_1"] = component.id
         else:
             raise ValueError(f"no EPANET equivalent for component {component.id}")
     return names
@@ -641,6 +757,7 @@ def project_to_wntr(
     options.flowchange = 1.0e-12
     options.viscosity = 1.0
     options.specific_gravity = 1.0
+    options.demand_model = "DDA"
     wn.options.time.duration = 0
 
     for component in project.components:
@@ -658,6 +775,10 @@ def project_to_wntr(
                 z = component.elevation if port.elevation is None else port.elevation
                 junction = f"{component.id}_{port.id}"
                 wn.add_junction(junction, base_demand=demands.get(junction, 0.0), elevation=z)
+        elif isinstance(component, AssignedFlow):
+            [port] = component.ports
+            z = component.elevation if port.elevation is None else port.elevation
+            wn.add_junction(component.id, base_demand=component.flow, elevation=z)
     nodes = _node_names(project)
 
     curves = {curve.id: curve for curve in project.pump_library}
@@ -737,6 +858,12 @@ def run_epanet(
     flow_table = results.link["flowrate"]
     head_table = results.node["head"]
     status_table = results.link["status"]
+    demand_table = results.node["demand"]
+    for c in project.components:
+        if isinstance(c, AssignedFlow):
+            demand = float(demand_table.loc[0, c.id])
+            if abs(demand - c.flow) > 8 * 2.0**-23 * abs(c.flow):
+                raise RuntimeError(f"EPANET's demand at {c.id} is {demand}, not {c.flow}")
     # float() of a float32 is exact, so the JSON holds EPANET's values unchanged.
     flows = {c.id: float(flow_table.loc[0, c.id]) for c in project.connections}
     heads = {key: float(head_table.loc[0, node]) for key, node in _node_names(project).items()}

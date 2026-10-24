@@ -1,12 +1,15 @@
 <!--
-	Status of a solve: converged or not, the solver's message, iterations, compute time and the
-	calculation-method version. When the solve did not converge, the convergence report: where the
-	largest continuity and energy errors are, and which components kept switching state.
+	Status of a solve: converged or not, the solver's message (with names and display units),
+	iterations, compute time and the calculation-method version. When the solve did not converge,
+	the convergence report: the components its message names (e.g. an assigned-flow node that no
+	reservoir or reference node reaches, and what closes it off), where the largest continuity and
+	energy errors are, and which components kept switching state.
 -->
 <script lang="ts">
 	import type { SolveResponse } from '$lib/api/types';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import { namedComponents, readableText } from '$lib/utils/flag-text';
 	import { componentById, connectionById } from '$lib/utils/graph';
 	import { portLabel } from '$lib/utils/labels';
 	import { connectionName, Formatter, type ElementRef } from '$lib/utils/results';
@@ -47,6 +50,10 @@
 	const repeatsCounts = $derived(
 		/^converged: \d+ Newton iterations in \d+ outer iteration\(s\)\.?$/.test(report.message)
 	);
+
+	/** The message with names and display units, and the components it names, as links. */
+	const message = $derived(readableText(report.message, ws.project, ws.units));
+	const named = $derived(converged ? [] : namedComponents(report.message, ws.project));
 
 	const time = $derived(
 		response.computeTime < 0.01 ? '< 0.01 s' : `${response.computeTime.toFixed(2)} s`
@@ -94,7 +101,7 @@
 		</p>
 	</div>
 	{#if !converged || !repeatsCounts}
-		<p class={converged ? 'text-xs text-slate-600' : 'text-sm text-slate-800'}>{report.message}</p>
+		<p class={converged ? 'text-xs text-slate-600' : 'text-sm text-slate-800'}>{message}</p>
 	{/if}
 	{#if !converged}
 		<p class="text-sm font-medium text-red-900">
@@ -102,6 +109,16 @@
 			use them. Check the inputs near the places listed here, then solve again.
 		</p>
 		<ul class="list-disc space-y-1 pl-5 text-sm text-red-950">
+			{#if named.length}
+				<li>
+					<span class="block pt-1">Named in the message:</span>
+					<ul class="space-y-0">
+						{#each named as elementId (elementId)}
+							<li>{@render link(locate(elementId) ?? { label: elementId, element: null })}</li>
+						{/each}
+					</ul>
+				</li>
+			{/if}
 			{@render residual(
 				'Largest continuity error',
 				f.value(report.maxContinuityResidual.value, 'flow'),

@@ -53,6 +53,31 @@ describe('reservoir entrance and exit losses', () => {
 		expect(screen.queryByText(/No entrance or exit loss is applied/)).toBeNull();
 	});
 
+	it('Add after a reservoir: a supply runs into it, so the hint and the piping name the exit', async () => {
+		const ws = testWorkspace(createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z' }));
+		render(WorkspaceView, { workspace: ws });
+		await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Add after' }));
+		const dialog = within(await screen.findByRole('dialog', { name: 'Add after Reservoir R1' }));
+		await fireEvent.change(dialog.getByRole('combobox', { name: 'Component' }), {
+			target: { value: 'assigned_flow' }
+		});
+		await fireEvent.change(dialog.getByRole('combobox', { name: 'Direction' }), {
+			target: { value: 'supply' }
+		});
+		const flow = dialog.getByRole('textbox', { name: /^Flow/ });
+		await fireEvent.input(flow, { target: { value: '5' } });
+		await fireEvent.change(flow);
+		expect(
+			dialog.getByText(/and a pipe exit fitting \(the default loss where flow enters a reservoir\)/)
+		).toBeInTheDocument();
+		expect(dialog.queryByText(/entrance fitting/)).toBeNull();
+		await fireEvent.click(dialog.getByRole('button', { name: 'Add' }));
+		const l1 = ws.project.connections.find((c) => c.id === 'L1')!;
+		expect([l1.fromComponentId, l1.toComponentId]).toEqual(['AF1', 'R1']);
+		expect(l1.piping.fittings).toEqual([{ type: 'exit', quantity: 1, pipeIndex: 0 }]);
+	});
+
 	it('piping at a reservoir without an entrance or exit says so and offers the fitting', async () => {
 		const project = pumpTransferExample();
 		const l3 = project.connections.find((c) => c.id === 'L3')!;

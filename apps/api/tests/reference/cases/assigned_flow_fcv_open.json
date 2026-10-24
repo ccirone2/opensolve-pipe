@@ -1,0 +1,175 @@
+{
+  "name": "assigned_flow_fcv_open",
+  "description": "A 12 L/s demand fed only through an FCV set to 20 L/s: verifies that the demand fixes the flow, so the FCV stays fully open below its setpoint (ideal, no loss) with the CONTROL_VALVE_SETPOINT_NOT_MET flag.",
+  "source": "closed-form: tests/reference/derivations_assigned_flow.py::assigned_flow_fcv_open (assigned flow (SDD 4.11, TSD 4.8): a free node whose connection carries Q_a, no head equation of its own; static pressure with v in the connected pipe; the line carries Q_a by continuity, heads stepped from R1; FCV open (ideal, K = 0) at Q_a < Q_set; line fittings: fluids bend_rounded_Crane(Di, 90, bend_diameters=1.5), entrance_sharp(method='Crane'))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-assigned-flow-fcv-open",
+    "metadata": {
+      "name": "Assigned demand through an FCV with a larger setpoint",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 8.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "FCV1",
+        "name": "Control valve FCV1",
+        "elevation": 1.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "valve",
+        "valveType": "fcv",
+        "status": "active",
+        "setpoint": 0.02
+      },
+      {
+        "id": "AF1",
+        "name": "Assigned flow AF1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "assigned_flow",
+        "flow": 0.012
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "FCV1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 30.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "FCV1",
+        "fromPortId": "outlet",
+        "toComponentId": "AF1",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 60.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "elbow_90_lr",
+              "quantity": 2,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.012,
+      "L2": 0.012
+    },
+    "egl": {
+      "R1:port_1": 10.0,
+      "FCV1:inlet": 9.337142719599441,
+      "FCV1:outlet": 9.337142719599441,
+      "AF1:port_1": 8.070571383556672
+    },
+    "pressures": {
+      "FCV1:inlet": 80532.31586406006,
+      "FCV1:outlet": 80532.31586406006,
+      "AF1:port_1": 77923.37241504143
+    },
+    "valves": {
+      "FCV1": {
+        "state": "open"
+      }
+    },
+    "flags": [
+      {
+        "code": "CONTROL_VALVE_SETPOINT_NOT_MET",
+        "componentId": "FCV1"
+      }
+    ]
+  }
+}

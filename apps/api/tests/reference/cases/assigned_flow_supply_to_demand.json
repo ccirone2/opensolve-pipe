@@ -1,0 +1,205 @@
+{
+  "name": "assigned_flow_supply_to_demand",
+  "description": "A 10 L/s supply feeding an equal demand through a tee whose branch is the only connection to a reservoir: verifies that equal assigned flows pass between themselves while the reservoir passes nothing and only sets the pressure level.",
+  "source": "closed-form: tests/reference/derivations_assigned_flow.py::assigned_flow_supply_to_demand (assigned flow (SDD 4.11, TSD 4.8): a free node whose connection carries Q_a, no head equation of its own; static pressure with v in the connected pipe; continuity at T1 leaves R1's pipe at zero flow, E = H_R1; Darcy-Weisbach + Colebrook, no iteration; line fittings: fluids bend_rounded_Crane(Di, 90, bend_diameters=1.5), K_gate_valve_Crane(Di, Di, 0))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-assigned-flow-supply-to-demand",
+    "metadata": {
+      "name": "Assigned supply to an equal demand",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "AF1",
+        "name": "Assigned flow AF1",
+        "elevation": 1.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "assigned_flow",
+        "flow": -0.01
+      },
+      {
+        "id": "T1",
+        "name": "Tee T1",
+        "elevation": 0.5,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "AF2",
+        "name": "Assigned flow AF2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "assigned_flow",
+        "flow": 0.01
+      },
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 4.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "AF1",
+        "fromPortId": "port_1",
+        "toComponentId": "T1",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 40.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "elbow_90_lr",
+              "quantity": 2,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "T1",
+        "fromPortId": "run_outlet",
+        "toComponentId": "AF2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 60.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "gate_valve",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      },
+      {
+        "id": "L3",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "T1",
+        "toPortId": "branch",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 5.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.01,
+      "L2": 0.01,
+      "L3": 0.0
+    },
+    "egl": {
+      "AF1:port_1": 6.363194871922516,
+      "T1:run_inlet": 4.0,
+      "T1:run_outlet": 4.0,
+      "T1:branch": 4.0,
+      "AF2:port_1": 0.5872778787992412,
+      "R1:port_1": 4.0
+    },
+    "pressures": {
+      "AF1:port_1": 50293.08401815402,
+      "T1:run_inlet": 32057.927427396557,
+      "T1:run_outlet": 32057.927427396557,
+      "T1:branch": 34254.62845,
+      "AF2:port_1": 3551.009130302884
+    }
+  }
+}

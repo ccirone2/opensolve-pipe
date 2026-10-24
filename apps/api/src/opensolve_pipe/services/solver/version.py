@@ -63,6 +63,16 @@ METHOD_CHANGELOG: list[MethodChange] = [
             "limit of a cut of FCVs is solved with each FCV of the cut held open; before, such "
             "a point could report that no steady state was found, depending on rounding and on "
             "the points before it.",
+            "Adds the assigned-flow node: a fixed flow out of (a demand) or into (a supply) the "
+            "network at a port, a nodal demand in the network solve, never a fixed-pressure "
+            "boundary. A node with a nonzero flow in a part that no reservoir or reference node "
+            "reaches through open elements, where the assigned flows do not balance, is reported "
+            "as not converged, naming it (balanced flows there are solved, with an undetermined "
+            "pressure level; a zero flow is a plug), as is a flow control that alone feeds "
+            "assigned flows equal to its setpoint (an undetermined pressure); system curves "
+            "count assigned flows in their flow bounds, above and below. Flows, heads, pressures, "
+            "statuses and system curves of projects without assigned-flow nodes are unchanged by "
+            "it (corpus comparison).",
         ],
     },
 ]

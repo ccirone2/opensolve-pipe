@@ -273,7 +273,7 @@ The hydraulic network is modeled as a graph. This port graph is the only project
    - Fire-flow and other point demands
    - Injection points with a known flow (e.g. a metered make-up or dosing connection)
 
-An assigned-flow node is not a pressure boundary: a sub-network whose only boundaries are assigned-flow nodes has no unique solution and is a topology error. If closing a valve or stopping a pump cuts an assigned-flow node off from every fixed-pressure boundary, the solve reports the node as disconnected rather than returning a result.
+An assigned-flow node is not a pressure boundary: a sub-network whose only boundaries are assigned-flow nodes has no unique solution and is a topology error. If closing a valve or stopping a pump cuts an assigned-flow node off from every fixed-pressure boundary, the solve reports the node as disconnected rather than returning a result. (Assigned flows that balance there, such as a supply feeding an equal demand, are still solved, with the pressure level there undetermined and flagged.) A flow control that alone feeds an assigned flow cannot hold another flow: an FCV set above it is fully open and a speed-controlled pump runs at a speed limit (setpoint not met, flagged), while one set to that same flow, or an FCV set below it, has no determined steady state and is reported as not converged, naming both.
 
 ### 3.2 Outputs
 

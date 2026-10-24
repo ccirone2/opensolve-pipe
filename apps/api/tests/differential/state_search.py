@@ -3,8 +3,9 @@
 Pin every status element of a network to each combination of states (the first ``LIMIT``, as
 ``fuzz`` searches), solve with our solver, and keep the solutions that pass the independent
 self-check (laws, status rules of the ORIGINAL project, zero-flow and headless-section
-feasibility). ``fuzz`` runs it on a network our solver did not converge on and counts the fully
-determined ones (every port headed); so does the CLI.
+feasibility, determined heads, and the assigned-flow nodes' results and expectations).
+``fuzz`` runs it on a network our solver did not converge on and counts the fully determined
+ones (every port headed); so does the CLI.
 
 A flow-controlled pump (CLAUDE.md D11) is pinned over its four states (proposal
 vfd-pump-modes.md §7.4): max_speed and min_speed as the fixed-speed pump at that speed,
@@ -116,6 +117,7 @@ def search(
             continue  # an 'active' pin that the solver moved
         probs = ck.law_problems(project, f, h, st) + ck.status_problems(project, f, h, st)
         zf = ck.zero_flow_and_floating(project, f, h, st, r)
+        zf += ck.undetermined_heads(project, h, st) + ck.assigned_flow_problems(project, r, f)
         if not probs and not zf:
             valid.append((want, f, h))
     return elems, valid

@@ -12,6 +12,7 @@ import numpy as np
 import scipy
 
 from ... import __version__
+from ...models.components import AssignedFlow
 from ...models.piping import ENTRANCE_TYPES, EXIT_TYPES
 from ...models.results import MethodsSection, MethodsSummary
 from .branches import DARBY_TEE
@@ -87,6 +88,11 @@ EPANET_SPEED_EFFICIENCY = (
 )
 SPEED_CONTROL_DECISION = (
     "OpenSolve Pipe design decision D11 (CLAUDE.md), from docs/proposals/vfd-pump-modes.md."
+)
+GALE = (
+    "Gale, D. A theorem on flows in networks. Pacific Journal of Mathematics 7(2), 1957, "
+    "1073-1082 (a flow with fixed supplies and demands exists when no node set holds more net "
+    "supply than its cut can pass: the assigned flows in a pump's system-curve bounds)."
 )
 
 
@@ -172,6 +178,42 @@ def methods_summary(
             "point; other speed-controlled pumps that are on keep regulating; its default range "
             "uses its maximum speed."
         )
+    assigned = [comp for comp in built.components.values() if isinstance(comp, AssignedFlow)]
+    assigned_items: list[str] = []
+    assigned_references: list[str] = []
+    system_curve_assigned = ""
+    if assigned:
+        assigned_items = [
+            "Assigned-flow nodes fix the flow leaving the network at their port (a demand, "
+            "positive) or entering it (a supply, negative), whatever the pressure there: a nodal "
+            "demand in the continuity equations, as EPANET's junction demands; their pressure is "
+            "a result. They are not a fixed-pressure boundary. A dead-end branch to one carries "
+            "its flow. A part of the network that no reservoir or reference node reaches through "
+            "open elements carries assigned flows only if they sum to zero (to the continuity "
+            "tolerance): its flows are then solved and its pressure level is not (flagged); "
+            "otherwise the closed elements around that part whose status rules open as its "
+            "pressure falls (a net demand) or rises (a net supply) are re-opened; with none left "
+            "to open, no steady state carries them, and the solve is reported as not converged, "
+            "naming the nodes and the elements closed around them (EPANET: a disconnected "
+            "system). A flow control (an FCV, or a speed-controlled pump) that alone feeds "
+            "assigned-flow nodes taking its setpoint flow leaves the pressure between them "
+            "undetermined (reported as not converged, naming them); with another flow the node's "
+            "flow passes and the control's rules take it to a limit (an FCV fully open below its "
+            "setpoint, a speed-controlled pump at its maximum or minimum speed), or, above what "
+            "the control can pass, or with reverse flow through it, no steady state carries it.",
+        ]
+        assigned_references = [EPANET]
+        system_curve_assigned = (
+            " With assigned-flow nodes, the cut counts their flows as fixed demands and supplies "
+            "(Gale): a demand on the pump's side of the cut takes part of the forced flow, and "
+            "one beyond it adds to what the cut must pass. Read the other way, the cut bounds the "
+            "flow from below: a flowing point below the least flow that assigned flows need "
+            "through the pump (a demand on its discharge side that a one-way element keeps every "
+            "reservoir and reference node from feeding, or a supply on its suction side that one "
+            "keeps from draining) has no steady state either and is not solved again, and one at "
+            "that floor is solved with each FCV of the cut held open too. A side of the pump "
+            "that reaches only assigned-flow nodes has no point with a head."
+        )
     if outer is not None:
         iteration_items.append(
             f"This solve: {outer.inner_iterations} Newton iterations in "
@@ -219,8 +261,9 @@ def methods_summary(
                     "differences are solved with one node held at an arbitrary head, and its "
                     "pressures, NPSH available and PRV/PSV setpoint checks are not reported "
                     "(flagged).",
+                    *assigned_items,
                 ],
-                references=[TODINI_PILATI],
+                references=[TODINI_PILATI, *assigned_references],
             ),
             MethodsSection(
                 title="Pipe friction",
@@ -330,7 +373,8 @@ def methods_summary(
                     "the pump with no fixed pressure, or a control valve in series at its "
                     "switch, which could also hold the flow throttled with any higher head) or "
                     "where its solve does not converge; its message says which."
-                    + system_curve_control,
+                    + system_curve_control
+                    + system_curve_assigned,
                     *speed_control_items,
                 ],
                 references=[
@@ -338,6 +382,7 @@ def methods_summary(
                     FRITSCH_BUTLAND,
                     EPANET_STATUS,
                     FORD_FULKERSON,
+                    *([GALE] if assigned else []),
                     *speed_control_references,
                 ],
             ),

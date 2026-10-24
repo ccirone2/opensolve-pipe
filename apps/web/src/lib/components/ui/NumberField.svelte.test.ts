@@ -214,4 +214,33 @@ describe('NumberField', () => {
 			Element.prototype.scrollIntoView = original;
 		}
 	});
+
+	it('shows an error its owner reports (a required value not entered), after its own', async () => {
+		const onchange = vi.fn();
+		const { rerender } = render(NumberField, {
+			label: 'Flow',
+			value: null,
+			category: 'flow',
+			units: SI_UNITS,
+			error: 'Enter the flow first.',
+			onchange
+		});
+		const input = screen.getByRole('textbox', { name: 'Flow (L/s)' });
+		expect(input).toHaveValue('');
+		expect(input).toHaveAttribute('aria-invalid', 'true');
+		expect(input).toHaveAccessibleDescription('Enter the flow first.');
+		expect(screen.getByRole('alert')).toHaveTextContent('Enter the flow first.');
+
+		// Its own problem with the typed text comes first; the owner's shows again once it is gone.
+		await type(input, 'abc');
+		expect(screen.getByRole('alert')).toHaveTextContent('Enter a number, e.g. 12.5 or 1.2e-3.');
+		await fireEvent.keyDown(input, { key: 'Escape' });
+		expect(screen.getByRole('alert')).toHaveTextContent('Enter the flow first.');
+
+		await type(input, '3');
+		expect(onchange).toHaveBeenCalledExactlyOnceWith(toSI(3, 'L/s'));
+		await rerender({ error: null });
+		expect(screen.queryByRole('alert')).toBeNull();
+		expect(input).not.toHaveAttribute('aria-invalid');
+	});
 });

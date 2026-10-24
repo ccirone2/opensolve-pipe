@@ -25,6 +25,8 @@ EPANET_CASE_NAMES = (
     "epanet_pump_flow_control_speed",
     "epanet_pump_flow_control_max",
     "epanet_pump_flow_control_min",
+    "epanet_assigned_flow_network",
+    "epanet_assigned_flow_pump_network",
 )
 DERIVATION_REL = 1.0e-10
 EPANET_REL = 8 * 2.0**-23  # a few float32 ulps

@@ -23,7 +23,9 @@ A speed-controlled pump (``control`` set, CLAUDE.md D11) also has its ``controlS
 the ``speed`` it runs at: the solved speed when active, else the limit (``speed``, its maximum,
 or ``control.minSpeed``).
 Ports in an isolated section (no fixed head reachable through open elements) have no expected
-EGL, as the solver reports them without a head (design §4). ``stepHolds`` names a Crane branch
+EGL, as the solver reports them without a head (design §4). An assigned-flow node's port is a
+free node like any other (an expected EGL and pressure); the expected flows satisfy continuity
+with its flow withdrawn there (SDD §4.11). ``stepHolds`` names a Crane branch
 whose K is held across a correlation step (design §5.4) at the mean of the fluids values at
 splitA and splitB: the self-checks evaluate that branch's law with the held K.
 
@@ -39,6 +41,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from opensolve_pipe.models.components import (
+    AssignedFlow,
     BranchLossModel,
     CheckValve,
     Component,
@@ -386,6 +389,21 @@ def plug(cid: str, elevation: float, nominal_size: float = 0.0254) -> Plug:
         id=cid,
         name=f"Plug {cid}",
         elevation=elevation,
+        ports=[Port(id="port_1", nominal_size=nominal_size)],
+    )
+
+
+def assigned_flow(
+    cid: str, elevation: float, flow: float, nominal_size: float = 0.1016
+) -> AssignedFlow:
+    """A fixed flow at one port, m³/s (SDD §4.11): positive leaves the network (a demand),
+    negative enters it (a supply); the pressure there is a result."""
+    return AssignedFlow(
+        type="assigned_flow",
+        id=cid,
+        name=f"Assigned flow {cid}",
+        elevation=elevation,
+        flow=flow,
         ports=[Port(id="port_1", nominal_size=nominal_size)],
     )
 

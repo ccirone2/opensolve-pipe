@@ -1,9 +1,11 @@
-"""Unit checks of the differential test's own pieces (TSD §10.4) for flow-controlled pumps and the
-corpus comparison: the rule checker written from proposal vfd-pump-modes.md §4.5 at its
-tolerance edges, the closed-form implied speed, the 'flow_control' generator profile, the EPANET
-substitutes, the control search's split of distinct valid states into multiple states and
-alternatives at rest, and ``compare --ignore`` and ``--ignore-null``. Fast; no EPANET run (the
-WNTR model build is skipped where WNTR is not installed).
+"""Unit checks of the differential test's own pieces (TSD §10.4) for flow-controlled pumps,
+assigned-flow nodes and the corpus comparison: the rule checker written from proposal
+vfd-pump-modes.md §4.5 at its tolerance edges, the closed-form implied speed, the 'flow_control'
+generator profile, the EPANET substitutes, the control search's split of distinct valid states
+into multiple states and alternatives at rest, the networks without a steady state that
+assigned flows make (``checks.assigned_flow_expectations``), the 'assigned_flow' generator
+profile and its EPANET demands, and ``compare --ignore`` and ``--ignore-null``. Fast; no EPANET
+run (the WNTR model build is skipped where WNTR is not installed).
 """
 
 import json
@@ -13,16 +15,31 @@ import pytest
 
 pytest.importorskip("wntr")  # checks reads EPANET results (a dev dependency, so CI runs this)
 
-from opensolve_pipe.models.components import Pump, PumpControl
+from opensolve_pipe.models.components import AssignedFlow, Component, Plug, Pump, PumpControl
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.services.solver.builder import validate_topology
 from tests.differential import checks as ck
 from tests.differential import compare
 from tests.differential import epanet_model as em
 from tests.differential import state_search as ss
-from tests.differential.generator import DEFAULT, FLOW_CONTROL, generate
+from tests.differential.fuzz import plug_twin
+from tests.differential.generator import ASSIGNED_FLOW, DEFAULT, FLOW_CONTROL, generate
 from tests.reference import element_laws as el
-from tests.reference.case_format import pump, pump_curve
+from tests.reference import network_check as nc
+from tests.reference.case_format import (
+    assigned_flow,
+    check_valve,
+    connect,
+    control_valve,
+    custom_fluid,
+    custom_pipe,
+    ideal_tee,
+    isolation_valve,
+    make_project,
+    pump,
+    pump_curve,
+    reservoir,
+)
 
 A, B = 40.0, 2000.0  # test curve H₀ = A − B·x (m, m per m³/s): random test inputs
 CURVE = pump_curve("PC", [(0.0, A), (0.005, A - B * 0.005), (0.01, A - B * 0.01)])
@@ -233,6 +250,193 @@ def test_control_search_multiple_compares_shared_flows(seed: int, multiple: bool
     a, b = ss.distinct(project, valid)
     assert ss.flowing(b) < ss.flowing(a) or ss.flowing(a) < ss.flowing(b)
     assert ss.multiple(project, [a, b]) is multiple
+
+
+# --------------------------------------------------------------------------- assigned flows
+# Small networks of random test inputs: a reservoir R0 feeding an assigned-flow node AF1 through
+# one element, whose inlet (suction) faces R0 unless reversed.
+
+PIPE = [custom_pipe(0.1, 10.0, 1.0e-5)]
+WATER = custom_fluid("EPANET water nu", 1000.0, em.NU_EPANET * 1000.0)
+
+
+def line(element: Component | None, flow: float, *, reverse: bool = False) -> Project:
+    comps: list[Component] = [reservoir("R0", 0.0, 5.0), assigned_flow("AF1", 0.0, flow)]
+    if element is None:
+        conns = [connect("C1", "R0:port_1", "AF1:port_1", PIPE)]
+    else:
+        comps.append(element)
+        a, b = nc.two_port_ends(element)  # type: ignore[arg-type]
+        a, b = (b, a) if reverse else (a, b)
+        conns = [connect("C1", "R0:port_1", a, PIPE), connect("C2", b, "AF1:port_1", PIPE)]
+    return make_project("t", "t", WATER, comps, conns, pump_library=[CURVE])
+
+
+def kinds(project: Project) -> list[str]:
+    return [e.kind for e in ck.assigned_flow_expectations(project)]
+
+
+FCV = control_valve("FCV1", 0.0, "fcv", 0.01)
+
+
+@pytest.mark.parametrize(
+    ("element", "flow", "reverse", "expected"),
+    [
+        (None, 0.01, False, []),
+        (isolation_valve("IV1", 0.0, "gate", status="isolated"), 0.01, False, ["disconnected"]),
+        (isolation_valve("IV1", 0.0, "gate", status="isolated"), 0.0, False, []),
+        (isolation_valve("IV1", 0.0, "gate"), -0.01, False, []),
+        (check_valve("CV1", 0.0, "check"), 0.01, False, []),
+        (check_valve("CV1", 0.0, "check"), -0.01, False, ["no_flow_path"]),
+        (check_valve("CV1", 0.0, "check"), 0.01, True, ["no_flow_path"]),
+        (check_valve("CV1", 0.0, "check", status="locked_open"), 0.01, True, []),
+        (check_valve("CV1", 0.0, "check", status="locked_closed"), 0.01, False, ["disconnected"]),
+        # an FCV passes at most its setpoint forwards: above it no pattern of flows, at it the
+        # pressure behind it undetermined, below it the FCV open
+        (FCV, 0.02, False, ["no_flow_path"]),
+        (FCV, 0.01, False, ["over_controlled"]),
+        (FCV, -0.01, True, ["over_controlled"]),
+        (FCV, 0.01 * (1 + 0.5 * ck.FLOW_ROUNDING), False, ["over_controlled"]),
+        (FCV, 0.005, False, []),
+        (FCV, -0.005, False, ["no_flow_path"]),
+        (FCV.model_copy(update={"status": "failed_open"}), 0.01, False, []),
+        (FCV.model_copy(update={"status": "failed_closed"}), 0.01, False, ["disconnected"]),
+        # a flow-controlled pump passes any forward flow (more than Q_set at its minimum speed)
+        (PUMP, Q_SET, False, ["over_controlled"]),
+        (PUMP, 2 * Q_SET, False, []),
+        (PUMP, 0.5 * Q_SET, False, []),
+        (PUMP, -Q_SET, False, ["no_flow_path"]),
+        (PUMP.model_copy(update={"status": "off"}), Q_SET, False, ["disconnected"]),
+        (pump("PF", 0.0, "PC"), -0.001, False, ["no_flow_path"]),
+    ],
+)
+def test_assigned_flow_expectations_through_one_element(
+    element: Component | None, flow: float, reverse: bool, expected: list[str]
+) -> None:
+    assert kinds(line(element, flow, reverse=reverse)) == expected
+
+
+def parallel(flow: float, prv: str | None = None) -> Project:
+    """R0 → FCV1 (0.01) → T1 ← FCV2 (0.02) ← R1 and T1 → AF1, or T1 → PRV1 → AF1."""
+    comps: list[Component] = [
+        reservoir("R0", 0.0, 5.0),
+        reservoir("R1", 0.0, 5.0),
+        control_valve("FCV1", 0.0, "fcv", 0.01),
+        control_valve("FCV2", 0.0, "fcv", 0.02),
+        ideal_tee("T1", 0.0),
+        assigned_flow("AF1", 0.0, flow),
+    ]
+    conns = [
+        connect("C1", "R0:port_1", "FCV1:inlet", PIPE),
+        connect("C2", "FCV1:outlet", "T1:run_inlet", PIPE),
+        connect("C3", "R1:port_1", "FCV2:inlet", PIPE),
+        connect("C4", "FCV2:outlet", "T1:run_outlet", PIPE),
+    ]
+    if prv is None:
+        conns.append(connect("C5", "T1:branch", "AF1:port_1", PIPE))
+    else:
+        comps.append(control_valve("PRV1", 0.0, "prv", 1.0e5, status=prv))  # type: ignore[arg-type]
+        conns += [
+            connect("C5", "T1:branch", "PRV1:inlet", PIPE),
+            connect("C6", "PRV1:outlet", "AF1:port_1", PIPE),
+        ]
+    return make_project("t", "t", WATER, comps, conns)
+
+
+def test_fcvs_in_parallel_at_their_setpoints_are_over_controlled() -> None:
+    (e,) = ck.assigned_flow_expectations(parallel(0.03))
+    assert (e.kind, e.every, e.any_of, e.word) == (
+        "over_controlled",
+        ("FCV1", "FCV2"),
+        ("AF1",),
+        "undetermined",
+    )
+    assert kinds(parallel(0.025)) == []  # one FCV open: its law ties the heads
+    assert kinds(parallel(0.04)) == ["no_flow_path"]
+    assert kinds(parallel(-0.01)) == ["no_flow_path"]
+
+
+def test_an_active_prv_in_the_part_may_hold_its_head() -> None:
+    """The part between the FCVs and AF1 holds an active PRV, whose outlet head is its setpoint:
+    no over-control is claimed there; open for good, the PRV holds no head."""
+    assert kinds(parallel(0.03, prv="active")) == []
+    assert kinds(parallel(0.03, prv="failed_open")) == ["over_controlled"]
+    assert kinds(parallel(0.04, prv="active")) == ["no_flow_path"]
+
+
+def test_a_balanced_pair_closed_off_may_float() -> None:
+    """Assigned flows that sum to zero in a closed-off part: a floating section (TSD §4.8)."""
+    comps: list[Component] = [
+        reservoir("R0", 0.0, 5.0),
+        isolation_valve("IV1", 0.0, "gate", status="isolated"),
+        ideal_tee("T1", 0.0),
+        assigned_flow("AF1", 0.0, 0.01),
+        assigned_flow("AF2", 0.0, -0.01),
+    ]
+    conns = [
+        connect("C1", "R0:port_1", "IV1:inlet", PIPE),
+        connect("C2", "IV1:outlet", "T1:run_inlet", PIPE),
+        connect("C3", "T1:run_outlet", "AF1:port_1", PIPE),
+        connect("C4", "T1:branch", "AF2:port_1", PIPE),
+    ]
+    project = make_project("t", "t", WATER, comps, conns)
+    assert kinds(project) == []
+    unbalanced = project.model_copy(
+        update={"components": [*comps[:4], assigned_flow("AF2", 0.0, -0.005)]}
+    )
+    (e,) = ck.assigned_flow_expectations(unbalanced)
+    assert (e.kind, e.any_of) == ("disconnected", ("AF1", "AF2"))
+
+
+def test_expectation_named_by_quoted_ids() -> None:
+    (e,) = ck.assigned_flow_expectations(line(FCV, 0.01))
+    assert e.named("'FCV1' and 'AF1' fix the same flow: the pressure is undetermined")
+    assert not e.named("'FCV1' and 'AF1' fix the same flow")
+    assert not e.named("'FCV12' and 'AF12': the pressure is undetermined")
+    (d,) = ck.assigned_flow_expectations(line(FCV, 0.02))
+    assert d.named("no reservoir reaches assigned-flow node 'AF1'")
+    assert not d.named("no reservoir reaches 'FCV1'")
+
+
+def test_assigned_flow_is_an_epanet_junction_demand() -> None:
+    project = line(None, -0.0123)
+    wn, lay = em.build_wn(project, {}, {})
+    junction = wn.get_node("AF1")
+    assert junction.demand_timeseries_list[0].base_value == -0.0123
+    assert junction.elevation == 0.0
+    assert lay.node_of_port["AF1:port_1"] == "AF1"
+    assert wn.options.hydraulic.demand_model == "DDA"
+
+
+@pytest.mark.parametrize("seed", range(20_000, 20_040))
+def test_assigned_flow_profile_adds_to_the_default_network(seed: int) -> None:
+    base, af = generate(seed), generate(seed, ASSIGNED_FLOW)
+    nodes = [c for c in af.components if isinstance(c, AssignedFlow)]
+    assert len(nodes) <= 4
+    af_ids = {c.id: c for c in af.components}
+    removed = [c for c in base.components if c.id not in af_ids]
+    assert all(isinstance(c, Plug) for c in removed)  # a node in a plug's place
+    assert len(removed) <= len(nodes)
+    for c in base.components:
+        assert c.id not in af_ids or af_ids[c.id] == c
+    assert af.pump_library[: len(base.pump_library)] == base.pump_library
+    base_conns = {c.id for c in base.connections}
+    assert base_conns <= {c.id for c in af.connections}
+    for node in nodes:
+        assert -100.0 <= node.flow <= 100.0
+        assert node.flow == float(f"{node.flow:.6g}")
+    assert validate_topology(af) == []
+    assert Project.model_validate(af.model_dump(mode="json", by_alias=True)) == af
+
+
+def test_plug_twin_replaces_only_zero_flows() -> None:
+    project = line(None, 0.0)
+    twin = plug_twin(project)
+    assert twin is not None
+    (p,) = [c for c in twin.components if c.id == "AF1"]
+    assert isinstance(p, Plug)
+    assert (p.elevation, p.ports) == (0.0, project.components[1].ports)
+    assert plug_twin(line(None, 0.01)) is None
 
 
 def write(directory: Path, name: str, data: object) -> None:

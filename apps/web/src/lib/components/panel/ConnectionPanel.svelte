@@ -8,7 +8,7 @@
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { removePort } from '$lib/utils/edit';
-	import type { ComponentKind } from '$lib/utils/factory';
+	import { missingEntry, type ComponentKind, type EnteredValues } from '$lib/utils/factory';
 	import { connectionAtPort, freePorts, otherEnd } from '$lib/utils/graph';
 	import { componentName, npsLabel, portLabel } from '$lib/utils/labels';
 	import { addPipe } from '$lib/utils/piping';
@@ -16,6 +16,7 @@
 	import AddComponentDialog, { type AddMode } from './AddComponentDialog.svelte';
 	import FittingsEditor from './FittingsEditor.svelte';
 	import { kindOptions } from './kinds';
+	import NewComponentFields from './NewComponentFields.svelte';
 	import PipeSegmentForm from './PipeSegmentForm.svelte';
 
 	let { component }: { component: Component } = $props();
@@ -33,7 +34,15 @@
 
 	let dialog = $state<AddMode | null>(null);
 	let kind = $state<ComponentKind>('gate');
+	/** Values entered for a kind with no default for them (see NewComponentFields). */
+	let values = $state<EnteredValues>({});
+	let missing = $state<string | null>(null);
 	let target = $state('');
+
+	function addHere(portId: string) {
+		missing = missingEntry(kind, values);
+		if (!missing) ws.addAfter(component.id, portId, kind, values);
+	}
 
 	/** Free ports of other components, for closing a loop. */
 	const targets = $derived(
@@ -158,13 +167,17 @@
 					value={kind}
 					options={kindOptions()}
 					class="min-w-48 flex-1"
-					onchange={(v) => (kind = v)}
+					onchange={(v) => {
+						kind = v;
+						missing = null;
+					}}
 				/>
-				<button
-					type="button"
-					class="btn btn-primary"
-					onclick={() => ws.addAfter(component.id, portId, kind)}
-				>
+				{#if kind === 'assigned_flow'}
+					<div class="grid basis-full gap-3 sm:grid-cols-2">
+						<NewComponentFields {kind} units={ws.units} bind:values bind:error={missing} />
+					</div>
+				{/if}
+				<button type="button" class="btn btn-primary" onclick={() => addHere(portId)}>
 					<Icon name="plus" class="size-4" /> Add
 				</button>
 			</div>

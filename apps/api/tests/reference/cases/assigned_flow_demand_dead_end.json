@@ -1,0 +1,124 @@
+{
+  "name": "assigned_flow_demand_dead_end",
+  "description": "A reservoir feeds a 12 L/s assigned demand at the end of a single line: verifies that the demand fixes the line's flow (a free node with one open link that still passes flow) and the node's EGL and static pressure (v in the connected pipe).",
+  "source": "closed-form: tests/reference/derivations_assigned_flow.py::assigned_flow_demand_dead_end (assigned flow (SDD 4.11, TSD 4.8): a free node whose connection carries Q_a, no head equation of its own; static pressure with v in the connected pipe; the line carries Q_a by continuity, heads stepped from R1; Darcy-Weisbach + Colebrook, no iteration; line fittings: fluids bend_rounded_Crane(Di, 90, bend_diameters=1.5), entrance_sharp(method='Crane'), K_gate_valve_Crane(Di, Di, 0))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-assigned-flow-demand-dead-end",
+    "metadata": {
+      "name": "Assigned demand at a dead end",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 10.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "AF1",
+        "name": "Assigned flow AF1",
+        "elevation": 1.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "assigned_flow",
+        "flow": 0.012
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "AF1",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 150.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_90_lr",
+              "quantity": 2,
+              "pipeIndex": 0
+            },
+            {
+              "type": "gate_valve",
+              "quantity": 1,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.012
+    },
+    "egl": {
+      "R1:port_1": 12.0,
+      "AF1:port_1": 8.839440676818759
+    },
+    "pressures": {
+      "AF1:port_1": 75661.28770570054
+    }
+  }
+}

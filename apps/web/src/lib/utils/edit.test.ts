@@ -4,6 +4,7 @@ import { deepFreeze, link, projectWith, referentialIssues } from '../testing/hel
 import {
 	addBranch,
 	addComponentAtPort,
+	addsUpstream,
 	addPort,
 	canJoin,
 	connectPorts,
@@ -89,14 +90,15 @@ function readyFor(kind: ComponentKind, project: Project): Project {
 /**
  * A new component of `kind` for a project made by readyFor. A new pump gets a curve id of its
  * own, still to be defined; here, as a user does in the pump form, it is set to use the
- * library's first curve.
+ * library's first curve. An assigned-flow node gets the flow a user enters where it is added
+ * (it has no default; 0.004 m³/s is a made-up test input).
  */
 function newComponent(
 	kind: ComponentKind,
 	project: Project,
 	options: Parameters<typeof createComponent>[2] = {}
 ): Component {
-	const component = createComponent(kind, project, options);
+	const component = createComponent(kind, project, { flow: 0.004, ...options });
 	return component.type === 'pump'
 		? { ...component, curveId: project.pumpLibrary[0]!.id }
 		: component;
@@ -206,6 +208,81 @@ describe('addComponentAtPort', () => {
 			fromPortId: 'run_outlet',
 			toComponentId: 'V1',
 			toPortId: 'inlet'
+		});
+	});
+
+	describe('an assigned-flow node next to a reservoir: the entered flow sets the direction', () => {
+		/** A project with R1 alone, or AF1 (flow, m³/s) alone. */
+		const withReservoir = () =>
+			deepFreeze(projectWith([createComponent('reservoir', createEmptyProject())]));
+		const withNode = (flow: number) =>
+			deepFreeze(projectWith([createComponent('assigned_flow', createEmptyProject(), { flow })]));
+		const ends = (c: PipeConnection | undefined) => [c?.fromComponentId, c?.toComponentId];
+
+		it('runs a supply into the reservoir, with the exit loss where it arrives', () => {
+			const project = withReservoir();
+			const supply = createComponent('assigned_flow', project, { flow: -0.005 });
+			const [connection] = addComponentAtPort(project, 'R1', 'port_1', supply).connections;
+			expect(ends(connection)).toEqual(['AF1', 'R1']);
+			expect(connection!.piping.fittings).toEqual([{ type: 'exit', quantity: 1, pipeIndex: 0 }]);
+			expect(addsUpstream(project.components[0]!, 'port_1', supply)).toBe(true);
+		});
+
+		it('runs a demand out of the reservoir, with the entrance loss where it leaves', () => {
+			const project = withReservoir();
+			const demand = createComponent('assigned_flow', project, { flow: 0.005 });
+			const [connection] = addComponentAtPort(project, 'R1', 'port_1', demand).connections;
+			expect(ends(connection)).toEqual(['R1', 'AF1']);
+			expect(connection!.piping.fittings).toEqual([
+				{ type: 'entrance_sharp', quantity: 1, pipeIndex: 0 }
+			]);
+			expect(addsUpstream(project.components[0]!, 'port_1', demand)).toBe(false);
+		});
+
+		it('feeds a demand from a reservoir added after it (an entrance), drains a supply into one (an exit)', () => {
+			const demand = withNode(0.005);
+			const tank = createComponent('reservoir', demand);
+			const [fed] = addComponentAtPort(demand, 'AF1', 'port_1', tank).connections;
+			expect(ends(fed)).toEqual(['R1', 'AF1']);
+			expect(fed!.piping.fittings).toEqual([{ type: 'entrance_sharp', quantity: 1, pipeIndex: 0 }]);
+			expect(addsUpstream(demand.components[0]!, 'port_1', tank)).toBe(true);
+
+			const supply = withNode(-0.005);
+			const [drained] = addComponentAtPort(
+				supply,
+				'AF1',
+				'port_1',
+				createComponent('reservoir', supply)
+			).connections;
+			expect(ends(drained)).toEqual(['AF1', 'R1']);
+			expect(drained!.piping.fittings).toEqual([{ type: 'exit', quantity: 1, pipeIndex: 0 }]);
+		});
+
+		it('orients a connection drawn to a supply or from a demand with the flow', () => {
+			const tank = createComponent('reservoir', createEmptyProject());
+			for (const [flow, want, fitting] of [
+				[-0.005, ['AF1', 'R1'], 'exit'],
+				[0.005, ['R1', 'AF1'], 'entrance_sharp']
+			] as const) {
+				const node = createComponent('assigned_flow', createEmptyProject(), { flow });
+				const project = deepFreeze(projectWith([tank, node]));
+				const [drawn] = connectPorts(
+					project,
+					{ componentId: 'R1', portId: 'port_1' },
+					{ componentId: 'AF1', portId: 'port_1' }
+				).connections;
+				expect(ends(drawn)).toEqual(want);
+				expect(drawn!.piping.fittings.map((f) => f.type)).toEqual([fitting]);
+			}
+		});
+
+		it('keeps the default direction for a zero flow, which has none', () => {
+			const project = withReservoir();
+			const zero = createComponent('assigned_flow', project, { flow: 0 });
+			expect(ends(addComponentAtPort(project, 'R1', 'port_1', zero).connections[0])).toEqual([
+				'R1',
+				'AF1'
+			]);
 		});
 	});
 

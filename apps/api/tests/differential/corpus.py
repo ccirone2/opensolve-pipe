@@ -22,7 +22,9 @@ Corpus (names are the file names):
   curves;
 - ``fuzzfc_<seed>``: the generator profile 'flow_control' (flow-controlled pumps, CLAUDE.md D11)
   on seeds 10000-10999, 11-point curves. A tree from before that profile has none of them
-  ("missing in A" in ``compare``, not counted as different).
+  ("missing in A" in ``compare``, not counted as different);
+- ``fuzzaf_<seed>``: the generator profile 'assigned_flow' (assigned-flow nodes, TSD §4.8) on
+  seeds 20000-20999, 11-point curves; likewise missing in a tree from before that profile.
 """
 
 import argparse
@@ -39,7 +41,7 @@ from opensolve_pipe.models.api import SolveOptions
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.services.solver import solve_project
 from tests.differential import networks
-from tests.differential.generator import FLOW_CONTROL, generate
+from tests.differential.generator import ASSIGNED_FLOW, FLOW_CONTROL, generate
 
 API_ROOT = Path(__file__).resolve().parents[2]
 """The apps/api tree whose tests/ this module belongs to (its corpus files are read)."""
@@ -55,6 +57,7 @@ LADDERS = [
 WYE_LEVELS = [10.0, 10.2, 10.21, 10.22, 10.23, 10.25]
 FUZZ_SEEDS = range(3000)
 FLOW_CONTROL_SEEDS = range(10_000, 11_000)
+ASSIGNED_FLOW_SEEDS = range(20_000, 21_000)
 
 Spec = tuple[str, Any, int]  # (kind, argument, system-curve points)
 Item = tuple[str, Spec]
@@ -76,6 +79,8 @@ def items() -> list[Item]:
         out.append((f"fuzz_{s}", ("fuzz", s, 11)))
     for s in FLOW_CONTROL_SEEDS:
         out.append((f"fuzzfc_{s}", ("fuzz_flow_control", s, 11)))
+    for s in ASSIGNED_FLOW_SEEDS:
+        out.append((f"fuzzaf_{s}", ("fuzz_assigned_flow", s, 11)))
     return out
 
 
@@ -91,8 +96,8 @@ def load(spec: Spec) -> Project:
     if kind == "fuzz":
         # through the API JSON, as the app sends it
         return Project.model_validate(generate(arg).model_dump(mode="json", by_alias=True))
-    if kind == "fuzz_flow_control":
-        project = generate(arg, FLOW_CONTROL)
+    if kind in ("fuzz_flow_control", "fuzz_assigned_flow"):
+        project = generate(arg, FLOW_CONTROL if kind == "fuzz_flow_control" else ASSIGNED_FLOW)
         return Project.model_validate(project.model_dump(mode="json", by_alias=True))
     raise ValueError(kind)
 

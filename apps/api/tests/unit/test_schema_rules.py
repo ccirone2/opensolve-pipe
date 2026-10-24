@@ -27,6 +27,7 @@ BASE: dict[str, dict[str, Any]] = {
     "Reservoir": {"type": "reservoir", "liquidLevel": 1.0},
     "IdealReferenceNode": {"type": "reference_node", "referenceType": "ideal", "pressure": 0.0},
     "Plug": {"type": "plug"},
+    "AssignedFlow": {"type": "assigned_flow", "flow": 0.0},
     "TeeBranch": {"type": "branch", "branchType": "tee"},
     "WyeBranch": {"type": "branch", "branchType": "wye"},
     "Pump": {"type": "pump", "curveId": "C1"},

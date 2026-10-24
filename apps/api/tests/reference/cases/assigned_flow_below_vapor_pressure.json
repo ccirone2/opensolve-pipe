@@ -1,0 +1,126 @@
+{
+  "name": "assigned_flow_below_vapor_pressure",
+  "description": "A demand drawn 7 m above a reservoir's surface through a long line, in 70 C water: verifies that the demand is met regardless of pressure, the node's sub-atmospheric static pressure and the BELOW_VAPOR_PRESSURE flag on the node.",
+  "source": "closed-form: tests/reference/derivations_assigned_flow.py::assigned_flow_below_vapor_pressure (assigned flow (SDD 4.11, TSD 4.8): a free node whose connection carries Q_a, no head equation of its own; static pressure with v in the connected pipe; the line carries Q_a by continuity, heads stepped from R1; CoolProp water (IAPWS-95) properties and saturation pressure; fluids ATMOSPHERE_1976(0).P; Darcy-Weisbach + Colebrook; line fittings: fluids bend_rounded_Crane(Di, 90, bend_diameters=1.5), entrance_sharp(method='Crane'))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-assigned-flow-below-vapor-pressure",
+    "metadata": {
+      "name": "Assigned demand below the vapor pressure",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "builtin",
+      "fluidId": "water",
+      "temperature": 343.15
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 3.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "AF1",
+        "name": "Assigned flow AF1",
+        "elevation": 7.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "assigned_flow",
+        "flow": 0.012
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "AF1",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 50.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": [
+            {
+              "type": "entrance_sharp",
+              "quantity": 1,
+              "pipeIndex": 0
+            },
+            {
+              "type": "elbow_90_lr",
+              "quantity": 2,
+              "pipeIndex": 0
+            }
+          ]
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 977.7646269893481,
+      "dynamicViscosity": 0.0004035481765674985,
+      "vaporPressure": 31200.93002662684
+    },
+    "flows": {
+      "L1": 0.012
+    },
+    "egl": {
+      "R1:port_1": 3.0,
+      "AF1:port_1": -1.0874969605878153
+    },
+    "pressures": {
+      "AF1:port_1": -80646.84845879143
+    },
+    "atmosphericPressure": 101325.0,
+    "flags": [
+      {
+        "code": "BELOW_VAPOR_PRESSURE",
+        "componentId": "AF1"
+      }
+    ]
+  }
+}

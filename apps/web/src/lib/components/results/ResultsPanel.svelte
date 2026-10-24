@@ -3,10 +3,10 @@
 	network error; or the solve's status (with the convergence report when it did not converge),
 	a notice when the results are out of date or the calculation methods changed, the physics
 	flags by severity, and the results by view: Summary, Nodes, Links, Pumps, Valves, Branches,
-	Boundaries, Methods. Rows and flags open an element's results and trace, and point the
-	navigator at it. Input problems the solver would also report are listed so they can be fixed
-	first; solving is never blocked. After a cancelled solve, a note says so above what earlier
-	solves left. Only the short status line is a live region.
+	Boundaries, Assigned flows, Methods. Rows and flags open an element's results and trace, and
+	point the navigator at it. Input problems the solver would also report are listed so they can
+	be fixed first; solving is never blocked. After a cancelled solve, a note says so above what
+	earlier solves left. Only the short status line is a live region.
 
 	Tables are built once per solve and display units (and when names change), not on every edit,
 	and a view stays rendered (hidden) once visited, so switching views is quick on large networks.
@@ -21,6 +21,7 @@
 	import { componentName, portLabel } from '$lib/utils/labels';
 	import { mediaQuery, WIDE_SCREEN } from '$lib/utils/media.svelte';
 	import {
+		assignedFlowTable,
 		availableViews,
 		boundaryTable,
 		branchBases,
@@ -85,6 +86,12 @@
 	const boundaries = $derived(
 		solved ? boundaryTable(ws.labelsProject, solved, ws.displayUnits) : null
 	);
+	// The flows as entered come from the project exactly as solved, which changes with the solve.
+	const assignedFlows = $derived(
+		solved
+			? assignedFlowTable(ws.labelsProject, solved, ws.displayUnits, ws.store.solvedProject)
+			: null
+	);
 
 	const wide = mediaQuery(WIDE_SCREEN);
 
@@ -107,8 +114,12 @@
 		const project = ws.project;
 		const problems: { text: string; componentId?: string; portId?: string }[] = [];
 		if (project.components.length && !project.components.some(isBoundary)) {
+			// An assigned-flow node fixes a flow, not a pressure (PRD §2.1): it is not that boundary.
+			const assigned = project.components.some((c) => c.type === 'assigned_flow');
 			problems.push({
-				text: 'The network needs at least one reservoir or reference node (a fixed-pressure boundary).'
+				text:
+					'The network needs at least one reservoir or reference node (a fixed-pressure boundary).' +
+					(assigned ? ' Assigned-flow nodes fix a flow, not a pressure, so they do not count.' : '')
 			});
 		}
 		for (const component of project.components) {
@@ -501,6 +512,20 @@
 								first="Boundary"
 								onselect={(row) => ws.inspect(row.element)}
 							/>
+						{:else if v === 'assignedFlows' && assignedFlows}
+							<ResultsTable
+								table={assignedFlows}
+								caption="Results per assigned-flow node"
+								first="Assigned-flow node"
+								onselect={(row) => ws.inspect(row.element)}
+							/>
+							<p class="text-xs text-slate-600">
+								The assigned flow is as entered: a demand leaves the network at the node, a supply
+								enters it, whatever the pressure there. Pressure is the static pressure at the port,
+								with the velocity in the connected pipe (gauge, relative to the site's atmosphere;
+								absolute, relative to vacuum); HGL is from the project datum. An absolute pressure
+								below the fluid's vapor pressure is flagged: the liquid would flash.
+							</p>
 						{:else if v === 'methods'}
 							<MethodsSummary
 								methods={solved.trace.methods}

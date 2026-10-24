@@ -137,7 +137,7 @@ PanelNavigator
 │   │   └── DeleteDialog          // optional "Join A and B" (keep the neighbors connected)
 │   ├── Properties tab
 │   │   ├── name, elevation
-│   │   ├── per-type form         // forms/: Reservoir, ReferenceNode, Branch (tee, wye),
+│   │   ├── per-type form         // forms/: Reservoir, ReferenceNode, AssignedFlow, Branch (tee, wye),
 │   │   │                         //   Pump (+ PumpCurveEditor), IsolationValve, CheckValve, ControlValve
 │   │   └── PortsEditor           // port sizes and elevations, what each connects to; reservoir ports
 │   └── Piping tab → ConnectionPanel
@@ -230,7 +230,7 @@ The pane shows, top to bottom:
   - Topology: "The network cannot be solved as connected", with each issue and a link to each component it names.
   - Validation: the problems.
   - Network: the API could not be reached, with a message that the project is safe in the page and its link.
-- **`ConvergenceStatus`**: converged or not, the solver's message, iterations, compute time and the calculation-method version. For a solve that did not converge, it gives the largest continuity and energy errors, where they are, and which components kept switching state.
+- **`ConvergenceStatus`**: converged or not, the solver's message (with names and display units), iterations, compute time and the calculation-method version. For a solve that did not converge, it links the components the message names (an assigned-flow node no reservoir reaches, and what closes it off), and gives the largest continuity and energy errors, where they are, and which components kept switching state.
 - **`MethodVersionNotice`.** Shown when the link was last solved with another calculation-method version. It lists what changed between the two (`GET /api/v1/method-versions`, GOALS §4.3).
 - **`FlagsSummary`.** Flags are grouped by severity (physically invalid, warnings, information). Each has an icon and text in display units and names, never color alone, and starts with a link to its element's trace. Long groups show their first flags with "Show all", and a skip button leads past the flags.
 - **Inputs to check.** Problems found in the browser that the solver would also report: no fixed-pressure boundary, ports neither connected nor plugged, a control valve still at setpoint 0, and model-rule problems. Each has a Show button into Build.
@@ -245,6 +245,7 @@ The pane shows, top to bottom:
 | Valves | Type, state, flow, head loss, pressure drop, K open, K effective, Cv effective, setpoint, setpoint met |
 | Branches | Tee and wye flow pattern, port flows, K per path, the velocity K is on, path losses, correlation |
 | Boundaries | Reservoirs, reference nodes and plugs: EGL, outflow into the network, per port |
+| Assigned flows | Per assigned-flow node: direction (demand or supply), the assigned flow as entered, elevation, pressure (gauge), absolute pressure, HGL, with its flags (`BELOW_VAPOR_PRESSURE`) |
 | Methods | `MethodsSummary` |
 
 **Tables** (`ResultsTable`):
@@ -489,7 +490,7 @@ interface Port {
 
 interface BaseComponent {
   id: string;
-  type: 'reservoir' | 'reference_node' | 'plug' | 'branch' | 'pump' | 'valve';
+  type: 'reservoir' | 'reference_node' | 'plug' | 'assigned_flow' | 'branch' | 'pump' | 'valve';
   name: string;
   elevation: number;             // m above project datum
   ports: Port[];
@@ -704,7 +705,7 @@ interface SolvedState {
   pumpResults: Record<string, PumpResult>;         // component id
   valveResults: Record<string, ValveResult>;       // component id
   branchResults: Record<string, BranchResult>;     // tee / wye id
-  boundaryResults: Record<string, BoundaryResult>; // reservoir, reference node, plug id
+  boundaryResults: Record<string, BoundaryResult>; // reservoir, reference node, plug, assigned-flow node id
   flags: Flag[];
   convergence: ConvergenceReport;  // iterations, largest residuals and where (value null when not finite: the iteration diverged), oscillating ids, message
   trace: Trace;                    // per-element trace + methods summary
@@ -731,12 +732,13 @@ interface ValveResult { valveType; state: 'open' | 'closed' | 'active'; flow; he
 interface BranchResult { branchType; lossModel; pattern; combinedPortId | null;
                          portFlows /* positive into the component */; kFactors /* per path, on v_c */;
                          pathHeadLosses; referenceVelocity /* v_c */; correlation; inCorrelationRange }
-interface BoundaryResult { type: 'reservoir' | 'reference_node' | 'plug'; egl; outflow; portOutflows }
+interface BoundaryResult { type: 'reservoir' | 'reference_node' | 'plug' | 'assigned_flow'; egl;
+                           outflow /* into the network; an assigned-flow node: −flow, as solved */; portOutflows }
 ```
 
 Elements in a section closed off from every fixed-pressure boundary carry no flow and have no head: their ports are absent from `nodeResults`, and their pump, valve, branch or boundary result is absent (flagged `ISOLATED_SECTION`).
 
-A section that no fixed-pressure boundary reaches but that cannot sit at zero flow (a pump loop behind a closed valve) carries a determined flow at an undetermined pressure level: its connection, pump, valve and branch results are reported (flows, head losses, pump head and power), its ports are absent from `nodeResults`, `PumpResult.npshAvailable` and `suctionAbsolutePressure` are null, a PRV/PSV there has `setpointAchieved: null`, and an element between it and another head has no result. It is flagged `UNDETERMINED_PRESSURE` (`details.componentIds`).
+A section that no fixed-pressure boundary reaches but that cannot sit at zero flow (a pump loop behind a closed valve) carries a determined flow at an undetermined pressure level: its connection, pump, valve and branch results are reported (flows, head losses, pump head and power), its ports are absent from `nodeResults`, `PumpResult.npshAvailable` and `suctionAbsolutePressure` are null, a PRV/PSV there has `setpointAchieved: null`, and an element between it and another head has no result. It is flagged `UNDETERMINED_PRESSURE` (`details.componentIds`). Such a section can hold assigned-flow nodes only if their flows sum to zero; a part that no fixed-pressure boundary reaches and whose assigned flows do not balance has no steady state, so the solve is not converged (`NOT_CONVERGED`), its message naming the nodes with their flows and the elements closed around them (§4.11).
 
 **System curve** (`PumpResult.systemCurve`, filled for every running pump when `SolveOptions.includeSystemCurve`): `systemCurvePoints` flows from 0 to 1.2 × the curve's largest flow × s; at each, the pump is replaced by that fixed flow, whatever its own speed control, and the network solved (other pumps keep running, other speed-controlled pumps keep regulating, valves follow their rules); head = EGL(discharge) − EGL(suction). For a speed-controlled pump s is its `speed`, the maximum speed (§4.8). Every point whose flow passes with a determined head has that head (TSD §5.6); points without one are left out (`POST /system-curve` reports each with its reason, §5.1): no way through, no steady state that carries the flow, an undetermined head (a side of the pump on a free pressure level, or a control valve in series at its switch), or no convergence. The web app solves without it and fetches one pump's curve from `POST /system-curve` when its chart is shown (§3.1.3, D10).
 
@@ -755,8 +757,8 @@ Every other flag names exactly one component (and port, where it applies) or one
 ```typescript
 interface ElementTrace {
   elementId: string;
-  elementType: 'pipe_connection' | 'reservoir' | 'reference_node' | 'plug' | 'tee' | 'wye' | 'pump'
-             | 'isolation_valve' | 'check_valve' | 'control_valve';
+  elementType: 'pipe_connection' | 'reservoir' | 'reference_node' | 'plug' | 'assigned_flow' | 'tee'
+             | 'wye' | 'pump' | 'isolation_valve' | 'check_valve' | 'control_valve';
   inputs: { name; value: number | string | boolean | null; unit; source: 'user' | 'default' | 'library' | 'computed' }[];
   equations: string[];                         // plain text, every symbol defined
   correlations: { name; citation }[];          // e.g. the fluids call and Crane TP-410 (2009)
@@ -770,23 +772,30 @@ interface ElementTrace {
 - **Units** are SI strings the frontend converts: `m`, `m³/s`, `m/s`, `Pa(g)`, `Pa(a)`, `Pa (difference)`, `kg/m³`, `Pa·s`, `W`; `''` for dimensionless values; others (`m²`, `m²/s`, `m/s²`, `°`, `K`, `US gpm/psi^0.5`) are shown as reported. No trace value is a bare `Pa`.
 - **Intermediates restate the results** (same numbers as the result fields) or follow from them by the listed equations (v = Q/A; NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/ρg), so a trace never disagrees with the tables.
 - **Numbering.** Pipes and fittings are numbered from 1, as in the app ("Pipe 2 Reynolds number Re", "Fitting 1 (reducer_sudden) position: between pipes 1 and 2"); so are pump-curve points ("Head curve point 4").
-- **Content per element type.** Pipe connection: per segment material, schedule/NPS or custom, D and ε with their sources, L, A, v, Re, ε/D, f, regime note with the friction formula and its range, h_f; per fitting type, quantity, K with its fluids call and citation (or "user"), reference diameter, h_j; totals and the EGLs at both ends. Reservoir / reference node: boundary head equation and its inputs, outflow, port pressures, p_atm; the statement that no entrance or exit loss is applied at the boundary unless the connection has an entrance or exit fitting (with the web app's defaults at reservoirs: a sharp-edged entrance and an exit), then, per port, the entrance and exit fittings its connection's piping has. Plug: closed-end equations, EGL and pressure. Tee / wye: loss model, angle, port pipe diameters, pattern, port flows, Q_c, q, β, K per path (Crane or Darby call), v_c, path losses, range / fallback notes. Pump: curve points, fit (PCHIP) and extrapolation, speed and affinity laws, operating point, shutoff head, efficiency and power, NPSHa terms (p_atm and its source, p_vap and its source, z_s, EGL_s, velocity head), NPSHr and margin, status reason, "no viscosity correction applied", the system curve when computed. Valves: resistance as entered (K, Cv, Kv with the ISA conversion) or the Crane default with its call, or the ideal control valve; D_ref; K; both port elevations, the velocities and static pressures at both ports (so Δp follows from the trace); cracking head (active check valves only: a locked valve's law has none); status reason (the user setting, or the EPANET 2.2 rule that holds the state written as the inequality that holds, with its solved values); control valves add the setpoint, H_set with its velocity head, hml, K_eff and Cv_eff. Tee / wye and pump traces give their port elevations and port pressures too; a built-in fluid's temperature (and glycol mass fraction) is an input of every trace that uses its properties.
+- **Content per element type.** Pipe connection: per segment material, schedule/NPS or custom, D and ε with their sources, L, A, v, Re, ε/D, f, regime note with the friction formula and its range, h_f; per fitting type, quantity, K with its fluids call and citation (or "user"), reference diameter, h_j; totals and the EGLs at both ends. Reservoir / reference node: boundary head equation and its inputs, outflow, port pressures, p_atm; the statement that no entrance or exit loss is applied at the boundary unless the connection has an entrance or exit fitting (with the web app's defaults at reservoirs: a sharp-edged entrance and an exit), then, per port, the entrance and exit fittings its connection's piping has. Plug: closed-end equations, EGL and pressure. Assigned-flow node: the flow as entered with its sign convention, elevations, the continuity equation at the port with the inflow and its residual (also on an undetermined pressure level), EGL, velocity, velocity head, HGL, static and absolute pressure, and a note that it is not a pressure boundary (§4.11). Tee / wye: loss model, angle, port pipe diameters, pattern, port flows, Q_c, q, β, K per path (Crane or Darby call), v_c, path losses, range / fallback notes. Pump: curve points, fit (PCHIP) and extrapolation, speed and affinity laws, operating point, shutoff head, efficiency and power, NPSHa terms (p_atm and its source, p_vap and its source, z_s, EGL_s, velocity head), NPSHr and margin, status reason, "no viscosity correction applied", the system curve when computed. Valves: resistance as entered (K, Cv, Kv with the ISA conversion) or the Crane default with its call, or the ideal control valve; D_ref; K; both port elevations, the velocities and static pressures at both ports (so Δp follows from the trace); cracking head (active check valves only: a locked valve's law has none); status reason (the user setting, or the EPANET 2.2 rule that holds the state written as the inequality that holds, with its solved values); control valves add the setpoint, H_set with its velocity head, hml, K_eff and Cv_eff. Tee / wye and pump traces give their port elevations and port pressures too; a built-in fluid's temperature (and glycol mass fraction) is an input of every trace that uses its properties.
 - **No result.** An element in a closed-off section, or every element of a solve that did not converge, keeps its inputs, equations and sources, with a note saying why it has no values. An element in a section with an undetermined pressure level (`UNDETERMINED_PRESSURE`) keeps its flows and head differences, with a note saying why its EGLs and pressures are missing.
 
-**Methods summary** (`MethodsSummary {methodVersion, sections[{title, items, references}], assumptions, libraries}`; `services/solver/methods.py`): sections Network solution (GGA, Todini & Pilati 1988, tolerances, this solve's iterations), Pipe friction, Minor losses, Branches, Pumps (PCHIP, affinity laws, no viscosity correction, system curves), Valves, Fluid properties, Atmosphere and NPSH, Conventions (SI, gauge, EGL vs HGL, datum, flow signs); global assumptions (steady, incompressible, isothermal, single-phase, quiescent boundaries, no entrance or exit loss at a boundary without an entrance or exit fitting and the web app's default fittings at reservoirs, pump integral check, check-valve model, ideal control-valve default); libraries with versions (opensolve-pipe, fluids, CoolProp, numpy, scipy). Written to be pasted into a deliverable.
+**Methods summary** (`MethodsSummary {methodVersion, sections[{title, items, references}], assumptions, libraries}`; `services/solver/methods.py`): sections Network solution (GGA, Todini & Pilati 1988, tolerances, this solve's iterations; assigned-flow nodes, only when the project has one: nodal demands as EPANET's junction demands, the no-steady-state cases), Pipe friction, Minor losses, Branches, Pumps (PCHIP, affinity laws, no viscosity correction, system curves; with assigned-flow nodes, the cut's bounds that count them, Gale 1957), Valves, Fluid properties, Atmosphere and NPSH, Conventions (SI, gauge, EGL vs HGL, datum, flow signs); global assumptions (steady, incompressible, isothermal, single-phase, quiescent boundaries, no entrance or exit loss at a boundary without an entrance or exit fitting and the web app's default fittings at reservoirs, pump integral check, check-valve model, ideal control-valve default); libraries with versions (opensolve-pipe, fluids, CoolProp, numpy, scipy). Written to be pasted into a deliverable.
 
 ### 4.11 Assigned Flow Model
 
 ```typescript
 interface AssignedFlow extends BaseComponent {
   type: 'assigned_flow';
-  flow: number;                  // m³/s; positive = leaving the network (demand),
-                                 // negative = entering it (supply)
+  flow: number;                  // m³/s, within ±100, required (no default);
+                                 // positive = leaving the network (demand), negative = entering it (supply)
   ports: [Port & { id: 'port_1' }];
 }
 ```
 
-The pressure at the port is a result (`NodeResult`), not an input. An assigned-flow node is not a fixed-pressure boundary (§3.2.1), so a sub-network with no reservoir or reference node is still `NO_FIXED_HEAD`. Its trace gives the flow as entered with the sign convention, the port's elevation, EGL, velocity head and static pressure, and the continuity equation at the port. Solver mapping: TSD §4.8.
+The node fixes the flow at its port whatever the pressure there; the pressure is a result (`NodeResult`), not an input. A flow of 0 behaves exactly as a plug. An assigned-flow node is not a fixed-pressure boundary (§3.2.1), so a sub-network with no reservoir or reference node is still `NO_FIXED_HEAD`, whose message says so.
+
+- **Results.** Its port has a `NodeResult` like any port: EGL, the connected pipe's velocity, HGL, static and absolute pressure, with `BELOW_VAPOR_PRESSURE` when the absolute pressure is below the vapor pressure (or ≤ 0 Pa without one). Its `BoundaryResult` (type `assigned_flow`) gives the EGL and `outflow` = −flow, as solved. On an undetermined pressure level it has neither; the flow in its connection is still reported.
+- **No steady state.** Where no reservoir or reference node reaches the node through open elements (a valve closed or a pump stopped on its only path), its part carries assigned flows only if they sum to zero (then a floating section, `UNDETERMINED_PRESSURE`). Otherwise the closed elements around it whose rules would open are re-opened, and with none the solve is not converged: the message names each node with its flow and each element closed around it with the reason (CLAUDE.md D12). A flow control that alone feeds assigned flows follows its status rules: an FCV fed less than its setpoint is open (`CONTROL_VALVE_SETPOINT_NOT_MET`), a speed-controlled pump fed another flow runs at a speed limit (`PUMP_SETPOINT_NOT_MET`); a flow equal to the setpoint (over-controlled), more than an FCV's setpoint, or reverse flow through a one-way element has no determined steady state, and the solve is not converged, naming the control and the nodes.
+- **Trace.** The flow as entered with the sign convention, the port's elevation, EGL, velocity head, HGL, static and absolute pressure, and the continuity equation at the port with its residual (§4.10); a note that it is not a pressure boundary, stating when a part no fixed head reaches carries its flow (only with balanced assigned flows, at an undetermined level; a zero flow is a closed end). A floating section that holds assigned flows is flagged `UNDETERMINED_PRESSURE` with flow passing through it, its assigned-flow nodes and their flows named as its drivers. The convergence report's `oscillatingComponents` lists elements with a status, never an assigned-flow node, which the message names.
+- **System curves.** The forced-flow bound counts assigned flows as fixed supplies and demands, and they can also set a least forced flow (a demand on the discharge side that a one-way element keeps every fixed head from feeding): points beyond either bound have no steady state, and say so; a pump side that reaches only assigned-flow nodes has no point with a head (TSD §5.6).
+
+Solver mapping: TSD §4.8.
 
 ### 4.12 Scenario Model (Later)
 

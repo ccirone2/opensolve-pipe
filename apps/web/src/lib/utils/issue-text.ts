@@ -136,13 +136,22 @@ export function topologyIssueViews(
 				}
 				break;
 			}
-			case 'NO_FIXED_HEAD':
+			case 'NO_FIXED_HEAD': {
+				// An assigned-flow node in the part fixes a flow, not a pressure (SDD §4.11): say
+				// that it does not count, so it is not taken for the boundary the part lacks.
+				const assigned = issue.componentIds.some(
+					(id) => componentById(project, id)?.type === 'assigned_flow'
+				);
 				return {
 					text: issue.componentIds.length
-						? 'This part of the network has no fixed-pressure boundary: add a reservoir or reference node to it.'
+						? 'This part of the network has no fixed-pressure boundary: add a reservoir or reference node to it.' +
+							(assigned
+								? ' Assigned-flow nodes fix a flow, not a pressure, so they do not count as one.'
+								: '')
 						: 'The network is empty: add a reservoir or reference node and connect it.',
 					links
 				};
+			}
 		}
 		return { text: issue.message, links };
 	});

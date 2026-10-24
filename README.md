@@ -10,7 +10,7 @@ Students checking hand calculations, field technicians sizing a retrofit, and pr
 
 ## v1 scope
 
-- Branching and looped networks of pipes and fittings, with reservoirs, reference pressure nodes, tees, wyes and caps
+- Branching and looped networks of pipes and fittings, with reservoirs, reference pressure nodes, assigned-flow nodes (a fixed demand or supply), tees, wyes and caps
 - Fixed-speed pumps and speed-controlled (VFD) pumps holding a flow setpoint, isolation and check valves, and pressure-reducing, pressure-sustaining and flow-control valves
 - Water, glycol solutions and user-defined fluids
 - Darcy–Weisbach / Colebrook friction, with K-factor minor losses from Crane TP-410 (via the `fluids` library)

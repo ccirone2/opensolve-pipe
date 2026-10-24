@@ -209,9 +209,11 @@ class BranchResult(OutputModel):
 
 
 class BoundaryResult(OutputModel):
-    """Reservoir or reference node: the head it holds and the flow it supplies."""
+    """Reservoir or reference node: the head it holds and the flow it supplies. Plug or
+    assigned-flow node: the EGL at its port and the flow through it (an assigned-flow node's
+    outflow is minus its assigned flow, as solved)."""
 
-    type: Literal["reservoir", "reference_node", "plug"]
+    type: Literal["reservoir", "reference_node", "plug", "assigned_flow"]
     egl: float = Field(description="m")
     outflow: float = Field(description="Net flow from the boundary into the network, m³/s")
     port_outflows: dict[str, float]

@@ -29,6 +29,7 @@
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import ComponentActions from './ComponentActions.svelte';
 	import ConnectionPanel from './ConnectionPanel.svelte';
+	import AssignedFlowForm from './forms/AssignedFlowForm.svelte';
 	import BranchForm from './forms/BranchForm.svelte';
 	import CheckValveForm from './forms/CheckValveForm.svelte';
 	import ControlValveForm from './forms/ControlValveForm.svelte';
@@ -151,6 +152,8 @@
 						<ControlValveForm {component} />
 					{:else if isIsolationValve(component)}
 						<IsolationValveForm {component} />
+					{:else if component.type === 'assigned_flow'}
+						<AssignedFlowForm {component} />
 					{:else if component.type === 'plug'}
 						<p class="hint sm:col-span-2">A closed end: no flow leaves through its port.</p>
 					{/if}

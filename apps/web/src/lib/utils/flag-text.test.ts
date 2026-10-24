@@ -5,9 +5,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Project } from '../api/types';
+import { assignedFlowProject } from '../testing/helpers';
 import { flag } from '../testing/results';
 import { gravityBranchExample, pumpTransferExample } from './examples';
-import { flagText, messageText } from './flag-text';
+import { flagText, messageText, namedComponents, readableText } from './flag-text';
 import { IMPERIAL_UNITS, SI_UNITS } from './units';
 
 const IN = 0.0254;
@@ -297,5 +298,64 @@ describe('flag text from the message', () => {
 				{ project: pumpProject, prefs: SI_UNITS }
 			)
 		).toBe('Absolute pressure at “Suction of Transfer pump” (-52.34 kPa) is below 0 kPa');
+	});
+});
+
+describe('assigned-flow nodes (SDD §4.11)', () => {
+	const project = assignedFlowProject(0.012);
+
+	it('a pressure below the vapor pressure at the node: absolute, and why it is not raised', () => {
+		// The message as the API writes it (solver/results.py); the values are made up.
+		const text = flagText(
+			flag({
+				code: 'BELOW_VAPOR_PRESSURE',
+				severity: 'invalid',
+				message:
+					"absolute pressure at 'AF1:port_1' (20678.2 Pa) is below the vapor pressure (31200.9 Pa); the liquid would flash",
+				componentId: 'AF1',
+				portId: 'port_1',
+				details: { absolutePressure: 20678.15, vaporPressure: 31200.93 }
+			}),
+			us(project)
+		);
+		expect(text).toBe(
+			`The absolute pressure at the node is ${sig4(20678.15 / PSI)} psia, below the vapor pressure (${sig4(31200.93 / PSI)} psia): the liquid would flash. The assigned flow is fixed whatever the pressure, and carrying it takes this pressure.`
+		);
+	});
+
+	it('a node that no reservoir reaches: names, display units and the components named', () => {
+		// The convergence message as the API writes it (solver/gga.py, status.py); made-up ids.
+		const closed = {
+			...project,
+			components: [
+				...project.components,
+				{
+					id: 'V1',
+					name: 'Isolation valve',
+					elevation: 0,
+					type: 'valve' as const,
+					valveType: 'gate' as const,
+					status: 'isolated' as const,
+					ports: [
+						{ id: 'inlet', nominalSize: 0.1016, direction: 'inlet' as const },
+						{ id: 'outlet', nominalSize: 0.1016, direction: 'outlet' as const }
+					]
+				}
+			]
+		};
+		const message =
+			"no reservoir or reference node reaches assigned-flow node 'AF1' (takes 0.012 m³/s out " +
+			'of the network) through open elements, so no steady state carries that flow (an ' +
+			'assigned-flow node fixes a flow, not a pressure; EPANET reports such a part as ' +
+			"disconnected); closed around it: valve 'V1' (isolated)";
+		expect(readableText(message, closed, IMPERIAL_UNITS)).toBe(
+			`No reservoir or reference node reaches assigned-flow node “Process user” (takes ${sig4(0.012 / GPM)} gpm out ` +
+				'of the network) through open elements, so no steady state carries that flow (an ' +
+				'assigned-flow node fixes a flow, not a pressure; EPANET reports such a part as ' +
+				'disconnected); closed around it: valve “Isolation valve” (isolated)'
+		);
+		expect(namedComponents(message, closed)).toEqual(['AF1', 'V1']);
+		// A port's key names its component; ids the project does not have are left out.
+		expect(namedComponents("at 'AF1:port_1' and 'X9', then 'AF1'", closed)).toEqual(['AF1']);
 	});
 });

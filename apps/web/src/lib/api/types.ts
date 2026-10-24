@@ -22,6 +22,7 @@ export type FlowCoefficient = S['FlowCoefficient'];
 export type Reservoir = S['Reservoir'];
 export type IdealReferenceNode = S['IdealReferenceNode'];
 export type Plug = S['Plug'];
+export type AssignedFlow = S['AssignedFlow'];
 export type TeeBranch = S['TeeBranch'];
 export type WyeBranch = S['WyeBranch'];
 export type Pump = S['Pump'];

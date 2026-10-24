@@ -3,7 +3,8 @@
 Pass criteria (D6): flows, heads and pressures within 0.5 % of the reference, or the absolute
 floor, whichever is looser: 1e-9 m³/s for flows (the solver's flow tolerance scale), 0.01 m for
 EGL, ρ·g·0.01 m for pressures. Mass balance must close at every non-boundary component, checked
-here from the link results alone, independently of the solver's own residual report.
+here from the link results alone, independently of the solver's own residual report: its net
+inflow is zero, or an assigned-flow node's flow (SDD §4.11).
 
 An EGL tolerance of 0.5 % of the head itself depends on the datum and can exceed a connection's
 loss, so the head loss of every connection whose two ports have expected EGLs is also checked,
@@ -29,7 +30,7 @@ from typing import Any
 
 import pytest
 
-from opensolve_pipe.models.components import Pump
+from opensolve_pipe.models.components import AssignedFlow, Pump
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.results import SolvedState
 from tests.reference.case_format import case_files, read_case
@@ -274,7 +275,8 @@ def test_reference_case(case_path: Path) -> None:
     )
     assert not failures, "\n".join(failures)
 
-    # Mass balance from the link results only: net flow into every non-boundary component.
+    # Mass balance from the link results only: net flow into every non-boundary component,
+    # which an assigned-flow node withdraws (its flow; TSD §4.8) and every other one passes on.
     net: dict[str, float] = defaultdict(float)
     for c in project.connections:
         net[c.to_component_id] += flows[c.id]
@@ -282,7 +284,8 @@ def test_reference_case(case_path: Path) -> None:
     q_max = max(abs(q) for q in flows.values())
     for component in project.components:
         if component.type not in BOUNDARY_TYPES:
-            assert abs(net[component.id]) <= MASS_BALANCE_RELATIVE * q_max, component.id
+            withdrawn = component.flow if isinstance(component, AssignedFlow) else 0.0
+            assert abs(net[component.id] - withdrawn) <= MASS_BALANCE_RELATIVE * q_max, component.id
 
     # The solver's own continuity report must agree (design §4 convergence criterion).
     residual = result.convergence.max_continuity_residual.value

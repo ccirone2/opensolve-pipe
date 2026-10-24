@@ -18,6 +18,10 @@ reported; its EGLs, pressures, NPSH available and PRV/PSV setpoint checks are no
 results), and an UNDETERMINED_PRESSURE warning names it. An element between a floating section
 and any other head has no head across it and no result, like one next to a closed-off section.
 
+An assigned-flow node's port (TSD §4.8) is a free port node like any other: its EGL is solved
+and its static pressure and HGL follow with the connected pipe's velocity; its boundary result
+gives its EGL and its outflow, minus its assigned flow as solved.
+
 Flashing (design §8, GOALS §4.6): every port node and every reservoir's liquid surface is
 checked against the vapor pressure, in absolute pressure. Without a vapor pressure the bound is
 0 Pa absolute: no liquid exists at or below it, since every liquid's vapor pressure is positive,
@@ -34,6 +38,7 @@ import fluids.fittings
 import numpy as np
 
 from ...models.components import (
+    AssignedFlow,
     CheckValve,
     ControlValve,
     IdealReferenceNode,
@@ -64,7 +69,7 @@ from .builder import BuiltNetwork, ConnectionData, PumpData, ValveData, node_key
 from .elements import segment_state
 from .flags import make_flag
 from .friction import RE_LAMINAR_MAX, RE_TURBULENT_MIN, FlowRegime, range_warning
-from .gga import CONTINUITY_ATOL, ZERO_FLOW_RTOL
+from .gga import CONTINUITY_ATOL, ZERO_FLOW_RTOL, assigned_flow_list
 from .labels import fitting_name, pipe_name
 from .methods import methods_summary
 from .network import LinkMode, LinkState, SolverNetwork
@@ -116,10 +121,12 @@ def dead_end_links(network: SolverNetwork, states: Sequence[LinkState]) -> list[
     """Links that carry no flow by continuity alone: the trees of free nodes that hang off
     the rest of the network (plugged branches and the pipes leading to them).
 
-    There are no nodal demands, so a free node with one open link passes no flow through it;
-    removing that link can leave its other end with one link, and so on. Fixed-head nodes are
-    never removed. CLOSED links carry no flow and do not count. (A fixed-flow link in such a
-    tree would cut off a part with no fixed head, which the GGA already reports as infeasible.)
+    A free node with no demand and one open link passes no flow through it; removing that link
+    can leave its other end with one link, and so on. Fixed-head nodes are never removed, nor
+    is a node with a nonzero assigned flow (TSD §4.8), so neither is the path from it to the
+    rest of the network: its demand flows there. CLOSED links carry no flow and do not count.
+    (A fixed-flow link in such a tree would cut off a part with no fixed head, which the GGA
+    already reports as infeasible.)
     """
     open_links = [s.mode is not LinkMode.CLOSED for s in states]
     degree = [0] * len(network.nodes)
@@ -130,7 +137,8 @@ def dead_end_links(network: SolverNetwork, states: Sequence[LinkState]) -> list[
                 degree[v] += 1
                 incident[v].append(link.index)
     removed = [False] * len(network.links)
-    leaves = deque(n.index for n in network.nodes if n.fixed_head is None and degree[n.index] == 1)
+    prunable = [n.fixed_head is None and n.demand == 0.0 for n in network.nodes]
+    leaves = deque(n.index for n in network.nodes if prunable[n.index] and degree[n.index] == 1)
     dead: list[int] = []
     while leaves:
         v = leaves.popleft()
@@ -143,7 +151,7 @@ def dead_end_links(network: SolverNetwork, states: Sequence[LinkState]) -> list[
         for u in (link.start, link.end):
             degree[u] -= 1
         u = link.end if link.start == v else link.start
-        if network.nodes[u].fixed_head is None and degree[u] == 1:
+        if prunable[u] and degree[u] == 1:
             leaves.append(u)
     return dead
 
@@ -410,12 +418,12 @@ class _Mapper:
     def boundary_results(self) -> dict[str, BoundaryResult]:
         results: dict[str, BoundaryResult] = {}
         for comp in self.built.components.values():
-            if not isinstance(comp, Reservoir | IdealReferenceNode | Plug):
+            if not isinstance(comp, Reservoir | IdealReferenceNode | Plug | AssignedFlow):
                 continue
             keys = [node_key(comp.id, p.id) for p in comp.ports]
             heads = [self.head(k) for k in keys]
             if any(math.isnan(h) or self.is_floating(k) for h, k in zip(heads, keys, strict=True)):
-                continue  # closed off, or a plug on an undetermined level: no head
+                continue  # closed off, or a plug or assigned flow on an undetermined level
             port_outflows = {
                 p.id: self.outflow_at_port(k) for p, k in zip(comp.ports, keys, strict=True)
             }
@@ -1018,11 +1026,18 @@ class _Mapper:
     def floating_flags(self) -> None:
         """UNDETERMINED_PRESSURE for every floating section (module docstring), naming its
         components and what drives its flow; the flag sits on the first driver (a running pump
-        or an active FCV), or on the first component without one."""
+        or an active FCV, else an assigned-flow node), or on the first component without one.
+        A section holding assigned flows (which balance there, TSD §4.8) has flow passing
+        through it from their supplies to their demands, not only circulating, and names them
+        with their flows among its drivers."""
         net = self.built.network
         for section in self.outer.gga.floating_sections:
             nodes = set(section)
             comp_ids = sorted({net.nodes[v].component_id for v in section})
+            assigned = sorted(
+                (v for v in section if net.nodes[v].demand != 0.0),
+                key=lambda v: net.nodes[v].component_id,
+            )
             drivers = sorted(
                 link.component_id
                 for link, state in zip(net.links, self.outer.states, strict=True)
@@ -1036,17 +1051,24 @@ class _Mapper:
             )
             names = ", ".join(comp_ids)
             quoted = ", ".join(f"'{cid}'" for cid in comp_ids)
-            driven = f" (driven by {', '.join(f"'{d}'" for d in drivers)})" if drivers else ""
+            by = [", ".join(f"'{d}'" for d in drivers)] if drivers else []
+            if assigned:
+                listed, count = assigned_flow_list(net, assigned)
+                by.append(f"assigned-flow node{'s' if count > 1 else ''} {listed}")
+                by[-1] += ", whose flows balance" if count > 1 else ""
+            driven = f" (driven by {' and '.join(by)})" if by else ""
+            how = "passes through it" if assigned else "circulates there"
+            first = drivers or [net.nodes[v].component_id for v in assigned] or comp_ids
             self.flags.append(
                 make_flag(
                     "UNDETERMINED_PRESSURE",
                     "warning",
                     f"no reservoir or reference node fixes the pressure of {quoted}, yet flow "
-                    f"circulates there{driven}: the flows and head differences are computed, "
+                    f"{how}{driven}: the flows and head differences are computed, "
                     "but not the pressure level, so these elements have no EGL, pressure or NPSH "
                     "available, and a PRV or PSV there is not checked against its setpoint; add "
                     "a reservoir or reference node (an expansion tank) to this section to fix it",
-                    component_id=drivers[0] if drivers else comp_ids[0],
+                    component_id=first[0],
                     details={"componentIds": names},
                 )
             )
@@ -1064,9 +1086,10 @@ class _Mapper:
         return node.key if node.port_id is not None else node.component_id
 
     def mass_balance(self) -> tuple[float, int | None]:
-        """Largest |inflow − outflow| over solved free nodes, from the reported flows."""
+        """Largest |inflow − outflow − demand| over solved free nodes, from the reported flows
+        (demand: an assigned-flow node's flow, TSD §4.8)."""
         net = self.built.network
-        balance = np.zeros(len(net.nodes))
+        balance = np.zeros(len(net.nodes)) - np.array([n.demand for n in net.nodes])
         for link in net.links:
             q = self.flows[link.index]
             balance[link.start] -= q

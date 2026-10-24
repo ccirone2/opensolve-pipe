@@ -18,8 +18,9 @@ Units are SI strings the frontend converts (apps/web/src/lib/utils/trace.ts): 'm
 
 Elements without a result (a closed-off section, or a solve that did not converge) still get
 their inputs, equations and sources, and a note saying why there are no values. Elements in a
-floating section (flow circulates where no fixed head reaches, UNDETERMINED_PRESSURE) get their
-flows and head differences, and a note saying why their EGLs and pressures are not given.
+floating section (flow circulates, or passes between assigned flows that balance, where no fixed
+head reaches, UNDETERMINED_PRESSURE) get their flows and head differences, and a note saying why
+their EGLs and pressures are not given.
 """
 
 import math
@@ -34,6 +35,7 @@ from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 
 from ...models.components import (
+    AssignedFlow,
     CheckValve,
     Component,
     ControlValve,
@@ -235,6 +237,24 @@ class TraceInputs:
         return frozenset(ids)
 
     @cached_property
+    def assigned_floating(self) -> frozenset[str]:
+        """Components with a port, and connections with an end, in a floating section that holds
+        assigned flows (flow passes through it from their supplies to their demands)."""
+        net = self.built.network
+        nodes = {
+            v
+            for section in self.outer.gga.floating_sections
+            if any(net.nodes[u].demand != 0.0 for u in section)
+            for v in section
+        }
+        ids = {net.nodes[i].component_id for i in nodes}
+        for conn_id, data in self.built.connections.items():
+            link = net.links[data.link_index]
+            if link.start in nodes or link.end in nodes:
+                ids.add(conn_id)
+        return frozenset(ids)
+
+    @cached_property
     def floating_borders(self) -> frozenset[str]:
         """Components with a port in a floating section and another port outside it."""
         net = self.built.network
@@ -351,6 +371,11 @@ def _no_values_note(t: _Trace, ctx: TraceInputs, isolated: bool) -> None:
     """Why values are missing: no convergence, a closed-off section (``isolated``: the element
     has no result), or a floating section (flows and head differences only)."""
     floating = ctx.converged and t.element_id in ctx.floating_elements
+    flow = (  # how flow moves where no fixed head reaches (``TraceInputs.assigned_floating``)
+        "flow passes through it between assigned flows that balance"
+        if t.element_id in ctx.assigned_floating
+        else "flow circulates there"
+    )
     if not ctx.converged:
         t.note(
             "The solve did not converge (see the convergence report): this element has no "
@@ -359,7 +384,7 @@ def _no_values_note(t: _Trace, ctx: TraceInputs, isolated: bool) -> None:
     elif isolated and t.element_id in ctx.floating_borders:
         t.note(
             "No result values: this element lies between a section whose pressure level is "
-            "undetermined (UNDETERMINED_PRESSURE: flow circulates there, but no reservoir or "
+            f"undetermined (UNDETERMINED_PRESSURE: {flow}, but no reservoir or "
             "reference node reaches it) and another head, so the head across it is not known."
         )
     elif isolated and not floating:
@@ -371,7 +396,7 @@ def _no_values_note(t: _Trace, ctx: TraceInputs, isolated: bool) -> None:
     elif floating:
         t.note(
             "Pressure level undetermined (UNDETERMINED_PRESSURE): this element lies in a section "
-            "that no reservoir or reference node reaches, yet flow circulates there, so its "
+            f"that no reservoir or reference node reaches, yet {flow}, so its "
             "flows and head differences are solved (with one node held at an arbitrary head) "
             "but its pressure level is not: no EGL, pressure or NPSH available is reported, and "
             "the values above that depend on a head difference only are exact."
@@ -764,6 +789,66 @@ def _plug_trace(ctx: TraceInputs, comp: Plug) -> ElementTrace:
         t.value("Outflow", result.outflow, M3S)
     if node is not None:
         t.value("Static pressure p", node.pressure, PA_G)
+    _no_values_note(t, ctx, result is None)
+    _flag_notes(t, ctx)
+    return t.build()
+
+
+def _assigned_flow_trace(ctx: TraceInputs, comp: AssignedFlow) -> ElementTrace:
+    """SDD §4.11: the flow as entered with its sign convention, the port's elevation, EGL,
+    velocity head and static pressure, and the continuity equation at the port."""
+    t = _Trace(comp.id, "assigned_flow")
+    port = comp.ports[0]
+    t.input(
+        "Assigned flow Q_a (positive: leaves the network, a demand; negative: enters it, a supply)",
+        comp.flow,
+        M3S,
+        "user",
+    )
+    t.input("Elevation z", comp.elevation, M, "user")
+    _port_elevation_input(t, comp, port.id, "Port elevation z_port")
+    _fluid(t, ctx, vapor=True)
+    _gravity(t, ctx)
+    _atmosphere(t, ctx)
+    t.equation(
+        "Q_in = Q_a: continuity at the port (Q_in: the flow into the node through its "
+        "connection; with a supply, Q_a < 0, the connection carries the flow away)"
+    )
+    t.equation(
+        "EGL: solved with the network (the port is a free node: its pressure is a result, not "
+        "an input)"
+    )
+    t.equation("v = |Q_in|/A: velocity in the pipe connected at the port (its end segment, area A)")
+    t.equation("HGL = EGL − v²/(2g)")
+    t.equation(PORT_PRESSURE_EQUATION)
+    t.equation("p_abs = p + p_atm (checked against the vapor pressure)")
+    result = ctx.boundaries.get(comp.id)
+    key = node_key(comp.id, port.id)
+    node = ctx.nodes.get(key)
+    conn_id, end = ctx.built.port_connection[key]
+    link = ctx.links.get(conn_id)
+    if link is not None:  # also on an undetermined pressure level, where the flow is known
+        q_in = link.flow if end == "to" else -link.flow
+        t.value("Flow into the node through its connection Q_in", q_in, M3S)
+        t.value("Continuity residual Q_in − Q_a", q_in - comp.flow, M3S)
+    if node is not None:
+        t.value("EGL at the port", node.egl, M)
+        t.value("Velocity v", node.velocity, MS)
+        t.value("Velocity head v²/(2g)", node.egl - node.hgl, M)
+        t.value("HGL at the port", node.hgl, M)
+        t.value("Static pressure p", node.pressure, PA_G)
+        t.value("Absolute static pressure p_abs", node.absolute_pressure, PA_A)
+    t.note(
+        "Assigned-flow node: it fixes the flow at its port whatever the pressure there. It is "
+        "not a fixed-pressure boundary: a part of the network that no reservoir or reference "
+        "node reaches through open elements (cut off by a closed valve or a stopped pump, say) "
+        "carries a nonzero flow only if the assigned flows there sum to zero, and then its "
+        "flows are solved and its pressure level is not (UNDETERMINED_PRESSURE); otherwise no "
+        "steady state carries them, and the solve is reported as not converged, naming the "
+        "node. A zero flow there is a closed end (ISOLATED_SECTION)."
+    )
+    if comp.flow == 0.0:
+        t.note("Q_a = 0: the node behaves exactly as a plug (a closed end).")
     _no_values_note(t, ctx, result is None)
     _flag_notes(t, ctx)
     return t.build()
@@ -1747,6 +1832,8 @@ def element_traces(ctx: TraceInputs) -> dict[str, ElementTrace]:
             traces[comp.id] = _reference_trace(ctx, comp)
         elif isinstance(comp, Plug):
             traces[comp.id] = _plug_trace(ctx, comp)
+        elif isinstance(comp, AssignedFlow):
+            traces[comp.id] = _assigned_flow_trace(ctx, comp)
         elif isinstance(comp, TeeBranch | WyeBranch):
             traces[comp.id] = _branch_trace(ctx, comp)
         elif isinstance(comp, Pump):

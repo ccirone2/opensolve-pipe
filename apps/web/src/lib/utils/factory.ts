@@ -7,6 +7,7 @@
  * fittings and valves whose resistance is omitted).
  */
 import type {
+	AssignedFlow,
 	CheckValve,
 	Component,
 	ControlValve,
@@ -33,6 +34,7 @@ export type ComponentKind =
 	| 'reservoir'
 	| 'reference_node'
 	| 'plug'
+	| 'assigned_flow'
 	| 'tee'
 	| 'wye'
 	| 'pump'
@@ -44,6 +46,7 @@ export const COMPONENT_KINDS: readonly ComponentKind[] = [
 	'reservoir',
 	'reference_node',
 	'plug',
+	'assigned_flow',
 	'tee',
 	'wye',
 	'pump',
@@ -63,6 +66,7 @@ export interface ComponentOfKind {
 	reservoir: Reservoir;
 	reference_node: IdealReferenceNode;
 	plug: Plug;
+	assigned_flow: AssignedFlow;
 	tee: TeeBranch;
 	wye: WyeBranch;
 	pump: Pump;
@@ -82,6 +86,7 @@ export const KIND_LABELS: Readonly<Record<ComponentKind, string>> = {
 	reservoir: 'Reservoir',
 	reference_node: 'Reference node (fixed pressure)',
 	plug: 'Plug / cap',
+	assigned_flow: 'Assigned flow (demand or supply)',
 	tee: 'Tee',
 	wye: 'Wye (lateral)',
 	pump: 'Pump',
@@ -101,6 +106,7 @@ const KIND_NAMES: Readonly<Record<ComponentKind, string>> = {
 	reservoir: 'Reservoir',
 	reference_node: 'Reference node',
 	plug: 'Plug',
+	assigned_flow: 'Assigned flow',
 	tee: 'Tee',
 	wye: 'Wye',
 	pump: 'Pump',
@@ -115,11 +121,12 @@ const KIND_NAMES: Readonly<Record<ComponentKind, string>> = {
 	fcv: 'FCV'
 };
 
-/** Id prefixes: R1, N1, PL1, T1, Y1, P1, V1; connections L1; pump curves C1. */
+/** Id prefixes: R1, N1, PL1, AF1, T1, Y1, P1, V1; connections L1; pump curves C1. */
 export const ID_PREFIX: Readonly<Record<ComponentKind, string>> = {
 	reservoir: 'R',
 	reference_node: 'N',
 	plug: 'PL',
+	assigned_flow: 'AF',
 	tee: 'T',
 	wye: 'Y',
 	pump: 'P',
@@ -200,12 +207,37 @@ export interface ComponentOptions {
 	elevation?: number;
 	/** Nominal size of every port, m (default DEFAULT_NOMINAL_SIZE). */
 	nominalSize?: number;
+	/**
+	 * An assigned-flow node's flow, m³/s (positive: a demand, leaving the network; negative: a
+	 * supply, entering it). Required for that kind, which has no default; ignored by the others.
+	 */
+	flow?: number;
+}
+
+/** Values the user enters before a component is added: those its kind has no default for. */
+export type EnteredValues = Pick<ComponentOptions, 'flow'>;
+
+/** Why a component of `kind` cannot be added with `values` yet (a sentence), or null. */
+export function missingEntry(kind: ComponentKind, values: EnteredValues): string | null {
+	return kind === 'assigned_flow' && values.flow === undefined
+		? 'Enter the flow: an assigned-flow node has no default flow.'
+		: null;
+}
+
+/** Thrown when an assigned-flow node is created without the flow the user entered. */
+export class MissingFlowError extends Error {
+	constructor() {
+		super('An assigned-flow node needs the flow the user enters: it has no default.');
+		this.name = 'MissingFlowError';
+	}
 }
 
 /**
  * A new component with the port ids its type requires (see the API models) and defaults:
  * - reservoir: one port 'port_1', liquid level 0 m, surface open to air (0 Pa gauge);
  * - reference node: one port, 0 Pa gauge;
+ * - assigned-flow node: one port, the flow given in `options.flow` (required: no flow is cited
+ *   as a default, so the user enters it before the node is added; MissingFlowError otherwise);
  * - tee / wye: Crane loss model (the API default; Crane TP-410), wye angle 45°;
  * - pump: on, full speed, referring to a new curve id of its own that the user must still
  *   define, or replace by picking a curve already in the library (no curve is invented, and a
@@ -252,6 +284,16 @@ function buildComponent(
 			};
 		case 'plug':
 			return { ...base, type: 'plug', ports: [port('port_1', size, 'bidirectional')] };
+		case 'assigned_flow':
+			if (options.flow === undefined || !Number.isFinite(options.flow)) {
+				throw new MissingFlowError();
+			}
+			return {
+				...base,
+				type: 'assigned_flow',
+				flow: options.flow,
+				ports: [port('port_1', size, 'bidirectional')]
+			};
 		case 'tee':
 			return {
 				...base,

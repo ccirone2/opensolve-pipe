@@ -4,7 +4,9 @@
 	parses what was typed, converts it to SI, checks the schema bounds and calls `onchange` with
 	the SI value. Text left as shown stores nothing, so a value is never rounded to its display.
 	Text that is not a number, or a value out of bounds, is reported next to the field (and
-	announced) and never stored, so NaN is never written. Escape reverts edited text.
+	announced) and never stored, so NaN is never written. Escape reverts edited text. An `error`
+	from the owner (a required value still to enter when its form is submitted) is shown the same
+	way, after the field's own.
 -->
 <script lang="ts">
 	import type { UnitPreferences } from '$lib/api/types';
@@ -41,6 +43,8 @@
 		placeholder?: string;
 		/** A note that does not block storing (e.g. outside a correlation's range). */
 		warning?: string | null;
+		/** An error the owner reports (e.g. a value it requires, not entered yet); null for none. */
+		error?: string | null;
 		/** Label visible only to assistive technology (compact tables). */
 		hideLabel?: boolean;
 		/** No unit box next to the input (the unit is in a table header); still in the label. */
@@ -48,6 +52,13 @@
 		disabled?: boolean;
 		/** Receives the SI value. Return false when it was not accepted (the text is reset). */
 		onchange: (value: number | null) => boolean | void;
+		/**
+		 * Called on each edit of the text, before it is stored: e.g. for the owner to drop its
+		 * `error` about the value that was there while the user types, not when the field stores
+		 * the value on losing focus (which a press on a button below it does: anything that moves
+		 * then moves the button under the pointer, and the click is lost).
+		 */
+		oninput?: () => void;
 	}
 
 	let {
@@ -63,10 +74,12 @@
 		hint,
 		placeholder,
 		warning = null,
+		error: ownerError = null,
 		hideLabel = false,
 		compact = false,
 		disabled = false,
-		onchange
+		onchange,
+		oninput
 	}: Props = $props();
 
 	/** Significant digits shown (more would suggest precision the inputs do not have). */
@@ -83,10 +96,12 @@
 	// Follows the stored value; typing overrides it until the stored value changes.
 	let text = $derived(shown);
 	// Cleared whenever the stored value changes.
-	let error = $derived.by((): string | null => {
+	let inputError = $derived.by((): string | null => {
 		void shown;
 		return null;
 	});
+	/** What the field reports: its own problem with the typed text first, else the owner's. */
+	const error = $derived(inputError ?? ownerError);
 
 	const allowsNegative = $derived(
 		bounds.minimum === undefined && bounds.exclusiveMinimum === undefined
@@ -108,34 +123,34 @@
 		if (trimmed === shown) {
 			// Unchanged: the stored value stands (re-storing the display would round it).
 			text = shown;
-			error = null;
+			inputError = null;
 			return;
 		}
 		if (trimmed === '') {
 			if (!optional) {
-				error = 'Enter a value.';
+				inputError = 'Enter a value.';
 				return;
 			}
-			error = null;
+			inputError = null;
 			if (value !== null && value !== undefined && onchange(null) === false) text = shown;
 			return;
 		}
 		const number = parseNumber(trimmed);
 		if (number === null) {
-			error = 'Enter a number, e.g. 12.5 or 1.2e-3.';
+			inputError = 'Enter a number, e.g. 12.5 or 1.2e-3.';
 			return;
 		}
 		if (integer && !Number.isInteger(number)) {
-			error = 'Enter a whole number.';
+			inputError = 'Enter a whole number.';
 			return;
 		}
 		const si = toSI(number, unit);
 		const problem = boundsProblem(si, bounds, format);
 		if (problem) {
-			error = problem;
+			inputError = problem;
 			return;
 		}
-		error = null;
+		inputError = null;
 		if (onchange(si) === false) text = shown;
 	}
 
@@ -158,13 +173,13 @@
 			event.preventDefault();
 			commit();
 			enteredText = event.currentTarget.value;
-		} else if (event.key === 'Escape' && (text !== shown || error)) {
+		} else if (event.key === 'Escape' && (text !== shown || inputError)) {
 			// Revert only the field: preventDefault also keeps an enclosing <dialog> open (its
 			// close request on Escape is skipped for a cancelled keydown).
 			event.preventDefault();
 			event.stopPropagation();
 			text = shown;
-			error = null;
+			inputError = null;
 		}
 	}
 </script>
@@ -192,6 +207,7 @@
 			oninput={(event) => {
 				text = event.currentTarget.value;
 				enteredText = null;
+				oninput?.();
 			}}
 			onchange={changed}
 			onkeydown={keydown}

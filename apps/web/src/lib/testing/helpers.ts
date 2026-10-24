@@ -82,6 +82,36 @@ export function link(
 	};
 }
 
+/**
+ * Reservoir R1 → L1 → assigned-flow node AF1 at `flow` (m³/s; positive: a demand). Made-up test
+ * inputs: R1 at 0 m with a 20 m liquid level, AF1 at 2 m, one 10 m NPS 4 pipe.
+ */
+export function assignedFlowProject(flow: number): Project {
+	const port = { id: 'port_1', nominalSize: 0.1016, direction: 'bidirectional' } as const;
+	return projectWith(
+		[
+			{
+				id: 'R1',
+				name: 'Supply tank',
+				elevation: 0,
+				type: 'reservoir',
+				liquidLevel: 20,
+				surfacePressure: 0,
+				ports: [{ ...port }]
+			},
+			{
+				id: 'AF1',
+				name: 'Process user',
+				elevation: 2,
+				type: 'assigned_flow',
+				flow,
+				ports: [{ ...port }]
+			}
+		],
+		[link('L1', ['R1', 'port_1'], ['AF1', 'port_1'])]
+	);
+}
+
 /** Recursively rebuild an object with its keys in reverse order (arrays keep their order). */
 export function reverseKeys(value: unknown): unknown {
 	if (Array.isArray(value)) return value.map(reverseKeys);

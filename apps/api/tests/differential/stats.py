@@ -9,7 +9,10 @@ relative difference and the largest absolute head difference. Ties keep the lowe
 classes with equal counts are listed by name. With flow-controlled pumps (profile
 'flow_control') it also counts their final states (ours, in every record) and the networks with
 more than one distinct valid solution over those states (``control_search``): differing in
-flowing state (``multiple``), or alternatives that only put more of the network at rest.
+flowing state (``multiple``), or alternatives that only put more of the network at rest. With
+assigned-flow nodes (profile 'assigned_flow') it counts them by sign, the networks without a
+steady state by expected reason and by class, and the networks our solver did not converge on
+with no expected reason.
 """
 
 import argparse
@@ -70,6 +73,7 @@ def report(res: dict[int, dict[str, Any]]) -> list[str]:
             f" {a['where']}"
         )
     lines += control_report(res)
+    lines += assigned_report(res)
     critical = sorted(s for s, r in res.items() if is_critical(r))
     lines.append(f"critical (converged, fails the independent checks): {len(critical)} {critical}")
     return lines
@@ -95,6 +99,34 @@ def control_report(res: dict[int, dict[str, Any]]) -> list[str]:
         f"networks searched over their controlled pumps' states: {len(searched)}; distinct valid"
         f" solutions that differ in flowing state: {len(multiple)} {multiple}; valid"
         f" alternatives that only put more at rest: {len(rest)} {rest[:20]}",
+    ]
+
+
+def assigned_report(res: dict[int, dict[str, Any]]) -> list[str]:
+    """Assigned-flow nodes and the networks without a steady state; [] when the run has none."""
+    with_nodes = {s: r for s, r in res.items() if r.get("assigned_flows")}
+    if not with_nodes:
+        return []
+    flows = [q for r in with_nodes.values() for q in r["assigned_flows"].values()]
+    signs = collections.Counter("demand" if q > 0 else "supply" if q < 0 else "zero" for q in flows)
+    expected = {s: r for s, r in with_nodes.items() if r.get("expected")}
+    reasons = collections.Counter(
+        k for r in expected.values() for k in {e[0] for e in r["expected"]}
+    )
+    classes = collections.Counter(r["status"] for r in expected.values())
+    converged = sum(1 for r in with_nodes.values() if r.get("ours_converged"))
+    unexpected = sorted(
+        s
+        for s, r in with_nodes.items()
+        if r.get("ours_converged") is False and not r.get("expected")
+    )
+    return [
+        f"assigned-flow nodes: {len(flows)} in {len(with_nodes)} networks"
+        f" ({dict(sorted(signs.items()))})",
+        f"networks without a steady state (expected): {len(expected)}; with each reason:"
+        f" {dict(sorted(reasons.items()))}; classes: {dict(sorted(classes.items()))}",
+        f"networks with assigned-flow nodes our solver converged on: {converged}; did not"
+        f" converge on with no expected reason: {len(unexpected)} {unexpected[:20]}",
     ]
 
 

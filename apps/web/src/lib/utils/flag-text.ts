@@ -46,9 +46,36 @@ function nameOf(project: Project, id: string): string | null {
 }
 
 /**
- * The API's message, readable in the project: ids in quotes become names, SI quantities are
- * shown in display units (a pressure keeps the gauge or absolute wording of the message; no
- * marker is added), and a leading "<kind> '<id>': " naming the flag's own element is dropped.
+ * Text from the API, readable in the project: ids in quotes become names, and SI quantities are
+ * shown in display units (a pressure keeps the gauge or absolute wording of the text; no marker
+ * is added). Used for flags (messageText) and the convergence report's message.
+ */
+export function readableText(text: string, project: Project, prefs: UnitPreferences): string {
+	const named = text.replace(/'([^']+)'/g, (whole, id: string) => {
+		const name = nameOf(project, id);
+		return name ? `“${name}”` : whole;
+	});
+	return capitalize(siText(named, prefs));
+}
+
+/**
+ * The components that text from the API names (ids in quotes; a port's key names its
+ * component), in the order named, each once, leaving out ids the project does not have.
+ */
+export function namedComponents(text: string, project: Project): string[] {
+	const ids: string[] = [];
+	for (const [, id = ''] of text.matchAll(/'([^']+)'/g)) {
+		const componentId = componentById(project, id) ? id : id.split(':')[0];
+		if (componentId && componentById(project, componentId) && !ids.includes(componentId)) {
+			ids.push(componentId);
+		}
+	}
+	return ids;
+}
+
+/**
+ * The API's message, readable in the project (readableText), with a leading "<kind> '<id>': "
+ * naming the flag's own element dropped.
  */
 export function messageText(flag: Flag, context: FlagTextContext): string {
 	const own = flag.componentId ?? flag.connectionId;
@@ -57,11 +84,7 @@ export function messageText(flag: Flag, context: FlagTextContext): string {
 		const prefix = new RegExp(`^[A-Za-z ]+ '${own.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}': `);
 		text = text.replace(prefix, '');
 	}
-	text = text.replace(/'([^']+)'/g, (whole, id: string) => {
-		const name = nameOf(context.project, id);
-		return name ? `“${name}”` : whole;
-	});
-	return capitalize(siText(text, context.prefs));
+	return readableText(text, context.project, context.prefs);
 }
 
 /** The text after "pipe N: " or "fitting N (type): " in a connection flag's message. */
@@ -97,6 +120,12 @@ export function flagText(flag: Flag, context: FlagTextContext): string {
 				return `The liquid surface is at ${surface}, below ${bound}: the liquid would boil.`;
 			const p = value('absolutePressure', 'pressure', { absolute: true });
 			if (!p) return fallback();
+			// An assigned-flow node (SDD §4.11) has one port, and its flow is fixed whatever the
+			// pressure there: the pressure is what carrying that flow takes.
+			const owner = flag.componentId ? componentById(context.project, flag.componentId) : null;
+			if (owner?.type === 'assigned_flow') {
+				return `The absolute pressure at the node is ${p}, below ${bound}: the liquid would flash. The assigned flow is fixed whatever the pressure, and carrying it takes this pressure.`;
+			}
 			const where = flag.portId ? `at ${portLabel(flag.portId)} ` : '';
 			return `The absolute pressure ${where}is ${p}, below ${bound}: the liquid would flash.`;
 		}

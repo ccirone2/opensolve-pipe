@@ -11,8 +11,9 @@ Pumps and valves are solved in the state the case expects (``expected.pumps`` /
 ``expected.valves``); ``state_problems`` checks separately that those states are the ones the
 status rules of design §5 select. Nothing here is used to produce expected values. Supported
 elements: what the reference cases use (custom and carbon-steel schedule 40 pipes, every fitting
-type, reservoirs, ideal reference nodes, ideal and Crane tees and wyes, plugs, pumps, isolation,
-check and control valves).
+type, reservoirs, ideal reference nodes, ideal and Crane tees and wyes, plugs, assigned-flow
+nodes, pumps, isolation, check and control valves). An assigned-flow node is a free node whose
+continuity equation has its flow as a demand (SDD §4.11, TSD §4.8).
 """
 
 import math
@@ -26,6 +27,7 @@ from numpy.typing import NDArray
 from scipy.optimize import fsolve
 
 from opensolve_pipe.models.components import (
+    AssignedFlow,
     CheckValve,
     Component,
     ControlValve,
@@ -305,6 +307,17 @@ def fixed_heads(project: Project) -> dict[str, float]:
             elif isinstance(component, IdealReferenceNode):
                 heads[key] = port_elevation(project, key) + component.pressure / (rho * dv.G)
     return heads
+
+
+def assigned_flows(project: Project) -> dict[str, float]:
+    """The assigned flow at the port of every assigned-flow node, m³/s (positive leaves the
+    network): the demand in that port's continuity equation (TSD §4.8)."""
+    return {
+        f"{c.id}:{port.id}": c.flow
+        for c in project.components
+        if isinstance(c, AssignedFlow)
+        for port in c.ports
+    }
 
 
 def element_states(project: Project, expected: Mapping[str, Any]) -> dict[str, str]:
@@ -695,11 +708,15 @@ def state_problems(
 
 
 def net_inflow(project: Project, flows: Mapping[str, float]) -> dict[str, float]:
-    """Net flow into every non-boundary component, m³/s (continuity)."""
+    """Continuity residual of every non-boundary component, m³/s: the net flow into it through
+    its connections less the flow it withdraws (an assigned-flow node's flow; 0 for every other
+    component)."""
     net: dict[str, float] = defaultdict(float)
     for c in project.connections:
         net[c.to_component_id] += flows[c.id]
         net[c.from_component_id] -= flows[c.id]
+    for key, flow in assigned_flows(project).items():
+        net[key.split(":")[0]] -= flow
     boundaries = {
         comp.id for comp in project.components if isinstance(comp, Reservoir | IdealReferenceNode)
     }
@@ -732,8 +749,9 @@ def solve_network(
 
     Unknowns: Q per connection outside isolated sections, Q per pump and valve, H per free
     node. Equations: the energy equation of every connection, each pump's and valve's law in
-    its state (``element_law``), continuity at every free node, and for each Crane branch its
-    continuity plus the path equations of its two non-combined ports. A pipe held at zero
+    its state (``element_law``), continuity at every free node (an assigned-flow port's flow
+    withdrawn there), and for each Crane branch its continuity plus the path equations of its
+    two non-combined ports. A pipe held at zero
     flow between two Crane branches (``held``, from ``held_pairs`` of the expected flows) has
     Q = 0 and no energy equation; each of its ends takes ``held_pair_head`` in place of its
     path equation. A branch in ``split_ks`` takes its K from that rule (a K held across a step,
@@ -749,6 +767,9 @@ def solve_network(
     free = sorted({n for key, n in port_nodes.items() if key not in fixed} - isolated_nodes)
     held_keys = {key for pair in held for key in pair}
     held_pair = {key: pair for pair in held for key in pair}
+    demand: dict[str, float] = defaultdict(float)
+    for key, flow in assigned_flows(project).items():
+        demand[port_nodes[key]] += flow
     connections = [
         c
         for c in project.connections
@@ -822,7 +843,7 @@ def solve_network(
                         - node_head(x, f"{branch.id}:{combined}")
                         - losses.offsets[p.id]
                     )
-        return out + [inflow[n] for n in free if n not in branch_nodes]
+        return out + [inflow[n] - demand.get(n, 0.0) for n in free if n not in branch_nodes]
 
     first_port = {
         n: key for key, n in sorted(port_nodes.items(), reverse=True) if key not in isolated

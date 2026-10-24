@@ -1,6 +1,7 @@
 <!--
 	Add a component next to the current one: after it at a free port, before it (inserted into
 	a connection), or as a branch (a tee inserted into a connection, its branch port left free).
+	A kind with no default for a value (an assigned-flow node's flow) asks for it here first.
 -->
 <script lang="ts" module>
 	export type AddMode = 'after' | 'insert' | 'branch';
@@ -16,18 +17,23 @@
 	import type { Component } from '$lib/api/types';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
+	import { addsUpstream, flowRole } from '$lib/utils/edit';
 	import {
+		createComponent,
 		DEFAULT_MATERIAL_ID,
 		DEFAULT_PIPE_LENGTH,
 		DEFAULT_SCHEDULE,
+		missingEntry,
 		SHORT_PIPE_LENGTH,
-		type ComponentKind
+		type ComponentKind,
+		type EnteredValues
 	} from '$lib/utils/factory';
-	import { freePorts, neighbors, onwardFreePort, portRole } from '$lib/utils/graph';
+	import { freePorts, neighbors, onwardFreePort } from '$lib/utils/graph';
 	import { componentName, portLabel } from '$lib/utils/labels';
 	import { formatValue } from '$lib/utils/units';
 	import { INLINE_KINDS, useWorkspace } from '$lib/state/workspace.svelte';
 	import { kindOptions } from './kinds';
+	import NewComponentFields from './NewComponentFields.svelte';
 
 	interface Props {
 		component: Component;
@@ -65,6 +71,9 @@
 		links.find((n) => n.connection.id === preferred)?.connection.id ?? links[0]?.connection.id ?? ''
 	);
 	let kind = $derived<ComponentKind>(mode === 'branch' ? 'tee' : 'gate');
+	/** Values entered for a kind with no default for them (see NewComponentFields). */
+	let values = $state<EnteredValues>({});
+	let missing = $state<string | null>(null);
 
 	const kinds = $derived(
 		kindOptions((k) =>
@@ -100,11 +109,16 @@
 	/**
 	 * The losses the new connection gets where it meets a reservoir (edit.ts withReservoirLosses):
 	 * an entrance where it leaves one (its upstream end, by the expected flow), an exit where it
-	 * arrives at one.
+	 * arrives at one. The expected flow is the one the connection will be made with (edit.ts
+	 * addsUpstream), so an assigned-flow node's entered flow sets it; before that flow is entered
+	 * only the port decides.
 	 */
 	const reservoirLosses = $derived.by(() => {
 		if (mode !== 'after' || !port) return [];
-		const upstream = portRole(component, port) === 'in';
+		const added = missingEntry(kind, values) ? null : createComponent(kind, ws.project, values);
+		const upstream = added
+			? addsUpstream(component, port, added)
+			: flowRole(component, port) === 'in';
 		const ends = { from: upstream ? kind : component.type, to: upstream ? component.type : kind };
 		return [
 			...(ends.from === 'reservoir'
@@ -124,9 +138,11 @@
 	function submit(event: SubmitEvent) {
 		event.preventDefault();
 		if (!canSubmit) return;
+		missing = mode === 'after' ? missingEntry(kind, values) : null;
+		if (missing) return;
 		const added =
 			mode === 'after'
-				? ws.addAfter(component.id, port, kind)
+				? ws.addAfter(component.id, port, kind, values)
 				: mode === 'branch'
 					? ws.addBranch(connection, kind === 'wye' ? 'wye' : 'tee')
 					: ws.insert(connection, kind);
@@ -197,7 +213,16 @@
 			</p>
 		{/if}
 
-		<SelectField label="Component" value={kind} options={kinds} onchange={(v) => (kind = v)} />
+		<SelectField
+			label="Component"
+			value={kind}
+			options={kinds}
+			onchange={(v) => {
+				kind = v;
+				missing = null;
+			}}
+		/>
+		<NewComponentFields {kind} units={ws.units} bind:values bind:error={missing} />
 	</form>
 	{#snippet footer()}
 		<button type="button" class="btn" onclick={onclose}>Cancel</button>

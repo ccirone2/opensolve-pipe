@@ -207,6 +207,23 @@ def test_every_variable_writes_at_its_location_and_reads_its_start() -> None:
             assert held == start * 1.01 + 0.001
 
 
+def test_a_resistance_bound_the_solver_cannot_represent_is_an_unusable_evaluation() -> None:
+    """A Cv bound of 1e-170 passes the bounds' validation (gt=0); the scan's trial there is a
+    topology error the search goes around, not a 500 that loses every evaluation (GS-N4)."""
+    project = pump_project()
+    outcome = goal_seek_case(
+        _request(
+            project,
+            [_var("G1", "resistance", 1e-170, 100.0, coefficient="Cv")],
+            [_goal("pump_flow", "P1", 0.02)],
+        )
+    )
+    at_lower = [e for e in outcome.result.evaluations if e.variable_values == [1e-170]]
+    assert [e.outcome for e in at_lower] == ["topology_error"]
+    assert at_lower[0].message.startswith("valve 'G1': a Cv of 1e-170 on the inlet pipe's")
+    assert outcome.result.met
+
+
 def test_a_resistance_of_another_kind_or_on_its_default_starts_in_the_middle() -> None:
     project = pump_project()
     goal = _goal("pump_flow", "P1", 0.02)

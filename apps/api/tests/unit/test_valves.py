@@ -17,6 +17,7 @@ from opensolve_pipe.models.components import FlowCoefficient
 from opensolve_pipe.services.fluids import fluid_properties
 from opensolve_pipe.services.solver.builder import BuiltNetwork, build_network
 from opensolve_pipe.services.solver.elements import HeadOffsetLaw, ValveLaw
+from opensolve_pipe.services.solver.errors import TopologyError
 from opensolve_pipe.services.solver.valves import (
     CRANE_DEFAULTS,
     k_from_coefficient,
@@ -212,3 +213,44 @@ def test_crane_default_outside_its_size_table_is_flagged(
     ]
     assert bool(found) is flagged
     assert all(f.severity == "warning" for f in found)
+
+
+def _loss_coefficient(cv: float, d: float) -> float:
+    """K/(2 g A²) of a Cv on an inner diameter d, from the definition (ISA-75.01.01)."""
+    k = ff.Cv_to_K(cv, d)
+    return float(k / (2.0 * g * (0.25 * math.pi * d * d) ** 2))
+
+
+@pytest.mark.parametrize(
+    ("resistance", "pipes"),
+    [
+        # Cv_to_K divides by zero, K overflows to inf, Kv_to_K raises OverflowError
+        ({"kind": "Cv", "value": 1e-170}, None),
+        ({"kind": "Cv", "value": 1e-160}, None),
+        ({"kind": "Kv", "value": 1e-160}, None),
+        # a finite K whose K/(2 g A²) on a 1 mm inlet pipe overflows
+        ({"kind": "Cv", "value": 1e-152}, [custom_pipe(1.0, 1e-3, 0.0)]),
+    ],
+)
+def test_a_valve_resistance_the_solver_cannot_represent_is_a_topology_issue(
+    resistance: dict[str, Any], pipes: list[dict[str, Any]] | None
+) -> None:
+    """A positive Cv or Kv is schema-valid at any size, but one below about 1e-160 crashed the
+    build (ZeroDivisionError or OverflowError in the conversion, a 500): it is reported with the
+    other topology issues, as a pipe the solver cannot represent is."""
+    if pipes is not None:  # the case is what it says
+        assert math.isfinite(ff.Cv_to_K(resistance["value"], 1e-3))
+        assert _loss_coefficient(resistance["value"], 1e-3) == math.inf
+    with pytest.raises(TopologyError) as err:
+        build(valve("gate", resistance=resistance), pipes)
+    assert [(i.code, i.component_ids) for i in err.value.issues] == [
+        ("VALVE_RESISTANCE_OUT_OF_RANGE", ["V"])
+    ]
+    assert f"{resistance['kind']} of {resistance['value']:g}" in err.value.issues[0].message
+
+
+def test_a_huge_but_finite_valve_resistance_still_builds() -> None:
+    """Cv = 1e-100 (K about 1e204 on 0.1 m) is representable: the valve is built as entered."""
+    assert math.isfinite(_loss_coefficient(1e-100, 0.1))
+    built = build(valve("gate", resistance={"kind": "Cv", "value": 1e-100}))
+    assert built.valves["V"].resistance.k == ff.Cv_to_K(1e-100, 0.1)

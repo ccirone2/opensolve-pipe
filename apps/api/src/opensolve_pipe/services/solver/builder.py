@@ -53,7 +53,7 @@ from .labels import fitting_name, pipe_name
 from .library import LibraryLookupError, ResolvedPipe, resolve_pipe
 from .network import LinkKind, LinkLaw, SolverLink, SolverNetwork, SolverNode
 from .pumps import PumpCurveModel, SpeedUniqueness, bracket_low, speed_uniqueness
-from .valves import Valve, ValveResistance, valve_resistance
+from .valves import Valve, ValveResistance, k_from_coefficient, valve_resistance
 
 G = float(fluids.constants.g)
 """Standard gravity, m/s² (``fluids.constants.g``, design §1.3)."""
@@ -498,12 +498,55 @@ def _unrepresentable_pipes(
     return issues
 
 
+def _unrepresentable_valves(
+    project: Project, resolved: dict[str, list[ResolvedPipe]]
+) -> list[TopologyIssue]:
+    """Valves whose loss coefficient is not a finite floating-point number: the K of a Cv or Kv
+    on the inlet pipe's inner diameter, and K/(2 g A²). A schema-valid but extreme Cv (below
+    about 1e-160) makes the conversion divide by zero or overflow, and the solver could only
+    fail on it. An unconnected inlet is left to the topology check."""
+    inlet_pipes: dict[str, ResolvedPipe] = {}
+    for conn in project.connections:
+        pipes = resolved.get(conn.id)
+        if pipes:
+            inlet_pipes.setdefault(node_key(conn.from_component_id, conn.from_port_id), pipes[0])
+            inlet_pipes.setdefault(node_key(conn.to_component_id, conn.to_port_id), pipes[-1])
+    issues: list[TopologyIssue] = []
+    for comp in project.components:
+        if not isinstance(comp, IsolationValve | CheckValve | ControlValve):
+            continue
+        pipe = inlet_pipes.get(node_key(comp.id, "inlet"))
+        if comp.resistance is None or pipe is None:
+            continue
+        d = pipe.inner_diameter
+        area = 0.25 * math.pi * d * d
+        try:
+            k, _ = k_from_coefficient(comp.resistance, d)
+            coefficient = k / (2.0 * G * area * area)
+        except (ZeroDivisionError, OverflowError):
+            k = coefficient = math.inf
+        if not (math.isfinite(k) and math.isfinite(coefficient)):
+            issues.append(
+                issue(
+                    "VALVE_RESISTANCE_OUT_OF_RANGE",
+                    f"valve '{comp.id}': a {comp.resistance.kind} of "
+                    f"{comp.resistance.value:g} on the inlet pipe's inner diameter of {d:g} m "
+                    "gives a loss coefficient that is not a finite floating-point number; the "
+                    "solver cannot represent this valve",
+                    [comp.id],
+                    [],
+                )
+            )
+    return issues
+
+
 def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
     """Validate the project and build its solver network. Raises ``TopologyError``."""
     issues = validate_topology(project)
     resolved, pipe_issues = _resolve_pipes(project)
     issues.extend(pipe_issues)
     issues.extend(_unrepresentable_pipes(resolved, fluid))
+    issues.extend(_unrepresentable_valves(project, resolved))
     if issues:
         raise TopologyError(issues)
 

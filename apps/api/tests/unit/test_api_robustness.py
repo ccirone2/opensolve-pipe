@@ -132,6 +132,34 @@ def test_a_pipe_the_solver_cannot_represent_is_a_topology_issue() -> None:
     assert body["issues"][0]["connectionIds"] == ["P1"]
 
 
+def test_a_valve_resistance_the_solver_cannot_represent_is_a_topology_issue() -> None:
+    """A Cv of 1e-170 (schema-valid, gt=0) made fluids' Cv_to_K divide by zero: a 500."""
+    project = _project()
+    project["components"].insert(
+        1,
+        {
+            "type": "valve",
+            "valveType": "gate",
+            "id": "V1",
+            "name": "V1",
+            "elevation": 0.0,
+            "ports": [{"id": "inlet", "nominalSize": 0.1}, {"id": "outlet", "nominalSize": 0.1}],
+            "resistance": {"kind": "Cv", "value": 1e-170},
+        },
+    )
+    conn = project["connections"][0]
+    project["connections"] = [
+        {**conn, "id": "P1", "toComponentId": "V1", "toPortId": "inlet"},
+        {**conn, "id": "P2", "fromComponentId": "V1", "fromPortId": "outlet"},
+    ]
+    response = _client().post(
+        "/api/v1/solve", json={"project": project}, headers={"Origin": ORIGIN}
+    )
+    body = _envelope(response, 422, "TOPOLOGY_ERROR")
+    assert [i["code"] for i in body["issues"]] == ["VALVE_RESISTANCE_OUT_OF_RANGE"]
+    assert body["issues"][0]["componentIds"] == ["V1"]
+
+
 def test_a_diverged_residual_is_null_and_the_response_matches_its_schema() -> None:
     """A diverged Newton iteration has non-finite residuals; JSON has no inf, so the value is
     null, which the schema now allows (it said number, and validation of the response failed)."""

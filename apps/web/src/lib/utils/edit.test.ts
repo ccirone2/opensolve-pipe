@@ -783,6 +783,40 @@ describe('plugPort, connectPorts and disconnect', () => {
 	});
 });
 
+describe('reserved ids (page state that names elements: goal-seek.md §6.15)', () => {
+	it('new connections and components of an edit never take a reserved id', () => {
+		const project = EXAMPLES[0]!.create();
+		const reserved = ['L3', 'L4', 'L5', 'PL1', 'T1'];
+		const gate = createComponent('gate', project, { reserved });
+		const inserted = insertComponentInConnection(project, 'L3', gate, { reserved });
+		expect(inserted.connections.map((c) => c.id)).toEqual(['L1', 'L2', 'L3', 'L6']);
+		const free = { ...project, connections: project.connections.filter((c) => c.id !== 'L3') };
+		const plugged = plugPort(free, 'V1', 'outlet', { reserved });
+		expect(plugged.components.at(-1)?.id).toBe('PL2');
+		expect(plugged.connections.at(-1)?.id).toBe('L6');
+		const joined = connectPorts(
+			free,
+			{ componentId: 'V1', portId: 'outlet' },
+			{ componentId: 'R2', portId: 'port_1' },
+			undefined,
+			{ reserved }
+		);
+		expect(joined.connections.at(-1)?.id).toBe('L6');
+		const branched = addBranch(project, 'L3', undefined, { reserved });
+		expect(branched.components.at(-1)?.id).toBe('T2');
+		const tank = createComponent('reservoir', project, { reserved: ['R3'] });
+		expect(
+			addComponentAtPort(free, 'V1', 'outlet', tank, { reserved }).connections.at(-1)?.id
+		).toBe('L6');
+		// Without reserved ids, the first unused ones.
+		expect(
+			insertComponentInConnection(project, 'L3', createComponent('gate', project)).connections.at(
+				-1
+			)?.id
+		).toBe('L4');
+	});
+});
+
 describe('updateComponent and updateConnection', () => {
 	it('change properties and keep the graph', () => {
 		const project = SOURCES[0]![1]();

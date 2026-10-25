@@ -1,7 +1,8 @@
 """The model rules JSON Schema cannot express are published in the OpenAPI schema as
 extensions (x-port-ids, x-port-roles, x-port-count, x-required-parameters, x-reducer-types,
-x-entrance-types, x-exit-types, x-setpoint-bounds, x-ordered-fields), which the web app reads
-instead of copying
+x-entrance-types, x-exit-types, x-setpoint-bounds, x-ordered-fields; goal seek's x-goal-variables,
+x-goal-quantities and x-goal-seek-rules are checked in test_goal_seek_models.py), which the web app
+reads instead of copying
 (apps/web/src/lib/utils/model-rules.ts). These tests check that each extension states exactly
 what the validators enforce, and that the web app's copy of the schema is the API's current
 one, so a model change cannot leave the two apart."""
@@ -16,6 +17,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from opensolve_pipe.main import app
 from opensolve_pipe.models.components import Component
+from opensolve_pipe.models.goal_seek import GoalVariable
 from opensolve_pipe.models.piping import Fitting, PipingSegment
 from opensolve_pipe.models.ports import PortDirection
 
@@ -146,7 +148,27 @@ def test_ordered_fields_are_what_the_validators_enforce() -> None:
         for name, schema in SCHEMAS.items()
         if "x-ordered-fields" in schema
     }
-    assert published == {"Pump": [{"lower": "control.minSpeed", "upper": "speed", "strict": True}]}
+    bounds = [{"lower": "lower", "upper": "upper", "strict": True}]
+    assert published == {
+        "Pump": [{"lower": "control.minSpeed", "upper": "speed", "strict": True}],
+        # A goal-seek variable's bounds (docs/proposals/goal-seek.md §2.4).
+        "ComponentVariable": bounds,
+        "PipeVariable": bounds,
+        "ProjectVariable": bounds,
+    }
+    variables = {
+        "ComponentVariable": {"kind": "component", "componentId": "R1", "field": "liquidLevel"},
+        "PipeVariable": {"kind": "pipe", "connectionId": "L1", "pipeIndex": 0, "field": "length"},
+        "ProjectVariable": {"kind": "project", "field": "fluid.temperature"},
+    }
+    for name, fields in variables.items():
+        adapter = TypeAdapter(GoalVariable)
+        adapter.validate_python({**fields, "lower": 0.5, "upper": 0.8})
+        adapter.validate_python({**fields, "lower": math.nextafter(0.8, -math.inf), "upper": 0.8})
+        for low in (0.8, 0.95):
+            with pytest.raises(ValidationError, match="lower must be below upper"):
+                adapter.validate_python({**fields, "lower": low, "upper": 0.8})
+        assert {"lower", "upper"} <= set(SCHEMAS[name]["required"])
     for pair in published["Pump"]:
         lower, upper = pair["lower"], pair["upper"]
         COMPONENTS.validate_python(_ordered_pump(lower, upper, 0.5, 0.8))

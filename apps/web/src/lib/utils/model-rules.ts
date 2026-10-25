@@ -14,7 +14,12 @@
  * - on a component schema, `x-ordered-fields` (pairs of fields whose values must be ordered, such
  *   as a speed-controlled pump's minimum speed below its speed, the maximum);
  * - on `Scenario`, `x-override-fields` (the values a scenario may change, by target schema: the
- *   allow-list of the scenario manager, PRD §3.8).
+ *   allow-list of the scenario manager, PRD §3.8);
+ * - on `GoalSeekRequest`, `x-goal-variables` (the numeric allow-list values goal seek may vary, by
+ *   target schema, with the schema that bounds each number and its search scale),
+ *   `x-goal-quantities` (the results a goal may name, with their default-tolerance rules) and
+ *   `x-goal-seek-rules` (the request's list rules), and `x-ordered-fields` on each goal-seek
+ *   variable schema (its lower bound below its upper), PRD §3.9.
  *
  * The rest is what the schema states anyway: which schema a component is validated against (the
  * members of the `Project.components` union, by type refined by branchType or valveType, as the
@@ -220,7 +225,13 @@ export interface OrderedFields {
 
 /** The ordered field pairs a component's type publishes (`x-ordered-fields`); none when absent. */
 export function orderedFields(component: ComponentTagged): readonly OrderedFields[] {
-	const published = componentSchema(component)?.['x-ordered-fields'];
+	const name = componentSchemaName(component);
+	return name ? schemaOrderedFields(name) : [];
+}
+
+/** The ordered field pairs (`x-ordered-fields`) a schema publishes; none when absent. */
+export function schemaOrderedFields(schemaName: string): readonly OrderedFields[] {
+	const published = schema(schemaName)['x-ordered-fields'];
 	if (published === undefined) return [];
 	if (!Array.isArray(published)) throw new Error('openapi.json: x-ordered-fields is not a list');
 	return published.map((pair: unknown, i) => {
@@ -262,10 +273,18 @@ export function orderViolations(component: ComponentTagged): OrderedFields[] {
  * least) each lower one. A pair whose other field is absent adds nothing.
  */
 export function orderedBounds(component: ComponentTagged, path: string): Bounds {
+	return pairBounds(orderedFields(component), component, path);
+}
+
+/**
+ * The bounds the ordered pairs `pairs` put on field `path` of `value` (a record of a schema that
+ * publishes them, such as a goal-seek variable's lower and upper bounds), as orderedBounds.
+ */
+export function pairBounds(pairs: readonly OrderedFields[], value: unknown, path: string): Bounds {
 	let bounds: Bounds = {};
-	for (const pair of orderedFields(component)) {
+	for (const pair of pairs) {
 		if (pair.lower === path) {
-			const upper = fieldValue(component, pair.upper);
+			const upper = fieldValue(value, pair.upper);
 			if (upper !== null) {
 				bounds = intersectBounds(
 					bounds,
@@ -274,7 +293,7 @@ export function orderedBounds(component: ComponentTagged, path: string): Bounds 
 			}
 		}
 		if (pair.upper === path) {
-			const lower = fieldValue(component, pair.lower);
+			const lower = fieldValue(value, pair.lower);
 			if (lower !== null) {
 				bounds = intersectBounds(
 					bounds,
@@ -427,4 +446,193 @@ export function pipeOverrideFields(): Readonly<Record<string, OverrideField>> {
 /** The fields a scenario may change on the project itself (the fluid). */
 export function projectOverrideFields(): Readonly<Record<string, OverrideField>> {
 	return OVERRIDE_FIELDS.Project ?? {};
+}
+
+// ---------------------------------------------------------------------------------------------
+// Goal seek
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * One value goal seek may vary on a target type (`x-goal-variables`): the schema whose property
+ * bounds the number, the camelCase path from the target to the number (a resistance's is
+ * ['resistance', 'value']: it varies one flow coefficient), its search scale, and for a
+ * resistance the coefficients it may be varied as.
+ */
+export interface GoalVariableField {
+	schema: string;
+	path: readonly string[];
+	scale: 'linear' | 'log';
+	coefficients: readonly string[];
+}
+
+const GOAL_SEEK_REQUEST = schema('GoalSeekRequest');
+
+/**
+ * The values goal seek may vary (`x-goal-variables` on `GoalSeekRequest`), by target schema (each
+ * component schema, `PipeDefinition`, `Project`): a subset of the scenario allow-list, its numeric
+ * values. A schema with no entry has none.
+ */
+export const GOAL_VARIABLE_FIELDS: Readonly<
+	Record<string, Readonly<Record<string, GoalVariableField>>>
+> = (() => {
+	const published = GOAL_SEEK_REQUEST['x-goal-variables'];
+	if (!isRecord(published))
+		throw new Error('openapi.json: GoalSeekRequest has no x-goal-variables');
+	const fields: Record<string, Record<string, GoalVariableField>> = {};
+	for (const [target, entries] of Object.entries(published)) {
+		if (!isRecord(entries)) throw new Error(`openapi.json: x-goal-variables.${target}`);
+		fields[target] = {};
+		for (const [name, entry] of Object.entries(entries)) {
+			if (
+				!isRecord(entry) ||
+				typeof entry.schema !== 'string' ||
+				(entry.scale !== 'linear' && entry.scale !== 'log')
+			) {
+				throw new Error(`openapi.json: x-goal-variables.${target}.${name}`);
+			}
+			schema(entry.schema); // the bounding schema exists
+			fields[target][name] = {
+				schema: entry.schema,
+				path: stringList(entry.path, `x-goal-variables.${target}.${name}.path`),
+				scale: entry.scale,
+				coefficients:
+					entry.coefficients === undefined
+						? []
+						: stringList(entry.coefficients, `x-goal-variables.${target}.${name}.coefficients`)
+			};
+		}
+	}
+	return fields;
+})();
+
+/** The values goal seek may vary on a component (by its schema); none for an unknown type. */
+export function componentGoalFields(
+	component: ComponentTagged
+): Readonly<Record<string, GoalVariableField>> {
+	const name = componentSchemaName(component);
+	return (name && GOAL_VARIABLE_FIELDS[name]) || {};
+}
+
+/** The values goal seek may vary on one pipe (`PipeDefinition`). */
+export function pipeGoalFields(): Readonly<Record<string, GoalVariableField>> {
+	return GOAL_VARIABLE_FIELDS.PipeDefinition ?? {};
+}
+
+/** The values goal seek may vary on the project itself (a built-in fluid's temperature). */
+export function projectGoalFields(): Readonly<Record<string, GoalVariableField>> {
+	return GOAL_VARIABLE_FIELDS.Project ?? {};
+}
+
+/**
+ * A result a goal may name (`x-goal-quantities`): its SI unit as the API words it, the schemas of
+ * the elements it may name (`PipeConnection` for a connection), whether it names a port, its
+ * default tolerance (max(relativeTolerance × |target|, the floor); a head floor applies to a
+ * pressure through ρg of the case fluid), the smallest tolerance it accepts (max(relative ×
+ * |target|, absolute), in its unit: never the fluid's) and what the case must have for it.
+ */
+export interface GoalQuantityRule {
+	unit: string;
+	targets: readonly string[];
+	port: boolean;
+	relativeTolerance: number;
+	floor: Readonly<Partial<Record<'head' | 'flow' | 'velocity', number>>>;
+	minimum: { relative: number; absolute: number };
+	needs: readonly string[];
+}
+
+/** The results a goal may name (`x-goal-quantities` on `GoalSeekRequest`), by API quantity. */
+export const GOAL_QUANTITY_RULES: Readonly<Record<string, GoalQuantityRule>> = (() => {
+	const published = GOAL_SEEK_REQUEST['x-goal-quantities'];
+	if (!isRecord(published)) {
+		throw new Error('openapi.json: GoalSeekRequest has no x-goal-quantities');
+	}
+	const rules: Record<string, GoalQuantityRule> = {};
+	for (const [quantity, rule] of Object.entries(published)) {
+		const where = `x-goal-quantities.${quantity}`;
+		if (
+			!isRecord(rule) ||
+			typeof rule.unit !== 'string' ||
+			typeof rule.port !== 'boolean' ||
+			typeof rule.relativeTolerance !== 'number' ||
+			!isRecord(rule.floor) ||
+			!isRecord(rule.minimum) ||
+			typeof rule.minimum.relative !== 'number' ||
+			typeof rule.minimum.absolute !== 'number'
+		) {
+			throw new Error(`openapi.json: ${where}`);
+		}
+		const floor: Partial<Record<'head' | 'flow' | 'velocity', number>> = {};
+		for (const [kind, value] of Object.entries(rule.floor)) {
+			if ((kind !== 'head' && kind !== 'flow' && kind !== 'velocity') || typeof value !== 'number')
+				throw new Error(`openapi.json: ${where}.floor`);
+			floor[kind] = value;
+		}
+		rules[quantity] = {
+			unit: rule.unit,
+			targets: stringList(rule.targets, `${where}.targets`),
+			port: rule.port,
+			relativeTolerance: rule.relativeTolerance,
+			floor,
+			minimum: { relative: rule.minimum.relative, absolute: rule.minimum.absolute },
+			needs: rule.needs === undefined ? [] : stringList(rule.needs, `${where}.needs`)
+		};
+	}
+	return rules;
+})();
+
+/** The goal quantities (`x-goal-quantities`), in the published order. */
+export function goalQuantities(): Readonly<Record<string, GoalQuantityRule>> {
+	return GOAL_QUANTITY_RULES;
+}
+
+/**
+ * The goal-seek request's list rules (`x-goal-seek-rules`): lists that must have the same length
+ * (variables and goals, PRD §3.9), and the keys by which the items of a list must differ (a key
+ * an item lacks counts as null). The item limits are the lists' maxItems.
+ */
+export interface GoalSeekLimits {
+	variables: number;
+	goals: number;
+	sameLength: readonly (readonly [string, string])[];
+	uniqueBy: Readonly<Record<string, readonly string[]>>;
+}
+
+export const GOAL_SEEK_LIMITS: GoalSeekLimits = (() => {
+	const published = GOAL_SEEK_REQUEST['x-goal-seek-rules'];
+	if (!isRecord(published) || !Array.isArray(published.sameLength) || !isRecord(published.uniqueBy))
+		throw new Error('openapi.json: GoalSeekRequest has no x-goal-seek-rules');
+	const sameLength = published.sameLength.map((pair: unknown, i) => {
+		const names = stringList(pair, `x-goal-seek-rules.sameLength[${i}]`);
+		if (names.length !== 2) throw new Error(`openapi.json: x-goal-seek-rules.sameLength[${i}]`);
+		return [names[0], names[1]] as [string, string];
+	});
+	const uniqueBy: Record<string, string[]> = {};
+	for (const [list, keys] of Object.entries(published.uniqueBy)) {
+		uniqueBy[list] = stringList(keys, `x-goal-seek-rules.uniqueBy.${list}`);
+	}
+	const maxItems = (name: string) => {
+		const max = property('GoalSeekRequest', name).maxItems;
+		if (typeof max !== 'number') throw new Error(`openapi.json: GoalSeekRequest.${name} maxItems`);
+		return max;
+	};
+	return { variables: maxItems('variables'), goals: maxItems('goals'), sameLength, uniqueBy };
+})();
+
+/** The goal-seek request's limits and list rules (see GoalSeekLimits). */
+export function goalSeekLimits(): GoalSeekLimits {
+	return GOAL_SEEK_LIMITS;
+}
+
+/** The goal-seek variable schemas of the `GoalSeekRequest.variables` union, by their `kind`. */
+const GOAL_VARIABLE_SCHEMAS: ReadonlyMap<unknown, string> = new Map(
+	unionMembers(
+		isRecord(property('GoalSeekRequest', 'variables').items)
+			? (property('GoalSeekRequest', 'variables').items as JsonObject)
+			: {}
+	).map((name) => [property(name, 'kind').const, name])
+);
+
+/** The schema a goal-seek variable is validated against, by its kind; null when none. */
+export function goalVariableSchemaName(kind: unknown): string | null {
+	return GOAL_VARIABLE_SCHEMAS.get(kind) ?? null;
 }

@@ -96,6 +96,17 @@ describe('ids', () => {
 	});
 });
 
+describe('reserved ids (page state that names elements: goal-seek.md §6.15)', () => {
+	it('a new component and its pump curve never take a reserved id', () => {
+		const project = pumpTransferExample();
+		expect(createComponent('gate', project, { reserved: ['V2', 'V3'] }).id).toBe('V4');
+		const pump = createComponent('pump', project, { reserved: ['P2', 'C2'] });
+		expect(pump.id).toBe('P3');
+		expect(pump.curveId).toBe('C3');
+		expect(createComponent('gate', project).id).toBe('V2');
+	});
+});
+
 describe('createComponent', () => {
 	it('makes every kind valid against the API schema and model rules', () => {
 		const project = pumpTransferExample(); // has a pump curve

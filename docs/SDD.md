@@ -279,6 +279,12 @@ The pane shows, top to bottom:
 - **`CompareView`**: chosen results of every case, the base first, with each scenario's difference from the base under its value (relative only for flow, velocity, pump head, head loss, power and speed; no tolerance snapping; "Same" only where the values display identically). Each column header gives that case's status and switches to it (the focus goes to its tab); a case that did not converge, was not solved, failed or was not reached by a stopped run shows no values, and values out of date are tinted. The notice above the table counts the cases Solve all would solve, and names apart those whose solve failed with an error of their own to fix first. A row header opens its element's trace in the active case, and says so and does nothing while that case has no results. Default rows come from the stored project's scenarios (pumps, changed elements, assigned flows, the extremes; at most 40), and `CompareRowsDialog` adds, removes and orders rows. A table on a pane at least 28 rem wide, one card per row below (phones). The rows are page state.
 - **`PumpChart`** draws the active case as before and the other solved cases (six cases at most, the active one included) in slate with their own hollow markers and labels: their operating points and their pump curves at another speed by default, their system curves only on request ("Also show the other cases' system curves"), one request at a time with Cancel, over the active curve's flow range, for the cases that are other than the one shown (after a case switch too). Its data table adds the operating points by case.
 
+**Goal seek** (PRD §3.9, CLAUDE.md D16; `workspace/GoalSeekDialog.svelte` and `workspace/goal-seek/`). A **Goal seek** button at the right of the Results pane's header (icon only below 24 rem) and **Use in goal seek** on a trace's "Result values" heading (the element preselected; on phones the trace sheet closes first) open a dialog: two columns from 1024 px (setup left, the result right and sticky), one below, a bottom sheet on phones. It runs on the case shown and names it; its fields are page state, never locked in a scenario.
+
+- **Results to reach** (goal cards: the element and result, Target, Tolerance with the published minimum, a hint with the last solve's value, the sign convention and the default tolerance) and **Inputs to change** (variable cards: the value now, From and To in display units within the field's bounds and each other, default bounds pre-filled), each with an inline New form; choices come from `x-goal-variables` and `x-goal-quantities`, and "(already a goal)" / "(already a variable)" from `x-goal-seek-rules`. A row whose element was deleted, or whose value no longer applies, lapses and blocks Run; while a row names an element, no new element takes its id.
+- **Run** is unavailable with its reason until the setup is complete. While a goal seek runs, every Solve, Solve all and Solve now control is unavailable with the reason, the header's Cancel becomes "Cancel goal seek", and the dialog may be closed (a notice gives the outcome).
+- **The result** (`GoalSeekResult`): a banner in words and an icon per outcome (met, not reachable, jump, unsolved crossing, no progress, stopped by the cap or the budget, no usable trial, request errors, cancelled), the values found (6 significant digits, the exact SI value in the report), the results reached (reached, target, off by, tolerance, met), the notes worded from their codes, the physically invalid flags at the values found, the trial solves (a table, tab-separated in the report), the methods section and **Copy report**. **Apply to base case** / **Apply to scenario** and **Apply as new scenario** write the exact values as one undo step and solve the case; a scenario run is never applied to the base. A result goes out of date when its case's key changes, and Apply is then unavailable.
+
 **Footer** (`SiteFooter`): the disclaimer (GOALS §4.8), the copyright notice, About and privacy, the license (AGPL-3.0-or-later) and the source code, both at the commit the build was made from, the calculation server's source code (`<API>/source`, which redirects to the commit the API runs), and the third-party licenses (TSD §11.1).
 
 Later: design-check warnings (opt-in).
@@ -297,6 +303,7 @@ Later: design-check warnings (opt-in).
 - **System curves.** `solvedProject` is the project as sent for the shown response. `loadSystemCurve(pumpId)` fetches a pump's curve for it (one request at a time) into `systemCurves` (loading, ready, error or cancelled per pump, a cancelled one recording whether a solve or the user cancelled it); `systemCurve(response, pumpId)` returns one only for the response whose results are shown. A new response, a load or clearing the results drops them; a solve starting cancels the requests in flight; `cancelSystemCurve(pumpId)` aborts one pump's request, leaving the others queued.
 - **Method version.** After a solve that is current, the project records the solve's `methodVersion` (GOALS §4.3) without an undo step. The version the link was opened with is kept for `MethodVersionNotice`.
 - **Scenarios** (PRD §3.8, CLAUDE.md D15). `project` holds the base case and its scenarios; `activeCase` (null: the base) is the case shown, page state that is neither an undo step nor in the link (a link opens on the base case). Results, errors, staleness, `solvedProject` and system curves are kept per case (`results`, `solvedProject` and `systemCurves` read the active case's; `resultsFor(caseId)` any case's). A case's staleness key is the base's hydraulic fingerprint plus that scenario's canonical overrides (`utils/scenarios.ts` `caseKey`): a base edit makes every case out of date, an edit in a scenario only that scenario, a rename none. A scenario's solve sends the whole project with its `scenarioId`. `solveAll()` solves the cases whose results are missing, out of date, cancelled or failed with a network error, the base first, then the scenarios in order, one request at a time from the project as it was when it started; a topology, validation or fluid error stays with its case and the run goes on, a network error stops it (the cases not reached say so, and Solve all resumes with them), and `cancelSolve()` stops it. A solve goes on after a case switch: `solvingCase` names the case in flight, whichever is shown, so the header keeps its spinner and Cancel ("Cancel solving Winter") and the other Solve buttons wait; `casesWithErrors()` lists the cases Solve all skips for an error of their own. A `load()` tells the workspace (`onLoad`), which resets its page state (the trace open, Compare cases and its rows, the manager, Settings). Each undo entry records the case it was made in, and undo and redo show that case again. A base edit runs through `carryChanges` (`utils/scenarios.ts`): a pipe change follows its pipe object through joins, reversals and insertions (`utils/identity.ts`), a removed pipe takes its changes with it, a deleted element's changes are kept as orphaned, and a valve changed between a pressure valve (PRV, PSV) and an FCV loses its setpoint changes; the result's notes say so. New ids never re-use an id a change targets (`factory.ts` `usedIds`).
+- **Goal seek** (PRD §3.9, CLAUDE.md D16). `goalSeek` holds the page's one goal seek (running, cancelled with the result before it, done or failed, with the request and project as sent and the case's key); `runGoalSeek(request, caseId)` posts it, `cancelGoalSeek()` (also called by `cancelSolve()`) aborts it and drops a late answer, and `markGoalSeekApplied` records where its values went. `calculating` (`'solve' | 'solveAll' | 'goalSeek' | null`) is read by every control that starts a request: `solve()` and `solveAll()` send nothing while a goal seek runs, `runGoalSeek()` nothing while a solve or Solve all runs, and only Cancel, `load()` and `dispose()` stop one in flight; system curves wait for it, and one in flight is cancelled when it starts. Its staleness is recomputed on every project change, whether or not any case has results. It never changes the project.
 
 **`Workspace`** (`workspace.svelte.ts`) joins the store, the `LibraryStore`, the `NavigatorStore`, the visible pane, notices and the element open in the trace view. It offers the graph-edit actions (TSD §8.1). Its `project` is the project of the case shown: the base, or the base with the active scenario's changes (`caseProject`), so every form shows and edits that case's values, while names, display units and the navigator read the stored base. In a scenario, `edit()` diffs the edited case against the allow-list (`x-override-fields`): allowed values become the scenario's changes (a value equal to the base's removes its change), names, the project name and description and display units go to the base, and any other difference (topology, a locked value) refuses the whole edit; it is one undo step. Fields are locked by default in a scenario (`ui/field-mode.ts`: read-only and focusable, "Same in every scenario") unless they declare a scenario value (`change`, which draws "Changed", the base value and Reset) or a shared label. Results tables are rebuilt only when the solve, the display units or the labels they use (names, kinds, ports, connection ends) change, not on every edit.
 
@@ -304,7 +311,7 @@ Later: design-check warnings (opt-in).
 
 **API client** (`api/client.ts`):
 
-- **Endpoints.** `solve` (with `includeSystemCurve: false` unless asked; `scenarioId` in the body for a scenario only, so a base request is the request without scenarios), `systemCurve` (likewise), `getLibrary`, `getFluids`, `fluidProperties` (`POST /api/v1/fluids/properties` with a `FluidDefinition`) and `methodVersions` (§5.1).
+- **Endpoints.** `solve` (with `includeSystemCurve: false` unless asked; `scenarioId` in the body for a scenario only, so a base request is the request without scenarios), `systemCurve` (likewise), `goalSeek` (likewise; a 404 `NOT_FOUND` becomes a `NotFoundError`, a `ValidationError` that keeps its issues), `getLibrary`, `getFluids`, `fluidProperties` (`POST /api/v1/fluids/properties` with a `FluidDefinition`) and `methodVersions` (§5.1).
 - **Requests.** It sends only what each request needs, with `credentials: 'omit'`, `referrerPolicy: 'no-referrer'` and a 60 s timeout (kept when the caller also passes an abort signal). Project data, the fluid included, travels only in request bodies: no URL carries a project value. Error responses become typed errors: `TopologyError` (422 `TOPOLOGY_ERROR`), `ValidationError` (the other 4xx envelopes: the request is about the project) and `NetworkError` (no answer, a timeout, or a 429 or 5xx, with the server's message when it sent the envelope, e.g. `SERVER_BUSY` while it is still solving a request just cancelled).
 - **No other traffic.** No other network requests are made: no analytics, cookies, web fonts or third-party assets. The pages set `<meta name="referrer" content="no-referrer">`.
 
@@ -339,12 +346,13 @@ POST /api/v1/system-curve
   Response: SystemCurve (flow/head pairs: the pump replaced by each fixed flow, §4.10), the
             scenario applied (or null)
 
-POST /api/v1/goal-seek                  (Later)
-  Request: Project + GoalSeekRequest (§4.13), optional scenario id
-  Response: GoalSeekResult + SolvedState at the found values
+POST /api/v1/goal-seek
+  Request: Project + 1-4 variables + as many goals (§4.13), optional scenario id
+  Response: GoalSeekResult (values found, goals, every evaluation, notes, methods) + SolvedState
+            at the values found (or null), the scenario applied (or null)
 ```
 
-`/solve` and `/system-curve` take an optional scenario id (`scenarioId`, §4.12); the server applies that scenario's overrides to the base before building the network (`services/scenarios.py`, TSD §5.7), so the solver only ever sees a plain project. A request without one is solved exactly as a project without scenarios. Solving all scenarios is one independent request per case; there is no batch endpoint.
+`/solve`, `/system-curve` and `/goal-seek` take an optional scenario id (`scenarioId`, §4.12); the server applies that scenario's overrides to the base before building the network (`services/scenarios.py`, TSD §5.7), so the solver only ever sees a plain project. A request without one is solved exactly as a project without scenarios. Solving all scenarios is one independent request per case; there is no batch endpoint. A goal seek is one request of many full solves (`services/goal_seek.py`, TSD §5.7), each `solve_project` of the case with the variables written on top; the solver itself is unchanged.
 
 **Implementation:** one Global Gradient Algorithm (Todini–Pilati) solver for every topology — the same core method EPANET uses — implemented in Python with Darcy–Weisbach/Colebrook friction from the `fluids` library. See TSD §5. It adds what EPANET lacks:
 
@@ -884,38 +892,83 @@ interface OverrideResult {
 
 A scenario solve's methods summary (§4.10) starts with a **Scenario** section (the scenario, how many overrides were applied, each applied one with its base value, each ignored one with the reason), and the trace of each component or connection an applied override changes starts with a note naming the scenario and the change. Trace input sources stay `user` and `default`. `METHOD_VERSION` is unchanged: applying a scenario changes inputs, not calculations.
 
-### 4.13 Goal Seek Model (Later)
+### 4.13 Goal Seek Model
+
+Built in v1 (PRD §3.9, CLAUDE.md D16; design and its as-built notes: `docs/proposals/goal-seek.md`). Models: `models/goal_seek.py`; envelopes in `models/api.py`. Nothing is added to `Project`: the setup and the result are the request's and the response's only.
 
 ```typescript
-interface GoalSeekRequest {
-  variables: GoalVariable[];
-  goals: Goal[];                 // same length as variables
-  maxIterations?: number;        // outer iterations, default 50
+interface GoalSeekRequest {      // POST /api/v1/goal-seek
+  project: Project;
+  scenarioId?: string | null;    // run on this scenario: the variables are written on top of its values
+  variables: GoalVariable[];     // 1-4
+  goals: Goal[];                 // as many as variables
 }
 
-interface GoalVariable {
-  target: { kind: 'component'; componentId: string }
-        | { kind: 'pipe'; connectionId: string; pipeIndex: number }
-        | { kind: 'project' };   // as a scenario override's target (§4.12)
-  field: string;                 // a numeric field of the scenario allow-list (x-override-fields)
-  lower: number;                 // SI bounds
+type GoalVariable = ComponentVariable | PipeVariable | ProjectVariable;   // discriminated by `kind`
+
+interface ComponentVariable {    // addressed as a ComponentOverride (§4.12)
+  kind: 'component';
+  componentId: string;
+  field: 'speed' | 'control.setpoint' | 'setpoint' | 'resistance'
+       | 'liquidLevel' | 'surfacePressure' | 'pressure' | 'flow';
+  coefficient?: 'K' | 'Cv' | 'Kv';   // resistance only (required there): resistance = {kind, value}
+  lower: number;                 // SI, finite, within the field's own bounds; lower < upper
   upper: number;
 }
 
+interface PipeVariable { kind: 'pipe'; connectionId: string; pipeIndex: number; field: 'length'; lower: number; upper: number; }
+interface ProjectVariable { kind: 'project'; field: 'fluid.temperature'; lower: number; upper: number; }
+
 interface Goal {
-  result: 'pressure' | 'flow' | 'pumpHead' | 'npshMargin' | 'velocity';
-  key: string;                   // NodeResult / LinkResult / PumpResult key (§4.10)
-  target: number;                // SI
-  tolerance?: number;            // SI; default from D6 (0.5%, or 0.01 m of head for heads and pressures)
+  quantity: 'port_pressure' | 'link_flow' | 'link_velocity' | 'link_head_loss'
+          | 'pump_flow' | 'pump_head' | 'pump_npsh_available' | 'pump_npsh_margin'
+          | 'valve_flow' | 'valve_pressure_drop' | 'boundary_outflow';
+  elementId: string;             // the component or connection
+  portId?: string;               // port_pressure only (required there)
+  target: number;                // SI, in the quantity's unit, |target| <= 1e8
+  tolerance?: number;            // SI; omitted: max(0.5 % of |target|, the quantity's floor)
+}
+
+interface GoalSeekResponse {
+  success: boolean;              // result.met
+  result: GoalSeekResult;
+  solvedState: SolvedState | null;   // the reported evaluation's own solve, annotated; null when none is usable
+  computeTime: number;
+  scenario: ScenarioResult | null;   // as /solve reports it (§4.12)
 }
 
 interface GoalSeekResult {
-  converged: boolean;
-  iterations: number;
-  values: Record<string, number>;          // variable values found, keyed by `${id}.${field}`
-  achieved: { goal: Goal; value: number; residual: number; met: boolean }[];
+  met: boolean;                  // every goal within its tolerance at the reported evaluation
+  stopReason: 'met_at_start' | 'met' | 'not_reachable' | 'jump' | 'unsolved_crossing'
+            | 'no_progress' | 'evaluation_limit' | 'time_budget' | 'no_usable_evaluation';
+  message: string;               // why it stopped, SI
+  method: 'scan_brent' | 'least_squares';
+  methodVersion: string;         // the solves' METHOD_VERSION
+  evaluationLimit: number;       // 60 for one variable, 20(n + 1) for n
+  timeBudget: number;            // s
+  reportedEvaluation: number | null;
+  variables: { index; variable; label; unit; scale: 'linear' | 'log'; start;
+               startSource: 'case' | 'clipped' | 'middle'; caseValue; baseValue;
+               value: number | null; atBound: 'lower' | 'upper' | null;
+               override: Override | null;        // the scenario override that applies `value`
+               replacedOverride: number | null }[];  // scenario run: the override whose value it replaced
+  goals: { index; goal; label; unit; tolerance; toleranceSource: 'user' | 'default';
+           value: number | null; residual: number | null; met: boolean; message;
+           evaluatedMin: number | null; evaluatedMax: number | null }[];
+  evaluations: { index; purpose: 'start' | 'scan' | 'root' | 'probe' | 'minimize' | 'step' | 'slope';
+                 variableValues: number[]; outcome: 'usable' | 'not_converged' | 'no_value'
+                 | 'topology_error' | 'fluid_error' | 'not_computed'; goalValues; residuals;
+                 message; seconds; stateChanges: StateChange[] }[];
+  notes: { code; message; variables; goals; evaluations; variableValues; goalValues;
+           stateChanges }[];     // other_crossing, met_range, jump, unsolved_crossing, sensitive, …
+  methods: MethodsSection;       // the "Goal seek" section, also first in solvedState's methods
 }
 ```
+
+- **Variables** are the numeric values of the scenario allow-list (§4.12), derived from it (`GOAL_COMPONENT_FIELDS`, `GOAL_PIPE_FIELDS`, `GOAL_PROJECT_FIELDS`; statuses, a pipe's `spec` and the whole `fluid` are `NOT_VARIABLES`), published as `x-goal-variables`: by target schema, each field's bounding schema, the path to the number, its scale (log for `length` and `resistance`) and a resistance's coefficients. `lower < upper` is published as `x-ordered-fields` on each variable schema. The search starts at the case's value (clipped into the bounds; a resistance the case does not hold in that coefficient starts at the middle of the bounds on the log scale).
+- **Goals** read the field the results tables and Compare show (`nodeResults[c:p].pressure`, `linkResults[id].flow`, the largest \|velocity\| of the connection and its segments, `headLoss`, `pumpResults[id].operatingFlow`, `operatingHead`, `npshAvailable`, `npshMargin`, `valveResults[id].flow`, `pressureDrop`, `boundaryResults[id].outflow`), published as `x-goal-quantities` with each quantity's unit, target schemas, port flag, default-tolerance rule (0.5 % of the target, at least 0.01 m of head, ×ρg of the case fluid for pressures, 10⁻⁶ m³/s for flows, 10⁻³ m/s for velocity) and smallest user tolerance (max(10⁻⁶ \|target\|, 0.1 Pa, 10⁻⁵ m, 10⁻⁹ m³/s or 10⁻⁶ m/s), which never depends on the fluid), and what it needs (`vaporPressure`, `npshrCurve`). An assigned-flow node's outflow is its input and is not a goal. The request's list rules (`sameLength`, `uniqueBy`) are published as `x-goal-seek-rules`.
+- **The values found are never applied by the server.** Each variable's `override`, written into the base at its path or upserted into the scenario by target and field, reproduces `solvedState` bit for bit (apart from `timestamp` and the annotation text). A temperature varied inside a scenario's whole-fluid override is returned as a `fluid` override with that temperature.
+- **Traceability.** `solvedState` starts its methods summary with a "Goal seek" section (the case, the method with its constants and citations, each variable and goal with its tolerance's source, why the search stopped, the notes), and each varied element's trace with a note; in a scenario run the Scenario section marks the overrides a variable replaced. No flags are added. `METHOD_VERSION` is unchanged and named.
 
 ---
 
@@ -933,8 +986,11 @@ All request and response values are SI; JSON is camelCase. The OpenAPI schema (`
 | `x-required-parameters` | `Fitting` | Fields each fitting type needs (`bend`: `angle`, `radiusRatio`; …) |
 | `x-reducer-types`, `x-entrance-types`, `x-exit-types` | `Fitting` | Fittings between two pipes; fittings for the loss where flow leaves or enters a body of liquid |
 | `x-setpoint-bounds` | `ControlValve` | Setpoint bounds by valve type where they differ from the field's (`fcv`: a flow, 0–100 m³/s) |
-| `x-ordered-fields` | `Pump` | Pairs of fields (dotted camelCase paths, `lower`, `upper`, `strict`) whose values must be ordered, lower < upper when strict, checked when both are present: a speed-controlled pump's `control.minSpeed` < `speed` (CLAUDE.md D11) |
+| `x-ordered-fields` | `Pump`; `ComponentVariable`, `PipeVariable`, `ProjectVariable` | Pairs of fields (dotted camelCase paths, `lower`, `upper`, `strict`) whose values must be ordered, lower < upper when strict, checked when both are present: a speed-controlled pump's `control.minSpeed` < `speed` (CLAUDE.md D11); a goal-seek variable's `lower` < `upper` (D16) |
 | `x-override-fields` | `Scenario` | The scenario allow-list (§4.12): by target schema (every component schema, `PipeDefinition`, `Project`), each field a scenario may override, with the schema that holds its value (whose property gives its bounds) and its camelCase `path` from the target, or the `keys` of a group replaced together (a pipe's `spec`) |
+| `x-goal-variables` | `GoalSeekRequest` | The goal-seek variables (§4.13): by target schema (every component schema, `PipeDefinition`, `Project`), each numeric field of the allow-list with the `schema` whose property bounds its number, the camelCase `path` from the target to it, its `scale` (`linear` or `log`) and, for a resistance, its `coefficients` |
+| `x-goal-quantities` | `GoalSeekRequest` | The goal quantities (§4.13): each one's `unit`, the `targets` schemas its `elementId` may name, whether it takes a `port`, the default tolerance (`relativeTolerance` and `floor`: a head floor applies to a pressure through ρg of the case fluid), the smallest user tolerance (`minimum`: `relative` and `absolute`, independent of the fluid) and what the case `needs` |
+| `x-goal-seek-rules` | `GoalSeekRequest` | The request's list rules: `sameLength` (as many goals as variables) and `uniqueBy` (the keys on which two variables, or two goals, must differ; an absent key counts as null) |
 
 The validators enforce exactly what the extensions state (`tests/unit/test_schema_rules.py`), which also fails while the frontend's copy of the schema (`apps/web/src/lib/api/openapi.json`, `pnpm gen:types`) is out of date.
 
@@ -942,6 +998,7 @@ The validators enforce exactly what the extensions state (`tests/unit/test_schem
 |-----------------|---------|----------|
 | `POST /api/v1/solve` | `{project, scenarioId?, options: {includeSystemCurve, systemCurvePoints}}` | `SolveResponse {success, solvedState, computeTime, scenario}`; with `scenarioId`, that scenario of the project is solved and `scenario` lists every override with its state, the value used and the base value (§4.12; null for the base project) |
 | `POST /api/v1/system-curve` | `{project, scenarioId?, pumpId, flowMin, flowMax?, numPoints}` | `SystemCurveResponse {pumpId, flowRange, points[{flow, head \| null, converged, message}], converged[], scenario}`, of the scenario when `scenarioId` is given: the pump replaced by each fixed flow, other pumps running; default flows 0 to 1.2 × the curve's largest flow × s. `converged` is true for a point with a head; a point without one says why in `message` (§4.10). The web app's pump chart uses it for the pump being viewed, with the project as solved (D10) |
+| `POST /api/v1/goal-seek` | `{project, scenarioId?, variables[1-4], goals[as many]}` (§4.13) | `GoalSeekResponse {success, result, solvedState, computeTime, scenario}`: the values found, each goal's achieved value and met status, why the search stopped, every evaluation, the notes and the "Goal seek" methods section, with the solved state at the values found; a goal not met is 200 with `success` false. At most one goal seek runs in the worker pool at a time |
 | `GET /api/v1/fluids` | — | `FluidListResponse {fluids: FluidInfo[]}`: temperature and concentration ranges queried from CoolProp, glycol `freezingPoints` (the lower temperature bound depends on the concentration), vapor-pressure availability, source, notes |
 | `POST /api/v1/fluids/properties` | `FluidDefinition` (a `BuiltinFluid` with its temperature, concentration and overrides, or a `CustomFluid`) | `FluidPropertiesResponse {fluid (the built-in id, or 'custom'), properties: FluidProperties}`: the properties as the solver will use them. The fluid travels in the body, which is never logged; the web app uses this endpoint |
 | `GET /api/v1/fluids/{id}/properties?temperature=&concentration=` | — | `FluidPropertiesResponse`, for a built-in fluid without overrides. For API users: the server's access log keeps only the path, but the query values (a project's fluid state) travel in the URL, where proxies, CDNs and other intermediaries may log them |
@@ -980,13 +1037,14 @@ Every error uses `ErrorResponse {success: false, error, message, issues[]}`:
 | 400 | `VALIDATION_ERROR` | Request fails the schema, or its body is not readable JSON; one issue per problem with its field path (submitted values are never echoed: no input values, tags or ids in messages, an unknown key is reported as `(unknown field)`, and a location inside a scenario override's `value`, whose keys are the submitter's, stops at `value`); also an empty system-curve flow range (`EMPTY_FLOW_RANGE`) |
 | 400 | `VALIDATION_ERROR` (scenario) | A value of the requested scenario that its target rejects: one issue per problem, located at `body.project.scenarios.{s}.overrides.{j}.value…` (a rule of a whole component or pipe once, at the override whose value it rejects), with the target in `componentIds` / `connectionIds`, the schema's own message and never the value; a pipe spec with a key outside its five is `invalid_pipe_spec` |
 | 400 | `FLUID_ERROR` | Temperature or concentration outside the property source's range; for a scenario, "Scenario S2: …" |
-| 404 | `NOT_FOUND` | Unknown scenario id ("the project has no scenario 'S9'", checked first); unknown pump id for a system curve (checked after the scenario's values, before the topology); unknown route |
+| 400 | `VALIDATION_ERROR` (goal seek) | Checked after the scenario, the case fluid and unknown elements: a variable or goal that does not apply to the case (`VARIABLE_NOT_APPLICABLE`, `GOAL_NOT_APPLICABLE`), NPSH data the case lacks (`NPSH_DATA_MISSING`), a tolerance below its smallest (`TOLERANCE_TOO_SMALL`); after the case's topology, a bound its field or an object rule rejects (the schema's own error type and message, at `body.variables.{i}.lower` or `.upper`). Every problem listed, located by index; the element's id only in `componentIds` / `connectionIds`, never in a message, and never a submitted value |
+| 404 | `NOT_FOUND` | Unknown scenario id ("the project has no scenario 'S9'", checked first); unknown pump id for a system curve (checked after the scenario's values, before the topology); a goal seek's unknown component, connection, pipe or port ("Goal seek: N unknown element(s).", every one listed with its id named, after the scenario and the case fluid); unknown route |
 | 405 | `METHOD_NOT_ALLOWED` | Wrong HTTP method for the route (`Allow` header lists the right one) |
 | 413 | `PAYLOAD_TOO_LARGE` | Body over 1 MB |
 | 422 | `TOPOLOGY_ERROR` | Port graph cannot be solved (§3.2.1); every issue listed. For a scenario, the issues of its effective project, with the message "Scenario S2 cannot be solved: N topology issue(s)." (a scenario is named by its id only: its name is a submitted value) |
-| 429 | `RATE_LIMITED` | More than 60 solve or system-curve requests per minute from one client (`Retry-After`) |
+| 429 | `RATE_LIMITED` | More than 60 solve, system-curve or goal-seek requests per minute from one client (`Retry-After`; a goal seek counts as one) |
 | 500 | `INTERNAL_ERROR` | An unexpected failure (logged by type and route only); carries the CORS headers like every error |
-| 503 | `SERVER_BUSY` / `TIMEOUT` | The solve pool is full, or this client already has a solve running and one waiting (`Retry-After`); the request's 45 s budget ran out (§7.2) |
+| 503 | `SERVER_BUSY` / `TIMEOUT` | The solve pool is full, or this client already has a solve running and one waiting, or a goal seek is already in the pool (one at a time, refused at once) (`Retry-After`); the request's 45 s budget ran out (§7.2; a goal seek only when its first evaluation does not finish: later it stops with the best evaluation so far, 200 `time_budget`) |
 
 #### 5.1.3 Get Fluid Properties
 
@@ -1111,7 +1169,7 @@ def resolve_k_factor(fitting: Fitting, inner_diameter: float, re: float) -> floa
 ### 7.2 Rate Limiting
 
 - Solve requests: 60/minute per client (unauthenticated), a client being an IPv4 address or an IPv6 /64 network, since a host chooses and rotates the last 64 bits of its IPv6 address (TSD §11.2, "The key"); a 429 carries `Retry-After`. Behind the hosting platform's proxy the client IP is the proxy's unless uvicorn trusts the proxy's `X-Forwarded-For` (`FORWARDED_ALLOW_IPS` set to the proxy's address range, TSD §11.2); without it all users share one bucket.
-- Solver work (`workers.py`): solves run in a pool of 2 worker threads holding at most 6 solves (running or waiting for a thread); a client's solves (the same key as the rate limit's) run one at a time, a second waiting for the first (a user solving again before the last result came back); a third concurrent solve from one client, or any solve when the pool is full, is refused at once with 503 `SERVER_BUSY`. Each request has a 45 s wall-clock budget from its arrival (below the frontend's 60 s timeout), checked at every Newton and outer iteration: a solve that runs out returns 503 `TIMEOUT`, and system-curve points not reached are reported as not computed (`message`), the solve itself kept. A client that disconnects cancels its solve. `computeTime` is the solver's own time in the worker, without waiting for it.
+- Solver work (`workers.py`): solves run in a pool of 2 worker threads holding at most 6 solves (running or waiting for a thread); a client's solves (the same key as the rate limit's) run one at a time, a second waiting for the first (a user solving again before the last result came back); a third concurrent solve from one client, or any solve when the pool is full, is refused at once with 503 `SERVER_BUSY`. Each request has a 45 s wall-clock budget from its arrival (below the frontend's 60 s timeout), checked at every Newton and outer iteration: a solve that runs out returns 503 `TIMEOUT`, and system-curve points not reached are reported as not computed (`message`), the solve itself kept. A goal seek is one request under the same budget: at most one is in the pool at a time (counted until its work stops; another is refused at once with 503 `SERVER_BUSY`), so a plain solve always has a worker, and a goal seek whose budget runs out after its first evaluation returns the best evaluation so far (`time_budget`). A client that disconnects cancels its solve. `computeTime` is the solver's own time in the worker, without waiting for it.
 - Later: authenticated users get higher limits based on tier
 
 ### 7.3 Data Privacy

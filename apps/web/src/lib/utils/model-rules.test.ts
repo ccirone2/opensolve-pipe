@@ -13,6 +13,7 @@ import { COMPONENT_KINDS, componentKind, createComponent, createEmptyProject } f
 import { portRole } from './graph';
 import {
 	COMPONENT_SCHEMAS,
+	componentGoalFields,
 	componentOverrideFields,
 	componentSchemaName,
 	ENTRANCE_TYPES,
@@ -20,6 +21,10 @@ import {
 	fieldValue,
 	FITTING_PARAMETERS,
 	fluidSchemaName,
+	GOAL_QUANTITY_RULES,
+	GOAL_VARIABLE_FIELDS,
+	goalSeekLimits,
+	goalVariableSchemaName,
 	intersectBounds,
 	maxPorts,
 	missingFittingParameters,
@@ -29,12 +34,16 @@ import {
 	orderViolations,
 	OVERRIDE_FIELDS,
 	overrideSchemaName,
+	pairBounds,
+	pipeGoalFields,
 	pipeOverrideFields,
+	projectGoalFields,
 	projectOverrideFields,
 	REDUCER_TYPES,
 	requiredPortCount,
 	requiredPortIds,
 	schemaExtensions,
+	schemaOrderedFields,
 	setpointBounds
 } from './model-rules';
 import { isReducer, maxPipeIndex } from './piping';
@@ -317,5 +326,92 @@ describe('scenario allow-list (x-override-fields)', () => {
 		expect(Object.keys(projectOverrideFields()).sort()).toEqual(['fluid', 'fluid.temperature']);
 		expect(overrideSchemaName('pipe')).toBe('PipeOverride');
 		expect(overrideSchemaName('tank')).toBeNull();
+	});
+});
+
+describe('goal seek (x-goal-variables, x-goal-quantities, x-goal-seek-rules)', () => {
+	it('reads the variables goal seek may vary, by target schema, from GoalSeekRequest', () => {
+		const published = extension('GoalSeekRequest', 'x-goal-variables') as Record<
+			string,
+			Record<string, { schema: string; path: string[]; scale: string; coefficients?: string[] }>
+		>;
+		expect(published).toBeDefined();
+		expect(Object.keys(GOAL_VARIABLE_FIELDS).sort()).toEqual(Object.keys(published).sort());
+		for (const [target, fields] of Object.entries(published)) {
+			for (const [name, entry] of Object.entries(fields)) {
+				expect(GOAL_VARIABLE_FIELDS[target]![name]).toEqual({
+					schema: entry.schema,
+					path: entry.path,
+					scale: entry.scale,
+					coefficients: entry.coefficients ?? []
+				});
+				// The number's bounding schema has it as a numeric property.
+				const key = entry.path[entry.path.length - 1]!;
+				const bounds = schemaBounds(entry.schema, key);
+				expect(
+					Object.keys(bounds).length,
+					`${target}.${name}: ${entry.schema}.${key}`
+				).toBeGreaterThan(0);
+				// Every variable is a value of the scenario allow-list (D15), addressed as one.
+				expect(OVERRIDE_FIELDS[target], `${target}.${name}`).toHaveProperty(name);
+			}
+		}
+		for (const name of COMPONENT_SCHEMAS) expect(GOAL_VARIABLE_FIELDS).toHaveProperty(name);
+		const pump = COMPONENTS.find((c) => c.type === 'pump')!;
+		expect(Object.keys(componentGoalFields(pump)).sort()).toEqual(['control.setpoint', 'speed']);
+		expect(componentGoalFields(COMPONENTS.find((c) => c.type === 'plug')!)).toEqual({});
+		expect(Object.keys(pipeGoalFields())).toEqual(['length']);
+		expect(Object.keys(projectGoalFields())).toEqual(['fluid.temperature']);
+		const gate = COMPONENTS.find((c) => c.type === 'valve' && c.valveType === 'gate')!;
+		expect(componentGoalFields(gate).resistance).toMatchObject({
+			schema: 'FlowCoefficient',
+			path: ['resistance', 'value'],
+			scale: 'log'
+		});
+		expect(componentGoalFields(gate).resistance!.coefficients).toEqual(
+			(SCHEMAS.FlowCoefficient!.properties as Record<string, { enum: string[] }>).kind!.enum
+		);
+	});
+
+	it('reads the goal quantities with their tolerance rules and needs', () => {
+		const published = extension('GoalSeekRequest', 'x-goal-quantities') as Record<string, unknown>;
+		expect(published).toBeDefined();
+		const quantities = (SCHEMAS.Goal!.properties as Record<string, { enum: string[] }>).quantity!
+			.enum;
+		expect(Object.keys(GOAL_QUANTITY_RULES).sort()).toEqual([...quantities].sort());
+		for (const [quantity, rule] of Object.entries(GOAL_QUANTITY_RULES)) {
+			expect(rule).toEqual({ needs: [], ...(published[quantity] as object) });
+			for (const target of rule.targets) {
+				expect(target === 'PipeConnection' || COMPONENT_SCHEMAS.includes(target)).toBe(true);
+			}
+			// A minimum is a number in the quantity's unit, below its default floor.
+			expect(rule.minimum.absolute).toBeGreaterThan(0);
+		}
+		expect(GOAL_QUANTITY_RULES.port_pressure!.port).toBe(true);
+		expect(GOAL_QUANTITY_RULES.pump_npsh_margin!.needs).toEqual(['vaporPressure', 'npshrCurve']);
+	});
+
+	it('reads the list rules, the item limits and the variables lower-below-upper rule', () => {
+		const rules = extension('GoalSeekRequest', 'x-goal-seek-rules') as {
+			sameLength: string[][];
+			uniqueBy: Record<string, string[]>;
+		};
+		expect(rules).toBeDefined();
+		const limits = goalSeekLimits();
+		expect(limits.sameLength).toEqual(rules.sameLength);
+		expect(limits.uniqueBy).toEqual(rules.uniqueBy);
+		const properties = SCHEMAS.GoalSeekRequest!.properties as Record<string, { maxItems: number }>;
+		expect(limits.variables).toBe(properties.variables!.maxItems);
+		expect(limits.goals).toBe(properties.goals!.maxItems);
+		for (const kind of ['component', 'pipe', 'project']) {
+			const name = goalVariableSchemaName(kind)!;
+			expect(name).toMatch(/Variable$/);
+			expect(schemaOrderedFields(name)).toEqual(extension(name, 'x-ordered-fields'));
+			expect(schemaOrderedFields(name)).toEqual([{ lower: 'lower', upper: 'upper', strict: true }]);
+		}
+		expect(goalVariableSchemaName('tank')).toBeNull();
+		const pairs = schemaOrderedFields(goalVariableSchemaName('pipe')!);
+		expect(pairBounds(pairs, { lower: 2, upper: 8 }, 'lower')).toEqual({ exclusiveMaximum: 8 });
+		expect(pairBounds(pairs, { lower: 2, upper: 8 }, 'upper')).toEqual({ exclusiveMinimum: 2 });
 	});
 });

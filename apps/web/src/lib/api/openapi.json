@@ -450,6 +450,83 @@
         "title": "ComponentOverride",
         "type": "object"
       },
+      "ComponentVariable": {
+        "additionalProperties": false,
+        "description": "A numeric value of a component, varied between lower and upper.",
+        "properties": {
+          "coefficient": {
+            "anyOf": [
+              {
+                "enum": [
+                  "K",
+                  "Cv",
+                  "Kv"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "resistance only (required there): the flow coefficient varied, written as resistance = {kind: coefficient, value}",
+            "title": "Coefficient"
+          },
+          "componentId": {
+            "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Componentid",
+            "type": "string"
+          },
+          "field": {
+            "description": "camelCase path of the value relative to the component (x-goal-variables)",
+            "enum": [
+              "speed",
+              "control.setpoint",
+              "setpoint",
+              "resistance",
+              "liquidLevel",
+              "surfacePressure",
+              "pressure",
+              "flow"
+            ],
+            "title": "Field",
+            "type": "string"
+          },
+          "kind": {
+            "const": "component",
+            "title": "Kind",
+            "type": "string"
+          },
+          "lower": {
+            "description": "SI, within the field's own bounds (x-goal-variables gives the schema that bounds it); below upper",
+            "title": "Lower",
+            "type": "number"
+          },
+          "upper": {
+            "description": "SI, within the field's own bounds",
+            "title": "Upper",
+            "type": "number"
+          }
+        },
+        "required": [
+          "lower",
+          "upper",
+          "kind",
+          "componentId",
+          "field"
+        ],
+        "title": "ComponentVariable",
+        "type": "object",
+        "x-ordered-fields": [
+          {
+            "lower": "lower",
+            "strict": true,
+            "upper": "upper"
+          }
+        ]
+      },
       "ControlValve": {
         "additionalProperties": false,
         "description": "Pressure-reducing, pressure-sustaining or flow-control valve.\n\nsetpoint is the gauge static pressure at the outlet port (PRV) or inlet port (PSV), in Pa,\nor the flow (FCV), in m³/s. resistance is the fully open loss; when omitted the valve is\nideal (no loss when fully open).",
@@ -1502,6 +1579,960 @@
         "title": "FreezingPoint",
         "type": "object"
       },
+      "Goal": {
+        "additionalProperties": false,
+        "description": "A result of one element brought to a target.",
+        "properties": {
+          "elementId": {
+            "description": "The component or connection (x-goal-quantities gives each quantity's)",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Elementid",
+            "type": "string"
+          },
+          "portId": {
+            "anyOf": [
+              {
+                "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "port_pressure only (required there): the component's port",
+            "title": "Portid"
+          },
+          "quantity": {
+            "enum": [
+              "port_pressure",
+              "link_flow",
+              "link_velocity",
+              "link_head_loss",
+              "pump_flow",
+              "pump_head",
+              "pump_npsh_available",
+              "pump_npsh_margin",
+              "valve_flow",
+              "valve_pressure_drop",
+              "boundary_outflow"
+            ],
+            "title": "Quantity",
+            "type": "string"
+          },
+          "target": {
+            "description": "SI, in the quantity's unit",
+            "maximum": 100000000.0,
+            "minimum": -100000000.0,
+            "title": "Target",
+            "type": "number"
+          },
+          "tolerance": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100000000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SI, in the quantity's unit; omitted: max(0.5 % of |target|, the quantity's floor); at least max(1e-6 |target|, the quantity's minimum in x-goal-quantities)",
+            "title": "Tolerance"
+          }
+        },
+        "required": [
+          "quantity",
+          "elementId",
+          "target"
+        ],
+        "title": "Goal",
+        "type": "object"
+      },
+      "GoalResult": {
+        "additionalProperties": false,
+        "properties": {
+          "evaluatedMax": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluatedmax"
+          },
+          "evaluatedMin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Over the usable evaluations, SI",
+            "title": "Evaluatedmin"
+          },
+          "goal": {
+            "$ref": "#/components/schemas/Goal",
+            "description": "As given"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "label": {
+            "description": "'static pressure at port outlet of tee T3'",
+            "title": "Label",
+            "type": "string"
+          },
+          "message": {
+            "description": "Why there is no value ('' otherwise)",
+            "title": "Message",
+            "type": "string"
+          },
+          "met": {
+            "description": "|residual| <= tolerance",
+            "title": "Met",
+            "type": "boolean"
+          },
+          "residual": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "value - target, SI",
+            "title": "Residual"
+          },
+          "tolerance": {
+            "description": "SI, as used",
+            "title": "Tolerance",
+            "type": "number"
+          },
+          "toleranceSource": {
+            "enum": [
+              "user",
+              "default"
+            ],
+            "title": "Tolerancesource",
+            "type": "string"
+          },
+          "unit": {
+            "description": "'Pa(g)', 'Pa (difference)', 'm³/s', 'm/s' or 'm'",
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "At the reported evaluation, SI",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "index",
+          "goal",
+          "label",
+          "unit",
+          "tolerance",
+          "toleranceSource",
+          "value",
+          "residual",
+          "met",
+          "message",
+          "evaluatedMin",
+          "evaluatedMax"
+        ],
+        "title": "GoalResult",
+        "type": "object"
+      },
+      "GoalSeekEvaluation": {
+        "additionalProperties": false,
+        "description": "One evaluation: a full network solve of the case with the variables at these values.",
+        "properties": {
+          "goalValues": {
+            "description": "SI; null where the state has no value",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Goalvalues",
+            "type": "array"
+          },
+          "index": {
+            "description": "0-based; 0 is the start",
+            "title": "Index",
+            "type": "integer"
+          },
+          "message": {
+            "description": "Why it is not usable ('' when usable)",
+            "title": "Message",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "usable; not_converged; no_value (a goal has no value in this state); topology_error / fluid_error (the network rejects these values); not_computed (the request's time budget ran out during it)",
+            "enum": [
+              "usable",
+              "not_converged",
+              "no_value",
+              "topology_error",
+              "fluid_error",
+              "not_computed"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "purpose": {
+            "description": "start; scan (one variable: the 9 values across the bounds; several: the values solved for a usable point when the start has no usable result); root (Brent's method); probe (around failed solves); minimize (the closest value); step (least squares); slope (a Jacobian column)",
+            "enum": [
+              "start",
+              "scan",
+              "root",
+              "probe",
+              "minimize",
+              "step",
+              "slope"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          },
+          "residuals": {
+            "description": "Goal value minus target, SI",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Residuals",
+            "type": "array"
+          },
+          "seconds": {
+            "description": "Inside the worker",
+            "title": "Seconds",
+            "type": "number"
+          },
+          "stateChanges": {
+            "description": "Against the first evaluation with a solved state, elements with flow only",
+            "items": {
+              "$ref": "#/components/schemas/StateChange"
+            },
+            "title": "Statechanges",
+            "type": "array"
+          },
+          "variableValues": {
+            "description": "SI, in the variables' order",
+            "items": {
+              "type": "number"
+            },
+            "title": "Variablevalues",
+            "type": "array"
+          }
+        },
+        "required": [
+          "index",
+          "purpose",
+          "variableValues",
+          "outcome",
+          "goalValues",
+          "residuals",
+          "message",
+          "seconds",
+          "stateChanges"
+        ],
+        "title": "GoalSeekEvaluation",
+        "type": "object"
+      },
+      "GoalSeekNote": {
+        "additionalProperties": false,
+        "description": "Something the search found or did, with its data (SI) and a sentence.",
+        "properties": {
+          "code": {
+            "enum": [
+              "other_crossing",
+              "met_range",
+              "met_without_crossing",
+              "closest_at_bound",
+              "closest_on_plateau",
+              "closest_inside",
+              "jump",
+              "unsolved_crossing",
+              "state_changes",
+              "start_clipped",
+              "unusable_evaluations",
+              "goal_no_effect",
+              "variable_no_effect",
+              "variables_collinear",
+              "slope_unknown",
+              "sensitive"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "evaluations": {
+            "description": "Indexes into evaluations",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Evaluations",
+            "type": "array"
+          },
+          "goalValues": {
+            "description": "SI",
+            "items": {
+              "type": "number"
+            },
+            "title": "Goalvalues",
+            "type": "array"
+          },
+          "goals": {
+            "description": "Indexes into goals",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Goals",
+            "type": "array"
+          },
+          "message": {
+            "description": "SI sentence (the web words the code itself)",
+            "title": "Message",
+            "type": "string"
+          },
+          "stateChanges": {
+            "items": {
+              "$ref": "#/components/schemas/StateChange"
+            },
+            "title": "Statechanges",
+            "type": "array"
+          },
+          "variableValues": {
+            "description": "SI",
+            "items": {
+              "type": "number"
+            },
+            "title": "Variablevalues",
+            "type": "array"
+          },
+          "variables": {
+            "description": "Indexes into variables",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "variables",
+          "goals",
+          "evaluations",
+          "variableValues",
+          "goalValues",
+          "stateChanges"
+        ],
+        "title": "GoalSeekNote",
+        "type": "object"
+      },
+      "GoalSeekRequest": {
+        "additionalProperties": false,
+        "description": "Find the values of 1 to 4 variables that bring as many goals to their targets (PRD §3.9,\nCLAUDE.md D16). x-goal-variables, x-goal-quantities and x-goal-seek-rules publish the rules\nJSON Schema cannot express.",
+        "properties": {
+          "goals": {
+            "description": "As many as variables (PRD §3.9)",
+            "items": {
+              "$ref": "#/components/schemas/Goal"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Goals",
+            "type": "array"
+          },
+          "project": {
+            "$ref": "#/components/schemas/Project"
+          },
+          "scenarioId": {
+            "anyOf": [
+              {
+                "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Run on this scenario of project.scenarios: the variables are written on top of its values (omitted or null: the base project; an unknown id: 404 NOT_FOUND)",
+            "title": "Scenarioid"
+          },
+          "variables": {
+            "description": "Numeric values of the scenario allow-list, each with its bounds",
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ComponentVariable"
+                },
+                {
+                  "$ref": "#/components/schemas/PipeVariable"
+                },
+                {
+                  "$ref": "#/components/schemas/ProjectVariable"
+                }
+              ]
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "project",
+          "variables",
+          "goals"
+        ],
+        "title": "GoalSeekRequest",
+        "type": "object",
+        "x-goal-quantities": {
+          "boundary_outflow": {
+            "floor": {
+              "flow": 1e-06
+            },
+            "minimum": {
+              "absolute": 1e-09,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "Reservoir",
+              "IdealReferenceNode"
+            ],
+            "unit": "m³/s"
+          },
+          "link_flow": {
+            "floor": {
+              "flow": 1e-06
+            },
+            "minimum": {
+              "absolute": 1e-09,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "PipeConnection"
+            ],
+            "unit": "m³/s"
+          },
+          "link_head_loss": {
+            "floor": {
+              "head": 0.01
+            },
+            "minimum": {
+              "absolute": 1e-05,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "PipeConnection"
+            ],
+            "unit": "m"
+          },
+          "link_velocity": {
+            "floor": {
+              "velocity": 0.001
+            },
+            "minimum": {
+              "absolute": 1e-06,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "PipeConnection"
+            ],
+            "unit": "m/s"
+          },
+          "port_pressure": {
+            "floor": {
+              "head": 0.01
+            },
+            "minimum": {
+              "absolute": 0.1,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": true,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "Reservoir",
+              "IdealReferenceNode",
+              "Plug",
+              "AssignedFlow",
+              "TeeBranch",
+              "WyeBranch",
+              "Pump",
+              "IsolationValve",
+              "CheckValve",
+              "ControlValve"
+            ],
+            "unit": "Pa(g)"
+          },
+          "pump_flow": {
+            "floor": {
+              "flow": 1e-06
+            },
+            "minimum": {
+              "absolute": 1e-09,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "Pump"
+            ],
+            "unit": "m³/s"
+          },
+          "pump_head": {
+            "floor": {
+              "head": 0.01
+            },
+            "minimum": {
+              "absolute": 1e-05,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "Pump"
+            ],
+            "unit": "m"
+          },
+          "pump_npsh_available": {
+            "floor": {
+              "head": 0.01
+            },
+            "minimum": {
+              "absolute": 1e-05,
+              "relative": 1e-06
+            },
+            "needs": [
+              "vaporPressure"
+            ],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "Pump"
+            ],
+            "unit": "m"
+          },
+          "pump_npsh_margin": {
+            "floor": {
+              "head": 0.01
+            },
+            "minimum": {
+              "absolute": 1e-05,
+              "relative": 1e-06
+            },
+            "needs": [
+              "vaporPressure",
+              "npshrCurve"
+            ],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "Pump"
+            ],
+            "unit": "m"
+          },
+          "valve_flow": {
+            "floor": {
+              "flow": 1e-06
+            },
+            "minimum": {
+              "absolute": 1e-09,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "IsolationValve",
+              "CheckValve",
+              "ControlValve"
+            ],
+            "unit": "m³/s"
+          },
+          "valve_pressure_drop": {
+            "floor": {
+              "head": 0.01
+            },
+            "minimum": {
+              "absolute": 0.1,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "IsolationValve",
+              "CheckValve",
+              "ControlValve"
+            ],
+            "unit": "Pa (difference)"
+          }
+        },
+        "x-goal-seek-rules": {
+          "sameLength": [
+            [
+              "variables",
+              "goals"
+            ]
+          ],
+          "uniqueBy": {
+            "goals": [
+              "quantity",
+              "elementId",
+              "portId"
+            ],
+            "variables": [
+              "kind",
+              "componentId",
+              "connectionId",
+              "pipeIndex",
+              "field"
+            ]
+          }
+        },
+        "x-goal-variables": {
+          "AssignedFlow": {
+            "flow": {
+              "path": [
+                "flow"
+              ],
+              "scale": "linear",
+              "schema": "AssignedFlow"
+            }
+          },
+          "CheckValve": {
+            "resistance": {
+              "coefficients": [
+                "K",
+                "Cv",
+                "Kv"
+              ],
+              "path": [
+                "resistance",
+                "value"
+              ],
+              "scale": "log",
+              "schema": "FlowCoefficient"
+            }
+          },
+          "ControlValve": {
+            "resistance": {
+              "coefficients": [
+                "K",
+                "Cv",
+                "Kv"
+              ],
+              "path": [
+                "resistance",
+                "value"
+              ],
+              "scale": "log",
+              "schema": "FlowCoefficient"
+            },
+            "setpoint": {
+              "path": [
+                "setpoint"
+              ],
+              "scale": "linear",
+              "schema": "ControlValve"
+            }
+          },
+          "IdealReferenceNode": {
+            "pressure": {
+              "path": [
+                "pressure"
+              ],
+              "scale": "linear",
+              "schema": "IdealReferenceNode"
+            }
+          },
+          "IsolationValve": {
+            "resistance": {
+              "coefficients": [
+                "K",
+                "Cv",
+                "Kv"
+              ],
+              "path": [
+                "resistance",
+                "value"
+              ],
+              "scale": "log",
+              "schema": "FlowCoefficient"
+            }
+          },
+          "PipeDefinition": {
+            "length": {
+              "path": [
+                "length"
+              ],
+              "scale": "log",
+              "schema": "PipeDefinition"
+            }
+          },
+          "Plug": {},
+          "Project": {
+            "fluid.temperature": {
+              "path": [
+                "fluid",
+                "temperature"
+              ],
+              "scale": "linear",
+              "schema": "BuiltinFluid"
+            }
+          },
+          "Pump": {
+            "control.setpoint": {
+              "path": [
+                "control",
+                "setpoint"
+              ],
+              "scale": "linear",
+              "schema": "PumpControl"
+            },
+            "speed": {
+              "path": [
+                "speed"
+              ],
+              "scale": "linear",
+              "schema": "Pump"
+            }
+          },
+          "Reservoir": {
+            "liquidLevel": {
+              "path": [
+                "liquidLevel"
+              ],
+              "scale": "linear",
+              "schema": "Reservoir"
+            },
+            "surfacePressure": {
+              "path": [
+                "surfacePressure"
+              ],
+              "scale": "linear",
+              "schema": "Reservoir"
+            }
+          },
+          "TeeBranch": {},
+          "WyeBranch": {}
+        }
+      },
+      "GoalSeekResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "computeTime": {
+            "description": "Seconds in the worker",
+            "title": "Computetime",
+            "type": "number"
+          },
+          "result": {
+            "$ref": "#/components/schemas/GoalSeekResult"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScenarioResult"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The case's scenario as stored, as /solve reports it; null for the base project. An override named by a variable's replacedOverride was not used: the value found took its place"
+          },
+          "solvedState": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SolvedState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The reported evaluation's own solve, with a first 'Goal seek' methods section and a note on each varied element; null when no evaluation is usable"
+          },
+          "success": {
+            "description": "result.met: every goal met at the reported evaluation",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "result",
+          "solvedState",
+          "computeTime",
+          "scenario"
+        ],
+        "title": "GoalSeekResponse",
+        "type": "object"
+      },
+      "GoalSeekResult": {
+        "additionalProperties": false,
+        "properties": {
+          "evaluationLimit": {
+            "description": "60 for one variable, 20(n + 1) for n",
+            "title": "Evaluationlimit",
+            "type": "integer"
+          },
+          "evaluations": {
+            "items": {
+              "$ref": "#/components/schemas/GoalSeekEvaluation"
+            },
+            "title": "Evaluations",
+            "type": "array"
+          },
+          "goals": {
+            "items": {
+              "$ref": "#/components/schemas/GoalResult"
+            },
+            "title": "Goals",
+            "type": "array"
+          },
+          "message": {
+            "description": "Why the search stopped, SI",
+            "title": "Message",
+            "type": "string"
+          },
+          "met": {
+            "description": "Every goal met at the reported evaluation",
+            "title": "Met",
+            "type": "boolean"
+          },
+          "method": {
+            "enum": [
+              "scan_brent",
+              "least_squares"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "methodVersion": {
+            "description": "The solves' METHOD_VERSION",
+            "title": "Methodversion",
+            "type": "string"
+          },
+          "methods": {
+            "$ref": "#/components/schemas/MethodsSection",
+            "description": "The 'Goal seek' methods section, also first in solvedState's methods"
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/GoalSeekNote"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "reportedEvaluation": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The evaluation whose values and state are reported (null: none usable)",
+            "title": "Reportedevaluation"
+          },
+          "stopReason": {
+            "enum": [
+              "met_at_start",
+              "met",
+              "not_reachable",
+              "jump",
+              "unsolved_crossing",
+              "no_progress",
+              "evaluation_limit",
+              "time_budget",
+              "no_usable_evaluation"
+            ],
+            "title": "Stopreason",
+            "type": "string"
+          },
+          "timeBudget": {
+            "description": "s: the request's",
+            "title": "Timebudget",
+            "type": "number"
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/VariableResult"
+            },
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "met",
+          "stopReason",
+          "message",
+          "method",
+          "methodVersion",
+          "evaluationLimit",
+          "timeBudget",
+          "reportedEvaluation",
+          "variables",
+          "goals",
+          "evaluations",
+          "notes",
+          "methods"
+        ],
+        "title": "GoalSeekResult",
+        "type": "object"
+      },
       "IdealReferenceNode": {
         "additionalProperties": false,
         "description": "Fixed-pressure boundary (e.g. a large supply main or a closed loop's expansion tank).\n\nModeled like a reservoir: a body of liquid at rest at the given gauge pressure and the\nport elevation. Velocity head develops in the connecting piping.",
@@ -2313,6 +3344,65 @@
         "title": "PipeSize",
         "type": "object"
       },
+      "PipeVariable": {
+        "additionalProperties": false,
+        "description": "A numeric value of one pipe of a connection, varied between lower and upper.",
+        "properties": {
+          "connectionId": {
+            "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Connectionid",
+            "type": "string"
+          },
+          "field": {
+            "const": "length",
+            "description": "length: m",
+            "title": "Field",
+            "type": "string"
+          },
+          "kind": {
+            "const": "pipe",
+            "title": "Kind",
+            "type": "string"
+          },
+          "lower": {
+            "description": "SI, within the field's own bounds (x-goal-variables gives the schema that bounds it); below upper",
+            "title": "Lower",
+            "type": "number"
+          },
+          "pipeIndex": {
+            "description": "0-based index into the connection's piping.pipes, as a pipe override's",
+            "maximum": 99.0,
+            "minimum": 0.0,
+            "title": "Pipeindex",
+            "type": "integer"
+          },
+          "upper": {
+            "description": "SI, within the field's own bounds",
+            "title": "Upper",
+            "type": "number"
+          }
+        },
+        "required": [
+          "lower",
+          "upper",
+          "kind",
+          "connectionId",
+          "pipeIndex",
+          "field"
+        ],
+        "title": "PipeVariable",
+        "type": "object",
+        "x-ordered-fields": [
+          {
+            "lower": "lower",
+            "strict": true,
+            "upper": "upper"
+          }
+        ]
+      },
       "PipingSegment": {
         "additionalProperties": false,
         "description": "The pipes (in series, from -> to) and inline fittings of one connection.",
@@ -2682,6 +3772,48 @@
         ],
         "title": "ProjectSettings",
         "type": "object"
+      },
+      "ProjectVariable": {
+        "additionalProperties": false,
+        "description": "A numeric value of the project (a built-in fluid's temperature), varied between lower\nand upper.",
+        "properties": {
+          "field": {
+            "const": "fluid.temperature",
+            "description": "fluid.temperature: K, a built-in fluid's",
+            "title": "Field",
+            "type": "string"
+          },
+          "kind": {
+            "const": "project",
+            "title": "Kind",
+            "type": "string"
+          },
+          "lower": {
+            "description": "SI, within the field's own bounds (x-goal-variables gives the schema that bounds it); below upper",
+            "title": "Lower",
+            "type": "number"
+          },
+          "upper": {
+            "description": "SI, within the field's own bounds",
+            "title": "Upper",
+            "type": "number"
+          }
+        },
+        "required": [
+          "lower",
+          "upper",
+          "kind",
+          "field"
+        ],
+        "title": "ProjectVariable",
+        "type": "object",
+        "x-ordered-fields": [
+          {
+            "lower": "lower",
+            "strict": true,
+            "upper": "upper"
+          }
+        ]
       },
       "PropertySource": {
         "additionalProperties": false,
@@ -3821,6 +4953,57 @@
         "title": "SolverOptions",
         "type": "object"
       },
+      "StateChange": {
+        "additionalProperties": false,
+        "description": "An element whose state differs between two evaluations (one that carries flow in at\nleast one of them, D13).",
+        "properties": {
+          "after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "aspect": {
+            "enum": [
+              "pump_status",
+              "pump_control",
+              "valve_state",
+              "branch_pattern"
+            ],
+            "title": "Aspect",
+            "type": "string"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null: the element has no result in that state",
+            "title": "Before"
+          },
+          "elementId": {
+            "title": "Elementid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "elementId",
+          "aspect",
+          "before",
+          "after"
+        ],
+        "title": "StateChange",
+        "type": "object"
+      },
       "SystemCurvePoint": {
         "additionalProperties": false,
         "properties": {
@@ -4388,6 +5571,150 @@
         "title": "ValveResult",
         "type": "object"
       },
+      "VariableResult": {
+        "additionalProperties": false,
+        "properties": {
+          "atBound": {
+            "anyOf": [
+              {
+                "enum": [
+                  "lower",
+                  "upper"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The value equals lower or upper exactly",
+            "title": "Atbound"
+          },
+          "baseValue": {
+            "$ref": "#/components/schemas/JsonValue",
+            "description": "The base project's value (equal to caseValue for a base run)"
+          },
+          "caseValue": {
+            "$ref": "#/components/schemas/JsonValue",
+            "description": "The case's value of the field, SI (a resistance: its FlowCoefficient or null)"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "label": {
+            "description": "'maximum speed ratio of pump P1'",
+            "title": "Label",
+            "type": "string"
+          },
+          "override": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ComponentOverride"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PipeOverride"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ProjectOverride"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scenario override that sets the value found: upserted into a scenario by target and field, or written into the base at its path, it reproduces solvedState; null when value is null",
+            "title": "Override"
+          },
+          "replacedOverride": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Scenario run: the index in the scenario's overrides whose value this variable took the place of (a whole-fluid override: its temperature), or null; the response's scenario record states that override's value, which the reported solve did not use",
+            "title": "Replacedoverride"
+          },
+          "scale": {
+            "enum": [
+              "linear",
+              "log"
+            ],
+            "title": "Scale",
+            "type": "string"
+          },
+          "start": {
+            "description": "SI: the value evaluation 0 solved",
+            "title": "Start",
+            "type": "number"
+          },
+          "startSource": {
+            "description": "case: the case's value; clipped: the case's value lies outside the bounds, and the nearer bound is used; middle: the case holds no value of this coefficient (a resistance on its default, or of another kind), and the middle of the bounds on the variable's scale is used",
+            "enum": [
+              "case",
+              "clipped",
+              "middle"
+            ],
+            "title": "Startsource",
+            "type": "string"
+          },
+          "unit": {
+            "description": "Trace unit ('' for none)",
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "At the reported evaluation (null: none usable)",
+            "title": "Value"
+          },
+          "variable": {
+            "description": "As given",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ComponentVariable"
+              },
+              {
+                "$ref": "#/components/schemas/PipeVariable"
+              },
+              {
+                "$ref": "#/components/schemas/ProjectVariable"
+              }
+            ],
+            "title": "Variable"
+          }
+        },
+        "required": [
+          "index",
+          "variable",
+          "label",
+          "unit",
+          "scale",
+          "start",
+          "startSource",
+          "caseValue",
+          "baseValue",
+          "value",
+          "atBound",
+          "override",
+          "replacedOverride"
+        ],
+        "title": "VariableResult",
+        "type": "object"
+      },
       "WyeBranch": {
         "additionalProperties": false,
         "description": "Wye (lateral): 'inlet' and 'outlet_1' are the straight run, 'outlet_2' the angled leg.\n\nOrientation: the angled leg leans toward 'outlet_1' (flow from 'inlet' turns through the\nwye's angle into 'outlet_2'). Crane's lateral data cover the combined flow through\n'inlet', dividing or combining; with the combined flow through 'outlet_1' and flow in\n'outlet_2', that flow turns through 180° minus the angle, and the result is flagged.",
@@ -4748,6 +6075,108 @@
         "summary": "Fluid Properties",
         "tags": [
           "fluids"
+        ]
+      }
+    },
+    "/api/v1/goal-seek": {
+      "post": {
+        "description": "Find the variable values that bring the goals to their targets (PRD §3.9). Every\nevaluation is a full solve of the case (the base project, or scenarioId) with the variables\nwritten on top; the project is never changed: each variable's override applies the value\nfound. A goal not met is 200 with success = false; computeTime is the worker's time.\n\nChecks in order: the scenario (404, then 400 for its values), the case's fluid (400),\nunknown elements, ports and pipes (404, all listed), inputs that do not apply (400, by\nindex), the case's topology (422), the bounds (400); then the search, always 200 unless its\nfirst evaluation runs out of time (503 TIMEOUT). At most one goal seek runs in the worker\npool at a time (503 SERVER_BUSY).",
+        "operationId": "goal_seek_endpoint_api_v1_goal_seek_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalSeekRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalSeekResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid input"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown scenario, element, port or pipe"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Topology error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server busy (SERVER_BUSY) or the time budget ran out (TIMEOUT)"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Other errors"
+          }
+        },
+        "summary": "Goal Seek Endpoint",
+        "tags": [
+          "solve"
         ]
       }
     },

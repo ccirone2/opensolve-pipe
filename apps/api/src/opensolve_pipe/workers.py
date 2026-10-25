@@ -12,6 +12,11 @@ checks it at every Newton and outer iteration, a solve that runs out raises Solv
 request whose client disconnects is cancelled (SolveCancelledError). The reported compute time
 is measured inside the worker thread, without the time spent waiting.
 
+A goal seek (CLAUDE.md D16) is one request of many solves under the one budget, so it can hold a
+worker for the whole budget: at most MAX_GOAL_SEEKS of them are in the pool at once, counted from
+their submission until their work has stopped, so a plain solve always has a worker that no goal
+seek holds; another goal seek is refused at once with 503 SERVER_BUSY.
+
 The capacities and the budget are operating limits, not physics: the budget stays below the
 frontend's 60 s request timeout (apps/web/src/lib/api/client.ts), so an answer always arrives
 while the client still waits for it.
@@ -37,6 +42,10 @@ REQUEST_BUDGET_S = 45.0
 """Wall-clock seconds a solve request may take from its arrival."""
 DISCONNECT_POLL_S = 0.25
 """How often a waiting request checks whether its client is still connected."""
+MAX_GOAL_SEEKS = SOLVE_WORKERS - 1
+"""Goal seeks in the pool at once, running or waiting for a worker (docs/proposals/goal-seek.md
+§4.3): each may hold a worker for its whole budget, and one worker stays free for solves, whose
+budget counts from their arrival."""
 
 
 class ServerBusyError(Exception):
@@ -50,6 +59,8 @@ class DisconnectAware(Protocol):
 _executor = ThreadPoolExecutor(max_workers=SOLVE_WORKERS, thread_name_prefix="solve")
 _submitted = 0
 """Solves in the pool, running or waiting for a worker thread."""
+_goal_seeks = 0
+"""Goal seeks among them, until their work has stopped."""
 _turns: dict[str, asyncio.Lock] = {}
 """Per client: held while one of its solves is in the pool."""
 _waiting: dict[str, int] = {}
@@ -83,16 +94,28 @@ async def _poll(
             return  # the solve itself reports it (budget.check)
 
 
+def goal_seeks() -> int:
+    """Goal seeks in the pool, until their work has stopped."""
+    return _goal_seeks
+
+
 async def run_solve[T](
-    request: DisconnectAware, client: str, work: Callable[..., T], *args: Any, **kwargs: Any
+    request: DisconnectAware,
+    client: str,
+    work: Callable[..., T],
+    *args: Any,
+    goal_seek: bool = False,
+    **kwargs: Any,
 ) -> tuple[T, float]:
     """Run ``work(*args, **kwargs)`` in the solve pool under a fresh budget, after this
     client's previous solve has finished; (result, seconds spent in the worker). Raises
-    ServerBusyError at once if there is no room, and whatever the work raises
-    (SolveDeadlineError when its budget runs out); a client that disconnects cancels the work
-    (SolveCancelledError)."""
-    global _submitted
+    ServerBusyError at once if there is no room (for a ``goal_seek``, also when MAX_GOAL_SEEKS
+    goal seeks are in the pool), and whatever the work raises (SolveDeadlineError when its
+    budget runs out); a client that disconnects cancels the work (SolveCancelledError)."""
+    global _submitted, _goal_seeks
     budget = Budget(deadline=time.monotonic() + REQUEST_BUDGET_S, seconds=REQUEST_BUDGET_S)
+    if goal_seek and _goal_seeks >= MAX_GOAL_SEEKS:
+        raise ServerBusyError  # at once, without waiting for this client's turn
     turn = _turns.setdefault(client, asyncio.Lock())
     if turn.locked() and _waiting.get(client, 0) >= MAX_WAITING_PER_CLIENT:
         raise ServerBusyError
@@ -111,7 +134,7 @@ async def run_solve[T](
         _waiting[client] -= 1
         if not _waiting[client]:
             del _waiting[client]
-    if _submitted >= MAX_SOLVES_IN_FLIGHT:
+    if _submitted >= MAX_SOLVES_IN_FLIGHT or (goal_seek and _goal_seeks >= MAX_GOAL_SEEKS):
         _end_turn(client, turn)
         raise ServerBusyError
 
@@ -126,8 +149,10 @@ async def run_solve[T](
         # The client's turn and the pool slot are held until the work has actually stopped,
         # not just until the request stops waiting for it; the error of a cancelled request
         # is expected and dropped here.
-        global _submitted
+        global _submitted, _goal_seeks
         _submitted -= 1
+        if goal_seek:
+            _goal_seeks -= 1
         _end_turn(client, turn)
         if not future.cancelled():
             future.exception()
@@ -135,6 +160,8 @@ async def run_solve[T](
     loop = asyncio.get_running_loop()
     context = contextvars.copy_context()
     _submitted += 1
+    if goal_seek:
+        _goal_seeks += 1
     future = loop.run_in_executor(_executor, context.run, timed)
     future.add_done_callback(finished)
     try:

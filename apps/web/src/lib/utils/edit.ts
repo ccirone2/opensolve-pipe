@@ -21,7 +21,8 @@ import {
 	defaultPiping,
 	newId,
 	SHORT_PIPE_LENGTH,
-	usedIds
+	usedIds,
+	type NewIdOptions
 } from './factory';
 import {
 	componentById,
@@ -210,13 +211,14 @@ export function addsUpstream(existing: Component, portId: string, added: Compone
  * takes either direction while the new component only delivers flow (an assigned-flow supply),
  * the new component is upstream and is connected by its outlet; otherwise it is downstream and
  * connected by its inlet. So a supply added after a reservoir runs into it, and gets the exit
- * loss there, as the flow it enters does.
+ * loss there, as the flow it enters does. The new connection's id avoids `options.reserved`.
  */
 export function addComponentAtPort(
 	project: Project,
 	componentId: string,
 	portId: string,
-	newComponent: Component
+	newComponent: Component,
+	options: NewIdOptions = {}
 ): Project {
 	const { component, port } = requireFreePort(project, { componentId, portId });
 	requireNewComponent(project, newComponent);
@@ -232,7 +234,8 @@ export function addComponentAtPort(
 			withComponent,
 			upstream ? newEnd : existingEnd,
 			upstream ? existingEnd : newEnd,
-			defaultPiping(port.nominalSize)
+			defaultPiping(port.nominalSize),
+			newId(withComponent, CONNECTION_PREFIX, options.reserved)
 		)
 	);
 	return { ...withComponent, connections: [...project.connections, connection] };
@@ -251,12 +254,13 @@ export function addComponentAtPort(
  * faces A.
  *
  * The component needs separate inlet and outlet ports (pumps, valves; tees and wyes use their
- * run, leaving the branch port free).
+ * run, leaving the branch port free). The new connection's id avoids `options.reserved`.
  */
 export function insertComponentInConnection(
 	project: Project,
 	connectionId: string,
-	component: Component
+	component: Component,
+	options: NewIdOptions = {}
 ): Project {
 	const original = requireConnection(project, connectionId);
 	requireNewComponent(project, component);
@@ -284,7 +288,8 @@ export function insertComponentInConnection(
 		{
 			pipes: [{ ...lastPipe, length: SHORT_PIPE_LENGTH }],
 			fittings: exits.map((f) => ({ ...f, pipeIndex: 0 }))
-		}
+		},
+		newId(withComponent, CONNECTION_PREFIX, options.reserved)
 	);
 	const index = project.connections.indexOf(original);
 	return {
@@ -296,18 +301,28 @@ export function insertComponentInConnection(
 /**
  * Insert a tee into a connection (its run in line, the branch port left free for the new
  * branch). Without `branch`, a tee is created at the upstream component's elevation, sized to
- * the connection's last pipe.
+ * the connection's last pipe. New ids avoid `options.reserved`.
  */
-export function addBranch(project: Project, connectionId: string, branch?: Component): Project {
+export function addBranch(
+	project: Project,
+	connectionId: string,
+	branch?: Component,
+	options: NewIdOptions = {}
+): Project {
 	const connection = requireConnection(project, connectionId);
 	const from = requireComponent(project, connection.fromComponentId);
 	const size =
 		connection.piping.pipes[connection.piping.pipes.length - 1]?.nominalSize ??
 		portById(from, connection.fromPortId)?.nominalSize;
 	const tee =
-		branch ?? createComponent('tee', project, { elevation: from.elevation, nominalSize: size });
+		branch ??
+		createComponent('tee', project, {
+			elevation: from.elevation,
+			nominalSize: size,
+			...(options.reserved ? { reserved: options.reserved } : {})
+		});
 	if (tee.type !== 'branch') throw new EditError('A branch is added with a tee or a wye.');
-	return insertComponentInConnection(project, connectionId, tee);
+	return insertComponentInConnection(project, connectionId, tee, options);
 }
 
 /** What deleting a component with `join` does (see joinPlan). */
@@ -454,20 +469,27 @@ export function deleteComponent(
 
 /**
  * Close a free port with a plug, connected by a short stub of default pipe (SHORT_PIPE_LENGTH)
- * sized to the port. The plug sits at the port's elevation.
+ * sized to the port. The plug sits at the port's elevation. New ids avoid `options.reserved`.
  */
-export function plugPort(project: Project, componentId: string, portId: string): Project {
+export function plugPort(
+	project: Project,
+	componentId: string,
+	portId: string,
+	options: NewIdOptions = {}
+): Project {
 	const { component, port } = requireFreePort(project, { componentId, portId });
 	const plug = createComponent('plug', project, {
 		nominalSize: port.nominalSize,
-		elevation: port.elevation ?? component.elevation
+		elevation: port.elevation ?? component.elevation,
+		...(options.reserved ? { reserved: options.reserved } : {})
 	});
 	const withPlug = { ...project, components: [...project.components, plug] };
 	const connection = createConnection(
 		withPlug,
 		{ componentId, portId },
 		{ componentId: plug.id, portId: 'port_1' },
-		defaultPiping(port.nominalSize, SHORT_PIPE_LENGTH)
+		defaultPiping(port.nominalSize, SHORT_PIPE_LENGTH),
+		newId(withPlug, CONNECTION_PREFIX, options.reserved)
 	);
 	return { ...withPlug, connections: [...project.connections, connection] };
 }
@@ -478,13 +500,14 @@ export function plugPort(project: Project, componentId: string, portId: string):
  * fitting where it meets a reservoir, see withReservoirLosses). The connection runs with the
  * expected flow: from `from` to `to`, unless that is against the ports' roles (see
  * runsAgainstFlow, e.g. from a pump suction to the tank feeding it); then it is turned around,
- * piping included.
+ * piping included. Its id avoids `options.reserved`.
  */
 export function connectPorts(
 	project: Project,
 	from: PortRef,
 	to: PortRef,
-	piping?: PipingSegment
+	piping?: PipingSegment,
+	options: NewIdOptions = {}
 ): Project {
 	const start = requireFreePort(project, from);
 	requireFreePort(project, to);
@@ -498,7 +521,7 @@ export function connectPorts(
 			from,
 			to,
 			piping ?? defaultPiping(start.port.nominalSize),
-			newId(project, CONNECTION_PREFIX)
+			newId(project, CONNECTION_PREFIX, options.reserved)
 		)
 	);
 	const connection = piping ? oriented : withReservoirLosses(project, oriented);

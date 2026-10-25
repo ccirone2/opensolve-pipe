@@ -1,0 +1,6011 @@
+{
+  "apply": [
+    {
+      "name": "base run: a pump speed",
+      "overrides": [
+        {
+          "componentId": "P1",
+          "field": "speed",
+          "kind": "component",
+          "value": 0.8611744213850658
+        }
+      ],
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "replacedOverrides": [
+        null
+      ],
+      "scenarioId": null,
+      "trial": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "speed": 0.8611744213850658,
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "values": [
+        0.8611744213850658
+      ],
+      "variables": [
+        {
+          "componentId": "P1",
+          "field": "speed",
+          "kind": "component",
+          "lower": 0.2,
+          "upper": 1.0
+        }
+      ]
+    },
+    {
+      "name": "base run: a value equal to the base",
+      "overrides": [
+        {
+          "componentId": "R1",
+          "field": "liquidLevel",
+          "kind": "component",
+          "value": 5.0
+        }
+      ],
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "replacedOverrides": [
+        null
+      ],
+      "scenarioId": null,
+      "trial": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "values": [
+        5.0
+      ],
+      "variables": [
+        {
+          "componentId": "R1",
+          "field": "liquidLevel",
+          "kind": "component",
+          "lower": 0.0,
+          "upper": 20.0
+        }
+      ]
+    },
+    {
+      "name": "base run: a pipe length",
+      "overrides": [
+        {
+          "connectionId": "L1",
+          "field": "length",
+          "kind": "pipe",
+          "pipeIndex": 1,
+          "value": 7.123456789
+        }
+      ],
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "replacedOverrides": [
+        null
+      ],
+      "scenarioId": null,
+      "trial": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 7.123456789,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "values": [
+        7.123456789
+      ],
+      "variables": [
+        {
+          "connectionId": "L1",
+          "field": "length",
+          "kind": "pipe",
+          "lower": 0.6,
+          "pipeIndex": 1,
+          "upper": 60.0
+        }
+      ]
+    },
+    {
+      "name": "base run: a resistance on its default",
+      "overrides": [
+        {
+          "componentId": "G1",
+          "field": "resistance",
+          "kind": "component",
+          "value": {
+            "kind": "Cv",
+            "value": 18.2345678
+          }
+        },
+        {
+          "componentId": "P1",
+          "field": "speed",
+          "kind": "component",
+          "value": 0.9123
+        }
+      ],
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "replacedOverrides": [
+        null,
+        null
+      ],
+      "scenarioId": null,
+      "trial": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "speed": 0.9123,
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "resistance": {
+              "kind": "Cv",
+              "value": 18.2345678
+            },
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "values": [
+        18.2345678,
+        0.9123
+      ],
+      "variables": [
+        {
+          "coefficient": "Cv",
+          "componentId": "G1",
+          "field": "resistance",
+          "kind": "component",
+          "lower": 0.01,
+          "upper": 100.0
+        },
+        {
+          "componentId": "P1",
+          "field": "speed",
+          "kind": "component",
+          "lower": 0.2,
+          "upper": 1.0
+        }
+      ]
+    },
+    {
+      "name": "base run: a fluid temperature",
+      "overrides": [
+        {
+          "field": "fluid.temperature",
+          "kind": "project",
+          "value": 301.234567
+        }
+      ],
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "replacedOverrides": [
+        null
+      ],
+      "scenarioId": null,
+      "trial": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 301.234567
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "values": [
+        301.234567
+      ],
+      "variables": [
+        {
+          "field": "fluid.temperature",
+          "kind": "project",
+          "lower": 275.0,
+          "upper": 340.0
+        }
+      ]
+    },
+    {
+      "name": "scenario run: a field the scenario sets",
+      "overrides": [
+        {
+          "componentId": "R1",
+          "field": "liquidLevel",
+          "kind": "component",
+          "value": 3.30000000001
+        }
+      ],
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "scenarios": [
+          {
+            "id": "S1",
+            "name": "Winter",
+            "overrides": [
+              {
+                "componentId": "R1",
+                "field": "liquidLevel",
+                "kind": "component",
+                "value": 4.0
+              },
+              {
+                "connectionId": "L2",
+                "field": "length",
+                "kind": "pipe",
+                "pipeIndex": 0,
+                "value": 70.0
+              }
+            ]
+          },
+          {
+            "id": "S2",
+            "name": "Other",
+            "overrides": [
+              {
+                "componentId": "R2",
+                "field": "liquidLevel",
+                "kind": "component",
+                "value": 15.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "replacedOverrides": [
+        0
+      ],
+      "scenarioId": "S1",
+      "trial": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 3.30000000001,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 70.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "values": [
+        3.30000000001
+      ],
+      "variables": [
+        {
+          "componentId": "R1",
+          "field": "liquidLevel",
+          "kind": "component",
+          "lower": 0.0,
+          "upper": 20.0
+        }
+      ]
+    },
+    {
+      "name": "scenario run: a field the scenario does not set",
+      "overrides": [
+        {
+          "componentId": "P1",
+          "field": "speed",
+          "kind": "component",
+          "value": 0.777
+        }
+      ],
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "scenarios": [
+          {
+            "id": "S1",
+            "name": "Winter",
+            "overrides": [
+              {
+                "componentId": "R1",
+                "field": "liquidLevel",
+                "kind": "component",
+                "value": 4.0
+              },
+              {
+                "connectionId": "L2",
+                "field": "length",
+                "kind": "pipe",
+                "pipeIndex": 0,
+                "value": 70.0
+              }
+            ]
+          },
+          {
+            "id": "S2",
+            "name": "Other",
+            "overrides": [
+              {
+                "componentId": "R2",
+                "field": "liquidLevel",
+                "kind": "component",
+                "value": 15.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "replacedOverrides": [
+        null
+      ],
+      "scenarioId": "S1",
+      "trial": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 4.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "speed": 0.777,
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 70.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "values": [
+        0.777
+      ],
+      "variables": [
+        {
+          "componentId": "P1",
+          "field": "speed",
+          "kind": "component",
+          "lower": 0.2,
+          "upper": 1.0
+        }
+      ]
+    },
+    {
+      "name": "scenario run: a value equal to the base",
+      "overrides": [
+        {
+          "componentId": "R1",
+          "field": "liquidLevel",
+          "kind": "component",
+          "value": 5.0
+        }
+      ],
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "scenarios": [
+          {
+            "id": "S1",
+            "name": "Winter",
+            "overrides": [
+              {
+                "componentId": "R1",
+                "field": "liquidLevel",
+                "kind": "component",
+                "value": 4.0
+              },
+              {
+                "connectionId": "L2",
+                "field": "length",
+                "kind": "pipe",
+                "pipeIndex": 0,
+                "value": 70.0
+              }
+            ]
+          },
+          {
+            "id": "S2",
+            "name": "Other",
+            "overrides": [
+              {
+                "componentId": "R2",
+                "field": "liquidLevel",
+                "kind": "component",
+                "value": 15.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "replacedOverrides": [
+        0
+      ],
+      "scenarioId": "S1",
+      "trial": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 70.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "values": [
+        5.0
+      ],
+      "variables": [
+        {
+          "componentId": "R1",
+          "field": "liquidLevel",
+          "kind": "component",
+          "lower": 0.0,
+          "upper": 20.0
+        }
+      ]
+    },
+    {
+      "name": "scenario run: a pipe length",
+      "overrides": [
+        {
+          "connectionId": "L1",
+          "field": "length",
+          "kind": "pipe",
+          "pipeIndex": 1,
+          "value": 12.5
+        }
+      ],
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "scenarios": [
+          {
+            "id": "S1",
+            "name": "Winter",
+            "overrides": [
+              {
+                "componentId": "R1",
+                "field": "liquidLevel",
+                "kind": "component",
+                "value": 4.0
+              },
+              {
+                "connectionId": "L2",
+                "field": "length",
+                "kind": "pipe",
+                "pipeIndex": 0,
+                "value": 70.0
+              }
+            ]
+          },
+          {
+            "id": "S2",
+            "name": "Other",
+            "overrides": [
+              {
+                "componentId": "R2",
+                "field": "liquidLevel",
+                "kind": "component",
+                "value": 15.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "replacedOverrides": [
+        null
+      ],
+      "scenarioId": "S1",
+      "trial": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 4.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 12.5,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 70.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "values": [
+        12.5
+      ],
+      "variables": [
+        {
+          "connectionId": "L1",
+          "field": "length",
+          "kind": "pipe",
+          "lower": 0.6,
+          "pipeIndex": 1,
+          "upper": 60.0
+        }
+      ]
+    },
+    {
+      "name": "scenario run: a temperature inside a whole-fluid override",
+      "overrides": [
+        {
+          "field": "fluid",
+          "kind": "project",
+          "value": {
+            "concentration": 0.3,
+            "fluidId": "propylene_glycol",
+            "kind": "builtin",
+            "overrides": {
+              "vaporPressure": 2000.0
+            },
+            "temperature": 288.1234
+          }
+        }
+      ],
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "scenarios": [
+          {
+            "id": "S1",
+            "name": "Winter",
+            "overrides": [
+              {
+                "field": "fluid",
+                "kind": "project",
+                "value": {
+                  "concentration": 0.3,
+                  "fluidId": "propylene_glycol",
+                  "kind": "builtin",
+                  "overrides": {
+                    "vaporPressure": 2000.0
+                  },
+                  "temperature": 300.0
+                }
+              }
+            ]
+          },
+          {
+            "id": "S2",
+            "name": "Other",
+            "overrides": [
+              {
+                "componentId": "R2",
+                "field": "liquidLevel",
+                "kind": "component",
+                "value": 15.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "replacedOverrides": [
+        0
+      ],
+      "scenarioId": "S1",
+      "trial": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "concentration": 0.3,
+          "fluidId": "propylene_glycol",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2000.0
+          },
+          "temperature": 288.1234
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "values": [
+        288.1234
+      ],
+      "variables": [
+        {
+          "field": "fluid.temperature",
+          "kind": "project",
+          "lower": 275.0,
+          "upper": 340.0
+        }
+      ]
+    },
+    {
+      "name": "scenario run: a resistance the scenario sets as another kind",
+      "overrides": [
+        {
+          "componentId": "G1",
+          "field": "resistance",
+          "kind": "component",
+          "value": {
+            "kind": "Cv",
+            "value": 33.3
+          }
+        }
+      ],
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "scenarios": [
+          {
+            "id": "S1",
+            "name": "Winter",
+            "overrides": [
+              {
+                "componentId": "G1",
+                "field": "resistance",
+                "kind": "component",
+                "value": {
+                  "kind": "K",
+                  "value": 2.0
+                }
+              }
+            ]
+          },
+          {
+            "id": "S2",
+            "name": "Other",
+            "overrides": [
+              {
+                "componentId": "R2",
+                "field": "liquidLevel",
+                "kind": "component",
+                "value": 15.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "replacedOverrides": [
+        0
+      ],
+      "scenarioId": "S1",
+      "trial": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "resistance": {
+              "kind": "Cv",
+              "value": 33.3
+            },
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "values": [
+        33.3
+      ],
+      "variables": [
+        {
+          "coefficient": "Cv",
+          "componentId": "G1",
+          "field": "resistance",
+          "kind": "component",
+          "lower": 0.01,
+          "upper": 100.0
+        }
+      ]
+    }
+  ],
+  "generatedBy": "apps/api/tests/fixtures/goal_seek_cases.py",
+  "goals": [
+    {
+      "goals": [
+        {
+          "goal": {
+            "elementId": "P1",
+            "portId": "discharge",
+            "quantity": "port_pressure",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 275917.5160996029
+        },
+        {
+          "goal": {
+            "elementId": "G1",
+            "portId": "outlet",
+            "quantity": "port_pressure",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 202045.30136375935
+        },
+        {
+          "goal": {
+            "elementId": "L1",
+            "quantity": "link_flow",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 0.03201735809649818
+        },
+        {
+          "goal": {
+            "elementId": "L1",
+            "quantity": "link_velocity",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 6.369651007251253
+        },
+        {
+          "goal": {
+            "elementId": "L2",
+            "quantity": "link_head_loss",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 7.435988518062661
+        },
+        {
+          "goal": {
+            "elementId": "P1",
+            "quantity": "pump_flow",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 0.03201735809649818
+        },
+        {
+          "goal": {
+            "elementId": "P1",
+            "quantity": "pump_head",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 27.425415057652607
+        },
+        {
+          "goal": {
+            "elementId": "P1",
+            "quantity": "pump_npsh_available",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 11.72007371609793
+        },
+        {
+          "goal": {
+            "elementId": "P1",
+            "quantity": "pump_npsh_margin",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 8.318771858860567
+        },
+        {
+          "goal": {
+            "elementId": "G1",
+            "quantity": "valve_flow",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 0.03201735809649818
+        },
+        {
+          "goal": {
+            "elementId": "G1",
+            "quantity": "valve_pressure_drop",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 1080.8163540239912
+        },
+        {
+          "goal": {
+            "elementId": "R1",
+            "quantity": "boundary_outflow",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 0.03201735809649818
+        },
+        {
+          "goal": {
+            "elementId": "R2",
+            "quantity": "boundary_outflow",
+            "target": 0.0
+          },
+          "message": "",
+          "value": -0.03201735809649818
+        }
+      ],
+      "name": "a running pump",
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "state": {
+        "atmosphericPressure": 101325.0,
+        "boundaryResults": {
+          "R1": {
+            "egl": 5.0,
+            "outflow": 0.03201735809649818,
+            "portOutflows": {
+              "port_1": 0.03201735809649818
+            },
+            "type": "reservoir"
+          },
+          "R2": {
+            "egl": 20.0,
+            "outflow": -0.03201735809649818,
+            "portOutflows": {
+              "port_1": -0.03201735809649818
+            },
+            "type": "reservoir"
+          }
+        },
+        "branchResults": {},
+        "converged": true,
+        "convergence": {
+          "innerIterations": 6,
+          "maxContinuityResidual": {
+            "elementId": "P1:suction",
+            "value": 0.0
+          },
+          "maxEnergyResidual": {
+            "elementId": "P1",
+            "value": 3.552713678800501e-15
+          },
+          "message": "converged: 6 Newton iterations in 1 outer iteration(s)",
+          "oscillatingComponents": [],
+          "outerIterations": 1
+        },
+        "flags": [],
+        "fluid": {
+          "concentration": null,
+          "density": 998.2071504679437,
+          "dynamicViscosity": 0.001001596143120583,
+          "kinematicViscosity": 1.003395079519367e-06,
+          "name": "Water",
+          "sources": {
+            "density": {
+              "citation": "CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+              "origin": "library"
+            },
+            "dynamicViscosity": {
+              "citation": "CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: M. L. Huber et al., 'New International Formulation for the Viscosity of H2O', J. Phys. Chem. Ref. Data 38 (2009) 101-125, doi:10.1063/1.3088050",
+              "origin": "library"
+            },
+            "vaporPressure": {
+              "citation": "user override",
+              "origin": "user"
+            }
+          },
+          "temperature": 293.15,
+          "vaporPressure": 2339.0
+        },
+        "linkResults": {
+          "L1": {
+            "fittings": [],
+            "fittingsHeadLoss": 0.0,
+            "flow": 0.03201735809649818,
+            "flowRegime": "turbulent",
+            "frictionFactor": 0.017552062367196898,
+            "frictionHeadLoss": 3.391818290537691,
+            "headLoss": 3.3918182905376906,
+            "reynoldsNumber": 406278.31726995413,
+            "segments": [
+              {
+                "flowRegime": "turbulent",
+                "frictionFactor": 0.017552062367196898,
+                "headLoss": 0.5948790814450127,
+                "index": 0,
+                "innerDiameter": 0.1,
+                "length": 4.0,
+                "reynoldsNumber": 406278.31726995413,
+                "roughness": 4.5e-05,
+                "velocity": 4.076576644640801
+              },
+              {
+                "flowRegime": "turbulent",
+                "frictionFactor": 0.018027734729135495,
+                "headLoss": 2.7969392090926783,
+                "index": 1,
+                "innerDiameter": 0.08,
+                "length": 6.0,
+                "reynoldsNumber": 507847.8965874426,
+                "roughness": 4.5e-05,
+                "velocity": 6.369651007251253
+              }
+            ],
+            "velocity": 4.076576644640801
+          },
+          "L2": {
+            "fittings": [],
+            "fittingsHeadLoss": 0.0,
+            "flow": 0.03201735809649818,
+            "flowRegime": "turbulent",
+            "frictionFactor": 0.017552062367196898,
+            "frictionHeadLoss": 7.4359885180626595,
+            "headLoss": 7.435988518062661,
+            "reynoldsNumber": 406278.31726995413,
+            "segments": [
+              {
+                "flowRegime": "turbulent",
+                "frictionFactor": 0.017552062367196898,
+                "headLoss": 7.4359885180626595,
+                "index": 0,
+                "innerDiameter": 0.1,
+                "length": 50.0,
+                "reynoldsNumber": 406278.31726995413,
+                "roughness": 4.5e-05,
+                "velocity": 4.076576644640801
+              }
+            ],
+            "velocity": 4.076576644640801
+          },
+          "L3": {
+            "fittings": [],
+            "fittingsHeadLoss": 0.0,
+            "flow": 0.03201735809649818,
+            "flowRegime": "turbulent",
+            "frictionFactor": 0.017552062367196898,
+            "frictionHeadLoss": 1.487197703612532,
+            "headLoss": 1.4871977036125337,
+            "reynoldsNumber": 406278.31726995413,
+            "segments": [
+              {
+                "flowRegime": "turbulent",
+                "frictionFactor": 0.017552062367196898,
+                "headLoss": 1.487197703612532,
+                "index": 0,
+                "innerDiameter": 0.1,
+                "length": 10.0,
+                "reynoldsNumber": 406278.31726995413,
+                "roughness": 4.5e-05,
+                "velocity": 4.076576644640801
+              }
+            ],
+            "velocity": 4.076576644640801
+          }
+        },
+        "methodVersion": "1.2.0",
+        "nodeResults": {
+          "G1:inlet": {
+            "absolutePressure": 304451.1177177833,
+            "componentId": "G1",
+            "dynamicPressure": 8294.34135533379,
+            "egl": 21.597608249052254,
+            "elevation": 0.0,
+            "hgl": 20.750301720338022,
+            "portId": "inlet",
+            "pressure": 203126.11771778335,
+            "totalPressure": 211420.45907311715,
+            "velocity": 4.076576644640801
+          },
+          "G1:outlet": {
+            "absolutePressure": 303370.3013637593,
+            "componentId": "G1",
+            "dynamicPressure": 8294.34135533379,
+            "egl": 21.487197703612534,
+            "elevation": 0.0,
+            "hgl": 20.639891174898302,
+            "portId": "outlet",
+            "pressure": 202045.30136375935,
+            "totalPressure": 210339.64271909316,
+            "velocity": 4.076576644640801
+          },
+          "P1:discharge": {
+            "absolutePressure": 377242.5160996029,
+            "componentId": "P1",
+            "dynamicPressure": 8294.34135533379,
+            "egl": 29.033596767114915,
+            "elevation": 0.0,
+            "hgl": 28.186290238400684,
+            "portId": "discharge",
+            "pressure": 275917.5160996029,
+            "totalPressure": 284211.8574549367,
+            "velocity": 4.076576644640801
+          },
+          "P1:suction": {
+            "absolutePressure": 96817.74353040048,
+            "componentId": "P1",
+            "dynamicPressure": 20249.85682454539,
+            "egl": 1.6081817094623094,
+            "elevation": 0.0,
+            "hgl": -0.46043774540642257,
+            "portId": "suction",
+            "pressure": -4507.256469599527,
+            "totalPressure": 15742.600354945862,
+            "velocity": 6.369651007251253
+          },
+          "R1:port_1": {
+            "absolutePressure": 150270.3407606823,
+            "componentId": "R1",
+            "dynamicPressure": 0.0,
+            "egl": 5.0,
+            "elevation": 0.0,
+            "hgl": 5.0,
+            "portId": "port_1",
+            "pressure": 48945.3407606823,
+            "totalPressure": 48945.3407606823,
+            "velocity": 0.0
+          },
+          "R2:port_1": {
+            "absolutePressure": 297106.3630427292,
+            "componentId": "R2",
+            "dynamicPressure": 0.0,
+            "egl": 20.0,
+            "elevation": 0.0,
+            "hgl": 20.0,
+            "portId": "port_1",
+            "pressure": 195781.3630427292,
+            "totalPressure": 195781.3630427292,
+            "velocity": 0.0
+          }
+        },
+        "pumpResults": {
+          "P1": {
+            "control": null,
+            "curve": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.001,
+                "head": 39.9815625
+              },
+              {
+                "flow": 0.002,
+                "head": 39.927499999999995
+              },
+              {
+                "flow": 0.003,
+                "head": 39.8396875
+              },
+              {
+                "flow": 0.004,
+                "head": 39.720000000000006
+              },
+              {
+                "flow": 0.005,
+                "head": 39.5703125
+              },
+              {
+                "flow": 0.006,
+                "head": 39.392500000000005
+              },
+              {
+                "flow": 0.007,
+                "head": 39.1884375
+              },
+              {
+                "flow": 0.008,
+                "head": 38.959999999999994
+              },
+              {
+                "flow": 0.009000000000000001,
+                "head": 38.7090625
+              },
+              {
+                "flow": 0.01,
+                "head": 38.4375
+              },
+              {
+                "flow": 0.011,
+                "head": 38.1471875
+              },
+              {
+                "flow": 0.012,
+                "head": 37.839999999999996
+              },
+              {
+                "flow": 0.013000000000000001,
+                "head": 37.5178125
+              },
+              {
+                "flow": 0.014,
+                "head": 37.182500000000005
+              },
+              {
+                "flow": 0.015,
+                "head": 36.8359375
+              },
+              {
+                "flow": 0.016,
+                "head": 36.480000000000004
+              },
+              {
+                "flow": 0.017,
+                "head": 36.1165625
+              },
+              {
+                "flow": 0.018000000000000002,
+                "head": 35.747499999999995
+              },
+              {
+                "flow": 0.019,
+                "head": 35.3746875
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.021,
+                "head": 34.6003125
+              },
+              {
+                "flow": 0.022,
+                "head": 34.152499999999996
+              },
+              {
+                "flow": 0.023,
+                "head": 33.6584375
+              },
+              {
+                "flow": 0.024,
+                "head": 33.120000000000005
+              },
+              {
+                "flow": 0.025,
+                "head": 32.5390625
+              },
+              {
+                "flow": 0.026000000000000002,
+                "head": 31.917499999999997
+              },
+              {
+                "flow": 0.027,
+                "head": 31.257187499999997
+              },
+              {
+                "flow": 0.028,
+                "head": 30.56
+              },
+              {
+                "flow": 0.029,
+                "head": 29.8278125
+              },
+              {
+                "flow": 0.03,
+                "head": 29.0625
+              },
+              {
+                "flow": 0.031,
+                "head": 28.2659375
+              },
+              {
+                "flow": 0.032,
+                "head": 27.439999999999998
+              },
+              {
+                "flow": 0.033,
+                "head": 26.5865625
+              },
+              {
+                "flow": 0.034,
+                "head": 25.7075
+              },
+              {
+                "flow": 0.035,
+                "head": 24.8046875
+              },
+              {
+                "flow": 0.036000000000000004,
+                "head": 23.88
+              },
+              {
+                "flow": 0.037,
+                "head": 22.935312500000002
+              },
+              {
+                "flow": 0.038,
+                "head": 21.972499999999997
+              },
+              {
+                "flow": 0.039,
+                "head": 20.993437500000002
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ],
+            "efficiency": null,
+            "hydraulicPower": 8595.676342471244,
+            "inCurveRange": true,
+            "npshAvailable": 11.72007371609793,
+            "npshMargin": 8.318771858860567,
+            "npshRequired": 3.4013018572373634,
+            "operatingFlow": 0.03201735809649818,
+            "operatingHead": 27.425415057652607,
+            "shaftPower": null,
+            "speed": 1.0,
+            "status": "running",
+            "suctionAbsolutePressure": 96817.74353040048,
+            "systemCurve": null
+          }
+        },
+        "valveResults": {
+          "G1": {
+            "cvEffective": null,
+            "flow": 0.03201735809649818,
+            "headLoss": 0.11041054543971995,
+            "kEffective": null,
+            "kOpen": 0.13030767697171847,
+            "pressureDrop": 1080.8163540239912,
+            "referenceDiameter": 0.1,
+            "setpoint": null,
+            "setpointAchieved": null,
+            "state": "open",
+            "valveType": "gate"
+          }
+        }
+      }
+    },
+    {
+      "goals": [
+        {
+          "goal": {
+            "elementId": "P1",
+            "portId": "discharge",
+            "quantity": "port_pressure",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 195781.3630427292
+        },
+        {
+          "goal": {
+            "elementId": "G1",
+            "portId": "outlet",
+            "quantity": "port_pressure",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 195781.3630427292
+        },
+        {
+          "goal": {
+            "elementId": "L1",
+            "quantity": "link_flow",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 0.0
+        },
+        {
+          "goal": {
+            "elementId": "L1",
+            "quantity": "link_velocity",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 0.0
+        },
+        {
+          "goal": {
+            "elementId": "L2",
+            "quantity": "link_head_loss",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 0.0
+        },
+        {
+          "goal": {
+            "elementId": "P1",
+            "quantity": "pump_flow",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 0.0
+        },
+        {
+          "goal": {
+            "elementId": "P1",
+            "quantity": "pump_head",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 15.0
+        },
+        {
+          "goal": {
+            "elementId": "P1",
+            "quantity": "pump_npsh_available",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 15.111892006635621
+        },
+        {
+          "goal": {
+            "elementId": "P1",
+            "quantity": "pump_npsh_margin",
+            "target": 0.0
+          },
+          "message": "pump P1 has no NPSH margin (it carries no flow, so NPSHr is not evaluated)",
+          "value": null
+        },
+        {
+          "goal": {
+            "elementId": "G1",
+            "quantity": "valve_flow",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 0.0
+        },
+        {
+          "goal": {
+            "elementId": "G1",
+            "quantity": "valve_pressure_drop",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 0.0
+        },
+        {
+          "goal": {
+            "elementId": "R1",
+            "quantity": "boundary_outflow",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 0.0
+        },
+        {
+          "goal": {
+            "elementId": "R2",
+            "quantity": "boundary_outflow",
+            "target": 0.0
+          },
+          "message": "",
+          "value": 0.0
+        }
+      ],
+      "name": "a pump that is off",
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 5.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "Transfer pump",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "status": "off",
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "Discharge valve",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "R2",
+            "liquidLevel": 20.0,
+            "name": "R2",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 4.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                },
+                {
+                  "innerDiameter": 0.08,
+                  "length": 6.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 50.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          },
+          {
+            "fromComponentId": "G1",
+            "fromPortId": "outlet",
+            "id": "L3",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 10.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "R2",
+            "toPortId": "port_1"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "overrides": {
+            "vaporPressure": 2339.0
+          },
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "npshrCurve": [
+              {
+                "flow": 0.0,
+                "npshr": 1.0
+              },
+              {
+                "flow": 0.04,
+                "npshr": 4.0
+              }
+            ],
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "state": {
+        "atmosphericPressure": 101325.0,
+        "boundaryResults": {
+          "R1": {
+            "egl": 5.0,
+            "outflow": 0.0,
+            "portOutflows": {
+              "port_1": 0.0
+            },
+            "type": "reservoir"
+          },
+          "R2": {
+            "egl": 20.0,
+            "outflow": 0.0,
+            "portOutflows": {
+              "port_1": -0.0
+            },
+            "type": "reservoir"
+          }
+        },
+        "branchResults": {},
+        "converged": true,
+        "convergence": {
+          "innerIterations": 4,
+          "maxContinuityResidual": {
+            "elementId": "P1:suction",
+            "value": 0.0
+          },
+          "maxEnergyResidual": {
+            "elementId": "L3",
+            "value": 4.23066626280186e-34
+          },
+          "message": "converged: 4 Newton iterations in 1 outer iteration(s)",
+          "oscillatingComponents": [],
+          "outerIterations": 1
+        },
+        "flags": [],
+        "fluid": {
+          "concentration": null,
+          "density": 998.2071504679437,
+          "dynamicViscosity": 0.001001596143120583,
+          "kinematicViscosity": 1.003395079519367e-06,
+          "name": "Water",
+          "sources": {
+            "density": {
+              "citation": "CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+              "origin": "library"
+            },
+            "dynamicViscosity": {
+              "citation": "CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: M. L. Huber et al., 'New International Formulation for the Viscosity of H2O', J. Phys. Chem. Ref. Data 38 (2009) 101-125, doi:10.1063/1.3088050",
+              "origin": "library"
+            },
+            "vaporPressure": {
+              "citation": "user override",
+              "origin": "user"
+            }
+          },
+          "temperature": 293.15,
+          "vaporPressure": 2339.0
+        },
+        "linkResults": {
+          "L1": {
+            "fittings": [],
+            "fittingsHeadLoss": 0.0,
+            "flow": 0.0,
+            "flowRegime": "none",
+            "frictionFactor": 0.0,
+            "frictionHeadLoss": 0.0,
+            "headLoss": 0.0,
+            "reynoldsNumber": 0.0,
+            "segments": [
+              {
+                "flowRegime": "none",
+                "frictionFactor": 0.0,
+                "headLoss": 0.0,
+                "index": 0,
+                "innerDiameter": 0.1,
+                "length": 4.0,
+                "reynoldsNumber": 0.0,
+                "roughness": 4.5e-05,
+                "velocity": 0.0
+              },
+              {
+                "flowRegime": "none",
+                "frictionFactor": 0.0,
+                "headLoss": 0.0,
+                "index": 1,
+                "innerDiameter": 0.08,
+                "length": 6.0,
+                "reynoldsNumber": 0.0,
+                "roughness": 4.5e-05,
+                "velocity": 0.0
+              }
+            ],
+            "velocity": 0.0
+          },
+          "L2": {
+            "fittings": [],
+            "fittingsHeadLoss": 0.0,
+            "flow": 0.0,
+            "flowRegime": "none",
+            "frictionFactor": 0.0,
+            "frictionHeadLoss": 0.0,
+            "headLoss": 0.0,
+            "reynoldsNumber": 0.0,
+            "segments": [
+              {
+                "flowRegime": "none",
+                "frictionFactor": 0.0,
+                "headLoss": 0.0,
+                "index": 0,
+                "innerDiameter": 0.1,
+                "length": 50.0,
+                "reynoldsNumber": 0.0,
+                "roughness": 4.5e-05,
+                "velocity": 0.0
+              }
+            ],
+            "velocity": 0.0
+          },
+          "L3": {
+            "fittings": [],
+            "fittingsHeadLoss": 0.0,
+            "flow": 0.0,
+            "flowRegime": "none",
+            "frictionFactor": 0.0,
+            "frictionHeadLoss": 0.0,
+            "headLoss": 0.0,
+            "reynoldsNumber": 0.0,
+            "segments": [
+              {
+                "flowRegime": "none",
+                "frictionFactor": 0.0,
+                "headLoss": 0.0,
+                "index": 0,
+                "innerDiameter": 0.1,
+                "length": 10.0,
+                "reynoldsNumber": 0.0,
+                "roughness": 4.5e-05,
+                "velocity": 0.0
+              }
+            ],
+            "velocity": 0.0
+          }
+        },
+        "methodVersion": "1.2.0",
+        "nodeResults": {
+          "G1:inlet": {
+            "absolutePressure": 297106.3630427292,
+            "componentId": "G1",
+            "dynamicPressure": 0.0,
+            "egl": 20.0,
+            "elevation": 0.0,
+            "hgl": 20.0,
+            "portId": "inlet",
+            "pressure": 195781.3630427292,
+            "totalPressure": 195781.3630427292,
+            "velocity": 0.0
+          },
+          "G1:outlet": {
+            "absolutePressure": 297106.3630427292,
+            "componentId": "G1",
+            "dynamicPressure": 0.0,
+            "egl": 20.0,
+            "elevation": 0.0,
+            "hgl": 20.0,
+            "portId": "outlet",
+            "pressure": 195781.3630427292,
+            "totalPressure": 195781.3630427292,
+            "velocity": 0.0
+          },
+          "P1:discharge": {
+            "absolutePressure": 297106.3630427292,
+            "componentId": "P1",
+            "dynamicPressure": 0.0,
+            "egl": 20.0,
+            "elevation": 0.0,
+            "hgl": 20.0,
+            "portId": "discharge",
+            "pressure": 195781.3630427292,
+            "totalPressure": 195781.3630427292,
+            "velocity": 0.0
+          },
+          "P1:suction": {
+            "absolutePressure": 150270.3407606823,
+            "componentId": "P1",
+            "dynamicPressure": 0.0,
+            "egl": 5.0,
+            "elevation": 0.0,
+            "hgl": 5.0,
+            "portId": "suction",
+            "pressure": 48945.3407606823,
+            "totalPressure": 48945.3407606823,
+            "velocity": 0.0
+          },
+          "R1:port_1": {
+            "absolutePressure": 150270.3407606823,
+            "componentId": "R1",
+            "dynamicPressure": 0.0,
+            "egl": 5.0,
+            "elevation": 0.0,
+            "hgl": 5.0,
+            "portId": "port_1",
+            "pressure": 48945.3407606823,
+            "totalPressure": 48945.3407606823,
+            "velocity": 0.0
+          },
+          "R2:port_1": {
+            "absolutePressure": 297106.3630427292,
+            "componentId": "R2",
+            "dynamicPressure": 0.0,
+            "egl": 20.0,
+            "elevation": 0.0,
+            "hgl": 20.0,
+            "portId": "port_1",
+            "pressure": 195781.3630427292,
+            "totalPressure": 195781.3630427292,
+            "velocity": 0.0
+          }
+        },
+        "pumpResults": {
+          "P1": {
+            "control": null,
+            "curve": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.001,
+                "head": 39.9815625
+              },
+              {
+                "flow": 0.002,
+                "head": 39.927499999999995
+              },
+              {
+                "flow": 0.003,
+                "head": 39.8396875
+              },
+              {
+                "flow": 0.004,
+                "head": 39.720000000000006
+              },
+              {
+                "flow": 0.005,
+                "head": 39.5703125
+              },
+              {
+                "flow": 0.006,
+                "head": 39.392500000000005
+              },
+              {
+                "flow": 0.007,
+                "head": 39.1884375
+              },
+              {
+                "flow": 0.008,
+                "head": 38.959999999999994
+              },
+              {
+                "flow": 0.009000000000000001,
+                "head": 38.7090625
+              },
+              {
+                "flow": 0.01,
+                "head": 38.4375
+              },
+              {
+                "flow": 0.011,
+                "head": 38.1471875
+              },
+              {
+                "flow": 0.012,
+                "head": 37.839999999999996
+              },
+              {
+                "flow": 0.013000000000000001,
+                "head": 37.5178125
+              },
+              {
+                "flow": 0.014,
+                "head": 37.182500000000005
+              },
+              {
+                "flow": 0.015,
+                "head": 36.8359375
+              },
+              {
+                "flow": 0.016,
+                "head": 36.480000000000004
+              },
+              {
+                "flow": 0.017,
+                "head": 36.1165625
+              },
+              {
+                "flow": 0.018000000000000002,
+                "head": 35.747499999999995
+              },
+              {
+                "flow": 0.019,
+                "head": 35.3746875
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.021,
+                "head": 34.6003125
+              },
+              {
+                "flow": 0.022,
+                "head": 34.152499999999996
+              },
+              {
+                "flow": 0.023,
+                "head": 33.6584375
+              },
+              {
+                "flow": 0.024,
+                "head": 33.120000000000005
+              },
+              {
+                "flow": 0.025,
+                "head": 32.5390625
+              },
+              {
+                "flow": 0.026000000000000002,
+                "head": 31.917499999999997
+              },
+              {
+                "flow": 0.027,
+                "head": 31.257187499999997
+              },
+              {
+                "flow": 0.028,
+                "head": 30.56
+              },
+              {
+                "flow": 0.029,
+                "head": 29.8278125
+              },
+              {
+                "flow": 0.03,
+                "head": 29.0625
+              },
+              {
+                "flow": 0.031,
+                "head": 28.2659375
+              },
+              {
+                "flow": 0.032,
+                "head": 27.439999999999998
+              },
+              {
+                "flow": 0.033,
+                "head": 26.5865625
+              },
+              {
+                "flow": 0.034,
+                "head": 25.7075
+              },
+              {
+                "flow": 0.035,
+                "head": 24.8046875
+              },
+              {
+                "flow": 0.036000000000000004,
+                "head": 23.88
+              },
+              {
+                "flow": 0.037,
+                "head": 22.935312500000002
+              },
+              {
+                "flow": 0.038,
+                "head": 21.972499999999997
+              },
+              {
+                "flow": 0.039,
+                "head": 20.993437500000002
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ],
+            "efficiency": null,
+            "hydraulicPower": 0.0,
+            "inCurveRange": true,
+            "npshAvailable": 15.111892006635621,
+            "npshMargin": null,
+            "npshRequired": null,
+            "operatingFlow": 0.0,
+            "operatingHead": 15.0,
+            "shaftPower": null,
+            "speed": 1.0,
+            "status": "off",
+            "suctionAbsolutePressure": 150270.3407606823,
+            "systemCurve": null
+          }
+        },
+        "valveResults": {
+          "G1": {
+            "cvEffective": null,
+            "flow": 0.0,
+            "headLoss": 0.0,
+            "kEffective": null,
+            "kOpen": 0.13030767697171847,
+            "pressureDrop": 0.0,
+            "referenceDiameter": 0.1,
+            "setpoint": null,
+            "setpointAchieved": null,
+            "state": "open",
+            "valveType": "gate"
+          }
+        }
+      }
+    }
+  ],
+  "quantities": [
+    "boundary_outflow",
+    "link_flow",
+    "link_head_loss",
+    "link_velocity",
+    "port_pressure",
+    "pump_flow",
+    "pump_head",
+    "pump_npsh_available",
+    "pump_npsh_margin",
+    "valve_flow",
+    "valve_pressure_drop"
+  ]
+}

@@ -36,7 +36,7 @@ connections) fit in it at the sizes the frontend writes (SDD §7.1)."""
 
 RATE_LIMIT_REQUESTS = 60
 RATE_LIMIT_WINDOW_S = 60.0
-RATE_LIMITED_PATHS = ("/api/v1/solve", "/api/v1/system-curve")
+RATE_LIMITED_PATHS = ("/api/v1/solve", "/api/v1/system-curve", "/api/v1/goal-seek")
 
 IPV6_CLIENT_PREFIX = 64
 """An IPv6 client is counted by the first 64 bits of its address. The other 64 are the

@@ -7,11 +7,13 @@
 	announces it), and says when a solve of another case than the one shown is running. Solve all
 	stays in place during a run (unavailable), so the focus stays on it; the run's end gives the
 	focus to Solve. Below 640 px the sentence is hidden: the colour, the menu's text and the Build
-	banner carry it.
+	banner carry it. While a goal seek runs, Solve all is unavailable with the reason, and the
+	status line says which case it runs on.
 -->
 <script lang="ts">
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import { calculatingReason } from '$lib/utils/goal-seek';
 
 	const ws = useWorkspace();
 	const store = ws.store;
@@ -24,7 +26,8 @@
 	const empty = $derived(!ws.project.components.length);
 	/** A single solve in flight (of any case: it goes on after a case switch). */
 	const solvingCase = $derived(run ? undefined : store.solvingCase);
-	const canRun = $derived(!run && solvingCase === undefined && toSolve.length > 0 && !empty);
+	const goalSeek = $derived(store.calculating === 'goalSeek' ? store.goalSeek : null);
+	const canRun = $derived(store.calculating === null && toSolve.length > 0 && !empty);
 
 	function names(list: readonly (string | null)[]): string {
 		const all = list.map((c) => ws.caseName(c));
@@ -34,15 +37,17 @@
 	const reason = $derived(
 		empty
 			? 'Add a component to the network first.'
-			: run
-				? 'Solve all is running; Cancel in the header stops it.'
-				: solvingCase !== undefined
-					? `A solve of ${ws.caseName(solvingCase)} is running; Cancel in the header stops it.`
-					: toSolve.length
-						? ''
-						: errors.length
-							? `Every case is solved except ${names(errors)}, which ${errors.length === 1 ? 'has' : 'have'} an error to fix first.`
-							: "Every case's results are current."
+			: goalSeek
+				? calculatingReason('goalSeek', 'solve')
+				: run
+					? 'Solve all is running; Cancel in the header stops it.'
+					: solvingCase !== undefined
+						? `A solve of ${ws.caseName(solvingCase)} is running; Cancel in the header stops it.`
+						: toSolve.length
+							? ''
+							: errors.length
+								? `Every case is solved except ${names(errors)}, which ${errors.length === 1 ? 'has' : 'have'} an error to fix first.`
+								: "Every case's results are current."
 	);
 	const progress = $derived.by(() => {
 		if (!run) return '';
@@ -53,6 +58,11 @@
 	const other = $derived(
 		solvingCase !== undefined && solvingCase !== store.activeCase
 			? `Solving ${ws.caseName(solvingCase)}…`
+			: ''
+	);
+	const seeking = $derived(
+		goalSeek?.status === 'running'
+			? `Goal seek running on ${ws.caseWords(goalSeek.run.caseId)}…`
 			: ''
 	);
 	const stopped = $derived(
@@ -131,7 +141,7 @@
 		</div>
 		<!-- Its own line: a long case name never squeezes the Case menu or the sentence. -->
 		<p role="status" class="basis-full text-sm break-words empty:hidden">
-			{progress || other || stopped}
+			{progress || seeking || other || stopped}
 		</p>
 	</div>
 {/if}

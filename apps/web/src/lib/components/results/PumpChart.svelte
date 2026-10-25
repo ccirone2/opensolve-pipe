@@ -537,7 +537,9 @@
 					? 'The system curve has not been computed for this solve.'
 					: system.by === 'user'
 						? 'The system curve was not computed: you cancelled it.'
-						: 'The system curve was not computed: a new solve was started.'}
+						: system.by === 'goalSeek'
+							? 'The system curve was not computed: a goal seek was started.'
+							: 'The system curve was not computed: a new solve was started.'}
 			</p>
 			{#if onretry}
 				<button

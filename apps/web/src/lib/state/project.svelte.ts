@@ -27,12 +27,28 @@
  *   whose results are missing or out of date, one request at a time, from a snapshot. Each undo
  *   step records the case it was made in, and undo and redo show that case again. A base edit
  *   carries the scenarios' changes with the pipes it moves (utils/scenarios.ts carryChanges).
+ * - Goal seek (PRD §3.9, proposal goal-seek.md §6.15): one run at a time, on a case, from the
+ *   project exactly as sent. It never changes the project; its result (`goalSeek`) goes out of
+ *   date by that case's staleness key, recomputed on every project change whether or not any case
+ *   has results, and current again when undo returns to the project it ran on. One calculation
+ *   request at a time per page (D10): `calculating` names the one running; while a goal seek runs
+ *   solve() and solveAll() send nothing, and while a solve or Solve all runs runGoalSeek() sends
+ *   nothing (refused, never dropped); only Cancel, load() and dispose() stop a request in flight.
+ *   System curves wait for a goal seek, and one in flight is cancelled when it starts.
  *
  * Nothing is kept in browser storage; history lives only in this page.
  */
 import { getContext, setContext } from 'svelte';
-import { defaultClient, NetworkError, TopologyError, ValidationError } from '../api/client';
+import {
+	defaultClient,
+	NetworkError,
+	NotFoundError,
+	TopologyError,
+	ValidationError
+} from '../api/client';
 import type {
+	GoalSeekRequest,
+	GoalSeekResponse,
 	Project,
 	SolvedState,
 	SolveOptions,
@@ -48,6 +64,7 @@ import {
 	URL_LENGTH_WARNING
 } from '../utils/encoding';
 import { createEmptyProject, isoNow } from '../utils/factory';
+import type { Calculating } from '../utils/goal-seek';
 import {
 	applyScenario,
 	carryChanges,
@@ -85,6 +102,8 @@ export type ResultsError =
 			details: readonly string[];
 			/** The API's error code, e.g. 'FLUID_ERROR' (absent when it sent none). */
 			code?: string;
+			/** A 404 NOT_FOUND's issues, with the ids it did not find (a goal seek's elements). */
+			issues?: readonly TopologyIssue[];
 	  }
 	| {
 			kind: 'network';
@@ -142,18 +161,69 @@ export interface Solver {
 		pumpId: string,
 		options?: { signal?: AbortSignal; scenarioId?: string; flowMin?: number; flowMax?: number }
 	): Promise<SystemCurveResponse>;
+	/**
+	 * Goal seek (POST /api/v1/goal-seek); absent when not available. A scenario's run has
+	 * `scenarioId`; `signal` aborts it (Cancel).
+	 */
+	goalSeek?(
+		project: Project,
+		setup: Pick<GoalSeekRequest, 'variables' | 'goals'>,
+		request?: { signal?: AbortSignal; scenarioId?: string }
+	): Promise<GoalSeekResponse>;
+}
+
+/** A goal seek as sent: the case it runs on and the request exactly as sent (SI). */
+export interface GoalSeekRun {
+	/** The case it ran on (null: the base case). */
+	caseId: CaseId;
+	request: GoalSeekRequest;
+	/** The whole project as sent (request.project). */
+	project: Project;
+	/** The case's staleness key when sent (caseKey). */
+	key: string;
+	/** When it was sent, ms since the epoch. */
+	startedAt: number;
+}
+
+/** A goal seek that answered (done) or failed (an error: topology, validation, not found, fluid, network). */
+export interface GoalSeekFinished {
+	status: 'done' | 'failed';
+	run: GoalSeekRun;
+	response: GoalSeekResponse | null;
+	error: ResultsError | null;
+	/** The run case's key differs from the run's now (or the scenario is gone). */
+	stale: boolean;
+	/** Where its values were applied: that case's key right after the edit (null: not applied). */
+	applied: { caseId: CaseId; key: string } | null;
+	/** The applied case's key is still `applied.key`: the project holds the values applied. */
+	appliedCurrent: boolean;
+}
+
+/**
+ * The page's goal seek: running or cancelled (with the result before it, shown again after a
+ * cancel), finished, or none.
+ */
+export type GoalSeekState =
+	| { status: 'running' | 'cancelled'; run: GoalSeekRun; previous: GoalSeekFinished | null }
+	| GoalSeekFinished
+	| null;
+
+/** The finished goal seek of a state: itself, or the one before a run in flight or cancelled. */
+export function finishedGoalSeek(state: GoalSeekState): GoalSeekFinished | null {
+	if (!state) return null;
+	return 'previous' in state ? state.previous : state;
 }
 
 /**
  * The system curve of one pump for the solve whose results are shown: being computed, computed
  * (points without a head say why), failed, or cancelled before it was computed, `by` a newer
- * solve starting or by the user (cancelSystemCurve()).
+ * solve starting, a goal seek starting, or by the user (cancelSystemCurve()).
  */
 export type SystemCurveState =
 	| { status: 'loading' }
 	| { status: 'ready'; curve: SystemCurveResponse }
 	| { status: 'error'; message: string }
-	| { status: 'cancelled'; by: 'solve' | 'user' };
+	| { status: 'cancelled'; by: 'solve' | 'goalSeek' | 'user' };
 
 /** A system curve over a given flow range (m³/s): an overlay on another case's chart. */
 export interface FlowRange {
@@ -292,7 +362,8 @@ function toResultsError(error: unknown): ResultsError {
 			kind: 'validation',
 			message: error.message,
 			details: error.details,
-			...(error.code ? { code: error.code } : {})
+			...(error.code ? { code: error.code } : {}),
+			...(error instanceof NotFoundError ? { issues: error.issues } : {})
 		};
 	}
 	if (error instanceof NetworkError) {
@@ -324,6 +395,8 @@ export class ProjectStore {
 	 * one the link was shared with, for the results' method-version notice.
 	 */
 	loadedMethodVersion = $state.raw('');
+	/** The page's goal seek (null: none since the project was loaded). */
+	goalSeek = $state.raw<GoalSeekState>(null);
 
 	/** Results, errors, staleness and system curves of each case (slot()). */
 	#cases = $state.raw<Readonly<Record<string, CaseState>>>({});
@@ -349,6 +422,12 @@ export class ProjectStore {
 	#caseInputs = new WeakMap<Project, Record<string, Project>>();
 	/** Called after every load(): page state of the project shown resets (onLoad()). */
 	#loadListeners: (() => void)[] = [];
+	/** Aborts the goal seek in flight. */
+	#goalSeekRequest: AbortController | null = null;
+	#goalSeekSequence = 0;
+	/** Resolves when the goal seek in flight ends (curve requests wait for it). */
+	#goalSeekDone: Promise<void> = Promise.resolve();
+	#endGoalSeek: () => void = () => {};
 	readonly #options: ProjectStoreOptions;
 
 	constructor(project?: Project, options: ProjectStoreOptions = {}) {
@@ -386,6 +465,21 @@ export class ProjectStore {
 	 */
 	get solvingCase(): CaseId | undefined {
 		return this.#solvingCase;
+	}
+
+	/** A goal seek is in flight. */
+	get goalSeekRunning(): boolean {
+		return this.goalSeek?.status === 'running';
+	}
+
+	/**
+	 * What the page is calculating (null: nothing): a goal seek, a Solve all run or one solve. Every
+	 * control that starts a solve or a goal seek reads it (utils/goal-seek.ts calculatingReason).
+	 */
+	get calculating(): Calculating {
+		if (this.goalSeekRunning) return 'goalSeek';
+		if (this.run) return 'solveAll';
+		return this.#solvingCase !== undefined ? 'solve' : null;
 	}
 
 	/** The latest results of a case (the base: null). */
@@ -576,6 +670,8 @@ export class ProjectStore {
 		this.#redo = [];
 		this.#mergeable = false;
 		this.#dropSolve();
+		this.#dropGoalSeek();
+		this.goalSeek = null;
 		this.#abortCurveRequests();
 		this.#cases = {};
 		this.encoded = encodeProject(this.project);
@@ -662,18 +758,49 @@ export class ProjectStore {
 	#replace(project: Project): void {
 		this.project = deepFreeze(project);
 		if (this.activeCase !== null && !findScenario(project, this.activeCase)) this.activeCase = null;
-		this.#restale(project);
+		const fingerprint = hydraulicFingerprint(project);
+		// Apart from #restale, which returns at once when no case has results: a goal seek needs
+		// none (proposal goal-seek.md §6.11).
+		this.#restaleGoalSeek(project, fingerprint);
+		this.#restale(project, fingerprint);
 		this.#scheduleSync();
+	}
+
+	/**
+	 * Recompute the goal seek's staleness and applied state for `project`: stale when its case's
+	 * key differs from the run's (or the scenario is gone); applied while the applied case's key is
+	 * the one recorded right after Apply.
+	 */
+	#restaleGoalSeek(project: Project, fingerprint: string): void {
+		const state = this.goalSeek;
+		if (!state) return;
+		const finished = finishedGoalSeek(state);
+		if (!finished) return;
+		const next = this.#goalSeekStaleness(finished, project, fingerprint);
+		if (next.stale === finished.stale && next.appliedCurrent === finished.appliedCurrent) return;
+		const updated = { ...finished, ...next };
+		this.goalSeek = 'previous' in state ? { ...state, previous: updated } : updated;
+	}
+
+	#goalSeekStaleness(
+		finished: Pick<GoalSeekFinished, 'run' | 'applied'>,
+		project: Project,
+		fingerprint = hydraulicFingerprint(project)
+	): { stale: boolean; appliedCurrent: boolean } {
+		const stale = this.#key(project, finished.run.caseId, fingerprint) !== finished.run.key;
+		const applied = finished.applied;
+		const appliedCurrent =
+			!!applied && this.#key(project, applied.caseId, fingerprint) === applied.key;
+		return { stale, appliedCurrent };
 	}
 
 	/**
 	 * Recompute every case's staleness for `project` (one fingerprint for all cases). A scenario
 	 * that is no longer in the project drops its results.
 	 */
-	#restale(project: Project): void {
+	#restale(project: Project, fingerprint = hydraulicFingerprint(project)): void {
 		const keys = Object.keys(this.#cases);
 		if (!keys.length) return;
-		const fingerprint = hydraulicFingerprint(project);
 		let cases: Record<string, CaseState> | null = null;
 		for (const key of keys) {
 			const state = this.#cases[key] as CaseState;
@@ -749,6 +876,7 @@ export class ProjectStore {
 		this.#cancelSync();
 		this.#stopRun();
 		this.#dropSolve();
+		this.#dropGoalSeek();
 		this.#abortCurveRequests();
 	}
 
@@ -762,6 +890,7 @@ export class ProjectStore {
 	 * plain request.
 	 */
 	async solve(options?: Partial<SolveOptions>, caseId: CaseId = this.activeCase): Promise<void> {
+		if (this.goalSeekRunning) return; // one request at a time: only Cancel stops a goal seek
 		this.#stopRun();
 		await this.#solveCase(caseId, this.project, options, false);
 	}
@@ -774,7 +903,7 @@ export class ProjectStore {
 	 * again resumes with them. cancelSolve() stops the run.
 	 */
 	async solveAll(options?: Partial<SolveOptions>): Promise<void> {
-		if (this.run) return;
+		if (this.run || this.goalSeekRunning) return;
 		const project = this.project;
 		const cases = this.casesToSolve();
 		if (!cases.length) return;
@@ -907,10 +1036,12 @@ export class ProjectStore {
 	 * its answer, if one still arrives, is dropped. The response and error shown before it started
 	 * stay, each current or stale as the project's changes since make it, and `results.cancelled`
 	 * says the latest solve gave nothing. In a run, cases already solved keep their new results and
-	 * the rest are not solved. System curves it cancelled when it started stay cancelled. Returns
-	 * false when nothing is being solved.
+	 * the rest are not solved. System curves it cancelled when it started stay cancelled. A goal
+	 * seek running is cancelled (cancelGoalSeek(): the header's Cancel stops it too). Returns false
+	 * when nothing is being solved.
 	 */
 	cancelSolve(): boolean {
+		if (this.cancelGoalSeek()) return true;
 		const running = !!this.run;
 		if (!running && this.#solvingCase === undefined) return false;
 		if (running) {
@@ -945,6 +1076,105 @@ export class ProjectStore {
 		// Not a hydraulic change: the results stay current and no undo step is added.
 		this.project = deepFreeze(next);
 		this.#scheduleSync();
+	}
+
+	/**
+	 * Run a goal seek (POST /api/v1/goal-seek) of case `caseId` with `request` (its project is the
+	 * stored project as it is now, with the scenario's id for a scenario). Returns false, sending
+	 * nothing, while a solve, a Solve all run or another goal seek runs: one request at a time
+	 * (D10), refused rather than dropped. System curves in flight are cancelled, and new ones wait
+	 * for it. Its answer, or its error, becomes `goalSeek`; one that arrives after a cancel or a
+	 * load() is dropped. The project never changes.
+	 */
+	async runGoalSeek(
+		request: GoalSeekRequest,
+		caseId: CaseId = request.scenarioId ?? null
+	): Promise<boolean> {
+		if (this.calculating !== null) return false;
+		const key = this.#key(request.project, caseId);
+		if (key === null) return false;
+		this.#cancelSystemCurves('goalSeek');
+		const sequence = ++this.#goalSeekSequence;
+		const controller = new AbortController();
+		this.#goalSeekRequest = controller;
+		this.#goalSeekDone = new Promise((resolve) => (this.#endGoalSeek = resolve));
+		const run: GoalSeekRun = {
+			caseId,
+			request,
+			project: request.project,
+			key,
+			startedAt: Date.now()
+		};
+		const previous = finishedGoalSeek(this.goalSeek);
+		this.goalSeek = { status: 'running', run, previous };
+		const finish = (response: GoalSeekResponse | null, error: ResultsError | null) => {
+			const done = { run, applied: null };
+			this.goalSeek = {
+				status: response ? 'done' : 'failed',
+				...done,
+				response,
+				error,
+				...this.#goalSeekStaleness(done, this.project)
+			};
+		};
+		try {
+			const solver = this.#options.solver ?? defaultClient();
+			if (!solver.goalSeek) {
+				throw new NetworkError('Goal seek is not available from this calculation server.');
+			}
+			const response = await solver.goalSeek(
+				request.project,
+				{ variables: request.variables, goals: request.goals },
+				caseId === null
+					? { signal: controller.signal }
+					: { signal: controller.signal, scenarioId: caseId }
+			);
+			if (sequence === this.#goalSeekSequence) finish(response, null);
+		} catch (error) {
+			if (sequence === this.#goalSeekSequence) finish(null, toResultsError(error));
+		} finally {
+			if (this.#goalSeekRequest === controller) {
+				this.#goalSeekRequest = null;
+				this.#endGoalSeek();
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Cancel the goal seek in flight: its request is aborted (the server stops at its next check,
+	 * D10), an answer that still arrives is dropped, and the result before it is kept (shown again,
+	 * current or out of date as before). Returns false when none is running.
+	 */
+	cancelGoalSeek(): boolean {
+		const state = this.goalSeek;
+		if (state?.status !== 'running') return false;
+		this.#dropGoalSeek();
+		this.goalSeek = { ...state, status: 'cancelled' };
+		return true;
+	}
+
+	/** Abort the goal seek in flight, if any; its answer is dropped. */
+	#dropGoalSeek(): void {
+		this.#goalSeekSequence++;
+		this.#goalSeekRequest?.abort();
+		this.#goalSeekRequest = null;
+		this.#endGoalSeek();
+	}
+
+	/**
+	 * Record that the latest goal seek's values were applied to case `caseId` (right after the
+	 * edit): its result says so while that case's key stays as it is now. A result shown again
+	 * after a cancelled run takes the cancelled state's place: the project changed since.
+	 */
+	markGoalSeekApplied(caseId: CaseId): void {
+		const state = this.goalSeek;
+		if (state?.status === 'running') return;
+		const finished = finishedGoalSeek(state);
+		if (finished?.status !== 'done') return;
+		const key = this.#key(this.project, caseId);
+		if (key === null) return;
+		this.goalSeek = { ...finished, applied: { caseId, key }, appliedCurrent: true };
 	}
 
 	/** Forget the results and errors of every case (e.g. after the user dismisses an error). */
@@ -1019,6 +1249,7 @@ export class ProjectStore {
 		const request = async () => {
 			try {
 				await this.#runDone; // one request at a time: after a Solve all run
+				await this.#goalSeekDone; // and after a goal seek
 				if (signal.aborted || this.#case(caseId).results.response !== response) return;
 				const curve = await solver.systemCurve!(project, pumpId, {
 					signal,
@@ -1056,8 +1287,11 @@ export class ProjectStore {
 		});
 	}
 
-	/** Abort every case's system-curve requests; the curves being computed are marked cancelled. */
-	#cancelSystemCurves(): void {
+	/**
+	 * Abort every case's system-curve requests; the curves being computed are marked cancelled
+	 * `by` what started (a solve, or a goal seek).
+	 */
+	#cancelSystemCurves(by: 'solve' | 'goalSeek' = 'solve'): void {
 		this.#abortCurveRequests();
 		let cases: Record<string, CaseState> | null = null;
 		for (const [key, state] of Object.entries(this.#cases)) {
@@ -1069,9 +1303,7 @@ export class ProjectStore {
 				systemCurves: Object.fromEntries(
 					entries.map(([id, curve]) => [
 						id,
-						curve.status === 'loading'
-							? { status: 'cancelled' as const, by: 'solve' as const }
-							: curve
+						curve.status === 'loading' ? { status: 'cancelled' as const, by } : curve
 					])
 				)
 			};

@@ -6,10 +6,12 @@
 	and notes. A side panel over the results on wide screens (the results under it are inert while
 	it is open); a dialog (bottom sheet) on narrow ones. In a project with scenarios it names the
 	case solved and, for a scenario, lists the element's values the scenario changed, with their
-	base values, from the server's record (proposal scenario-manager.md §6.11).
+	base values, from the server's record (proposal scenario-manager.md §6.11). Use in goal seek, on
+	the Result values heading, opens the goal-seek dialog with a new goal on this element (proposal
+	goal-seek.md §6.2); on narrow screens the trace, a sheet itself, closes first.
 -->
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import type { Flag, SolvedState, TraceInput } from '$lib/api/types';
 	import { focusCurrentHeading } from '$lib/components/panel/focus';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
@@ -99,6 +101,21 @@
 			? `Pipe ${record.override.pipeIndex + 1} ${label.toLowerCase()}`
 			: label;
 	};
+
+	/**
+	 * Open goal seek with a new goal on this element. On phones the trace, a sheet itself, closes
+	 * first (modals are never stacked), and the Results pane's Goal seek button is the dialog's
+	 * opener: closing the dialog gives it the focus.
+	 */
+	async function useInGoalSeek() {
+		const target = element; // read before closing: closing clears the inspected element
+		if (!wide.current) {
+			ws.closeInspector();
+			await tick();
+			document.querySelector<HTMLElement>('[data-goal-seek-button]')?.focus();
+		}
+		ws.openGoalSeek(target);
+	}
 
 	/** Add this element's main results to Compare cases. */
 	function addToComparison() {
@@ -286,7 +303,17 @@
 
 		{#if results.length}
 			<section class="space-y-2" aria-labelledby="{id}-results">
-				{@render sectionTitle('Result values', 'results')}
+				<div class="flex flex-wrap items-center justify-between gap-2">
+					{@render sectionTitle('Result values', 'results')}
+					{#if exists}
+						<button
+							type="button"
+							class="btn btn-quiet px-2 text-blue-800"
+							aria-label="Use a result of {name} in goal seek"
+							onclick={useInGoalSeek}>Use in goal seek</button
+						>
+					{/if}
+				</div>
 				{#each results as group (group.title)}
 					{#each group.rows as row (row.key)}
 						<div class="rounded-md border border-slate-200 bg-white p-2">

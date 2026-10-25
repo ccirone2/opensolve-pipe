@@ -224,10 +224,20 @@ export interface ComponentOptions {
 	 * supply, entering it). Required for that kind, which has no default; ignored by the others.
 	 */
 	flow?: number;
+	/**
+	 * Ids a new id must not take besides usedIds (newId's alsoUsed): those page state names, such
+	 * as a goal-seek setup's elements, so a row never moves to a new element (goal-seek.md §6.15).
+	 */
+	reserved?: Iterable<string>;
 }
 
 /** Values the user enters before a component is added: those its kind has no default for. */
 export type EnteredValues = Pick<ComponentOptions, 'flow'>;
+
+/** Ids new elements must not take besides usedIds (see ComponentOptions.reserved). */
+export interface NewIdOptions {
+	reserved?: Iterable<string>;
+}
 
 /** Why a component of `kind` cannot be added with `values` yet (a sentence), or null. */
 export function missingEntry(kind: ComponentKind, values: EnteredValues): string | null {
@@ -272,7 +282,8 @@ function buildComponent(
 	project: Project,
 	options: ComponentOptions
 ): Component {
-	const id = options.id ?? newId(project, ID_PREFIX[kind]);
+	const reserved = [...(options.reserved ?? [])];
+	const id = options.id ?? newId(project, ID_PREFIX[kind], reserved);
 	const name = options.name ?? `${KIND_NAMES[kind]} ${id}`;
 	const elevation = options.elevation ?? 0;
 	const size = options.nominalSize ?? DEFAULT_NOMINAL_SIZE;
@@ -335,7 +346,7 @@ function buildComponent(
 			return {
 				...base,
 				type: 'pump',
-				curveId: newId(project, CURVE_PREFIX, [id]),
+				curveId: newId(project, CURVE_PREFIX, [id, ...reserved]),
 				speed: 1,
 				status: 'on',
 				ports: [port('suction', size, 'inlet'), port('discharge', size, 'outlet')]

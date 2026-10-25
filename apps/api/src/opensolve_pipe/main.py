@@ -14,8 +14,9 @@ from starlette.middleware.gzip import GZipMiddleware
 from . import __version__, logging_privacy, source
 from .middleware import BodySizeLimit, CatchAll, RateLimit
 from .models.api import ErrorCode, ErrorResponse, TopologyIssue
-from .routers import fluids, library, solve
+from .routers import fluids, goal_seek, library, solve
 from .services.fluids import FluidError
+from .services.goal_seek import GoalSeekInputError, GoalSeekNotFoundError
 from .services.scenarios import (
     ScenarioFluidError,
     ScenarioNotFoundError,
@@ -71,6 +72,7 @@ app.add_middleware(
 )
 
 app.include_router(solve.router, prefix="/api/v1", tags=["solve"])
+app.include_router(goal_seek.router, prefix="/api/v1", tags=["solve"])
 app.include_router(fluids.router, prefix="/api/v1", tags=["fluids"])
 app.include_router(library.router, prefix="/api/v1", tags=["library"])
 
@@ -172,6 +174,23 @@ async def scenario_topology_error(_: Request, exc: ScenarioTopologyError) -> JSO
 async def scenario_fluid_error(_: Request, exc: ScenarioFluidError) -> JSONResponse:
     # The message already names the scenario: "Scenario S2: <the fluid message>".
     body = ErrorResponse(success=False, error="FLUID_ERROR", message=str(exc), issues=[])
+    return _error(400, body)
+
+
+@app.exception_handler(GoalSeekNotFoundError)
+async def goal_seek_not_found(_: Request, exc: GoalSeekNotFoundError) -> JSONResponse:
+    # Unknown elements, ports and pipes, every one listed and named (D10: not-found errors name
+    # the id at fault).
+    body = ErrorResponse(success=False, error="NOT_FOUND", message=str(exc), issues=exc.issues)
+    return _error(404, body)
+
+
+@app.exception_handler(GoalSeekInputError)
+async def goal_seek_input_error(_: Request, exc: GoalSeekInputError) -> JSONResponse:
+    # Located by index; ids only in componentIds and connectionIds, never a value (SDD §5.1.2).
+    body = ErrorResponse(
+        success=False, error="VALIDATION_ERROR", message=str(exc), issues=exc.issues
+    )
     return _error(400, body)
 
 

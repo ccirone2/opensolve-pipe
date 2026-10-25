@@ -6,6 +6,7 @@ import {
 	DEFAULT_API_URL,
 	getLibrary,
 	NetworkError,
+	NotFoundError,
 	solve,
 	TopologyError,
 	ValidationError
@@ -465,5 +466,96 @@ describe('configuration', () => {
 		fetch.mockResolvedValueOnce(json({ success: true, computeTime: 0, solvedState: {} }));
 		await solve(project);
 		expect(fetch).toHaveBeenLastCalledWith('https://api.test/api/v1/solve', expect.anything());
+	});
+});
+
+describe('goal seek (proposal goal-seek.md §6.15)', () => {
+	const setup = {
+		variables: [
+			{
+				kind: 'component' as const,
+				componentId: 'P1',
+				field: 'speed' as const,
+				lower: 0.2,
+				upper: 1
+			}
+		],
+		goals: [{ quantity: 'link_flow' as const, elementId: 'L2', target: 0.015 }]
+	};
+
+	it('posts the project, the variables and the goals, with no scenarioId for the base', async () => {
+		const { api, fetch } = client([json({ success: true }), json({ success: true })]);
+		const controller = new AbortController();
+		await api.goalSeek(project, setup, { signal: controller.signal });
+		const [url, init] = fetch.mock.calls[0]!;
+		expect(url).toBe(`${BASE}/api/v1/goal-seek`);
+		expect(init).toMatchObject({ method: 'POST', credentials: 'omit' });
+		expect(init!.signal).toBeInstanceOf(AbortSignal);
+		const body = JSON.parse(init!.body as string);
+		expect(Object.keys(body)).toEqual(['project', 'variables', 'goals']);
+		expect(body).toEqual({ project, ...setup });
+		await api.goalSeek(project, setup, { scenarioId: 'S2' });
+		const second = JSON.parse(fetch.mock.calls[1]![1]!.body as string);
+		expect(Object.keys(second)).toEqual(['project', 'scenarioId', 'variables', 'goals']);
+		expect(second.scenarioId).toBe('S2');
+		expect(String(fetch.mock.calls[1]![0])).not.toContain('S2');
+	});
+
+	it('maps 422, 400, 404 and 503 TIMEOUT as for /solve, a 404 keeping its issues', async () => {
+		const envelope = (error: string, message: string, issues: unknown[] = []) => ({
+			success: false,
+			error,
+			message,
+			issues
+		});
+		const issue = {
+			code: 'UNKNOWN_COMPONENT',
+			message: 'body.variables.0: the project has no component P9',
+			componentIds: ['P9'],
+			connectionIds: []
+		};
+		const { api } = client([
+			json(envelope('TOPOLOGY_ERROR', 'The network cannot be solved: 1 topology issue(s).'), 422),
+			json(
+				envelope('VALIDATION_ERROR', 'Goal seek: 1 input problem(s).', [
+					{ ...issue, message: 'body.goals.0: pump_head applies to a pump, not a tee' }
+				]),
+				400
+			),
+			json(envelope('NOT_FOUND', 'Goal seek: 1 unknown element(s).', [issue]), 404),
+			json(envelope('TIMEOUT', 'The solve did not finish: out of time.'), 503)
+		]);
+		expect(await rejection(api.goalSeek(project, setup))).toBeInstanceOf(TopologyError);
+		const invalid = await rejection(api.goalSeek(project, setup));
+		expect(invalid).toBeInstanceOf(ValidationError);
+		expect(invalid).not.toBeInstanceOf(NotFoundError);
+		expect((invalid as ValidationError).details).toContain(
+			'body.goals.0: pump_head applies to a pump, not a tee'
+		);
+		const missing = await rejection(api.goalSeek(project, setup));
+		expect(missing).toBeInstanceOf(NotFoundError);
+		expect(missing).toBeInstanceOf(ValidationError);
+		expect((missing as NotFoundError).issues).toEqual([issue]);
+		expect((missing as NotFoundError).code).toBe('NOT_FOUND');
+		const late = await rejection(api.goalSeek(project, setup));
+		expect(late).toBeInstanceOf(NetworkError);
+		expect((late as NetworkError).code).toBe('TIMEOUT');
+	});
+
+	it("still maps /solve's unknown-scenario 404 to a ValidationError", async () => {
+		const { api } = client([
+			json(
+				{
+					success: false,
+					error: 'NOT_FOUND',
+					message: "the project has no scenario 'S9'",
+					issues: []
+				},
+				404
+			)
+		]);
+		const error = await rejection(api.solve(project, {}, { scenarioId: 'S9' }));
+		expect(error).toBeInstanceOf(ValidationError);
+		expect((error as ValidationError).status).toBe(404);
 	});
 });

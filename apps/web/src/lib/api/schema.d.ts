@@ -115,6 +115,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/goal-seek": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Goal Seek Endpoint
+         * @description Find the variable values that bring the goals to their targets (PRD §3.9). Every
+         *     evaluation is a full solve of the case (the base project, or scenarioId) with the variables
+         *     written on top; the project is never changed: each variable's override applies the value
+         *     found. A goal not met is 200 with success = false; computeTime is the worker's time.
+         *
+         *     Checks in order: the scenario (404, then 400 for its values), the case's fluid (400),
+         *     unknown elements, ports and pipes (404, all listed), inputs that do not apply (400, by
+         *     index), the case's topology (422), the bounds (400); then the search, always 200 unless its
+         *     first evaluation runs out of time (503 TIMEOUT). At most one goal seek runs in the worker
+         *     pool at a time (503 SERVER_BUSY).
+         */
+        post: operations["goal_seek_endpoint_api_v1_goal_seek_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/library": {
         parameters: {
             query?: never;
@@ -486,6 +515,43 @@ export interface components {
             kind: "component";
             /** @description The value, SI, of the target field's own type (checked when the scenario is applied); the fields each target type takes: x-override-fields */
             value: components["schemas"]["JsonValue"];
+        };
+        /**
+         * ComponentVariable
+         * @description A numeric value of a component, varied between lower and upper.
+         */
+        ComponentVariable: {
+            /**
+             * Coefficient
+             * @description resistance only (required there): the flow coefficient varied, written as resistance = {kind: coefficient, value}
+             */
+            coefficient?: ("K" | "Cv" | "Kv") | null;
+            /**
+             * Componentid
+             * @description Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)
+             */
+            componentId: string;
+            /**
+             * Field
+             * @description camelCase path of the value relative to the component (x-goal-variables)
+             * @enum {string}
+             */
+            field: "speed" | "control.setpoint" | "setpoint" | "resistance" | "liquidLevel" | "surfacePressure" | "pressure" | "flow";
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "component";
+            /**
+             * Lower
+             * @description SI, within the field's own bounds (x-goal-variables gives the schema that bounds it); below upper
+             */
+            lower: number;
+            /**
+             * Upper
+             * @description SI, within the field's own bounds
+             */
+            upper: number;
         };
         /**
          * ControlValve
@@ -943,6 +1009,282 @@ export interface components {
             temperature: number;
         };
         /**
+         * Goal
+         * @description A result of one element brought to a target.
+         */
+        Goal: {
+            /**
+             * Elementid
+             * @description The component or connection (x-goal-quantities gives each quantity's)
+             */
+            elementId: string;
+            /**
+             * Portid
+             * @description port_pressure only (required there): the component's port
+             */
+            portId?: string | null;
+            /**
+             * Quantity
+             * @enum {string}
+             */
+            quantity: "port_pressure" | "link_flow" | "link_velocity" | "link_head_loss" | "pump_flow" | "pump_head" | "pump_npsh_available" | "pump_npsh_margin" | "valve_flow" | "valve_pressure_drop" | "boundary_outflow";
+            /**
+             * Target
+             * @description SI, in the quantity's unit
+             */
+            target: number;
+            /**
+             * Tolerance
+             * @description SI, in the quantity's unit; omitted: max(0.5 % of |target|, the quantity's floor); at least max(1e-6 |target|, the quantity's minimum in x-goal-quantities)
+             */
+            tolerance?: number | null;
+        };
+        /** GoalResult */
+        GoalResult: {
+            /** Evaluatedmax */
+            evaluatedMax: number | null;
+            /**
+             * Evaluatedmin
+             * @description Over the usable evaluations, SI
+             */
+            evaluatedMin: number | null;
+            /** @description As given */
+            goal: components["schemas"]["Goal"];
+            /** Index */
+            index: number;
+            /**
+             * Label
+             * @description 'static pressure at port outlet of tee T3'
+             */
+            label: string;
+            /**
+             * Message
+             * @description Why there is no value ('' otherwise)
+             */
+            message: string;
+            /**
+             * Met
+             * @description |residual| <= tolerance
+             */
+            met: boolean;
+            /**
+             * Residual
+             * @description value - target, SI
+             */
+            residual: number | null;
+            /**
+             * Tolerance
+             * @description SI, as used
+             */
+            tolerance: number;
+            /**
+             * Tolerancesource
+             * @enum {string}
+             */
+            toleranceSource: "user" | "default";
+            /**
+             * Unit
+             * @description 'Pa(g)', 'Pa (difference)', 'm³/s', 'm/s' or 'm'
+             */
+            unit: string;
+            /**
+             * Value
+             * @description At the reported evaluation, SI
+             */
+            value: number | null;
+        };
+        /**
+         * GoalSeekEvaluation
+         * @description One evaluation: a full network solve of the case with the variables at these values.
+         */
+        GoalSeekEvaluation: {
+            /**
+             * Goalvalues
+             * @description SI; null where the state has no value
+             */
+            goalValues: (number | null)[];
+            /**
+             * Index
+             * @description 0-based; 0 is the start
+             */
+            index: number;
+            /**
+             * Message
+             * @description Why it is not usable ('' when usable)
+             */
+            message: string;
+            /**
+             * Outcome
+             * @description usable; not_converged; no_value (a goal has no value in this state); topology_error / fluid_error (the network rejects these values); not_computed (the request's time budget ran out during it)
+             * @enum {string}
+             */
+            outcome: "usable" | "not_converged" | "no_value" | "topology_error" | "fluid_error" | "not_computed";
+            /**
+             * Purpose
+             * @description start; scan (one variable: the 9 values across the bounds; several: the values solved for a usable point when the start has no usable result); root (Brent's method); probe (around failed solves); minimize (the closest value); step (least squares); slope (a Jacobian column)
+             * @enum {string}
+             */
+            purpose: "start" | "scan" | "root" | "probe" | "minimize" | "step" | "slope";
+            /**
+             * Residuals
+             * @description Goal value minus target, SI
+             */
+            residuals: (number | null)[];
+            /**
+             * Seconds
+             * @description Inside the worker
+             */
+            seconds: number;
+            /**
+             * Statechanges
+             * @description Against the first evaluation with a solved state, elements with flow only
+             */
+            stateChanges: components["schemas"]["StateChange"][];
+            /**
+             * Variablevalues
+             * @description SI, in the variables' order
+             */
+            variableValues: number[];
+        };
+        /**
+         * GoalSeekNote
+         * @description Something the search found or did, with its data (SI) and a sentence.
+         */
+        GoalSeekNote: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "other_crossing" | "met_range" | "met_without_crossing" | "closest_at_bound" | "closest_on_plateau" | "closest_inside" | "jump" | "unsolved_crossing" | "state_changes" | "start_clipped" | "unusable_evaluations" | "goal_no_effect" | "variable_no_effect" | "variables_collinear" | "slope_unknown" | "sensitive";
+            /**
+             * Evaluations
+             * @description Indexes into evaluations
+             */
+            evaluations: number[];
+            /**
+             * Goalvalues
+             * @description SI
+             */
+            goalValues: number[];
+            /**
+             * Goals
+             * @description Indexes into goals
+             */
+            goals: number[];
+            /**
+             * Message
+             * @description SI sentence (the web words the code itself)
+             */
+            message: string;
+            /** Statechanges */
+            stateChanges: components["schemas"]["StateChange"][];
+            /**
+             * Variablevalues
+             * @description SI
+             */
+            variableValues: number[];
+            /**
+             * Variables
+             * @description Indexes into variables
+             */
+            variables: number[];
+        };
+        /**
+         * GoalSeekRequest
+         * @description Find the values of 1 to 4 variables that bring as many goals to their targets (PRD §3.9,
+         *     CLAUDE.md D16). x-goal-variables, x-goal-quantities and x-goal-seek-rules publish the rules
+         *     JSON Schema cannot express.
+         */
+        GoalSeekRequest: {
+            /**
+             * Goals
+             * @description As many as variables (PRD §3.9)
+             */
+            goals: components["schemas"]["Goal"][];
+            project: components["schemas"]["Project"];
+            /**
+             * Scenarioid
+             * @description Run on this scenario of project.scenarios: the variables are written on top of its values (omitted or null: the base project; an unknown id: 404 NOT_FOUND)
+             */
+            scenarioId?: string | null;
+            /**
+             * Variables
+             * @description Numeric values of the scenario allow-list, each with its bounds
+             */
+            variables: (components["schemas"]["ComponentVariable"] | components["schemas"]["PipeVariable"] | components["schemas"]["ProjectVariable"])[];
+        };
+        /** GoalSeekResponse */
+        GoalSeekResponse: {
+            /**
+             * Computetime
+             * @description Seconds in the worker
+             */
+            computeTime: number;
+            result: components["schemas"]["GoalSeekResult"];
+            /** @description The case's scenario as stored, as /solve reports it; null for the base project. An override named by a variable's replacedOverride was not used: the value found took its place */
+            scenario: components["schemas"]["ScenarioResult"] | null;
+            /** @description The reported evaluation's own solve, with a first 'Goal seek' methods section and a note on each varied element; null when no evaluation is usable */
+            solvedState: components["schemas"]["SolvedState"] | null;
+            /**
+             * Success
+             * @description result.met: every goal met at the reported evaluation
+             */
+            success: boolean;
+        };
+        /** GoalSeekResult */
+        GoalSeekResult: {
+            /**
+             * Evaluationlimit
+             * @description 60 for one variable, 20(n + 1) for n
+             */
+            evaluationLimit: number;
+            /** Evaluations */
+            evaluations: components["schemas"]["GoalSeekEvaluation"][];
+            /** Goals */
+            goals: components["schemas"]["GoalResult"][];
+            /**
+             * Message
+             * @description Why the search stopped, SI
+             */
+            message: string;
+            /**
+             * Met
+             * @description Every goal met at the reported evaluation
+             */
+            met: boolean;
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "scan_brent" | "least_squares";
+            /**
+             * Methodversion
+             * @description The solves' METHOD_VERSION
+             */
+            methodVersion: string;
+            /** @description The 'Goal seek' methods section, also first in solvedState's methods */
+            methods: components["schemas"]["MethodsSection"];
+            /** Notes */
+            notes: components["schemas"]["GoalSeekNote"][];
+            /**
+             * Reportedevaluation
+             * @description The evaluation whose values and state are reported (null: none usable)
+             */
+            reportedEvaluation: number | null;
+            /**
+             * Stopreason
+             * @enum {string}
+             */
+            stopReason: "met_at_start" | "met" | "not_reachable" | "jump" | "unsolved_crossing" | "no_progress" | "evaluation_limit" | "time_budget" | "no_usable_evaluation";
+            /**
+             * Timebudget
+             * @description s: the request's
+             */
+            timeBudget: number;
+            /** Variables */
+            variables: components["schemas"]["VariableResult"][];
+        };
+        /**
          * IdealReferenceNode
          * @description Fixed-pressure boundary (e.g. a large supply main or a closed loop's expansion tank).
          *
@@ -1361,6 +1703,43 @@ export interface components {
             wallThickness: number;
         };
         /**
+         * PipeVariable
+         * @description A numeric value of one pipe of a connection, varied between lower and upper.
+         */
+        PipeVariable: {
+            /**
+             * Connectionid
+             * @description Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)
+             */
+            connectionId: string;
+            /**
+             * Field
+             * @description length: m
+             * @constant
+             */
+            field: "length";
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "pipe";
+            /**
+             * Lower
+             * @description SI, within the field's own bounds (x-goal-variables gives the schema that bounds it); below upper
+             */
+            lower: number;
+            /**
+             * Pipeindex
+             * @description 0-based index into the connection's piping.pipes, as a pipe override's
+             */
+            pipeIndex: number;
+            /**
+             * Upper
+             * @description SI, within the field's own bounds
+             */
+            upper: number;
+        };
+        /**
          * PipingSegment
          * @description The pipes (in series, from -> to) and inline fittings of one connection.
          */
@@ -1512,6 +1891,34 @@ export interface components {
             siteElevation: number;
             solverOptions: components["schemas"]["SolverOptions"];
             units: components["schemas"]["UnitPreferences"];
+        };
+        /**
+         * ProjectVariable
+         * @description A numeric value of the project (a built-in fluid's temperature), varied between lower
+         *     and upper.
+         */
+        ProjectVariable: {
+            /**
+             * Field
+             * @description fluid.temperature: K, a built-in fluid's
+             * @constant
+             */
+            field: "fluid.temperature";
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "project";
+            /**
+             * Lower
+             * @description SI, within the field's own bounds (x-goal-variables gives the schema that bounds it); below upper
+             */
+            lower: number;
+            /**
+             * Upper
+             * @description SI, within the field's own bounds
+             */
+            upper: number;
         };
         /**
          * PropertySource
@@ -1996,6 +2403,27 @@ export interface components {
              */
             tolerance: number;
         };
+        /**
+         * StateChange
+         * @description An element whose state differs between two evaluations (one that carries flow in at
+         *     least one of them, D13).
+         */
+        StateChange: {
+            /** After */
+            after: string | null;
+            /**
+             * Aspect
+             * @enum {string}
+             */
+            aspect: "pump_status" | "pump_control" | "valve_state" | "branch_pattern";
+            /**
+             * Before
+             * @description null: the element has no result in that state
+             */
+            before: string | null;
+            /** Elementid */
+            elementId: string;
+        };
         /** SystemCurvePoint */
         SystemCurvePoint: {
             /**
@@ -2264,6 +2692,66 @@ export interface components {
             /** Valvetype */
             valveType: string;
         };
+        /** VariableResult */
+        VariableResult: {
+            /**
+             * Atbound
+             * @description The value equals lower or upper exactly
+             */
+            atBound: ("lower" | "upper") | null;
+            /** @description The base project's value (equal to caseValue for a base run) */
+            baseValue: components["schemas"]["JsonValue"];
+            /** @description The case's value of the field, SI (a resistance: its FlowCoefficient or null) */
+            caseValue: components["schemas"]["JsonValue"];
+            /** Index */
+            index: number;
+            /**
+             * Label
+             * @description 'maximum speed ratio of pump P1'
+             */
+            label: string;
+            /**
+             * Override
+             * @description The scenario override that sets the value found: upserted into a scenario by target and field, or written into the base at its path, it reproduces solvedState; null when value is null
+             */
+            override: (components["schemas"]["ComponentOverride"] | components["schemas"]["PipeOverride"] | components["schemas"]["ProjectOverride"]) | null;
+            /**
+             * Replacedoverride
+             * @description Scenario run: the index in the scenario's overrides whose value this variable took the place of (a whole-fluid override: its temperature), or null; the response's scenario record states that override's value, which the reported solve did not use
+             */
+            replacedOverride: number | null;
+            /**
+             * Scale
+             * @enum {string}
+             */
+            scale: "linear" | "log";
+            /**
+             * Start
+             * @description SI: the value evaluation 0 solved
+             */
+            start: number;
+            /**
+             * Startsource
+             * @description case: the case's value; clipped: the case's value lies outside the bounds, and the nearer bound is used; middle: the case holds no value of this coefficient (a resistance on its default, or of another kind), and the middle of the bounds on the variable's scale is used
+             * @enum {string}
+             */
+            startSource: "case" | "clipped" | "middle";
+            /**
+             * Unit
+             * @description Trace unit ('' for none)
+             */
+            unit: string;
+            /**
+             * Value
+             * @description At the reported evaluation (null: none usable)
+             */
+            value: number | null;
+            /**
+             * Variable
+             * @description As given
+             */
+            variable: components["schemas"]["ComponentVariable"] | components["schemas"]["PipeVariable"] | components["schemas"]["ProjectVariable"];
+        };
         /**
          * WyeBranch
          * @description Wye (lateral): 'inlet' and 'outlet_1' are the straight run, 'outlet_2' the angled leg.
@@ -2489,6 +2977,93 @@ export interface operations {
             };
             /** @description Invalid input, or a fluid state out of range */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Other errors */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    goal_seek_endpoint_api_v1_goal_seek_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoalSeekRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoalSeekResponse"];
+                };
+            };
+            /** @description Invalid input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unknown scenario, element, port or pipe */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Topology error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server busy (SERVER_BUSY) or the time budget ran out (TIMEOUT) */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

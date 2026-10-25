@@ -2,7 +2,8 @@
 	The workspace of an open project: header, the case bar (once the project has scenarios), and
 	the Build (panel navigator) and Results panes — side by side on wide screens (≥ 1024 px), as
 	tabs on narrow ones. It tells the fields below which case is shown (field-mode.ts): in a
-	scenario only its values, names and display units can be edited.
+	scenario only its values, names and display units can be edited. The goal-seek dialog opens
+	over them (from the Results pane's header or a trace).
 -->
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
@@ -13,6 +14,7 @@
 	import { provideProjectStore } from '$lib/state/project.svelte';
 	import { provideWorkspace, type Pane, type Workspace } from '$lib/state/workspace.svelte';
 	import ResultsPanel from '$lib/components/results/ResultsPanel.svelte';
+	import GoalSeekDialog from './GoalSeekDialog.svelte';
 	import ScenarioBar from './ScenarioBar.svelte';
 	import WorkspaceHeader from './WorkspaceHeader.svelte';
 
@@ -184,6 +186,8 @@
 				<ResultsPanel />
 			</section>
 		</div>
+
+		{#if ws.goalSeekOpen}<GoalSeekDialog />{/if}
 
 		{#if ws.notice}
 			<div

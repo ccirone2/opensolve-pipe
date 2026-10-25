@@ -10,6 +10,12 @@
  * it. In a scenario, edit() sorts an edit into the scenario's changes (allow-listed values), shared
  * labels (names, the project name and description, display units) or a refusal (anything else),
  * as one undo step.
+ *
+ * Goal seek (proposal goal-seek.md §6.15): its setup (goals, variables, bounds, targets) is page
+ * state here, not in the project or the link, and resets when another project is loaded. While
+ * the setup names a component or connection, no new element takes its id (newId's alsoUsed, as
+ * scenario changes reserve theirs), so a row never moves to another element. Apply writes the
+ * values the API found, as one undo step, then solves the case.
  */
 import { getContext, setContext, untrack } from 'svelte';
 import type {
@@ -51,6 +57,22 @@ import {
 	updateConnection
 } from '../utils/edit';
 import { createComponent, type ComponentKind, type EnteredValues } from '../utils/factory';
+import {
+	applyProblems,
+	applyToCase,
+	asNewScenario,
+	EMPTY_SETUP,
+	foundOverrides,
+	keptByScenarios,
+	localDate,
+	newScenarioDescription,
+	overrideValueText,
+	reservedIds,
+	toRequest,
+	variableLabelOf,
+	type GoalSeekSetup,
+	type WordsContext
+} from '../utils/goal-seek';
 import type { ElementRef } from '../utils/results';
 import {
 	componentById,
@@ -59,7 +81,13 @@ import {
 	portById,
 	type PortRef
 } from '../utils/graph';
-import { deepFreeze, structuralProblems, type ProjectStore } from './project.svelte';
+import {
+	deepFreeze,
+	finishedGoalSeek,
+	structuralProblems,
+	type GoalSeekRun,
+	type ProjectStore
+} from './project.svelte';
 import { LibraryStore } from './library.svelte';
 import { NavigatorStore, pathAfterInsert } from './navigator.svelte';
 
@@ -112,6 +140,12 @@ export class Workspace {
 	comparing = $state(false);
 	/** The rows of the Compare cases view (null: the defaults, derived from the project). Page state. */
 	compareRows = $state.raw<CompareRow[] | null>(null);
+	/** The goal-seek dialog is open. */
+	goalSeekOpen = $state(false);
+	/** The element the dialog's New goal form opens on (Use in goal seek in a trace), or null. */
+	goalSeekPrefill = $state.raw<ElementRef | null>(null);
+	/** The goal-seek setup: goals and variables (SI). Page state: not in the project or the link. */
+	goalSeekSetup = $state.raw<GoalSeekSetup>(EMPTY_SETUP);
 	#noticeId = 0;
 	/** The project of the case shown (the base, or the base with the active scenario's changes). */
 	#caseProject: Project;
@@ -170,6 +204,164 @@ export class Workspace {
 		this.managerFocus = null;
 		this.settingsOpen = false;
 		this.announcement = '';
+		this.goalSeekOpen = false;
+		this.goalSeekPrefill = null;
+		this.goalSeekSetup = EMPTY_SETUP;
+	}
+
+	/**
+	 * Ids no new element may take (newId's alsoUsed): the components and connections the goal-seek
+	 * setup names, deleted ones included, so a row never moves to another element (§6.15).
+	 */
+	get reservedIds(): string[] {
+		return reservedIds(this.goalSeekSetup);
+	}
+
+	/** Open the goal-seek dialog; `prefill` opens its New goal form on that element. */
+	openGoalSeek(prefill?: ElementRef): void {
+		this.goalSeekPrefill = prefill ?? null;
+		this.goalSeekOpen = true;
+	}
+
+	closeGoalSeek(): void {
+		this.goalSeekOpen = false;
+		this.goalSeekPrefill = null;
+	}
+
+	/** What a goal seek's words need: current names, the project as sent, display units, the case. */
+	goalSeekWords(run: GoalSeekRun): WordsContext {
+		return {
+			labels: this.labelsProject,
+			sent: run.project,
+			prefs: this.displayUnits,
+			caseWords: this.caseWords(run.caseId)
+		};
+	}
+
+	/**
+	 * Run a goal seek of the setup on the case shown (as Solve does), from the project as it is
+	 * now (a pending URL write first). Nothing is sent while a solve runs. When it ends with the
+	 * dialog closed, a notice says how (the dialog's live region says it when open; never both).
+	 */
+	async runGoalSeek(): Promise<void> {
+		this.store.flush();
+		const caseId = this.store.activeCase;
+		const request = toRequest(this.goalSeekSetup, this.store.project, caseId);
+		if (!(await this.store.runGoalSeek(request, caseId))) return;
+		const state = this.store.goalSeek;
+		if (this.goalSeekOpen || !state || 'previous' in state) return;
+		if (state.run.request !== request) return;
+		const on = `Goal seek on ${this.caseWords(caseId)}`;
+		if (state.status === 'failed') {
+			this.notify('error', `${on} failed: ${state.error?.message ?? 'no answer.'}`);
+			return;
+		}
+		const result = state.response?.result;
+		if (result?.stopReason === 'met_at_start') {
+			// The dialog offers no Apply then (§6.9, §6.10): nothing to change.
+			this.notify('info', `${on} finished: the case already meets every goal; nothing to change.`);
+			return;
+		}
+		const goals = result?.goals.length ?? 1;
+		const outcome = result?.met
+			? goals === 1
+				? 'goal met'
+				: 'every goal met'
+			: goals === 1
+				? 'goal not met'
+				: 'goals not met';
+		this.notify(
+			'info',
+			`${on} finished: ${outcome}. Open Goal seek to ${result?.met ? 'apply the values' : 'see the result'}.`
+		);
+	}
+
+	/**
+	 * Apply the latest goal seek's values (§6.10), as one undo step, then solve: to the case it ran
+	 * on (written into the base, or into its scenario), or as a new scenario holding that case's
+	 * changes and the values. The exact floats the API found are written, never the text shown.
+	 * Refused (with a notice) when it cannot be applied: out of date, no values, the limits. The
+	 * result shown again after a cancelled run applies as it did before. When the case already
+	 * holds the values, nothing is written (no undo step) and a notice says so (false).
+	 */
+	applyGoalSeek(mode: 'case' | 'new'): boolean {
+		const state = finishedGoalSeek(this.store.goalSeek);
+		if (this.store.goalSeek?.status === 'running') return false;
+		if (state?.status !== 'done' || !state.response) return false;
+		const { run, response } = state;
+		const problem = applyProblems(
+			this.store.project,
+			{ caseId: run.caseId, response, stale: state.stale },
+			mode,
+			(c) => this.caseName(c)
+		);
+		if (problem) {
+			this.notify('error', problem);
+			return false;
+		}
+		const overrides = foundOverrides(response);
+		const values = overrides
+			.map(
+				(o) =>
+					`${variableLabelOf(this.labelsProject, o)} ${overrideValueText(run.project, o, this.displayUnits)}`
+			)
+			.join(', ');
+		if (this.store.activeCase !== run.caseId) this.setCase(run.caseId);
+		if (mode === 'case') {
+			const label =
+				run.caseId === null
+					? 'apply goal seek values'
+					: `apply goal seek values in ${this.caseName(run.caseId)}`;
+			const result = this.store.update((draft) => applyToCase(draft, run.caseId, overrides), label);
+			if (!result.ok) {
+				this.notify(
+					'error',
+					`Could not ${label}: ${result.problems[0] ?? 'the change is not valid.'}`
+				);
+				return false;
+			}
+			if (!result.changed) {
+				const words = this.caseWords(run.caseId);
+				this.closeGoalSeek();
+				this.notify(
+					'info',
+					`${words.charAt(0).toUpperCase()}${words.slice(1)} already holds the values found (${values}): nothing changed.`
+				);
+				return false;
+			}
+			this.store.markGoalSeekApplied(run.caseId);
+			const kept =
+				run.caseId === null
+					? keptByScenarios(this.store.project, overrides).map(
+							(k) =>
+								` ${k.scenarios.join(', ')} ${k.scenarios.length === 1 ? 'sets its' : 'set their'} own ${k.label}, so ${k.scenarios.length === 1 ? 'it keeps it' : 'they keep it'}.`
+						)
+					: [];
+			this.closeGoalSeek();
+			this.notify(
+				'info',
+				`Applied to ${this.caseWords(run.caseId)}: ${values}. Undo restores the values before.${kept.join('')}`
+			);
+		} else {
+			const description = newScenarioDescription(
+				response,
+				run.request,
+				this.goalSeekWords(run),
+				localDate(run.startedAt)
+			);
+			const created = asNewScenario(this.store.project, run.caseId, overrides, description);
+			// The undo step records the run's case: Undo returns there.
+			if (!this.updateStored(() => created.project, `add scenario ${created.name}`)) return false;
+			this.setCase(created.id);
+			this.store.markGoalSeekApplied(created.id);
+			this.closeGoalSeek();
+			this.notify(
+				'info',
+				`Added scenario ${created.name} with the values found. Rename it in Scenarios; Undo removes it.`
+			);
+		}
+		void this.solve();
+		return true;
 	}
 
 	/**
@@ -439,7 +631,10 @@ export class Workspace {
 	 * what the user entered for a kind with no default (an assigned-flow node's flow).
 	 */
 	addStandalone(kind: ComponentKind, values: EnteredValues = {}): string | null {
-		const component = createComponent(kind, this.project, values);
+		const component = createComponent(kind, this.project, {
+			...values,
+			reserved: this.reservedIds
+		});
 		const ok = this.edit(
 			(p) => ({ ...p, components: [...p.components, component] }),
 			`add ${component.name}`
@@ -463,13 +658,15 @@ export class Workspace {
 		const existing = componentById(this.project, componentId);
 		const port = existing ? portById(existing, portId) : undefined;
 		if (!existing || !port) return null;
+		const reserved = this.reservedIds;
 		const component = createComponent(kind, this.project, {
 			...values,
 			elevation: port.elevation ?? existing.elevation,
-			nominalSize: port.nominalSize
+			nominalSize: port.nominalSize,
+			reserved
 		});
 		const ok = this.edit(
-			(p) => addComponentAtPort(p, componentId, portId, component),
+			(p) => addComponentAtPort(p, componentId, portId, component, { reserved }),
 			`add ${component.name}`
 		);
 		if (!ok) return null;
@@ -492,10 +689,14 @@ export class Workspace {
 	insert(connectionId: string, kind: ComponentKind): string | null {
 		const connection = this.project.connections.find((c) => c.id === connectionId);
 		if (!connection) return null;
-		const component = createComponent(kind, this.project, this.#insertOptions(connection));
+		const reserved = this.reservedIds;
+		const component = createComponent(kind, this.project, {
+			...this.#insertOptions(connection),
+			reserved
+		});
 		const attached = this.#attachedToCurrent(connection);
 		const ok = this.edit(
-			(p) => insertComponentInConnection(p, connectionId, component),
+			(p) => insertComponentInConnection(p, connectionId, component, { reserved }),
 			`add ${component.name}`
 		);
 		if (!ok) return null;
@@ -507,9 +708,16 @@ export class Workspace {
 	addBranch(connectionId: string, kind: 'tee' | 'wye' = 'tee'): string | null {
 		const connection = this.project.connections.find((c) => c.id === connectionId);
 		if (!connection) return null;
-		const branch = createComponent(kind, this.project, this.#insertOptions(connection));
+		const reserved = this.reservedIds;
+		const branch = createComponent(kind, this.project, {
+			...this.#insertOptions(connection),
+			reserved
+		});
 		const attached = this.#attachedToCurrent(connection);
-		const ok = this.edit((p) => addBranch(p, connectionId, branch), `add ${branch.name}`);
+		const ok = this.edit(
+			(p) => addBranch(p, connectionId, branch, { reserved }),
+			`add ${branch.name}`
+		);
 		if (!ok) return null;
 		this.#reveal(branch.id, connectionId, attached);
 		const free = branch.ports.find((p) => !connectionAtPort(this.project, branch.id, p.id));
@@ -559,13 +767,18 @@ export class Workspace {
 
 	/** Close a free port with a plug. */
 	plug(componentId: string, portId: string): boolean {
-		return this.edit((p) => plugPort(p, componentId, portId), `plug ${componentId} ${portId}`);
+		const reserved = this.reservedIds;
+		return this.edit(
+			(p) => plugPort(p, componentId, portId, { reserved }),
+			`plug ${componentId} ${portId}`
+		);
 	}
 
 	/** Connect a free port of the current component to a free port elsewhere (e.g. to close a loop). */
 	connect(from: PortRef, to: PortRef): boolean {
+		const reserved = this.reservedIds;
 		return this.edit(
-			(p) => connectPorts(p, from, to),
+			(p) => connectPorts(p, from, to, undefined, { reserved }),
 			`connect ${from.componentId} to ${to.componentId}`
 		);
 	}

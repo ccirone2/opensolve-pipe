@@ -108,9 +108,10 @@ v1 is the core analysis MVP. Everything else in this document is **Later**. The 
 - NPSH available and NPSH margin
 - Panel navigator, results tables, pump/system curve chart
 - Scenario manager: named cases of one project, solved one at a time or all together and compared side by side (§3.8; CLAUDE.md D15)
+- Goal seek: the input values (1 to 4) that bring as many results to their targets, each trial a full solve (§3.9; CLAUDE.md D16)
 - Sharing by link (§4.4)
 
-**Later:** VFD pressure and differential-pressure control modes (D11 slices 2-3); HI viscosity correction; pressure relief valves; three-way valves; differential-pressure control valve mode; goal seek (§3.9); non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, heat exchangers, strainers, user-defined elements; fuels in the fluid library; auto-generated schematic; CSV/XLSX/image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
+**Later:** VFD pressure and differential-pressure control modes (D11 slices 2-3); HI viscosity correction; pressure relief valves; three-way valves; differential-pressure control valve mode; non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, heat exchangers, strainers, user-defined elements; fuels in the fluid library; auto-generated schematic; CSV/XLSX/image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
 
 ### 2.4 Future Features (Planned)
 
@@ -118,7 +119,7 @@ v1 is the core analysis MVP. Everything else in this document is **Later**. The 
 | ---------------------------------- | -------- | ----- |
 | Cost estimation utility            | High     | 2     |
 | Scenario manager (§3.8): built in v1 | High   | 2     |
-| Goal seek (§3.9)                   | Medium   | 2     |
+| Goal seek (§3.9): built in v1      | Medium   | 2     |
 | Pipe sizing optimization           | Medium   | 2     |
 | Global pump database               | Medium   | 2     |
 | Pump curve digitization from image | Medium   | 3     |
@@ -433,15 +434,18 @@ A scenario manager keeps several operating or design cases in one project and co
 - Traceability: every result shows which case produced it and lists the scenario's changes as the server applied them, with any it ignored; the methods summary and every changed element's trace say so.
 - Later: the active case in the link, applying a scenario's changes to the base, differences against a case other than the base, and adding or removing components in a scenario.
 
-### 3.9 Goal Seek (Later)
+### 3.9 Goal Seek
 
-Goal seek finds the input values that make chosen results hit target values, e.g. "what impeller speed gives 3 bar at the far user?" or "what reservoir level delivers 20 L/s?".
+Goal seek finds the input values that make chosen results hit target values, e.g. "what impeller speed gives 3 bar at the far user?" or "what reservoir level delivers 20 L/s?". Built in v1 (CLAUDE.md D16; design: `docs/proposals/goal-seek.md`).
 
-- The user picks one or more **variables** (an input from the overridable list in §3.8, with lower and upper bounds) and the same number of **goals** (a result such as a pressure at a port, a flow in a connection, a pump head or an NPSH margin, with a target value).
-- Each goal-seek run repeats the full network solve; it never approximates the network.
-- Output: the variable values found, each goal's achieved value and residual, and the iteration count. If a target can't be reached within the bounds, report the closest achievable value and flag the goal as not met; never clamp silently.
-- The result never changes the model on its own. The user applies the found values to the base or to a scenario.
-- Goal seek is a design aid that finds an input. It is separate from control valves and (Later) VFD control, which are devices that act inside a single solve.
+- **Variables.** The user picks 1 to 4 **variables**, each a number from the list in §3.8, with lower and upper bounds inside the value's own limits: a reservoir's liquid level or surface pressure, a reference node's pressure, an assigned flow, a pump's speed ratio (its maximum speed when speed-controlled) or flow setpoint, a control valve's setpoint, a valve's resistance (one K, Cv or Kv), a pipe's length, or a built-in fluid's temperature. Statuses, pipe sizes and the whole fluid are not numbers and are not variables: set them in a scenario and compare cases.
+- **Goals.** The user picks as many **goals**: a port's static pressure, a connection's flow, largest velocity or head loss, a pump's flow, head, NPSH available or NPSH margin, a valve's flow or pressure drop, or a reservoir's or reference node's outflow (the results Compare cases shows, §3.8), each with a target. Each goal has a tolerance: by default 0.5 % of the target, at least 0.01 m of head (pressures converted with the fluid's density), 10⁻⁶ m³/s for flows or 10⁻³ m/s for velocity; the user may enter a tighter or looser one, down to a fixed smallest tolerance per kind of result. A goal is met when its achieved value is within its tolerance of the target.
+- **Search.** Each evaluation is a full network solve of the case with the variables at trial values; nothing is approximated. The search starts from the case's own values. With one variable it solves 9 values across the bounds, then Brent's method where the result crosses its target nearest the start; with several, a bounded least-squares search. At most 60 evaluations for one variable and 20 per variable plus 20 for several, inside one request's time budget of 45 s (the best evaluation so far is reported when the budget runs out).
+- **Output.** The values found, each goal's achieved value, residual, tolerance and met status, why the search stopped, every evaluation (its values, its goal values, whether it was usable and the element states that changed), notes on what the search found (another crossing, a jump where an element switches state, a crossing where the network has no solution, a value that must be applied exactly), the full results at the values found and a "Goal seek" methods section. If a target can't be reached within the bounds, the closest value found is reported and the goal flagged as not met; it is never clamped silently, and the message says only what the values solved show.
+- **Applying.** The result never changes the model on its own. A run on the base case can be applied to the base case or as a new scenario; a run on a scenario to that scenario or as a new scenario (a scenario's values are never applied to the base). Apply writes the exact values found as one undo step and solves the case. A result goes out of date when the case it ran on changes.
+- **The case.** Goal seek runs on the case shown, the base or a scenario; the variables are written on top of the scenario's values. While it runs, solving waits; Cancel stops it. The setup and the last result belong to the page, not to the project or the link.
+- Goal seek is a design aid that finds an input. It is separate from control valves and VFD control, which are devices that act inside a single solve.
+- Later: saving goal-seek setups in the project, a start value or evaluation limit chosen by the user, streamed progress, goals on network extremes, absolute pressure, HGL/EGL, efficiency or power, applying a scenario run's values to the base, a global search for several variables, and more than 4 variables.
 
 ---
 

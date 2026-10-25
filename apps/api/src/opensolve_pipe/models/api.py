@@ -1,11 +1,19 @@
 """Request and response envelopes for the REST API (SDD §5)."""
 
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field
+from pydantic import ConfigDict, Field, model_validator
 
 from .base import CamelModel, Identifier, OutputModel
 from .fluids import BuiltinFluidId, FluidProperties
+from .goal_seek import (
+    MAX_GOAL_VARIABLES,
+    Goal,
+    GoalSeekResult,
+    GoalVariable,
+    goal_seek_schema_extra,
+    list_problems,
+)
 from .project import Project
 from .results import SolvedState
 from .scenarios import ScenarioResult
@@ -54,6 +62,59 @@ class SolveResponse(OutputModel):
     solved_state: SolvedState
     compute_time: float = Field(description="Seconds")
     scenario: ScenarioResult | None = Field(description=_SCENARIO_RESULT_DESCRIPTION)
+
+
+_GOAL_SEEK_SCENARIO_DESCRIPTION = (
+    "Run on this scenario of project.scenarios: the variables are written on top of its values "
+    "(omitted or null: the base project; an unknown id: 404 NOT_FOUND)"
+)
+
+
+class GoalSeekRequest(CamelModel):
+    """Find the values of 1 to 4 variables that bring as many goals to their targets (PRD §3.9,
+    CLAUDE.md D16). x-goal-variables, x-goal-quantities and x-goal-seek-rules publish the rules
+    JSON Schema cannot express."""
+
+    model_config = ConfigDict(json_schema_extra=goal_seek_schema_extra)
+
+    project: Project
+    scenario_id: Identifier | None = Field(
+        default=None, description=_GOAL_SEEK_SCENARIO_DESCRIPTION
+    )
+    variables: list[GoalVariable] = Field(
+        min_length=1,
+        max_length=MAX_GOAL_VARIABLES,
+        description="Numeric values of the scenario allow-list, each with its bounds",
+    )
+    goals: list[Goal] = Field(
+        min_length=1, max_length=MAX_GOAL_VARIABLES, description="As many as variables (PRD §3.9)"
+    )
+
+    @model_validator(mode="after")
+    def _check_lists(self) -> Self:
+        problems = list_problems(self.variables, self.goals)
+        if problems:
+            raise ValueError("; ".join(problems))
+        return self
+
+
+class GoalSeekResponse(OutputModel):
+    success: bool = Field(description="result.met: every goal met at the reported evaluation")
+    result: GoalSeekResult
+    solved_state: SolvedState | None = Field(
+        description=(
+            "The reported evaluation's own solve, with a first 'Goal seek' methods section and a "
+            "note on each varied element; null when no evaluation is usable"
+        )
+    )
+    compute_time: float = Field(description="Seconds in the worker")
+    scenario: ScenarioResult | None = Field(
+        description=(
+            "The case's scenario as stored, as /solve reports it; null for the base project. An "
+            "override named by a variable's replacedOverride was not used: the value found took "
+            "its place"
+        )
+    )
 
 
 ErrorCode = Literal[

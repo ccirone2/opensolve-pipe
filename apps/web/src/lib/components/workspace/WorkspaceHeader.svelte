@@ -19,6 +19,10 @@
 	("Solve Winter"). While Solve all runs, Solve shows its spinner and Cancel stops the run. A solve
 	goes on after a case switch: Solve keeps its spinner and Cancel, which then names the case it
 	stops ("Cancel solving Winter"), whichever case is shown.
+
+	Goal seek (proposal goal-seek.md §6.8): while one runs, Solve is unavailable with the reason (no
+	spinner: it is not solving) and Cancel ("Cancel goal seek") stops the goal seek, also with its
+	dialog closed. One request at a time: Solve reads the store's `calculating`.
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
@@ -27,6 +31,7 @@
 	import TextField from '$lib/components/ui/TextField.svelte';
 	import { stringLimits } from '$lib/utils/schema-bounds';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import { calculatingReason } from '$lib/utils/goal-seek';
 	import ScenarioManager from './ScenarioManager.svelte';
 	import SettingsDialog from './SettingsDialog.svelte';
 	import ShareButton from './ShareButton.svelte';
@@ -45,14 +50,26 @@
 	/** A solve in flight, of the case shown or another (D10: it can always be cancelled). */
 	const solvingCase = $derived(store.solvingCase);
 	const solving = $derived(solvingCase !== undefined || running);
+	/** A goal seek in flight: Cancel stops it; Solve waits (one request at a time). */
+	const seeking = $derived(store.calculating === 'goalSeek');
 	const cancelLabel = $derived(
-		running
-			? 'Cancel solving all cases'
-			: solvingCase !== undefined && solvingCase !== store.activeCase
-				? `Cancel solving ${ws.caseName(solvingCase)}`
-				: 'Cancel solve'
+		seeking
+			? 'Cancel goal seek'
+			: running
+				? 'Cancel solving all cases'
+				: solvingCase !== undefined && solvingCase !== store.activeCase
+					? `Cancel solving ${ws.caseName(solvingCase)}`
+					: 'Cancel solve'
 	);
-	const canSolve = $derived(!solving && !empty);
+	const canSolve = $derived(store.calculating === null && !empty);
+	/** Why Solve is unavailable, said with it: an empty network, or a goal seek running. */
+	const solveReason = $derived(
+		empty
+			? 'Add a component to the network first.'
+			: seeking
+				? calculatingReason('goalSeek', 'solve', true)
+				: ''
+	);
 	let solveButton: HTMLButtonElement | undefined = $state();
 	let cancelButton: HTMLButtonElement | undefined = $state();
 
@@ -69,7 +86,7 @@
 
 	// Before the DOM drops Cancel at the end of a solve: if it has the focus, Solve takes it.
 	$effect.pre(() => {
-		if (solving) return;
+		if (solving || seeking) return;
 		const cancel = untrack(() => cancelButton);
 		if (cancel && document.activeElement === cancel) void tick().then(() => solveButton?.focus());
 	});
@@ -136,7 +153,7 @@
 				<Icon name="redo" />
 			</button>
 			<span class="flex-1"></span>
-			{#if solving}
+			{#if solving || seeking}
 				<!-- The server stops a solve whose client has gone (D10); the results shown before stay. -->
 				<button
 					bind:this={cancelButton}
@@ -154,8 +171,8 @@
 				class="btn btn-primary"
 				data-solve-button
 				aria-disabled={!canSolve}
-				aria-describedby={empty ? `${id}-solve-reason` : undefined}
-				title={empty ? 'Add a component to the network first.' : undefined}
+				aria-describedby={solveReason ? `${id}-solve-reason` : undefined}
+				title={solveReason || undefined}
 				onclick={solve}
 			>
 				<Icon
@@ -175,8 +192,8 @@
 				</span>
 				{#if caseLabel}<span class="sr-only">{caseLabel}</span>{/if}
 			</button>
-			{#if empty}
-				<span id="{id}-solve-reason" class="sr-only">Add a component to the network first.</span>
+			{#if solveReason}
+				<span id="{id}-solve-reason" class="sr-only">{solveReason}</span>
 			{/if}
 			<ShareButton compact />
 			<!-- Its label from 768 px, as the Scenarios button's: at 640 px the one row also holds

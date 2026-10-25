@@ -16,9 +16,11 @@
 		footer?: Snippet;
 		/** Wider on large screens (forms with tables). */
 		wide?: boolean;
+		/** Wider still from 1024 px (two columns: a setup beside its result). */
+		xl?: boolean;
 	}
 
-	let { title, onclose, children, footer, wide = false }: Props = $props();
+	let { title, onclose, children, footer, wide = false, xl = false }: Props = $props();
 	const id = $props.id();
 	let dialog: HTMLDialogElement | undefined = $state();
 
@@ -57,7 +59,7 @@
 	onclick={backdrop}
 	class={[
 		'm-0 mt-auto max-h-[92dvh] w-full max-w-full overflow-hidden rounded-t-xl bg-white p-0 text-slate-900 shadow-xl sm:m-auto sm:max-h-[85dvh] sm:rounded-xl',
-		wide ? 'sm:max-w-2xl' : 'sm:max-w-lg'
+		xl ? 'sm:max-w-2xl lg:max-w-5xl' : wide ? 'sm:max-w-2xl' : 'sm:max-w-lg'
 	]}
 >
 	<div class="flex max-h-[inherit] flex-col">
@@ -70,8 +72,11 @@
 				<Icon name="close" />
 			</button>
 		</div>
+		<!-- relative: absolutely positioned content (sr-only captions) stays inside the scroll
+		     body; otherwise it extends the overflow-hidden dialog, which a focus move then
+		     scrolls past its title bar. -->
 		<div
-			class="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+			class="relative min-h-0 flex-1 overflow-y-auto px-4 py-4"
 			use:focusableWhenScrollable={`${id}-title`}
 		>
 			{@render children()}

@@ -16,6 +16,7 @@ Students checking hand calculations, field technicians sizing a retrofit, and pr
 - Darcy–Weisbach / Colebrook friction, with K-factor minor losses from Crane TP-410 (via the `fluids` library)
 - Results: flows, velocities, head loss, pressures, HGL/EGL, pump operating point, system curve, NPSH available
 - Scenarios: named cases of one network (a pump off, a valve closed, a larger pipe, another fluid temperature) kept as changes of the base case, solved one at a time or all together and compared side by side
+- Goal seek: the input values (a pump speed, a reservoir level, a valve's Cv, a pipe length, up to four at once) that bring chosen results to their targets, each trial a full network solve, applied to the case or as a new scenario only when you choose
 - Imperial, SI or mixed units
 - Share by link: the project is compressed into the URL fragment and never sent to a server for storage
 

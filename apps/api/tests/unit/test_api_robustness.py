@@ -18,6 +18,7 @@ from opensolve_pipe import workers
 from opensolve_pipe.main import app
 from opensolve_pipe.middleware import MAX_BODY_BYTES, RateLimit
 from opensolve_pipe.models.api import SolveOptions, SolveResponse
+from opensolve_pipe.models.goal_seek import MAX_GOAL_VARIABLES
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.scenarios import MAX_OVERRIDES, MAX_SCENARIOS
 from opensolve_pipe.services.solver import solve_project
@@ -368,6 +369,38 @@ def test_project_bounds_fit_the_body_limit() -> None:
     ]
     body = json.dumps(
         {"project": project, "scenarioId": f"S{MAX_SCENARIOS}", "options": {}},
+        separators=(",", ":"),
+    )
+    assert len(body.encode()) <= MAX_BODY_BYTES
+    # A goal seek on that project and scenario, with the most variables and goals
+    # (docs/proposals/goal-seek.md §7.1): the longest ids and 17-digit floats.
+    long_id = "X" * 64
+    variables = [
+        {
+            "kind": "pipe",
+            "connectionId": long_id,
+            "pipeIndex": 99,
+            "field": "length",
+            "lower": 0.12345678901234567,
+            "upper": 123456.78901234567,
+        }
+    ] * MAX_GOAL_VARIABLES
+    goals = [
+        {
+            "quantity": "port_pressure",
+            "elementId": long_id,
+            "portId": long_id,
+            "target": -12345.678901234567,
+            "tolerance": 1.2345678901234567,
+        }
+    ] * MAX_GOAL_VARIABLES
+    body = json.dumps(
+        {
+            "project": project,
+            "scenarioId": f"S{MAX_SCENARIOS}",
+            "variables": variables,
+            "goals": goals,
+        },
         separators=(",", ":"),
     )
     assert len(body.encode()) <= MAX_BODY_BYTES

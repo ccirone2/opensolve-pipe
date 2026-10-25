@@ -6,6 +6,8 @@
  * Errors are typed so the UI can say what to do (SDD §8.1):
  * - TopologyError: the network cannot be solved as connected (422 TOPOLOGY_ERROR);
  * - ValidationError: the request was rejected as invalid input (400, or 422 from validation);
+ *   NotFoundError, a ValidationError, when what it names is not in the project (404 NOT_FOUND:
+ *   an unknown scenario or pump, or a goal seek's unknown elements, with their issues);
  * - NetworkError: the API could not be reached, could not do the work now, or did not answer as
  *   documented (offline, timeout, 429 or 5xx, with the server's message when it sent the error
  *   envelope: busy, still solving the previous request, the time budget ran out; or an endpoint
@@ -19,6 +21,8 @@ import type {
 	FluidListResponse,
 	FluidProperties,
 	FluidPropertiesResponse,
+	GoalSeekRequest,
+	GoalSeekResponse,
 	LibraryResponse,
 	MethodVersionsResponse,
 	Project,
@@ -81,6 +85,22 @@ export class ValidationError extends ApiError {
 		this.name = 'ValidationError';
 		this.details = details;
 		this.code = code ?? null;
+	}
+}
+
+/**
+ * 404 NOT_FOUND: the request names something the project does not have (an unknown scenario or
+ * pump, or a goal seek's unknown elements, ports or pipes, each an issue with its ids). It is a
+ * ValidationError, so every endpoint's 404 is about the request as before; goal seek reads its
+ * issues to mark the rows they name.
+ */
+export class NotFoundError extends ValidationError {
+	readonly issues: readonly TopologyIssue[];
+
+	constructor(message: string, details: readonly string[], issues: readonly TopologyIssue[]) {
+		super(message, details, 404, 'NOT_FOUND');
+		this.name = 'NotFoundError';
+		this.issues = issues;
 	}
 }
 
@@ -254,6 +274,9 @@ export class ApiClient {
 				throw new NetworkError(data.message, response.status, data.error);
 			}
 			const details = [data.message, ...data.issues.map((i) => i.message)].filter(Boolean);
+			if (response.status === 404 && data.error === 'NOT_FOUND') {
+				throw new NotFoundError(data.message, details, data.issues);
+			}
 			throw new ValidationError(data.message, details, response.status, data.error);
 		}
 		const details = validationDetails(data);
@@ -304,6 +327,27 @@ export class ApiClient {
 			...(options.scenarioId ? { scenarioId: options.scenarioId } : {})
 		};
 		return this.#request<SystemCurveResponse>('POST', '/api/v1/system-curve', body, options);
+	}
+
+	/**
+	 * Goal seek (POST /api/v1/goal-seek, PRD §3.9): the values of `variables` that bring `goals`
+	 * to their targets, each evaluation a full solve of the case (the base, or the scenario
+	 * `request.scenarioId`, sent in the body only). A goal not met is a 200 with success false.
+	 * The project is never changed: each variable's override applies the value found.
+	 */
+	goalSeek(
+		project: Project,
+		setup: Pick<GoalSeekRequest, 'variables' | 'goals'>,
+		request?: CaseRequestOptions
+	) {
+		const scenarioId = request?.scenarioId;
+		const body: GoalSeekRequest = {
+			project,
+			...(scenarioId ? { scenarioId } : {}),
+			variables: setup.variables,
+			goals: setup.goals
+		};
+		return this.#request<GoalSeekResponse>('POST', '/api/v1/goal-seek', body, request);
 	}
 
 	/** Pipe materials and fitting types (GET /api/v1/library). Cached; retried after a failure. */
@@ -367,6 +411,8 @@ export function defaultClient(): ApiClient {
 export const solve = (...args: Parameters<ApiClient['solve']>) => defaultClient().solve(...args);
 export const systemCurve = (...args: Parameters<ApiClient['systemCurve']>) =>
 	defaultClient().systemCurve(...args);
+export const goalSeek = (...args: Parameters<ApiClient['goalSeek']>) =>
+	defaultClient().goalSeek(...args);
 export const getLibrary = () => defaultClient().getLibrary();
 export const getFluids = () => defaultClient().getFluids();
 export const fluidProperties = (...args: Parameters<ApiClient['fluidProperties']>) =>

@@ -104,3 +104,42 @@ def test_a_scenario_request_logs_nothing_of_its_body(caplog: pytest.LogCaptureFi
     logged = " ".join(r.getMessage() for r in caplog.records)
     for text in (secret, "7.654321", "9.87654"):
         assert text not in logged
+
+
+def test_a_goal_seek_request_logs_nothing_of_its_body(caplog: pytest.LogCaptureFixture) -> None:
+    """A goal seek's variables, goals and scenario travel in the body, as the project does
+    (docs/proposals/goal-seek.md §4.5): neither its run nor its rejection logs them."""
+    from .helpers import project_dict, two_reservoirs
+
+    secret = "SECRET4k2"
+    project = project_dict(*two_reservoirs())
+    project["metadata"]["name"] = secret
+    project["scenarios"] = [{"id": "S7", "name": f"{secret} case", "overrides": []}]
+    variable = {
+        "kind": "component",
+        "componentId": "R1",
+        "field": "liquidLevel",
+        "lower": 3.456789,
+        "upper": 34.56789,
+    }
+    goal = {"quantity": "link_flow", "elementId": "P1", "target": 0.0234567}
+    client = TestClient(app, client=("198.51.103.8", 50000))
+    with caplog.at_level(logging.DEBUG):
+        ok = client.post(
+            "/api/v1/goal-seek",
+            json={"project": project, "scenarioId": "S7", "variables": [variable], "goals": [goal]},
+        )
+        bad = client.post(
+            "/api/v1/goal-seek",
+            json={
+                "project": project,
+                "variables": [{**variable, "lower": 98.76543, "upper": 9.876543}],
+                "goals": [goal],
+            },
+        )
+    assert ok.status_code == 200
+    assert bad.status_code == 400
+    assert "98.76543" not in bad.text
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    for text in (secret, "3.456789", "34.56789", "0.0234567", "98.76543"):
+        assert text not in logged

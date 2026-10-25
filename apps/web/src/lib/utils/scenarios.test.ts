@@ -37,6 +37,7 @@ import {
 	newScenarioId,
 	overlappingChanges,
 	scenarioEdit,
+	setValue,
 	trackPipes,
 	valueOf,
 	withChange,
@@ -337,6 +338,33 @@ describe('editing in a scenario', () => {
 				updateComponent(p, 'R1', (c) => ({ ...c, liquidLevel: 5 }) as typeof c)
 			).ok
 		).toBe(true);
+	});
+});
+
+describe('setValue, the inverse of valueOf (goal seek writes values found into the base)', () => {
+	it('writes each kind of value where valueOf reads it, and refuses a missing target', () => {
+		const draft = structuredClone(pumpTransferExample());
+		const writes: [Parameters<typeof setValue>[1], string, unknown][] = [
+			[{ kind: 'component', componentId: 'P1' }, 'speed', 0.8611744213850658],
+			[{ kind: 'component', componentId: 'R1' }, 'liquidLevel', 4.25],
+			[{ kind: 'component', componentId: 'V1' }, 'resistance', { kind: 'Cv', value: 18.2 }],
+			[{ kind: 'pipe', connectionId: 'L3', pipeIndex: 0 }, 'length', 41.3],
+			[{ kind: 'project' }, 'fluid.temperature', 301.2]
+		];
+		for (const [target, field, value] of writes) {
+			expect(setValue(draft, target, field, value)).toBe(true);
+			expect(valueOf(draft, target, field)).toEqual(value);
+		}
+		expect(draft.components.find((c) => c.id === 'P1')).toMatchObject({
+			speed: 0.8611744213850658
+		});
+		// No flow control to hold a setpoint, and no such component: nothing is written.
+		const before = canonicalJson(draft);
+		expect(setValue(draft, { kind: 'component', componentId: 'P1' }, 'control.setpoint', 1)).toBe(
+			false
+		);
+		expect(setValue(draft, { kind: 'component', componentId: 'P9' }, 'speed', 1)).toBe(false);
+		expect(canonicalJson(draft)).toBe(before);
 	});
 });
 

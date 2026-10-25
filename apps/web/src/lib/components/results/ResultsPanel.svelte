@@ -19,6 +19,10 @@
 	and a case switch replaces it (the switch is announced once, by the workspace). Switching tab
 	from a control that goes (a column header of Compare cases, the card's Compare cases) gives the
 	focus to the tab shown.
+
+	Goal seek (proposal goal-seek.md §6.2): the Goal seek button at the right of the header opens
+	its dialog, without a solve; its icon spins while one runs. While a goal seek runs, every Solve
+	control here is unavailable with the reason (one request at a time, store.calculating).
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
@@ -56,6 +60,7 @@
 		changeTargetLabel
 	} from '$lib/utils/scenarios';
 	import { scenarioProblems } from '$lib/utils/scenario-problems';
+	import { calculatingReason } from '$lib/utils/goal-seek';
 	import type { Override } from '$lib/api/types';
 	import CompareView from './CompareView.svelte';
 	import ConvergenceStatus from './ConvergenceStatus.svelte';
@@ -390,8 +395,10 @@
 		document.getElementById(`${id}-casetab-${compare ? 'compare' : 'case'}`)?.focus();
 	}
 
-	/** A solve in flight, of any case: starting another would cancel it. */
-	const busy = $derived(!!ws.store.run || ws.store.solvingCase !== undefined);
+	/** A request in flight (a solve of any case, Solve all, a goal seek): one at a time. */
+	const busyReason = $derived(calculatingReason(ws.store.calculating, 'solve'));
+	const busy = $derived(!!busyReason);
+	const goalSeeking = $derived(ws.store.calculating === 'goalSeek');
 </script>
 
 <div class="relative flex h-full min-h-0 flex-col">
@@ -410,7 +417,20 @@
 				>
 			{/if}
 		</h2>
-		{#key caseId}<p role="status" class="text-sm text-slate-600">{status}</p>{/key}
+		{#key caseId}<p role="status" class="min-w-0 text-sm text-slate-600">{status}</p>{/key}
+		<button
+			type="button"
+			class="btn shrink-0 max-[24rem]:w-11 max-[24rem]:px-0"
+			data-goal-seek-button
+			aria-label={goalSeeking ? 'Goal seek (running)' : undefined}
+			onclick={() => ws.openGoalSeek()}
+		>
+			<Icon
+				name={goalSeeking ? 'spinner' : 'target'}
+				class={['size-4', goalSeeking && 'motion-safe:animate-spin']}
+			/>
+			<span class="max-[24rem]:sr-only">Goal seek</span>
+		</button>
 	</div>
 	{#if hasScenarios}
 		<div
@@ -599,6 +619,8 @@
 							type="button"
 							class="btn btn-primary"
 							aria-disabled={busy}
+							aria-describedby={busy ? `${id}-busy` : undefined}
+							title={busyReason || undefined}
 							onclick={() => !busy && void ws.solve()}
 						>
 							<Icon name="play" class="size-4" /> Solve <span class="sr-only">{caseName}</span>
@@ -607,10 +629,13 @@
 							type="button"
 							class="btn"
 							aria-disabled={busy}
+							aria-describedby={busy ? `${id}-busy` : undefined}
+							title={busyReason || undefined}
 							onclick={() => !busy && void ws.solveAll()}
 						>
 							Solve all
 						</button>
+						{#if busy}<span id="{id}-busy" class="sr-only">{busyReason}</span>{/if}
 					</div>
 				{:else if !ws.project.components.length}
 					<p class="text-slate-700">
@@ -624,9 +649,17 @@
 							results. Press Solve to calculate the flows, pressures and pump operating points (the
 							project is sent to the calculation server, which does not keep it).
 						</p>
-						<button type="button" class="btn btn-primary" onclick={() => void ws.solve()}>
+						<button
+							type="button"
+							class="btn btn-primary"
+							aria-disabled={busy}
+							aria-describedby={busy ? `${id}-busy-now` : undefined}
+							title={busyReason || undefined}
+							onclick={() => !busy && void ws.solve()}
+						>
 							<Icon name="play" class="size-4" /> Solve now
 						</button>
+						{#if busy}<span id="{id}-busy-now" class="sr-only">{busyReason}</span>{/if}
 					</div>
 				{:else}
 					<p class="text-slate-700">

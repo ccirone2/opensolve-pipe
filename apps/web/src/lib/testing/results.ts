@@ -8,6 +8,9 @@
 import type {
 	ElementTrace,
 	Flag,
+	GoalSeekEvaluation,
+	GoalSeekResponse,
+	GoalSeekResult,
 	LinkResult,
 	MethodsSummary,
 	NodeResult,
@@ -323,6 +326,107 @@ export function response(
 		success: solvedState.converged,
 		computeTime: 0.25,
 		solvedState,
+		scenario: null,
+		...values
+	};
+}
+
+/** A made-up goal-seek evaluation of one variable and one goal (usable unless told otherwise). */
+export function evaluation(
+	index: number,
+	x: number,
+	g: number | null,
+	values: Partial<GoalSeekEvaluation> = {}
+): GoalSeekEvaluation {
+	return {
+		index,
+		purpose: index === 0 ? 'start' : 'scan',
+		variableValues: [x],
+		outcome: g === null ? 'not_converged' : 'usable',
+		goalValues: [g],
+		residuals: [g === null ? null : g - 0.015],
+		message: g === null ? 'made-up reason: the solve did not converge' : '',
+		seconds: 0.02,
+		stateChanges: [],
+		...values
+	};
+}
+
+/**
+ * A made-up goal seek of the pump transfer example (pumpTransferSolved): Transfer pump P1's speed
+ * between 20 % and 100 % to bring the flow in L2 (Transfer pump → Discharge isolation valve) to
+ * 15 L/s, met at 86.1174 % after 3 evaluations. `result` replaces fields of the result.
+ */
+export function goalSeekResponse(
+	result: Partial<GoalSeekResult> = {},
+	values: Partial<GoalSeekResponse> = {}
+): GoalSeekResponse {
+	const speed = 0.8611744213850658;
+	const base: GoalSeekResult = {
+		met: true,
+		stopReason: 'met',
+		message: 'Every goal is met, after 3 evaluations.',
+		method: 'scan_brent',
+		methodVersion: '1.2.0',
+		evaluationLimit: 60,
+		timeBudget: 45,
+		reportedEvaluation: 2,
+		variables: [
+			{
+				index: 0,
+				variable: { kind: 'component', componentId: 'P1', field: 'speed', lower: 0.2, upper: 1 },
+				label: 'speed ratio of pump P1',
+				unit: '',
+				scale: 'linear',
+				start: 1,
+				startSource: 'case',
+				caseValue: 1,
+				baseValue: 1,
+				value: speed,
+				atBound: null,
+				override: { kind: 'component', componentId: 'P1', field: 'speed', value: speed },
+				replacedOverride: null
+			}
+		],
+		goals: [
+			{
+				index: 0,
+				goal: { quantity: 'link_flow', elementId: 'L2', target: 0.015 },
+				label: 'flow in connection L2',
+				unit: 'm³/s',
+				tolerance: 7.5e-5,
+				toleranceSource: 'default',
+				value: 0.0150000069,
+				residual: 6.9e-9,
+				met: true,
+				message: '',
+				evaluatedMin: 0.002,
+				evaluatedMax: 0.019
+			}
+		],
+		evaluations: [
+			evaluation(0, 1, 0.019),
+			evaluation(1, 0.2, 0.002),
+			evaluation(2, speed, 0.0150000069, { purpose: 'root' })
+		],
+		notes: [],
+		methods: {
+			title: 'Goal seek',
+			items: ['Goal seek on the base case of this project: made-up methods text for tests.'],
+			references: ['Made-up reference for tests.']
+		},
+		...result
+	};
+	return {
+		success: base.met,
+		result: base,
+		solvedState: pumpTransferSolved({
+			linkResults: {
+				...pumpTransferSolved().linkResults,
+				L2: link({ flow: 0.0150000069, velocity: 3 })
+			}
+		}),
+		computeTime: 0.4,
 		scenario: null,
 		...values
 	};

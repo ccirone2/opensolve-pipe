@@ -434,6 +434,18 @@ export function valueOf(project: Project, target: ChangeTarget, field: string): 
 	return resolved.state === 'applied' ? read(resolved.target, resolved.entry) : undefined;
 }
 
+/**
+ * Write `value` as `field` of `target` in `project` (a draft: changed in place), where `valueOf`
+ * reads it: the inverse of valueOf (a group's keys, a pipe's spec, are replaced together). Returns
+ * false, changing nothing, when the target does not have the value (deleted, or not applicable).
+ */
+export function setValue(project: Project, target: ChangeTarget, field: string, value: unknown) {
+	const resolved = resolve(project, makeOverride(target, field, value));
+	if (resolved.state !== 'applied') return false;
+	write(resolved.target, resolved.entry, value);
+	return true;
+}
+
 /** The scenario's change of `field` on `target`, if it has one. */
 export function findChange(
 	scenario: Scenario | undefined,

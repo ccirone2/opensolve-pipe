@@ -15,25 +15,9 @@ from ..models.scenarios import ScenarioResult
 from ..services.scenarios import solve_case, system_curve_case
 from ..services.solver import solve_project, system_curve
 from ..workers import run_solve
+from ._common import _ERRORS, _client
 
 router = APIRouter()
-
-_ERRORS: dict[int | str, dict[str, object]] = {
-    400: {"model": ErrorResponse, "description": "Invalid input"},
-    413: {"model": ErrorResponse, "description": "Request too large"},
-    422: {"model": ErrorResponse, "description": "Topology error"},
-    429: {"model": ErrorResponse, "description": "Rate limited"},
-    503: {
-        "model": ErrorResponse,
-        "description": "Server busy (SERVER_BUSY) or the time budget ran out (TIMEOUT)",
-    },
-    "default": {"model": ErrorResponse, "description": "Other errors"},
-}
-
-
-def _client(request: Request) -> str:
-    """The client address, as the rate limiter keys it."""
-    return request.client.host if request.client else "unknown"
 
 
 @router.post(

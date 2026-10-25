@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Regenerate the frontend API types from the FastAPI OpenAPI schema, and the shared scenario
-# fixture the web's client mirror is checked against (proposal scenario-manager.md §6.16).
+# Regenerate the frontend API types from the FastAPI OpenAPI schema, and the shared scenario and
+# goal-seek fixtures the web's client mirrors are checked against (proposals scenario-manager.md
+# §6.16, goal-seek.md §7.5).
 # Pydantic models in apps/api are the source of truth; never edit the outputs by hand.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -9,3 +10,5 @@ pnpm exec openapi-typescript src/lib/api/openapi.json -o src/lib/api/schema.d.ts
 pnpm exec prettier --write src/lib/api/openapi.json > /dev/null
 (cd ../api && uv run --quiet python -m tests.fixtures.scenario_cases) \
 	> src/lib/utils/__fixtures__/scenario-cases.json
+(cd ../api && uv run --quiet python -m tests.fixtures.goal_seek_cases) \
+	> src/lib/utils/__fixtures__/goal-seek-cases.json

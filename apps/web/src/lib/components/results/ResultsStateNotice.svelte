@@ -4,11 +4,13 @@
 	of this same project (offers to solve again, e.g. after a network error), or of an earlier
 	version of it (the failure is about the current project, so solving again cannot help until it
 	is fixed). Shown with the results and inside an element's trace, so values are never shown
-	without it. After a cancelled solve, the failed one is the last solve that finished.
+	without it. After a cancelled solve, the failed one is the last solve that finished. Solve again
+	is unavailable, with the reason, while any request runs (a solve, Solve all, a goal seek).
 -->
 <script lang="ts">
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import { calculatingReason } from '$lib/utils/goal-seek';
 
 	/** `values`: wording for the values of one element (the trace view). */
 	let { values = false }: { values?: boolean } = $props();
@@ -16,8 +18,10 @@
 	const results = $derived(ws.store.results);
 	const these = $derived(values ? 'These values are' : 'The results below are');
 	const lastSolve = $derived(results.cancelled ? 'The last solve that finished' : 'The last solve');
-	/** A solve in flight, of any case (another case's goes on after a case switch). */
-	const busy = $derived(!!ws.store.run || ws.store.solvingCase !== undefined);
+	const id = $props.id();
+	/** A request in flight: a solve of any case, Solve all or a goal seek (one at a time). */
+	const busyReason = $derived(calculatingReason(ws.store.calculating, 'solve'));
+	const busy = $derived(!!busyReason);
 	/** The latest solve was of the current project and failed; the response is from before. */
 	const failedNow = $derived(!!results.error && !results.errorStale && !!results.response);
 </script>
@@ -40,9 +44,17 @@
 		<p class="min-w-0 flex-1 basis-48">
 			{lastSolve} failed. {these} from the previous solve of this same project.
 		</p>
-		<button type="button" class="btn" aria-disabled={busy} onclick={() => !busy && void ws.solve()}>
+		<button
+			type="button"
+			class="btn"
+			aria-disabled={busy}
+			aria-describedby={busy ? `${id}-busy` : undefined}
+			title={busyReason || undefined}
+			onclick={() => !busy && void ws.solve()}
+		>
 			<Icon name="play" class="size-4" /> Solve again
 		</button>
+		{#if busy}<span id="{id}-busy" class="sr-only">{busyReason}</span>{/if}
 	</div>
 {:else if results.stale && (results.response || results.error)}
 	<div
@@ -53,8 +65,16 @@
 			Results are out of date: the project changed after this solve. {#if values}These values are
 				from before the change.{/if} Solve again to update the results.
 		</p>
-		<button type="button" class="btn" aria-disabled={busy} onclick={() => !busy && void ws.solve()}>
+		<button
+			type="button"
+			class="btn"
+			aria-disabled={busy}
+			aria-describedby={busy ? `${id}-busy` : undefined}
+			title={busyReason || undefined}
+			onclick={() => !busy && void ws.solve()}
+		>
 			<Icon name="play" class="size-4" /> Solve again
 		</button>
+		{#if busy}<span id="{id}-busy" class="sr-only">{busyReason}</span>{/if}
 	</div>
 {/if}

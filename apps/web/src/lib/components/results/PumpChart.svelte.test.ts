@@ -215,6 +215,16 @@ describe('pump chart', () => {
 		).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Compute the system curve' }));
 		expect(onretry).toHaveBeenCalledTimes(2);
+		await view.rerender({
+			result: pumpResult(),
+			name: 'P',
+			prefs: SI_UNITS,
+			system: { status: 'cancelled', by: 'goalSeek' },
+			onretry
+		});
+		expect(
+			screen.getByText('The system curve was not computed: a goal seek was started.')
+		).toBeInTheDocument();
 		// No system curve is shown in either state.
 		await fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
 		expect(screen.getByRole('table', { name: 'Pump curve at 100 % speed' })).toBeInTheDocument();

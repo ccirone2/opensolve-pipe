@@ -26,6 +26,7 @@
 		type CompareColumn
 	} from '$lib/utils/compare';
 	import type { ElementRef } from '$lib/utils/results';
+	import { calculatingReason } from '$lib/utils/goal-seek';
 	import type { CaseId } from '$lib/utils/scenarios';
 	import CompareRowsDialog from './CompareRowsDialog.svelte';
 
@@ -83,7 +84,9 @@
 			? `Solving ${run.index + 1} of ${run.cases.length}: ${ws.caseName(run.cases[run.index] ?? null)}…`
 			: ''
 	);
-	const canRun = $derived(!run && store.solvingCase === undefined && toSolve.length > 0);
+	/** A request in flight (a solve, Solve all, a goal seek): one at a time. */
+	const busyReason = $derived(calculatingReason(store.calculating, 'solve'));
+	const canRun = $derived(!busyReason && toSolve.length > 0);
 
 	/** "Winter", "Winter and Peak", "Winter, Peak and Night". */
 	function names(list: readonly CaseId[]): string {
@@ -123,9 +126,17 @@
 		</div>
 		<div class="flex flex-wrap gap-2">
 			<button type="button" class="btn" onclick={() => (choosing = true)}>Choose results…</button>
-			<button type="button" class="btn" aria-disabled={!canRun} onclick={solveAll}>
+			<button
+				type="button"
+				class="btn"
+				aria-disabled={!canRun}
+				aria-describedby={busyReason ? `${id}-busy` : undefined}
+				title={busyReason || undefined}
+				onclick={solveAll}
+			>
 				<Icon name="play" class="size-4" /> Solve all
 			</button>
+			{#if busyReason}<span id="{id}-busy" class="sr-only">{busyReason}</span>{/if}
 		</div>
 	</div>
 	<!-- Not a live region: the case bar announces the run's progress. -->
@@ -162,7 +173,14 @@
 	{#if !anyResults}
 		<div class="flex flex-wrap items-center gap-2 text-sm">
 			<p class="text-slate-700">No case has results yet.</p>
-			<button type="button" class="btn btn-primary" aria-disabled={!canRun} onclick={solveAll}>
+			<button
+				type="button"
+				class="btn btn-primary"
+				aria-disabled={!canRun}
+				aria-describedby={busyReason ? `${id}-busy` : undefined}
+				title={busyReason || undefined}
+				onclick={solveAll}
+			>
 				<Icon name="play" class="size-4" /> Solve all
 			</button>
 		</div>

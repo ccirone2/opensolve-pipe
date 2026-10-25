@@ -189,7 +189,7 @@ class AppliedScenario:
 
 
 @dataclass(frozen=True)
-class _Plan:
+class OverridePlan:
     """One override resolved against the base project, before it is written."""
 
     index: int
@@ -223,12 +223,13 @@ def _walk(model: BaseModel, path: tuple[str, ...]) -> Any:
     return value
 
 
-def _plan(project: Project, j: int, override: AnyOverride) -> _Plan:
-    """Resolve the target, the allow-list entry and the holder (proposal §4.1 step 3)."""
+def plan_override(project: Project, j: int, override: AnyOverride) -> OverridePlan:
+    """Resolve the target, the allow-list entry and the holder of override ``j`` (proposal §4.1
+    step 3; goal seek plans its variables with it, docs/proposals/goal-seek.md §4.4)."""
     ids: dict[str, list[str]] = {"component_ids": [], "connection_ids": []}
 
-    def ignored(state: OverrideState, message: str, target_label: str, label: str) -> _Plan:
-        return _Plan(
+    def ignored(state: OverrideState, message: str, target_label: str, label: str) -> OverridePlan:
+        return OverridePlan(
             j, override, state, message, target_label, label, None, None, (), None, None, **ids
         )
 
@@ -285,7 +286,7 @@ def _plan(project: Project, j: int, override: AnyOverride) -> _Plan:
     if not isinstance(holder, expected):
         message = MISSING_HOLDER[override.field].format(id=getattr(target, "id", ""))
         return ignored("not_applicable", message, target_label, override_label(entry, target))
-    return _Plan(
+    return OverridePlan(
         j,
         override,
         "applied",
@@ -312,7 +313,7 @@ def _spec_is_valid(value: JsonValue, keys: tuple[str, ...]) -> bool:
     return isinstance(value, dict) and set(value) <= allowed
 
 
-def _write(data: dict[str, Any], plan: _Plan) -> None:
+def write_override(data: dict[str, Any], plan: OverridePlan) -> None:
     """Write the override's raw value at its location in ``data`` (a group replaces all its
     keys: a spec without innerDiameter drops the base's bore override)."""
     assert plan.entry is not None
@@ -338,7 +339,7 @@ def _clean(loc: tuple[str | int, ...]) -> Location:
     return loc
 
 
-def _issue(code: str, where: str, message: str, plan: _Plan | None) -> TopologyIssue:
+def _issue(code: str, where: str, message: str, plan: OverridePlan | None) -> TopologyIssue:
     return TopologyIssue(
         code=code,
         message=f"{where}: {message}",
@@ -354,12 +355,14 @@ def _error_key(error: ErrorDetails) -> ErrorKey:
     return (str(error["type"]), str(error["msg"]), _clean(tuple(error["loc"])))
 
 
-def _matches(error: ErrorDetails, plans: list[_Plan]) -> list[tuple[_Plan, Location | None]]:
+def _matches(
+    error: ErrorDetails, plans: list[OverridePlan]
+) -> list[tuple[OverridePlan, Location | None]]:
     """The written overrides an error is about: each whose value location contains the error's
     (with the error's location inside the value), or lies inside it (None: an object-level
     validator, which reads the whole component, pipe or project)."""
     loc = _clean(tuple(error["loc"]))
-    out: list[tuple[_Plan, Location | None]] = []
+    out: list[tuple[OverridePlan, Location | None]] = []
     for plan in plans:
         if plan.entry is None:
             continue
@@ -379,9 +382,9 @@ def _matches(error: ErrorDetails, plans: list[_Plan]) -> list[tuple[_Plan, Locat
 
 def _error_issues(
     error: ErrorDetails,
-    plans: list[_Plan],
+    plans: list[OverridePlan],
     s: int,
-    errors_without: Callable[[_Plan], set[ErrorKey]],
+    errors_without: Callable[[OverridePlan], set[ErrorKey]],
 ) -> list[tuple[int, TopologyIssue]]:
     """The issues of one error: one at each override whose value contains it, and an
     object-level error once, at the override(s) whose value its rule rejects, as the
@@ -419,7 +422,7 @@ def _json(value: Any) -> JsonValue:
     return result
 
 
-def _value(model: BaseModel, entry: Overridable) -> JsonValue:
+def entry_value(model: BaseModel, entry: Overridable) -> JsonValue:
     """The entry's value on ``model`` (the target), as JSON: a group gives its keys that are
     set and not null."""
     if entry.keys:
@@ -427,7 +430,7 @@ def _value(model: BaseModel, entry: Overridable) -> JsonValue:
     return _json(_walk(model, entry.path))
 
 
-def _effective_target(effective: Project, plan: _Plan) -> BaseModel:
+def _effective_target(effective: Project, plan: OverridePlan) -> BaseModel:
     """The override's target in the effective project (its location's keys are attribute
     names there too: components, connections, piping, pipes)."""
     target: Any = effective
@@ -437,7 +440,7 @@ def _effective_target(effective: Project, plan: _Plan) -> BaseModel:
     return target
 
 
-def _record(plan: _Plan, effective: Project) -> AppliedOverride:
+def _record(plan: OverridePlan, effective: Project) -> AppliedOverride:
     if plan.entry is None or plan.target is None:
         return AppliedOverride(
             plan.index,
@@ -458,8 +461,8 @@ def _record(plan: _Plan, effective: Project) -> AppliedOverride:
         index=plan.index,
         override=plan.override,
         state="applied",
-        value=_value(target, plan.entry),
-        base_value=_value(plan.target, plan.entry),
+        value=entry_value(target, plan.entry),
+        base_value=entry_value(plan.target, plan.entry),
         unit=override_unit(plan.entry, plan.target),
         message="",
         target_label=plan.target_label,
@@ -481,9 +484,9 @@ def apply_scenario(project: Project, scenario_id: str) -> AppliedScenario:
     base: dict[str, Any] = project.model_dump(mode="json", exclude_unset=True)
     base.pop("scenarios", None)
     data = copy.deepcopy(base)
-    plans = [_plan(project, j, o) for j, o in enumerate(scenario.overrides)]
+    plans = [plan_override(project, j, o) for j, o in enumerate(scenario.overrides)]
     issues: list[tuple[int, TopologyIssue]] = []
-    written: list[_Plan] = []
+    written: list[OverridePlan] = []
     for plan in plans:
         if plan.entry is None:
             continue
@@ -496,18 +499,18 @@ def apply_scenario(project: Project, scenario_id: str) -> AppliedScenario:
             where = f"body.project.scenarios.{s}.overrides.{plan.index}.value"
             issues.append((plan.index, _issue("invalid_pipe_spec", where, message, plan)))
             continue
-        _write(data, plan)
+        write_override(data, plan)
         written.append(plan)
     effective: Project | None = None
     without: dict[int, set[ErrorKey]] = {}
 
-    def errors_without(left_out: _Plan) -> set[ErrorKey]:
+    def errors_without(left_out: OverridePlan) -> set[ErrorKey]:
         """The validation errors of the effective project with ``left_out`` not written."""
         if left_out.index not in without:
             other = copy.deepcopy(base)
             for plan in written:
                 if plan is not left_out:
-                    _write(other, plan)
+                    write_override(other, plan)
             try:
                 Project.model_validate(other)
                 without[left_out.index] = set()
@@ -613,39 +616,70 @@ def _capitalized(text: str) -> str:
     return text[:1].upper() + text[1:]
 
 
-def _opening(applied: AppliedScenario) -> str:
+def _opening(applied: AppliedScenario, goal_seek: bool = False) -> str:
+    """``goal_seek``: the state is a goal seek's, whose variables hold the values it found
+    (docs/proposals/goal-seek.md §5.4; as built), so its values are named as the exception."""
     scenario = applied.scenario
     who = f"Scenario '{scenario.name}' (id {scenario.id}) of this project"
     rest = "A scenario changes values only, never the components or connections."
+    base = (
+        "the base project with the goal seek's values (see Goal seek)"
+        if goal_seek
+        else "the base project"
+    )
     total = len(applied.overrides)
     used = sum(o.state == "applied" for o in applied.overrides)
     if total == 0:
         return (
-            f"{who} overrides no base values: every result, trace and section below is of the "
-            f"base project. {rest}"
+            f"{who} overrides no base values: every result, trace and section below is of "
+            f"{base}. {rest}"
         )
     if used == 0:
         return (
             f"{who}: none of its {total} override(s) of base values could be applied (each is "
-            "listed below), so every result, trace and section below is of the base project. "
-            f"{rest}"
+            f"listed below), so every result, trace and section below is of {base}. {rest}"
         )
+    other = (
+        "Every other value is the base project's, except the goal seek's variables (see Goal seek)"
+        if goal_seek
+        else "Every other value is the base project's"
+    )
     return (
         f"{who}: {used} of its {total} override(s) of base values were applied to the base "
         "project before the network was built, so every result, trace and section below is of "
-        "the project with those values. Every other value is the base project's; a scenario "
-        "changes values only, never the components or connections."
+        f"the project with those values. {other}; a scenario changes values only, never the "
+        "components or connections."
     )
 
 
-def scenario_section(applied: AppliedScenario) -> MethodsSection:
-    """The "Scenario" methods section of a scenario's solve (proposal §5.3)."""
-    items = [_opening(applied)]
+REPLACED = "In this goal seek the value found takes its place (see Goal seek)."
+"""The mark of an override whose value a goal-seek variable replaced (docs/proposals/goal-seek.md
+§5.4)."""
+REPLACED_TEMPERATURE = (
+    "In this goal seek the value found takes the place of its temperature (see Goal seek)."
+)
+"""The mark of a whole-fluid override whose temperature a goal-seek variable replaced."""
+
+
+def _replaced_mark(o: AppliedOverride) -> str:
+    fluid = isinstance(o.override, ProjectOverride) and o.override.field == "fluid"
+    return REPLACED_TEMPERATURE if fluid else REPLACED
+
+
+def scenario_section(
+    applied: AppliedScenario, replaced: frozenset[int] = frozenset(), goal_seek: bool = False
+) -> MethodsSection:
+    """The "Scenario" methods section of a scenario's solve (proposal §5.3). ``replaced``: the
+    indexes of the overrides whose value a goal seek's variable replaced, each item marked so
+    (docs/proposals/goal-seek.md §5.4); ``goal_seek``: the opening names the goal seek's values
+    as the exception. /solve passes neither."""
+    items = [_opening(applied, goal_seek)]
     if applied.scenario.description:
         items.append(f"Description: {applied.scenario.description}")
     for o in applied.overrides:
         if o.state == "applied":
-            items.append(f"{_capitalized(o.target_label)}: {_change(o)}.")
+            mark = f" {_replaced_mark(o)}" if o.index in replaced else ""
+            items.append(f"{_capitalized(o.target_label)}: {_change(o)}.{mark}")
     for o in applied.overrides:
         if o.state != "applied":
             state = "orphaned" if o.state == "orphaned" else "not applicable"
@@ -656,9 +690,14 @@ def scenario_section(applied: AppliedScenario) -> MethodsSection:
     return MethodsSection(title="Scenario", items=items, references=[SCENARIO_DECISION])
 
 
-def element_notes(applied: AppliedScenario) -> dict[str, str]:
-    """One note per component or connection with an applied override (proposal §5.2)."""
+def element_notes(
+    applied: AppliedScenario, replaced: frozenset[int] = frozenset()
+) -> dict[str, str]:
+    """One note per component or connection with an applied override (proposal §5.2), ending
+    with the goal-seek mark when a variable replaced one of its overrides' values
+    (``replaced``, as for ``scenario_section``)."""
     changes: dict[str, list[str]] = {}
+    marks: dict[str, list[str]] = {}
     for o in applied.overrides:
         if o.state != "applied" or o.element_id is None:
             continue
@@ -666,26 +705,41 @@ def element_notes(applied: AppliedScenario) -> dict[str, str]:
         if o.pipe_index is not None:
             text = f"{pipe_name(o.pipe_index)} {text}"
         changes.setdefault(o.element_id, []).append(text)
+        if o.index in replaced:
+            label = o.label if o.pipe_index is None else f"{pipe_name(o.pipe_index)} {o.label}"
+            marks.setdefault(o.element_id, []).append(label)
     scenario = applied.scenario
-    return {
-        element: (
+    notes: dict[str, str] = {}
+    for element, texts in changes.items():
+        note = (
             f"Scenario '{scenario.name}' (id {scenario.id}) overrides the base project here: "
             f"{'; '.join(texts)}. The inputs below are the scenario's values."
         )
-        for element, texts in changes.items()
-    }
+        if element in marks:
+            note += (
+                f" In this goal seek the value found takes the place of its "
+                f"{' and '.join(marks[element])} (see Goal seek)."
+            )
+        notes[element] = note
+    return notes
 
 
-def annotate(state: SolvedState, applied: AppliedScenario) -> SolvedState:
+def annotate(
+    state: SolvedState,
+    applied: AppliedScenario,
+    replaced: frozenset[int] = frozenset(),
+    goal_seek: bool = False,
+) -> SolvedState:
     """``state`` (the solve of the effective project) with the scenario's text: a first
-    "Scenario" methods section and a first note in each overridden element's trace. Every
+    "Scenario" methods section and a first note in each overridden element's trace, with the
+    goal-seek marks of ``replaced`` and opening (``goal_seek``; neither for /solve). Every
     other field is unchanged."""
     methods = state.trace.methods
     methods = methods.model_copy(
-        update={"sections": [scenario_section(applied), *methods.sections]}
+        update={"sections": [scenario_section(applied, replaced, goal_seek), *methods.sections]}
     )
     elements = dict(state.trace.elements)
-    for element_id, note in element_notes(applied).items():
+    for element_id, note in element_notes(applied, replaced).items():
         element = elements.get(element_id)
         if element is not None:
             elements[element_id] = element.model_copy(update={"notes": [note, *element.notes]})

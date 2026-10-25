@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 
 import os
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -42,6 +43,24 @@ def interactive_docs_enabled(environ: Mapping[str, str]) -> bool:
 
 _DOCS = interactive_docs_enabled(os.environ)
 
+
+def cors_settings(environ: Mapping[str, str]) -> dict[str, Any]:
+    """The browser origins allowed to call the API (TSD §11.3).
+
+    CORS_ORIGINS lists exact origins, comma-separated (default: the dev server). The optional
+    CORS_ORIGIN_REGEX also allows every origin it matches whole (Starlette's fullmatch): the
+    site's Cloudflare Pages previews, whose hostnames change with each branch and commit, e.g.
+    ``https://[a-z0-9-]+[.]opensolve-pipe[.]pages[.]dev``. A regex that does not compile stops
+    the server at start-up rather than allowing the wrong origins."""
+    regex = environ.get("CORS_ORIGIN_REGEX", "").strip() or None
+    if regex is not None:
+        re.compile(regex)
+    return {
+        "allow_origins": environ.get("CORS_ORIGINS", "http://localhost:5173").split(","),
+        "allow_origin_regex": regex,
+    }
+
+
 app = FastAPI(
     title="OpenSolve Pipe API",
     description=(
@@ -66,7 +85,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(CatchAll)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(","),
+    **cors_settings(os.environ),
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
 )

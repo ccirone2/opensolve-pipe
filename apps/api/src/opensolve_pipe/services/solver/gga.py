@@ -139,7 +139,19 @@ large-bore pipe can exceed the solved flows by orders of magnitude, and a scale 
 stops Newton early (dead-end flows then carry the linear solve's error). The absolute floor
 lets a network whose solved flows are all zero converge."""
 ENERGY_TOL = 1.0e-7
-"""m. Converged only if |h(Q) − (H_start − H_end)| ≤ ENERGY_TOL on every link."""
+"""m. Converged only if |h(Q) − (H_start − H_end)| ≤ ENERGY_TOL + ENERGY_ROUNDOFF × the
+largest of |H_start|, |H_end| and |h(Q)| on every link (``energy_tolerances``)."""
+ENERGY_ROUNDOFF = 4.0 * float(np.finfo(np.float64).eps)
+"""The energy stop test's allowance for round-off, relative to the largest of a link's end
+heads and its loss (method 1.2.0; proposal vfd-slice2-discharge-pressure.md §2.11.10, fix (b),
+the owner's answer Q9 (a) of 2026-10-24). Double precision holds a head H to one unit in the
+last place, which lies between ε|H|/2 and ε|H| (ε = 2⁻⁵², the machine epsilon), and the
+residual subtracts heads of that size: from |H| = 2²⁹ m (about 5.4e8 m) one unit, 2⁻²³ m, is
+larger than ENERGY_TOL, so ENERGY_TOL alone can be out of reach there, and Newton then stalls
+at that floor until the iteration limit (an inner solve with EGLs up to 7.0e8 m stuck at
+1.19e-7 to 2.38e-7 m for 91 iterations, proposal §2.11.10, defect 2). 4ε|x| is at least four
+units in the last place of x. It exceeds ENERGY_TOL only where that largest value exceeds
+ENERGY_TOL / (4ε), about 1.13e8 m; at heads of 1e3 m it is 8.9e-13 m."""
 
 ZERO_FLOW_RTOL = 1.0e-12
 """Relative threshold below which a solved flow is reported as exactly zero. A flow of
@@ -203,6 +215,19 @@ class GgaResult:
     ``converged`` then says whether the rest of the network converged; the result is not a
     steady state of the whole network."""
 
+    continuity_exceeded_node: int | None = None
+    """The node of the largest continuity residual, of the iterate the result reports, that
+    exceeds its stop tolerance (CONTINUITY_RTOL × the iterate's largest flow +
+    CONTINUITY_ATOL; a residual that is not finite, or one compared with a tolerance that is not
+    a number, counts as exceeding it, ``_largest_exceeding``); None when every one is within
+    it. ``max_continuity_node`` is the largest residual's node whatever its size (with all
+    residuals exactly 0, the first node), so the NOT_CONVERGED flag names this one instead
+    (proposal vfd-slice2-discharge-pressure.md §2.11.10, fix (a))."""
+    energy_exceeded_link: int | None = None
+    """The link of the largest energy residual, of the iterate the result reports, that
+    exceeds its stop tolerance (``energy_tolerances``; counted as for
+    ``continuity_exceeded_node``); None when every one is within it."""
+
     check_heads: FloatArray | None = None
     """EGL per node at the last finite iterate within CHECK_ITERATIONS (None if none)."""
     check_flows: FloatArray | None = None
@@ -236,6 +261,29 @@ def jacobian_slopes(
     reference = np.where(series > 0, series, fallback)
     floor = np.maximum(JACOBIAN_FLOOR_RELATIVE * reference, JACOBIAN_FLOOR_ABSOLUTE)
     return np.where(is_pipe, np.maximum(slopes, JACOBIAN_FLOOR_ABSOLUTE), np.maximum(slopes, floor))
+
+
+def energy_tolerances(h_start: FloatArray, h_end: FloatArray, loss: FloatArray) -> FloatArray:
+    """The energy stop test's tolerance on each link, m: ENERGY_TOL + ENERGY_ROUNDOFF × the
+    largest of |H_start|, |H_end| and |h(Q)|, the EGLs at the link's ends and its loss (see
+    ENERGY_ROUNDOFF). Where 4ε × that value is below half a unit in the last place of
+    ENERGY_TOL, the sum rounds to ENERGY_TOL itself."""
+    largest = np.maximum(np.maximum(np.abs(h_start), np.abs(h_end)), np.abs(loss))
+    return ENERGY_TOL + ENERGY_ROUNDOFF * largest
+
+
+def _largest_exceeding(residuals: FloatArray, tolerances: FloatArray | float) -> int | None:
+    """Position of the largest |residual| among those not within their tolerance, or None when
+    every one is within it. A residual that is not finite is never within it: where the
+    iteration overflowed, a link's heads or loss are infinite and so is its tolerance (and the
+    continuity tolerance once the largest flow is), and |inf| ≤ inf would hold; nor is one
+    compared with a tolerance that is not a number. Where the largest residual is not finite,
+    the position is np.argmax's (the first NaN, else the first infinite one), the convergence
+    report's (``max_continuity_node``, ``max_energy_link``)."""
+    over = np.flatnonzero(~np.isfinite(residuals) | ~(np.abs(residuals) <= tolerances))
+    if not over.size:
+        return None
+    return int(over[np.argmax(np.abs(residuals[over]))])
 
 
 @dataclass(frozen=True)
@@ -897,6 +945,8 @@ def _solve_gga(
     message = ""
     energy_all = np.zeros(solve_links.size)
     continuity_all = np.zeros(free_nodes.size)
+    energy_tol = np.full(solve_links.size, ENERGY_TOL)
+    continuity_tol = CONTINUITY_ATOL
     check_heads: FloatArray | None = None
     check_flows: FloatArray | None = None
 
@@ -923,16 +973,20 @@ def _solve_gga(
         h_links = link_offsets.copy()
         h_links[newton] = h
         energy_all = h_links[solve_links] - (h_all[start[solve_links]] - h_all[end[solve_links]])
+        energy_tol = energy_tolerances(
+            h_all[start[solve_links]], h_all[end[solve_links]], h_links[solve_links]
+        )
         inflow = np.bincount(end, weights=q_all, minlength=n) - np.bincount(
             start, weights=q_all, minlength=n
         )
         continuity_all = inflow[free_nodes] - demand[free_nodes]
+        q_scale = float(np.max(np.abs(q_all)))  # the current iterate's flows (see above)
+        continuity_tol = CONTINUITY_RTOL * q_scale + CONTINUITY_ATOL
         if not (np.all(np.isfinite(energy_all)) and np.all(np.isfinite(d))):
             message = "the iteration diverged (non-finite head loss)"
             break
         if 0 < it <= CHECK_ITERATIONS and np.all(np.isfinite(h_all[reaches_head])):
             check_heads, check_flows = h_all.copy(), q_all.copy()
-        q_scale = float(np.max(np.abs(q_all)))  # the current iterate's flows (see above)
         max_c = float(np.max(np.abs(continuity_all), initial=0.0))
         max_component = float(
             np.max(
@@ -944,8 +998,8 @@ def _solve_gga(
         if (
             it > 0
             and dq_max <= tolerance * q_scale + CONTINUITY_ATOL
-            and max(max_c, max_component) <= CONTINUITY_RTOL * q_scale + CONTINUITY_ATOL
-            and max_e <= ENERGY_TOL
+            and max(max_c, max_component) <= continuity_tol
+            and bool(np.all(np.abs(energy_all) <= energy_tol))
         ):
             converged = True
             message = f"converged in {iterations} iterations{disconnected}"
@@ -992,6 +1046,8 @@ def _solve_gga(
     flows[:] = q_prev  # the iterate the residuals and heads above belong to
     ic = int(np.argmax(np.abs(continuity_all))) if free_nodes.size else None
     ie = int(np.argmax(np.abs(energy_all))) if solve_links.size else None
+    jc = _largest_exceeding(continuity_all, continuity_tol)
+    je = _largest_exceeding(energy_all, energy_tol)
     return GgaResult(
         heads=heads,
         flows=flows,
@@ -1007,6 +1063,8 @@ def _solve_gga(
         starved_links=starved,
         floating_sections=floating_sections,
         disconnected_sections=disconnected_sections,
+        continuity_exceeded_node=int(free_nodes[jc]) if jc is not None else None,
+        energy_exceeded_link=int(solve_links[je]) if je is not None else None,
         check_heads=check_heads,
         check_flows=check_flows,
     )

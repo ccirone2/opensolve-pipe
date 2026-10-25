@@ -37,6 +37,7 @@ from .helpers import (
     custom_fluid,
     make_project,
     plug,
+    reference_node,
     reservoir,
     tee,
     two_reservoirs,
@@ -567,3 +568,34 @@ def test_plugged_stubs_report_zero_flow_and_no_laminar_flags() -> None:
     assert not any(
         f.code == "CORRELATION_OUT_OF_RANGE" and f.connection_id in stubs for f in result.flags
     )
+
+
+def test_a_network_at_heads_beyond_2_to_the_30_m_converges() -> None:
+    """Method 1.2.0's energy stop test (proposal vfd-slice2-discharge-pressure.md §2.11.10,
+    fix (b)). Reference nodes at 1e8 and 1e8 − 100 Pa gauge in a liquid of 0.0073 kg/m³ put
+    the EGLs near 1.4e9 m, where one unit in the last place is 2⁻²² m (2.4e-7 m), more than
+    1e-7 m: method 1.1.0 stalled at that floor for its 100 Newton iterations (energy residual
+    1.25e-7 m) and reported the solve as not converged. With the round-off allowance it
+    converges, to Hagen–Poiseuille's Q = π D⁴ Δp / (128 μ L) through the two 100 m pipes and
+    the ideal tee (Re ≈ 0.1); the plugged branch carries nothing."""
+    rho, mu, dp, d = 0.0073, 1.0e-3, 100.0, 0.1  # test inputs
+    comps = [
+        reference_node("A", pressure=1.0e8),
+        tee("T1"),
+        plug("X1"),
+        reference_node("B", pressure=1.0e8 - dp),
+    ]
+    conns = [
+        connection("P1", ("A", "port_1"), ("T1", "run_inlet"), length=100.0, diameter=d),
+        connection("P2", ("T1", "run_outlet"), ("B", "port_1"), length=100.0, diameter=d),
+        connection("S1", ("T1", "branch"), ("X1", "port_1"), length=1.0, diameter=d),
+    ]
+    result = solve_project(make_project(comps, conns, fluid=custom_fluid(rho, mu)))
+    assert result.converged
+    assert result.node_results["T1:run_inlet"].egl > 2.0**30  # premise: the floor is there
+    expected = math.pi * d**4 * dp / (128 * mu * 200.0)
+    assert result.link_results["P1"].flow == pytest.approx(expected, rel=1e-9)
+    assert result.link_results["P2"].flow == pytest.approx(expected, rel=1e-9)
+    assert result.link_results["P1"].flow_regime == "laminar"
+    assert result.link_results["S1"].flow == 0.0
+    assert result.convergence.inner_iterations < 20

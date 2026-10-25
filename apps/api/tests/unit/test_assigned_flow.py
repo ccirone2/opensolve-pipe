@@ -20,7 +20,6 @@ from opensolve_pipe.models.results import SolvedState
 from opensolve_pipe.services.fluids import fluid_properties
 from opensolve_pipe.services.solver import (
     METHOD_CHANGELOG,
-    METHOD_VERSION,
     TopologyError,
     solve_project,
 )
@@ -936,10 +935,11 @@ def test_methods_summary_describes_assigned_flows_only_when_used() -> None:
 
 
 def test_method_changelog_states_that_other_projects_are_unchanged() -> None:
-    """Versions: METHOD_VERSION stays 1.1.0 (unreleased); its changelog adds the assigned-flow
+    """Versions: the assigned-flow node is in method 1.1.0 (unreleased when it was added; 1.2.0,
+    proposal vfd-slice2-discharge-pressure.md §2.11.10, follows it); its changelog adds the
     node and says that projects without one are unchanged."""
-    assert METHOD_VERSION == "1.1.0"
-    [entry] = [e for e in METHOD_CHANGELOG if e["version"] == METHOD_VERSION]
+    assert [e["version"] for e in METHOD_CHANGELOG][:2] == ["1.0.0", "1.1.0"]
+    [entry] = [e for e in METHOD_CHANGELOG if e["version"] == "1.1.0"]
     [line] = [c for c in entry["changes"] if c.startswith("Adds the assigned-flow node:")]
     assert "without assigned-flow nodes are unchanged" in line
     assert "corpus comparison" in line

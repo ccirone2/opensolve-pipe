@@ -746,7 +746,7 @@ A section that no fixed-pressure boundary reaches but that cannot sit at zero fl
 
 | Severity | Codes |
 |---|---|
-| `invalid` (physically invalid) | `NOT_CONVERGED` (network-wide; `details.componentIds` names oscillating elements), `CAVITATION`, `BELOW_VAPOR_PRESSURE`, `PUMP_FLOW_REVERSAL`, `UNSUPPORTED_FLOW_PATTERN`, `PORT_ABOVE_LIQUID_LEVEL` |
+| `invalid` (physically invalid) | `NOT_CONVERGED` (network-wide; `details.componentIds` names oscillating elements; `details.maxContinuityResidualAt` and `maxEnergyResidualAt` name the node and the link of the largest residual beyond its stop tolerance, and are absent where none is, TSD §5.2), `CAVITATION`, `BELOW_VAPOR_PRESSURE`, `PUMP_FLOW_REVERSAL`, `UNSUPPORTED_FLOW_PATTERN`, `PORT_ABOVE_LIQUID_LEVEL` |
 | `warning` (unreliable or incomplete) | `CORRELATION_OUT_OF_RANGE` (friction ranges, Crane K in laminar flow, tee/wye ranges, table limits), `PUMP_OUTSIDE_CURVE` (`details.curve`: head, efficiency or npshr), `TRANSITIONAL_FLOW`, `TEE_PATTERN_FALLBACK`, `UNDETERMINED_PRESSURE` (on the pump or FCV driving the flow; `details.componentIds`: the section), `NPSH_NOT_CHECKED` (a running pump with an NPSHr curve whose NPSH available cannot be computed because the fluid has no vapor pressure: cavitation is not checked) |
 | `info` (state) | `NO_VAPOR_PRESSURE` (network-wide), `CHECK_VALVE_CLOSED`, `CONTROL_VALVE_SETPOINT_NOT_MET`, `PUMP_SETPOINT_NOT_MET` (a speed-controlled pump at a speed limit or with no flow, off its setpoint; `details`: state, setpoint, flow, speed, minSpeed, maxSpeed), `ISOLATED_SECTION` (`details.componentIds`) |
 
@@ -1062,7 +1062,7 @@ def resolve_k_factor(fitting: Fitting, inner_diameter: float, re: float) -> floa
 
 ### 8.2 Convergence Failure Handling
 
-v1: return `converged: false`, no results, and the largest flow and continuity residuals with the components they occur at.
+v1: return `converged: false`, no results, and the largest continuity and energy residuals with the elements they occur at, those of the inner solve the message describes (TSD §5.2).
 
 Later: last iteration state and suggested troubleshooting steps.
 

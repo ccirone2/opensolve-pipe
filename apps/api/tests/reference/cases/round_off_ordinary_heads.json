@@ -1,0 +1,195 @@
+{
+  "name": "round_off_ordinary_heads",
+  "description": "The large-head network's twin with ordinary drains (heads below 100 m): verifies the split between the two reservoirs, the shared tee EGL and the supply's EGL where the round-off allowance of the energy stop test is below 1e-13 m, so the stop test is the absolute 1e-7 m bound it was.",
+  "source": "closed-form: tests/reference/derivations_round_off.py::round_off_ordinary_heads (assigned supply into an ideal tee drained to two reservoirs: one EGL at the tee, Darcy-Weisbach + Colebrook lines, brentq on the split, then the float64 split with the smallest closure)",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-round-off-ordinary-heads",
+    "metadata": {
+      "name": "Supply drained to two reservoirs at ordinary heads",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "AF1",
+        "name": "Assigned flow AF1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "assigned_flow",
+        "flow": -0.036
+      },
+      {
+        "id": "T1",
+        "name": "Tee T1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 10.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.3,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 5.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 3.7,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "AF1",
+        "fromPortId": "port_1",
+        "toComponentId": "T1",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1,
+              "length": 15.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "T1",
+        "fromPortId": "run_outlet",
+        "toComponentId": "R1",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 400.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L3",
+        "fromComponentId": "R2",
+        "fromPortId": "port_1",
+        "toComponentId": "T1",
+        "toPortId": "branch",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 150.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.036,
+      "L2": 0.019083993303506082,
+      "L3": -0.016916006696493915
+    },
+    "egl": {
+      "AF1:port_1": 34.67572739956969,
+      "T1:run_inlet": 31.875193412436623,
+      "T1:run_outlet": 31.875193412436623,
+      "T1:branch": 31.875193412436623,
+      "R1:port_1": 12.3,
+      "R2:port_1": 8.7
+    },
+    "pressures": {
+      "AF1:port_1": 328888.6462993865,
+      "T1:run_inlet": 301479.7173877179,
+      "T1:run_outlet": 309273.6600040697,
+      "T1:branch": 305677.7995970187,
+      "R1:port_1": 22510.184410000005,
+      "R2:port_1": 36212.03578999999
+    }
+  }
+}

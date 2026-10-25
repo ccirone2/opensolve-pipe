@@ -25,7 +25,7 @@ from .friction import (
     SWAMEE_JAIN_ED_RANGE,
     SWAMEE_JAIN_RE_RANGE,
 )
-from .gga import CONTINUITY_ATOL, CONTINUITY_RTOL, ENERGY_TOL, ZERO_FLOW_RTOL
+from .gga import CONTINUITY_ATOL, CONTINUITY_RTOL, ENERGY_ROUNDOFF, ENERGY_TOL, ZERO_FLOW_RTOL
 from .status import HTOL, K_TOL, MAX_OUTER_ITERATIONS, OFFSET_TOL, QTOL, OuterLoopResult
 from .system_curve import DEFAULT_RANGE_FACTOR
 from .valves import IDEAL_CONTROL_VALVE
@@ -94,6 +94,21 @@ GALE = (
     "1073-1082 (a flow with fixed supplies and demands exists when no node set holds more net "
     "supply than its cut can pass: the assigned flows in a pump's system-curve bounds)."
 )
+
+
+def _energy_roundoff_sentence() -> str:
+    """The energy stop test's round-off allowance (gga.ENERGY_ROUNDOFF, method 1.2.0), stated
+    after the tolerance it is added to. The bound is the quotient itself: its printed value is
+    rounded (up, at 6 digits), so the sentence gives it as "about"."""
+    eps = float(np.finfo(np.float64).eps)
+    return (
+        f"On each link, {ENERGY_ROUNDOFF:g} x the largest magnitude among the energy grade "
+        "lines at its two ends and its head loss is added to that tolerance "
+        f"({ENERGY_ROUNDOFF / eps:g} x {eps:g}, the machine epsilon of double precision): an "
+        "allowance for the round-off of the heads that the energy residual subtracts, larger "
+        f"than {ENERGY_TOL:g} m only where that magnitude exceeds {ENERGY_TOL:g} m divided by "
+        f"that factor, about {ENERGY_TOL / ENERGY_ROUNDOFF:g} m."
+    )
 
 
 def libraries() -> dict[str, str]:
@@ -234,7 +249,7 @@ def methods_summary(
                     f"times the largest flow (plus {CONTINUITY_ATOL:g} m³/s), continuity closes "
                     f"at every node and over every component to {CONTINUITY_RTOL:g} x the "
                     f"largest flow + {CONTINUITY_ATOL:g} m³/s, and the energy equation holds on "
-                    f"every link to {ENERGY_TOL:g} m.",
+                    f"every link to {ENERGY_TOL:g} m. {_energy_roundoff_sentence()}",
                     "An active PRV or PSV holds its port's head and passes the flow of the pipe "
                     "on that port, coupled exactly in Newton's step (EPANET 2.2 lags it by one "
                     "iteration, which converges the same answer more slowly).",

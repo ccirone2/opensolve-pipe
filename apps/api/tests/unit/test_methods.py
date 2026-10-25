@@ -9,7 +9,7 @@ import scipy
 from opensolve_pipe import __version__
 from opensolve_pipe.models.piping import ENTRANCE_TYPES, EXIT_TYPES
 from opensolve_pipe.models.results import MethodsSummary
-from opensolve_pipe.services.solver import METHOD_VERSION, solve_project
+from opensolve_pipe.services.solver import METHOD_CHANGELOG, METHOD_VERSION, solve_project
 from opensolve_pipe.services.solver.gga import CONTINUITY_RTOL, ENERGY_TOL
 from opensolve_pipe.services.solver.status import HTOL, MAX_OUTER_ITERATIONS, QTOL
 
@@ -96,6 +96,60 @@ def test_network_section_states_the_tolerances_and_iterations() -> None:
     assert "at most 100 Newton iterations per network solve" in text
     assert "This solve:" in text
     assert "converged." in text
+
+
+STOP_TEST_ITEM_1_1_0 = (
+    "Converged when the largest flow change is at most the project tolerance times the largest "
+    "flow (plus 1e-14 m³/s), continuity closes at every node and over every component to 1e-09 "
+    "x the largest flow + 1e-14 m³/s, and the energy equation holds on every link to 1e-07 m."
+)
+"""The Network-solution item that states the stop test, as method 1.1.0 printed it."""
+ENERGY_ROUNDOFF_SENTENCE = (
+    "On each link, 8.88178e-16 x the largest magnitude among the energy grade lines at its two "
+    "ends and its head loss is added to that tolerance (4 x 2.22045e-16, the machine epsilon of "
+    "double precision): an allowance for the round-off of the heads that the energy residual "
+    "subtracts, larger than 1e-07 m only where that magnitude exceeds 1e-07 m divided by that "
+    "factor, about 1.1259e+08 m."
+)
+"""Method 1.2.0's sentence on the energy stop test (proposal vfd-slice2-discharge-pressure.md
+§2.11.10, criterion B5): 4ε with ε = 2⁻⁵², and 1e-7 m / 4ε ≈ 1.1259e8 m."""
+
+
+def test_the_stop_test_item_states_the_energy_round_off_allowance() -> None:
+    """Criterion B5: the stop-test item is 1.1.0's item, one space and the sentence, byte for
+    byte, in every solve (the test applies to every link of every network)."""
+    items = _methods().sections[0].items
+    assert items[1] == STOP_TEST_ITEM_1_1_0 + " " + ENERGY_ROUNDOFF_SENTENCE
+    assert sum(ENERGY_ROUNDOFF_SENTENCE in item for item in items) == 1
+    # The sentence's numbers, from the definition: 4ε, ε and 1e-7 m / 4ε.
+    eps = 2.0**-52
+    assert (f"{4 * eps:g}", f"{eps:g}", f"{1.0e-7 / (4 * eps):g}") == (
+        "8.88178e-16",
+        "2.22045e-16",
+        "1.1259e+08",
+    )
+    # 4ε·x > 1e-7 m exactly where x > 1e-7 m / 4ε = 112,589,990.68 m, which lies below its
+    # printed 1.1259e8 m: at 112,589,995 m the allowance already exceeds 1e-7 m, so the sentence
+    # states the quotient and gives the printed number as "about", not as the bound.
+    assert 1.0e-7 / (4 * eps) < 112_589_995.0 < 1.1259e8
+    assert 4 * eps * 112_589_995.0 > 1.0e-7
+
+
+def test_method_1_2_0_describes_both_fixes() -> None:
+    """GOALS §4.3: C0b is method 1.2.0 (the owner's answer Q9 (a) of 2026-10-24), after 1.1.0,
+    with one changelog line per fix, each stating what changes and how it was measured."""
+    assert METHOD_VERSION == "1.2.0"
+    assert [e["version"] for e in METHOD_CHANGELOG] == ["1.0.0", "1.1.0", "1.2.0"]
+    flag, energy = METHOD_CHANGELOG[-1]["changes"]
+    assert flag.startswith("The NOT_CONVERGED flag names where a continuity or energy residual")
+    assert "only where that residual exceeds its stop tolerance" in flag
+    assert "keep returning to a state whose solve failed" in flag
+    assert "Only results that did not converge change" in flag
+    assert energy.startswith("The energy stop test allows for the round-off of the heads")
+    assert "≤ 1e-7 m + 4ε × the largest of |H_start|, |H_end| and |h(Q)|" in energy
+    assert "The methods summary states the test." in energy
+    for line in (flag, energy):
+        assert line.endswith("(corpus comparison).")
 
 
 def test_friction_section_follows_the_method() -> None:

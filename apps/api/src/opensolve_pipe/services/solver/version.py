@@ -14,7 +14,7 @@ class MethodChange(TypedDict):
     changes: list[str]
 
 
-METHOD_VERSION = "1.1.0"
+METHOD_VERSION = "1.2.0"
 
 METHOD_CHANGELOG: list[MethodChange] = [
     {
@@ -73,6 +73,48 @@ METHOD_CHANGELOG: list[MethodChange] = [
             "count assigned flows in their flow bounds, above and below. Flows, heads, pressures, "
             "statuses and system curves of projects without assigned-flow nodes are unchanged by "
             "it (corpus comparison).",
+        ],
+    },
+    {
+        "version": "1.2.0",
+        "date": "2026-10-24",
+        "changes": [
+            "The NOT_CONVERGED flag names where a continuity or energy residual lies "
+            "(maxContinuityResidualAt, maxEnergyResidualAt) only where that residual exceeds its "
+            "stop tolerance (a residual that is not finite always does), and then the largest "
+            "such one; before, it named the node and the link of the largest residuals even when "
+            "every residual was within its tolerance or exactly 0 (then the first node or link), "
+            "which said nothing about why the solve failed. Where the status and branch-loss "
+            "updates keep returning to a state whose solve failed, the convergence report and "
+            "the flag give the residuals of that solve, which the message describes; before, "
+            "they gave those of the last solve. Only results that did not converge change: in "
+            "the corpus of 5,136 projects, the 384 that converge in neither version have no "
+            "residual beyond its tolerance, so the 379 of their flags that named a location name "
+            "none (the other 5 named none before), and the 17 that end in a failed state report "
+            "that state's residuals; their messages are unchanged (corpus comparison).",
+            "The energy stop test allows for the round-off of the heads it subtracts: a link "
+            "passes when |h(Q) − (H_start − H_end)| ≤ 1e-7 m + 4ε × the largest of |H_start|, "
+            "|H_end| and |h(Q)| (ε = 2⁻⁵², the machine epsilon of double precision), where it "
+            "was 1e-7 m, less than one unit in the last place of heads from 2²⁹ m (about "
+            "5.4e8 m): an inner solve whose iterates reached such heads could stall at that "
+            "floor until its iteration limit and be treated as failed (27 main solves and 57 "
+            "system-curve solves of the corpus did). The methods summary states the test. A "
+            "solve changes only where an iterate passes the new test and failed the old one; in "
+            "the corpus of 5,136 projects (system curves included) that happens in 75 projects, "
+            "at iterates whose largest head or loss was at least 1.6e7 m, and every other "
+            "project is identical but for the methods summary and the flags and reports above. "
+            "In those 75, the main solves of 55 take fewer Newton iterations (116,092 in the "
+            "corpus, from 118,333; none takes more); 9 end in another valid state, the elements "
+            "that change carrying exactly 0 m³/s on each side (fuzz_1446, fuzz_2522, fuzz_586, "
+            "fuzzaf_20131, fuzzfc_10302, fuzzfc_10535, fuzzfc_10660, fuzzfc_10775 and "
+            "fuzzfc_10931; both states pass the differential test's independent self-check); "
+            "the reference case round_off_large_heads, whose heads near 4e9 m no float64 state "
+            "brings within 1e-7 m, converges in 5 iterations, to its closed form, where it did "
+            "not converge in 100 (the only change in convergence); 3 system-curve points gain a "
+            "head (fuzz_2530 and fuzz_686) and none loses one; and every flow and head present "
+            "in both is within 4.0e-13 of the project's largest flow and 3.7e-12 m, and every "
+            "system-curve head within 3.4e-9 relative, but one of 3.6e-15 m at zero flow that is "
+            "now 0 (corpus comparison).",
         ],
     },
 ]

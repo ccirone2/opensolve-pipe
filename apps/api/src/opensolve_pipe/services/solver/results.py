@@ -1120,12 +1120,15 @@ def build_solved_state(
     gga = outer.gga
     methods = methods_summary(built, p_atm_source, outer)
     if not outer.converged:
+        reported = outer.residual_solve  # the inner solve the message describes
         details: dict[str, float | str] = {}
         if outer.oscillating_components:
             details["componentIds"] = ", ".join(outer.oscillating_components)
+        # Where a residual exceeds its stop tolerance only: a residual within it, or exactly 0
+        # (where the largest is the first node or link), says nothing about the failure.
         largest = {
-            "maxContinuityResidualAt": mapper.element_of_node(gga.max_continuity_node),
-            "maxEnergyResidualAt": mapper.element_of_link(gga.max_energy_link),
+            "maxContinuityResidualAt": mapper.element_of_node(reported.continuity_exceeded_node),
+            "maxEnergyResidualAt": mapper.element_of_link(reported.energy_exceeded_link),
         }
         details |= {k: v for k, v in largest.items() if v is not None}
         mapper.flags.append(
@@ -1156,12 +1159,12 @@ def build_solved_state(
                 inner_iterations=outer.inner_iterations,
                 outer_iterations=outer.outer_iterations,
                 max_continuity_residual=ResidualLocation(
-                    value=_finite(gga.max_continuity),
-                    element_id=mapper.element_of_node(gga.max_continuity_node),
+                    value=_finite(reported.max_continuity),
+                    element_id=mapper.element_of_node(reported.max_continuity_node),
                 ),
                 max_energy_residual=ResidualLocation(
-                    value=_finite(gga.max_energy),
-                    element_id=mapper.element_of_link(gga.max_energy_link),
+                    value=_finite(reported.max_energy),
+                    element_id=mapper.element_of_link(reported.max_energy_link),
                 ),
                 oscillating_components=outer.oscillating_components,
                 message=outer.message,

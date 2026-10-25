@@ -446,6 +446,29 @@ def energy_residuals(
     return out
 
 
+ROUND_OFF = 4.0 * 2.0**-52
+"""4ε of IEEE 754 binary64 (ε = ``sys.float_info.epsilon``): the round-off allowance of the
+energy stop test from METHOD_VERSION 1.2.0 (proposal vfd-slice2-discharge-pressure.md §2.11.10
+fix (b)). Float64 heads in [2ᵏ, 2ᵏ⁺¹) are multiples of 2ᵏ⁻⁵², at most ε × the head, so no
+float64 state closes an energy equation at those heads more tightly than a few such steps."""
+
+
+def energy_round_off(
+    project: Project, flows: Mapping[str, float], egl: Mapping[str, float], model: Model
+) -> dict[str, float]:
+    """ROUND_OFF × max(|H_from|, |H_to|, |h(Q)|) per connection with both ends' EGL known, m:
+    the float64 resolution of its energy equation (``energy_residuals``). Below 1.1·10⁴ m of
+    head and loss it is under 10⁻¹¹ m."""
+    nu = kinematic_viscosity(project)
+    out: dict[str, float] = {}
+    for c in project.connections:
+        a, b = f"{c.from_component_id}:{c.from_port_id}", f"{c.to_component_id}:{c.to_port_id}"
+        if a in egl and b in egl:
+            loss = connection_head_loss(c, flows[c.id], nu, model)
+            out[c.id] = ROUND_OFF * max(abs(egl[a]), abs(egl[b]), abs(loss))
+    return out
+
+
 def branch_offsets(
     project: Project,
     component: Branch,

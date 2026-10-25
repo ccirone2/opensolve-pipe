@@ -175,7 +175,13 @@ def test_energy_equations_close(path: Path) -> None:
         if f"{c.from_component_id}:{c.from_port_id}" not in isolated
     }
     assert set(residuals) == checked
-    assert max(abs(r) for r in residuals.values()) <= tolerance, residuals
+    # Float64 heads resolve an energy equation only to a few ulps of its largest term
+    # (``nc.energy_round_off``, the stop test's allowance from METHOD_VERSION 1.2.0). That is
+    # below every case's tolerance up to 1.1e4 m of head, so the bound changes only in
+    # round_off_large_heads, whose heads of 4e9 m are 4.8e-7 m apart.
+    round_off = nc.energy_round_off(project, flows, egl, model)
+    bounds = {cid: max(tolerance, round_off[cid]) for cid in residuals}
+    assert all(abs(r) <= bounds[cid] for cid, r in residuals.items()), (residuals, bounds)
     # A flow-controlled pump is checked by its fixed flow, except in EPANET cases, whose
     # reference runs are EPANET's own pump law (at the expected speed) or the FAQ substitute
     # (whose closed pump EPANET lets pass Δh/CBIG): there by its head law at that speed.
@@ -339,8 +345,10 @@ def test_network_solve_reproduces_closed_form_case(path: Path) -> None:
     for key, q in expected["flows"].items():
         assert flows[key] == pytest.approx(q, rel=1.0e-9, abs=1.0e-15), key
     assert set(egl) == set(expected["egl"])
+    # Two float64 solutions agree to the heads' round-off at best (nc.ROUND_OFF × the head, under
+    # 1e-9 m up to 1.1e6 m of head: the bound changes only in round_off_large_heads).
     for key, h in expected["egl"].items():
-        assert egl[key] == pytest.approx(h, abs=1.0e-9), key
+        assert egl[key] == pytest.approx(h, abs=max(1.0e-9, nc.ROUND_OFF * abs(h))), key
 
 
 def _has_components(path: Path) -> bool:

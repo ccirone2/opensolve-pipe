@@ -1700,6 +1700,15 @@ class OuterLoopResult:
     branches: dict[str, BranchTracker] = field(default_factory=dict)
     flags: list[Flag] = field(default_factory=list)
     """Flags raised by the outer loop itself (an unsupported branch flow pattern)."""
+    failed_solve: GgaResult | None = None
+    """The failed inner solve that ``message`` describes, where it is not ``gga`` (the rules
+    keep returning to a state whose solve failed, ``run_outer_loop``): the result reports its
+    residuals (proposal vfd-slice2-discharge-pressure.md §2.11.10, fix (a)); None otherwise."""
+
+    @property
+    def residual_solve(self) -> GgaResult:
+        """The inner solve whose residuals the result reports: the one ``message`` describes."""
+        return self.gga if self.failed_solve is None else self.failed_solve
 
 
 StatusVector = tuple[tuple[str, str], ...]
@@ -1786,11 +1795,24 @@ def run_outer_loop(
         return vector in history or vector in tried
 
     def finish(
-        outer: int, converged: bool, message: str, oscillating: list[str]
+        outer: int,
+        converged: bool,
+        message: str,
+        oscillating: list[str],
+        failed_solve: GgaResult | None = None,
     ) -> OuterLoopResult:
         assert result is not None
         return OuterLoopResult(
-            result, states, outer, inner, converged, oscillating, message, controls, branches
+            result,
+            states,
+            outer,
+            inner,
+            converged,
+            oscillating,
+            message,
+            controls,
+            branches,
+            failed_solve=failed_solve,
         )
 
     solved_statuses: list[tuple[Status, ...]] = []
@@ -1942,6 +1964,7 @@ def run_outer_loop(
                     f"{note}{failed[vector].message}; the status and branch-loss updates keep "
                     f"returning to this state{where}",
                     named,
+                    failed[vector],  # the solve the message describes, not the last one
                 )
             vector = _vector(controls, branches)
         if vector != history[-1] and vector in history[:-1]:

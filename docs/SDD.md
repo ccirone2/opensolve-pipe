@@ -958,7 +958,7 @@ The project travels in the URL **fragment** (after `#`). Browsers never send the
 
 **Rules:**
 
-- **Longevity.** A link from any released `schemaVersion` must always open. Breaking model changes bump `schemaVersion` (in the API models and in the frontend's `CURRENT_SCHEMA_VERSION`, which a test keeps equal) and add a migration. Migrations are never removed. Each released version keeps a fixture link that a test decodes and pins by SHA-256 (TSD §4.7).
+- **Longevity** (from the first stable release the owner declares, CLAUDE.md D14; until then the model and the link format may change without a migration). A link from any released `schemaVersion` must always open. Breaking model changes bump `schemaVersion` (in the API models and in the frontend's `CURRENT_SCHEMA_VERSION`, which a test keeps equal) and add a migration. Migrations are never removed. Each released version keeps a fixture link that a test decodes and pins by SHA-256 (TSD §4.7).
 - **Newer links.** A link from a newer `schemaVersion` than the app knows shows a clear error, not a partial load. The error names both format versions and asks the user to reload for the latest app.
 - **Failed links.** A link that cannot be opened shows a page saying what went wrong (damaged, newer version, or not a valid project with up to 20 problems listed) and what to do. The options are to go back to the open project, to start a new project, or to go home. It never opens a partial project.
 - **Length.** When the full link exceeds 8,000 characters, the Share dialog warns that some email and chat clients may cut it short.

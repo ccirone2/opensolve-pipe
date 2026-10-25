@@ -2,7 +2,7 @@
 
 Free, browser-based tool for steady-state hydraulic analysis of pressurized pipe networks. No install, shareable by URL, equal priority on desktop and mobile.
 
-**Status:** v1 (core analysis MVP, D5) is implemented: `apps/api` (FastAPI, own GGA solver, reference suite) and `apps/web` (SvelteKit). Not yet deployed.
+**Status:** v1 (core analysis MVP, D5) is implemented: `apps/api` (FastAPI, own GGA solver, reference suite) and `apps/web` (SvelteKit). Deployed by the owner (Cloudflare Pages and Cloud Run, 2026-10-25); not a stable release (D14).
 
 ---
 
@@ -37,7 +37,7 @@ The specs are at v0.2.0 (rebuild baseline) and reflect the decisions below. Item
 - Components have typed ports, and `PipeConnection`s are edges between two ports (SDD §4.2). `Project` has `components[]` and `connections[]`.
 - The "component chain" (`upstreamPiping`, `downstreamConnections`, the legacy `Connection` type) is **removed**.
 - The panel navigator derives Prev/Next by walking the graph from a chosen start component. At a branch it asks the user which path to take, and the breadcrumb records the path taken.
-- `Project` carries an integer `schemaVersion`. Shared URLs live forever, so the decoder upgrades old versions through ordered migrations. Never break decoding of a released version.
+- `Project` carries an integer `schemaVersion`. Shared URLs live forever, so the decoder upgrades old versions through ordered migrations. Never break decoding of a released version; none is released yet (D14).
 
 ### D3. Sharing: URL fragment only in v1
 - The encoded project goes in the URL fragment: `https://opensolve-pipe.app/p#<encoded>`. The fragment is never sent to the server, so project data is never logged.
@@ -126,11 +126,16 @@ Added to v1 by the owner (PR #229; D5). Specs: SDD §4.11, TSD §4.8.
 - **Accepting a solver change:** the reference suite green (D6); in the corpus and the three fuzz profiles 0 critical seeds and no converged solve left not converged; every other value within D6 of the previous version or changed only at zero flow; anything beyond that named and explained in `METHOD_CHANGELOG`. No change-specific acceptance criteria are negotiated with the owner. *(GOALS §3: correctness is about answers, not labels.)*
 - **Shelved by this rule (2026-10-25):** C1 (an exact Newton step for an active PRV's velocity-head term) and its redesign, kept in `docs/proposals/vfd-slice2-discharge-pressure.md` §2.2 and §2.11 as a record (the slow lag is TSD §12 open item 6); and slice 2 itself: that proposal's design and the owner's answers to its §13 questions are provisional notes, not decisions, to be revisited with a simpler design under this rule.
 
+### D14. Deployed is not stable (owner, 2026-10-25)
+- The app is deployed (Cloudflare Pages and Google Cloud Run), but a deployment is not a stable release. Until the owner makes a specific decision to promise compatibility, nothing is "released" in D2's or SDD §5.2's sense: the model, the link format, the API and the methods may change without migrations or compatibility shims, and a link made before a change may fail to open (with the app's clear error) or solve differently.
+- `schemaVersion` stays 1 until then. `METHOD_VERSION` and its changelog keep labelling each method for traceability (GOALS §4.3), without a compatibility promise. The schema-v1 fixture link and its tests (`test_released_links.py`, `examples.e2e.ts`) follow the model: when a change breaks them, they are regenerated, not kept as a frozen format.
+- From the first stable release the owner declares, D2's and SDD §5.2's longevity rules apply. *(GOALS §3: longevity is promised once the owner releases; until then breadth and correctness move freely.)*
+
 ---
 
 ## Spec notes
 
-The specs reflect D1–D13; TSD §12 lists the decided implementation questions and the open (Later) ones.
+The specs reflect D1–D14; TSD §12 lists the decided implementation questions and the open (Later) ones.
 
 - **EPANET comparisons (TSD §5.2, §10.1):** EPANET's friction formula (Swamee–Jain) differs from exact Colebrook by up to 3.0% in f (measured), so EPANET reference tests run the solver with `frictionMethod = "swamee_jain"`.
 

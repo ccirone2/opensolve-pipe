@@ -2,7 +2,7 @@
 
 A free, browser-based tool for steady-state hydraulic analysis of pressurized pipe networks: pumps, valves, fittings, branching and looped systems. No installation and no account. A project lives entirely in its URL, so sharing a design means sharing a link.
 
-> **Status:** v1 (core analysis MVP) is implemented in this repository — API, network solver, reference suite and web app — and not yet deployed. `docs/prompts/build-v1.md` is the plan it was built from.
+> **Status:** v1 (core analysis MVP) is implemented in this repository — API, network solver, reference suite and web app — deployed by the owner (Cloudflare Pages and Google Cloud Run), and not yet a stable release: links and results may change between versions until the owner declares one (CLAUDE.md D14). `docs/prompts/build-v1.md` is the plan it was built from.
 
 ## Who it's for
 

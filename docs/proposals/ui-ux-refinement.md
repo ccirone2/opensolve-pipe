@@ -1,6 +1,6 @@
 # Web UI/UX refinement: opportunities
 
-**Status: proposal, nothing decided** (2026-10-25, against `7babcc6`). Web app only: no API, model or solver change is needed for anything here except where an item says so. Every item is a reversible web default under D14 unless it is marked **owner** (it touches a decision or a GOALS value).
+**Status: Tier 1 (items 1–5) built** (2026-10-25; §5 records where the build departs from this text); the other items are proposals, nothing decided. Written against `7babcc6`. Web app only: no API, model or solver change is needed for anything here except where an item says so. Every item is a reversible web default under D14 unless it is marked **owner** (it touches a decision or a GOALS value).
 
 **Aim.** Keep the interface clean and calm for a first-time user, and let a working engineer go from "build" to "trust and sign off" with fewer trips between panes. The method throughout is progressive disclosure: show the answer and the next action, keep the depth (traces, methods, tables) one step away, never removed.
 
@@ -72,3 +72,16 @@ Ordered by value for cost. "Cheap" means one component and its tests.
 Tier 1 (items 1–5) as one small change with e2e updates on desktop and phone; then item 6, which carries the most value; then 8 and 9 together (they share the extremes); then 7, 10–13 as separate slices; 14 and 15 only after an owner decision.
 
 Each slice is done when its Vitest and Playwright flows pass at both sizes, axe stays clean, and nothing a trace or the methods summary shows is removed or hidden by default where it was visible before without a disclosure that names it.
+
+---
+
+## 5. Tier 1 as built
+
+Measured as in F1, the first table row now starts 48 % down a 1280×800 viewport (was 63 %) and 53–54 % down a 390×844 one (was 73–74 %); an e2e flow holds it under 55 % at both sizes. axe-core stays clean. Departures from §3:
+
+- **Item 1.** The description is open while there are no results (a shared link's context) and one line with a toggle once there are; the convergence card is one quiet line when converged and the red card otherwise. The view pills are one sideways-scrolling row below 1024 px only: at 1024 px and above the pane is too narrow for seven pills in one row, and a mouse user cannot easily scroll a row sideways, so they still wrap there (item 10 is the fix).
+- **Item 2.** Goal seek and Scenarios appear once the network has a component (Scenarios also while the project has scenarios), not after a first solve: the goal-seek design opens its dialog without a solve (goal-seek.md §6.2).
+- **Item 3.** The fluid chip is shown from 1024 px only. Below that, at 390, 640 and 768 px, even a temperature-only chip took the project name's room or truncated to nothing; there the fluid stays in Settings and first in the Summary. Settings already kept the convergence options in an "advanced" disclosure, so nothing else moved.
+- **Item 4.** A click in the results moves the walk with `jumpTo` (back along the walk, else the shortest path from its start), the rule Jump to already followed, instead of seeding it with the solved flow direction; SDD §3.1.1 and TSD §8 are updated.
+- **Item 5.** Only Ctrl/⌘+Enter (solve) is added. Alt+←/→ is the browser's Back and Forward, and a shortcut list for one shortcut is not worth a dialog: the Solve button names it in its tooltip and `aria-keyshortcuts`.
+

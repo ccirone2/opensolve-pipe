@@ -64,6 +64,56 @@ describe('workspace', () => {
 		expect(document.activeElement).toBe(undo);
 		expect(screen.getByText(/Add a component in Build to start the network/)).toBeInTheDocument();
 	});
+
+	it('offers Scenarios and Goal seek once the network has a component', async () => {
+		const ws = testWorkspace(createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z' }));
+		render(WorkspaceView, { workspace: ws });
+		expect(screen.queryByRole('button', { name: 'Scenarios' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Goal seek' })).toBeNull();
+		ws.addStandalone('reservoir');
+		await tick();
+		expect(screen.getByRole('button', { name: 'Scenarios' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Goal seek' })).toBeInTheDocument();
+	});
+
+	it('names the fluid in the header and opens its settings on the Fluid section', async () => {
+		render(WorkspaceView, { workspace: testWorkspace(pumpTransferExample()) });
+		const chip = screen.getByRole('button', { name: 'Fluid: Water · 20 °C' });
+		await fireEvent.click(chip);
+		const dialog = await screen.findByRole('dialog', { name: 'Project settings' });
+		await tick();
+		await tick();
+		const fluid = within(dialog).getByRole('region', { name: 'Fluid' });
+		expect(fluid.contains(document.activeElement)).toBe(true);
+	});
+
+	it('solves with Ctrl/⌘+Enter, also from a field, but not from inside a dialog', async () => {
+		const solveFn = vi.fn(() => Promise.resolve(response(pumpTransferSolved())));
+		const ws = testWorkspace(pumpTransferExample(), { solver: { solve: solveFn } });
+		render(WorkspaceView, { workspace: ws });
+		const solveButton = screen.getByRole('button', { name: 'Solve' });
+		expect(solveButton).toHaveAttribute('aria-keyshortcuts', 'Control+Enter Meta+Enter');
+		await fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true });
+		expect(solveFn).toHaveBeenCalledTimes(1);
+		await tick();
+		// From a number field: its Enter stores the typed value, then the solve sends it.
+		ws.pane = 'build';
+		await tick();
+		const level = screen.getByRole('textbox', { name: /^Liquid level/ });
+		await fireEvent.input(level, { target: { value: '4' } });
+		await fireEvent.keyDown(level, { key: 'Enter', metaKey: true });
+		expect(solveFn).toHaveBeenCalledTimes(2);
+		const sent = (solveFn.mock.calls[1] as unknown as [Project])[0];
+		expect(sent.components.find((c) => c.id === 'R1')).toMatchObject({ liquidLevel: 4 });
+		// Inside a dialog the keys belong to the dialog.
+		await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+		const dialog = await screen.findByRole('dialog', { name: 'Project settings' });
+		await fireEvent.keyDown(within(dialog).getByRole('button', { name: 'Done' }), {
+			key: 'Enter',
+			ctrlKey: true
+		});
+		expect(solveFn).toHaveBeenCalledTimes(2);
+	});
 });
 
 describe('cancelling a solve (PRD §4.2)', () => {

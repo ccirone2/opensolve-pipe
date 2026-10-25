@@ -3,7 +3,8 @@
 	the Build (panel navigator) and Results panes — side by side on wide screens (≥ 1024 px), as
 	tabs on narrow ones. It tells the fields below which case is shown (field-mode.ts): in a
 	scenario only its values, names and display units can be edited. The goal-seek dialog opens
-	over them (from the Results pane's header or a trace).
+	over them (from the Results pane's header or a trace). Outside text fields Ctrl/⌘+Z undoes and
+	Ctrl/⌘+Shift+Z or Ctrl/⌘+Y redoes; Ctrl/⌘+Enter solves from anywhere but a dialog.
 -->
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
@@ -54,8 +55,19 @@
 	}
 
 	function keydown(event: KeyboardEvent) {
-		if (!(event.ctrlKey || event.metaKey) || event.altKey || editingText(event.target)) return;
+		if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
 		const key = event.key.toLowerCase();
+		// Ctrl/⌘+Enter solves, also from a field (its own Enter has stored the value first), but
+		// not inside a dialog, whose fields belong to its own action.
+		if (key === 'enter' && !event.shiftKey) {
+			if (event.target instanceof Element && event.target.closest('dialog')) return;
+			event.preventDefault();
+			// A held key repeats: one press, one solve.
+			if (event.repeat) return;
+			if (ws.store.calculating === null && ws.project.components.length) void ws.solve();
+			return;
+		}
+		if (editingText(event.target)) return;
 		if (key === 'z' && !event.shiftKey) {
 			event.preventDefault();
 			ws.undo();

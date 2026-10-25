@@ -130,4 +130,19 @@ describe('NavigatorStore', () => {
 		ws.addStandalone('plug');
 		expect(ws.nav.path).toEqual([{ componentId: 'PL1' }]);
 	});
+
+	it('moves to an element shown from the results along the walk, keeping its neighbours', () => {
+		const ws = testWorkspace(pumpTransferExample());
+		ws.inspect({ kind: 'component', id: 'P1' });
+		expect(ws.nav.path.map((s) => s.componentId)).toEqual(['R1', 'P1']);
+		expect(ws.nav.options.map((o) => o.otherId)).toEqual(['V1']);
+		// A connection: its 'from' component, with that connection's piping open.
+		ws.showElement({ kind: 'connection', id: 'L3' });
+		expect(ws.nav.path.map((s) => s.componentId)).toEqual(['R1', 'P1', 'V1']);
+		expect(ws.nav.mode).toBe('connection');
+		expect(ws.nav.activePortId).toBe('outlet');
+		// Back along the walk to an element already on it.
+		ws.inspect({ kind: 'component', id: 'R1' });
+		expect(ws.nav.path).toEqual([{ componentId: 'R1' }]);
+	});
 });

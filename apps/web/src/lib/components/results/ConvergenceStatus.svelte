@@ -1,6 +1,8 @@
 <!--
 	Status of a solve: converged or not, the solver's message (with names and display units),
-	iterations, compute time and the calculation-method version. When the solve did not converge,
+	iterations, compute time and the calculation-method version. A converged solve is one quiet
+	line, so the results start near the top; one that did not converge is a red card. When the
+	solve did not converge,
 	the convergence report: the components its message names (e.g. an assigned-flow node that no
 	reservoir or reference node reaches, and what closes it off), where the largest continuity and
 	energy errors are, and which components kept switching state.
@@ -84,7 +86,7 @@
 {/snippet}
 
 <section
-	class={['space-y-1 rounded-lg border p-3', converged ? 'card' : 'border-red-300 bg-red-50']}
+	class={['space-y-1', converged ? 'px-1' : 'rounded-lg border border-red-300 bg-red-50 p-3']}
 	aria-labelledby="{id}-title"
 >
 	<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -96,7 +98,7 @@
 			{/if}
 		</h3>
 		<p class="text-sm text-slate-600">
-			{report.innerIterations} iterations ({report.outerIterations} outer) · {time} · method version
+			{report.innerIterations} iterations ({report.outerIterations} outer) · {time} · method
 			{solved.methodVersion}
 		</p>
 	</div>

@@ -241,6 +241,13 @@ async def health_check() -> dict[str, str]:
     return {"status": "healthy"}
 
 
+@app.get("/", include_in_schema=False)
+async def root() -> RedirectResponse:
+    """The API's own address, opened in a browser: to /api/v1/about, which names the commit
+    this server runs and links its source (AGPL-3.0 §13)."""
+    return RedirectResponse("/api/v1/about", status_code=302)
+
+
 @app.get("/source", response_class=RedirectResponse, status_code=302)
 async def source_code() -> RedirectResponse:
     """Redirects to the source code of the commit this server runs (AGPL-3.0 §13), or to the

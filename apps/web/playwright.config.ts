@@ -40,7 +40,9 @@ export default defineConfig({
 			command: `uv run uvicorn tests.e2e_app:app --port ${API_PORT}`,
 			cwd: '../api',
 			url: `${API_ORIGIN}/health`,
-			env: { CORS_ORIGINS: WEB_ORIGIN },
+			// SOURCE_COMMIT empty whatever the shell has: home.e2e.ts expects /source to link the
+			// repository, as from an image built without a commit (TSD §11.2).
+			env: { CORS_ORIGINS: WEB_ORIGIN, SOURCE_COMMIT: '' },
 			reuseExistingServer: !process.env.CI
 		},
 		{

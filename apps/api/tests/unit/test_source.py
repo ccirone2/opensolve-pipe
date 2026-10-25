@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -112,8 +113,8 @@ def test_the_server_reads_the_commit_from_its_environment() -> None:
 
 def test_the_image_and_its_build_config_record_the_commit() -> None:
     """The Dockerfile's final stage turns the SOURCE_COMMIT build argument into the variable
-    the server reads, cloudbuild.yaml passes it from a substitution with no default (Cloud
-    Build refuses a build that leaves it out), and the build context leaves that file out."""
+    the server reads, cloudbuild.yaml has no default for its substitutions (Cloud Build refuses
+    a build that leaves one out), and the build context leaves that file out."""
     dockerfile = (API_ROOT / "Dockerfile").read_text()
     final_stage = dockerfile.rsplit("\nFROM ", 1)[1]
     assert re.search(r'^ARG SOURCE_COMMIT=""$', final_stage, re.MULTILINE)
@@ -123,8 +124,64 @@ def test_the_image_and_its_build_config_record_the_commit() -> None:
         for line in (API_ROOT / "cloudbuild.yaml").read_text().splitlines()
         if not line.lstrip().startswith("#")
     )
-    assert '"--build-arg", "SOURCE_COMMIT=${_SOURCE_COMMIT}"' in config
     assert "substitutions:" not in config  # no defaults
     assert "ALLOW_LOOSE" not in config
     ignored = (API_ROOT / ".dockerignore").read_text().splitlines()
     assert "cloudbuild.yaml" in ignored
+
+
+_SUBSTITUTION = re.compile(r"\$\$|\$\{(_[A-Z0-9_]+)\}|\$(_[A-Z0-9_]+)")
+
+
+def _build_step(substitutions: dict[str, str]) -> str:
+    """The build step's script (cloudbuild.yaml's one block scalar) after Cloud Build's
+    substitutions: $$ is a literal $, ${_NAME} and $_NAME take the values given."""
+    lines = (API_ROOT / "cloudbuild.yaml").read_text().splitlines()
+    body = []
+    for line in lines[lines.index("      - |") + 1 :]:
+        if not line.startswith("        "):
+            break
+        body.append(line[8:])
+
+    def value(m: re.Match[str]) -> str:
+        return "$" if m.group(0) == "$$" else substitutions[m.group(1) or m.group(2)]
+
+    return _SUBSTITUTION.sub(value, "\n".join(body))
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash, as the build step's image")
+@pytest.mark.parametrize(
+    ("commit", "builds"),
+    [
+        (SHA, True),
+        ("", False),  # git rev-parse outside a checkout
+        (SHA[:7], False),  # a short hash
+        (SHA.upper(), False),
+        (SHA + "0", False),
+        (f"{SHA} ", False),
+    ],
+)
+def test_the_build_step_takes_only_a_full_commit(commit: str, builds: bool) -> None:
+    """Cloud Build refuses a missing substitution but not an empty or short one, so the step
+    checks the commit before building (run here with a stand-in for docker)."""
+    script = 'docker() { printf "%s\\n" "$*"; }\n' + _build_step(
+        {"_SOURCE_COMMIT": commit, "_IMAGE": "us-central1-docker.pkg.dev/p/r/api:x"}
+    )
+    run = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    if builds:
+        assert run.returncode == 0, run.stderr
+        assert run.stdout == (
+            f"build --build-arg SOURCE_COMMIT={commit} -t us-central1-docker.pkg.dev/p/r/api:x .\n"
+        )
+    else:
+        assert run.returncode == 1
+        assert run.stdout == ""
+        assert "full 40-character commit hash" in run.stderr
+
+
+def test_the_root_leads_to_about() -> None:
+    """Someone who opens the API's own address finds the commit and its source."""
+    response = TestClient(app).get("/", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/api/v1/about"
+    assert "/" not in app.openapi()["paths"]

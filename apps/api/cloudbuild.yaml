@@ -1,13 +1,22 @@
-# Cloud Build: the API image, recording the commit it is built from (TSD §11.2). From a clean
-# checkout of that commit, at the repository root:
+# Cloud Build: the API image, recording the commit it is built from (TSD §11.2). The build
+# fetches that commit from GitHub, so the image is exactly the public source it links, with no
+# local or unpushed changes. From the repository root, with a commit on GitHub's main branch:
 #
-#   gcloud builds submit apps/api --ignore-file=.dockerignore --config=apps/api/cloudbuild.yaml \
-#     --substitutions="_IMAGE=$IMAGE,_SOURCE_COMMIT=$(git rev-parse HEAD)"
+#   SHA=$(git rev-parse origin/main)        # after git fetch
+#   gcloud builds submit https://github.com/ccirone2/opensolve-pipe --git-source-revision="$SHA" \
+#     --git-source-dir=apps/api --config=apps/api/cloudbuild.yaml \
+#     --substitutions="_IMAGE=$IMAGE,_SOURCE_COMMIT=$SHA"
 #
-# Both substitutions have no default, so Cloud Build refuses the build when either is missing
-# (it errors on a missing substitution unless ALLOW_LOOSE is set). The server reports the commit
-# at /api/v1/about and redirects /source to it (AGPL-3.0 §13; src/opensolve_pipe/source.py).
+# Neither substitution has a default: Cloud Build refuses a build that leaves one out (unless
+# ALLOW_LOOSE is set, which triggers set), and the step refuses a commit that is not a full
+# 40-character hash, such as an empty or short one. The server reports the commit at
+# /api/v1/about and redirects /source to it (AGPL-3.0 §13; src/opensolve_pipe/source.py).
 steps:
   - name: gcr.io/cloud-builders/docker
-    args: ["build", "--build-arg", "SOURCE_COMMIT=${_SOURCE_COMMIT}", "-t", "${_IMAGE}", "."]
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        [[ "${_SOURCE_COMMIT}" =~ ^[0-9a-f]{40}$$ ]] || { echo "_SOURCE_COMMIT must be a full 40-character commit hash" >&2; exit 1; }
+        docker build --build-arg "SOURCE_COMMIT=${_SOURCE_COMMIT}" -t "${_IMAGE}" .
 images: ["${_IMAGE}"]

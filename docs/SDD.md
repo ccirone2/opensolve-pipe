@@ -110,7 +110,7 @@ Later: database for accounts, short links and version history.
 
 The frontend is a static SvelteKit site (TSD §2.1, §3.1) with two pages:
 
-- **Home (`/`)** offers a new project (`/p`) and example projects, each a fixed link: the examples have fixed ids and timestamps, and their values are labeled as illustrative. It also explains that the project lives in the link and what the server receives when solving, and shows the disclaimer, the copyright notice, the license, the source code link and the third-party licenses link.
+- **Home (`/`)** offers a new project (`/p`) and example projects, each a fixed link: the examples have fixed ids and timestamps, and their values are labeled as illustrative. It also explains that the project lives in the link and what the server receives when solving, and shows the disclaimer, the copyright notice, the license, the source code links (this build's, and the calculation server's: `<API>/source`, TSD §11.1) and the third-party licenses link.
 - **Project (`/p#<encoded>`)** decodes the fragment (§5.2) and opens the **workspace**, or shows a link error. An empty fragment starts a new project.
 
 The **workspace** (`components/workspace/Workspace.svelte`) has a header, a **Build** pane (the panel navigator, §3.1.1) and a **Results** pane (§3.1.3):
@@ -279,7 +279,7 @@ The pane shows, top to bottom:
 - **`CompareView`**: chosen results of every case, the base first, with each scenario's difference from the base under its value (relative only for flow, velocity, pump head, head loss, power and speed; no tolerance snapping; "Same" only where the values display identically). Each column header gives that case's status and switches to it (the focus goes to its tab); a case that did not converge, was not solved, failed or was not reached by a stopped run shows no values, and values out of date are tinted. The notice above the table counts the cases Solve all would solve, and names apart those whose solve failed with an error of their own to fix first. A row header opens its element's trace in the active case, and says so and does nothing while that case has no results. Default rows come from the stored project's scenarios (pumps, changed elements, assigned flows, the extremes; at most 40), and `CompareRowsDialog` adds, removes and orders rows. A table on a pane at least 28 rem wide, one card per row below (phones). The rows are page state.
 - **`PumpChart`** draws the active case as before and the other solved cases (six cases at most, the active one included) in slate with their own hollow markers and labels: their operating points and their pump curves at another speed by default, their system curves only on request ("Also show the other cases' system curves"), one request at a time with Cancel, over the active curve's flow range, for the cases that are other than the one shown (after a case switch too). Its data table adds the operating points by case.
 
-**Footer** (`SiteFooter`): the disclaimer (GOALS §4.8), the copyright notice, About and privacy, the license (AGPL-3.0-or-later) and the source code, both at the commit the build was made from, and the third-party licenses (TSD §11.1).
+**Footer** (`SiteFooter`): the disclaimer (GOALS §4.8), the copyright notice, About and privacy, the license (AGPL-3.0-or-later) and the source code, both at the commit the build was made from, the calculation server's source code (`<API>/source`, which redirects to the commit the API runs), and the third-party licenses (TSD §11.1).
 
 Later: design-check warnings (opt-in).
 
@@ -950,6 +950,7 @@ The validators enforce exactly what the extensions state (`tests/unit/test_schem
 | `GET /api/v1/method-versions` | — | `MethodVersionsResponse {current, versions[{version, date, changes}]}` |
 | `GET /api/v1/about` | — | `AboutResponse {name, version, methodVersion, commit, source, license, licenseUrl}`: the commit the server was built from (null when the image records none) and its source and license links (AGPL-3.0 §13; TSD §11.2) |
 | `GET /source` | — | 302 to the source code of that commit (the repository when none is recorded); the web app's footer and home page link it |
+| `GET /` | — | 302 to `/api/v1/about` (not in the schema) |
 | `GET /health` | — | `{status: "healthy"}` |
 
 Solver options that change results (`frictionMethod`, `maxIterations`, `tolerance`) live in `project.settings.solverOptions`, so a link always reproduces its results; request `options` only control extras such as system curves.

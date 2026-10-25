@@ -108,9 +108,13 @@ gcloud artifacts repositories set-cleanup-policies opensolve-pipe --location=us-
 # The API's own identity; it calls no Google API, so it has no roles
 gcloud iam service-accounts create opensolve-pipe-api
 
-# Build (--ignore-file uploads only what the image needs) and deploy
-IMAGE=us-central1-docker.pkg.dev/PROJECT_ID/opensolve-pipe/api:$(git rev-parse --short HEAD)
-gcloud builds submit apps/api --ignore-file=.dockerignore --tag "$IMAGE"
+# Build from GitHub at the commit on main (the image records it and links its source, TSD §11.2)
+git fetch origin && SHA=$(git rev-parse origin/main)
+IMAGE=us-central1-docker.pkg.dev/PROJECT_ID/opensolve-pipe/api:${SHA:0:7}
+gcloud builds submit https://github.com/ccirone2/opensolve-pipe --git-source-revision="$SHA" \
+  --git-source-dir=apps/api --config=apps/api/cloudbuild.yaml \
+  --substitutions="_IMAGE=$IMAGE,_SOURCE_COMMIT=$SHA"
+# Deploy
 gcloud run deploy opensolve-pipe-api --image "$IMAGE" \
   --service-account=opensolve-pipe-api@PROJECT_ID.iam.gserviceaccount.com --allow-unauthenticated \
   --cpu=1 --memory=1Gi --concurrency=20 --timeout=60 --min-instances=0 --max-instances=1 \

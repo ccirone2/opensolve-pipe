@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { decodeProject, fragmentOf } from '$lib/utils/encoding';
 import { EXAMPLES } from '$lib/utils/examples';
 import Home from './Home.svelte';
-import { SOURCE_URL } from './links';
+import { serverSourceHref, SOURCE_URL } from './links';
 
 describe('Home', () => {
 	it('shows the product name', () => {
@@ -48,6 +48,10 @@ describe('Home', () => {
 			/^Copyright © 2026 Chris Cirone\. OpenSolve Pipe is free software/
 		);
 		expect(screen.getByRole('link', { name: 'Source code' })).toHaveAttribute('href', SOURCE_URL);
+		expect(screen.getByRole('link', { name: "calculation server's source code" })).toHaveAttribute(
+			'href',
+			serverSourceHref()
+		);
 		expect(screen.getByRole('link', { name: 'third-party licenses' })).toHaveAttribute(
 			'href',
 			'/third-party-licenses.txt'

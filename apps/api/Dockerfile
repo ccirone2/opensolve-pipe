@@ -1,6 +1,6 @@
 # OpenSolve Pipe API: production image for Google Cloud Run (TSD §11.2).
 #
-#   docker build -t opensolve-pipe-api apps/api
+#   docker build -t opensolve-pipe-api apps/api       # cloudbuild.yaml builds the deployed one
 #   docker run --rm -p 8080:8080 -e CORS_ORIGINS=http://localhost:5173 opensolve-pipe-api
 #
 # Both base images are pinned by version and digest, so a rebuild installs the same bytes;
@@ -48,6 +48,12 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     PORT=8080 \
     FORWARDED_ALLOW_IPS="127.0.0.0/8,::1,169.254.0.0/16,fe80::/10,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7"
+# SOURCE_COMMIT: the commit the image is built from, which the server reports at /api/v1/about
+# and links at /source (AGPL-3.0 §13; source.py). cloudbuild.yaml requires it; a plain
+# `docker build` leaves it empty, and the server then links the repository. Declared last, so a
+# new commit rebuilds no layer above.
+ARG SOURCE_COMMIT=""
+ENV SOURCE_COMMIT="${SOURCE_COMMIT}"
 USER app
 WORKDIR /app
 EXPOSE 8080

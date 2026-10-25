@@ -7,11 +7,11 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
 
-from . import __version__, logging_privacy
+from . import __version__, logging_privacy, source
 from .middleware import BodySizeLimit, CatchAll, RateLimit
 from .models.api import ErrorCode, ErrorResponse, TopologyIssue
 from .routers import fluids, library, solve
@@ -43,7 +43,11 @@ _DOCS = interactive_docs_enabled(os.environ)
 
 app = FastAPI(
     title="OpenSolve Pipe API",
-    description="Steady-state hydraulic analysis of pressurized pipe networks. All values are SI.",
+    description=(
+        "Steady-state hydraulic analysis of pressurized pipe networks. All values are SI. "
+        "Free software (AGPL-3.0-or-later): GET /source redirects to the source code of the "
+        "commit this server runs, and GET /api/v1/about names it."
+    ),
     version=__version__,
     license_info={"name": "AGPL-3.0-or-later", "identifier": "AGPL-3.0-or-later"},
     # One schema per model, so generated frontend types have one name per model.
@@ -235,3 +239,11 @@ async def validation_error(_: Request, exc: RequestValidationError) -> JSONRespo
 @app.get("/health")
 async def health_check() -> dict[str, str]:
     return {"status": "healthy"}
+
+
+@app.get("/source", response_class=RedirectResponse, status_code=302)
+async def source_code() -> RedirectResponse:
+    """Redirects to the source code of the commit this server runs (AGPL-3.0 §13), or to the
+    repository when the image records no commit. 302, not a permanent redirect: the next
+    deployment runs another commit."""
+    return RedirectResponse(source.SOURCE_URL, status_code=302)

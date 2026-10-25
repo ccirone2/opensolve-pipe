@@ -1,4 +1,5 @@
-"""Library data served to the frontend: pipe materials and sizes, fitting types, methods."""
+"""Library data served to the frontend: pipe materials and sizes, fitting types, methods, and
+the server's own version and source."""
 
 from pydantic import Field
 
@@ -54,3 +55,17 @@ class MethodVersionInfo(OutputModel):
 class MethodVersionsResponse(OutputModel):
     current: str
     versions: list[MethodVersionInfo]
+
+
+class AboutResponse(OutputModel):
+    """The server's version and the source of the commit it runs (AGPL-3.0 §13; TSD §11.2)."""
+
+    name: str
+    version: str = Field(description="The API package version")
+    method_version: str = Field(description="The current calculation-method version (GOALS §4.3)")
+    commit: str | None = Field(
+        description="The commit this server was built from; null when the image records none"
+    )
+    source: str = Field(description="The source code at that commit, else the repository")
+    license: str = Field(description="SPDX license identifier")
+    license_url: str = Field(description="The license text at that commit")

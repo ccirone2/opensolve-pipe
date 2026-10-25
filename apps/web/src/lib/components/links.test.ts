@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { NOTICES_URL, REPOSITORY_URL, sourceLinks } from './links';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { NOTICES_URL, REPOSITORY_URL, serverSourceHref, sourceLinks } from './links';
+
+const env = vi.hoisted(() => ({}) as Record<string, string | undefined>);
+vi.mock('$env/dynamic/public', () => ({ env }));
 
 describe('sourceLinks', () => {
 	it('points the source and the license at the commit the build was made from', () => {
@@ -26,4 +29,16 @@ describe('sourceLinks', () => {
 
 it('serves the third-party licenses from the site root', () => {
 	expect(NOTICES_URL).toBe('/third-party-licenses.txt');
+});
+
+describe('serverSourceHref', () => {
+	afterEach(() => {
+		delete env.PUBLIC_API_URL;
+	});
+
+	it("links the calculation server's /source, which redirects to the commit it runs", () => {
+		expect(serverSourceHref()).toBe('http://localhost:8000/source');
+		env.PUBLIC_API_URL = 'https://api.opensolve-pipe.app/';
+		expect(serverSourceHref()).toBe('https://api.opensolve-pipe.app/source');
+	});
 });

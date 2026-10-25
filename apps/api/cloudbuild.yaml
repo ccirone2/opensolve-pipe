@@ -1,0 +1,13 @@
+# Cloud Build: the API image, recording the commit it is built from (TSD §11.2). From a clean
+# checkout of that commit, at the repository root:
+#
+#   gcloud builds submit apps/api --ignore-file=.dockerignore --config=apps/api/cloudbuild.yaml \
+#     --substitutions="_IMAGE=$IMAGE,_SOURCE_COMMIT=$(git rev-parse HEAD)"
+#
+# Both substitutions have no default, so Cloud Build refuses the build when either is missing
+# (it errors on a missing substitution unless ALLOW_LOOSE is set). The server reports the commit
+# at /api/v1/about and redirects /source to it (AGPL-3.0 §13; src/opensolve_pipe/source.py).
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "--build-arg", "SOURCE_COMMIT=${_SOURCE_COMMIT}", "-t", "${_IMAGE}", "."]
+images: ["${_IMAGE}"]

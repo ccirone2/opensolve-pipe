@@ -1,6 +1,64 @@
 {
   "components": {
     "schemas": {
+      "AboutResponse": {
+        "additionalProperties": false,
+        "description": "The server's version and the source of the commit it runs (AGPL-3.0 §13; TSD §11.2).",
+        "properties": {
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The commit this server was built from; null when the image records none",
+            "title": "Commit"
+          },
+          "license": {
+            "description": "SPDX license identifier",
+            "title": "License",
+            "type": "string"
+          },
+          "licenseUrl": {
+            "description": "The license text at that commit",
+            "title": "Licenseurl",
+            "type": "string"
+          },
+          "methodVersion": {
+            "description": "The current calculation-method version (GOALS §4.3)",
+            "title": "Methodversion",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "description": "The source code at that commit, else the repository",
+            "title": "Source",
+            "type": "string"
+          },
+          "version": {
+            "description": "The API package version",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "methodVersion",
+          "commit",
+          "source",
+          "license",
+          "licenseUrl"
+        ],
+        "title": "AboutResponse",
+        "type": "object"
+      },
       "AssignedFlow": {
         "additionalProperties": false,
         "description": "Fixed flow out of (demand, positive) or into (supply, negative) the network at its port,\nwhatever the pressure there, which is a result (SDD §4.11). Not a fixed-pressure boundary:\nit never satisfies NO_FIXED_HEAD. A flow of 0 behaves exactly as a plug.",
@@ -4416,7 +4474,7 @@
     }
   },
   "info": {
-    "description": "Steady-state hydraulic analysis of pressurized pipe networks. All values are SI.",
+    "description": "Steady-state hydraulic analysis of pressurized pipe networks. All values are SI. Free software (AGPL-3.0-or-later): GET /source redirects to the source code of the commit this server runs, and GET /api/v1/about names it.",
     "license": {
       "identifier": "AGPL-3.0-or-later",
       "name": "AGPL-3.0-or-later"
@@ -4426,6 +4484,28 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/about": {
+      "get": {
+        "description": "The server's version and the source code of the commit it runs (AGPL-3.0 §13).",
+        "operationId": "about_api_v1_about_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AboutResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "About",
+        "tags": [
+          "library"
+        ]
+      }
+    },
     "/api/v1/fluids": {
       "get": {
         "description": "Built-in fluids with the temperature and concentration ranges CoolProp supports for them\n(a glycol's lower temperature bound is its freezing point at the concentration), whether a\nvapor pressure is available, and their sources.",
@@ -4939,6 +5019,18 @@
           }
         },
         "summary": "Health Check"
+      }
+    },
+    "/source": {
+      "get": {
+        "description": "Redirects to the source code of the commit this server runs (AGPL-3.0 §13), or to the\nrepository when the image records no commit. 302, not a permanent redirect: the next\ndeployment runs another commit.",
+        "operationId": "source_code_source_get",
+        "responses": {
+          "302": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Source Code"
       }
     }
   }

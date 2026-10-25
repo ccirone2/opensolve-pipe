@@ -1,5 +1,6 @@
 /** App links, resolved against the deployment's base path, and the disclaimer they lead to. */
 import { version } from '$app/environment';
+import { apiBaseUrl } from '$lib/api/client';
 import { resolve } from '$app/paths';
 import type { ResolvedPathname } from '$app/types';
 import { NOTICES_FILE } from '$lib/notices';
@@ -34,6 +35,15 @@ export const SOURCE_URL = links.source;
 
 /** The license text, at the same commit. */
 export const LICENSE_URL = links.license;
+
+/**
+ * The source code of the calculation server, which is deployed on its own and may run another
+ * commit than this build: the API redirects /source to the commit it was built from (AGPL-3.0
+ * §13; TSD §11.2). Nothing is requested until the link is followed.
+ */
+export function serverSourceHref(): string {
+	return `${apiBaseUrl()}/source`;
+}
 
 /**
  * The licenses of the third-party code in the bundle (src/plugins/third-party-licenses.ts), at the

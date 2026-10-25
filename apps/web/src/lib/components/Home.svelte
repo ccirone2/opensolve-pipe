@@ -3,7 +3,14 @@
 	import { EXAMPLES } from '$lib/utils/examples';
 	import { encodeProject } from '$lib/utils/encoding';
 	import Icon from './ui/Icon.svelte';
-	import { COPYRIGHT, DISCLAIMER, NOTICES_URL, projectHref, SOURCE_URL } from './links';
+	import {
+		COPYRIGHT,
+		DISCLAIMER,
+		NOTICES_URL,
+		projectHref,
+		serverSourceHref,
+		SOURCE_URL
+	} from './links';
 	// Example links are stable: the examples have fixed ids and timestamps.
 	const examples = EXAMPLES.map((e) => ({ ...e, href: projectHref(encodeProject(e.create())) }));
 </script>
@@ -72,7 +79,12 @@
 				rel="external noopener noreferrer"
 				class="text-blue-800 underline underline-offset-2">Source code</a
 			>
-			of this version. It includes open source packages under their own licenses:
+			of this version, and the
+			<a
+				href={serverSourceHref()}
+				rel="external noopener noreferrer"
+				class="text-blue-800 underline underline-offset-2">calculation server's source code</a
+			>. It includes open source packages under their own licenses:
 			<a href={NOTICES_URL} rel="external" class="text-blue-800 underline underline-offset-2"
 				>third-party licenses</a
 			>.

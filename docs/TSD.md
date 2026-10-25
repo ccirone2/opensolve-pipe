@@ -1344,6 +1344,7 @@ Checked with `wrangler pages dev` 4.149.0 on a build made with `PUBLIC_API_URL` 
 
 **Legal notices** (AGPL-3.0-or-later; the licenses of the bundled packages):
 - **Source of this version.** AGPL-3.0 §13 requires offering users of a network service the source of the version they use. `svelte.config.js` takes the commit being built from `CF_PAGES_COMMIT_SHA`, which Pages sets in every build ([build configuration][cf-build]), else from `git rev-parse HEAD`, and passes it as SvelteKit's `version.name`. `links.ts` reads it from `$app/environment` and links the source to `…/tree/<commit>` and the license to `…/blob/<commit>/LICENSE`. A build without git gets SvelteKit's default version (a timestamp) and links to the repository.
+- **Source of the calculation server.** The API is built and deployed on its own (§11.2) and may run another commit than the site, so the footer and the home page also link `<PUBLIC_API_URL>/source`, which the API redirects (302) to the commit it was built from (`links.ts` `serverSourceHref`). Nothing is requested until the link is followed.
 - **Third-party licenses.** The MIT, BSD-3-Clause and Zlib licenses of the bundled packages require their notices with every copy, and the minifier strips them from the JavaScript. `src/plugins/third-party-licenses.ts`, a Vite plugin, reads the npm packages of every module in the client build's chunks, plus Tailwind (generated into the CSS), and writes their license texts to `third-party-licenses.txt` at the site root. It reads the bundle, not `package.json`: the Svelte and SvelteKit runtimes are dev dependencies but ship, and a dependency that is never imported does not. A bundled package without a license field or file fails the build. For v1 it lists 11 packages, all MIT except fast-uri (BSD-3-Clause) and pako (MIT AND Zlib).
 - **Copyright.** The footer and the home page show `Copyright © 2026 Chris Cirone`, with the license and the no-warranty disclaimer: the "Appropriate Legal Notices" an interactive interface must display (AGPL-3.0 §0, §5d).
 
@@ -1365,7 +1366,7 @@ Checked with `wrangler pages dev` 4.149.0 on a build made with `PUBLIC_API_URL` 
 
 ### 11.2 Backend (Google Cloud Run)
 
-**Image.** `apps/api/Dockerfile` is built from `apps/api`. `.dockerignore` keeps the build context to `pyproject.toml`, `uv.lock`, `LICENSE` and `src/` (54 files, 0.8 MiB).
+**Image.** `apps/api/Dockerfile` is built from `apps/api`. `.dockerignore` keeps the build context to `pyproject.toml`, `uv.lock`, `LICENSE` and `src/`, with the Dockerfile and `.dockerignore` (57 files, 0.9 MiB).
 - **Base images**, pinned by version and digest:
   - `ghcr.io/astral-sh/uv:0.11.32`, the uv of the `uv_build` constraint.
   - `python:3.12.15-slim-trixie` (Debian 13).
@@ -1468,8 +1469,14 @@ Checked with `wrangler pages dev` 4.149.0 on a build made with `PUBLIC_API_URL` 
 - **Usage counts stay available.** Request counts remain available as Cloud Run's request-count metric ([monitoring][gc-monitoring]), and Google Cloud metrics cost nothing ([pricing][gc-obs-price]). The container log (the app's access log, without addresses) is kept.
 
 **Build and images.**
-- **Build:** `gcloud builds submit apps/api --ignore-file=.dockerignore --tag …` builds the Dockerfile in Cloud Build and pushes the image to Artifact Registry. Cloud Build checks `mirror.gcr.io` before Docker Hub ([cache][gc-mirror]).
-- **`--ignore-file` matters.** Without it, gcloud uploads everything in `apps/api` that its default rules don't skip, a local `.venv` included: 23,222 files and 996 MiB here, against 54 files and 0.8 MiB with it. This was checked with gcloud's own file chooser.
+- **Build**, from a clean checkout of the commit to deploy (`git status --porcelain` prints nothing), at the repository root:
+  ```bash
+  gcloud builds submit apps/api --ignore-file=.dockerignore --config=apps/api/cloudbuild.yaml \
+    --substitutions="_IMAGE=$IMAGE,_SOURCE_COMMIT=$(git rev-parse HEAD)"
+  ```
+  `cloudbuild.yaml` builds the Dockerfile in Cloud Build with that commit as the `SOURCE_COMMIT` build argument and pushes the image to Artifact Registry. Cloud Build checks `mirror.gcr.io` before Docker Hub ([cache][gc-mirror]). `--tag` cannot pass a build argument (it runs `docker build -t $TAG .`, and `--tag` and `--config` exclude each other), hence the config file. Neither substitution has a default, and Cloud Build refuses a build with a missing substitution unless `ALLOW_LOOSE` is set ([substitutions][gc-subst]), so a build cannot leave the commit out.
+- **Source of this version (AGPL-3.0 §13).** The Dockerfile's last stage turns the build argument into `ENV SOURCE_COMMIT`. The server (`source.py`) records it when it is a full 40-character commit and reports it at `GET /api/v1/about`; `GET /source` redirects (302) to `…/tree/<commit>`, and the web app links there (§11.1). An image built without it (a plain `docker build`) records no commit and links to the repository. Checked on an image built from this Dockerfile, with and without the argument: `/api/v1/about` gave the commit and `/source` its tree, else `null` and the repository.
+- **`--ignore-file` matters.** Without it, gcloud uploads everything in `apps/api` that its default rules don't skip, a local `.venv` included: 23,222 files and 996 MiB here, against 57 files and 0.9 MiB with it (2026-10-25, with `cloudbuild.yaml` left out by `.dockerignore`). This was checked with gcloud's own file chooser (`gcloud meta list-files-for-upload` on a copy whose `.gcloudignore` is the `.dockerignore`).
 - **Build and deploy are separate commands.** `gcloud run deploy --source` takes no ignore file and writes a `.gcloudignore` into the source directory.
 - **Permissions:** in projects where default service accounts don't get Editor automatically, Cloud Build's default service account needs `roles/run.builder` ([deploying from source][gc-source]).
 - **Cleanup:** the repository's cleanup policy deletes every image except the 3 most recent. Google's keep policies only "keep artifacts that would be deleted according to the specifications of your delete policy", and an artifact that matches both is kept ([cleanup][gc-ar-cleanup]). So the policy pairs a Delete rule that matches every image (`tagState: any`, its only condition) with a Keep rule for the 3 most recent versions (`mostRecentVersions.keepCount: 3`). A Delete rule limited by age (`olderThan: 30d`) would keep every younger image, however many deployments there were. Artifact Registry applies policies in a periodic background job, and changes take effect "within approximately one day" ([cleanup][gc-ar-cleanup]). Each image is about 0.12 GiB compressed (120 MiB measured, below), so 3 fit the 0.5 GiB of free storage (§11.5).
@@ -1503,7 +1510,8 @@ The API reads no other variable (the old `ENVIRONMENT=production` was never read
 ### 11.4 Checks After Each Deployment
 
 1. **Health and docs:** `curl https://<api>/health` returns `{"status":"healthy"}`, and `/docs` returns 404 (`API_DOCS` is unset).
-2. **Client address (§11.2)**, while maximum instances is 1. The body `{}` is rejected before any solve, so the check costs nothing:
+2. **Source:** `curl https://<api>/api/v1/about` names the commit that was built (`git rev-parse HEAD` of that checkout), and `curl -sI https://<api>/source` is a 302 to `…/tree/<that commit>` (§11.2).
+3. **Client address (§11.2)**, while maximum instances is 1. The body `{}` is rejected before any solve, so the check costs nothing:
    ```bash
    API=https://<api>
    hit() { curl -s -o /dev/null -w '%{http_code}\n' -H 'content-type: application/json' --data '{}' "$@" "$API/api/v1/solve"; }
@@ -1513,8 +1521,8 @@ The API reads no other variable (the old `ENVIRONMENT=production` was never read
    ```
    - Where this machine has IPv6, repeat the three steps with `-6`; IPv6 has its own bucket. Then, if the machine has a second global address in the same /64 (`ip -6 addr show scope global` often lists a stable and a temporary one), `hit -6 --interface <that address>` should also return 429, because the key is the /64.
    - Then, within the same minute, run `hit` from another network (another machine, or this one on a phone's hotspot). It should return 400; 429 means every user shares one bucket (§11.2 says how to find out why).
-3. **Logs:** in Logs Explorer, `LOG_ID("run.googleapis.com/requests")` shows nothing newer than the exclusion. The container log has lines like `- - "POST /api/v1/solve HTTP/1.1" 400`, with no addresses.
-4. **Site**, on a desktop browser and on a phone:
+4. **Logs:** in Logs Explorer, `LOG_ID("run.googleapis.com/requests")` shows nothing newer than the exclusion. The container log has lines like `- - "POST /api/v1/solve HTTP/1.1" 400`, with no addresses.
+5. **Site**, on a desktop browser and on a phone:
    - Open the home page's example and solve.
    - Requests go only to the site and to the API, and Application → Storage shows no cookies.
    - The page source of `/` and `/p` has no `cloudflareinsights` or `email-decode` script.
@@ -1588,6 +1596,7 @@ Free tiers and prices in USD, read on 2026-10-22:
 [gc-monitoring]: https://docs.cloud.google.com/run/docs/monitoring
 [gc-obs-price]: https://cloud.google.com/stackdriver/pricing
 [gc-mirror]: https://docs.cloud.google.com/artifact-registry/docs/pull-cached-dockerhub-images
+[gc-subst]: https://docs.cloud.google.com/build/docs/configuring-builds/substitute-variable-values
 [gc-source]: https://docs.cloud.google.com/run/docs/deploying-source-code
 [gc-ar-cleanup]: https://docs.cloud.google.com/artifact-registry/docs/repositories/cleanup-policy
 [gc-ar-price]: https://cloud.google.com/artifact-registry/pricing

@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/v1/about": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * About
+         * @description The server's version and the source code of the commit it runs (AGPL-3.0 §13).
+         */
+        get: operations["about_api_v1_about_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/fluids": {
         parameters: {
             query?: never;
@@ -200,10 +220,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Source Code
+         * @description Redirects to the source code of the commit this server runs (AGPL-3.0 §13), or to the
+         *     repository when the image records no commit. 302, not a permanent redirect: the next
+         *     deployment runs another commit.
+         */
+        get: operations["source_code_source_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AboutResponse
+         * @description The server's version and the source of the commit it runs (AGPL-3.0 §13; TSD §11.2).
+         */
+        AboutResponse: {
+            /**
+             * Commit
+             * @description The commit this server was built from; null when the image records none
+             */
+            commit: string | null;
+            /**
+             * License
+             * @description SPDX license identifier
+             */
+            license: string;
+            /**
+             * Licenseurl
+             * @description The license text at that commit
+             */
+            licenseUrl: string;
+            /**
+             * Methodversion
+             * @description The current calculation-method version (GOALS §4.3)
+             */
+            methodVersion: string;
+            /** Name */
+            name: string;
+            /**
+             * Source
+             * @description The source code at that commit, else the repository
+             */
+            source: string;
+            /**
+             * Version
+             * @description The API package version
+             */
+            version: string;
+        };
         /**
          * AssignedFlow
          * @description Fixed flow out of (demand, positive) or into (supply, negative) the network at its port,
@@ -2240,6 +2320,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    about_api_v1_about_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AboutResponse"];
+                };
+            };
+        };
+    };
     list_fluids_api_v1_fluids_get: {
         parameters: {
             query?: never;
@@ -2640,6 +2740,24 @@ export interface operations {
                         [key: string]: string;
                     };
                 };
+            };
+        };
+    };
+    source_code_source_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

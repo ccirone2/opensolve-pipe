@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { API_ORIGIN } from './servers';
 
 test('home page shows the product name', async ({ page }) => {
 	await page.goto('/');
@@ -7,7 +8,8 @@ test('home page shows the product name', async ({ page }) => {
 
 /**
  * The legal notices of a production build (AGPL-3.0 §13, TSD §11.1): the source link names the
- * commit the build was made from, and the third-party licenses file is served from the site root
+ * commit the build was made from, the server source link leads to the API's own, and the
+ * third-party licenses file is served from the site root
  * with the packages that are in the bundle.
  */
 test('home page links to the source of this build and the third-party licenses', async ({
@@ -15,10 +17,17 @@ test('home page links to the source of this build and the third-party licenses',
 	request
 }) => {
 	await page.goto('/');
-	await expect(page.getByRole('link', { name: 'Source code' })).toHaveAttribute(
+	await expect(page.getByRole('link', { name: 'Source code', exact: true })).toHaveAttribute(
 		'href',
 		/^https:\/\/github\.com\/ccirone2\/opensolve-pipe\/tree\/[0-9a-f]{40}$/
 	);
+	// The calculation server's source: its /source redirects to the commit it runs, here the
+	// repository, since the e2e API is not an image built with SOURCE_COMMIT (TSD §11.2).
+	const server = page.getByRole('link', { name: "calculation server's source code" });
+	await expect(server).toHaveAttribute('href', `${API_ORIGIN}/source`);
+	const redirect = await request.get(`${API_ORIGIN}/source`, { maxRedirects: 0 });
+	expect(redirect.status()).toBe(302);
+	expect(redirect.headers()['location']).toBe('https://github.com/ccirone2/opensolve-pipe');
 	const notices = page.getByRole('link', { name: 'third-party licenses' });
 	await expect(notices).toHaveAttribute('href', '/third-party-licenses.txt');
 	const response = await request.get('/third-party-licenses.txt');

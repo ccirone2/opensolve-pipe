@@ -1,10 +1,18 @@
 <!--
 	Footer of the app pages (design §5): the README disclaimer, the copyright notice, and links to
-	the privacy note, the license and the source code of this build (AGPL-3.0-or-later), and the
-	third-party licenses.
+	the privacy note, the license, the source code of this build and of the calculation server
+	(AGPL-3.0-or-later), and the third-party licenses.
 -->
 <script lang="ts">
-	import { aboutHref, COPYRIGHT, DISCLAIMER, LICENSE_URL, NOTICES_URL, SOURCE_URL } from './links';
+	import {
+		aboutHref,
+		COPYRIGHT,
+		DISCLAIMER,
+		LICENSE_URL,
+		NOTICES_URL,
+		serverSourceHref,
+		SOURCE_URL
+	} from './links';
 </script>
 
 <footer class="space-y-1 border-t border-slate-200 pt-3 text-xs text-slate-600">
@@ -27,6 +35,12 @@
 			rel="external noopener noreferrer"
 			class="inline-flex min-h-11 items-center text-blue-800 underline underline-offset-2"
 			>Source code</a
+		>
+		<a
+			href={serverSourceHref()}
+			rel="external noopener noreferrer"
+			class="inline-flex min-h-11 items-center text-blue-800 underline underline-offset-2"
+			>Server source code</a
 		>
 		<a
 			href={NOTICES_URL}

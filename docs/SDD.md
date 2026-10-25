@@ -948,6 +948,8 @@ The validators enforce exactly what the extensions state (`tests/unit/test_schem
 | `POST /api/v1/fluids/custom` | `CustomFluid` | `FluidPropertiesResponse` |
 | `GET /api/v1/library` | — | `LibraryResponse {materials (schedules, sizes, dimensions, roughness, sources), fittings (correlation call, reference diameter, source)}` |
 | `GET /api/v1/method-versions` | — | `MethodVersionsResponse {current, versions[{version, date, changes}]}` |
+| `GET /api/v1/about` | — | `AboutResponse {name, version, methodVersion, commit, source, license, licenseUrl}`: the commit the server was built from (null when the image records none) and its source and license links (AGPL-3.0 §13; TSD §11.2) |
+| `GET /source` | — | 302 to the source code of that commit (the repository when none is recorded); the web app's footer and home page link it |
 | `GET /health` | — | `{status: "healthy"}` |
 
 Solver options that change results (`frictionMethod`, `maxIterations`, `tolerance`) live in `project.settings.solverOptions`, so a link always reproduces its results; request `options` only control extras such as system curves.

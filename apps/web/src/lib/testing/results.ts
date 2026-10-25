@@ -121,7 +121,8 @@ export function systemCurveResponse(
 		pumpId,
 		flowRange: { min: 0, max: 0.03, unit: 'm³/s' },
 		points,
-		converged: points.map((p) => p.converged)
+		converged: points.map((p) => p.converged),
+		scenario: null
 	};
 }
 
@@ -318,5 +319,11 @@ export function response(
 	solvedState: SolvedState,
 	values: Partial<SolveResponse> = {}
 ): SolveResponse {
-	return { success: solvedState.converged, computeTime: 0.25, solvedState, ...values };
+	return {
+		success: solvedState.converged,
+		computeTime: 0.25,
+		solvedState,
+		scenario: null,
+		...values
+	};
 }

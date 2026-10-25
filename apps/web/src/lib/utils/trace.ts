@@ -128,6 +128,11 @@ export function traceName(name: string, project: Project, elementId: string): st
 
 export interface MethodsTextContext {
 	projectName?: string;
+	/**
+	 * The case solved, for a project with scenarios: "scenario Winter (S2)" or "base case"
+	 * (copied text then always names its case).
+	 */
+	caseName?: string;
 	/** When the solve ran (ISO 8601). */
 	timestamp?: string;
 	/** Whether the solve converged (false: its values are not a solution). */
@@ -161,6 +166,7 @@ export function solveStatusLines(context: MethodsTextContext): string[] {
 export function methodsText(methods: MethodsSummary, context: MethodsTextContext = {}): string {
 	const lines: string[] = ['Calculation methods and assumptions'];
 	if (context.projectName) lines.push(`Project: ${context.projectName}`);
+	if (context.caseName) lines.push(`Case: ${context.caseName}`);
 	lines.push(`OpenSolve Pipe calculation methods version ${methods.methodVersion}`);
 	if (context.timestamp) lines.push(`Solved: ${context.timestamp}`);
 	lines.push(...solveStatusLines(context));

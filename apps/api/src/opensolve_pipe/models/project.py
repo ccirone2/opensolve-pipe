@@ -2,13 +2,14 @@
 
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from .base import CamelModel, Identifier
 from .components import Component
 from .fluids import FluidDefinition
 from .piping import PipeConnection
 from .pumps import PumpCurve
+from .scenarios import MAX_SCENARIOS, Scenario, duplicate_scenario_ids
 
 SCHEMA_VERSION = 1
 """Current project schema version. Bump on every breaking change and add a frontend migration;
@@ -94,3 +95,22 @@ class Project(CamelModel):
     components: list[Component] = Field(max_length=1000)
     connections: list[PipeConnection] = Field(max_length=2000)
     pump_library: list[PumpCurve] = Field(max_length=200)
+    scenarios: list[Scenario] = Field(
+        default_factory=list,
+        max_length=MAX_SCENARIOS,
+        # Left out of every dump when empty, so a project without scenarios serializes exactly
+        # as before (stored cases, corpus dumps, links; the web never writes an empty list).
+        exclude_if=lambda scenarios: not scenarios,
+        description=(
+            "Named sets of overrides of this project's values (the base project); solve one "
+            "with scenarioId. Omitted when there are none"
+        ),
+    )
+
+    @field_validator("scenarios")
+    @classmethod
+    def _check_scenario_ids(cls, scenarios: list[Scenario]) -> list[Scenario]:
+        problems = duplicate_scenario_ids(scenarios)
+        if problems:
+            raise ValueError("; ".join(problems))
+        return scenarios

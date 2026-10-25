@@ -2,6 +2,9 @@
 
 import logging
 
+import pytest
+from fastapi.testclient import TestClient
+
 import opensolve_pipe.main  # noqa: F401  (installs the filter)
 from opensolve_pipe.logging_privacy import (
     ACCESS_LOGGER,
@@ -9,6 +12,7 @@ from opensolve_pipe.logging_privacy import (
     DropAsgiTrace,
     StripQueryString,
 )
+from opensolve_pipe.main import app
 
 
 def test_access_log_drops_the_query_string() -> None:
@@ -69,3 +73,34 @@ def test_uvicorn_trace_records_of_the_request_scope_are_dropped() -> None:
         None,
     )
     assert not logger.filter(record)
+
+
+def test_a_scenario_request_logs_nothing_of_its_body(caplog: pytest.LogCaptureFixture) -> None:
+    """A scenario travels in the request body, as the project does (scenario-manager.md §3.5):
+    neither its solve nor its rejection logs its name, description or values."""
+    from .helpers import project_dict, two_reservoirs
+
+    secret = "SECRET9x7"
+    project = project_dict(*two_reservoirs())
+    overrides = [
+        {"kind": "component", "componentId": "R2", "field": "liquidLevel", "value": 7.654321}
+    ]
+    scenario = {
+        "id": "S7",
+        "name": secret,
+        "description": f"{secret} notes",
+        "overrides": overrides,
+    }
+    project["scenarios"] = [scenario]
+    rejected = {**scenario, "id": "S8", "overrides": [{**overrides[0], "value": -9.87654}]}
+    client = TestClient(app, client=("198.51.103.7", 50000))
+    with caplog.at_level(logging.DEBUG):
+        ok = client.post("/api/v1/solve", json={"project": project, "scenarioId": "S7"})
+        project["scenarios"].append(rejected)
+        bad = client.post("/api/v1/solve", json={"project": project, "scenarioId": "S8"})
+    assert ok.status_code == 200
+    assert bad.status_code == 400
+    assert "9.87654" not in bad.text
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    for text in (secret, "7.654321", "9.87654"):
+        assert text not in logged

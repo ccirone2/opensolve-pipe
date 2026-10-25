@@ -7,6 +7,10 @@
 	announced) and never stored, so NaN is never written. Escape reverts edited text. An `error`
 	from the owner (a required value still to enter when its form is submitted) is shown the same
 	way, after the field's own.
+
+	In a scenario (field-mode.ts) the field is locked, read-only but focusable, unless it is a
+	scenario value (`change`: it then shows "Changed", the base value and Reset when the scenario
+	changes it) or `shared` by every case.
 -->
 <script lang="ts">
 	import type { UnitPreferences } from '$lib/api/types';
@@ -21,6 +25,8 @@
 		unitLabel,
 		type UnitCategory
 	} from '$lib/utils/units';
+	import ChangeNote from './ChangeNote.svelte';
+	import { isLocked, useFieldMode, type FieldChange } from './field-mode';
 	import Icon from './Icon.svelte';
 
 	interface Props {
@@ -59,6 +65,14 @@
 		 * then moves the button under the pointer, and the click is lost).
 		 */
 		oninput?: () => void;
+		/** A scenario value: what its form shows about it (editable in a scenario). */
+		change?: FieldChange | null;
+		/** Shared by every case: edited in a scenario too, on the base. */
+		shared?: boolean;
+		/** Show the change note here (false: the field's group shows one). */
+		changeNote?: boolean;
+		/** Ids of other elements that describe the input (after its own), e.g. its group's note. */
+		describedby?: string;
 	}
 
 	let {
@@ -79,8 +93,21 @@
 		compact = false,
 		disabled = false,
 		onchange,
-		oninput
+		oninput,
+		change = null,
+		shared = false,
+		changeNote = true,
+		describedby
 	}: Props = $props();
+
+	const mode = useFieldMode();
+	const locked = $derived(isLocked(mode, change, shared));
+	const changed = $derived(!!change?.inScenario && change.changed);
+	const noted = $derived(
+		changeNote &&
+			!!change &&
+			((change.inScenario && change.changed) || (!change.inScenario && change.setBy.length > 0))
+	);
 
 	/** Significant digits shown (more would suggest precision the inputs do not have). */
 	const DISPLAY_DIGITS = 6;
@@ -163,7 +190,7 @@
 	 */
 	let enteredText: string | null = null;
 
-	function changed(event: Event & { currentTarget: HTMLInputElement }) {
+	function changedText(event: Event & { currentTarget: HTMLInputElement }) {
 		if (event.currentTarget.value === enteredText) return;
 		commit();
 	}
@@ -189,29 +216,51 @@
 		{label}
 	</label>
 	<div class="flex min-w-0 items-stretch">
-		<input
-			{id}
-			class={['input', unitText && !compact && 'rounded-r-none']}
-			type="text"
-			inputmode={allowsNegative ? 'text' : 'decimal'}
-			autocomplete="off"
-			spellcheck="false"
-			{placeholder}
-			{disabled}
-			aria-label={unitText ? `${label} (${unitText})` : undefined}
-			value={text}
-			aria-invalid={error ? 'true' : undefined}
-			aria-describedby={[error && `${id}-error`, warning && `${id}-warning`, hint && `${id}-hint`]
-				.filter(Boolean)
-				.join(' ') || undefined}
-			oninput={(event) => {
-				text = event.currentTarget.value;
-				enteredText = null;
-				oninput?.();
-			}}
-			onchange={changed}
-			onkeydown={keydown}
-		/>
+		<div class="relative min-w-0 flex-1">
+			<input
+				{id}
+				class={[
+					'input',
+					unitText && !compact && 'rounded-r-none',
+					locked && 'bg-slate-50 pr-8',
+					changed && 'border-2 border-teal-600'
+				]}
+				type="text"
+				inputmode={allowsNegative ? 'text' : 'decimal'}
+				autocomplete="off"
+				spellcheck="false"
+				{placeholder}
+				{disabled}
+				readonly={locked}
+				aria-label={unitText ? `${label} (${unitText})` : undefined}
+				value={text}
+				aria-invalid={error ? 'true' : undefined}
+				aria-describedby={[
+					noted && `${id}-change`,
+					locked && `${id}-locked`,
+					error && `${id}-error`,
+					warning && `${id}-warning`,
+					hint && `${id}-hint`,
+					describedby
+				]
+					.filter(Boolean)
+					.join(' ') || undefined}
+				oninput={(event) => {
+					text = event.currentTarget.value;
+					enteredText = null;
+					oninput?.();
+				}}
+				onchange={changedText}
+				onkeydown={keydown}
+			/>
+			{#if locked}
+				<Icon
+					name="lock"
+					class="pointer-events-none absolute top-1/2 right-2 size-4 -translate-y-1/2 text-slate-500"
+				/>
+				<span id="{id}-locked" class="sr-only">Same in every scenario.</span>
+			{/if}
+		</div>
 		{#if unitText && !compact}
 			<span
 				class="inline-flex min-h-11 shrink-0 items-center rounded-r-md border border-l-0 border-slate-300 bg-slate-50 px-2 text-sm text-slate-600"
@@ -219,6 +268,7 @@
 			>
 		{/if}
 	</div>
+	{#if noted && change}<ChangeNote {change} id="{id}-change" />{/if}
 	{#if error}
 		<p
 			bind:this={errorElement}

@@ -16,6 +16,7 @@
 	units={ws.units}
 	bounds={schemaBounds('IdealReferenceNode', 'pressure')}
 	hint="Fixed gauge pressure held at the port, like a large supply main or a closed loop's expansion tank."
+	change={ws.componentChange(component.id, 'pressure')}
 	onchange={(v) =>
 		v !== null &&
 		ws.editComponent<IdealReferenceNode>(component.id, 'change reference pressure', (c) => {

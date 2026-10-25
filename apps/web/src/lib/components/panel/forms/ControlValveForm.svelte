@@ -49,6 +49,7 @@
 	label="Status"
 	value={component.status}
 	options={STATUSES.map((s) => ({ value: s, label: CONTROL_STATUS_LABELS[s] }))}
+	change={ws.componentChange(component.id, 'status')}
 	onchange={(v) =>
 		ws.editComponent<ControlValve>(component.id, 'change valve status', (c) => {
 			c.status = v;
@@ -63,6 +64,7 @@
 		bounds={setpointBounds}
 		hint="The flow the valve throttles to."
 		warning={setpointWarning}
+		change={ws.componentChange(component.id, 'setpoint')}
 		onchange={(v) =>
 			v !== null &&
 			ws.editComponent<ControlValve>(component.id, 'change setpoint', (c) => {
@@ -81,6 +83,7 @@
 			? 'Gauge static pressure the valve holds at its outlet.'
 			: 'Gauge static pressure the valve holds at its inlet.'}
 		warning={setpointWarning}
+		change={ws.componentChange(component.id, 'setpoint')}
 		onchange={(v) =>
 			v !== null &&
 			ws.editComponent<ControlValve>(component.id, 'change setpoint', (c) => {
@@ -92,6 +95,7 @@
 	value={component.resistance}
 	units={ws.units}
 	defaultLabel="ideal (no loss when fully open)"
+	change={ws.componentChange(component.id, 'resistance')}
 	onchange={(r) =>
 		ws.editComponent<ControlValve>(component.id, 'change valve resistance', (c) =>
 			withOptional(c, 'resistance', r)

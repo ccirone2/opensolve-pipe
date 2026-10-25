@@ -40,6 +40,14 @@ export type CustomFluid = S['CustomFluid'];
 export type FluidDefinition = Project['fluid'];
 export type FluidOverrides = S['FluidOverrides'];
 export type BuiltinFluidId = BuiltinFluid['fluidId'];
+export type Scenario = S['Scenario'];
+export type ComponentOverride = S['ComponentOverride'];
+export type PipeOverride = S['PipeOverride'];
+export type ProjectOverride = S['ProjectOverride'];
+export type Override = ComponentOverride | PipeOverride | ProjectOverride;
+export type ScenarioResult = S['ScenarioResult'];
+export type OverrideResult = S['OverrideResult'];
+export type OverrideState = OverrideResult['state'];
 
 export type SolveRequest = S['SolveRequest'];
 export type SolveOptions = S['SolveOptions'];

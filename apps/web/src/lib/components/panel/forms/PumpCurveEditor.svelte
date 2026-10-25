@@ -142,19 +142,19 @@
 							efficiencyCurve: rows.map((r) => ({ flow: r.x, efficiency: r.y }))
 						}))}
 				/>
-				<button
-					type="button"
-					class="btn btn-quiet mt-1 text-red-800"
-					onclick={() => {
-						showEfficiency = false;
-						if (curve?.efficiencyCurve)
-							save('remove efficiency curve', (c) => withOptional(c, 'efficiencyCurve', null));
-					}}
-				>
-					<Icon name="trash" class="size-4" /> Remove efficiency curve
-				</button>
+				{#if !ws.inScenario}<button
+						type="button"
+						class="btn btn-quiet mt-1 text-red-800"
+						onclick={() => {
+							showEfficiency = false;
+							if (curve?.efficiencyCurve)
+								save('remove efficiency curve', (c) => withOptional(c, 'efficiencyCurve', null));
+						}}
+					>
+						<Icon name="trash" class="size-4" /> Remove efficiency curve
+					</button>{/if}
 			</div>
-		{:else}
+		{:else if !ws.inScenario}
 			<button type="button" class="btn" onclick={() => (showEfficiency = true)}>
 				<Icon name="plus" class="size-4" /> Add efficiency curve
 			</button>
@@ -175,19 +175,19 @@
 							npshrCurve: rows.map((r) => ({ flow: r.x, npshr: r.y }))
 						}))}
 				/>
-				<button
-					type="button"
-					class="btn btn-quiet mt-1 text-red-800"
-					onclick={() => {
-						showNpshr = false;
-						if (curve?.npshrCurve)
-							save('remove NPSHr curve', (c) => withOptional(c, 'npshrCurve', null));
-					}}
-				>
-					<Icon name="trash" class="size-4" /> Remove NPSHr curve
-				</button>
+				{#if !ws.inScenario}<button
+						type="button"
+						class="btn btn-quiet mt-1 text-red-800"
+						onclick={() => {
+							showNpshr = false;
+							if (curve?.npshrCurve)
+								save('remove NPSHr curve', (c) => withOptional(c, 'npshrCurve', null));
+						}}
+					>
+						<Icon name="trash" class="size-4" /> Remove NPSHr curve
+					</button>{/if}
 			</div>
-		{:else}
+		{:else if !ws.inScenario}
 			<button type="button" class="btn" onclick={() => (showNpshr = true)}>
 				<Icon name="plus" class="size-4" /> Add NPSHr curve
 			</button>

@@ -13,6 +13,7 @@ import { COMPONENT_KINDS, componentKind, createComponent, createEmptyProject } f
 import { portRole } from './graph';
 import {
 	COMPONENT_SCHEMAS,
+	componentOverrideFields,
 	componentSchemaName,
 	ENTRANCE_TYPES,
 	EXIT_TYPES,
@@ -26,6 +27,10 @@ import {
 	orderedBounds,
 	orderedFields,
 	orderViolations,
+	OVERRIDE_FIELDS,
+	overrideSchemaName,
+	pipeOverrideFields,
+	projectOverrideFields,
 	REDUCER_TYPES,
 	requiredPortCount,
 	requiredPortIds,
@@ -277,5 +282,40 @@ describe('the validator', () => {
 			connectionId: 'R2'
 		});
 		expect(modelRuleIssues(project)).toHaveLength(1);
+	});
+});
+
+describe('scenario allow-list (x-override-fields)', () => {
+	it('is read from the Scenario schema, for every component schema, pipes and the project', () => {
+		const published = extension('Scenario', 'x-override-fields') as Record<
+			string,
+			Record<string, { schema: string; path?: string[]; keys?: string[] }>
+		>;
+		expect(Object.keys(OVERRIDE_FIELDS).sort()).toEqual(Object.keys(published).sort());
+		for (const [target, fields] of Object.entries(published)) {
+			for (const [name, entry] of Object.entries(fields)) {
+				expect(OVERRIDE_FIELDS[target]![name]).toEqual({
+					schema: entry.schema,
+					path: entry.path ?? [],
+					keys: entry.keys ?? []
+				});
+				// The value's holder schema has the field (bounds are read from there).
+				const properties = SCHEMAS[entry.schema]!.properties as Record<string, unknown>;
+				for (const key of entry.keys ?? [entry.path![entry.path!.length - 1]!]) {
+					expect(properties, `${target}.${name}: ${entry.schema}.${key}`).toHaveProperty(key);
+				}
+			}
+		}
+		// Every component schema has an entry ({} for none), so no type is missed.
+		for (const name of COMPONENT_SCHEMAS) expect(OVERRIDE_FIELDS).toHaveProperty(name);
+		const pump = COMPONENTS.find((c) => c.type === 'pump')!;
+		expect(Object.keys(componentOverrideFields(pump)).sort()).toEqual(
+			['control.setpoint', 'speed', 'status'].sort()
+		);
+		expect(componentOverrideFields(COMPONENTS.find((c) => c.type === 'plug')!)).toEqual({});
+		expect(Object.keys(pipeOverrideFields()).sort()).toEqual(['length', 'spec']);
+		expect(Object.keys(projectOverrideFields()).sort()).toEqual(['fluid', 'fluid.temperature']);
+		expect(overrideSchemaName('pipe')).toBe('PipeOverride');
+		expect(overrideSchemaName('tank')).toBeNull();
 	});
 });

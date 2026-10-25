@@ -1,7 +1,8 @@
 """FastAPI application entry point."""
 
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -15,6 +16,12 @@ from .middleware import BodySizeLimit, CatchAll, RateLimit
 from .models.api import ErrorCode, ErrorResponse, TopologyIssue
 from .routers import fluids, library, solve
 from .services.fluids import FluidError
+from .services.scenarios import (
+    ScenarioFluidError,
+    ScenarioNotFoundError,
+    ScenarioOverrideError,
+    ScenarioTopologyError,
+)
 from .services.solver import FlowRangeError, PumpNotFoundError, TopologyError
 from .services.solver.budget import SolveCancelledError, SolveDeadlineError
 from .workers import ServerBusyError
@@ -132,6 +139,38 @@ async def fluid_error(_: Request, exc: FluidError) -> JSONResponse:
     return _error(400, body)
 
 
+@app.exception_handler(ScenarioNotFoundError)
+async def scenario_not_found(_: Request, exc: ScenarioNotFoundError) -> JSONResponse:
+    body = ErrorResponse(success=False, error="NOT_FOUND", message=str(exc), issues=[])
+    return _error(404, body)
+
+
+@app.exception_handler(ScenarioOverrideError)
+async def scenario_override_error(_: Request, exc: ScenarioOverrideError) -> JSONResponse:
+    # Located by scenario and override index; the messages never quote a value (SDD §5.1.2).
+    body = ErrorResponse(
+        success=False,
+        error="VALIDATION_ERROR",
+        message=f"Invalid input: {len(exc.issues)} problem(s).",
+        issues=exc.issues,
+    )
+    return _error(400, body)
+
+
+@app.exception_handler(ScenarioTopologyError)
+async def scenario_topology_error(_: Request, exc: ScenarioTopologyError) -> JSONResponse:
+    message = f"Scenario {exc.scenario_id} cannot be solved: {len(exc.issues)} topology issue(s)."
+    body = ErrorResponse(success=False, error="TOPOLOGY_ERROR", message=message, issues=exc.issues)
+    return _error(422, body)
+
+
+@app.exception_handler(ScenarioFluidError)
+async def scenario_fluid_error(_: Request, exc: ScenarioFluidError) -> JSONResponse:
+    # The message already names the scenario: "Scenario S2: <the fluid message>".
+    body = ErrorResponse(success=False, error="FLUID_ERROR", message=str(exc), issues=[])
+    return _error(400, body)
+
+
 @app.exception_handler(PumpNotFoundError)
 async def pump_not_found(_: Request, exc: PumpNotFoundError) -> JSONResponse:
     body = ErrorResponse(success=False, error="NOT_FOUND", message=str(exc), issues=[])
@@ -152,14 +191,28 @@ async def flow_range_error(_: Request, exc: FlowRangeError) -> JSONResponse:
     return _error(400, body)
 
 
+def _within_override_value(loc: Sequence[Any]) -> list[str]:
+    """``loc`` cut after an override's ``value`` (scenarios.N.overrides.N[.kind].value): a value
+    is any JSON, so what pydantic puts after it (the keys of a nested object, past its
+    recursion limit) is submitted content."""
+    parts = [str(p) for p in loc]
+    for i in range(len(loc) - 1):
+        if loc[i] == "overrides" and isinstance(loc[i + 1], int):
+            for j in (i + 2, i + 3):
+                if j < len(loc) and loc[j] == "value":
+                    return parts[: j + 1]
+    return parts
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
     # Report where and what, never the submitted values (they may be project contents): the
     # messages are the schema's own (models with custom errors where pydantic's would quote
-    # the input), and a key the schema does not know is not named.
+    # the input), a key the schema does not know is not named, and a location stops at an
+    # override's value, whose keys are the submitter's.
     issues = []
     for err in exc.errors():
-        loc = [str(p) for p in err.get("loc", ())]
+        loc = _within_override_value(err.get("loc", ()))
         if err.get("type") == "extra_forbidden" and loc:
             loc[-1] = "(unknown field)"
         issues.append(

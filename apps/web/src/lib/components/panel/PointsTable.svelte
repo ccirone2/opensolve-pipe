@@ -2,7 +2,8 @@
 	A table of curve points (x, y), each cell a unit-aware number. Edits are stored as soon as
 	every row is complete and there are at least `minRows`; until then they stay in the table
 	(e.g. while a new curve is typed in). Points are kept in the order entered; flows that do not
-	increase are flagged.
+	increase are flagged. In a scenario (field-mode.ts) the curve is the same in every case: the
+	cells are locked and rows cannot be added or removed.
 -->
 <script lang="ts" module>
 	export interface Point {
@@ -13,6 +14,7 @@
 
 <script lang="ts">
 	import type { UnitPreferences } from '$lib/api/types';
+	import { useFieldMode } from '$lib/components/ui/field-mode';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
 	import type { Bounds } from '$lib/utils/schema-bounds';
@@ -48,6 +50,9 @@
 		emptyRows = minRows,
 		onchange
 	}: Props = $props();
+
+	const mode = useFieldMode();
+	const locked = $derived(!!mode?.scenario);
 
 	type Draft = { x: number | null; y: number | null };
 
@@ -128,29 +133,33 @@
 						/>
 					</td>
 					<td>
-						<button
-							type="button"
-							class="btn btn-quiet btn-icon"
-							aria-label="Remove point {i + 1}"
-							disabled={draft.length <= minRows}
-							onclick={() => update(draft.filter((_, j) => j !== i))}
-						>
-							<Icon name="trash" />
-						</button>
+						{#if !locked}
+							<button
+								type="button"
+								class="btn btn-quiet btn-icon"
+								aria-label="Remove point {i + 1}"
+								disabled={draft.length <= minRows}
+								onclick={() => update(draft.filter((_, j) => j !== i))}
+							>
+								<Icon name="trash" />
+							</button>
+						{/if}
 					</td>
 				</tr>
 			{/each}
 		</tbody>
 	</table>
 	<div class="mt-1 flex flex-wrap items-center gap-2">
-		<button
-			type="button"
-			class="btn"
-			disabled={draft.length >= maxRows}
-			onclick={() => (draft = [...draft, { x: null, y: null }])}
-		>
-			<Icon name="plus" class="size-4" /> Add point
-		</button>
+		{#if !locked}
+			<button
+				type="button"
+				class="btn"
+				disabled={draft.length >= maxRows}
+				onclick={() => (draft = [...draft, { x: null, y: null }])}
+			>
+				<Icon name="plus" class="size-4" /> Add point
+			</button>
+		{/if}
 		{#if pending}
 			<p class="text-sm text-amber-800">
 				{enough

@@ -19,6 +19,7 @@ from opensolve_pipe.main import app
 from opensolve_pipe.middleware import MAX_BODY_BYTES, RateLimit
 from opensolve_pipe.models.api import SolveOptions, SolveResponse
 from opensolve_pipe.models.project import Project
+from opensolve_pipe.models.scenarios import MAX_OVERRIDES, MAX_SCENARIOS
 from opensolve_pipe.services.solver import solve_project
 from opensolve_pipe.services.solver.budget import (
     Budget,
@@ -309,7 +310,8 @@ def test_openapi_documents_the_errors_the_api_returns() -> None:
 def test_project_bounds_fit_the_body_limit() -> None:
     """The schema's largest project, at the element sizes the frontend writes (factory.ts:
     ports with directions, a library pipe per connection, plus one fitting), fits in the
-    request body limit (it advertised 2000 components and 4000 connections, which did not)."""
+    request body limit (it advertised 2000 components and 4000 connections, which did not),
+    with and without the most scenarios."""
     fields = Project.model_fields
     n_comp = next(m.max_length for m in fields["components"].metadata if hasattr(m, "max_length"))
     n_conn = next(m.max_length for m in fields["connections"].metadata if hasattr(m, "max_length"))
@@ -344,6 +346,30 @@ def test_project_bounds_fit_the_body_limit() -> None:
     project["components"] = [component] * n_comp
     project["connections"] = [conn] * n_conn
     body = json.dumps({"project": project, "options": {}}, separators=(",", ":"))
+    assert len(body.encode()) <= MAX_BODY_BYTES
+    # With the most scenarios of the most overrides (proposal scenario-manager.md §2.5): a
+    # 100-character name and a 500-character description each, one whole glycol fluid with
+    # property overrides and 29 pipe specs at the sizes the frontend writes (an unrounded NPS x
+    # 0.0254), on pipe 100 of a connection, as the scenario id travels in the body too.
+    fluid = {
+        "kind": "builtin",
+        "fluidId": "propylene_glycol",
+        "temperature": 278.15,
+        "concentration": 0.3,
+        "overrides": {"density": 1030.123, "dynamicViscosity": 0.00512345, "vaporPressure": 1234.5},
+    }
+    spec = {"materialId": "stainless_steel", "schedule": "40S", "nominalSize": 6 * 0.0254}
+    overrides = [{"kind": "project", "field": "fluid", "value": fluid}] + [
+        {"kind": "pipe", "connectionId": "C2000", "pipeIndex": 99, "field": "spec", "value": spec}
+    ] * (MAX_OVERRIDES - 1)
+    project["scenarios"] = [
+        {"id": f"S{i}", "name": "N" * 100, "description": "D" * 500, "overrides": overrides}
+        for i in range(1, MAX_SCENARIOS + 1)
+    ]
+    body = json.dumps(
+        {"project": project, "scenarioId": f"S{MAX_SCENARIOS}", "options": {}},
+        separators=(",", ":"),
+    )
     assert len(body.encode()) <= MAX_BODY_BYTES
 
 

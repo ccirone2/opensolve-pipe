@@ -10,6 +10,7 @@
 <AssignedFlowFields
 	flow={component.flow}
 	units={ws.units}
+	change={ws.componentChange(component.id, 'flow')}
 	onchange={(flow, changed) =>
 		ws.editComponent<AssignedFlow>(
 			component.id,

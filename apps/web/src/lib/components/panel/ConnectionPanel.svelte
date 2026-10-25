@@ -107,24 +107,26 @@
 						Go to {componentName(ws.project, other.componentId)}
 						<Icon name="right" class="size-4" />
 					</button>
-					<button type="button" class="btn" onclick={() => (dialog = 'insert')}>
-						<Icon name="insert" class="size-4" /> Insert component
-					</button>
-					<button type="button" class="btn" onclick={() => (dialog = 'branch')}>
-						<Icon name="branch" class="size-4" /> Add branch
-					</button>
-					<button
-						type="button"
-						class="btn btn-quiet text-red-800"
-						onclick={() => {
-							const removed = connection.id;
-							if (ws.disconnect(removed)) {
-								ws.notify('info', `Connection ${removed} removed. Undo restores it.`);
-							}
-						}}
-					>
-						<Icon name="trash" class="size-4" /> Disconnect
-					</button>
+					{#if !ws.inScenario}
+						<button type="button" class="btn" onclick={() => (dialog = 'insert')}>
+							<Icon name="insert" class="size-4" /> Insert component
+						</button>
+						<button type="button" class="btn" onclick={() => (dialog = 'branch')}>
+							<Icon name="branch" class="size-4" /> Add branch
+						</button>
+						<button
+							type="button"
+							class="btn btn-quiet text-red-800"
+							onclick={() => {
+								const removed = connection.id;
+								if (ws.disconnect(removed)) {
+									ws.notify('info', `Connection ${removed} removed. Undo restores it.`);
+								}
+							}}
+						>
+							<Icon name="trash" class="size-4" /> Disconnect
+						</button>
+					{/if}
 				</div>
 			</div>
 
@@ -133,18 +135,20 @@
 				{#each connection.piping.pipes as pipe, i (i)}
 					<PipeSegmentForm {connection} index={i} {pipe} />
 				{/each}
-				<button
-					type="button"
-					class="btn"
-					disabled={connection.piping.pipes.length >= 100}
-					onclick={() =>
-						ws.editConnection(connection.id, 'add pipe segment', (c) => ({
-							...c,
-							piping: addPipe(c.piping)
-						}))}
-				>
-					<Icon name="plus" class="size-4" /> Add pipe segment
-				</button>
+				{#if !ws.inScenario}
+					<button
+						type="button"
+						class="btn"
+						disabled={connection.piping.pipes.length >= 100}
+						onclick={() =>
+							ws.editConnection(connection.id, 'add pipe segment', (c) => ({
+								...c,
+								piping: addPipe(c.piping)
+							}))}
+					>
+						<Icon name="plus" class="size-4" /> Add pipe segment
+					</button>
+				{/if}
 			</div>
 
 			<FittingsEditor {connection} />
@@ -161,54 +165,67 @@
 					starts at the port size ({npsLabel(port.nominalSize, ws.library.nominalSizes)}).
 				</p>
 			</div>
-			<div class="flex flex-wrap items-end gap-2">
-				<SelectField
-					label="Add a component here"
-					value={kind}
-					options={kindOptions()}
-					class="min-w-48 flex-1"
-					onchange={(v) => {
-						kind = v;
-						missing = null;
-					}}
-				/>
-				{#if kind === 'assigned_flow'}
-					<div class="grid basis-full gap-3 sm:grid-cols-2">
-						<NewComponentFields {kind} units={ws.units} bind:values bind:error={missing} />
-					</div>
-				{/if}
-				<button type="button" class="btn btn-primary" onclick={() => addHere(portId)}>
-					<Icon name="plus" class="size-4" /> Add
-				</button>
-			</div>
-			<div class="flex flex-wrap gap-2">
-				<button type="button" class="btn" onclick={() => ws.plug(component.id, portId)}>
-					Plug this port
-				</button>
-				{#if component.type === 'reservoir' && component.ports.length > 1}
-					<button
-						type="button"
-						class="btn btn-quiet text-red-800"
-						onclick={() => ws.edit((p) => removePort(p, component.id, portId), `remove ${portId}`)}
-					>
-						<Icon name="trash" class="size-4" /> Remove this port
+			{#if ws.inScenario}
+				<div class="flex flex-wrap items-center gap-2">
+					<p class="min-w-0 flex-1 basis-48 text-sm text-slate-700">
+						Switch to the base case to connect or plug this port: the layout of the network is the
+						same in every scenario.
+					</p>
+					<button type="button" class="btn" onclick={() => ws.setCase(null)}>
+						Switch to base case
 					</button>
-				{/if}
-			</div>
-			{#if targets.length}
-				<div class="border-t border-slate-200 pt-3">
-					<div class="flex flex-wrap items-end gap-2">
-						<SelectField
-							label="Or connect to a free port"
-							value={chosenTarget}
-							options={targets}
-							class="min-w-48 flex-1"
-							onchange={(v) => (target = v)}
-						/>
-						<button type="button" class="btn" onclick={connect}>Connect</button>
-					</div>
-					<p class="hint">For example to close a loop. The new connection gets a default pipe.</p>
 				</div>
+			{:else}
+				<div class="flex flex-wrap items-end gap-2">
+					<SelectField
+						label="Add a component here"
+						value={kind}
+						options={kindOptions()}
+						class="min-w-48 flex-1"
+						onchange={(v) => {
+							kind = v;
+							missing = null;
+						}}
+					/>
+					{#if kind === 'assigned_flow'}
+						<div class="grid basis-full gap-3 sm:grid-cols-2">
+							<NewComponentFields {kind} units={ws.units} bind:values bind:error={missing} />
+						</div>
+					{/if}
+					<button type="button" class="btn btn-primary" onclick={() => addHere(portId)}>
+						<Icon name="plus" class="size-4" /> Add
+					</button>
+				</div>
+				<div class="flex flex-wrap gap-2">
+					<button type="button" class="btn" onclick={() => ws.plug(component.id, portId)}>
+						Plug this port
+					</button>
+					{#if component.type === 'reservoir' && component.ports.length > 1}
+						<button
+							type="button"
+							class="btn btn-quiet text-red-800"
+							onclick={() =>
+								ws.edit((p) => removePort(p, component.id, portId), `remove ${portId}`)}
+						>
+							<Icon name="trash" class="size-4" /> Remove this port
+						</button>
+					{/if}
+				</div>
+				{#if targets.length}
+					<div class="border-t border-slate-200 pt-3">
+						<div class="flex flex-wrap items-end gap-2">
+							<SelectField
+								label="Or connect to a free port"
+								value={chosenTarget}
+								options={targets}
+								class="min-w-48 flex-1"
+								onchange={(v) => (target = v)}
+							/>
+							<button type="button" class="btn" onclick={connect}>Connect</button>
+						</div>
+						<p class="hint">For example to close a loop. The new connection gets a default pipe.</p>
+					</div>
+				{/if}
 			{/if}
 		</section>
 	{/if}

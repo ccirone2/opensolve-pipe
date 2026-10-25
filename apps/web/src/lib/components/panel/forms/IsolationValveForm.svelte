@@ -28,6 +28,7 @@
 		{ value: 'active', label: ISOLATION_STATUS_LABELS.active },
 		{ value: 'isolated', label: ISOLATION_STATUS_LABELS.isolated }
 	]}
+	change={ws.componentChange(component.id, 'status')}
 	onchange={(v) =>
 		ws.editComponent<IsolationValve>(component.id, 'change valve status', (c) => {
 			c.status = v;
@@ -37,6 +38,7 @@
 	value={component.resistance}
 	units={ws.units}
 	defaultLabel="Crane TP-410 K, full bore and fully open, at the connected size"
+	change={ws.componentChange(component.id, 'resistance')}
 	onchange={(r) =>
 		ws.editComponent<IsolationValve>(component.id, 'change valve resistance', (c) =>
 			withOptional(c, 'resistance', r)

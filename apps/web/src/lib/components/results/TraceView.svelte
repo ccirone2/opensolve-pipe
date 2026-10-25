@@ -4,7 +4,9 @@
 	with where each came from (user, default, library, computed), equations, correlations and
 	data sources with citations, intermediate values in display units where the unit is known,
 	and notes. A side panel over the results on wide screens (the results under it are inert while
-	it is open); a dialog (bottom sheet) on narrow ones.
+	it is open); a dialog (bottom sheet) on narrow ones. In a project with scenarios it names the
+	case solved and, for a scenario, lists the element's values the scenario changed, with their
+	base values, from the server's record (proposal scenario-manager.md §6.11).
 -->
 <script lang="ts">
 	import { onMount } from 'svelte';
@@ -24,6 +26,8 @@
 		type ElementRef
 	} from '$lib/utils/results';
 	import { formatQuantity, traceName, traceTextValue } from '$lib/utils/trace';
+	import { defaultRows, ELEMENT_QUANTITIES, rowKey, type CompareRow } from '$lib/utils/compare';
+	import { changeFieldLabel, changeValueText } from '$lib/utils/scenarios';
 	import CellValue from './CellValue.svelte';
 	import FlagIcon from './FlagIcon.svelte';
 	import ResultsStateNotice from './ResultsStateNotice.svelte';
@@ -60,10 +64,81 @@
 	const converged = $derived(
 		response?.solvedState === solved ? response.success && solved.converged : solved.converged
 	);
-	// The project as solved gives the inputs some tables show as entered (an assigned flow).
+	// The case as solved gives the inputs some tables show as entered (an assigned flow).
 	const inputs = $derived(
-		ws.store.results.response?.solvedState === solved ? ws.store.solvedProject : null
+		ws.store.results.response?.solvedState === solved ? ws.store.caseInputs() : null
 	);
+	const hasScenarios = $derived(ws.scenarios.length > 0);
+	/** The scenario these results are of (the server's record; null: the base case). */
+	const scenario = $derived(
+		ws.store.results.response?.solvedState === solved
+			? (ws.store.results.response?.scenario ?? null)
+			: null
+	);
+	/** The element's values the scenario changed, as the server applied them. */
+	const changes = $derived(
+		(scenario?.overrides ?? []).filter(
+			(o) =>
+				o.state === 'applied' &&
+				(element.kind === 'component'
+					? o.override.kind === 'component' && o.override.componentId === element.id
+					: o.override.kind === 'pipe' && o.override.connectionId === element.id)
+		)
+	);
+	/** The project as these results were solved, for each change's field and unit. */
+	const solvedAs = $derived((scenario ? ws.store.solvedProject : null) ?? ws.labelsProject);
+	const changeText = (record: (typeof changes)[number], value: unknown) =>
+		changeValueText(solvedAs, record.override, value, ws.displayUnits, {
+			materialName: (m) => ws.library.material(m)?.name,
+			nominalSizes: ws.library.nominalSizes
+		});
+	/** "Liquid level", or for a pipe "Pipe 2 length": a connection may have several pipes. */
+	const changeLabel = (record: (typeof changes)[number]) => {
+		const label = changeFieldLabel(solvedAs, record.override);
+		return record.override.kind === 'pipe'
+			? `Pipe ${record.override.pipeIndex + 1} ${label.toLowerCase()}`
+			: label;
+	};
+
+	/** Add this element's main results to Compare cases. */
+	function addToComparison() {
+		const component = element.kind === 'component' ? componentById(ws.project, element.id) : null;
+		const kind =
+			element.kind === 'connection'
+				? 'connection'
+				: component?.type === 'pump'
+					? 'pump'
+					: component?.type === 'valve'
+						? 'valve'
+						: component?.type === 'assigned_flow'
+							? 'assigned'
+							: component?.type === 'reservoir' || component?.type === 'reference_node'
+								? 'boundary'
+								: null;
+		const quantities = kind ? ELEMENT_QUANTITIES[kind].slice(0, 2) : [];
+		if (!quantities.length && component?.ports[0]) {
+			quantities.push('portPressure');
+		}
+		const rows: CompareRow[] = quantities.map((quantity) => ({
+			quantity,
+			elementId: element.id,
+			...(quantity === 'portPressure' && component?.ports[0]
+				? { portId: component.ports[0].id }
+				: {})
+		}));
+		// The rows shown now: the chosen ones, else the defaults (as Compare cases derives them,
+		// from the stored project: they depend on the scenarios, which labelsProject does not
+		// follow).
+		const current =
+			ws.compareRows ??
+			defaultRows(
+				ws.store.project,
+				ws.store.caseIds.map((c) => ws.store.resultsFor(c).response?.solvedState ?? null)
+			);
+		const known = new Set(current.map(rowKey));
+		ws.compareRows = [...current, ...rows.filter((r) => !known.has(rowKey(r)))];
+		ws.notify('info', `${name} added to Compare cases.`);
+	}
 	const results = $derived(
 		rowsForElement(ws.labelsProject, solved, ws.displayUnits, element, inputs)
 	);
@@ -137,8 +212,36 @@
 	</li>
 {/snippet}
 
+{#snippet caseChip()}
+	{#if hasScenarios}
+		<span
+			class={[
+				'ml-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium',
+				scenario ? 'bg-teal-700 text-white' : 'bg-slate-200 text-slate-800'
+			]}>{scenario ? `Scenario ${scenario.name}` : 'Base case'}</span
+		>
+	{/if}
+{/snippet}
+
 {#snippet body()}
 	<div class="space-y-5 text-sm">
+		{#if changes.length}
+			<section
+				class="space-y-1 rounded-md border border-l-4 border-teal-600 bg-teal-50 p-3 text-teal-950"
+				aria-labelledby="{id}-changed"
+			>
+				<h3 id="{id}-changed" class="section-title text-teal-950">Changed by this scenario</h3>
+				<ul class="list-disc space-y-1 pl-5">
+					{#each changes as record (record.index)}
+						<li class="break-words">
+							{changeLabel(record)}:
+							<strong>{changeText(record, record.value)}</strong>
+							(base: {changeText(record, record.baseValue)})
+						</li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
 		{#if !exists || !converged || ws.store.results.stale || ws.store.results.error}
 			<div class="space-y-2">
 				{#if !exists}
@@ -347,8 +450,17 @@
 				>
 					{name}
 				</h2>
-				<p class="text-xs break-words text-slate-600">{description}</p>
+				<p class="text-xs break-words text-slate-600">{description}{@render caseChip()}</p>
 			</div>
+			{#if exists && hasScenarios}
+				<button
+					type="button"
+					class="btn btn-quiet shrink-0 px-2 text-blue-800"
+					onclick={addToComparison}
+				>
+					Add to comparison
+				</button>
+			{/if}
 			{#if exists}
 				<button
 					type="button"
@@ -368,7 +480,18 @@
 	</div>
 {:else}
 	<Dialog title={name} {onclose} wide>
-		<p class="-mt-2 mb-3 text-xs break-words text-slate-600">{description}</p>
+		<p class="-mt-2 mb-3 text-xs break-words text-slate-600">
+			{description}{@render caseChip()}
+		</p>
+		{#if exists && hasScenarios}
+			<button
+				type="button"
+				class="btn btn-quiet -mt-2 mb-2 px-2 text-blue-800"
+				onclick={addToComparison}
+			>
+				Add to comparison
+			</button>
+		{/if}
 		{@render body()}
 		{#snippet footer()}
 			{#if exists}

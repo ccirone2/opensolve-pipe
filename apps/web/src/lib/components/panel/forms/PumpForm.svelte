@@ -138,6 +138,7 @@
 		{ value: 'on', label: PUMP_STATUS_LABELS.on },
 		{ value: 'off', label: PUMP_STATUS_LABELS.off }
 	]}
+	change={ws.componentChange(component.id, 'status')}
 	onchange={(v) =>
 		ws.editComponent<Pump>(component.id, 'change pump status', (c) => {
 			c.status = v;
@@ -181,6 +182,7 @@
 		units={ws.units}
 		bounds={controlFieldBounds(component, 'setpoint', draft ?? undefined)}
 		hint="Flow through the pump, suction to discharge, that the drive holds."
+		change={component.control ? ws.componentChange(component.id, 'control.setpoint') : null}
 		onchange={(v) => v !== null && setControlField('setpoint', v)}
 	/>
 	<NumberField
@@ -202,6 +204,7 @@
 	hint={controlled
 		? "Highest speed the drive runs the pump at, as a percentage of the curve's rated speed; at this speed the pump behaves as a fixed-speed pump."
 		: "Fixed speed, as a percentage of the curve's rated speed (affinity laws)."}
+	change={ws.componentChange(component.id, 'speed')}
 	onchange={(v) => v !== null && setSpeed(v)}
 />
 {#if controlled && component.status === 'off'}

@@ -79,6 +79,8 @@ A web application that:
 - Degraded operation (individual pumps off, valves closed)
 - Isolation scenarios (sections of network isolated)
 
+These states can be kept as scenarios of one project and compared (§3.8).
+
 Every model needs at least one fixed-pressure boundary (reservoir or ideal reference node). A model without one is reported as a topology error, not solved. An assigned-flow node fixes a flow, not a pressure, so it never counts as that boundary.
 
 ### 2.2 Out of Scope (Current Version)
@@ -105,16 +107,17 @@ v1 is the core analysis MVP. Everything else in this document is **Later**. The 
 - Water, ethylene/propylene glycol solutions, user-defined fluids
 - NPSH available and NPSH margin
 - Panel navigator, results tables, pump/system curve chart
+- Scenario manager: named cases of one project, solved one at a time or all together and compared side by side (§3.8; CLAUDE.md D15)
 - Sharing by link (§4.4)
 
-**Later:** VFD pressure and differential-pressure control modes (D11 slices 2-3); HI viscosity correction; pressure relief valves; three-way valves; differential-pressure control valve mode; scenario manager (§3.8); goal seek (§3.9); non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, heat exchangers, strainers, user-defined elements; fuels in the fluid library; auto-generated schematic; CSV/XLSX/image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
+**Later:** VFD pressure and differential-pressure control modes (D11 slices 2-3); HI viscosity correction; pressure relief valves; three-way valves; differential-pressure control valve mode; goal seek (§3.9); non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, heat exchangers, strainers, user-defined elements; fuels in the fluid library; auto-generated schematic; CSV/XLSX/image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
 
 ### 2.4 Future Features (Planned)
 
 | Feature                            | Priority | Phase |
 | ---------------------------------- | -------- | ----- |
 | Cost estimation utility            | High     | 2     |
-| Scenario manager (§3.8)            | High     | 2     |
+| Scenario manager (§3.8): built in v1 | High   | 2     |
 | Goal seek (§3.9)                   | Medium   | 2     |
 | Pipe sizing optimization           | Medium   | 2     |
 | Global pump database               | Medium   | 2     |
@@ -416,15 +419,19 @@ Manual entry of:
 - No Hazen-Williams option (Darcy-Weisbach is more accurate and general)
 - One network solver handles every topology (single path, branching, looped) and every supported fluid
 
-### 3.8 Scenarios (Later)
+### 3.8 Scenarios
 
-A scenario manager keeps several operating or design cases in one project and compares them, instead of the user keeping one URL per case. It serves the degraded-operation and isolation states in §2.1 and US-004.
+A scenario manager keeps several operating or design cases in one project and compares them, instead of the user keeping one URL per case. It serves the degraded-operation and isolation states in §2.1 and US-004. Built in v1 (CLAUDE.md D15; design: `docs/proposals/scenario-manager.md`).
 
-- A project holds the **base** model and any number of named **scenarios**. A scenario stores only its overrides of base values, so editing the base updates every scenario that doesn't override that value.
-- Overridable values: component status, valve resistance and setpoint, pump speed ratio and speed-control setpoint, reservoir level and surface pressure, reference-node pressure, assigned flow, pipe size, length and material, fluid and temperature. Adding or removing components or connections in a scenario is out of scope for the first release; it keeps scenarios small in the URL and makes every difference from the base a list of values.
-- Solve one scenario or all of them. A comparison table shows chosen results side by side with differences from the base; the pump/system curve chart can overlay scenarios.
-- Scenarios travel in the shared URL with the rest of the project; the long-link warning (§4.4) applies to the whole encoded project.
-- Traceability: every result shows which scenario produced it and lists that scenario's overrides.
+- A project holds the **base case** and up to 20 named **scenarios**. A scenario stores only its changes of base values (up to 30), so editing the base updates every scenario that does not set its own value. A scenario sets each value at most once, so the order of its changes never matters.
+- Values a scenario can change: component status, valve resistance and setpoint, pump speed ratio and speed-control setpoint, reservoir level and surface pressure, reference-node pressure, assigned flow, pipe size and material (one change: material, schedule, size and any bore or roughness override together), pipe length, the fluid, and a built-in fluid's temperature. A scenario never adds or removes components, connections, ports or pipes; it keeps scenarios small in the URL and makes every difference from the base a list of values.
+- **Editing.** The case being edited is always named, and a scenario is shown in its own colour and words. In a scenario, only the values above can be edited; each changed value is marked "Changed" with the base value and a Reset, and typing the base value back removes the change. Names, the project description and display units are the same in every case. Everything else is shown read-only ("Same in every scenario"), and adding, inserting, deleting or connecting components is done in the base case. Undo and redo cover the base and every scenario, and show the case each change was made in.
+- **Base edits.** A scenario's change of a pipe follows that pipe when the base case joins, reverses or splits its connection; removing the pipe removes its changes. A change whose component, connection or pipe was deleted, or whose value no longer exists on it (a flow setpoint on a pump without flow control, a temperature on a custom fluid), is kept, shown as "no longer applies" and ignored when solving.
+- **Solving.** Solve one case, or Solve all: the base case and then each scenario whose results are missing or out of date, one after another, with progress and Cancel. Each case keeps its own results, errors and out-of-date state. A scenario's value that is not valid is shown with the change that set it and a Reset to base, and never blocks the base case or another scenario.
+- **Comparing.** Compare cases shows chosen results of every case side by side (a table on wide screens, one card per result on phones), with each scenario's difference from the base case, and lets the user choose and order the results. The pump/system curve chart shows the other cases' operating points and pump curves, and their system curves on request.
+- Scenarios travel in the shared URL with the rest of the project; the long-link warning (§4.4) applies to the whole encoded project. A link opens on the base case.
+- Traceability: every result shows which case produced it and lists the scenario's changes as the server applied them, with any it ignored; the methods summary and every changed element's trace say so.
+- Later: the active case in the link, applying a scenario's changes to the base, differences against a case other than the base, and adding or removing components in a scenario.
 
 ### 3.9 Goal Seek (Later)
 
@@ -464,7 +471,7 @@ Goal seek finds the input values that make chosen results hit target values, e.g
 
 **v1:**
 
-- Every project is shareable as a link; the whole project is encoded in the link
+- Every project is shareable as a link; the whole project, its scenarios included (§3.8), is encoded in the link
 - No account, sign-in, or server-side project storage
 - Project data travels only in the link and is never stored or logged by the server
 - Undo/redo within a session; earlier states can be kept by keeping their links

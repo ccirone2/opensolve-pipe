@@ -50,9 +50,13 @@ export class ApiError extends Error {
 }
 
 export class NetworkError extends ApiError {
-	constructor(message: string, status: number | null = null) {
+	/** The API's error code ('SERVER_BUSY', 'TIMEOUT', 'RATE_LIMITED', ...), when it sent one. */
+	readonly code: string | null;
+
+	constructor(message: string, status: number | null = null, code: string | null = null) {
 		super(message, status);
 		this.name = 'NetworkError';
+		this.code = code;
 	}
 }
 
@@ -94,7 +98,15 @@ export interface RequestOptions {
 	signal?: AbortSignal;
 }
 
-export interface SystemCurveOptions extends RequestOptions {
+export interface CaseRequestOptions extends RequestOptions {
+	/**
+	 * Solve this scenario of the project (its changes are applied to the base project on the
+	 * server); absent or null: the base project, and the request carries no scenarioId at all.
+	 */
+	scenarioId?: string | null;
+}
+
+export interface SystemCurveOptions extends CaseRequestOptions {
 	flowMin?: number;
 	flowMax?: number | null;
 	numPoints?: number;
@@ -239,7 +251,7 @@ export class ApiClient {
 			if (response.status === 429 || response.status >= 500) {
 				// Not about the project: the server is busy (SERVER_BUSY, e.g. still solving a
 				// request just cancelled), out of time (TIMEOUT), rate-limited or failed.
-				throw new NetworkError(data.message, response.status);
+				throw new NetworkError(data.message, response.status, data.error);
 			}
 			const details = [data.message, ...data.issues.map((i) => i.message)].filter(Boolean);
 			throw new ValidationError(data.message, details, response.status, data.error);
@@ -263,29 +275,33 @@ export class ApiClient {
 	/**
 	 * Solve the network (POST /api/v1/solve). Non-convergence is a 200 with success false.
 	 * System curves are not computed with the solve unless asked for (D10: the app fetches the
-	 * curve of the pump being viewed with systemCurve(), keeping a plain solve fast).
+	 * curve of the pump being viewed with systemCurve(), keeping a plain solve fast). With
+	 * `request.scenarioId`, that scenario of the project is solved; the id travels in the body
+	 * only, never in the URL (D10).
 	 */
-	solve(project: Project, options: Partial<SolveOptions> = {}, request?: RequestOptions) {
+	solve(project: Project, options: Partial<SolveOptions> = {}, request?: CaseRequestOptions) {
 		const solveOptions: SolveOptions = {
 			includeSystemCurve: options.includeSystemCurve ?? false,
 			systemCurvePoints: options.systemCurvePoints ?? 41
 		};
+		const scenarioId = request?.scenarioId;
 		return this.#request<SolveResponse>(
 			'POST',
 			'/api/v1/solve',
-			{ project, options: solveOptions },
+			{ project, options: solveOptions, ...(scenarioId ? { scenarioId } : {}) },
 			request
 		);
 	}
 
-	/** System curve seen by one pump (POST /api/v1/system-curve). */
+	/** System curve seen by one pump (POST /api/v1/system-curve), of a scenario with scenarioId. */
 	systemCurve(project: Project, pumpId: string, options: SystemCurveOptions = {}) {
 		const body: SystemCurveRequest = {
 			project,
 			pumpId,
 			flowMin: options.flowMin ?? 0,
 			flowMax: options.flowMax ?? null,
-			numPoints: options.numPoints ?? 41
+			numPoints: options.numPoints ?? 41,
+			...(options.scenarioId ? { scenarioId: options.scenarioId } : {})
 		};
 		return this.#request<SystemCurveResponse>('POST', '/api/v1/system-curve', body, options);
 	}

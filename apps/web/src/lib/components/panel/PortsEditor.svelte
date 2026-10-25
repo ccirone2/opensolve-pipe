@@ -123,7 +123,7 @@
 								)}: the solver uses the pipe, so this port size changes no result.
 							</span>
 						</p>
-						{#if resizable}
+						{#if resizable && !ws.inScenario}
 							<button
 								type="button"
 								class="btn py-1.5 text-left whitespace-normal"
@@ -139,7 +139,7 @@
 						{other ? 'Edit piping' : 'Connect…'}
 						<Icon name="right" class="size-4" />
 					</button>
-					{#if component.type === 'reservoir' && !connection && component.ports.length > 1}
+					{#if component.type === 'reservoir' && !connection && component.ports.length > 1 && !ws.inScenario}
 						<button
 							type="button"
 							class="btn btn-quiet text-red-800"
@@ -153,7 +153,7 @@
 			</li>
 		{/each}
 	</ul>
-	{#if component.type === 'reservoir'}
+	{#if component.type === 'reservoir' && !ws.inScenario}
 		<button
 			type="button"
 			class="btn"

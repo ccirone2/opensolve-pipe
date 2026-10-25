@@ -345,6 +345,53 @@
           "outlet": "outlet"
         }
       },
+      "ComponentOverride": {
+        "additionalProperties": false,
+        "description": "An override of one value of a component.",
+        "properties": {
+          "componentId": {
+            "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Componentid",
+            "type": "string"
+          },
+          "field": {
+            "description": "camelCase path of the value relative to the component",
+            "enum": [
+              "status",
+              "speed",
+              "control.setpoint",
+              "setpoint",
+              "resistance",
+              "liquidLevel",
+              "surfacePressure",
+              "pressure",
+              "flow"
+            ],
+            "title": "Field",
+            "type": "string"
+          },
+          "kind": {
+            "const": "component",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/JsonValue",
+            "description": "The value, SI, of the target field's own type (checked when the scenario is applied); the fields each target type takes: x-override-fields"
+          }
+        },
+        "required": [
+          "kind",
+          "componentId",
+          "field",
+          "value"
+        ],
+        "title": "ComponentOverride",
+        "type": "object"
+      },
       "ControlValve": {
         "additionalProperties": false,
         "description": "Pressure-reducing, pressure-sustaining or flow-control valve.\n\nsetpoint is the gauge static pressure at the outlet port (PRV) or inlet port (PSV), in Pa,\nor the flow (FCV), in m³/s. resistance is the fully open loss; when omitted the valve is\nideal (no loss when fully open).",
@@ -1550,6 +1597,7 @@
           "outlet": "outlet"
         }
       },
+      "JsonValue": {},
       "LibraryResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1839,6 +1887,71 @@
         "title": "NodeResult",
         "type": "object"
       },
+      "OverrideResult": {
+        "additionalProperties": false,
+        "description": "How one override of a solved scenario was used.",
+        "properties": {
+          "baseValue": {
+            "$ref": "#/components/schemas/JsonValue",
+            "description": "The base project's value, SI (null unless applied); an unset field gives its default"
+          },
+          "index": {
+            "description": "0-based index into the scenario's overrides",
+            "title": "Index",
+            "type": "integer"
+          },
+          "message": {
+            "description": "Why the override was not applied ('' when applied)",
+            "title": "Message",
+            "type": "string"
+          },
+          "override": {
+            "description": "The override as given",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ComponentOverride"
+              },
+              {
+                "$ref": "#/components/schemas/PipeOverride"
+              },
+              {
+                "$ref": "#/components/schemas/ProjectOverride"
+              }
+            ],
+            "title": "Override"
+          },
+          "state": {
+            "description": "applied; orphaned: its component, connection or pipe is not in the project; not applicable: its target has no such value. Orphaned and not-applicable overrides are kept in the scenario and ignored",
+            "enum": [
+              "applied",
+              "orphaned",
+              "not_applicable"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "unit": {
+            "description": "Trace unit of value and baseValue ('' for none)",
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/JsonValue",
+            "description": "The value used, as validated, SI (null unless applied)"
+          }
+        },
+        "required": [
+          "index",
+          "override",
+          "state",
+          "value",
+          "baseValue",
+          "unit",
+          "message"
+        ],
+        "title": "OverrideResult",
+        "type": "object"
+      },
       "PipeConnection": {
         "additionalProperties": false,
         "description": "An edge of the port graph. Positive flow runs from the 'from' port to the 'to' port.",
@@ -2025,6 +2138,54 @@
           "schedules"
         ],
         "title": "PipeMaterial",
+        "type": "object"
+      },
+      "PipeOverride": {
+        "additionalProperties": false,
+        "description": "An override of one value of one pipe of a connection.",
+        "properties": {
+          "connectionId": {
+            "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Connectionid",
+            "type": "string"
+          },
+          "field": {
+            "description": "spec: an object with materialId and optionally schedule, nominalSize, innerDiameter and roughness, which replace all five; length: m",
+            "enum": [
+              "spec",
+              "length"
+            ],
+            "title": "Field",
+            "type": "string"
+          },
+          "kind": {
+            "const": "pipe",
+            "title": "Kind",
+            "type": "string"
+          },
+          "pipeIndex": {
+            "description": "0-based index into the connection's piping.pipes, as Fitting.pipeIndex (messages number pipes from 1)",
+            "maximum": 99.0,
+            "minimum": 0.0,
+            "title": "Pipeindex",
+            "type": "integer"
+          },
+          "value": {
+            "$ref": "#/components/schemas/JsonValue",
+            "description": "The value, SI, of the target field's own type (checked when the scenario is applied); the fields each target type takes: x-override-fields"
+          }
+        },
+        "required": [
+          "kind",
+          "connectionId",
+          "pipeIndex",
+          "field",
+          "value"
+        ],
+        "title": "PipeOverride",
         "type": "object"
       },
       "PipeSchedule": {
@@ -2320,6 +2481,15 @@
             "title": "Pumplibrary",
             "type": "array"
           },
+          "scenarios": {
+            "description": "Named sets of overrides of this project's values (the base project); solve one with scenarioId. Omitted when there are none",
+            "items": {
+              "$ref": "#/components/schemas/Scenario"
+            },
+            "maxItems": 20,
+            "title": "Scenarios",
+            "type": "array"
+          },
           "schemaVersion": {
             "const": 1,
             "description": "Project schema version; the frontend migrates older links before sending",
@@ -2383,6 +2553,37 @@
           "modified"
         ],
         "title": "ProjectMetadata",
+        "type": "object"
+      },
+      "ProjectOverride": {
+        "additionalProperties": false,
+        "description": "An override of a project value: the whole fluid, or a built-in fluid's temperature.",
+        "properties": {
+          "field": {
+            "description": "camelCase path of the value relative to the project",
+            "enum": [
+              "fluid",
+              "fluid.temperature"
+            ],
+            "title": "Field",
+            "type": "string"
+          },
+          "kind": {
+            "const": "project",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/JsonValue",
+            "description": "The value, SI, of the target field's own type (checked when the scenario is applied); the fields each target type takes: x-override-fields"
+          }
+        },
+        "required": [
+          "kind",
+          "field",
+          "value"
+        ],
+        "title": "ProjectOverride",
         "type": "object"
       },
       "ProjectSettings": {
@@ -3030,6 +3231,241 @@
         "title": "ResidualLocation",
         "type": "object"
       },
+      "Scenario": {
+        "additionalProperties": false,
+        "description": "A named case of the project: the base project with these values overridden. It changes\nvalues only, never components, connections, ports or pipe counts (PRD §3.8).",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "description": "Unique among the project's scenarios (its own namespace)",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "overrides": {
+            "description": "At most one per value: no two set the same value of one target, nor a value and a part of it (fluid and fluid.temperature)",
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ComponentOverride"
+                },
+                {
+                  "$ref": "#/components/schemas/PipeOverride"
+                },
+                {
+                  "$ref": "#/components/schemas/ProjectOverride"
+                }
+              ]
+            },
+            "maxItems": 30,
+            "title": "Overrides",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "Scenario",
+        "type": "object",
+        "x-override-fields": {
+          "AssignedFlow": {
+            "flow": {
+              "path": [
+                "flow"
+              ],
+              "schema": "AssignedFlow"
+            }
+          },
+          "CheckValve": {
+            "resistance": {
+              "path": [
+                "resistance"
+              ],
+              "schema": "CheckValve"
+            },
+            "status": {
+              "path": [
+                "status"
+              ],
+              "schema": "CheckValve"
+            }
+          },
+          "ControlValve": {
+            "resistance": {
+              "path": [
+                "resistance"
+              ],
+              "schema": "ControlValve"
+            },
+            "setpoint": {
+              "path": [
+                "setpoint"
+              ],
+              "schema": "ControlValve"
+            },
+            "status": {
+              "path": [
+                "status"
+              ],
+              "schema": "ControlValve"
+            }
+          },
+          "IdealReferenceNode": {
+            "pressure": {
+              "path": [
+                "pressure"
+              ],
+              "schema": "IdealReferenceNode"
+            }
+          },
+          "IsolationValve": {
+            "resistance": {
+              "path": [
+                "resistance"
+              ],
+              "schema": "IsolationValve"
+            },
+            "status": {
+              "path": [
+                "status"
+              ],
+              "schema": "IsolationValve"
+            }
+          },
+          "PipeDefinition": {
+            "length": {
+              "path": [
+                "length"
+              ],
+              "schema": "PipeDefinition"
+            },
+            "spec": {
+              "keys": [
+                "materialId",
+                "schedule",
+                "nominalSize",
+                "innerDiameter",
+                "roughness"
+              ],
+              "schema": "PipeDefinition"
+            }
+          },
+          "Plug": {},
+          "Project": {
+            "fluid": {
+              "path": [
+                "fluid"
+              ],
+              "schema": "Project"
+            },
+            "fluid.temperature": {
+              "path": [
+                "fluid",
+                "temperature"
+              ],
+              "schema": "BuiltinFluid"
+            }
+          },
+          "Pump": {
+            "control.setpoint": {
+              "path": [
+                "control",
+                "setpoint"
+              ],
+              "schema": "PumpControl"
+            },
+            "speed": {
+              "path": [
+                "speed"
+              ],
+              "schema": "Pump"
+            },
+            "status": {
+              "path": [
+                "status"
+              ],
+              "schema": "Pump"
+            }
+          },
+          "Reservoir": {
+            "liquidLevel": {
+              "path": [
+                "liquidLevel"
+              ],
+              "schema": "Reservoir"
+            },
+            "surfacePressure": {
+              "path": [
+                "surfacePressure"
+              ],
+              "schema": "Reservoir"
+            }
+          },
+          "TeeBranch": {},
+          "WyeBranch": {}
+        }
+      },
+      "ScenarioResult": {
+        "additionalProperties": false,
+        "description": "The scenario a result was solved for: every override, with its state, the value used\nand the base value (proposal §3.2).",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "overrides": {
+            "description": "Every override, in the scenario's order",
+            "items": {
+              "$ref": "#/components/schemas/OverrideResult"
+            },
+            "title": "Overrides",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "overrides"
+        ],
+        "title": "ScenarioResult",
+        "type": "object"
+      },
       "SegmentResult": {
         "additionalProperties": false,
         "properties": {
@@ -3127,6 +3563,22 @@
           },
           "project": {
             "$ref": "#/components/schemas/Project"
+          },
+          "scenarioId": {
+            "anyOf": [
+              {
+                "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Solve this scenario of project.scenarios: its overrides are applied to the base project before the network is built (omitted or null: the base project; an unknown id: 404 NOT_FOUND)",
+            "title": "Scenarioid"
           }
         },
         "required": [
@@ -3143,6 +3595,17 @@
             "title": "Computetime",
             "type": "number"
           },
+          "scenario": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScenarioResult"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scenario solved, with every override's state, the value used and the base value; null for the base project"
+          },
           "solvedState": {
             "$ref": "#/components/schemas/SolvedState"
           },
@@ -3155,7 +3618,8 @@
         "required": [
           "success",
           "solvedState",
-          "computeTime"
+          "computeTime",
+          "scenario"
         ],
         "title": "SolveResponse",
         "type": "object"
@@ -3381,6 +3845,22 @@
             "pattern": "^[A-Za-z0-9_-]+$",
             "title": "Pumpid",
             "type": "string"
+          },
+          "scenarioId": {
+            "anyOf": [
+              {
+                "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Solve this scenario of project.scenarios: its overrides are applied to the base project before the network is built (omitted or null: the base project; an unknown id: 404 NOT_FOUND)",
+            "title": "Scenarioid"
           }
         },
         "required": [
@@ -3417,13 +3897,25 @@
           "pumpId": {
             "title": "Pumpid",
             "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScenarioResult"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scenario solved, with every override's state, the value used and the base value; null for the base project"
           }
         },
         "required": [
           "pumpId",
           "flowRange",
           "points",
-          "converged"
+          "converged",
+          "scenario"
         ],
         "title": "SystemCurveResponse",
         "type": "object"
@@ -4225,7 +4717,7 @@
     },
     "/api/v1/solve": {
       "post": {
-        "description": "Solve the network. Non-convergence returns 200 with success = false (SDD §8.1).\ncomputeTime is the solver's own time, without waiting for a worker (workers.py).",
+        "description": "Solve the network, or one of its scenarios (scenarioId: its overrides are applied to the\nbase project first). Non-convergence returns 200 with success = false (SDD §8.1).\ncomputeTime is the solver's own time, without waiting for a worker (workers.py).",
         "operationId": "solve_network_api_v1_solve_post",
         "requestBody": {
           "content": {
@@ -4257,6 +4749,16 @@
               }
             },
             "description": "Invalid input"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown scenario id"
           },
           "413": {
             "content": {
@@ -4317,7 +4819,7 @@
     },
     "/api/v1/system-curve": {
       "post": {
-        "description": "System curve seen by one pump: the head it must add at each flow (design §13).\n\nAt each flow the pump is replaced by that fixed flow and the network solved; other pumps\nkeep running. Default range: 0 to 1.2 x the curve's largest flow x the pump's speed.\nUnknown pump id: 404 NOT_FOUND; topology and fluid errors as for /solve.",
+        "description": "System curve seen by one pump: the head it must add at each flow (design §13), in the\nbase project or one of its scenarios (scenarioId).\n\nAt each flow the pump is replaced by that fixed flow and the network solved; other pumps\nkeep running. Default range: 0 to 1.2 x the curve's largest flow x the pump's speed.\nUnknown scenario id, then invalid scenario values (400), then an unknown pump id: 404\nNOT_FOUND; topology and fluid errors as for /solve.",
         "operationId": "system_curve_endpoint_api_v1_system_curve_post",
         "requestBody": {
           "content": {
@@ -4358,7 +4860,7 @@
                 }
               }
             },
-            "description": "Unknown pump id"
+            "description": "Unknown pump id or scenario id"
           },
           "413": {
             "content": {

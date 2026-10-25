@@ -146,7 +146,8 @@ export interface paths {
         put?: never;
         /**
          * Solve Network
-         * @description Solve the network. Non-convergence returns 200 with success = false (SDD §8.1).
+         * @description Solve the network, or one of its scenarios (scenarioId: its overrides are applied to the
+         *     base project first). Non-convergence returns 200 with success = false (SDD §8.1).
          *     computeTime is the solver's own time, without waiting for a worker (workers.py).
          */
         post: operations["solve_network_api_v1_solve_post"];
@@ -167,11 +168,13 @@ export interface paths {
         put?: never;
         /**
          * System Curve Endpoint
-         * @description System curve seen by one pump: the head it must add at each flow (design §13).
+         * @description System curve seen by one pump: the head it must add at each flow (design §13), in the
+         *     base project or one of its scenarios (scenarioId).
          *
          *     At each flow the pump is replaced by that fixed flow and the network solved; other pumps
          *     keep running. Default range: 0 to 1.2 x the curve's largest flow x the pump's speed.
-         *     Unknown pump id: 404 NOT_FOUND; topology and fluid errors as for /solve.
+         *     Unknown scenario id, then invalid scenario values (400), then an unknown pump id: 404
+         *     NOT_FOUND; topology and fluid errors as for /solve.
          */
         post: operations["system_curve_endpoint_api_v1_system_curve_post"];
         delete?: never;
@@ -379,6 +382,30 @@ export interface components {
              * @enum {string}
              */
             valveType: "check" | "stop_check";
+        };
+        /**
+         * ComponentOverride
+         * @description An override of one value of a component.
+         */
+        ComponentOverride: {
+            /**
+             * Componentid
+             * @description Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)
+             */
+            componentId: string;
+            /**
+             * Field
+             * @description camelCase path of the value relative to the component
+             * @enum {string}
+             */
+            field: "status" | "speed" | "control.setpoint" | "setpoint" | "resistance" | "liquidLevel" | "surfacePressure" | "pressure" | "flow";
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "component";
+            /** @description The value, SI, of the target field's own type (checked when the scenario is applied); the fields each target type takes: x-override-fields */
+            value: components["schemas"]["JsonValue"];
         };
         /**
          * ControlValve
@@ -913,6 +940,7 @@ export interface components {
              */
             valveType: "gate" | "ball" | "butterfly" | "globe";
         };
+        JsonValue: unknown;
         /** LibraryResponse */
         LibraryResponse: {
             /** Fittings */
@@ -1060,6 +1088,42 @@ export interface components {
             velocity: number;
         };
         /**
+         * OverrideResult
+         * @description How one override of a solved scenario was used.
+         */
+        OverrideResult: {
+            /** @description The base project's value, SI (null unless applied); an unset field gives its default */
+            baseValue: components["schemas"]["JsonValue"];
+            /**
+             * Index
+             * @description 0-based index into the scenario's overrides
+             */
+            index: number;
+            /**
+             * Message
+             * @description Why the override was not applied ('' when applied)
+             */
+            message: string;
+            /**
+             * Override
+             * @description The override as given
+             */
+            override: components["schemas"]["ComponentOverride"] | components["schemas"]["PipeOverride"] | components["schemas"]["ProjectOverride"];
+            /**
+             * State
+             * @description applied; orphaned: its component, connection or pipe is not in the project; not applicable: its target has no such value. Orphaned and not-applicable overrides are kept in the scenario and ignored
+             * @enum {string}
+             */
+            state: "applied" | "orphaned" | "not_applicable";
+            /**
+             * Unit
+             * @description Trace unit of value and baseValue ('' for none)
+             */
+            unit: string;
+            /** @description The value used, as validated, SI (null unless applied) */
+            value: components["schemas"]["JsonValue"];
+        };
+        /**
          * PipeConnection
          * @description An edge of the port graph. Positive flow runs from the 'from' port to the 'to' port.
          */
@@ -1146,6 +1210,35 @@ export interface components {
             roughnessSource: string;
             /** Schedules */
             schedules: components["schemas"]["PipeSchedule"][];
+        };
+        /**
+         * PipeOverride
+         * @description An override of one value of one pipe of a connection.
+         */
+        PipeOverride: {
+            /**
+             * Connectionid
+             * @description Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)
+             */
+            connectionId: string;
+            /**
+             * Field
+             * @description spec: an object with materialId and optionally schedule, nominalSize, innerDiameter and roughness, which replace all five; length: m
+             * @enum {string}
+             */
+            field: "spec" | "length";
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "pipe";
+            /**
+             * Pipeindex
+             * @description 0-based index into the connection's piping.pipes, as Fitting.pipeIndex (messages number pipes from 1)
+             */
+            pipeIndex: number;
+            /** @description The value, SI, of the target field's own type (checked when the scenario is applied); the fields each target type takes: x-override-fields */
+            value: components["schemas"]["JsonValue"];
         };
         /** PipeSchedule */
         PipeSchedule: {
@@ -1276,6 +1369,11 @@ export interface components {
             /** Pumplibrary */
             pumpLibrary: components["schemas"]["PumpCurve"][];
             /**
+             * Scenarios
+             * @description Named sets of overrides of this project's values (the base project); solve one with scenarioId. Omitted when there are none
+             */
+            scenarios?: components["schemas"]["Scenario"][];
+            /**
              * Schemaversion
              * @description Project schema version; the frontend migrates older links before sending
              * @constant
@@ -1299,6 +1397,25 @@ export interface components {
             modified: string;
             /** Name */
             name: string;
+        };
+        /**
+         * ProjectOverride
+         * @description An override of a project value: the whole fluid, or a built-in fluid's temperature.
+         */
+        ProjectOverride: {
+            /**
+             * Field
+             * @description camelCase path of the value relative to the project
+             * @enum {string}
+             */
+            field: "fluid" | "fluid.temperature";
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "project";
+            /** @description The value, SI, of the target field's own type (checked when the scenario is applied); the fields each target type takes: x-override-fields */
+            value: components["schemas"]["JsonValue"];
         };
         /** ProjectSettings */
         ProjectSettings: {
@@ -1582,6 +1699,45 @@ export interface components {
              */
             value: number | null;
         };
+        /**
+         * Scenario
+         * @description A named case of the project: the base project with these values overridden. It changes
+         *     values only, never components, connections, ports or pipe counts (PRD §3.8).
+         */
+        Scenario: {
+            /** Description */
+            description?: string | null;
+            /**
+             * Id
+             * @description Unique among the project's scenarios (its own namespace)
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Overrides
+             * @description At most one per value: no two set the same value of one target, nor a value and a part of it (fluid and fluid.temperature)
+             */
+            overrides?: (components["schemas"]["ComponentOverride"] | components["schemas"]["PipeOverride"] | components["schemas"]["ProjectOverride"])[];
+        };
+        /**
+         * ScenarioResult
+         * @description The scenario a result was solved for: every override, with its state, the value used
+         *     and the base value (proposal §3.2).
+         */
+        ScenarioResult: {
+            /** Description */
+            description: string | null;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Overrides
+             * @description Every override, in the scenario's order
+             */
+            overrides: components["schemas"]["OverrideResult"][];
+        };
         /** SegmentResult */
         SegmentResult: {
             /**
@@ -1649,6 +1805,11 @@ export interface components {
         SolveRequest: {
             options?: components["schemas"]["SolveOptions"];
             project: components["schemas"]["Project"];
+            /**
+             * Scenarioid
+             * @description Solve this scenario of project.scenarios: its overrides are applied to the base project before the network is built (omitted or null: the base project; an unknown id: 404 NOT_FOUND)
+             */
+            scenarioId?: string | null;
         };
         /** SolveResponse */
         SolveResponse: {
@@ -1657,6 +1818,8 @@ export interface components {
              * @description Seconds
              */
             computeTime: number;
+            /** @description The scenario solved, with every override's state, the value used and the base value; null for the base project */
+            scenario: components["schemas"]["ScenarioResult"] | null;
             solvedState: components["schemas"]["SolvedState"];
             /**
              * Success
@@ -1800,6 +1963,11 @@ export interface components {
              * @description Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)
              */
             pumpId: string;
+            /**
+             * Scenarioid
+             * @description Solve this scenario of project.scenarios: its overrides are applied to the base project before the network is built (omitted or null: the base project; an unknown id: 404 NOT_FOUND)
+             */
+            scenarioId?: string | null;
         };
         /**
          * SystemCurveResponse
@@ -1821,6 +1989,8 @@ export interface components {
             points: components["schemas"]["SystemCurvePoint"][];
             /** Pumpid */
             pumpId: string;
+            /** @description The scenario solved, with every override's state, the value used and the base value; null for the base project */
+            scenario: components["schemas"]["ScenarioResult"] | null;
         };
         /**
          * TeeBranch
@@ -2308,6 +2478,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Unknown scenario id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Request too large */
             413: {
                 headers: {
@@ -2386,7 +2565,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Unknown pump id */
+            /** @description Unknown pump id or scenario id */
             404: {
                 headers: {
                     [name: string]: unknown;

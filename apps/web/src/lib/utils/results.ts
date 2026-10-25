@@ -690,6 +690,11 @@ const VALVE_TYPES: Readonly<Record<string, string>> = {
 	fcv: 'FCV'
 };
 
+/** A valve's solved state in words ('Open', 'Closed', 'Active (throttling)'). */
+export function valveStateLabel(state: ValveResult['state']): string {
+	return VALVE_STATE[state] ?? humanize(state);
+}
+
 export function valveTypeLabel(type: string): string {
 	return VALVE_TYPES[type] ?? humanize(type);
 }
@@ -932,6 +937,22 @@ export function assignedFlowTable(
 		});
 	});
 	return { columns, rows };
+}
+
+/**
+ * The table with the rows of elements a scenario changed marked in their detail line ("changed in
+ * this scenario"), for the results of that scenario (proposal scenario-manager.md §6.11).
+ */
+export function markChanged(table: Table, changed: ReadonlySet<string>): Table {
+	if (!changed.size) return table;
+	return {
+		...table,
+		rows: table.rows.map((row) =>
+			changed.has(row.element.id)
+				? { ...row, detail: `${row.detail} · changed in this scenario` }
+				: row
+		)
+	};
 }
 
 /** The views of the results pane, in tab order. */

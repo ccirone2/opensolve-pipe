@@ -17,9 +17,24 @@
 		converged?: boolean;
 		/** True when the project changed after the solve: the copied text says so. */
 		stale?: boolean;
+		/**
+		 * The case solved, for a project with scenarios ("scenario Winter (S2)", "base case"): the
+		 * heading and the copied text name it.
+		 */
+		caseName?: string;
+		/** The scenario's name, for the heading ("for scenario Winter"). */
+		scenarioName?: string;
 	}
 
-	let { methods, projectName, timestamp, converged, stale = false }: Props = $props();
+	let {
+		methods,
+		projectName,
+		timestamp,
+		converged,
+		stale = false,
+		caseName,
+		scenarioName
+	}: Props = $props();
 	const id = $props.id();
 	let status = $state<'idle' | 'copied' | 'manual'>('idle');
 	let area: HTMLTextAreaElement | undefined = $state();
@@ -27,6 +42,7 @@
 	const text = $derived(
 		methodsText(methods, {
 			projectName,
+			...(caseName ? { caseName } : {}),
 			timestamp,
 			stale,
 			...(converged === undefined ? {} : { converged })
@@ -55,7 +71,9 @@
 <article class="card space-y-4 p-3 sm:p-4" aria-labelledby="{id}-title">
 	<div class="flex flex-wrap items-start gap-2">
 		<div class="min-w-0 flex-1 basis-48">
-			<h3 id="{id}-title" class="font-semibold">Calculation methods and assumptions</h3>
+			<h3 id="{id}-title" class="font-semibold">
+				Calculation methods and assumptions{scenarioName ? ` for scenario ${scenarioName}` : ''}
+			</h3>
 			<p class="text-sm text-slate-600">
 				OpenSolve Pipe calculation methods version {methods.methodVersion}
 			</p>

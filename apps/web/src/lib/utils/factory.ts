@@ -165,13 +165,25 @@ export const DEFAULT_PIPE_LENGTH = 10;
 /** Length of the pipe added by an insertion (downstream half) or a plug stub, m. */
 export const SHORT_PIPE_LENGTH = 1;
 
-/** Ids in use: components, connections and pump curves (one namespace, so trace keys stay unique). */
+/**
+ * Ids in use: components, connections and pump curves (one namespace, so trace keys stay unique),
+ * and every component or connection a scenario's change names, deleted ones included: a new
+ * component never takes the id of a deleted one whose changes are kept, so those changes never
+ * attach to it (proposal scenario-manager.md §6.7).
+ */
 export function usedIds(project: Project): Set<string> {
-	return new Set([
+	const ids = new Set([
 		...project.components.map((c) => c.id),
 		...project.connections.map((c) => c.id),
 		...project.pumpLibrary.map((c) => c.id)
 	]);
+	for (const scenario of project.scenarios ?? []) {
+		for (const change of scenario.overrides ?? []) {
+			if (change.kind === 'component') ids.add(change.componentId);
+			if (change.kind === 'pipe') ids.add(change.connectionId);
+		}
+	}
+	return ids;
 }
 
 /**

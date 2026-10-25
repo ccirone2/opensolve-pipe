@@ -36,6 +36,7 @@ import {
 	type PortRef,
 	type PortRole
 } from './graph';
+import { markCopy } from './identity';
 import {
 	ENTRANCE_TYPES,
 	EXIT_TYPES,
@@ -537,14 +538,20 @@ export function updateComponent(
 	return { ...project, components: replaceAt(project.components, index, updated) };
 }
 
-/** Replace a connection with `update(copy of it)`. Its id and both ends cannot change. */
+/**
+ * Replace a connection with `update(copy of it)`. Its id and both ends cannot change. The copy's
+ * pipes are recorded as the same pipes as the originals (identity.ts), so scenario changes
+ * follow them through the edit.
+ */
 export function updateConnection(
 	project: Project,
 	connectionId: string,
 	update: (connection: PipeConnection) => PipeConnection
 ): Project {
 	const connection = requireConnection(project, connectionId);
-	const updated = update(structuredClone(connection));
+	const copy = structuredClone(connection);
+	copy.piping.pipes.forEach((pipe, i) => markCopy(pipe, connection.piping.pipes[i] as object));
+	const updated = update(copy);
 	const same =
 		updated.id === connection.id &&
 		updated.fromComponentId === connection.fromComponentId &&

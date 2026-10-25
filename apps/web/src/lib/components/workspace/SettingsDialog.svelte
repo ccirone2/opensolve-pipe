@@ -1,6 +1,8 @@
 <!--
 	Project settings: description, fluid, site (elevation and atmospheric pressure), display
 	units and solver options. Unit preferences change only what is shown; stored values are SI.
+	In a scenario, the fluid is a scenario value; the description and units are shared by every
+	case; the site and solver settings are the same in every case (locked).
 -->
 <script lang="ts">
 	import type { SolverOptions, UnitPreferences } from '$lib/api/types';
@@ -63,6 +65,18 @@
 
 <Dialog title="Project settings" wide {onclose}>
 	<div class="space-y-8">
+		{#if ws.activeScenario}
+			<p
+				class="flex items-start gap-2 rounded-md border border-l-4 border-teal-600 bg-teal-50 p-3 text-sm text-teal-950"
+			>
+				<Icon name="layers" class="mt-0.5 size-4 shrink-0 text-teal-700" />
+				<span>
+					<strong>Scenario: {ws.activeScenario.name}.</strong> The fluid you set here is recorded in this
+					scenario. The description and units are shared by every case; the site and solver settings are
+					the same in every case.
+				</span>
+			</p>
+		{/if}
 		<section aria-labelledby="settings-project" class="space-y-3">
 			<h3 id="settings-project" class="text-base font-semibold">Project</h3>
 			<TextField
@@ -70,6 +84,7 @@
 				multiline
 				value={ws.project.metadata.description}
 				maxlength={stringLimits('ProjectMetadata', 'description').maxLength}
+				shared
 				onchange={(v) =>
 					ws.edit((p) => {
 						if (v === null) delete p.metadata.description;
@@ -149,6 +164,7 @@
 							value: u,
 							label: unitLabel(category, u)
 						}))}
+						shared
 						onchange={(u) => setUnits({ ...settings.units, [category]: u } as UnitPreferences)}
 					/>
 				{/each}

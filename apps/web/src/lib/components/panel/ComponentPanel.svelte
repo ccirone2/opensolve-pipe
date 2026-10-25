@@ -38,6 +38,7 @@
 	import ReferenceNodeForm from './forms/ReferenceNodeForm.svelte';
 	import ReservoirForm from './forms/ReservoirForm.svelte';
 	import PortsEditor from './PortsEditor.svelte';
+	import ScenarioBanner from './ScenarioBanner.svelte';
 
 	let { component }: { component: Component } = $props();
 	const ws = useWorkspace();
@@ -79,7 +80,11 @@
 		</h2>
 	</header>
 
-	<ComponentActions {component} />
+	{#if ws.inScenario}
+		<ScenarioBanner />
+	{:else}
+		<ComponentActions {component} />
+	{/if}
 
 	<div
 		role="tablist"
@@ -119,6 +124,8 @@
 						value={component.name}
 						required
 						maxlength={stringLimits(schema, 'name').maxLength}
+						shared
+						hint={ws.inScenario ? 'Names are the same in every case.' : undefined}
 						onchange={(v) =>
 							!!v &&
 							ws.editComponent(component.id, 'rename component', (c) => {

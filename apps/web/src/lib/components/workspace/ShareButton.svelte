@@ -50,6 +50,7 @@
 
 	const length = $derived(link.length);
 	const tooLong = $derived(length > URL_LENGTH_WARNING);
+	const count = $derived(ws.scenarios.length);
 </script>
 
 <button
@@ -100,6 +101,14 @@
 						and chat apps cut long links short, and a cut link cannot be opened. Check that the whole
 						link arrives, or send it as a file or a note.
 					</span>
+				</p>
+			{/if}
+			{#if count}
+				<p class="text-sm text-slate-700">
+					This link holds the base case and its {count === 1 ? 'scenario' : `${count} scenarios`}.
+					It opens on the base case.{#if ws.activeScenario}
+						You are looking at «{ws.activeScenario.name}»: the person you send it to can choose it
+						from the Case menu.{/if}
 				</p>
 			{/if}
 			<p class="text-sm text-slate-700">

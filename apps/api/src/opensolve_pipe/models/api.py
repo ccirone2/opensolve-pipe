@@ -8,6 +8,17 @@ from .base import CamelModel, Identifier, OutputModel
 from .fluids import BuiltinFluidId, FluidProperties
 from .project import Project
 from .results import SolvedState
+from .scenarios import ScenarioResult
+
+_SCENARIO_ID_DESCRIPTION = (
+    "Solve this scenario of project.scenarios: its overrides are applied to the base project "
+    "before the network is built (omitted or null: the base project; an unknown id: 404 "
+    "NOT_FOUND)"
+)
+_SCENARIO_RESULT_DESCRIPTION = (
+    "The scenario solved, with every override's state, the value used and the base value; "
+    "null for the base project"
+)
 
 
 class SolveOptions(CamelModel):
@@ -34,6 +45,7 @@ class SolveOptions(CamelModel):
 
 class SolveRequest(CamelModel):
     project: Project
+    scenario_id: Identifier | None = Field(default=None, description=_SCENARIO_ID_DESCRIPTION)
     options: SolveOptions = Field(default_factory=SolveOptions)
 
 
@@ -41,6 +53,7 @@ class SolveResponse(OutputModel):
     success: bool = Field(description="True when the solve converged")
     solved_state: SolvedState
     compute_time: float = Field(description="Seconds")
+    scenario: ScenarioResult | None = Field(description=_SCENARIO_RESULT_DESCRIPTION)
 
 
 ErrorCode = Literal[
@@ -79,6 +92,7 @@ class RangeInfo(OutputModel):
 
 class SystemCurveRequest(CamelModel):
     project: Project
+    scenario_id: Identifier | None = Field(default=None, description=_SCENARIO_ID_DESCRIPTION)
     pump_id: Identifier
     flow_min: float = Field(default=0.0, ge=0, le=100.0, description="m³/s")
     flow_max: float | None = Field(
@@ -121,6 +135,7 @@ class SystemCurveResponse(OutputModel):
     converged: list[bool] = Field(
         description="Whether each point has a head (each point's converged)"
     )
+    scenario: ScenarioResult | None = Field(description=_SCENARIO_RESULT_DESCRIPTION)
 
 
 class FreezingPoint(OutputModel):

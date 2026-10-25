@@ -16,6 +16,8 @@
 	const results = $derived(ws.store.results);
 	const these = $derived(values ? 'These values are' : 'The results below are');
 	const lastSolve = $derived(results.cancelled ? 'The last solve that finished' : 'The last solve');
+	/** A solve in flight, of any case (another case's goes on after a case switch). */
+	const busy = $derived(!!ws.store.run || ws.store.solvingCase !== undefined);
 	/** The latest solve was of the current project and failed; the response is from before. */
 	const failedNow = $derived(!!results.error && !results.errorStale && !!results.response);
 </script>
@@ -38,12 +40,7 @@
 		<p class="min-w-0 flex-1 basis-48">
 			{lastSolve} failed. {these} from the previous solve of this same project.
 		</p>
-		<button
-			type="button"
-			class="btn"
-			aria-disabled={results.solving}
-			onclick={() => !results.solving && void ws.solve()}
-		>
+		<button type="button" class="btn" aria-disabled={busy} onclick={() => !busy && void ws.solve()}>
 			<Icon name="play" class="size-4" /> Solve again
 		</button>
 	</div>
@@ -56,12 +53,7 @@
 			Results are out of date: the project changed after this solve. {#if values}These values are
 				from before the change.{/if} Solve again to update the results.
 		</p>
-		<button
-			type="button"
-			class="btn"
-			aria-disabled={results.solving}
-			onclick={() => !results.solving && void ws.solve()}
-		>
+		<button type="button" class="btn" aria-disabled={busy} onclick={() => !busy && void ws.solve()}>
 			<Icon name="play" class="size-4" /> Solve again
 		</button>
 	</div>

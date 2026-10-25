@@ -1,10 +1,14 @@
 <!--
 	One pipe segment of a connection: a library pipe (material, schedule, nominal size; inner
 	diameter and roughness resolved from the cited library, with optional overrides) or a custom
-	pipe (inner diameter and roughness entered by the user), and its length.
+	pipe (inner diameter and roughness entered by the user), and its length. In a scenario the
+	material, schedule, size and the bore and roughness (or a custom pipe's) are one change, noted
+	under the pipe's heading, and the length is another.
 -->
 <script lang="ts">
 	import type { PipeConnection, PipeDefinition } from '$lib/api/types';
+	import ChangeNote from '$lib/components/ui/ChangeNote.svelte';
+	import { hasChangeNote } from '$lib/components/ui/field-mode';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
@@ -41,6 +45,11 @@
 	/** What the solver uses: overrides, else the size entry (roughness is per size). */
 	const resolved = $derived(resolvedPipe(pipe, size));
 	const count = $derived(connection.piping.pipes.length);
+	/** The pipe's size and material, and its length: scenario values (one change each). */
+	const spec = $derived(ws.pipeChange(connection.id, index, 'spec'));
+	const lengthChange = $derived(ws.pipeChange(connection.id, index, 'length'));
+	/** The group's note, which describes each of its inputs (they show none of their own). */
+	const specNote = $derived(hasChangeNote(spec) ? `${headingId}-spec` : undefined);
 
 	const materialOptions = $derived([
 		...lib.materials.map((m) => ({ value: m.id, label: m.name })),
@@ -82,7 +91,7 @@
 <section class="card space-y-3 p-3" aria-labelledby={headingId}>
 	<div class="flex min-h-11 items-center justify-between gap-2">
 		<h4 id={headingId} class="font-medium">Pipe {index + 1}{count > 1 ? ` of ${count}` : ''}</h4>
-		{#if count > 1}
+		{#if count > 1 && !ws.inScenario}
 			<button
 				type="button"
 				class="btn btn-quiet text-red-800"
@@ -97,12 +106,17 @@
 		{/if}
 	</div>
 
+	<ChangeNote change={spec} id="{headingId}-spec" />
+
 	<div class="grid gap-3 sm:grid-cols-2">
 		<SelectField
 			label="Material"
 			value={pipe.materialId}
 			options={materialOptions}
 			class="sm:col-span-2"
+			change={spec}
+			changeNote={false}
+			describedby={specNote}
 			onchange={setMaterial}
 		/>
 
@@ -122,6 +136,9 @@
 								]),
 						...material.schedules.map((s) => ({ value: s.id, label: s.id }))
 					]}
+					change={spec}
+					changeNote={false}
+					describedby={specNote}
 					onchange={(id) => {
 						const next = material.schedules.find((s) => s.id === id);
 						if (next) edit('change pipe schedule', (p) => withSchedule(p, next));
@@ -132,6 +149,7 @@
 					label="Schedule"
 					value={pipe.schedule}
 					hint="Schedule designation, e.g. 40 or 10S."
+					change={spec}
 					onchange={(v) => edit('change pipe schedule', (p) => withOptional(p, 'schedule', v))}
 				/>
 			{/if}
@@ -140,6 +158,8 @@
 				value={pipe.nominalSize}
 				sizes={schedule?.sizes ?? []}
 				units={ws.units}
+				change={spec}
+				describedby={specNote}
 				onchange={(nominalSize) => edit('change pipe size', (p) => ({ ...p, nominalSize }))}
 			/>
 		{/if}
@@ -150,6 +170,7 @@
 			category="length"
 			units={ws.units}
 			bounds={schemaBounds('PipeDefinition', 'length')}
+			change={lengthChange}
 			onchange={(v) => v !== null && edit('change pipe length', (p) => ({ ...p, length: v }))}
 		/>
 
@@ -161,6 +182,9 @@
 				units={ws.units}
 				optional
 				bounds={schemaBounds('PipeDefinition', 'innerDiameter')}
+				change={spec}
+				changeNote={false}
+				describedby={specNote}
 				warning={pipe.innerDiameter == null ? 'Required for a custom pipe.' : null}
 				onchange={(v) => edit('change inner diameter', (p) => withOptional(p, 'innerDiameter', v))}
 			/>
@@ -171,6 +195,9 @@
 				units={ws.units}
 				optional
 				bounds={schemaBounds('PipeDefinition', 'roughness')}
+				change={spec}
+				changeNote={false}
+				describedby={specNote}
 				warning={pipe.roughness == null ? 'Required for a custom pipe.' : null}
 				hint="Absolute roughness of the pipe wall."
 				onchange={(v) => edit('change roughness', (p) => withOptional(p, 'roughness', v))}
@@ -230,6 +257,9 @@
 					optional
 					placeholder="From the library"
 					bounds={schemaBounds('PipeDefinition', 'innerDiameter')}
+					change={spec}
+					changeNote={false}
+					describedby={specNote}
 					onchange={(v) =>
 						edit('change inner diameter', (p) => withOptional(p, 'innerDiameter', v))}
 				/>
@@ -241,6 +271,9 @@
 					optional
 					placeholder="From the library"
 					bounds={schemaBounds('PipeDefinition', 'roughness')}
+					change={spec}
+					changeNote={false}
+					describedby={specNote}
 					onchange={(v) => edit('change roughness', (p) => withOptional(p, 'roughness', v))}
 				/>
 			</div>

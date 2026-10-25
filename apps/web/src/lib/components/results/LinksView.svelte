@@ -1,21 +1,25 @@
 <!--
 	Links: flow, velocity, head loss, Re, f and regime per connection (per pipe when a connection
 	has several); each row expands to its pipe segments and fittings, with the K the solver used
-	for each fitting, that K's source, and the flags about that pipe or fitting.
+	for each fitting, that K's source, and the flags about that pipe or fitting. A connection whose
+	pipes the scenario of these results changed says so (`changed`).
 -->
 <script lang="ts">
 	import type { LinkResult, SolvedState } from '$lib/api/types';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import { fittingFallbackName } from '$lib/utils/labels';
-	import { fittingTable, linkTable, segmentTable, type Row } from '$lib/utils/results';
+	import { fittingTable, linkTable, markChanged, segmentTable, type Row } from '$lib/utils/results';
 	import CellValue from './CellValue.svelte';
 	import FlagBadge from './FlagBadge.svelte';
 	import ResultsTable from './ResultsTable.svelte';
 
-	let { solved }: { solved: SolvedState } = $props();
+	let { solved, changed = new Set() }: { solved: SolvedState; changed?: ReadonlySet<string> } =
+		$props();
 	const ws = useWorkspace();
 
-	const table = $derived(linkTable(ws.labelsProject, solved, ws.displayUnits));
+	const table = $derived(
+		markChanged(linkTable(ws.labelsProject, solved, ws.displayUnits), changed)
+	);
 	const fittingName = (type: string) => ws.library.fitting(type)?.name ?? fittingFallbackName(type);
 
 	function linkOf(row: Row): LinkResult | undefined {

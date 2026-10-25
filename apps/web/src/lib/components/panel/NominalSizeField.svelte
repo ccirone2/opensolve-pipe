@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
 	import type { UnitPreferences } from '$lib/api/types';
+	import type { FieldChange } from '$lib/components/ui/field-mode';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { npsLabel, sameSize } from '$lib/utils/labels';
@@ -16,9 +17,13 @@
 		units: UnitPreferences;
 		hint?: string;
 		onchange: (nominalSize: number) => boolean | void;
+		/** Part of a scenario value (a pipe's size and material): editable in a scenario. */
+		change?: FieldChange | null;
+		/** Ids of other elements that describe the input, e.g. its group's change note. */
+		describedby?: string;
 	}
 
-	let { label, value, sizes, units, hint, onchange }: Props = $props();
+	let { label, value, sizes, units, hint, onchange, change = null, describedby }: Props = $props();
 
 	const current = $derived(
 		value == null ? undefined : sizes.find((s) => sameSize(s.nominalSize, value))
@@ -40,6 +45,9 @@
 		value={selected}
 		{options}
 		{hint}
+		{change}
+		changeNote={false}
+		{describedby}
 		onchange={(v) => {
 			const size = Number(v);
 			if (Number.isFinite(size) && size > 0) onchange(size);
@@ -53,6 +61,9 @@
 		units={inches}
 		bounds={schemaBounds('PipeDefinition', 'nominalSize')}
 		hint={hint ?? 'Nominal pipe size designation in inches (the size list needs the pipe library).'}
+		{change}
+		changeNote={false}
+		{describedby}
 		onchange={(v) => v !== null && onchange(v)}
 	/>
 {/if}

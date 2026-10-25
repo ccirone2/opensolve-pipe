@@ -2,21 +2,29 @@
 	Pumps: status, operating point, speed, efficiency, power and NPSH per pump, then the pump and
 	system curves of the pump being viewed (one at a time, chosen when there are several). Its
 	system curve is computed on demand for the exact project of this solve and cached with it
-	(D10; ProjectStore.loadSystemCurve), and can be cancelled while it is computed.
+	(D10; ProjectStore.loadSystemCurve), and can be cancelled while it is computed. With scenarios,
+	the chart also shows the other cases' operating points (and, on request, their system curves on
+	this chart's flow grid; proposal scenario-manager.md §6.13): those of every case other than the
+	one shown that the chart shows, whichever case is shown. A pump the scenario of these results
+	changed says so in the table (`changed`).
 -->
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import type { SolvedState } from '$lib/api/types';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
-	import { ratedCurveRange } from '$lib/utils/pump-chart';
-	import { pumpTable } from '$lib/utils/results';
+	import type { FlowRange } from '$lib/state/project.svelte';
+	import { MAX_CHART_CASES, ratedCurveRange, type OtherCaseInput } from '$lib/utils/pump-chart';
+	import { markChanged, pumpTable } from '$lib/utils/results';
 	import PumpChart from './PumpChart.svelte';
 	import ResultsTable from './ResultsTable.svelte';
 
-	let { solved }: { solved: SolvedState } = $props();
+	let { solved, changed = new Set() }: { solved: SolvedState; changed?: ReadonlySet<string> } =
+		$props();
 	const ws = useWorkspace();
-	const table = $derived(pumpTable(ws.labelsProject, solved, ws.displayUnits));
+	const table = $derived(
+		markChanged(pumpTable(ws.labelsProject, solved, ws.displayUnits), changed)
+	);
 	/** Pumps with a result, in table order. */
 	const pumps = $derived(table.rows.filter((row) => solved.pumpResults[row.key]));
 	let chosen = $state<string | null>(null);
@@ -49,6 +57,107 @@
 		if (!id || !response) return;
 		untrack(() => ws.store.loadSystemCurve(id));
 	});
+
+	const hasScenarios = $derived(ws.scenarios.length > 0);
+	/** The flow grid of the curve shown: other cases' curves are computed on it. */
+	const grid = $derived<FlowRange | null>(
+		system?.status === 'ready'
+			? { flowMin: system.curve.flowRange.min, flowMax: system.curve.flowRange.max }
+			: null
+	);
+	/**
+	 * The other cases' system curves are asked for (`overlay`), for the other cases the chart shows:
+	 * all but those the user unticked (keys: '' is the base), derived from the cases that are other
+	 * now, so a case switch asks for the case that became another, never for the case shown.
+	 */
+	let overlay = $state(false);
+	let unticked = $state<readonly string[]>([]);
+	/** Counts the times the box was ticked: asking again computes the curves cancelled or failed. */
+	let asked = $state(0);
+	let retried = 0;
+	const caseOf = (key: string) => (key === '' ? null : key);
+
+	/** Other cases whose last solve converged with a result for this pump. */
+	const others = $derived.by((): OtherCaseInput[] => {
+		const pumpId = viewed?.key;
+		if (!pumpId || !hasScenarios) return [];
+		return ws.store.caseIds
+			.filter((c) => c !== ws.store.activeCase)
+			.flatMap((c) => {
+				const r = ws.store.resultsFor(c);
+				const pump = r.response?.solvedState.pumpResults[pumpId];
+				if (!r.response || !pump || !(r.response.success && r.response.solvedState.converged)) {
+					return [];
+				}
+				const curve = overlay && grid ? ws.store.systemCurve(r.response, pumpId, grid) : undefined;
+				return [
+					{
+						key: c ?? '',
+						name: ws.caseName(c),
+						result: pump,
+						stale: r.stale,
+						system: curve?.status === 'ready' ? curve.curve : null
+					}
+				];
+			});
+	});
+
+	const overlayKeys = $derived(
+		others
+			.filter((o) => !unticked.includes(o.key))
+			.slice(0, MAX_CHART_CASES - 1)
+			.map((o) => o.key)
+	);
+	/** The keys as one value: the requests below are made again only when the cases change. */
+	const overlayList = $derived(overlayKeys.join('\u0000'));
+
+	const overlayStates = $derived(
+		viewed && overlay && grid
+			? overlayKeys.map((key) => {
+					const response = ws.store.resultsFor(caseOf(key)).response;
+					return ws.store.systemCurve(response, viewed.key, grid);
+				})
+			: []
+	);
+	const overlayProgress = $derived(
+		overlayStates.some((s) => s?.status === 'loading')
+			? {
+					done: overlayStates.filter((s) => s && s.status !== 'loading').length,
+					total: overlayStates.length
+				}
+			: null
+	);
+
+	// Asked for: compute each case's curve on the grid of the curve shown, once it is known.
+	$effect(() => {
+		const pumpId = viewed?.key;
+		const range = grid;
+		if (!overlay || !pumpId || !range) return;
+		const keys = overlayList ? overlayList.split('\u0000') : [];
+		const ask = asked;
+		untrack(() => {
+			// Asking again (ticking the box again) computes the ones cancelled or failed.
+			const retry = ask !== retried;
+			retried = ask;
+			for (const key of keys) {
+				ws.store.loadSystemCurve(pumpId, { caseId: caseOf(key), range, retry });
+			}
+		});
+	});
+
+	function setOverlay(on: boolean, untickedKeys: readonly string[]) {
+		if (on && !overlay) asked++;
+		overlay = on;
+		unticked = [...untickedKeys];
+	}
+
+	function cancelOverlay() {
+		const pumpId = viewed?.key;
+		if (!pumpId || !grid) return;
+		for (const key of overlayKeys) {
+			ws.store.cancelSystemCurve(pumpId, { caseId: caseOf(key), range: grid });
+		}
+	}
 </script>
 
 <div class="space-y-4">
@@ -75,7 +184,11 @@
 					hint="The pump and system curves of one pump at a time; each system curve is computed when its pump is shown."
 					value={viewed.key}
 					options={pumps.map((row) => ({ value: row.key, label: row.name }))}
-					onchange={(id) => (chosen = id)}
+					shared
+					onchange={(id) => {
+						chosen = id;
+						unticked = []; // the new pump's chart starts with every case ticked
+					}}
 				/>
 			{/if}
 			{#key viewed.key}
@@ -91,6 +204,12 @@
 					oncancel={response ? () => ws.store.cancelSystemCurve(viewed.key) : undefined}
 					ontrace={() => ws.inspect(viewed.element)}
 					{othersControlled}
+					{...hasScenarios ? { caseName: ws.caseName(ws.store.activeCase) } : {}}
+					{others}
+					overlayCurves={overlay}
+					onoverlay={setOverlay}
+					{overlayProgress}
+					oncanceloverlay={cancelOverlay}
 				/>
 			{/key}
 		</div>

@@ -10,6 +10,10 @@ from .base import CamelModel, Identifier
 
 CUSTOM_MATERIAL_ID = "custom"
 
+MAX_PIPES = 100
+"""Pipe segments one connection may hold (PipingSegment.pipes; a scenario's pipe override
+addresses one of them by index)."""
+
 FittingType = Literal[
     "elbow_90_lr",
     "elbow_90_sr",
@@ -157,7 +161,7 @@ class Fitting(CamelModel):
 class PipingSegment(CamelModel):
     """The pipes (in series, from -> to) and inline fittings of one connection."""
 
-    pipes: list[PipeDefinition] = Field(min_length=1, max_length=100)
+    pipes: list[PipeDefinition] = Field(min_length=1, max_length=MAX_PIPES)
     fittings: list[Fitting] = Field(max_length=500)
 
     @model_validator(mode="after")

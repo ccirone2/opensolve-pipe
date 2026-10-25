@@ -25,7 +25,10 @@
 		| 'info'
 		| 'down'
 		| 'external'
-		| 'spinner';
+		| 'spinner'
+		| 'layers'
+		| 'lock'
+		| 'up';
 </script>
 
 <script lang="ts">
@@ -102,6 +105,14 @@
 	{:else if name === 'external'}
 		<path d="M14 4h6v6M20 4l-9 9" />
 		<path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+	{:else if name === 'layers'}
+		<path d="m12 3 9 5-9 5-9-5z" />
+		<path d="m3 13 9 5 9-5" />
+	{:else if name === 'lock'}
+		<rect x="5" y="11" width="14" height="10" rx="2" />
+		<path d="M8 11V7a4 4 0 0 1 8 0v4" />
+	{:else if name === 'up'}
+		<path d="m6 15 6-6 6 6" />
 	{:else if name === 'spinner'}
 		<!-- Three quarters of a circle; spun with motion-safe:animate-spin where used. -->
 		<path d="M12 3a9 9 0 1 0 9 9" />

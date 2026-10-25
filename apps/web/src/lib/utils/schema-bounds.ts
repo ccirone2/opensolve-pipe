@@ -106,3 +106,14 @@ export function componentSchema(component: ComponentTagged): string {
 	if (!name) throw new Error(`No schema for component type "${String(component.type)}"`);
 	return name;
 }
+
+/** The most items a list field may hold (its schema's maxItems), or Infinity when unbounded. */
+export function itemLimit(schemaName: string, property: string): number {
+	const schema = SCHEMAS[schemaName];
+	if (!isRecord(schema) || !isRecord(schema.properties)) return Infinity;
+	const field = schema.properties[property];
+	if (!isRecord(field)) return Infinity;
+	const alternatives = Array.isArray(field.anyOf) ? field.anyOf : [field];
+	const list = alternatives.find((alt): alt is JsonObject => isRecord(alt) && alt.type === 'array');
+	return typeof list?.maxItems === 'number' ? list.maxItems : Infinity;
+}

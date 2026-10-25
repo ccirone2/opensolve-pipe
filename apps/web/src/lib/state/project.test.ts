@@ -51,7 +51,8 @@ function solveResponse(methodVersion = '1.0.0'): SolveResponse {
 	return {
 		success: true,
 		computeTime: 0.01,
-		solvedState: { methodVersion, converged: true } as unknown as SolveResponse['solvedState']
+		solvedState: { methodVersion, converged: true } as unknown as SolveResponse['solvedState'],
+		scenario: null
 	};
 }
 
@@ -758,7 +759,8 @@ describe('system curves (D10: on demand, per solve)', () => {
 			pumpId,
 			flowRange: { min: 0, max: 0.01, unit: 'm³/s' },
 			points: [{ flow: 0, head, converged: true, message: '' }],
-			converged: [true]
+			converged: [true],
+			scenario: null
 		};
 	}
 

@@ -173,3 +173,100 @@ export function pumpChartData(
 		}))
 	};
 }
+
+// ---------------------------------------------------------------------------------------------
+// Other cases on the chart (scenario manager, proposal scenario-manager.md §6.13)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Hollow markers that tell other cases apart (with a direct label, the legend and the table:
+ * never colour alone). 'rectRot' stays "held at zero flow".
+ */
+export const CASE_MARKERS = ['triangle', 'rect', 'star', 'crossRot', 'rectRounded'] as const;
+export type CaseMarker = (typeof CASE_MARKERS)[number];
+
+/** At most this many cases on the chart at once (the case shown and five others). */
+export const MAX_CHART_CASES = 6;
+
+export interface OtherCaseInput {
+	/** The case's id ('' for the base case). */
+	key: string;
+	name: string;
+	/** This pump's result in that case's last solve. */
+	result: PumpResult;
+	/** The case's results are out of date. */
+	stale: boolean;
+	/** That case's system curve on this chart's flow grid, when computed. */
+	system: SystemCurveResponse | null;
+}
+
+export interface OtherCaseData {
+	key: string;
+	/** "Winter", or "Winter (out of date)". */
+	label: string;
+	marker: CaseMarker;
+	/** Its operating point (a running pump). */
+	operating: ChartPoint | null;
+	/** Its pump held at zero flow: (0, head across it). */
+	held: ChartPoint | null;
+	/**
+	 * Its pump curve, when the pump runs at another speed than in the case shown; given once per
+	 * speed (the first case at that speed), with `curveLabel` naming every case at it.
+	 */
+	curve: ChartPoint[] | null;
+	/** "Pump curve at 100 % speed (Base case, Higher tank)". */
+	curveLabel: string;
+	/** Its system curve, when computed (a null head is a gap). */
+	system: { x: number; y: number | null }[] | null;
+	/** Table row: flow, head, speed and state, formatted. */
+	row: { flow: string; head: string; speed: string; state: string };
+	systemRows: { flow: string; head: string; note: string }[];
+}
+
+const STATE_WORDS: Readonly<Record<string, string>> = {
+	running: 'Running',
+	off: 'Off',
+	no_flow: 'Held at zero flow'
+};
+
+/**
+ * Chart data of the other cases with a result for this pump, each with its marker (in order),
+ * from their own PumpResult and system curve. `speed` is the pump's speed in the case shown: a
+ * case whose pump runs at another speed also gets its pump curve.
+ */
+export function otherCasesData(
+	others: readonly OtherCaseInput[],
+	prefs: UnitPreferences,
+	ratedRange: [number, number] | null,
+	speed: number
+): OtherCaseData[] {
+	const fmt = (v: number) => formatNumber(v, 4);
+	const same = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
+	const running = (o: OtherCaseInput) => o.result.status === 'running';
+	return others.map((other, i) => {
+		const data = pumpChartData(other.result, prefs, ratedRange, other.system);
+		const atSpeed = others.filter((o) => running(o) && same(o.result.speed, other.result.speed));
+		const first = atSpeed[0] === other;
+		const drawn = running(other) && !same(other.result.speed, speed) && first;
+		return {
+			key: other.key,
+			label: other.stale ? `${other.name} (out of date)` : other.name,
+			marker: CASE_MARKERS[i % CASE_MARKERS.length] as CaseMarker,
+			operating: data.operating,
+			held: data.held,
+			curve: drawn ? [...data.curve, ...data.extrapolated.flat()].sort((a, b) => a.x - b.x) : null,
+			curveLabel: `Pump curve at ${formatNumber(other.result.speed * 100, 4)} % speed (${atSpeed
+				.map((o) => (o.stale ? `${o.name}, out of date` : o.name))
+				.join('; ')})`,
+			system: data.system,
+			row: {
+				flow: data.operating ? fmt(data.operating.x) : data.held ? '0' : '—',
+				head: data.operating ? fmt(data.operating.y) : data.held ? fmt(data.held.y) : '—',
+				speed:
+					other.result.status === 'off' ? '—' : `${formatNumber(other.result.speed * 100, 4)} %`,
+				state: STATE_WORDS[other.result.status] ?? other.result.status
+			},
+			systemRows: data.systemRows
+		};
+	});
+}

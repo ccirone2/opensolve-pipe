@@ -42,7 +42,8 @@ describe('ProjectStore reactivity', () => {
 				solve: async () => ({
 					success: true,
 					computeTime: 0,
-					solvedState: { methodVersion: '1.0.0' } as never
+					solvedState: { methodVersion: '1.0.0' } as never,
+					scenario: null
 				})
 			}
 		});

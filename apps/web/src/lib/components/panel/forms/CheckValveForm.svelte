@@ -30,6 +30,7 @@
 	label="Status"
 	value={component.status}
 	options={STATUSES.map((s) => ({ value: s, label: CHECK_STATUS_LABELS[s] }))}
+	change={ws.componentChange(component.id, 'status')}
 	onchange={(v) =>
 		ws.editComponent<CheckValve>(component.id, 'change valve status', (c) => {
 			c.status = v;
@@ -52,6 +53,7 @@
 	value={component.resistance}
 	units={ws.units}
 	defaultLabel="the solver's cited loss for this valve type (shown in the results)"
+	change={ws.componentChange(component.id, 'resistance')}
 	onchange={(r) =>
 		ws.editComponent<CheckValve>(component.id, 'change valve resistance', (c) =>
 			withOptional(c, 'resistance', r)

@@ -9,6 +9,7 @@
 -->
 <script lang="ts">
 	import type { UnitPreferences } from '$lib/api/types';
+	import type { FieldChange } from '$lib/components/ui/field-mode';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import {
@@ -34,9 +35,22 @@
 		oninput?: () => void;
 		/** Where the note on a flow of 0 goes: a warning line, or the hint's place. */
 		zeroNote?: 'warning' | 'hint';
+		/**
+		 * A scenario value (the node's form): direction and magnitude are one change, noted once,
+		 * under the flow.
+		 */
+		change?: FieldChange | null;
 	}
 
-	let { flow, units, error = null, onchange, oninput, zeroNote = 'warning' }: Props = $props();
+	let {
+		flow,
+		units,
+		error = null,
+		onchange,
+		oninput,
+		zeroNote = 'warning',
+		change = null
+	}: Props = $props();
 
 	const ZERO_NOTE = 'At 0 the node passes no flow: it is a closed end, as a plug.';
 
@@ -63,6 +77,8 @@
 	label="Direction"
 	value={direction}
 	options={(['demand', 'supply'] as const).map((d) => ({ value: d, label: DIRECTION_LABELS[d] }))}
+	{change}
+	changeNote={false}
 	onchange={choose}
 />
 <NumberField
@@ -78,6 +94,7 @@
 			: 'Enters the network at the port, whatever the pressure there.'}
 	warning={flow === 0 && zeroNote === 'warning' ? ZERO_NOTE : null}
 	{error}
+	{change}
 	onchange={enter}
 	{oninput}
 />

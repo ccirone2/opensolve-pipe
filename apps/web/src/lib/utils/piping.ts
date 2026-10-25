@@ -15,6 +15,7 @@ import type {
 	PipingSegment
 } from '../api/types';
 import { DEFAULT_PIPE_LENGTH } from './factory';
+import { markCopy } from './identity';
 import { sameSize } from './labels';
 import { REDUCER_TYPES } from './model-rules';
 
@@ -58,6 +59,10 @@ export function removePipe(piping: PipingSegment, index: number): PipingSegment 
 	return { pipes, fittings };
 }
 
+/**
+ * Replace pipe `index` with `update(copy of it)`. The result is the same pipe, edited
+ * (identity.ts), so scenario changes stay on it.
+ */
 export function updatePipe(
 	piping: PipingSegment,
 	index: number,
@@ -65,7 +70,12 @@ export function updatePipe(
 ): PipingSegment {
 	const pipe = piping.pipes[index];
 	if (!pipe) return piping;
-	return { ...piping, pipes: piping.pipes.map((p, i) => (i === index ? update({ ...p }) : p)) };
+	const edited = (p: PipeDefinition) => {
+		const next = update({ ...p });
+		markCopy(next, p);
+		return next;
+	};
+	return { ...piping, pipes: piping.pipes.map((p, i) => (i === index ? edited(p) : p)) };
 }
 
 export function addFitting(piping: PipingSegment, fitting: Fitting): PipingSegment {

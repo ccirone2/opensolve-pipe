@@ -27,7 +27,10 @@
 	let firstValues = $state<EnteredValues>({});
 	let firstMissing = $state<string | null>(null);
 
-	const current = $derived(nav.current);
+	/** The current component, with the values of the case shown (the walk is the same in every case). */
+	const current = $derived(
+		nav.current ? (componentById(ws.project, nav.current.id) ?? nav.current) : undefined
+	);
 	const previous = $derived.by(() => {
 		const step = nav.path[nav.path.length - 2];
 		return step ? componentById(ws.project, step.componentId) : undefined;
@@ -125,38 +128,50 @@
 				reference node. Every network needs at least one. Then add components after it, one at a
 				time.
 			</p>
-			<form
-				class="flex flex-wrap items-end gap-2"
-				onsubmit={(event) => {
-					event.preventDefault();
-					firstMissing = missingEntry(firstKind, firstValues);
-					if (!firstMissing) ws.addStandalone(firstKind, firstValues);
-				}}
-			>
-				<SelectField
-					label="First component"
-					value={firstKind}
-					options={kindOptions()}
-					class="min-w-48 flex-1"
-					onchange={(v) => {
-						firstKind = v;
-						firstMissing = null;
+			{#if ws.inScenario}
+				<div class="flex flex-wrap items-center gap-2">
+					<p class="min-w-0 flex-1 basis-48 text-slate-700">
+						Switch to the base case to add a component: the layout of the network is the same in
+						every scenario.
+					</p>
+					<button type="button" class="btn" onclick={() => ws.setCase(null)}>
+						Switch to base case
+					</button>
+				</div>
+			{:else}
+				<form
+					class="flex flex-wrap items-end gap-2"
+					onsubmit={(event) => {
+						event.preventDefault();
+						firstMissing = missingEntry(firstKind, firstValues);
+						if (!firstMissing) ws.addStandalone(firstKind, firstValues);
 					}}
-				/>
-				{#if firstKind === 'assigned_flow'}
-					<div class="grid basis-full gap-3 sm:grid-cols-2">
-						<NewComponentFields
-							kind={firstKind}
-							units={ws.units}
-							bind:values={firstValues}
-							bind:error={firstMissing}
-						/>
-					</div>
-				{/if}
-				<button type="submit" class="btn btn-primary">
-					<Icon name="plus" class="size-4" /> Add
-				</button>
-			</form>
+				>
+					<SelectField
+						label="First component"
+						value={firstKind}
+						options={kindOptions()}
+						class="min-w-48 flex-1"
+						onchange={(v) => {
+							firstKind = v;
+							firstMissing = null;
+						}}
+					/>
+					{#if firstKind === 'assigned_flow'}
+						<div class="grid basis-full gap-3 sm:grid-cols-2">
+							<NewComponentFields
+								kind={firstKind}
+								units={ws.units}
+								bind:values={firstValues}
+								bind:error={firstMissing}
+							/>
+						</div>
+					{/if}
+					<button type="submit" class="btn btn-primary">
+						<Icon name="plus" class="size-4" /> Add
+					</button>
+				</form>
+			{/if}
 		</section>
 	{/if}
 </div>

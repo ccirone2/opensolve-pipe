@@ -12,7 +12,9 @@
  *   (fittings between two pipes), `x-entrance-types` and `x-exit-types`;
  * - on `ControlValve`, `x-setpoint-bounds` (an FCV's setpoint is a flow);
  * - on a component schema, `x-ordered-fields` (pairs of fields whose values must be ordered, such
- *   as a speed-controlled pump's minimum speed below its speed, the maximum).
+ *   as a speed-controlled pump's minimum speed below its speed, the maximum);
+ * - on `Scenario`, `x-override-fields` (the values a scenario may change, by target schema: the
+ *   allow-list of the scenario manager, PRD §3.8).
  *
  * The rest is what the schema states anyway: which schema a component is validated against (the
  * members of the `Project.components` union, by type refined by branchType or valveType, as the
@@ -130,6 +132,20 @@ const FLUID_SCHEMAS: ReadonlyMap<unknown, string> = new Map(
 /** The schema a fluid definition is validated against, by its kind; null when none matches. */
 export function fluidSchemaName(kind: unknown): string | null {
 	return FLUID_SCHEMAS.get(kind) ?? null;
+}
+
+/** The override schemas of the `Scenario.overrides` union, by their `kind`. */
+const OVERRIDE_SCHEMAS: ReadonlyMap<unknown, string> = new Map(
+	unionMembers(
+		isRecord(property('Scenario', 'overrides').items)
+			? (property('Scenario', 'overrides').items as JsonObject)
+			: {}
+	).map((name) => [property(name, 'kind').const, name])
+);
+
+/** The schema a scenario change (override) is validated against, by its kind; null when none. */
+export function overrideSchemaName(kind: unknown): string | null {
+	return OVERRIDE_SCHEMAS.get(kind) ?? null;
 }
 
 function componentSchema(component: ComponentTagged): JsonObject | null {
@@ -350,4 +366,65 @@ export const EXIT_TYPES: ReadonlySet<FittingType> = fittingTypes('x-exit-types')
 /** The fields of `fitting` its type requires that it does not have. */
 export function missingFittingParameters(fitting: Fitting): FittingParameter[] {
 	return (FITTING_PARAMETERS[fitting.type] ?? []).filter((f) => fitting[f] == null);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Scenario overrides
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * One value a scenario may change on a target type (`x-override-fields`): the schema that holds
+ * it (its bounds are that schema's property) and its camelCase path from the target, or, for a
+ * group whose keys are replaced together (a pipe's spec), those keys of the target.
+ */
+export interface OverrideField {
+	schema: string;
+	path: readonly string[];
+	keys: readonly string[];
+}
+
+/**
+ * The scenario allow-list (`x-override-fields` on `Scenario`): by target schema (each component
+ * schema, `PipeDefinition`, `Project`), the fields a scenario may change. A component schema with
+ * no entry takes none.
+ */
+export const OVERRIDE_FIELDS: Readonly<Record<string, Readonly<Record<string, OverrideField>>>> =
+	(() => {
+		const published = schema('Scenario')['x-override-fields'];
+		if (!isRecord(published)) throw new Error('openapi.json: Scenario has no x-override-fields');
+		const fields: Record<string, Record<string, OverrideField>> = {};
+		for (const [target, entries] of Object.entries(published)) {
+			if (!isRecord(entries)) throw new Error(`openapi.json: x-override-fields.${target}`);
+			fields[target] = {};
+			for (const [name, entry] of Object.entries(entries)) {
+				if (!isRecord(entry) || typeof entry.schema !== 'string') {
+					throw new Error(`openapi.json: x-override-fields.${target}.${name}`);
+				}
+				schema(entry.schema); // the holder exists
+				fields[target][name] = {
+					schema: entry.schema,
+					path: entry.path === undefined ? [] : stringList(entry.path, `${target}.${name}.path`),
+					keys: entry.keys === undefined ? [] : stringList(entry.keys, `${target}.${name}.keys`)
+				};
+			}
+		}
+		return fields;
+	})();
+
+/** The fields a scenario may change on a component (by its schema); none for an unknown type. */
+export function componentOverrideFields(
+	component: ComponentTagged
+): Readonly<Record<string, OverrideField>> {
+	const name = componentSchemaName(component);
+	return (name && OVERRIDE_FIELDS[name]) || {};
+}
+
+/** The fields a scenario may change on one pipe (`PipeDefinition`). */
+export function pipeOverrideFields(): Readonly<Record<string, OverrideField>> {
+	return OVERRIDE_FIELDS.PipeDefinition ?? {};
+}
+
+/** The fields a scenario may change on the project itself (the fluid). */
+export function projectOverrideFields(): Readonly<Record<string, OverrideField>> {
+	return OVERRIDE_FIELDS.Project ?? {};
 }

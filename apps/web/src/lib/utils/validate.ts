@@ -22,6 +22,7 @@ import {
 	componentSchemaName,
 	fluidSchemaName,
 	missingFittingParameters,
+	overrideSchemaName,
 	orderViolations,
 	REDUCER_TYPES,
 	requiredPortCount,
@@ -29,6 +30,7 @@ import {
 	schemaExtensions,
 	setpointBounds
 } from './model-rules';
+import { overlappingChanges } from './scenarios';
 import { formatValue, SI_UNITS } from './units';
 
 const SCHEMA_ID = 'urn:opensolve-pipe:openapi';
@@ -83,6 +85,8 @@ function validatorFor(name: string): ValidateFunction {
  */
 function taggedSchema(value: unknown): string | null {
 	if (!isRecord(value)) return null;
+	// A scenario change: kind and field (a fluid has a kind and no field).
+	if ('kind' in value && 'field' in value) return overrideSchemaName(value.kind);
 	if ('kind' in value && !('type' in value)) return fluidSchemaName(value.kind);
 	return componentSchemaName(value);
 }
@@ -145,30 +149,49 @@ function describeError(error: ErrorObject): string {
 	}
 }
 
+/** One schema problem: where it is (a JSON pointer into the project) and what it is. */
+export interface SchemaIssue {
+	pointer: string;
+	text: string;
+}
+
 /** Collect readable problems for `value` validated with `validate`; `base` prefixes paths. */
 function collect(
 	validate: ValidateFunction,
 	value: unknown,
 	root: unknown,
 	base: string
-): string[] {
+): SchemaIssue[] {
 	if (validate(value)) return [];
 	const errors = validate.errors ?? [];
 	const oneOfPaths = errors.filter((e) => e.keyword === 'oneOf').map((e) => e.instancePath);
 	const insideOneOf = (path: string) =>
 		oneOfPaths.some((p) => path === p || path.startsWith(`${p}/`));
-	const problems: string[] = [];
+	const problems: SchemaIssue[] = [];
 
 	for (const path of new Set(oneOfPaths)) {
 		const member = valueAt(value, path);
 		const name = taggedSchema(member);
-		const where = describePath(root, base + path);
-		if (name) problems.push(...collect(validatorFor(name), member, root, base + path));
+		const pointer = base + path;
+		const where = describePath(root, pointer);
+		if (name) problems.push(...collect(validatorFor(name), member, root, pointer));
 		else if (isRecord(member) && 'type' in member)
-			problems.push(`${where}: unknown component type (or branchType / valveType)`);
+			problems.push({
+				pointer,
+				text: `${where}: unknown component type (or branchType / valveType)`
+			});
+		else if (isRecord(member) && 'kind' in member && 'field' in member)
+			problems.push({
+				pointer,
+				text: `${where}: unknown change kind ${JSON.stringify(member.kind)} (a component, a pipe or the project)`
+			});
 		else if (isRecord(member) && 'kind' in member)
-			problems.push(`${where}: unknown fluid kind ${JSON.stringify(member.kind)}`);
-		else problems.push(`${where}: must be an object of one of the allowed kinds`);
+			problems.push({
+				pointer,
+				text: `${where}: unknown fluid kind ${JSON.stringify(member.kind)}`
+			});
+		else
+			problems.push({ pointer, text: `${where}: must be an object of one of the allowed kinds` });
 	}
 
 	const nullBranch = (e: ErrorObject) =>
@@ -179,14 +202,24 @@ function collect(
 	// A nullable field (anyOf [X, null]) whose only failure is "not null" still needs a message.
 	const shown = rest.length || problems.length ? rest : errors.filter((e) => e.keyword !== 'anyOf');
 	for (const error of shown) {
-		problems.push(`${describePath(root, base + error.instancePath)}: ${describeError(error)}`);
+		const pointer = base + error.instancePath;
+		problems.push({ pointer, text: `${describePath(root, pointer)}: ${describeError(error)}` });
 	}
-	return [...new Set(problems)];
+	const seen = new Set<string>();
+	return problems.filter((p) => !seen.has(p.text) && !!seen.add(p.text));
+}
+
+/**
+ * Problems found by checking `value` against the API's `Project` JSON schema, each with the JSON
+ * pointer of where it is (so a problem can be traced to the scenario change that wrote the value).
+ */
+export function schemaIssues(value: unknown): SchemaIssue[] {
+	return collect(validatorFor('Project'), value, value, '');
 }
 
 /** Problems found by checking `value` against the API's `Project` JSON schema. */
 export function schemaProblems(value: unknown): string[] {
-	return collect(validatorFor('Project'), value, value, '');
+	return schemaIssues(value).map((issue) => issue.text);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -303,6 +336,31 @@ export function referenceProblems(project: Project): string[] {
 			}
 		}
 	}
+	problems.push(...scenarioStructureProblems(project));
+	return problems;
+}
+
+/**
+ * Rules on a project's scenarios that the API checks on every request (proposal §2.4): scenario
+ * ids are unique, and a scenario sets each value at most once and never a value together with a
+ * part of it (the whole fluid and its temperature), so its result does not depend on the order
+ * of its changes. Values themselves are checked when a scenario is applied (scenario-problems.ts).
+ */
+function scenarioStructureProblems(project: Project): string[] {
+	const problems: string[] = [];
+	const scenarios = project.scenarios ?? [];
+	for (const id of duplicates(scenarios.map((s) => s.id))) {
+		problems.push(`Scenario id "${id}" is used more than once.`);
+	}
+	for (const scenario of scenarios) {
+		for (const { first, second, part } of overlappingChanges(scenario.overrides ?? [])) {
+			problems.push(
+				part
+					? `Scenario "${scenario.id}": changes ${first + 1} and ${second + 1} set a value and a part of it; set the part in the whole value's change.`
+					: `Scenario "${scenario.id}": changes ${first + 1} and ${second + 1} set the same value.`
+			);
+		}
+	}
 	return problems;
 }
 
@@ -324,6 +382,8 @@ export interface ModelRuleIssue {
 	componentId?: string;
 	portId?: string;
 	connectionId?: string;
+	/** The pipe of `connectionId` it is about (0-based), for a pipe's own problem. */
+	pipeIndex?: number;
 }
 
 function pipingIssues(project: Project, connection: PipeConnection): ModelRuleIssue[] {
@@ -335,19 +395,21 @@ function pipingIssues(project: Project, connection: PipeConnection): ModelRuleIs
 		portId: connection.fromPortId,
 		connectionId: connection.id
 	};
-	const add = (text: string, message: string) => issues.push({ text, message, ...at });
+	const add = (text: string, message: string, pipeIndex?: number) =>
+		issues.push({ text, message, ...at, ...(pipeIndex === undefined ? {} : { pipeIndex }) });
 	const { pipes, fittings } = connection.piping;
 	pipes.forEach((pipe, i) => {
 		if (pipe.materialId === 'custom') {
 			if (pipe.innerDiameter == null || pipe.roughness == null) {
 				add(
 					`${where}, pipe ${i + 1}: a custom pipe needs an inner diameter and a roughness.`,
-					`${named}, pipe ${i + 1}: a custom pipe needs an inner diameter and a roughness.`
+					`${named}, pipe ${i + 1}: a custom pipe needs an inner diameter and a roughness.`,
+					i
 				);
 			}
 		} else if (pipe.innerDiameter == null && (pipe.schedule == null || pipe.nominalSize == null)) {
 			const rule = 'a library pipe needs a schedule and a nominal size (or an inner diameter).';
-			add(`${where}, pipe ${i + 1}: ${rule}`, `${named}, pipe ${i + 1}: ${rule}`);
+			add(`${where}, pipe ${i + 1}: ${rule}`, `${named}, pipe ${i + 1}: ${rule}`, i);
 		}
 	});
 	const fields = { angle: 'an angle', radiusRatio: 'a radius ratio', kOverride: 'a K value' };

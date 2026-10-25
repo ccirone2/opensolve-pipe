@@ -142,10 +142,11 @@
 	{#each bareEnds as reservoir (reservoir.end)}
 		<div class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
 			<p>
-				No entrance or exit loss is applied where this piping meets {reservoir.name}: add the
-				fitting for the way the flow goes.
+				No entrance or exit loss is applied where this piping meets {reservoir.name}{ws.inScenario
+					? ', in every case.'
+					: ': add the fitting for the way the flow goes.'}
 			</p>
-			<div class="mt-2 flex flex-wrap gap-2">
+			<div class={['mt-2 flex flex-wrap gap-2', ws.inScenario && 'hidden']}>
 				<button
 					type="button"
 					class="btn py-1.5 text-left whitespace-normal"
@@ -186,7 +187,7 @@
 						/>
 						<button
 							type="button"
-							class="btn btn-quiet btn-icon mt-6 text-red-800"
+							class={['btn btn-quiet btn-icon mt-6 text-red-800', ws.inScenario && 'hidden']}
 							aria-label="Remove fitting {i + 1}"
 							onclick={() =>
 								ws.editConnection(connection.id, 'remove fitting', (c) => ({
@@ -259,7 +260,7 @@
 	{:else}
 		<p class="text-sm text-slate-600">No fittings.</p>
 	{/if}
-	<div class="flex items-end gap-2">
+	<div class={['flex items-end gap-2', ws.inScenario && 'hidden']}>
 		<SelectField
 			label="Add a fitting"
 			value={newType}

@@ -7,10 +7,18 @@
 	cancelled or answered), Solve takes the focus. Solve keeps one width whether it is solving or
 	not (both labels take their place in it, one of them invisible), so neither control appears
 	under the pointer where the other was; below 22.5rem, where Cancel would not fit beside a
-	labelled Solve, Solve shows its icon only, as Share and Settings do on phones. The second click
+	labelled Solve, Solve shows its icon only, as Share does on phones (Settings and Scenarios below
+	768 px, so the project name keeps its room in the one row from 640 px). The second click
 	of a double click (or double tap) does nothing, so it neither cancels the solve the first
 	started nor starts another after Cancel. Keyboard activation (a click with detail 0) is not
 	affected.
+
+	Scenarios (proposal scenario-manager.md §6.2): the Scenarios button, right after the project
+	name (it ends the first row on phones), opens the scenario manager and counts the scenarios.
+	Solve solves the case shown; once the project has scenarios its accessible name names the case
+	("Solve Winter"). While Solve all runs, Solve shows its spinner and Cancel stops the run. A solve
+	goes on after a case switch: Solve keeps its spinner and Cancel, which then names the case it
+	stops ("Cancel solving Winter"), whichever case is shown.
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
@@ -19,18 +27,31 @@
 	import TextField from '$lib/components/ui/TextField.svelte';
 	import { stringLimits } from '$lib/utils/schema-bounds';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import ScenarioManager from './ScenarioManager.svelte';
 	import SettingsDialog from './SettingsDialog.svelte';
 	import ShareButton from './ShareButton.svelte';
 
 	const ws = useWorkspace();
 	const store = ws.store;
-	let settings = $state(false);
+	const count = $derived(ws.scenarios.length);
+	/** The case Solve solves, for its accessible name once the project has scenarios. */
+	const caseLabel = $derived(count ? ` ${ws.caseName(store.activeCase)}` : '');
 
 	const id = $props.id();
 	const undoText = $derived(store.undoLabel ? `Undo ${store.undoLabel}` : 'Undo');
 	const redoText = $derived(store.redoLabel ? `Redo ${store.redoLabel}` : 'Redo');
 	const empty = $derived(!ws.project.components.length);
-	const solving = $derived(store.results.solving);
+	const running = $derived(!!store.run);
+	/** A solve in flight, of the case shown or another (D10: it can always be cancelled). */
+	const solvingCase = $derived(store.solvingCase);
+	const solving = $derived(solvingCase !== undefined || running);
+	const cancelLabel = $derived(
+		running
+			? 'Cancel solving all cases'
+			: solvingCase !== undefined && solvingCase !== store.activeCase
+				? `Cancel solving ${ws.caseName(solvingCase)}`
+				: 'Cancel solve'
+	);
 	const canSolve = $derived(!solving && !empty);
 	let solveButton: HTMLButtonElement | undefined = $state();
 	let cancelButton: HTMLButtonElement | undefined = $state();
@@ -67,6 +88,7 @@
 				required
 				maxlength={stringLimits('ProjectMetadata', 'name').maxLength}
 				inputClass="border-transparent font-semibold hover:border-slate-300 focus:border-slate-400"
+				shared
 				onchange={(v) =>
 					!!v &&
 					ws.edit((p) => {
@@ -74,6 +96,24 @@
 					}, 'rename project')}
 			/>
 		</div>
+		<button
+			type="button"
+			class="btn btn-icon relative shrink-0 md:w-auto md:px-3"
+			aria-label={count ? `Scenarios (${count})` : 'Scenarios'}
+			onclick={() => {
+				ws.managerFocus = null;
+				ws.managerOpen = true;
+			}}
+		>
+			<!-- Its label from 768 px: at 640 px the one row also holds Cancel with its text. -->
+			<Icon name="layers" /><span class="hidden md:inline">Scenarios</span>
+			{#if count}
+				<span
+					class="absolute -top-1 -right-1 min-w-5 rounded-full bg-teal-700 px-1 text-center text-xs leading-5 font-semibold text-white md:static md:bg-teal-100 md:text-teal-900"
+					aria-hidden="true">{count}</span
+				>
+			{/if}
+		</button>
 		<div role="toolbar" aria-label="Project" class="flex w-full items-center gap-1 sm:w-auto">
 			<button
 				type="button"
@@ -81,7 +121,7 @@
 				aria-label={undoText}
 				title={undoText}
 				aria-disabled={!store.canUndo}
-				onclick={() => store.undo()}
+				onclick={() => ws.undo()}
 			>
 				<Icon name="undo" />
 			</button>
@@ -91,7 +131,7 @@
 				aria-label={redoText}
 				title={redoText}
 				aria-disabled={!store.canRedo}
-				onclick={() => store.redo()}
+				onclick={() => ws.redo()}
 			>
 				<Icon name="redo" />
 			</button>
@@ -102,7 +142,7 @@
 					bind:this={cancelButton}
 					type="button"
 					class="btn btn-icon sm:w-auto sm:px-3"
-					aria-label="Cancel solve"
+					aria-label={cancelLabel}
 					onclick={cancel}
 				>
 					<Icon name="close" /><span class="hidden sm:inline">Cancel</span>
@@ -112,6 +152,7 @@
 				bind:this={solveButton}
 				type="button"
 				class="btn btn-primary"
+				data-solve-button
 				aria-disabled={!canSolve}
 				aria-describedby={empty ? `${id}-solve-reason` : undefined}
 				title={empty ? 'Add a component to the network first.' : undefined}
@@ -132,23 +173,34 @@
 						aria-hidden={!solving}>Solving…</span
 					>
 				</span>
+				{#if caseLabel}<span class="sr-only">{caseLabel}</span>{/if}
 			</button>
 			{#if empty}
 				<span id="{id}-solve-reason" class="sr-only">Add a component to the network first.</span>
 			{/if}
 			<ShareButton compact />
+			<!-- Its label from 768 px, as the Scenarios button's: at 640 px the one row also holds
+				Cancel with its text, and the project name needs its room. -->
 			<button
 				type="button"
-				class="btn btn-icon sm:w-auto sm:px-3"
+				class="btn btn-icon md:w-auto md:px-3"
 				aria-label="Settings"
-				onclick={() => (settings = true)}
+				onclick={() => (ws.settingsOpen = true)}
 			>
-				<Icon name="settings" /><span class="hidden sm:inline">Settings</span>
+				<Icon name="settings" /><span class="hidden md:inline">Settings</span>
 			</button>
 		</div>
 	</div>
 </header>
 
-{#if settings}
-	<SettingsDialog onclose={() => (settings = false)} />
+{#if ws.settingsOpen}
+	<SettingsDialog onclose={() => (ws.settingsOpen = false)} />
+{/if}
+{#if ws.managerOpen}
+	<ScenarioManager
+		onclose={() => {
+			ws.managerOpen = false;
+			ws.managerFocus = null;
+		}}
+	/>
 {/if}

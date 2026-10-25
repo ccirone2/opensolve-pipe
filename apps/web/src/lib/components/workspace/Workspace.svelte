@@ -1,15 +1,19 @@
 <!--
-	The workspace of an open project: header, and the Build (panel navigator) and Results panes —
-	side by side on wide screens (≥ 1024 px), as tabs on narrow ones.
+	The workspace of an open project: header, the case bar (once the project has scenarios), and
+	the Build (panel navigator) and Results panes — side by side on wide screens (≥ 1024 px), as
+	tabs on narrow ones. It tells the fields below which case is shown (field-mode.ts): in a
+	scenario only its values, names and display units can be edited.
 -->
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
+	import { provideFieldMode } from '$lib/components/ui/field-mode';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import PanelNavigator from '$lib/components/panel/PanelNavigator.svelte';
 	import { provideLibrary } from '$lib/state/library.svelte';
 	import { provideProjectStore } from '$lib/state/project.svelte';
 	import { provideWorkspace, type Pane, type Workspace } from '$lib/state/workspace.svelte';
 	import ResultsPanel from '$lib/components/results/ResultsPanel.svelte';
+	import ScenarioBar from './ScenarioBar.svelte';
 	import WorkspaceHeader from './WorkspaceHeader.svelte';
 
 	let { workspace }: { workspace: Workspace } = $props();
@@ -18,6 +22,11 @@
 	const ws = provideWorkspace(untrack(() => workspace));
 	provideProjectStore(ws.store);
 	provideLibrary(ws.library);
+	provideFieldMode({
+		get scenario() {
+			return ws.inScenario;
+		}
+	});
 	const id = $props.id();
 
 	onMount(() => {
@@ -47,10 +56,10 @@
 		const key = event.key.toLowerCase();
 		if (key === 'z' && !event.shiftKey) {
 			event.preventDefault();
-			ws.store.undo();
+			ws.undo();
 		} else if ((key === 'z' && event.shiftKey) || key === 'y') {
 			event.preventDefault();
-			ws.store.redo();
+			ws.redo();
 		}
 	}
 
@@ -107,6 +116,11 @@
 
 <div class="flex h-dvh flex-col bg-white">
 	<WorkspaceHeader />
+	<ScenarioBar />
+	{#if ws.scenarios.length}
+		<!-- Case switches are said here (a polite live region, present before its text). -->
+		<p class="sr-only" role="status">{ws.announcement}</p>
+	{/if}
 
 	<main class="flex min-h-0 flex-1 flex-col">
 		<h1 class="sr-only">{ws.project.metadata.name}</h1>

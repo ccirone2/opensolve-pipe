@@ -11,6 +11,7 @@
  */
 import { gzip, ungzip } from 'pako';
 import type { Project } from '../api/types';
+import { canonicalJson } from './json';
 import { CORRUPT_LINK_MESSAGE, INVALID_PROJECT_MESSAGE, LinkError } from './link-error';
 import { migrate } from './migrations';
 import { parseProject, ProjectValidationError } from './validate';
@@ -24,29 +25,7 @@ export const PROJECT_PATH = '/p';
 /** Canonical public origin, used where the page's own origin is unknown. */
 export const CANONICAL_ORIGIN = 'https://opensolve-pipe.app';
 
-/**
- * JSON with object keys sorted at every level, so equal projects encode identically.
- *
- * Non-finite numbers would become `null` in JSON and make the link undecodable, so they are
- * rejected here instead. (Do not use an array replacer for ordering: it filters keys at every
- * depth and silently drops nested fields, TSD §4.7.)
- */
-export function canonicalJson(value: unknown): string {
-	return JSON.stringify(value, (key, v: unknown) => {
-		if (typeof v === 'number' && !Number.isFinite(v)) {
-			throw new TypeError(`Cannot encode the non-finite number ${v} (field "${key}")`);
-		}
-		if (v && typeof v === 'object' && !Array.isArray(v)) {
-			const record = v as Record<string, unknown>;
-			return Object.fromEntries(
-				Object.keys(record)
-					.sort()
-					.map((k) => [k, record[k]])
-			);
-		}
-		return v;
-	});
-}
+export { canonicalJson };
 
 export function toBase64Url(bytes: Uint8Array): string {
 	let binary = '';

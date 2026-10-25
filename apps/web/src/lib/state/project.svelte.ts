@@ -18,6 +18,15 @@
  * - A solve and a system curve can be cancelled (PRD §4.2): the request is aborted (the server
  *   stops the work of a client that has gone, D10), an answer that still arrives is dropped, and
  *   what was shown before stays, current or out of date by the same rules.
+ * - Scenarios (PRD §3.8, proposal scenario-manager.md §6.9-6.10): the project holds the base case
+ *   and its scenarios. `activeCase` is the case shown (null: the base case; page state, not in
+ *   the link and not an undo step). Results, errors, staleness and system curves are kept per
+ *   case; `results`, `solvedProject` and `systemCurves` are the active case's. A case's staleness
+ *   key is the base's hydraulic fingerprint, plus that scenario's changes (utils/scenarios.ts
+ *   caseKey): conservative, never showing stale results as current. solveAll() solves every case
+ *   whose results are missing or out of date, one request at a time, from a snapshot. Each undo
+ *   step records the case it was made in, and undo and redo show that case again. A base edit
+ *   carries the scenarios' changes with the pipes it moves (utils/scenarios.ts carryChanges).
  *
  * Nothing is kept in browser storage; history lives only in this page.
  */
@@ -39,6 +48,15 @@ import {
 	URL_LENGTH_WARNING
 } from '../utils/encoding';
 import { createEmptyProject, isoNow } from '../utils/factory';
+import {
+	applyScenario,
+	carryChanges,
+	caseKey,
+	findScenario,
+	scenariosOf,
+	trackPipes,
+	type CaseId
+} from '../utils/scenarios';
 import { referenceProblems, schemaProblems } from '../utils/validate';
 
 export const MAX_HISTORY = 100;
@@ -48,9 +66,16 @@ export interface HistoryEntry {
 	project: Project;
 	/** What the change did, e.g. "Add pump" (for "Undo add pump"). */
 	label: string;
+	/** The case the change was made in (null: the base case): undo and redo show it again. */
+	caseId: CaseId;
 }
 
-export type UpdateResult = { ok: true; changed: boolean } | { ok: false; problems: string[] };
+/**
+ * What update() did. `notes` (only when there are any) say what a base edit did to scenario
+ * changes (a removed pipe's changes went with it, a valve's setpoint changes were removed, ...).
+ */
+export type UpdateResult =
+	{ ok: true; changed: boolean; notes?: string[] } | { ok: false; problems: string[] };
 
 export type ResultsError =
 	| { kind: 'topology'; message: string; issues: readonly TopologyIssue[] }
@@ -61,7 +86,12 @@ export type ResultsError =
 			/** The API's error code, e.g. 'FLUID_ERROR' (absent when it sent none). */
 			code?: string;
 	  }
-	| { kind: 'network'; message: string };
+	| {
+			kind: 'network';
+			message: string;
+			/** The API's error code, e.g. 'SERVER_BUSY' (absent when it sent none). */
+			code?: string;
+	  };
 
 export interface ResultsState {
 	/**
@@ -94,17 +124,23 @@ export interface ResultsState {
 }
 
 export interface Solver {
-	/** Solve (POST /api/v1/solve); `request.signal` aborts it (cancelled, or no longer wanted). */
+	/**
+	 * Solve (POST /api/v1/solve); `request.signal` aborts it (cancelled, or no longer wanted).
+	 * `request.scenarioId` (only for a scenario) solves that scenario of the project.
+	 */
 	solve(
 		project: Project,
 		options?: Partial<SolveOptions>,
-		request?: { signal?: AbortSignal }
+		request?: { signal?: AbortSignal; scenarioId?: string }
 	): Promise<SolveResponse>;
-	/** System curve of one pump (POST /api/v1/system-curve); absent when not available. */
+	/**
+	 * System curve of one pump (POST /api/v1/system-curve); absent when not available. A
+	 * scenario's curve has `scenarioId`; a curve over a given flow range has flowMin and flowMax.
+	 */
 	systemCurve?(
 		project: Project,
 		pumpId: string,
-		options?: { signal?: AbortSignal }
+		options?: { signal?: AbortSignal; scenarioId?: string; flowMin?: number; flowMax?: number }
 	): Promise<SystemCurveResponse>;
 }
 
@@ -118,6 +154,49 @@ export type SystemCurveState =
 	| { status: 'ready'; curve: SystemCurveResponse }
 	| { status: 'error'; message: string }
 	| { status: 'cancelled'; by: 'solve' | 'user' };
+
+/** A system curve over a given flow range (m³/s): an overlay on another case's chart. */
+export interface FlowRange {
+	flowMin: number;
+	flowMax: number;
+}
+
+/** Where a case's results stand, for the case chips (manager, Compare, the Case menu). */
+export type CaseStatus =
+	| 'solving'
+	| 'waiting'
+	| 'solved'
+	| 'not_converged'
+	| 'stale'
+	| 'failed'
+	| 'cancelled'
+	| 'not_solved'
+	| 'not_reached';
+
+/** A Solve all run in progress: the cases it solves, in order, and the one being solved. */
+export interface SolveRun {
+	cases: readonly CaseId[];
+	/** Index into `cases` of the case being solved. */
+	index: number;
+}
+
+/** How the last Solve all ended, when it did not finish (null: it finished, or none ran). */
+export type RunStop = { reason: 'network'; message: string } | { reason: 'cancelled' } | null;
+
+interface CaseState {
+	results: ResultsState;
+	/** The project exactly as sent for the solve of `results.response`. */
+	solvedProject: Project | null;
+	/** The project exactly as sent for the solve that gave `results.error`. */
+	errorProject: Project | null;
+	/** System curves by pump id (or pump id and flow range), for the solve of `results.response`. */
+	systemCurves: Readonly<Record<string, SystemCurveState>>;
+	/** Staleness keys of the projects `results.response` and `results.error` came from. */
+	responseKey: string | null;
+	errorKey: string | null;
+	/** A Solve all run stopped (after a network error) before it reached this case. */
+	notReached: boolean;
+}
 
 export interface ProjectStoreOptions {
 	/** Writes the app-relative URL ('/p#…'). Default: history.replaceState, keeping its state. */
@@ -143,7 +222,26 @@ const EMPTY_RESULTS: ResultsState = Object.freeze({
 	errorStale: false
 });
 
-function deepFreeze<T>(value: T): T {
+const EMPTY_CASE: CaseState = Object.freeze({
+	results: EMPTY_RESULTS,
+	solvedProject: null,
+	errorProject: null,
+	systemCurves: Object.freeze({}),
+	responseKey: null,
+	errorKey: null,
+	notReached: false
+});
+
+/** The key of a case in the per-case maps: '' for the base (scenario ids are never empty). */
+const slot = (caseId: CaseId) => caseId ?? '';
+const caseOfSlot = (key: string): CaseId => (key === '' ? null : key);
+
+/** The key of a system curve in a case's map: the pump id, with the flow range of an overlay. */
+const curveKey = (pumpId: string, range?: FlowRange) =>
+	range ? `${pumpId}\u0000${range.flowMin}\u0000${range.flowMax}` : pumpId;
+
+/** Freeze `value` and everything in it (stored projects are never mutated). */
+export function deepFreeze<T>(value: T): T {
 	if (value && typeof value === 'object' && !Object.isFrozen(value)) {
 		Object.freeze(value);
 		for (const child of Object.values(value)) deepFreeze(child);
@@ -157,7 +255,8 @@ function defaultWriteUrl(path: string): void {
 	history.replaceState(history.state, '', path);
 }
 
-function structuralProblems(project: unknown): string[] {
+/** Structural problems of a project (schema, then the port graph), as update() checks them. */
+export function structuralProblems(project: unknown): string[] {
 	const schema = schemaProblems(project);
 	return schema.length ? schema : referenceProblems(project as Project);
 }
@@ -196,7 +295,9 @@ function toResultsError(error: unknown): ResultsError {
 			...(error.code ? { code: error.code } : {})
 		};
 	}
-	if (error instanceof NetworkError) return { kind: 'network', message: error.message };
+	if (error instanceof NetworkError) {
+		return { kind: 'network', message: error.message, ...(error.code ? { code: error.code } : {}) };
+	}
 	return {
 		kind: 'network',
 		message: error instanceof Error ? error.message : 'The solve failed unexpectedly.'
@@ -204,10 +305,17 @@ function toResultsError(error: unknown): ResultsError {
 }
 
 export class ProjectStore {
-	/** The current project. Never mutate it: use update(). */
+	/** The current project (the base case and its scenarios). Never mutate it: use update(). */
 	project = $state.raw<Project>(createEmptyProject());
-	/** The latest solve results. */
-	results = $state.raw<ResultsState>(EMPTY_RESULTS);
+	/**
+	 * The case shown and edited (null: the base case). Page state: not in the link and not an
+	 * undo step (setCase()); a link opens on the base case.
+	 */
+	activeCase = $state.raw<CaseId>(null);
+	/** The Solve all run in progress (null: none). */
+	run = $state.raw<SolveRun | null>(null);
+	/** How the last Solve all ended when it did not finish (null: it finished, or none ran). */
+	runStop = $state.raw<RunStop>(null);
 	/** URL-fragment encoding of the project as of the last URL write. */
 	encoded = $state.raw('');
 	/**
@@ -216,28 +324,31 @@ export class ProjectStore {
 	 * one the link was shared with, for the results' method-version notice.
 	 */
 	loadedMethodVersion = $state.raw('');
-	/**
-	 * The project exactly as sent for the solve of `results.response` (null without one): system
-	 * curves are computed for it, never for a newer, edited project.
-	 */
-	solvedProject = $state.raw<Project | null>(null);
-	/** System curves by pump id, for the solve of `results.response` (see systemCurve()). */
-	systemCurves = $state.raw<Readonly<Record<string, SystemCurveState>>>({});
 
+	/** Results, errors, staleness and system curves of each case (slot()). */
+	#cases = $state.raw<Readonly<Record<string, CaseState>>>({});
 	#undo = $state.raw<readonly HistoryEntry[]>([]);
 	#redo = $state.raw<readonly HistoryEntry[]>([]);
 	#mergeable = false;
 	#solveSequence = 0;
-	/** Fingerprints of the projects `results.response` and `results.error` came from. */
-	#responseFingerprint: string | null = null;
-	#errorFingerprint: string | null = null;
 	#timer: ReturnType<typeof setTimeout> | null = null;
 	/** Aborts the solve request in flight (cancelled, superseded, or its results no longer wanted). */
 	#solveRequest: AbortController | null = null;
+	/** The case the solve in flight is for (undefined: none in flight). */
+	#solvingCase = $state.raw<CaseId | undefined>(undefined);
+	/** The Solve all run in progress, to stop it (cancelled or superseded). */
+	#runToken: object | null = null;
+	/** Resolves when the run in progress ends (curve requests wait for it). */
+	#runDone: Promise<void> = Promise.resolve();
+	#endRun: () => void = () => {};
 	/** The system-curve requests in flight or queued, to abort them. */
-	#curveRequests: readonly { pumpId: string; controller: AbortController }[] = [];
+	#curveRequests: readonly { caseKey: string; key: string; controller: AbortController }[] = [];
 	/** The system-curve requests, one after the other. */
 	#curveQueue: Promise<unknown> = Promise.resolve();
+	/** Case projects of solved projects (for the inputs a case was solved with). */
+	#caseInputs = new WeakMap<Project, Record<string, Project>>();
+	/** Called after every load(): page state of the project shown resets (onLoad()). */
+	#loadListeners: (() => void)[] = [];
 	readonly #options: ProjectStoreOptions;
 
 	constructor(project?: Project, options: ProjectStoreOptions = {}) {
@@ -245,9 +356,128 @@ export class ProjectStore {
 		this.load(project ?? createEmptyProject({ now: this.#now() }));
 	}
 
-	/** The latest solved state, if any (check results.stale before relying on it). */
+	/** The latest solve results of the active case. */
+	get results(): ResultsState {
+		return this.#case(this.activeCase).results;
+	}
+
+	/**
+	 * The project exactly as sent for the solve of `results.response` (null without one): system
+	 * curves are computed for it, never for a newer, edited project. For a scenario it is the
+	 * whole project sent (base and scenarios); caseInputs() gives the case as solved.
+	 */
+	get solvedProject(): Project | null {
+		return this.#case(this.activeCase).solvedProject;
+	}
+
+	/** System curves by pump id, for the solve of `results.response` (see systemCurve()). */
+	get systemCurves(): Readonly<Record<string, SystemCurveState>> {
+		return this.#case(this.activeCase).systemCurves;
+	}
+
+	/** The latest solved state of the active case, if any (check results.stale before relying on it). */
 	get solved(): SolvedState | null {
 		return this.results.response?.solvedState ?? null;
+	}
+
+	/**
+	 * The case whose solve is in flight, alone or in a Solve all run (undefined: none). It need not
+	 * be the case shown: a solve goes on after a case switch, and Cancel stops it.
+	 */
+	get solvingCase(): CaseId | undefined {
+		return this.#solvingCase;
+	}
+
+	/** The latest results of a case (the base: null). */
+	resultsFor(caseId: CaseId): ResultsState {
+		return this.#case(caseId).results;
+	}
+
+	/** The project as sent for a case's latest response or error (null: none). */
+	sentProjectFor(caseId: CaseId, which: 'response' | 'error' = 'response'): Project | null {
+		const state = this.#case(caseId);
+		return which === 'response' ? state.solvedProject : state.errorProject;
+	}
+
+	/**
+	 * The case's project as it was solved (a scenario applied to the base sent), for inputs shown
+	 * as entered (an assigned flow). Null without a response.
+	 */
+	caseInputs(caseId: CaseId = this.activeCase): Project | null {
+		const sent = this.#case(caseId).solvedProject;
+		if (!sent || caseId === null) return sent;
+		let byCase = this.#caseInputs.get(sent);
+		if (!byCase) {
+			byCase = {};
+			this.#caseInputs.set(sent, byCase);
+		}
+		byCase[caseId] ??= deepFreeze(applyScenario(sent, caseId).project);
+		return byCase[caseId];
+	}
+
+	/** Every case of the project in order: the base case (null), then the scenarios. */
+	get caseIds(): CaseId[] {
+		return [null, ...scenariosOf(this.project).map((s) => s.id)];
+	}
+
+	/** Where a case's results stand (see CaseStatus). */
+	caseStatus(caseId: CaseId): CaseStatus {
+		const run = this.run;
+		if (run) {
+			const at = run.cases.indexOf(caseId);
+			if (at === run.index && this.#case(caseId).results.solving) return 'solving';
+			if (at > run.index) return 'waiting';
+		}
+		const state = this.#case(caseId);
+		const r = state.results;
+		if (r.solving) return 'solving';
+		if (r.response && !r.stale) {
+			return r.response.success && r.response.solvedState.converged ? 'solved' : 'not_converged';
+		}
+		if (r.error && !r.errorStale) return 'failed';
+		if (state.notReached) return 'not_reached';
+		if (r.response || r.error) return 'stale';
+		if (r.cancelled) return 'cancelled';
+		return 'not_solved';
+	}
+
+	/**
+	 * Whether Solve all solves a case: its results are missing, out of date or cancelled, or its
+	 * last solve failed with a network error. A case with current results, or with a current
+	 * topology or validation error, is skipped: the solver is deterministic.
+	 */
+	needsSolve(caseId: CaseId): boolean {
+		const r = this.#case(caseId).results;
+		if (r.response && !r.stale) return false;
+		if (r.error && r.error.kind !== 'network' && !r.errorStale) return false;
+		return true;
+	}
+
+	/** The cases Solve all would solve now, in order: the base first, then the scenarios. */
+	casesToSolve(): CaseId[] {
+		return this.caseIds.filter((id) => this.needsSolve(id));
+	}
+
+	/**
+	 * The cases whose latest solve of the project as it is failed with their own error (topology,
+	 * validation or fluid), in order: Solve all skips them until their inputs change (needsSolve).
+	 */
+	casesWithErrors(): CaseId[] {
+		return this.caseIds.filter((id) => {
+			const r = this.#case(id).results;
+			return !(r.response && !r.stale) && !!r.error && r.error.kind !== 'network' && !r.errorStale;
+		});
+	}
+
+	/**
+	 * Call `listener` after every load() (another project opened in the page), so that page state
+	 * about the project shown resets as a reload would. Returns a function that removes it.
+	 */
+	onLoad(listener: () => void): () => void {
+		this.#loadListeners = [...this.#loadListeners, listener];
+		return () => {
+			this.#loadListeners = this.#loadListeners.filter((l) => l !== listener);
+		};
 	}
 
 	get canUndo(): boolean {
@@ -307,34 +537,58 @@ export class ProjectStore {
 		return (origin ?? CANONICAL_ORIGIN).replace(/\/+$/, '');
 	}
 
+	#case(caseId: CaseId): CaseState {
+		return this.#cases[slot(caseId)] ?? EMPTY_CASE;
+	}
+
+	#setCase(caseId: CaseId, change: Partial<CaseState>): void {
+		this.#cases = { ...this.#cases, [slot(caseId)]: { ...this.#case(caseId), ...change } };
+	}
+
+	/** The staleness key of a case in `project` (null: the scenario no longer exists). */
+	#key(project: Project, caseId: CaseId, fingerprint = hydraulicFingerprint(project)) {
+		return caseKey(project, caseId, fingerprint);
+	}
+
+	/**
+	 * Show another case (null: the base case). Page state: no undo step, no URL change. An id
+	 * that is not a scenario of the project shows the base case.
+	 */
+	setCase(caseId: CaseId): void {
+		this.activeCase = caseId !== null && findScenario(this.project, caseId) ? caseId : null;
+	}
+
 	/**
 	 * Replace the project and reset undo/redo and results (opening a link, an example or a new
 	 * project). The URL is written only when `writeUrl` is set; a project opened from the URL is
-	 * already there. Throws when the project is not valid.
+	 * already there. It opens on the base case. Throws when the project is not valid.
 	 */
 	load(project: Project, options: { writeUrl?: boolean } = {}): void {
 		const problems = structuralProblems(project);
 		if (problems.length) throw new Error(`Cannot load an invalid project: ${problems[0]}`);
 		this.#cancelSync();
+		this.#stopRun();
 		this.project = deepFreeze(structuredClone(project));
+		this.activeCase = null;
+		this.runStop = null;
 		this.loadedMethodVersion = this.project.methodVersion;
 		this.#undo = [];
 		this.#redo = [];
 		this.#mergeable = false;
 		this.#dropSolve();
-		this.#responseFingerprint = null;
-		this.#errorFingerprint = null;
-		this.results = EMPTY_RESULTS;
-		this.#forgetSystemCurves();
+		this.#abortCurveRequests();
+		this.#cases = {};
 		this.encoded = encodeProject(this.project);
 		if (options.writeUrl) this.#write();
+		for (const listener of this.#loadListeners) listener();
 	}
 
 	/**
 	 * Apply a change. `change` receives a mutable copy of the project and may modify it or
 	 * return a new project (the graph operations in utils/edit.ts return one). The result must
 	 * be valid; otherwise nothing changes and the problems are returned. A change that leaves
-	 * the project as it was adds no undo step.
+	 * the project as it was adds no undo step. Scenario changes follow the pipes the change moves
+	 * (carryChanges), and the result's notes say what happened to them.
 	 *
 	 * With `merge`, a change with the same label as the previous one (and nothing undone in
 	 * between) joins its undo step, so a burst of edits to one field undoes at once.
@@ -346,9 +600,12 @@ export class ProjectStore {
 	): UpdateResult {
 		const current = this.project;
 		const draft = structuredClone(current);
+		const tracker = scenariosOf(current).length ? trackPipes(current, draft) : null;
 		let next: Project;
+		let notes: string[] = [];
 		try {
 			next = change(draft) ?? draft;
+			if (tracker) ({ project: next, notes } = carryChanges(current, tracker, next));
 			if (canonicalJson(next) === canonicalJson(current)) return { ok: true, changed: false };
 		} catch (error) {
 			return { ok: false, problems: [error instanceof Error ? error.message : String(error)] };
@@ -358,62 +615,99 @@ export class ProjectStore {
 		if (problems.length) return { ok: false, problems };
 
 		const previous = this.#undo[this.#undo.length - 1];
-		if (!(options.merge && this.#mergeable && previous?.label === label)) {
-			const undo = [...this.#undo, { project: current, label }];
+		const sameCase = previous?.caseId === this.activeCase;
+		if (!(options.merge && this.#mergeable && previous?.label === label && sameCase)) {
+			const undo = [...this.#undo, { project: current, label, caseId: this.activeCase }];
 			this.#undo = undo.slice(Math.max(0, undo.length - (this.#options.maxHistory ?? MAX_HISTORY)));
 		}
 		this.#redo = [];
 		this.#mergeable = true;
 		this.#replace(next);
-		return { ok: true, changed: true };
+		return notes.length ? { ok: true, changed: true, notes } : { ok: true, changed: true };
 	}
 
-	/** Revert the last change. Returns false when there is nothing to undo. */
+	/**
+	 * Revert the last change, and show the case it was made in (the base case when that scenario
+	 * is not in the restored project). Returns false when there is nothing to undo.
+	 */
 	undo(): boolean {
 		const entry = this.#undo[this.#undo.length - 1];
 		if (!entry) return false;
 		this.#undo = this.#undo.slice(0, -1);
-		this.#redo = [...this.#redo, { project: this.project, label: entry.label }];
+		this.#redo = [
+			...this.#redo,
+			{ project: this.project, label: entry.label, caseId: entry.caseId }
+		];
 		this.#mergeable = false;
 		this.#replace(entry.project);
+		this.setCase(entry.caseId);
 		return true;
 	}
 
-	/** Re-apply the last undone change. Returns false when there is nothing to redo. */
+	/** Re-apply the last undone change, in the case it was made in. False when there is none. */
 	redo(): boolean {
 		const entry = this.#redo[this.#redo.length - 1];
 		if (!entry) return false;
 		this.#redo = this.#redo.slice(0, -1);
-		this.#undo = [...this.#undo, { project: this.project, label: entry.label }];
+		this.#undo = [
+			...this.#undo,
+			{ project: this.project, label: entry.label, caseId: entry.caseId }
+		];
 		this.#mergeable = false;
 		this.#replace(entry.project);
+		this.setCase(entry.caseId);
 		return true;
 	}
 
 	#replace(project: Project): void {
 		this.project = deepFreeze(project);
-		const { stale, errorStale } = this.#staleness(project);
-		if (stale !== this.results.stale || errorStale !== this.results.errorStale) {
-			this.results = { ...this.results, stale, errorStale };
-		}
+		if (this.activeCase !== null && !findScenario(project, this.activeCase)) this.activeCase = null;
+		this.#restale(project);
 		this.#scheduleSync();
 	}
 
 	/**
+	 * Recompute every case's staleness for `project` (one fingerprint for all cases). A scenario
+	 * that is no longer in the project drops its results.
+	 */
+	#restale(project: Project): void {
+		const keys = Object.keys(this.#cases);
+		if (!keys.length) return;
+		const fingerprint = hydraulicFingerprint(project);
+		let cases: Record<string, CaseState> | null = null;
+		for (const key of keys) {
+			const state = this.#cases[key] as CaseState;
+			const caseKey = this.#key(project, caseOfSlot(key), fingerprint);
+			if (caseKey === null) {
+				cases ??= { ...this.#cases };
+				delete cases[key];
+				this.#abortCurveRequests(key);
+				continue;
+			}
+			const { stale, errorStale } = this.#staleness(state, caseKey);
+			if (stale !== state.results.stale || errorStale !== state.results.errorStale) {
+				cases ??= { ...this.#cases };
+				cases[key] = { ...state, results: { ...state.results, stale, errorStale } };
+			}
+		}
+		if (cases) this.#cases = cases;
+	}
+
+	/**
 	 * Whether the results shown (the response, else the error) are for another project, and
-	 * whether the error (if any) is.
+	 * whether the error (if any) is: compared by the case's staleness key `current`.
 	 */
 	#staleness(
-		project: Project,
-		results: ResultsState = this.results
+		state: CaseState,
+		current: string | null,
+		results: ResultsState = state.results
 	): { stale: boolean; errorStale: boolean } {
-		if (this.#responseFingerprint === null && this.#errorFingerprint === null) {
+		if (state.responseKey === null && state.errorKey === null) {
 			return { stale: false, errorStale: false };
 		}
-		const current = hydraulicFingerprint(project);
 		const differs = (from: string | null) => from !== null && current !== from;
-		const errorStale = !!results.error && differs(this.#errorFingerprint);
-		const stale = results.response ? differs(this.#responseFingerprint) : errorStale;
+		const errorStale = !!results.error && differs(state.errorKey);
+		const stale = results.response ? differs(state.responseKey) : errorStale;
 		return { stale, errorStale };
 	}
 
@@ -453,79 +747,194 @@ export class ProjectStore {
 	/** Stop pending work (when the page is destroyed). */
 	dispose(): void {
 		this.#cancelSync();
+		this.#stopRun();
 		this.#dropSolve();
 		this.#abortCurveRequests();
 	}
 
 	/**
-	 * Solve the current project. Results arriving after the project changed are kept but
-	 * marked stale; a newer solve supersedes an older one (whose request is aborted, as it is
-	 * when the project is replaced or the results cleared). A failed solve keeps the previous
-	 * response (it is stale only if the project changed since it was computed). On success the
-	 * project records the method version it was solved with (traceability), without an undo step.
+	 * Solve the active case of the current project (or `caseId`). Results arriving after the
+	 * project changed are kept but marked stale; a newer solve supersedes an older one (whose
+	 * request is aborted, as it is when the project is replaced or the results cleared). A failed
+	 * solve keeps the previous response (it is stale only if the project changed since it was
+	 * computed). On success the project records the method version it was solved with
+	 * (traceability), without an undo step. A scenario's request carries its id; the base's is the
+	 * plain request.
 	 */
-	async solve(options?: Partial<SolveOptions>): Promise<void> {
+	async solve(options?: Partial<SolveOptions>, caseId: CaseId = this.activeCase): Promise<void> {
+		this.#stopRun();
+		await this.#solveCase(caseId, this.project, options, false);
+	}
+
+	/**
+	 * Solve every case whose results are missing or out of date (casesToSolve()), the base first,
+	 * then the scenarios in order, one request at a time, all from the project as it is now. A
+	 * topology, validation or fluid error belongs to its case and the run goes on; a network error
+	 * (no connection, a timeout, 429, 503) stops it, and the cases not reached say so: Solve all
+	 * again resumes with them. cancelSolve() stops the run.
+	 */
+	async solveAll(options?: Partial<SolveOptions>): Promise<void> {
+		if (this.run) return;
 		const project = this.project;
-		const fingerprint = hydraulicFingerprint(project);
+		const cases = this.casesToSolve();
+		if (!cases.length) return;
+		this.#dropSolve();
+		this.#cancelSystemCurves();
+		const token = {};
+		this.#runToken = token;
+		this.#runDone = new Promise((resolve) => (this.#endRun = resolve));
+		this.runStop = null;
+		for (const id of cases) if (this.#case(id).notReached) this.#setCase(id, { notReached: false });
+		this.run = { cases, index: 0 };
+		try {
+			for (const [index, caseId] of cases.entries()) {
+				if (this.#runToken !== token) return;
+				this.run = { cases, index };
+				const outcome = await this.#solveCase(caseId, project, options, true);
+				if (this.#runToken !== token || outcome === 'superseded') return;
+				if (outcome === 'network') {
+					const error = this.#case(caseId).results.error;
+					this.runStop = { reason: 'network', message: error?.message ?? '' };
+					for (const rest of cases.slice(index + 1)) {
+						if (rest === null || findScenario(this.project, rest)) {
+							this.#setCase(rest, { notReached: true });
+						}
+					}
+					return;
+				}
+			}
+		} finally {
+			if (this.#runToken === token) this.#stopRun();
+		}
+	}
+
+	/** End the Solve all run in progress, if any (its request in flight is not touched). */
+	#stopRun(): void {
+		if (!this.#runToken && !this.run) return;
+		this.#runToken = null;
+		this.run = null;
+		this.#endRun();
+	}
+
+	/**
+	 * Solve one case of `project`. Returns how it ended: 'ok' (a response, converged or not),
+	 * 'error' (topology, validation or fluid: the case's own), 'network' (no answer, or one that
+	 * is not about the project) or 'superseded' (cancelled, or another solve started).
+	 */
+	async #solveCase(
+		caseId: CaseId,
+		project: Project,
+		options: Partial<SolveOptions> | undefined,
+		inRun: boolean
+	): Promise<'ok' | 'error' | 'network' | 'superseded'> {
+		const key = this.#key(project, caseId);
+		if (key === null) return 'error';
 		this.#dropSolve();
 		const sequence = this.#solveSequence;
 		const request = new AbortController();
 		this.#solveRequest = request;
-		this.results = { ...this.results, solving: true, cancelled: false };
-		this.#cancelSystemCurves();
+		this.#solvingCase = caseId;
+		const before = this.#case(caseId);
+		this.#setCase(caseId, {
+			results: { ...before.results, solving: true, cancelled: false },
+			notReached: false
+		});
+		if (!inRun) this.#cancelSystemCurves();
 		try {
 			const solver = this.#options.solver ?? defaultClient();
 			// No system curves with the solve (D10): the pump chart fetches its own.
 			const response = await solver.solve(
 				project,
 				{ includeSystemCurve: false, ...options },
-				{ signal: request.signal }
+				caseId === null
+					? { signal: request.signal }
+					: { signal: request.signal, scenarioId: caseId }
 			);
-			if (sequence !== this.#solveSequence) return;
-			this.#responseFingerprint = fingerprint;
-			this.#errorFingerprint = null;
-			const stale = hydraulicFingerprint(this.project) !== fingerprint;
-			this.#forgetSystemCurves();
-			this.solvedProject = project;
-			this.results = {
-				response,
-				stale,
-				solving: false,
-				error: null,
-				cancelled: false,
-				errorStale: false
-			};
+			if (sequence !== this.#solveSequence) return 'superseded';
+			const current = this.#key(this.project, caseId);
+			if (current === null) {
+				this.#dropCase(caseId);
+				return 'ok';
+			}
+			const stale = current !== key;
+			this.#forgetSystemCurves(caseId);
+			this.#setCase(caseId, {
+				responseKey: key,
+				errorKey: null,
+				solvedProject: project,
+				results: {
+					response,
+					stale,
+					solving: false,
+					error: null,
+					cancelled: false,
+					errorStale: false
+				}
+			});
 			if (!stale) this.#recordMethodVersion(response);
+			return 'ok';
 		} catch (error) {
-			if (sequence !== this.#solveSequence) return;
-			this.#errorFingerprint = fingerprint;
+			if (sequence !== this.#solveSequence) return 'superseded';
+			const current = this.#key(this.project, caseId);
+			if (current === null) {
+				this.#dropCase(caseId);
+				return 'error';
+			}
+			const state = { ...this.#case(caseId), errorKey: key, errorProject: project };
 			// The previous response (if any) stays; it is stale only if the project changed since.
-			const failed = { ...this.results, solving: false, error: toResultsError(error) };
-			this.results = { ...failed, ...this.#staleness(this.project, failed) };
+			const failed = { ...state.results, solving: false, error: toResultsError(error) };
+			this.#setCase(caseId, {
+				...state,
+				results: { ...failed, ...this.#staleness(state, current, failed) }
+			});
+			return failed.error.kind === 'network' ? 'network' : 'error';
 		} finally {
-			if (this.#solveRequest === request) this.#solveRequest = null;
+			if (this.#solveRequest === request) {
+				this.#solveRequest = null;
+				this.#solvingCase = undefined;
+			}
 		}
 	}
 
+	#dropCase(caseId: CaseId): void {
+		const cases = { ...this.#cases };
+		delete cases[slot(caseId)];
+		this.#cases = cases;
+	}
+
 	/**
-	 * Cancel the solve in progress (PRD §4.2): its request is aborted, and its answer, if one still
-	 * arrives, is dropped. The response and error shown before it started stay, each current or
-	 * stale as the project's changes since make it, and `results.cancelled` says the latest solve
-	 * gave nothing. System curves it cancelled when it started stay cancelled. Returns false when
-	 * no solve is in progress.
+	 * Cancel the solve in progress (PRD §4.2), or the Solve all run: the request is aborted, and
+	 * its answer, if one still arrives, is dropped. The response and error shown before it started
+	 * stay, each current or stale as the project's changes since make it, and `results.cancelled`
+	 * says the latest solve gave nothing. In a run, cases already solved keep their new results and
+	 * the rest are not solved. System curves it cancelled when it started stay cancelled. Returns
+	 * false when nothing is being solved.
 	 */
 	cancelSolve(): boolean {
-		if (!this.results.solving) return false;
+		const running = !!this.run;
+		if (!running && this.#solvingCase === undefined) return false;
+		if (running) {
+			this.#stopRun();
+			this.runStop = { reason: 'cancelled' };
+		}
 		this.#dropSolve();
-		this.results = { ...this.results, solving: false, cancelled: true };
 		return true;
 	}
 
-	/** Forget the solve in flight, if any: its answer is dropped and its request aborted. */
+	/**
+	 * Forget the solve in flight, if any: its answer is dropped and its request aborted, and its
+	 * case says the solve was cancelled before it finished.
+	 */
 	#dropSolve(): void {
 		this.#solveSequence++;
 		this.#solveRequest?.abort();
 		this.#solveRequest = null;
+		const caseId = this.#solvingCase;
+		this.#solvingCase = undefined;
+		if (caseId === undefined) return;
+		const results = this.#case(caseId).results;
+		if (results.solving)
+			this.#setCase(caseId, { results: { ...results, solving: false, cancelled: true } });
 	}
 
 	#recordMethodVersion(response: SolveResponse): void {
@@ -538,42 +947,65 @@ export class ProjectStore {
 		this.#scheduleSync();
 	}
 
-	/** Forget results and errors (e.g. after the user dismisses an error). */
+	/** Forget the results and errors of every case (e.g. after the user dismisses an error). */
 	clearResults(): void {
+		this.#stopRun();
 		this.#dropSolve();
-		this.#responseFingerprint = null;
-		this.#errorFingerprint = null;
-		this.results = EMPTY_RESULTS;
-		this.#forgetSystemCurves();
+		this.#abortCurveRequests();
+		this.#cases = {};
+		this.runStop = null;
+	}
+
+	/** The case whose latest response is `response`, if any. */
+	#caseOf(response: SolveResponse | null): CaseId | undefined {
+		if (!response) return undefined;
+		for (const [key, state] of Object.entries(this.#cases)) {
+			if (state.results.response === response) return caseOfSlot(key);
+		}
+		return undefined;
 	}
 
 	/**
 	 * The system curve of `pumpId` for the solve `response`, if it has been requested: undefined
-	 * when it has not, or when `response` is not the one whose results are shown (a curve is never
-	 * shown with another solve's results).
+	 * when it has not, or when `response` is not the latest of its case (a curve is never shown
+	 * with another solve's results). `range`: the curve over that flow range (an overlay).
 	 */
-	systemCurve(response: SolveResponse | null, pumpId: string): SystemCurveState | undefined {
-		if (!response || response !== this.results.response) return undefined;
-		return this.systemCurves[pumpId];
+	systemCurve(
+		response: SolveResponse | null,
+		pumpId: string,
+		range?: FlowRange
+	): SystemCurveState | undefined {
+		const caseId = this.#caseOf(response);
+		if (caseId === undefined) return undefined;
+		return this.#case(caseId).systemCurves[curveKey(pumpId, range)];
 	}
 
 	/**
-	 * Compute the system curve of `pumpId` for the solve whose results are shown, from the project
-	 * exactly as solved (POST /api/v1/system-curve), unless it is cached; with `retry`, again after
-	 * a failure or a cancellation. Requests run one at a time; one whose solve is no longer the
-	 * shown one, or that is cancelled, is dropped (or aborted) and never fills the cache.
+	 * Compute the system curve of `pumpId` for the latest solve of a case (default: the active
+	 * one), from the project exactly as solved (POST /api/v1/system-curve, with the scenario's id),
+	 * unless it is cached; with `retry`, again after a failure or a cancellation; with `range`,
+	 * over that flow range (an overlay on another case's chart, on its flow grid). Requests run one
+	 * at a time, after any Solve all run; one whose solve is no longer its case's latest, or that
+	 * is cancelled, is dropped (or aborted) and never fills the cache.
 	 */
-	loadSystemCurve(pumpId: string, options: { retry?: boolean } = {}): void {
-		const response = this.results.response;
-		const project = this.solvedProject;
+	loadSystemCurve(
+		pumpId: string,
+		options: { retry?: boolean; caseId?: CaseId; range?: FlowRange } = {}
+	): void {
+		const caseId = options.caseId === undefined ? this.activeCase : options.caseId;
+		const state = this.#case(caseId);
+		const response = state.results.response;
+		const project = state.solvedProject;
 		if (!response || !project) return;
-		const known = this.systemCurves[pumpId];
+		const key = curveKey(pumpId, options.range);
+		const known = state.systemCurves[key];
 		const again = known?.status === 'error' || known?.status === 'cancelled';
 		if (known && !(options.retry && again)) return;
 		const solver = this.#options.solver ?? defaultClient();
-		const set = (state: SystemCurveState) => {
-			if (this.results.response !== response) return; // another solve's results by now
-			this.systemCurves = { ...this.systemCurves, [pumpId]: state };
+		const set = (next: SystemCurveState) => {
+			const now = this.#case(caseId);
+			if (now.results.response !== response) return; // another solve's results by now
+			this.#setCase(caseId, { systemCurves: { ...now.systemCurves, [key]: next } });
 		};
 		if (!solver.systemCurve) {
 			set({ status: 'error', message: 'System curves are not available from this server.' });
@@ -581,13 +1013,18 @@ export class ProjectStore {
 		}
 		set({ status: 'loading' });
 		const controller = new AbortController();
-		this.#abortCurveRequests(pumpId);
-		this.#curveRequests = [...this.#curveRequests, { pumpId, controller }];
+		this.#abortCurveRequests(slot(caseId), key);
+		this.#curveRequests = [...this.#curveRequests, { caseKey: slot(caseId), key, controller }];
 		const { signal } = controller;
 		const request = async () => {
 			try {
-				if (signal.aborted || this.results.response !== response) return;
-				const curve = await solver.systemCurve!(project, pumpId, { signal });
+				await this.#runDone; // one request at a time: after a Solve all run
+				if (signal.aborted || this.#case(caseId).results.response !== response) return;
+				const curve = await solver.systemCurve!(project, pumpId, {
+					signal,
+					...(caseId === null ? {} : { scenarioId: caseId }),
+					...(options.range ?? {})
+				});
 				if (!signal.aborted) set({ status: 'ready', curve });
 			} catch (error) {
 				if (signal.aborted) return; // cancelled: whoever cancelled it says so
@@ -608,38 +1045,50 @@ export class ProjectStore {
 	 * marked cancelled by the user until it is asked for again (loadSystemCurve with `retry`).
 	 * Other pumps' requests go on.
 	 */
-	cancelSystemCurve(pumpId: string): void {
-		if (this.systemCurves[pumpId]?.status !== 'loading') return;
-		this.#abortCurveRequests(pumpId);
-		this.systemCurves = { ...this.systemCurves, [pumpId]: { status: 'cancelled', by: 'user' } };
+	cancelSystemCurve(pumpId: string, options: { caseId?: CaseId; range?: FlowRange } = {}): void {
+		const caseId = options.caseId === undefined ? this.activeCase : options.caseId;
+		const key = curveKey(pumpId, options.range);
+		const state = this.#case(caseId);
+		if (state.systemCurves[key]?.status !== 'loading') return;
+		this.#abortCurveRequests(slot(caseId), key);
+		this.#setCase(caseId, {
+			systemCurves: { ...state.systemCurves, [key]: { status: 'cancelled', by: 'user' } }
+		});
 	}
 
-	/** Abort system-curve requests; the curves they were computing are marked cancelled. */
+	/** Abort every case's system-curve requests; the curves being computed are marked cancelled. */
 	#cancelSystemCurves(): void {
 		this.#abortCurveRequests();
-		const entries = Object.entries(this.systemCurves);
-		if (entries.some(([, state]) => state.status === 'loading')) {
-			this.systemCurves = Object.fromEntries(
-				entries.map(([id, state]) => [
-					id,
-					state.status === 'loading'
-						? { status: 'cancelled' as const, by: 'solve' as const }
-						: state
-				])
-			);
+		let cases: Record<string, CaseState> | null = null;
+		for (const [key, state] of Object.entries(this.#cases)) {
+			const entries = Object.entries(state.systemCurves);
+			if (!entries.some(([, curve]) => curve.status === 'loading')) continue;
+			cases ??= { ...this.#cases };
+			cases[key] = {
+				...state,
+				systemCurves: Object.fromEntries(
+					entries.map(([id, curve]) => [
+						id,
+						curve.status === 'loading'
+							? { status: 'cancelled' as const, by: 'solve' as const }
+							: curve
+					])
+				)
+			};
 		}
+		if (cases) this.#cases = cases;
 	}
 
-	/** Drop the system curves (their solve is no longer the one shown). */
-	#forgetSystemCurves(): void {
-		this.#abortCurveRequests();
-		this.solvedProject = null;
-		this.systemCurves = {};
+	/** Drop a case's system curves (their solve is no longer the one shown). */
+	#forgetSystemCurves(caseId: CaseId): void {
+		this.#abortCurveRequests(slot(caseId));
+		this.#setCase(caseId, { solvedProject: null, systemCurves: {} });
 	}
 
-	/** Abort the system-curve requests of `pumpId` (default: all of them). */
-	#abortCurveRequests(pumpId?: string): void {
-		const aborted = (r: { pumpId: string }) => pumpId === undefined || r.pumpId === pumpId;
+	/** Abort the system-curve requests of a case (and of one curve of it); default: all of them. */
+	#abortCurveRequests(caseKey?: string, key?: string): void {
+		const aborted = (r: { caseKey: string; key: string }) =>
+			(caseKey === undefined || r.caseKey === caseKey) && (key === undefined || r.key === key);
 		for (const r of this.#curveRequests) if (aborted(r)) r.controller.abort();
 		this.#curveRequests = this.#curveRequests.filter((r) => !aborted(r));
 	}

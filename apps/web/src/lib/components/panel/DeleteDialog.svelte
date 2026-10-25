@@ -35,6 +35,29 @@
 	);
 	let join = $state(true);
 
+	/**
+	 * Scenario changes that the deletion leaves without their element (kept, no longer applied):
+	 * the component's own, and those of its connections unless they are joined (pipe changes then
+	 * follow their pipes into the joined connection).
+	 */
+	const lapsing = $derived.by(() => {
+		const gone = attached.map((c) => c.id);
+		const names: string[] = [];
+		let count = 0;
+		for (const scenario of ws.scenarios) {
+			for (const o of scenario.overrides ?? []) {
+				const hit =
+					(o.kind === 'component' && o.componentId === component.id) ||
+					(o.kind === 'pipe' && !(joinable && join) && gone.includes(o.connectionId));
+				if (hit) {
+					count++;
+					if (!names.includes(scenario.name)) names.push(scenario.name);
+				}
+			}
+		}
+		return { count, names };
+	});
+
 	async function confirm() {
 		if (!ws.remove(component.id, joinable && join)) return;
 		onclose();
@@ -63,6 +86,14 @@
 			<p>
 				Its {attached.length === 1 ? 'connection is' : `${attached.length} connections are`} removed too,
 				and the ports at the other end{attached.length === 1 ? '' : 's'} become free.
+			</p>
+		{/if}
+		{#if lapsing.count}
+			<p>
+				{lapsing.count === 1
+					? '1 scenario change refers'
+					: `${lapsing.count} scenario changes refer`} to it ({lapsing.names.join(', ')}). They are
+				kept but no longer apply; you can remove them in Scenarios.
 			</p>
 		{/if}
 		<p>You can undo this.</p>

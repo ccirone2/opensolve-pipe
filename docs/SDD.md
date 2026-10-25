@@ -271,6 +271,14 @@ The pane shows, top to bottom:
 
 **`MethodsSummary`** shows the solve's methods and assumptions (`trace.methods`): sections with items and references, assumptions, and library versions. It reads well on screen and in print. **Copy as text** gives plain text for a report: a heading, the project, the method version, when it was solved, and whether it converged or is out of date. Without clipboard access the text is shown selected.
 
+**Scenarios** (PRD §3.8, CLAUDE.md D15). A project with scenarios gets a case chip in the pane's header ("Base case" or the scenario's name) and the status line names the case ("Last solve of Winter: converged"). Two tabs switch between the active case's results and **Compare cases** (`CompareView`). Every result names its case:
+
+- **`ScenarioCard`**, at the top of a scenario's results: its name, id and description, the changes the server applied (`SolveResponse.scenario`, with base values, in display units, each linking to its element's trace) and those it ignored with the server's reason; for the base case, one line saying it is the network without scenario changes. Each value's field and unit are those of the project as it was solved (a control valve's setpoint is a pressure or a flow by its type then), so a later base edit never relabels the record shown.
+- Rows of elements the scenario changed say "changed in this scenario", in every table (Pumps and Links included); the trace view has a case chip and a **Changed by this scenario** block from the response, above the server's notes (whose first note states the change; a pipe's change names its pipe, "Pipe 2 length"); the methods summary shows the server's Scenario section first, and its copied text adds "Case: …".
+- A scenario's invalid value (a 400 located at `scenarios.{s}.overrides.{j}`) is shown with the change that set it, with Show and Reset to base; a topology issue on an element a change targets says "Set by this scenario".
+- **`CompareView`**: chosen results of every case, the base first, with each scenario's difference from the base under its value (relative only for flow, velocity, pump head, head loss, power and speed; no tolerance snapping; "Same" only where the values display identically). Each column header gives that case's status and switches to it (the focus goes to its tab); a case that did not converge, was not solved, failed or was not reached by a stopped run shows no values, and values out of date are tinted. The notice above the table counts the cases Solve all would solve, and names apart those whose solve failed with an error of their own to fix first. A row header opens its element's trace in the active case, and says so and does nothing while that case has no results. Default rows come from the stored project's scenarios (pumps, changed elements, assigned flows, the extremes; at most 40), and `CompareRowsDialog` adds, removes and orders rows. A table on a pane at least 28 rem wide, one card per row below (phones). The rows are page state.
+- **`PumpChart`** draws the active case as before and the other solved cases (six cases at most, the active one included) in slate with their own hollow markers and labels: their operating points and their pump curves at another speed by default, their system curves only on request ("Also show the other cases' system curves"), one request at a time with Cancel, over the active curve's flow range, for the cases that are other than the one shown (after a case switch too). Its data table adds the operating points by case.
+
 **Footer** (`SiteFooter`): the disclaimer (GOALS §4.8), the copyright notice, About and privacy, the license (AGPL-3.0-or-later) and the source code, both at the commit the build was made from, and the third-party licenses (TSD §11.1).
 
 Later: design-check warnings (opt-in).
@@ -288,14 +296,15 @@ Later: design-check warnings (opt-in).
 - **Results.** It holds the latest solve response, `stale` (by a hydraulic fingerprint of the project without display units, names, metadata or method version), `solving`, `cancelled` and a typed error: topology, validation or network. A newer solve supersedes an older one. A failed solve keeps the previous response, marked stale only if the project changed. `cancelSolve()` aborts the request in flight (the server stops a solve whose client has gone, D10), drops an answer that still arrives and sets `cancelled` (cleared when a solve starts), keeping the response and error shown before with their staleness; a superseded solve, a load, clearing the results and leaving the page abort the request in flight too.
 - **System curves.** `solvedProject` is the project as sent for the shown response. `loadSystemCurve(pumpId)` fetches a pump's curve for it (one request at a time) into `systemCurves` (loading, ready, error or cancelled per pump, a cancelled one recording whether a solve or the user cancelled it); `systemCurve(response, pumpId)` returns one only for the response whose results are shown. A new response, a load or clearing the results drops them; a solve starting cancels the requests in flight; `cancelSystemCurve(pumpId)` aborts one pump's request, leaving the others queued.
 - **Method version.** After a solve that is current, the project records the solve's `methodVersion` (GOALS §4.3) without an undo step. The version the link was opened with is kept for `MethodVersionNotice`.
+- **Scenarios** (PRD §3.8, CLAUDE.md D15). `project` holds the base case and its scenarios; `activeCase` (null: the base) is the case shown, page state that is neither an undo step nor in the link (a link opens on the base case). Results, errors, staleness, `solvedProject` and system curves are kept per case (`results`, `solvedProject` and `systemCurves` read the active case's; `resultsFor(caseId)` any case's). A case's staleness key is the base's hydraulic fingerprint plus that scenario's canonical overrides (`utils/scenarios.ts` `caseKey`): a base edit makes every case out of date, an edit in a scenario only that scenario, a rename none. A scenario's solve sends the whole project with its `scenarioId`. `solveAll()` solves the cases whose results are missing, out of date, cancelled or failed with a network error, the base first, then the scenarios in order, one request at a time from the project as it was when it started; a topology, validation or fluid error stays with its case and the run goes on, a network error stops it (the cases not reached say so, and Solve all resumes with them), and `cancelSolve()` stops it. A solve goes on after a case switch: `solvingCase` names the case in flight, whichever is shown, so the header keeps its spinner and Cancel ("Cancel solving Winter") and the other Solve buttons wait; `casesWithErrors()` lists the cases Solve all skips for an error of their own. A `load()` tells the workspace (`onLoad`), which resets its page state (the trace open, Compare cases and its rows, the manager, Settings). Each undo entry records the case it was made in, and undo and redo show that case again. A base edit runs through `carryChanges` (`utils/scenarios.ts`): a pipe change follows its pipe object through joins, reversals and insertions (`utils/identity.ts`), a removed pipe takes its changes with it, a deleted element's changes are kept as orphaned, and a valve changed between a pressure valve (PRV, PSV) and an FCV loses its setpoint changes; the result's notes say so. New ids never re-use an id a change targets (`factory.ts` `usedIds`).
 
-**`Workspace`** (`workspace.svelte.ts`) joins the store, the `LibraryStore`, the `NavigatorStore`, the visible pane, notices and the element open in the trace view. It offers the graph-edit actions (TSD §8.1). Results tables are rebuilt only when the solve, the display units or the labels they use (names, kinds, ports, connection ends) change, not on every edit.
+**`Workspace`** (`workspace.svelte.ts`) joins the store, the `LibraryStore`, the `NavigatorStore`, the visible pane, notices and the element open in the trace view. It offers the graph-edit actions (TSD §8.1). Its `project` is the project of the case shown: the base, or the base with the active scenario's changes (`caseProject`), so every form shows and edits that case's values, while names, display units and the navigator read the stored base. In a scenario, `edit()` diffs the edited case against the allow-list (`x-override-fields`): allowed values become the scenario's changes (a value equal to the base's removes its change), names, the project name and description and display units go to the base, and any other difference (topology, a locked value) refuses the whole edit; it is one undo step. Fields are locked by default in a scenario (`ui/field-mode.ts`: read-only and focusable, "Same in every scenario") unless they declare a scenario value (`change`, which draws "Changed", the base value and Reset) or a shared label. Results tables are rebuilt only when the solve, the display units or the labels they use (names, kinds, ports, connection ends) change, not on every edit.
 
 **`LibraryStore`** (`library.svelte.ts`) holds the API's reference data: pipe materials, schedules and sizes and fitting types (`GET /api/v1/library`), built-in fluids and their ranges (`GET /api/v1/fluids`), and the method-version changelog. It loads them once per page. Hydraulic data is never invented in the browser: when the API cannot be reached these stay empty, and the UI offers what needs no data (custom pipes, custom fluids, fittings by id).
 
 **API client** (`api/client.ts`):
 
-- **Endpoints.** `solve` (with `includeSystemCurve: false` unless asked), `systemCurve`, `getLibrary`, `getFluids`, `fluidProperties` (`POST /api/v1/fluids/properties` with a `FluidDefinition`) and `methodVersions` (§5.1).
+- **Endpoints.** `solve` (with `includeSystemCurve: false` unless asked; `scenarioId` in the body for a scenario only, so a base request is the request without scenarios), `systemCurve` (likewise), `getLibrary`, `getFluids`, `fluidProperties` (`POST /api/v1/fluids/properties` with a `FluidDefinition`) and `methodVersions` (§5.1).
 - **Requests.** It sends only what each request needs, with `credentials: 'omit'`, `referrerPolicy: 'no-referrer'` and a 60 s timeout (kept when the caller also passes an abort signal). Project data, the fluid included, travels only in request bodies: no URL carries a project value. Error responses become typed errors: `TopologyError` (422 `TOPOLOGY_ERROR`), `ValidationError` (the other 4xx envelopes: the request is about the project) and `NetworkError` (no answer, a timeout, or a 429 or 5xx, with the server's message when it sent the envelope, e.g. `SERVER_BUSY` while it is still solving a request just cancelled).
 - **No other traffic.** No other network requests are made: no analytics, cookies, web fonts or third-party assets. The pages set `<meta name="referrer" content="no-referrer">`.
 
@@ -307,7 +316,7 @@ Later: sync with the server for accounts and version history.
 
 #### 3.1.5 Sharing
 
-- **Share** (`workspace/ShareButton.svelte`) first writes any pending URL change, then copies the full link (the page's origin + `/p#<encoded>`) to the clipboard. Its dialog shows the link selected for copying by hand when the clipboard is unavailable, the link's length in characters, and a warning when it exceeds 8,000 characters. It also explains that the project is in the part after `#`, which browsers do not send to any server, and that edits make a new link while this one keeps opening this version.
+- **Share** (`workspace/ShareButton.svelte`) first writes any pending URL change, then copies the full link (the page's origin + `/p#<encoded>`) to the clipboard. Its dialog shows the link selected for copying by hand when the clipboard is unavailable, the link's length in characters, and a warning when it exceeds 8,000 characters. It also explains that the project is in the part after `#`, which browsers do not send to any server, and that edits make a new link while this one keeps opening this version. For a project with scenarios it adds that the link holds the base case and its scenarios and opens on the base case (the active case is not in the link), naming the scenario being viewed.
 - **Link errors** (`workspace/LinkErrorView.svelte`): a link that cannot be opened shows why (damaged, newer version, or not a valid project, with the problems listed) and what to do. The options are to go back to the open project if there is one, to start a new project, or to go home.
 
 ### 3.2 Backend Services
@@ -322,19 +331,20 @@ The server is stateless: every request carries the project it needs, and nothing
 
 ```
 POST /api/v1/solve
-  Request: Project (port graph, SI)
-  Response: SolvedState (flows, pressures, operating points)
+  Request: Project (port graph, SI), optional scenario id
+  Response: SolvedState (flows, pressures, operating points), the scenario applied (or null)
 
 POST /api/v1/system-curve
-  Request: Project + pump id + flow range
-  Response: SystemCurve (flow/head pairs: the pump replaced by each fixed flow, §4.10)
+  Request: Project + pump id + flow range, optional scenario id
+  Response: SystemCurve (flow/head pairs: the pump replaced by each fixed flow, §4.10), the
+            scenario applied (or null)
 
 POST /api/v1/goal-seek                  (Later)
   Request: Project + GoalSeekRequest (§4.13), optional scenario id
   Response: GoalSeekResult + SolvedState at the found values
 ```
 
-`/solve` and `/system-curve` take an optional scenario id (Later, §4.12); the server applies that scenario's overrides to the base before building the network, so the solver only ever sees a plain project.
+`/solve` and `/system-curve` take an optional scenario id (`scenarioId`, §4.12); the server applies that scenario's overrides to the base before building the network (`services/scenarios.py`, TSD §5.7), so the solver only ever sees a plain project. A request without one is solved exactly as a project without scenarios. Solving all scenarios is one independent request per case; there is no batch endpoint.
 
 **Implementation:** one Global Gradient Algorithm (Todini–Pilati) solver for every topology — the same core method EPANET uses — implemented in Python with Darcy–Weisbach/Colebrook friction from the `fluids` library. See TSD §5. It adds what EPANET lacks:
 
@@ -416,7 +426,7 @@ interface Project {
   components: Component[];
   connections: PipeConnection[];  // edges of the port graph
   pumpLibrary: PumpCurve[];
-  scenarios?: Scenario[];         // Later (§4.12)
+  scenarios?: Scenario[];         // at most 20, §4.12; omitted when there are none
 }
 
 interface ProjectMetadata {
@@ -797,24 +807,82 @@ The node fixes the flow at its port whatever the pressure there; the pressure is
 
 Solver mapping: TSD §4.8.
 
-### 4.12 Scenario Model (Later)
+### 4.12 Scenario Model
+
+A scenario is a named case of the project: the base project with some of its values overridden (PRD §3.8; CLAUDE.md D15; design: `docs/proposals/scenario-manager.md`).
 
 ```typescript
 interface Scenario {
-  id: string;
-  name: string;
-  description?: string;
-  overrides: Override[];         // applied in order on top of the base project
+  id: string;                    // Identifier, unique among the project's scenarios (own namespace)
+  name: string;                  // 1-100 characters; need not be unique
+  description?: string | null;   // at most 500 characters
+  overrides: Override[];         // at most 30; at most one per value (order never matters)
 }
 
-interface Override {
-  target: { kind: 'component' | 'connection' | 'fluid'; id?: string };
-  field: string;                 // camelCase field name on the target, from an allow-list
-  value: unknown;                // SI, validated as the field's own type
+type Override = ComponentOverride | PipeOverride | ProjectOverride;   // discriminated by `kind`
+
+interface ComponentOverride {
+  kind: 'component';
+  componentId: string;
+  field: 'status' | 'speed' | 'control.setpoint' | 'setpoint' | 'resistance'
+       | 'liquidLevel' | 'surfacePressure' | 'pressure' | 'flow';
+  value: JsonValue;              // SI, checked as the target field's own type when applied
+}
+
+interface PipeOverride {
+  kind: 'pipe';
+  connectionId: string;
+  pipeIndex: number;             // 0-based into piping.pipes, as Fitting.pipeIndex (0-99)
+  field: 'spec' | 'length';
+  value: JsonValue;
+}
+
+interface ProjectOverride {
+  kind: 'project';
+  field: 'fluid' | 'fluid.temperature';
+  value: JsonValue;
 }
 ```
 
-Overrides may change values only, never topology (PRD §3.8). An override whose target no longer exists (the base component was deleted) is kept, reported as orphaned and ignored, so the user can see and remove it.
+- **Addressing: a field allow-list** (TSD §12, decided). `field` is a camelCase dotted path relative to the target, and the fields each target type takes are data in `models/scenarios.py`, published as `x-override-fields` on the `Scenario` schema (§5.1):
+
+| Target | Fields | Value |
+|--------|--------|-------|
+| `Reservoir` | `liquidLevel`, `surfacePressure` | m; Pa(g) |
+| `IdealReferenceNode` | `pressure` | Pa(g) |
+| `AssignedFlow` | `flow` | m³/s, signed (§4.11) |
+| `Pump` | `status`, `speed`, `control.setpoint` | `on`/`off`; a fraction (with flow control, the maximum, above `minSpeed`); m³/s (only on a pump with flow control) |
+| `IsolationValve`, `CheckValve` | `status`, `resistance` | the type's status literal; a `FlowCoefficient` or null (the cited default) |
+| `ControlValve` | `status`, `resistance`, `setpoint` | as above; Pa(g) for a PRV or PSV, m³/s for an FCV |
+| `Plug`, `TeeBranch`, `WyeBranch` | none | |
+| `PipeDefinition` | `spec`, `length` | `{materialId, schedule?, nominalSize?, innerDiameter?, roughness?}`, which replaces all five keys (a spec without `innerDiameter` drops a bore override); m |
+| `Project` | `fluid`, `fluid.temperature` | a whole `FluidDefinition`; K, for a built-in fluid only |
+
+- **Rules on every request** (400, by index only): `kind` and `field` from the lists above, `pipeIndex` and the list lengths within their bounds, no two overrides of one value of one target, no override of a value together with a part of it (`fluid` with `fluid.temperature`), and unique scenario ids. Only the requested scenario's values are checked, when it is applied: a scenario with a bad value never blocks the base or another scenario.
+- **Applied** (TSD §5.7): the base's JSON with each value written at its target and `scenarios` dropped, validated as a project. Its solve is the solve of that project edited by hand, bit for bit.
+- **Ignored, not lost.** An override whose component, connection or pipe is not in the project is `orphaned`; one whose target has no such value (a status on a reservoir, `control.setpoint` on a pump without flow control, `fluid.temperature` on a custom fluid) is `not_applicable`. Both are kept in the scenario, reported in the response and the methods summary, and ignored; neither raises a flag.
+- **Values only.** Overrides never change components, connections, ports or pipe counts (PRD §3.8).
+
+Results (`SolveResponse.scenario`, `SystemCurveResponse.scenario`; null for the base project):
+
+```typescript
+interface ScenarioResult {
+  id: string; name: string; description: string | null;
+  overrides: OverrideResult[];   // every override, in the scenario's order
+}
+
+interface OverrideResult {
+  index: number;                 // 0-based into the scenario's overrides
+  override: Override;            // as given
+  state: 'applied' | 'orphaned' | 'not_applicable';
+  value: JsonValue;              // the value used, as validated, SI (null unless applied)
+  baseValue: JsonValue;          // the base project's value (an unset field gives its default)
+  unit: string;                  // trace unit of value and baseValue ('' for none)
+  message: string;               // why it was not applied ('' when applied)
+}
+```
+
+A scenario solve's methods summary (§4.10) starts with a **Scenario** section (the scenario, how many overrides were applied, each applied one with its base value, each ignored one with the reason), and the trace of each component or connection an applied override changes starts with a note naming the scenario and the change. Trace input sources stay `user` and `default`. `METHOD_VERSION` is unchanged: applying a scenario changes inputs, not calculations.
 
 ### 4.13 Goal Seek Model (Later)
 
@@ -826,8 +894,10 @@ interface GoalSeekRequest {
 }
 
 interface GoalVariable {
-  target: Override['target'];
-  field: string;                 // same allow-list as scenario overrides
+  target: { kind: 'component'; componentId: string }
+        | { kind: 'pipe'; connectionId: string; pipeIndex: number }
+        | { kind: 'project' };   // as a scenario override's target (§4.12)
+  field: string;                 // a numeric field of the scenario allow-list (x-override-fields)
   lower: number;                 // SI bounds
   upper: number;
 }
@@ -864,13 +934,14 @@ All request and response values are SI; JSON is camelCase. The OpenAPI schema (`
 | `x-reducer-types`, `x-entrance-types`, `x-exit-types` | `Fitting` | Fittings between two pipes; fittings for the loss where flow leaves or enters a body of liquid |
 | `x-setpoint-bounds` | `ControlValve` | Setpoint bounds by valve type where they differ from the field's (`fcv`: a flow, 0–100 m³/s) |
 | `x-ordered-fields` | `Pump` | Pairs of fields (dotted camelCase paths, `lower`, `upper`, `strict`) whose values must be ordered, lower < upper when strict, checked when both are present: a speed-controlled pump's `control.minSpeed` < `speed` (CLAUDE.md D11) |
+| `x-override-fields` | `Scenario` | The scenario allow-list (§4.12): by target schema (every component schema, `PipeDefinition`, `Project`), each field a scenario may override, with the schema that holds its value (whose property gives its bounds) and its camelCase `path` from the target, or the `keys` of a group replaced together (a pipe's `spec`) |
 
 The validators enforce exactly what the extensions state (`tests/unit/test_schema_rules.py`), which also fails while the frontend's copy of the schema (`apps/web/src/lib/api/openapi.json`, `pnpm gen:types`) is out of date.
 
 | Method and path | Request | Response |
 |-----------------|---------|----------|
-| `POST /api/v1/solve` | `{project, options: {includeSystemCurve, systemCurvePoints}}` | `SolveResponse {success, solvedState, computeTime}` |
-| `POST /api/v1/system-curve` | `{project, pumpId, flowMin, flowMax?, numPoints}` | `SystemCurveResponse {pumpId, flowRange, points[{flow, head \| null, converged, message}], converged[]}`: the pump replaced by each fixed flow, other pumps running; default flows 0 to 1.2 × the curve's largest flow × s. `converged` is true for a point with a head; a point without one says why in `message` (§4.10). The web app's pump chart uses it for the pump being viewed, with the project as solved (D10) |
+| `POST /api/v1/solve` | `{project, scenarioId?, options: {includeSystemCurve, systemCurvePoints}}` | `SolveResponse {success, solvedState, computeTime, scenario}`; with `scenarioId`, that scenario of the project is solved and `scenario` lists every override with its state, the value used and the base value (§4.12; null for the base project) |
+| `POST /api/v1/system-curve` | `{project, scenarioId?, pumpId, flowMin, flowMax?, numPoints}` | `SystemCurveResponse {pumpId, flowRange, points[{flow, head \| null, converged, message}], converged[], scenario}`, of the scenario when `scenarioId` is given: the pump replaced by each fixed flow, other pumps running; default flows 0 to 1.2 × the curve's largest flow × s. `converged` is true for a point with a head; a point without one says why in `message` (§4.10). The web app's pump chart uses it for the pump being viewed, with the project as solved (D10) |
 | `GET /api/v1/fluids` | — | `FluidListResponse {fluids: FluidInfo[]}`: temperature and concentration ranges queried from CoolProp, glycol `freezingPoints` (the lower temperature bound depends on the concentration), vapor-pressure availability, source, notes |
 | `POST /api/v1/fluids/properties` | `FluidDefinition` (a `BuiltinFluid` with its temperature, concentration and overrides, or a `CustomFluid`) | `FluidPropertiesResponse {fluid (the built-in id, or 'custom'), properties: FluidProperties}`: the properties as the solver will use them. The fluid travels in the body, which is never logged; the web app uses this endpoint |
 | `GET /api/v1/fluids/{id}/properties?temperature=&concentration=` | — | `FluidPropertiesResponse`, for a built-in fluid without overrides. For API users: the server's access log keeps only the path, but the query values (a project's fluid state) travel in the URL, where proxies, CDNs and other intermediaries may log them |
@@ -886,8 +957,10 @@ Solver options that change results (`frictionMethod`, `maxIterations`, `toleranc
 ```yaml
 POST /api/v1/solve
 Request:  { "project": <Project>, "options": { "includeSystemCurve": true, "systemCurvePoints": 41 } }
+          # + "scenarioId": "S2" to solve that scenario of the project (§4.12)
 
-200 OK:   { "success": true, "solvedState": <SolvedState>, "computeTime": 0.012 }
+200 OK:   { "success": true, "solvedState": <SolvedState>, "computeTime": 0.012, "scenario": null }
+          # with scenarioId: "scenario": { "id": "S2", "name": …, "overrides": [ <OverrideResult>, … ] }
           # non-convergence is also 200, with success = false and solvedState.converged = false
 
 422:      { "success": false, "error": "TOPOLOGY_ERROR",
@@ -901,12 +974,13 @@ Every error uses `ErrorResponse {success: false, error, message, issues[]}`:
 
 | Status | `error` | When |
 |--------|---------|------|
-| 400 | `VALIDATION_ERROR` | Request fails the schema, or its body is not readable JSON; one issue per problem with its field path (submitted values are never echoed: no input values, tags or ids in messages, and an unknown key is reported as `(unknown field)`); also an empty system-curve flow range (`EMPTY_FLOW_RANGE`) |
-| 400 | `FLUID_ERROR` | Temperature or concentration outside the property source's range |
-| 404 | `NOT_FOUND` | Unknown pump id for a system curve (checked before the topology); unknown route |
+| 400 | `VALIDATION_ERROR` | Request fails the schema, or its body is not readable JSON; one issue per problem with its field path (submitted values are never echoed: no input values, tags or ids in messages, an unknown key is reported as `(unknown field)`, and a location inside a scenario override's `value`, whose keys are the submitter's, stops at `value`); also an empty system-curve flow range (`EMPTY_FLOW_RANGE`) |
+| 400 | `VALIDATION_ERROR` (scenario) | A value of the requested scenario that its target rejects: one issue per problem, located at `body.project.scenarios.{s}.overrides.{j}.value…` (a rule of a whole component or pipe once, at the override whose value it rejects), with the target in `componentIds` / `connectionIds`, the schema's own message and never the value; a pipe spec with a key outside its five is `invalid_pipe_spec` |
+| 400 | `FLUID_ERROR` | Temperature or concentration outside the property source's range; for a scenario, "Scenario S2: …" |
+| 404 | `NOT_FOUND` | Unknown scenario id ("the project has no scenario 'S9'", checked first); unknown pump id for a system curve (checked after the scenario's values, before the topology); unknown route |
 | 405 | `METHOD_NOT_ALLOWED` | Wrong HTTP method for the route (`Allow` header lists the right one) |
 | 413 | `PAYLOAD_TOO_LARGE` | Body over 1 MB |
-| 422 | `TOPOLOGY_ERROR` | Port graph cannot be solved (§3.2.1); every issue listed |
+| 422 | `TOPOLOGY_ERROR` | Port graph cannot be solved (§3.2.1); every issue listed. For a scenario, the issues of its effective project, with the message "Scenario S2 cannot be solved: N topology issue(s)." (a scenario is named by its id only: its name is a submitted value) |
 | 429 | `RATE_LIMITED` | More than 60 solve or system-curve requests per minute from one client (`Retry-After`) |
 | 500 | `INTERNAL_ERROR` | An unexpected failure (logged by type and route only); carries the CORS headers like every error |
 | 503 | `SERVER_BUSY` / `TIMEOUT` | The solve pool is full, or this client already has a solve running and one waiting (`Retry-After`); the request's 45 s budget ran out (§7.2) |
@@ -1027,7 +1101,7 @@ def resolve_k_factor(fitting: Fitting, inner_diameter: float, re: float) -> floa
 
 - All numeric inputs bounded to physical ranges
 - String inputs sanitized (component names, etc.)
-- Request bodies up to 1 MB (`PAYLOAD_TOO_LARGE` beyond, whether or not the client declares a length). A project has at most 1,000 components and 2,000 connections, which fits in 1 MB at the sizes the frontend writes (about 230–310 bytes per component, 225–275 per connection); a project with long names or many fittings per connection reaches the byte limit sooner, which is then the effective limit.
+- Request bodies up to 1 MB (`PAYLOAD_TOO_LARGE` beyond, whether or not the client declares a length). A project has at most 1,000 components and 2,000 connections, which fits in 1 MB at the sizes the frontend writes (about 230–310 bytes per component, 225–275 per connection); a project with long names or many fittings per connection reaches the byte limit sooner, which is then the effective limit. The largest such project with 20 scenarios of 30 overrides each (a whole fluid and 29 pipe specs, a 100-character name and a 500-character description) still fits (980,353 bytes; `test_project_bounds_fit_the_body_limit`).
 - Decoded URL projects validated against the schema before use
 - Later: file uploads (CSV, Excel) validated
 
@@ -1042,6 +1116,7 @@ def resolve_k_factor(fitting: Fitting, inner_diameter: float, re: float) -> floa
 - v1 stores no project data on the server
 - Projects in links travel in the URL fragment and are never sent to or logged by the server
 - Solve and system-curve requests carry the project in the request body, and the fluid-properties request the fluid definition; request bodies are not logged. The web app puts no project value in a URL (`GET /fluids/{id}/properties` carries one in its query string; it stays for API users, §5.1)
+- A scenario travels in the request body with its project, and its id in the body only; error messages name a scenario by its id, never by its name or values
 - The access log keeps neither the client address nor query strings; uvicorn's trace-level ASGI records (which carry the request scope) are dropped; an unexpected error is logged by exception type and route only (its message can carry project values)
 - Later: stored projects encrypted at rest
 

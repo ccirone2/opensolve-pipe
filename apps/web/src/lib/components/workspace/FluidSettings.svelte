@@ -1,7 +1,9 @@
 <!--
 	The project fluid: a built-in fluid at an operating temperature (and concentration, for
 	glycol solutions), with its calculated properties shown for checking and optional overrides;
-	or a custom fluid with fixed properties (PRD §3.5).
+	or a custom fluid with fixed properties (PRD §3.5). In a scenario the fluid is one scenario
+	value (its temperature alone while only a built-in fluid's temperature differs from the base),
+	noted once at the top; the calculated properties are the case's.
 -->
 <script lang="ts">
 	import type {
@@ -11,6 +13,8 @@
 		FluidOverrides,
 		FluidProperties
 	} from '$lib/api/types';
+	import ChangeNote from '$lib/components/ui/ChangeNote.svelte';
+	import { hasChangeNote } from '$lib/components/ui/field-mode';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
@@ -37,6 +41,11 @@
 	type Choice = BuiltinFluidId | 'custom';
 
 	const fluid = $derived(ws.project.fluid);
+	/** The fluid is a scenario value: one change for the whole fluid (or its temperature). */
+	const change = $derived(ws.fluidChange());
+	const noteId = $props.id();
+	/** The fluid's note, which describes each of its inputs (they show none of their own). */
+	const fluidNote = $derived(hasChangeNote(change) ? `${noteId}-change` : undefined);
 	const choice = $derived<Choice>(fluid.kind === 'custom' ? 'custom' : fluid.fluidId);
 	const info = $derived(fluid.kind === 'builtin' ? lib.fluid(fluid.fluidId) : undefined);
 	/** The library's concentration range in the display unit, e.g. "0 to 60 %". */
@@ -187,7 +196,11 @@
 </script>
 
 <div class="space-y-4">
+	<ChangeNote {change} id="{noteId}-change" />
 	<SelectField
+		{change}
+		changeNote={false}
+		describedby={fluidNote}
 		label="Fluid"
 		value={draft ? 'custom' : choice}
 		options={[
@@ -204,6 +217,7 @@
 				current fluid.
 			</p>
 			<TextField
+				{change}
 				label="Name"
 				value={draft.name}
 				required
@@ -212,6 +226,9 @@
 				}}
 			/>
 			<NumberField
+				{change}
+				changeNote={false}
+				describedby={fluidNote}
 				label="Density"
 				value={draft.density}
 				category="density"
@@ -224,6 +241,9 @@
 				}}
 			/>
 			<NumberField
+				{change}
+				changeNote={false}
+				describedby={fluidNote}
 				label="Dynamic viscosity"
 				value={draft.viscosity}
 				category="viscosity"
@@ -239,6 +259,9 @@
 		</div>
 	{:else if fluid.kind === 'builtin'}
 		<NumberField
+			{change}
+			changeNote={false}
+			describedby={fluidNote}
 			label="Operating temperature"
 			value={fluid.temperature}
 			category="temperature"
@@ -250,6 +273,9 @@
 		/>
 		{#if fluid.fluidId !== 'water'}
 			<NumberField
+				{change}
+				changeNote={false}
+				describedby={fluidNote}
 				label="Glycol concentration"
 				value={fluid.concentration}
 				category="fraction"
@@ -309,6 +335,9 @@
 			</summary>
 			<div class="space-y-3 pt-2">
 				<NumberField
+					{change}
+					changeNote={false}
+					describedby={fluidNote}
 					label="Density override"
 					value={fluid.overrides?.density}
 					category="density"
@@ -319,6 +348,9 @@
 					onchange={(v) => setOverride('density', v)}
 				/>
 				<NumberField
+					{change}
+					changeNote={false}
+					describedby={fluidNote}
 					label="Dynamic viscosity override"
 					value={fluid.overrides?.dynamicViscosity}
 					category="viscosity"
@@ -329,6 +361,9 @@
 					onchange={(v) => setOverride('dynamicViscosity', v)}
 				/>
 				<NumberField
+					{change}
+					changeNote={false}
+					describedby={fluidNote}
 					label="Vapor pressure override"
 					value={fluid.overrides?.vaporPressure}
 					category="pressure"
@@ -343,6 +378,7 @@
 		</details>
 	{:else}
 		<TextField
+			{change}
 			label="Name"
 			value={fluid.name}
 			required
@@ -350,6 +386,9 @@
 			onchange={(v) => !!v && editCustom('rename fluid', (f) => ({ ...f, name: v }))}
 		/>
 		<NumberField
+			{change}
+			changeNote={false}
+			describedby={fluidNote}
 			label="Density"
 			value={fluid.density}
 			category="density"
@@ -358,6 +397,9 @@
 			onchange={(v) => v !== null && editCustom('change density', (f) => ({ ...f, density: v }))}
 		/>
 		<NumberField
+			{change}
+			changeNote={false}
+			describedby={fluidNote}
 			label="Dynamic viscosity"
 			value={fluid.dynamicViscosity}
 			category="viscosity"
@@ -367,6 +409,9 @@
 				v !== null && editCustom('change viscosity', (f) => ({ ...f, dynamicViscosity: v }))}
 		/>
 		<NumberField
+			{change}
+			changeNote={false}
+			describedby={fluidNote}
 			label="Vapor pressure"
 			value={fluid.vaporPressure}
 			category="pressure"
@@ -378,6 +423,9 @@
 			onchange={(v) => setOptional('vaporPressure', v)}
 		/>
 		<NumberField
+			{change}
+			changeNote={false}
+			describedby={fluidNote}
 			label="Temperature"
 			value={fluid.temperature}
 			category="temperature"

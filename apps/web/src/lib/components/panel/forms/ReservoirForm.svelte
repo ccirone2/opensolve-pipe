@@ -15,6 +15,7 @@
 	units={ws.units}
 	bounds={schemaBounds('Reservoir', 'liquidLevel')}
 	hint="Height of the liquid surface above the reservoir's elevation."
+	change={ws.componentChange(component.id, 'liquidLevel')}
 	onchange={(v) =>
 		v !== null &&
 		ws.editComponent<Reservoir>(component.id, 'change liquid level', (c) => {
@@ -29,6 +30,7 @@
 	units={ws.units}
 	bounds={schemaBounds('Reservoir', 'surfacePressure')}
 	hint="Gauge pressure on the liquid surface; 0 means open to the atmosphere."
+	change={ws.componentChange(component.id, 'surfacePressure')}
 	onchange={(v) =>
 		v !== null &&
 		ws.editComponent<Reservoir>(component.id, 'change surface pressure', (c) => {

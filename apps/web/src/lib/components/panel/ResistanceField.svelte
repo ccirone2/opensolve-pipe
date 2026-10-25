@@ -5,6 +5,8 @@
 -->
 <script lang="ts">
 	import type { FlowCoefficient, UnitPreferences } from '$lib/api/types';
+	import ChangeNote from '$lib/components/ui/ChangeNote.svelte';
+	import { hasChangeNote, type FieldChange } from '$lib/components/ui/field-mode';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { schemaBounds } from '$lib/utils/schema-bounds';
@@ -17,9 +19,14 @@
 		defaultLabel: string;
 		units: UnitPreferences;
 		onchange: (value: FlowCoefficient | null) => boolean | void;
+		/** A scenario value: the kind and the number are one change, noted once at the group. */
+		change?: FieldChange | null;
 	}
 
-	let { value, defaultLabel, units, onchange }: Props = $props();
+	let { value, defaultLabel, units, onchange, change = null }: Props = $props();
+	const noteId = $props.id();
+	/** The group's note, which describes the kind and the number (they show none of their own). */
+	const groupNote = $derived(hasChangeNote(change) ? `${noteId}-change` : undefined);
 
 	/**
 	 * A kind picked while no value is stored: kept here, with the field empty, until a number
@@ -56,6 +63,7 @@
 
 <fieldset class="space-y-3 sm:col-span-2">
 	<legend class="label mb-1">Resistance</legend>
+	{#if change}<ChangeNote {change} id="{noteId}-change" />{/if}
 	<SelectField
 		label="Resistance given as"
 		hideLabel
@@ -66,6 +74,9 @@
 			{ value: 'Cv', label: 'Cv (US flow coefficient)' },
 			{ value: 'Kv', label: 'Kv (metric flow coefficient)' }
 		]}
+		{change}
+		changeNote={false}
+		describedby={groupNote}
 		onchange={choose}
 	/>
 	{#if choice !== 'default'}
@@ -77,6 +88,9 @@
 			bounds={schemaBounds('FlowCoefficient', 'value')}
 			hint={HINTS[choice]}
 			warning={value ? null : `Enter ${choice} to use it; until then the default applies.`}
+			{change}
+			changeNote={false}
+			describedby={groupNote}
 			onchange={enter}
 		/>
 	{/if}

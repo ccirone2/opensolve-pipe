@@ -4,3 +4,4 @@ pnpm-lock.yaml
 /.svelte-kit/
 src/lib/api/schema.d.ts
 src/lib/api/openapi.json
+src/lib/utils/__fixtures__/scenario-cases.json

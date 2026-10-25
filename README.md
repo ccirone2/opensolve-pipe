@@ -155,4 +155,12 @@ OpenSolve Pipe is an engineering aid. Its results support, but do not replace, t
 
 ## License
 
+Copyright © 2026 Chris Cirone
+
 [GNU Affero General Public License v3.0 or later](LICENSE) (`AGPL-3.0-or-later`). You may use, study, modify and share the code; if you run a modified version as a network service, you must offer its users the corresponding source code.
+
+> This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+>
+> This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+
+The web app shows the copyright notice, links to the source of the exact commit it was built from, and serves the licenses of the open source packages bundled into it at `/third-party-licenses.txt` (TSD §11.1).

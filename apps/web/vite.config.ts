@@ -2,9 +2,10 @@ import tailwindcss from '@tailwindcss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { defineConfig } from 'vitest/config';
+import { thirdPartyLicenses } from './src/plugins/third-party-licenses.js';
 
 export default defineConfig({
-	plugins: [tailwindcss(), sveltekit()],
+	plugins: [tailwindcss(), sveltekit(), thirdPartyLicenses()],
 	test: {
 		expect: { requireAssertions: true },
 		projects: [

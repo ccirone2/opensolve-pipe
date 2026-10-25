@@ -197,6 +197,8 @@ pnpm dev                                   # http://localhost:5173
 pnpm test && pnpm check && pnpm lint
 ```
 
+**Web-only changes go on a `web/<topic>` branch** (owner, 2026-10-25). Cloudflare Pages builds a preview of every `web/*` branch, and of no other branch, at `https://<branch>.opensolve-pipe.pages.dev`: the branch name lowercased, with every other character a hyphen (`web/quick-ux-fixes` → `https://web-quick-ux-fixes.opensolve-pipe.pages.dev`). Each commit also gets `https://<hash>.opensolve-pipe.pages.dev`, and the Pages bot posts both links on the PR. Give the user the branch link when the PR is up. Previews call the deployed API, which allows their origins through `CORS_ORIGIN_REGEX` (TSD §11.3). So a change that also touches the API goes on another branch: its preview would run against the API as deployed, not the branch's.
+
 ---
 
 ## Conventions

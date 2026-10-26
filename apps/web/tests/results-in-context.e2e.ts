@@ -18,7 +18,7 @@ async function stripValue(strip: Locator, label: string): Promise<string> {
 	return (await item.locator('dd').innerText()).trim();
 }
 
-const strips = (page: Page) => buildPane(page).getByRole('region', { name: /^Last solve/ });
+const strips = (page: Page) => buildPane(page).getByRole('group', { name: /^Last solve/ });
 
 async function tableValue(page: Page, view: string, row: string, column: string) {
 	await showPane(page, 'Results');

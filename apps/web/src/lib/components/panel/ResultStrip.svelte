@@ -9,6 +9,8 @@
 	Nothing is shown before a first solve, or after a solve of the current project that failed (the
 	Results pane has the error). After edits the values stay, marked out of date. A solve that did
 	not converge has no values here, only that statement: its numbers are not a solution.
+
+	A labelled group ("Last solve: <element>"), not a region: two per panel would add landmarks.
 -->
 <script lang="ts">
 	import FlagIcon from '$lib/components/results/FlagIcon.svelte';
@@ -45,7 +47,8 @@
 </script>
 
 {#if solved && !failedNow}
-	<section
+	<div
+		role="group"
 		aria-labelledby="{id}-title"
 		class={[
 			'rounded-md border px-3 py-1 text-sm',
@@ -112,5 +115,5 @@
 				</ul>
 			{/if}
 		{/if}
-	</section>
+	</div>
 {/if}

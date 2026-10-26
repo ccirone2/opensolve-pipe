@@ -15,7 +15,7 @@ import { pumpTransferExample } from '$lib/utils/examples';
 import { updateComponent } from '$lib/utils/edit';
 
 const build = () => within(screen.getByRole('region', { name: 'Build' }));
-const strips = () => build().queryAllByRole('region', { name: /^Last solve/ });
+const strips = () => build().queryAllByRole('group', { name: /^Last solve/ });
 
 /** "Label (unit): value" of each value shown, with the label's no-break space as a space. */
 function values(strip: HTMLElement): string[] {

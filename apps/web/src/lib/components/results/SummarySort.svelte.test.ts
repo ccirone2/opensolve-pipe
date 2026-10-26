@@ -77,6 +77,28 @@ describe('the Summary answers first', () => {
 		expect(columnHeading(/^Pressure/)).toHaveAttribute('aria-sort', 'descending');
 		expect(rowNames()[0]).toBe('Transfer pump');
 	});
+
+	it('names the fastest connection as the Links row it opens, after a reversal since the solve', async () => {
+		const ws = await solveWith(pumpTransferSolved());
+		const fastest = () =>
+			within(results().getByRole('region', { name: 'Extremes' }))
+				.getByText('Highest velocity')
+				.closest('div')!;
+		expect(fastest()).toHaveTextContent('Transfer pump → Discharge isolation valve');
+		ws.store.update((p) => {
+			const c = p.connections.find((x) => x.id === 'L2')!;
+			[c.fromComponentId, c.toComponentId] = [c.toComponentId, c.fromComponentId];
+			[c.fromPortId, c.toPortId] = [c.toPortId, c.fromPortId];
+		}, 'Reverse');
+		await tick();
+		// Out of date, the results are named by the ends they were solved with, as Links names
+		// them, so the name and the row it opens agree (and the flow's sign refers to those ends).
+		expect(ws.store.results.stale).toBe(true);
+		expect(fastest()).toHaveTextContent('Transfer pump → Discharge isolation valve');
+		await fireEvent.click(results().getByRole('button', { name: 'Links, highest first' }));
+		await tick();
+		expect(rowNames()[0]).toBe('Transfer pump → Discharge isolation valve');
+	});
 });
 
 describe('results tables sort and filter', () => {

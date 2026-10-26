@@ -20,6 +20,7 @@
 		highestPressureNode,
 		lowestPressureNode,
 		pumpStatusLabel,
+		resultsProject,
 		smallestNpshMargin,
 		type ElementRef,
 		type ResultsView,
@@ -187,7 +188,7 @@
 							<span class="tabular-nums">{f.value(fastest.velocity, 'velocity')}</span>
 							{@render link(
 								{ kind: 'connection', id: fastest.id },
-								connectionName(ws.project, fastest.id)
+								connectionName(resultsProject(ws.labelsProject, solved), fastest.id)
 							)}
 							{@render sorted('links', 'velocity', 'descending', 'Links, highest first')}
 						</dd>

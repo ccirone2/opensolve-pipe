@@ -769,6 +769,27 @@
         "title": "CustomFluid",
         "type": "object"
       },
+      "EfficiencyCurvePoint": {
+        "additionalProperties": false,
+        "properties": {
+          "efficiency": {
+            "description": "Pump efficiency, fraction 0-1",
+            "title": "Efficiency",
+            "type": "number"
+          },
+          "flow": {
+            "description": "m³/s",
+            "title": "Flow",
+            "type": "number"
+          }
+        },
+        "required": [
+          "flow",
+          "efficiency"
+        ],
+        "title": "EfficiencyCurvePoint",
+        "type": "object"
+      },
       "ElementTrace": {
         "additionalProperties": false,
         "description": "How one element's result was obtained (GOALS §4.2).",
@@ -3202,6 +3223,27 @@
         "title": "NodeResult",
         "type": "object"
       },
+      "NpshrCurvePoint": {
+        "additionalProperties": false,
+        "properties": {
+          "flow": {
+            "description": "m³/s",
+            "title": "Flow",
+            "type": "number"
+          },
+          "npshr": {
+            "description": "NPSH required, m",
+            "title": "Npshr",
+            "type": "number"
+          }
+        },
+        "required": [
+          "flow",
+          "npshr"
+        ],
+        "title": "NpshrCurvePoint",
+        "type": "object"
+      },
       "OverrideResult": {
         "additionalProperties": false,
         "description": "How one override of a solved scenario was used.",
@@ -3766,6 +3808,27 @@
         ],
         "title": "PortDirection",
         "type": "string"
+      },
+      "PowerCurvePoint": {
+        "additionalProperties": false,
+        "properties": {
+          "flow": {
+            "description": "m³/s",
+            "title": "Flow",
+            "type": "number"
+          },
+          "shaftPower": {
+            "description": "ρgQH/η, W",
+            "title": "Shaftpower",
+            "type": "number"
+          }
+        },
+        "required": [
+          "flow",
+          "shaftPower"
+        ],
+        "title": "PowerCurvePoint",
+        "type": "object"
       },
       "Project": {
         "additionalProperties": false,
@@ -4377,6 +4440,21 @@
             "description": "Fraction, if a curve is given",
             "title": "Efficiency"
           },
+          "efficiencyCurve": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/EfficiencyCurvePoint"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "η(Q) = η₀(Q/s) at the operating speed, sampled at 41 flows over the efficiency curve's points × s (inside its data only); null without an efficiency curve",
+            "title": "Efficiencycurve"
+          },
           "hydraulicPower": {
             "description": "ρgQH, W",
             "title": "Hydraulicpower",
@@ -4423,6 +4501,21 @@
             "description": "m, if a curve is given",
             "title": "Npshrequired"
           },
+          "npshrCurve": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/NpshrCurvePoint"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "NPSHr(Q) = s² NPSHr₀(Q/s) at the operating speed, sampled at 41 flows over the NPSHr curve's points × s (inside its data only); null without an NPSHr curve",
+            "title": "Npshrcurve"
+          },
           "operatingFlow": {
             "description": "m³/s",
             "title": "Operatingflow",
@@ -4432,6 +4525,21 @@
             "description": "Total dynamic head, EGL rise, m",
             "title": "Operatinghead",
             "type": "number"
+          },
+          "powerCurve": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PowerCurvePoint"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Shaft power ρgQ H(Q)/η(Q) at the operating speed, sampled at 41 flows where both the head and the efficiency curves' points reach (× s); null without an efficiency curve or where the two ranges do not overlap",
+            "title": "Powercurve"
           },
           "shaftPower": {
             "anyOf": [
@@ -4502,6 +4610,9 @@
           "npshMargin",
           "suctionAbsolutePressure",
           "curve",
+          "efficiencyCurve",
+          "npshrCurve",
+          "powerCurve",
           "systemCurve"
         ],
         "title": "PumpResult",
@@ -5405,6 +5516,18 @@
             "title": "Message",
             "type": "string"
           },
+          "npshAvailable": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "NPSHa at the pump's suction at this flow, m: (EGL_s - z_s) + (p_atm - p_vap)/(ρg), as the solve's npshAvailable; null when the point has no head, the fluid has no vapor pressure, or the suction's pressure level is undetermined",
+            "title": "Npshavailable"
+          },
           "openHead": {
             "anyOf": [
               {
@@ -5488,6 +5611,7 @@
           "head",
           "converged",
           "message",
+          "npshAvailable",
           "reason",
           "componentIds",
           "assignedFlowNodeIds",

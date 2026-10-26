@@ -38,7 +38,7 @@ so a negative absolute pressure is always flagged.
 
 import math
 from collections import defaultdict, deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -61,11 +61,14 @@ from ...models.results import (
     BranchResult,
     ConvergenceReport,
     CurvePoint,
+    EfficiencyCurvePoint,
     EquipmentResult,
     FittingResult,
     Flag,
     LinkResult,
     NodeResult,
+    NpshrCurvePoint,
+    PowerCurvePoint,
     PumpControlResult,
     PumpResult,
     ResidualLocation,
@@ -173,6 +176,13 @@ def _below_vapor_pressure(p_abs: float, p_vap: float | None) -> bool:
 
 def _vapor_pressure_detail(p_vap: float | None) -> float | str:
     return p_vap if p_vap is not None else "not given"
+
+
+def _points[P](
+    samples: list[tuple[float, float]] | None, point: Callable[[float, float], P]
+) -> list[P] | None:
+    """A sampled curve as output points (None stays None)."""
+    return None if samples is None else [point(f, v) for f, v in samples]
 
 
 def _timestamp() -> str:
@@ -855,6 +865,18 @@ class _Mapper:
             )
             + self.p_atm,
             curve=[CurvePoint(flow=f, head=h) for f, h in curve.sample(s, CURVE_SAMPLES)],
+            efficiency_curve=_points(
+                curve.sample_efficiency(s, CURVE_SAMPLES),
+                lambda f, v: EfficiencyCurvePoint(flow=f, efficiency=v),
+            ),
+            npshr_curve=_points(
+                curve.sample_npsh_required(s, CURVE_SAMPLES),
+                lambda f, v: NpshrCurvePoint(flow=f, npshr=v),
+            ),
+            power_curve=_points(
+                curve.sample_shaft_power(s, self.rho, self.g, CURVE_SAMPLES),
+                lambda f, v: PowerCurvePoint(flow=f, shaft_power=v),
+            ),
             system_curve=None,
         )
 

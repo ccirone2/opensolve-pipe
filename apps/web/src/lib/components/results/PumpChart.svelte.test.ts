@@ -22,7 +22,7 @@ interface Recorded {
 	options: { scales: { x: { title: { text: string } }; y: { title: { text: string } } } };
 }
 
-const charts = vi.hoisted(() => [] as { config: unknown; destroyed: boolean }[]);
+const charts = vi.hoisted(() => [] as { config: unknown; destroyed: boolean; draws?: number }[]);
 /** The chart image's requests (the image code itself is tested in chart-image.test.ts). */
 const images = vi.hoisted(() => ({ requests: [] as unknown[] }));
 
@@ -31,13 +31,17 @@ vi.mock('./chart-setup', async () => ({
 	pumpChartConfig: (await import('$lib/utils/pump-chart-config')).pumpChartConfig,
 	Chart: class {
 		static defaults = { plugins: { legend: { labels: { generateLabels: () => [] } } } };
-		record: { config: unknown; destroyed: boolean };
+		record: { config: unknown; destroyed: boolean; draws?: number };
 		constructor(_context: unknown, config: unknown) {
 			this.record = { config, destroyed: false };
 			charts.push(this.record);
 		}
 		destroy() {
 			this.record.destroyed = true;
+		}
+		/** Redrawn when the readout's flow moves. */
+		draw() {
+			this.record.draws = (this.record.draws ?? 0) + 1;
 		}
 	},
 	downloadChartImage: async (_chart: unknown, request: unknown) =>
@@ -676,5 +680,75 @@ describe('pump chart', () => {
 				'Download image of the pump and system curves: Transfer pump, Base case'
 			);
 		});
+	});
+});
+
+describe('pump chart panels (proposal pump-chart.md §4)', () => {
+	afterEach(() => localStorage.clear());
+
+	const rich = () =>
+		pumpResult({
+			efficiencyCurve: [
+				{ flow: 0.005, efficiency: 0.4 },
+				{ flow: 0.03, efficiency: 0.65 }
+			],
+			powerCurve: [
+				{ flow: 0.005, shaftPower: 3500 },
+				{ flow: 0.03, shaftPower: 5500 }
+			],
+			npshrCurve: [
+				{ flow: 0.005, npshr: 1 },
+				{ flow: 0.03, npshr: 6 }
+			]
+		});
+	const axes = (n: number) =>
+		Object.keys((charts[n]!.config as { options: { scales: object } }).options.scales);
+
+	it('shows a chip per panel with data, hides one on press, and remembers it', async () => {
+		withCanvas();
+		const view = render(PumpChart, { result: rich(), name: 'Transfer pump', prefs: SI_UNITS });
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		expect(axes(0)).toEqual(['x', 'yNpsh', 'yPower', 'yEfficiency', 'y']);
+		const panels = screen.getByRole('group', { name: 'Panels' });
+		const power = within(panels).getByRole('button', { name: 'Shaft power' });
+		expect(
+			within(panels)
+				.getAllByRole('button')
+				.map((b) => b.textContent)
+		).toEqual(['Efficiency', 'Shaft power', 'NPSH']);
+		expect(power).toHaveAttribute('aria-pressed', 'true');
+		await fireEvent.click(power);
+		expect(power).toHaveAttribute('aria-pressed', 'false');
+		await vi.waitFor(() => expect(charts).toHaveLength(2));
+		expect(axes(1)).toEqual(['x', 'yNpsh', 'yEfficiency', 'y']);
+		expect(screen.getByRole('img').getAttribute('aria-label')).toContain(
+			'below, on the same flow axis: efficiency, npsh'
+		);
+		view.unmount();
+		render(PumpChart, { result: rich(), name: 'Transfer pump', prefs: SI_UNITS });
+		expect(screen.getByRole('button', { name: 'Shaft power' })).toHaveAttribute(
+			'aria-pressed',
+			'false'
+		);
+	});
+
+	it('reads every line shown at the duty, and at the slider’s flow', async () => {
+		withCanvas();
+		render(PumpChart, { result: rich(), name: 'Transfer pump', prefs: SI_UNITS });
+		await vi.waitFor(() => expect(charts).toHaveLength(1));
+		const slider = screen.getByRole('slider', { name: 'Read at flow' });
+		const line = () => slider.closest('div.space-y-1')!.querySelector('p')!.textContent!;
+		expect(line().replace(/\s+/g, ' ')).toContain('At the duty 20 L/s: Pump head 22 m');
+		await fireEvent.input(slider, { target: { value: '10' } });
+		const text = line().replace(/\s+/g, ' ');
+		expect(text).toContain('At 10 L/s: Pump head 28 m');
+		expect(text).toContain('Pump head 28 m, Efficiency 45 %');
+		expect(text).toContain('NPSHr 2 m');
+		expect(slider.getAttribute('aria-valuetext')).toContain(
+			'10 L/s: Pump head 28 m, Efficiency 45 %'
+		);
+		expect(charts[0]!.draws).toBeGreaterThan(0);
+		await fireEvent.click(screen.getByRole('button', { name: 'Back to the duty' }));
+		expect(line()).toContain('At the duty');
 	});
 });

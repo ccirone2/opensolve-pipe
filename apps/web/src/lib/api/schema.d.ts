@@ -663,6 +663,19 @@ export interface components {
              */
             vaporPressure?: number | null;
         };
+        /** EfficiencyCurvePoint */
+        EfficiencyCurvePoint: {
+            /**
+             * Efficiency
+             * @description Pump efficiency, fraction 0-1
+             */
+            efficiency: number;
+            /**
+             * Flow
+             * @description m³/s
+             */
+            flow: number;
+        };
         /**
          * ElementTrace
          * @description How one element's result was obtained (GOALS §4.2).
@@ -1577,6 +1590,19 @@ export interface components {
              */
             velocity: number;
         };
+        /** NpshrCurvePoint */
+        NpshrCurvePoint: {
+            /**
+             * Flow
+             * @description m³/s
+             */
+            flow: number;
+            /**
+             * Npshr
+             * @description NPSH required, m
+             */
+            npshr: number;
+        };
         /**
          * OverrideResult
          * @description How one override of a solved scenario was used.
@@ -1870,6 +1896,19 @@ export interface components {
          * @enum {string}
          */
         PortDirection: "inlet" | "outlet" | "bidirectional";
+        /** PowerCurvePoint */
+        PowerCurvePoint: {
+            /**
+             * Flow
+             * @description m³/s
+             */
+            flow: number;
+            /**
+             * Shaftpower
+             * @description ρgQH/η, W
+             */
+            shaftPower: number;
+        };
         /**
          * Project
          * @description A complete project. Results are not part of it; they are recomputed by solving.
@@ -2134,6 +2173,11 @@ export interface components {
              */
             efficiency: number | null;
             /**
+             * Efficiencycurve
+             * @description η(Q) = η₀(Q/s) at the operating speed, sampled at 41 flows over the efficiency curve's points × s (inside its data only); null without an efficiency curve
+             */
+            efficiencyCurve: components["schemas"]["EfficiencyCurvePoint"][] | null;
+            /**
              * Hydraulicpower
              * @description ρgQH, W
              */
@@ -2159,6 +2203,11 @@ export interface components {
              */
             npshRequired: number | null;
             /**
+             * Npshrcurve
+             * @description NPSHr(Q) = s² NPSHr₀(Q/s) at the operating speed, sampled at 41 flows over the NPSHr curve's points × s (inside its data only); null without an NPSHr curve
+             */
+            npshrCurve: components["schemas"]["NpshrCurvePoint"][] | null;
+            /**
              * Operatingflow
              * @description m³/s
              */
@@ -2168,6 +2217,11 @@ export interface components {
              * @description Total dynamic head, EGL rise, m
              */
             operatingHead: number;
+            /**
+             * Powercurve
+             * @description Shaft power ρgQ H(Q)/η(Q) at the operating speed, sampled at 41 flows where both the head and the efficiency curves' points reach (× s); null without an efficiency curve or where the two ranges do not overlap
+             */
+            powerCurve: components["schemas"]["PowerCurvePoint"][] | null;
             /**
              * Shaftpower
              * @description W, if efficiency is known
@@ -2585,6 +2639,11 @@ export interface components {
              * @description Why the point has no head ('' when it has one)
              */
             message: string;
+            /**
+             * Npshavailable
+             * @description NPSHa at the pump's suction at this flow, m: (EGL_s - z_s) + (p_atm - p_vap)/(ρg), as the solve's npshAvailable; null when the point has no head, the fluid has no vapor pressure, or the suction's pressure level is undetermined
+             */
+            npshAvailable: number | null;
             /**
              * Openhead
              * @description m. valve_at_switch: the head across the pump with the valve fully open, the bound of the heads the throttled valve could hold; null otherwise

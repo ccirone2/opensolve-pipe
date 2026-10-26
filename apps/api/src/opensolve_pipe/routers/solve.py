@@ -106,6 +106,7 @@ def _point(p: SystemCurvePointResult) -> SystemCurvePoint:
         head=p.head,
         converged=p.converged,
         message=p.message,
+        npsh_available=p.npsh_available,
         reason=None if r is None else r.code,
         component_ids=[] if r is None else list(r.component_ids),
         assigned_flow_node_ids=[] if r is None else list(r.assigned_flow_node_ids),

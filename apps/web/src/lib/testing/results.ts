@@ -97,6 +97,9 @@ export function pumpResult(values: Partial<PumpResult> = {}): PumpResult {
 			{ flow: 0.02, head: 22 },
 			{ flow: 0.03, head: 12 }
 		],
+		efficiencyCurve: null,
+		npshrCurve: null,
+		powerCurve: null,
 		// The app solves without system curves (D10); see systemCurveResponse().
 		systemCurve: null,
 		...values
@@ -116,6 +119,7 @@ export function systemCurvePoint(
 		head: null,
 		converged: false,
 		message: '',
+		npshAvailable: null,
 		reason: null,
 		componentIds: [],
 		assignedFlowNodeIds: [],

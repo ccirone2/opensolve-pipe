@@ -1,6 +1,11 @@
 <!--
 	Pump chart (design §5): the pump curve at the operating speed (solid inside its data, dashed
-	where extrapolated), the system curve and the operating point, with axes in display units. For
+	where extrapolated), the system curve and the operating point, with axes in display units.
+	Below the head, on the same flow axis, the panels the pump has data for (proposal
+	pump-chart.md §4): efficiency, shaft power, and NPSHr against NPSHa along the system curve,
+	each with its duty value and a vertical line at the duty through them all. Chips show or hide
+	them (remembered in this browser), and a slider (or the pointer over the chart) reads every
+	line shown at one flow. For
 	a speed-controlled pump (CLAUDE.md D11) the operating speed is the one it was solved to run at,
 	and the labels say so.
 	The system curve is computed on demand for the same solve (D10): while it is computed (with
@@ -26,15 +31,24 @@
 	import type { ChartImageSource } from '$lib/utils/export/chart-image';
 	import { DISCLAIMER } from '$lib/components/links';
 	import { STALE_CHUNK_MESSAGE } from '$lib/utils/export/load';
+	import type { Chart as ChartInstance } from 'chart.js';
 	import {
+		chartHeightRem,
 		chartNotes,
+		chartReadout,
+		loadHiddenPanels,
 		MARKER_SYMBOLS,
 		MAX_CHART_CASES,
 		otherCasesData,
+		PANEL_LABELS,
 		pumpChartData,
+		pumpLine,
+		saveHiddenPanels,
 		type OtherCaseInput,
+		type PanelKey,
 		type SystemCurveNames
 	} from '$lib/utils/pump-chart';
+	import { mediaQuery } from '$lib/utils/media.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import IssueDetail from './IssueDetail.svelte';
 	import { formatNumber } from '$lib/utils/units';
@@ -132,6 +146,49 @@
 		pumpChartData(result, prefs, low !== null && high !== null ? [low, high] : null, curve, names)
 	);
 	const loading = $derived(system?.status === 'loading');
+
+	/** The panels the user hid (this browser), and those shown: the head and the rest with data. */
+	let hidden = $state<PanelKey[]>(loadHiddenPanels());
+	const shown = $derived(data.panels.filter((p) => !hidden.includes(p)));
+	const lowerPanels = $derived(data.panels.filter((p) => p !== 'head'));
+	function togglePanel(panel: PanelKey) {
+		hidden = hidden.includes(panel) ? hidden.filter((p) => p !== panel) : [...hidden, panel];
+		saveHiddenPanels(hidden);
+	}
+	const phone = mediaQuery('(max-width: 639px)');
+	const heightRem = $derived(chartHeightRem(shown, phone.current));
+
+	/** The flow the readout reads (display unit): the slider's or the pointer's, else the duty. */
+	let cursor = $state<number | null>(null);
+	const readAt = $derived(cursor ?? data.operating?.x ?? null);
+	const readout = $derived(readAt === null ? [] : chartReadout(data, shown, readAt));
+	const xMax = $derived(
+		Math.max(
+			0,
+			...pumpLine(data).map((p) => p.x),
+			...(data.system ?? []).map((p) => p.x),
+			data.operating?.x ?? 0
+		)
+	);
+	const readoutText = $derived(
+		readout.map((r) => `${r.label} ${fmt(r.value)} ${r.unit}`).join(', ')
+	);
+	/** The chart drawn on screen (not reactive): the cursor redraws it, the pointer reads it. */
+	let drawnChart: ChartInstance<'line'> | null = null;
+	let cursorNow: number | null = null;
+	$effect(() => {
+		cursorNow = cursor;
+		drawnChart?.draw();
+	});
+	function pointerRead(event: PointerEvent) {
+		const chart = drawnChart;
+		const scale = chart?.scales.x;
+		if (!chart || !scale) return;
+		const { left, right } = chart.chartArea;
+		if (event.offsetX < left || event.offsetX > right) return;
+		const flow = scale.getValueForPixel(event.offsetX);
+		if (flow !== undefined) cursor = Math.min(xMax, Math.max(0, flow));
+	}
 	let figure: HTMLElement | undefined = $state();
 	let cancelButton: HTMLButtonElement | undefined = $state();
 	/** The button that computes the curve again (failed, cancelled or not computed). */
@@ -196,11 +253,42 @@
 					)
 					.join('; ')}`
 			: '';
-		return `${parts.join(' and ')}${at}${extrapolated}${cases}.`;
+		const below = shown.filter((p) => p !== 'head').map((p) => PANEL_LABELS[p].toLowerCase());
+		const panels = below.length ? `; below, on the same flow axis: ${below.join(', ')}` : '';
+		return `${parts.join(' and ')}${at}${extrapolated}${panels}${cases}.`;
 	});
 
+	/** The panels' curves as tables (the chart's long description), for the panels shown. */
+	const curveTables = $derived(
+		[
+			shown.includes('efficiency') && data.efficiency
+				? {
+						key: 'efficiency',
+						caption: `Efficiency curve at ${speedText}`,
+						column: 'Efficiency (%)',
+						rows: data.efficiency.curve
+					}
+				: null,
+			shown.includes('power') && data.power
+				? {
+						key: 'power',
+						caption: `Shaft power curve at ${speedText}`,
+						column: `Shaft power (${data.powerUnit})`,
+						rows: data.power.curve
+					}
+				: null,
+			shown.includes('npsh') && data.npsh?.required
+				? {
+						key: 'npshr',
+						caption: `NPSHr curve at ${speedText}`,
+						column: `NPSHr (${data.headUnit})`,
+						rows: data.npsh.required
+					}
+				: null
+		].filter((table) => table !== null)
+	);
 	/** The figure's sentences under the chart, which the image's footer repeats (export.md §3.4). */
-	const notes = $derived(chartNotes({ data, result, system, othersControlled }));
+	const notes = $derived(chartNotes({ data, result, system, othersControlled, shown }));
 
 	// Before the DOM drops Cancel when the curve stops loading (cancelled, computed or failed): if
 	// it has the focus, what replaces it takes it: the button to compute it again, else the chart.
@@ -234,9 +322,10 @@
 		const d = data;
 		const speed = speedText;
 		const cases = otherData;
+		const panels = shown;
 		if (!element) return;
 		let cancelled = false;
-		let chart: { destroy(): void } | null = null;
+		let chart: ChartInstance<'line'> | null = null;
 		drawn = false;
 		void import('./chart-setup').then(
 			(module) => {
@@ -253,9 +342,12 @@
 					pumpChartConfig(d, cases, {
 						speedText: speed,
 						legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
-						format: fmt
+						format: fmt,
+						panels,
+						cursor: () => cursorNow
 					})
 				);
+				drawnChart = chart;
 				drawn = true;
 			},
 			() => {
@@ -266,6 +358,7 @@
 		);
 		return () => {
 			cancelled = true;
+			if (drawnChart === chart) drawnChart = null;
 			chart?.destroy();
 		};
 	});
@@ -299,9 +392,17 @@
 				speedText,
 				legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
 				format: fmt,
-				forImage: true
+				forImage: true,
+				panels: shown
 			}),
-			notes: chartNotes({ data, result, system, othersControlled, reasonsIn: IMAGE_REASONS_IN }),
+			notes: chartNotes({
+				data,
+				result,
+				system,
+				othersControlled,
+				reasonsIn: IMAGE_REASONS_IN,
+				shown
+			}),
 			others: otherData,
 			markerSymbols: MARKER_SYMBOLS,
 			pumpName: name,
@@ -328,9 +429,78 @@
 			{STALE_CHUNK_MESSAGE} The table below lists its points.
 		</p>
 	{:else if !unavailable}
-		<div class="relative h-64 w-full sm:h-72" role="img" aria-label={summary}>
+		<div
+			class="relative w-full"
+			style:height="{heightRem}rem"
+			role="img"
+			aria-label={summary}
+			onpointermove={pointerRead}
+			onpointerdown={pointerRead}
+		>
 			<canvas bind:this={canvas} aria-hidden="true"></canvas>
 		</div>
+		{#if lowerPanels.length}
+			<div role="group" aria-label="Panels" class="flex flex-wrap items-center gap-2">
+				<span class="text-xs text-slate-700" aria-hidden="true">Panels</span>
+				{#each lowerPanels as panel (panel)}
+					<button
+						type="button"
+						class={['btn px-3 text-sm', shown.includes(panel) && 'border-blue-700 bg-blue-50']}
+						aria-pressed={shown.includes(panel)}
+						onclick={() => togglePanel(panel)}>{PANEL_LABELS[panel]}</button
+					>
+				{/each}
+			</div>
+		{/if}
+		{#if xMax > 0}
+			<div class="space-y-1">
+				<div class="flex flex-wrap items-center gap-x-3">
+					<label for="{id}-read" class="text-xs font-medium text-slate-700">Read at flow</label>
+					<input
+						id="{id}-read"
+						type="range"
+						class="min-h-11 min-w-40 flex-1 accent-slate-700"
+						min="0"
+						max={xMax}
+						step={xMax / 400}
+						value={readAt ?? 0}
+						aria-valuetext="{fmt(readAt ?? 0)} {data.flowUnit}{readoutText
+							? `: ${readoutText}`
+							: ''}"
+						oninput={(event) => (cursor = Number(event.currentTarget.value))}
+						onkeydown={(event) => {
+							if (event.key === 'Escape' && cursor !== null) {
+								event.preventDefault();
+								cursor = null;
+							}
+						}}
+					/>
+					{#if data.operating && cursor !== null}
+						<button
+							type="button"
+							class="btn btn-quiet px-2 text-blue-800"
+							onclick={() => (cursor = null)}>Back to the duty</button
+						>
+					{/if}
+				</div>
+				{#if readAt !== null}
+					<p class="flex flex-wrap gap-x-3 text-xs text-slate-700 tabular-nums">
+						<span class="font-medium"
+							>{cursor === null ? 'At the duty' : 'At'} {fmt(readAt)} {data.flowUnit}:</span
+						>
+						{#each readout as item, i (item.key)}
+							<span class="whitespace-nowrap"
+								>{#if i}<span class="sr-only">,&nbsp;</span>{/if}{item.label}
+								{fmt(item.value)}
+								{item.unit}</span
+							>
+						{:else}
+							<span>no line is drawn at this flow</span>
+						{/each}
+					</p>
+				{/if}
+			</div>
+		{/if}
 	{:else}
 		<p class="text-sm text-slate-700">
 			The chart cannot be drawn in this browser. The table below lists its points.
@@ -394,6 +564,9 @@
 	{#if notes.extrapolated}
 		<p class="text-xs text-slate-600">{notes.extrapolated}</p>
 	{/if}
+	{#each notes.panels as note (note)}
+		<p class="text-xs text-slate-600">{note}</p>
+	{/each}
 	{#if others.length}
 		<fieldset class="space-y-1">
 			<legend class="text-xs font-medium text-slate-700">Cases on the chart</legend>
@@ -666,6 +839,11 @@
 									<th scope="col" class="px-2 py-1 text-right font-medium"
 										>Head ({data.headUnit})</th
 									>
+									{#if data.npsh?.available}
+										<th scope="col" class="px-2 py-1 text-right font-medium"
+											>NPSHa ({data.headUnit})</th
+										>
+									{/if}
 									{#if data.systemMissing}
 										<th scope="col" class="px-2 py-1 text-left font-medium">Why no head</th>
 									{/if}
@@ -676,6 +854,9 @@
 									<tr class="border-t border-slate-100">
 										<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
 										<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
+										{#if data.npsh?.available}
+											<td class="px-2 py-1 text-right tabular-nums">{row.npsha}</td>
+										{/if}
 										{#if data.systemMissing}
 											<td class="px-2 py-1 text-xs text-slate-600"
 												>{row.note}{#if row.detail}<IssueDetail detail={row.detail} />{/if}</td
@@ -687,6 +868,40 @@
 						</table>
 					</div>
 				{/if}
+				{#each curveTables as table (table.key)}
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+					<div
+						class="max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
+						role="region"
+						aria-labelledby="{id}-{table.key}-caption"
+						tabindex="0"
+					>
+						<table class="w-full text-sm">
+							<caption
+								id="{id}-{table.key}-caption"
+								class="px-2 py-1 text-left text-xs font-semibold text-slate-700"
+							>
+								{table.caption}
+							</caption>
+							<thead class="sticky top-0 bg-slate-50">
+								<tr>
+									<th scope="col" class="px-2 py-1 text-right font-medium"
+										>Flow ({data.flowUnit})</th
+									>
+									<th scope="col" class="px-2 py-1 text-right font-medium">{table.column}</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each table.rows as row, i (i)}
+									<tr class="border-t border-slate-100">
+										<td class="px-2 py-1 text-right tabular-nums">{fmt(row.x)}</td>
+										<td class="px-2 py-1 text-right tabular-nums">{fmt(row.y)}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/each}
 			</div>
 		</div>
 	{/if}

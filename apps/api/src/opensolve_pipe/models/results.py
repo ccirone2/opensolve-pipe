@@ -62,6 +62,21 @@ class CurvePoint(OutputModel):
     head: float = Field(description="m")
 
 
+class EfficiencyCurvePoint(OutputModel):
+    flow: float = Field(description="m³/s")
+    efficiency: float = Field(description="Pump efficiency, fraction 0-1")
+
+
+class NpshrCurvePoint(OutputModel):
+    flow: float = Field(description="m³/s")
+    npshr: float = Field(description="NPSH required, m")
+
+
+class PowerCurvePoint(OutputModel):
+    flow: float = Field(description="m³/s")
+    shaft_power: float = Field(description="ρgQH/η, W")
+
+
 class NodeResult(OutputModel):
     """State at one component port. Boundary ports (reservoir, reference node) report the
     quiescent boundary condition (velocity 0)."""
@@ -168,6 +183,25 @@ class PumpResult(OutputModel):
         )
     )
     curve: list[CurvePoint] = Field(description="Pump curve at the operating speed, sampled")
+    efficiency_curve: list[EfficiencyCurvePoint] | None = Field(
+        description=(
+            "η(Q) = η₀(Q/s) at the operating speed, sampled at 41 flows over the efficiency "
+            "curve's points × s (inside its data only); null without an efficiency curve"
+        )
+    )
+    npshr_curve: list[NpshrCurvePoint] | None = Field(
+        description=(
+            "NPSHr(Q) = s² NPSHr₀(Q/s) at the operating speed, sampled at 41 flows over the "
+            "NPSHr curve's points × s (inside its data only); null without an NPSHr curve"
+        )
+    )
+    power_curve: list[PowerCurvePoint] | None = Field(
+        description=(
+            "Shaft power ρgQ H(Q)/η(Q) at the operating speed, sampled at 41 flows where both "
+            "the head and the efficiency curves' points reach (× s); null without an "
+            "efficiency curve or where the two ranges do not overlap"
+        )
+    )
     system_curve: list[CurvePoint] | None
 
 

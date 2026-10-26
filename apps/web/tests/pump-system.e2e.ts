@@ -224,7 +224,10 @@ test('build a pump system from a new project, solve, share and reopen it', async
 	await expect(systemTable).toBeVisible();
 	await expect(systemTable.getByRole('row')).toHaveCount(1 + systemCurve.points.length);
 	await expect(systemTable.getByRole('row').nth(1)).toHaveText(
-		new RegExp(`^\\s*0\\s*${sig4(systemCurve.points[0]!.head!)}\\s*$`)
+		// Flow, head and NPSHa (the water's vapor pressure is known).
+		new RegExp(
+			`^\\s*0\\s*${sig4(systemCurve.points[0]!.head!)}\\s*${sig4(systemCurve.points[0]!.npshAvailable!)}\\s*$`
+		)
 	);
 	await expect(chart.getByText(/Computing the system curve/)).toHaveCount(0);
 	await chart.getByRole('button', { name: 'Hide data table' }).click();
@@ -337,12 +340,13 @@ test('a system-curve point without a head says why, with names and in the displa
 	await expect(table.getByRole('columnheader')).toHaveText([
 		'Flow (gpm)',
 		'Head (ft)',
+		'NPSHa (ft)',
 		'Why no head'
 	]);
 	const GPM = (231 * 0.0254 ** 3) / 60; // m³/s
 	const row = table.getByRole('row').nth(index + 1);
 	await expect(row.getByRole('cell').first()).toHaveText(sig4(point.flow / GPM));
-	const why = row.getByRole('cell').nth(2);
+	const why = row.getByRole('cell').nth(3);
 	expect(await toldText(why)).toBe(
 		"No steady state carries this flow: every way from the pump's discharge back to its suction, " +
 			'through the network or a reservoir or reference node, passes Flow limiter, which passes at ' +

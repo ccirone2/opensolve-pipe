@@ -126,10 +126,10 @@ describe('pump chart data', () => {
 		expect(data.system?.map((p) => p.y)).toEqual([12, null, 22, 34.5]);
 		expect(data.systemMissing).toBe(1);
 		expect(data.systemRows).toEqual([
-			{ flow: '0', head: '12', note: '' },
-			{ flow: '10', head: '—', note: 'made-up reason: not converged' },
-			{ flow: '20', head: '22', note: '' },
-			{ flow: '30', head: '34.5', note: '' }
+			{ flow: '0', head: '12', npsha: '—', note: '' },
+			{ flow: '10', head: '—', npsha: '—', note: 'made-up reason: not converged' },
+			{ flow: '20', head: '22', npsha: '—', note: '' },
+			{ flow: '30', head: '34.5', npsha: '—', note: '' }
 		]);
 	});
 
@@ -165,6 +165,7 @@ describe('pump chart data', () => {
 		expect(row).toEqual({
 			flow: String(Number((0.03 / GPM).toPrecision(4))),
 			head: '—',
+			npsha: '—',
 			note:
 				"No steady state carries this flow: every way from the pump's discharge back to its " +
 				'suction, through the network or a reservoir or reference node, passes Flow limiter, ' +
@@ -174,10 +175,11 @@ describe('pump chart data', () => {
 		});
 		// Without names, the API's sentence, with no detail; a point with a head has neither.
 		const plain = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03], curve).systemRows;
-		expect(plain[3]).toEqual({ flow: '30', head: '—', note: message });
+		expect(plain[3]).toEqual({ flow: '30', head: '—', npsha: '—', note: message });
 		expect(pumpChartData(pumpResult(), SI_UNITS, [0, 0.03], curve, names).systemRows[0]).toEqual({
 			flow: '0',
 			head: '12',
+			npsha: '—',
 			note: ''
 		});
 		// Other cases' curves are told the same way.

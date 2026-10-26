@@ -138,9 +138,10 @@ def test_the_stop_test_item_states_the_energy_round_off_allowance() -> None:
 def test_method_1_2_0_describes_both_fixes() -> None:
     """GOALS §4.3: C0b is method 1.2.0 (the owner's answer Q9 (a) of 2026-10-24), after 1.1.0,
     with one changelog line per fix, each stating what changes and how it was measured."""
-    assert METHOD_VERSION == "1.2.0"
-    assert [e["version"] for e in METHOD_CHANGELOG] == ["1.0.0", "1.1.0", "1.2.0"]
-    flag, energy = METHOD_CHANGELOG[-1]["changes"]
+    assert [e["version"] for e in METHOD_CHANGELOG][:3] == ["1.0.0", "1.1.0", "1.2.0"]
+    [entry] = [e for e in METHOD_CHANGELOG if e["version"] == "1.2.0"]
+    assert entry["date"] == "2026-10-24"
+    flag, energy = entry["changes"]
     assert flag.startswith("The NOT_CONVERGED flag names where a continuity or energy residual")
     assert "only where that residual exceeds its stop tolerance" in flag
     assert "keep returning to a state whose solve failed" in flag
@@ -150,6 +151,23 @@ def test_method_1_2_0_describes_both_fixes() -> None:
     assert "The methods summary states the test." in energy
     for line in (flag, energy):
         assert line.endswith("(corpus comparison).")
+
+
+def test_method_1_3_0_adds_the_equipment_element() -> None:
+    """GOALS §4.3, proposal equipment-pressure-drop.md decision 17 and §3.5: the equipment
+    element is method 1.3.0, after 1.2.0 (deployed), with one changelog line that says projects
+    without equipment are unchanged."""
+    assert METHOD_VERSION == "1.3.0"
+    assert [e["version"] for e in METHOD_CHANGELOG] == ["1.0.0", "1.1.0", "1.2.0", "1.3.0"]
+    entry = METHOD_CHANGELOG[-1]
+    assert entry["date"] == "2026-10-26"
+    assert entry["changes"] == [
+        "Adds the equipment element: a loss between two ports from a datasheet pressure drop at a "
+        "rated flow and the density of the fluid it is rated for, or from a Cv or Kv (a rated "
+        "point on water, converted as for valves), at constant K (scaled with the square of the "
+        "flow and with density). Flows, heads, pressures, statuses, traces, messages and system "
+        "curves of projects without equipment are unchanged (corpus comparison)."
+    ]
 
 
 def test_friction_section_follows_the_method() -> None:

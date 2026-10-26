@@ -127,6 +127,7 @@ describe('the committed fixture workbook', () => {
 			'Pipes',
 			'Fittings',
 			'Valves',
+			'Equipment',
 			'Branches',
 			'Branch ports',
 			'Boundaries',

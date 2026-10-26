@@ -1,6 +1,7 @@
 """Compare two corpus dumps (``corpus.py``), exactly or within tolerances.
 
     uv run python -m tests.differential.compare A B [--ignore PATH ...] [--ignore-null PATH ...]
+                                                    [--ignore-empty PATH ...]
                                                     [--within-tolerance [--fixed-point]]
                                                     [--group NAME=VALUE[,NAME=VALUE ...]]
 
@@ -22,8 +23,13 @@ null is a difference. For example, a solver change that adds the new field ``con
 unless the pump is speed-controlled) to every pump result and changes the method version
 (proposal vfd-pump-modes.md §7.5) is compared with ``--ignore-null 'pumpResults.*.control'
 --ignore methodVersion --ignore trace.methods.methodVersion``: a pump of the old corpus that
-gained a control result shows. Each path's count of values left out, and in how many projects,
-is printed after the totals, so that an ignore broader than intended shows.
+gained a control result shows. ``--ignore-empty PATH`` (repeatable, the same paths) leaves out
+a value only where it is an empty map or list, or absent, on both sides; a value that is not
+empty, or null, on either side is compared as usual. For example, the change that adds the
+result map ``equipmentResults`` to every solved state (``{}`` without equipment; proposal
+equipment-pressure-drop.md §3.5) is compared with ``--ignore-empty equipmentResults``: an old
+project that gained an equipment result shows. Each path's count of values left out, and in how
+many projects, is printed after the totals, so that an ignore broader than intended shows.
 
 ``--within-tolerance`` compares the numbers of each project within tolerances instead, for a
 solver change that moves results by its convergence error (proposal
@@ -39,12 +45,13 @@ names (``Judge.quantity``), within the tolerances of §2.7's table (``DEFAULT_SE
 - flow (``flow``, ``outflow``, ``operatingFlow``, ``portFlows.*``, ``portOutflows.*``, the flows
   of pump and system curves, flag details' ``flow``, trace values in m³/s):
   10⁻⁸ × the project's largest |flow| + 10⁻¹⁴ m³/s, the largest flow being that of a connection,
-  valve, pump, or branch or boundary port of the main solve, on either side (``element_flows``);
+  valve, pump, equipment item, or branch or boundary port of the main solve, on either side
+  (``element_flows``);
 - head (EGL, HGL, head losses, head rises, NPSH, pump-curve heads, the heads of flag details,
   trace values in m but for diameters, roughnesses, lengths, elevations and levels): 10⁻⁶ m;
-- pressure (static, absolute, dynamic and total pressures, pressure drops, the atmospheric and
-  vapor pressure, trace values in Pa): ρg·10⁻⁶ m, with the dump's fluid density and
-  g = 9.80665 m/s² (``G``);
+- pressure (static, absolute, dynamic and total pressures, pressure drops, an equipment item's
+  pressure loss, the atmospheric and vapor pressure, trace values in Pa): ρg·10⁻⁶ m, with the
+  dump's fluid density and g = 9.80665 m/s² (``G``);
 - speed (``speed``, ``maxSpeed``, ``minSpeed``, dimensionless trace values named for a speed):
   10⁻⁹ relative;
 - system-curve head: 10⁻⁸ relative or 10⁻⁶ m, whichever is looser;
@@ -103,7 +110,7 @@ MISSING = object()
 """The value of a key one side does not have."""
 
 Difference = tuple[Any, ...]  # (kind, path, a, b[, relative difference or ratio, quantity])
-Pattern = tuple[str, ...]  # an --ignore or --ignore-null path, split on '.'
+Pattern = tuple[str, ...]  # an --ignore, --ignore-null or --ignore-empty path, split on '.'
 Leaf = Callable[[tuple[str, ...], str, Any, Any, list[Difference]], None]
 
 
@@ -113,17 +120,28 @@ class Ignore(NamedTuple):
     pattern: Pattern
     null: bool = False
     """--ignore-null: left out only where the value is null or absent on both sides."""
+    empty: bool = False
+    """--ignore-empty: left out only where the value is an empty map or list, or absent, on both
+    sides."""
 
     def __str__(self) -> str:
-        return ".".join(self.pattern) + (" (null or absent)" if self.null else "")
+        when = " (null or absent)" if self.null else " (empty or absent)" if self.empty else ""
+        return ".".join(self.pattern) + when
+
+
+def is_empty(value: Any) -> bool:
+    """An empty map or list, or ``MISSING`` (--ignore-empty); null is not empty."""
+    return value is MISSING or (isinstance(value, dict | list) and not value)
 
 
 def ignored(segments: tuple[str, ...], rules: Sequence[Ignore], a: Any, b: Any) -> Ignore | None:
     """The first rule that leaves out the values a and b (``MISSING`` when a side does not have
     the key) at this path: its pattern matches the whole path, and for --ignore-null both are
-    null or absent. None: compare them."""
+    null or absent, for --ignore-empty both empty or absent. None: compare them."""
     for rule in rules:
         if rule.null and not all(v is None or v is MISSING for v in (a, b)):
+            continue
+        if rule.empty and not (is_empty(a) and is_empty(b)):
             continue
         if len(rule.pattern) == len(segments) and all(
             fnmatch.fnmatchcase(seg, pat) for seg, pat in zip(segments, rule.pattern, strict=True)
@@ -298,6 +316,7 @@ KEYS = {
             "dynamicPressure",
             "totalPressure",
             "pressureDrop",
+            "pressureLoss",  # an equipment item's, ρg × its head loss
             "suctionAbsolutePressure",
             "atmosphericPressure",
             "vaporPressure",
@@ -359,17 +378,22 @@ def _number(x: Any) -> bool:
 
 
 def element_flows(doc: Any) -> dict[str, float]:
-    """|flow| of each element of a dump's main solve: connections, valves and pumps by id; each
-    port of a branch or boundary by 'id:port', and the branch or boundary by id with the least
-    of its port flows (a tee's K factors, flow ratio and port velocities are round-off where one
-    of its ports carries a round-off flow; a boundary without port flows by its outflow)."""
+    """|flow| of each element of a dump's main solve: connections, valves, equipment items and
+    pumps by id; each port of a branch or boundary by 'id:port', and the branch or boundary by id
+    with the least of its port flows (a tee's K factors, flow ratio and port velocities are
+    round-off where one of its ports carries a round-off flow; a boundary without port flows by
+    its outflow)."""
     flows: dict[str, float] = {}
 
     def results(field: str) -> dict[str, Any]:
         d = at(doc, (field,))
         return {k: v for k, v in d.items() if isinstance(v, dict)} if isinstance(d, dict) else {}
 
-    for field, key in (("linkResults", "flow"), ("valveResults", "flow")):
+    for field, key in (
+        ("linkResults", "flow"),
+        ("valveResults", "flow"),
+        ("equipmentResults", "flow"),
+    ):
         for eid, r in results(field).items():
             if _number(r.get(key)):
                 flows[eid] = abs(r[key])
@@ -443,6 +467,7 @@ class Judge:
         if len(segments) > 1 and top in (
             "linkResults",
             "valveResults",
+            "equipmentResults",
             "pumpResults",
             "branchResults",
             "boundaryResults",
@@ -601,17 +626,20 @@ def compare_dirs(
     ignore_null: Sequence[str] = (),
     tolerances: Tolerances | None = None,
     group: dict[str, str] | None = None,
+    ignore_empty: Sequence[str] = (),
 ) -> tuple[list[str], int]:
     """(report lines, number of different projects); ``ignore``: paths left out whatever their
-    values, ``ignore_null``: paths left out where null or absent on both sides; ``tolerances``:
-    the within-tolerance mode, None for the exact one; ``group``: the trace inputs of the
-    projects counted apart (module docstring)."""
+    values, ``ignore_null``: paths left out where null or absent on both sides,
+    ``ignore_empty``: where empty or absent on both sides; ``tolerances``: the within-tolerance
+    mode, None for the exact one; ``group``: the trace inputs of the projects counted apart
+    (module docstring)."""
     lines: list[str] = []
     same = within = diff = 0
     worst: list[tuple[float, str, int, list[Difference]]] = []  # exact mode
     reports: list[tuple[str, str]] = []  # within tolerance: (project, its line)
     rules = [Ignore(tuple(p.split("."))) for p in ignore]
     rules += [Ignore(tuple(p.split(".")), null=True) for p in ignore_null]
+    rules += [Ignore(tuple(p.split(".")), empty=True) for p in ignore_empty]
     left_out: dict[Ignore, tuple[int, int]] = {}  # rule -> (values, projects)
     counts: dict[bool, dict[str, int]] = {True: {}, False: {}}  # in the group -> outcome -> n
     largest: dict[str, tuple[float, str, str]] = {}  # quantity -> (ratio, project, path)
@@ -749,6 +777,14 @@ def main(argv: list[str] | None = None) -> None:
         " sides, and compare them elsewhere (e.g. 'pumpResults.*.control'); repeatable",
     )
     parser.add_argument(
+        "--ignore-empty",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="leave out the values at this path only where they are an empty map or list, or"
+        " absent, on both sides, and compare them elsewhere (e.g. equipmentResults); repeatable",
+    )
+    parser.add_argument(
         "--within-tolerance",
         action="store_true",
         help="compare numbers within the tolerances of proposal vfd-slice2-discharge-pressure.md"
@@ -776,7 +812,9 @@ def main(argv: list[str] | None = None) -> None:
     tolerances = None
     if args.within_tolerance:
         tolerances = FIXED_POINT if args.fixed_point else DEFAULT_SETTINGS
-    lines, diff = compare_dirs(args.a, args.b, args.ignore, args.ignore_null, tolerances, group)
+    lines, diff = compare_dirs(
+        args.a, args.b, args.ignore, args.ignore_null, tolerances, group, args.ignore_empty
+    )
     print("\n".join(lines))
     sys.exit(1 if diff else 0)
 

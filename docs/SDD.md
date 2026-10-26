@@ -244,6 +244,7 @@ The pane shows, top to bottom:
 | Links | Per connection: flow, velocity, head loss, Re, Darcy f, regime. Each row expands to its pipe segments (diameter, length, roughness, velocity, Re, f, friction loss) and fittings (quantity, the K each used, its reference diameter and source, head loss), with the flags about each |
 | Pumps | Status, flow, head, speed, efficiency, hydraulic and shaft power, NPSHa, NPSHr, NPSH margin; then the chart (`PumpChart`) of one pump at a time, picked from a list when there are several |
 | Valves | Type, state, flow, head loss, pressure drop, K open, K effective, Cv effective, setpoint, setpoint met |
+| Equipment | Only when the solve has equipment (§4.14): flow (+ inlet → outlet), flow ÷ rated flow ("—" for a Cv or Kv rating), pressure loss (ρg × head loss), head loss, static pressure drop; differences within the solver's head tolerance read "≈ 0". A note says what the loss and the static drop are, when they are equal, and which columns change sign with the flow |
 | Branches | Tee and wye flow pattern, port flows, K per path, the velocity K is on, path losses, correlation |
 | Boundaries | Reservoirs, reference nodes and plugs: EGL, outflow into the network, per port |
 | Assigned flows | Per assigned-flow node: direction (demand or supply), the assigned flow as entered, elevation, pressure (gauge), absolute pressure, HGL, with its flags (`BELOW_VAPOR_PRESSURE`) |
@@ -280,7 +281,7 @@ The pane shows, top to bottom:
 - **`ScenarioCard`**, at the top of a scenario's results: its name, id and description, the changes the server applied (`SolveResponse.scenario`, with base values, in display units, each linking to its element's trace) and those it ignored with the server's reason; for the base case, one line saying it is the network without scenario changes. Each value's field and unit are those of the project as it was solved (a control valve's setpoint is a pressure or a flow by its type then), so a later base edit never relabels the record shown.
 - Rows of elements the scenario changed say "changed in this scenario", in every table (Pumps and Links included); the trace view has a case chip and a **Changed by this scenario** block from the response, above the server's notes (whose first note states the change; a pipe's change names its pipe, "Pipe 2 length"); the methods summary shows the server's Scenario section first, and its copied text adds "Case: …".
 - A scenario's invalid value (a 400 located at `scenarios.{s}.overrides.{j}`) is shown with the change that set it, with Show and Reset to base; a topology issue on an element a change targets says "Set by this scenario".
-- **`CompareView`**: chosen results of every case, the base first, with each scenario's difference from the base under its value (relative only for flow, velocity, pump head, head loss, power and speed; no tolerance snapping; "Same" only where the values display identically). Each column header gives that case's status and switches to it (the focus goes to its tab); a case that did not converge, was not solved, failed or was not reached by a stopped run shows no values, and values out of date are tinted. A connection's row is named by its ends now, so each case's flow, head loss and largest velocity are read on the connection as it is now (`compareValue`, through `linkReading` in `utils/results.ts`): a case solved before a reversal gives its flow and head loss with the other sign ("Reversed since solved"), one solved before an end moved gives no value where it cannot place one ("Ends changed since solved"), and one solved before the connection's pipes changed gives no largest velocity, nor a flow or head loss when no pipe of it was solved in it or one was solved in another connection ("Pipes changed since solved"). The notice above the table counts the cases Solve all would solve, and names apart those whose solve failed with an error of their own to fix first. A row header opens its element's trace in the active case, and says so and does nothing while that case has no results. Default rows come from the stored project's scenarios (pumps, changed elements, assigned flows, the extremes; at most 40), and `CompareRowsDialog` adds, removes and orders rows. A table on a pane at least 28 rem wide, one card per row below (phones). The rows are page state.
+- **`CompareView`**: chosen results of every case, the base first, with each scenario's difference from the base under its value (relative only for flow, velocity, pump head, head loss, an equipment item's pressure loss, power and speed; no tolerance snapping; "Same" only where the values display identically). Each column header gives that case's status and switches to it (the focus goes to its tab); a case that did not converge, was not solved, failed or was not reached by a stopped run shows no values, and values out of date are tinted. A connection's row is named by its ends now, so each case's flow, head loss and largest velocity are read on the connection as it is now (`compareValue`, through `linkReading` in `utils/results.ts`): a case solved before a reversal gives its flow and head loss with the other sign ("Reversed since solved"), one solved before an end moved gives no value where it cannot place one ("Ends changed since solved"), and one solved before the connection's pipes changed gives no largest velocity, nor a flow or head loss when no pipe of it was solved in it or one was solved in another connection ("Pipes changed since solved"). The notice above the table counts the cases Solve all would solve, and names apart those whose solve failed with an error of their own to fix first. A row header opens its element's trace in the active case, and says so and does nothing while that case has no results. Default rows come from the stored project's scenarios (pumps, changed elements, assigned flows, the extremes; at most 40), and `CompareRowsDialog` adds, removes and orders rows. A table on a pane at least 28 rem wide, one card per row below (phones). The rows are page state.
 - **`PumpChart`** draws the active case as before and the other solved cases (six cases at most, the active one included) in slate with their own hollow markers and labels: their operating points and their pump curves at another speed by default, their system curves only on request ("Also show the other cases' system curves"), one request at a time with Cancel, over the active curve's flow range, for the cases that are other than the one shown (after a case switch too). Its data table adds the operating points by case.
 
 **Goal seek** (PRD §3.9, CLAUDE.md D16; `workspace/GoalSeekDialog.svelte` and `workspace/goal-seek/`). A **Goal seek** button at the right of the Results pane's header (icon only below 24 rem) and **Use in goal seek** on a trace's "Result values" heading (the element preselected; on phones the trace sheet closes first) open a dialog: two columns from 1024 px (setup left, the result right and sticky), one below, a bottom sheet on phones. It runs on the case shown and names it; its fields are page state, never locked in a scenario.
@@ -292,7 +293,7 @@ The pane shows, top to bottom:
 **Export** (PRD §3.2.3, CLAUDE.md D17; `components/results/ExportDialog.svelte`, `utils/export/`). An **Export** button left of Goal seek in the Results pane's header (labelled from a 30 rem header, a container query; icon-only, 44 px, below) is shown when there is something to export: the case shown has results on screen, or on Compare cases any case has a response. It is unavailable, with the reason, while a calculation request is in flight (`store.calculating`). Its dialog is a lazily loaded chunk (`utils/export/load.ts`, preloaded at idle when the button first renders; a failed load says to reload the page). It offers Cases (with scenarios: the case shown, or All cases, the default on Compare cases), Format (Excel workbook, the default, or CSV files in one zip), Units (display or SI base units) and Include the project link, and lists the warnings, the contents with row counts, what is left out and the file name, from the same function that makes the file (`buildExport`, which builds no cells). Download, in the dialog's footer and so always in view, has the focus, so Enter, Enter gives the default workbook; a build yields to the page every 500 rows or 64 KiB, shows progress with Cancel after 300 ms, and stops on Cancel, Close or Esc. The choices are page state, reset when another project loads.
 
 - **One rule decides values** (Compare's, `caseResponse`, then convergence): a converged response gives every table, labelled in About, every caption and every row when out of date (with the names, structure and link of the project as solved); a response that did not converge gives its About block, flags, scenario changes and methods only; a failed or not-reached case's earlier response is never used, even when revealed on screen.
-- **The file**: About first (the traceability record), Flags, Compare cases (all cases), the element tables one value per cell (pipes, fittings, branch ports and boundary ports as child tables), pump curves and the system curves already computed, Scenario changes as the server applied them, the goal seek report, Methods and, for one case, the Trace. Every row starts with its case (with scenarios), its solve time and its state. Branch K is always on the combined-flow velocity, as the API reports it.
+- **The file**: About first (the traceability record), Flags, Compare cases (all cases), the element tables one value per cell (pipes, fittings, branch ports and boundary ports as child tables; Equipment, when the case has some, also gives the rating each solve used, which the screen's table leaves to the form), pump curves and the system curves already computed, Scenario changes as the server applied them, the goal seek report, Methods and, for one case, the Trace. Every row starts with its case (with scenarios), its solve time and its state. Branch K is always on the combined-flow velocity, as the API reports it.
 - **Download image** under each pump chart: the chart drawn again from the screen's own configuration (`utils/pump-chart-config.ts`, in the chart's chunk) at 1600 px wide on white, with a header (pump, case, project, solve time, methods version, an out-of-date line) and a footer (the figure's notes, the disclaimer, the app). It is unavailable, with the reason, while the chart is drawn or a system curve is computed, for a solve that did not converge, for the earlier results shown after a failed solve, and while a calculation runs. The other cases on the chart follow Compare's rule too: a failed or not-reached case is not drawn.
 - Files are saved through a Blob URL and an `<a download>` click, revoked after 60 s; the app says "your browser saves it", never "saved".
 
@@ -372,9 +373,10 @@ POST /api/v1/goal-seek
 - Check, stop-check, PRV, PSV and FCV as components with status logic
 - NPSH available at every pump suction
 - Speed-controlled (VFD) pumps holding a flow setpoint (§4.8, CLAUDE.md D11)
+- Equipment rated by a datasheet pressure drop at a flow, with its fluid's density, or by a Cv or Kv (§4.14, CLAUDE.md D18)
 - Later: VFD pressure and differential-pressure control, pressure relief valves, non-ideal reference nodes
 
-Preconditions checked before solving (topology errors): at least one fixed-pressure boundary (reservoir or ideal reference node) per connected sub-network, where assigned-flow nodes do not count; every port connected or explicitly plugged; no connection between incompatible ports; a speed-controlled pump's curve gives one speed per head (`CONTROLLED_PUMP_CURVE`) and its setpoint is one some speed up to its maximum can hold (`CONTROLLED_PUMP_SETPOINT`, §4.8).
+Preconditions checked before solving (topology errors): at least one fixed-pressure boundary (reservoir or ideal reference node) per connected sub-network, where assigned-flow nodes do not count; every port connected or explicitly plugged; no connection between incompatible ports; a speed-controlled pump's curve gives one speed per head (`CONTROLLED_PUMP_CURVE`) and its setpoint is one some speed up to its maximum can hold (`CONTROLLED_PUMP_SETPOINT`, §4.8); an equipment item's rating gives a finite, positive loss coefficient (`EQUIPMENT_RATING_OUT_OF_RANGE`, §4.14).
 
 WNTR/EPANET is used only in the test suite, as a reference for water-only networks.
 
@@ -506,9 +508,10 @@ type Component =
   | Reservoir | IdealReferenceNode | AssignedFlow | Plug
   | TeeBranch | WyeBranch
   | Pump
-  | IsolationValve | CheckValve | ControlValve;
-  // Later: Tank, NonIdealReferenceNode, CrossBranch, ElbowBranch, ReliefValve, HeatExchanger,
-  // Strainer, Orifice, Sprinkler, UserDefinedElement, ThreeWayValve
+  | IsolationValve | CheckValve | ControlValve
+  | Equipment;                     // heat exchanger side, coil, strainer, filter (§4.14)
+  // Later: Tank, NonIdealReferenceNode, CrossBranch, ElbowBranch, ReliefValve, Orifice, Sprinkler,
+  // UserDefinedElement, ThreeWayValve
 
 interface Port {
   id: string;                    // e.g., "suction", "discharge", "branch"
@@ -519,7 +522,8 @@ interface Port {
 
 interface BaseComponent {
   id: string;
-  type: 'reservoir' | 'reference_node' | 'plug' | 'assigned_flow' | 'branch' | 'pump' | 'valve';
+  type: 'reservoir' | 'reference_node' | 'plug' | 'assigned_flow' | 'branch' | 'pump' | 'valve'
+      | 'equipment';
   name: string;
   elevation: number;             // m above project datum
   ports: Port[];
@@ -733,6 +737,7 @@ interface SolvedState {
   linkResults: Record<string, LinkResult>;         // connection id (every connection)
   pumpResults: Record<string, PumpResult>;         // component id
   valveResults: Record<string, ValveResult>;       // component id
+  equipmentResults: Record<string, EquipmentResult>; // component id; {} without equipment (§4.14)
   branchResults: Record<string, BranchResult>;     // tee / wye id
   boundaryResults: Record<string, BoundaryResult>; // reservoir, reference node, plug, assigned-flow node id
   flags: Flag[];
@@ -758,6 +763,9 @@ interface PumpControlResult { mode: 'flow'; setpoint /* m³/s */;
 interface ValveResult { valveType; state: 'open' | 'closed' | 'active'; flow; headLoss; pressureDrop; kOpen;
                         referenceDiameter /* inlet pipe */; kEffective | null; cvEffective | null;
                         setpoint | null; setpointAchieved | null }
+interface EquipmentResult { flow /* + inlet → outlet */; flowRatio | null /* Q/Q_r, signed; null: Cv or Kv */;
+                            headLoss /* EGL(inlet) − EGL(outlet) */; pressureLoss /* ρg·headLoss */;
+                            pressureDrop /* static, inlet − outlet, as a valve's */; rating /* as used */ }
 interface BranchResult { branchType; lossModel; pattern; combinedPortId | null;
                          portFlows /* positive into the component */; kFactors /* per path, on v_c */;
                          pathHeadLosses; referenceVelocity /* v_c */; correlation; inCorrelationRange }
@@ -765,9 +773,9 @@ interface BoundaryResult { type: 'reservoir' | 'reference_node' | 'plug' | 'assi
                            outflow /* into the network; an assigned-flow node: −flow, as solved */; portOutflows }
 ```
 
-Elements in a section closed off from every fixed-pressure boundary carry no flow and have no head: their ports are absent from `nodeResults`, and their pump, valve, branch or boundary result is absent (flagged `ISOLATED_SECTION`).
+Elements in a section closed off from every fixed-pressure boundary carry no flow and have no head: their ports are absent from `nodeResults`, and their pump, valve, equipment, branch or boundary result is absent (flagged `ISOLATED_SECTION`).
 
-A section that no fixed-pressure boundary reaches but that cannot sit at zero flow (a pump loop behind a closed valve) carries a determined flow at an undetermined pressure level: its connection, pump, valve and branch results are reported (flows, head losses, pump head and power), its ports are absent from `nodeResults`, `PumpResult.npshAvailable` and `suctionAbsolutePressure` are null, a PRV/PSV there has `setpointAchieved: null`, and an element between it and another head has no result. It is flagged `UNDETERMINED_PRESSURE` (`details.componentIds`). Such a section can hold assigned-flow nodes only if their flows sum to zero; a part that no fixed-pressure boundary reaches and whose assigned flows do not balance has no steady state, so the solve is not converged (`NOT_CONVERGED`), its message naming the nodes with their flows and the elements closed around them (§4.11).
+A section that no fixed-pressure boundary reaches but that cannot sit at zero flow (a pump loop behind a closed valve) carries a determined flow at an undetermined pressure level: its connection, pump, valve, equipment and branch results are reported (flows, head losses, pump head and power, and an equipment item's static pressure drop, a difference that does not depend on the section's level), its ports are absent from `nodeResults`, `PumpResult.npshAvailable` and `suctionAbsolutePressure` are null, a PRV/PSV there has `setpointAchieved: null`, and an element between it and another head has no result. It is flagged `UNDETERMINED_PRESSURE` (`details.componentIds`). Such a section can hold assigned-flow nodes only if their flows sum to zero; a part that no fixed-pressure boundary reaches and whose assigned flows do not balance has no steady state, so the solve is not converged (`NOT_CONVERGED`), its message naming the nodes with their flows and the elements closed around them (§4.11).
 
 **System curve** (`PumpResult.systemCurve`, filled for every running pump when `SolveOptions.includeSystemCurve`): `systemCurvePoints` flows from 0 to 1.2 × the curve's largest flow × s; at each, the pump is replaced by that fixed flow, whatever its own speed control, and the network solved (other pumps keep running, other speed-controlled pumps keep regulating, valves follow their rules); head = EGL(discharge) − EGL(suction). For a speed-controlled pump s is its `speed`, the maximum speed (§4.8). Every point whose flow passes with a determined head has that head (TSD §5.6); points without one are left out (`POST /system-curve` reports each with its reason, §5.1): no way through, no steady state that carries the flow, an undetermined head (a side of the pump on a free pressure level, or a control valve in series at its switch), or no convergence. The web app solves without it and fetches one pump's curve from `POST /system-curve` when its chart is shown (§3.1.3, D10).
 
@@ -809,7 +817,7 @@ Without assigned flows `passedFlow` equals `limitFlow`. For `not_converged`, `co
 | Severity | Codes |
 |---|---|
 | `invalid` (physically invalid) | `NOT_CONVERGED` (network-wide; `details.componentIds` names oscillating elements; `details.maxContinuityResidualAt` and `maxEnergyResidualAt` name the node and the link of the largest residual beyond its stop tolerance, and are absent where none is, TSD §5.2), `CAVITATION`, `BELOW_VAPOR_PRESSURE`, `PUMP_FLOW_REVERSAL`, `UNSUPPORTED_FLOW_PATTERN`, `PORT_ABOVE_LIQUID_LEVEL` |
-| `warning` (unreliable or incomplete) | `CORRELATION_OUT_OF_RANGE` (friction ranges, Crane K in laminar flow, tee/wye ranges, table limits), `PUMP_OUTSIDE_CURVE` (`details.curve`: head, efficiency or npshr), `TRANSITIONAL_FLOW`, `TEE_PATTERN_FALLBACK`, `UNDETERMINED_PRESSURE` (on the pump or FCV driving the flow; `details.componentIds`: the section), `NPSH_NOT_CHECKED` (a running pump with an NPSHr curve whose NPSH available cannot be computed because the fluid has no vapor pressure: cavitation is not checked) |
+| `warning` (unreliable or incomplete) | `CORRELATION_OUT_OF_RANGE` (friction ranges, Crane K in laminar flow, tee/wye ranges, table limits; equipment in reverse flow, or with laminar flow in a connected pipe, §4.14), `PUMP_OUTSIDE_CURVE` (`details.curve`: head, efficiency or npshr), `TRANSITIONAL_FLOW`, `TEE_PATTERN_FALLBACK`, `UNDETERMINED_PRESSURE` (on the pump or FCV driving the flow; `details.componentIds`: the section), `NPSH_NOT_CHECKED` (a running pump with an NPSHr curve whose NPSH available cannot be computed because the fluid has no vapor pressure: cavitation is not checked) |
 | `info` (state) | `NO_VAPOR_PRESSURE` (network-wide), `CHECK_VALVE_CLOSED`, `CONTROL_VALVE_SETPOINT_NOT_MET`, `PUMP_SETPOINT_NOT_MET` (a speed-controlled pump at a speed limit or with no flow, off its setpoint; `details`: state, setpoint, flow, speed, minSpeed, maxSpeed), `ISOLATED_SECTION` (`details.componentIds`) |
 
 Every other flag names exactly one component (and port, where it applies) or one connection.
@@ -820,7 +828,7 @@ Every other flag names exactly one component (and port, where it applies) or one
 interface ElementTrace {
   elementId: string;
   elementType: 'pipe_connection' | 'reservoir' | 'reference_node' | 'plug' | 'assigned_flow' | 'tee'
-             | 'wye' | 'pump' | 'isolation_valve' | 'check_valve' | 'control_valve';
+             | 'wye' | 'pump' | 'isolation_valve' | 'check_valve' | 'control_valve' | 'equipment';
   inputs: { name; value: number | string | boolean | null; unit; source: 'user' | 'default' | 'library' | 'computed' }[];
   equations: string[];                         // plain text, every symbol defined
   correlations: { name; citation }[];          // e.g. the fluids call and Crane TP-410 (2009)
@@ -831,13 +839,13 @@ interface ElementTrace {
 ```
 
 - **Sources.** `user`: entered (a field set to a value other than its default); `default`: a field holding its model default, whether left out or sent with that value, as the frontend sends every field (e.g. pump speed 1, fitting quantity 1, loss model 'crane'); `library`: pipe tables, correlations, CoolProp, standard constants; `computed`: derived from other inputs (ν = μ/ρ).
-- **Units** are SI strings the frontend converts: `m`, `m³/s`, `m/s`, `Pa(g)`, `Pa(a)`, `Pa (difference)`, `kg/m³`, `Pa·s`, `W`; `''` for dimensionless values; others (`m²`, `m²/s`, `m/s²`, `°`, `K`, `US gpm/psi^0.5`) are shown as reported. No trace value is a bare `Pa`.
+- **Units** are SI strings the frontend converts: `m`, `m³/s`, `m/s`, `Pa(g)`, `Pa(a)`, `Pa (difference)`, `kg/m³`, `Pa·s`, `W`; `''` for dimensionless values; others (`m²`, `m²/s`, `m/s²`, `°`, `K`, `US gpm/psi^0.5`, `m³/h/bar^0.5`, `s²/m⁵` for an equipment item's loss coefficient c) are shown as reported. No trace value is a bare `Pa`.
 - **Intermediates restate the results** (same numbers as the result fields) or follow from them by the listed equations (v = Q/A; NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/ρg), so a trace never disagrees with the tables.
 - **Numbering.** Pipes and fittings are numbered from 1, as in the app ("Pipe 2 Reynolds number Re", "Fitting 1 (reducer_sudden) position: between pipes 1 and 2"); so are pump-curve points ("Head curve point 4").
-- **Content per element type.** Pipe connection: per segment material, schedule/NPS or custom, D and ε with their sources, L, A, v, Re, ε/D, f, regime note with the friction formula and its range, h_f; per fitting type, quantity, K with its fluids call and citation (or "user"), reference diameter, h_j; totals and the EGLs at both ends. Reservoir / reference node: boundary head equation and its inputs, outflow, port pressures, p_atm; the statement that no entrance or exit loss is applied at the boundary unless the connection has an entrance or exit fitting (with the web app's defaults at reservoirs: a sharp-edged entrance and an exit), then, per port, the entrance and exit fittings its connection's piping has. Plug: closed-end equations, EGL and pressure. Assigned-flow node: the flow as entered with its sign convention, elevations, the continuity equation at the port with the inflow and its residual (also on an undetermined pressure level), EGL, velocity, velocity head, HGL, static and absolute pressure, and a note that it is not a pressure boundary (§4.11). Tee / wye: loss model, angle, port pipe diameters, pattern, port flows, Q_c, q, β, K per path (Crane or Darby call), v_c, path losses, range / fallback notes. Pump: curve points, fit (PCHIP) and extrapolation, speed and affinity laws, operating point, shutoff head, efficiency and power, NPSHa terms (p_atm and its source, p_vap and its source, z_s, EGL_s, velocity head), NPSHr and margin, status reason, "no viscosity correction applied", the system curve when computed. Valves: resistance as entered (K, Cv, Kv with the ISA conversion) or the Crane default with its call, or the ideal control valve; D_ref; K; both port elevations, the velocities and static pressures at both ports (so Δp follows from the trace); cracking head (active check valves only: a locked valve's law has none); status reason (the user setting, or the EPANET 2.2 rule that holds the state written as the inequality that holds, with its solved values); control valves add the setpoint, H_set with its velocity head, hml, K_eff and Cv_eff. Tee / wye and pump traces give their port elevations and port pressures too; a built-in fluid's temperature (and glycol mass fraction) is an input of every trace that uses its properties.
+- **Content per element type.** Pipe connection: per segment material, schedule/NPS or custom, D and ε with their sources, L, A, v, Re, ε/D, f, regime note with the friction formula and its range, h_f; per fitting type, quantity, K with its fluids call and citation (or "user"), reference diameter, h_j; totals and the EGLs at both ends. Reservoir / reference node: boundary head equation and its inputs, outflow, port pressures, p_atm; the statement that no entrance or exit loss is applied at the boundary unless the connection has an entrance or exit fitting (with the web app's defaults at reservoirs: a sharp-edged entrance and an exit), then, per port, the entrance and exit fittings its connection's piping has. Plug: closed-end equations, EGL and pressure. Assigned-flow node: the flow as entered with its sign convention, elevations, the continuity equation at the port with the inflow and its residual (also on an undetermined pressure level), EGL, velocity, velocity head, HGL, static and absolute pressure, and a note that it is not a pressure boundary (§4.11). Tee / wye: loss model, angle, port pipe diameters, pattern, port flows, Q_c, q, β, K per path (Crane or Darby call), v_c, path losses, range / fallback notes. Pump: curve points, fit (PCHIP) and extrapolation, speed and affinity laws, operating point, shutoff head, efficiency and power, NPSHa terms (p_atm and its source, p_vap and its source, z_s, EGL_s, velocity head), NPSHr and margin, status reason, "no viscosity correction applied", the system curve when computed. Valves: resistance as entered (K, Cv, Kv with the ISA conversion) or the Crane default with its call, or the ideal control valve; D_ref; K; both port elevations, the velocities and static pressures at both ports (so Δp follows from the trace); cracking head (active check valves only: a locked valve's law has none); status reason (the user setting, or the EPANET 2.2 rule that holds the state written as the inequality that holds, with its solved values); control valves add the setpoint, H_set with its velocity head, hml, K_eff and Cv_eff. Equipment (§4.14): the rating as entered (source `user`), the port elevations and the connected pipes' bores; c with its equation (h_r = ΔP_r/(ρ_r g), c = h_r/Q_r²; or K from `Cv_to_K` / `Kv_to_K` at a 1 m bore, c = K/(2gA²), with its equivalent rated point ΔP₁ at Q₁ and ρ_w); Q, Q/Q_r, the velocities and Re in the connected pipes' end segments, the EGLs, the head loss as solved and by the law, ρgh, the density ratio, both static pressures and each term of the static-drop identity; notes on the rated drop's definition, the density ratio in words, the viscosity limit, and reverse or laminar flow with the inequality that set the flag. Tee / wye and pump traces give their port elevations and port pressures too; a built-in fluid's temperature (and glycol mass fraction) is an input of every trace that uses its properties.
 - **No result.** An element in a closed-off section, or every element of a solve that did not converge, keeps its inputs, equations and sources, with a note saying why it has no values. An element in a section with an undetermined pressure level (`UNDETERMINED_PRESSURE`) keeps its flows and head differences, with a note saying why its EGLs and pressures are missing.
 
-**Methods summary** (`MethodsSummary {methodVersion, sections[{title, items, references}], assumptions, libraries}`; `services/solver/methods.py`): sections Network solution (GGA, Todini & Pilati 1988, tolerances, this solve's iterations; assigned-flow nodes, only when the project has one: nodal demands as EPANET's junction demands, the no-steady-state cases), Pipe friction, Minor losses, Branches, Pumps (PCHIP, affinity laws, no viscosity correction, system curves; with assigned-flow nodes, the cut's bounds that count them, Gale 1957), Valves, Fluid properties, Atmosphere and NPSH, Conventions (SI, gauge, EGL vs HGL, datum, flow signs); global assumptions (steady, incompressible, isothermal, single-phase, quiescent boundaries, no entrance or exit loss at a boundary without an entrance or exit fitting and the web app's default fittings at reservoirs, pump integral check, check-valve model, ideal control-valve default); libraries with versions (opensolve-pipe, fluids, CoolProp, numpy, scipy). Written to be pasted into a deliverable.
+**Methods summary** (`MethodsSummary {methodVersion, sections[{title, items, references}], assumptions, libraries}`; `services/solver/methods.py`): sections Network solution (GGA, Todini & Pilati 1988, tolerances, this solve's iterations; assigned-flow nodes, only when the project has one: nodal demands as EPANET's junction demands, the no-steady-state cases), Pipe friction, Minor losses, Branches, Pumps (PCHIP, affinity laws, no viscosity correction, system curves; with assigned-flow nodes, the cut's bounds that count them, Gale 1957), Valves, Equipment (only when the project has equipment: the law and the rated drop's definition, density scaling, the Cv/Kv conversion when an item is rated by one, reverse and laminar flow flagged, the zero-flow Jacobian floor, viscosity not corrected; ISA-75.01.01 and Silverberg & Darby), Fluid properties, Atmosphere and NPSH, Conventions (SI, gauge, EGL vs HGL, datum, flow signs); global assumptions (steady, incompressible, isothermal, single-phase, quiescent boundaries, no entrance or exit loss at a boundary without an entrance or exit fitting and the web app's default fittings at reservoirs, pump integral check, check-valve model, ideal control-valve default; with equipment, constant-K losses scaled with flow² and density, viscosity not corrected); libraries with versions (opensolve-pipe, fluids, CoolProp, numpy, scipy). Written to be pasted into a deliverable.
 
 ### 4.11 Assigned Flow Model
 
@@ -877,7 +885,8 @@ interface ComponentOverride {
   kind: 'component';
   componentId: string;
   field: 'status' | 'speed' | 'control.setpoint' | 'setpoint' | 'resistance'
-       | 'liquidLevel' | 'surfacePressure' | 'pressure' | 'flow';
+       | 'liquidLevel' | 'surfacePressure' | 'pressure' | 'flow'
+       | 'rating' | 'rating.pressureLoss' | 'rating.flow' | 'rating.density' | 'rating.value';
   value: JsonValue;              // SI, checked as the target field's own type when applied
 }
 
@@ -906,13 +915,14 @@ interface ProjectOverride {
 | `Pump` | `status`, `speed`, `control.setpoint` | `on`/`off`; a fraction (with flow control, the maximum, above `minSpeed`); m³/s (only on a pump with flow control) |
 | `IsolationValve`, `CheckValve` | `status`, `resistance` | the type's status literal; a `FlowCoefficient` or null (the cited default) |
 | `ControlValve` | `status`, `resistance`, `setpoint` | as above; Pa(g) for a PRV or PSV, m³/s for an FCV |
+| `Equipment` | `rating`; `rating.pressureLoss`, `rating.flow`, `rating.density` (held by a `RatedPoint`); `rating.value` (held by a `RatedFlowCoefficient`) | a whole `EquipmentRating` (§4.14, either kind); Pa, a difference (trace unit `Pa (difference)`); m³/s; kg/m³; the Cv or Kv as entered (labelled by the item's kind) |
 | `Plug`, `TeeBranch`, `WyeBranch` | none | |
 | `PipeDefinition` | `spec`, `length` | `{materialId, schedule?, nominalSize?, innerDiameter?, roughness?}`, which replaces all five keys (a spec without `innerDiameter` drops a bore override); m |
 | `Project` | `fluid`, `fluid.temperature` | a whole `FluidDefinition`; K, for a built-in fluid only |
 
-- **Rules on every request** (400, by index only): `kind` and `field` from the lists above, `pipeIndex` and the list lengths within their bounds, no two overrides of one value of one target, no override of a value together with a part of it (`fluid` with `fluid.temperature`), and unique scenario ids. Only the requested scenario's values are checked, when it is applied: a scenario with a bad value never blocks the base or another scenario.
+- **Rules on every request** (400, by index only): `kind` and `field` from the lists above, `pipeIndex` and the list lengths within their bounds, no two overrides of one value of one target, no override of a value together with a part of it (`fluid` with `fluid.temperature`, an equipment item's `rating` with `rating.flow`), and unique scenario ids. Only the requested scenario's values are checked, when it is applied: a scenario with a bad value never blocks the base or another scenario.
 - **Applied** (TSD §5.7): the base's JSON with each value written at its target and `scenarios` dropped, validated as a project. Its solve is the solve of that project edited by hand, bit for bit.
-- **Ignored, not lost.** An override whose component, connection or pipe is not in the project is `orphaned`; one whose target has no such value (a status on a reservoir, `control.setpoint` on a pump without flow control, `fluid.temperature` on a custom fluid) is `not_applicable`. Both are kept in the scenario, reported in the response and the methods summary, and ignored; neither raises a flag.
+- **Ignored, not lost.** An override whose component, connection or pipe is not in the project is `orphaned`; one whose target has no such value (a status on a reservoir, `control.setpoint` on a pump without flow control, `fluid.temperature` on a custom fluid, `rating.flow` on an item rated by a Cv or Kv, `rating.value` on one rated by a point) is `not_applicable`. Both are kept in the scenario, reported in the response and the methods summary, and ignored; neither raises a flag.
 - **Values only.** Overrides never change components, connections, ports or pipe counts (PRD §3.8).
 
 Results (`SolveResponse.scenario`, `SystemCurveResponse.scenario`; null for the base project):
@@ -934,7 +944,7 @@ interface OverrideResult {
 }
 ```
 
-A scenario solve's methods summary (§4.10) starts with a **Scenario** section (the scenario, how many overrides were applied, each applied one with its base value, each ignored one with the reason), and the trace of each component or connection an applied override changes starts with a note naming the scenario and the change. Trace input sources stay `user` and `default`. `METHOD_VERSION` is unchanged: applying a scenario changes inputs, not calculations.
+A scenario solve's methods summary (§4.10) starts with a **Scenario** section (the scenario, how many overrides were applied, each applied one with its base value, each ignored one with the reason), and the trace of each component or connection an applied override changes starts with a note naming the scenario and the change. Trace input sources stay `user` and `default`. A whole rating is written in these texts as "Cv 120" or "50000 Pa at 0.015 m³/s, 999.103 kg/m³", never as a raw object. `METHOD_VERSION` is unchanged: applying a scenario changes inputs, not calculations.
 
 ### 4.13 Goal Seek Model
 
@@ -954,7 +964,8 @@ interface ComponentVariable {    // addressed as a ComponentOverride (§4.12)
   kind: 'component';
   componentId: string;
   field: 'speed' | 'control.setpoint' | 'setpoint' | 'resistance'
-       | 'liquidLevel' | 'surfacePressure' | 'pressure' | 'flow';
+       | 'liquidLevel' | 'surfacePressure' | 'pressure' | 'flow'
+       | 'rating.pressureLoss' | 'rating.flow' | 'rating.density' | 'rating.value';  // equipment, §4.14
   coefficient?: 'K' | 'Cv' | 'Kv';   // resistance only (required there): resistance = {kind, value}
   lower: number;                 // SI, finite, within the field's own bounds; lower < upper
   upper: number;
@@ -966,7 +977,9 @@ interface ProjectVariable { kind: 'project'; field: 'fluid.temperature'; lower: 
 interface Goal {
   quantity: 'port_pressure' | 'link_flow' | 'link_velocity' | 'link_head_loss'
           | 'pump_flow' | 'pump_head' | 'pump_npsh_available' | 'pump_npsh_margin'
-          | 'valve_flow' | 'valve_pressure_drop' | 'boundary_outflow';
+          | 'valve_flow' | 'valve_pressure_drop'
+          | 'equipment_flow' | 'equipment_pressure_loss' | 'equipment_pressure_drop'
+          | 'boundary_outflow';
   elementId: string;             // the component or connection
   portId?: string;               // port_pressure only (required there)
   target: number;                // SI, in the quantity's unit, |target| <= 1e8
@@ -992,7 +1005,8 @@ interface GoalSeekResult {
   timeBudget: number;            // s
   reportedEvaluation: number | null;
   variables: { index; variable; label; unit; scale: 'linear' | 'log'; start;
-               startSource: 'case' | 'clipped' | 'middle'; caseValue; baseValue;
+               startSource: 'case' | 'clipped' | 'middle'; caseValue;
+               baseValue;                        // null where the base holds no such value (an item rated otherwise)
                value: number | null; atBound: 'lower' | 'upper' | null;
                override: Override | null;        // the scenario override that applies `value`
                replacedOverride: number | null }[];  // scenario run: the override whose value it replaced
@@ -1009,10 +1023,49 @@ interface GoalSeekResult {
 }
 ```
 
-- **Variables** are the numeric values of the scenario allow-list (§4.12), derived from it (`GOAL_COMPONENT_FIELDS`, `GOAL_PIPE_FIELDS`, `GOAL_PROJECT_FIELDS`; statuses, a pipe's `spec` and the whole `fluid` are `NOT_VARIABLES`), published as `x-goal-variables`: by target schema, each field's bounding schema, the path to the number, its scale (log for `length` and `resistance`) and a resistance's coefficients. `lower < upper` is published as `x-ordered-fields` on each variable schema. The search starts at the case's value (clipped into the bounds; a resistance the case does not hold in that coefficient starts at the middle of the bounds on the log scale).
-- **Goals** read the field the results tables and Compare show (`nodeResults[c:p].pressure`, `linkResults[id].flow`, the largest \|velocity\| of the connection and its segments, `headLoss`, `pumpResults[id].operatingFlow`, `operatingHead`, `npshAvailable`, `npshMargin`, `valveResults[id].flow`, `pressureDrop`, `boundaryResults[id].outflow`), published as `x-goal-quantities` with each quantity's unit, target schemas, port flag, default-tolerance rule (0.5 % of the target, at least 0.01 m of head, ×ρg of the case fluid for pressures, 10⁻⁶ m³/s for flows, 10⁻³ m/s for velocity) and smallest user tolerance (max(10⁻⁶ \|target\|, 0.1 Pa, 10⁻⁵ m, 10⁻⁹ m³/s or 10⁻⁶ m/s), which never depends on the fluid), and what it needs (`vaporPressure`, `npshrCurve`). An assigned-flow node's outflow is its input and is not a goal. The request's list rules (`sameLength`, `uniqueBy`) are published as `x-goal-seek-rules`.
-- **The values found are never applied by the server.** Each variable's `override`, written into the base at its path or upserted into the scenario by target and field, reproduces `solvedState` bit for bit (apart from `timestamp` and the annotation text). A temperature varied inside a scenario's whole-fluid override is returned as a `fluid` override with that temperature.
+- **Variables** are the numeric values of the scenario allow-list (§4.12), derived from it (`GOAL_COMPONENT_FIELDS`, `GOAL_PIPE_FIELDS`, `GOAL_PROJECT_FIELDS`; statuses, a pipe's `spec`, the whole `fluid` and an equipment item's whole `rating` are `NOT_VARIABLES`), published as `x-goal-variables`: by target schema, each field's bounding schema (for an equipment item's values, the rating member that holds them, `RatedPoint` or `RatedFlowCoefficient`), the path to the number, its scale (log for `length`, `resistance`, `rating.pressureLoss`, `rating.flow` and `rating.value`; `rating.density` is linear) and a resistance's coefficients. A rating value the case's item does not hold (a Cv's `rating.flow`) is 400 `VARIABLE_NOT_APPLICABLE`: a goal seek varies a rating in the kind entered. `lower < upper` is published as `x-ordered-fields` on each variable schema. The search starts at the case's value (clipped into the bounds; a resistance the case does not hold in that coefficient starts at the middle of the bounds on the log scale).
+- **Goals** read the field the results tables and Compare show (`nodeResults[c:p].pressure`, `linkResults[id].flow`, the largest \|velocity\| of the connection and its segments, `headLoss`, `pumpResults[id].operatingFlow`, `operatingHead`, `npshAvailable`, `npshMargin`, `valveResults[id].flow`, `pressureDrop`, `equipmentResults[id].flow`, `pressureLoss`, `pressureDrop`, `boundaryResults[id].outflow`), published as `x-goal-quantities` with each quantity's unit, target schemas, port flag, default-tolerance rule (0.5 % of the target, at least 0.01 m of head, ×ρg of the case fluid for pressures, 10⁻⁶ m³/s for flows, 10⁻³ m/s for velocity) and smallest user tolerance (max(10⁻⁶ \|target\|, 0.1 Pa, 10⁻⁵ m, 10⁻⁹ m³/s or 10⁻⁶ m/s), which never depends on the fluid), and what it needs (`vaporPressure`, `npshrCurve`). An assigned-flow node's outflow is its input and is not a goal. The request's list rules (`sameLength`, `uniqueBy`) are published as `x-goal-seek-rules`.
+- **The values found are never applied by the server.** Each variable's `override`, written into the base at its path or upserted into the scenario by target and field, reproduces `solvedState` bit for bit (apart from `timestamp` and the annotation text). A value varied inside a whole value that the scenario overrides (a temperature inside a whole `fluid`, an equipment item's rated values inside a whole `rating`) is returned as that whole value holding every value found, read from the reported evaluation's case, so the overrides of two values of one rating are equal and any one of them reproduces the state; the Scenario section's mark names the values replaced ("the values found take the place of its rated pressure drop and rated flow").
 - **Traceability.** `solvedState` starts its methods summary with a "Goal seek" section (the case, the method with its constants and citations, each variable and goal with its tolerance's source, why the search stopped, the notes), and each varied element's trace with a note; in a scenario run the Scenario section marks the overrides a variable replaced. No flags are added. `METHOD_VERSION` is unchanged and named.
+
+### 4.14 Equipment Model
+
+One side of a heat exchanger, a coil, a strainer, a filter or any other passive element whose datasheet gives its pressure drop at a flow (PRD §3.1.2; CLAUDE.md D18; design and its as-built notes: `docs/proposals/equipment-pressure-drop.md`). Model: `models/components.py`.
+
+```typescript
+interface Equipment extends BaseComponent {
+  type: 'equipment';
+  rating: EquipmentRating;       // required, no default
+  ports: [ {id: 'inlet'}, {id: 'outlet'} ];
+}
+
+type EquipmentRating = RatedPoint | RatedFlowCoefficient;   // discriminated by `kind`
+
+interface RatedPoint {
+  kind: 'point';
+  pressureLoss: number;          // Pa, a difference, (0, 1e8]: the datasheet drop at `flow`, as the
+                                 // loss of total pressure inlet → outlet, without the ports' static head
+  flow: number;                  // m³/s, (0, 100], inlet → outlet (a mass-flow rating ṁ_r: ṁ_r/ρ_r)
+  density: number;               // kg/m³, (0, 3e4]: the fluid the datasheet is rated with
+}
+
+interface RatedFlowCoefficient { // FlowCoefficient (§4.9) narrowed to Cv and Kv, stored as entered
+  kind: 'Cv' | 'Kv';             // Cv: US gpm of water at 1 psi; Kv: m³/h of water at 1 bar
+  value: number;                 // (0, 1e7]
+}
+```
+
+The element has no status and no type field: it always passes flow, valves isolate or bypass it, and its name says what it is. Every field is required: no source gives a default rating, and a water default left in place would silently mis-scale a coil or an exchanger rated on another fluid. A K alone is not a kind, since it means nothing without the bore it refers to (Later). An unknown kind, a K included, is 400 `VALIDATION_ERROR` with the type `invalid_rating`, which never quotes it; each value's only rule bounds that value, so the union needs no `x-` extension (the schema's `oneOf` and each member's `kind`, a `const` or an `enum`, state it).
+
+- **Law.** h = EGL(inlet) − EGL(outlet) = c·Q\|Q\|. A rated point: c = ΔP_r/(ρ_r g Q_r²), so h(Q_r) = ΔP_r/(ρ_r g) and the pressure loss at the solved density ρ is ΔP_r (ρ/ρ_r)(Q/Q_r)². A Cv or Kv is a rated point on water by definition (1 psi at Cv US gpm, 1 bar at Kv m³/h): c = K/(2gA²) with the valves' conversion (§4.9; fluids `Cv_to_K` / `Kv_to_K`), the same on every bore, so no pipe diameter is needed, and its pressure loss is (ρ/ρ_w) × 1 psi × (Q/Cv gpm)² with ρ_w = 999.297 kg/m³. This is ISA-75.01.01 eq. (1) at constant C, the high-Re limit of Darby's 3-K method.
+- **The rated drop is a loss, not a static difference.** It is the dissipative loss (friction and form) of total pressure between the ports, without the static head of their elevation difference. The ports keep their real elevations and each port's static pressure follows D7 with the velocity in its connected pipe, so the static drop reported is ρgh + ρg(z_out − z_in) + ρ(v_out² − v_in²)/2; resizing a pipe beside the element never changes its loss. A datasheet's static drop S between nozzles at different elevations or bores is entered as S − ρ_r g (z_out − z_in) − ρ_r (v_out² − v_in²)/2.
+- **Results** (`SolvedState.equipmentResults`, §4.10): flow, `flowRatio` (null for a Cv or Kv, which has no rated flow), `headLoss`, `pressureLoss` (ρg × head loss: the rating scaled to the solved flow and density, the datasheet comparison), `pressureDrop` (static, inlet minus outlet, what gauges read) and the `rating` used, after any scenario or goal-seek trial. Each port has its `NodeResult`. A closed-off element has no result; one in a floating section has its flow and differences.
+- **Flags.** `CORRELATION_OUT_OF_RANGE` (warning) when the flow runs outlet → inlet (the symmetric law is used; no datasheet rates reverse flow; the message has no numbers), and when the end segment of a connected pipe is laminar, 0 < Re < 2000, the lower of the two (as a valve's Cv or Kv). Viscosity is not corrected, and there is no flag for a flow far from the rating.
+- **Topology.** `EQUIPMENT_RATING_OUT_OF_RANGE` (422, listed after the other issues, the element in `componentIds` and its rating quoted) when c is not a finite positive double, or its computation divides by zero or overflows inside the bounds (ρ_r = Q_r = 10⁻³⁰⁰; a Cv of 10⁻¹⁷⁰).
+- **Scenarios and goal seek** (§4.12, §4.13): the whole `rating` and its four values are overridable; a value the item's kind does not hold is `not_applicable`; the four values are goal-seek variables and the whole rating is not; three goals read `flow`, `pressureLoss` and `pressureDrop`.
+- **Trace and methods** (§4.10): a trace per element; an "Equipment" methods section and one assumption only when the project has equipment. `METHOD_VERSION` 1.3.0 adds the element; projects without equipment are unchanged in every value (TSD §10.4).
+
+Solver mapping: TSD §4.9.
 
 ---
 
@@ -1025,7 +1078,7 @@ All request and response values are SI; JSON is camelCase. The OpenAPI schema (`
 | Extension | On | Meaning |
 |-----------|----|---------|
 | `x-port-ids` | each component schema with fixed ports | The exact port ids of the type |
-| `x-port-roles` | the same | Each named port's role (`inlet` / `outlet`) in the type's forward flow direction (pump suction → discharge, valve inlet → outlet, a branch's dividing pattern); it orients new connections, the solver decides the flow |
+| `x-port-roles` | the same | Each named port's role (`inlet` / `outlet`) in the type's forward flow direction (pump suction → discharge, valve and equipment inlet → outlet, a branch's dividing pattern); it orients new connections, the solver decides the flow |
 | `x-port-count` | `IdealReferenceNode` | The exact number of ports where the ids are free |
 | `x-required-parameters` | `Fitting` | Fields each fitting type needs (`bend`: `angle`, `radiusRatio`; …) |
 | `x-reducer-types`, `x-entrance-types`, `x-exit-types` | `Fitting` | Fittings between two pipes; fittings for the loss where flow leaves or enters a body of liquid |
@@ -1105,7 +1158,7 @@ Request: { "kind": "builtin", "fluidId": "water", "temperature": 293.15 }
 
 #### 5.1.4 Export Results (browser, CLAUDE.md D17)
 
-There is no export endpoint: the design's `POST /api/v1/export` is dropped, not deferred. The results workbook, the CSV files and the pump chart image are made in the browser from the solve responses (and system curves and goal seek) the page already holds (§3.1.3, *Export*), so the project and its results are not sent a second time only to be formatted, and the server gains no CPU, worker or 503 path. The export makes no request; the methods version and library versions of each solve come from its response, and the calculation server's source from the page's configuration (`<API>/source`).
+There is no export endpoint: the design's `POST /api/v1/export` is dropped, not deferred. The results workbook, the CSV files and the pump chart image are made in the browser from the solve responses (and system curves and goal seek) the page already holds (§3.1.3, *Export*), so the project and its results are not sent a second time only to be formatted, and the server gains no CPU, worker or 503 path. The export makes no request; the methods version and library versions of each solve come from its response, and the calculation server's source from the page's configuration (`<API>/source`). A case with equipment gets an Equipment table after Valves, holding each item's results and the rating its solve used (`EquipmentResult.rating`, so a scenario's rating is read without applying the scenario), and About lines on its sign, its flow ratio and the Cv or Kv as entered; a file without equipment is unchanged.
 
 ### 5.2 URL State Encoding
 

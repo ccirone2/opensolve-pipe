@@ -25,7 +25,12 @@ boundary without a fitting (D10):
 - water: CoolProp ``PropsSI`` at 101325 Pa (``derivations.water_properties``); NPSHa =
   EGL_s − z_s + (p_atm − p_vap)/(ρg), p_atm = ATMOSPHERE_1976(0).P (``derivations_pumps``);
 - static pressure at a port p = ρg(H − z − v²/2g), v in the connected pipe; v = 0 at a
-  reservoir's or reference node's port.
+  reservoir's or reference node's port;
+- equipment (docs/proposals/equipment-pressure-drop.md §5.2, §7.3): EGL_in − EGL_out = c Q|Q|,
+  c = ΔP_ref/(ρ_ref g Q_ref²) from the rating (``element_laws.equipment_coefficient``; a Cv or Kv
+  the rated point 1 psi at Cv US gpm or 1 bar at Kv m³/h of the suite's reference water); its
+  goals read the flow, the loss ρ g (EGL_in − EGL_out) and the static drop p_in − p_out
+  (``derivations_equipment``).
 
 The request follows design §2.1-§2.3: a variable ``{kind, componentId | connectionId +
 pipeIndex, field, coefficient?, lower, upper}`` and a goal ``{quantity, elementId, portId?,
@@ -52,8 +57,10 @@ from opensolve_pipe.models.fluids import BuiltinFluid, CustomFluid
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.pumps import PumpCurve
 from tests.reference import derivations as dv
+from tests.reference import derivations_equipment as de
 from tests.reference import element_laws as el
 from tests.reference.case_format import (
+    FrictionMethod,
     assigned_flow,
     builtin_water,
     check_valve,
@@ -69,6 +76,8 @@ from tests.reference.case_format import (
     make_project,
     pump,
     pump_curve,
+    rated_coefficient,
+    rated_point,
     reference_node,
     reservoir,
 )
@@ -99,6 +108,9 @@ Quantity = Literal[
     "pump_npsh_margin",
     "valve_flow",
     "valve_pressure_drop",
+    "equipment_flow",
+    "equipment_pressure_loss",
+    "equipment_pressure_drop",
     "boundary_outflow",
 ]
 Dimension = Literal["pressure", "head", "flow", "velocity"]
@@ -114,8 +126,12 @@ DIMENSION: dict[str, Dimension] = {
     "valve_flow": "flow",
     "boundary_outflow": "flow",
     "link_velocity": "velocity",
+    "equipment_flow": "flow",
+    "equipment_pressure_loss": "pressure",
+    "equipment_pressure_drop": "pressure",
 }
-"""What each goal quantity measures (design §2.2's unit column)."""
+"""What each goal quantity measures (design §2.2's unit column; the equipment goals' units are
+equipment-pressure-drop.md §5.2's: m³/s and Pa (difference))."""
 
 # --- Tolerances, as design §2.2 and decision 9 state them --------------------------------------
 
@@ -1772,6 +1788,387 @@ def goal_seek_controlled_pump_crossing() -> GoalSeekCase:
     )
 
 
+# --- G25-G32: equipment (docs/proposals/equipment-pressure-drop.md §7.3) -----------------------
+#
+# Every case's network is a closed-form equipment case (``derivations_equipment``) and its
+# inverse the closed form §7.3 states. On the equipment line (EPANET water, Swamee-Jain, H₁ 12 m,
+# H₂ 1 m) the flow Q* through E1 leaves the element the head h_E = H₁ − H₂ − h_lines(Q*), so the
+# rating's coefficient there is c* = h_E/Q*², and each rating value that gives c* follows from
+# c = ΔP_r/(ρ_r g Q_r²) with the other two held. A Cv or Kv gives c = c₁/value², c₁ = c of the
+# coefficient 1 from its definition with the suite's reference water (``element_laws``):
+# c₁ = 1.76758281860e8 s²/m⁵ for a Cv and 1.32248132749e8 for a Kv, which is 3.1e-10 above
+# fluids' constants 1.76758281804e8 and 1.32248132708e8 (the solver's conversion, proposal
+# §3.1). The inverse is 1.56e-10 higher with the suite's c₁: G30's Cv* = 81.0723929515 here
+# against 81.0723929388 with fluids', G31's Kv* = 84.1004736267 against 84.1004736136 (the
+# proposal prints both), far inside every goal tolerance. The Swamee-Jain cases differ from the
+# proposal's prints, through h_line: the rating inverses (G25-G27, G32's values) by up to 3e-7
+# (relative; G32's loss target by 3.3e-7) and the level inverses (G28, G29) by up to 5e-6 (about
+# 5.4e-6 m): the suite's Swamee-Jain is fluids' (6.97/Re)^0.9 form, the solver's EPANET's
+# 5.74/Re^0.9 (CLAUDE.md D7).
+
+EQUIPMENT_FLOW_TARGET = 0.016
+"""m³/s: G25-G27, G30 and G32's flow through E1 (test input)."""
+EQUIPMENT_LINE_NU = de.NU_EPANET
+"""m²/s: the equipment line's fluid (EPANET water)."""
+
+
+def _equipment_line_head(q: float) -> float:
+    """h_E = H₁ − H₂ − h_L1(Q) − h_L2(Q) on the equipment line (Swamee-Jain): the head the
+    element takes at flow Q."""
+    series = de.line_series(de.e1_rating())
+    method: FrictionMethod = "swamee_jain"
+    return (
+        series.h1
+        - series.h2
+        - series.inlet.head_loss(q, EQUIPMENT_LINE_NU, method)
+        - series.outlet.head_loss(q, EQUIPMENT_LINE_NU, method)
+    )
+
+
+def _equipment_line_flow(rating: el.EquipmentRating) -> float:
+    return de.line_series(rating).flow(EQUIPMENT_LINE_NU, "swamee_jain")
+
+
+def _equipment_line_project() -> dict[str, Any]:
+    return _json(de.equipment_line().project)
+
+
+def _rated(values: dict[str, float]) -> el.EquipmentRating:
+    return rated_point(values["pressureLoss"], values["flow"], values["density"])
+
+
+E1_VALUES = {
+    "pressureLoss": de.E1_POINT[0],
+    "flow": de.E1_POINT[1],
+    "density": de.rating_water_density(),
+}
+"""E1's rated point as the case holds it (proposal §7.1)."""
+RATED_BOUNDS = {
+    "pressureLoss": (5.0e3, 5.0e5),
+    "flow": (1.5e-3, 0.15),
+    "density": (500.0, 2000.0),
+}
+"""The bounds of each rating variable: the web's default ranges about E1's values, [v/10, 10v]
+for the rated drop and flow, about [v/2, 2v] for the density (proposal §6.4; test inputs)."""
+RATED_CHECKS: dict[str, VariableCheck] = {
+    "pressureLoss": "pressure",
+    "flow": "flow",
+    "density": "forward",
+}
+"""A rated pressure drop is judged as a pressure (D6), a rated flow as a flow; a rated density
+has no D6 quantity, so the forward model at the value found is judged."""
+
+
+def _rated_inverse(part: str) -> float:
+    """The value of E1's rating part that passes EQUIPMENT_FLOW_TARGET (proposal §7.3): c* =
+    h_E/Q*², then ΔP_r* = ρ_r g c* Q_r², Q_r* = √(ΔP_r/(ρ_r g c*)), ρ_r* = ΔP_r/(g c* Q_r²)."""
+    q = EQUIPMENT_FLOW_TARGET
+    c = _equipment_line_head(q) / (q * q)
+    dp, q_r, rho_r = (E1_VALUES[k] for k in ("pressureLoss", "flow", "density"))
+    if part == "pressureLoss":
+        return rho_r * G * c * q_r * q_r
+    if part == "flow":
+        return math.sqrt(dp / (rho_r * G * c))
+    return dp / (G * c * q_r * q_r)
+
+
+def _goal_seek_rated(part: str, label: str) -> GoalSeekCase:
+    """E1's rating.{part} → E1's flow 16 L/s on the equipment line (§7.3)."""
+    name = f"goal_seek_equipment_rated_{label}"
+    inverse = _rated_inverse(part)
+    lower, upper = RATED_BOUNDS[part]
+    if not lower < inverse < upper:
+        raise ValueError(f"{name}: the inverse {inverse} is outside its bounds")
+
+    def forward(x: Sequence[float]) -> list[float]:
+        return [_equipment_line_flow(_rated({**E1_VALUES, part: x[0]}))]
+
+    return GoalSeekCase(
+        name=name,
+        description=(
+            f"The rated {label.replace('_', ' ')} of an equipment item that passes 16 L/s on "
+            "the equipment line (one value of a rated point; the other two held)."
+        ),
+        source=_source(
+            name,
+            "c* = h_E/Q*^2, h_E = H1 - H2 - h_lines(Q*) (Darcy-Weisbach + Swamee-Jain), then "
+            "the rating value from c = dP_r/(rho_r g Q_r^2)",
+        ),
+        project=_equipment_line_project(),
+        variables=(component_variable("E1", f"rating.{part}", lower, upper),),
+        goals=(goal("equipment_flow", "E1", EQUIPMENT_FLOW_TARGET),),
+        forward=forward,
+        inverse=(inverse,),
+        checks=(RATED_CHECKS[part],),
+        density=de.EPANET_DENSITY,
+        data={"c": _equipment_line_head(EQUIPMENT_FLOW_TARGET) / EQUIPMENT_FLOW_TARGET**2},
+    )
+
+
+def goal_seek_equipment_rated_pressure_loss() -> GoalSeekCase:
+    """G25: ΔP_r* = ρ_r g c* Q_r² (proposal §7.3: 64,383.9587021 Pa)."""
+    return _goal_seek_rated("pressureLoss", "pressure_loss")
+
+
+def goal_seek_equipment_rated_flow() -> GoalSeekCase:
+    """G26: Q_r* = √(ΔP_r/(ρ_r g c*)) (proposal §7.3: 0.0132186597 m³/s)."""
+    return _goal_seek_rated("flow", "flow")
+
+
+def goal_seek_equipment_rated_density() -> GoalSeekCase:
+    """G27: ρ_r* = ΔP_r/(g c* Q_r²) (proposal §7.3: 775.8940593 kg/m³)."""
+    return _goal_seek_rated("density", "density")
+
+
+PORTS_LEVEL_BOUNDS = (0.0, 10.0)
+"""m: R1's level on equipment_ports_differ (base 5 m; test input)."""
+
+
+def _ports_state(level: float) -> tuple[float, dict[str, float | None]]:
+    """(Q, E1's result) on equipment_ports_differ with R1's level ``level`` (brentq)."""
+    series = de.ports_series(level)
+    q = series.flow(EQUIPMENT_LINE_NU, "swamee_jain")
+    at = series.ports(q, EQUIPMENT_LINE_NU, "swamee_jain")
+    return q, de.equipment_result(series.element, at, de.EPANET_DENSITY)
+
+
+def _ports_level(q: float) -> float:
+    """R1's level that passes Q: H₂ + h_L1(Q) + c Q² + h_L2(Q) − z_R1."""
+    series = de.ports_series()
+    return series.h2 + series.loss(q, EQUIPMENT_LINE_NU, "swamee_jain") - series.z1
+
+
+def _goal_seek_ports(quantity: Literal["pressure_drop", "pressure_loss"]) -> GoalSeekCase:
+    """R1's level → E1's static pressure drop 130 kPa (G28), or its pressure loss 100 kPa (G29),
+    on equipment_ports_differ (outlet port 2 m up, a 77.9 mm outlet pipe after 102.3 mm). With
+    c from E1's rating, ρ = 1000 kg/m³ and A_in, A_out the pipes' areas:
+
+        drop(Q) = Q² [ρ g c + ρ (1/A_out² − 1/A_in²)/2] + ρ g (z_out − z_in)
+        loss(Q) = ρ g c Q² = ΔP_r (ρ/ρ_r)(Q/Q_r)²
+
+    so Q* in closed form from the target and the level = H₂ + h_line(Q*) − z_R1 (proposal §7.3:
+    1.91286791 m and 1.06637058 m). A reader of the wrong field misses either by 20 %."""
+    rho = de.EPANET_DENSITY
+    e1 = de.ports_series().element
+    c = el.equipment_coefficient(e1.rating)
+    a_in, a_out = de.PORTS_IN.area, de.PORTS_OUT.area
+    if quantity == "pressure_drop":
+        target = 130_000.0
+        dz = de.PORTS_OUTLET_Z - de.PORTS_Z
+        q = math.sqrt(
+            (target - rho * G * dz) / (rho * G * c + rho * (1.0 / a_out**2 - 1.0 / a_in**2) / 2.0)
+        )
+        field_name = "pressureDrop"
+    else:
+        target = 100_000.0
+        q = math.sqrt(target / (rho * G * c))
+        field_name = "pressureLoss"
+    level = _ports_level(q)
+    name = f"goal_seek_equipment_{quantity}_level"
+
+    def forward(x: Sequence[float]) -> list[float]:
+        value = _ports_state(x[0])[1][field_name]
+        assert value is not None
+        return [value]
+
+    if not PORTS_LEVEL_BOUNDS[0] < level < PORTS_LEVEL_BOUNDS[1]:
+        raise ValueError(f"{name}: the level {level} is outside its bounds")
+    other = "pressureLoss" if field_name == "pressureDrop" else "pressureDrop"
+    other_value = _ports_state(level)[1][other]
+    assert other_value is not None
+    if not abs(other_value - target) > 0.2 * target:
+        raise ValueError(f"{name}: the two goals must differ by more than 20 %")
+    return GoalSeekCase(
+        name=name,
+        description=(
+            f"R1's level that gives an equipment item a static pressure "
+            f"{'drop' if quantity == 'pressure_drop' else 'loss'} target, its outlet port 2 m "
+            "above its inlet and its outlet pipe smaller: the static drop holds the elevation "
+            "and velocity-head terms, the loss does not."
+        ),
+        source=_source(
+            name,
+            "drop(Q) = Q^2 [rho g c + rho (1/A_out^2 - 1/A_in^2)/2] + rho g dz; loss(Q) = rho g "
+            "c Q^2; level = H2 + h_line(Q*) - z1, Darcy-Weisbach + Swamee-Jain",
+        ),
+        project=_json(de.equipment_ports_differ().project),
+        variables=(component_variable("R1", "liquidLevel", *PORTS_LEVEL_BOUNDS),),
+        goals=(goal(f"equipment_{quantity}", "E1", target),),
+        forward=forward,
+        inverse=(level,),
+        checks=("level",),
+        density=rho,
+        data={"flow": q, "otherValue": other_value},
+    )
+
+
+def goal_seek_equipment_pressure_drop_level() -> GoalSeekCase:
+    """G28: R1's level → E1's static pressure drop 130 kPa."""
+    return _goal_seek_ports("pressure_drop")
+
+
+def goal_seek_equipment_pressure_loss_level() -> GoalSeekCase:
+    """G29: R1's level → E1's pressure loss 100 kPa."""
+    return _goal_seek_ports("pressure_loss")
+
+
+def coefficient_c1(kind: Literal["Cv", "Kv"]) -> float:
+    """c₁ = c · value², s²/m⁵ (c ∝ 1/value²): the suite's, from the definition with its
+    reference water (``element_laws.equipment_coefficient`` of the coefficient 1)."""
+    return el.equipment_coefficient(rated_coefficient(kind, 1.0))
+
+
+def goal_seek_equipment_cv() -> GoalSeekCase:
+    """G30: E1's Cv → 16 L/s on equipment_cv_glycol (30 % MEG at 5 °C, Colebrook):
+    h_E = H₁ − H₂ − h_lines(Q*), Cv* = Q* √(c₁/h_E) (proposal §7.3: 81.0723929515 with the
+    suite's c₁)."""
+    case = de.equipment_cv_glycol()
+    rho, mu, _ = dv.fluid_state(case.project.fluid)
+    nu = mu / rho
+    q = EQUIPMENT_FLOW_TARGET
+    series = de.line_series(rated_coefficient("Cv", de.E1_CV))
+    h_e = (
+        series.h1
+        - series.h2
+        - series.inlet.head_loss(q, nu, "colebrook")
+        - series.outlet.head_loss(q, nu, "colebrook")
+    )
+    cv = q * math.sqrt(coefficient_c1("Cv") / h_e)
+    bounds = (9.0, 900.0)
+    name = "goal_seek_equipment_cv"
+
+    def forward(x: Sequence[float]) -> list[float]:
+        return [de.line_series(rated_coefficient("Cv", x[0])).flow(nu, "colebrook")]
+
+    return GoalSeekCase(
+        name=name,
+        description=(
+            "The Cv of an equipment item that passes 16 L/s of 30 % ethylene glycol on the "
+            "equipment line (a Cv rating is a rated point on water: c = c1/Cv^2)."
+        ),
+        source=_source(
+            name,
+            "h_E = H1 - H2 - h_lines(Q*) (Darcy-Weisbach + Colebrook, CoolProp MEG); Cv* = Q* "
+            "sqrt(c1/h_E), c1 = 1 psi/(rho_w g (1 US gpm)^2)",
+        ),
+        project=_json(case.project),
+        variables=(component_variable("E1", "rating.value", *bounds),),
+        goals=(goal("equipment_flow", "E1", q),),
+        forward=forward,
+        inverse=(cv,),
+        checks=("forward",),
+        density=rho,
+        data={"c1": coefficient_c1("Cv")},
+    )
+
+
+def goal_seek_equipment_kv() -> GoalSeekCase:
+    """G31: E1's Kv → its pressure loss 80 kPa on equipment_kv_definition (reference water,
+    Colebrook): h* = Δp*/(ρg), Q* from H₁ − H₂ − h* = h_lines(Q*) (brentq), Kv* = Q* √(c₁/h*)
+    (proposal §7.3: 84.1004736267 with the suite's c₁)."""
+    case = de.equipment_kv_definition()
+    project = case.project
+    rho, mu, _ = dv.fluid_state(project.fluid)
+    nu = mu / rho
+    level1 = de.kv_definition_level()
+    series = de.kv_series(rated_coefficient("Kv", de.E1_KV), level1)
+    target = 80_000.0
+    h_star = target / (rho * G)
+    q = dv.solve_flow(
+        lambda q: series.inlet.head_loss(q, nu) + series.outlet.head_loss(q, nu),
+        series.h1 - series.h2 - h_star,
+    )
+    kv = q * math.sqrt(coefficient_c1("Kv") / h_star)
+    bounds = (6.0, 600.0)
+    name = "goal_seek_equipment_kv"
+
+    def forward(x: Sequence[float]) -> list[float]:
+        trial = de.kv_series(rated_coefficient("Kv", x[0]), level1)
+        qx = trial.flow(nu, "colebrook")
+        return [rho * G * el.equipment_head(trial.element.rating, qx)]
+
+    return GoalSeekCase(
+        name=name,
+        description=(
+            "The Kv of an equipment item whose pressure loss is 80 kPa on the Kv definition "
+            "line (a Kv rating is a rated point on water: c = c1/Kv^2)."
+        ),
+        source=_source(
+            name,
+            "h* = dp*/(rho g); Q* from H1 - H2 - h* = h_lines(Q*) (Darcy-Weisbach + Colebrook, "
+            "brentq); Kv* = Q* sqrt(c1/h*), c1 = 1 bar/(rho_w g (1 m3/h)^2)",
+        ),
+        project=_json(project),
+        variables=(component_variable("E1", "rating.value", *bounds),),
+        goals=(goal("equipment_pressure_loss", "E1", target),),
+        forward=forward,
+        inverse=(kv,),
+        checks=("forward",),
+        density=rho,
+        data={"c1": coefficient_c1("Kv"), "flow": q},
+    )
+
+
+G32_SCENARIO_LOSS = 60_000.0
+"""Pa: S1's whole rating of E1 is its own at this rated pressure drop (test input)."""
+
+
+def goal_seek_equipment_scenario_parts() -> GoalSeekCase:
+    """G32 (proposal §5.2, §7.3): the equipment line on scenario S1, whose one override is E1's
+    whole rating (its own at 60 kPa); variables rating.pressureLoss and rating.flow, goals E1's
+    flow 16 L/s and its pressure loss at that flow, ρ g h_E = ρ g c* Q*² (73,320.43 Pa), so the
+    targets agree. The two variables act together through c alone (decision 15): every pair
+    with ΔP_r/Q_r² = ρ_r g c* meets both, so the values found need not be unique; ``inverse``
+    is the one at Q_r = 15 L/s. Not in MET_CASES: the test checks what the design fixes
+    whatever the values found (both overrides one whole rating holding both found values)."""
+    q = EQUIPMENT_FLOW_TARGET
+    c = _equipment_line_head(q) / (q * q)
+    loss = de.EPANET_DENSITY * G * c * q * q
+    project = _equipment_line_project()
+    whole = {**E1_VALUES, "kind": "point", "pressureLoss": G32_SCENARIO_LOSS}
+    project["scenarios"] = [
+        {
+            "id": "S1",
+            "name": "Another datasheet",
+            "overrides": [
+                {"kind": "component", "componentId": "E1", "field": "rating", "value": whole}
+            ],
+        }
+    ]
+
+    def forward(x: Sequence[float]) -> list[float]:
+        rating = _rated({**E1_VALUES, "pressureLoss": x[0], "flow": x[1]})
+        qx = _equipment_line_flow(rating)
+        return [qx, de.EPANET_DENSITY * G * el.equipment_head(rating, qx)]
+
+    name = "goal_seek_equipment_scenario_parts"
+    return GoalSeekCase(
+        name=name,
+        description=(
+            "Two values of one rating that a scenario sets whole, varied together: both "
+            "variables' overrides are the scenario's whole rating holding both values found."
+        ),
+        source=_source(name, "c* = h_E/Q*^2 on the equipment line; dP_r/Q_r^2 = rho_r g c*"),
+        project=project,
+        variables=(
+            component_variable("E1", "rating.pressureLoss", *RATED_BOUNDS["pressureLoss"]),
+            component_variable("E1", "rating.flow", *RATED_BOUNDS["flow"]),
+        ),
+        goals=(
+            goal("equipment_flow", "E1", q),
+            goal("equipment_pressure_loss", "E1", loss),
+        ),
+        forward=forward,
+        inverse=(_rated_inverse("pressureLoss"), E1_VALUES["flow"]),
+        checks=("forward", "forward"),
+        density=de.EPANET_DENSITY,
+        tight=False,
+        scenario_id="S1",
+        start=(G32_SCENARIO_LOSS, E1_VALUES["flow"]),
+        data={"whole": whole, "replacedOverride": 0},
+    )
+
+
 MET_CASES: tuple[Callable[[], GoalSeekCase], ...] = (
     goal_seek_level_turbulent,
     goal_seek_level_laminar,
@@ -1795,10 +2192,18 @@ MET_CASES: tuple[Callable[[], GoalSeekCase], ...] = (
     goal_seek_level_npsh_available,
     goal_seek_valve_k_pressure_drop,
     goal_seek_pump_speed_head_loss,
+    goal_seek_equipment_rated_pressure_loss,
+    goal_seek_equipment_rated_flow,
+    goal_seek_equipment_rated_density,
+    goal_seek_equipment_pressure_drop_level,
+    goal_seek_equipment_pressure_loss_level,
+    goal_seek_equipment_cv,
+    goal_seek_equipment_kv,
 )
 """Cases whose targets the closed form reaches inside the bounds (G1-G14, G17, G19, and
 G20-G24, which give the variables and quantities §7.2 leaves without a case one each: D6, "a new
-variable field or goal quantity ships with a reference case")."""
+variable field or goal quantity ships with a reference case"; G25-G31, the equipment variables
+and goals, equipment-pressure-drop.md §7.3)."""
 LABELS = {
     "goal_seek_level_turbulent": "G1",
     "goal_seek_level_laminar": "G2",
@@ -1825,5 +2230,13 @@ LABELS = {
     "goal_seek_level_npsh_available": "G22",
     "goal_seek_valve_k_pressure_drop": "G23",
     "goal_seek_pump_speed_head_loss": "G24",
+    "goal_seek_equipment_rated_pressure_loss": "G25",
+    "goal_seek_equipment_rated_flow": "G26",
+    "goal_seek_equipment_rated_density": "G27",
+    "goal_seek_equipment_pressure_drop_level": "G28",
+    "goal_seek_equipment_pressure_loss_level": "G29",
+    "goal_seek_equipment_cv": "G30",
+    "goal_seek_equipment_kv": "G31",
+    "goal_seek_equipment_scenario_parts": "G32",
 }
 """Design §7.2's numbers (G10b, G20-G24 are this module's additions)."""

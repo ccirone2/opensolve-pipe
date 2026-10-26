@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import openapi from '../api/openapi.json';
 import type { Component, Fitting, FittingType, Pump } from '../api/types';
-import { projectWith } from '../testing/helpers';
+import { enteredFor, projectWith } from '../testing/helpers';
 import { DEFAULT_ENTRANCE, DEFAULT_EXIT, hasReservoirLoss } from './edit';
 import { COMPONENT_KINDS, componentKind, createComponent, createEmptyProject } from './factory';
 import { portRole } from './graph';
@@ -55,11 +55,12 @@ const SCHEMAS = openapi.components.schemas as unknown as Record<string, JsonObje
 const extension = (schema: string, key: string) => SCHEMAS[schema]![key];
 
 /**
- * One component of every kind the app creates, with its schema. An assigned-flow node's flow has
- * no default: as the user does where it is added, it is given one (0.004 m³/s, made-up input).
+ * One component of every kind the app creates, with its schema. An assigned-flow node's flow and
+ * an equipment item's rating have no default: as the user does where it is added, they are given
+ * (testing/helpers.ts enteredFor, made-up inputs).
  */
 const COMPONENTS = COMPONENT_KINDS.map((kind) =>
-	createComponent(kind, createEmptyProject(), { flow: 0.004 })
+	createComponent(kind, createEmptyProject(), enteredFor(kind))
 );
 
 describe('component schemas', () => {

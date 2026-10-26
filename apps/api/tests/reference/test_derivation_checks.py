@@ -816,3 +816,241 @@ def test_drooping_and_steep_curves_have_the_intended_psi() -> None:
     assert dpc.psi_minimum(dpc.curve_drooping(), 0.0, dpc.curve_drooping().points[-1].flow) > 0.0
     steep = dpc.curve_steep_rise()
     assert dpc.psi_minimum(steep, 0.0, steep.points[-1].flow) <= 0.0
+
+
+# --- Equipment (docs/proposals/equipment-pressure-drop.md) ---------------------------------------
+
+
+def _equipment_cases() -> list[Path]:
+    return [
+        p
+        for p in CASES
+        if any(c["type"] == "equipment" for c in read_case(p)["project"]["components"])
+    ]
+
+
+EQUIPMENT_CASES = _equipment_cases()
+
+
+def test_equipment_cases_exist() -> None:
+    """§7.1's closed-form cases (with the density-scaling row as two networks and decision 9's
+    laminar case) and §7.2's three EPANET cases."""
+    assert len(EQUIPMENT_CASES) == 15
+    assert len([p for p in EQUIPMENT_CASES if p.stem.startswith("epanet")]) == 3
+
+
+@pytest.mark.parametrize("d", [0.0127, 0.0525, 0.1023, 0.3048, 1.0, 2.5])
+def test_equipment_coefficient_is_its_k_on_every_bore(d: float) -> None:
+    """c = K/(2gA²) does not depend on the bore (K ∝ A², proposal §3.1): the K route and the
+    rated-point definition agree to round-off for a rated point, a Cv and a Kv."""
+    from tests.reference.case_format import rated_coefficient, rated_point
+
+    for rating in (
+        rated_point(50_000.0, 0.015, 999.1026214671009),
+        rated_coefficient("Cv", 90.0),
+        rated_coefficient("Kv", 60.0),
+        rated_coefficient("Cv", 1.0e-3),
+        rated_coefficient("Kv", 1.0e7),
+    ):
+        via_k = el.equipment_k(rating, d) / (2.0 * dv.G * dv.area(d) ** 2)
+        assert via_k == pytest.approx(el.equipment_coefficient(rating), rel=2.0e-15), rating
+
+
+@pytest.mark.parametrize("value", [1.0e-3, 0.5, 60.0, 90.0, 1.0e4, 1.0e7])
+def test_equipment_cv_kv_agree_with_fluids_and_the_constants(value: float) -> None:
+    """A Cv or Kv rating is a rated point on water (proposal §3.1): the suite's c (CoolProp's
+    IAPWS-95 water at 60 °F, 703572 Pa) against fluids.fittings.Cv_to_K / Kv_to_K (the solver's
+    conversion) on a 1 m bore, which differ by 3.1e-10 (fluids' water 101.25π² kg/m³ against
+    CoolProp's); and the closed forms c·Kv² = 1.28e10/(π² g) (fluids) and c·Cv² =
+    (1 psi)/(ρ_w g (1 US gpm)²) (the definition)."""
+    from tests.reference.case_format import rated_coefficient
+
+    for kind, convert in (("Cv", fluids.fittings.Cv_to_K), ("Kv", fluids.fittings.Kv_to_K)):
+        rating = rated_coefficient(kind, value)  # type: ignore[arg-type]
+        ours = el.equipment_coefficient(rating)
+        theirs = float(convert(value, 1.0)) / (2.0 * dv.G * dv.area(1.0) ** 2)
+        assert ours == pytest.approx(theirs, rel=3.2e-10), kind
+        assert abs(ours / theirs - 1.0) > 2.0e-10, "the suite's water is its own, not fluids'"
+    kv = el.equipment_coefficient(rated_coefficient("Kv", value)) * value**2
+    assert kv == pytest.approx(1.28e10 / (math.pi**2 * dv.G), rel=3.2e-10)
+    cv = el.equipment_coefficient(rated_coefficient("Cv", value)) * value**2
+    definition = el.CV_PRESSURE_DROP / (el.REFERENCE_WATER_DENSITY * dv.G * el.CV_FLOW**2)
+    assert cv == pytest.approx(definition, rel=1.0e-15)
+
+
+@pytest.mark.parametrize("path", EQUIPMENT_CASES, ids=lambda p: p.stem)
+def test_equipment_results_follow_their_definitions(path: Path) -> None:
+    """Each expected equipment result (proposal §2.2) from the case's own expected flows, EGLs
+    and pressures: the flow into the inlet port, Q/Q_r (None for a Cv or Kv), EGL_in − EGL_out,
+    ρ g times it, and the static drop p_in − p_out equal to the §3.3 identity ρgh +
+    ρg(z_out − z_in) + ρ(v_out² − v_in²)/2 with v in each port's pipe."""
+    from opensolve_pipe.models.components import Equipment, RatedPoint
+
+    case, project = _load(path)
+    expected = case["expected"]
+    rho = nc.density(project)
+    elements = [c for c in project.components if isinstance(c, Equipment)]
+    assert set(expected["equipment"]) == {e.id for e in elements}
+    for e in elements:
+        want = expected["equipment"][e.id]
+        key_in, key_out = f"{e.id}:inlet", f"{e.id}:outlet"
+        q = nc.port_inflow(project, key_in, expected["flows"])
+        assert want["flow"] == q
+        if isinstance(e.rating, RatedPoint):
+            assert want["flowRatio"] == pytest.approx(q / e.rating.flow, rel=1.0e-15)
+        else:
+            assert want["flowRatio"] is None
+        h = expected["egl"][key_in] - expected["egl"][key_out]
+        assert want["headLoss"] == pytest.approx(h, rel=1.0e-15)
+        assert want["pressureLoss"] == pytest.approx(rho * dv.G * h, rel=1.0e-15)
+        p_in, p_out = expected["pressures"][key_in], expected["pressures"][key_out]
+        assert want["pressureDrop"] == pytest.approx(p_in - p_out, rel=1.0e-12, abs=1.0e-9)
+        v_in = nc.end_velocity(project, key_in, expected["flows"])
+        v_out = nc.end_velocity(project, key_out, expected["flows"])
+        z_in, z_out = nc.port_elevation(project, key_in), nc.port_elevation(project, key_out)
+        identity = rho * dv.G * h + rho * dv.G * (z_out - z_in) + rho * (v_out**2 - v_in**2) / 2.0
+        assert want["pressureDrop"] == pytest.approx(identity, rel=1.0e-12, abs=1.0e-9)
+
+
+@pytest.mark.parametrize("path", EQUIPMENT_CASES, ids=lambda p: p.stem)
+def test_equipment_flags_follow_reverse_and_laminar_flow(path: Path) -> None:
+    """CORRELATION_OUT_OF_RANGE on an element exactly when its flow runs outlet → inlet or the
+    lower Reynolds number of its two pipes' end segments is in (0, 2000) (proposal §3.2,
+    decision 9); the cases include one of each kind and others with neither."""
+    from opensolve_pipe.models.components import Equipment
+
+    case, project = _load(path)
+    expected = case["expected"]
+    nu = nc.kinematic_viscosity(project)
+    flagged = {
+        f.get("componentId")
+        for f in expected.get("flags", [])
+        if f["code"] == "CORRELATION_OUT_OF_RANGE"
+    }
+    for e in (c for c in project.components if isinstance(c, Equipment)):
+        q = expected["equipment"][e.id]["flow"]
+        re = min(
+            dv.reynolds(q, nc.port_diameter(project, f"{e.id}:{port}"), nu)
+            for port in ("inlet", "outlet")
+        )
+        assert (e.id in flagged) == (q < 0.0 or 0.0 < re < dv.RE_LAMINAR), (e.id, q, re)
+
+
+def test_equipment_flag_cases_cover_both_reasons() -> None:
+    def flags(name: str) -> list[dict[str, str]]:
+        flagged: list[dict[str, str]] = read_case(case_path(name))["expected"].get("flags", [])
+        return flagged
+
+    assert {"code": "CORRELATION_OUT_OF_RANGE", "componentId": "E1"} in flags(
+        "equipment_reverse_flow"
+    )
+    assert {"code": "CORRELATION_OUT_OF_RANGE", "componentId": "E9"} in flags(
+        "equipment_laminar_flag"
+    )
+    assert flags("equipment_line") == []
+
+
+def test_equipment_rated_point_and_kv_definition_give_back_their_rating() -> None:
+    """The solve gives back the datasheet (proposal §7.1): at the head difference built from it,
+    a rated point passes Q_r with ΔP_r across (the case fluid is the rating fluid, ports level
+    on equal bores), and Kv 60 passes 60 m³/h with 1 bar across (water at the reference
+    density); a second route by the whole-network solve from a perturbed start."""
+    for name, flow, drop in (
+        ("equipment_rated_point", 0.015, 50_000.0),
+        ("equipment_kv_definition", 60.0 / 3600.0, 1.0e5),
+    ):
+        case, project = _load(case_path(name))
+        expected = case["expected"]
+        flows, egl = nc.solve_network(
+            project,
+            nc.our_model(project),
+            {k: 0.7 * q for k, q in expected["flows"].items()},
+            {k: h - 0.5 for k, h in expected["egl"].items()},
+            nc.element_states(project, expected),
+        )
+        assert flows["L1"] == pytest.approx(flow, rel=1.0e-12), name
+        rho = nc.density(project)
+        v = nc.end_velocity(project, "E1:inlet", flows)
+        p_in = dv.static_pressure(rho, egl["E1:inlet"], nc.port_elevation(project, "E1:inlet"), v)
+        p_out = dv.static_pressure(
+            rho, egl["E1:outlet"], nc.port_elevation(project, "E1:outlet"), v
+        )
+        assert p_in - p_out == pytest.approx(drop, rel=1.0e-9), name
+        assert expected["equipment"]["E1"]["pressureDrop"] == pytest.approx(drop, rel=1.0e-12)
+
+
+def test_equipment_density_scaling_is_a_metamorphic_pair() -> None:
+    """The line in a liquid 1.1 times as dense at the same ν (proposal §7.1 (a)): the same flows
+    and EGLs as equipment_line, every static pressure and the loss × 1.1 (the head law has no
+    density; ρ only converts head to pressure)."""
+    base = read_case(case_path("equipment_line"))["expected"]
+    dense = read_case(case_path("equipment_density_scaling"))["expected"]
+    ratio = dense["fluid"]["density"] / base["fluid"]["density"]
+    assert ratio == pytest.approx(1.1, rel=1.0e-15)
+    for key, q in base["flows"].items():
+        assert dense["flows"][key] == pytest.approx(q, rel=1.0e-12), key
+    for key, h in base["egl"].items():
+        assert dense["egl"][key] == pytest.approx(h, rel=1.0e-12, abs=1.0e-12), key
+    for key, p in base["pressures"].items():
+        assert dense["pressures"][key] == pytest.approx(ratio * p, rel=1.0e-11), key
+    for field in ("pressureLoss", "pressureDrop"):
+        assert dense["equipment"]["E1"][field] == pytest.approx(
+            ratio * base["equipment"]["E1"][field], rel=1.0e-11
+        )
+
+
+def test_equipment_glycol_loss_is_the_density_scaled_rating() -> None:
+    """In a fluid other than the rating's, the loss is the rating scaled with flow² and density
+    (ISA-75.01.01 eq. (1)): ΔP_r (ρ/ρ_r)(Q/Q_r)² for E1's water rating in MEG, and
+    (ρ/ρ_w) 1 psi (Q/Cv gpm)² for Cv 90 (ρ_w the reference water)."""
+    from opensolve_pipe.models.components import Equipment, RatedPoint
+
+    for name in ("equipment_density_scaling_glycol", "equipment_cv_glycol"):
+        case, project = _load(case_path(name))
+        rho = nc.density(project)
+        [e] = [c for c in project.components if isinstance(c, Equipment)]
+        q = case["expected"]["equipment"][e.id]["flow"]
+        if isinstance(e.rating, RatedPoint):
+            want = e.rating.pressure_loss * rho / e.rating.density * (q / e.rating.flow) ** 2
+        else:
+            q1 = e.rating.value * el.CV_FLOW
+            want = rho / el.REFERENCE_WATER_DENSITY * el.CV_PRESSURE_DROP * (q / q1) ** 2
+        got = case["expected"]["equipment"][e.id]["pressureLoss"]
+        assert got == pytest.approx(want, rel=1.0e-12), name
+
+
+def test_suction_strainer_lowers_npsh_available() -> None:
+    """The strainer's loss lowers the suction EGL and so NPSHa (proposal §7.1): 4.0103 m with it
+    against 5.1868 m on the same line without it (proposal: 5.186774563 m)."""
+    from tests.reference import derivations_equipment as de
+
+    with_strainer = read_case(case_path("equipment_suction_strainer_npsh"))["expected"]["pumps"]
+    npsha = with_strainer["PU1"]["npshAvailable"]
+    without = de.npsh_available_without_strainer()
+    assert without == pytest.approx(5.186774563, rel=1.0e-9)
+    assert npsha < without - 1.0
+
+
+PROPOSAL_VALUES = {
+    "equipment_line": ("flows", "L1", 0.0173994741),
+    "equipment_density_scaling_glycol": ("flows", "L1", 0.0168778222),
+    "equipment_ports_differ": ("flows", "L1", 0.0229019814),
+    "equipment_in_loop": ("flows", "LA1", 0.0213608636),
+    "equipment_assigned_demand": ("egl", "D:port_1", 16.978845625),
+    "equipment_kv_definition": ("egl", "E1:inlet", 12.716016845),
+    "equipment_cv_glycol": ("flows", "L1", 0.0170755360),
+    "equipment_suction_strainer_npsh": ("flows", "L1", 0.0323599743),
+}
+"""A value of each case as the proposal's §7.1 table prints it, measured by its designers with
+the element emulated as a valve: an independent route to each derivation. The Swamee–Jain cases
+differ by 1.0-1.1e-7 (relative) on the single lines and, in the loop, by 1.8e-7 in the main,
+1.2e-7 in leg A (LA1, the value checked here) and 2.8e-7 in the bypass leg LB, which the 2e-7
+below would not pass and is not checked: the suite's Swamee–Jain is fluids' (6.97/Re)^0.9 form,
+the solver's EPANET's 5.74/Re^0.9 (CLAUDE.md D7), 5.5e-6 apart in that term."""
+
+
+@pytest.mark.parametrize("name", sorted(PROPOSAL_VALUES))
+def test_equipment_derivations_reproduce_the_proposal(name: str) -> None:
+    group, key, value = PROPOSAL_VALUES[name]
+    got = read_case(case_path(name))["expected"][group][key]
+    assert got == pytest.approx(value, rel=2.0e-7), (name, got, value)

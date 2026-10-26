@@ -33,8 +33,10 @@ from opensolve_pipe.models.scenarios import (
 from .helpers import connection, project_dict, reservoir
 
 SCHEMAS: dict[str, Any] = app.openapi()["components"]["schemas"]
-TRACE_UNITS = {"", "m", "m³/s", "Pa(g)", "K"}
-"""Unit strings apps/web/src/lib/utils/trace.ts converts (or shows as reported: '', 'K')."""
+TRACE_UNITS = {"", "m", "m³/s", "Pa(g)", "Pa (difference)", "kg/m³", "K"}
+"""Unit strings apps/web/src/lib/utils/trace.ts converts (or shows as reported: '', 'K'):
+'Pa (difference)', an equipment item's rated pressure drop (a pressure difference, never a bare
+'Pa', SDD §4.10), and 'kg/m³' its rated density (equipment-pressure-drop.md §5.1)."""
 SECRET = "SECRET9x7"
 _clients = iter(range(1, 250))
 
@@ -172,6 +174,13 @@ def test_the_prd_list_is_overridable() -> None:
     assert names["Reservoir"] == {"liquidLevel", "surfacePressure"}
     assert names["IdealReferenceNode"] == {"pressure"}
     assert names["AssignedFlow"] == {"flow"}
+    assert names["Equipment"] == {
+        "rating",
+        "rating.pressureLoss",
+        "rating.flow",
+        "rating.density",
+        "rating.value",
+    }
     spec = PIPE_FIELDS["spec"]
     assert spec.keys == ("material_id", "schedule", "nominal_size", "inner_diameter", "roughness")
     assert PIPE_FIELDS["length"].path == ("length",)
@@ -220,6 +229,14 @@ def test_x_override_fields_states_exactly_the_allow_list() -> None:
     assert published["Project"]["fluid.temperature"] == {
         "schema": "BuiltinFluid",
         "path": ["fluid", "temperature"],
+    }
+    # An equipment item's whole rating and each value, held by the rating of its kind.
+    assert published["Equipment"] == {
+        "rating": {"schema": "Equipment", "path": ["rating"]},
+        "rating.pressureLoss": {"schema": "RatedPoint", "path": ["rating", "pressureLoss"]},
+        "rating.flow": {"schema": "RatedPoint", "path": ["rating", "flow"]},
+        "rating.density": {"schema": "RatedPoint", "path": ["rating", "density"]},
+        "rating.value": {"schema": "RatedFlowCoefficient", "path": ["rating", "value"]},
     }
     assert published["PipeDefinition"]["spec"]["keys"] == [
         "materialId",
@@ -324,6 +341,16 @@ def test_a_value_and_a_part_of_it_are_rejected() -> None:
         "overrides 0 and 2 set a value and a part of it: set the part in the whole value's "
         "override",
     )
+    rating = {"kind": "component", "componentId": "E1", "field": "rating", "value": {}}
+    flow = {"kind": "component", "componentId": "E1", "field": "rating.flow", "value": 0.01}
+    _rejected(
+        [_scenario("S1", rating, _level(), flow)],
+        "overrides 0 and 2 set a value and a part of it: set the part in the whole value's "
+        "override",
+    )
+    # Two values of one rating, or one rating each of two elements, are different values.
+    loss = {**flow, "field": "rating.pressureLoss", "value": 1.0e4}
+    Scenario.model_validate(_scenario("S1", flow, loss, {**rating, "componentId": "E2"}))
 
 
 def test_two_scenarios_with_one_id_are_rejected() -> None:

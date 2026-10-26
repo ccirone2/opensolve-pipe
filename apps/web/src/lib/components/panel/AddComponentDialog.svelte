@@ -1,7 +1,8 @@
 <!--
 	Add a component next to the current one: after it at a free port, before it (inserted into
 	a connection), or as a branch (a tee inserted into a connection, its branch port left free).
-	A kind with no default for a value (an assigned-flow node's flow) asks for it here first.
+	A kind with no default for a value (an assigned-flow node's flow, an equipment item's rating)
+	asks for it here first, wherever it goes (after, before or inserted).
 -->
 <script lang="ts" module>
 	export type AddMode = 'after' | 'insert' | 'branch';
@@ -23,10 +24,12 @@
 		DEFAULT_MATERIAL_ID,
 		DEFAULT_PIPE_LENGTH,
 		DEFAULT_SCHEDULE,
+		missingEntries,
 		missingEntry,
 		SHORT_PIPE_LENGTH,
 		type ComponentKind,
-		type EnteredValues
+		type EnteredValues,
+		type MissingEntry
 	} from '$lib/utils/factory';
 	import { freePorts, neighbors, onwardFreePort } from '$lib/utils/graph';
 	import { componentName, portLabel } from '$lib/utils/labels';
@@ -73,7 +76,8 @@
 	let kind = $derived<ComponentKind>(mode === 'branch' ? 'tee' : 'gate');
 	/** Values entered for a kind with no default for them (see NewComponentFields). */
 	let values = $state<EnteredValues>({});
-	let missing = $state<string | null>(null);
+	/** The values still to enter, shown at their fields after Add was pressed without them. */
+	let missing = $state<readonly MissingEntry[]>([]);
 
 	const kinds = $derived(
 		kindOptions((k) =>
@@ -138,14 +142,15 @@
 	function submit(event: SubmitEvent) {
 		event.preventDefault();
 		if (!canSubmit) return;
-		missing = mode === 'after' ? missingEntry(kind, values) : null;
-		if (missing) return;
+		// Every mode but a branch (a tee or wye, which need no entry) may add a kind that does.
+		missing = mode === 'branch' ? [] : missingEntries(kind, values);
+		if (missing.length) return;
 		const added =
 			mode === 'after'
 				? ws.addAfter(component.id, port, kind, values)
 				: mode === 'branch'
 					? ws.addBranch(connection, kind === 'wye' ? 'wye' : 'tee')
-					: ws.insert(connection, kind);
+					: ws.insert(connection, kind, values);
 		if (added) onclose();
 	}
 </script>
@@ -219,10 +224,10 @@
 			options={kinds}
 			onchange={(v) => {
 				kind = v;
-				missing = null;
+				missing = [];
 			}}
 		/>
-		<NewComponentFields {kind} units={ws.units} bind:values bind:error={missing} />
+		<NewComponentFields {kind} units={ws.units} bind:values bind:errors={missing} />
 	</form>
 	{#snippet footer()}
 		<button type="button" class="btn" onclick={onclose}>Cancel</button>

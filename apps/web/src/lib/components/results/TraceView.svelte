@@ -137,11 +137,13 @@
 					? 'pump'
 					: component?.type === 'valve'
 						? 'valve'
-						: component?.type === 'assigned_flow'
-							? 'assigned'
-							: component?.type === 'reservoir' || component?.type === 'reference_node'
-								? 'boundary'
-								: null;
+						: component?.type === 'equipment'
+							? 'equipment'
+							: component?.type === 'assigned_flow'
+								? 'assigned'
+								: component?.type === 'reservoir' || component?.type === 'reference_node'
+									? 'boundary'
+									: null;
 		const quantities = kind ? ELEMENT_QUANTITIES[kind].slice(0, 2) : [];
 		if (!quantities.length && component?.ports[0]) {
 			quantities.push('portPressure');

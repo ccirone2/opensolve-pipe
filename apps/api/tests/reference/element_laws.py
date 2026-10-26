@@ -17,6 +17,11 @@ every coefficient is a cited library call or a definition written out below.
 - Branch path losses (design §5.4): the four Crane TP-410 tee functions of ``fluids.fittings``
   (Crane 2009 via fluids 1.3.1) on the combined-flow velocity, and ``fluids.fittings.Darby3K``
   (Silverberg & Darby 1999) for a tee whose branch carries the combined flow.
+- Equipment (docs/proposals/equipment-pressure-drop.md §1.1, decisions 4, 5 and 22): the loss of
+  total pressure inlet → outlet is c Q|Q| on the EGL, c from the rating's own definition: a rated
+  point (ΔP_r at Q_r of a fluid of density ρ_r) gives c = ΔP_r/(ρ_r g Q_r²); a Cv or Kv is the
+  rated point 1 psi at Cv US gpm, or 1 bar at Kv m³/h, of the reference water below, c =
+  ΔP_ref/(ρ_ref g Q_ref²). No pipe diameter enters c; its K on a bore d is 2 g A² c.
 """
 
 import math
@@ -36,6 +41,8 @@ from opensolve_pipe.models.components import (
     FlowCoefficient,
     IsolationValve,
     PumpControl,
+    RatedFlowCoefficient,
+    RatedPoint,
 )
 from opensolve_pipe.models.pumps import PumpCurve
 from tests.reference.derivations import G, area
@@ -167,6 +174,50 @@ def k_from_flow_coefficient(resistance: FlowCoefficient, d: float) -> float:
             return k_from_definition(resistance.value * CV_FLOW, CV_PRESSURE_DROP, d)
         case "Kv":
             return k_from_definition(resistance.value * KV_FLOW, KV_PRESSURE_DROP, d)
+
+
+# --- Equipment (proposal equipment-pressure-drop.md) -------------------------------------------
+
+EquipmentRating = RatedPoint | RatedFlowCoefficient
+
+
+def rated_reference(rating: EquipmentRating) -> tuple[float, float, float]:
+    """(ΔP_ref Pa, Q_ref m³/s, ρ_ref kg/m³): the rated point a rating states. A rated point as
+    entered; a Cv is 1 psi at Cv US gpm and a Kv 1 bar at Kv m³/h, of the reference water
+    (CoolProp IAPWS-95 at 60 °F, 703572 Pa: the conditions fluids.fittings.Kv_to_K documents),
+    their definitions (ISA-75.01.01; proposal §3.1)."""
+    if isinstance(rating, RatedPoint):
+        return rating.pressure_loss, rating.flow, rating.density
+    match rating.kind:
+        case "Cv":
+            return CV_PRESSURE_DROP, rating.value * CV_FLOW, REFERENCE_WATER_DENSITY
+        case "Kv":
+            return KV_PRESSURE_DROP, rating.value * KV_FLOW, REFERENCE_WATER_DENSITY
+
+
+def equipment_coefficient(rating: EquipmentRating, g: float = G) -> float:
+    """c, s²/m⁵, of h = c Q|Q| (proposal decision 5): the rated head h_ref = ΔP_ref/(ρ_ref g)
+    over Q_ref², so the loss is the rated head at the rated flow (h(Q_ref) = h_ref) and
+    ρ g h = ΔP_ref (ρ/ρ_ref)(Q/Q_ref)² in pressure: the square law with density scaling of
+    ISA-75.01.01-2007 eq. (1), the owner's "flow² and density"."""
+    dp_ref, q_ref, rho_ref = rated_reference(rating)
+    return dp_ref / (rho_ref * g) / (q_ref * q_ref)
+
+
+def equipment_k(rating: EquipmentRating, d: float) -> float:
+    """K of the element on a bore of inner diameter d, from ΔP = K ρ v²/2 at the rated point:
+    K = 2 ΔP_ref A²/(ρ_ref Q_ref²) (2ΔP_r A²/(ρ_r Q_r²) for a rated point, decision 20's EPANET
+    TCV setting); for a Cv or Kv the suite's own conversion ``k_from_flow_coefficient``, the
+    isolation valves' path. K/(2 g A²) is ``equipment_coefficient`` on every bore."""
+    if isinstance(rating, RatedPoint):
+        return 2.0 * rating.pressure_loss * area(d) ** 2 / (rating.density * rating.flow**2)
+    return k_from_flow_coefficient(rating, d)
+
+
+def equipment_head(rating: EquipmentRating, q: float, g: float = G) -> float:
+    """EGL(inlet) − EGL(outlet) = c Q|Q|, m, odd in Q (decision 6: reverse flow takes the same
+    law)."""
+    return equipment_coefficient(rating, g) * q * abs(q)
 
 
 ValveType = Literal[

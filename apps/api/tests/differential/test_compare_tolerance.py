@@ -314,6 +314,46 @@ def test_a_flag_detail_takes_its_flags_element() -> None:
     assert kind == "out"
 
 
+def test_an_equipment_result_is_an_element_with_its_quantities() -> None:
+    """An equipment item's result (proposal equipment-pressure-drop.md §2.2) takes the tolerance
+    of its quantity, its pressure loss that of a pressure (ρg × its head loss); its flow counts
+    in the largest flow, and its other numbers are round-off where it carries a round-off
+    flow."""
+    item = {"flow": 0.05, "flowRatio": 1.25, "headLoss": 3.0, "pressureLoss": 2.9e4}
+    a = put(solved(), "equipmentResults", {"E1": {**item, "pressureDrop": 2.8e4}})
+    for field, quantity, tol in (
+        ("flow", "flow", FLOW_TOL),
+        ("headLoss", "head", 1.0e-6),
+        ("pressureLoss", "pressure", PRESSURE_TOL),
+        ("pressureDrop", "pressure", PRESSURE_TOL),
+        ("flowRatio", "other", 1.0e-6 * 1.25),
+    ):
+        path = f"equipmentResults.E1.{field}"
+        for multiple, kind in ((INSIDE, "in"), (OUTSIDE, "out")):
+            ((got, *_, ratio, judged_as),) = judged(
+                a, put(a, path, at(a, path) + multiple * tol), compare.DEFAULT_SETTINGS
+            )
+            assert (got, judged_as) == (kind, quantity), field
+            assert ratio == pytest.approx(multiple, rel=1e-4), field
+    # the largest flow: E1 carrying 0.2 m³/s sets a flow's tolerance
+    big = put(a, "equipmentResults.E1.flow", 0.2)
+    ((got, *_),) = judged(
+        big, put(big, "linkResults.C2.flow", 0.05 + 0.99e-8 * 0.2), compare.DEFAULT_SETTINGS
+    )
+    assert got == "in"
+    # a round-off flow through E1, and a flag on E1: its other numbers are excluded
+    tiny = put(a, "equipmentResults.E1.flow", 1.0e-12)
+    ((got, path, *_),) = judged(
+        tiny, put(tiny, "equipmentResults.E1.flowRatio", 2.0e-10), compare.DEFAULT_SETTINGS
+    )
+    assert (got, path) == ("round-off", "/equipmentResults/E1/flowRatio")
+    flagged = put(tiny, "flags.0.componentId", "E1")
+    ((got, *_),) = judged(
+        flagged, put(flagged, "flags.0.details.step", 0.5), compare.DEFAULT_SETTINGS
+    )
+    assert got == "round-off"
+
+
 def test_a_flag_detail_index_compares_exactly_on_a_round_off_element(tmp_path: Path) -> None:
     """``Flag.details`` holds floats, so the index of the pipe or fitting a flag names is a float
     in the dumps (``segmentIndex`` 0.0); it compares exactly, as an integer does, also where its

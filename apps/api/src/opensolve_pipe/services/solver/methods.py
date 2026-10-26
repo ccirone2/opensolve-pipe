@@ -1,9 +1,10 @@
 """Methods and assumptions of a solve (design §13, GOALS §4.2): ``MethodsSummary``.
 
 One summary per solve, written to be pasted into a deliverable: sections for the network
-solution, friction, minor losses, branches, pumps, valves, fluid properties, atmosphere and NPSH,
-and conventions; the global assumptions; and the software versions, with the calculation-method
-version. Every number in it is a constant the solver uses or a value of this solve.
+solution, friction, minor losses, branches, pumps, valves, equipment (only in a project that has
+some), fluid properties, atmosphere and NPSH, and conventions; the global assumptions; and the
+software versions, with the calculation-method version. Every number in it is a constant the
+solver uses or a value of this solve.
 """
 
 import CoolProp
@@ -25,7 +26,14 @@ from .friction import (
     SWAMEE_JAIN_ED_RANGE,
     SWAMEE_JAIN_RE_RANGE,
 )
-from .gga import CONTINUITY_ATOL, CONTINUITY_RTOL, ENERGY_ROUNDOFF, ENERGY_TOL, ZERO_FLOW_RTOL
+from .gga import (
+    CONTINUITY_ATOL,
+    CONTINUITY_RTOL,
+    ENERGY_ROUNDOFF,
+    ENERGY_TOL,
+    JACOBIAN_FLOOR_RELATIVE,
+    ZERO_FLOW_RTOL,
+)
 from .status import HTOL, K_TOL, MAX_OUTER_ITERATIONS, OFFSET_TOL, QTOL, OuterLoopResult
 from .system_curve import DEFAULT_RANGE_FACTOR
 from .valves import IDEAL_CONTROL_VALVE
@@ -109,6 +117,63 @@ def _energy_roundoff_sentence() -> str:
         f"than {ENERGY_TOL:g} m only where that magnitude exceeds {ENERGY_TOL:g} m divided by "
         f"that factor, about {ENERGY_TOL / ENERGY_ROUNDOFF:g} m."
     )
+
+
+EQUIPMENT_ASSUMPTION = (
+    "Equipment losses scale with the square of the flow and with density from one rated point, "
+    "a Cv or a Kv (constant K); viscosity is not corrected."
+)
+"""The assumption a project with equipment adds (proposal equipment-pressure-drop.md §4.2)."""
+
+
+def equipment_section(built: BuiltNetwork) -> MethodsSection | None:
+    """The "Equipment" section, only for a project with equipment (proposal
+    equipment-pressure-drop.md §4.2); its Cv/Kv item only when an element is rated by one."""
+    if not built.equipment:
+        return None
+    coefficients = any(d.law.kind != "point" for d in built.equipment.values())
+    items = [
+        "Equipment (one side of a heat exchanger, a coil, a strainer, a filter, or another "
+        "passive element given by its datasheet): the loss of total head from its inlet to its "
+        "outlet is h = EGL_in − EGL_out = c Q|Q| (a loss of total pressure ρ g h), with c = "
+        "ΔP_r/(ρ_r g Q_r²) from the rated pressure drop ΔP_r at the rated flow Q_r for a fluid "
+        "of density ρ_r: a constant K, the square law of ISA-75.01.01-2007 eq. (1) for "
+        "non-choked, turbulent liquid flow, and the high-Re limit of the 3-K method (Silverberg "
+        "& Darby). The rated drop is the dissipative "
+        "loss (friction and form) of total pressure between the ports, without the static head "
+        "between them: each port's static pressure follows from its EGL with the velocity in "
+        "its connected pipe, so the static drop reported is ρ g h + ρ g (z_out − z_in) + "
+        "ρ (v_out² − v_in²)/2.",
+        "Density scaling: the pressure loss at the solved flow is ρ g h = ΔP_r (ρ/ρ_r)(Q/Q_r)², "
+        "with ρ the fluid being solved. The operating density cancels out of the head loss h, "
+        "which the rating alone sets; it only converts head to pressure.",
+    ]
+    if coefficients:
+        items.append(
+            "A Cv or Kv rating is a rated point on water by definition (1 psi at Cv US gpm, 1 "
+            "bar at Kv m³/h): c = K/(2 g A²) with K from fluids.fittings.Cv_to_K / Kv_to_K "
+            "(ISA-75.01.01-2007, water at 999.29744568 kg/m³), the valves' conversion, evaluated "
+            "at a 1 m bore; K ∝ D⁴ makes K/A² the same on every bore, so no pipe diameter is "
+            "needed. Its pressure loss is (ρ/ρ_w) × 1 psi × (Q/Cv gpm)², or × 1 bar × (Q/Kv "
+            "m³/h)²."
+        )
+    items += [
+        "Reverse flow (outlet → inlet) follows the same, symmetric law and is flagged: no "
+        "datasheet rates reverse flow.",
+        f"Laminar flow (Re < {RE_LAMINAR_MAX:g}) in the end segment of a connected pipe is "
+        "flagged, as for a valve's Cv or Kv: the square law is the turbulent-flow law, and the "
+        "loss is then likely underestimated.",
+        "At zero flow the law's slope 2c|Q| is 0: Newton's Jacobian uses at least "
+        f"{JACOBIAN_FLOOR_RELATIVE:g} x the slopes of the pipes at the element's ports there, as "
+        "for every link that is not a pipe (EPANET 2.2 bounds such a gradient instead); the law "
+        "itself is exact.",
+        "Viscosity is not corrected: the loss scales with density only. With a fluid more "
+        "viscous than the rating's, or at flows well below the rated flow, the real loss may be "
+        "higher than this law gives (a smooth-tube element dominated by friction scales as "
+        "ρ^0.75 μ^0.25 Q^1.75 by Blasius' law); a correction needs the equipment's geometry or "
+        "its vendor's own factors.",
+    ]
+    return MethodsSection(title="Equipment", items=items, references=[ISA_75, DARBY])
 
 
 def libraries() -> dict[str, str]:
@@ -229,6 +294,7 @@ def methods_summary(
             "that floor is solved with each FCV of the cut held open too. A side of the pump "
             "that reaches only assigned-flow nodes has no point with a head."
         )
+    equipment = equipment_section(built)
     if outer is not None:
         iteration_items.append(
             f"This solve: {outer.inner_iterations} Newton iterations in "
@@ -439,6 +505,7 @@ def methods_summary(
                 ],
                 references=[EPANET_STATUS, ISA_75, CRANE],
             ),
+            *([equipment] if equipment is not None else []),
             MethodsSection(
                 title="Fluid properties",
                 items=[
@@ -516,6 +583,7 @@ def methods_summary(
             "Control valves without an entered resistance are ideal: no loss when fully open.",
             "Fittings and valves without a user K use the cited correlation for the type at "
             "the connected pipe's inner diameter.",
+            *([EQUIPMENT_ASSUMPTION] if equipment is not None else []),
         ],
         libraries=libraries(),
     )

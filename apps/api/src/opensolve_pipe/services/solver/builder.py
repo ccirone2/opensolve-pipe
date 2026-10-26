@@ -6,13 +6,15 @@ ideal-reference-node ports are fixed-head nodes; an assigned-flow node's port is
 whose demand is its flow (TSD §4.8).
 
 Links: one per pipe connection (from-port node -> to-port node); pump suction -> discharge;
-valve inlet -> outlet; three legs per tee or wye (center -> port). Plugs and assigned-flow nodes
-add no link.
+valve inlet -> outlet; equipment inlet -> outlet; three legs per tee or wye (center -> port).
+Plugs and assigned-flow nodes add no link.
 
 Laws: pipes (segments and fittings); a pump's curve at its speed (a speed-controlled pump's
 maximum speed; its minimum-speed law is built once, ``PumpControlData``); a valve's fully open K on
 the inlet pipe's inner diameter (``valves.valve_resistance``), as a head offset when K = 0
-(an ideal control valve); branch legs as head offsets set by the outer loop (design §2.4).
+(an ideal control valve); equipment's c Q|Q| with c from its rating (``equipment.equipment_law``,
+proposal equipment-pressure-drop.md §3.4); branch legs as head offsets set by the outer loop
+(design §2.4).
 
 Every problem that makes the project unsolvable is collected and raised together as one
 ``TopologyError`` (design §1.2), including pipe-library references that do not resolve.
@@ -32,6 +34,7 @@ from ...models.components import (
     CheckValve,
     Component,
     ControlValve,
+    Equipment,
     IdealReferenceNode,
     IsolationValve,
     Plug,
@@ -44,11 +47,19 @@ from ...models.fluids import FluidProperties
 from ...models.piping import PipeConnection
 from ...models.project import Project
 from .branches import BranchGeometry
-from .elements import HeadOffsetLaw, PipeConnectionLaw, PipeSegment, PumpLaw, ValveLaw
+from .elements import (
+    HeadOffsetLaw,
+    PipeConnectionLaw,
+    PipeSegment,
+    PumpLaw,
+    QuadraticLossLaw,
+    ValveLaw,
+)
+from .equipment import EquipmentLaw, equipment_law, rating_text, unrepresentable
 from .errors import TopologyError, issue
 from .fittings import ResolvedFitting, resolve_fitting
 from .flags import make_flag
-from .friction import COLEBROOK_ED_LIMIT, FrictionMethod
+from .friction import COLEBROOK_ED_LIMIT, RE_LAMINAR_MAX, FrictionMethod
 from .labels import fitting_name, pipe_name
 from .library import LibraryLookupError, ResolvedPipe, resolve_pipe
 from .network import LinkKind, LinkLaw, SolverLink, SolverNetwork, SolverNode
@@ -174,6 +185,33 @@ class ValveData:
 
 
 @dataclass
+class EquipmentData:
+    """An equipment element (proposal equipment-pressure-drop.md §3.4): its link inlet -> outlet
+    follows ``QuadraticLossLaw(law.coefficient)``."""
+
+    component: Equipment
+    link_index: int
+    law: EquipmentLaw
+    """c and the rated point it comes from (``equipment.equipment_law``)."""
+    inlet: str
+    outlet: str
+    """Node keys of the inlet and outlet ports."""
+    inlet_pipe: PortPipe
+    outlet_pipe: PortPipe
+    """The end segments of the pipes at the ports: the velocities and Reynolds numbers there."""
+
+    def laminar_pipe(self, flow: float) -> tuple[str, float] | None:
+        """('inlet' or 'outlet', Re) of the connected pipe whose end segment has the lower
+        Reynolds number at ``flow``, when that flow is laminar there, 0 < Re < RE_LAMINAR_MAX
+        (proposal decision 9, as a valve's Cv or Kv is flagged); else None. The inlet pipe on a
+        tie."""
+        re_in = self.inlet_pipe.segment.reynolds(flow)
+        re_out = self.outlet_pipe.segment.reynolds(flow)
+        side, re = ("outlet", re_out) if re_out < re_in else ("inlet", re_in)
+        return (side, re) if 0.0 < re < RE_LAMINAR_MAX else None
+
+
+@dataclass
 class BuiltNetwork:
     network: SolverNetwork
     components: dict[str, Component]
@@ -188,6 +226,8 @@ class BuiltNetwork:
     branches: dict[str, BranchGeometry] = field(default_factory=dict)
     pumps: dict[str, PumpData] = field(default_factory=dict)
     valves: dict[str, ValveData] = field(default_factory=dict)
+    equipment: dict[str, EquipmentData] = field(default_factory=dict)
+    """Equipment component id -> its data ({} for a project without equipment)."""
     project: Project | None = None
     """The project the network was built from (its settings and which fields the user set,
     for the trace)."""
@@ -540,6 +580,35 @@ def _unrepresentable_valves(
     return issues
 
 
+def _unrepresentable_equipment(project: Project) -> list[TopologyIssue]:
+    """Equipment whose loss coefficient c is not a finite positive floating-point number, or
+    whose computation divides by zero or overflows (proposal equipment-pressure-drop.md decision
+    10): a schema-valid but extreme rating (ρ_r = Q_r = 1e-300, a Cv of 1e-170, a Kv of 1e-160),
+    on which the solver could only fail. c is monotone in each rating value, so it stays finite
+    and positive between two ratings where it is."""
+    issues: list[TopologyIssue] = []
+    for comp in project.components:
+        if not isinstance(comp, Equipment) or not unrepresentable(comp, G):
+            continue
+        how = (
+            "c = ΔP_r/(ρ_r g Q_r²)"
+            if comp.rating.kind == "point"
+            else f"c = K/(2 g A²) with K from the {comp.rating.kind} (fluids.fittings."
+            f"{comp.rating.kind}_to_K)"
+        )
+        issues.append(
+            issue(
+                "EQUIPMENT_RATING_OUT_OF_RANGE",
+                f"equipment '{comp.id}': a rating of {rating_text(comp.rating)} gives a loss "
+                f"coefficient, {how}, that is not a finite positive floating-point number; the "
+                "solver cannot represent this element",
+                [comp.id],
+                [],
+            )
+        )
+    return issues
+
+
 def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
     """Validate the project and build its solver network. Raises ``TopologyError``."""
     issues = validate_topology(project)
@@ -547,6 +616,7 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
     issues.extend(pipe_issues)
     issues.extend(_unrepresentable_pipes(resolved, fluid))
     issues.extend(_unrepresentable_valves(project, resolved))
+    issues.extend(_unrepresentable_equipment(project))
     if issues:
         raise TopologyError(issues)
 
@@ -757,6 +827,32 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
                 reference_area=a_ref,
                 cracking_head=h_c,
                 law=valve_law,
+                inlet=inlet,
+                outlet=outlet,
+                inlet_pipe=inlet_pipe,
+                outlet_pipe=outlet_pipe,
+            )
+        elif isinstance(comp, Equipment):
+            inlet, outlet = node_key(comp.id, "inlet"), node_key(comp.id, "outlet")
+            inlet_pipe, outlet_pipe = built.port_pipe(inlet), built.port_pipe(outlet)
+            rating_law = equipment_law(comp.rating, g)
+            link = add_link(
+                SolverLink(
+                    index=len(links),
+                    key=comp.id,
+                    kind=LinkKind.EQUIPMENT,
+                    start=node_index[inlet],
+                    end=node_index[outlet],
+                    law=QuadraticLossLaw(rating_law.coefficient),
+                    # 1 ft/s in the inlet pipe, as for valves (EPANET 2.2 initlinkflow)
+                    initial_flow=INITIAL_VELOCITY * inlet_pipe.segment.area,
+                    component_id=comp.id,
+                )
+            )
+            built.equipment[comp.id] = EquipmentData(
+                component=comp,
+                link_index=link.index,
+                law=rating_law,
                 inlet=inlet,
                 outlet=outlet,
                 inlet_pipe=inlet_pipe,

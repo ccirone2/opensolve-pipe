@@ -38,7 +38,9 @@ CASES = case_files()
 PRESSURE_UNITS = {"Pa(g)", "Pa(a)", "Pa (difference)"}
 """Every pressure in a trace states its reference (apps/web/src/lib/utils/trace.ts)."""
 CONVERTED_UNITS = {"m", "m³/s", "m/s", "kg/m³", "Pa·s", "W"} | PRESSURE_UNITS
-SHOWN_AS_IS = {"", "m²", "m²/s", "m/s²", "°", "US gpm/psi^0.5", "m³/h/bar^0.5"}
+SHOWN_AS_IS = {"", "m²", "m²/s", "m/s²", "°", "US gpm/psi^0.5", "m³/h/bar^0.5", "s²/m⁵"}
+"""Units the web shows as reported (utils/trace.ts: anything it does not convert); s²/m⁵ is an
+equipment element's loss coefficient c (proposal equipment-pressure-drop.md §4.1)."""
 
 
 def _solve(path: Path) -> tuple[Project, SolvedState]:

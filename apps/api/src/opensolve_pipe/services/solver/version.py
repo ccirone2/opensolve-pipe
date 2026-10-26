@@ -14,7 +14,7 @@ class MethodChange(TypedDict):
     changes: list[str]
 
 
-METHOD_VERSION = "1.2.0"
+METHOD_VERSION = "1.3.0"
 
 METHOD_CHANGELOG: list[MethodChange] = [
     {
@@ -115,6 +115,18 @@ METHOD_CHANGELOG: list[MethodChange] = [
             "in both is within 4.0e-13 of the project's largest flow and 3.7e-12 m, and every "
             "system-curve head within 3.4e-9 relative, but one of 3.6e-15 m at zero flow that is "
             "now 0 (corpus comparison).",
+        ],
+    },
+    {
+        "version": "1.3.0",
+        "date": "2026-10-26",
+        "changes": [
+            "Adds the equipment element: a loss between two ports from a datasheet pressure drop "
+            "at a rated flow and the density of the fluid it is rated for, or from a Cv or Kv (a "
+            "rated point on water, converted as for valves), at constant K (scaled with the "
+            "square of the flow and with density). Flows, heads, pressures, statuses, traces, "
+            "messages and system curves of projects without equipment are unchanged (corpus "
+            "comparison).",
         ],
     },
 ]

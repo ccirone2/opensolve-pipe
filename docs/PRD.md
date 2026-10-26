@@ -104,6 +104,7 @@ v1 is the core analysis MVP. Everything else in this document is **Later**. The 
 - Fixed-speed pumps (running/off), and speed-controlled (VFD) pumps holding a flow setpoint (§3.1.2.1; CLAUDE.md D11, slice 1)
 - Isolation valves (gate, ball, butterfly, globe), check and stop-check valves
 - PRV, PSV, FCV
+- Equipment such as heat exchangers, coils, strainers and filters, rated by a pressure drop at a flow or by a Cv or Kv (§3.1.2; CLAUDE.md D18)
 - Water, ethylene/propylene glycol solutions, user-defined fluids
 - NPSH available and NPSH margin
 - Panel navigator, results tables, pump/system curve chart
@@ -112,7 +113,7 @@ v1 is the core analysis MVP. Everything else in this document is **Later**. The 
 - Export: a results workbook (.xlsx) or CSV files (.zip) of the case shown or all cases, and the pump chart as a PNG, made in the browser (§3.2.3; CLAUDE.md D17)
 - Sharing by link (§4.4)
 
-**Later:** VFD pressure and differential-pressure control modes (D11 slices 2-3); HI viscosity correction; pressure relief valves; three-way valves; differential-pressure control valve mode; non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, heat exchangers, strainers, user-defined elements; fuels in the fluid library; auto-generated schematic; SVG and schematic image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
+**Later:** VFD pressure and differential-pressure control modes (D11 slices 2-3); HI viscosity correction; pressure relief valves; three-way valves; differential-pressure control valve mode; non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, user-defined elements; other ways to rate equipment (a K on a stated diameter, a head, a mass flow, a pressure-drop curve) and its viscosity correction; fuels in the fluid library; auto-generated schematic; SVG and schematic image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
 
 ### 2.4 Future Features (Planned)
 
@@ -171,8 +172,8 @@ Users shall be able to model the following components:
 | Differential Pressure Control Valve | Pressure-drop setpoint across the valve (inlet minus outlet), fully open Cv/Kv/K, status (active/failed-open/failed-closed) | Later   |
 | Three-Way Valve           | Mixing or diverting; Cv per path at the actual position (a cited characteristic is needed for position-dependent Cv), status | Later   |
 | Pressure Relief Valve     | Setpoint, capacity                                                                 | Later   |
-| Heat Exchanger            | Fixed pressure drop, or Cv/K model                                                 | Later   |
-| Strainer/Filter           | K-factor (clean and dirty)                                                         | Later   |
+| Equipment (heat exchanger side, coil, strainer, filter) | Rated pressure drop at a rated flow, with the density of the fluid the rating is for, or a Cv or Kv (a rating on water); loss ∝ ρQ² (constant K). No status, no default rating. Reverse flow and laminar flow in a connected pipe are flagged; viscosity is not corrected (CLAUDE.md D18) | v1      |
+| Equipment, other ratings  | K on a stated diameter, a head rating, a mass-flow rating, a ΔP–flow curve, a viscosity correction, a reverse or clean/dirty rating | Later   |
 | User-Defined Element      | Cv curve or K-factor                                                               | Later   |
 
 ##### 3.1.2.1 Pump Operating Modes
@@ -252,6 +253,7 @@ The hydraulic network is modeled as a graph. This port graph is the only project
 | Assigned Flow    | 1          | port_1                              |
 | Pump             | 2          | suction (inlet), discharge (outlet) |
 | Valve            | 2          | inlet, outlet                       |
+| Equipment        | 2          | inlet, outlet                       |
 | Branch (Tee)     | 3          | run_inlet, run_outlet, branch       |
 | Branch (Wye)     | 3          | inlet, outlet_1, outlet_2           |
 | Branch (Cross)   | 4          | port_1, port_2, port_3, port_4      |
@@ -320,6 +322,13 @@ For each control valve:
 - Valve position (% open): Later (needs a Cv-vs-position curve); v1 reports the equivalent K and Cv of the throttling loss
 - Whether setpoint is achieved
 
+For each equipment item:
+
+- Flow, and flow ÷ rated flow (a rated point only)
+- Pressure loss (the rating scaled to the solved flow and density) and head loss
+- Static pressure drop between its ports (what gauges read; it also holds the ports' elevation and velocity terms)
+- The rating used, and flags for reverse flow and for laminar flow in a connected pipe
+
 For each assigned-flow node:
 
 - Assigned flow (as entered)
@@ -339,7 +348,7 @@ The Results pane exports what the page holds, made in the browser: nothing is se
 
 - **Results workbook (.xlsx, the default) or CSV files (.zip)** of the case shown or, in a project with scenarios, all cases:
   - **About** first: how to read the file, the project, the export time, each case's solve time, methods version and server libraries, convergence, the atmosphere and the fluid with their sources, whether the results are out of date, the project link (by default; a checkbox leaves it out), the web app's and the server's source, and the disclaimer;
-  - the flags, and every results table with one value per cell at full precision (nodes, links with their pipes and fittings, pumps with their curves and the system curves already computed, valves, branches and their ports, boundaries and their ports, assigned flows);
+  - the flags, and every results table with one value per cell at full precision (nodes, links with their pipes and fittings, pumps with their curves and the system curves already computed, valves, equipment with the rating each solve used, branches and their ports, boundaries and their ports, assigned flows);
   - the scenario changes as the server applied them, Compare cases (all cases), the goal seek report, the methods text and, for one case, the trace.
   - Every table row carries its case, its solve time and its state (current, out of date, did not converge). A solve that did not converge gives its record (convergence, flags, methods) but no values.
   - One unit system per file: the display units or SI base units (in SI every number is the server's own value).
@@ -435,9 +444,9 @@ Manual entry of:
 A scenario manager keeps several operating or design cases in one project and compares them, instead of the user keeping one URL per case. It serves the degraded-operation and isolation states in §2.1 and US-004. Built in v1 (CLAUDE.md D15; design: `docs/proposals/scenario-manager.md`).
 
 - A project holds the **base case** and up to 20 named **scenarios**. A scenario stores only its changes of base values (up to 30), so editing the base updates every scenario that does not set its own value. A scenario sets each value at most once, so the order of its changes never matters.
-- Values a scenario can change: component status, valve resistance and setpoint, pump speed ratio and speed-control setpoint, reservoir level and surface pressure, reference-node pressure, assigned flow, pipe size and material (one change: material, schedule, size and any bore or roughness override together), pipe length, the fluid, and a built-in fluid's temperature. A scenario never adds or removes components, connections, ports or pipes; it keeps scenarios small in the URL and makes every difference from the base a list of values.
+- Values a scenario can change: component status, valve resistance and setpoint, pump speed ratio and speed-control setpoint, reservoir level and surface pressure, reference-node pressure, assigned flow, an equipment item's rating (the whole rating, such as another vendor's datasheet as printed or a Cv, or one of its values: the rated pressure drop of a dirty strainer, the rated flow, the rated fluid density, the Cv or Kv), pipe size and material (one change: material, schedule, size and any bore or roughness override together), pipe length, the fluid, and a built-in fluid's temperature. A scenario never adds or removes components, connections, ports or pipes; it keeps scenarios small in the URL and makes every difference from the base a list of values.
 - **Editing.** The case being edited is always named, and a scenario is shown in its own colour and words. In a scenario, only the values above can be edited; each changed value is marked "Changed" with the base value and a Reset, and typing the base value back removes the change. Names, the project description and display units are the same in every case. Everything else is shown read-only ("Same in every scenario"), and adding, inserting, deleting or connecting components is done in the base case. Undo and redo cover the base and every scenario, and show the case each change was made in.
-- **Base edits.** A scenario's change of a pipe follows that pipe when the base case joins, reverses or splits its connection; removing the pipe removes its changes. A change whose component, connection or pipe was deleted, or whose value no longer exists on it (a flow setpoint on a pump without flow control, a temperature on a custom fluid), is kept, shown as "no longer applies" and ignored when solving.
+- **Base edits.** A scenario's change of a pipe follows that pipe when the base case joins, reverses or splits its connection; removing the pipe removes its changes. A change whose component, connection or pipe was deleted, or whose value no longer exists on it (a flow setpoint on a pump without flow control, a temperature on a custom fluid, a rated flow on equipment now rated by a Cv), is kept, shown as "no longer applies" and ignored when solving.
 - **Solving.** Solve one case, or Solve all: the base case and then each scenario whose results are missing or out of date, one after another, with progress and Cancel. Each case keeps its own results, errors and out-of-date state. A scenario's value that is not valid is shown with the change that set it and a Reset to base, and never blocks the base case or another scenario.
 - **Comparing.** Compare cases shows chosen results of every case side by side (a table on wide screens, one card per result on phones), with each scenario's difference from the base case, and lets the user choose and order the results. The pump/system curve chart shows the other cases' operating points and pump curves, and their system curves on request.
 - Scenarios travel in the shared URL with the rest of the project; the long-link warning (§4.4) applies to the whole encoded project. A link opens on the base case.
@@ -448,8 +457,8 @@ A scenario manager keeps several operating or design cases in one project and co
 
 Goal seek finds the input values that make chosen results hit target values, e.g. "what impeller speed gives 3 bar at the far user?" or "what reservoir level delivers 20 L/s?". Built in v1 (CLAUDE.md D16; design: `docs/proposals/goal-seek.md`).
 
-- **Variables.** The user picks 1 to 4 **variables**, each a number from the list in §3.8, with lower and upper bounds inside the value's own limits: a reservoir's liquid level or surface pressure, a reference node's pressure, an assigned flow, a pump's speed ratio (its maximum speed when speed-controlled) or flow setpoint, a control valve's setpoint, a valve's resistance (one K, Cv or Kv), a pipe's length, or a built-in fluid's temperature. Statuses, pipe sizes and the whole fluid are not numbers and are not variables: set them in a scenario and compare cases.
-- **Goals.** The user picks as many **goals**: a port's static pressure, a connection's flow, largest velocity or head loss, a pump's flow, head, NPSH available or NPSH margin, a valve's flow or pressure drop, or a reservoir's or reference node's outflow (the results Compare cases shows, §3.8), each with a target. Each goal has a tolerance: by default 0.5 % of the target, at least 0.01 m of head (pressures converted with the fluid's density), 10⁻⁶ m³/s for flows or 10⁻³ m/s for velocity; the user may enter a tighter or looser one, down to a fixed smallest tolerance per kind of result. A goal is met when its achieved value is within its tolerance of the target.
+- **Variables.** The user picks 1 to 4 **variables**, each a number from the list in §3.8, with lower and upper bounds inside the value's own limits: a reservoir's liquid level or surface pressure, a reference node's pressure, an assigned flow, a pump's speed ratio (its maximum speed when speed-controlled) or flow setpoint, a control valve's setpoint, a valve's resistance (one K, Cv or Kv), an equipment item's rated pressure drop, rated flow, rated fluid density, or Cv or Kv (the values its kind of rating holds), a pipe's length, or a built-in fluid's temperature. Statuses, pipe sizes, the whole fluid and an equipment item's whole rating are not numbers and are not variables: set them in a scenario and compare cases.
+- **Goals.** The user picks as many **goals**: a port's static pressure, a connection's flow, largest velocity or head loss, a pump's flow, head, NPSH available or NPSH margin, a valve's flow or pressure drop, an equipment item's flow, pressure loss or static pressure drop, or a reservoir's or reference node's outflow (the results Compare cases shows, §3.8), each with a target. Each goal has a tolerance: by default 0.5 % of the target, at least 0.01 m of head (pressures converted with the fluid's density), 10⁻⁶ m³/s for flows or 10⁻³ m/s for velocity; the user may enter a tighter or looser one, down to a fixed smallest tolerance per kind of result. A goal is met when its achieved value is within its tolerance of the target.
 - **Search.** Each evaluation is a full network solve of the case with the variables at trial values; nothing is approximated. The search starts from the case's own values. With one variable it solves 9 values across the bounds, then Brent's method where the result crosses its target nearest the start; with several, a bounded least-squares search. At most 60 evaluations for one variable and 20 per variable plus 20 for several, inside one request's time budget of 45 s (the best evaluation so far is reported when the budget runs out).
 - **Output.** The values found, each goal's achieved value, residual, tolerance and met status, why the search stopped, every evaluation (its values, its goal values, whether it was usable and the element states that changed), notes on what the search found (another crossing, a jump where an element switches state, a crossing where the network has no solution, a value that must be applied exactly), the full results at the values found and a "Goal seek" methods section. If a target can't be reached within the bounds, the closest value found is reported and the goal flagged as not met; it is never clamped silently, and the message says only what the values solved show.
 - **Applying.** The result never changes the model on its own. A run on the base case can be applied to the base case or as a new scenario; a run on a scenario to that scenario or as a new scenario (a scenario's values are never applied to the base). Apply writes the exact values found as one undo step and solves the case. A result goes out of date when the case it ran on changes.

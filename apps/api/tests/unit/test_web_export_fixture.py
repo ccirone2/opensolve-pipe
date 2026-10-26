@@ -68,6 +68,7 @@ XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 # Export units in SI mode (§2.3): the header brackets of §2.6's notation.
 Q, H, L, D, V = "[m³/s]", "[m]", "[m]", "[m]", "[m/s]"
 PG, PA, DP = "[Pa(g)]", "[Pa(a)]", "[Pa]"
+RHO = "[kg/m³]"
 
 CASE_COLUMNS = ["Case id", "Case", "Solved at", "Results"]  # §2.2 item 9, with scenarios
 
@@ -104,6 +105,14 @@ HEADERS: dict[str, list[str]] = {
         f"Pressure drop, static {DP}", "K (open)", f"K referred to diameter {D}", "K effective",
         "Cv effective", f"Pressure setpoint {PG}", f"Flow setpoint {Q}", "Setpoint achieved",
         "Flags",
+    ],
+    # proposal equipment-pressure-drop.md §5.4 (the rated values: its named departure from the
+    # screen's table, which has no form to read them from)
+    "Equipment": [
+        "Equipment id", "Equipment", f"Flow (+ inlet → outlet) {Q}", "Flow ÷ rated flow",
+        f"Pressure loss {DP}", f"Head loss {H}", f"Pressure drop, static {DP}", "Rated by",
+        f"Rated pressure drop (loss) {DP}", f"Rated flow {Q}", f"Rated fluid density {RHO}",
+        "Flow coefficient", "Flags",
     ],
     "Branches": [
         "Branch id", "Branch", "Type", "Loss model", "Flow pattern", "Combined port id",
@@ -572,6 +581,33 @@ def expected_valves() -> Iterator[tuple[Any, ...]]:
             )
 
 
+def expected_equipment() -> Iterator[tuple[Any, ...]]:
+    """Proposal equipment-pressure-drop.md §5.4: one row per item and case, the result's own
+    fields, and the rating the solve used as the result echoes it (after any scenario, §2.2):
+    the rated point's three values, or the Cv or Kv as entered with its kind in Rated by."""
+    for case in cases():
+        ss = state(case)
+        for c, e in _components(case, "equipmentResults"):
+            rating = e["rating"]
+            point = rating["kind"] == "point"
+            yield (
+                *case_columns(case),
+                c["id"],
+                names()[c["id"]],
+                e["flow"],
+                e["flowRatio"],  # null for a Cv or Kv: no rated flow
+                e["pressureLoss"],
+                e["headLoss"],
+                e["pressureDrop"],
+                TEXT if point else text_with(rating["kind"]),
+                rating["pressureLoss"] if point else None,
+                rating["flow"] if point else None,
+                rating["density"] if point else None,
+                None if point else rating["value"],
+                _component_flags(ss, c["id"]),
+            )
+
+
 def _k_is_on(b: dict[str, Any]) -> str:
     """Decision 29: every K is on the combined-flow velocity (§2.6 Branches, `K is on`)."""
     if b["lossModel"] != "ideal" and b["combinedPortId"] is not None:
@@ -687,6 +723,11 @@ def _change_value(field: str, value: Any) -> Any:
     return value
 
 
+SI_LABELS = {"Pa (difference)": "Pa"}
+"""A trace unit whose label in an SI file differs from it (export.md §2.2: a pressure difference
+is 'Pa', with no marker)."""
+
+
 def expected_scenario_changes() -> Iterator[tuple[Any, ...]]:
     n = names()
     for case in cases():
@@ -704,6 +745,10 @@ def expected_scenario_changes() -> Iterator[tuple[Any, ...]]:
             else:
                 label = text_with(n[element]) if element else TEXT
             unit = o["unit"] or None
+            # The file's unit (SI here) labels a pressure difference, an equipment item's rated
+            # pressure drop (trace unit 'Pa (difference)'), as 'Pa' (§2.2's table: "Pressure
+            # difference ... Pa" in SI mode); the SI unit column keeps the server's string.
+            unit_label = SI_LABELS.get(unit, unit) if unit is not None else None
             text = target["field"] == "resistance"
             yield (
                 *case_columns(case),
@@ -716,7 +761,7 @@ def expected_scenario_changes() -> Iterator[tuple[Any, ...]]:
                 {"applied": "Applied", "not_applicable": "Not applicable"}.get(o["state"], TEXT),
                 _change_value(target["field"], o["value"]),
                 _change_value(target["field"], o["baseValue"]),
-                None if text else unit,
+                None if text else unit_label,
                 ("json", o["value"]),
                 ("json", o["baseValue"]),
                 unit,
@@ -731,6 +776,7 @@ EXPECTED_TABLES: dict[str, Callable[[], Iterator[tuple[Any, ...]]]] = {
     "Pipes": expected_pipes,
     "Fittings": expected_fittings,
     "Valves": expected_valves,
+    "Equipment": expected_equipment,
     "Branches": expected_branches,
     "Branch ports": expected_branch_ports,
     "Boundaries": expected_boundaries,
@@ -972,6 +1018,8 @@ def expected_sheet_names() -> list[str]:
         ("Pump curves", pumps),
         ("System curves", curves),
         ("Valves", any(s["valveResults"] for s in states)),
+        # proposal equipment-pressure-drop.md §5.4: after Valves
+        ("Equipment", any(s["equipmentResults"] for s in states)),
         ("Branches", any(s["branchResults"] for s in states)),
         ("Branch ports", any(s["branchResults"] for s in states)),
         ("Boundaries", bool(boundaries)),
@@ -1230,6 +1278,15 @@ def test_compare_cases_holds_the_api_values_and_exact_differences() -> None:
             node = next(c for c in data["project"]["components"] if c["id"] == eid)
             key = f"{eid}:{node['ports'][0]['id']}"
             return lambda ss: (ss["nodeResults"][key]["pressure"], "Pa(g)", False)
+        # Equipment (proposal equipment-pressure-drop.md §5.3): the flow and the pressure loss
+        # have a true zero; the static pressure drop holds the ports' elevation and velocity
+        # terms, so it has none. Both pressures are differences (no gauge marker).
+        if q == "equipmentFlow":
+            return lambda ss: (ss["equipmentResults"][eid]["flow"], "m³/s", True)
+        if q == "equipmentPressureLoss":
+            return lambda ss: (ss["equipmentResults"][eid]["pressureLoss"], "Pa", True)
+        if q == "equipmentPressureDrop":
+            return lambda ss: (ss["equipmentResults"][eid]["pressureDrop"], "Pa", False)
         raise AssertionError(f"extend this reader for {q}")
 
     states = [state(c) for c in cases()]
@@ -1380,7 +1437,18 @@ def test_about_opens_with_how_to_read_the_file_and_records_the_export() -> None:
     # SI mode: the units of every category (§2.3), and the fractions note.
     units = {r[2] for r in export}
     assert {"m", "Pa(g)", "Pa(a)", "Pa", "m³/s", "m/s", "K", "kg/m³", "Pa·s", "m²/s", "W"} <= units
-    assert any(r[2] == "Fractions (speed, efficiency) are 0–1 and carry no unit." for r in export)
+    # Proposal equipment-pressure-drop.md §5.4: only a file with an Equipment sheet extends the
+    # fractions, exceptions and round-off lines and adds the equipment flow sign, so a file
+    # without one keeps §2.7's sentences byte for byte.
+    equipment = "Equipment" in workbook().sheetnames
+    # Flow ÷ rated flow (Q/Q_r) is signed and unbounded, so it is not among the 0–1 fractions.
+    fractions = "Fractions (speed, efficiency) are 0–1 and carry no unit." + (
+        " Flow ÷ rated flow is a signed ratio with no unit: 1 at the rated flow, negative when"
+        " the flow runs from outlet to inlet."
+        if equipment
+        else ""
+    )
+    assert any(r[2] == fractions for r in export)
     assert any(
         r[2] == "Pressures are gauge unless marked (a) or psia; differences carry no marker."
         for r in export
@@ -1395,14 +1463,30 @@ def test_about_opens_with_how_to_read_the_file_and_records_the_export() -> None:
         "Each row's case and solve: the Case, Solved at and Results columns.",
     ):
         assert any(isinstance(t, str) and sentence in t for t in reading), sentence
+    coefficients = (
+        " A Cv (US gpm of water at 1 psi) or Kv (m³/h of water at 1 bar) is as entered in every "
+        "unit system."
+        if equipment
+        else ""
+    )
+    near_zero = (
+        "valve and equipment pressure drops and equipment pressure losses"
+        if equipment
+        else "valve pressure drops"
+    )
+    if equipment:  # §5.4: the flow sign for equipment, as the valves' (+ inlet → outlet)
+        assert any(
+            "equipment" in str(r[1]).lower() and str(r[2]).startswith("+ inlet → outlet")
+            for r in export
+        ), "the equipment flow sign"
     for sentence in (
         "The trace, the methods text, the server's flag messages and the JSON columns are in SI "
         "as the server reported them. The app's sentences (flag messages, the goal seek report) "
-        "give speeds and efficiencies in % and powers in kW (hp with gpm).",
+        f"give speeds and efficiencies in % and powers in kW (hp with gpm).{coefficients}",
         "Full precision: each number is the value the calculation server returned, converted to "
         "these units, not rounded. The app shows 4 significant figures, and heads, elevations and "
         "lengths to at least 0.01 m (or its equivalent); it shows head differences below 1×10⁻⁷ "
-        "m, valve pressure drops below ρg·10⁻⁷ m and branch K below 1×10⁻⁴ as ≈ 0 (round-off). "
+        f"m, {near_zero} below ρg·10⁻⁷ m and branch K below 1×10⁻⁴ as ≈ 0 (round-off). "
         "The file gives them as computed. Spreadsheets display and re-save at most 15 "
         "significant digits.",
         "Losses are signed like the flow: negative where the flow runs to → from (outlet → inlet "

@@ -67,12 +67,18 @@ OUT_OF_BOUNDS: dict[str, Any] = {
     "surfacePressure": -2.0e5,
     "pressure": -2.0e5,
     "flow": 200.0,
+    "rating": {"kind": "K", "value": 1.0},  # K is no rating kind (a K needs its bore)
+    "rating.pressureLoss": 2.0e8,
+    "rating.flow": 0.0,
+    "rating.density": -1.0,
+    "rating.value": 2.0e7,
     "length": 0.0,
     "spec": {"materialId": "custom"},
     "fluid": {"kind": "custom"},
     "fluid.temperature": 2000.0,
 }
-"""A value outside each field's bounds (or its model's rules)."""
+"""A value outside each field's bounds (or its model's rules); an equipment item's whole rating
+of an unknown kind (proposal equipment-pressure-drop.md §2.1, decision 22)."""
 
 
 def draw(name: str, base: dict[str, Any]) -> list[dict[str, Any]]:

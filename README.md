@@ -12,10 +12,11 @@ Students checking hand calculations, field technicians sizing a retrofit, and pr
 
 - Branching and looped networks of pipes and fittings, with reservoirs, reference pressure nodes, assigned-flow nodes (a fixed demand or supply), tees, wyes and caps
 - Fixed-speed pumps and speed-controlled (VFD) pumps holding a flow setpoint, isolation and check valves, and pressure-reducing, pressure-sustaining and flow-control valves
+- Equipment such as heat exchangers, coils, strainers and filters, entered from the datasheet as a pressure drop at a rated flow (with the density of the fluid it is rated for) or as a Cv or Kv, and scaled with the square of the flow and with density
 - Water, glycol solutions and user-defined fluids
 - Darcy–Weisbach / Colebrook friction, with K-factor minor losses from Crane TP-410 (via the `fluids` library)
-- Results: flows, velocities, head loss, pressures, HGL/EGL, pump operating point, system curve, NPSH available
-- Scenarios: named cases of one network (a pump off, a valve closed, a larger pipe, another fluid temperature) kept as changes of the base case, solved one at a time or all together and compared side by side
+- Results: flows, velocities, head loss, pressures, HGL/EGL, pump operating point, system curve, NPSH available, and each equipment item's pressure loss against its rating
+- Scenarios: named cases of one network (a pump off, a valve closed, a larger pipe, another fluid temperature, a dirty strainer) kept as changes of the base case, solved one at a time or all together and compared side by side
 - Goal seek: the input values (a pump speed, a reservoir level, a valve's Cv, a pipe length, up to four at once) that bring chosen results to their targets, each trial a full network solve, applied to the case or as a new scenario only when you choose
 - Export: every results table of the case shown or of all cases as an Excel workbook or CSV files (each value at full precision, with the project, case, solve and methods version it came from), and the pump chart as a PNG, all made in your browser: nothing is sent
 - Imperial, SI or mixed units

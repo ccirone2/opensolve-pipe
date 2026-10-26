@@ -1,0 +1,165 @@
+{
+  "name": "equipment_ports_differ",
+  "description": "An equipment item whose outlet port is 2 m above its inlet port, with a 77.9 mm outlet pipe after a 102.3 mm inlet pipe: verifies that the loss stays on the EGL and that the static pressure drop adds the elevation and velocity-head terms.",
+  "source": "closed-form: tests/reference/derivations_equipment.py::equipment_ports_differ (equipment loss on the EGL h = c Q|Q|, c = dP_ref/(rho_ref g Q_ref^2) (constant K, ISA-75.01.01 eq. (1) form), rated point as entered; Darcy-Weisbach + Swamee-Jain lines; brentq; static p = rho g (EGL - z - v^2/2g), v in the connected pipe (D7); dp_static = rho g h + rho g (z_out - z_in) + rho (v_out^2 - v_in^2)/2)",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-equipment-ports-differ",
+    "metadata": {
+      "name": "Equipment with ports at different heights",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "swamee_jain",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Water at EPANET's default viscosity",
+      "density": 1000.0,
+      "dynamicViscosity": 0.00102193344
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 25.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 5.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "E1",
+        "name": "Equipment E1",
+        "elevation": 20.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional",
+            "elevation": 22.0
+          }
+        ],
+        "type": "equipment",
+        "rating": {
+          "kind": "point",
+          "pressureLoss": 50000.0,
+          "flow": 0.015,
+          "density": 999.1026214671009
+        }
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "E1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 30.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "E1",
+        "fromPortId": "outlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 50.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 1000.0,
+      "dynamicViscosity": 0.00102193344
+    },
+    "flows": {
+      "L1": 0.022901983791626234,
+      "L2": 0.022901983791626234
+    },
+    "egl": {
+      "R1:port_1": 30.0,
+      "E1:inlet": 27.90178086766558,
+      "E1:outlet": 16.00572710914838,
+      "R2:port_1": 2.0
+    },
+    "pressures": {
+      "E1:inlet": 73608.19257968647,
+      "E1:outlet": -70328.5416460253
+    },
+    "equipment": {
+      "E1": {
+        "flow": 0.022901983791626234,
+        "flowRatio": 1.526798919441749,
+        "headLoss": 11.896053758517198,
+        "pressureLoss": 116660.43559096268,
+        "pressureDrop": 143936.73422571179
+      }
+    }
+  }
+}

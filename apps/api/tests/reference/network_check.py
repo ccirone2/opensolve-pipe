@@ -12,8 +12,11 @@ Pumps and valves are solved in the state the case expects (``expected.pumps`` /
 status rules of design §5 select. Nothing here is used to produce expected values. Supported
 elements: what the reference cases use (custom and carbon-steel schedule 40 pipes, every fitting
 type, reservoirs, ideal reference nodes, ideal and Crane tees and wyes, plugs, assigned-flow
-nodes, pumps, isolation, check and control valves). An assigned-flow node is a free node whose
-continuity equation has its flow as a demand (SDD §4.11, TSD §4.8).
+nodes, pumps, isolation, check and control valves, equipment). An assigned-flow node is a free
+node whose continuity equation has its flow as a demand (SDD §4.11, TSD §4.8). An equipment item
+has no status: it is always 'open', with the law H_in − H_out = K Q|Q|/(2gA²), K =
+``element_laws.equipment_k`` on its inlet pipe's bore (proposal equipment-pressure-drop.md §7.4;
+c = K/(2gA²) on every bore in our model; under EPANET's constants this is decision 20's TCV).
 """
 
 import math
@@ -31,6 +34,7 @@ from opensolve_pipe.models.components import (
     CheckValve,
     Component,
     ControlValve,
+    Equipment,
     IdealReferenceNode,
     IsolationValve,
     Plug,
@@ -224,10 +228,17 @@ def connection_head_loss(connection: PipeConnection, q: float, nu: float, model:
 # --- Nodes ---------------------------------------------------------------------------------------
 
 Valve = IsolationValve | CheckValve | ControlValve
-TwoPort = Pump | IsolationValve | CheckValve | ControlValve
+TwoPort = Pump | IsolationValve | CheckValve | ControlValve | Equipment
+TWO_PORTS = (Pump, IsolationValve, CheckValve, ControlValve, Equipment)
 Branch = TeeBranch | WyeBranch
 
-TWO_PORT_ENDS = {"pump": ("suction", "discharge"), "valve": ("inlet", "outlet")}
+TWO_PORT_ENDS = {
+    "pump": ("suction", "discharge"),
+    "valve": ("inlet", "outlet"),
+    "equipment": ("inlet", "outlet"),
+}
+EQUIPMENT_STATE = "open"
+"""An equipment item has no status (proposal decision 8): its law always applies."""
 
 
 def fluid_state(project: Project) -> tuple[float, float, float | None]:
@@ -323,7 +334,7 @@ def assigned_flows(project: Project) -> dict[str, float]:
 def element_states(project: Project, expected: Mapping[str, Any]) -> dict[str, str]:
     """The expected status of every pump and state of every valve (each must be given); a
     speed-controlled pump's control state (``controlState``: active, max_speed, min_speed,
-    no_flow or off) in place of its status."""
+    no_flow or off) in place of its status; every equipment item 'open' (it has no status)."""
     states: dict[str, str] = {}
     for component in project.components:
         if isinstance(component, Pump):
@@ -333,6 +344,8 @@ def element_states(project: Project, expected: Mapping[str, Any]) -> dict[str, s
             )
         elif isinstance(component, IsolationValve | CheckValve | ControlValve):
             states[component.id] = expected["valves"][component.id]["state"]
+        elif isinstance(component, Equipment):
+            states[component.id] = EQUIPMENT_STATE
     return states
 
 
@@ -377,6 +390,8 @@ def connects_heads(component: TwoPort, state: str) -> bool:
     do not (design §4)."""
     if isinstance(component, Pump):
         return state in PUMP_HEAD_STATES
+    if isinstance(component, Equipment):
+        return True
     if state == "active":
         return isinstance(component, ControlValve) and component.valve_type != "fcv"
     return state == "open"
@@ -399,7 +414,7 @@ def isolated_ports(project: Project, states: Mapping[str, str]) -> set[str]:
             keys = [f"{component.id}:{p.id}" for p in component.ports]
             link(keys[0], keys[1])
             link(keys[0], keys[2])
-        elif isinstance(component, Pump | IsolationValve | CheckValve | ControlValve):
+        elif isinstance(component, TWO_PORTS):
             if connects_heads(component, states[component.id]):
                 link(*two_port_ends(component))
     reached = {nodes[k] for k in fixed_heads(project)}
@@ -516,13 +531,20 @@ def element_law(
     h_out: float,
     model: Model,
 ) -> tuple[str, float]:
-    """('head' | 'flow', residual) of a pump's or valve's law in its state (design §2.2-2.3,
-    §5): running pump H_out − H_in − H(Q) (a flow-controlled pump at a speed limit: H(Q) at
-    that speed; active: Q − Q_set, a fixed flow, proposal vfd-pump-modes.md §4.2); open valve
-    ΔH − h_c − K Q|Q|/(2gA²); active PRV H_out − h_set; active PSV H_in − h_set; active FCV
-    Q − q_set; closed or stopped Q."""
+    """('head' | 'flow', residual) of a pump's, valve's or equipment item's law in its state
+    (design §2.2-2.3, §5): running pump H_out − H_in − H(Q) (a flow-controlled pump at a speed
+    limit: H(Q) at that speed; active: Q − Q_set, a fixed flow, proposal vfd-pump-modes.md
+    §4.2); open valve ΔH − h_c − K Q|Q|/(2gA²); active PRV H_out − h_set; active PSV H_in −
+    h_set; active FCV Q − q_set; closed or stopped Q; equipment ΔH − K Q|Q|/(2gA²), K =
+    ``element_laws.equipment_k`` on the inlet pipe's bore (proposal §7.4)."""
     rho = density(project)
     key_in, key_out = two_port_ends(component)
+    if isinstance(component, Equipment):
+        if state != EQUIPMENT_STATE:
+            raise ValueError(f"{component.id}: equipment has no state {state!r}")
+        d_in = port_diameter(project, key_in)
+        k = el.equipment_k(component.rating, d_in) * model.k_scale
+        return "head", h_in - h_out - el.valve_loss(k, q, d_in, model.g)
     if isinstance(component, Pump):
         if state == "active" and component.control is not None:
             return "flow", q - component.control.setpoint
@@ -631,7 +653,7 @@ def element_residuals(
         for key in pair
     }
     for component in project.components:
-        if isinstance(component, Pump | IsolationValve | CheckValve | ControlValve):
+        if isinstance(component, TWO_PORTS):
             key_in, key_out = two_port_ends(component)
             q = port_inflow(project, key_in, flows)
             kind, value = element_law(
@@ -799,11 +821,7 @@ def solve_network(
         if f"{c.from_component_id}:{c.from_port_id}" not in isolated
         and f"{c.from_component_id}:{c.from_port_id}" not in held_keys
     ]
-    two_ports = [
-        c
-        for c in project.components
-        if isinstance(c, Pump | IsolationValve | CheckValve | ControlValve)
-    ]
+    two_ports = [c for c in project.components if isinstance(c, TWO_PORTS)]
     branches = [
         c for c in project.components if isinstance(c, TeeBranch | WyeBranch) and is_crane_branch(c)
     ]

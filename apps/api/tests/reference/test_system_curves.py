@@ -28,6 +28,11 @@ keeps running: a SciPy PchipInterpolator built from the curve points), never wit
   and Q_B < Q_set comes from its leg balance (brentq), the parallel formula above. B's own
   curve has A fixed and running.
 
+- an equipment item in the pump's line (docs/proposals/equipment-pressure-drop.md §7.1), on the
+  discharge or as a suction strainer: its loss c Q|Q| (``element_laws.equipment_coefficient``,
+  c from the rating alone) adds to the line's,
+      H_sys(Q) = (H_R2 − H_R1) + Σ h_line(Q) + c Q|Q|;
+
 - a pump whose only way out is an FCV or a PRV in series (TSD §5.6, §12 decided item 8, was
   open item 4; owner's decision 2026-10-23), through the public POST /api/v1/system-curve: every
   flow the valve passes with a determined head has that head (q = 0 included: the valve, below
@@ -51,16 +56,27 @@ from fastapi.testclient import TestClient
 from scipy.optimize import brentq
 
 from opensolve_pipe.models.api import SystemCurvePoint, SystemCurveResponse
-from opensolve_pipe.models.components import ControlValve, Pump, Reservoir
+from opensolve_pipe.models.components import ControlValve, Equipment, Pump, Reservoir
 from opensolve_pipe.models.piping import PipeConnection
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.pumps import PumpCurve
 from opensolve_pipe.services.solver import solve_project, system_curve
 from tests.reference import derivations as dv
+from tests.reference import derivations_equipment as de
 from tests.reference import derivations_pump_control as dpc
 from tests.reference import derivations_pumps as dp
 from tests.reference import element_laws as el
-from tests.reference.case_format import control_valve, flow_coefficient, flow_control, pump
+from tests.reference.case_format import (
+    control_valve,
+    custom_fluid,
+    equipment,
+    flow_coefficient,
+    flow_control,
+    make_project,
+    pump,
+    rated_point,
+    reservoir,
+)
 from tests.reference.line import Line
 
 RELATIVE = 0.005
@@ -172,6 +188,76 @@ def test_parallel_pump_system_curve_with_the_other_pump_running() -> None:
         return (h_t2 + la2.head_loss(q, NU)) - (h_t1 - la1.head_loss(q, NU))
 
     _check(project, "PA", expected)
+
+
+# --- Equipment (docs/proposals/equipment-pressure-drop.md §7.1) ----------------------------------
+
+EQUIPMENT_BEFORE = Line(0.1023, 60.0, (("gate_valve", 1), ("elbow_90_lr", 3)))
+EQUIPMENT_AFTER = Line(0.1023, 60.0, (("exit", 1),))
+
+
+def pump_to_equipment_project() -> Project:
+    """R1 (H 3 m) → SUCTION_A → PU1 (curve_a, z 0.5 m) → 102.3 mm × 60 m (gate valve, 3 LR
+    elbows) → E1 (30 kPa at 25 L/s, rated on water at 15 °C; z 1 m) → 102.3 mm × 60 m (exit) →
+    R2 (H 20 m); liquid A (test inputs)."""
+    name, rho, mu = dv.FLUID_A
+    curve = dp.curve_a()
+    e1 = equipment("E1", 1.0, rated_point(30_000.0, 0.025, de.rating_water_density()))
+    return make_project(
+        "ref-pump-to-equipment",
+        "Pump into an equipment item",
+        custom_fluid(name, rho, mu),
+        [
+            reservoir("R1", 0.0, 3.0),
+            pump("PU1", 0.5, curve.id),
+            e1,
+            reservoir("R2", 18.0, 2.0),
+        ],
+        [
+            dp.SUCTION_A.connect("L1", "R1:port_1", "PU1:suction"),
+            EQUIPMENT_BEFORE.connect("L2", "PU1:discharge", "E1:inlet"),
+            EQUIPMENT_AFTER.connect("L3", "E1:outlet", "R2:port_1"),
+        ],
+        pump_library=[curve],
+    )
+
+
+def _equipment_coefficient(project: Project, cid: str) -> float:
+    comp = next(c for c in project.components if c.id == cid)
+    assert isinstance(comp, Equipment)
+    return el.equipment_coefficient(comp.rating)
+
+
+@pytest.mark.parametrize(
+    ("label", "build", "lines", "element"),
+    [
+        ("discharge", pump_to_equipment_project, ("L1", "L2", "L3"), "E1"),
+        (
+            "suction strainer",
+            lambda: de.equipment_suction_strainer_npsh().project,
+            ("L1", "L2", "L3"),
+            "S",
+        ),
+    ],
+    ids=["discharge", "suction-strainer"],
+)
+def test_equipment_loss_is_in_the_system_curve(
+    label: str, build: Callable[[], Project], lines: tuple[str, ...], element: str
+) -> None:
+    """Pump → equipment → reservoir, and a strainer on the suction: at every point
+    H_sys(Q) = (H_R2 − H_R1) + Σ h_line(Q) + c Q|Q|, explicitly (proposal §7.1), with c from
+    the element's rating and ν from the case fluid."""
+    project = build()
+    rho, mu, _ = dv.fluid_state(project.fluid)
+    nu = mu / rho
+    parts = [_line(project, c) for c in lines]
+    c = _equipment_coefficient(project, element)
+    static = _head(project, "R2") - _head(project, "R1")
+
+    def expected(q: float) -> float:
+        return static + sum(line.head_loss(q, nu) for line in parts) + c * q * abs(q)
+
+    _check(project, "PU1", expected)
 
 
 # --- Flow-controlled pumps (CLAUDE.md D11) -------------------------------------------------------

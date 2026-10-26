@@ -16,6 +16,7 @@ import type {
 	BoundaryResult,
 	BranchResult,
 	Component,
+	EquipmentResult,
 	Flag,
 	LinkResult,
 	NodeResult,
@@ -1011,6 +1012,41 @@ export function valveTable(project: Project, solved: SolvedState, prefs: UnitPre
 	return { columns, rows };
 }
 
+/**
+ * Equipment (proposal equipment-pressure-drop.md §6.3): flow, flow ÷ rated flow ("—" for a Cv or
+ * Kv rating, which has no rated flow), the pressure loss (the rating scaled to the solved flow and
+ * density, ρg × head loss), the head loss and the static pressure drop, inlet minus outlet, as for
+ * valves. Differences the solver resolves only to its head tolerance read "≈ 0".
+ */
+export function equipmentTable(
+	project: Project,
+	solved: SolvedState,
+	prefs: UnitPreferences
+): Table {
+	const f = new Formatter(prefs);
+	const columns: Column[] = [
+		f.column('flow', 'Flow (+ inlet → outlet)', 'flow'),
+		f.column('flowRatio', 'Flow ÷ rated flow', 'fraction'),
+		f.column('pressureLoss', 'Pressure loss', 'pressure'),
+		f.column('headLoss', 'Head loss', 'head'),
+		f.column('pressureDrop', 'Pressure drop (static)', 'pressure')
+	];
+	const results = solved.equipmentResults ?? {};
+	// The head tolerance as a pressure, at the solved fluid's density and standard gravity.
+	const pressureNoise = solved.fluid.density * STANDARD_GRAVITY * HEAD_NOISE;
+	const rows = orderedIds(project, Object.keys(results)).map((id) => {
+		const item = results[id] as EquipmentResult;
+		return componentRow(project, solved.flags, id, {
+			flow: f.num(item.flow, 'flow'),
+			flowRatio: f.num(item.flowRatio, 'fraction'),
+			pressureLoss: f.diff(item.pressureLoss, 'pressure', pressureNoise),
+			headLoss: f.diff(item.headLoss, 'head', HEAD_NOISE),
+			pressureDrop: f.diff(item.pressureDrop, 'pressure', pressureNoise)
+		});
+	});
+	return { columns, rows };
+}
+
 /** Labelled values for a per-port map ("Run inlet" → "12.3"), in the order of the component's ports. */
 function perPort(
 	project: Project,
@@ -1222,6 +1258,7 @@ export type ResultsView =
 	| 'links'
 	| 'pumps'
 	| 'valves'
+	| 'equipment'
 	| 'branches'
 	| 'boundaries'
 	| 'assignedFlows'
@@ -1233,6 +1270,7 @@ export const VIEW_LABELS: Readonly<Record<ResultsView, string>> = {
 	links: 'Links',
 	pumps: 'Pumps',
 	valves: 'Valves',
+	equipment: 'Equipment',
 	branches: 'Branches',
 	boundaries: 'Boundaries',
 	assignedFlows: 'Assigned flows',
@@ -1248,6 +1286,8 @@ export function availableViews(solved: SolvedState): ResultsView[] {
 	if (has(solved.linkResults)) views.push('links');
 	if (has(solved.pumpResults)) views.push('pumps');
 	if (has(solved.valveResults)) views.push('valves');
+	// Equipment only when the solve has some (an older response may have no map at all).
+	if (has(solved.equipmentResults ?? {})) views.push('equipment');
 	if (has(solved.branchResults)) views.push('branches');
 	if (boundaries.some((b) => !isAssignedFlowResult(b))) views.push('boundaries');
 	if (boundaries.some((b) => isAssignedFlowResult(b))) views.push('assignedFlows');
@@ -1272,6 +1312,7 @@ export function rowsForElement(
 			: [
 					{ title: 'Pump', table: pumpTable(project, solved, prefs) },
 					{ title: 'Valve', table: valveTable(project, solved, prefs) },
+					{ title: 'Equipment', table: equipmentTable(project, solved, prefs) },
 					{ title: 'Branch', table: branchTable(project, solved, prefs) },
 					{ title: 'Boundary', table: boundaryTable(project, solved, prefs) },
 					{
@@ -1319,6 +1360,8 @@ const SUMMARY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
 	'Pipe connection': ['flow', 'velocity', 'headLoss'],
 	Pump: ['status', 'flow', 'head', 'npshMargin'],
 	Valve: ['state', 'flow', 'pressureDrop'],
+	// A Cv- or Kv-rated item has no flow ratio ("—"): left out, so it shows flow and pressure loss.
+	Equipment: ['flow', 'flowRatio', 'pressureLoss'],
 	Branch: ['portFlows'],
 	Boundary: ['outflow'],
 	'Assigned flow': ['pressure'],

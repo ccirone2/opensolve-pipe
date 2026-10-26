@@ -8,6 +8,7 @@ import {
 	stringLimits
 } from './schema-bounds';
 import { COMPONENT_KINDS, createComponent, createEmptyProject } from './factory';
+import { enteredFor } from '../testing/helpers';
 
 describe('schemaBounds', () => {
 	it('reads bounds from the generated schema', () => {
@@ -24,6 +25,19 @@ describe('schemaBounds', () => {
 			minimum: 10000,
 			maximum: 120000
 		});
+	});
+
+	it("reads an equipment rating's bounds from its member of the union", () => {
+		// The rating's fields have no default; their bounds are the schema's (decision 3).
+		expect(schemaBounds('RatedPoint', 'pressureLoss')).toEqual({
+			exclusiveMinimum: 0,
+			maximum: 1e8
+		});
+		expect(schemaBounds('RatedPoint', 'flow')).toEqual({ exclusiveMinimum: 0, maximum: 100 });
+		expect(schemaBounds('RatedPoint', 'density')).toEqual({ exclusiveMinimum: 0, maximum: 3e4 });
+		expect(schemaBounds('RatedFlowCoefficient', 'value')).toEqual(
+			schemaBounds('FlowCoefficient', 'value')
+		);
 	});
 
 	it('gives no bounds for unknown names', () => {
@@ -55,9 +69,10 @@ describe('schema lookups', () => {
 
 	it('names the schema of every kind of component', () => {
 		const project = createEmptyProject();
-		// An assigned-flow node's flow has no default; 0.004 m³/s is a made-up test input.
+		// An assigned-flow node's flow and an equipment item's rating have no default: made-up
+		// test inputs (enteredFor).
 		const schemas = COMPONENT_KINDS.map((k) =>
-			componentSchema(createComponent(k, project, { flow: 0.004 }))
+			componentSchema(createComponent(k, project, enteredFor(k)))
 		);
 		expect(new Set(schemas)).toEqual(
 			new Set([
@@ -70,7 +85,8 @@ describe('schema lookups', () => {
 				'Pump',
 				'IsolationValve',
 				'CheckValve',
-				'ControlValve'
+				'ControlValve',
+				'Equipment'
 			])
 		);
 		for (const schema of schemas) expect(openapi.components.schemas).toHaveProperty(schema);

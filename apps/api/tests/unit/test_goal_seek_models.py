@@ -5,7 +5,7 @@ which never echo a submitted value (SDD §5.1.2)."""
 
 import json
 import math
-from itertools import product
+from itertools import combinations, product
 from typing import Any, get_args
 
 import pytest
@@ -58,6 +58,12 @@ EXPECTED: dict[str, dict[str, tuple[str, list[str], str]]] = {
     "ControlValve": {
         "resistance": ("FlowCoefficient", ["resistance", "value"], "log"),
         "setpoint": ("ControlValve", ["setpoint"], "linear"),
+    },
+    "Equipment": {
+        "rating.pressureLoss": ("RatedPoint", ["rating", "pressureLoss"], "log"),
+        "rating.flow": ("RatedPoint", ["rating", "flow"], "log"),
+        "rating.density": ("RatedPoint", ["rating", "density"], "linear"),
+        "rating.value": ("RatedFlowCoefficient", ["rating", "value"], "log"),
     },
     "PipeDefinition": {"length": ("PipeDefinition", ["length"], "log")},
     "Project": {"fluid.temperature": ("BuiltinFluid", ["fluid", "temperature"], "linear")},
@@ -126,7 +132,7 @@ def test_every_allow_list_value_is_a_variable_or_says_why_not() -> None:
             else:
                 assert name not in tables[target], (target, name)
                 assert name in NOT_VARIABLES, (target, name)
-    assert set(NOT_VARIABLES) == {"status", "spec", "fluid"}
+    assert set(NOT_VARIABLES) == {"status", "spec", "fluid", "rating"}
     assert all(NOT_VARIABLES.values())
 
 
@@ -143,23 +149,50 @@ def test_the_literals_are_the_tables_names_and_every_component_is_covered() -> N
     )
 
 
-BASES: dict[str, dict[str, Any]] = {
-    "Reservoir": {"type": "reservoir", "liquidLevel": 5.0, "ports": ["port_1"]},
-    "Pump": {
-        "type": "pump",
-        "curveId": "C1",
-        "speed": 0.9,
-        "control": {"mode": "flow", "setpoint": 0.02, "minSpeed": 0.4},
-        "ports": ["suction", "discharge"],
-    },
-    "ControlValve": {
-        "type": "valve",
-        "valveType": "fcv",
-        "setpoint": 0.01,
-        "ports": ["inlet", "outlet"],
-    },
+BASES: dict[str, tuple[str, tuple[str, ...], dict[str, Any]]] = {
+    "Reservoir": (
+        "Reservoir",
+        ("liquidLevel", "surfacePressure"),
+        {"type": "reservoir", "liquidLevel": 5.0, "ports": ["port_1"]},
+    ),
+    "Pump": (
+        "Pump",
+        ("speed", "control.setpoint"),
+        {
+            "type": "pump",
+            "curveId": "C1",
+            "speed": 0.9,
+            "control": {"mode": "flow", "setpoint": 0.02, "minSpeed": 0.4},
+            "ports": ["suction", "discharge"],
+        },
+    ),
+    "ControlValve": (
+        "ControlValve",
+        ("resistance", "setpoint"),
+        {"type": "valve", "valveType": "fcv", "setpoint": 0.01, "ports": ["inlet", "outlet"]},
+    ),
+    "Equipment (point)": (
+        "Equipment",
+        ("rating.pressureLoss", "rating.flow", "rating.density"),
+        {
+            "type": "equipment",
+            "rating": {"kind": "point", "pressureLoss": 5.0e4, "flow": 0.015, "density": 999.1},
+            "ports": ["inlet", "outlet"],
+        },
+    ),
+    "Equipment (Kv)": (
+        "Equipment",
+        ("rating.value",),
+        {
+            "type": "equipment",
+            "rating": {"kind": "Kv", "value": 60.0},
+            "ports": ["inlet", "outlet"],
+        },
+    ),
 }
-"""A valid instance of each component type with two variables (test input)."""
+"""A valid instance of each component type with two or more variables, one per set of
+variables an element can hold at once (an equipment item's rated point holds three values, its
+Cv or Kv one): (schema, the variables it holds, the instance) (test input)."""
 
 GRIDS: dict[tuple[str, str], list[Any]] = {
     ("Reservoir", "liquidLevel"): [-1.0, 0.0, 5.0, 1000.0, 1001.0],
@@ -168,8 +201,25 @@ GRIDS: dict[tuple[str, str], list[Any]] = {
     ("Pump", "control.setpoint"): [-1.0, 0.0, 1e-6, 50.0, 100.0, 101.0],
     ("ControlValve", "setpoint"): [-2.0e5, -1.0, 0.0, 0.5, 100.0, 101.0, 1.0e8],
     ("ControlValve", "resistance"): [-1.0, 0.0, 1e-3, 1.0, 1.0e7, 1.1e7],
+    ("Equipment", "rating.pressureLoss"): [-1.0, 0.0, 1.0, 5.0e4, 1.0e8, 1.0e8 + 1],
+    ("Equipment", "rating.flow"): [-1.0, 0.0, 1e-6, 0.015, 100.0, 101.0],
+    ("Equipment", "rating.density"): [-1.0, 0.0, 1.0, 999.1, 3.0e4, 3.0e4 + 1],
+    ("Equipment", "rating.value"): [-1.0, 0.0, 1e-3, 60.0, 1.0e7, 1.1e7],
 }
 """Values on both sides of each field's bounds and rules (test input)."""
+
+
+def test_the_bases_hold_every_variable_of_their_schemas() -> None:
+    """Every component schema with two or more variables has bases, and together they hold each
+    of its variables: no variable escapes the pair test below."""
+    held: dict[str, set[str]] = {}
+    for schema, fields, _ in BASES.values():
+        assert set(fields) <= set(EXPECTED[schema]), schema
+        held.setdefault(schema, set()).update(fields)
+    several = {cls.__name__ for cls, fields in GOAL_COMPONENT_FIELDS.items() if len(fields) >= 2}
+    assert set(held) == several
+    for schema, fields in held.items():
+        assert fields == set(EXPECTED[schema]), schema
 
 
 def _with(schema: str, field: str, value: Any, data: dict[str, Any]) -> None:
@@ -186,8 +236,9 @@ def _with(schema: str, field: str, value: Any, data: dict[str, Any]) -> None:
     holder[path[-1]] = value
 
 
-def _valid(schema: str, values: dict[str, Any]) -> bool:
-    base = json.loads(json.dumps(BASES[schema]))
+def _valid(name: str, values: dict[str, Any]) -> bool:
+    schema, _, instance = BASES[name]
+    base = json.loads(json.dumps(instance))
     base["ports"] = [{"id": p, "nominalSize": 0.1} for p in base["ports"]]
     data = {"id": "X1", "name": "X1", "elevation": 0.0, **base}
     for field, value in values.items():
@@ -199,17 +250,41 @@ def _valid(schema: str, values: dict[str, Any]) -> bool:
     return True
 
 
-@pytest.mark.parametrize("schema", sorted(BASES))
-def test_no_rule_reads_two_variables_of_one_element(schema: str) -> None:
+def _in_bounds(schema: str, field: str, value: float) -> bool:
+    """Whether ``value`` lies within the published bounds of the variable's number."""
+    bounding, path, _ = EXPECTED[schema][field]
+    prop = _property(bounding, path)
+    options = prop.get("anyOf", [prop])
+    return any(
+        o.get("type") == "number"
+        and value > o.get("exclusiveMinimum", -math.inf)
+        and value >= o.get("minimum", -math.inf)
+        and value < o.get("exclusiveMaximum", math.inf)
+        and value <= o.get("maximum", math.inf)
+        for o in options
+    )
+
+
+@pytest.mark.parametrize("name", sorted(BASES))
+def test_no_rule_reads_two_variables_of_one_element(name: str) -> None:
     """Every model rule on these values bounds one value (proposal §2.1): a pair of values is
     valid exactly when each is valid with the other as the element holds it, so the bounds
-    checked one at a time prove every trial in the box valid."""
-    fields = sorted(EXPECTED[schema])
-    assert len(fields) == 2
-    a, b = fields
-    for va, vb in product(GRIDS[(schema, a)], GRIDS[(schema, b)]):
-        alone = _valid(schema, {a: va}) and _valid(schema, {b: vb})
-        assert _valid(schema, {a: va, b: vb}) == alone, (a, va, b, vb)
+    checked one at a time prove every trial in the box valid. Every pair of the variables a base
+    holds is checked; a variable an element holds alone (a Cv or Kv rating's value) is valid
+    exactly within its published bounds."""
+    schema, fields, _ = BASES[name]
+    assert _valid(name, {})
+    if len(fields) == 1:
+        (a,) = fields
+        for va in GRIDS[(schema, a)]:
+            assert _valid(name, {a: va}) == _in_bounds(schema, a, va), (a, va)
+        return
+    pairs = list(combinations(sorted(fields), 2))
+    assert len(pairs) == len(fields) * (len(fields) - 1) // 2 >= 1
+    for a, b in pairs:
+        for va, vb in product(GRIDS[(schema, a)], GRIDS[(schema, b)]):
+            alone = _valid(name, {a: va}) and _valid(name, {b: vb})
+            assert _valid(name, {a: va, b: vb}) == alone, (a, va, b, vb)
 
 
 # --------------------------------------------------------------------------- the extensions
@@ -255,11 +330,22 @@ def test_x_goal_quantities_states_the_quantities_and_their_tolerances() -> None:
         "pump_npsh_margin": ["Pump"],
         "valve_flow": valves,
         "valve_pressure_drop": valves,
+        "equipment_flow": ["Equipment"],
+        "equipment_pressure_loss": ["Equipment"],
+        "equipment_pressure_drop": ["Equipment"],
         "boundary_outflow": ["Reservoir", "IdealReferenceNode"],
     }
+    pressures = (
+        "port_pressure",
+        "valve_pressure_drop",
+        "equipment_pressure_loss",
+        "equipment_pressure_drop",
+    )
     units = {
         "port_pressure": "Pa(g)",
         "valve_pressure_drop": "Pa (difference)",
+        "equipment_pressure_loss": "Pa (difference)",
+        "equipment_pressure_drop": "Pa (difference)",
         "link_velocity": "m/s",
         "link_head_loss": "m",
         "pump_head": "m",
@@ -284,12 +370,7 @@ def test_x_goal_quantities_states_the_quantities_and_their_tolerances() -> None:
             for target in (0.0, 1.0, -250.0e3, 3.0e5):
                 expected = max(
                     0.005 * abs(target),
-                    floor
-                    * (
-                        density * 9.80665
-                        if quantity in ("port_pressure", "valve_pressure_drop")
-                        else 1.0
-                    ),
+                    floor * (density * 9.80665 if quantity in pressures else 1.0),
                 )
                 assert default_tolerance(quantity, target, density) == pytest.approx(
                     expected, rel=1e-12

@@ -12,7 +12,7 @@ section and one first note in the trace of each overridden element. Nothing unde
 """
 
 import copy
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -26,6 +26,7 @@ from ..models.components import (
     BaseComponent,
     CheckValve,
     ControlValve,
+    Equipment,
     IdealReferenceNode,
     IsolationValve,
     Plug,
@@ -72,6 +73,7 @@ COMPONENT_NAMES: dict[type[BaseComponent], str] = {
     IsolationValve: "isolation valve",
     CheckValve: "check valve",
     ControlValve: "control valve",
+    Equipment: "equipment",
 }
 """How messages name a component of each type."""
 
@@ -91,8 +93,20 @@ MISSING_HOLDER = {
         "the fluid is a custom fluid, whose properties do not depend on its temperature (set "
         "the whole fluid instead)"
     ),
+    **{
+        field: (
+            "equipment {id} is rated by a Cv or Kv in the base project "  # {id}: .format below
+            f"({field} applies to a rated point; set the whole rating instead)"
+        )
+        for field in ("rating.pressureLoss", "rating.flow", "rating.density")
+    },
+    "rating.value": (
+        "equipment {id} is rated by a pressure drop at a flow in the base project (rating.value "
+        "applies to a Cv or Kv rating; set the whole rating instead)"
+    ),
 }
-"""Why a value whose holder the base project lacks does not apply."""
+"""Why a value whose holder the base project lacks does not apply (an equipment item's rating
+holds the values of its own kind only: proposal equipment-pressure-drop.md §5.1)."""
 
 AnyOverride = ComponentOverride | PipeOverride | ProjectOverride
 Location = tuple[str | int, ...]
@@ -329,11 +343,19 @@ def write_override(data: dict[str, Any], plan: OverridePlan) -> None:
     _at(data, plan.location + tuple(parents))[leaf] = value
 
 
+RATING_TAGS = ("point", "coefficient")
+"""The tags of an equipment rating's union (models/components.py ``_rating_tag``)."""
+
+
 def _clean(loc: tuple[str | int, ...]) -> Location:
     """An error location in the project JSON without the union tags pydantic inserts: the
-    component tag after a component index, the fluid kind after 'fluid'."""
+    component tag after a component index, an equipment rating's tag after 'rating' (proposal
+    equipment-pressure-drop.md §2.1), the fluid kind after 'fluid'."""
     if len(loc) > 2 and loc[0] == "components":
-        return loc[:2] + loc[3:]
+        tag, rest = loc[2], loc[3:]
+        if tag == "equipment" and len(rest) > 1 and rest[0] == "rating" and rest[1] in RATING_TAGS:
+            rest = rest[:1] + rest[2:]
+        return loc[:2] + rest
     if len(loc) > 1 and loc[0] == "fluid":
         return loc[:1] + loc[2:]
     return loc
@@ -533,7 +555,14 @@ def apply_scenario(project: Project, scenario_id: str) -> AppliedScenario:
 # --------------------------------------------------------------------------- text
 
 
+TEXT_UNITS = {"Pa (difference)": "Pa"}
+"""A trace unit as a text writes it after a number: a pressure difference (an equipment item's
+rated pressure drop) as plain "Pa", which the value's label already names a difference ("rated
+pressure drop 70000 Pa")."""
+
+
 def _number(value: float, unit: str) -> str:
+    unit = TEXT_UNITS.get(unit, unit)
     return f"{value:.6g} {unit}" if unit else f"{value:.6g}"
 
 
@@ -585,6 +614,25 @@ def _fluid_text(fluid: dict[str, Any]) -> str:
     return text
 
 
+def _rating_text(rating: dict[str, Any]) -> str:
+    """An equipment rating (proposal equipment-pressure-drop.md §5.1): a Cv or Kv as entered,
+    as a resistance is written ('Cv 120'), a rated point in SI with its units ('50000 Pa at
+    0.015 m³/s, 999.103 kg/m³'), never a Python dict's repr."""
+    kind = rating.get("kind")
+    if kind in ("Cv", "Kv"):
+        number = rating.get("value")
+        return f"{kind} {number:.6g}" if isinstance(number, int | float) else str(kind)
+    parts = [
+        _number(value, unit) if isinstance(value, int | float) else "?"
+        for value, unit in (
+            (rating.get("pressureLoss"), "Pa"),
+            (rating.get("flow"), "m³/s"),
+            (rating.get("density"), "kg/m³"),
+        )
+    ]
+    return f"{parts[0]} at {parts[1]}, {parts[2]}"
+
+
 def value_text(field: str, value: JsonValue, unit: str) -> str:
     """A value in notes and the methods summary (proposal §5.4), SI with its unit."""
     if value is None:
@@ -593,6 +641,8 @@ def value_text(field: str, value: JsonValue, unit: str) -> str:
         return _spec_text(value)
     if field == "fluid" and isinstance(value, dict):
         return _fluid_text(value)
+    if field == "rating" and isinstance(value, dict):
+        return _rating_text(value)
     if field == "resistance" and isinstance(value, dict):
         number = value.get("value")
         return f"{value.get('kind')} {number:.6g}" if isinstance(number, int | float) else "?"
@@ -660,25 +710,43 @@ REPLACED_TEMPERATURE = (
 )
 """The mark of a whole-fluid override whose temperature a goal-seek variable replaced."""
 
+ReplacedParts = Mapping[int, Sequence[str]]
+"""Per index of a whole-value override other than the fluid (an equipment rating), the labels
+of its parts that goal-seek variables replaced (proposal equipment-pressure-drop.md §5.2); an
+index absent: the variable replaced the whole value."""
 
-def _replaced_mark(o: AppliedOverride) -> str:
+
+def _parts_mark(parts: Sequence[str]) -> str:
+    """The mark of a whole-value override some of whose parts goal-seek variables replaced: it
+    names the parts, as REPLACED_TEMPERATURE names the fluid's temperature."""
+    found = "the values found take" if len(parts) > 1 else "the value found takes"
+    return f"In this goal seek {found} the place of its {' and '.join(parts)} (see Goal seek)."
+
+
+def _replaced_mark(o: AppliedOverride, parts: ReplacedParts) -> str:
     fluid = isinstance(o.override, ProjectOverride) and o.override.field == "fluid"
-    return REPLACED_TEMPERATURE if fluid else REPLACED
+    if fluid:
+        return REPLACED_TEMPERATURE
+    return _parts_mark(parts[o.index]) if parts.get(o.index) else REPLACED
 
 
 def scenario_section(
-    applied: AppliedScenario, replaced: frozenset[int] = frozenset(), goal_seek: bool = False
+    applied: AppliedScenario,
+    replaced: frozenset[int] = frozenset(),
+    goal_seek: bool = False,
+    parts: ReplacedParts | None = None,
 ) -> MethodsSection:
     """The "Scenario" methods section of a scenario's solve (proposal §5.3). ``replaced``: the
     indexes of the overrides whose value a goal seek's variable replaced, each item marked so
-    (docs/proposals/goal-seek.md §5.4); ``goal_seek``: the opening names the goal seek's values
-    as the exception. /solve passes neither."""
+    (docs/proposals/goal-seek.md §5.4), naming the parts replaced of a whole value (``parts``);
+    ``goal_seek``: the opening names the goal seek's values as the exception. /solve passes
+    none of them."""
     items = [_opening(applied, goal_seek)]
     if applied.scenario.description:
         items.append(f"Description: {applied.scenario.description}")
     for o in applied.overrides:
         if o.state == "applied":
-            mark = f" {_replaced_mark(o)}" if o.index in replaced else ""
+            mark = f" {_replaced_mark(o, parts or {})}" if o.index in replaced else ""
             items.append(f"{_capitalized(o.target_label)}: {_change(o)}.{mark}")
     for o in applied.overrides:
         if o.state != "applied":
@@ -690,14 +758,25 @@ def scenario_section(
     return MethodsSection(title="Scenario", items=items, references=[SCENARIO_DECISION])
 
 
+def _rating_part(o: AppliedOverride) -> bool:
+    """An override of one value of an equipment rating (rating.pressureLoss, ...)."""
+    return isinstance(o.override, ComponentOverride) and o.override.field.startswith("rating.")
+
+
 def element_notes(
-    applied: AppliedScenario, replaced: frozenset[int] = frozenset()
+    applied: AppliedScenario,
+    replaced: frozenset[int] = frozenset(),
+    parts: ReplacedParts | None = None,
 ) -> dict[str, str]:
     """One note per component or connection with an applied override (proposal §5.2), ending
     with the goal-seek mark when a variable replaced one of its overrides' values
-    (``replaced``, as for ``scenario_section``)."""
+    (``replaced``, as for ``scenario_section``), naming the parts it replaced of a whole value
+    (``parts``) in place of that value. Several equipment rating values found read "the values
+    found take the place of its ...", whether the scenario set them as one whole rating or as
+    value overrides; every other mark keeps the singular it has always had."""
     changes: dict[str, list[str]] = {}
     marks: dict[str, list[str]] = {}
+    plural: set[str] = set()
     for o in applied.overrides:
         if o.state != "applied" or o.element_id is None:
             continue
@@ -706,8 +785,15 @@ def element_notes(
             text = f"{pipe_name(o.pipe_index)} {text}"
         changes.setdefault(o.element_id, []).append(text)
         if o.index in replaced:
+            named = (parts or {}).get(o.index)
+            if named:
+                marks.setdefault(o.element_id, []).extend(named)
+                plural.add(o.element_id)
+                continue
             label = o.label if o.pipe_index is None else f"{pipe_name(o.pipe_index)} {o.label}"
             marks.setdefault(o.element_id, []).append(label)
+            if _rating_part(o):  # the same words as for parts of a whole rating
+                plural.add(o.element_id)
     scenario = applied.scenario
     notes: dict[str, str] = {}
     for element, texts in changes.items():
@@ -716,8 +802,13 @@ def element_notes(
             f"{'; '.join(texts)}. The inputs below are the scenario's values."
         )
         if element in marks:
+            found = (
+                "the values found take"
+                if element in plural and len(marks[element]) > 1
+                else "the value found takes"
+            )
             note += (
-                f" In this goal seek the value found takes the place of its "
+                f" In this goal seek {found} the place of its "
                 f"{' and '.join(marks[element])} (see Goal seek)."
             )
         notes[element] = note
@@ -729,17 +820,20 @@ def annotate(
     applied: AppliedScenario,
     replaced: frozenset[int] = frozenset(),
     goal_seek: bool = False,
+    parts: ReplacedParts | None = None,
 ) -> SolvedState:
     """``state`` (the solve of the effective project) with the scenario's text: a first
     "Scenario" methods section and a first note in each overridden element's trace, with the
-    goal-seek marks of ``replaced`` and opening (``goal_seek``; neither for /solve). Every
-    other field is unchanged."""
+    goal-seek marks of ``replaced`` (naming the parts of a whole value in ``parts``) and opening
+    (``goal_seek``; none of them for /solve). Every other field is unchanged."""
     methods = state.trace.methods
     methods = methods.model_copy(
-        update={"sections": [scenario_section(applied, replaced, goal_seek), *methods.sections]}
+        update={
+            "sections": [scenario_section(applied, replaced, goal_seek, parts), *methods.sections]
+        }
     )
     elements = dict(state.trace.elements)
-    for element_id, note in element_notes(applied, replaced).items():
+    for element_id, note in element_notes(applied, replaced, parts).items():
         element = elements.get(element_id)
         if element is not None:
             elements[element_id] = element.model_copy(update={"notes": [note, *element.notes]})

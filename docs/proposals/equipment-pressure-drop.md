@@ -843,7 +843,7 @@ Where the build departs from this design, each departure is reversible (D14), an
 **Integration**
 
 28. **The export reader** (`apps/api/tests/unit/test_web_export_fixture.py`) gained the Equipment sheet from §5.4, written without reading the web's export code: its headers, `expected_equipment()` (each item's result and its echoed rating), the sheet after Valves, and About checks that branch on the sheet (a file with it must carry the extended fractions, round-off and Cv/Kv lines and the equipment sign row; a file without it keeps the export design's §2.7 sentences exactly). Against a workbook written by the web's own fixture test in a scratch copy it passed 82 of 82, and caught two swapped columns.
-29. **`goal_seek_check` ran on a sample**, 1,151 of the 5,151 projects (every non-fuzz one and seeded samples of each profile): the whole corpus would take about 75 min with 4 workers. The complement remains to run if the record needs it.
+29. **`goal_seek_check` ran first on a sample**, 1,151 of the 5,151 projects (every non-fuzz one and seeded samples of each profile), then over the whole corpus: 5,151 projects, 15,405 goal seeks, 0 violations (TSD §10.4).
 30. **The base corpus and base fuzz** ran from a worktree of `3da03c1` with this tree's environment and `PYTHONPATH` set to the worktree's `src`, as for D15–D17 (it read `METHOD_VERSION` 1.2.0). Beyond the class tables, the three fuzz profiles were run on both trees and compared record by record, which proves "no converged solve left not converged" directly.
 
 **Review fixes** (after the build; each upheld finding fixed at the root, with a test that failed before the fix)

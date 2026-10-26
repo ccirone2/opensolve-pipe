@@ -1,6 +1,6 @@
 <!--
-	The connection at a chosen port of the current component (SDD §3.1.1 ConnectionPanel): its
-	pipes and fittings, or — for a port that is not connected — ways to connect it: add a
+	The connection at a chosen port of the current component (SDD §3.1.1 ConnectionPanel): its key
+	results from the last solve (ResultStrip), its pipes and fittings, or — for a port that is not connected — ways to connect it: add a
 	component there, plug it, or connect it to a free port elsewhere (to close a loop).
 -->
 <script lang="ts">
@@ -18,6 +18,7 @@
 	import { kindOptions } from './kinds';
 	import NewComponentFields from './NewComponentFields.svelte';
 	import PipeSegmentForm from './PipeSegmentForm.svelte';
+	import ResultStrip from './ResultStrip.svelte';
 
 	let { component }: { component: Component } = $props();
 	const ws = useWorkspace();
@@ -102,6 +103,7 @@
 						connection.toPortId
 					).toLowerCase()}). Positive flow runs this way, and the pipes are listed in that order.
 				</p>
+				<ResultStrip element={{ kind: 'connection', id: connection.id }} />
 				<div class="flex flex-wrap gap-2">
 					<button type="button" class="btn" onclick={() => ws.nav.follow(connection.id)}>
 						Go to {componentName(ws.project, other.componentId)}

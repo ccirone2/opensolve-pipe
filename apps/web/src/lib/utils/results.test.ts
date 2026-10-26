@@ -26,6 +26,8 @@ import {
 	compareVersions,
 	connectionName,
 	elementName,
+	elementSummary,
+	type ElementRef,
 	fastestLink,
 	fittingFlags,
 	fittingTable,
@@ -793,5 +795,67 @@ describe('assigned-flow nodes (SDD §4.11, PRD §3.2.1)', () => {
 			['Ports', ['Port 1']]
 		]);
 		expect(groups[0]!.rows[0]!.cells.flow).toBe('12');
+	});
+});
+
+describe('elementSummary', () => {
+	const solved = pumpTransferSolved();
+	const summary = (element: ElementRef, from: SolvedState = solved) =>
+		elementSummary(project, from, SI_UNITS, element);
+	const shown = (element: ElementRef, from?: SolvedState) =>
+		summary(element, from)?.items.map((i) => [i.label, i.unit ?? '', cellLines(i.cell).join('; ')]);
+
+	it('shows the key values of each kind, as the results tables show them', () => {
+		const pump = summary({ kind: 'component', id: 'P1' });
+		const pumpRow = pumpTable(project, solved, SI_UNITS).rows[0]!;
+		expect(pump?.items.map((i) => i.key)).toEqual(['status', 'flow', 'head', 'npshMargin']);
+		for (const item of pump!.items) expect(item.cell).toEqual(pumpRow.cells[item.key]);
+		expect(shown({ kind: 'connection', id: 'L3' })).toEqual([
+			['Flow', 'L/s', '20'],
+			['Velocity', 'm/s', '4'],
+			['Head loss', 'm', '8']
+		]);
+		expect(summary({ kind: 'component', id: 'V1' })?.items.map((i) => i.key)).toEqual([
+			'state',
+			'flow',
+			'pressureDrop'
+		]);
+		expect(summary({ kind: 'component', id: 'R1' })?.items.map((i) => i.key)).toEqual(['outflow']);
+	});
+
+	it('leaves out values the solve has none of, and has none for an element it did not solve', () => {
+		const noVapor = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({ npshAvailable: null, npshMargin: null, suctionAbsolutePressure: null })
+			}
+		});
+		expect(summary({ kind: 'component', id: 'P1' }, noVapor)?.items.map((i) => i.key)).toEqual([
+			'status',
+			'flow',
+			'head'
+		]);
+		expect(summary({ kind: 'component', id: 'new' })).toBeNull();
+		expect(summary({ kind: 'connection', id: 'L9' })).toBeNull();
+	});
+
+	it('carries the flags about the element', () => {
+		const flagged = pumpTransferSolved({
+			flags: [
+				flag({ code: 'CAVITATION', severity: 'invalid', message: 'Cavitating', componentId: 'P1' }),
+				flag({
+					code: 'TRANSITIONAL_FLOW',
+					severity: 'warning',
+					message: 'About L2',
+					connectionId: 'L2'
+				})
+			]
+		});
+		expect(summary({ kind: 'component', id: 'P1' }, flagged)?.flags.map((f) => f.code)).toEqual([
+			'CAVITATION'
+		]);
+		expect(summary({ kind: 'connection', id: 'L2' }, flagged)?.flags.map((f) => f.code)).toEqual([
+			'TRANSITIONAL_FLOW'
+		]);
+		expect(summary({ kind: 'connection', id: 'L3' }, flagged)?.flags).toEqual([]);
 	});
 });

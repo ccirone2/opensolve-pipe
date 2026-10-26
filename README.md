@@ -121,8 +121,10 @@ gcloud iam service-accounts create "$SERVICE"
 # Build from GitHub at the commit on main (the image records it and links its source, TSD §11.2)
 SHA=$(git ls-remote https://github.com/ccirone2/opensolve-pipe refs/heads/main | cut -f1)
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/opensolve-pipe/api:${SHA:0:7}"
+# gcloud reads --config from this machine, not from the GitHub source: fetch it at the same commit
+curl -fsSL "https://raw.githubusercontent.com/ccirone2/opensolve-pipe/${SHA}/apps/api/cloudbuild.yaml" -o /tmp/cloudbuild.yaml
 gcloud builds submit https://github.com/ccirone2/opensolve-pipe --git-source-revision="$SHA" \
-  --git-source-dir=apps/api --config=apps/api/cloudbuild.yaml \
+  --git-source-dir=apps/api --config=/tmp/cloudbuild.yaml \
   --substitutions="_IMAGE=${IMAGE},_SOURCE_COMMIT=${SHA}"
 
 # Deploy, allowing the site and its previews (TSD §11.3)
@@ -149,10 +151,12 @@ SERVICE=opensolve-pipe-api
 
 SHA=$(git ls-remote https://github.com/ccirone2/opensolve-pipe refs/heads/main | cut -f1)
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/opensolve-pipe/api:${SHA:0:7}"
+# gcloud reads --config from this machine, not from the GitHub source: fetch it at the same commit
+curl -fsSL "https://raw.githubusercontent.com/ccirone2/opensolve-pipe/${SHA}/apps/api/cloudbuild.yaml" -o /tmp/cloudbuild.yaml
 gcloud builds submit https://github.com/ccirone2/opensolve-pipe --project="$PROJECT_ID" \
-  --git-source-revision="$SHA" --git-source-dir=apps/api --config=apps/api/cloudbuild.yaml \
-  --substitutions="_IMAGE=${IMAGE},_SOURCE_COMMIT=${SHA}"
-gcloud run deploy "$SERVICE" --image "$IMAGE" --project="$PROJECT_ID" --region="$REGION"
+  --git-source-revision="$SHA" --git-source-dir=apps/api --config=/tmp/cloudbuild.yaml \
+  --substitutions="_IMAGE=${IMAGE},_SOURCE_COMMIT=${SHA}" \
+  && gcloud run deploy "$SERVICE" --image "$IMAGE" --project="$PROJECT_ID" --region="$REGION"
 ```
 
 **Checking the API** after any deployment or settings change: its variables, the commit it runs, and its origins. Both origins should print `200`: the site, and a preview (any `web-*` name stands for one).

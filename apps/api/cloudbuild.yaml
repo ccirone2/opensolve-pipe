@@ -1,10 +1,13 @@
 # Cloud Build: the API image, recording the commit it is built from (TSD §11.2). The build
 # fetches that commit from GitHub, so the image is exactly the public source it links, with no
-# local or unpushed changes. From the repository root, with a commit on GitHub's main branch:
+# local or unpushed changes. gcloud reads --config from the local machine, not from the GitHub
+# source, so this file is fetched at the same commit (no checkout needed, e.g. in Cloud Shell):
 #
-#   SHA=$(git rev-parse origin/main)        # after git fetch
+#   SHA=$(git ls-remote https://github.com/ccirone2/opensolve-pipe refs/heads/main | cut -f1)
+#   curl -fsSL "https://raw.githubusercontent.com/ccirone2/opensolve-pipe/$SHA/apps/api/cloudbuild.yaml" \
+#     -o /tmp/cloudbuild.yaml
 #   gcloud builds submit https://github.com/ccirone2/opensolve-pipe --git-source-revision="$SHA" \
-#     --git-source-dir=apps/api --config=apps/api/cloudbuild.yaml \
+#     --git-source-dir=apps/api --config=/tmp/cloudbuild.yaml \
 #     --substitutions="_IMAGE=$IMAGE,_SOURCE_COMMIT=$SHA"
 #
 # Neither substitution has a default: Cloud Build refuses a build that leaves one out (unless

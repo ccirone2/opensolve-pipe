@@ -1,7 +1,7 @@
 """Check goal seek over the corpus (proposal goal-seek.md §7.4), through the published API.
 
     uv run python -m tests.differential.goal_seek_check [--workers N] [--only PREFIX]
-        [--name NAME ...] [--sample K] [--n 1,2,3,4] [--out FILE] [--repro DIR]
+        [--name NAME ...] [--sample K [--complement]] [--n 1,2,3,4] [--out FILE] [--repro DIR]
 
 An independent check of what ``POST /api/v1/goal-seek`` claims. It is written against the
 published schema (the app's ``/openapi.json``: ``x-goal-variables``, ``x-goal-quantities``, the
@@ -1932,6 +1932,24 @@ def write_repros(records: list[dict[str, Any]], directory: str) -> list[str]:
     return paths
 
 
+def select(
+    corpus: list[Item],
+    only: str = "",
+    names: list[str] | None = None,
+    sample: int = 0,
+    complement: bool = False,
+) -> list[Item]:
+    """The projects of ``corpus`` whose name starts with ``only`` (and is in ``names``, when
+    given), in corpus order; with ``sample`` (fewer than they are), the seeded sample of that many
+    of them by name, or with ``complement`` the ones the same sample leaves out (none when the
+    sample takes them all), so that a sample and its complement together run the selection."""
+    selection = [t for t in corpus if t[0].startswith(only) and (not names or t[0] in names)]
+    if not sample or sample >= len(selection):
+        return [] if complement else selection
+    chosen = {t[0] for t in random.Random("goalseek:sample").sample(selection, sample)}
+    return sorted((t for t in selection if (t[0] in chosen) != complement), key=lambda t: t[0])
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="python -m tests.differential.goal_seek_check",
@@ -1954,6 +1972,11 @@ def main(argv: list[str] | None = None) -> None:
         default=SCENARIO_EVERY,
         help=f"run every Nth project on a scenario (default {SCENARIO_EVERY}; 1: every one)",
     )
+    parser.add_argument(
+        "--complement",
+        action="store_true",
+        help="with --sample: the projects of the selection that the sample leaves out",
+    )
     parser.add_argument("--out", default="", help="write every project's record to this file")
     parser.add_argument("--repro", default="", help="write each violating draw to this directory")
     parser.add_argument(
@@ -1964,15 +1987,12 @@ def main(argv: list[str] | None = None) -> None:
         " the time-budget stops; the checking solves keep the served budget",
     )
     args = parser.parse_args(argv)
+    if args.complement and not args.sample:
+        parser.error("--complement needs --sample")
     global GOAL_SEEK_BUDGET
     GOAL_SEEK_BUDGET = args.budget  # before the pool forks, so its workers inherit it
     n_values = tuple(int(s) for s in args.n.split(","))
-    selection = [
-        t for t in items() if t[0].startswith(args.only) and (not args.name or t[0] in args.name)
-    ]
-    if args.sample and args.sample < len(selection):
-        selection = random.Random("goalseek:sample").sample(selection, args.sample)
-        selection.sort(key=lambda t: t[0])
+    selection = select(items(), args.only, args.name, args.sample, args.complement)
     print(f"projects: {len(selection)}, n: {n_values}", flush=True)
     records = check_all(selection, args.workers, args.scenario_every, n_values, progress=True)
     summary = summarize(records)

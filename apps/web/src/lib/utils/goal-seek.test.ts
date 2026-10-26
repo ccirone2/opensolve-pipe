@@ -66,6 +66,7 @@ import {
 	outcomeText,
 	purposeText,
 	requestIssues,
+	requestLineText,
 	reservedIds,
 	rowIssues,
 	runProblems,
@@ -84,7 +85,7 @@ import {
 } from './goal-seek';
 import { boundsProblem } from './schema-bounds';
 import { applyScenario, caseProject, withScenarios } from './scenarios';
-import { SI_UNITS } from './units';
+import { IMPERIAL_UNITS, SI_UNITS } from './units';
 
 type JsonObject = Record<string, unknown>;
 const SCHEMAS = openapi.components.schemas as unknown as Record<string, JsonObject>;
@@ -1154,6 +1155,61 @@ describe('tables and the report (§6.9)', () => {
 			'g:link_flow\u0000L2\u0000',
 			'v:component:P1\u0000speed'
 		]);
+	});
+
+	it('tells the lines that quote an id or an SI value with names and display units', () => {
+		// The API's wording (services/goal_seek.py, services/scenarios.py) for made-up requests.
+		const details = [
+			'Goal seek: 4 input problem(s).',
+			"body.goals.0: component V1 has no port 'port_9'",
+			'body.variables.0: connection L2 has 1 pipe, no pipe 3',
+			'body.goals.1: link_flow applies to a connection, not a pump',
+			"body.goals.2.tolerance: below the smallest this search resolves (10⁻⁶ of the target's magnitude, or 1e-09 m³/s, whichever is larger)",
+			"body.goals.3.tolerance: below the smallest this search resolves (10⁻⁶ of the target's magnitude, or 0.1 Pa, whichever is larger)",
+			// Elements the project does not have keep their ids; other lines stay as they are.
+			'body.goals.4: the project has no component X9',
+			'body.variables.1: connection L9 has 1 pipe, no pipe 3',
+			'body.variables.2.lower: Input should be greater than 0'
+		];
+		const context = { project: transfer(), units: IMPERIAL_UNITS };
+		const issues = requestIssues(details, details[0], context);
+		const GPM = (231 * 0.0254 ** 3) / 60;
+		const PSI = (0.45359237 * 9.80665) / 0.0254 ** 2;
+		// Values below 10⁻⁴ are shown with an exponent, 6 significant digits (as the dialog's own).
+		expect((1e-9 / GPM).toExponential(5)).toBe('1.58503e-5');
+		expect([...issues.goals]).toEqual([
+			[0, ['Discharge isolation valve has no port “port_9”']],
+			[1, ['Flow applies to a connection, not a pump']],
+			[
+				2,
+				[
+					`tolerance: below the smallest this search resolves (10⁻⁶ of the target's magnitude, or ${(1e-9 / GPM).toExponential(5)} gpm, whichever is larger)`
+				]
+			],
+			[
+				3,
+				[
+					`tolerance: below the smallest this search resolves (10⁻⁶ of the target's magnitude, or ${(0.1 / PSI).toExponential(5)} psi, whichever is larger)`
+				]
+			],
+			[4, ['the project has no component X9']]
+		]);
+		expect([...issues.variables]).toEqual([
+			[0, ['Piping Transfer pump → Discharge isolation valve has 1 pipe, no pipe 3']],
+			[1, ['connection L9 has 1 pipe, no pipe 3']],
+			[2, ['From: Input should be greater than 0']]
+		]);
+		// Without the context, every line as the server wrote it.
+		expect(requestIssues(details, details[0]).goals.get(0)).toEqual([
+			"component V1 has no port 'port_9'"
+		]);
+		expect(requestLineText('an unknown_quantity applies to a pump, not a tee', context)).toBe(
+			'an unknown_quantity applies to a pump, not a tee'
+		);
+		const byRow = rowIssues(request(), details, details[0], context);
+		expect(byRow['v:component:P1\u0000speed']).toBe(
+			'Piping Transfer pump → Discharge isolation valve has 1 pipe, no pipe 3'
+		);
 	});
 });
 

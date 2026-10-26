@@ -5007,6 +5007,22 @@
       "SystemCurvePoint": {
         "additionalProperties": false,
         "properties": {
+          "assignedFlowNodeIds": {
+            "description": "beyond_limit, below_floor: the assigned-flow nodes whose flows the bound counts, in the message's order (id order); empty otherwise",
+            "items": {
+              "type": "string"
+            },
+            "title": "Assignedflownodeids",
+            "type": "array"
+          },
+          "componentIds": {
+            "description": "The pumps and valves the message names, in its order; empty when it names none or the point has a head. not_converged: /solve's convergence.oscillatingComponents for that solve (see reason), maybe none, and the message may name other elements, in its words only",
+            "items": {
+              "type": "string"
+            },
+            "title": "Componentids",
+            "type": "array"
+          },
           "converged": {
             "description": "True when the point has a head: its solve converged to a steady state that carries the flow with a determined head",
             "title": "Converged",
@@ -5026,20 +5042,117 @@
                 "type": "null"
               }
             ],
-            "description": "EGL(discharge) - EGL(suction), m: the head the pump must add at this flow; null when no steady state carries the flow, its head is undetermined or its solve did not converge (see message)",
+            "description": "EGL(discharge) - EGL(suction), m: the head the pump must add at this flow; null when no steady state carries the flow, its head is undetermined or its solve did not converge (see reason and message)",
             "title": "Head"
+          },
+          "limitFlow": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m³/s. beyond_limit: the most the pump can pass (negative: the reverse flow it would have to pass is -limitFlow); below_floor: the least it must pass; null otherwise",
+            "title": "Limitflow"
           },
           "message": {
             "description": "Why the point has no head ('' when it has one)",
             "title": "Message",
             "type": "string"
+          },
+          "openHead": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m. valve_at_switch: the head across the pump with the valve fully open, the bound of the heads the throttled valve could hold; null otherwise",
+            "title": "Openhead"
+          },
+          "openHeadBound": {
+            "anyOf": [
+              {
+                "enum": [
+                  "lower",
+                  "upper"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "valve_at_switch: 'lower' when any head at or above openHead holds, 'upper' when any head at or below it does; null otherwise",
+            "title": "Openheadbound"
+          },
+          "passedFlow": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m³/s. beyond_limit, below_floor: what componentIds pass that way together (0: no flow); null otherwise",
+            "title": "Passedflow"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_way_through",
+                  "beyond_limit",
+                  "below_floor",
+                  "no_steady_state_found",
+                  "free_level",
+                  "closed_off",
+                  "valve_at_switch",
+                  "not_converged",
+                  "not_computed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the point has no head, as a code (null when it has one); message says the same in words, and the other fields hold the ids and numbers it quotes, but for not_converged and not_computed only what is said of them here. no_way_through: a side of the pump reaches no reservoir or reference node, nor the pump's other side, through elements that can open (all but those closed by a status the user set), so no steady state carries a forced flow (at flow 0: the head across the pump is undetermined). beyond_limit: every way from the pump's discharge back to its suction passes componentIds, which together pass at most passedFlow that way; the pump can pass at most limitFlow (with the flows of assignedFlowNodeIds, when any; a negative limitFlow: it would have to pass -limitFlow in reverse, so no forced flow, zero included, has a steady state). below_floor: every way from the pump's suction to its discharge passes componentIds, which together pass at most passedFlow that way, and with the flows of assignedFlowNodeIds the pump must pass at least limitFlow. no_steady_state_found: from every start in startsTried the status rules close componentIds (maybe none), which leaves a side of the pump with no way to a reservoir or reference node. free_level: a side of the pump (closed off by componentIds, when any) is in a part of the network that carries flow but reaches no reservoir or reference node, so its head is undetermined. closed_off: componentIds (when any) close off a side of the pump, and nothing fixes the pressure in the part closed off (the message says 'at zero flow' at flow 0). valve_at_switch: the control valve componentIds[0] sits at its switch (an FCV passing exactly its setpoint, a PRV with its outlet or a PSV with its inlet at its setting) and could also hold the flow throttled, with any head across the pump on openHeadBound's side of openHead, and nothing fixes the pressure between it and the pump. not_converged: the solve did not converge, and the outer loop's own words follow 'not converged: ' in message; componentIds are what /solve reports for that solve as convergence.oscillatingComponents: the controls and branches the outer loop names as oscillating, still changing or over-controlled, maybe none. Other elements and nodes its words name (the assigned-flow nodes of a part no reservoir or reference node reaches and the elements closed around it, a wye in a flow pattern with no cited correlation) are in message only. not_computed: the request's time budget (its seconds in message only) ran out before the point was solved",
+            "title": "Reason"
+          },
+          "startsTried": {
+            "description": "no_steady_state_found: the starts the point was solved from, in the message's order: solve (the network's own solve), previous_point (the last converged point's solution), initial (the network's initial state), initial_open (that state with its control valves open); empty otherwise",
+            "items": {
+              "enum": [
+                "solve",
+                "previous_point",
+                "initial",
+                "initial_open"
+              ],
+              "type": "string"
+            },
+            "title": "Startstried",
+            "type": "array"
           }
         },
         "required": [
           "flow",
           "head",
           "converged",
-          "message"
+          "message",
+          "reason",
+          "componentIds",
+          "assignedFlowNodeIds",
+          "limitFlow",
+          "passedFlow",
+          "openHead",
+          "openHeadBound",
+          "startsTried"
         ],
         "title": "SystemCurvePoint",
         "type": "object"

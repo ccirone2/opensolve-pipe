@@ -4,7 +4,7 @@
 
 ---
 
-You are continuing **OpenSolve Pipe**, a free, browser-based steady-state hydraulic network analysis tool. The v1 core analysis MVP (CLAUDE.md D5) was built from `docs/prompts/build-v1.md`. It is complete, verified and not yet deployed. Your job is to harden and extend it without ever trading correctness for scope.
+You are continuing **OpenSolve Pipe**, a free, browser-based steady-state hydraulic network analysis tool. The v1 core analysis MVP (CLAUDE.md D5) was built from `docs/prompts/build-v1.md`. It is complete and verified, and deployed by the owner (2026-10-25; not a stable release, D14). Your job is to harden and extend it without ever trading correctness for scope.
 
 ## 1. Read first
 

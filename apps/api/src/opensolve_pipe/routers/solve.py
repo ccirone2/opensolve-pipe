@@ -14,6 +14,7 @@ from ..models.api import (
 from ..models.scenarios import ScenarioResult
 from ..services.scenarios import solve_case, system_curve_case
 from ..services.solver import solve_project, system_curve
+from ..services.solver.system_curve import SystemCurvePointResult
 from ..workers import run_solve
 from ._common import _ERRORS, _client
 
@@ -90,10 +91,27 @@ async def system_curve_endpoint(request: SystemCurveRequest, http: Request) -> S
     return SystemCurveResponse(
         pump_id=curve.pump_id,
         flow_range=RangeInfo(min=curve.flow_min, max=curve.flow_max, unit="m³/s"),
-        points=[
-            SystemCurvePoint(flow=p.flow, head=p.head, converged=p.converged, message=p.message)
-            for p in curve.points
-        ],
+        points=[_point(p) for p in curve.points],
         converged=[p.converged for p in curve.points],
         scenario=scenario,
+    )
+
+
+def _point(p: SystemCurvePointResult) -> SystemCurvePoint:
+    """A point with its reason as data (``system_curve.PointReason``; null and empty when it
+    has a head)."""
+    r = p.reason
+    return SystemCurvePoint(
+        flow=p.flow,
+        head=p.head,
+        converged=p.converged,
+        message=p.message,
+        reason=None if r is None else r.code,
+        component_ids=[] if r is None else list(r.component_ids),
+        assigned_flow_node_ids=[] if r is None else list(r.assigned_flow_node_ids),
+        limit_flow=None if r is None else r.limit_flow,
+        passed_flow=None if r is None else r.passed_flow,
+        open_head=None if r is None else r.open_head,
+        open_head_bound=None if r is None else r.open_head_bound,
+        starts_tried=[] if r is None else list(r.starts_tried),
     )

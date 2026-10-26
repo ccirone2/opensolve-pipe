@@ -775,24 +775,22 @@ export function branchPatternLabel(pattern: string, component?: Component): stri
 
 /**
  * The velocity a branch's K values are referred to (path loss = K·v²/2g):
- * - 'combined': Crane TP-410 (combined port on the run): the combined-flow velocity
- *   (BranchResult.referenceVelocity). A leg with no flow has the K its head implies on the same
- *   velocity.
- * - 'own': the Darby 3-K fallback the API flags TEE_PATTERN_FALLBACK (combined flow through a
- *   tee's branch): each run path's K is on that leg's own velocity, the velocity in the pipe at
- *   that port (NodeResult.velocity).
+ * - 'combined': the combined-flow velocity (BranchResult.referenceVelocity), on which the API
+ *   reports every K: Crane TP-410's (combined port on the run) and the Darby 3-K fallback's it
+ *   flags TEE_PATTERN_FALLBACK (combined flow through a tee's branch) alike. A leg with no flow
+ *   has the K its head implies on the same velocity.
  * - 'none': an ideal junction (no loss) or no flow.
  */
-export type BranchVelocityBasis = 'combined' | 'own' | 'none';
+export type BranchVelocityBasis = 'combined' | 'none';
 
-export function branchVelocityBasis(
-	id: string,
-	branch: BranchResult,
-	flags: readonly Flag[]
-): BranchVelocityBasis {
+export function branchVelocityBasis(branch: BranchResult): BranchVelocityBasis {
 	if (branch.lossModel === 'ideal' || branch.combinedPortId === null) return 'none';
-	if (flags.some((f) => f.code === 'TEE_PATTERN_FALLBACK' && f.componentId === id)) return 'own';
 	return 'combined';
+}
+
+/** Whether the solve flagged this branch's Darby 3-K fallback (TEE_PATTERN_FALLBACK). */
+export function branchFallback(id: string, flags: readonly Flag[]): boolean {
+	return flags.some((f) => f.code === 'TEE_PATTERN_FALLBACK' && f.componentId === id);
 }
 
 /**
@@ -814,16 +812,11 @@ export function branchTable(project: Project, solved: SolvedState, prefs: UnitPr
 		const branch = results[id] as BranchResult;
 		const correlation = [siText(branch.correlation, prefs)];
 		if (!branch.inCorrelationRange) correlation.push('Outside the correlation’s range.');
-		const basis = branchVelocityBasis(id, branch, solved.flags);
+		const basis = branchVelocityBasis(branch);
 		const kVelocity: Cell =
 			basis === 'combined'
 				? [{ label: 'Combined flow', value: f.num(Math.abs(branch.referenceVelocity), 'velocity') }]
-				: basis === 'own'
-					? perPort(project, id, branch.kFactors, (_, port) => {
-							const node = solved.nodeResults[`${id}:${port}`];
-							return node ? f.num(Math.abs(node.velocity), 'velocity') : '—';
-						})
-					: '—';
+				: '—';
 		return componentRow(project, solved.flags, id, {
 			pattern: branchPatternLabel(branch.pattern, componentById(project, id)),
 			portFlows: perPort(project, id, branch.portFlows, (v) => f.num(v, 'flow')),
@@ -845,9 +838,12 @@ export function branchTable(project: Project, solved: SolvedState, prefs: UnitPr
 
 /** The velocity bases used in a solve's branches (to explain the K values under the table). */
 export function branchBases(solved: SolvedState): Set<BranchVelocityBasis> {
-	return new Set(
-		Object.entries(solved.branchResults).map(([id, b]) => branchVelocityBasis(id, b, solved.flags))
-	);
+	return new Set(Object.values(solved.branchResults).map((b) => branchVelocityBasis(b)));
+}
+
+/** Whether any branch of the solve is on the flagged Darby 3-K fallback. */
+export function anyBranchFallback(solved: SolvedState): boolean {
+	return Object.keys(solved.branchResults).some((id) => branchFallback(id, solved.flags));
 }
 
 const BOUNDARY_TYPES: Readonly<Record<BoundaryResult['type'], string>> = {

@@ -38,6 +38,7 @@
 		availableViews,
 		markChanged,
 		boundaryTable,
+		anyBranchFallback,
 		branchBases,
 		branchTable,
 		nodeTable,
@@ -135,6 +136,7 @@
 		solved ? markChanged(branchTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
 	);
 	const bases = $derived(solved ? branchBases(solved) : new Set());
+	const fallback = $derived(solved ? anyBranchFallback(solved) : false);
 	const boundaries = $derived(
 		solved ? markChanged(boundaryTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
 	);
@@ -816,14 +818,14 @@
 									</p>
 									{#if bases.has('combined')}
 										<p>
-											Crane correlations (combined flow on the run): every K is on the combined-flow
-											velocity. A leg with no flow has the K its head implies, on the same velocity.
+											Every K is on the combined-flow velocity. A leg with no flow has the K its
+											head implies, on the same velocity.
 										</p>
 									{/if}
-									{#if bases.has('own')}
+									{#if fallback}
 										<p>
-											Darby 3-K fallback (combined flow through a tee's branch, flagged): each run
-											path's K is on that leg's own velocity, shown per port.
+											Darby 3-K fallback (combined flow through a tee's branch, flagged): its K are
+											on the combined-flow velocity too.
 										</p>
 									{/if}
 									{#if bases.has('none')}

@@ -19,7 +19,9 @@ import {
 	assignedFlowTable,
 	availableViews,
 	boundaryTable,
+	anyBranchFallback,
 	branchBases,
+	branchFallback,
 	branchTable,
 	branchVelocityBasis,
 	cellLines,
@@ -633,15 +635,24 @@ describe('branch velocity basis', () => {
 		expect([...branchBases(solved)]).toEqual(['combined']);
 	});
 
-	it('gives each leg’s own velocity for the flagged Darby fallback', () => {
+	it('gives the combined-flow velocity for the flagged Darby fallback too', () => {
+		// The API's numbers for the reference case tee_crane_bullhead_fallback: it reports the
+		// fallback's K on the combined-flow velocity, so K·v_ref²/2g is each path's loss (the legs'
+		// own velocities, 3.6 and 3.7 m/s, would give 24-28 % less).
 		const darby: BranchResult = {
 			...crane,
 			pattern: 'diverging from branch',
 			combinedPortId: 'branch',
+			referenceVelocity: 4.233140837294456,
 			portFlows: { run_inlet: -0.017, run_outlet: -0.018, branch: 0.035 },
-			kFactors: { run_inlet: 1.088, run_outlet: 1.088 },
-			pathHeadLosses: { run_inlet: 0.719, run_outlet: 0.76 }
+			kFactors: { run_inlet: 0.787149, run_outlet: 0.831654 },
+			pathHeadLosses: { run_inlet: 0.71917, run_outlet: 0.759832 }
 		};
+		for (const port of ['run_inlet', 'run_outlet'] as const) {
+			const k = darby.kFactors[port]!;
+			const loss = (k * darby.referenceVelocity ** 2) / (2 * 9.80665);
+			expect(Math.abs(loss - darby.pathHeadLosses[port]!)).toBeLessThan(1e-5);
+		}
 		const solved = pumpTransferSolved({
 			branchResults: { T1: darby },
 			nodeResults: {
@@ -660,8 +671,11 @@ describe('branch velocity basis', () => {
 		});
 		const row = branchTable(gravity, solved, SI_UNITS).rows[0]!;
 		expect(row.cells.pattern).toBe('Diverging from branch');
-		expect(cellLines(row.cells.kVelocity!)).toEqual(['Run inlet: 3.6', 'Run outlet: 3.7']);
-		expect(branchVelocityBasis('T1', darby, solved.flags)).toBe('own');
+		expect(cellLines(row.cells.kVelocity!)).toEqual(['Combined flow: 4.233']);
+		expect(branchVelocityBasis('T1', darby, solved.flags)).toBe('combined');
+		expect(branchFallback('T1', solved.flags)).toBe(true);
+		expect(anyBranchFallback(solved)).toBe(true);
+		expect(anyBranchFallback(pumpTransferSolved({ branchResults: { T1: crane } }))).toBe(false);
 		expect(branchVelocityBasis('T1', { ...crane, lossModel: 'ideal' }, [])).toBe('none');
 	});
 });

@@ -116,6 +116,36 @@ describe('workspace', () => {
 	});
 });
 
+describe('the splitter between Build and Results', () => {
+	it('resizes with the arrow keys, Home and End, remembers it, and Enter restores the default', async () => {
+		localStorage.clear();
+		const view = render(WorkspaceView, { workspace: testWorkspace(pumpTransferExample()) });
+		const splitter = screen.getByRole('separator', { name: 'Resize Build and Results' });
+		expect(splitter).toHaveAttribute('tabindex', '0');
+		expect(splitter).toHaveAttribute('aria-orientation', 'vertical');
+		expect(splitter).toHaveAttribute('aria-valuenow', '60');
+		expect(splitter).toHaveAttribute('aria-valuetext', 'Build 60 %, Results 40 %');
+		await fireEvent.keyDown(splitter, { key: 'ArrowLeft' });
+		expect(splitter).toHaveAttribute('aria-valuenow', '55');
+		expect(localStorage.getItem('opensolve-pipe:results-share')).toBe('0.45');
+		await fireEvent.keyDown(splitter, { key: 'Home' });
+		expect(splitter).toHaveAttribute('aria-valuenow', '25');
+		await fireEvent.keyDown(splitter, { key: 'End' });
+		expect(splitter).toHaveAttribute('aria-valuenow', '75');
+		await fireEvent.keyDown(splitter, { key: 'ArrowRight' });
+		expect(splitter).toHaveAttribute('aria-valuenow', '75');
+		view.unmount();
+
+		// Remembered for the next workspace in this browser.
+		render(WorkspaceView, { workspace: testWorkspace(pumpTransferExample()) });
+		const again = screen.getByRole('separator', { name: 'Resize Build and Results' });
+		expect(again).toHaveAttribute('aria-valuenow', '75');
+		await fireEvent.keyDown(again, { key: 'Enter' });
+		expect(again).toHaveAttribute('aria-valuenow', '60');
+		expect(localStorage.getItem('opensolve-pipe:results-share')).toBeNull();
+	});
+});
+
 describe('cancelling a solve (PRD §4.2)', () => {
 	/** A solve endpoint whose answers the test gives, recording each request's signal. */
 	function heldSolve() {

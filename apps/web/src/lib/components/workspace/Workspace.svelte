@@ -1,7 +1,9 @@
 <!--
 	The workspace of an open project: header, the case bar (once the project has scenarios), and
 	the Build (panel navigator) and Results panes — side by side on wide screens (≥ 1024 px), as
-	tabs on narrow ones. It tells the fields below which case is shown (field-mode.ts): in a
+	tabs on narrow ones. On wide screens a splitter between the panes (WAI-ARIA window splitter)
+	resizes them by dragging or with the arrow keys; Enter or a double-click returns to the default
+	split, and the choice is remembered in this browser (pane-split.ts). It tells the fields below which case is shown (field-mode.ts): in a
 	scenario only its values, names and display units can be edited. The goal-seek dialog opens
 	over them (from the Results pane's header or a trace). Outside text fields Ctrl/⌘+Z undoes and
 	Ctrl/⌘+Shift+Z or Ctrl/⌘+Y redoes; Ctrl/⌘+Enter solves from anywhere but a dialog.
@@ -15,6 +17,15 @@
 	import { provideProjectStore } from '$lib/state/project.svelte';
 	import { provideWorkspace, type Pane, type Workspace } from '$lib/state/workspace.svelte';
 	import ResultsPanel from '$lib/components/results/ResultsPanel.svelte';
+	import { mediaQuery, WIDE_SCREEN } from '$lib/utils/media.svelte';
+	import {
+		clampShare,
+		defaultShare,
+		loadShare,
+		saveShare,
+		shareBounds,
+		SPLIT_STEP
+	} from '$lib/utils/pane-split';
 	import GoalSeekDialog from './GoalSeekDialog.svelte';
 	import ScenarioBar from './ScenarioBar.svelte';
 	import WorkspaceHeader from './WorkspaceHeader.svelte';
@@ -99,6 +110,69 @@
 		}
 	);
 
+	const wide = mediaQuery(WIDE_SCREEN);
+	/** The Results pane's chosen share of the width, or null for the default layout. */
+	let share = $state<number | null>(loadShare());
+	/** The width of the two panes and the splitter (px). */
+	let width = $state(0);
+	let panes = $state<HTMLElement>();
+	let dragging = $state(false);
+
+	/** The share shown: the chosen one kept within bounds at this width, else the default's. */
+	const shownShare = $derived(share === null ? defaultShare(width) : clampShare(share, width));
+	const bounds = $derived(shareBounds(width));
+	/** Build's percentage, the splitter's value (it resizes Build, the pane before it). */
+	const buildPercent = $derived(Math.round((1 - shownShare) * 100));
+	/** Explicit widths only once a share is chosen, and only side by side. */
+	const sized = $derived(wide.current && share !== null && width > 0);
+
+	/** The panes span the window's width, so they are measured when it changes. */
+	function measure() {
+		width = panes?.clientWidth ?? 0;
+	}
+	onMount(measure);
+
+	function choose(next: number | null) {
+		share = next === null ? null : clampShare(next, width);
+		saveShare(share);
+	}
+
+	function splitterKeydown(event: KeyboardEvent) {
+		const step =
+			event.key === 'ArrowLeft' ? SPLIT_STEP : event.key === 'ArrowRight' ? -SPLIT_STEP : 0;
+		if (step) choose(shownShare + step);
+		else if (event.key === 'Home') choose(bounds.max);
+		else if (event.key === 'End') choose(bounds.min);
+		else if (event.key === 'Enter') choose(null);
+		else return;
+		event.preventDefault();
+	}
+
+	/** The share at a pointer position: Results is the part right of it. */
+	function shareAt(clientX: number): number | null {
+		const rect = panes?.getBoundingClientRect();
+		return rect && rect.width > 0 ? (rect.right - clientX) / rect.width : null;
+	}
+
+	function splitterPointerdown(event: PointerEvent) {
+		if (event.button !== 0) return;
+		event.preventDefault();
+		(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+		dragging = true;
+	}
+
+	function splitterPointermove(event: PointerEvent) {
+		if (!dragging) return;
+		const next = shareAt(event.clientX);
+		if (next !== null) share = clampShare(next, width);
+	}
+
+	function splitterPointerup() {
+		if (!dragging) return;
+		dragging = false;
+		saveShare(share);
+	}
+
 	const PANES: readonly { value: Pane; label: string }[] = [
 		{ value: 'build', label: 'Build' },
 		{ value: 'results', label: 'Results' }
@@ -126,7 +200,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={keydown} />
+<svelte:window onkeydown={keydown} onresize={measure} />
 
 <div class="flex h-dvh flex-col bg-white">
 	<WorkspaceHeader />
@@ -176,24 +250,56 @@
 			{/each}
 		</div>
 
-		<div class="flex min-h-0 flex-1">
+		<div
+			class={['flex min-h-0 flex-1', dragging && 'cursor-col-resize select-none']}
+			bind:this={panes}
+		>
 			<section
 				id="{id}-build"
 				aria-label="Build"
 				class={[
 					ws.pane === 'build' ? 'flex' : 'hidden',
-					'min-w-0 flex-1 flex-col lg:flex lg:max-w-[52rem] lg:flex-[3] lg:border-r lg:border-slate-200'
+					'min-w-0 flex-1 flex-col lg:flex',
+					!sized && 'lg:max-w-[52rem] lg:flex-[3]'
 				]}
 			>
 				<PanelNavigator />
 			</section>
+			<!-- Focusable splitter: its value is Build's share (WAI-ARIA APG window splitter). -->
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+			<div
+				role="separator"
+				aria-orientation="vertical"
+				aria-label="Resize Build and Results"
+				aria-controls="{id}-build"
+				aria-valuenow={buildPercent}
+				aria-valuemin={Math.round((1 - bounds.max) * 100)}
+				aria-valuemax={Math.round((1 - bounds.min) * 100)}
+				aria-valuetext="Build {buildPercent} %, Results {100 - buildPercent} %"
+				tabindex="0"
+				title="Drag, or use the arrow keys, to resize. Double-click or Enter: default widths."
+				class={[
+					'relative hidden w-px shrink-0 cursor-col-resize touch-none bg-slate-200 outline-none lg:block',
+					'before:absolute before:inset-y-0 before:-right-2 before:-left-0.5 before:z-10',
+					'hover:bg-blue-600 focus-visible:bg-blue-600 focus-visible:ring-2 focus-visible:ring-blue-600',
+					dragging && 'bg-blue-600'
+				]}
+				onkeydown={splitterKeydown}
+				onpointerdown={splitterPointerdown}
+				onpointermove={splitterPointermove}
+				onpointerup={splitterPointerup}
+				onpointercancel={splitterPointerup}
+				ondblclick={() => choose(null)}
+			></div>
 			<section
 				id="{id}-results"
 				aria-label="Results"
 				class={[
 					ws.pane === 'results' ? 'flex' : 'hidden',
-					'min-w-0 flex-1 flex-col bg-slate-50/50 lg:flex lg:flex-[2]'
+					'min-w-0 flex-1 flex-col bg-slate-50/50 lg:flex',
+					!sized && 'lg:flex-[2]'
 				]}
+				style:flex={sized ? `0 0 ${(shownShare * 100).toFixed(2)}%` : undefined}
 			>
 				<ResultsPanel />
 			</section>

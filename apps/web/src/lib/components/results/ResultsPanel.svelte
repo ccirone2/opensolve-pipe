@@ -48,7 +48,9 @@
 		nodeTable,
 		valveTable,
 		VIEW_LABELS,
-		type ResultsView
+		type ResultsView,
+		type SortDirection,
+		type TableSort
 	} from '$lib/utils/results';
 	import { formatValue } from '$lib/utils/units';
 	import {
@@ -108,6 +110,20 @@
 	);
 
 	let selectedView = $state<ResultsView>('summary');
+	/**
+	 * Sorts the Summary asked for, per view (a new id applies one again): its links show the table
+	 * sorted on the extreme they name.
+	 */
+	let sortRequests = $state<Partial<Record<ResultsView, TableSort & { id: number }>>>({});
+	let sortRequestId = 0;
+
+	/** Show a view sorted by one column, with the focus on its tab. */
+	async function showSorted(target: ResultsView, key: string, direction: SortDirection) {
+		sortRequests = { ...sortRequests, [target]: { key, direction, id: ++sortRequestId } };
+		selectedView = target;
+		await tick();
+		document.getElementById(`${id}-tab-${target}`)?.focus();
+	}
 	const views = $derived(solved ? availableViews(solved) : []);
 	const view = $derived(views.includes(selectedView) ? selectedView : 'summary');
 
@@ -812,10 +828,11 @@
 							hidden={v !== view}
 						>
 							{#if v === 'summary'}
-								<SummaryView {solved} />
+								<SummaryView {solved} onsort={showSorted} />
 							{:else if v === 'nodes' && nodes}
 								<ResultsTable
 									table={nodes}
+									sortRequest={sortRequests.nodes ?? null}
 									caption="Results per component port"
 									first="Component, port"
 									onselect={(row) => ws.inspect(row.element)}
@@ -831,9 +848,9 @@
 									project datum.
 								</p>
 							{:else if v === 'links'}
-								<LinksView {solved} {changed} />
+								<LinksView {solved} {changed} sortRequest={sortRequests.links ?? null} />
 							{:else if v === 'pumps'}
-								<PumpsView {solved} {changed} />
+								<PumpsView {solved} {changed} sortRequest={sortRequests.pumps ?? null} />
 							{:else if v === 'valves' && valves}
 								<ResultsTable
 									table={valves}

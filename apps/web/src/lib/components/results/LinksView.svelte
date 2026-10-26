@@ -8,13 +8,26 @@
 	import type { LinkResult, SolvedState } from '$lib/api/types';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import { fittingFallbackName } from '$lib/utils/labels';
-	import { fittingTable, linkTable, markChanged, segmentTable, type Row } from '$lib/utils/results';
+	import {
+		fittingTable,
+		linkTable,
+		markChanged,
+		segmentTable,
+		type Row,
+		type TableSort
+	} from '$lib/utils/results';
 	import CellValue from './CellValue.svelte';
 	import FlagBadge from './FlagBadge.svelte';
 	import ResultsTable from './ResultsTable.svelte';
 
-	let { solved, changed = new Set() }: { solved: SolvedState; changed?: ReadonlySet<string> } =
-		$props();
+	interface Props {
+		solved: SolvedState;
+		changed?: ReadonlySet<string>;
+		/** A sort for the table (the Summary's links). */
+		sortRequest?: (TableSort & { id: number }) | null;
+	}
+
+	let { solved, changed = new Set(), sortRequest = null }: Props = $props();
 	const ws = useWorkspace();
 
 	const table = $derived(
@@ -29,6 +42,7 @@
 
 <ResultsTable
 	{table}
+	{sortRequest}
 	caption="Results per pipe connection"
 	first="Connection (from → to)"
 	onselect={(row) => ws.inspect(row.element)}

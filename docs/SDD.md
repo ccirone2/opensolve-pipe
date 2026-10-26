@@ -239,7 +239,7 @@ The pane shows, top to bottom:
 
 | View | Content |
 |------|---------|
-| Summary | Fluid properties as used with their sources, atmospheric pressure, each pump's operating point, lowest pressure (gauge and absolute), highest velocity |
+| Summary | Answers first: each pump's operating point and NPSH margin; then the extremes, each with where it is (a link to its trace) and a link to its table sorted on it: lowest static pressure (gauge and absolute) and highest (Nodes), highest velocity (Links), smallest NPSH margin (Pumps, when there are several). Then, closed, the fluid properties as used with their sources and the atmospheric pressure |
 | Nodes | Per component port: elevation, pressure (gauge), absolute pressure, velocity, HGL, EGL; a note on the gauge reference and boundary ports |
 | Links | Per connection: flow, velocity, head loss, Re, Darcy f, regime. Each row expands to its pipe segments (diameter, length, roughness, velocity, Re, f, friction loss) and fittings (quantity, the K each used, its reference diameter and source, head loss), with the flags about each |
 | Pumps | Status, flow, head, speed, efficiency, hydraulic and shaft power, NPSHa, NPSHr, NPSH margin; then the chart (`PumpChart`) of one pump at a time, picked from a list when there are several |
@@ -254,7 +254,9 @@ The pane shows, top to bottom:
 - one row per element, named in a sticky first column whose button opens the element's trace;
 - unit labels under the headings, in the display units, and flags shown inline as badges (`FlagBadge`);
 - 4 significant figures, and heads to at least 0.01 m (TSD §6.2);
-- each table scrolls inside its own box, and long tables render in chunks.
+- each table scrolls inside its own box, and long tables render in chunks;
+- each column heading sorts the table by the values shown in that column (numbers as numbers, text in natural order, a cell of several values by its largest): ascending, descending, then the table's own order, with `aria-sort` on the sorted column and an arrow beside it; rows without a value stay last and ties keep the table's order;
+- **Flagged only** shows the rows with flags, offered when some rows have flags and some do not.
 
 **`PumpChart`.** Chart.js, loaded only when a chart is shown. It draws the pump curve at the operating speed (solid inside the user's data, dashed where extrapolated), the system curve and the operating point, with axes in display units. A data table of the same points sits under the chart; it is the fallback when there is no canvas.
 

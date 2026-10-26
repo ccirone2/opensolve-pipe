@@ -25,8 +25,10 @@ for (const example of EXAMPLES) {
 		await expect(page).toHaveURL(/\/p#[A-Za-z0-9_-]+$/);
 
 		const panel = build(page);
-		await expect(panel.getByRole('heading', { level: 2, name: example.start })).toBeVisible();
-		await expect(breadcrumb(page)).toHaveText([example.start]);
+		await expect(panel.getByRole('heading', { level: 2, name: example.start })).toBeAttached();
+		// The name is shown once, in its in-place field: a walk of one step has no breadcrumb.
+		await expect(panel.getByRole('textbox', { name: 'Name' })).toHaveValue(example.start);
+		await expect(breadcrumb(page)).toHaveCount(0);
 
 		await panel.getByRole('button', { name: /^Next/ }).click();
 		await expect(panel.getByRole('heading', { level: 2, name: example.next })).toBeVisible();

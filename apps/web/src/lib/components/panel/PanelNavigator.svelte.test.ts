@@ -54,6 +54,24 @@ describe('PanelNavigator', () => {
 		expect(breadcrumb()).toHaveLength(3);
 	});
 
+	it('edits the name in place, and names it once at the start of a walk', async () => {
+		const ws = testWorkspace(pumpTransferExample());
+		render(WorkspaceView, { workspace: ws });
+		const build = within(screen.getByRole('region', { name: 'Build' }));
+		// No breadcrumb of one step, and one Name field: the heading's, not one in Properties.
+		expect(screen.queryByRole('navigation', { name: 'Path' })).toBeNull();
+		const names = build.getAllByRole('textbox', { name: 'Name' });
+		expect(names).toHaveLength(1);
+		expect(within(build.getByRole('tabpanel')).queryByRole('textbox', { name: 'Name' })).toBeNull();
+		await fireEvent.input(names[0]!, { target: { value: 'Feed tank' } });
+		await fireEvent.keyDown(names[0]!, { key: 'Enter' });
+		expect(ws.project.components.find((c) => c.id === 'R1')?.name).toBe('Feed tank');
+		expect(current()).toBe('Feed tank');
+		expect(ws.store.undoLabel).toBe('rename component');
+		await next();
+		expect(breadcrumb()).toEqual(['Feed tank', 'Transfer pump']);
+	});
+
 	it('asks which way at a tee, and the breadcrumb records the path taken', async () => {
 		const ws = testWorkspace(gravityBranchExample());
 		render(WorkspaceView, { workspace: ws });

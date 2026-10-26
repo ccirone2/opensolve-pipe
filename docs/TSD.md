@@ -992,15 +992,15 @@ The other helpers:
 
 **UI** (`components/panel/`):
 
-- **`PanelNavigator.svelte`** has a breadcrumb row with a **Jump to** button, the current component's `ComponentPanel`, and a bottom bar.
+- **`PanelNavigator.svelte`** has a breadcrumb row with a **Jump to** button (the breadcrumb itself once the walk has a second step: before that its only step would repeat the name just below), the current component's `ComponentPanel`, and a bottom bar.
   - **Previous** shows the previous component's name.
   - **Next** shows what it will do: the next component's name, "choose" (several ways or a loop), "connect *port*" (no way forward but a free port, which Next opens in the Piping tab) or "end of path" (disabled).
   - An empty project shows "Start the network" with a choice of first component (`Workspace.addStandalone`).
 - **`Breadcrumb.svelte`**: each step is a button back to that component; its tooltip names the connection used to arrive. The row scrolls to keep the last step in view.
 - **`PathChooser.svelte`** is the "Which way from *X*?" dialog. Each way forward shows the component, its type, port → port and the connection id. A separate list, "Loops back to the path", offers each loop as "Jump back to *Y*".
 - **`JumpToDialog.svelte`** lists every component, with a filter by name, id or type when there are more than six. Components not connected to the start are marked "not connected to the start".
-- **`ComponentPanel.svelte`** shows the type and id, and the name as the heading, then `ComponentActions` and two tabs:
-  - **Properties**: name, elevation, the per-type form (`forms/`: reservoir, reference node, assigned-flow node (direction and flow, no default: `AssignedFlowForm` with `AssignedFlowFields`), tee/wye, pump with `PumpCurveEditor`, isolation, check and control valves), and `PortsEditor` (port sizes, elevations, connections; reservoirs add and remove ports). A port's size is only the default for new piping: a connected port names the pipe size the solver uses, and a port size that differs from it is flagged with an offer to resize the pipe.
+- **`ComponentPanel.svelte`** shows the type and id, and the name in a field edited in place (as the project name is; stored on Enter or leaving the field, shared by every case) with the heading visually hidden behind it for structure and focus, then `ComponentActions` and two tabs:
+  - **Properties**: elevation, the per-type form (`forms/`: reservoir, reference node, assigned-flow node (direction and flow, no default: `AssignedFlowForm` with `AssignedFlowFields`), tee/wye, pump with `PumpCurveEditor`, isolation, check and control valves), and `PortsEditor` (port sizes, elevations, connections; reservoirs add and remove ports). A port's size is only the default for new piping: a connected port names the pipe size the solver uses, and a port size that differs from it is flagged with an offer to resize the pipe.
   - **Piping**: `ConnectionPanel`.
 - **`ComponentActions.svelte`**: Add after, Add before, Add branch and Delete. Add before and Add branch are disabled, with the reason given, when the component has no connection.
 - **`AddComponentDialog.svelte`** has three modes:

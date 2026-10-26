@@ -212,7 +212,9 @@ describe('component actions', () => {
 		const dialog = await openDialog('Delete', 'Delete Suction tank?');
 		await fireEvent.click(dialog.getByRole('button', { name: 'Delete' }));
 		expect(current()).toBe('Transfer pump');
-		expect(breadcrumb()).toEqual(['Transfer pump']);
+		expect(ws.nav.path).toEqual([{ componentId: 'P1' }]);
+		// A walk of one step shows no breadcrumb: its only step is the name below.
+		expect(screen.queryByRole('navigation', { name: 'Path' })).toBeNull();
 	});
 
 	it('rejoins the line when a tee added as a branch is deleted', async () => {

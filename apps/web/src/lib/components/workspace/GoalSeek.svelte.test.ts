@@ -10,11 +10,12 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { NetworkError, ValidationError } from '$lib/api/client';
+import { NetworkError, NotFoundError, TopologyError, ValidationError } from '$lib/api/client';
 import type { Component, GoalSeekResponse, Override, Project } from '$lib/api/types';
 import type { Solver } from '$lib/state/project.svelte';
 import { flag, goalSeekResponse, pumpTransferSolved, response } from '$lib/testing/results';
-import { testWorkspace } from '$lib/testing/workspace';
+import { TEST_LIBRARY } from '$lib/testing/library';
+import { testWorkspace, type TestWorkspaceOptions } from '$lib/testing/workspace';
 import { updateComponent } from '$lib/utils/edit';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { newGoal, newVariable, type GoalSeekSetup } from '$lib/utils/goal-seek';
@@ -62,9 +63,13 @@ function heldSolver() {
 	};
 }
 
-function mount(project: Project = pumpTransferExample(), withSetup = true) {
+function mount(
+	project: Project = pumpTransferExample(),
+	withSetup = true,
+	library?: TestWorkspaceOptions['library']
+) {
 	const held = heldSolver();
-	const ws = testWorkspace(project, { solver: held.solver });
+	const ws = testWorkspace(project, { solver: held.solver, ...(library ? { library } : {}) });
 	if (withSetup) ws.goalSeekSetup = setupFor(ws.project);
 	render(WorkspaceView, { workspace: ws });
 	return { ws, held };
@@ -308,6 +313,95 @@ describe('running a goal seek', () => {
 		expect(d.getByText('The calculation server is busy.')).toBeInTheDocument();
 		await fireEvent.click(d.getByRole('button', { name: 'Run again' }));
 		expect(held.goalSeek).toHaveBeenCalledTimes(4);
+	});
+
+	it("tells the server's topology issues and not-found lines with names, keeping its words", async () => {
+		const { ws, held } = mount();
+		const d = await open();
+		await fireEvent.click(runButton());
+		// The API's wording (solver/builder.py) for a made-up valve resistance.
+		const message =
+			"valve 'V1': a Cv of 1e-170 on the inlet pipe's inner diameter of 0.07792 m gives a loss " +
+			'coefficient that is not a finite floating-point number; the solver cannot represent this valve';
+		await held.fail(
+			new TopologyError('The network cannot be solved: 1 topology issue(s).', [
+				{
+					code: 'VALVE_RESISTANCE_OUT_OF_RANGE',
+					message,
+					componentIds: ['V1'],
+					connectionIds: []
+				}
+			])
+		);
+		const item = d.getByRole('listitem');
+		expect(item).toHaveTextContent(
+			"Discharge isolation valve: a Cv of 1e-170 on its inlet pipe's inner diameter (77.92 mm) gives"
+		);
+		const details = item.querySelector('details')!;
+		expect(details.open).toBe(false);
+		expect(details).toHaveTextContent(`Calculation server's message: ${message}`);
+		await fireEvent.click(within(item).getByRole('button', { name: 'Discharge isolation valve' }));
+		expect(ws.pane).toBe('build');
+		expect(ws.nav.current?.id).toBe('V1');
+
+		ws.pane = 'results';
+		ws.openGoalSeek();
+		await tick();
+		await fireEvent.click(runButton());
+		await held.fail(
+			new NotFoundError(
+				'Goal seek: 1 element not found.',
+				[
+					'Goal seek: 1 element not found.',
+					'body.variables.0: connection L2 has 1 pipe, no pipe 3'
+				],
+				[
+					{
+						code: 'UNKNOWN_PIPE',
+						message: 'body.variables.0: connection L2 has 1 pipe, no pipe 3',
+						componentIds: [],
+						connectionIds: ['L2']
+					}
+				]
+			)
+		);
+		expect(
+			dialog().getByText(
+				'Variable 1 (Transfer pump · Speed): Piping Transfer pump → Discharge isolation valve has 1 pipe, no pipe 3'
+			)
+		).toBeInTheDocument();
+	});
+
+	it("tells a piping issue with the library's material name, and its link opens that piping", async () => {
+		const { ws, held } = mount(pumpTransferExample(), true, {
+			getLibrary: () => Promise.resolve(TEST_LIBRARY)
+		});
+		await waitFor(() => expect(ws.library.material('carbon_steel')?.name).toBe('Carbon steel'));
+		const d = await open();
+		await fireEvent.click(runButton());
+		// The API's wording (solver/library.py) for a made-up schedule of a pipe of L2.
+		const message =
+			"connection 'L2' pipe 1: pipe material 'carbon_steel' has no schedule '999'; available: 40";
+		await held.fail(
+			new TopologyError('The network cannot be solved: 1 topology issue(s).', [
+				{ code: 'UNKNOWN_PIPE_SCHEDULE', message, componentIds: [], connectionIds: ['L2'] }
+			])
+		);
+		const item = d.getByRole('listitem');
+		expect(item).toHaveTextContent(
+			'Piping Transfer pump → Discharge isolation valve, pipe 1: the pipe library has no ' +
+				'schedule “999” for Carbon steel: choose one of its schedules, or enter a custom pipe.'
+		);
+		expect(item.querySelector('details')).toHaveTextContent(
+			`Calculation server's message: ${message}`
+		);
+		await fireEvent.click(
+			within(item).getByRole('button', { name: 'Transfer pump → Discharge isolation valve' })
+		);
+		expect(ws.pane).toBe('build');
+		expect(ws.nav.current?.id).toBe('P1');
+		expect(ws.nav.mode).toBe('connection');
+		expect(ws.nav.activeConnection?.id).toBe('L2');
 	});
 
 	it('lists the physically invalid results at the values found', async () => {

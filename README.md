@@ -83,7 +83,7 @@ The reference suite (`apps/api/tests/reference/`) is how hydraulic correctness i
 
 ## Deployment
 
-The web app runs on Cloudflare Pages (`https://opensolve-pipe.pages.dev`, Pages project `opensolve-pipe`) and the API on Google Cloud Run (service `opensolve-pipe-api` in the Google Cloud project `opensolve-pipe-api`, region `us-central1`). [`docs/TSD.md`](docs/TSD.md) §11 explains each setting below and cites its source, and it lists the checks to run after every deployment and the costs. Ordinary use fits within both providers' free tiers.
+The web app runs on Cloudflare Pages (`https://opensolve-pipe.pages.dev`, Pages project `opensolve-pipe`), which builds production from `main`, and the API on Google Cloud Run (service `opensolve-pipe-api` in the Google Cloud project `opensolve-pipe-api`, region `us-central1`); the owner deployed both on 2026-10-25. A deployment is not a stable release: until the owner declares one, the model, the link format, the API and the methods may change, and an older link may fail to open or solve differently (CLAUDE.md D14). [`docs/TSD.md`](docs/TSD.md) §11 explains each setting below and cites its source, and it lists the checks to run after every deployment and the costs. Ordinary use fits within both providers' free tiers.
 
 Every command below copies and pastes as is. Each block starts by setting the names it uses, so it also works in a new Cloud Shell session. A fork that deploys under other names changes only those first lines.
 

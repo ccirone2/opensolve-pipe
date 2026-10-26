@@ -3,9 +3,9 @@
  * point is a reported value in display units. Pump results are made-up test inputs.
  */
 import { describe, expect, it } from 'vitest';
-import { pumpResult, systemCurveResponse } from '../testing/results';
+import { pumpResult, systemCurvePoint, systemCurveResponse } from '../testing/results';
 import { pumpTransferExample } from './examples';
-import { pumpChartData, ratedCurveRange } from './pump-chart';
+import { otherCasesData, pumpChartData, ratedCurveRange } from './pump-chart';
 import { IMPERIAL_UNITS, SI_UNITS } from './units';
 
 const GPM = (231 * 0.0254 ** 3) / 60; // m³/s, US gallon = 231 in³
@@ -131,6 +131,67 @@ describe('pump chart data', () => {
 			{ flow: '20', head: '22', note: '' },
 			{ flow: '30', head: '34.5', note: '' }
 		]);
+	});
+
+	it('tells a point’s reason with names and display units, keeping the API’s sentence', () => {
+		// The pump-transfer example's V1 made an FCV set to 0.02 m³/s (made-up test input): the
+		// point at 0.03 m³/s is beyond what it passes.
+		const project = pumpTransferExample();
+		project.components[2] = {
+			type: 'valve',
+			valveType: 'fcv',
+			id: 'V1',
+			name: 'Flow limiter',
+			elevation: 0,
+			status: 'active',
+			setpoint: 0.02,
+			ports: project.components[2]!.ports
+		};
+		const curve = systemCurveResponse('P1', [3]);
+		const message =
+			"no steady state carries this flow: every way from the pump's discharge back to its " +
+			"suction, through the network or a reservoir or reference node, passes FCV 'V1', which " +
+			'passes at most 0.02 m³/s that way (an FCV passes neither reverse flow nor more than its setpoint)';
+		curve.points[3] = systemCurvePoint({
+			flow: 0.03,
+			message,
+			reason: 'beyond_limit',
+			componentIds: ['V1'],
+			limitFlow: 0.02,
+			passedFlow: 0.02
+		});
+		const names = { project, solved: project };
+		const row = pumpChartData(pumpResult(), IMPERIAL_UNITS, [0, 0.03], curve, names).systemRows[3];
+		expect(row).toEqual({
+			flow: String(Number((0.03 / GPM).toPrecision(4))),
+			head: '—',
+			note:
+				"No steady state carries this flow: every way from the pump's discharge back to its " +
+				'suction, through the network or a reservoir or reference node, passes Flow limiter, ' +
+				`which passes at most ${Number((0.02 / GPM).toPrecision(4))} gpm that way (an FCV ` +
+				'passes neither reverse flow nor more than its flow setpoint).',
+			detail: message
+		});
+		// Without names, the API's sentence, with no detail; a point with a head has neither.
+		const plain = pumpChartData(pumpResult(), SI_UNITS, [0, 0.03], curve).systemRows;
+		expect(plain[3]).toEqual({ flow: '30', head: '—', note: message });
+		expect(pumpChartData(pumpResult(), SI_UNITS, [0, 0.03], curve, names).systemRows[0]).toEqual({
+			flow: '0',
+			head: '12',
+			note: ''
+		});
+		// Other cases' curves are told the same way.
+		const [other] = otherCasesData(
+			[{ key: 'S1', name: 'Winter', result: pumpResult(), stale: false, system: curve }],
+			SI_UNITS,
+			[0, 0.03],
+			1,
+			names
+		);
+		expect(other!.systemRows[3]!.note).toContain(
+			'passes Flow limiter, which passes at most 20 L/s'
+		);
+		expect(other!.systemRows[3]!.detail).toBe(message);
 	});
 
 	it('formats data-table rows to 4 significant figures', () => {

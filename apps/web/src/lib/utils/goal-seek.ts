@@ -2135,12 +2135,68 @@ export interface RequestIssues {
 
 const ISSUE_LOCATION = /^body\.(variables|goals)\.(\d+)(?:\.([\w.]+))?:\s*(.*)$/s;
 
+/** What a request error's lines are told with: names (the project) and display units. */
+export interface RequestTextContext {
+	project: Project;
+	units: UnitPreferences;
+}
+
+const LINE_ID = '([A-Za-z0-9_-]+)';
+const NO_PORT = new RegExp(`^component ${LINE_ID} has no port '${LINE_ID}'$`);
+const NO_PIPE = new RegExp(`^connection ${LINE_ID} has (\\d+ pipes?), no pipe (\\d+)$`);
+const NOT_APPLICABLE = /^([a-z_]+) applies to (.+), not (an? [^,;]+)$/;
+const TOLERANCE_FLOOR =
+	/^below the smallest this search resolves \(10⁻⁶ of the target's magnitude, or (-?\d+(?:\.\d+)?(?:e[+-]?\d+)?) (Pa|m|m³\/s|m\/s), whichever is larger\)$/;
+const FLOOR_CATEGORY: Readonly<Record<string, UnitCategory>> = {
+	Pa: 'pressure',
+	m: 'head',
+	'm³/s': 'flow',
+	'm/s': 'velocity'
+};
+
+/**
+ * A request error's line (after its location) in names and display units, for the forms of
+ * goal seek's messages (apps/api services/goal_seek.py) that quote an id the project names or an
+ * SI value: a port a component does not have, a pipe a connection does not have, a quantity a
+ * kind of element has none of, and the smallest tolerance. Any other line, and a line about an
+ * element the project does not have (no name: its id stays), is kept as it is.
+ */
+export function requestLineText(text: string, context: RequestTextContext): string {
+	const { project, units } = context;
+	const port = NO_PORT.exec(text);
+	const component = port ? componentById(project, port[1] ?? '') : undefined;
+	if (port && component) return `${component.name} has no port “${port[2]}”`;
+	const pipe = NO_PIPE.exec(text);
+	if (pipe && connectionById(project, pipe[1] ?? '')) {
+		return `Piping ${connectionName(project, pipe[1] ?? '')} has ${pipe[2]}, no pipe ${pipe[3]}`;
+	}
+	const kind = NOT_APPLICABLE.exec(text);
+	const quantity = kind?.[1] as GoalQuantity | undefined;
+	if (kind && quantity && Object.hasOwn(GOAL_QUANTITIES, quantity)) {
+		return `${QUANTITIES[GOAL_QUANTITIES[quantity]].label} applies to ${kind[2]}, not ${kind[3]}`;
+	}
+	const floor = TOLERANCE_FLOOR.exec(text);
+	const category = floor ? FLOOR_CATEGORY[floor[2] ?? ''] : undefined;
+	if (floor && category && Number.isFinite(Number(floor[1]))) {
+		return (
+			"below the smallest this search resolves (10⁻⁶ of the target's magnitude, or " +
+			`${formatValue(Number(floor[1]), category, units, 6)}, whichever is larger)`
+		);
+	}
+	return text;
+}
+
 /**
  * The lines of a 400 or 404 (validation details: the envelope's message, then each issue's
  * "body.variables.0.lower: ..."), sorted by the variable or goal they locate (§6.9: shown at its
  * card). Messages never hold a submitted value or an id (SDD §5.1.2); a 404's name ids (D10).
+ * With `context`, each located line is told in names and display units (requestLineText).
  */
-export function requestIssues(details: readonly string[], message = ''): RequestIssues {
+export function requestIssues(
+	details: readonly string[],
+	message = '',
+	context?: RequestTextContext
+): RequestIssues {
 	const variables = new Map<number, string[]>();
 	const goals = new Map<number, string[]>();
 	const other: string[] = [];
@@ -2151,7 +2207,8 @@ export function requestIssues(details: readonly string[], message = ''): Request
 			other.push(detail);
 			continue;
 		}
-		const [, list, index, field, text = ''] = match;
+		const [, list, index, field, sent = ''] = match;
+		const text = context ? requestLineText(sent, context) : sent;
 		const target = list === 'variables' ? variables : goals;
 		const i = Number(index);
 		const where =
@@ -2168,10 +2225,11 @@ export function requestIssues(details: readonly string[], message = ''): Request
 export function rowIssues(
 	request: GoalSeekRequest,
 	details: readonly string[],
-	message = ''
+	message = '',
+	context?: RequestTextContext
 ): Record<string, string> {
 	const sent = draftsOf(request);
-	const located = requestIssues(details, message);
+	const located = requestIssues(details, message, context);
 	const byKey: Record<string, string> = {};
 	for (const [i, lines] of located.variables) {
 		const v = sent.variables[i];

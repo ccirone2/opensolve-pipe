@@ -7,7 +7,8 @@
 	Cancel), when it fails or was cancelled and where points have no head (no steady state, an
 	undetermined head, no convergence, not computed), the chart says so; once shown, it says how it
 	was computed and links to the pump's trace, which defines it. A data table under the chart lists
-	the same points, and why each without a head has none. The focus follows the control a keyboard
+	the same points, and why each without a head has none, told with element names and in display
+	units (with the server's sentence under Details) when `names` are given. The focus follows the control a keyboard
 	user pressed from Cancel to the button that computes the curve again, and back. Chart.js is
 	loaded only when a chart is shown.
 
@@ -28,8 +29,10 @@
 		otherCasesData,
 		pumpChartData,
 		type ChartPoint,
-		type OtherCaseInput
+		type OtherCaseInput,
+		type SystemCurveNames
 	} from '$lib/utils/pump-chart';
+	import IssueDetail from './IssueDetail.svelte';
 	import { formatNumber } from '$lib/utils/units';
 
 	interface Props {
@@ -39,6 +42,8 @@
 		prefs: UnitPreferences;
 		/** Flow range of the curve's points at rated speed (m³/s), from the solved project. */
 		ratedRange?: [number, number] | null;
+		/** Names (and kinds as solved) to tell why a system-curve point has no head. */
+		names?: SystemCurveNames | null;
 		/** The pump's system curve for the same solve (undefined: not requested). */
 		system?: SystemCurveState;
 		/** Compute the system curve (again, after a failure or a cancellation). */
@@ -71,6 +76,7 @@
 		name,
 		prefs,
 		ratedRange = null,
+		names = null,
 		system,
 		onretry,
 		oncancel,
@@ -96,7 +102,8 @@
 			shownOthers,
 			prefs,
 			ratedRange?.[0] != null && ratedRange?.[1] != null ? [ratedRange[0], ratedRange[1]] : null,
-			result.speed
+			result.speed,
+			names
 		)
 	);
 
@@ -112,7 +119,7 @@
 	const high = $derived(ratedRange?.[1] ?? null);
 	const curve = $derived(system?.status === 'ready' ? system.curve : null);
 	const data = $derived(
-		pumpChartData(result, prefs, low !== null && high !== null ? [low, high] : null, curve)
+		pumpChartData(result, prefs, low !== null && high !== null ? [low, high] : null, curve, names)
 	);
 	const loading = $derived(system?.status === 'loading');
 	let figure: HTMLElement | undefined = $state();
@@ -761,7 +768,9 @@
 								<tr class="border-t border-slate-100">
 									<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
 									<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
-									<td class="px-2 py-1 text-xs text-slate-600">{row.note}</td>
+									<td class="px-2 py-1 text-xs text-slate-600"
+										>{row.note}{#if row.detail}<IssueDetail detail={row.detail} />{/if}</td
+									>
 								</tr>
 							{/each}
 						</tbody>
@@ -850,7 +859,9 @@
 										<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
 										<td class="px-2 py-1 text-right tabular-nums">{row.head}</td>
 										{#if data.systemMissing}
-											<td class="px-2 py-1 text-xs text-slate-600">{row.note}</td>
+											<td class="px-2 py-1 text-xs text-slate-600"
+												>{row.note}{#if row.detail}<IssueDetail detail={row.detail} />{/if}</td
+											>
 										{/if}
 									</tr>
 								{/each}

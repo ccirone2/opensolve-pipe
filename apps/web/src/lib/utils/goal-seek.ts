@@ -36,8 +36,18 @@ import type {
 	UnitPreferences,
 	VariableResult
 } from '../api/types';
-import { QUANTITIES, rowLabel, type CompareRow, type Quantity } from './compare';
+import {
+	compareValue,
+	ENDS_NOTE,
+	PIPES_NOTE,
+	QUANTITIES,
+	REVERSED_NOTE,
+	rowLabel,
+	type CompareRow,
+	type Quantity
+} from './compare';
 import { componentById, connectionById } from './graph';
+import { markProjectCopy } from './identity';
 import { portLabel, PUMP_CONTROL_STATE_LABELS } from './labels';
 import {
 	componentGoalFields,
@@ -798,14 +808,29 @@ export function lastSolveText(
 	goal: GoalRef,
 	response: SolveResponse | null,
 	stale: boolean,
-	prefs: UnitPreferences
+	prefs: UnitPreferences,
+	read?: { structure: Project; sent: Project | null }
 ): string {
 	if (!response || !(response.success && response.solvedState.converged)) return '';
-	const value = goalValue(response.solvedState, goal);
+	const solved = response.solvedState;
+	// A connection's value is read on it as it is now (Compare's reading): the goal names its ends now.
+	const found = read
+		? compareValue(goalRow(goal), { solved, converged: true, sent: read.sent }, read.structure)
+		: { value: goalValue(solved, goal) };
+	const value = typeof found.value === 'number' ? found.value : null;
 	const spec = goalSpec(goal.quantity);
 	const shown =
-		value === null ? 'no value' : new Formatter(prefs).value(value, spec.category, spec.options);
-	return `Last solve${stale ? ' (out of date)' : ''}: ${shown}.`;
+		found.note === ENDS_NOTE
+			? 'none, its ends changed since'
+			: found.note === PIPES_NOTE
+				? 'none, its pipes changed since'
+				: value === null
+					? 'no value'
+					: new Formatter(prefs).value(value, spec.category, spec.options);
+	const state = [stale && 'out of date', found.note === REVERSED_NOTE && 'reversed since'].filter(
+		Boolean
+	);
+	return `Last solve${state.length ? ` (${state.join(', ')})` : ''}: ${shown}.`;
 }
 
 /** The bounds of a variable's number: its field's (schema, a valve type's), ordered with others. */
@@ -1271,13 +1296,18 @@ export function draftsOf(request: GoalSeekRequest): {
 /**
  * What the words of a result need: the project for names (always current names; an element
  * deleted since is named from the project as sent), the case as sent (a setpoint's unit), the
- * display units and the case in words ("the base case", "scenario Winter").
+ * display units and the case in words ("the base case", "scenario Winter"). A connection of an
+ * out-of-date result (`stale`) is named from the project as sent, as the Links table names one
+ * (utils/results.ts resultsProject): its goal's flow and head loss are signed by those ends, and a
+ * pipe variable's number is its place in that order.
  */
 export interface WordsContext {
 	labels: Project;
 	sent: Project;
 	prefs: UnitPreferences;
 	caseWords: string;
+	/** The result is out of date (the project changed since the run). */
+	stale?: boolean;
 }
 
 const MINUS = '−';
@@ -1287,11 +1317,13 @@ function signedText(text: string, value: number): string {
 	return value > 0 ? `+${text}` : `${MINUS}${text.replace(/^-/, '')}`;
 }
 
-/** The project that names an element: the current one, else the one sent (deleted since). */
+/**
+ * The project that names an element: the current one, else the one sent (deleted since); for a
+ * connection of an out-of-date result, the one sent (its ends as run).
+ */
 function namesProject(context: WordsContext, id: string): Project {
-	return componentById(context.labels, id) || connectionById(context.labels, id)
-		? context.labels
-		: context.sent;
+	if (connectionById(context.labels, id)) return context.stale ? context.sent : context.labels;
+	return componentById(context.labels, id) ? context.labels : context.sent;
 }
 
 /** A variable of a run, named and shown in display units. */
@@ -1974,7 +2006,8 @@ function upserted(
 /**
  * The project with the values found applied to the case they ran on (§6.10): written into the
  * base at their paths (setValue), or upserted into scenario `caseId`. Exact floats: never a
- * displayed text. Returns a new project.
+ * displayed text. Returns a new project, its pipes recorded as the same pipes (identity.ts), so
+ * Build still reads the last solve on them while it is out of date.
  */
 export function applyToCase(
 	project: Project,
@@ -1982,6 +2015,7 @@ export function applyToCase(
 	overrides: readonly Override[]
 ): Project {
 	const draft = structuredClone(project) as Project;
+	markProjectCopy(draft, project);
 	if (caseId === null) {
 		for (const o of overrides) {
 			if (o.kind === 'project' && o.field === 'fluid')

@@ -1,7 +1,9 @@
 <!--
 	The physics flags of a solve (GOALS §4.6), grouped by severity: physically invalid, warnings,
 	information. Each has an icon and text (names and display units); a flag about an element
-	starts with that element, a link to its results and trace. Long groups show their first few
+	starts with that element, a link to its results and trace. A connection is named as it was
+	solved once the results are out of date (utils/results.ts resultsProject), as the Links table
+	names it: its flags number its pipes as solved. Long groups show their first few
 	flags with "Show all", and a skip button leads past the flags to the results views, so a long
 	list does not push the results several screens down.
 -->
@@ -11,7 +13,9 @@
 		elementName,
 		flagElement,
 		groupFlags,
+		resultsProject,
 		SEVERITY_TITLES,
+		type ElementRef,
 		type Severity
 	} from '$lib/utils/results';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
@@ -27,6 +31,12 @@
 	const ws = useWorkspace();
 	const id = $props.id();
 	const groups = $derived(groupFlags(flags));
+	/** These flags are the shown solve's: a connection is named as that solve has it. */
+	const solved = $derived(ws.store.solved);
+	const nameOf = (element: ElementRef) =>
+		element.kind === 'connection' && solved
+			? elementName(resultsProject(ws.labelsProject, solved), element)
+			: elementName(ws.project, element);
 
 	/** Flags shown per group before "Show all". */
 	const SHOWN = 5;
@@ -86,7 +96,7 @@
 						{@const text = ws.flagText(flag)}
 						<li class="text-sm">
 							{#if element}
-								{@const name = elementName(ws.project, element)}
+								{@const name = nameOf(element)}
 								<!-- The whole flag opens its element: name first, then what the flag says. -->
 								<button
 									type="button"

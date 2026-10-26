@@ -31,7 +31,7 @@ import {
 } from './context';
 import { localIso } from './filename';
 import type { CellValue, SheetSpec } from './model';
-import { caseColumns, casePrefix, text } from './tables';
+import { caseColumns, casePrefix, compareNotes, text } from './tables';
 import { CELL_LIMIT } from './xlsx';
 
 /** The web app's license (CLAUDE.md, License). */
@@ -365,7 +365,8 @@ function goalSeekContext(ctx: ExportContext) {
 		labels: project,
 		sent: gs.run.project,
 		prefs: units(ctx).prefs,
-		caseWords: gs.run.caseId === null ? 'the base case' : `scenario ${name}`
+		caseWords: gs.run.caseId === null ? 'the base case' : `scenario ${name}`,
+		...(gs.stale ? { stale: true } : {})
 	};
 	const solved = response.solvedState;
 	const valveTypes = solved
@@ -548,8 +549,18 @@ export function aboutRows(
 	rows.push(...unitRows(ctx));
 	rows.push(['Export', 'Numbers', NUMBERS]);
 	for (const [item, value] of SIGNS) rows.push(['Export', item, value]);
+	// Compare cases names connections by their ends now: what reads otherwise than as solved.
+	const compared = compareNotes(ctx);
+	if (compared.reversed.length) {
+		rows.push([
+			'Export',
+			'Sign: Compare cases',
+			`A connection's flow and head loss are given in its direction now. Reversed since its case was solved, so with the other sign than in that case's tables: ${compared.reversed.join('; ')}.`
+		]);
+	}
 	// Not in this file, and why.
 	const left: [string, string][] = [];
+	for (const { what, reason } of compared.leftOut) left.push([`Compare cases: ${what}`, reason]);
 	if (!ctx.single)
 		left.push(['Trace', 'not in an All cases export: export one case to include it']);
 	for (const c of ctx.cases) {

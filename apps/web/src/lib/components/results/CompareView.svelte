@@ -6,7 +6,9 @@
 	sideways in its own box); below that, one card per row, with no sideways scrolling. Values come
 	from each case's last solve (utils/compare.ts); a case that did not converge shows none, nor does
 	one whose latest solve of the project failed or that a stopped run did not reach (what it had is
-	from an earlier project), and values that are out of date are tinted. A row's header opens a
+	from an earlier project), and values that are out of date are tinted. A connection's values are
+	read on it as it is now, the row's name: a note says when a case was solved before a reversal
+	(the other sign) or before its ends or its pipes changed (no value). A row's header opens a
 	trace only when the case shown has results (the trace is that case's). Solve all's progress is
 	announced by the case bar alone.
 -->
@@ -44,11 +46,13 @@
 			const results = store.resultsFor(caseId);
 			// Failed or not reached: a response kept is from an earlier version of the project.
 			const response = caseResponse(statuses[i] ?? 'not_solved', results);
+			const stale = !!response && results.stale;
 			return {
 				caseId,
 				solved: response?.solvedState ?? null,
 				converged: !!response && response.success && response.solvedState.converged,
-				stale: !!response && results.stale
+				stale,
+				sent: stale ? store.sentProjectFor(caseId) : null
 			};
 		})
 	);
@@ -74,7 +78,7 @@
 			label: rowLabel(ws.labelsProject, row),
 			unit: rowUnit(row, ws.displayUnits),
 			element: rowElement(ws.labelsProject, row),
-			cells: compareCells(row, columns, ws.labelsProject, ws.displayUnits)
+			cells: compareCells(row, columns, ws.labelsProject, ws.displayUnits, store.project)
 		}))
 	);
 	const run = $derived(store.run);
@@ -243,7 +247,7 @@
 											'px-2 py-1 text-right align-top tabular-nums',
 											columns[i]?.stale && 'bg-amber-50/60'
 										]}
-										title={cell.text === '—' ? noValues(i) : undefined}
+										title={cell.text === '—' ? (cell.note ?? noValues(i)) : undefined}
 									>
 										<span class="inline-flex items-center gap-1">
 											{#if cell.invalid}
@@ -253,6 +257,8 @@
 											{/if}
 											{cell.text}
 										</span>
+										{#if cell.note}<span class="block text-xs text-slate-600">{cell.note}</span
+											>{/if}
 										{#if cell.where}<span class="block text-xs text-slate-600">{cell.where}</span
 											>{/if}
 										{#if cell.diff}
@@ -311,6 +317,7 @@
 										{/if}
 										{cell.text}
 									</span>
+									{#if cell.note}<span class="block text-xs text-slate-600">{cell.note}</span>{/if}
 									{#if cell.where}<span class="block text-xs text-slate-600">{cell.where}</span
 										>{/if}
 									{#if cell.diff}

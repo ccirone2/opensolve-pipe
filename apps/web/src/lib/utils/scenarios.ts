@@ -741,7 +741,7 @@ export function scenarioEdit(
 
 /** The pipes scenario changes name, in a draft of the project before an edit. */
 export interface PipeTracker {
-	/** Draft pipe object → its position, 'connectionId\u0000index'. */
+	/** The pipe (a draft pipe's origin, identity.ts) → its position, 'connectionId\u0000index'. */
 	positions: Map<object, string>;
 }
 
@@ -760,7 +760,7 @@ export function trackPipes(before: Project, draft: Project): PipeTracker {
 	for (const connection of draft.connections) {
 		connection.piping.pipes.forEach((pipe, i) => {
 			const key = position(connection.id, i);
-			if (named.has(key)) positions.set(pipe, key);
+			if (named.has(key)) positions.set(originOf(pipe), key);
 		});
 	}
 	return { positions };

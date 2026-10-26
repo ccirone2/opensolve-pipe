@@ -5,12 +5,15 @@
 	the app's own mirror), each linked to its element's trace; then the changes it ignored, with the
 	server's reason. Each value's field and unit are those of the project as it was solved (a
 	control valve's setpoint is a pressure or a flow by its type then, a pump's speed its maximum
-	when it was speed-controlled), names the project's current ones. For the base case of a project
+	when it was speed-controlled), names the project's current ones, but a pipe's: its number is
+	the solve's, so its connection is named as solved once the results are out of date
+	(utils/results.ts resultsProject), as the Links table names it. For the base case of a project
 	with scenarios, one line saying so.
 -->
 <script lang="ts">
-	import type { ScenarioResult } from '$lib/api/types';
+	import type { Override, ScenarioResult } from '$lib/api/types';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import { resultsProject } from '$lib/utils/results';
 	import { changeElement } from '$lib/utils/scenario-problems';
 	import { changeFieldLabel, changeTargetLabel, changeValueText } from '$lib/utils/scenarios';
 
@@ -23,6 +26,16 @@
 	const ignored = $derived(scenario?.overrides.filter((o) => o.state !== 'applied') ?? []);
 	/** The project as it was solved (the base and its scenarios as sent), for fields and units. */
 	const solvedAs = $derived(ws.store.solvedProject ?? ws.labelsProject);
+	/** "Pipe 2 of A → B": a pipe by the connection as solved, its number being the solve's. */
+	const target = (override: Override) => {
+		const solved = ws.store.solved;
+		return changeTargetLabel(
+			override.kind === 'pipe' && solved
+				? resultsProject(ws.labelsProject, solved)
+				: ws.labelsProject,
+			override
+		);
+	};
 
 	function text(record: ScenarioResult['overrides'][number], value: unknown): string {
 		return changeValueText(solvedAs, record.override, value, ws.displayUnits, {
@@ -57,11 +70,10 @@
 							<button
 								type="button"
 								class="text-left text-blue-800 underline underline-offset-2"
-								onclick={() => ws.inspect(element)}
-								>{changeTargetLabel(ws.labelsProject, record.override)}</button
+								onclick={() => ws.inspect(element)}>{target(record.override)}</button
 							>
 						{:else}
-							{changeTargetLabel(ws.labelsProject, record.override)}
+							{target(record.override)}
 						{/if}
 						· {changeFieldLabel(solvedAs, record.override)}:
 						<strong>{text(record, record.value)}</strong>
@@ -77,10 +89,7 @@
 			<ul class="list-disc space-y-1 pl-5">
 				{#each ignored as record (record.index)}
 					<li class="break-words">
-						{changeTargetLabel(ws.labelsProject, record.override)} · {changeFieldLabel(
-							solvedAs,
-							record.override
-						)}: {record.message}
+						{target(record.override)} · {changeFieldLabel(solvedAs, record.override)}: {record.message}
 					</li>
 				{/each}
 			</ul>

@@ -7,7 +7,10 @@
  * come from the current project; an element that no longer exists (results kept after an edit)
  * is shown by its id. A connection's "From → To" (its ends and their names) comes from the project
  * the results belong to (resultsProject): the project as solved once they are out of date, as the
- * sign of its flow does.
+ * sign of its flow does. Where out-of-date values are shown against a connection as it is now
+ * (Build's strip and pipe hints, Compare cases), linkReading finds the direction and the pipes
+ * they refer to, exactly or not at all: a value in the other direction is given with the other
+ * sign (the one change made to a number here), and one it cannot place is left out.
  */
 import type {
 	BoundaryResult,
@@ -16,6 +19,7 @@ import type {
 	Flag,
 	LinkResult,
 	NodeResult,
+	PipeConnection,
 	Project,
 	PumpResult,
 	SegmentResult,
@@ -24,7 +28,10 @@ import type {
 	ValveResult
 } from '../api/types';
 import { DIRECTION_NAMES, flowDirection } from './assigned-flow';
+import { reversePiping } from './edit';
 import { componentById, connectionById } from './graph';
+import { originOf } from './identity';
+import { canonicalJson } from './json';
 import {
 	fittingFallbackName,
 	humanize,
@@ -186,7 +193,229 @@ export function recordResultsProject(solved: SolvedState, outOfDate: () => Proje
  * store did not record (a table built outside it).
  */
 export function resultsProject(current: Project, solved: SolvedState): Project {
-	return resultsProjects.get(solved)?.() ?? current;
+	return outOfDateProject(solved) ?? current;
+}
+
+/**
+ * The project exactly as sent for a solve whose results are out of date; null while they are
+ * current, and for a solve the store did not record (see recordResultsProject).
+ */
+export function outOfDateProject(solved: SolvedState): Project | null {
+	return resultsProjects.get(solved)?.() ?? null;
+}
+
+/** A pipe of the current project as a pipe of a solve (identity.ts). */
+export interface PipeReading {
+	/** The connection it was in for the solve, and its index there (SegmentResult.index). */
+	connectionId: string;
+	index: number;
+	/** -1 where it now runs the other way in its connection: its signed values are negated. */
+	sign: 1 | -1;
+}
+
+/**
+ * How a solve's values of a connection read on that connection as it is now. The API signs a
+ * connection's flow, velocities and head losses from its 'from' end to its 'to' end, and numbers
+ * its pipes and fittings in its order, as it was solved; an edit since may have reversed it (an
+ * insertion turns a connection drawn against the flow, a join may turn either side), moved an end
+ * (an insertion, a join), added or removed pipes, or given its id to a new connection.
+ */
+export interface LinkReading {
+	/**
+	 * The sign that gives its flow at the solve in its current direction: from its ends when it is
+	 * the connection solved between the same two ports (`ends`), else from its pipes when it holds
+	 * pipes solved in it and none solved in another connection (an insertion moved an end); null
+	 * when neither tells (a join of two, an id used again).
+	 */
+	flow: 1 | -1 | null;
+	/**
+	 * The sign of values between its ends (head loss): null unless it joins the same two ports as
+	 * solved and is the connection solved there, holding pipes solved in it and none solved in
+	 * another connection. Ids are used again (the first free one), so a new connection can join
+	 * the solved ports under the solved id: its pipes tell it apart.
+	 */
+	ends: 1 | -1 | null;
+	/**
+	 * Why `ends` is null: 'ends', an end moved (an insertion, a join, an id used again with other
+	 * ends); 'pipes', it joins the same two ports but holds no pipe solved in it, or one solved in
+	 * another connection (an id and its ends used again by a new connection). Null with `ends`.
+	 */
+	changed: 'ends' | 'pipes' | null;
+	/**
+	 * Each of its pipes as solved, found by identity (never by position) in any connection of the
+	 * solve, the sign from the ends that connection shares with this one (or the order of the
+	 * pipes they share); null for a pipe added since, or one whose direction neither tells.
+	 */
+	pipes: (PipeReading | null)[];
+	/**
+	 * Its pipes are the pipes solved in it, every one and no other (in any order or direction), so
+	 * a value over all of them (its largest velocity) refers to its pipes now.
+	 */
+	samePipes: boolean;
+	/** Its fittings are the ones solved, at the same indexes (only with every pipe in place). */
+	fittings: boolean;
+}
+
+const sameEnd = (
+	a: PipeConnection,
+	aEnd: 'from' | 'to',
+	b: PipeConnection,
+	bEnd: 'from' | 'to'
+): boolean =>
+	a[`${aEnd}ComponentId`] === b[`${bEnd}ComponentId`] && a[`${aEnd}PortId`] === b[`${bEnd}PortId`];
+
+/** 1: both ends as solved; -1: both swapped (a reversal); null: an end moved. */
+function bothEnds(now: PipeConnection, then: PipeConnection): 1 | -1 | null {
+	if (sameEnd(now, 'from', then, 'from') && sameEnd(now, 'to', then, 'to')) return 1;
+	if (sameEnd(now, 'from', then, 'to') && sameEnd(now, 'to', then, 'from')) return -1;
+	return null;
+}
+
+/**
+ * The direction of `now` relative to `then` for the pipes they share: every edit keeps a pipe on
+ * the same side of each end it keeps (it splits or joins connections only at their ends, and a
+ * reversal swaps both), so an end at the same side gives 1 and one at the other side -1. Without a
+ * shared end, the order of two or more shared pipes tells. Null when nothing tells, or the two
+ * disagree (an edit outside the app's own).
+ */
+function direction(
+	now: PipeConnection,
+	then: PipeConnection,
+	order: readonly (readonly [number, number])[]
+): 1 | -1 | null {
+	const atEnds =
+		sameEnd(now, 'from', then, 'from') || sameEnd(now, 'to', then, 'to')
+			? 1
+			: sameEnd(now, 'from', then, 'to') || sameEnd(now, 'to', then, 'from')
+				? -1
+				: null;
+	let byOrder: 1 | -1 | null = null;
+	if (order.length > 1) {
+		const steps = order.slice(1).map(([, j], k) => j - (order[k]?.[1] ?? j));
+		if (steps.every((d) => d > 0)) byOrder = 1;
+		else if (steps.every((d) => d < 0)) byOrder = -1;
+		else return null;
+	}
+	if (atEnds !== null && byOrder !== null && atEnds !== byOrder) return null;
+	return atEnds ?? byOrder;
+}
+
+/** Each pipe of a solve's project by its origin (identity.ts): where it was solved. */
+const solvedPipes = new WeakMap<Project, Map<object, { connectionId: string; index: number }>>();
+
+function pipesOf(project: Project): Map<object, { connectionId: string; index: number }> {
+	let map = solvedPipes.get(project);
+	if (!map) {
+		const found = new Map<object, { connectionId: string; index: number }>();
+		for (const c of project.connections) {
+			c.piping.pipes.forEach((pipe, index) =>
+				found.set(originOf(pipe), { connectionId: c.id, index })
+			);
+		}
+		solvedPipes.set(project, found);
+		map = found;
+	}
+	return map;
+}
+
+/**
+ * How `solved`'s values of connection `id` read on it in `structure` (the stored project, whose
+ * pipes carry their identity), given `sent`, the project as sent for that solve once its results
+ * are out of date (null while they are current: then every value reads as solved). Null when the
+ * solve or the project has no such connection.
+ */
+export function linkReading(
+	structure: Project,
+	sent: Project | null,
+	solved: SolvedState,
+	id: string
+): LinkReading | null {
+	const link = solved.linkResults[id];
+	const now = connectionById(structure, id);
+	if (!link || !now) return null;
+	const count = now.piping.pipes.length;
+	const then = sent ? connectionById(sent, id) : undefined;
+	if (!sent || !then) {
+		// Current: the project is the one solved (its staleness key), each pipe the one in its place.
+		const inPlace = link.segments.length === count;
+		return {
+			flow: 1,
+			ends: 1,
+			changed: null,
+			pipes: now.piping.pipes.map((_, i) =>
+				inPlace && link.segments.some((s) => s.index === i)
+					? { connectionId: id, index: i, sign: 1 }
+					: null
+			),
+			samePipes: true,
+			fittings: true
+		};
+	}
+	const at = pipesOf(sent);
+	const found = now.piping.pipes.map((pipe) => at.get(originOf(pipe)) ?? null);
+	const signs = new Map<string, 1 | -1 | null>();
+	const signOf = (connectionId: string): 1 | -1 | null => {
+		if (!signs.has(connectionId)) {
+			const was = connectionById(sent, connectionId);
+			const order = found.flatMap((f, i) =>
+				f?.connectionId === connectionId ? [[i, f.index] as const] : []
+			);
+			signs.set(connectionId, was ? direction(now, was, order) : null);
+		}
+		return signs.get(connectionId) ?? null;
+	};
+	const pipes = found.map((f): PipeReading | null => {
+		const sign = f ? signOf(f.connectionId) : null;
+		return f && sign !== null ? { ...f, sign } : null;
+	});
+	// The connection solved here holds pipes solved in it, and none solved in another connection
+	// (a join): a new connection that took its id and ends holds only new pipes.
+	const own = found.flatMap((f) => (f?.connectionId === id ? [f.index] : []));
+	const solvedHere = own.length > 0 && found.every((f) => !f || f.connectionId === id);
+	const same = bothEnds(now, then);
+	const ends = solvedHere ? same : null;
+	const flow = ends ?? (solvedHere ? signOf(id) : null);
+	const n = then.piping.pipes.length;
+	const samePipes = own.length === count && count === n && new Set(own).size === n;
+	const inPlace =
+		ends !== null &&
+		count === n &&
+		pipes.every(
+			(p, i) =>
+				p?.connectionId === id && p.index === (ends === 1 ? i : n - 1 - i) && p.sign === ends
+		);
+	const solvedFittings = (ends === -1 ? reversePiping(then.piping) : then.piping).fittings;
+	return {
+		flow,
+		ends,
+		changed: ends !== null ? null : same === null ? 'ends' : 'pipes',
+		pipes,
+		samePipes,
+		fittings: inPlace && canonicalJson(now.piping.fittings) === canonicalJson(solvedFittings)
+	};
+}
+
+/** Whether a reading is the connection as solved: every value reads as the results tables show it. */
+export function readsAsSolved(reading: LinkReading): boolean {
+	return reading.ends === 1 && reading.fittings;
+}
+
+/**
+ * Pipe `index` of connection `id` in `structure` as a pipe of the solve (its segment result and
+ * the sign of its values in the connection's current direction), or null (see linkReading). The
+ * project as sent is the store's record for the solve.
+ */
+export function solvedPipe(
+	structure: Project,
+	solved: SolvedState,
+	id: string,
+	index: number
+): { segment: SegmentResult; sign: 1 | -1 } | null {
+	const pipe = linkReading(structure, outOfDateProject(solved), solved, id)?.pipes[index];
+	const segment = pipe
+		? solved.linkResults[pipe.connectionId]?.segments.find((s) => s.index === pipe.index)
+		: undefined;
+	return pipe && segment ? { segment, sign: pipe.sign } : null;
 }
 
 /** "Suction tank → Transfer pump", or the connection id when it no longer exists. */
@@ -454,14 +683,7 @@ export function nodeTable(project: Project, solved: SolvedState, prefs: UnitPref
  */
 export function linkTable(project: Project, solved: SolvedState, prefs: UnitPreferences): Table {
 	const f = new Formatter(prefs);
-	const columns: Column[] = [
-		f.column('flow', 'Flow', 'flow'),
-		f.column('velocity', 'Velocity', 'velocity'),
-		f.column('headLoss', 'Head loss', 'head'),
-		f.column('reynoldsNumber', 'Re'),
-		f.column('frictionFactor', 'f (Darcy)'),
-		text('flowRegime', 'Regime')
-	];
+	const columns = linkColumns(f);
 	const results = solved.linkResults;
 	const resultKeys = Object.keys(results);
 	const known = project.connections.map((c) => c.id).filter((id) => resultKeys.includes(id));
@@ -492,6 +714,18 @@ export function linkTable(project: Project, solved: SolvedState, prefs: UnitPref
 		};
 	});
 	return { columns, rows };
+}
+
+/** The Links table's columns (also the strip's labels for a connection). */
+function linkColumns(f: Formatter): Column[] {
+	return [
+		f.column('flow', 'Flow', 'flow'),
+		f.column('velocity', 'Velocity', 'velocity'),
+		f.column('headLoss', 'Head loss', 'head'),
+		f.column('reynoldsNumber', 'Re'),
+		f.column('frictionFactor', 'f (Darcy)'),
+		text('flowRegime', 'Regime')
+	];
 }
 
 export function regimeLabel(regime: LinkResult['flowRegime']): string {
@@ -1066,7 +1300,15 @@ export interface SummaryItem {
 /** An element's key results from the last solve, shown beside its inputs in Build. */
 export interface ElementSummary {
 	items: SummaryItem[];
+	/** Flags about the element, each about what it names as the element is now. */
 	flags: Flag[];
+	/**
+	 * Flags about the element that name a pipe or fitting it cannot place on the element as it is
+	 * now (after a structural edit since the solve): its trace lists them as solved.
+	 */
+	unlisted: number;
+	/** What reads otherwise after a structural edit since the solve, and what is left out and why. */
+	notes: string[];
 }
 
 /**
@@ -1093,8 +1335,15 @@ export function elementSummary(
 	solved: SolvedState,
 	prefs: UnitPreferences,
 	element: ElementRef,
-	inputs: Project | null = null
+	inputs: Project | null = null,
+	structure: Project = project
 ): ElementSummary | null {
+	if (element.kind === 'connection') {
+		const reading = linkReading(structure, outOfDateProject(solved), solved, element.id);
+		if (reading && !readsAsSolved(reading)) {
+			return connectionSummary(solved, prefs, element.id, reading);
+		}
+	}
 	const found = rowsForElement(project, solved, prefs, element, inputs)[0];
 	const row = found?.rows[0];
 	if (!found || !row) return null;
@@ -1105,7 +1354,94 @@ export function elementSummary(
 			return [];
 		return [{ key, label: column.label, ...(column.unit ? { unit: column.unit } : {}), cell }];
 	});
-	return { items, flags: row.flags };
+	return { items, flags: row.flags, unlisted: 0, notes: [] };
+}
+
+/** Flag codes whose text flag-text.ts numbers from details.segmentIndex (a pipe's own flags). */
+const PIPE_FLAGS: ReadonlySet<Flag['code']> = new Set([
+	'TRANSITIONAL_FLOW',
+	'CORRELATION_OUT_OF_RANGE'
+]);
+
+/** "pipe 2", "pipes 2 and 3", "pipes 1, 2 and 4" (numbered from 1). */
+function pipesText(indexes: readonly number[]): string {
+	const numbers = indexes.map((i) => String(i + 1));
+	if (numbers.length === 1) return `pipe ${numbers[0]}`;
+	return `pipes ${numbers.slice(0, -1).join(', ')} and ${numbers[numbers.length - 1]}`;
+}
+
+/**
+ * A connection's key results read on it as it is now (linkReading), after a structural edit since
+ * the solve: its flow and head loss in its current direction (the solved value with the other sign
+ * after a reversal), each pipe's velocity as that pipe's (numbered as it is now), and its flags with
+ * their pipes numbered as now; what cannot be placed is left out, and the notes say why.
+ */
+function connectionSummary(
+	solved: SolvedState,
+	prefs: UnitPreferences,
+	id: string,
+	reading: LinkReading
+): ElementSummary {
+	const f = new Formatter(prefs);
+	const link = solved.linkResults[id] as LinkResult;
+	const columns = linkColumns(f);
+	const item = (key: string, cell: Cell): SummaryItem[] => {
+		const column = columns.find((c) => c.key === key);
+		if (!column || cellLines(cell).every((line) => line.endsWith('—'))) return [];
+		return [{ key, label: column.label, ...(column.unit ? { unit: column.unit } : {}), cell }];
+	};
+	const velocities = reading.pipes.map((pipe) => {
+		const segment = pipe
+			? solved.linkResults[pipe.connectionId]?.segments.find((s) => s.index === pipe.index)
+			: undefined;
+		return pipe && segment ? f.num(pipe.sign * segment.velocity, 'velocity') : null;
+	});
+	const parts = velocities.flatMap((value, i) =>
+		value === null ? [] : [{ label: pipeLabel(i), value }]
+	);
+	const items = [
+		...(reading.flow === null ? [] : item('flow', f.num(reading.flow * link.flow, 'flow'))),
+		...(velocities.length === 1 && velocities[0] ? item('velocity', velocities[0]) : []),
+		...(velocities.length > 1 && parts.length ? item('velocity', parts) : []),
+		...(reading.ends === null
+			? []
+			: item('headLoss', f.diff(reading.ends * link.headLoss, 'head', HEAD_NOISE)))
+	];
+	const notes: string[] = [];
+	if (reading.ends === -1 || (reading.ends === null && reading.flow === -1)) {
+		notes.push('Reversed since the last solve: the values are given in its new direction.');
+	}
+	if (reading.changed === 'pipes') {
+		notes.push(
+			'Its pipes changed since the last solve: solve again to see its flow and head loss.'
+		);
+	} else if (reading.ends === null) {
+		notes.push(
+			`Its ends changed since the last solve: solve again to see its ${reading.flow === null ? 'flow and head loss' : 'head loss'}.`
+		);
+	}
+	const missing = velocities.flatMap((v, i) => (v === null ? [i] : []));
+	if (missing.length) {
+		const which = velocities.length === 1 ? 'its pipe' : pipesText(missing);
+		notes.push(
+			`No velocity from the last solve for ${which}: solve again to see ${missing.length > 1 ? 'them' : 'it'}.`
+		);
+	}
+	const own = flagsForElement(solved.flags, { kind: 'connection', id });
+	const flags = own.flatMap((flag): Flag[] => {
+		const segment = detailIndex(flag, 'segmentIndex');
+		if (segment !== null) {
+			if (!PIPE_FLAGS.has(flag.code)) return [];
+			const now = reading.pipes.findIndex((p) => p?.connectionId === id && p.index === segment);
+			if (now < 0) return [];
+			return [
+				now === segment ? flag : { ...flag, details: { ...flag.details, segmentIndex: now } }
+			];
+		}
+		if (detailIndex(flag, 'fittingIndex') !== null) return reading.fittings ? [flag] : [];
+		return [flag];
+	});
+	return { items, flags, unlisted: own.length - flags.length, notes };
 }
 
 /** The node with the lowest absolute static pressure (closest to vapor pressure), if any. */

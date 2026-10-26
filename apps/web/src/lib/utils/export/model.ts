@@ -22,6 +22,7 @@ import { aboutSheet, goalSeekSheet, methodsSheet, readmeLines } from './about';
 import { caption, exportContext, warnings, omitted, type ExportContext } from './context';
 import { exportFileName, zipFolderName } from './filename';
 import {
+	compareNotes,
 	compareSheet,
 	elementTables,
 	flagsTable,
@@ -192,7 +193,13 @@ export function buildExport(input: ExportInput): ExportBundle {
 	const shown = ctx.single ? ctx.cases[0] : undefined;
 	return {
 		sheets,
-		omitted: omitted(ctx),
+		omitted: [
+			...omitted(ctx),
+			...compareNotes(ctx).leftOut.map(({ what, reason }) => ({
+				what: `Compare cases: ${what}`,
+				reason
+			}))
+		],
 		warnings: warnings(ctx),
 		fileName: exportFileName({
 			project,

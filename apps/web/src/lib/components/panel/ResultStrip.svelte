@@ -8,7 +8,10 @@
 
 	Nothing is shown before a first solve, or after a solve of the current project that failed (the
 	Results pane has the error). After edits the values stay, marked out of date. A solve that did
-	not converge has no values here, only that statement: its numbers are not a solution.
+	not converge has no values here, only that statement: its numbers are not a solution. After a
+	structural edit of a connection since the solve (a reversal, an insertion, a join, pipes added
+	or removed), each value is the one that refers to the connection as it is now, its direction
+	and its pipes (utils/results.ts linkReading), or is left out, and a note says which and why.
 
 	A labelled group ("Last solve: <element>"), not a region: two per panel would add landmarks.
 -->
@@ -32,10 +35,23 @@
 	/** The latest solve was of the current project and failed: the Results pane says why. */
 	const failedNow = $derived(!!results.error && !results.errorStale);
 	const converged = $derived(!!results.response?.success && !!solved?.converged);
+	// The stored project gives a connection's ends and pipes as they are now (pipes by identity).
 	const summary = $derived(
 		solved && converged
-			? elementSummary(ws.labelsProject, solved, ws.displayUnits, element, ws.store.caseInputs())
+			? elementSummary(
+					ws.labelsProject,
+					solved,
+					ws.displayUnits,
+					element,
+					ws.store.caseInputs(),
+					element.kind === 'connection' ? ws.store.project : ws.labelsProject
+				)
 			: null
+	);
+	const shownFlags = $derived(summary ? summary.flags.slice(0, SHOWN_FLAGS) : []);
+	/** Flags about the element in the trace and not listed here. */
+	const moreFlags = $derived(
+		summary ? summary.flags.length - shownFlags.length + summary.unlisted : 0
 	);
 	const name = $derived(elementName(ws.labelsProject, element));
 
@@ -99,17 +115,22 @@
 					</div>
 				{/each}
 			</dl>
-			{#if summary.flags.length}
+			{#each summary.notes as note (note)}
+				<p class="pb-2 text-slate-700">{note}</p>
+			{/each}
+			{#if shownFlags.length || moreFlags}
 				<ul class="space-y-1 pb-2">
-					{#each summary.flags.slice(0, SHOWN_FLAGS) as flag, i (i)}
+					{#each shownFlags as flag, i (i)}
 						<li class="flex items-start gap-2">
 							<FlagIcon severity={flag.severity} class="mt-0.5 size-4" />
 							<span class="min-w-0 flex-1 break-words">{ws.flagText(flag)}</span>
 						</li>
 					{/each}
-					{#if summary.flags.length > SHOWN_FLAGS}
+					{#if moreFlags}
 						<li class="text-slate-600">
-							{summary.flags.length - SHOWN_FLAGS} more in the trace.
+							{shownFlags.length
+								? `${moreFlags} more in the trace.`
+								: `${moreFlags} ${moreFlags === 1 ? 'flag' : 'flags'} in the trace.`}
 						</li>
 					{/if}
 				</ul>

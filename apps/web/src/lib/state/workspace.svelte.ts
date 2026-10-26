@@ -231,13 +231,17 @@ export class Workspace {
 		this.goalSeekPrefill = null;
 	}
 
-	/** What a goal seek's words need: current names, the project as sent, display units, the case. */
-	goalSeekWords(run: GoalSeekRun): WordsContext {
+	/**
+	 * What a goal seek's words need: current names, the project as sent, display units, the case;
+	 * with `stale` (the result is out of date), connections named as run (WordsContext).
+	 */
+	goalSeekWords(run: GoalSeekRun, stale = false): WordsContext {
 		return {
 			labels: this.labelsProject,
 			sent: run.project,
 			prefs: this.displayUnits,
-			caseWords: this.caseWords(run.caseId)
+			caseWords: this.caseWords(run.caseId),
+			...(stale ? { stale } : {})
 		};
 	}
 

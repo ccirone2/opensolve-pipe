@@ -8,7 +8,9 @@
  * The element a flag is about is shown next to the text (a link, a table row or the trace
  * panel), so the text does not start with it. Every number comes from the flag; only units
  * change. Pipes and fittings are numbered from 1, as in the results tables and the API's
- * messages (the segmentIndex and fittingIndex details are 0-based indexes).
+ * messages (the segmentIndex and fittingIndex details are 0-based indexes). A pipe's flag
+ * (TRANSITIONAL_FLOW, CORRELATION_OUT_OF_RANGE) is numbered from its segmentIndex, so a copy with
+ * the pipe's index as it is now (Build's strip, utils/results.ts) names that pipe.
  */
 import type { Flag, Project, UnitPreferences } from '../api/types';
 import { componentById, connectionById } from './graph';
@@ -154,7 +156,11 @@ export function flagText(flag: Flag, context: FlagTextContext): string {
 		case 'TRANSITIONAL_FLOW': {
 			const segment = number(flag, 'segmentIndex');
 			const re = number(flag, 'reynoldsNumber');
-			if (segment === null || re === null) return fallback();
+			if (segment === null) return fallback();
+			// The pipe is numbered from segmentIndex, never from the message (the strip renumbers it).
+			if (re === null) {
+				return `${pipeLabel(segment)}: ${messageText({ ...flag, message: reason(flag.message) }, context)}`;
+			}
 			return `${pipeLabel(segment)}: Re = ${f.plain(re)} is in the laminar–turbulent transition range: the friction factor is interpolated and the flow may be unsteady.`;
 		}
 		case 'CORRELATION_OUT_OF_RANGE': {

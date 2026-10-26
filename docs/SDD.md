@@ -131,12 +131,12 @@ The **workspace** (`components/workspace/Workspace.svelte`) has a header, a **Bu
 PanelNavigator
 ├── Breadcrumb                    // the path walked; each step goes back to that component
 ├── Jump to → JumpToDialog        // every component, with a filter; marks those not connected to the start
-├── ComponentPanel                // the current component: type, id, name
+├── ComponentPanel                // the current component: type, id, name (edited in place)
 │   ├── ComponentActions          // Add after, Add before, Add branch, Delete
 │   │   ├── AddComponentDialog    // at a free port / into a connection / as a branch (tee or wye)
 │   │   └── DeleteDialog          // optional "Join A and B" (keep the neighbors connected)
 │   ├── Properties tab
-│   │   ├── name, elevation
+│   │   ├── elevation
 │   │   ├── per-type form         // forms/: Reservoir, ReferenceNode, AssignedFlow, Branch (tee, wye),
 │   │   │                         //   Pump (+ PumpCurveEditor), IsolationValve, CheckValve, ControlValve
 │   │   └── PortsEditor           // port sizes and elevations, what each connects to; reservoir ports
@@ -160,7 +160,7 @@ An empty project shows "Start the network": choose and add the first component (
 - **Next.** With one way forward, Next goes there. A way forward is a connection of the current component other than the one it was reached by. With several ways (a tee, a multi-port reservoir), or when a way leads back to a component already on the breadcrumb (a loop), the **PathChooser** asks which to take. A loop is offered as a jump back, which cuts the breadcrumb back to that component instead of extending it. With no way forward but a free port, Next opens that port in the Piping tab so it can be connected.
 - **Previous** steps back along the breadcrumb, and each breadcrumb step goes back to that component.
 - **Jump to** opens any component. If it is on the breadcrumb, the walk goes back to it; otherwise the breadcrumb is rebuilt as the shortest path (fewest connections) from the start. A component not connected to the start begins a new walk.
-- **From the results.** Clicking an element in the results (a table row, a flag, an input problem, a topology issue) starts the walk there. For a connection, the walk starts at its `from` component with the connection's piping open.
+- **From the results.** Clicking an element in the results (a table row, a flag, an input problem, a topology issue) moves the walk to it as Jump to does, so Previous and Next keep naming its neighbours. For a connection, the walk moves to its `from` component with the connection's piping open.
 - **After edits.** After an edit, undo or redo the breadcrumb is cut back to the part that still exists in the project. It comes back if an undo restores it.
 - **Edits move the walk.** Each edit action is one undo step, and the walk moves to the change: an added component becomes the current one, and a branch shows its free branch port.
 

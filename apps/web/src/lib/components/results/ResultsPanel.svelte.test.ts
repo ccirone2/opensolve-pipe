@@ -491,7 +491,14 @@ describe('results pane', () => {
 		await fireEvent.click(results().getByRole('button', { name: 'Solve now' }));
 		expect(solveFn).toHaveBeenCalledTimes(1);
 		expect(await results().findByRole('heading', { name: 'Converged' })).toBeInTheDocument();
-		expect(results().getByRole('region', { name: 'About this project' })).toBeInTheDocument();
+		// With results to show, the description is one line, a click away.
+		const region = results().getByRole('region', { name: 'About this project' });
+		const toggle = within(region).getByRole('button', { name: 'About this project' });
+		expect(toggle).toHaveAttribute('aria-expanded', 'false');
+		expect(region.querySelector('p')).not.toBeVisible();
+		await fireEvent.click(toggle);
+		expect(toggle).toHaveAttribute('aria-expanded', 'true');
+		expect(region.querySelector('p')).toBeVisible();
 	});
 
 	it('a project never solved and without a description: the plain prompt to solve', () => {

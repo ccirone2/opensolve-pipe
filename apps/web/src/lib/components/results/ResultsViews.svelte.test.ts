@@ -120,7 +120,11 @@ describe('flags summary', () => {
 		const dialog = await screen.findByRole('dialog', { name: 'Transfer pump' });
 		expect(within(dialog).getByText(/The pump would cavitate/)).toBeInTheDocument();
 		expect(ws.nav.current?.id).toBe('P1');
-		expect(ws.nav.path).toEqual([{ componentId: 'P1' }]);
+		// Along the walk from its start, so Previous and Next name the pump's neighbours.
+		expect(ws.nav.path).toEqual([
+			{ componentId: 'R1' },
+			{ componentId: 'P1', viaConnectionId: 'L1' }
+		]);
 		expect(ws.pane).toBe('results');
 		await fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
 		expect(screen.queryByRole('dialog')).toBeNull();

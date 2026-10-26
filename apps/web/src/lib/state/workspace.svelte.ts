@@ -131,6 +131,8 @@ export class Workspace {
 	managerOpen = $state(false);
 	/** Project settings are open (from the header, or a fluid change's Show). */
 	settingsOpen = $state(false);
+	/** The settings section the dialog opens on (the header's fluid chip: 'fluid'), or null. */
+	settingsSection = $state<'fluid' | null>(null);
 	/** The scenario whose card the manager opens on (null: the active one). */
 	managerFocus = $state<string | null>(null);
 	/**
@@ -203,6 +205,7 @@ export class Workspace {
 		this.managerOpen = false;
 		this.managerFocus = null;
 		this.settingsOpen = false;
+		this.settingsSection = null;
 		this.announcement = '';
 		this.goalSeekOpen = false;
 		this.goalSeekPrefill = null;
@@ -823,18 +826,19 @@ export class Workspace {
 	}
 
 	/**
-	 * Clicking an element in the results starts the navigator's walk at it (design §5): at a
-	 * component, or for a connection at its 'from' component with that connection's piping open.
-	 * Elements no longer in the project leave the navigator as it is.
+	 * Clicking an element in the results moves the navigator to it as Jump to does (SDD §3.1.1):
+	 * back along the walk if it is on it, else along the shortest path from the walk's start, so
+	 * Previous and Next keep naming its neighbours; for a connection, to its 'from' component with
+	 * that connection's piping open. Elements no longer in the project leave the navigator as it is.
 	 */
 	#point(element: ElementRef): void {
 		if (element.kind === 'component') {
-			if (componentById(this.project, element.id)) this.nav.restart(element.id);
+			if (componentById(this.project, element.id)) this.nav.jumpTo(element.id);
 			return;
 		}
 		const connection = this.project.connections.find((c) => c.id === element.id);
 		if (!connection) return;
-		this.nav.restart(connection.fromComponentId);
+		this.nav.jumpTo(connection.fromComponentId);
 		this.nav.showConnection(connection.fromPortId);
 	}
 

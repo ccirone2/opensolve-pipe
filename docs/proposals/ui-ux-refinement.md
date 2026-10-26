@@ -1,6 +1,6 @@
 # Web UI/UX refinement: opportunities
 
-**Status: proposal, nothing decided** (2026-10-25, against `7babcc6`). Web app only: no API, model or solver change is needed for anything here except where an item says so. Every item is a reversible web default under D14 unless it is marked **owner** (it touches a decision or a GOALS value).
+**Status: Tier 1 (items 1–5, and editing an element's name in place) built** (2026-10-25 and 2026-10-26; §5 records where the build departs from this text); the other items are proposals, nothing decided. Written against `7babcc6`. Web app only: no API, model or solver change is needed for anything here except where an item says so. Every item is a reversible web default under D14 unless it is marked **owner** (it touches a decision or a GOALS value).
 
 **Aim.** Keep the interface clean and calm for a first-time user, and let a working engineer go from "build" to "trust and sign off" with fewer trips between panes. The method throughout is progressive disclosure: show the answer and the next action, keep the depth (traces, methods, tables) one step away, never removed.
 
@@ -34,6 +34,7 @@
 | F10 | The pump chart draws head against flow only, though `PumpCurve` carries `efficiencyCurve` and `npshrCurve`. | `PumpChart.svelte` |
 | F11 | The only keyboard shortcuts are undo and redo. | `Workspace.svelte:56` |
 | F12 | Closing the tab without keeping the link loses the project unless it is found again in browser history. | (no persistence by design, D3) |
+| F13 | The current element's name shows three times: the breadcrumb, the heading, and a Name field in Properties. (Found by the owner, 2026-10-26.) | `ComponentPanel.svelte` |
 
 ---
 
@@ -47,6 +48,8 @@ Ordered by value for cost. "Cheap" means one component and its tests.
 2. **Show analysis tools when they can act (F3).** Goal seek appears once there is a successful solve; Scenarios stays reachable (it is useful before a solve) but on an empty project sits in an overflow menu. Nothing is removed, it just arrives when it is useful.
 3. **A fluid chip in the header (F4).** "Water · 20 °C" next to the project name opens the Fluid section directly; Settings keeps site, units and an "Advanced: solver" disclosure for friction method, iterations and tolerance.
 4. **Keep direction after a jump (F5).** When Build moves to an element from a trace, Jump to or a flag, seed the path with the last solve's flow direction (else the ports' suction/inlet → discharge/outlet roles), so Previous and Next name neighbours as they would after walking there.
+**Added to Tier 1 by the owner (2026-10-26): edit an element's name in place (F13)**, as the project name is edited, instead of in a Name field in Properties.
+
 5. **Keyboard for the frequent actions (F11).** Ctrl/⌘+Enter solves, Esc cancels a running solve, Alt+←/→ walk Previous/Next, "?" lists the shortcuts. Invisible to someone who never uses them.
 
 ### Tier 2: close the build → result loop
@@ -72,3 +75,16 @@ Ordered by value for cost. "Cheap" means one component and its tests.
 Tier 1 (items 1–5) as one small change with e2e updates on desktop and phone; then item 6, which carries the most value; then 8 and 9 together (they share the extremes); then 7, 10–13 as separate slices; 14 and 15 only after an owner decision.
 
 Each slice is done when its Vitest and Playwright flows pass at both sizes, axe stays clean, and nothing a trace or the methods summary shows is removed or hidden by default where it was visible before without a disclosure that names it.
+
+---
+
+## 5. Tier 1 as built
+
+Measured as in F1, the first table row now starts 48 % down a 1280×800 viewport (was 63 %) and 53–54 % down a 390×844 one (was 73–74 %); an e2e flow holds it under 55 % at both sizes. axe-core stays clean. Departures from §3:
+
+- **Item 1.** The description is open while there are no results (a shared link's context) and one line with a toggle once there are; the convergence card is one quiet line when converged and the red card otherwise. The view pills are one sideways-scrolling row below 1024 px only: at 1024 px and above the pane is too narrow for seven pills in one row, and a mouse user cannot easily scroll a row sideways, so they still wrap there (item 10 is the fix).
+- **Item 2.** Goal seek and Scenarios appear once the network has a component (Scenarios also while the project has scenarios), not after a first solve: the goal-seek design opens its dialog without a solve (goal-seek.md §6.2).
+- **Item 3.** The fluid chip is shown from 1024 px only. Below that, at 390, 640 and 768 px, even a temperature-only chip took the project name's room or truncated to nothing; there the fluid stays in Settings and first in the Summary. Settings already kept the convergence options in an "advanced" disclosure, so nothing else moved.
+- **Item 4.** A click in the results moves the walk with `jumpTo` (back along the walk, else the shortest path from its start), the rule Jump to already followed, instead of seeding it with the solved flow direction; SDD §3.1.1 and TSD §8 are updated.
+- **Item 5.** Only Ctrl/⌘+Enter (solve) is added. Alt+←/→ is the browser's Back and Forward, and a shortcut list for one shortcut is not worth a dialog: the Solve button names it in its tooltip and `aria-keyshortcuts`.
+- **Editing the name in place (F13).** The name is a borderless field in the panel's header, styled as the heading was, and stored on Enter or leaving the field, as the project name is; Properties has no Name field. The heading stays for structure and focus, visually hidden (as the workspace's h1 is), and when focus moves to it (after a delete, a case switch or Show in Build) the header shows the focus ring, so a keyboard user sees where focus is. The breadcrumb is unchanged: it also shows a walk of one step (hiding it there was built, then reverted at the owner's word, 2026-10-26).

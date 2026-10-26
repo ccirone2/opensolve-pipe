@@ -2,9 +2,11 @@
 	Project settings: description, fluid, site (elevation and atmospheric pressure), display
 	units and solver options. Unit preferences change only what is shown; stored values are SI.
 	In a scenario, the fluid is a scenario value; the description and units are shared by every
-	case; the site and solver settings are the same in every case (locked).
+	case; the site and solver settings are the same in every case (locked). Opened from the
+	header's fluid chip, it shows the Fluid section with the focus on its first field.
 -->
 <script lang="ts">
+	import { tick } from 'svelte';
 	import type { SolverOptions, UnitPreferences } from '$lib/api/types';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
@@ -49,6 +51,17 @@
 				? 'imperial'
 				: 'mixed'
 	);
+
+	// Opened on a section (the fluid chip): after the dialog has placed the focus, move it there.
+	$effect(() => {
+		if (ws.settingsSection !== 'fluid') return;
+		ws.settingsSection = null;
+		void tick().then(() => {
+			const section = document.getElementById('settings-fluid')?.closest('section');
+			section?.scrollIntoView?.({ block: 'start' });
+			section?.querySelector<HTMLElement>('select, input, textarea, button')?.focus();
+		});
+	});
 
 	function setUnits(units: UnitPreferences, label = 'change units') {
 		ws.edit((p) => {

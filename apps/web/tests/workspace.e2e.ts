@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { FluidPropertiesResponse } from '../src/lib/api/types';
 import { EXAMPLES } from '../src/lib/utils/examples';
-import { sig4 } from './support';
+import { showPane, sig4 } from './support';
 
 /** Open the pump transfer example from the home page. */
 async function openExample(page: Page) {
@@ -124,4 +124,52 @@ test('Escape in an edited number field of a dialog reverts the field, not the di
 	// A second Escape (nothing left to revert) closes the dialog.
 	await elevation.press('Escape');
 	await expect(dialog).toBeHidden();
+});
+
+test('Ctrl+Enter solves, and the results start in the upper part of the pane', async ({ page }) => {
+	await openExample(page);
+	await showPane(page, 'Results');
+	// The description is the pane's context until there are results.
+	const about = page
+		.getByRole('region', { name: 'Results', exact: true })
+		.getByRole('button', { name: 'About this project' });
+	await expect(about).toHaveAttribute('aria-expanded', 'true');
+	await page.keyboard.press('Control+Enter');
+	const results = page.getByRole('region', { name: 'Results', exact: true });
+	await expect(results.getByRole('heading', { name: 'Converged' })).toBeVisible();
+	await expect(about).toHaveAttribute('aria-expanded', 'false');
+	await results.getByRole('tab', { name: 'Links', exact: true }).click();
+	// One line of description, one line of status and one row of views above the table: its
+	// first row starts within the upper 55 % of the screen (63 % on desktop and 73 % on a phone
+	// before, docs/proposals/ui-ux-refinement.md F1).
+	const row = await results.locator('tbody tr:visible').first().boundingBox();
+	const height = page.viewportSize()?.height ?? 0;
+	expect(row?.y ?? height).toBeLessThan(0.55 * height);
+	expect(
+		await page.evaluate(
+			() => document.documentElement.scrollWidth - document.documentElement.clientWidth
+		)
+	).toBe(0);
+});
+
+test('an empty project offers no Scenarios or Goal seek until it has a component', async ({
+	page
+}) => {
+	await page.goto('/');
+	await page.getByRole('link', { name: 'New project' }).click();
+	await expect(page.getByRole('heading', { name: 'Start the network' })).toBeVisible();
+	await expect(page.getByRole('button', { name: /^Scenarios/ })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: /^Goal seek/ })).toHaveCount(0);
+	await page.getByRole('button', { name: 'Add', exact: true }).click();
+	await expect(page.getByRole('button', { name: /^Scenarios/ })).toBeVisible();
+});
+
+test('from 1024 px the header names the fluid, and opens its settings', async ({
+	page
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'desktop', 'wide-screen check');
+	await openExample(page);
+	await page.getByRole('button', { name: 'Fluid: Water · 20 °C' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Project settings' });
+	await expect(dialog.getByRole('combobox', { name: 'Fluid' })).toBeFocused();
 });

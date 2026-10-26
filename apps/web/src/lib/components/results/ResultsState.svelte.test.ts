@@ -482,9 +482,10 @@ describe('notes and tables', () => {
 						pattern: 'diverging from branch',
 						combinedPortId: 'branch',
 						portFlows: { run_inlet: -0.017, run_outlet: -0.018, branch: 0.035 },
-						kFactors: { run_inlet: 1.088, run_outlet: 1.088 },
-						pathHeadLosses: { run_inlet: 0.719, run_outlet: 0.76 },
-						referenceVelocity: 4.233,
+						// The API's numbers for tee_crane_bullhead_fallback: K on the combined-flow velocity.
+						kFactors: { run_inlet: 0.787149, run_outlet: 0.831654 },
+						pathHeadLosses: { run_inlet: 0.71917, run_outlet: 0.759832 },
+						referenceVelocity: 4.233140837294456,
 						correlation: 'Made-up Darby text',
 						inCorrelationRange: false
 					}
@@ -502,8 +503,11 @@ describe('notes and tables', () => {
 		);
 		await fireEvent.click(results().getByRole('tab', { name: 'Branches' }));
 		const panel = results().getByRole('tabpanel', { name: 'Branches' });
-		expect(panel).toHaveTextContent(/each run path's K is on that leg's own velocity/);
-		expect(panel).not.toHaveTextContent(/every K is on the combined-flow velocity/);
+		expect(panel).toHaveTextContent(/Every K is on the combined-flow velocity/);
+		expect(panel).toHaveTextContent(
+			/Darby 3-K fallback .* its K are on the combined-flow velocity too/
+		);
+		expect(panel).not.toHaveTextContent(/own velocity/);
 		expect(
 			within(panel).getByRole('columnheader', { name: 'Velocity K is on m/s' })
 		).toBeInTheDocument();

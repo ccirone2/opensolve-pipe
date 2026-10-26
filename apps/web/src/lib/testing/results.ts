@@ -102,9 +102,35 @@ export function pumpResult(values: Partial<PumpResult> = {}): PumpResult {
 	};
 }
 
+type SystemCurvePoint = SystemCurveResponse['points'][number];
+
+/**
+ * A system-curve point as the API sends it (POST /api/v1/system-curve): `values` over a point
+ * without a head and with no reason data, which a point with a head has too (null and empty).
+ */
+export function systemCurvePoint(
+	values: Partial<SystemCurvePoint> & { flow: number }
+): SystemCurvePoint {
+	return {
+		head: null,
+		converged: false,
+		message: '',
+		reason: null,
+		componentIds: [],
+		assignedFlowNodeIds: [],
+		limitFlow: null,
+		passedFlow: null,
+		openHead: null,
+		openHeadBound: null,
+		startsTried: [],
+		...values
+	};
+}
+
 /**
  * A made-up system curve of pump `pumpId` (POST /api/v1/system-curve): 0–0.03 m³/s, through
- * the operating point of pumpResult(). `missing` lists the indexes of points without a head.
+ * the operating point of pumpResult(). `missing` lists the indexes of points without a head
+ * (their message is made up, with no reason code: the browser shows the message).
  */
 export function systemCurveResponse(
 	pumpId = 'P1',
@@ -117,8 +143,8 @@ export function systemCurveResponse(
 		{ flow: 0.03, head: 34.5 }
 	].map((p, i) =>
 		missing.includes(i)
-			? { flow: p.flow, head: null, converged: false, message: 'made-up reason: not converged' }
-			: { ...p, converged: true, message: '' }
+			? systemCurvePoint({ flow: p.flow, message: 'made-up reason: not converged' })
+			: systemCurvePoint({ ...p, converged: true })
 	);
 	return {
 		pumpId,

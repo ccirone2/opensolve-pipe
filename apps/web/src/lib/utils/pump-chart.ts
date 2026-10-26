@@ -6,7 +6,9 @@
  * Every point comes from the API: the pump curve and operating point from the PumpResult, the
  * system curve from POST /api/v1/system-curve for the same solve (D10: fetched on demand). A
  * system-curve point the API could not solve has no head; it is a gap in the line and a row
- * that says why in the table, never a value made up here. The flow range of the curve's data at speed s is
+ * that says why in the table, never a value made up here: from the point's reason, told with
+ * element names and in display units when the names are given (utils/system-curve-text.ts), with
+ * the API's sentence kept as the row's detail. The flow range of the curve's data at speed s is
  * s × [Q_min, Q_max] of the head-curve points the user entered (the affinity law the solver
  * applies; API PumpResult.curve spans exactly that range). When the curve definition is not
  * available, the span of the sampled curve is used instead.
@@ -24,7 +26,21 @@ import type {
 	UnitPreferences
 } from '../api/types';
 import { componentById } from './graph';
+import { systemPointNote, type SystemCurveTextContext } from './system-curve-text';
 import { displayUnit, formatNumber, fromSI, unitLabel } from './units';
+
+/** A system-curve row: flow and head formatted, and why a point without a head has none. */
+export interface SystemRow {
+	flow: string;
+	head: string;
+	/** Why the point has no head ('' when it has one). */
+	note: string;
+	/** The API's sentence, when `note` is told in the browser. */
+	detail?: string;
+}
+
+/** The projects a system-curve point's reason is told with (names; kinds as solved). */
+export type SystemCurveNames = Omit<SystemCurveTextContext, 'units'>;
 
 export interface ChartPoint {
 	/** Flow, display unit. */
@@ -58,8 +74,8 @@ export interface PumpChartData {
 	inCurveRange: boolean;
 	/** Data table rows (formatted): pump curve points, with an extrapolated mark. */
 	curveRows: { flow: string; head: string; extrapolated: boolean }[];
-	/** Data table rows of the system curve: '—' and the API's reason for a point with no head. */
-	systemRows: { flow: string; head: string; note: string }[];
+	/** Data table rows of the system curve: '—' and the reason for a point with no head. */
+	systemRows: SystemRow[];
 }
 
 /** Flow range (m³/s) of a pump's head-curve points at rated speed, from the project. */
@@ -78,12 +94,15 @@ const RANGE_TOLERANCE = 1e-9;
  * Chart data for one pump. `ratedRange` is the curve's flow range at rated speed (m³/s), from
  * ratedCurveRange(); without it, the sampled curve's own span is taken as the data range.
  * `systemCurve` is the pump's system curve for the same solve, when it has been computed.
+ * `names` tells a point's reason with element names and display units; without them, a point
+ * without a head keeps the API's sentence.
  */
 export function pumpChartData(
 	result: PumpResult,
 	prefs: UnitPreferences,
 	ratedRange: [number, number] | null = null,
-	systemCurve: SystemCurveResponse | null = null
+	systemCurve: SystemCurveResponse | null = null,
+	names: SystemCurveNames | null = null
 ): PumpChartData {
 	const flowUnit = displayUnit('flow', prefs);
 	const headUnit = displayUnit('head', prefs);
@@ -166,11 +185,21 @@ export function pumpChartData(
 			system && systemCurve
 				? [fromSI(systemCurve.flowRange.min, flowUnit), fromSI(systemCurve.flowRange.max, flowUnit)]
 				: null,
-		systemRows: (system ?? []).map((c, i) => ({
-			flow: fmt(c.x),
-			head: c.y === null ? '—' : fmt(c.y),
-			note: c.y === null ? (systemPoints?.[i]?.message ?? '') : ''
-		}))
+		systemRows: (system ?? []).map((c, i) => {
+			const p = systemPoints?.[i];
+			const why =
+				c.y === null && p
+					? names
+						? systemPointNote(p, { ...names, units: prefs })
+						: { text: p.message }
+					: { text: '' };
+			return {
+				flow: fmt(c.x),
+				head: c.y === null ? '—' : fmt(c.y),
+				note: why.text,
+				...(why.detail ? { detail: why.detail } : {})
+			};
+		})
 	};
 }
 
@@ -220,7 +249,7 @@ export interface OtherCaseData {
 	system: { x: number; y: number | null }[] | null;
 	/** Table row: flow, head, speed and state, formatted. */
 	row: { flow: string; head: string; speed: string; state: string };
-	systemRows: { flow: string; head: string; note: string }[];
+	systemRows: SystemRow[];
 }
 
 const STATE_WORDS: Readonly<Record<string, string>> = {
@@ -232,19 +261,21 @@ const STATE_WORDS: Readonly<Record<string, string>> = {
 /**
  * Chart data of the other cases with a result for this pump, each with its marker (in order),
  * from their own PumpResult and system curve. `speed` is the pump's speed in the case shown: a
- * case whose pump runs at another speed also gets its pump curve.
+ * case whose pump runs at another speed also gets its pump curve. `names` as for pumpChartData
+ * (names and kinds are the same in every case: scenarios change values, never topology).
  */
 export function otherCasesData(
 	others: readonly OtherCaseInput[],
 	prefs: UnitPreferences,
 	ratedRange: [number, number] | null,
-	speed: number
+	speed: number,
+	names: SystemCurveNames | null = null
 ): OtherCaseData[] {
 	const fmt = (v: number) => formatNumber(v, 4);
 	const same = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
 	const running = (o: OtherCaseInput) => o.result.status === 'running';
 	return others.map((other, i) => {
-		const data = pumpChartData(other.result, prefs, ratedRange, other.system);
+		const data = pumpChartData(other.result, prefs, ratedRange, other.system, names);
 		const atSpeed = others.filter((o) => running(o) && same(o.result.speed, other.result.speed));
 		const first = atSpeed[0] === other;
 		const drawn = running(other) && !same(other.result.speed, speed) && first;

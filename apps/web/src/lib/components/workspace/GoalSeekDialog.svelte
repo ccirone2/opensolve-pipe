@@ -79,7 +79,10 @@
 	const cardIssues = $derived.by((): Record<string, string> => {
 		const error = finished?.status === 'failed' ? finished.error : null;
 		if (!finished || error?.kind !== 'validation') return {};
-		return rowIssues(finished.run.request, error.details, error.message);
+		return rowIssues(finished.run.request, error.details, error.message, {
+			project: ws.labelsProject,
+			units: ws.units
+		});
 	});
 
 	let runButton: HTMLButtonElement | undefined = $state();

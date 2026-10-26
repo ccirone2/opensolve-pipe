@@ -1,7 +1,6 @@
 <!--
 	Panel navigator (SDD §3.1.1, TSD §8.1): walks the port graph one component at a time.
-	Breadcrumb of the path taken (once it has more than the current component), the current
-	component's panels, Previous / Next, the path
+	Breadcrumb of the path taken, the current component's panels, Previous / Next, the path
 	chooser at branches and loops, and a jump-to list of every component.
 -->
 <script lang="ts">
@@ -77,8 +76,7 @@
 <div class="flex h-full min-h-0 flex-col">
 	{#if current}
 		<div class="flex items-center gap-1 border-b border-slate-200 pr-1 pl-2">
-			<!-- At the start of a walk the path is only the current component, named just below. -->
-			{#if ws.nav.path.length > 1}<Breadcrumb />{:else}<span class="flex-1"></span>{/if}
+			<Breadcrumb />
 			<button
 				type="button"
 				class="btn btn-quiet shrink-0"

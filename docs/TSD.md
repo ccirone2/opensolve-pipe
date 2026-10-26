@@ -992,7 +992,7 @@ The other helpers:
 
 **UI** (`components/panel/`):
 
-- **`PanelNavigator.svelte`** has a breadcrumb row with a **Jump to** button (the breadcrumb itself once the walk has a second step: before that its only step would repeat the name just below), the current component's `ComponentPanel`, and a bottom bar.
+- **`PanelNavigator.svelte`** has a breadcrumb row with a **Jump to** button, the current component's `ComponentPanel`, and a bottom bar.
   - **Previous** shows the previous component's name.
   - **Next** shows what it will do: the next component's name, "choose" (several ways or a loop), "connect *port*" (no way forward but a free port, which Next opens in the Piping tab) or "end of path" (disabled).
   - An empty project shows "Start the network" with a choice of first component (`Workspace.addStandalone`).

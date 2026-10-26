@@ -54,12 +54,11 @@ describe('PanelNavigator', () => {
 		expect(breadcrumb()).toHaveLength(3);
 	});
 
-	it('edits the name in place, and names it once at the start of a walk', async () => {
+	it('edits the name in place, in the header and not in Properties', async () => {
 		const ws = testWorkspace(pumpTransferExample());
 		render(WorkspaceView, { workspace: ws });
 		const build = within(screen.getByRole('region', { name: 'Build' }));
-		// No breadcrumb of one step, and one Name field: the heading's, not one in Properties.
-		expect(screen.queryByRole('navigation', { name: 'Path' })).toBeNull();
+		// One Name field: the heading's, not one in Properties.
 		const names = build.getAllByRole('textbox', { name: 'Name' });
 		expect(names).toHaveLength(1);
 		expect(within(build.getByRole('tabpanel')).queryByRole('textbox', { name: 'Name' })).toBeNull();

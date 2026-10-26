@@ -119,7 +119,7 @@ gcloud builds submit https://github.com/ccirone2/opensolve-pipe --git-source-rev
 gcloud run deploy opensolve-pipe-api --image "$IMAGE" \
   --service-account=opensolve-pipe-api@PROJECT_ID.iam.gserviceaccount.com --allow-unauthenticated \
   --cpu=1 --memory=1Gi --concurrency=20 --timeout=60 --min-instances=0 --max-instances=1 \
-  --set-env-vars=CORS_ORIGINS=https://PAGES_PROJECT.pages.dev
+  --set-env-vars='CORS_ORIGINS=https://PAGES_PROJECT.pages.dev,CORS_ORIGIN_REGEX=https://[a-z0-9-]+[.]PAGES_PROJECT[.]pages[.]dev'
 
 # Keep Cloud Run's own request log, which records client addresses and query strings, out of storage
 gcloud logging sinks update _Default \
@@ -144,7 +144,7 @@ Then, in the console under Billing → Budgets & alerts, create a spend cap budg
   - `PNPM_VERSION` = `10.28.0`.
 - Under Settings → Build:
   - set *Build watch paths* to include `apps/web/*`;
-  - set *Branch control → Preview branches* to *None*.
+  - set *Branch control → Preview branches* to *Custom branches*, including `web/*`. Web-only changes are made on `web/*` branches, and each gets a preview at `https://<branch>.PAGES_PROJECT.pages.dev` (TSD §11.1). The API lets the previews call it through `CORS_ORIGIN_REGEX` (step 1); on an API deployed before that variable existed, deploy the current `main` and run `gcloud run services update opensolve-pipe-api --update-env-vars='CORS_ORIGIN_REGEX=https://[a-z0-9-]+[.]PAGES_PROJECT[.]pages[.]dev'`.
 - Leave Web Analytics (under Metrics) **off**: the app has no analytics, cookies or third-party requests (GOALS §4.5).
 - If the project's `*.pages.dev` address differs from `https://PAGES_PROJECT.pages.dev`, or when you add a custom domain, list every origin in `CORS_ORIGINS`: `gcloud run services update opensolve-pipe-api --update-env-vars='^;^CORS_ORIGINS=https://a.pages.dev,https://example.org'`.
 - On a custom domain whose zone is on Cloudflare, keep the zone's Web Analytics, Bot Fight Mode and Email Address Obfuscation off (TSD §11.1).

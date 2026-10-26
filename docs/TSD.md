@@ -1071,7 +1071,7 @@ pnpm install
 pnpm dev
 ```
 
-- **API URL.** The web app calls the API at `PUBLIC_API_URL` (read from `$env/dynamic/public`), default `http://localhost:8000`. The API allows the origins in `CORS_ORIGINS`, default `http://localhost:5173`.
+- **API URL.** The web app calls the API at `PUBLIC_API_URL` (read from `$env/dynamic/public`), default `http://localhost:8000`. The API allows the origins in `CORS_ORIGINS`, default `http://localhost:5173`, and those `CORS_ORIGIN_REGEX` matches (default none; §11.3).
 - **API docs.** The API always serves its schema at `/openapi.json`. FastAPI's interactive pages (`/docs`, `/redoc`) load their scripts, styles, fonts and icon from third parties (jsDelivr, Google Fonts, fastapi.tiangolo.com), so they are served only when `API_DOCS=1` (development; CLAUDE.md D10, GOALS §4.5).
 - **API types.** After changing the API's Pydantic models, run `pnpm gen:types` in `apps/web`. It regenerates `src/lib/api/openapi.json` (via `uv run python -m opensolve_pipe.openapi`) and `src/lib/api/schema.d.ts`; never edit either by hand. CI fails if they are not current.
 - **Static build.** `pnpm build` writes the prerendered site to `apps/web/build/` (`index.html`, `p.html`, `_app/`), and `pnpm preview` serves it. A static build fixes `PUBLIC_API_URL` when it is built (`_app/env.js`).
@@ -1356,7 +1356,7 @@ Project settings (Git integration: Workers & Pages → Create → Pages → conn
 | Variable `NODE_VERSION` | `22.22.0` | The Node the repository's checks run on. The v3 build image defaults to 22.16.0, ignores `engines`, and may move minor versions without notice ([build image][cf-image]) |
 | Variable `PNPM_VERSION` | `10.28.0` | `packageManager` in `package.json`. The v3 image defaults to pnpm 10.11.1 and reads neither the lockfile's version nor `engines` ([build image][cf-image]) |
 | Build watch paths | include `apps/web/*` | Skips builds for commits that touch only the API or the docs ([watch paths][cf-watch]). The generated `src/lib/api/openapi.json` lives under `apps/web` |
-| Preview branch control | None | Previews are public `*.pages.dev` URLs ([previews][cf-preview]). The API's CORS doesn't allow their origins, so they couldn't solve, and each build counts against the monthly limit ([branch control][cf-branch]) |
+| Preview branch control | Custom branches, include `web/*` (owner, 2026-10-25) | A hosted look at web-only changes before they merge (CLAUDE.md *Tooling*). Previews are public `*.pages.dev` URLs ([previews][cf-preview]): `<commit hash>.<project>.pages.dev` and `<branch alias>.<project>.pages.dev`, the alias the branch name lowercased with every other character a hyphen. The API allows their origins through `CORS_ORIGIN_REGEX` (§11.3). Only `web/*` builds, since each build counts against the monthly limit ([branch control][cf-branch]) |
 
 **Response headers.** `apps/web/static/_headers` is copied into the build. Pages applies it and does not serve it ([headers][cf-headers]):
 - `Referrer-Policy: no-referrer` on every response, matching what `app.html` and the API client already set. Pages' default is `strict-origin-when-cross-origin` ([serving][cf-serving]).
@@ -1471,6 +1471,7 @@ Checked with `wrangler pages dev` 4.149.0 on a build made with `PUBLIC_API_URL` 
 | Ingress, authentication | all; unauthenticated allowed | A public API for the web app |
 | Service account | a dedicated one with no roles | The API calls no Google API |
 | `CORS_ORIGINS` | the site's origins | §11.3 |
+| `CORS_ORIGIN_REGEX` | the site's Pages previews | §11.3 |
 
 **Measured** on one 2.8 GHz Xeon core here; Cloud Run's vCPU may be slower.
 - **Memory:** peak RSS was 302 MB for one solve of the largest network the schema allows (999 components, 1,494 connections, Crane tees) and 456 MB with the pool full (6 such solves, 2 running).
@@ -1529,11 +1530,12 @@ PNPM_VERSION=10.28.0
 
 # Backend: Cloud Run service (Cloud Run sets PORT)
 CORS_ORIGINS=https://<pages-project>.pages.dev   # comma-separated; add a custom domain's origin when there is one
+CORS_ORIGIN_REGEX=https://[a-z0-9-]+[.]<pages-project>[.]pages[.]dev   # optional: the Pages previews (§11.1)
 # FORWARDED_ALLOW_IPS is set in the image (§11.2); override it only after the §11.4 check
 # API_DOCS=1 would serve /docs and /redoc, which load third-party assets: development only (§9.2)
 ```
 
-The API reads no other variable (the old `ENVIRONMENT=production` was never read). With gcloud, a value that contains commas needs another delimiter: `--update-env-vars='^;^CORS_ORIGINS=https://a.pages.dev,https://example.org'` (`gcloud topic escaping`).
+`CORS_ORIGIN_REGEX` allows, besides `CORS_ORIGINS`, every origin it matches whole (Starlette's `fullmatch`; `main.cors_settings`): the previews' hostnames change with each branch and commit, so no list can name them. `[a-z0-9-]+` is one DNS label, so `a.b.<project>.pages.dev`, another project and any longer host (`….pages.dev.example`) are refused (`tests/unit/test_health.py`); `[.]` is a literal dot that needs no escaping in a shell or gcloud. Only the owner's Pages project deploys under `<project>.pages.dev`, and a preview runs this repository's code, so it sends what the site sends; previews are still public, so they take the API's rate limits like any client. Unset or blank, no regex applies; one that does not compile stops the server at start-up. The API reads no other variable (the old `ENVIRONMENT=production` was never read). With gcloud, a value that contains commas needs another delimiter: `--update-env-vars='^;^CORS_ORIGINS=https://a.pages.dev,https://example.org'` (`gcloud topic escaping`).
 
 ### 11.4 Checks After Each Deployment
 

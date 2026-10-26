@@ -1025,6 +1025,59 @@ export function rowsForElement(
 		.filter((t) => t.rows.length > 0);
 }
 
+/** One value of an element's summary: a results-table cell with that column's label and unit. */
+export interface SummaryItem {
+	key: string;
+	label: string;
+	unit?: string;
+	cell: Cell;
+}
+
+/** An element's key results from the last solve, shown beside its inputs in Build. */
+export interface ElementSummary {
+	items: SummaryItem[];
+	flags: Flag[];
+}
+
+/**
+ * The columns an element's summary shows, by the results table its row is in (the first that has
+ * it, in rowsForElement's order): what a designer checks first for that kind of element.
+ */
+const SUMMARY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+	'Pipe connection': ['flow', 'velocity', 'headLoss'],
+	Pump: ['status', 'flow', 'head', 'npshMargin'],
+	Valve: ['state', 'flow', 'pressureDrop'],
+	Branch: ['portFlows'],
+	Boundary: ['outflow'],
+	'Assigned flow': ['pressure'],
+	Ports: ['pressure']
+};
+
+/**
+ * An element's key results, from the same rows and formatting as the results tables, so the
+ * values match them exactly; values the solve has none of ("—") are left out. Null when the
+ * element has no results in this solve (added after it, or no longer in the project).
+ */
+export function elementSummary(
+	project: Project,
+	solved: SolvedState,
+	prefs: UnitPreferences,
+	element: ElementRef,
+	inputs: Project | null = null
+): ElementSummary | null {
+	const found = rowsForElement(project, solved, prefs, element, inputs)[0];
+	const row = found?.rows[0];
+	if (!found || !row) return null;
+	const items = (SUMMARY_COLUMNS[found.title] ?? []).flatMap((key): SummaryItem[] => {
+		const column = found.table.columns.find((c) => c.key === key);
+		const cell = row.cells[key];
+		if (!column || cell === undefined || cellLines(cell).every((line) => line.endsWith('—')))
+			return [];
+		return [{ key, label: column.label, ...(column.unit ? { unit: column.unit } : {}), cell }];
+	});
+	return { items, flags: row.flags };
+}
+
 /** The node with the lowest absolute static pressure (closest to vapor pressure), if any. */
 export function lowestPressureNode(solved: SolvedState): NodeResult | null {
 	let lowest: NodeResult | null = null;

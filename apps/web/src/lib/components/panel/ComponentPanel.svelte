@@ -1,6 +1,6 @@
 <!--
-	The current component (SDD §3.1.1): its type and its name, edited in place, the component
-	actions, and two views — Properties (the per-type form and the ports) and Piping (the
+	The current component (SDD §3.1.1): its type and its name, edited in place, its key results
+	from the last solve (ResultStrip), the component actions, and two views — Properties (the per-type form and the ports) and Piping (the
 	connection at a chosen port).
 -->
 <script lang="ts" module>
@@ -39,6 +39,7 @@
 	import ReferenceNodeForm from './forms/ReferenceNodeForm.svelte';
 	import ReservoirForm from './forms/ReservoirForm.svelte';
 	import PortsEditor from './PortsEditor.svelte';
+	import ResultStrip from './ResultStrip.svelte';
 	import ScenarioBanner from './ScenarioBanner.svelte';
 
 	let { component }: { component: Component } = $props();
@@ -97,6 +98,8 @@
 			/>
 		{/key}
 	</header>
+
+	<ResultStrip element={{ kind: 'component', id: component.id }} />
 
 	{#if ws.inScenario}
 		<ScenarioBanner />

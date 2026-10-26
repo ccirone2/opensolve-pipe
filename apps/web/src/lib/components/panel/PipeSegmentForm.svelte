@@ -4,6 +4,10 @@
 	pipe (inner diameter and roughness entered by the user), and its length. In a scenario the
 	material, schedule, size and the bore and roughness (or a custom pipe's) are one change, noted
 	under the pipe's heading, and the length is another.
+
+	Its velocity at the last solve of the case shown is the size's hint (a custom pipe's inner
+	diameter's), where it is needed when sizing, marked out of date after edits; it is left out
+	while the connection's pipes are not the ones solved (one added or removed since).
 -->
 <script lang="ts">
 	import type { PipeConnection, PipeDefinition } from '$lib/api/types';
@@ -24,6 +28,7 @@
 	} from '$lib/utils/piping';
 	import { schemaBounds } from '$lib/utils/schema-bounds';
 	import { formatValue } from '$lib/utils/units';
+	import { Formatter } from '$lib/utils/results';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import NominalSizeField from './NominalSizeField.svelte';
 
@@ -45,6 +50,19 @@
 	/** What the solver uses: overrides, else the size entry (roughness is per size). */
 	const resolved = $derived(resolvedPipe(pipe, size));
 	const count = $derived(connection.piping.pipes.length);
+	/** "Velocity at the last solve: 3.981 m/s", or nothing (no converged solve with this pipe). */
+	const velocityHint = $derived.by(() => {
+		const results = ws.store.results;
+		const solved = results.response?.solvedState;
+		if (!solved || !results.response?.success || !solved.converged) return undefined;
+		if (results.error && !results.errorStale) return undefined;
+		const link = solved.linkResults[connection.id];
+		if (!link || link.segments.length !== count) return undefined;
+		const segment = link.segments.find((s) => s.index === index);
+		if (!segment) return undefined;
+		const value = new Formatter(ws.displayUnits).value(segment.velocity, 'velocity');
+		return `Velocity at the last solve: ${value}${results.stale ? ' (out of date)' : ''}.`;
+	});
 	/** The pipe's size and material, and its length: scenario values (one change each). */
 	const spec = $derived(ws.pipeChange(connection.id, index, 'spec'));
 	const lengthChange = $derived(ws.pipeChange(connection.id, index, 'length'));
@@ -158,6 +176,7 @@
 				value={pipe.nominalSize}
 				sizes={schedule?.sizes ?? []}
 				units={ws.units}
+				hint={velocityHint}
 				change={spec}
 				describedby={specNote}
 				onchange={(nominalSize) => edit('change pipe size', (p) => ({ ...p, nominalSize }))}
@@ -182,6 +201,7 @@
 				units={ws.units}
 				optional
 				bounds={schemaBounds('PipeDefinition', 'innerDiameter')}
+				hint={velocityHint}
 				change={spec}
 				changeNote={false}
 				describedby={specNote}

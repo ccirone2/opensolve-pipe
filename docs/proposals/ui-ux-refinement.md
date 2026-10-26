@@ -1,6 +1,6 @@
 # Web UI/UX refinement: opportunities
 
-**Status: Tier 1 (items 1–5, and editing an element's name in place) built** (2026-10-25 and 2026-10-26; §5 records where the build departs from this text); the other items are proposals, nothing decided. Written against `7babcc6`. Web app only: no API, model or solver change is needed for anything here except where an item says so. Every item is a reversible web default under D14 unless it is marked **owner** (it touches a decision or a GOALS value).
+**Status: Tier 1 (items 1–5, and editing an element's name in place) and item 6 built** (2026-10-25 and 2026-10-26; §5 records where the build departs from this text); the other items are proposals, nothing decided. Written against `7babcc6`. Web app only: no API, model or solver change is needed for anything here except where an item says so. Every item is a reversible web default under D14 unless it is marked **owner** (it touches a decision or a GOALS value).
 
 **Aim.** Keep the interface clean and calm for a first-time user, and let a working engineer go from "build" to "trust and sign off" with fewer trips between panes. The method throughout is progressive disclosure: show the answer and the next action, keep the depth (traces, methods, tables) one step away, never removed.
 
@@ -88,3 +88,17 @@ Measured as in F1, the first table row now starts 48 % down a 1280×800 viewport
 - **Item 4.** A click in the results moves the walk with `jumpTo` (back along the walk, else the shortest path from its start), the rule Jump to already followed, instead of seeding it with the solved flow direction; SDD §3.1.1 and TSD §8 are updated.
 - **Item 5.** Only Ctrl/⌘+Enter (solve) is added. Alt+←/→ is the browser's Back and Forward, and a shortcut list for one shortcut is not worth a dialog: the Solve button names it in its tooltip and `aria-keyshortcuts`.
 - **Editing the name in place (F13).** The name is a borderless field in the panel's header, styled as the heading was, and stored on Enter or leaving the field, as the project name is; Properties has no Name field. The heading stays for structure and focus, visually hidden (as the workspace's h1 is), and when focus moves to it (after a delete, a case switch or Show in Build) the header shows the focus ring, so a keyboard user sees where focus is. The breadcrumb is unchanged: it also shows a walk of one step (hiding it there was built, then reverted at the owner's word, 2026-10-26).
+
+## 6. Item 6 (results in context) as built
+
+Each component panel shows its key results from the last solve of the case shown under its name, and the Piping view shows the connection's under its description (`ResultStrip.svelte`). The values are the results tables' own cells (`elementSummary` in `utils/results.ts`), so they match the tables to the digit, with the tables' units and notes: a connection's flow, velocity and head loss; a pump's status, flow, head and NPSH margin; a valve's state, flow and pressure drop; a tee's or wye's port flows; a boundary's outflow; otherwise the port pressure. Values the solve has none of (an NPSH margin without a vapor pressure) are left out. The element's flags follow, two at most, with how many more are in the trace. **Trace** opens the full results and trace without moving the navigator: on wide screens over the Results pane, on phones from it (the trace is a sheet the Results pane shows). Each pipe's velocity is its size's hint, where a size is chosen.
+
+States, in order of precedence (correctness first, GOALS §3):
+- no solve yet, or the latest solve of the current project failed (the Results pane has the error): nothing;
+- a solve that did not converge: no values, only that it did not converge, since its numbers are not a solution;
+- an element the solve did not have (added since): "Not in the last solve";
+- after edits: the values stay, dimmed and marked "Out of date: solve again", as the Results pane marks them;
+- a pipe's velocity is left out while the connection's pipes are not the ones solved (one added or removed since), so it never shows against the wrong pipe.
+
+Departures from §3 item 6: none in what it shows. The strip is a labelled group, "Last solve: *element*", not a region: as two regions per panel they added landmarks, which an axe scan flagged (two with one name) and which the e2e trace helper matched by name. Proof: `elementSummary` unit tests (each value is the table's cell), `ResultStrip.svelte.test.ts` (every state above, flags, Trace, the pipe velocity), the `results-in-context` e2e flow on desktop and phone against the real API (strip = table before and after an edit and a solve), and a clean axe scan of Build with both strips shown.
+

@@ -2,7 +2,8 @@
 
 Comparisons use the D6 criteria (``checks.compare``); "the checks" are the independent checks of
 ``checks.py``: mass at every component, energy on every connection, each pump and valve law in
-its state, the status rules, and the feasibility of every section reported without heads.
+its state, the status rules, the feasibility of every section reported without heads, and that
+every pump and valve reported without a result has none by the rule (``checks.self_check``).
 
 - ``pass``: flows, head losses, EGLs and element states agree.
 - ``documented``: they agree once EPANET is pinned where our documented departures apply (an

@@ -4,19 +4,26 @@ vfd-pump-modes.md §4.5 at its tolerance edges, the closed-form implied speed, t
 generator profile, the EPANET substitutes, the control search's split of distinct valid states
 into multiple states and alternatives at rest, the networks without a steady state that
 assigned flows make (``checks.assigned_flow_expectations``), the 'assigned_flow' generator
-profile and its EPANET demands, and ``compare --ignore`` and ``--ignore-null``. Fast; no EPANET
-run (the WNTR model build is skipped where WNTR is not installed).
+profile and its EPANET demands, ``compare --ignore`` and ``--ignore-null``, and the check of
+pumps and valves without a result (``checks.missing_result_problems``: a result deleted from a
+solve where flow runs, in a floating section or from a dead-headed pump is reported, and the
+results the rule leaves out are not). Fast; no EPANET run (the WNTR model build is skipped where
+WNTR is not installed).
 """
 
 import json
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
 pytest.importorskip("wntr")  # checks reads EPANET results (a dev dependency, so CI runs this)
 
 from opensolve_pipe.models.components import AssignedFlow, Component, Plug, Pump, PumpControl
+from opensolve_pipe.models.piping import PipeConnection
 from opensolve_pipe.models.project import Project
+from opensolve_pipe.models.results import SolvedState
+from opensolve_pipe.services.solver import solve_project
 from opensolve_pipe.services.solver.builder import validate_topology
 from tests.differential import checks as ck
 from tests.differential import compare
@@ -24,6 +31,7 @@ from tests.differential import epanet_model as em
 from tests.differential import state_search as ss
 from tests.differential.fuzz import plug_twin
 from tests.differential.generator import ASSIGNED_FLOW, DEFAULT, FLOW_CONTROL, generate
+from tests.differential.missing_result_check import without
 from tests.reference import element_laws as el
 from tests.reference import network_check as nc
 from tests.reference.case_format import (
@@ -36,6 +44,7 @@ from tests.reference.case_format import (
     ideal_tee,
     isolation_valve,
     make_project,
+    plug,
     pump,
     pump_curve,
     reservoir,
@@ -505,3 +514,177 @@ def test_compare_ignore_null(tmp_path: Path) -> None:
     write(b, "p", {"x": [1, 2]})
     _, diff = compare.compare_dirs(a, b, ignore_null=["x.*"])
     assert diff == 1
+
+
+# --------------------------------------------------------------------------- missing results
+# A pump or valve without a result is skipped by every other check (state 'isolated'), so
+# ``checks.missing_result_problems`` holds it to the rule for when one has none (SDD §4.10, TSD
+# §5.4). Small networks of random test inputs, solved in the fuzz networks' friction mode
+# ('swamee_jain', whose f formula the energy check uses), then their results edited: a result
+# deleted (``missing_result_check.without``) must be reported, and the results the rule leaves
+# out must not be.
+
+LINE = [custom_pipe(0.05, 100.0, 1.0e-5)]
+
+
+def solved(
+    components: list[Component], connections: list[PipeConnection]
+) -> tuple[Project, SolvedState]:
+    project = make_project(
+        "t",
+        "t",
+        WATER,
+        components,
+        connections,
+        friction_method="swamee_jain",
+        pump_library=[CURVE],
+    )
+    result = solve_project(project)
+    assert result.converged, result.convergence.message
+    return project, result
+
+
+def isolated(project: Project, result: SolvedState) -> set[str]:
+    """The pumps and valves without a result (``checks.our_states``: 'isolated')."""
+    return {k for k, v in ck.our_states(project, result).items() if v == "isolated"}
+
+
+def flowing_network() -> tuple[Project, SolvedState]:
+    """R1 → P1 → T1 → V1 → R2 and T1 → R3 carry flow; R1 → IV1 (isolated) → P2 → V2 → PL1 is
+    closed off, and so is P3 (off) → PL2, a dead end behind a pump that is off."""
+    components: list[Component] = [
+        reservoir("R1", 0.0, 5.0, ports=("port_1", "port_2", "port_3")),
+        reservoir("R2", 0.0, 10.0),
+        reservoir("R3", 0.0, 12.0),
+        pump("P1", 0.0, "PC"),
+        ideal_tee("T1", 0.0),
+        isolation_valve("V1", 0.0, "gate"),
+        isolation_valve("IV1", 0.0, "gate", status="isolated"),
+        pump("P2", 0.0, "PC"),
+        isolation_valve("V2", 0.0, "gate"),
+        plug("PL1", 0.0),
+        pump("P3", 0.0, "PC", status="off"),
+        plug("PL2", 0.0),
+    ]
+    connections = [
+        connect("C1", "R1:port_1", "P1:suction", LINE),
+        connect("C2", "P1:discharge", "T1:run_inlet", LINE),
+        connect("C3", "T1:run_outlet", "V1:inlet", LINE),
+        connect("C4", "V1:outlet", "R2:port_1", LINE),
+        connect("C5", "T1:branch", "R3:port_1", LINE),
+        connect("C6", "R1:port_2", "IV1:inlet", LINE),
+        connect("C7", "IV1:outlet", "P2:suction", LINE),
+        connect("C8", "P2:discharge", "V2:inlet", LINE),
+        connect("C9", "V2:outlet", "PL1:port_1", LINE),
+        connect("C10", "R1:port_3", "P3:suction", LINE),
+        connect("C11", "P3:discharge", "PL2:port_1", LINE),
+    ]
+    return solved(components, connections)
+
+
+def test_dropped_results_where_flow_runs_are_reported() -> None:
+    project, result = flowing_network()
+    # the results the rule leaves out: closed off (P2, V2), at a closed-off section (IV1), and a
+    # pump that is off beside one (P3)
+    assert isolated(project, result) == {"IV1", "P2", "V2", "P3"}
+    assert ck.self_check(project, result) == []
+    pumped, passed = result.link_results["C1"].flow, result.link_results["C3"].flow
+    assert result.pump_results["P1"].operating_flow == pumped > 0.0
+    assert result.valve_results["V1"].flow == passed > 0.0
+    p1 = f"no result for P1: it carries {pumped:.6g} m³/s; both its ports have heads"
+    v1 = f"no result for V1: it carries {passed:.6g} m³/s; both its ports have heads"
+    assert ck.self_check(project, without(result, "P1")) == [p1]
+    assert ck.self_check(project, without(result, "V1")) == [v1]
+    assert ck.self_check(project, without(result, "P1", "V1")) == [p1, v1]
+
+
+def test_missing_results_need_the_flag_that_says_why() -> None:
+    project, result = flowing_network()
+    unflagged = result.model_copy(
+        update={"flags": [f for f in result.flags if f.code != "ISOLATED_SECTION"]}
+    )
+    problems = ck.self_check(project, unflagged)
+    assert [p.split(":")[0] for p in problems] == [
+        f"no result for {i}" for i in ("IV1", "P2", "V2", "P3")
+    ]
+    assert all("no ISOLATED_SECTION flag names it" in p for p in problems)
+
+
+def pump_loop(stub: Literal["active", "isolated"]) -> tuple[Project, SolvedState]:
+    """R0 → IV1 (isolated) → T1, and the loop T1 → PU1 → T2 → V9 → T1 that PU1 drives with no
+    fixed head (a floating section, UNDETERMINED_PRESSURE); the stub T2 → V8 → PL1 carries no
+    flow, joined to the loop by V8 open (``stub`` 'active') or closed off by it ('isolated')."""
+    components: list[Component] = [
+        reservoir("R0", 0.0, 10.0),
+        isolation_valve("IV1", 0.0, "gate", status="isolated"),
+        ideal_tee("T1", 0.0),
+        pump("PU1", 0.0, "PC"),
+        ideal_tee("T2", 0.0),
+        isolation_valve("V8", 0.0, "gate", status=stub),
+        plug("PL1", 0.0),
+        isolation_valve("V9", 0.0, "gate"),
+    ]
+    connections = [
+        connect("L1", "R0:port_1", "IV1:inlet", LINE),
+        connect("L2", "IV1:outlet", "T1:run_inlet", LINE),
+        connect("L3", "T1:run_outlet", "PU1:suction", LINE),
+        connect("L4", "PU1:discharge", "T2:run_inlet", LINE),
+        connect("L5", "T2:run_outlet", "V8:inlet", LINE),
+        connect("L6", "V8:outlet", "PL1:port_1", LINE),
+        connect("L7", "T2:branch", "V9:inlet", LINE),
+        connect("L8", "V9:outlet", "T1:branch", LINE),
+    ]
+    return solved(components, connections)
+
+
+@pytest.mark.parametrize("stub", ["active", "isolated"])
+def test_dropped_results_in_a_floating_section_are_reported(
+    stub: Literal["active", "isolated"],
+) -> None:
+    project, result = pump_loop(stub)
+    assert set(result.node_results) == {"R0:port_1", "IV1:inlet"}  # the loop has no heads
+    # IV1 is between the loop and a head; V8 closed sits between it and a closed-off stub
+    assert isolated(project, result) == ({"IV1"} if stub == "active" else {"IV1", "V8"})
+    assert ck.self_check(project, result) == []
+    q = result.link_results["L3"].flow
+    assert q > 0.0
+    for cid in ("PU1", "V9"):
+        assert ck.self_check(project, without(result, cid)) == [
+            f"no result for {cid}: it carries {q:.6g} m³/s; both its ports are in one floating"
+            " section"
+        ]
+
+
+def test_a_dropped_result_at_rest_in_a_floating_section_is_reported() -> None:
+    """V8 open carries no flow, but its stub is part of the floating section: its result
+    (relative heads) is reported. Without it, the stub looks closed off, which the flags deny."""
+    project, result = pump_loop("active")
+    assert result.valve_results["V8"].flow == 0.0
+    assert ck.self_check(project, without(result, "V8")) == [
+        "no result for V8: V8:outlet is in a section without flow, and no ISOLATED_SECTION flag"
+        " names it"
+    ]
+
+
+def test_a_dropped_dead_headed_pump_is_reported() -> None:
+    """R1 → PU → CV → RH with RH above PU's shutoff head: PU is held at no flow and CV closed,
+    the section between them closed off; PU is reported dead-headed (TSD §5.4), CV not."""
+    project, result = solved(
+        [
+            reservoir("R1", 0.0, 5.0),
+            reservoir("RH", 0.0, A + 20.0),
+            pump("PU", 0.0, "PC"),
+            check_valve("CV", 0.0, "check"),
+        ],
+        [
+            connect("C1", "R1:port_1", "PU:suction", LINE),
+            connect("C2", "PU:discharge", "CV:inlet", LINE),
+            connect("C3", "CV:outlet", "RH:port_1", LINE),
+        ],
+    )
+    assert result.pump_results["PU"].status == "no_flow"
+    assert isolated(project, result) == {"CV"}
+    assert ck.self_check(project, result) == []
+    assert ck.self_check(project, without(result, "PU")) == [
+        "no result for PU: it is on with PU:discharge closed off and its other side at a head"
+    ]

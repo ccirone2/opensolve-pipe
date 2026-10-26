@@ -3,7 +3,8 @@
 Pin every status element of a network to each combination of states (the first ``LIMIT``, as
 ``fuzz`` searches), solve with our solver, and keep the solutions that pass the independent
 self-check (laws, status rules of the ORIGINAL project, zero-flow and headless-section
-feasibility, determined heads, and the assigned-flow nodes' results and expectations).
+feasibility, determined heads, the assigned-flow nodes' results and expectations, and the pumps
+and valves without a result, against the pinned project's statuses).
 ``fuzz`` runs it on a network our solver did not converge on and counts the fully determined
 ones (every port headed); so does the CLI.
 
@@ -118,6 +119,7 @@ def search(
         probs = ck.law_problems(project, f, h, st) + ck.status_problems(project, f, h, st)
         zf = ck.zero_flow_and_floating(project, f, h, st, r)
         zf += ck.undetermined_heads(project, h, st) + ck.assigned_flow_problems(project, r, f)
+        zf += ck.missing_result_problems(pp, r, f, h, s)  # the pinned project's own statuses
         if not probs and not zf:
             valid.append((want, f, h))
     return elems, valid

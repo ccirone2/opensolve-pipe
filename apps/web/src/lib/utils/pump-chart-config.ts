@@ -7,7 +7,7 @@
  * the bundler keeps the page's modules where they are.
  */
 import type { Chart as ChartInstance, ChartConfiguration, LegendItem, Plugin } from 'chart.js';
-import type { ChartPoint, OtherCaseData, PumpChartData } from './pump-chart';
+import type { ChartPoint, OtherCaseData, PanelKey, PumpChartData } from './pump-chart';
 
 /**
  * The chart's palette: categorical slots 1 and 2 of the dataviz reference palette (validated
@@ -49,7 +49,19 @@ export interface PumpChartConfigOptions {
 	 * or tooltip, at 2× pixels, with larger fonts.
 	 */
 	forImage?: boolean;
+	/** The panels shown, top to bottom (the head panel always; default: the head only). */
+	panels?: readonly PanelKey[];
+	/** The flow the readout reads (display unit), drawn as a vertical line; null: none. */
+	cursor?: () => number | null;
 }
+
+/** Each panel's y-axis id and share of the height (proposal pump-chart.md §4.1). */
+const PANEL_AXES: Readonly<Record<PanelKey, { id: string; weight: number }>> = {
+	head: { id: 'y', weight: 3 },
+	efficiency: { id: 'yEfficiency', weight: 1 },
+	power: { id: 'yPower', weight: 1 },
+	npsh: { id: 'yNpsh', weight: 1.3 }
+};
 
 /** Legend markers: curves as a line (dashed where dashed), points as their marker. */
 function legendStyle(dataset: { label?: string; showLine?: boolean; pointStyle?: unknown }) {
@@ -71,6 +83,53 @@ function joinSegments(segments: ChartPoint[][]): ChartDatum[] {
 }
 
 /**
+ * The panels below the head (proposal pump-chart.md §4.2), for those shown: efficiency and shaft
+ * power in the pump's colour (they are the pump's curves), NPSHr in the pump's colour and NPSHa
+ * in the system's (it is the system's), each duty value in the operating point's ink; a duty
+ * held at the efficiency curve's end value is hollow.
+ */
+function lowerDatasets(d: PumpChartData, shown: (key: PanelKey) => boolean) {
+	const { pump: PUMP, system: SYSTEM, ink: INK } = CHART_COLORS;
+	const line = (label: string, data: ChartDatum[], yAxisID: string, color: string) => ({
+		label,
+		data,
+		yAxisID,
+		borderColor: color,
+		backgroundColor: color,
+		borderWidth: 2,
+		pointRadius: 0,
+		pointHitRadius: 6,
+		spanGaps: false
+	});
+	const dot = (label: string, point: ChartPoint, yAxisID: string, hollow = false) => ({
+		label,
+		data: [point],
+		yAxisID,
+		borderColor: hollow ? INK : '#ffffff',
+		backgroundColor: hollow ? '#ffffff' : INK,
+		borderWidth: 2,
+		pointRadius: 5,
+		pointHoverRadius: 7,
+		pointHitRadius: 10,
+		showLine: false,
+		duty: true
+	});
+	const e = shown('efficiency') ? d.efficiency : null;
+	const p = shown('power') ? d.power : null;
+	const n = shown('npsh') ? d.npsh : null;
+	return [
+		...(e ? [line('Efficiency', e.curve, 'yEfficiency', PUMP)] : []),
+		...(e?.duty ? [dot('Efficiency at the duty', e.duty, 'yEfficiency', e.held)] : []),
+		...(p ? [line('Shaft power', p.curve, 'yPower', PUMP)] : []),
+		...(p?.duty ? [dot('Shaft power at the duty', p.duty, 'yPower')] : []),
+		...(n?.required ? [{ ...line('NPSHr', n.required, 'yNpsh', PUMP), borderDash: [8, 3] }] : []),
+		...(n?.available ? [line('NPSHa', n.available, 'yNpsh', SYSTEM)] : []),
+		...(n?.requiredAt ? [dot('NPSHr at the duty', n.requiredAt, 'yNpsh', true)] : []),
+		...(n?.availableAt ? [dot('NPSHa at the duty', n.availableAt, 'yNpsh')] : [])
+	];
+}
+
+/**
  * The chart of one pump: its curve at the operating speed (dashed where extrapolated), the
  * system curve, the operating point or the zero-flow point, and the other cases (slate, with
  * their markers and direct labels), from the data of pumpChartData() and otherCasesData().
@@ -78,8 +137,16 @@ function joinSegments(segments: ChartPoint[][]): ChartDatum[] {
 export function pumpChartConfig(
 	d: PumpChartData,
 	cases: readonly OtherCaseData[],
-	{ speedText, legendLabels, format, forImage = false }: PumpChartConfigOptions
+	{
+		speedText,
+		legendLabels,
+		format,
+		forImage = false,
+		panels = ['head'],
+		cursor
+	}: PumpChartConfigOptions
 ): PumpChartConfig {
+	const shown = (key: PanelKey) => panels.includes(key);
 	const {
 		pump: PUMP,
 		system: SYSTEM,
@@ -93,6 +160,7 @@ export function pumpChartConfig(
 	const datasets = [
 		{
 			label: `Pump curve at ${speedText}`,
+			yAxisID: 'y',
 			data: d.curve,
 			borderColor: PUMP,
 			backgroundColor: PUMP,
@@ -104,6 +172,7 @@ export function pumpChartConfig(
 			? [
 					{
 						label: 'Pump curve, extrapolated (dashed)',
+						yAxisID: 'y',
 						data: joinSegments(d.extrapolated),
 						borderColor: PUMP,
 						backgroundColor: PUMP,
@@ -119,6 +188,7 @@ export function pumpChartConfig(
 			? [
 					{
 						label: 'System curve',
+						yAxisID: 'y',
 						data: d.system,
 						borderColor: SYSTEM,
 						backgroundColor: SYSTEM,
@@ -134,6 +204,7 @@ export function pumpChartConfig(
 			? [
 					{
 						label: 'Operating point',
+						yAxisID: 'y',
 						data: [d.operating],
 						borderColor: '#ffffff',
 						backgroundColor: INK,
@@ -149,6 +220,7 @@ export function pumpChartConfig(
 			? [
 					{
 						label: HELD_LABEL,
+						yAxisID: 'y',
 						data: [d.held],
 						borderColor: INK,
 						backgroundColor: '#ffffff',
@@ -161,11 +233,13 @@ export function pumpChartConfig(
 					}
 				]
 			: []),
+		...lowerDatasets(d, shown),
 		...cases.flatMap((c) => [
 			...(c.curve
 				? [
 						{
 							label: c.curveLabel,
+							yAxisID: 'y',
 							data: c.curve,
 							borderColor: SLATE,
 							backgroundColor: SLATE,
@@ -179,6 +253,7 @@ export function pumpChartConfig(
 				? [
 						{
 							label: `System curve, ${c.label}`,
+							yAxisID: 'y',
 							data: c.system,
 							borderColor: SLATE,
 							backgroundColor: SLATE,
@@ -194,6 +269,7 @@ export function pumpChartConfig(
 				? [
 						{
 							label: c.label,
+							yAxisID: 'y',
 							caseLabel: c.label,
 							data: [(c.operating ?? c.held) as ChartPoint],
 							borderColor: SLATE,
@@ -228,9 +304,59 @@ export function pumpChartConfig(
 			ctx.restore();
 		}
 	};
+	// A vertical line at the duty through every panel, and the readout's flow (dashed).
+	const lines: Plugin<'line'> = {
+		id: 'flowLines',
+		afterDatasetsDraw(chart) {
+			const { ctx, chartArea, scales } = chart;
+			const scale = scales.x;
+			if (!scale) return;
+			const draw = (flow: number, color: string, dash: number[]) => {
+				const px = scale.getPixelForValue(flow);
+				if (px < chartArea.left || px > chartArea.right) return;
+				ctx.save();
+				ctx.strokeStyle = color;
+				ctx.lineWidth = 1;
+				ctx.setLineDash(dash);
+				ctx.beginPath();
+				ctx.moveTo(px, chartArea.top);
+				ctx.lineTo(px, chartArea.bottom);
+				ctx.stroke();
+				ctx.restore();
+			};
+			if (d.operating && panels.length > 1) draw(d.operating.x, INK, [2, 3]);
+			const at = cursor?.();
+			if (at !== null && at !== undefined) draw(at, SLATE, [4, 3]);
+		}
+	};
+	const yScale = (key: PanelKey, title: string) => ({
+		type: 'linear' as const,
+		beginAtZero: true,
+		title: { display: true, text: title, color: TEXT, ...font(15) },
+		grid: { color: GRID },
+		ticks: { color: TEXT, ...(key === 'head' ? {} : { maxTicksLimit: 4 }), ...font(14) },
+		...(panels.length > 1
+			? { stack: 'panels', stackWeight: PANEL_AXES[key].weight, offset: true }
+			: {})
+	});
+	// Chart.js stacks axes in the order given from the bottom up: the head panel goes last.
+	const lowerScales = [...panels]
+		.filter((key) => key !== 'head')
+		.reverse()
+		.map((key) => [
+			PANEL_AXES[key].id,
+			yScale(
+				key,
+				key === 'efficiency'
+					? 'η (%)'
+					: key === 'power'
+						? `P (${d.powerUnit})`
+						: `NPSH (${d.headUnit})`
+			)
+		]);
 	return {
 		type: 'line',
-		plugins: [caseLabels],
+		plugins: [caseLabels, lines],
 		data: { datasets },
 		options: {
 			animation: false,
@@ -247,13 +373,8 @@ export function pumpChartConfig(
 					grid: { color: GRID },
 					ticks: { color: TEXT, ...font(14) }
 				},
-				y: {
-					type: 'linear',
-					beginAtZero: true,
-					title: { display: true, text: `Head (${d.headUnit})`, color: TEXT, ...font(15) },
-					grid: { color: GRID },
-					ticks: { color: TEXT, ...font(14) }
-				}
+				...Object.fromEntries(lowerScales),
+				y: yScale('head', `Head (${d.headUnit})`)
 			},
 			plugins: {
 				legend: {
@@ -262,6 +383,10 @@ export function pumpChartConfig(
 						color: CHART_COLORS.legend,
 						usePointStyle: true,
 						boxHeight: 12,
+						// The panels' duty dots repeat the operating point's entry.
+						filter: (item, chartData) =>
+							!(chartData.datasets[item.datasetIndex ?? -1] as { duty?: boolean } | undefined)
+								?.duty,
 						...font(14),
 						// Curves as a line (dashed where dashed), the operating point as a dot.
 						generateLabels: (c) =>

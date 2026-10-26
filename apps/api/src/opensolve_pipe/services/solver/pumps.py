@@ -100,6 +100,11 @@ class CurveValue:
     """True if the flow at rated speed lies outside this curve's points."""
 
 
+def _flows(x_min: float, x_max: float, speed: float, count: int) -> list[float]:
+    """``count`` evenly spaced flows from x_min × s to x_max × s, m³/s."""
+    return [float(q) for q in np.linspace(x_min * speed, x_max * speed, count)]
+
+
 class PumpCurveModel:
     """A pump library curve, evaluated at any speed with the affinity laws."""
 
@@ -170,6 +175,44 @@ class PumpCurveModel:
         q_min, q_max = self.flow_range
         flows = np.linspace(q_min * speed, q_max * speed, count)
         return [(float(q), self.head(float(q), speed)[0]) for q in flows]
+
+    def sample_efficiency(
+        self, speed: float, count: int = CURVE_SAMPLES
+    ) -> list[tuple[float, float]] | None:
+        """(Q, η) at ``count`` flows spanning the efficiency curve's points × s, at speed ratio
+        s (``efficiency``: inside the data, so nothing is held); None without that curve."""
+        if self.efficiency_curve is None:
+            return None
+        flows = _flows(self.efficiency_curve.x_min, self.efficiency_curve.x_max, speed, count)
+        return [(q, self.efficiency_curve.clipped(q / speed)) for q in flows]
+
+    def sample_npsh_required(
+        self, speed: float, count: int = CURVE_SAMPLES
+    ) -> list[tuple[float, float]] | None:
+        """(Q, NPSHr) at ``count`` flows spanning the NPSHr curve's points × s, at speed ratio s
+        (``npsh_required``); None without that curve."""
+        if self.npshr_curve is None:
+            return None
+        flows = _flows(self.npshr_curve.x_min, self.npshr_curve.x_max, speed, count)
+        values = [self.npsh_required(q, speed) for q in flows]
+        return [(q, v.value) for q, v in zip(flows, values, strict=True) if v is not None]
+
+    def sample_shaft_power(
+        self, speed: float, density: float, g: float, count: int = CURVE_SAMPLES
+    ) -> list[tuple[float, float]] | None:
+        """(Q, ρgQ·H(Q)/η(Q)) at ``count`` flows where both the head and the efficiency
+        curves' points reach (× s), at speed ratio s: the shaft power the results give at a
+        duty there. None without an efficiency curve or where the ranges do not overlap."""
+        if self.efficiency_curve is None:
+            return None
+        low = max(self.head_curve.x_min, self.efficiency_curve.x_min)
+        high = min(self.head_curve.x_max, self.efficiency_curve.x_max)
+        if not low < high:
+            return None
+        return [
+            (q, density * g * q * self.head(q, speed)[0] / self.efficiency_curve.clipped(q / speed))
+            for q in _flows(low, high, speed, count)
+        ]
 
 
 # --------------------------------------------------------------------------- speed control

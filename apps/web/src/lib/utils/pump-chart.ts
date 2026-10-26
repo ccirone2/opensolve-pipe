@@ -17,6 +17,12 @@
  * straight line in Q at a fixed speed (H = s²·H₀(Q/s) with H₀ linear), so the dashed segment from
  * the curve's end to an operating point outside the range is exactly that extrapolation; it joins
  * two values the API reported and adds none.
+ *
+ * The panels below the head (proposal pump-chart.md §4.2) are the API's too: the efficiency,
+ * shaft-power and NPSHr curves sampled at the running speed over their own data
+ * (PumpResult.efficiencyCurve, powerCurve, npshrCurve), NPSHa at each system-curve point
+ * (SystemCurvePoint.npshAvailable) and the duty's values. Only the readout between samples and
+ * the flow where NPSHa falls below NPSHr are read from the drawn lines, and they say so.
  */
 import type {
 	CurvePoint,
@@ -34,6 +40,8 @@ import { displayUnit, formatNumber, fromSI, unitLabel } from './units';
 export interface SystemRow {
 	flow: string;
 	head: string;
+	/** NPSHa at the pump's suction at this flow ('—' without one). */
+	npsha: string;
 	/** Why the point has no head ('' when it has one). */
 	note: string;
 	/** The API's sentence, when `note` is told in the browser. */
@@ -50,9 +58,53 @@ export interface ChartPoint {
 	y: number;
 }
 
+/** The chart's panels, top to bottom, sharing the flow axis (proposal pump-chart.md §4.1). */
+export const PANELS = ['head', 'efficiency', 'power', 'npsh'] as const;
+export type PanelKey = (typeof PANELS)[number];
+
+/** A point of a line: a null value is a gap. */
+export interface ChartDatum {
+	x: number;
+	y: number | null;
+}
+
+/** The efficiency panel: η at the running speed over its data (%), and at the duty. */
+export interface EfficiencyPanel {
+	curve: ChartPoint[];
+	duty: ChartPoint | null;
+	/** The duty's flow is outside the efficiency data: the solver held η at its end value. */
+	held: boolean;
+}
+
+/** The shaft-power panel: ρgQH/η over the flows both curves' data reach, and at the duty. */
+export interface PowerPanel {
+	curve: ChartPoint[];
+	duty: ChartPoint | null;
+	/** The largest shaft power of the samples: "largest over the curve data". */
+	largest: ChartPoint;
+}
+
+/** The NPSH panel: NPSHr over its data, NPSHa along the system curve, both at the duty. */
+export interface NpshPanel {
+	required: ChartPoint[] | null;
+	/** NPSHa at each system-curve point (null: no head, or no NPSHa there); null: no curve. */
+	available: ChartDatum[] | null;
+	requiredAt: ChartPoint | null;
+	availableAt: ChartPoint | null;
+	/** The first flow where NPSHa(Q) falls below NPSHr(Q), read from the drawn lines. */
+	crossing: number | null;
+}
+
 export interface PumpChartData {
 	flowUnit: string;
 	headUnit: string;
+	/** Power display unit (kW, or hp with US units). */
+	powerUnit: string;
+	/** The panels this pump has data for, in order (the head panel always). */
+	panels: PanelKey[];
+	efficiency: EfficiencyPanel | null;
+	power: PowerPanel | null;
+	npsh: NpshPanel | null;
 	/** Flow range of the curve's data at the operating speed, display unit (null: unknown). */
 	range: [number, number] | null;
 	/** The pump curve inside its data: solid. */
@@ -112,6 +164,7 @@ export function pumpChartData(
 		y: fromSI(p.head, headUnit)
 	});
 
+	const powerUnit = displayUnit('power', prefs);
 	const sampled = [...result.curve].sort((a, b) => a.flow - b.flow);
 	let rangeSI: [number, number] | null = null;
 	if (ratedRange) {
@@ -167,9 +220,13 @@ export function pumpChartData(
 			y: p.head === null ? null : fromSI(p.head, headUnit)
 		})) ?? null;
 	const fmt = (v: number) => formatNumber(v, 4);
+	const panels = lowerPanels(result, prefs, systemPoints);
 	return {
 		flowUnit: unitLabel('flow', flowUnit),
 		headUnit: unitLabel('head', headUnit),
+		powerUnit: unitLabel('power', powerUnit),
+		panels: PANELS.filter((key) => key === 'head' || panels[key] !== null),
+		...panels,
 		range: rangeSI ? [fromSI(rangeSI[0], flowUnit), fromSI(rangeSI[1], flowUnit)] : null,
 		curve,
 		extrapolated,
@@ -194,14 +251,226 @@ export function pumpChartData(
 						? systemPointNote(p, { ...names, units: prefs })
 						: { text: p.message }
 					: { text: '' };
+			const npsha = p?.npshAvailable;
 			return {
 				flow: fmt(c.x),
 				head: c.y === null ? '—' : fmt(c.y),
+				npsha: npsha === null || npsha === undefined ? '—' : fmt(fromSI(npsha, headUnit)),
 				note: why.text,
 				...(why.detail ? { detail: why.detail } : {})
 			};
 		})
 	};
+}
+
+/** The flows a sampled curve spans (its first and last sample), SI. */
+function span(points: readonly { flow: number }[]): [number, number] | null {
+	return points.length ? [points[0]!.flow, points[points.length - 1]!.flow] : null;
+}
+
+/**
+ * The panels below the head, from the API's samples, in display units; null where the pump has
+ * no data for one. `system` is the system curve's points, sorted by flow.
+ */
+function lowerPanels(
+	result: PumpResult,
+	prefs: UnitPreferences,
+	system: SystemCurveResponse['points'] | null
+): Pick<PumpChartData, 'efficiency' | 'power' | 'npsh'> {
+	const flowUnit = displayUnit('flow', prefs);
+	const headUnit = displayUnit('head', prefs);
+	const powerUnit = displayUnit('power', prefs);
+	const x = (flow: number) => fromSI(flow, flowUnit);
+	const running = result.status === 'running';
+	const dutyX = x(result.operatingFlow);
+
+	const effSamples = result.efficiencyCurve ?? [];
+	const effSpan = span(effSamples);
+	const efficiency: EfficiencyPanel | null = effSamples.length
+		? {
+				curve: effSamples.map((p) => ({ x: x(p.flow), y: p.efficiency * 100 })),
+				duty:
+					running && result.efficiency !== null ? { x: dutyX, y: result.efficiency * 100 } : null,
+				held:
+					running &&
+					!!effSpan &&
+					(result.operatingFlow < effSpan[0] * (1 - RANGE_TOLERANCE) ||
+						result.operatingFlow > effSpan[1] * (1 + RANGE_TOLERANCE))
+			}
+		: null;
+
+	const powerSamples = result.powerCurve ?? [];
+	const powerPoints = powerSamples.map((p) => ({
+		x: x(p.flow),
+		y: fromSI(p.shaftPower, powerUnit)
+	}));
+	const power: PowerPanel | null = powerPoints.length
+		? {
+				curve: powerPoints,
+				duty:
+					running && result.shaftPower !== null
+						? { x: dutyX, y: fromSI(result.shaftPower, powerUnit) }
+						: null,
+				largest: powerPoints.reduce((a, b) => (b.y > a.y ? b : a))
+			}
+		: null;
+
+	const required =
+		result.npshrCurve?.map((p) => ({ x: x(p.flow), y: fromSI(p.npshr, headUnit) })) ?? null;
+	const available = system
+		? system.map((p) => ({
+				x: x(p.flow),
+				y:
+					p.npshAvailable === null || p.npshAvailable === undefined
+						? null
+						: fromSI(p.npshAvailable, headUnit)
+			}))
+		: null;
+	const requiredAt =
+		running && result.npshRequired !== null
+			? { x: dutyX, y: fromSI(result.npshRequired, headUnit) }
+			: null;
+	const availableAt =
+		running && result.npshAvailable !== null
+			? { x: dutyX, y: fromSI(result.npshAvailable, headUnit) }
+			: null;
+	// A panel needs a line: NPSHr data, or NPSHa along a computed system curve.
+	const hasAvailable = !!available?.some((p) => p.y !== null);
+	const npsh: NpshPanel | null =
+		required?.length || hasAvailable
+			? {
+					required: required?.length ? required : null,
+					available: available?.some((p) => p.y !== null) ? available : null,
+					requiredAt,
+					availableAt,
+					crossing: required && available ? npshCrossing(required, available) : null
+				}
+			: null;
+	return { efficiency, power, npsh };
+}
+
+/**
+ * A line's value at x, linear between its neighbouring samples (sorted by x); null outside its
+ * samples or next to a gap. This reads the line as drawn.
+ */
+export function valueAt(line: readonly ChartDatum[], at: number): number | null {
+	for (let i = 0; i < line.length; i++) {
+		const b = line[i]!;
+		if (b.x === at) return b.y;
+		if (b.x > at) {
+			const a = line[i - 1];
+			if (!a || a.y === null || b.y === null) return null;
+			return a.y + ((b.y - a.y) * (at - a.x)) / (b.x - a.x);
+		}
+	}
+	return null;
+}
+
+/**
+ * The first flow, going up, where NPSHa falls below NPSHr: between two neighbouring NPSHa points
+ * inside the NPSHr data, where NPSHa − NPSHr (NPSHr read from its drawn line) goes from ≥ 0 to
+ * < 0, the flow where the two straight pieces meet. Null where they do not cross.
+ */
+export function npshCrossing(
+	required: readonly ChartPoint[],
+	available: readonly ChartDatum[]
+): number | null {
+	let previous: { x: number; d: number } | null = null;
+	for (const p of available) {
+		const r = p.y === null ? null : valueAt(required, p.x);
+		if (p.y === null || r === null) {
+			previous = null;
+			continue;
+		}
+		const d = p.y - r;
+		if (previous && previous.d >= 0 && d < 0) {
+			return previous.x + ((p.x - previous.x) * previous.d) / (previous.d - d);
+		}
+		previous = { x: p.x, d };
+	}
+	return null;
+}
+
+/** The panels' names, as their chips and the readout say them. */
+export const PANEL_LABELS: Readonly<Record<PanelKey, string>> = {
+	head: 'Head',
+	efficiency: 'Efficiency',
+	power: 'Shaft power',
+	npsh: 'NPSH'
+};
+
+/** The chart's height (rem) for the panels shown: the head panel's, plus each other panel's. */
+export function chartHeightRem(panels: readonly PanelKey[], phone: boolean): number {
+	const extra = panels.filter((p) => p !== 'head').length;
+	return (phone ? 16 : 18) + extra * (phone ? 6 : 7);
+}
+
+/** localStorage key of the panels the user hid (a per-browser choice, never project data). */
+export const HIDDEN_PANELS_KEY = 'opensolve-pipe:pump-chart-hidden-panels';
+
+/** The panels hidden before in this browser ([] where storage is refused or holds nothing). */
+export function loadHiddenPanels(): PanelKey[] {
+	try {
+		const parsed: unknown = JSON.parse(localStorage.getItem(HIDDEN_PANELS_KEY) ?? '[]');
+		return Array.isArray(parsed) ? PANELS.filter((p) => p !== 'head' && parsed.includes(p)) : [];
+	} catch {
+		return [];
+	}
+}
+
+/** Remember the hidden panels; a refused write only loses the convenience. */
+export function saveHiddenPanels(hidden: readonly PanelKey[]): void {
+	try {
+		if (hidden.length) localStorage.setItem(HIDDEN_PANELS_KEY, JSON.stringify(hidden));
+		else localStorage.removeItem(HIDDEN_PANELS_KEY);
+	} catch {
+		// Private modes and blocked site data refuse storage.
+	}
+}
+
+/** One value of the readout under the chart. */
+export interface ReadoutItem {
+	key: 'pump' | 'system' | 'efficiency' | 'power' | 'npshr' | 'npsha';
+	label: string;
+	value: number;
+	unit: string;
+}
+
+/** The pump curve as one line, extrapolated parts included, sorted by flow. */
+export function pumpLine(d: PumpChartData): ChartPoint[] {
+	const points = [...d.curve, ...d.extrapolated.flat()].sort((a, b) => a.x - b.x);
+	return points.filter((p, i) => i === 0 || p.x !== points[i - 1]!.x);
+}
+
+/**
+ * Every line of the panels shown, read at one flow (display units) as drawn: linear between the
+ * API's samples, nothing outside a line's samples or across a gap.
+ */
+export function chartReadout(
+	d: PumpChartData,
+	shown: readonly PanelKey[],
+	flow: number
+): ReadoutItem[] {
+	const items: ReadoutItem[] = [];
+	const add = (
+		key: ReadoutItem['key'],
+		label: string,
+		line: readonly ChartDatum[] | null,
+		unit: string
+	) => {
+		const value = line ? valueAt(line, flow) : null;
+		if (value !== null) items.push({ key, label, value, unit });
+	};
+	add('pump', 'Pump head', pumpLine(d), d.headUnit);
+	add('system', 'System head', d.system, d.headUnit);
+	if (shown.includes('efficiency'))
+		add('efficiency', 'Efficiency', d.efficiency?.curve ?? null, '%');
+	if (shown.includes('power')) add('power', 'Shaft power', d.power?.curve ?? null, d.powerUnit);
+	if (shown.includes('npsh')) {
+		add('npshr', 'NPSHr', d.npsh?.required ?? null, d.headUnit);
+		add('npsha', 'NPSHa', d.npsh?.available ?? null, d.headUnit);
+	}
+	return items;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -338,6 +607,8 @@ export interface ChartNotes {
 	method: string | null;
 	/** The dashed extrapolation, with the curve's data range. */
 	extrapolated: string | null;
+	/** What the panels below the head show and where they stop (proposal pump-chart.md §4.2). */
+	panels: string[];
 }
 
 export interface ChartNotesInput {
@@ -352,6 +623,8 @@ export interface ChartNotesInput {
 	 * screen's data table (the default), or for the image, which has none, where they are.
 	 */
 	reasonsIn?: string;
+	/** The panels shown (default: the head only). */
+	shown?: readonly PanelKey[];
 }
 
 /** The figure's notes, from one function the screen and the image both use. */
@@ -360,7 +633,8 @@ export function chartNotes({
 	result,
 	system,
 	othersControlled = false,
-	reasonsIn = 'the data table says'
+	reasonsIn = 'the data table says',
+	shown = ['head']
 }: ChartNotesInput): ChartNotes {
 	const fmt = (v: number) => formatNumber(v, 4);
 	const controlled = !!result.control;
@@ -421,5 +695,37 @@ export function chartNotes({
 					: ''
 			}, along the curve's end slope, as the solver does.`
 		: null;
-	return { pump, curve, method, extrapolated };
+	return { pump, curve, method, extrapolated, panels: panelNotes(data, result, shown) };
+}
+
+/** The notes of the panels below the head, in panel order. */
+function panelNotes(d: PumpChartData, result: PumpResult, shown: readonly PanelKey[]): string[] {
+	const fmt = (v: number) => formatNumber(v, 4);
+	const notes: string[] = [];
+	const speed = formatNumber(result.speed * 100, 4);
+	if (shown.includes('efficiency') && d.efficiency) {
+		if (result.speed !== 1)
+			notes.push(
+				`Efficiency at ${speed} % speed: η₀(Q/s), the affinity laws without an efficiency correction.`
+			);
+		if (d.efficiency.held)
+			notes.push(
+				"Efficiency: the duty's flow is outside the efficiency curve's data, so the solver holds η at the curve's end value (hollow marker)."
+			);
+	}
+	if (shown.includes('power') && d.power) {
+		const { x, y } = d.power.largest;
+		notes.push(
+			`Shaft power ρgQH/η over the flows that both the head and efficiency data reach; the largest there is ${fmt(y)} ${d.powerUnit} at ${fmt(x)} ${d.flowUnit} (beyond the data it is not known).`
+		);
+	}
+	if (shown.includes('npsh') && d.npsh) {
+		if (d.npsh.crossing !== null)
+			notes.push(
+				`NPSHa falls below NPSHr at about ${fmt(d.npsh.crossing)} ${d.flowUnit} (read from the drawn lines): the pump would cavitate beyond that flow.`
+			);
+		else if (!d.system && d.npsh.required)
+			notes.push('NPSHa along the system curve is drawn once the system curve is computed.');
+	}
+	return notes;
 }

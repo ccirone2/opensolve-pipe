@@ -10,7 +10,20 @@ import { pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import { gravityBranchExample, pumpTransferExample } from '$lib/utils/examples';
 import { IMPERIAL_UNITS } from '$lib/utils/units';
+import { withScenarios } from '$lib/utils/scenarios';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
+
+// The export dialog's chunk loader (utils/export/load.ts), replaced so a test sees when the
+// chunk is preloaded and can make its import fail.
+const exportLoader = vi.hoisted(() => ({
+	load: (() => Promise.reject(new Error('not loaded in this test'))) as () => Promise<unknown>,
+	preloads: 0
+}));
+vi.mock('$lib/utils/export/load', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/utils/export/load')>()),
+	loadExportDialog: () => exportLoader.load(),
+	preloadExportDialog: () => void exportLoader.preloads++
+}));
 
 function results() {
 	return within(screen.getByRole('region', { name: 'Results' }));
@@ -504,5 +517,148 @@ describe('results pane', () => {
 				'Press Solve to calculate the flows, pressures and pump operating points of the network.'
 			)
 		).toBeInTheDocument();
+	});
+
+	describe('the Export button (proposal export.md §5.2)', () => {
+		const exportButton = () => results().queryByRole('button', { name: /^Export results/ });
+
+		it('is shown once there are results to export, and preloads the dialog once', async () => {
+			exportLoader.preloads = 0;
+			const solveFn = vi.fn(() => Promise.resolve(response(pumpTransferSolved())));
+			const ws = testWorkspace(pumpTransferExample(), { solver: { solve: solveFn } });
+			render(WorkspaceView, { workspace: ws });
+			// Never an unavailable control on an unsolved project.
+			expect(exportButton()).toBeNull();
+			expect(document.querySelector('[data-export-button]')).toBeNull();
+			expect(exportLoader.preloads).toBe(0);
+			await solve();
+			await results().findByRole('heading', { name: 'Converged' });
+			const button = exportButton()!;
+			expect(button).toHaveAccessibleName('Export results');
+			expect(button).toHaveAttribute('aria-haspopup', 'dialog');
+			expect(button).not.toHaveAttribute('aria-disabled', 'true');
+			expect(button).toHaveTextContent('Export');
+			expect(exportLoader.preloads).toBe(1);
+			// Out of date: still offered (the file says so); the chunk is not asked for again.
+			ws.store.update((p) => {
+				p.connections[0]!.piping.pipes[0]!.length = 500;
+			}, 'change length');
+			expect(await results().findByText(/project changed after this solve/)).toBeInTheDocument();
+			expect(exportButton()).toBeInTheDocument();
+			await solve();
+			await results().findByRole('heading', { name: 'Converged' });
+			expect(exportLoader.preloads).toBe(1);
+		});
+
+		it('is not shown while a failed solve hides the earlier results, and is once they are shown', async () => {
+			let calls = 0;
+			const solveFn = vi.fn(() =>
+				++calls === 1
+					? Promise.resolve(response(pumpTransferSolved()))
+					: Promise.reject(
+							new TopologyError('The network cannot be solved: 1 topology issue(s).', [
+								{
+									code: 'UNCONNECTED_PORT',
+									message: "port 'V1:outlet' is not connected; connect it or add a plug",
+									componentIds: ['V1'],
+									connectionIds: []
+								}
+							])
+						)
+			);
+			const ws = testWorkspace(pumpTransferExample(), { solver: { solve: solveFn } });
+			render(WorkspaceView, { workspace: ws });
+			await solve();
+			await results().findByRole('heading', { name: 'Converged' });
+			expect(ws.remove('R2', false)).toBe(true);
+			await solve();
+			await results().findByRole('region', { name: 'The network cannot be solved yet' });
+			expect(exportButton()).toBeNull();
+			await fireEvent.click(results().getByRole('button', { name: 'Show the earlier results' }));
+			// The dialog then says these results are not in the file (Compare's rule).
+			expect(exportButton()).toBeInTheDocument();
+		});
+
+		it('is unavailable, with the reason, while a solve runs', async () => {
+			let release: (r: SolveResponse) => void = () => {};
+			let calls = 0;
+			const solveFn = vi.fn(() =>
+				++calls === 1
+					? Promise.resolve(response(pumpTransferSolved()))
+					: new Promise<SolveResponse>((resolve) => (release = resolve))
+			);
+			let opened = 0;
+			exportLoader.load = () => {
+				opened++;
+				return Promise.reject(new Error('not loaded in this test'));
+			};
+			const ws = testWorkspace(pumpTransferExample(), { solver: { solve: solveFn } });
+			render(WorkspaceView, { workspace: ws });
+			await solve();
+			await results().findByRole('heading', { name: 'Converged' });
+			ws.store.update((p) => {
+				p.connections[0]!.piping.pipes[0]!.length = 500;
+			}, 'change length');
+			void ws.solve();
+			await vi.waitFor(() => expect(ws.store.calculating).toBe('solve'));
+			const button = exportButton()!;
+			expect(button).toHaveAttribute('aria-disabled', 'true');
+			expect(button).toHaveAccessibleDescription(
+				'A solve is running; export when it finishes, or Cancel stops it.'
+			);
+			expect(button).toHaveAttribute(
+				'title',
+				'A solve is running; export when it finishes, or Cancel stops it.'
+			);
+			await fireEvent.click(button);
+			expect(opened).toBe(0);
+			release(response(pumpTransferSolved()));
+			await vi.waitFor(() => expect(button).not.toHaveAttribute('aria-disabled', 'true'));
+			expect(button).not.toHaveAttribute('aria-describedby');
+		});
+
+		it('names the case shown, and on Compare cases is shown when any case has a response', async () => {
+			const project = withScenarios(pumpTransferExample(), [
+				{ id: 'S1', name: 'Winter', overrides: [] }
+			]);
+			const solveFn = vi.fn(() => Promise.resolve(response(pumpTransferSolved())));
+			const ws = testWorkspace(project, { solver: { solve: solveFn } });
+			render(WorkspaceView, { workspace: ws });
+			ws.comparing = true;
+			await vi.waitFor(() => expect(results().getByRole('region', { name: 'Compare cases' })));
+			expect(exportButton()).toBeNull();
+			ws.setCase('S1');
+			await ws.solve();
+			// The base case is shown and has no results, but Winter has: Compare can be exported,
+			// and the dialog opens on All cases there, so the button says so (review W5).
+			ws.setCase(null);
+			await vi.waitFor(() =>
+				expect(exportButton()).toHaveAccessibleName('Export results of all cases')
+			);
+			ws.comparing = false;
+			await vi.waitFor(() => expect(exportButton()).toBeNull());
+			ws.setCase('S1');
+			await vi.waitFor(() =>
+				expect(exportButton()).toHaveAccessibleName('Export results of Winter')
+			);
+		});
+
+		it('says to reload the page when the dialog cannot be loaded', async () => {
+			exportLoader.load = () =>
+				Promise.reject(new TypeError('Failed to fetch dynamically imported module'));
+			const solveFn = vi.fn(() => Promise.resolve(response(pumpTransferSolved())));
+			const ws = testWorkspace(pumpTransferExample(), { solver: { solve: solveFn } });
+			render(WorkspaceView, { workspace: ws });
+			await solve();
+			await results().findByRole('heading', { name: 'Converged' });
+			await fireEvent.click(exportButton()!);
+			await vi.waitFor(() =>
+				expect(ws.notice).toMatchObject({
+					kind: 'error',
+					text: 'This part of the app could not be loaded: the app may have been updated since this page opened, or the connection dropped. Reload the page (the project is in its link), then solve again.'
+				})
+			);
+			expect(screen.queryByRole('dialog', { name: 'Export results' })).toBeNull();
+		});
 	});
 });

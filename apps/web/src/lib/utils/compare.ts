@@ -11,7 +11,8 @@
  * changes; differences between cases are real results of changed inputs). A case that did not
  * converge shows no values, since they are not a solution; its status row says so.
  */
-import type { Flag, Project, SolvedState, UnitPreferences } from '../api/types';
+import type { Flag, Project, SolvedState, SolveResponse, UnitPreferences } from '../api/types';
+import type { CaseStatus, ResultsState } from '../state/project.svelte';
 import { componentById, connectionById } from './graph';
 import { portLabel } from './labels';
 import {
@@ -428,6 +429,17 @@ export function defaultRows(
 	// The network's extremes always end the defaults; the rows before them are cut to fit.
 	const extremes: CompareRow[] = [{ quantity: 'lowestPressure' }, { quantity: 'highestVelocity' }];
 	return [...unique.slice(0, DEFAULT_ROW_LIMIT - extremes.length), ...extremes];
+}
+
+/**
+ * The response a case's values come from, by Compare's rule (D15): none when its latest solve of
+ * the project failed or a stopped Solve all run did not reach it (a response it kept is from an
+ * earlier version of the project), else its latest response (null without one). Compare cases,
+ * the other cases on the pump chart and the export read a case through this one rule (proposal
+ * export.md §2.1); whether the response has values (it converged) is decided after it.
+ */
+export function caseResponse(status: CaseStatus, results: ResultsState): SolveResponse | null {
+	return status === 'failed' || status === 'not_reached' ? null : results.response;
 }
 
 /** One case's column: its solved state (null: none) and whether its values can be shown. */

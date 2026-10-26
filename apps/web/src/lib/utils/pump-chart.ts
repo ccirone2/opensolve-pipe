@@ -25,6 +25,7 @@ import type {
 	SystemCurveResponse,
 	UnitPreferences
 } from '../api/types';
+import type { SystemCurveState } from '../state/project.svelte';
 import { componentById } from './graph';
 import { systemPointNote, type SystemCurveTextContext } from './system-curve-text';
 import { displayUnit, formatNumber, fromSI, unitLabel } from './units';
@@ -300,4 +301,125 @@ export function otherCasesData(
 			systemRows: data.systemRows
 		};
 	});
+}
+
+// ---------------------------------------------------------------------------------------------
+// The figure's notes: one source for the screen and the image (proposal export.md §3.4). The
+// chart's configuration is in pump-chart-config.ts, in the chart's chunk.
+// ---------------------------------------------------------------------------------------------
+
+/** The other cases' markers as text (the case checkboxes, the table and the image's notes). */
+export const MARKER_SYMBOLS: Readonly<Record<CaseMarker, string>> = {
+	triangle: '△',
+	rect: '□',
+	star: '☆',
+	crossRot: '×',
+	rectRounded: '▢'
+};
+
+/** Why a system-curve point has no head, as the API's messages say (TSD §5.6). */
+const NO_HEAD_REASONS =
+	'(no steady state carries the flow, its head is undetermined, its solve did not converge, ' +
+	'or it was not computed)';
+
+/** The state of the system curve the chart tells, with the control the screen offers beside it. */
+export type CurveNoteKind = 'loading' | 'error' | 'cancelled' | 'missing';
+
+/** The sentences the figure shows under the chart (export.md §3.4): the screen's and the image's. */
+export interface ChartNotes {
+	/** The pump off, or held at zero flow by its check. */
+	pump: string | null;
+	/**
+	 * The system curve's state: being computed, failed, not computed (cancelled, or never asked
+	 * for), or with points without a head.
+	 */
+	curve: { kind: CurveNoteKind; text: string } | null;
+	/** How the system curve shown was computed (D10). */
+	method: string | null;
+	/** The dashed extrapolation, with the curve's data range. */
+	extrapolated: string | null;
+}
+
+export interface ChartNotesInput {
+	data: PumpChartData;
+	result: PumpResult;
+	/** The pump's system curve for the solve (undefined: not requested). */
+	system: SystemCurveState | undefined;
+	/** Another pump of the solve is speed-controlled and on: it regulates in the system curve. */
+	othersControlled?: boolean;
+	/**
+	 * Where the reasons of the points without a head are, as the subject of "say why": the
+	 * screen's data table (the default), or for the image, which has none, where they are.
+	 */
+	reasonsIn?: string;
+}
+
+/** The figure's notes, from one function the screen and the image both use. */
+export function chartNotes({
+	data,
+	result,
+	system,
+	othersControlled = false,
+	reasonsIn = 'the data table says'
+}: ChartNotesInput): ChartNotes {
+	const fmt = (v: number) => formatNumber(v, 4);
+	const controlled = !!result.control;
+	const pump =
+		result.status === 'off'
+			? `This pump is off: it carries no flow. Its curve is shown at its ${
+					controlled ? 'maximum' : 'set'
+				} speed, for reference${controlled ? '; its flow control is not applied' : ''}.`
+			: data.held
+				? 'This pump is held at zero flow by its check (see its flag). The diamond marks zero flow ' +
+					'at the head across the pump.'
+				: null;
+	const why = `${reasonsIn} why for each ${NO_HEAD_REASONS}`;
+	const n = data.system?.length ?? 0;
+	const curve: ChartNotes['curve'] =
+		system?.status === 'loading'
+			? { kind: 'loading', text: 'Computing the system curve for this solve…' }
+			: system?.status === 'error'
+				? { kind: 'error', text: `The system curve could not be computed: ${system.message}` }
+				: system === undefined || system.status === 'cancelled'
+					? {
+							kind: 'cancelled',
+							text: !system
+								? 'The system curve has not been computed for this solve.'
+								: system.by === 'user'
+									? 'The system curve was not computed: you cancelled it.'
+									: system.by === 'goalSeek'
+										? 'The system curve was not computed: a goal seek was started.'
+										: 'The system curve was not computed: a new solve was started.'
+						}
+					: data.system && data.systemMissing === n
+						? {
+								kind: 'missing',
+								text: `No point of the system curve has a head, so it is not drawn; ${why}.`
+							}
+						: data.systemMissing
+							? {
+									kind: 'missing',
+									text: `${data.systemMissing} of ${n} system-curve points have no head: the line has gaps there, and ${why}.`
+								}
+							: null;
+	const flows =
+		data.system && data.systemSpan
+			? `${n} evenly spaced flows from ${fmt(data.systemSpan[0])} to ` +
+				`${fmt(data.systemSpan[1])} ${data.flowUnit}`
+			: null;
+	const method = flows
+		? `System curve: the network of this solve, solved again with the pump replaced by each of ${flows} (${
+				controlled ? 'its flow control replaced by that fixed flow; ' : ''
+			}other pumps running${
+				othersControlled ? ', speed-controlled ones regulating to their setpoints' : ''
+			}, valves following their rules); the system head at each flow is the EGL at the discharge minus the EGL at the suction.`
+		: null;
+	const extrapolated = data.extrapolated.length
+		? `Dashed: the pump curve extrapolated beyond its data${
+				data.range
+					? ` (${fmt(data.range[0])} to ${fmt(data.range[1])} ${data.flowUnit} at this speed)`
+					: ''
+			}, along the curve's end slope, as the solver does.`
+		: null;
+	return { pump, curve, method, extrapolated };
 }

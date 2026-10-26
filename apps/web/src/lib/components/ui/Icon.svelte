@@ -29,6 +29,7 @@
 		| 'layers'
 		| 'lock'
 		| 'target'
+		| 'download'
 		| 'up';
 </script>
 
@@ -117,6 +118,11 @@
 		<circle cx="12" cy="12" r="8" />
 		<circle cx="12" cy="12" r="3" />
 		<path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+	{:else if name === 'download'}
+		<!-- An arrow down into a tray: export a file. -->
+		<path d="M12 3v12" />
+		<path d="m7 10 5 5 5-5" />
+		<path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
 	{:else if name === 'up'}
 		<path d="m6 15 6-6 6 6" />
 	{:else if name === 'spinner'}

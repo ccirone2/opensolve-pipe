@@ -112,10 +112,20 @@ export type Calculating = 'solve' | 'solveAll' | 'goalSeek' | null;
  */
 export function calculatingReason(
 	calculating: Calculating,
-	starting: 'solve' | 'goalSeek',
+	starting: 'solve' | 'goalSeek' | 'export',
 	header = false
 ): string {
 	if (calculating === null) return '';
+	if (starting === 'export') {
+		// Export makes no request, but never from results about to be replaced (export.md §5.2).
+		const running =
+			calculating === 'goalSeek'
+				? 'A goal seek is running'
+				: calculating === 'solveAll'
+					? 'Solve all is running'
+					: 'A solve is running';
+		return `${running}; export when it finishes, or ${header ? 'Cancel' : 'Cancel in the header'} stops it.`;
+	}
 	if (starting === 'goalSeek') {
 		return calculating === 'goalSeek'
 			? 'A goal seek is running; Cancel stops it.'
@@ -1818,6 +1828,12 @@ export interface ReportContext extends WordsContext {
 	caseText: string;
 	/** When the request was sent (ms since the epoch); written in local time. */
 	startedAt: number;
+	/**
+	 * The local time's offset from UTC in minutes (−Date.getTimezoneOffset()), so the run time is
+	 * written from it by arithmetic (the export's snapshot, export.md §2.9); without it, the
+	 * machine's time zone.
+	 */
+	utcOffsetMinutes?: number;
 	stale: boolean;
 	/** The physically invalid flags at the values found, in words (ws.flagText). */
 	invalidFlags: readonly string[];
@@ -1825,9 +1841,13 @@ export interface ReportContext extends WordsContext {
 	converged: boolean;
 }
 
-function localDateTime(ms: number): string {
-	const d = new Date(ms);
+function localDateTime(ms: number, utcOffsetMinutes?: number): string {
 	const pad = (n: number) => String(n).padStart(2, '0');
+	if (utcOffsetMinutes !== undefined) {
+		const d = new Date(ms + utcOffsetMinutes * 60_000);
+		return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+	}
+	const d = new Date(ms);
 	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
@@ -1860,7 +1880,7 @@ export function goalSeekReport(
 	const lines: string[] = [
 		`Goal seek: ${context.projectName}`,
 		`Case: ${context.caseText}`,
-		`Run: ${localDateTime(context.startedAt)}; ${result.evaluations.length} trial solves in ${seconds(response.computeTime)} s; calculation method ${result.methodVersion}`
+		`Run: ${localDateTime(context.startedAt, context.utcOffsetMinutes)}; ${result.evaluations.length} trial solves in ${seconds(response.computeTime)} s; calculation method ${result.methodVersion}`
 	];
 	if (context.stale) lines.push('Out of date: the project changed after this goal seek.');
 	lines.push(`Outcome: ${banner.title.toLowerCase()}. ${result.message}`, '', 'Inputs changed');

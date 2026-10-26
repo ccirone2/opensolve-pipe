@@ -14,6 +14,9 @@
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import type { FlowRange } from '$lib/state/project.svelte';
+	import { caseResponse } from '$lib/utils/compare';
+	import type { ChartImageSource } from '$lib/utils/export/chart-image';
+	import { calculatingReason } from '$lib/utils/goal-seek';
 	import { MAX_CHART_CASES, ratedCurveRange, type OtherCaseInput } from '$lib/utils/pump-chart';
 	import { markChanged, pumpTable } from '$lib/utils/results';
 	import PumpChart from './PumpChart.svelte';
@@ -43,6 +46,30 @@
 		ws.store.results.response?.solvedState === solved ? ws.store.results.response : null
 	);
 	const system = $derived(viewed ? ws.store.systemCurve(response, viewed.key) : undefined);
+	/**
+	 * What an image of the chart names, and why none can be made of these results (proposal
+	 * export.md §5.5): one rule with the export's (Compare's response, and its convergence).
+	 */
+	const image = $derived.by((): ChartImageSource | undefined => {
+		if (!response) return undefined;
+		const status = ws.store.caseStatus(ws.store.activeCase);
+		const unavailable = !(response.success && response.solvedState.converged)
+			? 'This solve did not converge: its values are not a solution, so no image is made.'
+			: !caseResponse(status, ws.store.results)
+				? status === 'not_reached'
+					? 'Solve all stopped before it reached this case; the chart shows results from an earlier version of the project, so no image is made.'
+					: 'The latest solve failed; the chart shows results from an earlier version of the project, so no image is made.'
+				: calculatingReason(ws.store.calculating, 'export');
+		return {
+			projectName: ws.store.project.metadata.name,
+			timestamp: response.solvedState.timestamp,
+			methodVersion: response.solvedState.methodVersion,
+			stale: ws.store.results.stale,
+			unavailable,
+			origin: typeof location === 'undefined' ? '' : location.origin,
+			notify: (kind, text) => ws.notify(kind, text)
+		};
+	});
 	// The curve's data range, from the project exactly as solved (the curve that was solved).
 	const ratedRange = $derived(
 		viewed && ws.store.solvedProject && response
@@ -83,7 +110,11 @@
 	let retried = 0;
 	const caseOf = (key: string) => (key === '' ? null : key);
 
-	/** Other cases whose last solve converged with a result for this pump. */
+	/**
+	 * Other cases whose last solve converged with a result for this pump, by Compare's rule (the
+	 * export's too, proposal export.md §3.4): a case whose latest solve failed, or that a stopped
+	 * run did not reach, is not drawn.
+	 */
 	const others = $derived.by((): OtherCaseInput[] => {
 		const pumpId = viewed?.key;
 		if (!pumpId || !hasScenarios) return [];
@@ -91,11 +122,13 @@
 			.filter((c) => c !== ws.store.activeCase)
 			.flatMap((c) => {
 				const r = ws.store.resultsFor(c);
-				const pump = r.response?.solvedState.pumpResults[pumpId];
-				if (!r.response || !pump || !(r.response.success && r.response.solvedState.converged)) {
+				// Compare's rule: a failed or not reached case's earlier response is not drawn.
+				const response = caseResponse(ws.store.caseStatus(c), r);
+				const pump = response?.solvedState.pumpResults[pumpId];
+				if (!response || !pump || !(response.success && response.solvedState.converged)) {
 					return [];
 				}
-				const curve = overlay && grid ? ws.store.systemCurve(r.response, pumpId, grid) : undefined;
+				const curve = overlay && grid ? ws.store.systemCurve(response, pumpId, grid) : undefined;
 				return [
 					{
 						key: c ?? '',
@@ -217,6 +250,7 @@
 					onoverlay={setOverlay}
 					{overlayProgress}
 					oncanceloverlay={cancelOverlay}
+					{image}
 				/>
 			{/key}
 		</div>

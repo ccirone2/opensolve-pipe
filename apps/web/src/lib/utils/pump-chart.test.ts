@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { pumpResult, systemCurvePoint, systemCurveResponse } from '../testing/results';
 import { pumpTransferExample } from './examples';
-import { otherCasesData, pumpChartData, ratedCurveRange } from './pump-chart';
+import { chartNotes, otherCasesData, pumpChartData, ratedCurveRange } from './pump-chart';
 import { IMPERIAL_UNITS, SI_UNITS } from './units';
 
 const GPM = (231 * 0.0254 ** 3) / 60; // m³/s, US gallon = 231 in³
@@ -220,5 +220,98 @@ describe('pumps not running', () => {
 		);
 		expect(off.operating).toBeNull();
 		expect(off.held).toBeNull();
+	});
+});
+
+// The notes the screen and the image both use (proposal export.md §3.4).
+describe('chart notes', () => {
+	it('tells the pump, the system curve, how it was computed and the extrapolation', () => {
+		const data = pumpChartData(
+			pumpResult({ operatingFlow: 0.034, operatingHead: 7.5, inCurveRange: false }),
+			SI_UNITS,
+			[0, 0.03],
+			systemCurveResponse('P1', [1])
+		);
+		const notes = chartNotes({
+			data,
+			result: pumpResult(),
+			system: { status: 'ready', curve: systemCurveResponse('P1', [1]) }
+		});
+		expect(notes.pump).toBeNull();
+		expect(notes.curve).toEqual({
+			kind: 'missing',
+			text:
+				'1 of 4 system-curve points have no head: the line has gaps there, and the data table ' +
+				'says why for each (no steady state carries the flow, its head is undetermined, its ' +
+				'solve did not converge, or it was not computed).'
+		});
+		expect(notes.method).toBe(
+			'System curve: the network of this solve, solved again with the pump replaced by each of ' +
+				'4 evenly spaced flows from 0 to 30 L/s (other pumps running, valves following their ' +
+				'rules); the system head at each flow is the EGL at the discharge minus the EGL at the ' +
+				'suction.'
+		);
+		expect(notes.extrapolated).toBe(
+			"Dashed: the pump curve extrapolated beyond its data (0 to 30 L/s at this speed), along the curve's end slope, as the solver does."
+		);
+		// The image has no data table: it says where the reasons are instead.
+		const image = chartNotes({
+			data,
+			result: pumpResult(),
+			system: { status: 'ready', curve: systemCurveResponse('P1', [1]) },
+			reasonsIn: 'the workbook says'
+		});
+		expect(image.curve?.text).toBe(
+			'1 of 4 system-curve points have no head: the line has gaps there, and the workbook says ' +
+				'why for each (no steady state carries the flow, its head is undetermined, its solve did ' +
+				'not converge, or it was not computed).'
+		);
+		expect({ ...image, curve: null }).toEqual({ ...notes, curve: null });
+	});
+
+	it('says why the system curve is not shown, and when the pump is off or held', () => {
+		const result = pumpResult();
+		const data = pumpChartData(result, SI_UNITS);
+		const curve = (system: Parameters<typeof chartNotes>[0]['system']) =>
+			chartNotes({ data, result, system }).curve;
+		expect(curve(undefined)).toEqual({
+			kind: 'cancelled',
+			text: 'The system curve has not been computed for this solve.'
+		});
+		expect(curve({ status: 'loading' })?.kind).toBe('loading');
+		expect(curve({ status: 'error', message: 'Made-up message.' })).toEqual({
+			kind: 'error',
+			text: 'The system curve could not be computed: Made-up message.'
+		});
+		expect(curve({ status: 'cancelled', by: 'user' })?.text).toBe(
+			'The system curve was not computed: you cancelled it.'
+		);
+		expect(curve({ status: 'cancelled', by: 'goalSeek' })?.text).toBe(
+			'The system curve was not computed: a goal seek was started.'
+		);
+		expect(curve({ status: 'cancelled', by: 'solve' })?.text).toBe(
+			'The system curve was not computed: a new solve was started.'
+		);
+		const allMissing = systemCurveResponse('P1', [0, 1, 2, 3]);
+		expect(
+			chartNotes({
+				data: pumpChartData(result, SI_UNITS, null, allMissing),
+				result,
+				system: { status: 'ready', curve: allMissing }
+			}).curve?.text
+		).toMatch(/^No point of the system curve has a head, so it is not drawn; the data table/);
+
+		const off = pumpResult({ status: 'off', operatingFlow: 0 });
+		expect(
+			chartNotes({ data: pumpChartData(off, SI_UNITS), result: off, system: undefined }).pump
+		).toBe(
+			'This pump is off: it carries no flow. Its curve is shown at its set speed, for reference.'
+		);
+		const held = pumpResult({ status: 'no_flow', operatingFlow: 0, operatingHead: 31 });
+		expect(
+			chartNotes({ data: pumpChartData(held, SI_UNITS), result: held, system: undefined }).pump
+		).toBe(
+			'This pump is held at zero flow by its check (see its flag). The diamond marks zero flow at the head across the pump.'
+		);
 	});
 });

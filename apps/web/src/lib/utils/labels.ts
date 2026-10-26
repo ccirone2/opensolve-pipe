@@ -4,6 +4,7 @@
  * are preferred where it is available; the fallbacks here are used when it is not.
  */
 import type { Component, Fitting, FluidDefinition, Project } from '../api/types';
+import type { CaseStatus } from '../state/project.svelte';
 import { componentKind, KIND_LABELS } from './factory';
 import { componentById } from './graph';
 import { formatNumber, INCH } from './units';
@@ -158,6 +159,22 @@ export function fieldLabel(component: Component, path: string): string {
 	}
 	return path;
 }
+
+/**
+ * Where a case's results stand (ProjectStore.caseStatus), in words: the case chips, Compare cases
+ * and the export (proposal export.md §5.10), so a .ts module can read them too.
+ */
+export const CASE_STATUS_LABELS: Readonly<Record<CaseStatus, string>> = {
+	solving: 'Solving…',
+	waiting: 'Waiting',
+	solved: 'Solved',
+	not_converged: 'Did not converge',
+	stale: 'Out of date',
+	failed: 'Failed',
+	cancelled: 'Cancelled',
+	not_solved: 'Not solved',
+	not_reached: 'Not solved: the run stopped after a network error'
+};
 
 export const LOSS_MODEL_LABELS = {
 	crane: 'Crane TP-410 (flow-split dependent K)',

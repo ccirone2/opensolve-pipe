@@ -198,6 +198,13 @@ describe('results per case', () => {
 			status: 'ready',
 			curve
 		});
+		// Each case's slot, read whichever case is shown (the export's, export.md §2.1).
+		expect(store.systemCurvesFor(null)).toEqual({ P1: { status: 'ready', curve } });
+		expect(store.systemCurvesFor('S1')).toEqual({
+			'P1\u00000\u00000.03': { status: 'ready', curve }
+		});
+		expect(store.systemCurvesFor('S2')).toEqual({});
+		expect(store.systemCurvesFor(null)).toBe(store.systemCurves);
 		// A new solve of S1 drops S1's curves only.
 		store.setCase('S1');
 		await store.solve();

@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { BranchResult, PumpResult, SolvedState } from '../api/types';
+import type { Workspace } from '../state/workspace.svelte';
 import { assignedFlowProject } from '../testing/helpers';
 import {
 	assignedFlowSolved,
@@ -14,6 +15,8 @@ import {
 	pumpResult,
 	pumpTransferSolved
 } from '../testing/results';
+import { testWorkspace } from '../testing/workspace';
+import { deleteComponent, reversePiping } from './edit';
 import { gravityBranchExample, pumpTransferExample } from './examples';
 import {
 	assignedFlowTable,
@@ -232,6 +235,108 @@ describe('link table', () => {
 			'Discharge isolation valve → Discharge tank',
 			'L2'
 		]);
+	});
+});
+
+describe('link names from the project the results belong to (proposal export.md decision 8)', () => {
+	// The Links view builds its table as here: linkTable(ws.labelsProject, solved, units). The made-up
+	// solve signs L3's flow from V1 (Discharge isolation valve) to R2 (Discharge tank), its ends as sent.
+	const SOLVED_L3 = 'Discharge isolation valve → Discharge tank';
+	const REVERSED_L3 = 'Discharge tank → Discharge isolation valve';
+
+	function solvedWorkspace(): Workspace {
+		return testWorkspace(pumpTransferExample(), {
+			solver: {
+				solve: async () => ({
+					success: true,
+					computeTime: 0,
+					solvedState: pumpTransferSolved(),
+					scenario: null
+				})
+			}
+		});
+	}
+
+	const row = (ws: Workspace, id: string, solved = ws.store.solved!) =>
+		linkTable(ws.labelsProject, solved, SI_UNITS).rows.find((r) => r.key === id)!;
+
+	function reverseL3(ws: Workspace): void {
+		const result = ws.store.update((p) => {
+			const c = p.connections.find((x) => x.id === 'L3')!;
+			[c.fromComponentId, c.toComponentId] = [c.toComponentId, c.fromComponentId];
+			[c.fromPortId, c.toPortId] = [c.toPortId, c.fromPortId];
+			c.piping = reversePiping(c.piping);
+		}, 'Reverse L3');
+		expect(result.ok).toBe(true);
+	}
+
+	function rename(ws: Workspace, id: string, name: string): void {
+		const result = ws.store.update((p) => {
+			p.components.find((c) => c.id === id)!.name = name;
+		}, 'Rename');
+		expect(result.ok).toBe(true);
+	}
+
+	it('names a connection reversed since the solve by its ends as solved, as its flow is signed', async () => {
+		const ws = solvedWorkspace();
+		await ws.store.solve();
+		expect(row(ws, 'L3').name).toBe(SOLVED_L3);
+		reverseL3(ws);
+		// The project now runs L3 the other way, and the results are out of date.
+		expect(connectionName(ws.labelsProject, 'L3')).toBe(REVERSED_L3);
+		expect(ws.store.results.stale).toBe(true);
+		expect(row(ws, 'L3').name).toBe(SOLVED_L3);
+		expect(row(ws, 'L3').cells.flow).toBe('20'); // 0.02 m³/s in L/s, V1 → R2 as solved
+		// Undone, the results are current again; solved again reversed, the new solve names it so.
+		ws.store.undo();
+		expect(ws.store.results.stale).toBe(false);
+		expect(row(ws, 'L3').name).toBe(SOLVED_L3);
+		const before = ws.store.solved!;
+		ws.store.redo();
+		await ws.store.solve();
+		expect(ws.store.results.stale).toBe(false);
+		expect(row(ws, 'L3').name).toBe(REVERSED_L3);
+		// The earlier solve, no longer the case's, still names the ends it was solved with.
+		expect(row(ws, 'L3', before).name).toBe(SOLVED_L3);
+		ws.store.dispose();
+	});
+
+	it('names current results from the current project, out-of-date ones from the project as sent', async () => {
+		const ws = solvedWorkspace();
+		await ws.store.solve();
+		// A name is not hydraulic: the results stay current and show it.
+		rename(ws, 'V1', 'Gate valve');
+		expect(ws.store.results.stale).toBe(false);
+		expect(row(ws, 'L2').name).toBe('Transfer pump → Gate valve');
+		// Out of date, the rows are named as solved: an id may since name another element.
+		reverseL3(ws);
+		expect(ws.store.results.stale).toBe(true);
+		expect(row(ws, 'L2').name).toBe('Transfer pump → Discharge isolation valve');
+		expect(row(ws, 'L3').name).toBe(SOLVED_L3);
+		ws.store.dispose();
+	});
+
+	it('names a connection merged away since the solve by its ends as solved', async () => {
+		const ws = solvedWorkspace();
+		await ws.store.solve();
+		// Removing V1 joins L2 and L3 into L2, from the pump to the discharge tank.
+		const result = ws.store.update(
+			(p) => deleteComponent(p, 'V1', { join: true }),
+			'Remove and join'
+		);
+		expect(result.ok).toBe(true);
+		expect(connectionName(ws.labelsProject, 'L2')).toBe('Transfer pump → Discharge tank');
+		expect(row(ws, 'L2').name).toBe('Transfer pump → Discharge isolation valve');
+		expect(row(ws, 'L3').name).toBe(SOLVED_L3);
+		ws.store.dispose();
+	});
+
+	it('names a solve the store did not keep from the project given', () => {
+		const solved = pumpTransferSolved();
+		const reversed = structuredClone(project);
+		const c = reversed.connections.find((x) => x.id === 'L3')!;
+		[c.fromComponentId, c.toComponentId] = [c.toComponentId, c.fromComponentId];
+		expect(linkTable(reversed, solved, SI_UNITS).rows[2]!.name).toBe(REVERSED_L3);
 	});
 });
 

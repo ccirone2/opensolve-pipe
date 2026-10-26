@@ -21,17 +21,21 @@
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
-	import type { Plugin } from 'chart.js';
 	import type { PumpResult, UnitPreferences } from '$lib/api/types';
 	import type { SystemCurveState } from '$lib/state/project.svelte';
+	import type { ChartImageSource } from '$lib/utils/export/chart-image';
+	import { DISCLAIMER } from '$lib/components/links';
+	import { STALE_CHUNK_MESSAGE } from '$lib/utils/export/load';
 	import {
+		chartNotes,
+		MARKER_SYMBOLS,
 		MAX_CHART_CASES,
 		otherCasesData,
 		pumpChartData,
-		type ChartPoint,
 		type OtherCaseInput,
 		type SystemCurveNames
 	} from '$lib/utils/pump-chart';
+	import Icon from '$lib/components/ui/Icon.svelte';
 	import IssueDetail from './IssueDetail.svelte';
 	import { formatNumber } from '$lib/utils/units';
 
@@ -69,6 +73,11 @@
 		overlayProgress?: { done: number; total: number } | null;
 		/** Cancel the overlay curves still being computed. */
 		oncanceloverlay?: () => void;
+		/**
+		 * What an image of the chart names and whether one can be made of these results (proposal
+		 * export.md §5.5): without it, no Download image is offered.
+		 */
+		image?: ChartImageSource;
 	}
 
 	let {
@@ -87,7 +96,8 @@
 		overlayCurves = false,
 		onoverlay,
 		overlayProgress = null,
-		oncanceloverlay
+		oncanceloverlay,
+		image
 	}: Props = $props();
 	const id = $props.id();
 
@@ -129,28 +139,12 @@
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let unavailable = $state(false);
 	let showTable = $state(false);
-	const tableShown = $derived(showTable || unavailable);
 
-	// Categorical slots 1 and 2 of the dataviz reference palette (validated light-mode pair);
-	// the operating point is drawn in the primary ink. Identity is also given by the legend,
-	// the dash pattern and the point marker, and by the data table.
-	const PUMP = '#2a78d6';
-	const SYSTEM = '#eb6834';
-	const INK = '#0f172a';
-	/** Other cases: neutral slate (7.6:1 on white), told apart by marker and label. */
-	const SLATE = '#475569';
-	const GRID = '#e2e8f0';
-	const TEXT = '#475569';
+	/** The chart chunk could not be loaded (a redeploy, or a dropped connection): the table is shown. */
+	let loadFailed = $state(false);
+	const tableShown = $derived(showTable || unavailable || loadFailed);
 
 	const fmt = (v: number) => formatNumber(v, 4);
-	/** The markers as text, for the case checkboxes and the table. */
-	const MARKER_SYMBOLS: Readonly<Record<string, string>> = {
-		triangle: '△',
-		rect: '□',
-		star: '☆',
-		crossRot: '×',
-		rectRounded: '▢'
-	};
 	const markerOf = (key: string) => otherData.find((o) => o.key === key)?.marker;
 	const off = $derived(result.status === 'off');
 	const controlled = $derived(!!result.control);
@@ -205,19 +199,8 @@
 		return `${parts.join(' and ')}${at}${extrapolated}${cases}.`;
 	});
 
-	/** "41 evenly spaced flows from 0 to 36 L/s": the flows the system curve was solved at. */
-	const systemFlows = $derived(
-		data.system && data.systemSpan
-			? `${data.system.length} evenly spaced flows from ${fmt(data.systemSpan[0])} to ` +
-					`${fmt(data.systemSpan[1])} ${data.flowUnit}`
-			: null
-	);
-
-	const HELD = 'Held at zero flow';
-	/** Why a system-curve point has no head, as the API's messages say (TSD §5.6). */
-	const NO_HEAD_REASONS =
-		'(no steady state carries the flow, its head is undetermined, its solve did not converge, ' +
-		'or it was not computed)';
+	/** The figure's sentences under the chart, which the image's footer repeats (export.md §3.4). */
+	const notes = $derived(chartNotes({ data, result, system, othersControlled }));
 
 	// Before the DOM drops Cancel when the curve stops loading (cancelled, computed or failed): if
 	// it has the focus, what replaces it takes it: the button to compute it again, else the chart.
@@ -238,24 +221,13 @@
 		void tick().then(() => (cancelButton ?? figure)?.focus());
 	});
 
-	/** Legend markers: curves as a line (dashed where dashed), points as their marker. */
-	function legendStyle(dataset: { label?: string; showLine?: boolean; pointStyle?: unknown }) {
-		if (dataset.label === 'Operating point') return 'circle';
-		if (dataset.label === HELD) return 'rectRot';
-		return dataset.showLine === false && typeof dataset.pointStyle === 'string'
-			? dataset.pointStyle
-			: 'line';
-	}
-
-	/** Dashed segments as one dataset, separated by gaps. */
-	function joinSegments(segments: ChartPoint[][]): { x: number; y: number | null }[] {
-		const points: { x: number; y: number | null }[] = [];
-		segments.forEach((segment, i) => {
-			if (i > 0 && segment[0]) points.push({ x: segment[0].x, y: null });
-			points.push(...segment);
-		});
-		return points;
-	}
+	/**
+	 * The chart chunk: Chart.js and the image renderer, kept once loaded, so the image never waits
+	 * for it again (export.md §5.5). Not reactive: `drawn` says when it is there.
+	 */
+	let chartModule: typeof import('./chart-setup') | null = null;
+	/** The chart shown has been drawn: an image can be made of it. */
+	let drawn = $state(false);
 
 	$effect(() => {
 		const element = canvas;
@@ -265,211 +237,80 @@
 		if (!element) return;
 		let cancelled = false;
 		let chart: { destroy(): void } | null = null;
-		void import('./chart-setup').then(({ Chart }) => {
-			if (cancelled) return;
-			const context = element.getContext('2d');
-			if (!context) {
-				unavailable = true;
-				return;
+		drawn = false;
+		void import('./chart-setup').then(
+			(module) => {
+				if (cancelled) return;
+				chartModule = module;
+				const { Chart, pumpChartConfig } = module;
+				const context = element.getContext('2d');
+				if (!context) {
+					unavailable = true;
+					return;
+				}
+				chart = new Chart(
+					context,
+					pumpChartConfig(d, cases, {
+						speedText: speed,
+						legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
+						format: fmt
+					})
+				);
+				drawn = true;
+			},
+			() => {
+				// A tab opened before a redeploy asks for a chunk the new deployment no longer has, or
+				// the connection dropped while it loaded (the browser then keeps the failed module).
+				if (!cancelled) loadFailed = true;
 			}
-			const datasets = [
-				{
-					label: `Pump curve at ${speed}`,
-					data: d.curve,
-					borderColor: PUMP,
-					backgroundColor: PUMP,
-					borderWidth: 2,
-					pointRadius: 0,
-					pointHitRadius: 6
-				},
-				...(d.extrapolated.length
-					? [
-							{
-								label: 'Pump curve, extrapolated (dashed)',
-								data: joinSegments(d.extrapolated),
-								borderColor: PUMP,
-								backgroundColor: PUMP,
-								borderWidth: 2,
-								borderDash: [6, 4],
-								pointRadius: 0,
-								pointHitRadius: 6,
-								spanGaps: false
-							}
-						]
-					: []),
-				...(d.system && d.systemMissing < d.system.length
-					? [
-							{
-								label: 'System curve',
-								data: d.system,
-								borderColor: SYSTEM,
-								backgroundColor: SYSTEM,
-								borderWidth: 2,
-								pointRadius: 0,
-								pointHitRadius: 6,
-								// A point without a solution is a gap, never bridged.
-								spanGaps: false
-							}
-						]
-					: []),
-				...(d.operating
-					? [
-							{
-								label: 'Operating point',
-								data: [d.operating],
-								borderColor: '#ffffff',
-								backgroundColor: INK,
-								borderWidth: 2,
-								pointRadius: 6,
-								pointHoverRadius: 8,
-								pointHitRadius: 12,
-								showLine: false
-							}
-						]
-					: []),
-				...(d.held
-					? [
-							{
-								label: HELD,
-								data: [d.held],
-								borderColor: INK,
-								backgroundColor: '#ffffff',
-								borderWidth: 2,
-								pointStyle: 'rectRot' as const,
-								pointRadius: 7,
-								pointHoverRadius: 9,
-								pointHitRadius: 12,
-								showLine: false
-							}
-						]
-					: []),
-				...cases.flatMap((c) => [
-					...(c.curve
-						? [
-								{
-									label: c.curveLabel,
-									data: c.curve,
-									borderColor: SLATE,
-									backgroundColor: SLATE,
-									borderWidth: 1,
-									pointRadius: 0,
-									pointHitRadius: 4
-								}
-							]
-						: []),
-					...(c.system && c.system.some((p) => p.y !== null)
-						? [
-								{
-									label: `System curve, ${c.label}`,
-									data: c.system,
-									borderColor: SLATE,
-									backgroundColor: SLATE,
-									borderWidth: 1.5,
-									borderDash: [2, 3],
-									pointRadius: 0,
-									pointHitRadius: 4,
-									spanGaps: false
-								}
-							]
-						: []),
-					...(c.operating || c.held
-						? [
-								{
-									label: c.label,
-									caseLabel: c.label,
-									data: [(c.operating ?? c.held) as ChartPoint],
-									borderColor: SLATE,
-									backgroundColor: '#ffffff',
-									borderWidth: 2,
-									pointStyle: c.marker,
-									pointRadius: 7,
-									pointHoverRadius: 9,
-									pointHitRadius: 12,
-									showLine: false
-								}
-							]
-						: [])
-				])
-			];
-			// Direct labels next to the other cases' operating points.
-			const caseLabels: Plugin<'line'> = {
-				id: 'caseLabels',
-				afterDatasetsDraw(chart) {
-					const ctx = chart.ctx;
-					ctx.save();
-					ctx.fillStyle = SLATE;
-					ctx.font = '12px system-ui, sans-serif';
-					// Above and below in turn, so the labels of close points do not overlap.
-					let n = 0;
-					chart.data.datasets.forEach((dataset, i) => {
-						const label = (dataset as { caseLabel?: string }).caseLabel;
-						const point = chart.getDatasetMeta(i).data[0];
-						if (!label || !point || !chart.isDatasetVisible(i)) return;
-						ctx.fillText(label, point.x + 9, n++ % 2 === 0 ? point.y - 9 : point.y + 19);
-					});
-					ctx.restore();
-				}
-			};
-			chart = new Chart(context, {
-				type: 'line',
-				plugins: [caseLabels],
-				data: { datasets },
-				options: {
-					animation: false,
-					responsive: true,
-					maintainAspectRatio: false,
-					parsing: false,
-					interaction: { mode: 'nearest', intersect: false },
-					scales: {
-						x: {
-							type: 'linear',
-							beginAtZero: true,
-							title: { display: true, text: `Flow (${d.flowUnit})`, color: TEXT },
-							grid: { color: GRID },
-							ticks: { color: TEXT }
-						},
-						y: {
-							type: 'linear',
-							beginAtZero: true,
-							title: { display: true, text: `Head (${d.headUnit})`, color: TEXT },
-							grid: { color: GRID },
-							ticks: { color: TEXT }
-						}
-					},
-					plugins: {
-						legend: {
-							position: 'bottom',
-							labels: {
-								color: '#1e293b',
-								usePointStyle: true,
-								boxHeight: 12,
-								// Curves as a line (dashed where dashed), the operating point as a dot.
-								generateLabels: (c) =>
-									Chart.defaults.plugins.legend.labels.generateLabels(c).map((item) => ({
-										...item,
-										pointStyle: legendStyle(c.data.datasets[item.datasetIndex ?? -1] ?? {}) as
-											'circle' | 'line'
-									}))
-							}
-						},
-						tooltip: {
-							callbacks: {
-								label: (item) => {
-									const p = item.raw as { x: number; y: number | null };
-									if (p.y === null) return '';
-									return `${item.dataset.label}: ${fmt(p.x)} ${d.flowUnit}, ${fmt(p.y)} ${d.headUnit}`;
-								}
-							}
-						}
-					}
-				}
-			});
-		});
+		);
 		return () => {
 			cancelled = true;
 			chart?.destroy();
 		};
 	});
+
+	/** The case shown's other cases' system curves, or this pump's, are being computed. */
+	const curvesLoading = $derived(loading || !!overlayProgress);
+	/** Why no image can be made now ('' when it can, export.md §5.5). */
+	const imageReason = $derived(
+		!image
+			? ''
+			: image.unavailable ||
+					(curvesLoading
+						? 'Wait until the system curve is computed, or cancel it.'
+						: !drawn
+							? 'The chart is being drawn.'
+							: '')
+	);
+	let makingImage = false;
+
+	/**
+	 * Draw the chart again at a fixed size with its caption (the pump, the case, the solve and its
+	 * status, the figure's notes) and save it as a PNG (export.md §3.4), in the chart's chunk.
+	 */
+	async function downloadImage() {
+		const module = chartModule;
+		if (!image || !module || imageReason || makingImage) return;
+		makingImage = true;
+		const { Chart, downloadChartImage, IMAGE_REASONS_IN, pumpChartConfig } = module;
+		await downloadChartImage(Chart, {
+			config: pumpChartConfig(data, otherData, {
+				speedText,
+				legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
+				format: fmt,
+				forImage: true
+			}),
+			notes: chartNotes({ data, result, system, othersControlled, reasonsIn: IMAGE_REASONS_IN }),
+			others: otherData,
+			markerSymbols: MARKER_SYMBOLS,
+			pumpName: name,
+			...(caseName ? { caseName } : {}),
+			disclaimer: DISCLAIMER,
+			source: image
+		});
+		makingImage = false;
+	}
 </script>
 
 <figure
@@ -482,7 +323,11 @@
 	<figcaption id="{id}-caption" class="text-sm font-medium">
 		Pump and system curves: {name}{caseName ? `, ${caseName}` : ''}
 	</figcaption>
-	{#if !unavailable}
+	{#if loadFailed}
+		<p class="text-sm text-slate-700" role="alert">
+			{STALE_CHUNK_MESSAGE} The table below lists its points.
+		</p>
+	{:else if !unavailable}
 		<div class="relative h-64 w-full sm:h-72" role="img" aria-label={summary}>
 			<canvas bind:this={canvas} aria-hidden="true"></canvas>
 		</div>
@@ -491,23 +336,12 @@
 			The chart cannot be drawn in this browser. The table below lists its points.
 		</p>
 	{/if}
-	{#if off}
-		<p class="text-xs text-slate-700">
-			This pump is off: it carries no flow. Its curve is shown at its {controlled
-				? 'maximum'
-				: 'set'} speed, for reference{controlled ? '; its flow control is not applied' : ''}.
-		</p>
-	{:else if data.held}
-		<p class="text-xs text-slate-700">
-			This pump is held at zero flow by its check (see its flag). The diamond marks zero flow at the
-			head across the pump.
-		</p>
+	{#if notes.pump}
+		<p class="text-xs text-slate-700">{notes.pump}</p>
 	{/if}
-	{#if system?.status === 'loading'}
+	{#if notes.curve?.kind === 'loading'}
 		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-			<p id="{id}-curve-state" class="text-xs text-slate-600">
-				Computing the system curve for this solve…
-			</p>
+			<p id="{id}-curve-state" class="text-xs text-slate-600">{notes.curve.text}</p>
 			{#if oncancel}
 				<button
 					bind:this={cancelButton}
@@ -520,10 +354,13 @@
 				</button>
 			{/if}
 		</div>
-	{:else if system?.status === 'error'}
+	{:else if notes.curve?.kind === 'error' || notes.curve?.kind === 'cancelled'}
 		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-			<p id="{id}-curve-state" class="text-xs text-red-800">
-				The system curve could not be computed: {system.message}
+			<p
+				id="{id}-curve-state"
+				class={['text-xs', notes.curve.kind === 'error' ? 'text-red-800' : 'text-slate-600']}
+			>
+				{notes.curve.text}
 			</p>
 			{#if onretry}
 				<button
@@ -533,53 +370,18 @@
 					aria-describedby="{id}-curve-state"
 					onclick={onretry}
 				>
-					Try again
+					{notes.curve.kind === 'error' ? 'Try again' : 'Compute the system curve'}
 				</button>
 			{/if}
 		</div>
-	{:else if system?.status === 'cancelled' || system === undefined}
-		<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-			<p id="{id}-curve-state" class="text-xs text-slate-600">
-				{!system
-					? 'The system curve has not been computed for this solve.'
-					: system.by === 'user'
-						? 'The system curve was not computed: you cancelled it.'
-						: system.by === 'goalSeek'
-							? 'The system curve was not computed: a goal seek was started.'
-							: 'The system curve was not computed: a new solve was started.'}
-			</p>
-			{#if onretry}
-				<button
-					bind:this={retryButton}
-					type="button"
-					class="btn btn-quiet px-2 text-blue-800"
-					aria-describedby="{id}-curve-state"
-					onclick={onretry}
-				>
-					Compute the system curve
-				</button>
-			{/if}
-		</div>
-	{:else if data.system && data.systemMissing === data.system.length}
-		<p class="text-xs text-slate-700">
-			No point of the system curve has a head, so it is not drawn; the data table says why for each
-			{NO_HEAD_REASONS}.
-		</p>
-	{:else if data.systemMissing}
-		<p class="text-xs text-slate-700">
-			{data.systemMissing} of {data.system?.length} system-curve points have no head: the line has gaps
-			there, and the data table says why for each {NO_HEAD_REASONS}.
-		</p>
+	{:else if notes.curve}
+		<p class="text-xs text-slate-700">{notes.curve.text}</p>
 	{/if}
-	{#if systemFlows}
+	{#if notes.method}
 		<!-- How the curve shown was computed, where it is shown (GOALS §4.2): the request
 			(POST /api/v1/system-curve) returns points without a trace; the pump's trace defines it. -->
 		<p class="text-xs text-slate-600">
-			System curve: the network of this solve, solved again with the pump replaced by each of
-			{systemFlows} ({controlled ? 'its flow control replaced by that fixed flow; ' : ''}other pumps
-			running{othersControlled ? ', speed-controlled ones regulating to their setpoints' : ''},
-			valves following their rules); the system head at each flow is the EGL at the discharge minus
-			the EGL at the suction.
+			{notes.method}
 			{#if ontrace}
 				<button
 					type="button"
@@ -589,12 +391,8 @@
 			{/if}
 		</p>
 	{/if}
-	{#if data.extrapolated.length}
-		<p class="text-xs text-slate-600">
-			Dashed: the pump curve extrapolated beyond its data{data.range
-				? ` (${fmt(data.range[0])} to ${fmt(data.range[1])} ${data.flowUnit} at this speed)`
-				: ''}, along the curve's end slope, as the solver does.
-		</p>
+	{#if notes.extrapolated}
+		<p class="text-xs text-slate-600">{notes.extrapolated}</p>
 	{/if}
 	{#if others.length}
 		<fieldset class="space-y-1">
@@ -668,16 +466,36 @@
 			{/if}
 		{/if}
 	{/if}
-	{#if !unavailable}
-		<button
-			type="button"
-			class="btn btn-quiet px-2 text-blue-800"
-			aria-expanded={tableShown}
-			aria-controls="{id}-table"
-			onclick={() => (showTable = !showTable)}
-		>
-			{tableShown ? 'Hide data table' : 'Show data table'}
-		</button>
+	{#if !unavailable && !loadFailed}
+		<div class="flex flex-wrap items-center gap-x-3">
+			<button
+				type="button"
+				class="btn btn-quiet px-2 text-blue-800"
+				aria-expanded={tableShown}
+				aria-controls="{id}-table"
+				onclick={() => (showTable = !showTable)}
+			>
+				{tableShown ? 'Hide data table' : 'Show data table'}
+			</button>
+			{#if image}
+				<!-- The chart drawn again at a fixed size, with its caption, as a PNG (export.md §5.5). -->
+				<button
+					type="button"
+					class="btn btn-quiet px-2 text-blue-800"
+					data-chart-image
+					aria-label="Download image of the pump and system curves: {name}{caseName
+						? `, ${caseName}`
+						: ''}"
+					aria-disabled={!!imageReason}
+					aria-describedby={imageReason ? `${id}-image-reason` : undefined}
+					title={imageReason || undefined}
+					onclick={() => void downloadImage()}
+				>
+					<Icon name="download" class="size-4" /> Download image
+				</button>
+				{#if imageReason}<span id="{id}-image-reason" class="sr-only">{imageReason}</span>{/if}
+			{/if}
+		</div>
 	{/if}
 	{#if tableShown}
 		<div id="{id}-table" class="space-y-3">

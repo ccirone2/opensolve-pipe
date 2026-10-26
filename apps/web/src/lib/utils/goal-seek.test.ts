@@ -660,6 +660,17 @@ describe("Run's reasons (§6.8) and the request", () => {
 		expect(calculatingReason('solveAll', 'goalSeek')).toBe(
 			'A solve is running; wait for it or cancel it.'
 		);
+		// Export (proposal export.md §5.2): never from results about to be replaced.
+		expect(calculatingReason(null, 'export', true)).toBe('');
+		expect(calculatingReason('solve', 'export', true)).toBe(
+			'A solve is running; export when it finishes, or Cancel stops it.'
+		);
+		expect(calculatingReason('solveAll', 'export', true)).toBe(
+			'Solve all is running; export when it finishes, or Cancel stops it.'
+		);
+		expect(calculatingReason('goalSeek', 'export')).toBe(
+			'A goal seek is running; export when it finishes, or Cancel in the header stops it.'
+		);
 	});
 
 	it('marks a goal or variable already chosen, by the published uniqueBy keys', () => {
@@ -1135,6 +1146,29 @@ describe('tables and the report (§6.9)', () => {
 		expect(stale).toContain('Case: scenario Winter (S2)');
 		expect(stale).toContain('Out of date: the project changed after this goal seek.');
 		expect(stale).toContain('1 physically invalid result: NPSH available is below NPSH required.');
+	});
+
+	it('writes the run time from a given UTC offset, whatever the machine’s time zone (export.md §2.9)', () => {
+		const response = goalSeekResponse();
+		const at = (utcOffsetMinutes: number) =>
+			goalSeekReport(response, request(), {
+				...words(),
+				projectName: 'P',
+				caseText: 'base case',
+				// 2026-10-25 07:30 UTC.
+				startedAt: Date.UTC(2026, 9, 25, 7, 30),
+				utcOffsetMinutes,
+				stale: false,
+				invalidFlags: [],
+				converged: true
+			}).split('\n')[2];
+		expect(at(120)).toBe(
+			'Run: 2026-10-25 09:30; 3 trial solves in 0.4 s; calculation method 1.2.0'
+		);
+		expect(at(-300)).toBe(
+			'Run: 2026-10-25 02:30; 3 trial solves in 0.4 s; calculation method 1.2.0'
+		);
+		expect(at(-480)).toMatch(/^Run: 2026-10-24 23:30;/);
 	});
 
 	it("locates the server's input problems at their variable or goal", () => {

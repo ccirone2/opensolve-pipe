@@ -22,6 +22,12 @@ controls to their setpoints with nothing fixing the pressure behind them; and th
 reported results are checked against their definitions (``assigned_flow_problems``). Every head
 we report must be determined (``undetermined_heads``, for every network: nodes with demands are
 where a head could be reported that nothing fixes).
+
+Pumps and valves without a result (state 'isolated' in ``our_states``), which the checks above
+skip, are held to the rule for when one has none (SDD §4.10, TSD §5.4;
+``missing_result_problems``), so a result dropped where its values are determined is caught;
+``missing_result_check`` measures that by deleting each result of the fuzz networks in turn.
+``self_check`` runs every check of a converged result of ours.
 """
 
 import itertools
@@ -1032,15 +1038,20 @@ def headless_infeasible(project: Project, flows: Flows, egl: Heads, states: Stat
 # --------------------------------------------------------------------------- our result, together
 
 
-def floating_flagged(result: SolvedState) -> set[str]:
-    """Components named by UNDETERMINED_PRESSURE flags."""
+def section_flagged(result: SolvedState, *codes: str) -> set[str]:
+    """Components named (``details.componentIds``) by the flags of the given codes."""
     return {
         cid.strip()
         for f in result.flags
-        if f.code == "UNDETERMINED_PRESSURE"
+        if f.code in codes
         for cid in str(f.details.get("componentIds", "")).split(",")
         if cid.strip()
     }
+
+
+def floating_flagged(result: SolvedState) -> set[str]:
+    """Components named by UNDETERMINED_PRESSURE flags."""
+    return section_flagged(result, "UNDETERMINED_PRESSURE")
 
 
 CONTROL_STATUS = {
@@ -1149,6 +1160,138 @@ def zero_flow_and_floating(
     zf = zero_flow_infeasible(project, egl_o, states_o, fports)
     hb = headless_infeasible(project, flows_o, egl_o, states_o)
     return ([f"zero flow impossible in a headless section: {zf}"] if zf else []) + fprob + hb
+
+
+# --------------------------------------------------------------------------- missing results
+# Written from the specs alone (SDD §4.10, TSD §5.4): a pump or valve has no result only where its
+# head difference is not determined, and every check above skips it there (state 'isolated',
+# ``our_states``). ``missing_result_problems`` holds each such element to that rule.
+
+
+def headless_sections(
+    project: Project, flows: Flows, egl: Heads, states: States, abs_q: float
+) -> tuple[dict[str, str], set[str]]:
+    """(section per port without a head, the sections that carry flow). Headless ports are
+    joined through connections, ideal junctions and plugs (one node, ``nc.node_of_port``),
+    Crane branches (as ``nc.isolated_ports`` joins them) and the pumps and valves whose reported
+    state ties their two port heads (``connects_heads``); a section carries flow when one of
+    those connections or elements carries more than abs_q (a floating section, SDD §4.10: its
+    flows determined, its pressure level not; one without flow is closed off)."""
+    nodes = nc.node_of_port(project)
+    unknown = {k for k in nodes if k not in egl}
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        parent[find(nodes[a])] = find(nodes[b])
+
+    carried: list[tuple[str, float]] = []  # (a port, |flow| through the edge it joins)
+    for conn in project.connections:
+        a, b = keys(conn)
+        if a in unknown and b in unknown:
+            union(a, b)
+            carried.append((a, abs(flows[conn.id])))
+    for c in project.components:
+        if nc.is_crane_branch(c):
+            ports = [k for k in (f"{c.id}:{p.id}" for p in c.ports) if k in unknown]
+            for k in ports[1:]:
+                union(ports[0], k)
+        elif isinstance(c, Pump | IsolationValve | CheckValve | ControlValve):
+            a, b = nc.two_port_ends(c)
+            st = states.get(c.id)
+            joined = st not in (None, "isolated") and connects_heads(c, st)
+            if a in unknown and b in unknown and joined:
+                union(a, b)
+                carried.append((a, abs(nc.port_inflow(project, a, flows))))
+    flowing = {find(nodes[a]) for a, q in carried if q > abs_q}
+    return {k: find(nodes[k]) for k in unknown}, flowing
+
+
+def missing_result_problems(
+    project: Project, result: SolvedState, flows: Flows, egl: Heads, states: States
+) -> list[str]:
+    """Every pump and valve without a result held to the rule for when one has none (SDD
+    §4.10, TSD §5.4). An element in a section closed off from every fixed-pressure boundary
+    carries no flow and has no head and no result (flagged ISOLATED_SECTION); in a floating
+    section (flows determined, pressure level not, ``headless_sections``) its result is
+    reported, and an element between it and another head has none (flagged
+    UNDETERMINED_PRESSURE); a pump held at no flow with one side closed off is reported
+    dead-headed, and with both sides closed off has no result. So an element without a result
+    must:
+
+    - carry no flow: |flow| at both ports within the continuity tolerance of ``law_problems``;
+    - have a port without a head (none where both ports have heads, a solved section);
+    - not have both ports in one floating section (there its result is reported): not in one
+      section that carries flow, nor in two such sections that one UNDETERMINED_PRESSURE flag
+      names together (that flag is one section of the solve's, which the element joins: a
+      component with every port in each of the two is among its names);
+    - if it is a pump that is on with one side at a head, have its other side in a floating
+      section, not closed off (closed off, the rules hold it at no flow, a running pump would
+      tie the heads, and it is reported dead-headed);
+    - be named, for each port without a head, by the flag that says why: UNDETERMINED_PRESSURE
+      where that port's section carries flow, ISOLATED_SECTION where it carries none (so a
+      section without flow that the element joins to a floating one, at zero flow, is not
+      taken for a closed-off one: the flag would not name the element).
+
+    Every other check skips such an element, so a result dropped where its values are
+    determined shows only here. [] when every missing result is accounted for."""
+    qmax = max((abs(q) for q in flows.values()), default=0.0)
+    abs_q = 1e-9 * qmax + 1e-14  # as law_problems
+    section, flowing = headless_sections(project, flows, egl, states, abs_q)
+    closed_off = section_flagged(result, "ISOLATED_SECTION")
+    in_floating = section_flagged(result, "UNDETERMINED_PRESSURE")
+    floats = [  # the components each UNDETERMINED_PRESSURE flag names: one floating section
+        {i.strip() for i in str(f.details.get("componentIds", "")).split(",") if i.strip()}
+        for f in result.flags
+        if f.code == "UNDETERMINED_PRESSURE"
+    ]
+    inside: dict[str, set[str]] = defaultdict(set)  # section -> components with every port in it
+    for c in project.components:
+        of_ports = [section.get(f"{c.id}:{p.id}") for p in c.ports]
+        if of_ports[0] is not None and all(s == of_ports[0] for s in of_ports):
+            inside[of_ports[0]].add(c.id)
+    out = []
+    for c in project.components:
+        if isinstance(c, Pump):
+            if c.id in result.pump_results:
+                continue
+        elif isinstance(c, IsolationValve | CheckValve | ControlValve):
+            if c.id in result.valve_results:
+                continue
+        else:
+            continue
+        ends = nc.two_port_ends(c)
+        q = max(abs(nc.port_inflow(project, k, flows)) for k in ends)
+        headless = [k for k in ends if k not in egl]
+        why = []
+        if q > abs_q:
+            why.append(f"it carries {q:.6g} m³/s")
+        if not headless:
+            why.append("both its ports have heads")
+        elif len(headless) == 2:
+            s, t = section[ends[0]], section[ends[1]]
+            joined = any(inside[s] & f and inside[t] & f for f in floats)
+            if s == t and s in flowing:
+                why.append("both its ports are in one floating section")
+            elif s in flowing and t in flowing and joined:
+                why.append("one UNDETERMINED_PRESSURE flag names both its sides: one section")
+        elif isinstance(c, Pump) and c.status == "on" and section[headless[0]] not in flowing:
+            why.append(f"it is on with {headless[0]} closed off and its other side at a head")
+        for k in headless:
+            floating = section[k] in flowing
+            if c.id not in (in_floating if floating else closed_off):
+                code = "UNDETERMINED_PRESSURE" if floating else "ISOLATED_SECTION"
+                kind = "a floating section" if floating else "a section without flow"
+                why.append(f"{k} is in {kind}, and no {code} flag names it")
+        if why:
+            out.append(f"no result for {c.id}: {'; '.join(why)}")
+    return out
 
 
 # --------------------------------------------------------------------------- assigned flows
@@ -1599,3 +1742,23 @@ def assigned_flow_problems(project: Project, result: SolvedState, flows: Flows) 
             )
         out += [f"assigned flow {c.id}: {b}" for b in bad]
     return out
+
+
+# --------------------------------------------------------------------------- our result, checked
+
+
+def self_check(project: Project, result: SolvedState) -> list[str]:
+    """Every independent check of a converged result of ours, as ``fuzz`` records it in
+    ``self_check`` (with the plug twin's, ``fuzz.plug_twin_problems``): the laws, the status
+    rules, the headless sections, the flow controls, determined heads, the assigned-flow nodes
+    and the pumps and valves without a result. [] when the result passes them all."""
+    flows, egl, states = ours_solution(project, result)
+    return (
+        law_problems(project, flows, egl, states)
+        + ["status " + s for s in status_problems(project, flows, egl, states)]
+        + zero_flow_and_floating(project, flows, egl, states, result)
+        + control_problems(project, result, flows, egl, states)
+        + undetermined_heads(project, egl, states)
+        + assigned_flow_problems(project, result, flows)
+        + missing_result_problems(project, result, flows, egl, states)
+    )

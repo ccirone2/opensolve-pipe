@@ -287,15 +287,7 @@ def _run_seed(
         out["expected"] = [[e.kind, e.text] for e in expected]
     twin = plug_twin_problems(project, result)  # converged or not
     if result.converged:
-        out["self_check"] = (
-            ck.law_problems(project, flows_o, egl_o, states_o)
-            + ["status " + s for s in ck.status_problems(project, flows_o, egl_o, states_o)]
-            + ck.zero_flow_and_floating(project, flows_o, egl_o, states_o, result)
-            + ck.control_problems(project, result, flows_o, egl_o, states_o)
-            + ck.undetermined_heads(project, egl_o, states_o)
-            + ck.assigned_flow_problems(project, result, flows_o)
-            + twin
-        )
+        out["self_check"] = ck.self_check(project, result) + twin
     elif twin:
         out["self_check"] = twin
     if out.get("self_check"):
@@ -445,6 +437,7 @@ def _run_seed(
     ours_laws = ours_laws + ck.control_problems(project, result, flows_o, egl_o, states_o)
     ours_laws = ours_laws + ck.undetermined_heads(project, egl_o, states_o)
     ours_laws = ours_laws + ck.assigned_flow_problems(project, result, flows_o)
+    ours_laws = ours_laws + ck.missing_result_problems(project, result, flows_o, egl_o, states_o)
     ep_laws_f, ep_rules_f = ep_valid(project, ep, egl_e, states_e)
     out.update(
         ours_rules=ours_rules,

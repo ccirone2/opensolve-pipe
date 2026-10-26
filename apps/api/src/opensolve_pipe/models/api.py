@@ -234,6 +234,13 @@ class SystemCurvePoint(OutputModel):
         )
     )
     message: str = Field(description="Why the point has no head ('' when it has one)")
+    npsh_available: float | None = Field(
+        description=(
+            "NPSHa at the pump's suction at this flow, m: (EGL_s - z_s) + (p_atm - p_vap)/(ρg), "
+            "as the solve's npshAvailable; null when the point has no head, the fluid has no "
+            "vapor pressure, or the suction's pressure level is undetermined"
+        )
+    )
     reason: SystemCurveReason | None = Field(description=_REASON_DESCRIPTION)
     component_ids: list[str] = Field(
         description=(

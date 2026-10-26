@@ -76,6 +76,7 @@ from .budget import SolveDeadlineError
 from .builder import BuiltNetwork, PumpData, build_network
 from .gga import CONTINUITY_ATOL, CONTINUITY_RTOL, solve_gga
 from .network import LinkMode, LinkState
+from .npsh import atmospheric_pressure, npsh_available
 from .status import (
     HTOL,
     KIND_NAMES,
@@ -155,6 +156,10 @@ class SystemCurvePointResult:
     """Why the point has no head ('' when it has one)."""
     reason: PointReason | None = None
     """Why the point has no head, as data (None when it has one)."""
+    npsh_available: float | None = None
+    """NPSHa at the pump's suction at this flow, m (``npsh.npsh_available`` of the point's
+    suction EGL, as the solve's own NPSHa); None without a head, a vapor pressure or the
+    atmospheric pressure, or where the suction's pressure level is undetermined."""
 
 
 def find_pump(project: Project, pump_id: str) -> Pump:
@@ -618,6 +623,9 @@ class _Solved:
     pump's sides."""
     reason: PointReason | None = None
     """'switch', 'not_converged': ``detail`` as data (``_message`` builds the others')."""
+    suction_egl: float | None = None
+    """'head': EGL at the suction, m, where its level is determined (not on a floating
+    section, not closed off); None otherwise."""
 
 
 def _read(built: BuiltNetwork, data: PumpData, q: float, outer: OuterLoopResult) -> _Solved:
@@ -640,7 +648,9 @@ def _read(built: BuiltNetwork, data: PumpData, q: float, outer: OuterLoopResult)
     if not starved and not free_level and math.isfinite(head):
         switch = _at_switch(built, outer, data, q, head)
         if switch is None:
-            return _Solved(head, "head")
+            h_s = float(gga.heads[suction])
+            level = math.isfinite(h_s) and suction not in floating
+            return _Solved(head, "head", suction_egl=h_s if level else None)
         return _Solved(None, "switch", switch[0], reason=switch[1])
     closing = tuple(_closing(built, outer, data))
     if starved:
@@ -770,6 +780,7 @@ def system_curve_points(
     tolerance: float,
     max_iterations: int,
     warm: OuterLoopResult | None = None,
+    p_atm: float | None = None,
 ) -> list[SystemCurvePointResult]:
     """Solve the network with pump ``pump_id`` replaced by each fixed flow (module docstring).
 
@@ -786,8 +797,20 @@ def system_curve_points(
     point beyond ``flow_limit``, or below its floor, is not, since no steady state carries it.
     The next point
     continues from the result used (not from a solve with an FCV held open). The outer loop
-    applies its own branch laws to the network, so one built network serves every point."""
+    applies its own branch laws to the network, so one built network serves every point.
+    With ``p_atm`` (Pa absolute) and the fluid's vapor pressure, a point with a head also gets
+    the NPSHa at the pump's suction (``npsh.npsh_available``, as the solve's)."""
     data = built.pumps[pump_id]
+    p_vap = built.fluid.vapor_pressure
+    suction_z = built.network.nodes[built.network.node_index[data.suction]].elevation
+
+    def npsha(solved: _Solved) -> float | None:
+        if p_atm is None or p_vap is None or solved.suction_egl is None:
+            return None
+        return npsh_available(
+            solved.suction_egl, suction_z, p_atm, p_vap, built.fluid.density, built.g
+        )
+
     way_through = has_way_through(built, pump_id)
     limit = flow_limit(built, pump_id) if way_through else FlowLimit(math.inf, (), 0)
     can_open = any(
@@ -863,7 +886,11 @@ def system_curve_points(
         if outer.converged:
             previous = outer
         if solved.head is not None:
-            points.append(SystemCurvePointResult(float(q), solved.head, True, ""))
+            points.append(
+                SystemCurvePointResult(
+                    float(q), solved.head, True, "", npsh_available=npsha(solved)
+                )
+            )
         else:
             message, reason = (
                 _message(q, solved, way_through, warm_start, opened)
@@ -912,5 +939,6 @@ def system_curve(
         flows,
         tolerance=options.tolerance,
         max_iterations=options.max_iterations,
+        p_atm=atmospheric_pressure(project)[0],
     )
     return SystemCurve(pump_id, points, flow_min, upper)

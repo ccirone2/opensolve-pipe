@@ -123,6 +123,14 @@ export function chartImageFileName(input: ChartImageNameInput): string {
 /** The chart's size in CSS px; it is drawn at 2×. */
 export const CHART_WIDTH = 800;
 export const CHART_HEIGHT = 440;
+/** Each panel below the head (efficiency, power, NPSH: proposal pump-chart.md §4.5) adds this. */
+export const PANEL_HEIGHT = 150;
+
+/** The plot's height for a configuration: the head panel's, plus each stacked panel's. */
+export function plotHeight(config: PumpChartConfig): number {
+	const scales = Object.keys(config.options?.scales ?? {}).filter((id) => id.startsWith('y'));
+	return CHART_HEIGHT + Math.max(0, scales.length - 1) * PANEL_HEIGHT;
+}
 const SCALE = 2;
 /** Text is wrapped at 760 CSS px (1,520 px), with 20 CSS px on each side. */
 const MARGIN = 20;
@@ -169,8 +177,9 @@ export async function renderChartImage(
 	// The chart, on a detached canvas: Chart.js reads its CSS size from these attributes when it
 	// is not responsive, and draws it synchronously without animation.
 	const plot = document.createElement('canvas');
+	const plotH = plotHeight(config);
 	plot.width = CHART_WIDTH;
-	plot.height = CHART_HEIGHT;
+	plot.height = plotH;
 	const plotContext = plot.getContext('2d');
 	if (!plotContext) throw new Error('this browser cannot draw the chart');
 	const chart = new Chart(plotContext, config);
@@ -200,7 +209,7 @@ export async function renderChartImage(
 		const height = (blocks: Block[]) =>
 			blocks.reduce((sum, b) => sum + b.before + b.lines.length * b.lineHeight, 0);
 		const headerHeight = MARGIN + height(header) + 12;
-		const total = headerHeight + CHART_HEIGHT + 12 + height(footer) + MARGIN;
+		const total = headerHeight + plotH + 12 + height(footer) + MARGIN;
 
 		// Setting the size clears the canvas and its state: measure first, then paint.
 		image.width = CHART_WIDTH * SCALE;
@@ -222,8 +231,8 @@ export async function renderChartImage(
 			}
 		};
 		paint(header, MARGIN);
-		context.drawImage(plot, 0, headerHeight, CHART_WIDTH, CHART_HEIGHT);
-		paint(footer, headerHeight + CHART_HEIGHT + 12);
+		context.drawImage(plot, 0, headerHeight, CHART_WIDTH, plotH);
+		paint(footer, headerHeight + plotH + 12);
 
 		return await new Promise<Blob>((resolve, reject) =>
 			image.toBlob(
@@ -265,6 +274,7 @@ export function imageNoteLines(
 		notes.curve?.text,
 		notes.method,
 		notes.extrapolated,
+		...notes.panels,
 		casesNote(others, symbols)
 	].filter((line): line is string => !!line);
 }

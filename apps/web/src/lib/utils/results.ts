@@ -1055,6 +1055,59 @@ export function rowsForElement(
 		.filter((t) => t.rows.length > 0);
 }
 
+/** One value of an element's summary: a results-table cell with that column's label and unit. */
+export interface SummaryItem {
+	key: string;
+	label: string;
+	unit?: string;
+	cell: Cell;
+}
+
+/** An element's key results from the last solve, shown beside its inputs in Build. */
+export interface ElementSummary {
+	items: SummaryItem[];
+	flags: Flag[];
+}
+
+/**
+ * The columns an element's summary shows, by the results table its row is in (the first that has
+ * it, in rowsForElement's order): what a designer checks first for that kind of element.
+ */
+const SUMMARY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+	'Pipe connection': ['flow', 'velocity', 'headLoss'],
+	Pump: ['status', 'flow', 'head', 'npshMargin'],
+	Valve: ['state', 'flow', 'pressureDrop'],
+	Branch: ['portFlows'],
+	Boundary: ['outflow'],
+	'Assigned flow': ['pressure'],
+	Ports: ['pressure']
+};
+
+/**
+ * An element's key results, from the same rows and formatting as the results tables, so the
+ * values match them exactly; values the solve has none of ("—") are left out. Null when the
+ * element has no results in this solve (added after it, or no longer in the project).
+ */
+export function elementSummary(
+	project: Project,
+	solved: SolvedState,
+	prefs: UnitPreferences,
+	element: ElementRef,
+	inputs: Project | null = null
+): ElementSummary | null {
+	const found = rowsForElement(project, solved, prefs, element, inputs)[0];
+	const row = found?.rows[0];
+	if (!found || !row) return null;
+	const items = (SUMMARY_COLUMNS[found.title] ?? []).flatMap((key): SummaryItem[] => {
+		const column = found.table.columns.find((c) => c.key === key);
+		const cell = row.cells[key];
+		if (!column || cell === undefined || cellLines(cell).every((line) => line.endsWith('—')))
+			return [];
+		return [{ key, label: column.label, ...(column.unit ? { unit: column.unit } : {}), cell }];
+	});
+	return { items, flags: row.flags };
+}
+
 /** The node with the lowest absolute static pressure (closest to vapor pressure), if any. */
 export function lowestPressureNode(solved: SolvedState): NodeResult | null {
 	let lowest: NodeResult | null = null;
@@ -1104,4 +1157,95 @@ export function versionsBetween<T extends { version: string }>(
 	return versions
 		.filter((v) => compareVersions(v.version, low) > 0 && compareVersions(v.version, high) <= 0)
 		.sort((x, y) => compareVersions(x.version, y.version));
+}
+
+/** The first column's sort key (the element's name). */
+export const NAME_SORT_KEY = '';
+
+export type SortDirection = 'ascending' | 'descending';
+
+export interface TableSort {
+	/** A column key, or NAME_SORT_KEY for the first column. */
+	key: string;
+	direction: SortDirection;
+}
+
+/** A displayed number back to a number: "18.98", "-0.5", "2.555×10⁻⁶"; null for anything else. */
+export function displayedNumber(text: string): number | null {
+	const plain = /^-?\d+(\.\d+)?$/.exec(text);
+	if (plain) return Number(text);
+	const scientific = /^(-?\d+(?:\.\d+)?)×10([⁻⁰¹²³⁴⁵⁶⁷⁸⁹]+)$/.exec(text);
+	if (!scientific) return null;
+	const digits = Object.fromEntries(Object.entries(SUPERSCRIPT).map(([d, s]) => [s, d]));
+	const power = [...(scientific[2] ?? '')].map((c) => digits[c] ?? '').join('');
+	return Number(`${scientific[1]}e${power}`);
+}
+
+/**
+ * What a cell sorts by: the number it shows ("≈ 0", round-off below the solver's resolution, is
+ * 0), else its text; a cell of several values (one per pipe or port) by its largest number; null
+ * for no value ("—"), which sorts last either way.
+ */
+export function sortValue(cell: Cell | undefined): number | string | null {
+	if (cell === undefined) return null;
+	// Several values: a labelled part's value ("Pipe 1: 2.312" sorts by 2.312), or each line.
+	const texts = Array.isArray(cell)
+		? cell.map((part) => (typeof part === 'string' ? part : valueText(part.value)))
+		: [];
+	const values = (Array.isArray(cell) ? texts : [valueText(cell)]).map((text) =>
+		text === '≈ 0' ? 0 : displayedNumber(text)
+	);
+	const numbers = values.filter((v): v is number => v !== null);
+	if (numbers.length) return Math.max(...numbers);
+	const text = Array.isArray(cell) ? (texts[0] ?? '') : valueText(cell);
+	return text === '—' || text === '' ? null : text;
+}
+
+/**
+ * Rows in a table's sort order: by the values shown in that column (numbers as numbers, text in
+ * natural order), rows without a value last, ties in the table's own order. Null keeps the order.
+ */
+export function sortRows(rows: readonly Row[], sort: TableSort | null): Row[] {
+	if (!sort) return [...rows];
+	const sign = sort.direction === 'ascending' ? 1 : -1;
+	const keyOf = (row: Row) =>
+		sort.key === NAME_SORT_KEY ? row.name : sortValue(row.cells[sort.key]);
+	return rows
+		.map((row, index) => ({ row, index, value: keyOf(row) }))
+		.sort((a, b) => {
+			if (a.value === null || b.value === null) {
+				return a.value === b.value ? a.index - b.index : a.value === null ? 1 : -1;
+			}
+			const order =
+				typeof a.value === 'number' && typeof b.value === 'number'
+					? a.value - b.value
+					: String(a.value).localeCompare(String(b.value), undefined, { numeric: true });
+			return order === 0 ? a.index - b.index : sign * order;
+		})
+		.map((entry) => entry.row);
+}
+
+/** Whether a column can be sorted: some row shows a value in it. */
+export function sortableColumn(rows: readonly Row[], key: string): boolean {
+	return key === NAME_SORT_KEY || rows.some((row) => sortValue(row.cells[key]) !== null);
+}
+
+/** The port with the highest static pressure, if any. */
+export function highestPressureNode(solved: SolvedState): NodeResult | null {
+	let highest: NodeResult | null = null;
+	for (const node of Object.values(solved.nodeResults)) {
+		if (!highest || node.pressure > highest.pressure) highest = node;
+	}
+	return highest;
+}
+
+/** The pump with the smallest NPSH margin (only pumps with one: a fluid with a vapor pressure). */
+export function smallestNpshMargin(solved: SolvedState): { id: string; margin: number } | null {
+	let smallest: { id: string; margin: number } | null = null;
+	for (const [id, pump] of Object.entries(solved.pumpResults)) {
+		const margin = pump.npshMargin;
+		if (margin === null || margin === undefined) continue;
+		if (!smallest || margin < smallest.margin) smallest = { id, margin };
+	}
+	return smallest;
 }

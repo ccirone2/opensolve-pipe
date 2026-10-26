@@ -14,11 +14,19 @@
 	affected.
 
 	Scenarios (proposal scenario-manager.md §6.2): the Scenarios button, right after the project
-	name (it ends the first row on phones), opens the scenario manager and counts the scenarios.
+	name (it ends the first row on phones), opens the scenario manager and counts the scenarios. It
+	is offered once the network has a component, or the project has scenarios.
 	Solve solves the case shown; once the project has scenarios its accessible name names the case
 	("Solve Winter"). While Solve all runs, Solve shows its spinner and Cancel stops the run. A solve
 	goes on after a case switch: Solve keeps its spinner and Cancel, which then names the case it
 	stops ("Cancel solving Winter"), whichever case is shown.
+
+	The fluid chip (Water · 20 °C, the case's fluid) keeps the fluid every result depends on in
+	view and opens the settings at the Fluid section. It is shown from 1024 px: below that the
+	project name needs the room, and the fluid is in Settings and first in the results' Summary.
+
+	Ctrl/⌘+Enter solves from anywhere in the workspace but a dialog (Workspace.svelte); Solve says
+	so in its tooltip and aria-keyshortcuts.
 
 	Goal seek (proposal goal-seek.md §6.8): while one runs, Solve is unavailable with the reason (no
 	spinner: it is not solving) and Cancel ("Cancel goal seek") stops the goal seek, also with its
@@ -29,6 +37,7 @@
 	import { homeHref } from '$lib/components/links';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import TextField from '$lib/components/ui/TextField.svelte';
+	import { fluidChipText } from '$lib/utils/labels';
 	import { stringLimits } from '$lib/utils/schema-bounds';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import { calculatingReason } from '$lib/utils/goal-seek';
@@ -46,6 +55,8 @@
 	const undoText = $derived(store.undoLabel ? `Undo ${store.undoLabel}` : 'Undo');
 	const redoText = $derived(store.redoLabel ? `Redo ${store.redoLabel}` : 'Redo');
 	const empty = $derived(!ws.project.components.length);
+	/** The case's fluid in a few words, in display units ("Water · 20 °C"). */
+	const fluidText = $derived(fluidChipText(ws.project.fluid, ws.units));
 	const running = $derived(!!store.run);
 	/** A solve in flight, of the case shown or another (D10: it can always be cancelled). */
 	const solvingCase = $derived(store.solvingCase);
@@ -113,24 +124,27 @@
 					}, 'rename project')}
 			/>
 		</div>
-		<button
-			type="button"
-			class="btn btn-icon relative shrink-0 md:w-auto md:px-3"
-			aria-label={count ? `Scenarios (${count})` : 'Scenarios'}
-			onclick={() => {
-				ws.managerFocus = null;
-				ws.managerOpen = true;
-			}}
-		>
-			<!-- Its label from 768 px: at 640 px the one row also holds Cancel with its text. -->
-			<Icon name="layers" /><span class="hidden md:inline">Scenarios</span>
-			{#if count}
-				<span
-					class="absolute -top-1 -right-1 min-w-5 rounded-full bg-teal-700 px-1 text-center text-xs leading-5 font-semibold text-white md:static md:bg-teal-100 md:text-teal-900"
-					aria-hidden="true">{count}</span
-				>
-			{/if}
-		</button>
+		<!-- Offered once there is a network to vary, or scenarios to manage. -->
+		{#if !empty || count}
+			<button
+				type="button"
+				class="btn btn-icon relative shrink-0 md:w-auto md:px-3"
+				aria-label={count ? `Scenarios (${count})` : 'Scenarios'}
+				onclick={() => {
+					ws.managerFocus = null;
+					ws.managerOpen = true;
+				}}
+			>
+				<!-- Its label from 768 px: at 640 px the one row also holds Cancel with its text. -->
+				<Icon name="layers" /><span class="hidden md:inline">Scenarios</span>
+				{#if count}
+					<span
+						class="absolute -top-1 -right-1 min-w-5 rounded-full bg-teal-700 px-1 text-center text-xs leading-5 font-semibold text-white md:static md:bg-teal-100 md:text-teal-900"
+						aria-hidden="true">{count}</span
+					>
+				{/if}
+			</button>
+		{/if}
 		<div role="toolbar" aria-label="Project" class="flex w-full items-center gap-1 sm:w-auto">
 			<button
 				type="button"
@@ -153,6 +167,21 @@
 				<Icon name="redo" />
 			</button>
 			<span class="flex-1"></span>
+			<!-- The fluid every result depends on, in view; it opens its settings. From 1024 px only:
+				below that the header's rows have no room left for it beside the project name. -->
+			<button
+				type="button"
+				class="btn btn-quiet hidden min-w-0 px-2 text-sm font-normal text-slate-700 lg:inline-flex"
+				aria-label="Fluid: {fluidText}"
+				title="Fluid: {fluidText}"
+				onclick={() => {
+					ws.settingsSection = 'fluid';
+					ws.settingsOpen = true;
+				}}
+			>
+				<Icon name="droplet" class="size-4 shrink-0 text-sky-700" />
+				<span class="max-w-[14rem] truncate">{fluidText}</span>
+			</button>
 			{#if solving || seeking}
 				<!-- The server stops a solve whose client has gone (D10); the results shown before stay. -->
 				<button
@@ -172,7 +201,8 @@
 				data-solve-button
 				aria-disabled={!canSolve}
 				aria-describedby={solveReason ? `${id}-solve-reason` : undefined}
-				title={solveReason || undefined}
+				aria-keyshortcuts="Control+Enter Meta+Enter"
+				title={solveReason || 'Solve (Ctrl+Enter or ⌘+Enter)'}
 				onclick={solve}
 			>
 				<Icon

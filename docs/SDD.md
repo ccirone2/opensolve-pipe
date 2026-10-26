@@ -131,12 +131,13 @@ The **workspace** (`components/workspace/Workspace.svelte`) has a header, a **Bu
 PanelNavigator
 ├── Breadcrumb                    // the path walked; each step goes back to that component
 ├── Jump to → JumpToDialog        // every component, with a filter; marks those not connected to the start
-├── ComponentPanel                // the current component: type, id, name
+├── ComponentPanel                // the current component: type, id, name (edited in place),
+│   │                             //   its last-solve results (ResultStrip)
 │   ├── ComponentActions          // Add after, Add before, Add branch, Delete
 │   │   ├── AddComponentDialog    // at a free port / into a connection / as a branch (tee or wye)
 │   │   └── DeleteDialog          // optional "Join A and B" (keep the neighbors connected)
 │   ├── Properties tab
-│   │   ├── name, elevation
+│   │   ├── elevation
 │   │   ├── per-type form         // forms/: Reservoir, ReferenceNode, AssignedFlow, Branch (tee, wye),
 │   │   │                         //   Pump (+ PumpCurveEditor), IsolationValve, CheckValve, ControlValve
 │   │   └── PortsEditor           // port sizes and elevations, what each connects to; reservoir ports
@@ -160,7 +161,7 @@ An empty project shows "Start the network": choose and add the first component (
 - **Next.** With one way forward, Next goes there. A way forward is a connection of the current component other than the one it was reached by. With several ways (a tee, a multi-port reservoir), or when a way leads back to a component already on the breadcrumb (a loop), the **PathChooser** asks which to take. A loop is offered as a jump back, which cuts the breadcrumb back to that component instead of extending it. With no way forward but a free port, Next opens that port in the Piping tab so it can be connected.
 - **Previous** steps back along the breadcrumb, and each breadcrumb step goes back to that component.
 - **Jump to** opens any component. If it is on the breadcrumb, the walk goes back to it; otherwise the breadcrumb is rebuilt as the shortest path (fewest connections) from the start. A component not connected to the start begins a new walk.
-- **From the results.** Clicking an element in the results (a table row, a flag, an input problem, a topology issue) starts the walk there. For a connection, the walk starts at its `from` component with the connection's piping open.
+- **From the results.** Clicking an element in the results (a table row, a flag, an input problem, a topology issue) moves the walk to it as Jump to does, so Previous and Next keep naming its neighbours. For a connection, the walk moves to its `from` component with the connection's piping open.
 - **After edits.** After an edit, undo or redo the breadcrumb is cut back to the part that still exists in the project. It comes back if an undo restores it.
 - **Edits move the walk.** Each edit action is one undo step, and the walk moves to the change: an added component becomes the current one, and a branch shows its free branch port.
 
@@ -238,7 +239,7 @@ The pane shows, top to bottom:
 
 | View | Content |
 |------|---------|
-| Summary | Fluid properties as used with their sources, atmospheric pressure, each pump's operating point, lowest pressure (gauge and absolute), highest velocity |
+| Summary | Answers first: each pump's operating point and NPSH margin; then the extremes, each with where it is (a link to its trace) and a link to its table sorted on it: lowest static pressure (gauge and absolute) and highest (Nodes), highest velocity (Links), smallest NPSH margin (Pumps, when there are several). Then, closed, the fluid properties as used with their sources and the atmospheric pressure |
 | Nodes | Per component port: elevation, pressure (gauge), absolute pressure, velocity, HGL, EGL; a note on the gauge reference and boundary ports |
 | Links | Per connection: flow, velocity, head loss, Re, Darcy f, regime. Each row expands to its pipe segments (diameter, length, roughness, velocity, Re, f, friction loss) and fittings (quantity, the K each used, its reference diameter and source, head loss), with the flags about each |
 | Pumps | Status, flow, head, speed, efficiency, hydraulic and shaft power, NPSHa, NPSHr, NPSH margin; then the chart (`PumpChart`) of one pump at a time, picked from a list when there are several |
@@ -254,7 +255,9 @@ The pane shows, top to bottom:
 - unit labels under the headings, in the display units, and flags shown inline as badges (`FlagBadge`);
 - 4 significant figures, and heads to at least 0.01 m (TSD §6.2);
 - names from the current project; a connection's "From → To" from the project its results belong to (the project as sent once they are out of date), so that after a reversal made since the solve the name and the sign of its flow refer to the same ends (`resultsProject` in `utils/results.ts`);
-- each table scrolls inside its own box, and long tables render in chunks.
+- each table scrolls inside its own box, and long tables render in chunks;
+- each column heading sorts the table by the values shown in that column (numbers as numbers, text in natural order, a cell of several values by its largest): ascending, descending, then the table's own order, with `aria-sort` on the sorted column and an arrow beside it; rows without a value stay last and ties keep the table's order;
+- **Flagged only** shows the rows with flags, offered when some rows have flags and some do not.
 
 **`PumpChart`.** Chart.js, loaded only when a chart is shown. It draws the pump curve at the operating speed (solid inside the user's data, dashed where extrapolated), the system curve and the operating point, with axes in display units. A data table of the same points sits under the chart; it is the fallback when there is no canvas.
 

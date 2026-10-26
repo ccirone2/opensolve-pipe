@@ -8,6 +8,10 @@
 	be fixed first; solving is never blocked. After a cancelled solve, a note says so above what
 	earlier solves left. Only the short status line is a live region.
 
+	The results start near the top: the project description is open while there are no results
+	(a shared link's context) and one line, with a toggle, once there are; the views are one row
+	that scrolls sideways below 1024 px.
+
 	Tables are built once per solve and display units (and when names change), not on every edit,
 	and a view stays rendered (hidden) once visited, so switching views is quick on large networks.
 
@@ -51,7 +55,9 @@
 		nodeTable,
 		valveTable,
 		VIEW_LABELS,
-		type ResultsView
+		type ResultsView,
+		type SortDirection,
+		type TableSort
 	} from '$lib/utils/results';
 	import { formatValue } from '$lib/utils/units';
 	import {
@@ -119,6 +125,20 @@
 	);
 
 	let selectedView = $state<ResultsView>('summary');
+	/**
+	 * Sorts the Summary asked for, per view (a new id applies one again): its links show the table
+	 * sorted on the extreme they name.
+	 */
+	let sortRequests = $state<Partial<Record<ResultsView, TableSort & { id: number }>>>({});
+	let sortRequestId = 0;
+
+	/** Show a view sorted by one column, with the focus on its tab. */
+	async function showSorted(target: ResultsView, key: string, direction: SortDirection) {
+		sortRequests = { ...sortRequests, [target]: { key, direction, id: ++sortRequestId } };
+		selectedView = target;
+		await tick();
+		document.getElementById(`${id}-tab-${target}`)?.focus();
+	}
 	const views = $derived(solved ? availableViews(solved) : []);
 	const view = $derived(views.includes(selectedView) ? selectedView : 'summary');
 
@@ -420,6 +440,16 @@
 		document.getElementById(`${id}-casetab-${compare ? 'compare' : 'case'}`)?.focus();
 	}
 
+	/**
+	 * The project description: open while there are no results to show (a shared link's context),
+	 * one line once there are, so the results start near the top. The user's choice then holds.
+	 */
+	let aboutShown = $state<boolean | null>(null);
+	const aboutOpen = $derived(aboutShown ?? !(response && solved));
+	const aboutPreview = $derived(
+		(ws.project.metadata.description ?? '').trim().split('\n', 1)[0] ?? ''
+	);
+
 	/** A request in flight (a solve of any case, Solve all, a goal seek): one at a time. */
 	const busyReason = $derived(calculatingReason(ws.store.calculating, 'solve'));
 	const busy = $derived(!!busyReason);
@@ -505,19 +535,22 @@
 			</button>
 			{#if exportReason}<span id="{id}-export-busy" class="sr-only">{exportReason}</span>{/if}
 		{/if}
-		<button
-			type="button"
-			class="btn shrink-0 max-[24rem]:w-11 max-[24rem]:px-0"
-			data-goal-seek-button
-			aria-label={goalSeeking ? 'Goal seek (running)' : undefined}
-			onclick={() => ws.openGoalSeek()}
-		>
-			<Icon
-				name={goalSeeking ? 'spinner' : 'target'}
-				class={['size-4', goalSeeking && 'motion-safe:animate-spin']}
-			/>
-			<span class="max-[24rem]:sr-only">Goal seek</span>
-		</button>
+		<!-- Offered once there is a network to vary (a goal seek needs no solve before it). -->
+		{#if ws.project.components.length || goalSeeking}
+			<button
+				type="button"
+				class="btn shrink-0 max-[24rem]:w-11 max-[24rem]:px-0"
+				data-goal-seek-button
+				aria-label={goalSeeking ? 'Goal seek (running)' : undefined}
+				onclick={() => ws.openGoalSeek()}
+			>
+				<Icon
+					name={goalSeeking ? 'spinner' : 'target'}
+					class={['size-4', goalSeeking && 'motion-safe:animate-spin']}
+				/>
+				<span class="max-[24rem]:sr-only">Goal seek</span>
+			</button>
+		{/if}
 	</div>
 	{#if hasScenarios}
 		<div
@@ -564,10 +597,34 @@
 			{#if ws.project.metadata.description}
 				<section
 					aria-labelledby="{id}-about"
-					class="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+					class="rounded-md border border-slate-200 bg-slate-50 px-3 text-sm"
 				>
-					<h3 id="{id}-about" class="font-medium">About this project</h3>
-					<p class="break-words whitespace-pre-line text-slate-700">
+					<h3 id="{id}-about" class="flex min-w-0 items-center">
+						<button
+							type="button"
+							class="flex min-h-11 min-w-0 flex-1 items-center gap-1.5 text-left"
+							aria-expanded={aboutOpen}
+							aria-controls="{id}-about-text"
+							onclick={() => (aboutShown = !aboutOpen)}
+						>
+							<Icon
+								name="right"
+								class={['size-4 shrink-0 text-slate-500', aboutOpen && 'rotate-90']}
+							/>
+							<span class="shrink-0 font-medium">About this project</span>
+							{#if !aboutOpen}
+								<!-- The first line, as a reminder: the whole text is one click away. -->
+								<span class="min-w-0 truncate font-normal text-slate-600" aria-hidden="true">
+									{aboutPreview}
+								</span>
+							{/if}
+						</button>
+					</h3>
+					<p
+						id="{id}-about-text"
+						class="pb-2 break-words whitespace-pre-line text-slate-700"
+						hidden={!aboutOpen}
+					>
 						{ws.project.metadata.description}
 					</p>
 				</section>
@@ -811,7 +868,7 @@
 						role="tablist"
 						aria-label="Results view"
 						tabindex="-1"
-						class="flex flex-wrap gap-1.5"
+						class="-mx-3 flex gap-1.5 overflow-x-auto px-3 sm:-mx-4 sm:px-4 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0"
 						onkeydown={tabKeydown}
 					>
 						{#each views as v (v)}
@@ -823,12 +880,16 @@
 								aria-controls={rendered.includes(v) ? `${id}-panel-${v}` : undefined}
 								tabindex={view === v ? 0 : -1}
 								class={[
-									'min-h-11 rounded-full border px-3 text-sm font-medium whitespace-nowrap',
+									'min-h-11 shrink-0 rounded-full border px-3 text-sm font-medium whitespace-nowrap',
 									view === v
 										? 'border-blue-700 bg-blue-700 text-white'
 										: 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
 								]}
-								onclick={() => (selectedView = v)}
+								onclick={(event) => {
+									selectedView = v;
+									// Below 1024 px the views scroll sideways in one row: bring the chosen one in.
+									event.currentTarget.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+								}}
 							>
 								{VIEW_LABELS[v]}
 							</button>
@@ -844,10 +905,11 @@
 							hidden={v !== view}
 						>
 							{#if v === 'summary'}
-								<SummaryView {solved} />
+								<SummaryView {solved} onsort={showSorted} />
 							{:else if v === 'nodes' && nodes}
 								<ResultsTable
 									table={nodes}
+									sortRequest={sortRequests.nodes ?? null}
 									caption="Results per component port"
 									first="Component, port"
 									onselect={(row) => ws.inspect(row.element)}
@@ -863,9 +925,9 @@
 									project datum.
 								</p>
 							{:else if v === 'links'}
-								<LinksView {solved} {changed} />
+								<LinksView {solved} {changed} sortRequest={sortRequests.links ?? null} />
 							{:else if v === 'pumps'}
-								<PumpsView {solved} {changed} />
+								<PumpsView {solved} {changed} sortRequest={sortRequests.pumps ?? null} />
 							{:else if v === 'valves' && valves}
 								<ResultsTable
 									table={valves}

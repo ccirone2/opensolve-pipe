@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import openapi from '../api/openapi.json';
 import type { Pump } from '../api/types';
 import { pumpTransferExample } from './examples';
+import { IMPERIAL_UNITS, SI_UNITS } from './units';
 import {
 	componentName,
 	fieldLabel,
 	fittingFallbackName,
+	fluidChipText,
 	humanize,
 	npsLabel,
 	portLabel,
@@ -59,5 +61,28 @@ describe('labels', () => {
 		expect(Object.keys(PUMP_CONTROL_STATE_LABELS).sort()).toEqual(
 			[...schemas.PumpControlResult.properties.state.enum].sort()
 		);
+	});
+});
+
+describe('fluidChipText', () => {
+	it('names a built-in fluid with its temperature in the display unit', () => {
+		const water = { kind: 'builtin', fluidId: 'water', temperature: 293.15 } as const;
+		expect(fluidChipText(water, { ...SI_UNITS })).toBe('Water · 20 °C');
+		expect(fluidChipText(water, { ...IMPERIAL_UNITS })).toBe('Water · 68 °F');
+	});
+
+	it('gives a glycol its concentration, and a custom fluid its name', () => {
+		expect(
+			fluidChipText(
+				{ kind: 'builtin', fluidId: 'ethylene_glycol', temperature: 278.15, concentration: 0.3 },
+				{ ...SI_UNITS }
+			)
+		).toBe('Ethylene glycol 30 % · 5 °C');
+		expect(
+			fluidChipText(
+				{ kind: 'custom', name: 'Brine', density: 1100, dynamicViscosity: 0.0015 },
+				{ ...SI_UNITS }
+			)
+		).toBe('Brine');
 	});
 });

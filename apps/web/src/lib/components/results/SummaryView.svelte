@@ -1,7 +1,11 @@
 <!--
-	Summary of a solve: the fluid properties and atmospheric pressure the solver used (with their
-	sources), each pump's operating point, and where the lowest pressure and the highest velocity
-	are. All values are from the solved state.
+	Summary of a solve, answers first (proposal ui-ux-refinement.md item 8): each pump's operating
+	point and NPSH margin, then the extremes a designer checks, each with where it is (a link to that
+	element's results and trace) and a link to the table sorted on it: the lowest and highest static
+	pressure (Nodes), the highest velocity (Links) and the smallest NPSH margin (Pumps). The fluid
+	properties and atmospheric pressure the solver used, with their sources, are one disclosure
+	below (inputs, not answers). Flags come before the views, in the Results pane. All values are
+	from the solved state.
 -->
 <script lang="ts">
 	import type { SolvedState } from '$lib/api/types';
@@ -13,19 +17,31 @@
 		fastestLink,
 		flagsForElement,
 		Formatter,
+		highestPressureNode,
 		lowestPressureNode,
 		pumpStatusLabel,
-		type ElementRef
+		smallestNpshMargin,
+		type ElementRef,
+		type ResultsView,
+		type SortDirection
 	} from '$lib/utils/results';
 
-	let { solved }: { solved: SolvedState } = $props();
+	interface Props {
+		solved: SolvedState;
+		/** Show a view sorted by one column (the extremes' "sorted" links). */
+		onsort?: (view: ResultsView, key: string, direction: SortDirection) => void;
+	}
+
+	let { solved, onsort }: Props = $props();
 	const ws = useWorkspace();
 	const id = $props.id();
 	const f = $derived(new Formatter(ws.displayUnits));
 
 	const fluid = $derived(solved.fluid);
 	const lowest = $derived(lowestPressureNode(solved));
+	const highest = $derived(highestPressureNode(solved));
 	const fastest = $derived(fastestLink(solved));
+	const npsh = $derived(smallestNpshMargin(solved));
 	const pumps = $derived(
 		Object.entries(solved.pumpResults).map(([pumpId, result]) => ({
 			element: { kind: 'component', id: pumpId } as ElementRef,
@@ -33,6 +49,9 @@
 			result
 		}))
 	);
+
+	const portName = (componentId: string, portId: string) =>
+		`${portLabel(portId)} of ${componentById(ws.project, componentId)?.name ?? componentId}`;
 
 	const properties = $derived(
 		[
@@ -68,6 +87,15 @@
 			return source ? [{ key: p.key, label: p.label, ...source }] : [];
 		})
 	);
+	/** The fluid's line when closed: its temperature (and concentration). */
+	const fluidLine = $derived(
+		[
+			fluid.temperature === null ? null : f.value(fluid.temperature, 'temperature'),
+			fluid.concentration === null ? null : f.value(fluid.concentration, 'fraction')
+		]
+			.filter(Boolean)
+			.join(' · ')
+	);
 </script>
 
 {#snippet link(element: ElementRef, label: string)}
@@ -78,10 +106,123 @@
 	>
 {/snippet}
 
+{#snippet sorted(view: ResultsView, key: string, direction: SortDirection, label: string)}
+	{#if onsort}
+		<button
+			type="button"
+			class="ml-auto min-h-11 text-right text-xs text-slate-700 underline underline-offset-2 hover:text-slate-900"
+			onclick={() => onsort(view, key, direction)}>{label}</button
+		>
+	{/if}
+{/snippet}
+
+{#snippet extreme(label: string)}
+	<dt class="text-slate-600">{label}</dt>
+{/snippet}
+
 <div class="space-y-4 text-sm">
-	<section class="card space-y-2 p-3" aria-labelledby="{id}-fluid">
-		<h3 id="{id}-fluid" class="font-semibold">Fluid: {fluid.name}</h3>
-		<dl class="space-y-1">
+	{#if pumps.length}
+		<section class="card space-y-1 p-3" aria-labelledby="{id}-pumps">
+			<h3 id="{id}-pumps" class="font-semibold">Pumps</h3>
+			<ul class="space-y-1">
+				{#each pumps as pump (pump.element.id)}
+					<li class="flex flex-wrap items-center gap-x-2">
+						{@render link(pump.element, pump.name)}
+						<span class="text-slate-700">
+							{#if pump.result.status === 'running'}
+								{f.value(pump.result.operatingFlow, 'flow')} at {f.value(
+									pump.result.operatingHead,
+									'head'
+								)}{#if pump.result.npshMargin !== null && pump.result.npshMargin !== undefined}&nbsp;·
+									NPSH margin {f.value(pump.result.npshMargin, 'head')}{/if}
+							{:else}
+								{pumpStatusLabel(pump.result, flagsForElement(solved.flags, pump.element))}
+							{/if}
+						</span>
+					</li>
+				{/each}
+			</ul>
+		</section>
+	{/if}
+
+	{#if lowest || fastest || npsh}
+		<section class="card space-y-1 p-3" aria-labelledby="{id}-extremes">
+			<h3 id="{id}-extremes" class="font-semibold">Extremes</h3>
+			<dl class="space-y-2">
+				{#if lowest}
+					<div>
+						{@render extreme('Lowest static pressure')}
+						<dd class="flex flex-wrap items-center gap-x-2">
+							<span class="tabular-nums">
+								{f.value(lowest.pressure, 'pressure', { gauge: true })}
+								({f.value(lowest.absolutePressure, 'pressure', { absolute: true })})
+							</span>
+							{@render link(
+								{ kind: 'component', id: lowest.componentId },
+								portName(lowest.componentId, lowest.portId)
+							)}
+							{@render sorted('nodes', 'pressure', 'ascending', 'Nodes, lowest first')}
+						</dd>
+					</div>
+				{/if}
+				{#if highest && highest !== lowest}
+					<div>
+						{@render extreme('Highest static pressure')}
+						<dd class="flex flex-wrap items-center gap-x-2">
+							<span class="tabular-nums">
+								{f.value(highest.pressure, 'pressure', { gauge: true })}
+							</span>
+							{@render link(
+								{ kind: 'component', id: highest.componentId },
+								portName(highest.componentId, highest.portId)
+							)}
+							{@render sorted('nodes', 'pressure', 'descending', 'Nodes, highest first')}
+						</dd>
+					</div>
+				{/if}
+				{#if fastest}
+					<div>
+						{@render extreme('Highest velocity')}
+						<dd class="flex flex-wrap items-center gap-x-2">
+							<span class="tabular-nums">{f.value(fastest.velocity, 'velocity')}</span>
+							{@render link(
+								{ kind: 'connection', id: fastest.id },
+								connectionName(ws.project, fastest.id)
+							)}
+							{@render sorted('links', 'velocity', 'descending', 'Links, highest first')}
+						</dd>
+					</div>
+				{/if}
+				{#if npsh}
+					<div>
+						{@render extreme('Smallest NPSH margin')}
+						<dd class="flex flex-wrap items-center gap-x-2">
+							<span class="tabular-nums">{f.value(npsh.margin, 'head')}</span>
+							{@render link(
+								{ kind: 'component', id: npsh.id },
+								componentById(ws.project, npsh.id)?.name ?? npsh.id
+							)}
+							{#if pumps.length > 1}
+								{@render sorted('pumps', 'npshMargin', 'ascending', 'Pumps, smallest first')}
+							{/if}
+						</dd>
+					</div>
+				{/if}
+			</dl>
+		</section>
+	{/if}
+
+	<details class="card group p-3">
+		<!-- At least 44 px tall, keeping the disclosure marker. -->
+		<summary class="flex min-h-11 cursor-pointer list-none items-center gap-2">
+			<span
+				class="text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+				aria-hidden="true">▸</span
+			>
+			<h3 class="font-semibold">Fluid: {fluid.name}</h3>
+			{#if fluidLine}<span class="text-slate-600">{fluidLine}</span>{/if}
+		</summary>
+		<dl class="mt-2 space-y-1">
 			{#each properties as property (property.key)}
 				{@const source = fluid.sources[property.key]}
 				<div class="grid grid-cols-[minmax(0,9rem)_1fr] gap-x-3">
@@ -121,63 +262,5 @@
 				</dl>
 			</details>
 		{/if}
-	</section>
-
-	{#if pumps.length}
-		<section class="card space-y-1 p-3" aria-labelledby="{id}-pumps">
-			<h3 id="{id}-pumps" class="font-semibold">Pumps</h3>
-			<ul class="space-y-1">
-				{#each pumps as pump (pump.element.id)}
-					<li class="flex flex-wrap items-center gap-x-2">
-						{@render link(pump.element, pump.name)}
-						<span class="text-slate-700">
-							{#if pump.result.status === 'running'}
-								{f.value(pump.result.operatingFlow, 'flow')} at {f.value(
-									pump.result.operatingHead,
-									'head'
-								)}
-							{:else}
-								{pumpStatusLabel(pump.result, flagsForElement(solved.flags, pump.element))}
-							{/if}
-						</span>
-					</li>
-				{/each}
-			</ul>
-		</section>
-	{/if}
-
-	{#if lowest || fastest}
-		<section class="card space-y-1 p-3" aria-labelledby="{id}-extremes">
-			<h3 id="{id}-extremes" class="font-semibold">Extremes</h3>
-			<dl class="space-y-1">
-				{#if lowest}
-					<div>
-						<dt class="text-slate-600">Lowest static pressure</dt>
-						<dd class="flex flex-wrap items-center gap-x-2">
-							<span class="tabular-nums">
-								{f.value(lowest.pressure, 'pressure', { gauge: true })}
-								({f.value(lowest.absolutePressure, 'pressure', { absolute: true })})
-							</span>
-							{@render link(
-								{ kind: 'component', id: lowest.componentId },
-								`${portLabel(lowest.portId)} of ${componentById(ws.project, lowest.componentId)?.name ?? lowest.componentId}`
-							)}
-						</dd>
-					</div>
-				{/if}
-				{#if fastest}
-					<div>
-						<dt class="text-slate-600">Highest velocity</dt>
-						<dd class="flex flex-wrap items-center gap-x-2">
-							<span class="tabular-nums">{f.value(fastest.velocity, 'velocity')}</span>
-							{@render link(
-								{ kind: 'connection', id: fastest.id },
-								connectionName(ws.project, fastest.id)
-							)}
-						</dd>
-					</div>
-				{/if}
-			</dl>
-		</section>
-	{/if}
+	</details>
 </div>

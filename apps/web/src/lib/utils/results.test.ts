@@ -4,7 +4,7 @@
  * made-up test inputs (testing/results.ts).
  */
 import { describe, expect, it } from 'vitest';
-import type { BranchResult, PumpResult, SolvedState } from '../api/types';
+import type { BranchResult, Flag, PumpResult, SolvedState } from '../api/types';
 import type { Workspace } from '../state/workspace.svelte';
 import { assignedFlowProject } from '../testing/helpers';
 import {
@@ -31,6 +31,17 @@ import {
 	compareVersions,
 	connectionName,
 	elementName,
+	elementSummary,
+	displayedNumber,
+	highestPressureNode,
+	NAME_SORT_KEY,
+	smallestNpshMargin,
+	sortableColumn,
+	sortRows,
+	type Cell,
+	type Row,
+	type TableSort,
+	type ElementRef,
 	fastestLink,
 	fittingFlags,
 	fittingTable,
@@ -912,5 +923,156 @@ describe('assigned-flow nodes (SDD §4.11, PRD §3.2.1)', () => {
 			['Ports', ['Port 1']]
 		]);
 		expect(groups[0]!.rows[0]!.cells.flow).toBe('12');
+	});
+});
+
+describe('elementSummary', () => {
+	const solved = pumpTransferSolved();
+	const summary = (element: ElementRef, from: SolvedState = solved) =>
+		elementSummary(project, from, SI_UNITS, element);
+	const shown = (element: ElementRef, from?: SolvedState) =>
+		summary(element, from)?.items.map((i) => [i.label, i.unit ?? '', cellLines(i.cell).join('; ')]);
+
+	it('shows the key values of each kind, as the results tables show them', () => {
+		const pump = summary({ kind: 'component', id: 'P1' });
+		const pumpRow = pumpTable(project, solved, SI_UNITS).rows[0]!;
+		expect(pump?.items.map((i) => i.key)).toEqual(['status', 'flow', 'head', 'npshMargin']);
+		for (const item of pump!.items) expect(item.cell).toEqual(pumpRow.cells[item.key]);
+		expect(shown({ kind: 'connection', id: 'L3' })).toEqual([
+			['Flow', 'L/s', '20'],
+			['Velocity', 'm/s', '4'],
+			['Head loss', 'm', '8']
+		]);
+		expect(summary({ kind: 'component', id: 'V1' })?.items.map((i) => i.key)).toEqual([
+			'state',
+			'flow',
+			'pressureDrop'
+		]);
+		expect(summary({ kind: 'component', id: 'R1' })?.items.map((i) => i.key)).toEqual(['outflow']);
+	});
+
+	it('leaves out values the solve has none of, and has none for an element it did not solve', () => {
+		const noVapor = pumpTransferSolved({
+			pumpResults: {
+				P1: pumpResult({ npshAvailable: null, npshMargin: null, suctionAbsolutePressure: null })
+			}
+		});
+		expect(summary({ kind: 'component', id: 'P1' }, noVapor)?.items.map((i) => i.key)).toEqual([
+			'status',
+			'flow',
+			'head'
+		]);
+		expect(summary({ kind: 'component', id: 'new' })).toBeNull();
+		expect(summary({ kind: 'connection', id: 'L9' })).toBeNull();
+	});
+
+	it('carries the flags about the element', () => {
+		const flagged = pumpTransferSolved({
+			flags: [
+				flag({ code: 'CAVITATION', severity: 'invalid', message: 'Cavitating', componentId: 'P1' }),
+				flag({
+					code: 'TRANSITIONAL_FLOW',
+					severity: 'warning',
+					message: 'About L2',
+					connectionId: 'L2'
+				})
+			]
+		});
+		expect(summary({ kind: 'component', id: 'P1' }, flagged)?.flags.map((f) => f.code)).toEqual([
+			'CAVITATION'
+		]);
+		expect(summary({ kind: 'connection', id: 'L2' }, flagged)?.flags.map((f) => f.code)).toEqual([
+			'TRANSITIONAL_FLOW'
+		]);
+		expect(summary({ kind: 'connection', id: 'L3' }, flagged)?.flags).toEqual([]);
+	});
+});
+
+describe('sorting results tables', () => {
+	const row = (name: string, cells: Record<string, Cell>, flags: Flag[] = []): Row => ({
+		key: name,
+		element: { kind: 'component', id: name },
+		name,
+		detail: '',
+		cells,
+		flags
+	});
+
+	it('reads back the numbers the tables display', () => {
+		expect(displayedNumber('18.98')).toBe(18.98);
+		expect(displayedNumber('-0.5')).toBe(-0.5);
+		expect(displayedNumber('2.555×10⁻⁶')).toBeCloseTo(2.555e-6, 15);
+		expect(displayedNumber('1.2×10¹¹')).toBe(1.2e11);
+		expect(displayedNumber('Running')).toBeNull();
+		// Every number formatResultNumber writes reads back as the number it shows.
+		for (const value of [0.0001234, -42.5, 235600, 3.5e-9, 7.25e12, -1.5e-7]) {
+			const text = formatResultNumber(value);
+			expect(displayedNumber(text)).toBeCloseTo(Number(value.toPrecision(4)), 20);
+		}
+	});
+
+	it('sorts by the values shown, ties and empty values in table order and last', () => {
+		const rows = [
+			row('a', { p: '12.5', s: 'Running' }),
+			row('b', { p: '—', s: 'Off' }),
+			row('c', { p: '-3', s: 'Running' }),
+			row('d', { p: { text: '≈ 0', title: 'round-off' }, s: 'Closed' }),
+			row('e', { p: '1.2×10⁻⁵', s: 'Off' }),
+			row('f', { p: '12.5', s: 'Running' })
+		];
+		const names = (sort: TableSort | null) => sortRows(rows, sort).map((r) => r.name);
+		expect(names({ key: 'p', direction: 'ascending' })).toEqual(['c', 'd', 'e', 'a', 'f', 'b']);
+		expect(names({ key: 'p', direction: 'descending' })).toEqual(['a', 'f', 'e', 'd', 'c', 'b']);
+		expect(names({ key: 's', direction: 'ascending' })).toEqual(['d', 'b', 'e', 'a', 'c', 'f']);
+		expect(names({ key: NAME_SORT_KEY, direction: 'descending' })).toEqual([
+			'f',
+			'e',
+			'd',
+			'c',
+			'b',
+			'a'
+		]);
+		expect(names(null)).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+	});
+
+	it('sorts a cell of several values by its largest, and knows which columns can sort', () => {
+		const rows = [
+			row('one', {
+				v: [
+					{ label: 'Pipe 1', value: '2' },
+					{ label: 'Pipe 2', value: '5.5' }
+				],
+				x: '—'
+			}),
+			row('two', { v: '3', x: '—' })
+		];
+		expect(sortRows(rows, { key: 'v', direction: 'descending' }).map((r) => r.name)).toEqual([
+			'one',
+			'two'
+		]);
+		expect(sortableColumn(rows, 'v')).toBe(true);
+		expect(sortableColumn(rows, 'x')).toBe(false);
+		expect(sortableColumn(rows, NAME_SORT_KEY)).toBe(true);
+	});
+
+	it('sorts the Links table by velocity as fastestLink finds the highest', () => {
+		const solved = pumpTransferSolved();
+		const table = linkTable(project, solved, SI_UNITS);
+		const sorted = sortRows(table.rows, { key: 'velocity', direction: 'descending' });
+		expect(sorted[0]?.element.id).toBe(fastestLink(solved)?.id);
+	});
+
+	it('finds the highest pressure and the smallest NPSH margin', () => {
+		const solved = pumpTransferSolved();
+		const highest = highestPressureNode(solved);
+		expect(highest?.pressure).toBe(
+			Math.max(...Object.values(solved.nodeResults).map((n) => n.pressure))
+		);
+		expect(smallestNpshMargin(solved)).toEqual({ id: 'P1', margin: 9 });
+		expect(
+			smallestNpshMargin(
+				pumpTransferSolved({ pumpResults: { P1: pumpResult({ npshMargin: null }) } })
+			)
+		).toBeNull();
 	});
 });

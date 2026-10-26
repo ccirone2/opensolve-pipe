@@ -30,6 +30,7 @@
 		| 'lock'
 		| 'target'
 		| 'download'
+		| 'droplet'
 		| 'up';
 </script>
 
@@ -113,6 +114,9 @@
 	{:else if name === 'lock'}
 		<rect x="5" y="11" width="14" height="10" rx="2" />
 		<path d="M8 11V7a4 4 0 0 1 8 0v4" />
+	{:else if name === 'droplet'}
+		<!-- A drop of liquid: the project fluid. -->
+		<path d="M12 3c3.5 4.2 6 7.6 6 10.5a6 6 0 0 1-12 0C6 10.6 8.5 7.2 12 3z" />
 	{:else if name === 'target'}
 		<!-- A crosshair: goal seek. -->
 		<circle cx="12" cy="12" r="8" />

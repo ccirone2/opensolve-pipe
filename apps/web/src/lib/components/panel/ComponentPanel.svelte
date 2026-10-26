@@ -1,6 +1,7 @@
 <!--
-	The current component (SDD §3.1.1): its name and type, the component actions, and two views —
-	Properties (the per-type form and the ports) and Piping (the connection at a chosen port).
+	The current component (SDD §3.1.1): its type and its name, edited in place, its key results
+	from the last solve (ResultStrip), the component actions, and two views — Properties (the per-type form and the ports) and Piping (the
+	connection at a chosen port).
 -->
 <script lang="ts" module>
 	import type { CheckValve, Component, ControlValve, IsolationValve } from '$lib/api/types';
@@ -38,6 +39,7 @@
 	import ReferenceNodeForm from './forms/ReferenceNodeForm.svelte';
 	import ReservoirForm from './forms/ReservoirForm.svelte';
 	import PortsEditor from './PortsEditor.svelte';
+	import ResultStrip from './ResultStrip.svelte';
 	import ScenarioBanner from './ScenarioBanner.svelte';
 
 	let { component }: { component: Component } = $props();
@@ -66,19 +68,38 @@
 </script>
 
 <article class="space-y-4 px-3 py-4 sm:px-4" aria-labelledby="{id}-title">
-	<header>
+	<!-- The name is edited in place, as the project name is: the heading stays for structure and
+		focus (hidden), and shows its focus on the field, so a keyboard user sees where it is. -->
+	<header
+		class="-mx-2 rounded-md px-2 pt-1 has-[[data-current-heading]:focus-visible]:ring-2 has-[[data-current-heading]:focus-visible]:ring-blue-600"
+	>
 		<p class="text-sm text-slate-600">
 			{kindLabel(component)} · <span class="font-mono">{component.id}</span>
 		</p>
-		<h2
-			id="{id}-title"
-			class="text-xl font-semibold break-words"
-			tabindex="-1"
-			data-current-heading
-		>
+		<h2 id="{id}-title" class="sr-only" tabindex="-1" data-current-heading>
 			{component.name}
 		</h2>
+		{#key component.id}
+			<TextField
+				class="-mx-2"
+				label="Name"
+				hideLabel
+				value={component.name}
+				required
+				maxlength={stringLimits(schema, 'name').maxLength}
+				inputClass="border-transparent text-xl font-semibold hover:border-slate-300 focus:border-slate-400"
+				shared
+				hint={ws.inScenario ? 'Names are the same in every case.' : undefined}
+				onchange={(v) =>
+					!!v &&
+					ws.editComponent(component.id, 'rename component', (c) => {
+						c.name = v;
+					})}
+			/>
+		{/key}
 	</header>
+
+	<ResultStrip element={{ kind: 'component', id: component.id }} />
 
 	{#if ws.inScenario}
 		<ScenarioBanner />
@@ -118,20 +139,6 @@
 		{#key component.id}
 			{#if mode === 'component'}
 				<div class="grid gap-4 sm:grid-cols-2">
-					<TextField
-						class="sm:col-span-2"
-						label="Name"
-						value={component.name}
-						required
-						maxlength={stringLimits(schema, 'name').maxLength}
-						shared
-						hint={ws.inScenario ? 'Names are the same in every case.' : undefined}
-						onchange={(v) =>
-							!!v &&
-							ws.editComponent(component.id, 'rename component', (c) => {
-								c.name = v;
-							})}
-					/>
 					<NumberField
 						label="Elevation"
 						value={component.elevation}

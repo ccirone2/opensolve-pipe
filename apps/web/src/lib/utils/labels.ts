@@ -3,11 +3,11 @@
  * types and fluids. These are names only. Fitting names and fluid names from the API library
  * are preferred where it is available; the fallbacks here are used when it is not.
  */
-import type { Component, Fitting, FluidDefinition, Project } from '../api/types';
+import type { Component, Fitting, FluidDefinition, Project, UnitPreferences } from '../api/types';
 import type { CaseStatus } from '../state/project.svelte';
 import { componentKind, KIND_LABELS } from './factory';
 import { componentById } from './graph';
-import { formatNumber, INCH } from './units';
+import { formatNumber, formatValue, INCH } from './units';
 
 const PORT_LABELS: Readonly<Record<string, string>> = {
 	suction: 'Suction',
@@ -110,6 +110,31 @@ export function fluidSummary(fluid: FluidDefinition): string {
 	return fluid.kind === 'custom'
 		? fluid.name
 		: (FLUID_FALLBACK_NAMES[fluid.fluidId] ?? humanize(fluid.fluidId));
+}
+
+/** Short names of the built-in fluids, for the header's fluid chip. */
+const FLUID_SHORT_NAMES: Readonly<Record<string, string>> = {
+	water: 'Water',
+	ethylene_glycol: 'Ethylene glycol',
+	propylene_glycol: 'Propylene glycol'
+};
+
+/**
+ * The fluid in a few words, in display units: "Water · 20 °C", "Ethylene glycol 30 % · 5 °C",
+ * or a custom fluid's name (with its temperature when it has one).
+ */
+export function fluidChipText(fluid: FluidDefinition, units: UnitPreferences): string {
+	const temperature =
+		fluid.temperature === null || fluid.temperature === undefined
+			? ''
+			: ` · ${formatValue(fluid.temperature, 'temperature', units)}`;
+	if (fluid.kind === 'custom') return `${fluid.name}${temperature}`;
+	const name = FLUID_SHORT_NAMES[fluid.fluidId] ?? humanize(fluid.fluidId);
+	const concentration =
+		fluid.fluidId !== 'water' && fluid.concentration !== null && fluid.concentration !== undefined
+			? ` ${formatValue(fluid.concentration, 'fraction', units)}`
+			: '';
+	return `${name}${concentration}${temperature}`;
 }
 
 export const ISOLATION_STATUS_LABELS = { active: 'Open', isolated: 'Closed (isolated)' } as const;

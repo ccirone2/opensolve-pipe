@@ -43,7 +43,7 @@ from fastapi.testclient import TestClient
 from openpyxl.worksheet.worksheet import Worksheet
 
 from opensolve_pipe.main import app
-from tests.fixtures.export_input import round_off_differences
+from tests.fixtures.round_off import round_off_differences
 
 WEB = Path(__file__).parents[3] / "web"
 FIXTURES = WEB / "src" / "lib" / "utils" / "__fixtures__"

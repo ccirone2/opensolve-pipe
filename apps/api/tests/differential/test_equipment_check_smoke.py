@@ -88,16 +88,33 @@ def test_a_falsified_law_is_reported(name: str) -> None:
     assert check(name, load(_item(name)))["differences"] == []
 
 
-@pytest.mark.parametrize("name", ["fuzz_25", "fuzz_49", "fuzzaf_20004"])
-def test_the_largest_differences_show_a_law_that_d6_does_not(name: str) -> None:
+NOISE = {"flow": 1.0e-9, "head": 1.0e-6}
+"""The largest differences the element's own law gives over the whole corpus, rounded up: 7.8e-10
+of the largest flow and 6.4e-7 m (TSD §10.4). They come from round-off and the solver's stop
+tolerances, so they differ between CPUs: one run's own differences are no fixed yardstick (on a
+CI runner fuzzaf_20004's flow difference was 7.2e-14, here 0)."""
+
+
+@pytest.mark.parametrize(
+    ("name", "quantities"),
+    [("fuzz_25", ("flow", "head")), ("fuzz_49", ("flow", "head")), ("fuzzaf_20004", ("head",))],
+)
+def test_the_largest_differences_show_a_law_that_d6_does_not(
+    name: str, quantities: tuple[str, ...]
+) -> None:
     """Where a valve carries flow but its loss is small (a rated point, a Kv and a Cv here, each
-    below 0.01 m), c × 1.21 stays within D6, but the largest differences recorded are many
-    orders above those of the element's own law (module docstring)."""
+    below 0.01 m), c × 1.21 stays within D6, but the largest differences recorded rise more than
+    ten times above everything the element's own law gives over the corpus (``NOISE``), so the
+    corpus run's summary shows it (module docstring). In fuzzaf_20004 the valve (IV3) alone feeds
+    the assigned flows AF1 and AF2, PRV2 being closed, so its flow is their sum whatever its loss:
+    only the heads can show the law there."""
     true = check(name, load(_item(name)))
     false = check(name, load(_item(name)), scale=1.21)
     assert true["outcome"] == false["outcome"] == "checked", (true, false)
     for quantity in ("flow", "head"):
-        assert false["largest"][quantity] > 1.0e3 * true["largest"][quantity], (true, false)
+        assert true["largest"][quantity] <= NOISE[quantity], (true, false)
+    for quantity in quantities:
+        assert false["largest"][quantity] > 10.0 * NOISE[quantity], (true, false)
 
 
 def _solved_pair(name: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], str]:

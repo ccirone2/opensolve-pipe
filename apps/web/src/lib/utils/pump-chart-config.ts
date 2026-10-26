@@ -22,7 +22,9 @@ export const CHART_COLORS = {
 	slate: '#475569',
 	grid: '#e2e8f0',
 	text: '#475569',
-	legend: '#1e293b'
+	legend: '#1e293b',
+	/** Where the head rises with flow: amber-700, 5.0:1 on white (a fact, not a flag colour). */
+	rising: '#b45309'
 } as const;
 
 /** The legend entry of a pump held at zero flow. */
@@ -53,6 +55,8 @@ export interface PumpChartConfigOptions {
 	panels?: readonly PanelKey[];
 	/** The flow the readout reads (display unit), drawn as a vertical line; null: none. */
 	cursor?: () => number | null;
+	/** A speed-controlled pump's speed range (limit curves, iso-efficiency lines) is shown. */
+	speedRange?: boolean;
 }
 
 /** Each panel's y-axis id and share of the height (proposal pump-chart.md §4.1). */
@@ -80,6 +84,101 @@ function joinSegments(segments: ChartPoint[][]): ChartDatum[] {
 		points.push(...segment);
 	});
 	return points;
+}
+
+/**
+ * The curve facts on the head and efficiency panels (proposal pump-chart.md §6, slice 2): where
+ * the head rises with flow (amber, under the pump curve), the shutoff head (a dash at zero flow,
+ * hollow when extrapolated), the best efficiency point (a cross, labelled "BEP"), and for a
+ * speed-controlled pump with its speed range shown, its curves at the limit speeds (thin) and the
+ * iso-efficiency lines (dotted, labelled at the maximum speed).
+ */
+function factDatasets(d: PumpChartData, shown: (key: PanelKey) => boolean, speedRange: boolean) {
+	const { pump: PUMP, ink: INK, slate: SLATE, rising: RISING } = CHART_COLORS;
+	const { bep, shutoff, rising, speedRange: range } = d.facts;
+	const marker = (label: string, point: ChartPoint, yAxisID: string, style: 'cross' | 'dash') => ({
+		label,
+		data: [point],
+		yAxisID,
+		borderColor: INK,
+		backgroundColor: INK,
+		borderWidth: 3,
+		pointStyle: style,
+		pointRadius: 8,
+		pointHoverRadius: 10,
+		pointHitRadius: 10,
+		showLine: false
+	});
+	const thin = (label: string, data: ChartPoint[], extra: object = {}) => ({
+		label,
+		data,
+		yAxisID: 'y',
+		borderColor: PUMP,
+		backgroundColor: PUMP,
+		borderWidth: 1,
+		pointRadius: 0,
+		pointHitRadius: 4,
+		...extra
+	});
+	return [
+		...rising.lines.map((line, i) => ({
+			label: 'Head rises with flow',
+			data: line,
+			yAxisID: 'y',
+			borderColor: RISING,
+			backgroundColor: RISING,
+			borderWidth: 6,
+			pointRadius: 0,
+			pointHitRadius: 4,
+			// Drawn under the pump curve (a higher order is drawn first).
+			order: 1,
+			...(i ? { duty: true } : {})
+		})),
+		{
+			...marker('Shutoff head', shutoff.point, 'y', 'dash'),
+			...(shutoff.extrapolated ? { borderColor: SLATE } : {})
+		},
+		...(bep
+			? [
+					{ ...marker('Best efficiency point', bep.head, 'y', 'cross'), pointLabel: 'BEP' },
+					...(shown('efficiency') && d.efficiency
+						? [
+								{
+									...marker('Best efficiency point', bep.efficiency, 'yEfficiency', 'cross'),
+									duty: true
+								}
+							]
+						: [])
+				]
+			: []),
+		...(speedRange && range
+			? [
+					thin(`Pump curve at ${trim(range.min.speed)} % speed (minimum)`, range.min.curve),
+					thin(`Pump curve at ${trim(range.max.speed)} % speed (maximum)`, range.max.curve, {
+						borderDash: [8, 3]
+					}),
+					...range.iso.map((line, i) => ({
+						label: 'Constant efficiency (dotted)',
+						data: line.points,
+						yAxisID: 'y',
+						borderColor: SLATE,
+						backgroundColor: SLATE,
+						borderWidth: 1,
+						borderDash: [1, 3],
+						pointRadius: 0,
+						pointHitRadius: 4,
+						pointLabel: line.best ? 'BEP line' : `${trim(line.efficiency)} %`,
+						labelAt: -1,
+						...(i ? { duty: true } : {})
+					}))
+				]
+			: [])
+	];
+}
+
+/** A percentage written briefly ("70", "62.5"). */
+function trim(value: number): string {
+	return String(Number(value.toFixed(1)));
 }
 
 /**
@@ -143,7 +242,8 @@ export function pumpChartConfig(
 		format,
 		forImage = false,
 		panels = ['head'],
-		cursor
+		cursor,
+		speedRange = false
 	}: PumpChartConfigOptions
 ): PumpChartConfig {
 	const shown = (key: PanelKey) => panels.includes(key);
@@ -233,6 +333,7 @@ export function pumpChartConfig(
 					}
 				]
 			: []),
+		...factDatasets(d, shown, speedRange),
 		...lowerDatasets(d, shown),
 		...cases.flatMap((c) => [
 			...(c.curve
@@ -300,6 +401,33 @@ export function pumpChartConfig(
 				const point = chart.getDatasetMeta(i).data[0];
 				if (!label || !point || !chart.isDatasetVisible(i)) return;
 				ctx.fillText(label, point.x + 9, n++ % 2 === 0 ? point.y - 9 : point.y + 19);
+			});
+			// Short labels at one point of a line or marker ("BEP", "70 %"), in dataset order; a
+			// label that would overlap one already drawn is left out (the legend and notes name it).
+			const size = forImage ? 13 : 11;
+			ctx.font = `${size}px system-ui, sans-serif`;
+			const taken: { x: number; y: number; w: number; h: number }[] = [];
+			chart.data.datasets.forEach((dataset, i) => {
+				const { pointLabel, labelAt } = dataset as { pointLabel?: string; labelAt?: number };
+				const points = chart.getDatasetMeta(i).data;
+				const point = points[labelAt === -1 ? points.length - 1 : (labelAt ?? 0)];
+				if (!pointLabel || !point || !chart.isDatasetVisible(i)) return;
+				const box = {
+					x: point.x + 6,
+					y: point.y - 6 - size,
+					w: ctx.measureText(pointLabel).width,
+					h: size
+				};
+				const overlaps = taken.some(
+					(o) =>
+						box.x < o.x + o.w + 2 &&
+						o.x < box.x + box.w + 2 &&
+						box.y < o.y + o.h &&
+						o.y < box.y + box.h
+				);
+				if (overlaps) return;
+				taken.push(box);
+				ctx.fillText(pointLabel, point.x + 6, point.y - 6);
 			});
 			ctx.restore();
 		}

@@ -82,7 +82,9 @@ describe('pump chart', () => {
 			'Pump curve at 100 % speed',
 			'Pump curve, extrapolated (dashed)',
 			'System curve',
-			'Operating point'
+			'Operating point',
+			// The curve facts (proposal pump-chart.md §6): the shutoff head, always.
+			'Shutoff head'
 		]);
 		const [curve, extrapolated, , operating] = config.data.datasets;
 		expect(curve!.borderDash).toBeUndefined();
@@ -709,7 +711,7 @@ describe('pump chart panels (proposal pump-chart.md §4)', () => {
 		const view = render(PumpChart, { result: rich(), name: 'Transfer pump', prefs: SI_UNITS });
 		await vi.waitFor(() => expect(charts).toHaveLength(1));
 		expect(axes(0)).toEqual(['x', 'yNpsh', 'yPower', 'yEfficiency', 'y']);
-		const panels = screen.getByRole('group', { name: 'Panels' });
+		const panels = screen.getByRole('group', { name: 'Show' });
 		const power = within(panels).getByRole('button', { name: 'Shaft power' });
 		expect(
 			within(panels)

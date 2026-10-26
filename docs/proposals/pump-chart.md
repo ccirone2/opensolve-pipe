@@ -1,6 +1,6 @@
 # Pump chart: design proposal
 
-**Status: slice 1 built** (2026-10-26; §9 records where the build departs from this text); slices 2–4 are proposals, nothing decided. Written against `main` at `bbafbff` (export, D17, merged) for item 12 of `docs/proposals/ui-ux-refinement.md` ("pump chart layers"), which this document replaces and widens. Everything here is a reversible default under D14 except where it is marked **owner** (a GOALS value, a model input or a design-practice check).
+**Status: slices 1 and 2 built** (2026-10-26; §9 and §10 record where the builds depart from this text); slices 3 and 4 are proposals, nothing decided. **Owner's decision (2026-10-26):** the best efficiency point is shown by default as a fact of the curve; the duty as a % of BEP flow and every operating-region band wait for the opt-in design checks (slice 3). Written against `main` at `bbafbff` (export, D17, merged) for item 12 of `docs/proposals/ui-ux-refinement.md` ("pump chart layers"), which this document replaces and widens. Everything here is a reversible default under D14 except where it is marked **owner** (a GOALS value, a model input or a design-practice check).
 
 The pump chart is where a mechanical engineer checks a selection: whether the pump meets the duty, how far from its best efficiency it runs, what power the driver needs, how much NPSH margin there is across the range the system will see, and how all of this moves between cases and speeds. Today the chart answers the first question only. This proposal lays out the whole chart a design engineer expects, in slices that each ship on their own, so that the first slice leaves room for every later one.
 
@@ -147,4 +147,18 @@ API: §6's unit tests; `test_openapi` refresh (generated types); the corpus comp
 - **Hidden panels** are stored under `opensolve-pipe:pump-chart-hidden-panels`; every panel with data is shown by default.
 
 Proof: `utils/pump-chart-panels.test.ts` (9 tests), new cases in `PumpChart.svelte.test.ts` (chips, persistence, readout), the `pump-chart` e2e flow on desktop and phone against the real API, and a clean axe scan (WCAG 2.0/2.1 A and AA, best practice) of the Pumps view with the chart and its data table at both sizes.
+
+## 10. Slice 2 as built
+
+**API** (`services/solver/curve_facts.py`; additive `PumpResult` fields, `METHOD_VERSION` unchanged): `bestEfficiencyPoint` (η₀'s largest value strictly inside its points, at speed: (s Q₀*, η₀(Q₀*)) with the head s² H₀(Q₀*)), `shutoffHead` (s² H₀(0), with whether it is on the start tangent), `risingHeadRanges` (dH/dQ > 0 within the head points), and for a speed-controlled pump `speedCurves` (the head curve at `minSpeed` and the maximum speed) and `isoEfficiencyLines` (through the BEP and through every rated-speed flow at up to three multiples of 5 % below it, over 11 speeds). Extrema and sign changes come from the derivative's roots on each PCHIP piece; every value is the interpolant's own. The pump trace gains the BEP's equation and values, a note per rising range, and the iso-efficiency equation. Proof: `tests/unit/test_pump_curve_facts.py` (closed form, and a property check of 300 random curves against a dense scan), the corpus comparison and the trace check (TSD §10.4).
+
+**Web.** As §6 with the owner's decision on the BEP, and these departures:
+- **No shading between the limit speeds.** Chart.js fills between datasets on a shared x grid only; the limit curves have their own grids. The two thin limit curves (the maximum dashed) and the dotted iso-efficiency lines bound the region well enough.
+- **The end of the curve data** is not marked again: the dashed extrapolation already starts there, and its note gives the data range.
+- **The shutoff head is a dash at zero flow** with a note (`Shutoff head (–)`), on every chart: it is the dead-head pressure a pipe rating is checked against. Where the head points start above zero flow, the start tangent down to it is drawn dashed, exactly as the solver extrapolates (straight in Q at a fixed speed).
+- **Where the head rises** the pump curve is underlaid in amber (amber-700, 5.0:1 on white) and named in a note as a fact: a system curve can cross the pump curve more than once there. It is not a flag.
+- **Labels avoid each other.** Short labels ("BEP", "BEP line", "65 %") are drawn in order and one that would overlap another is left out; the legend has one entry for all iso lines and the notes list the levels.
+- **One chip group, "Show"**: the panels and, for a speed-controlled pump, **Speed range**, remembered in this browser with them.
+
+Proof: `utils/pump-chart-facts.test.ts`, the updated chart, image and component tests, the `pump-chart-facts` e2e flow on desktop and phone, and a clean axe scan of the chart with a drooping curve and a speed range.
 

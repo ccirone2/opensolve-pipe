@@ -99,6 +99,11 @@ export function pumpResult(values: Partial<PumpResult> = {}): PumpResult {
 		efficiencyCurve: null,
 		npshrCurve: null,
 		powerCurve: null,
+		bestEfficiencyPoint: null,
+		shutoffHead: { head: 30, extrapolated: false },
+		risingHeadRanges: [],
+		speedCurves: [],
+		isoEfficiencyLines: [],
 		// The app solves without system curves (D10); see systemCurveResponse().
 		systemCurve: null,
 		...values

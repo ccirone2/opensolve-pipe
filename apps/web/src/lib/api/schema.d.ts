@@ -346,6 +346,32 @@ export interface components {
             type: "assigned_flow";
         };
         /**
+         * BestEfficiencyPoint
+         * @description The efficiency curve's largest value inside its points, at the running speed.
+         */
+        BestEfficiencyPoint: {
+            /**
+             * Efficiency
+             * @description η₀(Q₀*), fraction
+             */
+            efficiency: number;
+            /**
+             * Flow
+             * @description s Q₀*, m³/s (Q₀*: the rated-speed flow of the largest η₀)
+             */
+            flow: number;
+            /**
+             * Head
+             * @description s² H₀(Q₀*), m: the head curve at that flow
+             */
+            head: number;
+            /**
+             * Headextrapolated
+             * @description True when Q₀* lies outside the head curve's points (end-tangent head)
+             */
+            headExtrapolated: boolean;
+        };
+        /**
          * BoundaryResult
          * @description Reservoir or reference node: the head it holds and the flow it supplies. Plug or
          *     assigned-flow node: the EGL at its port and the flow through it (an assigned-flow node's
@@ -885,6 +911,19 @@ export interface components {
              */
             head: number;
         };
+        /** FlowInterval */
+        FlowInterval: {
+            /**
+             * Flowmax
+             * @description m³/s
+             */
+            flowMax: number;
+            /**
+             * Flowmin
+             * @description m³/s
+             */
+            flowMin: number;
+        };
         /** FlowNpshrPoint */
         FlowNpshrPoint: {
             /**
@@ -1334,6 +1373,32 @@ export interface components {
              * @constant
              */
             type: "reference_node";
+        };
+        /**
+         * IsoEfficiencyLine
+         * @description An affinity parabola H ∝ Q² along which η(Q) = η₀(Q/s) is constant.
+         */
+        IsoEfficiencyLine: {
+            /**
+             * Best
+             * @description The line through the best efficiency point
+             */
+            best: boolean;
+            /**
+             * Efficiency
+             * @description η along the line, fraction
+             */
+            efficiency: number;
+            /**
+             * Points
+             * @description (s Q₀, s² H₀(Q₀)) for 11 speeds from the minimum to the maximum
+             */
+            points: components["schemas"]["CurvePoint"][];
+            /**
+             * Ratedflow
+             * @description The rated-speed flow Q₀ it passes through, m³/s
+             */
+            ratedFlow: number;
         };
         /**
          * IsolationValve
@@ -2092,6 +2157,8 @@ export interface components {
         };
         /** PumpResult */
         PumpResult: {
+            /** @description The efficiency curve's largest value strictly between its first and last points, at the running speed; null without an efficiency curve or when the largest value is at an end of its points */
+            bestEfficiencyPoint: components["schemas"]["BestEfficiencyPoint"] | null;
             /** @description The speed control's state; None for a fixed-speed pump */
             control: components["schemas"]["PumpControlResult"] | null;
             /**
@@ -2119,6 +2186,11 @@ export interface components {
              * @description False when the operating flow is extrapolated
              */
             inCurveRange: boolean;
+            /**
+             * Isoefficiencylines
+             * @description A speed-controlled pump with a best efficiency point: the line through it and, for up to three multiples of 5 % below it, one line through each rated-speed flow at that efficiency, over its speed range; empty otherwise
+             */
+            isoEfficiencyLines: components["schemas"]["IsoEfficiencyLine"][];
             /**
              * Npshavailable
              * @description m; None without p_vap or where the pressure level is undetermined
@@ -2155,15 +2227,27 @@ export interface components {
              */
             powerCurve: components["schemas"]["PowerCurvePoint"][] | null;
             /**
+             * Risingheadranges
+             * @description Flows within the head curve's points (at the running speed) where the head rises with flow (dH/dQ > 0); empty for a curve that falls throughout
+             */
+            risingHeadRanges: components["schemas"]["FlowInterval"][];
+            /**
              * Shaftpower
              * @description W, if efficiency is known
              */
             shaftPower: number | null;
+            /** @description The head at zero flow at the running speed */
+            shutoffHead: components["schemas"]["ShutoffHead"];
             /**
              * Speed
              * @description Fraction of rated speed the pump runs at: its set speed, or a speed-controlled pump's solved or limit speed
              */
             speed: number;
+            /**
+             * Speedcurves
+             * @description A speed-controlled pump's head curve at its minimum and maximum speeds; empty for a fixed-speed pump
+             */
+            speedCurves: components["schemas"]["SpeedCurve"][];
             /**
              * Status
              * @description no_flow: running but the system head exceeds the shutoff head
@@ -2324,6 +2408,19 @@ export interface components {
              */
             velocity: number;
         };
+        /** ShutoffHead */
+        ShutoffHead: {
+            /**
+             * Extrapolated
+             * @description True when the head points start above zero flow (start-tangent head)
+             */
+            extrapolated: boolean;
+            /**
+             * Head
+             * @description s² H₀(0), m: the head at zero flow at the running speed
+             */
+            head: number;
+        };
         /**
          * SolveOptions
          * @description Per-request options that do not change the solved state of the network.
@@ -2456,6 +2553,25 @@ export interface components {
              * @default 1e-9
              */
             tolerance: number;
+        };
+        /** SpeedCurve */
+        SpeedCurve: {
+            /**
+             * Curve
+             * @description The head curve at that speed, sampled
+             */
+            curve: components["schemas"]["CurvePoint"][];
+            /**
+             * Limit
+             * @description The speed-controlled pump's minimum or maximum speed
+             * @enum {string}
+             */
+            limit: "min" | "max";
+            /**
+             * Speed
+             * @description Speed ratio s
+             */
+            speed: number;
         };
         /**
          * StateChange

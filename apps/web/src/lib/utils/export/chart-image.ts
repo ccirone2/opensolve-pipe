@@ -275,6 +275,7 @@ export function imageNoteLines(
 		notes.method,
 		notes.extrapolated,
 		...notes.panels,
+		...notes.facts,
 		casesNote(others, symbols)
 	].filter((line): line is string => !!line);
 }

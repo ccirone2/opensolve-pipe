@@ -121,6 +121,40 @@
         ],
         "x-port-roles": {}
       },
+      "BestEfficiencyPoint": {
+        "additionalProperties": false,
+        "description": "The efficiency curve's largest value inside its points, at the running speed.",
+        "properties": {
+          "efficiency": {
+            "description": "η₀(Q₀*), fraction",
+            "title": "Efficiency",
+            "type": "number"
+          },
+          "flow": {
+            "description": "s Q₀*, m³/s (Q₀*: the rated-speed flow of the largest η₀)",
+            "title": "Flow",
+            "type": "number"
+          },
+          "head": {
+            "description": "s² H₀(Q₀*), m: the head curve at that flow",
+            "title": "Head",
+            "type": "number"
+          },
+          "headExtrapolated": {
+            "description": "True when Q₀* lies outside the head curve's points (end-tangent head)",
+            "title": "Headextrapolated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "flow",
+          "efficiency",
+          "head",
+          "headExtrapolated"
+        ],
+        "title": "BestEfficiencyPoint",
+        "type": "object"
+      },
       "BoundaryResult": {
         "additionalProperties": false,
         "description": "Reservoir or reference node: the head it holds and the flow it supplies. Plug or\nassigned-flow node: the EGL at its port and the flow through it (an assigned-flow node's\noutflow is minus its assigned flow, as solved).",
@@ -1309,6 +1343,27 @@
           "head"
         ],
         "title": "FlowHeadPoint",
+        "type": "object"
+      },
+      "FlowInterval": {
+        "additionalProperties": false,
+        "properties": {
+          "flowMax": {
+            "description": "m³/s",
+            "title": "Flowmax",
+            "type": "number"
+          },
+          "flowMin": {
+            "description": "m³/s",
+            "title": "Flowmin",
+            "type": "number"
+          }
+        },
+        "required": [
+          "flowMin",
+          "flowMax"
+        ],
+        "title": "FlowInterval",
         "type": "object"
       },
       "FlowNpshrPoint": {
@@ -2618,6 +2673,43 @@
         "title": "IdealReferenceNode",
         "type": "object",
         "x-port-count": 1
+      },
+      "IsoEfficiencyLine": {
+        "additionalProperties": false,
+        "description": "An affinity parabola H ∝ Q² along which η(Q) = η₀(Q/s) is constant.",
+        "properties": {
+          "best": {
+            "description": "The line through the best efficiency point",
+            "title": "Best",
+            "type": "boolean"
+          },
+          "efficiency": {
+            "description": "η along the line, fraction",
+            "title": "Efficiency",
+            "type": "number"
+          },
+          "points": {
+            "description": "(s Q₀, s² H₀(Q₀)) for 11 speeds from the minimum to the maximum",
+            "items": {
+              "$ref": "#/components/schemas/CurvePoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "ratedFlow": {
+            "description": "The rated-speed flow Q₀ it passes through, m³/s",
+            "title": "Ratedflow",
+            "type": "number"
+          }
+        },
+        "required": [
+          "efficiency",
+          "best",
+          "ratedFlow",
+          "points"
+        ],
+        "title": "IsoEfficiencyLine",
+        "type": "object"
       },
       "IsolationValve": {
         "additionalProperties": false,
@@ -4180,6 +4272,17 @@
       "PumpResult": {
         "additionalProperties": false,
         "properties": {
+          "bestEfficiencyPoint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BestEfficiencyPoint"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The efficiency curve's largest value strictly between its first and last points, at the running speed; null without an efficiency curve or when the largest value is at an end of its points"
+          },
           "control": {
             "anyOf": [
               {
@@ -4235,6 +4338,14 @@
             "description": "False when the operating flow is extrapolated",
             "title": "Incurverange",
             "type": "boolean"
+          },
+          "isoEfficiencyLines": {
+            "description": "A speed-controlled pump with a best efficiency point: the line through it and, for up to three multiples of 5 % below it, one line through each rated-speed flow at that efficiency, over its speed range; empty otherwise",
+            "items": {
+              "$ref": "#/components/schemas/IsoEfficiencyLine"
+            },
+            "title": "Isoefficiencylines",
+            "type": "array"
           },
           "npshAvailable": {
             "anyOf": [
@@ -4312,6 +4423,14 @@
             "description": "Shaft power ρgQ H(Q)/η(Q) at the operating speed, sampled at 41 flows where both the head and the efficiency curves' points reach (× s); null without an efficiency curve or where the two ranges do not overlap",
             "title": "Powercurve"
           },
+          "risingHeadRanges": {
+            "description": "Flows within the head curve's points (at the running speed) where the head rises with flow (dH/dQ > 0); empty for a curve that falls throughout",
+            "items": {
+              "$ref": "#/components/schemas/FlowInterval"
+            },
+            "title": "Risingheadranges",
+            "type": "array"
+          },
           "shaftPower": {
             "anyOf": [
               {
@@ -4324,10 +4443,22 @@
             "description": "W, if efficiency is known",
             "title": "Shaftpower"
           },
+          "shutoffHead": {
+            "$ref": "#/components/schemas/ShutoffHead",
+            "description": "The head at zero flow at the running speed"
+          },
           "speed": {
             "description": "Fraction of rated speed the pump runs at: its set speed, or a speed-controlled pump's solved or limit speed",
             "title": "Speed",
             "type": "number"
+          },
+          "speedCurves": {
+            "description": "A speed-controlled pump's head curve at its minimum and maximum speeds; empty for a fixed-speed pump",
+            "items": {
+              "$ref": "#/components/schemas/SpeedCurve"
+            },
+            "title": "Speedcurves",
+            "type": "array"
           },
           "status": {
             "description": "no_flow: running but the system head exceeds the shutoff head",
@@ -4384,6 +4515,11 @@
           "efficiencyCurve",
           "npshrCurve",
           "powerCurve",
+          "bestEfficiencyPoint",
+          "shutoffHead",
+          "risingHeadRanges",
+          "speedCurves",
+          "isoEfficiencyLines",
           "systemCurve"
         ],
         "title": "PumpResult",
@@ -4834,6 +4970,27 @@
         "title": "SegmentResult",
         "type": "object"
       },
+      "ShutoffHead": {
+        "additionalProperties": false,
+        "properties": {
+          "extrapolated": {
+            "description": "True when the head points start above zero flow (start-tangent head)",
+            "title": "Extrapolated",
+            "type": "boolean"
+          },
+          "head": {
+            "description": "s² H₀(0), m: the head at zero flow at the running speed",
+            "title": "Head",
+            "type": "number"
+          }
+        },
+        "required": [
+          "head",
+          "extrapolated"
+        ],
+        "title": "ShutoffHead",
+        "type": "object"
+      },
       "SolveOptions": {
         "additionalProperties": false,
         "description": "Per-request options that do not change the solved state of the network.",
@@ -5062,6 +5219,40 @@
           }
         },
         "title": "SolverOptions",
+        "type": "object"
+      },
+      "SpeedCurve": {
+        "additionalProperties": false,
+        "properties": {
+          "curve": {
+            "description": "The head curve at that speed, sampled",
+            "items": {
+              "$ref": "#/components/schemas/CurvePoint"
+            },
+            "title": "Curve",
+            "type": "array"
+          },
+          "limit": {
+            "description": "The speed-controlled pump's minimum or maximum speed",
+            "enum": [
+              "min",
+              "max"
+            ],
+            "title": "Limit",
+            "type": "string"
+          },
+          "speed": {
+            "description": "Speed ratio s",
+            "title": "Speed",
+            "type": "number"
+          }
+        },
+        "required": [
+          "limit",
+          "speed",
+          "curve"
+        ],
+        "title": "SpeedCurve",
         "type": "object"
       },
       "StateChange": {

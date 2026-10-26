@@ -165,8 +165,10 @@ describe('the image’s notes', () => {
 				'was not computed).',
 			screen.method,
 			screen.extrapolated,
+			...screen.facts,
 			casesNote(others, MARKER_SYMBOLS)
 		]);
+		expect(screen.facts).toEqual(['Shutoff head (–): 30 m.']);
 	});
 });
 
@@ -229,7 +231,10 @@ describe('downloading the image', () => {
 				timestamp: '2026-10-25T12:00:00Z',
 				methodVersion: '1.2.0',
 				stale: false,
-				notes: ['The system curve has not been computed for this solve.'],
+				notes: [
+					'The system curve has not been computed for this solve.',
+					'Shutoff head (–): 30 m.'
+				],
 				disclaimer: DISCLAIMER,
 				origin: 'https://opensolve-pipe.app',
 				utcOffsetMinutes: offset

@@ -76,6 +76,48 @@ class PowerCurvePoint(OutputModel):
     shaft_power: float = Field(description="ρgQH/η, W")
 
 
+class BestEfficiencyPoint(OutputModel):
+    """The efficiency curve's largest value inside its points, at the running speed."""
+
+    flow: float = Field(description="s Q₀*, m³/s (Q₀*: the rated-speed flow of the largest η₀)")
+    efficiency: float = Field(description="η₀(Q₀*), fraction")
+    head: float = Field(description="s² H₀(Q₀*), m: the head curve at that flow")
+    head_extrapolated: bool = Field(
+        description="True when Q₀* lies outside the head curve's points (end-tangent head)"
+    )
+
+
+class ShutoffHead(OutputModel):
+    head: float = Field(description="s² H₀(0), m: the head at zero flow at the running speed")
+    extrapolated: bool = Field(
+        description="True when the head points start above zero flow (start-tangent head)"
+    )
+
+
+class FlowInterval(OutputModel):
+    flow_min: float = Field(description="m³/s")
+    flow_max: float = Field(description="m³/s")
+
+
+class SpeedCurve(OutputModel):
+    limit: Literal["min", "max"] = Field(
+        description="The speed-controlled pump's minimum or maximum speed"
+    )
+    speed: float = Field(description="Speed ratio s")
+    curve: list[CurvePoint] = Field(description="The head curve at that speed, sampled")
+
+
+class IsoEfficiencyLine(OutputModel):
+    """An affinity parabola H ∝ Q² along which η(Q) = η₀(Q/s) is constant."""
+
+    efficiency: float = Field(description="η along the line, fraction")
+    best: bool = Field(description="The line through the best efficiency point")
+    rated_flow: float = Field(description="The rated-speed flow Q₀ it passes through, m³/s")
+    points: list[CurvePoint] = Field(
+        description="(s Q₀, s² H₀(Q₀)) for 11 speeds from the minimum to the maximum"
+    )
+
+
 class NodeResult(OutputModel):
     """State at one component port. Boundary ports (reservoir, reference node) report the
     quiescent boundary condition (velocity 0)."""
@@ -199,6 +241,33 @@ class PumpResult(OutputModel):
             "Shaft power ρgQ H(Q)/η(Q) at the operating speed, sampled at 41 flows where both "
             "the head and the efficiency curves' points reach (× s); null without an "
             "efficiency curve or where the two ranges do not overlap"
+        )
+    )
+    best_efficiency_point: BestEfficiencyPoint | None = Field(
+        description=(
+            "The efficiency curve's largest value strictly between its first and last points, "
+            "at the running speed; null without an efficiency curve or when the largest value "
+            "is at an end of its points"
+        )
+    )
+    shutoff_head: ShutoffHead = Field(description="The head at zero flow at the running speed")
+    rising_head_ranges: list[FlowInterval] = Field(
+        description=(
+            "Flows within the head curve's points (at the running speed) where the head rises "
+            "with flow (dH/dQ > 0); empty for a curve that falls throughout"
+        )
+    )
+    speed_curves: list[SpeedCurve] = Field(
+        description=(
+            "A speed-controlled pump's head curve at its minimum and maximum speeds; empty for "
+            "a fixed-speed pump"
+        )
+    )
+    iso_efficiency_lines: list[IsoEfficiencyLine] = Field(
+        description=(
+            "A speed-controlled pump with a best efficiency point: the line through it and, for "
+            "up to three multiples of 5 % below it, one line through each rated-speed flow at "
+            "that efficiency, over its speed range; empty otherwise"
         )
     )
     system_curve: list[CurvePoint] | None

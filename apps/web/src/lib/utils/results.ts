@@ -783,11 +783,7 @@ export function branchPatternLabel(pattern: string, component?: Component): stri
  */
 export type BranchVelocityBasis = 'combined' | 'none';
 
-export function branchVelocityBasis(
-	id: string,
-	branch: BranchResult,
-	flags: readonly Flag[]
-): BranchVelocityBasis {
+export function branchVelocityBasis(branch: BranchResult): BranchVelocityBasis {
 	if (branch.lossModel === 'ideal' || branch.combinedPortId === null) return 'none';
 	return 'combined';
 }
@@ -816,7 +812,7 @@ export function branchTable(project: Project, solved: SolvedState, prefs: UnitPr
 		const branch = results[id] as BranchResult;
 		const correlation = [siText(branch.correlation, prefs)];
 		if (!branch.inCorrelationRange) correlation.push('Outside the correlation’s range.');
-		const basis = branchVelocityBasis(id, branch, solved.flags);
+		const basis = branchVelocityBasis(branch);
 		const kVelocity: Cell =
 			basis === 'combined'
 				? [{ label: 'Combined flow', value: f.num(Math.abs(branch.referenceVelocity), 'velocity') }]
@@ -842,9 +838,7 @@ export function branchTable(project: Project, solved: SolvedState, prefs: UnitPr
 
 /** The velocity bases used in a solve's branches (to explain the K values under the table). */
 export function branchBases(solved: SolvedState): Set<BranchVelocityBasis> {
-	return new Set(
-		Object.entries(solved.branchResults).map(([id, b]) => branchVelocityBasis(id, b, solved.flags))
-	);
+	return new Set(Object.values(solved.branchResults).map((b) => branchVelocityBasis(b)));
 }
 
 /** Whether any branch of the solve is on the flagged Darby 3-K fallback. */

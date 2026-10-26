@@ -672,11 +672,11 @@ describe('branch velocity basis', () => {
 		const row = branchTable(gravity, solved, SI_UNITS).rows[0]!;
 		expect(row.cells.pattern).toBe('Diverging from branch');
 		expect(cellLines(row.cells.kVelocity!)).toEqual(['Combined flow: 4.233']);
-		expect(branchVelocityBasis('T1', darby, solved.flags)).toBe('combined');
+		expect(branchVelocityBasis(darby)).toBe('combined');
 		expect(branchFallback('T1', solved.flags)).toBe(true);
 		expect(anyBranchFallback(solved)).toBe(true);
 		expect(anyBranchFallback(pumpTransferSolved({ branchResults: { T1: crane } }))).toBe(false);
-		expect(branchVelocityBasis('T1', { ...crane, lossModel: 'ideal' }, [])).toBe('none');
+		expect(branchVelocityBasis({ ...crane, lossModel: 'ideal' })).toBe('none');
 	});
 });
 

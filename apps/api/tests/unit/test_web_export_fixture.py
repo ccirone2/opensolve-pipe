@@ -9,8 +9,10 @@ the design states and what the API returns, never against the web's code:
 
 - the workbook opens; its parts, sheets, captions, headers, frozen panes, filters, print titles,
   styles and document properties are as §3.2 states;
-- every number cell equals the API's own value for the same project, bit for bit (the project
-  is solved here through the API, once per case), by a column-to-field map written from §2.6;
+- every number cell equals the API's own value for the same project, bit for bit, by a
+  column-to-field map written from §2.6: the API's responses the fixture holds (the workbook was
+  written from them), which the API gives again here, solved through it once per case, to
+  round-off (the solver's last bits differ between CPUs; ``round_off_differences``);
 - every branch path's K·v²/(2g) is its path head loss (decision 29, §7.1 item 13);
 - every number is written as JavaScript's ``String(n)`` (§3.2), every text cell is a shared
   string that reads back as the original text (``_xHHHH_``, CR, quotes, a leading ``=`` or
@@ -41,6 +43,7 @@ from fastapi.testclient import TestClient
 from openpyxl.worksheet.worksheet import Worksheet
 
 from opensolve_pipe.main import app
+from tests.fixtures.export_input import round_off_differences
 
 WEB = Path(__file__).parents[3] / "web"
 FIXTURES = WEB / "src" / "lib" / "utils" / "__fixtures__"
@@ -280,7 +283,7 @@ def client() -> TestClient:
 
 
 @cache
-def solved(case_id: str | None) -> dict[str, Any]:
+def fresh_solve(case_id: str | None) -> dict[str, Any]:
     """The case solved through the API now, as the web solves it (no system curves)."""
     body: dict[str, Any] = {
         "project": fixture_input()["project"],
@@ -294,6 +297,17 @@ def solved(case_id: str | None) -> dict[str, Any]:
     assert result["success"], case_id
     assert result["solvedState"]["converged"], case_id
     return result
+
+
+def solved(case_id: str | None) -> dict[str, Any]:
+    """The API's response for the case that the workbook was written from (the fixture's, made
+    by tests/fixtures/export_input.py through the real API); a fresh solve gives it again to
+    round-off (test_the_api_solves_the_fixture_as_it_did_when_the_fixture_was_made)."""
+    for case in fixture_input()["cases"]:
+        if case["id"] == case_id:
+            result: dict[str, Any] = case["response"]
+            return result
+    raise AssertionError(f"the fixture has no case {case_id!r}")
 
 
 @cache
@@ -1147,14 +1161,16 @@ def test_the_fixture_project_is_the_exported_project() -> None:
 
 
 def test_the_api_solves_the_fixture_as_it_did_when_the_fixture_was_made() -> None:
-    """The fixture's responses are the API's (timestamps and compute times aside), so a
-    mismatch below is the export's, not a stale fixture's (tests/unit/test_export_input.py)."""
+    """The fixture's responses are the API's (timestamps and compute times aside), to round-off
+    and convergence diagnostics aside (``round_off_differences``: the solver's last bits differ
+    between CPUs), so a mismatch below is the export's, not a stale fixture's
+    (tests/unit/test_export_input.py)."""
     for case in cases():
-        fresh = json.loads(json.dumps(solved(case["id"])))
+        fresh = json.loads(json.dumps(fresh_solve(case["id"])))
         kept = json.loads(json.dumps(case["response"]))
         fresh["computeTime"] = kept["computeTime"]
         fresh["solvedState"]["timestamp"] = kept["solvedState"]["timestamp"]
-        assert fresh == kept, case["id"]
+        assert round_off_differences(fresh, kept) == [], case["id"]
 
 
 @pytest.mark.parametrize("sheet", list(EXPECTED_TABLES))

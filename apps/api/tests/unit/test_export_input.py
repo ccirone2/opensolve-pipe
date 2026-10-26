@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from tests.fixtures.export_input import generate
+from tests.fixtures.export_input import generate, round_off_differences
 
 WEB_FIXTURE = (
     Path(__file__).parents[3] / "web" / "src" / "lib" / "utils" / "__fixtures__"
@@ -54,6 +54,7 @@ def test_the_web_fixture_is_current() -> None:
         "writes it)"
     )
     web = json.loads(WEB_FIXTURE.read_text(encoding="utf-8"))
-    assert web == json.loads(json.dumps(generate())), (
+    # To round-off: the solver's last bits differ between CPUs (round_off_differences).
+    assert round_off_differences(json.loads(json.dumps(generate())), web) == [], (
         f"{WEB_FIXTURE} is out of date: run `pnpm gen:types` in apps/web"
     )

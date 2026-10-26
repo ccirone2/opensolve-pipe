@@ -6,8 +6,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Override, Project, SolvedState } from '../api/types';
-import { flag, pumpResult, pumpTransferSolved } from '../testing/results';
+import { flag, pumpResult, pumpTransferSolved, response } from '../testing/results';
+import type { ResultsState } from '../state/project.svelte';
 import {
+	caseResponse,
 	compareCells,
 	defaultRows,
 	DEFAULT_ROW_LIMIT,
@@ -265,5 +267,32 @@ describe('cells and differences', () => {
 			rowUnit({ quantity: 'portPressure', elementId: 'P1', portId: 'suction' }, SI_UNITS)
 		).toBe('kPa(g)');
 		expect(rowUnit({ quantity: 'valveState', elementId: 'V1' }, SI_UNITS)).toBe('');
+	});
+});
+
+describe("a case's response (Compare's rule, export.md §2.1)", () => {
+	const results = (stale: boolean): ResultsState => ({
+		response: response(pumpTransferSolved()),
+		stale,
+		solving: false,
+		error: null,
+		cancelled: false,
+		errorStale: false
+	});
+
+	it('keeps the response of a solved, not converged, out-of-date or cancelled case', () => {
+		for (const status of ['solved', 'not_converged', 'stale', 'cancelled'] as const) {
+			const r = results(status === 'stale');
+			expect(caseResponse(status, r)).toBe(r.response);
+		}
+	});
+
+	it('drops the response a failed case or one a stopped run did not reach kept', () => {
+		expect(caseResponse('failed', results(true))).toBeNull();
+		expect(caseResponse('not_reached', results(true))).toBeNull();
+	});
+
+	it('has none without a response', () => {
+		expect(caseResponse('not_solved', { ...results(false), response: null })).toBeNull();
 	});
 });

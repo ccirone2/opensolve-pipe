@@ -5,18 +5,10 @@
 -->
 <script lang="ts" module>
 	import type { CaseStatus } from '$lib/state/project.svelte';
+	import { CASE_STATUS_LABELS as LABELS } from '$lib/utils/labels';
 
-	export const CASE_STATUS_LABELS: Readonly<Record<CaseStatus, string>> = {
-		solving: 'Solving…',
-		waiting: 'Waiting',
-		solved: 'Solved',
-		not_converged: 'Did not converge',
-		stale: 'Out of date',
-		failed: 'Failed',
-		cancelled: 'Cancelled',
-		not_solved: 'Not solved',
-		not_reached: 'Not solved: the run stopped after a network error'
-	};
+	/** The statuses in words; they live in utils/labels.ts, where a .ts module (the export) reads them. */
+	export const CASE_STATUS_LABELS = LABELS;
 
 	/** Short forms of the statuses too long for a narrow column's header. */
 	export const CASE_STATUS_SHORT: Readonly<Partial<Record<CaseStatus, string>>> = {

@@ -5,7 +5,9 @@
  * Nothing here computes a hydraulic value. Every number shown comes from the SolvedState the API
  * returned; this module only selects, orders, converts units (units.ts) and labels them. Names
  * come from the current project; an element that no longer exists (results kept after an edit)
- * is shown by its id.
+ * is shown by its id. A connection's "From → To" (its ends and their names) comes from the project
+ * the results belong to (resultsProject): the project as solved once they are out of date, as the
+ * sign of its flow does.
  */
 import type {
 	BoundaryResult,
@@ -160,6 +162,31 @@ export function flagsForElement(flags: readonly Flag[], element: ElementRef): Fl
 			? f.componentId === element.id
 			: f.connectionId === element.id && !f.componentId
 	);
+}
+
+/** What each solve's results belong to, recorded by the store (see recordResultsProject). */
+const resultsProjects = new WeakMap<SolvedState, () => Project | null>();
+
+/**
+ * Record the project a solve's results belong to once they are out of date: `outOfDate` gives
+ * null while they are current, else the project exactly as sent for that solve. The store calls it
+ * for every response it keeps. A getter, so a table derived from it follows its results going out
+ * of date (it reads the store's state).
+ */
+export function recordResultsProject(solved: SolvedState, outOfDate: () => Project | null): void {
+	resultsProjects.set(solved, outOfDate);
+}
+
+/**
+ * The project that labels a solve's connections, "From → To" (proposal export.md decision 8):
+ * `current` while its results are current (their staleness key, names left out, equals the current
+ * project's, so every connection joins the same ends), else the project as sent for that solve. So
+ * after a reversal made since the solve, a row names the ends its flow sign refers to, and an id
+ * given since to another element does not lend that element's name. `current` for a solve the
+ * store did not record (a table built outside it).
+ */
+export function resultsProject(current: Project, solved: SolvedState): Project {
+	return resultsProjects.get(solved)?.() ?? current;
 }
 
 /** "Suction tank → Transfer pump", or the connection id when it no longer exists. */
@@ -418,10 +445,12 @@ export function nodeTable(project: Project, solved: SolvedState, prefs: UnitPref
 }
 
 /**
- * Links: one row per connection, in project order. Velocity, Re, f and regime are per pipe: a
- * connection of one pipe shows its values; a connection of several shows each pipe's ("Pipe 1",
- * "Pipe 2", ...), since one value (the API's top-level LinkResult values are the first pipe's)
- * would hide a faster or transitional pipe further on.
+ * Links: one row per connection, in project order, named "From → To" from the project the results
+ * belong to (resultsProject), so that the name and the sign of the flow refer to the same ends.
+ * Velocity, Re, f and regime are per pipe: a connection of one pipe shows its values; a
+ * connection of several shows each pipe's ("Pipe 1", "Pipe 2", ...), since one value (the API's
+ * top-level LinkResult values are the first pipe's) would hide a faster or transitional pipe
+ * further on.
  */
 export function linkTable(project: Project, solved: SolvedState, prefs: UnitPreferences): Table {
 	const f = new Formatter(prefs);
@@ -437,6 +466,7 @@ export function linkTable(project: Project, solved: SolvedState, prefs: UnitPref
 	const resultKeys = Object.keys(results);
 	const known = project.connections.map((c) => c.id).filter((id) => resultKeys.includes(id));
 	const ids = [...known, ...resultKeys.filter((k) => !known.includes(k))];
+	const labels = resultsProject(project, solved);
 	const rows = ids.map((id): Row => {
 		const link = results[id] as LinkResult;
 		const element: ElementRef = { kind: 'connection', id };
@@ -446,7 +476,7 @@ export function linkTable(project: Project, solved: SolvedState, prefs: UnitPref
 		return {
 			key: id,
 			element,
-			name: connectionName(project, id),
+			name: connectionName(labels, id),
 			detail: perPipe ? `${id} · ${link.segments.length} pipes` : id,
 			cells: {
 				flow: f.num(link.flow, 'flow'),

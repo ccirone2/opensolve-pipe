@@ -27,9 +27,16 @@
 	Goal seek (proposal goal-seek.md §6.2): the Goal seek button at the right of the header opens
 	its dialog, without a solve; its icon spins while one runs. While a goal seek runs, every Solve
 	control here is unavailable with the reason (one request at a time, store.calculating).
+
+	Export (proposal export.md §5.2): the Export button, left of Goal seek, is shown when there is
+	something to export (the case shown has results on screen, or on Compare cases any case has a
+	response); it is labelled from a 30 rem header and icon-only below, and unavailable while a
+	calculation request is in flight. Its dialog is a lazily loaded chunk (utils/export/load.ts),
+	preloaded at idle when the button first renders. The dialog's choices are page state here,
+	reset when another project is loaded.
 -->
 <script lang="ts">
-	import { tick, untrack } from 'svelte';
+	import { tick, untrack, type Component as SvelteComponent } from 'svelte';
 	import type { Component, ControlValve } from '$lib/api/types';
 	import SiteFooter from '$lib/components/SiteFooter.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
@@ -69,6 +76,14 @@
 	} from '$lib/utils/scenarios';
 	import { scenarioProblems } from '$lib/utils/scenario-problems';
 	import { calculatingReason } from '$lib/utils/goal-seek';
+	import {
+		DEFAULT_EXPORT_CHOICES,
+		loadExportDialog,
+		preloadExportDialog,
+		STALE_CHUNK_MESSAGE,
+		type ExportChoices,
+		type ExportDialogProps
+	} from '$lib/utils/export/load';
 	import type { Override } from '$lib/api/types';
 	import CompareView from './CompareView.svelte';
 	import ConvergenceStatus from './ConvergenceStatus.svelte';
@@ -439,14 +454,55 @@
 	const busyReason = $derived(calculatingReason(ws.store.calculating, 'solve'));
 	const busy = $derived(!!busyReason);
 	const goalSeeking = $derived(ws.store.calculating === 'goalSeek');
+
+	/**
+	 * Export is offered when there is something to export (export.md §2.4): results of the case
+	 * shown on screen, or on Compare cases a response of any case. The file follows Compare's rule.
+	 */
+	const exportShown = $derived(
+		comparing
+			? ws.store.caseIds.some((c) => !!ws.store.resultsFor(c).response)
+			: !!response && !previousHidden
+	);
+	/** Never from results about to be replaced: unavailable while a request is in flight. */
+	const exportReason = $derived(calculatingReason(ws.store.calculating, 'export', true));
+	let exportOpen = $state(false);
+	let ExportDialog = $state.raw<SvelteComponent<ExportDialogProps> | null>(null);
+	/** The dialog's choices for this page session (never stored); Cases follows the tab. */
+	let exportChoices = $state<ExportChoices>({ ...DEFAULT_EXPORT_CHOICES });
+	let exportCases = $state<'shown' | 'all'>('shown');
+
+	// The chunk is preloaded at idle when the button first renders (preloadExportDialog runs once).
+	$effect(() => {
+		if (exportShown) untrack(preloadExportDialog);
+	});
+	// Another project loaded: its choices start as a reload's would, and the dialog closes.
+	$effect(() =>
+		ws.store.onLoad(() => {
+			exportChoices = { ...DEFAULT_EXPORT_CHOICES };
+			exportOpen = false;
+		})
+	);
+
+	async function openExport() {
+		if (exportReason || exportOpen) return;
+		try {
+			ExportDialog = (await loadExportDialog()).default;
+		} catch {
+			ws.notify('error', STALE_CHUNK_MESSAGE);
+			return;
+		}
+		exportCases = comparing ? 'all' : 'shown';
+		exportOpen = true;
+	}
 </script>
 
 <div class="relative flex h-full min-h-0 flex-col">
 	<div
-		class="flex min-h-[53px] items-center gap-2 border-b border-slate-200 px-3 py-1 sm:px-4"
+		class="@container flex min-h-[53px] items-center gap-2 border-b border-slate-200 px-3 py-1 sm:px-4"
 		inert={covered}
 	>
-		<h2 class="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-base font-semibold">
+		<h2 class="flex min-w-min flex-1 flex-wrap items-center gap-2 text-base font-semibold">
 			Results
 			{#if hasScenarios}
 				<span
@@ -458,6 +514,27 @@
 			{/if}
 		</h2>
 		{#key caseId}<p role="status" class="min-w-0 text-sm text-slate-600">{status}</p>{/key}
+		{#if exportShown}
+			<button
+				type="button"
+				class="btn w-11 shrink-0 px-0 @min-[30rem]:w-auto @min-[30rem]:px-3"
+				data-export-button
+				aria-label={comparing
+					? 'Export results of all cases'
+					: hasScenarios
+						? `Export results of ${caseName}`
+						: 'Export results'}
+				aria-haspopup="dialog"
+				aria-disabled={!!exportReason}
+				aria-describedby={exportReason ? `${id}-export-busy` : undefined}
+				title={exportReason || undefined}
+				onclick={() => void openExport()}
+			>
+				<Icon name="download" class="size-4" />
+				<span class="hidden @min-[30rem]:inline">Export</span>
+			</button>
+			{#if exportReason}<span id="{id}-export-busy" class="sr-only">{exportReason}</span>{/if}
+		{/if}
 		<!-- Offered once there is a network to vary (a goal seek needs no solve before it). -->
 		{#if ws.project.components.length || goalSeeking}
 			<button
@@ -945,5 +1022,13 @@
 
 	{#if inspected && solved}
 		<TraceView element={inspected} {solved} onclose={() => ws.closeInspector()} />
+	{/if}
+	{#if exportOpen && ExportDialog}
+		<ExportDialog
+			choices={exportChoices}
+			onchoices={(choices) => (exportChoices = choices)}
+			initialCases={exportCases}
+			onclose={() => (exportOpen = false)}
+		/>
 	{/if}
 </div>

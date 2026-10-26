@@ -65,6 +65,7 @@ import {
 } from '../utils/encoding';
 import { createEmptyProject, isoNow } from '../utils/factory';
 import type { Calculating } from '../utils/goal-seek';
+import { recordResultsProject } from '../utils/results';
 import {
 	applyScenario,
 	carryChanges,
@@ -452,6 +453,16 @@ export class ProjectStore {
 	/** System curves by pump id, for the solve of `results.response` (see systemCurve()). */
 	get systemCurves(): Readonly<Record<string, SystemCurveState>> {
 		return this.#case(this.activeCase).systemCurves;
+	}
+
+	/**
+	 * A case's system curves (read only), for the solve of its latest response: its slot, as
+	 * `systemCurves` is the active case's. Keyed by pump id, or for a curve over a given flow range
+	 * (an overlay on another case's chart) by the pump id, NUL, flowMin, NUL and flowMax (m³/s). The
+	 * export lists them as computed and never computes one (proposal export.md §2.1).
+	 */
+	systemCurvesFor(caseId: CaseId): Readonly<Record<string, SystemCurveState>> {
+		return this.#case(caseId).systemCurves;
 	}
 
 	/** The latest solved state of the active case, if any (check results.stale before relying on it). */
@@ -999,6 +1010,11 @@ export class ProjectStore {
 					cancelled: false,
 					errorStale: false
 				}
+			});
+			// Result tables name its connections from the project as sent once it is out of date.
+			recordResultsProject(response.solvedState, () => {
+				const kept = this.#case(caseId).results;
+				return kept.response === response && !kept.stale ? null : project;
 			});
 			if (!stale) this.#recordMethodVersion(response);
 			return 'ok';

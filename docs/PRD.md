@@ -109,9 +109,10 @@ v1 is the core analysis MVP. Everything else in this document is **Later**. The 
 - Panel navigator, results tables, pump/system curve chart
 - Scenario manager: named cases of one project, solved one at a time or all together and compared side by side (§3.8; CLAUDE.md D15)
 - Goal seek: the input values (1 to 4) that bring as many results to their targets, each trial a full solve (§3.9; CLAUDE.md D16)
+- Export: a results workbook (.xlsx) or CSV files (.zip) of the case shown or all cases, and the pump chart as a PNG, made in the browser (§3.2.3; CLAUDE.md D17)
 - Sharing by link (§4.4)
 
-**Later:** VFD pressure and differential-pressure control modes (D11 slices 2-3); HI viscosity correction; pressure relief valves; three-way valves; differential-pressure control valve mode; non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, heat exchangers, strainers, user-defined elements; fuels in the fluid library; auto-generated schematic; CSV/XLSX/image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
+**Later:** VFD pressure and differential-pressure control modes (D11 slices 2-3); HI viscosity correction; pressure relief valves; three-way valves; differential-pressure control valve mode; non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, heat exchangers, strainers, user-defined elements; fuels in the fluid library; auto-generated schematic; SVG and schematic image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
 
 ### 2.4 Future Features (Planned)
 
@@ -332,10 +333,19 @@ For each assigned-flow node:
 - NPSH available at pump suction
 - NPSH margin (if NPSH required provided)
 
-#### 3.2.3 Export Formats (Later)
+#### 3.2.3 Export Formats
 
-- CSV/Excel: All results in tabular format
-- Image: Schematic/PFD as PNG or SVG
+The Results pane exports what the page holds, made in the browser: nothing is sent to the server and nothing is calculated but Compare's differences (CLAUDE.md D17; `docs/proposals/export.md`). Export is unavailable while a calculation request is in flight.
+
+- **Results workbook (.xlsx, the default) or CSV files (.zip)** of the case shown or, in a project with scenarios, all cases:
+  - **About** first: how to read the file, the project, the export time, each case's solve time, methods version and server libraries, convergence, the atmosphere and the fluid with their sources, whether the results are out of date, the project link (by default; a checkbox leaves it out), the web app's and the server's source, and the disclaimer;
+  - the flags, and every results table with one value per cell at full precision (nodes, links with their pipes and fittings, pumps with their curves and the system curves already computed, valves, branches and their ports, boundaries and their ports, assigned flows);
+  - the scenario changes as the server applied them, Compare cases (all cases), the goal seek report, the methods text and, for one case, the trace.
+  - Every table row carries its case, its solve time and its state (current, out of date, did not converge). A solve that did not converge gives its record (convergence, flags, methods) but no values.
+  - One unit system per file: the display units or SI base units (in SI every number is the server's own value).
+  - CSV files are RFC 4180, UTF-8, with a point as the decimal mark; the zip's `README.txt` says how to open them under a comma-decimal setting.
+- **Pump chart image (PNG):** the chart shown, drawn again at 1600 px wide with a caption naming the pump, the case, the solve and its state, its notes and the disclaimer. None for a solve that did not converge.
+- **Later:** SVG; an image of the schematic (when the schematic exists); a single-table CSV; Web Share; the values of a solve that did not converge.
 
 ### 3.3 Data Entry Methods
 

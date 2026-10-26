@@ -11,6 +11,8 @@ import type { SystemCurveState } from '$lib/state/project.svelte';
 import { pumpResult, systemCurvePoint, systemCurveResponse } from '$lib/testing/results';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { IMPERIAL_UNITS, SI_UNITS } from '$lib/utils/units';
+import type { ChartImageRequest, ChartImageSource } from '$lib/utils/export/chart-image';
+import { DISCLAIMER } from '$lib/components/links';
 import PumpChart from './PumpChart.svelte';
 
 interface Recorded {
@@ -21,8 +23,12 @@ interface Recorded {
 }
 
 const charts = vi.hoisted(() => [] as { config: unknown; destroyed: boolean }[]);
+/** The chart image's requests (the image code itself is tested in chart-image.test.ts). */
+const images = vi.hoisted(() => ({ requests: [] as unknown[] }));
 
-vi.mock('./chart-setup', () => ({
+vi.mock('./chart-setup', async () => ({
+	// The chart's own configuration: only Chart.js and the image are replaced.
+	pumpChartConfig: (await import('$lib/utils/pump-chart-config')).pumpChartConfig,
 	Chart: class {
 		static defaults = { plugins: { legend: { labels: { generateLabels: () => [] } } } };
 		record: { config: unknown; destroyed: boolean };
@@ -33,13 +39,17 @@ vi.mock('./chart-setup', () => ({
 		destroy() {
 			this.record.destroyed = true;
 		}
-	}
+	},
+	downloadChartImage: async (_chart: unknown, request: unknown) =>
+		void images.requests.push(request),
+	IMAGE_REASONS_IN: 'made-up place says'
 }));
 
 const getContext = HTMLCanvasElement.prototype.getContext;
 
 beforeEach(() => {
 	charts.length = 0;
+	images.requests.length = 0;
 });
 
 afterEach(() => {
@@ -519,5 +529,152 @@ describe('pump chart', () => {
 		expect(charts[0]!.destroyed).toBe(true);
 		view.unmount();
 		expect(charts[1]!.destroyed).toBe(true);
+	});
+
+	describe('Download image (proposal export.md §5.5)', () => {
+		const notices: { kind: string; text: string }[] = [];
+		const image = (values: Partial<ChartImageSource> = {}): ChartImageSource => ({
+			projectName: 'Pump transfer between two tanks',
+			timestamp: '2026-10-25T12:32:05Z',
+			methodVersion: '1.2.0',
+			stale: false,
+			unavailable: '',
+			origin: 'https://opensolve-pipe.app',
+			notify: (kind, text) => void notices.push({ kind, text }),
+			...values
+		});
+		const button = () =>
+			screen.getByRole('button', {
+				name: /^Download image of the pump and system curves: Transfer pump/
+			});
+
+		beforeEach(() => {
+			notices.length = 0;
+		});
+
+		it('is offered only with an image source, beside Show data table', async () => {
+			withCanvas();
+			const view = render(PumpChart, {
+				result: pumpResult(),
+				name: 'Transfer pump',
+				prefs: SI_UNITS,
+				system: READY
+			});
+			await vi.waitFor(() => expect(charts).toHaveLength(1));
+			expect(screen.queryByRole('button', { name: /^Download image/ })).toBeNull();
+			await view.rerender({ image: image() });
+			expect(button()).toHaveTextContent('Download image');
+			expect(button()).toHaveAttribute('data-chart-image');
+			expect(button().parentElement).toBe(
+				screen.getByRole('button', { name: 'Show data table' }).parentElement
+			);
+		});
+
+		it('is unavailable, with the reason, until the chart is drawn and while a curve is computed', async () => {
+			withCanvas();
+			const props = {
+				result: pumpResult(),
+				name: 'Transfer pump',
+				prefs: SI_UNITS,
+				image: image()
+			};
+			const view = render(PumpChart, { ...props, system: { status: 'loading' } });
+			expect(button()).toHaveAttribute('aria-disabled', 'true');
+			expect(button()).toHaveAccessibleDescription(
+				'Wait until the system curve is computed, or cancel it.'
+			);
+			await view.rerender({ ...props, system: READY });
+			await vi.waitFor(() => expect(button()).not.toHaveAttribute('aria-disabled', 'true'));
+			expect(button()).not.toHaveAttribute('title');
+			// Another case's curve on the chart being computed.
+			await view.rerender({ ...props, system: READY, overlayProgress: { done: 0, total: 1 } });
+			expect(button()).toHaveAttribute(
+				'title',
+				'Wait until the system curve is computed, or cancel it.'
+			);
+			// The results' own reason (PumpsView's: not converged, failed shown, a calculation).
+			await view.rerender({
+				...props,
+				system: READY,
+				overlayProgress: null,
+				image: image({ unavailable: 'Made-up reason.' })
+			});
+			expect(button()).toHaveAccessibleDescription('Made-up reason.');
+			await fireEvent.click(button());
+			expect(images.requests).toHaveLength(0);
+		});
+
+		it('says the chart is being drawn before it is', async () => {
+			withCanvas();
+			render(PumpChart, {
+				result: pumpResult(),
+				name: 'Transfer pump',
+				prefs: SI_UNITS,
+				system: READY,
+				image: image()
+			});
+			expect(button()).toHaveAccessibleDescription('The chart is being drawn.');
+			await vi.waitFor(() => expect(charts).toHaveLength(1));
+			expect(button()).not.toHaveAttribute('aria-disabled', 'true');
+		});
+
+		it('is not offered when the chart cannot be drawn', async () => {
+			render(PumpChart, {
+				result: pumpResult(),
+				name: 'Transfer pump',
+				prefs: SI_UNITS,
+				image: image()
+			});
+			expect(
+				await screen.findByText(/The chart cannot be drawn in this browser/)
+			).toBeInTheDocument();
+			expect(screen.queryByRole('button', { name: /^Download image/ })).toBeNull();
+		});
+
+		it('asks the chart chunk for the image of what it shows', async () => {
+			withCanvas();
+			const others = [
+				{ key: 'S1', name: 'Winter', result: pumpResult(), stale: false, system: null }
+			];
+			const source = image({ stale: true });
+			render(PumpChart, {
+				result: pumpResult({ operatingFlow: 0.034, operatingHead: 7.5, inCurveRange: false }),
+				name: 'Transfer pump',
+				prefs: SI_UNITS,
+				ratedRange: [0, 0.03],
+				system: READY,
+				caseName: 'Base case',
+				others,
+				othersControlled: true,
+				image: source
+			});
+			await vi.waitFor(() => expect(charts).toHaveLength(1));
+			await fireEvent.click(button());
+			await vi.waitFor(() => expect(images.requests).toHaveLength(1));
+			const request = images.requests[0] as ChartImageRequest;
+			expect(request).toMatchObject({
+				pumpName: 'Transfer pump',
+				caseName: 'Base case',
+				disclaimer: DISCLAIMER,
+				source
+			});
+			// The screen's own datasets, drawn once at 2× without events.
+			const screen = charts[0]!.config as Recorded;
+			expect(request.config.data).toEqual(screen.data);
+			expect(request.config.options).toMatchObject({
+				responsive: false,
+				devicePixelRatio: 2,
+				events: []
+			});
+			// The figure's notes as shown, pointing to where the reasons are.
+			expect(request.notes.method).toBe(
+				document.querySelector('figure p.text-slate-600:not([id])')?.firstChild?.textContent?.trim()
+			);
+			expect(request.notes.method).toMatch(/speed-controlled ones regulating to their setpoints/);
+			expect(request.others.map((o) => o.label)).toEqual(['Winter']);
+			expect(button()).toHaveAccessibleName(
+				'Download image of the pump and system curves: Transfer pump, Base case'
+			);
+		});
 	});
 });

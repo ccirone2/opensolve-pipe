@@ -12,11 +12,11 @@
 -->
 <script lang="ts">
 	import Icon from '$lib/components/ui/Icon.svelte';
-	import CaseStatusChip, {
-		CASE_STATUS_LABELS
-	} from '$lib/components/workspace/CaseStatusChip.svelte';
+	import CaseStatusChip from '$lib/components/workspace/CaseStatusChip.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import { CASE_STATUS_LABELS } from '$lib/utils/labels';
 	import {
+		caseResponse,
 		compareCells,
 		defaultRows,
 		rowElement,
@@ -43,8 +43,7 @@
 		cases.map((caseId, i): CompareColumn & { caseId: CaseId; stale: boolean } => {
 			const results = store.resultsFor(caseId);
 			// Failed or not reached: a response kept is from an earlier version of the project.
-			const none = statuses[i] === 'failed' || statuses[i] === 'not_reached';
-			const response = none ? null : results.response;
+			const response = caseResponse(statuses[i] ?? 'not_solved', results);
 			return {
 				caseId,
 				solved: response?.solvedState ?? null,

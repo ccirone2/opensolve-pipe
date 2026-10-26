@@ -17,6 +17,7 @@ Students checking hand calculations, field technicians sizing a retrofit, and pr
 - Results: flows, velocities, head loss, pressures, HGL/EGL, pump operating point, system curve, NPSH available
 - Scenarios: named cases of one network (a pump off, a valve closed, a larger pipe, another fluid temperature) kept as changes of the base case, solved one at a time or all together and compared side by side
 - Goal seek: the input values (a pump speed, a reservoir level, a valve's Cv, a pipe length, up to four at once) that bring chosen results to their targets, each trial a full network solve, applied to the case or as a new scenario only when you choose
+- Export: every results table of the case shown or of all cases as an Excel workbook or CSV files (each value at full precision, with the project, case, solve and methods version it came from), and the pump chart as a PNG, all made in your browser: nothing is sent
 - Imperial, SI or mixed units
 - Share by link: the project is compressed into the URL fragment and never sent to a server for storage
 

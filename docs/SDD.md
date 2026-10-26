@@ -131,12 +131,12 @@ The **workspace** (`components/workspace/Workspace.svelte`) has a header, a **Bu
 PanelNavigator
 ├── Breadcrumb                    // the path walked; each step goes back to that component
 ├── Jump to → JumpToDialog        // every component, with a filter; marks those not connected to the start
-├── ComponentPanel                // the current component: type, id, name
+├── ComponentPanel                // the current component: type, id, name (edited in place)
 │   ├── ComponentActions          // Add after, Add before, Add branch, Delete
 │   │   ├── AddComponentDialog    // at a free port / into a connection / as a branch (tee or wye)
 │   │   └── DeleteDialog          // optional "Join A and B" (keep the neighbors connected)
 │   ├── Properties tab
-│   │   ├── name, elevation
+│   │   ├── elevation
 │   │   ├── per-type form         // forms/: Reservoir, ReferenceNode, AssignedFlow, Branch (tee, wye),
 │   │   │                         //   Pump (+ PumpCurveEditor), IsolationValve, CheckValve, ControlValve
 │   │   └── PortsEditor           // port sizes and elevations, what each connects to; reservoir ports

@@ -50,6 +50,12 @@
 			: null
 	);
 
+	/**
+	 * Why a system-curve point has no head is told with the results' names and each element's
+	 * kind in the project as solved (its rule), as the curve was computed for that project.
+	 */
+	const curveNames = $derived({ project: ws.labelsProject, solved: ws.store.solvedProject });
+
 	// Compute the system curve of the pump being viewed, once per solve (a new solve resets the
 	// cache; a failure or cancellation waits for "Try again").
 	$effect(() => {
@@ -197,6 +203,7 @@
 					name={viewed.name}
 					prefs={ws.displayUnits}
 					{ratedRange}
+					names={curveNames}
 					{system}
 					onretry={response
 						? () => ws.store.loadSystemCurve(viewed.key, { retry: true })

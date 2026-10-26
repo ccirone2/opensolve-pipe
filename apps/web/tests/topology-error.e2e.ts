@@ -12,7 +12,8 @@ import {
 	showPane,
 	sig4,
 	solve,
-	solveConverged
+	solveConverged,
+	toldText
 } from './support';
 
 /**
@@ -102,9 +103,17 @@ test('a network without a reservoir: each topology issue links to its components
 	await expect(items.nth(2)).toContainText(
 		'This part of the network has no fixed-pressure boundary: add a reservoir or reference node to it.'
 	);
+	// The server's own message is kept, under Details (closed).
 	for (const [i, issue] of issues.entries()) {
-		await expect(items.nth(i)).not.toContainText(issue.message);
+		expect(await toldText(items.nth(i))).not.toContain(issue.message);
+		const details = items.nth(i).locator('details');
+		await expect(details).not.toHaveAttribute('open');
+		await expect(details).toContainText(`Calculation server's message: ${issue.message}`);
 	}
+	await items.nth(0).getByText('Details', { exact: true }).click();
+	await expect(
+		items.nth(0).getByText(`Calculation server's message: ${issues[0]!.message}`)
+	).toBeVisible();
 	await expect(items.nth(0).getByRole('button')).toHaveText(['Gate valve V1']);
 	await expect(items.nth(1).getByRole('button')).toHaveText(['Gate valve V2']);
 	await expect(items.nth(2).getByRole('button')).toHaveText(['Gate valve V1', 'Gate valve V2']);

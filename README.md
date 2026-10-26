@@ -83,7 +83,7 @@ The reference suite (`apps/api/tests/reference/`) is how hydraulic correctness i
 
 ## Deployment
 
-The web app is meant for Cloudflare Pages and the API for Google Cloud Run; neither is deployed yet. [`docs/TSD.md`](docs/TSD.md) §11 explains each setting below and cites its source, and it lists the checks to run after every deployment and the costs. Ordinary use fits within both providers' free tiers.
+The owner has deployed both: the web app on Cloudflare Pages, which builds production from `main`, and the API on Google Cloud Run (2026-10-25). A deployment is not a stable release: until the owner declares one, the model, the link format, the API and the methods may change, and an older link may fail to open or solve differently (CLAUDE.md D14). The steps below are how the deployment is set up, for setting it up again or elsewhere. [`docs/TSD.md`](docs/TSD.md) §11 explains each setting below and cites its source, and it lists the checks to run after every deployment and the costs. Ordinary use fits within both providers' free tiers.
 
 **1. The API on Cloud Run.** You need a Google Cloud project with billing enabled and the [gcloud CLI](https://cloud.google.com/sdk/docs/install). Replace `PROJECT_ID`, `PROJECT_NUMBER` and `PAGES_PROJECT` (the name you will give the Pages project):
 

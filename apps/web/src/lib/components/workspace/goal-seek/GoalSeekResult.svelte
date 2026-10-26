@@ -31,7 +31,8 @@
 		requestIssues,
 		runViews
 	} from '$lib/utils/goal-seek';
-	import { topologyIssueViews, topologySummary } from '$lib/utils/issue-text';
+	import IssueDetail from '$lib/components/results/IssueDetail.svelte';
+	import { issueTextOptions, topologyIssueViews, topologySummary } from '$lib/utils/issue-text';
 	import { componentName, fittingFallbackName } from '$lib/utils/labels';
 	import {
 		changeFieldLabel,
@@ -150,11 +151,22 @@
 	// Request errors, in the Results pane's words.
 	const error = $derived(finished.error);
 	const issues = $derived(
-		error?.kind === 'validation' ? requestIssues(error.details, error.message) : null
+		error?.kind === 'validation'
+			? requestIssues(error.details, error.message, {
+					project: ws.labelsProject,
+					units: ws.units
+				})
+			: null
 	);
 	const issueViews = $derived(
 		error?.kind === 'topology'
-			? topologyIssueViews(error.issues, ws.project, !finished.stale, ws.units)
+			? topologyIssueViews(
+					error.issues,
+					ws.project,
+					!finished.stale,
+					ws.units,
+					issueTextOptions(ws.library)
+				)
 			: []
 	);
 
@@ -224,14 +236,17 @@
 					{#each issueViews as issue, i (i)}
 						<li class="break-words">
 							{issue.text}
-							{#each issue.links as link (link.componentId)}
+							{#each issue.links as link, k (k)}
 								<button
 									type="button"
 									class="ml-1 min-h-11 text-blue-800 underline underline-offset-2"
 									onclick={() => show(link.componentId, link.portId)}
-									>{componentName(ws.project, link.componentId)}</button
+									>{link.label ?? componentName(ws.project, link.componentId)}</button
 								>
 							{/each}
+							{#if issue.detail}
+								<IssueDetail detail={issue.detail} />
+							{/if}
 						</li>
 					{/each}
 				</ul>

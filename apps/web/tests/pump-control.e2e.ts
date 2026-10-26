@@ -15,7 +15,8 @@ import {
 	sig4,
 	solve,
 	solveConverged,
-	tableTexts
+	tableTexts,
+	toldText
 } from './support';
 
 /**
@@ -411,7 +412,9 @@ test('a flow setpoint no speed can hold on the curve: rejected, and told with it
 		`Use a setpoint below ${down4(xMono)} L/s (the maximum speed × x_mono), or a curve that ` +
 			'extends to higher flows.'
 	);
-	await expect(item).not.toContainText('m³/s');
+	expect(await toldText(item)).not.toContain('m³/s');
+	// The server's own message, in m³/s, is kept under Details.
+	await expect(item.locator('details')).toContainText(body.issues![0]!.message);
 	await expect(item.getByRole('button', { name: 'Transfer pump' })).toBeVisible();
 
 	// A setpoint below the bound solves (at the maximum speed: it is beyond what the pump gives).

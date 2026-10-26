@@ -8,8 +8,9 @@ import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SystemCurveState } from '$lib/state/project.svelte';
-import { pumpResult, systemCurveResponse } from '$lib/testing/results';
-import { SI_UNITS } from '$lib/utils/units';
+import { pumpResult, systemCurvePoint, systemCurveResponse } from '$lib/testing/results';
+import { pumpTransferExample } from '$lib/utils/examples';
+import { IMPERIAL_UNITS, SI_UNITS } from '$lib/utils/units';
 import PumpChart from './PumpChart.svelte';
 
 interface Recorded {
@@ -365,6 +366,59 @@ describe('pump chart', () => {
 			);
 		expect(rows[1]).toEqual(['10', '—', 'made-up reason: not converged']);
 		expect(rows[0]).toEqual(['0', '12', '']);
+	});
+
+	it('tells why a point has no head with names and display units, the API sentence under Details', async () => {
+		withCanvas();
+		// Made-up test inputs: the point at 0.02 m³/s has an FCV at its switch, whose open head
+		// is 15.24 m (50 ft).
+		const curve = systemCurveResponse('P1', [2]);
+		const message =
+			"the head across the pump is undetermined: at this flow FCV 'V1' passes exactly its " +
+			'setpoint flow, so the valve could also hold it throttled, with any head across the pump ' +
+			'at or above 15.24 m (with the valve fully open), and no reservoir or reference node fixes ' +
+			'the pressure between the valve and the pump';
+		curve.points[2] = systemCurvePoint({
+			flow: 0.02,
+			message,
+			reason: 'valve_at_switch',
+			componentIds: ['V1'],
+			openHead: 15.24,
+			openHeadBound: 'lower'
+		});
+		const project = pumpTransferExample();
+		project.components[2] = {
+			type: 'valve',
+			valveType: 'fcv',
+			id: 'V1',
+			name: 'Flow limiter',
+			elevation: 0,
+			status: 'active',
+			setpoint: 0.02,
+			ports: project.components[2]!.ports
+		};
+		render(PumpChart, {
+			result: pumpResult(),
+			name: 'P',
+			prefs: IMPERIAL_UNITS,
+			names: { project, solved: project },
+			system: { status: 'ready', curve }
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
+		const table = screen.getByRole('table', { name: 'System curve' });
+		const cell = within(table).getAllByRole('row')[3]!.querySelectorAll('td')[2]!;
+		const details = cell.querySelector('details')!;
+		expect(details.open).toBe(false);
+		expect(within(details).getByText('Details')).toBeInTheDocument();
+		expect(details).toHaveTextContent(`Calculation server's message: ${message}`);
+		details.remove();
+		expect(cell.textContent).toBe(
+			'The head across the pump is undetermined: at this flow Flow limiter passes exactly its ' +
+				'flow setpoint, so it could also hold the flow throttled, with any head across the pump ' +
+				'at or above 50 ft (its head with the valve fully open), and no reservoir or reference ' +
+				'node fixes the pressure between the valve and the pump.'
+		);
+		expect(15.24 / 0.3048).toBeCloseTo(50, 12);
 	});
 
 	it('says when no point of the system curve has a head, and draws none', async () => {

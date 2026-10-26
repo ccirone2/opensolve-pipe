@@ -5,9 +5,9 @@
  * the user did not enter; Fixed speed removes the control in one edit; Speed becomes Maximum
  * speed. The setpoints and speeds typed here are made-up test inputs.
  */
-import { fireEvent, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Project, Pump } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Workspace } from '$lib/state/workspace.svelte';
@@ -32,8 +32,22 @@ function linkedPump(ws: Workspace): Pump {
 	return pumpOf(decodeProject(fragmentOf(ws.store.url)));
 }
 
-const field = (name: string) => screen.getByRole('textbox', { name });
-const control = () => screen.getByRole('combobox', { name: 'Control' });
+/**
+ * The form control with this role and accessible name, queried by role inside its own field:
+ * the element that holds its label, whose text is the name without the unit. Over the whole
+ * workspace a role query computes the accessible name of every candidate, the pump curve's 20
+ * point cells included, and jsdom recomputes those elements' styles after every DOM change:
+ * about 150 ms a textbox query, which took tests past the 5 s timeout under CPU load. Inside
+ * the field it takes a few milliseconds.
+ */
+function inField(role: 'textbox' | 'combobox', name: string): HTMLElement {
+	const label = screen.getByText(name.replace(/ \([^)]*\)$/, ''), { selector: 'label' });
+	return within(label.parentElement as HTMLElement).getByRole(role, { name });
+}
+const field = (name: string) => inField('textbox', name);
+/** `field` once it appears (as findByRole is getByRole retried). */
+const findField = (name: string) => waitFor(() => field(name));
+const control = () => inField('combobox', 'Control');
 /** The form's note about the draft (a live status), if shown. */
 const draftNote = () =>
 	screen.queryAllByRole('status').find((s) => /switch to flow control/.test(s.textContent ?? ''));
@@ -51,6 +65,17 @@ async function chooseControl(value: 'fixed' | 'flow') {
 }
 
 describe('PumpForm: speed control', () => {
+	// A worker's first workspace compiles the project schema's validator, and its first render,
+	// queries and link decoding run cold: about 0.7 s, several times that under CPU load, which
+	// the first test would otherwise pay inside its 5 s timeout. Pay it once, before the tests.
+	beforeAll(() => {
+		const ws = setup();
+		control();
+		field('Speed (%)');
+		linkedPump(ws);
+		cleanup();
+	});
+
 	it('holds flow control as a draft until it is complete and valid, then writes it in one edit', async () => {
 		const ws = setup();
 		expect(control()).toHaveValue('fixed');
@@ -117,12 +142,12 @@ describe('PumpForm: speed control', () => {
 		ws.store.undo();
 		await Promise.resolve();
 		expect('control' in pumpOf(ws.project)).toBe(false);
-		expect(await screen.findByRole('textbox', { name: 'Speed (%)' })).toHaveValue('100');
+		expect(await findField('Speed (%)')).toHaveValue('100');
 		expect(control()).toHaveValue('fixed');
 		expect(screen.queryByRole('textbox', { name: 'Minimum speed (%)' })).toBeNull();
 
 		ws.store.redo();
-		expect(await screen.findByRole('textbox', { name: 'Minimum speed (%)' })).toHaveValue('40');
+		expect(await findField('Minimum speed (%)')).toHaveValue('40');
 		expect(control()).toHaveValue('flow');
 		expect(pumpOf(ws.project).control).toMatchObject({ mode: 'flow', minSpeed: 0.4 });
 	});

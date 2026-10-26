@@ -47,6 +47,7 @@
 	} from '$lib/utils/results';
 	import { formatValue } from '$lib/utils/units';
 	import {
+		issueTextOptions,
 		missingConcentrationText,
 		topologyIssueViews,
 		topologySummary,
@@ -65,6 +66,7 @@
 	import CompareView from './CompareView.svelte';
 	import ConvergenceStatus from './ConvergenceStatus.svelte';
 	import FlagsSummary from './FlagsSummary.svelte';
+	import IssueDetail from './IssueDetail.svelte';
 	import LinksView from './LinksView.svelte';
 	import MethodsSummary from './MethodsSummary.svelte';
 	import MethodVersionNotice from './MethodVersionNotice.svelte';
@@ -332,7 +334,13 @@
 				views:
 					error?.kind === 'topology'
 						? untrack(() =>
-								topologyIssueViews(error.issues, ws.project, !results.errorStale, ws.units)
+								topologyIssueViews(
+									error.issues,
+									ws.project,
+									!results.errorStale,
+									ws.units,
+									issueTextOptions(ws.library)
+								)
 							)
 						: []
 			};
@@ -521,16 +529,19 @@
 						<ul class="list-disc space-y-1 pl-5 text-sm text-red-900">
 							{#each issueViews as issue, i (i)}
 								{@const set = results.errorStale ? [] : issueChanges(i)}
-								<li>
+								<li class="break-words">
 									{issue.text}
-									{#each issue.links as link (link.componentId)}
+									{#each issue.links as link, k (k)}
 										<button
 											type="button"
 											class="ml-1 min-h-11 text-blue-800 underline underline-offset-2"
 											onclick={() => ws.show(link.componentId, link.portId)}
-											>{componentName(ws.project, link.componentId)}</button
+											>{link.label ?? componentName(ws.project, link.componentId)}</button
 										>
 									{/each}
+									{#if issue.detail}
+										<IssueDetail detail={issue.detail} />
+									{/if}
 									{#if set.length}
 										<span class="block">
 											Set by this scenario: {set

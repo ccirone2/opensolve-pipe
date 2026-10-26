@@ -1,5 +1,13 @@
+import { gzipSync } from 'node:zlib';
 import { expect, test, type Page, type Request } from '@playwright/test';
-import type { SolveRequest, SystemCurveRequest, SystemCurveResponse } from '../src/lib/api/types';
+import type {
+	ControlValve,
+	SolveRequest,
+	SystemCurveRequest,
+	SystemCurveResponse
+} from '../src/lib/api/types';
+import { pumpTransferExample } from '../src/lib/utils/examples';
+import { IMPERIAL_UNITS } from '../src/lib/utils/units';
 import {
 	addAfter,
 	addFirst,
@@ -17,6 +25,7 @@ import {
 	sig4,
 	solveConverged,
 	tableTexts,
+	toldText,
 	traceOf
 } from './support';
 import { WEB_ORIGIN } from './servers';
@@ -280,4 +289,75 @@ test('build a pump system from a new project, solve, share and reopen it', async
 
 	// Only the app and its calculation server were contacted (GOALS §4.5).
 	expect([...origins].filter((o) => !ALLOWED_ORIGINS.has(o))).toEqual([]);
+});
+
+test('a system-curve point without a head says why, with names and in the display units', async ({
+	page
+}) => {
+	// The pump-transfer example in US units, with its isolation valve replaced by an FCV named
+	// "Flow limiter" set to 15 L/s (made-up test inputs): every way from the pump's discharge back
+	// to its suction passes the FCV, so no forced flow above 15 L/s has a steady state.
+	const project = pumpTransferExample();
+	project.settings.units = { ...IMPERIAL_UNITS };
+	const fcv: ControlValve = {
+		type: 'valve',
+		valveType: 'fcv',
+		id: 'V1',
+		name: 'Flow limiter',
+		elevation: 0,
+		status: 'active',
+		setpoint: 0.015,
+		ports: project.components[2]!.ports
+	};
+	project.components[2] = fcv;
+	const encoded = gzipSync(Buffer.from(JSON.stringify(project))).toString('base64url');
+	await page.goto(`/p#${encoded}`);
+	await expect(currentHeading(page)).toHaveText('Suction tank');
+	await solveConverged(page);
+
+	const answer = page.waitForResponse((r) => r.url().endsWith('/api/v1/system-curve'));
+	const pumps = await resultsView(page, 'Pumps');
+	const curve = (await (await answer).json()) as SystemCurveResponse;
+	const index = curve.points.findIndex((p) => p.head === null);
+	const point = curve.points[index]!;
+	expect(point.flow).toBeGreaterThan(0.015);
+	expect(point).toMatchObject({
+		reason: 'beyond_limit',
+		componentIds: ['V1'],
+		assignedFlowNodeIds: [],
+		limitFlow: 0.015,
+		passedFlow: 0.015
+	});
+	expect(point.message).toContain("passes FCV 'V1', which passes at most 0.015 m³/s that way");
+
+	const chart = pumps.getByRole('figure', { name: 'Pump and system curves: Transfer pump' });
+	await expect(chart.getByRole('img')).toHaveAccessibleName(/ and system curve; operating point /);
+	await chart.getByRole('button', { name: 'Show data table' }).click();
+	const table = chart.getByRole('table', { name: 'System curve' });
+	await expect(table.getByRole('columnheader')).toHaveText([
+		'Flow (gpm)',
+		'Head (ft)',
+		'Why no head'
+	]);
+	const GPM = (231 * 0.0254 ** 3) / 60; // m³/s
+	const row = table.getByRole('row').nth(index + 1);
+	await expect(row.getByRole('cell').first()).toHaveText(sig4(point.flow / GPM));
+	const why = row.getByRole('cell').nth(2);
+	expect(await toldText(why)).toBe(
+		"No steady state carries this flow: every way from the pump's discharge back to its suction, " +
+			'through the network or a reservoir or reference node, passes Flow limiter, which passes at ' +
+			`most ${sig4(0.015 / GPM)} gpm that way (an FCV passes neither reverse flow nor more than ` +
+			'its flow setpoint).'
+	);
+	// The API's own sentence is kept under Details, closed until asked for.
+	const server = why.getByText(`Calculation server's message: ${point.message}`);
+	await expect(server).toBeHidden();
+	await why.getByText('Details', { exact: true }).click();
+	await expect(server).toBeVisible();
+	// The words fit the screen: no sideways scroll of the page, on a phone too.
+	expect(
+		await page.evaluate(
+			() => document.documentElement.scrollWidth - document.documentElement.clientWidth
+		)
+	).toBe(0);
 });

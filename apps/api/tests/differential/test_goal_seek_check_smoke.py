@@ -24,6 +24,7 @@ from tests.differential.goal_seek_check import (
     check_all,
     first_difference,
     schema_errors,
+    select,
     summarize,
 )
 
@@ -338,3 +339,31 @@ def test_the_checks_over_values_tied_at_both_bounds(met_draw: tuple[Api, Draw]) 
     assert record["stop"] == "not_reachable"
     assert "closest_at_bound" in record["notes"]
     assert "closest_on_plateau" not in record["notes"]
+
+
+def test_a_sample_and_its_complement_partition_the_selection() -> None:
+    """``--sample K`` and ``--sample K --complement`` together run every project of the
+    selection once: the sample is the seeded one the corpus runs recorded (TSD §10.4), sorted by
+    name, and its complement the rest; without a sample the selection keeps the corpus order."""
+    corpus = items()
+    fuzz = [t[0] for t in corpus if t[0].startswith("fuzzaf_")]
+    assert len(fuzz) == 1000
+    assert [t[0] for t in select(corpus, "fuzzaf_")] == fuzz
+    sample = [t[0] for t in select(corpus, "fuzzaf_", sample=400)]
+    rest = [t[0] for t in select(corpus, "fuzzaf_", sample=400, complement=True)]
+    assert len(sample) == 400
+    assert len(rest) == 600
+    assert sorted(sample + rest) == sorted(fuzz)
+    assert not set(sample) & set(rest)
+    assert sample == sorted(sample)
+    assert rest == sorted(rest)
+    names = [
+        t[0]
+        for t in random.Random("goalseek:sample").sample(
+            [t for t in corpus if t[0].startswith("fuzzaf_")], 400
+        )
+    ]
+    assert sample == sorted(names)
+    assert [t[0] for t in select(corpus, "fuzzaf_", sample=1000)] == fuzz
+    assert select(corpus, "fuzzaf_", sample=1000, complement=True) == []
+    assert [t[0] for t in select(corpus, "", ["fuzzaf_20003", "ref_x"])] == ["fuzzaf_20003"]

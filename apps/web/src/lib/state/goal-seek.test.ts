@@ -17,6 +17,7 @@ import { testWorkspace } from '../testing/workspace';
 import { updateComponent } from '../utils/edit';
 import { pumpTransferExample } from '../utils/examples';
 import { newGoal, newVariable, toRequest, type GoalSeekSetup } from '../utils/goal-seek';
+import { elementSummary, solvedPipe } from '../utils/results';
 import { withScenarios } from '../utils/scenarios';
 import { finishedGoalSeek, ProjectStore, type Solver } from './project.svelte';
 
@@ -363,6 +364,39 @@ describe('the workspace: Apply, notices, page state and reserved ids', () => {
 			(ws.store.project.components.find((c) => c.id === 'P1') as { speed: number }).speed
 		).toBe(1);
 		expect(ws.store.goalSeek).toMatchObject({ stale: false, appliedCurrent: false });
+	});
+
+	it('applies values only: each pipe stays the pipe solved, so Build still finds its results', async () => {
+		const { ws, held } = workspace();
+		await ws.store.solve();
+		const velocity = () =>
+			solvedPipe(ws.store.project, ws.store.solved!, 'L3', 0)?.segment.velocity;
+		const strip = () =>
+			elementSummary(
+				ws.labelsProject,
+				ws.store.solved!,
+				ws.displayUnits,
+				{ kind: 'connection', id: 'L3' },
+				null,
+				ws.store.project
+			)!;
+		expect(velocity()).toBe(2);
+		const running = ws.runGoalSeek();
+		held.answer();
+		await running;
+		ws.goalSeekOpen = true;
+		expect(ws.applyGoalSeek('case')).toBe(true);
+		// The values applied are out of date until the solve after Apply answers: L3's pipe is the
+		// pipe solved, with its velocity, and nothing is left out.
+		expect(ws.store.results.stale).toBe(true);
+		expect(velocity()).toBe(2);
+		expect(strip().notes).toEqual([]);
+		await vi.waitFor(() => expect(ws.store.results.stale).toBe(false));
+		// Undo: the solve of the values applied is out of date, and still of the same pipes.
+		ws.undo();
+		expect(ws.store.results.stale).toBe(true);
+		expect(velocity()).toBe(2);
+		expect(strip().notes).toEqual([]);
 	});
 
 	it('says a scenario keeps its own value of a value applied to the base', async () => {

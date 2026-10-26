@@ -3,12 +3,15 @@
 	current and a solution at all, its flags, its result values, and the solver's trace — inputs
 	with where each came from (user, default, library, computed), equations, correlations and
 	data sources with citations, intermediate values in display units where the unit is known,
-	and notes. A side panel over the results on wide screens (the results under it are inert while
-	it is open); a dialog (bottom sheet) on narrow ones. In a project with scenarios it names the
-	case solved and, for a scenario, lists the element's values the scenario changed, with their
-	base values, from the server's record (proposal scenario-manager.md §6.11). Use in goal seek, on
-	the Result values heading, opens the goal-seek dialog with a new goal on this element (proposal
-	goal-seek.md §6.2); on narrow screens the trace, a sheet itself, closes first.
+	and notes. A connection is headed as it was solved once its results are out of date (from →
+	to, utils/results.ts resultsProject), as the Links table names it: its flow's sign, its pipe
+	numbers and its trace refer to those ends, even after a reversal since the solve. A side panel
+	over the results on wide screens (the results under it are inert while it is open); a dialog
+	(bottom sheet) on narrow ones. In a project with scenarios it names the case solved and, for a
+	scenario, lists the element's values the scenario changed, with their base values, from the
+	server's record (proposal scenario-manager.md §6.11). Use in goal seek, on the Result values
+	heading, opens the goal-seek dialog with a new goal on this element (proposal goal-seek.md
+	§6.2); on narrow screens the trace, a sheet itself, closes first.
 -->
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
@@ -23,6 +26,7 @@
 		elementDescription,
 		elementName,
 		flagsForElement,
+		resultsProject,
 		rowsForElement,
 		SEVERITY_LABELS,
 		type ElementRef
@@ -51,6 +55,12 @@
 			: !!connectionById(ws.project, element.id)
 	);
 	const name = $derived(elementName(ws.labelsProject, element));
+	/** The heading: a connection as these results were solved (the ends its values refer to). */
+	const title = $derived(
+		element.kind === 'connection'
+			? elementName(resultsProject(ws.labelsProject, solved), element)
+			: name
+	);
 	const description = $derived(
 		exists
 			? elementDescription(ws.labelsProject, element)
@@ -475,7 +485,7 @@
 					tabindex="-1"
 					class="text-base font-semibold break-words"
 				>
-					{name}
+					{title}
 				</h2>
 				<p class="text-xs break-words text-slate-600">{description}{@render caseChip()}</p>
 			</div>
@@ -506,7 +516,7 @@
 		</div>
 	</div>
 {:else}
-	<Dialog title={name} {onclose} wide>
+	<Dialog {title} {onclose} wide>
 		<p class="-mt-2 mb-3 text-xs break-words text-slate-600">
 			{description}{@render caseChip()}
 		</p>

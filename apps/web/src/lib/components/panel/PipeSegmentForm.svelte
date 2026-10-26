@@ -6,8 +6,10 @@
 	under the pipe's heading, and the length is another.
 
 	Its velocity at the last solve of the case shown is the size's hint (a custom pipe's inner
-	diameter's), where it is needed when sizing, marked out of date after edits; it is left out
-	while the connection's pipes are not the ones solved (one added or removed since).
+	diameter's), where it is needed when sizing, marked out of date after edits. It is this pipe's
+	own, found by identity through the edits since (utils/results.ts solvedPipe), with the sign of
+	the connection's direction now (the other sign after a reversal); a pipe added since, or one
+	whose direction is not known, has none.
 -->
 <script lang="ts">
 	import type { PipeConnection, PipeDefinition } from '$lib/api/types';
@@ -28,7 +30,7 @@
 	} from '$lib/utils/piping';
 	import { schemaBounds } from '$lib/utils/schema-bounds';
 	import { formatValue } from '$lib/utils/units';
-	import { Formatter } from '$lib/utils/results';
+	import { Formatter, solvedPipe } from '$lib/utils/results';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import NominalSizeField from './NominalSizeField.svelte';
 
@@ -56,11 +58,13 @@
 		const solved = results.response?.solvedState;
 		if (!solved || !results.response?.success || !solved.converged) return undefined;
 		if (results.error && !results.errorStale) return undefined;
-		const link = solved.linkResults[connection.id];
-		if (!link || link.segments.length !== count) return undefined;
-		const segment = link.segments.find((s) => s.index === index);
-		if (!segment) return undefined;
-		const value = new Formatter(ws.displayUnits).value(segment.velocity, 'velocity');
+		// The stored project's pipes carry their identity (a scenario's case project copies them).
+		const found = solvedPipe(ws.store.project, solved, connection.id, index);
+		if (!found) return undefined;
+		const value = new Formatter(ws.displayUnits).value(
+			found.sign * found.segment.velocity,
+			'velocity'
+		);
 		return `Velocity at the last solve: ${value}${results.stale ? ' (out of date)' : ''}.`;
 	});
 	/** The pipe's size and material, and its length: scenario values (one change each). */

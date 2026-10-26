@@ -16,7 +16,7 @@ import type { Solver } from '$lib/state/project.svelte';
 import { flag, goalSeekResponse, pumpTransferSolved, response } from '$lib/testing/results';
 import { TEST_LIBRARY } from '$lib/testing/library';
 import { testWorkspace, type TestWorkspaceOptions } from '$lib/testing/workspace';
-import { updateComponent } from '$lib/utils/edit';
+import { reversePiping, updateComponent } from '$lib/utils/edit';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { newGoal, newVariable, type GoalSeekSetup } from '$lib/utils/goal-seek';
 import { withScenarios } from '$lib/utils/scenarios';
@@ -578,6 +578,49 @@ describe('Apply', () => {
 		expect(
 			(ws.store.project.components.find((c) => c.id === 'P1') as { speed: number }).speed
 		).toBe(0.9);
+	});
+
+	it('names a connection’s goal as the run had it once a reversal since makes it out of date', async () => {
+		const { ws, held } = mount();
+		const d = await open();
+		await fireEvent.click(runButton());
+		await held.answer();
+		const reached = () => within(d.getByRole('table', { name: 'Results reached' }));
+		expect(reached().getByRole('rowheader')).toHaveTextContent(
+			'Transfer pump → Discharge isolation valve · Flow'
+		);
+		ws.store.update((p) => {
+			const c = p.connections.find((x) => x.id === 'L2')!;
+			[c.fromComponentId, c.toComponentId] = [c.toComponentId, c.fromComponentId];
+			[c.fromPortId, c.toPortId] = [c.toPortId, c.fromPortId];
+			c.piping = reversePiping(c.piping);
+		}, 'Reverse');
+		await tick();
+		// Reached 15 L/s from the pump to the valve: the ends the run's flow is signed by.
+		expect(reached().getByRole('rowheader')).toHaveTextContent(
+			'Transfer pump → Discharge isolation valve · Flow'
+		);
+	});
+
+	it("gives a connection goal's last-solve value in the direction it names after a reversal", async () => {
+		const { ws } = mount();
+		await ws.solve();
+		const d = await open();
+		const card = () => d.getByRole('group', { name: /Transfer pump.* · Flow$/ });
+		expect(card()).toHaveAccessibleDescription(
+			/^Last solve: 20 L\/s\. Positive from Transfer pump to Discharge isolation valve\./
+		);
+		ws.store.update((p) => {
+			const c = p.connections.find((x) => x.id === 'L2')!;
+			[c.fromComponentId, c.toComponentId] = [c.toComponentId, c.fromComponentId];
+			[c.fromPortId, c.toPortId] = [c.toPortId, c.fromPortId];
+			c.piping = reversePiping(c.piping);
+		}, 'Reverse');
+		await tick();
+		// The target is for the flow from the valve to the pump now: the last solve's, in that sense.
+		expect(card()).toHaveAccessibleDescription(
+			/^Last solve \(out of date, reversed since\): -20 L\/s\. Positive from Discharge isolation valve to Transfer pump\./
+		);
 	});
 
 	it('a scenario run applies to its scenario or as a new one, never to the base', async () => {

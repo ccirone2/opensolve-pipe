@@ -4,7 +4,7 @@
  * made-up test inputs (testing/results.ts).
  */
 import { describe, expect, it } from 'vitest';
-import type { BranchResult, Flag, PumpResult, SolvedState } from '../api/types';
+import type { BranchResult, Flag, Project, PumpResult, SolvedState } from '../api/types';
 import type { Workspace } from '../state/workspace.svelte';
 import { assignedFlowProject } from '../testing/helpers';
 import {
@@ -16,7 +16,17 @@ import {
 	pumpTransferSolved
 } from '../testing/results';
 import { testWorkspace } from '../testing/workspace';
-import { deleteComponent, reversePiping } from './edit';
+import {
+	addPort,
+	connectPorts,
+	deleteComponent,
+	disconnect,
+	insertComponentInConnection,
+	reversePiping,
+	updateConnection
+} from './edit';
+import { createComponent } from './factory';
+import { addPipe, removePipe } from './piping';
 import { gravityBranchExample, pumpTransferExample } from './examples';
 import {
 	assignedFlowTable,
@@ -49,8 +59,11 @@ import {
 	flagsForElement,
 	formatResultNumber,
 	groupFlags,
+	linkReading,
 	linkTable,
 	lowestPressureNode,
+	outOfDateProject,
+	readsAsSolved,
 	nodeTable,
 	pumpControlText,
 	pumpStatusLabel,
@@ -348,6 +361,201 @@ describe('link names from the project the results belong to (proposal export.md 
 		const c = reversed.connections.find((x) => x.id === 'L3')!;
 		[c.fromComponentId, c.toComponentId] = [c.toComponentId, c.fromComponentId];
 		expect(linkTable(reversed, solved, SI_UNITS).rows[2]!.name).toBe(REVERSED_L3);
+	});
+});
+
+describe('linkReading: a solve of a connection read on it as it is now (pipes by identity)', () => {
+	/** L2 of two pipes (3 m, then 2 m) with an elbow on the first; the solve has both pipes. */
+	function solvedWorkspace(): Workspace {
+		const twoPipes = pumpTransferExample();
+		const l2 = twoPipes.connections.find((c) => c.id === 'L2')!;
+		const a = l2.piping.pipes[0]!;
+		l2.piping = {
+			pipes: [a, { ...a, length: 2 }],
+			fittings: [{ type: 'elbow_90_lr', quantity: 1, pipeIndex: 0 }]
+		};
+		const one = link().segments[0]!;
+		const solvedState = pumpTransferSolved({
+			linkResults: {
+				...pumpTransferSolved().linkResults,
+				L2: link({ segments: [one, { ...one, index: 1 }] })
+			}
+		});
+		return testWorkspace(twoPipes, {
+			solver: {
+				solve: async () => ({ success: true, computeTime: 0, solvedState, scenario: null })
+			}
+		});
+	}
+	const read = (ws: Workspace, id = 'L2') => {
+		const solved = ws.store.solved!;
+		return linkReading(ws.store.project, outOfDateProject(solved), solved, id);
+	};
+	/** Each pipe as [connection, index, sign] of the solve, or null. */
+	const pipes = (ws: Workspace, id = 'L2') =>
+		read(ws, id)!.pipes.map((p) => (p ? [p.connectionId, p.index, p.sign] : null));
+	const edit = (ws: Workspace, change: (p: Project) => Project | void) =>
+		expect(ws.store.update(change, 'edit').ok).toBe(true);
+
+	it('reads as solved while current, and after edits of values only', async () => {
+		const ws = solvedWorkspace();
+		await ws.store.solve();
+		expect(read(ws)).toEqual({
+			flow: 1,
+			ends: 1,
+			changed: null,
+			pipes: [
+				{ connectionId: 'L2', index: 0, sign: 1 },
+				{ connectionId: 'L2', index: 1, sign: 1 }
+			],
+			samePipes: true,
+			fittings: true
+		});
+		// The store copies the project for every edit; the pipes stay the pipes solved.
+		edit(ws, (p) => {
+			p.connections.find((c) => c.id === 'L2')!.piping.pipes[1]!.length = 9;
+		});
+		expect(ws.store.results.stale).toBe(true);
+		expect(readsAsSolved(read(ws)!)).toBe(true);
+		ws.store.dispose();
+	});
+
+	it('gives the other sign after a reversal, each pipe found where it went', async () => {
+		const ws = solvedWorkspace();
+		await ws.store.solve();
+		edit(ws, (p) => {
+			const c = p.connections.find((x) => x.id === 'L2')!;
+			[c.fromComponentId, c.toComponentId] = [c.toComponentId, c.fromComponentId];
+			[c.fromPortId, c.toPortId] = [c.toPortId, c.fromPortId];
+			c.piping = reversePiping(c.piping);
+		});
+		expect(read(ws)).toMatchObject({ flow: -1, ends: -1, samePipes: true, fittings: true });
+		expect(pipes(ws)).toEqual([
+			['L2', 1, -1],
+			['L2', 0, -1]
+		]);
+		ws.store.dispose();
+	});
+
+	it('after an insertion, gives the flow by its pipes and no head loss (an end moved)', async () => {
+		const ws = solvedWorkspace();
+		await ws.store.solve();
+		edit(ws, (p) => insertComponentInConnection(p, 'L2', createComponent('gate', p)));
+		expect(read(ws)).toMatchObject({
+			flow: 1,
+			ends: null,
+			changed: 'ends',
+			samePipes: true,
+			fittings: false
+		});
+		expect(pipes(ws)).toEqual([
+			['L2', 0, 1],
+			['L2', 1, 1]
+		]);
+		ws.store.dispose();
+	});
+
+	it('after a join, gives each pipe its own connection’s value and no flow', async () => {
+		const ws = solvedWorkspace();
+		await ws.store.solve();
+		edit(ws, (p) => deleteComponent(p, 'V1', { join: true }));
+		expect(read(ws)).toMatchObject({
+			flow: null,
+			ends: null,
+			changed: 'ends',
+			samePipes: false,
+			fittings: false
+		});
+		expect(pipes(ws)).toEqual([
+			['L2', 0, 1],
+			['L2', 1, 1],
+			['L3', 0, 1]
+		]);
+		ws.store.dispose();
+	});
+
+	it('never by position: pipes added and removed keep their own', async () => {
+		const ws = solvedWorkspace();
+		await ws.store.solve();
+		edit(ws, (p) =>
+			updateConnection(p, 'L2', (c) => ({ ...c, piping: removePipe(addPipe(c.piping), 0) }))
+		);
+		expect(read(ws)).toMatchObject({ flow: 1, ends: 1, samePipes: false, fittings: false });
+		expect(pipes(ws)).toEqual([['L2', 1, 1], null]);
+		ws.store.dispose();
+	});
+
+	it('gives nothing of a new connection that took a solved id, with other ends', async () => {
+		const ws = solvedWorkspace();
+		await ws.store.solve();
+		edit(ws, (p) => disconnect(p, 'L3'));
+		edit(ws, (p) => addPort(p, 'R1'));
+		edit(ws, (p) =>
+			connectPorts(
+				p,
+				{ componentId: 'V1', portId: 'outlet' },
+				{ componentId: 'R1', portId: 'port_2' }
+			)
+		);
+		expect(ws.store.project.connections.find((c) => c.id === 'L3')?.toPortId).toBe('port_2');
+		expect(read(ws, 'L3')).toEqual({
+			flow: null,
+			ends: null,
+			changed: 'ends',
+			pipes: [null],
+			samePipes: false,
+			fittings: false
+		});
+		ws.store.dispose();
+	});
+
+	it('gives no flow or head loss to a connection that took a solved id and its ends, but not its pipes', async () => {
+		const ws = solvedWorkspace();
+		await ws.store.solve();
+		// Delete the valve joining its connections, then insert a gate in L2: the gate takes the id
+		// V1, and the connection after it the id L3, with the ends L3 was solved with.
+		edit(ws, (p) => deleteComponent(p, 'V1', { join: true }));
+		edit(ws, (p) => insertComponentInConnection(p, 'L2', createComponent('gate', p)));
+		const l3 = ws.store.project.connections.find((c) => c.id === 'L3')!;
+		expect([l3.fromComponentId, l3.fromPortId, l3.toComponentId, l3.toPortId]).toEqual([
+			'V1',
+			'outlet',
+			'R2',
+			'port_1'
+		]);
+		// Its one pipe is new: the solve has nothing of it.
+		expect(read(ws, 'L3')).toEqual({
+			flow: null,
+			ends: null,
+			changed: 'pipes',
+			pipes: [null],
+			samePipes: false,
+			fittings: false
+		});
+		// L2 joins the ports it was solved between again, but holds the pipe solved in L3 (no end
+		// of it is an end of the solved L3 now, so its direction is not known either).
+		expect(read(ws)).toMatchObject({
+			flow: null,
+			ends: null,
+			changed: 'pipes',
+			samePipes: false,
+			fittings: false
+		});
+		expect(pipes(ws)).toEqual([['L2', 0, 1], ['L2', 1, 1], null]);
+		ws.store.dispose();
+	});
+
+	it('leaves out the pipes of an end swap that kept their order: their direction is unknown', async () => {
+		const ws = solvedWorkspace();
+		await ws.store.solve();
+		edit(ws, (p) => {
+			const c = p.connections.find((x) => x.id === 'L2')!;
+			[c.fromComponentId, c.toComponentId] = [c.toComponentId, c.fromComponentId];
+			[c.fromPortId, c.toPortId] = [c.toPortId, c.fromPortId];
+		});
+		expect(read(ws)).toMatchObject({ flow: -1, ends: -1, samePipes: true, fittings: false });
+		expect(pipes(ws)).toEqual([null, null]);
+		ws.store.dispose();
 	});
 });
 

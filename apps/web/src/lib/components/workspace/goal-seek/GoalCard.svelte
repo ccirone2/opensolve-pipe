@@ -5,8 +5,10 @@
 	the quantity, a tolerance a difference (no gauge marker). The tolerance field's bounds are the
 	schema's and the quantity's published minimum for the target (x-goal-quantities), so a
 	tolerance it accepts is never one the API rejects; a target changed afterwards says so. The
-	hint gives the last solve's value, the sign convention and the default tolerance. A goal whose
-	element or port no longer exists says so and blocks Run until it is removed.
+	hint gives the last solve's value, the sign convention and the default tolerance. A connection's
+	value is read on it as it is now, as its name and sign convention are (Compare's reading): the
+	other sign after a reversal since the solve, none after an end moved or its pipes changed. A
+	goal whose element or port no longer exists says so and blocks Run until it is removed.
 -->
 <script lang="ts">
 	import NumberField from '$lib/components/ui/NumberField.svelte';
@@ -48,7 +50,10 @@
 		lapse
 			? ''
 			: [
-					lastSolveText(goal, results.response, results.stale, ws.displayUnits),
+					lastSolveText(goal, results.response, results.stale, ws.displayUnits, {
+						structure: ws.store.project,
+						sent: results.stale ? ws.store.solvedProject : null
+					}),
 					goalHint(ws.labelsProject, goal),
 					defaultToleranceText(goal.quantity, ws.displayUnits)
 				]

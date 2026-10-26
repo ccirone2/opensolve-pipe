@@ -20,7 +20,9 @@ import { testWorkspace } from '../../testing/workspace';
 import type { Workspace } from '../../state/workspace.svelte';
 import { compareCells, QUANTITIES, type CompareColumn } from '../compare';
 import { decodeProject, fragmentOf, projectUrl } from '../encoding';
+import { reversePiping } from '../edit';
 import { pumpTransferExample } from '../examples';
+import { addPipe } from '../piping';
 import { pumpChartData } from '../pump-chart';
 import { Formatter } from '../results';
 import { withScenarios } from '../scenarios';
@@ -480,6 +482,107 @@ describe('Compare cases (item 9)', () => {
 		}
 		expect(t.rows.flat()).not.toContain('Same');
 		expect(t.column('Row')).toContain('Network · Lowest pressure (where)');
+	});
+});
+
+describe('Compare cases reads a connection on it as it is now (rows name its ends now)', () => {
+	/** Reverse L3 (ends swapped, pipes in the other order), as Build's turning of a connection does. */
+	function reverseL3(ws: Workspace): void {
+		const result = ws.store.update((d) => {
+			const c = d.connections.find((x) => x.id === 'L3')!;
+			[c.fromComponentId, c.toComponentId] = [c.toComponentId, c.fromComponentId];
+			[c.fromPortId, c.toPortId] = [c.toPortId, c.fromPortId];
+			c.piping = reversePiping(c.piping);
+		}, 'reverse');
+		expect(result.ok).toBe(true);
+	}
+	/** The solver's L3: from the discharge tank once reversed, so its flow and head loss are negative. */
+	const answer: Answer = (_id, p) => {
+		const back = p.connections.find((c) => c.id === 'L3')?.fromComponentId === 'R2';
+		return back
+			? converged({
+					linkResults: {
+						...pumpTransferSolved().linkResults,
+						L3: link({ flow: -0.02, velocity: -4, headLoss: -8 })
+					}
+				})
+			: converged();
+	};
+	const l3Rows = [
+		{ quantity: 'linkFlow', elementId: 'L3' },
+		{ quantity: 'linkHeadLoss', elementId: 'L3' }
+	] as const;
+
+	it('gives a case solved before a reversal with the other sign, and About says which', async () => {
+		const ws = workspace(twoScenarios(), answer);
+		await ws.store.solveAll();
+		reverseL3(ws);
+		await ws.store.solve(); // the base again; Winter and Peak stay out of date
+		ws.compareRows = [...l3Rows];
+		const bundle = bundleOf(ws, ALL);
+		const t = readSheet(bundle, 'compare-cases');
+		const row = (quantity: string) =>
+			t.rows.find((r) => t.get(r, 'Element id') === 'L3' && t.get(r, 'Quantity') === quantity)!;
+		for (const [quantity, si, unit] of [
+			['Flow', -0.02, 'L/s'],
+			['Head loss', -8, 'm']
+		] as const) {
+			expect(t.get(row(quantity), 'Base case')).toBe(fromSI(si, unit));
+			expect(t.get(row(quantity), 'Winter (S1)')).toBe(fromSI(si, unit));
+			expect(t.get(row(quantity), 'Winter (S1): difference from base')).toBe(0);
+		}
+		const sign = readSheet(bundle, 'about').rows.find((r) => r[1] === 'Sign: Compare cases');
+		expect(sign?.[2]).toContain('Discharge tank → Discharge isolation valve · Flow (Winter (S1))');
+	});
+
+	it('leaves out what a case solved before an end moved cannot place, and says so', async () => {
+		const ws = workspace(twoScenarios(), () => converged());
+		await ws.store.solveAll();
+		expect(ws.insert('L3', 'gate')).toBe('V2');
+		await ws.store.solve();
+		ws.compareRows = [...l3Rows];
+		const bundle = bundleOf(ws, ALL);
+		const t = readSheet(bundle, 'compare-cases');
+		const loss = t.rows.find(
+			(r) => t.get(r, 'Element id') === 'L3' && t.get(r, 'Quantity') === 'Head loss'
+		)!;
+		// L3 now ends at the new valve: its head loss as solved was to the tank.
+		expect(t.get(loss, 'Winter (S1)')).toBeNull();
+		const what =
+			'Compare cases: Discharge isolation valve → Gate valve V2 · Head loss (Winter (S1))';
+		expect(readSheet(bundle, 'about').rows).toContainEqual([
+			'Not in this file',
+			what,
+			"its connection's ends changed since that case was solved"
+		]);
+		expect(bundle.omitted).toContainEqual({
+			what,
+			reason: "its connection's ends changed since that case was solved"
+		});
+	});
+
+	it('leaves out the largest velocity of a case solved before a pipe was added, and says so', async () => {
+		const ws = workspace(twoScenarios(), () => converged());
+		await ws.store.solveAll();
+		ws.editConnection('L3', 'add pipe segment', (c) => ({ ...c, piping: addPipe(c.piping) }));
+		await ws.store.solve();
+		ws.compareRows = [
+			{ quantity: 'linkFlow', elementId: 'L3' },
+			{ quantity: 'linkVelocity', elementId: 'L3' }
+		];
+		const bundle = bundleOf(ws, ALL);
+		const t = readSheet(bundle, 'compare-cases');
+		const row = (quantity: string) =>
+			t.rows.find((r) => t.get(r, 'Element id') === 'L3' && t.get(r, 'Quantity') === quantity)!;
+		// Winter's solve has no velocity of the pipe added: no largest velocity refers to L3 now.
+		expect(t.get(row('Largest velocity'), 'Winter (S1)')).toBeNull();
+		// Its flow is still the flow between the ports it was solved between (out of date).
+		expect(t.get(row('Flow'), 'Winter (S1)')).toBe(fromSI(0.02, 'L/s'));
+		const what =
+			'Compare cases: Discharge isolation valve → Discharge tank · Largest velocity (Winter (S1))';
+		const reason = "its connection's pipes changed since that case was solved";
+		expect(readSheet(bundle, 'about').rows).toContainEqual(['Not in this file', what, reason]);
+		expect(bundle.omitted).toContainEqual({ what, reason });
 	});
 });
 

@@ -64,6 +64,7 @@ import {
 	URL_LENGTH_WARNING
 } from '../utils/encoding';
 import { createEmptyProject, isoNow } from '../utils/factory';
+import { markProjectCopy } from '../utils/identity';
 import type { Calculating } from '../utils/goal-seek';
 import { recordResultsProject } from '../utils/results';
 import {
@@ -707,6 +708,9 @@ export class ProjectStore {
 	): UpdateResult {
 		const current = this.project;
 		const draft = structuredClone(current);
+		// The draft's pipes are the current ones (identity.ts): scenario changes and the results
+		// shown in Build follow them through the edit.
+		markProjectCopy(draft, current);
 		const tracker = scenariosOf(current).length ? trackPipes(current, draft) : null;
 		let next: Project;
 		let notes: string[] = [];

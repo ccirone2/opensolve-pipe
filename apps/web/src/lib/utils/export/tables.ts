@@ -11,7 +11,16 @@
  * so a row read alone still names its solve and its state.
  */
 import type { BoundaryResult, Flag, OverrideResult, Project } from '../../api/types';
-import { compareCells, QUANTITIES, rowLabel, type CompareColumn } from '../compare';
+import {
+	compareCells,
+	compareValue,
+	ENDS_NOTE,
+	PIPES_NOTE,
+	QUANTITIES,
+	REVERSED_NOTE,
+	rowLabel,
+	type CompareColumn
+} from '../compare';
 import { canonicalJson } from '../json';
 import {
 	CASE_STATUS_LABELS,
@@ -1010,7 +1019,8 @@ export function scenarioChangesTable(ctx: ExportContext): SheetSpec {
  * Solved at row; each network extreme is followed by its "(where)" row. Values follow Compare's
  * rule (no values for a case without them); differences are exact, `fromSI(value − base)`, and
  * relative only for quantities with a true zero and a nonzero base. Names: the current project's,
- * as the Compare tab's.
+ * as the Compare tab's, so a connection's values are read on it as it is now (compareValue): About
+ * says which a reversal gave the other sign and which were left out, and why (compareNotes).
  */
 export function compareSheet(ctx: ExportContext): SheetSpec | null {
 	if (ctx.single || ctx.cases.length < 2) return null;
@@ -1031,10 +1041,7 @@ export function compareSheet(ctx: ExportContext): SheetSpec | null {
 			columns.push(number(`${c.label}: difference from base`, '%'));
 		}
 	});
-	const compareColumns: CompareColumn[] = cases.map((c) => ({
-		solved: c.solved,
-		converged: c.hasValues
-	}));
+	const compareColumns = compareColumnsOf(ctx);
 	const rows = ctx.input.compareRows.filter((r) => r.quantity !== 'status');
 	const wide = (
 		lead: CellValue[],
@@ -1075,7 +1082,9 @@ export function compareSheet(ctx: ExportContext): SheetSpec | null {
 			);
 			for (const row of rows) {
 				const spec = QUANTITIES[row.quantity];
-				const si = cases.map((c) => (c.hasValues ? (spec.value(c.solved!, row) ?? null) : null));
+				const si = cases.map((c, i) =>
+					c.hasValues ? compareValue(row, compareColumns[i]!, project).value : null
+				);
 				const value = (v: number | string | null): CellValue =>
 					typeof v === 'number' ? (spec.category ? u.value(v, spec.category) : v) : v;
 				const base = si[0] ?? null;
@@ -1118,6 +1127,49 @@ export function compareSheet(ctx: ExportContext): SheetSpec | null {
 			}
 		}
 	};
+}
+
+/** The Compare sheet's columns: each case's solve, and the project sent for it when out of date. */
+function compareColumnsOf(ctx: ExportContext): CompareColumn[] {
+	return ctx.cases.map((c) => ({
+		solved: c.solved,
+		converged: c.hasValues,
+		sent: c.stale ? c.input.sent : null
+	}));
+}
+
+/** Why compareValue left a connection's value out, as About's "Not in this file" says it. */
+const LEFT_OUT_REASONS: Readonly<Record<string, string>> = {
+	[ENDS_NOTE]: "its connection's ends changed since that case was solved",
+	[PIPES_NOTE]: "its connection's pipes changed since that case was solved"
+};
+
+/**
+ * The Compare sheet's connection values that read otherwise than in their case's own tables
+ * (compareValue's notes), as "row (case)": given with the other sign (reversed since that case was
+ * solved), and left out, with the reason (an end moved since, or its pipes changed). Empty without
+ * a Compare sheet.
+ */
+export function compareNotes(ctx: ExportContext): {
+	reversed: string[];
+	leftOut: { what: string; reason: string }[];
+} {
+	const notes = { reversed: [] as string[], leftOut: [] as { what: string; reason: string }[] };
+	if (ctx.single || ctx.cases.length < 2) return notes;
+	const project = ctx.input.project;
+	const columns = compareColumnsOf(ctx);
+	for (const row of ctx.input.compareRows) {
+		if (QUANTITIES[row.quantity].element !== 'connection') continue;
+		ctx.cases.forEach((c, i) => {
+			if (!c.hasValues) return;
+			const note = compareValue(row, columns[i]!, project).note;
+			const what = `${rowLabel(project, row)} (${c.label})`;
+			if (note === REVERSED_NOTE) notes.reversed.push(what);
+			const reason = note ? LEFT_OUT_REASONS[note] : undefined;
+			if (reason) notes.leftOut.push({ what, reason });
+		});
+	}
+	return notes;
 }
 
 // ---------------------------------------------------------------------------------------------

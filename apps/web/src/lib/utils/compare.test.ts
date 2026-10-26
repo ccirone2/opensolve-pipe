@@ -5,8 +5,8 @@
  * and every result key treated as optional. Values are made-up solved states (testing/results.ts).
  */
 import { describe, expect, it } from 'vitest';
-import type { Override, Project, SolvedState } from '../api/types';
-import { flag, pumpResult, pumpTransferSolved, response } from '../testing/results';
+import type { Override, PipeConnection, Project, SolvedState } from '../api/types';
+import { flag, link, pumpResult, pumpTransferSolved, response } from '../testing/results';
 import type { ResultsState } from '../state/project.svelte';
 import {
 	caseResponse,
@@ -17,7 +17,12 @@ import {
 	rowUnit,
 	type CompareColumn
 } from './compare';
+import { createComponent } from './factory';
+import { insertComponentInConnection, reversePiping, updateConnection } from './edit';
 import { pumpTransferExample } from './examples';
+import { lastSolveText } from './goal-seek';
+import { markProjectCopy } from './identity';
+import { addPipe, removePipe } from './piping';
 import { withScenarios } from './scenarios';
 import { IMPERIAL_UNITS, SI_UNITS } from './units';
 
@@ -294,5 +299,141 @@ describe("a case's response (Compare's rule, export.md §2.1)", () => {
 
 	it('has none without a response', () => {
 		expect(caseResponse('not_solved', { ...results(false), response: null })).toBeNull();
+	});
+});
+
+describe('connection rows after a structural edit since a case was solved', () => {
+	/**
+	 * `solvedAs` with connection `id` reversed (ends swapped, pipes in the other order), copied as
+	 * the store copies a project for an edit: each pipe the pipe it was (identity.ts).
+	 */
+	function turned(solvedAs: Project, id: string): Project {
+		const now = structuredClone(solvedAs);
+		markProjectCopy(now, solvedAs);
+		const c = now.connections.find((x) => x.id === id)!;
+		[c.fromComponentId, c.toComponentId] = [c.toComponentId, c.fromComponentId];
+		[c.fromPortId, c.toPortId] = [c.toPortId, c.fromPortId];
+		c.piping = reversePiping(c.piping);
+		return now;
+	}
+	/** L3 as it runs now: from the discharge tank to the valve (a reversal since `solvedAs`). */
+	const reversed = (solvedAs: Project) => turned(solvedAs, 'L3');
+	const l3 = (quantity: 'linkFlow' | 'linkHeadLoss' | 'linkVelocity') => ({
+		quantity,
+		elementId: 'L3'
+	});
+	const shown = (cells: ReturnType<typeof compareCells>) =>
+		cells.map((c) => [c.text, c.diff?.text ?? '', c.note ?? '']);
+
+	it('give a case solved before a reversal in the direction the row names now', () => {
+		const before = project();
+		const now = reversed(before);
+		// The base, solved after the reversal: L3 runs from the tank, so its values are negative.
+		const base = pumpTransferSolved({
+			linkResults: {
+				...pumpTransferSolved().linkResults,
+				L3: link({ flow: -0.02, velocity: -4, headLoss: -8 })
+			}
+		});
+		// The scenario, solved before it (out of date): the same flow, signed the old way.
+		const winter = pumpTransferSolved();
+		const columns = [column(base), { ...column(winter), sent: before }];
+		expect(rowLabel(now, l3('linkFlow'))).toBe('Discharge tank → Discharge isolation valve · Flow');
+		expect(shown(compareCells(l3('linkFlow'), columns, now, SI_UNITS))).toEqual([
+			['-20', '', ''],
+			['-20', 'Same', 'Reversed since solved']
+		]);
+		expect(shown(compareCells(l3('linkHeadLoss'), columns, now, SI_UNITS))).toEqual([
+			['-8', '', ''],
+			['-8', 'Same', 'Reversed since solved']
+		]);
+	});
+
+	it('give none for a case solved before the connection’s ends changed, and say why', () => {
+		const before = project();
+		const valve = createComponent('gate', before);
+		// L3 now ends at the new valve, with all its pipes: its flow is known, its head loss is not.
+		const now = insertComponentInConnection(before, 'L3', valve);
+		const base = pumpTransferSolved();
+		const columns = [column(base), { ...column(pumpTransferSolved()), sent: before }];
+		expect(shown(compareCells(l3('linkFlow'), columns, now, SI_UNITS))).toEqual([
+			['20', '', ''],
+			['20', 'Same', '']
+		]);
+		expect(shown(compareCells(l3('linkHeadLoss'), columns, now, SI_UNITS))).toEqual([
+			['8', '', ''],
+			['—', '', 'Ends changed since solved']
+		]);
+	});
+
+	/** L2 of two pipes, A (4 m/s, the fastest) then B (2.25 m/s), solved; the case, out of date. */
+	function twoPipes() {
+		const before = project();
+		const l2 = before.connections.find((c) => c.id === 'L2')!;
+		const a = l2.piping.pipes[0]!;
+		l2.piping.pipes = [a, { ...a, length: 2 }];
+		const one = link().segments[0]!;
+		const solved = pumpTransferSolved({
+			linkResults: {
+				...pumpTransferSolved().linkResults,
+				L2: link({
+					flow: 0.02,
+					velocity: 4,
+					segments: [
+						{ ...one, index: 0, velocity: 4 },
+						{ ...one, index: 1, velocity: 2.25 }
+					]
+				})
+			}
+		});
+		return { before, solved, column: { ...column(solved), sent: before } };
+	}
+	const l2Velocity = { quantity: 'linkVelocity', elementId: 'L2' } as const;
+
+	it('give no largest velocity once the pipes of a connection changed since its case was solved', () => {
+		const { before, solved, column: stale } = twoPipes();
+		const edits = {
+			'pipe A removed': (c: PipeConnection) => removePipe(c.piping, 0),
+			'pipe A replaced by a new pipe': (c: PipeConnection) => removePipe(addPipe(c.piping), 0),
+			'a pipe added': (c: PipeConnection) => addPipe(c.piping)
+		};
+		for (const [what, edit] of Object.entries(edits)) {
+			const now = updateConnection(before, 'L2', (c) => ({ ...c, piping: edit(c) }));
+			// The largest velocity solved was pipe A's, or the pipe added has none: no value refers
+			// to its pipes now.
+			expect(shown(compareCells(l2Velocity, [stale], now, SI_UNITS)), what).toEqual([
+				['—', '', 'Pipes changed since solved']
+			]);
+			// Its flow and head loss are still between the ports it was solved between, out of date.
+			expect(
+				shown(compareCells({ quantity: 'linkFlow', elementId: 'L2' }, [stale], now, SI_UNITS)),
+				what
+			).toEqual([['20', '', '']]);
+			// The goal card's last-solve hint reads the value as Compare does.
+			expect(
+				lastSolveText(
+					{ quantity: 'link_velocity', elementId: 'L2' },
+					response(solved),
+					true,
+					SI_UNITS,
+					{
+						structure: now,
+						sent: before
+					}
+				),
+				what
+			).toBe('Last solve (out of date): none, its pipes changed since.');
+		}
+		expect(shown(compareCells(l2Velocity, [column(solved)], before, SI_UNITS))).toEqual([
+			['4', '', '']
+		]);
+	});
+
+	it('give the largest velocity while the pipes are the ones solved: after a reversal or an insertion', () => {
+		const { before, column: stale } = twoPipes();
+		const inserted = insertComponentInConnection(before, 'L2', createComponent('gate', before));
+		for (const now of [turned(before, 'L2'), inserted]) {
+			expect(shown(compareCells(l2Velocity, [stale], now, SI_UNITS))).toEqual([['4', '', '']]);
+		}
 	});
 });

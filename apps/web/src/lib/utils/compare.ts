@@ -9,7 +9,11 @@
  * never for gauge pressures, grade lines, elevations or NPSH margins. "Same" means the two values
  * display the same: there is no tolerance snapping (D6 and D13 are acceptance rules for solver
  * changes; differences between cases are real results of changed inputs). A case that did not
- * converge shows no values, since they are not a solution; its status row says so.
+ * converge shows no values, since they are not a solution; its status row says so. A
+ * connection's row is named by its ends now, so each case's flow and head loss are read on the
+ * connection as it is now (results.ts linkReading): a case solved before a reversal gives them with
+ * the other sign, and one solved before an end moved or its pipes changed gives what it cannot
+ * place as no value, with a note saying why.
  */
 import type { Flag, Project, SolvedState, SolveResponse, UnitPreferences } from '../api/types';
 import type { CaseStatus, ResultsState } from '../state/project.svelte';
@@ -19,6 +23,7 @@ import {
 	connectionName,
 	fastestLink,
 	Formatter,
+	linkReading,
 	lowestPressureNode,
 	pumpStatusLabel,
 	valveStateLabel,
@@ -447,6 +452,48 @@ export interface CompareColumn {
 	solved: SolvedState | null;
 	/** The solve converged (false: no values are shown, as they are not a solution). */
 	converged: boolean;
+	/**
+	 * The project as sent for its solve, while its results are out of date (null or absent: they
+	 * are current), so its connections' values are read on the connections as they are now.
+	 */
+	sent?: Project | null;
+}
+
+/** Why a connection's value in a case reads otherwise, or is not given (a cell's note). */
+export const REVERSED_NOTE = 'Reversed since solved';
+export const ENDS_NOTE = 'Ends changed since solved';
+export const PIPES_NOTE = 'Pipes changed since solved';
+
+/**
+ * A row's value in a case (SI; null: none) and, for a connection's, its note. A connection's flow
+ * and head loss are signed from its 'from' end as that case was solved: they are given in its
+ * direction now (the other sign after a reversal), its flow only while it refers to the
+ * connection now (linkReading's flow), its head loss only while it is the connection solved
+ * between the same two ports (linkReading's ends), and its largest velocity only while its pipes
+ * are the pipes solved in it (linkReading's samePipes). `structure` is the stored project as it is
+ * now (its pipes carry their identity).
+ */
+export function compareValue(
+	row: CompareRow,
+	column: CompareColumn,
+	structure: Project
+): { value: number | string | null; note?: string } {
+	const spec = QUANTITIES[row.quantity];
+	if (!column.solved) return { value: null };
+	const value = spec.value(column.solved, row) ?? null;
+	if (spec.element !== 'connection' || typeof value !== 'number' || !row.elementId) {
+		return { value };
+	}
+	const reading = linkReading(structure, column.sent ?? null, column.solved, row.elementId);
+	if (!reading) return { value };
+	if (row.quantity === 'linkVelocity') {
+		return reading.samePipes ? { value } : { value: null, note: PIPES_NOTE };
+	}
+	const sign = row.quantity === 'linkHeadLoss' ? reading.ends : reading.flow;
+	if (sign === null) {
+		return { value: null, note: reading.changed === 'pipes' ? PIPES_NOTE : ENDS_NOTE };
+	}
+	return sign === -1 ? { value: -value, note: REVERSED_NOTE } : { value };
 }
 
 export interface CompareDiff {
@@ -468,6 +515,8 @@ export interface CompareCell {
 	baseText?: string;
 	/** The element has a physically invalid flag in this case. */
 	invalid: boolean;
+	/** Why a connection's value reads otherwise in this case, or is not given (compareValue). */
+	note?: string;
 }
 
 const MINUS = '−';
@@ -477,21 +526,26 @@ function signed(text: string, positive: boolean): string {
 	return positive ? `+${text}` : `${MINUS}${text.replace(/^-/, '')}`;
 }
 
-/** The cells of one row: the base case first, then each scenario with its difference. */
+/**
+ * The cells of one row: the base case first, then each scenario with its difference. `project`
+ * names; `structure`, the stored project as it is now, reads connections (compareValue).
+ */
 export function compareCells(
 	row: CompareRow,
 	columns: readonly CompareColumn[],
 	project: Project,
-	prefs: UnitPreferences
+	prefs: UnitPreferences,
+	structure: Project = project
 ): CompareCell[] {
 	const spec = QUANTITIES[row.quantity];
 	const f = new Formatter(prefs);
-	const raw = columns.map((c) => {
-		if (!c.solved) return null;
-		if (row.quantity === 'status') return statusText(c.solved, c.converged);
-		if (!c.converged) return null;
-		return spec.value(c.solved, row) ?? null;
+	const read = columns.map((c) => {
+		if (!c.solved) return { value: null };
+		if (row.quantity === 'status') return { value: statusText(c.solved, c.converged) };
+		if (!c.converged) return { value: null };
+		return compareValue(row, c, structure);
 	});
+	const raw = read.map((r) => r.value);
 	const shown = (v: number | string | null) =>
 		v === null
 			? '—'
@@ -507,7 +561,8 @@ export function compareCells(
 			!!column.solved &&
 			!!row.elementId &&
 			flagsOf(column.solved.flags, row).some((flag) => flag.severity === 'invalid');
-		const cell: CompareCell = { text: shown(value), invalid };
+		const note = read[i]?.note;
+		const cell: CompareCell = { text: shown(value), invalid, ...(note ? { note } : {}) };
 		if (spec.where && column.solved && column.converged && value !== null) {
 			cell.where = spec.where(column.solved, project);
 		}

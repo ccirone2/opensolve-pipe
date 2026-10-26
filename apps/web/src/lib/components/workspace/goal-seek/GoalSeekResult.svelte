@@ -58,7 +58,7 @@
 
 	const run = $derived(finished.run);
 	const response = $derived(finished.response);
-	const words = $derived(ws.goalSeekWords(run));
+	const words = $derived(ws.goalSeekWords(run, finished.stale));
 	const views = $derived(runViews(words, run.request));
 	const hasScenarios = $derived(ws.scenarios.length > 0);
 	const runCase = $derived(ws.caseName(run.caseId));

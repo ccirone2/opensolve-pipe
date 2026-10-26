@@ -223,3 +223,33 @@ describe('PanelNavigator', () => {
 		expect(button).toBeDisabled();
 	});
 });
+
+describe('Breadcrumb', () => {
+	/** The path's list, made to overflow (jsdom has no layout). */
+	function pathList(scrollWidth: number, clientWidth: number): HTMLElement {
+		const list = within(screen.getByRole('navigation', { name: 'Path' })).getByRole('list');
+		Object.defineProperty(list, 'scrollWidth', { configurable: true, value: scrollWidth });
+		Object.defineProperty(list, 'clientWidth', { configurable: true, value: clientWidth });
+		return list;
+	}
+
+	it('scrolls sideways with a mouse wheel while the path overflows, and has no scroll bar', async () => {
+		render(WorkspaceView, { workspace: testWorkspace(pumpTransferExample()) });
+		const list = pathList(600, 200);
+		expect(list.className).toContain('[scrollbar-width:none]');
+		list.scrollLeft = 100;
+		const down = new WheelEvent('wheel', { deltaY: 40, cancelable: true });
+		list.dispatchEvent(down);
+		expect(list.scrollLeft).toBe(140);
+		expect(down.defaultPrevented).toBe(true);
+		// A sideways gesture is the browser's own.
+		const sideways = new WheelEvent('wheel', { deltaX: 40, deltaY: 5, cancelable: true });
+		list.dispatchEvent(sideways);
+		expect(sideways.defaultPrevented).toBe(false);
+		// A path that fits leaves the wheel to the page.
+		const fits = pathList(200, 200);
+		const page = new WheelEvent('wheel', { deltaY: 40, cancelable: true });
+		fits.dispatchEvent(page);
+		expect(page.defaultPrevented).toBe(false);
+	});
+});

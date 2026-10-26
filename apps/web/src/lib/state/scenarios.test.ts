@@ -11,6 +11,7 @@ import type { Override, Project, Scenario, SolveResponse, SystemCurveResponse } 
 import { deleteComponent, updateComponent, updateConnection } from '../utils/edit';
 import { encodeProject } from '../utils/encoding';
 import { pumpTransferExample } from '../utils/examples';
+import { systemCurvePoint } from '../testing/results';
 import { removePipe, addPipe } from '../utils/piping';
 import { withScenarios } from '../utils/scenarios';
 import { ProjectStore, type Solver } from './project.svelte';
@@ -164,7 +165,7 @@ describe('results per case', () => {
 		const curve: SystemCurveResponse = {
 			pumpId: 'P1',
 			flowRange: { min: 0, max: 0.03, unit: 'm³/s' },
-			points: [{ flow: 0, head: 10, converged: true, message: '' }],
+			points: [systemCurvePoint({ flow: 0, head: 10, converged: true })],
 			converged: [true],
 			scenario: null
 		};

@@ -20,6 +20,21 @@ async function solve() {
 	await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
 }
 
+/** An element's text as the browser tells it: without the server's messages under Details. */
+function toldText(element: HTMLElement): string {
+	const copy = element.cloneNode(true) as HTMLElement;
+	copy.querySelectorAll('[data-issue-detail]').forEach((detail) => detail.remove());
+	return copy.textContent ?? '';
+}
+
+/** The server's message kept under an issue's Details (closed by default). */
+function serverDetail(item: HTMLElement): HTMLElement {
+	const detail = item.querySelector<HTMLDetailsElement>('details[data-issue-detail]');
+	if (!detail) throw new Error('no Details');
+	expect(detail.open).toBe(false);
+	return detail;
+}
+
 describe('results pane', () => {
 	it('reports topology issues and shows the components they name', async () => {
 		const ws = testWorkspace(gravityBranchExample(), {
@@ -220,9 +235,13 @@ describe('results pane', () => {
 		const section = await results().findByRole('region', {
 			name: 'The network cannot be solved yet'
 		});
-		expect(within(section).queryByText(/topology issue\(s\)|'P1'|'C1'/)).toBeNull();
+		expect(toldText(section)).not.toMatch(/topology issue\(s\)|'P1'|'C1'/);
 		const item = within(section).getByRole('listitem');
 		expect(item).toHaveTextContent(needs);
+		// The server's message is kept, under Details.
+		expect(serverDetail(item)).toHaveTextContent(
+			"Details Calculation server's message: pump 'P1' refers to pump curve 'C1', which is not in the pump library"
+		);
 		await fireEvent.click(within(item).getByRole('button', { name: 'Transfer pump' }));
 		expect(ws.nav.current?.id).toBe('P1');
 	});
@@ -261,7 +280,8 @@ describe('results pane', () => {
 		expect(item).toHaveTextContent(/^Transfer pump is speed-controlled, but its pump curve/);
 		expect(item).toHaveTextContent(/for rated-speed flows x from 198\.1 to 499\.3 gpm\./);
 		expect(item).toHaveTextContent(/Use a curve whose head rises less steeply with flow there/);
-		expect(within(section).queryByText(/'P1'|m³\/s/)).toBeNull();
+		expect(toldText(section)).not.toMatch(/'P1'|m³\/s/);
+		expect(serverDetail(item)).toHaveTextContent(/from 0\.0125 to 0\.0315 m³\/s/);
 	});
 
 	it('a curve issue that arrives after the pump was given another curve: the server names the curve', async () => {
@@ -301,6 +321,45 @@ describe('results pane', () => {
 		expect(item).toHaveTextContent(message);
 		expect(item).not.toHaveTextContent('Other curve');
 		expect(results().getByRole('status')).toHaveTextContent('Last solve: no results, out of date');
+	});
+
+	it('tells a piping issue with names and display units, and its link opens that piping', async () => {
+		const project = pumpTransferExample();
+		project.settings.units = { ...IMPERIAL_UNITS };
+		// The API's wording (solver/builder.py) for made-up values.
+		const message =
+			"connection 'L2' pipe 1: roughness 0.008 m is 4 times the inner diameter 0.002 m; the " +
+			'Colebrook equation has no solution for relative roughness of 3.7 or more';
+		const ws = testWorkspace(project, {
+			solver: {
+				solve: () =>
+					Promise.reject(
+						new TopologyError('The network cannot be solved: 1 topology issue(s).', [
+							{ code: 'ROUGHNESS_OUT_OF_RANGE', message, componentIds: [], connectionIds: ['L2'] }
+						])
+					)
+			}
+		});
+		render(WorkspaceView, { workspace: ws });
+		await solve();
+		const section = await results().findByRole('region', {
+			name: 'The network cannot be solved yet'
+		});
+		const item = within(section).getByRole('listitem');
+		const inch = (m: number) => String(Number((m / 0.0254).toPrecision(4)));
+		expect(toldText(item)).toContain(
+			'Piping Transfer pump → Discharge isolation valve, pipe 1: its roughness ' +
+				`(${inch(0.008)} in) is 4 times its inner diameter (${inch(0.002)} in)`
+		);
+		expect(toldText(item)).not.toMatch(/'L2'| m[ ;)]/);
+		expect(serverDetail(item)).toHaveTextContent(message);
+		await fireEvent.click(
+			within(item).getByRole('button', { name: 'Transfer pump → Discharge isolation valve' })
+		);
+		expect(ws.pane).toBe('build');
+		expect(ws.nav.current?.id).toBe('P1');
+		expect(ws.nav.mode).toBe('connection');
+		expect(ws.nav.activeConnection?.id).toBe('L2');
 	});
 
 	it('names open ports in the server issues, and their links open the port', async () => {

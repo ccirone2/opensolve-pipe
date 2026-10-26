@@ -42,6 +42,7 @@
 		availableViews,
 		markChanged,
 		boundaryTable,
+		anyBranchFallback,
 		branchBases,
 		branchTable,
 		nodeTable,
@@ -51,6 +52,7 @@
 	} from '$lib/utils/results';
 	import { formatValue } from '$lib/utils/units';
 	import {
+		issueTextOptions,
 		missingConcentrationText,
 		topologyIssueViews,
 		topologySummary,
@@ -69,6 +71,7 @@
 	import CompareView from './CompareView.svelte';
 	import ConvergenceStatus from './ConvergenceStatus.svelte';
 	import FlagsSummary from './FlagsSummary.svelte';
+	import IssueDetail from './IssueDetail.svelte';
 	import LinksView from './LinksView.svelte';
 	import MethodsSummary from './MethodsSummary.svelte';
 	import MethodVersionNotice from './MethodVersionNotice.svelte';
@@ -137,6 +140,7 @@
 		solved ? markChanged(branchTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
 	);
 	const bases = $derived(solved ? branchBases(solved) : new Set());
+	const fallback = $derived(solved ? anyBranchFallback(solved) : false);
 	const boundaries = $derived(
 		solved ? markChanged(boundaryTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
 	);
@@ -336,7 +340,13 @@
 				views:
 					error?.kind === 'topology'
 						? untrack(() =>
-								topologyIssueViews(error.issues, ws.project, !results.errorStale, ws.units)
+								topologyIssueViews(
+									error.issues,
+									ws.project,
+									!results.errorStale,
+									ws.units,
+									issueTextOptions(ws.library)
+								)
 							)
 						: []
 			};
@@ -562,16 +572,19 @@
 						<ul class="list-disc space-y-1 pl-5 text-sm text-red-900">
 							{#each issueViews as issue, i (i)}
 								{@const set = results.errorStale ? [] : issueChanges(i)}
-								<li>
+								<li class="break-words">
 									{issue.text}
-									{#each issue.links as link (link.componentId)}
+									{#each issue.links as link, k (k)}
 										<button
 											type="button"
 											class="ml-1 min-h-11 text-blue-800 underline underline-offset-2"
 											onclick={() => ws.show(link.componentId, link.portId)}
-											>{componentName(ws.project, link.componentId)}</button
+											>{link.label ?? componentName(ws.project, link.componentId)}</button
 										>
 									{/each}
+									{#if issue.detail}
+										<IssueDetail detail={issue.detail} />
+									{/if}
 									{#if set.length}
 										<span class="block">
 											Set by this scenario: {set
@@ -850,14 +863,14 @@
 									</p>
 									{#if bases.has('combined')}
 										<p>
-											Crane correlations (combined flow on the run): every K is on the combined-flow
-											velocity. A leg with no flow has the K its head implies, on the same velocity.
+											Every K is on the combined-flow velocity. A leg with no flow has the K its
+											head implies, on the same velocity.
 										</p>
 									{/if}
-									{#if bases.has('own')}
+									{#if fallback}
 										<p>
-											Darby 3-K fallback (combined flow through a tee's branch, flagged): each run
-											path's K is on that leg's own velocity, shown per port.
+											Darby 3-K fallback (combined flow through a tee's branch, flagged): its K are
+											on the combined-flow velocity too.
 										</p>
 									{/if}
 									{#if bases.has('none')}

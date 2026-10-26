@@ -135,6 +135,20 @@ export async function cellText(table: Locator, row: string, column: string): Pro
 	);
 }
 
+/**
+ * An element's text as the app tells it (a topology issue, a system-curve point's reason): without
+ * the calculation server's own messages, which it keeps under Details.
+ */
+export async function toldText(locator: Locator): Promise<string> {
+	return squash(
+		await locator.evaluate((element) => {
+			const copy = element.cloneNode(true) as HTMLElement;
+			copy.querySelectorAll('[data-issue-detail]').forEach((detail) => detail.remove());
+			return copy.textContent ?? '';
+		})
+	);
+}
+
 /** Every row of a table as displayed (headers and cells), to compare two solves. */
 export async function tableTexts(table: Locator): Promise<string[]> {
 	await expect(table.getByRole('row').first()).toBeVisible();

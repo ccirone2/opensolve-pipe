@@ -31,7 +31,8 @@ flows need through the pump (the limit's floor: a demand on its discharge side t
 element keeps every fixed head from feeding, or a supply on its suction side that one keeps from
 draining); a point at the limit is also solved with each FCV of the cut held open, to find
 whether it sits at its switch (``_held_open_switch``). A point with no head says which case it
-is and why (``SystemCurvePointResult.message``):
+is and why (``SystemCurvePointResult.message``), and the same as data (``.reason``: the case's
+code with the ids and numbers the message quotes, built with it, ``PointReason``):
 
 - no way through: a side of the pump reaches no reservoir or reference node, nor the pump's
   other side, through elements that statuses set by the user leave open, so no steady state
@@ -67,6 +68,7 @@ import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
+from ...models.api import SystemCurveReason, SystemCurveStart
 from ...models.components import ControlValve, Pump
 from ...models.project import Project
 from ..fluids import fluid_properties
@@ -101,6 +103,46 @@ class FlowRangeError(ValueError):
     """The requested flow range is empty (HTTP 400, VALIDATION_ERROR)."""
 
 
+_STARTS: dict[SystemCurveStart, str] = {
+    "solve": "the network's own solve",
+    "previous_point": "the last converged point's solution",
+    "initial": "the network's initial state",
+    "initial_open": "that state with its control valves open",
+}
+"""How a message names each start a point was solved from (``_message``)."""
+
+
+@dataclass(frozen=True)
+class PointReason:
+    """Why a point has no head, as data (``models.api.SystemCurvePoint.reason`` and the fields
+    after it): the code of the case its message describes and the ids and numbers that message
+    quotes, built where the message is, from the same values."""
+
+    code: SystemCurveReason
+    component_ids: tuple[str, ...] = ()
+    """The pumps and valves the message names, in its order; 'not_converged': the outer loop's
+    ``oscillating_components`` (the controls and branches it names as oscillating, still
+    changing or over-controlled, maybe none), and the message may name other elements and nodes
+    in words only (those closed around a part no fixed head reaches and its assigned-flow
+    nodes, an unsupported wye)."""
+    assigned_flow_node_ids: tuple[str, ...] = ()
+    """'beyond_limit', 'below_floor': the assigned-flow nodes the bound counts
+    (``FlowLimit.assigned``), in id order."""
+    limit_flow: float | None = None
+    """m³/s. 'beyond_limit': the limit's flow (negative: the reverse flow the pump would have to
+    pass is its opposite); 'below_floor': the floor's flow."""
+    passed_flow: float | None = None
+    """m³/s. 'beyond_limit', 'below_floor': what the elements across the cut pass that way
+    together (``_passed``)."""
+    open_head: float | None = None
+    """m. 'valve_at_switch': the head across the pump with the valve fully open."""
+    open_head_bound: Literal["lower", "upper"] | None = None
+    """'valve_at_switch': 'lower' where the message says 'at or above' the open head, 'upper'
+    where it says 'at or below' (``_head_side``)."""
+    starts_tried: tuple[SystemCurveStart, ...] = ()
+    """'no_steady_state_found': the starts the message lists, in its order (``_STARTS``)."""
+
+
 @dataclass(frozen=True)
 class SystemCurvePointResult:
     flow: float
@@ -111,6 +153,8 @@ class SystemCurvePointResult:
     """True when the point has a head."""
     message: str
     """Why the point has no head ('' when it has one)."""
+    reason: PointReason | None = None
+    """Why the point has no head, as data (None when it has one)."""
 
 
 def find_pump(project: Project, pump_id: str) -> Pump:
@@ -347,13 +391,22 @@ def _at_limit(q: float, limit: FlowLimit) -> bool:
     return 0.0 < limit.flow < math.inf and abs(q - limit.flow) <= _margin(q, limit)
 
 
-def _beyond_message(limit: FlowLimit) -> str:
-    """Why no steady state carries a flow beyond the limit (``flow_limit``), in words."""
+def _beyond_message(limit: FlowLimit) -> tuple[str, PointReason]:
+    """Why no steady state carries a flow beyond the limit (``flow_limit``), in words and as
+    data."""
     controls = [c for c, _ in limit.elements]
     kinds = [kind for kind in RULES if any(c.kind == kind for c in controls)]
     rules = "; ".join(RULES[kind] for kind in kinds)
     which = "which passes" if len(controls) == 1 else "which together pass"
     amount = f"at most {limit.flow:.6g} m³/s" if limit.flow > 0.0 else "no flow"
+    passed, passed_flow = _passed(limit)
+    reason = PointReason(
+        "beyond_limit",
+        tuple(c.component_id for c in controls),
+        limit.assigned,
+        limit_flow=limit.flow,
+        passed_flow=passed_flow,  # limit.flow itself when no assigned flow is counted
+    )
     if limit.assigned:
         if limit.flow < 0.0:  # the assigned flows need more than the cut passes
             ending = (
@@ -365,36 +418,45 @@ def _beyond_message(limit: FlowLimit) -> str:
         return (
             "no steady state carries this flow: every way from the pump's discharge back to its "
             "suction, through the network or a reservoir or reference node, passes "
-            f"{_names(controls)}, {which} {_passed(limit)} that way ({rules}), and with the "
+            f"{_names(controls)}, {which} {passed} that way ({rules}), and with the "
             f"flows of assigned-flow node(s) {_quoted(limit.assigned)}, which take or supply "
             f"their flows whatever the pressure, {ending}"
-        )
+        ), reason
     return (
         "no steady state carries this flow: every way from the pump's discharge back to its "
         f"suction, through the network or a reservoir or reference node, passes "
         f"{_names(controls)}, {which} {amount} that way ({rules})"
-    )
+    ), reason
 
 
-def _below_message(floor: FlowLimit) -> str:
-    """Why no steady state carries a flow below the floor (``flow_limit``), in words."""
+def _below_message(floor: FlowLimit) -> tuple[str, PointReason]:
+    """Why no steady state carries a flow below the floor (``flow_limit``), in words and as
+    data."""
     controls = [c for c, _ in floor.elements]
     kinds = [kind for kind in RULES if any(c.kind == kind for c in controls)]
     rules = "; ".join(RULES[kind] for kind in kinds)
     which = "which passes" if len(controls) == 1 else "which together pass"
+    passed, passed_flow = _passed(floor)
+    reason = PointReason(
+        "below_floor",
+        tuple(c.component_id for c in controls),
+        floor.assigned,
+        limit_flow=floor.flow,
+        passed_flow=passed_flow,
+    )
     return (
         "no steady state carries this flow: every way from the pump's suction to its discharge, "
         "through the network or a reservoir or reference node, passes "
-        f"{_names(controls)}, {which} {_passed(floor)} that way ({rules}), and with the flows "
+        f"{_names(controls)}, {which} {passed} that way ({rules}), and with the flows "
         f"of assigned-flow node(s) {_quoted(floor.assigned)}, which take or supply their flows "
         f"whatever the pressure, the pump must pass at least {floor.flow:.6g} m³/s"
-    )
+    ), reason
 
 
-def _passed(limit: FlowLimit) -> str:
-    """What the elements across a cut pass that way together, in words."""
+def _passed(limit: FlowLimit) -> tuple[str, float]:
+    """What the elements across a cut pass that way together, in words and in m³/s."""
     passed = math.fsum(cap for _, cap in limit.elements)
-    return f"at most {passed:.6g} m³/s" if passed > 0.0 else "no flow"
+    return (f"at most {passed:.6g} m³/s" if passed > 0.0 else "no flow"), passed
 
 
 def _quoted(ids: Sequence[str]) -> str:
@@ -450,30 +512,38 @@ def _switch_message(
     control: Control,
     what: str,
     head: float,
-) -> str | None:
-    """Why the head is undetermined, if nothing fixes the pressure between this open valve
-    at its switch and the pump: the inner solve's test with the valve active
-    (``GgaResult.undetermined_links``, as ``status._over_controlled`` makes it). Throttled, the
-    valve loses more head than fully open: across the pump that is a higher head when the valve
-    draws from the part of the network the discharge is in or delivers into the suction's (as a
-    valve in series does), a lower one when it delivers into the discharge's part or draws from
-    the suction's (a valve beside the pump feeding an assigned flow there, ``_head_side``)."""
+) -> tuple[str, PointReason] | None:
+    """Why the head is undetermined, in words and as data, if nothing fixes the pressure
+    between this open valve at its switch and the pump: the inner solve's test with the valve
+    active (``GgaResult.undetermined_links``, as ``status._over_controlled`` makes it).
+    Throttled, the valve loses more head than fully open: across the pump that is a higher head
+    when the valve draws from the part of the network the discharge is in or delivers into the
+    suction's (as a valve in series does), a lower one when it delivers into the discharge's
+    part or draws from the suction's (a valve beside the pump feeding an assigned flow there,
+    ``_head_side``)."""
     trial = list(outer.states)
     trial[control.link] = active_state(built, built.valves[control.component_id])
     check = solve_gga(built.network, trial, tolerance=1.0, max_iterations=0)
     if not {control.link, data.link_index} <= set(check.undetermined_links):
         return None
+    side = _head_side(built, trial, data, control)
+    reason = PointReason(
+        "valve_at_switch",
+        (control.component_id,),
+        open_head=head,
+        open_head_bound="lower" if side == "above" else "upper",
+    )
     return (
         f"the head across the pump is undetermined: at this flow {what}, so the valve "
         "could also hold it throttled, with any head across the pump at or "
-        f"{_head_side(built, trial, data, control)} {head:.6g} m (with the valve fully open), "
+        f"{side} {head:.6g} m (with the valve fully open), "
         "and no reservoir or reference node fixes the pressure between the valve and the pump"
-    )
+    ), reason
 
 
 def _head_side(
     built: BuiltNetwork, trial: Sequence[LinkState], data: PumpData, control: Control
-) -> str:
+) -> Literal["below", "above"]:
     """'below' when the valve delivers into the part of the network the pump's discharge is in,
     or draws from the suction's (the parts joined by NORMAL links in ``trial``), else 'above'
     (``_switch_message``)."""
@@ -495,9 +565,9 @@ def _head_side(
 
 def _at_switch(
     built: BuiltNetwork, outer: OuterLoopResult, data: PumpData, q: float, head: float
-) -> str | None:
-    """Why a converged point's head is undetermined, if a control valve in series sits at its
-    switch (module docstring), else None. An open FCV whose flow is its setpoint
+) -> tuple[str, PointReason] | None:
+    """Why a converged point's head is undetermined, in words and as data, if a control valve in
+    series sits at its switch (module docstring), else None. An open FCV whose flow is its setpoint
     (``_fcv_at_setpoint``), an open PRV whose outlet EGL is its setpoint head, or an open PSV
     whose inlet EGL is (within Htol: the rules then hold for the active state too) passes the
     same flow when active, throttled, with any head across the pump at or above this one
@@ -522,9 +592,9 @@ def _at_switch(
             where = "outlet" if control.kind == "prv" else "inlet"
             what = f"{KIND_NAMES[control.kind]} '{cid}' has its {where} at its setting"
         if edge:
-            message = _switch_message(built, outer, data, control, what, head)
-            if message is not None:
-                return message
+            switch = _switch_message(built, outer, data, control, what, head)
+            if switch is not None:
+                return switch
     return None
 
 
@@ -546,6 +616,8 @@ class _Solved:
     closing: tuple[Control, ...] = ()
     """'starved', 'free_level', 'closed_off': the elements the status rules closed around the
     pump's sides."""
+    reason: PointReason | None = None
+    """'switch', 'not_converged': ``detail`` as data (``_message`` builds the others')."""
 
 
 def _read(built: BuiltNetwork, data: PumpData, q: float, outer: OuterLoopResult) -> _Solved:
@@ -554,7 +626,8 @@ def _read(built: BuiltNetwork, data: PumpData, q: float, outer: OuterLoopResult)
     net = built.network
     suction, discharge = net.node_index[data.suction], net.node_index[data.discharge]
     if not outer.converged:
-        return _Solved(None, "not_converged", outer.message)
+        reason = PointReason("not_converged", tuple(outer.oscillating_components))
+        return _Solved(None, "not_converged", outer.message, reason=reason)
     gga = outer.gga
     starved = data.link_index in gga.starved_links
     floating = {v: i for i, nodes in enumerate(gga.floating_sections) for v in nodes}
@@ -566,7 +639,9 @@ def _read(built: BuiltNetwork, data: PumpData, q: float, outer: OuterLoopResult)
             head = shift[discharge] - shift[suction]
     if not starved and not free_level and math.isfinite(head):
         switch = _at_switch(built, outer, data, q, head)
-        return _Solved(head, "head") if switch is None else _Solved(None, "switch", switch)
+        if switch is None:
+            return _Solved(head, "head")
+        return _Solved(None, "switch", switch[0], reason=switch[1])
     closing = tuple(_closing(built, outer, data))
     if starved:
         return _Solved(None, "starved", closing=closing)
@@ -609,21 +684,28 @@ def _held_open_switch(
         if read.head is None or not _fcv_at_setpoint(built, held, control):
             continue
         what = f"FCV '{control.component_id}' passes exactly its setpoint flow"
-        message = _switch_message(built, held, data, control, what, read.head)
-        if message is not None:
-            return _Solved(None, "switch", message)
+        switch = _switch_message(built, held, data, control, what, read.head)
+        if switch is not None:
+            return _Solved(None, "switch", switch[0], reason=switch[1])
     return None
 
 
-def _message(q: float, solved: _Solved, way_through: bool, warm: str | None, opened: bool) -> str:
-    """Why a point has no head, in words (module docstring). ``warm``: the solution the point
-    was first solved from, if any (it was always solved from the initial state too, unless its
-    flow has no way through); ``opened``: also from the initial state with the control valves
-    open."""
-    if solved.kind == "switch":
-        return solved.detail
-    if solved.kind == "not_converged":
-        return f"not converged: {solved.detail}"
+def _message(
+    q: float,
+    solved: _Solved,
+    way_through: bool,
+    warm: SystemCurveStart | None,
+    opened: bool,
+) -> tuple[str, PointReason]:
+    """Why a point has no head, in words and as data (module docstring). ``warm``: the solution
+    the point was first solved from, if any (it was always solved from the initial state too,
+    unless its flow has no way through); ``opened``: also from the initial state with the
+    control valves open."""
+    if solved.kind in ("switch", "not_converged"):
+        assert solved.reason is not None  # built with the detail (``_read``)
+        if solved.kind == "switch":
+            return solved.detail, solved.reason
+        return f"not converged: {solved.detail}", solved.reason
     if not way_through:
         return (
             "the flow has no way through: a side of the pump reaches no reservoir or reference "
@@ -633,8 +715,9 @@ def _message(q: float, solved: _Solved, way_through: bool, warm: str | None, ope
             "; at zero flow the head across the pump is undetermined"
             if q == 0.0
             else ", so no steady state carries it"
-        )
+        ), PointReason("no_way_through")
     closing = list(solved.closing)
+    named = tuple(c.component_id for c in closing)  # as ``_names(closing)`` names them
     if solved.kind == "starved":
         if closing:
             kinds = [kind for kind in RULES if any(c.kind == kind for c in closing)]
@@ -649,12 +732,16 @@ def _message(q: float, solved: _Solved, way_through: bool, warm: str | None, ope
                 "the status rules leave a side of the pump with no way to a reservoir or "
                 "reference node"
             )
-        starts = [warm] if warm else []
-        starts.append("the network's initial state")
+        starts: list[SystemCurveStart] = [warm] if warm else []
+        starts.append("initial")
         if opened:
-            starts.append("that state with its control valves open")
-        tried = ", ".join(starts[:-1]) + (" or " if len(starts) > 1 else "") + starts[-1]
-        return f"no steady state found that carries this flow: {what}; none is found from {tried}"
+            starts.append("initial_open")
+        words = [_STARTS[start] for start in starts]
+        tried = ", ".join(words[:-1]) + (" or " if len(words) > 1 else "") + words[-1]
+        return (
+            f"no steady state found that carries this flow: {what}; none is found from {tried}",
+            PointReason("no_steady_state_found", named, starts_tried=tuple(starts)),
+        )
     verb = "closes" if len(closing) == 1 else "close"
     if solved.kind == "free_level":
         by = f", closed off by {_names(closing)}," if closing else ""
@@ -662,7 +749,7 @@ def _message(q: float, solved: _Solved, way_through: bool, warm: str | None, ope
             f"the head across the pump is undetermined: a side of the pump{by} is in a part of "
             "the network that carries flow but reaches no reservoir or reference node, so "
             "nothing fixes its pressure level"
-        )
+        ), PointReason("free_level", named)
     where = " at zero flow" if q == 0.0 else ""
     by = (
         f"{_names(closing)} {verb} off a side of the pump"
@@ -672,7 +759,7 @@ def _message(q: float, solved: _Solved, way_through: bool, warm: str | None, ope
     return (
         f"the head across the pump is undetermined{where}: {by}, and no reservoir or reference "
         "node fixes the pressure in the part closed off"
-    )
+    ), PointReason("closed_off", named)
 
 
 def system_curve_points(
@@ -711,12 +798,8 @@ def system_curve_points(
     previous = warm
     for i, q in enumerate(flows):
         forced = {pump_id: float(q)}
-        warm_start = (
-            None
-            if previous is None
-            else "the network's own solve"
-            if previous is warm
-            else "the last converged point's solution"
+        warm_start: SystemCurveStart | None = (
+            None if previous is None else "solve" if previous is warm else "previous_point"
         )
         opened = False
         below = _below_floor(float(q), limit)
@@ -771,8 +854,9 @@ def system_curve_points(
         except SolveDeadlineError as exc:
             # The request's time budget ran out: the remaining points are not computed (a
             # client disconnect, SolveCancelledError, stops the whole request instead).
+            skipped = PointReason("not_computed")
             points += [
-                SystemCurvePointResult(float(r), None, False, f"not computed: {exc}")
+                SystemCurvePointResult(float(r), None, False, f"not computed: {exc}", skipped)
                 for r in flows[i:]
             ]
             break
@@ -781,14 +865,14 @@ def system_curve_points(
         if solved.head is not None:
             points.append(SystemCurvePointResult(float(q), solved.head, True, ""))
         else:
-            message = (
+            message, reason = (
                 _message(q, solved, way_through, warm_start, opened)
                 if not beyond or solved.kind == "switch"
                 else _below_message(limit.floor)
                 if below and limit.floor is not None
                 else _beyond_message(limit)
             )
-            points.append(SystemCurvePointResult(float(q), None, False, message))
+            points.append(SystemCurvePointResult(float(q), None, False, message, reason))
     return points
 
 

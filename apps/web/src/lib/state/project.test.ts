@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NetworkError, TopologyError, ValidationError } from '../api/client';
 import type { Project, Pump, SolveResponse, SystemCurveResponse } from '../api/types';
 import { referentialIssues } from '../testing/helpers';
+import { systemCurvePoint } from '../testing/results';
 import { addBranch, deleteComponent, insertComponentInConnection } from '../utils/edit';
 import { decodeProject, encodeProject, fragmentOf } from '../utils/encoding';
 import { EXAMPLES } from '../utils/examples';
@@ -758,7 +759,7 @@ describe('system curves (D10: on demand, per solve)', () => {
 		return {
 			pumpId,
 			flowRange: { min: 0, max: 0.01, unit: 'm³/s' },
-			points: [{ flow: 0, head, converged: true, message: '' }],
+			points: [systemCurvePoint({ flow: 0, head, converged: true })],
 			converged: [true],
 			scenario: null
 		};

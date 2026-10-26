@@ -11,11 +11,24 @@
 	A row's flag badges and its "details" toggle (a connection's pipes and fittings) sit on a line
 	of their own under the row, so the row header a screen reader repeats with every cell is just
 	the element's name and detail.
+
+	Sorting and filtering (proposal ui-ux-refinement.md item 9): a column heading is a button that
+	sorts by the values shown in that column, ascending, then descending, then back to the table's
+	order (the sorted column carries aria-sort); rows without a value stay last. "Flagged only"
+	shows the rows with flags, offered when some rows have flags and some do not. A `sortRequest`
+	(the Summary's links to a sorted table) sets the sort and shows every row.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
-	import type { Row, Table } from '$lib/utils/results';
+	import {
+		NAME_SORT_KEY,
+		sortableColumn,
+		sortRows,
+		type Row,
+		type Table,
+		type TableSort
+	} from '$lib/utils/results';
 	import CellValue from './CellValue.svelte';
 	import FlagBadge from './FlagBadge.svelte';
 
@@ -31,6 +44,8 @@
 		/** Label of the expand button (e.g. "Pipes and fittings"). */
 		detailLabel?: string;
 		hasDetail?: (row: Row) => boolean;
+		/** A sort to apply (a new `id` applies it again), e.g. from the Summary's links. */
+		sortRequest?: (TableSort & { id: number }) | null;
 	}
 
 	let {
@@ -40,7 +55,8 @@
 		onselect,
 		detail,
 		detailLabel = 'Details',
-		hasDetail = () => true
+		hasDetail = () => true,
+		sortRequest = null
 	}: Props = $props();
 
 	const id = $props.id();
@@ -58,9 +74,46 @@
 	 */
 	const CHUNK = 60;
 	let limit = $state(CHUNK);
-	const rows = $derived(limit >= table.rows.length ? table.rows : table.rows.slice(0, limit));
+	let sort = $state<TableSort | null>(null);
+	let flaggedOnly = $state(false);
+	let appliedRequest = 0;
+	$effect.pre(() => {
+		const request = sortRequest;
+		if (!request || request.id === appliedRequest) return;
+		appliedRequest = request.id;
+		sort = { key: request.key, direction: request.direction };
+		flaggedOnly = false;
+	});
+	const flaggedCount = $derived(table.rows.filter((row) => row.flags.length > 0).length);
+	/** Offered when it would change what is shown: some rows have flags and some do not. */
+	const canFilter = $derived(flaggedCount > 0 && flaggedCount < table.rows.length);
+	const shown = $derived(
+		sortRows(
+			canFilter && flaggedOnly ? table.rows.filter((row) => row.flags.length > 0) : table.rows,
+			sort
+		)
+	);
+	const sortable = $derived(
+		new Set(
+			[NAME_SORT_KEY, ...table.columns.map((c) => c.key)].filter((key) =>
+				sortableColumn(table.rows, key)
+			)
+		)
+	);
+
+	/** Ascending, then descending, then the table's own order. */
+	function toggleSort(key: string) {
+		sort =
+			sort?.key !== key
+				? { key, direction: 'ascending' }
+				: sort.direction === 'ascending'
+					? { key, direction: 'descending' }
+					: null;
+	}
+
+	const rows = $derived(limit >= shown.length ? shown : shown.slice(0, limit));
 	$effect(() => {
-		if (limit >= table.rows.length) return;
+		if (limit >= shown.length) return;
 		const grow = () => (limit += CHUNK);
 		if (typeof requestAnimationFrame === 'function') {
 			const frame = requestAnimationFrame(grow);
@@ -76,6 +129,46 @@
 		'sticky left-0 border-r border-slate-300 shadow-[6px_0_6px_-6px_rgb(15_23_42/0.35)]';
 </script>
 
+{#snippet heading(key: string, label: string, unit: string | undefined, numeric: boolean)}
+	{@const active = sort?.key === key}
+	{#if sortable.has(key)}
+		<button
+			type="button"
+			class={[
+				'inline-flex min-h-11 items-end gap-1 rounded px-1 font-medium hover:bg-slate-200/70',
+				numeric ? 'flex-row-reverse text-right' : 'text-left'
+			]}
+			onclick={() => toggleSort(key)}
+		>
+			<span>
+				<!-- The first column's heading wraps: that column keeps its fixed width on phones. -->
+				<span class={['block', key !== NAME_SORT_KEY && 'whitespace-nowrap']}>{label}</span>
+				{#if unit}
+					<span class="block text-xs font-normal whitespace-nowrap text-slate-600">{unit}</span>
+				{/if}
+			</span>
+			{#if active}
+				<Icon
+					name={sort?.direction === 'descending' ? 'down' : 'up'}
+					class="mb-0.5 size-4 shrink-0 text-blue-800"
+				/>
+			{/if}
+		</button>
+	{:else}
+		<span class={['block px-1', key !== NAME_SORT_KEY && 'whitespace-nowrap']}>{label}</span>
+		{#if unit}
+			<span class="block px-1 text-xs font-normal whitespace-nowrap text-slate-600">{unit}</span>
+		{/if}
+	{/if}
+{/snippet}
+
+{#if canFilter}
+	<label class="mb-1 inline-flex min-h-11 items-center gap-2 text-sm text-slate-800">
+		<input type="checkbox" class="size-4" bind:checked={flaggedOnly} />
+		Flagged only ({flaggedCount} of {table.rows.length})
+	</label>
+{/if}
+
 <!-- A size container, so the lines under a row can be exactly as wide as the visible box. -->
 <div
 	class="scroll-shadow-x @container max-h-[max(16rem,calc(100dvh-12rem))] max-w-full snap-x snap-proximity scroll-pl-[9.5rem] overflow-auto overscroll-x-contain rounded-lg border border-slate-200 sm:snap-none"
@@ -86,27 +179,24 @@
 			<tr class="text-slate-700">
 				<th
 					scope="col"
+					aria-sort={sort?.key === NAME_SORT_KEY ? sort.direction : undefined}
 					class={[
 						FIXED,
-						'top-0 z-30 border-b bg-slate-50 px-2 py-2 text-left align-bottom font-medium'
+						'top-0 z-30 border-b bg-slate-50 px-1 py-1 text-left align-bottom font-medium'
 					]}
 				>
-					{first}
+					{@render heading(NAME_SORT_KEY, first, undefined, false)}
 				</th>
 				{#each table.columns as column (column.key)}
 					<th
 						scope="col"
+						aria-sort={sort?.key === column.key ? sort.direction : undefined}
 						class={[
-							'sticky top-0 z-20 border-b border-slate-300 bg-slate-50 px-2 py-2 align-bottom font-medium',
+							'sticky top-0 z-20 border-b border-slate-300 bg-slate-50 px-1 py-1 align-bottom font-medium',
 							column.numeric ? 'text-right' : 'text-left'
 						]}
 					>
-						<span class="block whitespace-nowrap">{column.label}</span>
-						{#if column.unit}
-							<span class="block text-xs font-normal whitespace-nowrap text-slate-600"
-								>{column.unit}</span
-							>
-						{/if}
+						{@render heading(column.key, column.label, column.unit, !!column.numeric)}
 					</th>
 				{/each}
 			</tr>

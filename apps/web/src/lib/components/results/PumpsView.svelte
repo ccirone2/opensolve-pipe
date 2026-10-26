@@ -15,12 +15,18 @@
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import type { FlowRange } from '$lib/state/project.svelte';
 	import { MAX_CHART_CASES, ratedCurveRange, type OtherCaseInput } from '$lib/utils/pump-chart';
-	import { markChanged, pumpTable } from '$lib/utils/results';
+	import { markChanged, pumpTable, type TableSort } from '$lib/utils/results';
 	import PumpChart from './PumpChart.svelte';
 	import ResultsTable from './ResultsTable.svelte';
 
-	let { solved, changed = new Set() }: { solved: SolvedState; changed?: ReadonlySet<string> } =
-		$props();
+	interface Props {
+		solved: SolvedState;
+		changed?: ReadonlySet<string>;
+		/** A sort for the table (the Summary's links). */
+		sortRequest?: (TableSort & { id: number }) | null;
+	}
+
+	let { solved, changed = new Set(), sortRequest = null }: Props = $props();
 	const ws = useWorkspace();
 	const table = $derived(
 		markChanged(pumpTable(ws.labelsProject, solved, ws.displayUnits), changed)
@@ -169,6 +175,7 @@
 <div class="space-y-4">
 	<ResultsTable
 		{table}
+		{sortRequest}
 		caption="Results per pump"
 		first="Pump"
 		onselect={(row) => ws.inspect(row.element)}

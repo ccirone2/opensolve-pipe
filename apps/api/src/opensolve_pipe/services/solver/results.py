@@ -22,6 +22,14 @@ An assigned-flow node's port (TSD §4.8) is a free port node like any other: its
 and its static pressure and HGL follow with the connected pipe's velocity; its boundary result
 gives its EGL and its outflow, minus its assigned flow as solved.
 
+Equipment (proposal equipment-pressure-drop.md §2.2, §3.2): its result gives the flow, the flow
+ratio Q/Q_r (a rated point only), the head loss EGL_in − EGL_out, the pressure loss ρ g × that
+and the static pressure drop, with the rating used. It is flagged CORRELATION_OUT_OF_RANGE when
+the reported flow runs outlet -> inlet (no datasheet rates reverse flow) and when the flow in the
+end segment of its inlet or outlet pipe is laminar (the square law is the turbulent-flow law).
+Like a valve, it has no result in a closed-off section or beside a floating one, and one with its
+head differences inside a floating section.
+
 Flashing (design §8, GOALS §4.6): every port node and every reservoir's liquid surface is
 checked against the vapor pressure, in absolute pressure. Without a vapor pressure the bound is
 0 Pa absolute: no liquid exists at or below it, since every liquid's vapor pressure is positive,
@@ -43,6 +51,7 @@ from ...models.components import (
     ControlValve,
     IdealReferenceNode,
     Plug,
+    RatedPoint,
     Reservoir,
     TeeBranch,
     WyeBranch,
@@ -53,6 +62,7 @@ from ...models.results import (
     ConvergenceReport,
     CurvePoint,
     EfficiencyCurvePoint,
+    EquipmentResult,
     FittingResult,
     Flag,
     LinkResult,
@@ -68,7 +78,7 @@ from ...models.results import (
     ValveResult,
 )
 from .branches import DARBY_TEE, flow_pattern
-from .builder import BuiltNetwork, ConnectionData, PumpData, ValveData, node_key
+from .builder import BuiltNetwork, ConnectionData, EquipmentData, PumpData, ValveData, node_key
 from .elements import segment_state
 from .flags import make_flag
 from .friction import RE_LAMINAR_MAX, RE_TURBULENT_MIN, FlowRegime, range_warning
@@ -973,6 +983,54 @@ class _Mapper:
             setpoint_achieved=achieved,
         )
 
+    def equipment_result(self, data: EquipmentData) -> EquipmentResult | None:
+        """An equipment element's result and flags (module docstring; proposal §2.2, §3.2)."""
+        comp = data.component
+        h1, h2 = self.heads_of(data.inlet, data.outlet)
+        if math.isnan(h1) or math.isnan(h2):
+            return None  # closed off, or beside a floating section
+        q = float(self.flows[data.link_index])
+        rating = comp.rating
+        rated_flow = rating.flow if isinstance(rating, RatedPoint) else None
+        if q < 0.0:  # reported flows within the zero-flow rounding are exactly 0
+            details: dict[str, float | str] = {"flow": q}
+            if rated_flow is not None:
+                details["ratedFlow"] = rated_flow
+            self.flags.append(
+                make_flag(
+                    "CORRELATION_OUT_OF_RANGE",
+                    "warning",
+                    f"equipment '{comp.id}': the flow runs from outlet to inlet; its rating is "
+                    "for inlet → outlet flow, and the loss is taken as for forward flow at the "
+                    "same flow rate",
+                    component_id=comp.id,
+                    details=details,
+                )
+            )
+        laminar = data.laminar_pipe(q)
+        if laminar is not None:
+            side, re = laminar
+            self.flags.append(
+                make_flag(
+                    "CORRELATION_OUT_OF_RANGE",
+                    "warning",
+                    f"equipment '{comp.id}': its rating is scaled at constant K, the "
+                    "turbulent-flow law of ISA-75.01.01, but the flow in its "
+                    f"{side} pipe is laminar (Re = {re:.0f}); the loss is likely underestimated",
+                    component_id=comp.id,
+                    details={"reynoldsNumber": re},
+                )
+            )
+        head_loss = h1 - h2
+        return EquipmentResult(
+            flow=q,
+            flow_ratio=q / rated_flow if rated_flow is not None else None,
+            head_loss=head_loss,
+            pressure_loss=self.rho * self.g * head_loss,
+            pressure_drop=self.static_pressure(data.inlet) - self.static_pressure(data.outlet),
+            rating=rating,
+        )
+
     def closed_off_valve_flag(self, data: ValveData, inside: bool, floating: bool) -> None:
         """The state flag of an active check or control valve that ends closed with the
         section on one side of it closed off (no head there, so no valve result): the reason
@@ -1174,6 +1232,7 @@ def build_solved_state(
             link_results={},
             pump_results={},
             valve_results={},
+            equipment_results={},
             branch_results={},
             boundary_results={},
             flags=mapper.flags,
@@ -1202,6 +1261,11 @@ def build_solved_state(
     valves = {
         cid: vr for cid, d in built.valves.items() if (vr := mapper.valve_result(d)) is not None
     }
+    equipment = {
+        cid: er
+        for cid, d in built.equipment.items()
+        if (er := mapper.equipment_result(d)) is not None
+    }
     mapper.isolated_flags()
     mapper.floating_flags()
     balance, balance_node = mapper.mass_balance()
@@ -1216,6 +1280,7 @@ def build_solved_state(
             links=links,
             pumps=pumps,
             valves=valves,
+            equipment=equipment,
             branches=branches,
             boundaries=boundaries,
             flags=mapper.flags,
@@ -1232,6 +1297,7 @@ def build_solved_state(
         link_results=links,
         pump_results=pumps,
         valve_results=valves,
+        equipment_results=equipment,
         branch_results=branches,
         boundary_results=boundaries,
         flags=mapper.flags,

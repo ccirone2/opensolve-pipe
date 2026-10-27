@@ -22,11 +22,14 @@ from .components import (
     BaseComponent,
     CheckValve,
     ControlValve,
+    Equipment,
     IdealReferenceNode,
     IsolationValve,
     Plug,
     Pump,
     PumpControl,
+    RatedFlowCoefficient,
+    RatedPoint,
     Reservoir,
     TeeBranch,
     WyeBranch,
@@ -52,6 +55,11 @@ ComponentField = Literal[
     "surfacePressure",
     "pressure",
     "flow",
+    "rating",
+    "rating.pressureLoss",
+    "rating.flow",
+    "rating.density",
+    "rating.value",
 ]
 """Overridable values of components; each component type takes the ones x-override-fields
 lists for it."""
@@ -78,8 +86,8 @@ class Overridable:
     keys: tuple[str, ...] = ()
     """A group: these sibling attributes of the holder are replaced together."""
     unit: str | Callable[[Any], str] = ""
-    """Trace unit of the value ('m', 'Pa(g)', 'm³/s', 'K', '' for none), or a function of the
-    target giving it."""
+    """Trace unit of the value ('m', 'Pa(g)', 'Pa (difference)', 'm³/s', 'kg/m³', 'K', '' for
+    none; never a bare 'Pa', SDD §4.10), or a function of the target giving it."""
     label: str | Callable[[Any], str] = ""
     """Name of the value in notes and the methods summary, or a function of the target (None
     where there is none: an orphaned override) giving it."""
@@ -93,6 +101,13 @@ def _setpoint_unit(valve: Any) -> str:
 def _speed_label(pump: Any) -> str:
     """A speed-controlled pump's speed is its maximum speed (D11), as its trace input says."""
     return "maximum speed ratio" if getattr(pump, "control", None) is not None else "speed ratio"
+
+
+def _coefficient_label(equipment: Any) -> str:
+    """An equipment item's rating.value is its Cv or Kv, by the kind its rating holds; with no
+    target, or a target rated by a point, the plain name."""
+    kind = getattr(getattr(equipment, "rating", None), "kind", None)
+    return kind if kind in ("Cv", "Kv") else "flow coefficient"
 
 
 def override_unit(entry: Overridable, target: BaseModel) -> str:
@@ -133,6 +148,27 @@ COMPONENT_FIELDS: dict[type[BaseComponent], dict[str, Overridable]] = {
         "status": _STATUS,
         "resistance": _RESISTANCE,
         "setpoint": Overridable(("setpoint",), unit=_setpoint_unit, label="setpoint"),
+    },
+    Equipment: {
+        # The whole rating (another datasheet, of either kind), as "fluid" is the whole fluid,
+        # and each of its values, held by the rating of its kind (a part the base element's
+        # kind does not hold is not applicable).
+        "rating": Overridable(("rating",), label="rating"),
+        "rating.pressureLoss": Overridable(
+            ("rating", "pressure_loss"),
+            holder=RatedPoint,
+            unit="Pa (difference)",
+            label="rated pressure drop",
+        ),
+        "rating.flow": Overridable(
+            ("rating", "flow"), holder=RatedPoint, unit="m³/s", label="rated flow"
+        ),
+        "rating.density": Overridable(
+            ("rating", "density"), holder=RatedPoint, unit="kg/m³", label="rated fluid density"
+        ),
+        "rating.value": Overridable(
+            ("rating", "value"), holder=RatedFlowCoefficient, label=_coefficient_label
+        ),
     },
 }
 """Overridable values by component type (every type of the Component union; {} for none)."""
@@ -270,8 +306,8 @@ def overlap_problems(
     overrides: Sequence[ComponentOverride | PipeOverride | ProjectOverride],
 ) -> list[str]:
     """Pairs of overrides that set one value twice, or a value and a part of it (fluid with
-    fluid.temperature), by index only: request-validation errors never echo submitted values
-    (SDD §5.1.2)."""
+    fluid.temperature, a rating with rating.flow), by index only: request-validation errors
+    never echo submitted values (SDD §5.1.2)."""
     problems: list[str] = []
     for j, later in enumerate(overrides):
         path_j = later.field.split(".")
@@ -304,7 +340,8 @@ class Scenario(CamelModel):
         max_length=MAX_OVERRIDES,
         description=(
             "At most one per value: no two set the same value of one target, nor a value and "
-            "a part of it (fluid and fluid.temperature)"
+            "a part of it (fluid and fluid.temperature; an equipment item's rating and "
+            "rating.flow)"
         ),
     )
 

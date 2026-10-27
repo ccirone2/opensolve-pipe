@@ -2,8 +2,8 @@
 	Results pane (design §5): what the last solve returned. Topology issues, validation errors or a
 	network error; or the solve's status (with the convergence report when it did not converge),
 	a notice when the results are out of date or the calculation methods changed, the physics
-	flags by severity, and the results by view: Summary, Nodes, Links, Pumps, Valves, Branches,
-	Boundaries, Assigned flows, Methods. Rows and flags open an element's results and trace, and
+	flags by severity, and the results by view: Summary, Nodes, Links, Pumps, Valves, Equipment,
+	Branches, Boundaries, Assigned flows, Methods. Rows and flags open an element's results and trace, and
 	point the navigator at it. Input problems the solver would also report are listed so they can
 	be fixed first; solving is never blocked. After a cancelled solve, a note says so above what
 	earlier solves left. Only the short status line is a live region.
@@ -51,6 +51,7 @@
 		boundaryTable,
 		anyBranchFallback,
 		branchBases,
+		equipmentTable,
 		branchTable,
 		nodeTable,
 		valveTable,
@@ -166,6 +167,9 @@
 	);
 	const valves = $derived(
 		solved ? markChanged(valveTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
+	);
+	const equipment = $derived(
+		solved ? markChanged(equipmentTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
 	);
 	const branches = $derived(
 		solved ? markChanged(branchTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
@@ -941,6 +945,22 @@
 									minus outlet, so they are negative when the flow runs from outlet to inlet. K is
 									referred to the valve's connected inner diameter. A setpoint is shown for control
 									valves.
+								</p>
+							{:else if v === 'equipment' && equipment}
+								<ResultsTable
+									table={equipment}
+									caption="Results per equipment item"
+									first="Equipment"
+									onselect={(row) => ws.inspect(row.element)}
+								/>
+								<p class="text-xs text-slate-600">
+									Pressure loss is the rating scaled to the solved flow and density, ρg × head loss.
+									Pressure drop is the static pressure difference, inlet minus outlet, as for
+									valves; it equals the pressure loss when both ports are at one elevation and their
+									pipes have one bore. Flow, flow ÷ rated flow, pressure loss and head loss are
+									negative when the flow runs from outlet to inlet; the pressure drop also holds the
+									ports' elevation and velocity terms, so its sign need not follow the flow. An
+									element rated by a Cv or Kv has no rated flow.
 								</p>
 							{:else if v === 'branches' && branches}
 								<ResultsTable

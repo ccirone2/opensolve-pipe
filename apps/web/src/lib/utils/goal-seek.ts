@@ -29,6 +29,7 @@ import type {
 	GoalVariable,
 	Override,
 	Project,
+	RatedFlowCoefficient,
 	Scenario,
 	SolvedState,
 	SolveResponse,
@@ -51,6 +52,7 @@ import { markProjectCopy } from './identity';
 import { portLabel, PUMP_CONTROL_STATE_LABELS } from './labels';
 import {
 	componentGoalFields,
+	componentOverrideFields,
 	componentSchemaName,
 	goalQuantities,
 	goalSeekLimits,
@@ -59,7 +61,9 @@ import {
 	orderedBounds,
 	pairBounds,
 	pipeGoalFields,
+	pipeOverrideFields,
 	projectGoalFields,
+	projectOverrideFields,
 	schemaOrderedFields,
 	setpointBounds,
 	type GoalQuantityRule,
@@ -75,6 +79,7 @@ import {
 } from './results';
 import { schemaBounds, type Bounds } from './schema-bounds';
 import {
+	caseProject,
 	changeTargetLabel,
 	changeValueText,
 	fieldLabelFor,
@@ -85,6 +90,7 @@ import {
 	MAX_SCENARIOS,
 	newScenarioId,
 	overridesOf,
+	partsOf,
 	SCENARIO_DESCRIPTION_LIMIT,
 	sameValue,
 	setValue,
@@ -153,13 +159,14 @@ export function calculatingReason(
 // ---------------------------------------------------------------------------------------------
 
 /** The goal picker's groups, in their order (Compare's element kinds). */
-export type GoalGroup = 'port' | 'connection' | 'pump' | 'valve' | 'boundary';
+export type GoalGroup = 'port' | 'connection' | 'pump' | 'valve' | 'equipment' | 'boundary';
 
 export const GOAL_GROUPS: readonly GoalGroup[] = [
 	'port',
 	'connection',
 	'pump',
 	'valve',
+	'equipment',
 	'boundary'
 ];
 
@@ -168,6 +175,7 @@ export const GOAL_GROUP_LABELS: Readonly<Record<GoalGroup, string>> = {
 	connection: 'Pipe connections',
 	pump: 'Pumps',
 	valve: 'Valves',
+	equipment: 'Equipment',
 	boundary: 'Reservoirs and reference nodes'
 };
 
@@ -187,6 +195,9 @@ export const GOAL_QUANTITIES: Readonly<Record<GoalQuantity, Quantity>> = {
 	pump_npsh_margin: 'pumpNpshMargin',
 	valve_flow: 'valveFlow',
 	valve_pressure_drop: 'valvePressureDrop',
+	equipment_flow: 'equipmentFlow',
+	equipment_pressure_loss: 'equipmentPressureLoss',
+	equipment_pressure_drop: 'equipmentPressureDrop',
 	boundary_outflow: 'boundaryOutflow'
 };
 
@@ -307,7 +318,7 @@ export function goalElements(project: Project): GoalElement[] {
 			});
 		}
 	}
-	for (const group of ['pump', 'valve', 'boundary'] as const) {
+	for (const group of ['pump', 'valve', 'equipment', 'boundary'] as const) {
 		const targets = groupTargets(group);
 		for (const c of project.components) {
 			if (!targets.has(componentSchemaName(c) ?? '')) continue;
@@ -391,6 +402,12 @@ export function goalHint(
 			return 'Positive from inlet to outlet.';
 		case 'valve_pressure_drop':
 			return 'Inlet minus outlet static pressure.';
+		case 'equipment_flow':
+			return 'Positive from inlet to outlet.';
+		case 'equipment_pressure_loss':
+			return 'The rating scaled to the flow and density (ρg × head loss).';
+		case 'equipment_pressure_drop':
+			return 'Static pressure, inlet minus outlet.';
 		case 'boundary_outflow':
 			return 'Positive into the network.';
 		default:
@@ -459,6 +476,7 @@ export type VariableGroup =
 	| 'pump'
 	| 'controlValve'
 	| 'resistance'
+	| 'equipment'
 	| 'reservoir'
 	| 'referenceNode'
 	| 'assignedFlow'
@@ -469,6 +487,7 @@ export const VARIABLE_GROUPS: readonly VariableGroup[] = [
 	'pump',
 	'controlValve',
 	'resistance',
+	'equipment',
 	'reservoir',
 	'referenceNode',
 	'assignedFlow',
@@ -480,6 +499,7 @@ export const VARIABLE_GROUP_LABELS: Readonly<Record<VariableGroup, string>> = {
 	pump: 'Pumps',
 	controlValve: 'Control valves',
 	resistance: 'Valves (resistance)',
+	equipment: 'Equipment',
 	reservoir: 'Reservoirs',
 	referenceNode: 'Reference nodes',
 	assignedFlow: 'Assigned-flow nodes',
@@ -501,6 +521,11 @@ export interface VariableDraft {
 	pipes?: { count: number; ends: string };
 	/** A control valve's setpoint: its valve type when chosen (a pressure, or an FCV's flow). */
 	valveType?: string;
+	/**
+	 * An equipment item's `rating.value`: the coefficient it is in the case (Cv or Kv), when known;
+	 * else the item's in the project it is shown with. Never sent: the case holds the kind.
+	 */
+	ratingKind?: RatedFlowCoefficient['kind'];
 }
 
 export interface GoalSeekSetup {
@@ -526,10 +551,38 @@ function componentOf(project: Project, target: ChangeTarget): Component | undefi
 	return target.kind === 'component' ? componentById(project, target.componentId) : undefined;
 }
 
-/** How a variable's values are shown: by its field (a setpoint by its valve's type). */
+/** The coefficient an equipment item's `rating.value` is in: the variable's, else the item's. */
+function ratingKindOf(
+	project: Project,
+	variable: Pick<VariableDraft, 'target' | 'ratingKind'>
+): RatedFlowCoefficient['kind'] | null {
+	if (variable.ratingKind) return variable.ratingKind;
+	const component = componentOf(project, variable.target);
+	return component?.type === 'equipment' && component.rating.kind !== 'point'
+		? component.rating.kind
+		: null;
+}
+
+/**
+ * `variable` with the coefficient its equipment item is rated by in `project` (the case shown), for
+ * a `rating.value`: so a label read from another project (names) says Cv or Kv as the case does.
+ */
+export function withRatingKind<T extends Pick<VariableDraft, 'target' | 'field' | 'ratingKind'>>(
+	project: Project,
+	variable: T
+): T {
+	if (variable.field !== 'rating.value' || variable.ratingKind) return variable;
+	const kind = ratingKindOf(project, variable);
+	return kind ? { ...variable, ratingKind: kind } : variable;
+}
+
+/**
+ * How a variable's values are shown: by its field (a setpoint by its valve's type; an equipment
+ * item's rated pressure drop as a difference, with no gauge marker; its Cv or Kv with its kind).
+ */
 export function variableSpec(
 	project: Project,
-	variable: Pick<VariableDraft, 'target' | 'field' | 'coefficient' | 'valveType'>
+	variable: Pick<VariableDraft, 'target' | 'field' | 'coefficient' | 'valveType' | 'ratingKind'>
 ): ValueSpec {
 	const component = componentOf(project, variable.target);
 	switch (variable.field) {
@@ -558,6 +611,16 @@ export function variableSpec(
 			return { category: 'pressure', options: { gauge: true } };
 		case 'fluid.temperature':
 			return { category: 'temperature', options: {} };
+		case 'rating.pressureLoss':
+			return { category: 'pressure', options: {} };
+		case 'rating.flow':
+			return { category: 'flow', options: {} };
+		case 'rating.density':
+			return { category: 'density', options: {} };
+		case 'rating.value': {
+			const kind = ratingKindOf(project, variable);
+			return { category: 'dimensionless', options: {}, ...(kind ? { prefix: `${kind} ` } : {}) };
+		}
 		default:
 			return { category: 'dimensionless', options: {} };
 	}
@@ -598,20 +661,22 @@ export function pairText(
 /** The field of a variable as the dialog names it: "Speed", "Resistance Cv", "Length". */
 export function variableFieldLabel(
 	project: Project,
-	variable: Pick<VariableDraft, 'target' | 'field' | 'coefficient'>
+	variable: Pick<VariableDraft, 'target' | 'field' | 'coefficient' | 'ratingKind'>
 ): string {
 	if (variable.target.kind === 'pipe') return 'Length';
 	if (variable.target.kind === 'project') return 'Fluid temperature';
 	const component = componentOf(project, variable.target);
 	if (variable.field === 'resistance') return `Resistance ${variable.coefficient ?? 'K'}`;
 	if (variable.field === 'flow') return 'Assigned flow (+ demand, − supply)';
+	if (variable.field === 'rating.value')
+		return ratingKindOf(project, variable) ?? 'Flow coefficient';
 	return fieldLabelFor(component, variable.field);
 }
 
 /** "Transfer pump · Speed", "Pipe 2 of Suction tank → Transfer pump · Length". */
 export function variableLabel(
 	project: Project,
-	variable: Pick<VariableDraft, 'target' | 'field' | 'coefficient'>
+	variable: Pick<VariableDraft, 'target' | 'field' | 'coefficient' | 'ratingKind'>
 ): string {
 	if (variable.target.kind === 'project') return variableFieldLabel(project, variable);
 	const target = changeTargetLabel(project, makeOverride(variable.target, variable.field, null));
@@ -638,6 +703,8 @@ function variableGroup(component: Component, field: string): VariableGroup {
 			return 'reservoir';
 		case 'reference_node':
 			return 'referenceNode';
+		case 'equipment':
+			return 'equipment';
 		default:
 			return 'assignedFlow';
 	}
@@ -652,7 +719,11 @@ const FIELD_ORDER = [
 	'liquidLevel',
 	'surfacePressure',
 	'pressure',
-	'flow'
+	'flow',
+	'rating.pressureLoss',
+	'rating.flow',
+	'rating.density',
+	'rating.value'
 ];
 
 function fieldRank(field: string): number {
@@ -670,7 +741,8 @@ function coefficientOf(component: Component, field: GoalVariableField): Coeffici
 /**
  * The values goal seek may vary in the case shown (§6.5), by group in the picker's order: the
  * published fields (`x-goal-variables`) the case has (a flow setpoint only with flow control, a
- * temperature only for a built-in fluid; a resistance on every valve).
+ * temperature only for a built-in fluid; a resistance on every valve; an equipment item's values of
+ * its kind of rating: a rated point's three, or the Cv or Kv).
  */
 export function variableChoices(project: Project): VariableChoice[] {
 	const choices: VariableChoice[] = [];
@@ -731,6 +803,16 @@ export function variableValue(
 	return null;
 }
 
+/**
+ * A field and every whole value it is a part of (each proper prefix of its path): what a scenario
+ * change that sets it may be ('fluid.temperature': it, or the whole 'fluid'; 'rating.flow': it, or
+ * an equipment item's whole 'rating').
+ */
+export function valueAndWholes(field: string): string[] {
+	const path = field.split('.');
+	return path.map((_, i) => path.slice(0, path.length - i).join('.'));
+}
+
 /** What "Now" needs beyond the case: the display units, the last solve's K, the scenario shown. */
 export interface NowContext {
 	prefs: UnitPreferences;
@@ -775,8 +857,7 @@ export function nowText(project: Project, variable: VariableDraft, context: NowC
 		text =
 			value === null ? '—' : variableText(value, variableSpec(project, variable), context.prefs);
 	}
-	const fields =
-		variable.target.kind === 'project' ? ['fluid', 'fluid.temperature'] : [variable.field];
+	const fields = valueAndWholes(variable.field);
 	const own = context.scenario
 		? fields.some((f) => findChange(context.scenario, variable.target, f))
 		: false;
@@ -989,6 +1070,21 @@ export function defaultBounds(
 			const kOpen = context.kOpen;
 			const v = now ?? (kOpen && kOpen > 0 ? kOpen : 1);
 			[lower, upper] = [v / 100, 100 * v];
+			break;
+		}
+		case 'rating.pressureLoss':
+		case 'rating.flow':
+		case 'rating.value': {
+			// Designers' default (equipment-pressure-drop.md §6.4): a factor of 10 either way. A Cv or
+			// Kv is a rated flow at a stated drop (c ∝ 1/Cv², as c ∝ 1/Q_r²): the rated flow's range,
+			// narrower than a valve resistance's on purpose (always shown and editable, D16).
+			const v = now ?? 1;
+			[lower, upper] = [v / 10, 10 * v];
+			break;
+		}
+		case 'rating.density': {
+			const v = now ?? 1;
+			[lower, upper] = [v / 2, 2 * v];
 			break;
 		}
 		default:
@@ -1308,6 +1404,24 @@ export interface WordsContext {
 	caseWords: string;
 	/** The result is out of date (the project changed since the run). */
 	stale?: boolean;
+	/**
+	 * The case the run was on (null or absent: the base), whose values some words depend on: an
+	 * equipment item's Cv or Kv is named by its kind in that case (a scenario may rate it otherwise).
+	 */
+	caseId?: CaseId;
+}
+
+/** The kind of an equipment item's coefficient in the case of `context` (rating.value's words). */
+function caseRatingKind(
+	context: WordsContext,
+	target: ChangeTarget
+): RatedFlowCoefficient['kind'] | undefined {
+	if (target.kind !== 'component') return undefined;
+	const project = context.caseId ? caseProject(context.sent, context.caseId) : context.sent;
+	const component = componentById(project, target.componentId);
+	return component?.type === 'equipment' && component.rating.kind !== 'point'
+		? component.rating.kind
+		: undefined;
 }
 
 const MINUS = '−';
@@ -1340,7 +1454,10 @@ export interface VariableView {
 
 export function variableView(context: WordsContext, variable: GoalVariable): VariableView {
 	const [draft] = draftsOf({ project: context.sent, variables: [variable], goals: [] }).variables;
-	const v = draft as VariableDraft;
+	const found = draft as VariableDraft;
+	const ratingKind =
+		found.field === 'rating.value' ? caseRatingKind(context, found.target) : undefined;
+	const v: VariableDraft = ratingKind ? { ...found, ratingKind } : found;
 	const id =
 		v.target.kind === 'component'
 			? v.target.componentId
@@ -1357,7 +1474,7 @@ export function variableView(context: WordsContext, variable: GoalVariable): Var
 		pair: (a, b) => pairText(a, b, spec, context.prefs),
 		unit:
 			spec.category === 'dimensionless'
-				? (v.coefficient ?? '')
+				? (v.coefficient ?? v.ratingKind ?? '')
 				: f.unit(spec.category, spec.options)
 	};
 }
@@ -1751,7 +1868,12 @@ export function caseValueText(context: WordsContext, result: VariableResult): st
 	if (v.field === 'resistance' && (result.caseValue === null || result.caseValue === undefined)) {
 		return 'default';
 	}
-	return changeValueText(context.sent, override, result.caseValue, context.prefs);
+	// A Cv or Kv is named by its kind in the case (a scenario may rate the item otherwise).
+	const project =
+		v.field === 'rating.value' && context.caseId
+			? caseProject(context.sent, context.caseId)
+			: context.sent;
+	return changeValueText(project, override, result.caseValue, context.prefs);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2125,7 +2247,11 @@ export function applyProblems(
 	return null;
 }
 
-/** The scenarios that set their own value of an applied base value (they keep it). */
+/**
+ * The scenarios that set their own value of an applied base value (they keep it): a change of its
+ * field, of a whole value it is a part of (an equipment item's whole rating keeps its own rated
+ * pressure drop), or of a part of it (the whole fluid applied: a scenario's own temperature).
+ */
 export function keptByScenarios(
 	project: Project,
 	overrides: readonly Override[]
@@ -2133,7 +2259,13 @@ export function keptByScenarios(
 	const kept: { label: string; scenarios: string[] }[] = [];
 	for (const o of overrides) {
 		const target = targetOf(o);
-		const fields = o.kind === 'project' ? ['fluid', 'fluid.temperature'] : [o.field];
+		const entries =
+			target.kind === 'project'
+				? projectOverrideFields()
+				: target.kind === 'pipe'
+					? pipeOverrideFields()
+					: componentOverrideFields(componentById(project, target.componentId) ?? {});
+		const fields = [...valueAndWholes(o.field), ...partsOf(entries, o.field)];
 		const names = (project.scenarios ?? [])
 			.filter((s) => fields.some((f) => findChange(s, target, f)))
 			.map((s) => s.name);
@@ -2150,29 +2282,61 @@ function coefficientOfOverride(o: Override): Coefficient | undefined {
 /** "Transfer pump speed", "Pipe 2 of A → B length", "fluid temperature": for a notice. */
 export function variableLabelOf(project: Project, o: Override): string {
 	const coefficient = coefficientOfOverride(o);
-	const draft = {
+	return variableNoticeLabel(project, {
 		target: targetOf(o),
 		field: o.field === 'fluid' ? 'fluid.temperature' : o.field,
 		...(coefficient ? { coefficient } : {})
-	};
-	const field = variableFieldLabel(project, draft)
-		.replace(/ \(.*\)$/, '')
-		.toLowerCase();
+	});
+}
+
+/** A variable named for a notice: "Transfer pump speed", "fluid temperature", "Strainer Cv". */
+function variableNoticeLabel(
+	project: Project,
+	draft: Pick<VariableDraft, 'target' | 'field' | 'coefficient' | 'ratingKind'>
+): string {
+	const label = variableFieldLabel(project, draft).replace(/ \(.*\)$/, '');
+	// A Cv or Kv keeps its symbol's case; every other label is lowercase in a sentence.
+	const field = label === 'Cv' || label === 'Kv' ? label : label.toLowerCase();
 	if (draft.target.kind === 'project') return field;
 	return `${changeTargetLabel(project, makeOverride(draft.target, draft.field, null))} ${field}`;
 }
 
-/** The value an override sets, in display units (6 significant digits): "86.1174 %". */
-export function overrideValueText(project: Project, o: Override, prefs: UnitPreferences): string {
-	if (o.kind === 'project' && o.field === 'fluid') {
-		const t = (o.value as { temperature?: number }).temperature;
-		return typeof t === 'number' ? formatValue(t, 'temperature', prefs, 6) : '';
-	}
-	const coefficient = coefficientOfOverride(o);
-	const draft = { target: targetOf(o), field: o.field, ...(coefficient ? { coefficient } : {}) };
-	const value =
-		o.field === 'resistance' ? (o.value as { value: number }).value : (o.value as number);
-	return variableText(value, variableSpec(project, draft), prefs);
+/**
+ * Each value a response found, for a notice (the dialog's outcome announcement, Apply's notice and
+ * its "already holds" text): "Transfer pump speed 86.1174 %", one per variable with a value, its
+ * label and value from the variable itself (§6.4 of equipment-pressure-drop.md), never from its
+ * override: an override may be a whole value (a scenario's whole rating or fluid) holding other
+ * values too, the same for two variables. Names from `labels`; the case's words from `context`.
+ */
+export function foundValueTexts(
+	response: GoalSeekResponse | null,
+	context: Pick<WordsContext, 'labels' | 'sent' | 'prefs' | 'caseId'>
+): string[] {
+	if (!response) return [];
+	const words: WordsContext = { ...context, caseWords: '' };
+	return response.result.variables.flatMap((result) => {
+		if (result.value === null || result.value === undefined) return [];
+		const view = variableView(words, result.variable);
+		const [draft] = draftsOf({
+			project: context.sent,
+			variables: [result.variable],
+			goals: []
+		}).variables;
+		const v = draft as VariableDraft;
+		const ratingKind = v.field === 'rating.value' ? caseRatingKind(words, v.target) : undefined;
+		const label = variableNoticeLabel(context.labels, ratingKind ? { ...v, ratingKind } : v);
+		// A Cv or Kv is named by its kind in the label ("Strainer Cv"): its number goes without
+		// the "Cv " a view prefixes, never "Strainer Cv Cv 81.0724".
+		const text =
+			v.field === 'rating.value'
+				? variableText(
+						result.value,
+						{ category: view.spec.category, options: view.spec.options },
+						context.prefs
+					)
+				: view.text(result.value);
+		return [`${label} ${text}`];
+	});
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -1,0 +1,170 @@
+{
+  "name": "equipment_laminar_flag",
+  "description": "A strainer between two small pipes carrying a viscous oil in laminar flow: verifies that the constant-K square law is applied unchanged (no viscosity correction) and that laminar flow in a connected pipe is flagged CORRELATION_OUT_OF_RANGE on the element.",
+  "source": "closed-form: tests/reference/derivations_equipment.py::equipment_laminar_flag (equipment loss on the EGL h = c Q|Q|, c = dP_ref/(rho_ref g Q_ref^2) (constant K, ISA-75.01.01 eq. (1) form), rated point as entered; Darcy-Weisbach, f = 64/Re (laminar); brentq; static p = rho g (EGL - z - v^2/2g), v in the connected pipe (D7))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-equipment-laminar-flag",
+    "metadata": {
+      "name": "Equipment with laminar flow in its pipes",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Viscous oil (custom input)",
+      "density": 870.0,
+      "dynamicViscosity": 0.0174
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 1.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 0.5,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "E9",
+        "name": "Equipment E9",
+        "elevation": 0.5,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "equipment",
+        "rating": {
+          "kind": "point",
+          "pressureLoss": 5000.0,
+          "flow": 0.002,
+          "density": 999.1026214671009
+        }
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 1.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "E9",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 20.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "E9",
+        "fromPortId": "outlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 15.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 870.0,
+      "dynamicViscosity": 0.0174
+    },
+    "flows": {
+      "L1": 0.0009836388643361216,
+      "L2": 0.0009836388643361216
+    },
+    "egl": {
+      "R1:port_1": 1.5,
+      "E9:inlet": 1.2848219939509435,
+      "E9:outlet": 1.1613835045367924,
+      "R2:port_1": 1.0
+    },
+    "pressures": {
+      "E9:inlet": 6606.118990531916,
+      "E9:outlet": 5552.968276406358
+    },
+    "flags": [
+      {
+        "code": "CORRELATION_OUT_OF_RANGE",
+        "componentId": "E9"
+      }
+    ],
+    "equipment": {
+      "E9": {
+        "flow": 0.0009836388643361216,
+        "flowRatio": 0.4918194321680608,
+        "headLoss": 0.12343848941415114,
+        "pressureLoss": 1053.1507141255581,
+        "pressureDrop": 1053.150714125558
+      }
+    }
+  }
+}

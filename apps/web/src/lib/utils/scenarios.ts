@@ -22,7 +22,6 @@
  */
 import type {
 	Component,
-	FluidDefinition,
 	Override,
 	OverrideState,
 	PipeConnection,
@@ -48,7 +47,7 @@ import {
 import {
 	componentOverrideFields,
 	componentSchemaName,
-	fluidSchemaName,
+	holdsSchema,
 	pipeOverrideFields,
 	projectOverrideFields,
 	type OverrideField
@@ -248,13 +247,25 @@ function walk(value: unknown, path: readonly string[]): unknown {
 }
 
 /**
- * Whether `holder` can hold a value of `schema`: a fluid must be of that fluid schema (a custom
- * fluid has no temperature to change); any other holder, such as a pump's control, must exist.
+ * Whether `holder` can hold a value of `schema` (the API's holder test, model-rules.ts
+ * holdsSchema): a fluid must be of that fluid schema (a custom fluid has no temperature to change),
+ * an equipment rating of that rating schema (a rated point has no Cv, a Cv no rated flow); any other
+ * holder, such as a pump's control, must exist.
  */
 function holderMatches(holder: unknown, schema: string): boolean {
-	if (!isRecord(holder)) return false;
-	const fluid = 'type' in holder ? null : fluidSchemaName(holder.kind);
-	return fluid === null || fluid === schema;
+	return holdsSchema(holder, schema);
+}
+
+/** Why a value of an equipment item's rating does not apply: the item is rated another way. */
+function ratingMismatch(component: Component, field: string): string | null {
+	if (component.type !== 'equipment' || !field.startsWith('rating.')) return null;
+	const rated =
+		component.rating.kind === 'point'
+			? 'by a pressure drop at a flow'
+			: `by a ${component.rating.kind}`;
+	const applies =
+		field === 'rating.value' ? 'a rating by a Cv or Kv' : 'a rating by a pressure drop at a flow';
+	return `${component.name} is rated ${rated} (its ${fieldLabelFor(component, field).toLowerCase()} applies to ${applies})`;
 }
 
 function resolve(project: Project, override: Override): Resolved | Ignored {
@@ -278,7 +289,7 @@ function resolve(project: Project, override: Override): Resolved | Ignored {
 				message:
 					override.field === 'control.setpoint'
 						? `${component.name} has no flow control`
-						: `${component.name} has no ${label}`
+						: (ratingMismatch(component, override.field) ?? `${component.name} has no ${label}`)
 			};
 		}
 		return { state: 'applied', target: component as unknown as JsonObject, entry };
@@ -532,6 +543,42 @@ function entryPaths(entries: Readonly<Record<string, OverrideField>>): string[][
 	);
 }
 
+/**
+ * The allow-list entries that are parts of entry `field` (its path is a proper prefix of theirs:
+ * an equipment item's `rating.pressureLoss` of its `rating`, the fluid's `fluid.temperature` of
+ * the `fluid`), in the list's order; none for a value that is not a whole of others.
+ */
+export function partsOf(entries: Readonly<Record<string, OverrideField>>, field: string): string[] {
+	const whole = entries[field];
+	if (!whole || whole.keys.length || !whole.path.length) return [];
+	return Object.entries(entries)
+		.filter(
+			([name, e]) =>
+				name !== field &&
+				!e.keys.length &&
+				e.path.length > whole.path.length &&
+				whole.path.every((key, i) => e.path[i] === key)
+		)
+		.map(([name]) => name);
+}
+
+/** The allow-list entries of a change's target in `project` (its component's, a pipe's, the project's). */
+function entriesOf(
+	project: Project,
+	target: ChangeTarget
+): Readonly<Record<string, OverrideField>> {
+	if (target.kind === 'pipe') return pipeOverrideFields();
+	if (target.kind === 'project') return projectOverrideFields();
+	const component = componentById(project, target.componentId);
+	return component ? componentOverrideFields(component) : {};
+}
+
+/**
+ * One raw change per value an edit changed. A value that is a whole of others (an equipment item's
+ * rating, proposal equipment-pressure-drop.md §6.4) gives one raw change, the whole, never its
+ * parts: nextOverrides decides whether it is stored as part changes or as the whole, so one edit
+ * never stores a value and a part of it (as diffCase gives the whole fluid once).
+ */
 function diffComponents(before: Component, after: Component, diff: CaseDiff): void {
 	if (before.id !== after.id || componentSchemaName(before) !== componentSchemaName(after)) {
 		diff.refused = true;
@@ -545,7 +592,9 @@ function diffComponents(before: Component, after: Component, diff: CaseDiff): vo
 		return;
 	}
 	const target: ChangeTarget = { kind: 'component', componentId: before.id };
+	const parts = new Set(Object.keys(entries).flatMap((field) => partsOf(entries, field)));
 	for (const [field, entry] of Object.entries(entries)) {
+		if (parts.has(field)) continue;
 		const b = read(before as unknown as JsonObject, entry);
 		const a = read(after as unknown as JsonObject, entry);
 		if (!sameValue(a, b)) diff.changes.push({ target, field, value: a });
@@ -616,15 +665,27 @@ function diffCase(before: Project, after: Project): CaseDiff {
 	return diff;
 }
 
-function withoutTemperature(fluid: FluidDefinition): JsonObject {
-	return without(fluid, ['temperature']);
+/** `value` (a whole: a rating, a fluid) without the values at `paths` (its parts' paths in it). */
+function withoutParts(value: unknown, paths: readonly (readonly string[])[]): unknown {
+	if (!isRecord(value)) return value;
+	const copy = structuredClone(value) as JsonObject;
+	for (const path of paths) {
+		const holder = walk(copy, path.slice(0, -1));
+		if (isRecord(holder)) delete holder[path[path.length - 1] as string];
+	}
+	return copy;
 }
 
 /**
  * The scenario's changes after `raw` (values as the edited case has them): each upserted in its
- * place, or removed where it equals the base value again. The fluid is one `fluid.temperature`
- * change while only a built-in fluid's temperature differs from the base, else one whole-fluid
- * change (which a temperature edit then updates).
+ * place, or removed where it equals the base value again. A whole value with parts (the fluid and
+ * its temperature, an equipment item's rating and its values; partsOf) follows one rule:
+ * - equal to the base's: its change and every change of its parts are removed;
+ * - while no whole change exists and it differs from the base's only in parts the base holds (a
+ *   built-in fluid's temperature; a rated point's values, or a Cv's or Kv's value, of the base's
+ *   kind): one change per part that differs, and a part equal to the base's again is removed;
+ * - otherwise one whole change, which takes the place of the first part change and removes the
+ *   others (never a value and a part of it). While it exists, later edits update it.
  */
 function nextOverrides(scenario: Scenario, raw: readonly RawChange[], base: Project): Override[] {
 	let list = [...overridesOf(scenario)];
@@ -637,32 +698,43 @@ function nextOverrides(scenario: Scenario, raw: readonly RawChange[], base: Proj
 		else list = list.filter((_, i) => i !== index);
 	};
 	for (const change of raw) {
-		if (change.target.kind === 'project' && change.field === 'fluid') {
-			const fluid = change.value as FluidDefinition;
-			const project = { kind: 'project' } as const;
-			const whole = list.some((o) => o.kind === 'project' && o.field === 'fluid');
-			if (sameValue(fluid, base.fluid)) {
-				set(project, 'fluid', undefined);
-				set(project, 'fluid.temperature', undefined);
-			} else if (
-				!whole &&
-				fluid.kind === 'builtin' &&
-				base.fluid.kind === 'builtin' &&
-				sameValue(withoutTemperature(fluid), withoutTemperature(base.fluid))
-			) {
-				set(project, 'fluid.temperature', fluid.temperature);
-			} else {
-				// The whole fluid replaces a temperature change (a value and a part of it never both).
-				const index = list.findIndex(
-					(o) => o.kind === 'project' && o.field === 'fluid.temperature'
-				);
-				if (index !== -1) list[index] = makeOverride(project, 'fluid', fluid);
-				else set(project, 'fluid', fluid);
+		const { target, field } = change;
+		const entries = entriesOf(base, target);
+		const parts = partsOf(entries, field);
+		if (!parts.length) {
+			const baseValue = valueOf(base, target, field);
+			set(target, field, sameValue(change.value, baseValue) ? undefined : change.value);
+			continue;
+		}
+		const baseWhole = valueOf(base, target, field);
+		if (sameValue(change.value, baseWhole)) {
+			set(target, field, undefined);
+			for (const part of parts) set(target, part, undefined);
+			continue;
+		}
+		const wholePath = (entries[field] as OverrideField).path;
+		const held = parts.filter((part) => valueOf(base, target, part) !== undefined);
+		const within = (part: string) => (entries[part] as OverrideField).path.slice(wholePath.length);
+		const rest = (v: unknown) => withoutParts(v, held.map(within));
+		const whole = list.some((o) => changes(o, target, field));
+		if (!whole && held.length && sameValue(rest(change.value), rest(baseWhole))) {
+			for (const part of held) {
+				const value = walk(change.value, within(part)) ?? null;
+				set(target, part, sameValue(value, valueOf(base, target, part)) ? undefined : value);
 			}
 			continue;
 		}
-		const baseValue = valueOf(base, change.target, change.field);
-		set(change.target, change.field, sameValue(change.value, baseValue) ? undefined : change.value);
+		// The whole takes the place of the first part change and removes the others.
+		const isPart = (o: Override) =>
+			targetKey(changeTarget(o)) === targetKey(target) && parts.includes(o.field);
+		const first = list.findIndex(isPart);
+		if (!whole && first !== -1) {
+			list[first] = makeOverride(target, field, change.value);
+			list = list.filter((o, i) => i === first || !isPart(o));
+		} else {
+			set(target, field, change.value);
+			list = list.filter((o) => !isPart(o));
+		}
 	}
 	return list;
 }
@@ -779,7 +851,9 @@ function namesList(names: readonly string[]): string {
  *   whose pipe was removed from a connection that still exists goes with it; one whose
  *   connection is gone is kept (it no longer applies, and an undo makes it apply again);
  * - a control valve changed between a pressure valve (PRV, PSV) and a flow valve (FCV) loses its
- *   setpoint changes, whose meaning changed (the base resets its setpoint to 0 too).
+ *   setpoint changes, whose meaning changed (the base resets its setpoint to 0 too);
+ * - an equipment item whose base rating changed between a Cv and a Kv loses its coefficient
+ *   changes (`rating.value`), whose meaning changed (a Cv is not a Kv; the same rule).
  * Notes say what happened to changes, for the user.
  */
 export function carryChanges(
@@ -816,7 +890,22 @@ export function carryChanges(
 			familyChanged.add(component.id);
 		}
 	}
+	/** Equipment whose base rating changed between a Cv and a Kv, with its kind now. */
+	const coefficientChanged = new Map<string, string>();
+	for (const component of next.components) {
+		const old = componentById(before, component.id);
+		if (
+			old?.type === 'equipment' &&
+			component.type === 'equipment' &&
+			old.rating.kind !== 'point' &&
+			component.rating.kind !== 'point' &&
+			old.rating.kind !== component.rating.kind
+		) {
+			coefficientChanged.set(component.id, component.rating.kind);
+		}
+	}
 	const valveNotes = new Map<string, Set<string>>();
+	const coefficientNotes = new Map<string, Set<string>>();
 	let changed = false;
 	const carried = scenarios.map((scenario) => {
 		const known = earlier.get(scenario.id);
@@ -850,6 +939,12 @@ export function carryChanges(
 					if (!valveNotes.has(kept.componentId)) valveNotes.set(kept.componentId, new Set());
 					valveNotes.get(kept.componentId)!.add(scenario.name);
 					kept = null;
+				} else if (kept.field === 'rating.value' && coefficientChanged.has(kept.componentId)) {
+					if (!coefficientNotes.has(kept.componentId)) {
+						coefficientNotes.set(kept.componentId, new Set());
+					}
+					coefficientNotes.get(kept.componentId)!.add(scenario.name);
+					kept = null;
 				}
 			}
 			if (kept !== o) changed = true;
@@ -879,12 +974,22 @@ export function carryChanges(
 			`The setpoint changes of ${name} in ${namesList([...names])} were removed: a PRV or PSV setpoint is a pressure, an FCV's a flow.`
 		);
 	}
+	for (const [componentId, names] of coefficientNotes) {
+		const item = componentById(next, componentId);
+		const was = coefficientChanged.get(componentId) === 'Cv' ? 'Kv' : 'Cv';
+		notes.push(
+			`The ${was} changes of ${item?.name ?? componentId} in ${namesList([...names])} were removed: it is rated by a ${coefficientChanged.get(componentId)} now, and a ${was} is not a ${coefficientChanged.get(componentId)}.`
+		);
+	}
 	notes.push(...lapseNotes(before, next));
 	notes.push(...splitNotes(before, next));
 	return { project: changed ? withScenarios(next, carried) : next, notes };
 }
 
-/** Notes on changes a base edit made inapplicable: flow control removed, the fluid made custom. */
+/**
+ * Notes on changes a base edit made inapplicable: flow control removed, an equipment item rated
+ * another way (a rated point, or a Cv or Kv), the fluid made custom.
+ */
 function lapseNotes(before: Project, next: Project): string[] {
 	const notes: string[] = [];
 	const users = (test: (o: Override) => boolean) =>
@@ -902,6 +1007,29 @@ function lapseNotes(before: Project, next: Project): string[] {
 		if (names.length) {
 			notes.push(
 				`The flow setpoint changes of ${component.name} in ${namesList(names)} no longer apply: it has no flow control now. They apply again if flow control is added back.`
+			);
+		}
+	}
+	for (const component of next.components) {
+		const old = componentById(before, component.id);
+		if (old?.type !== 'equipment' || component.type !== 'equipment') continue;
+		const wasPoint = old.rating.kind === 'point';
+		if (wasPoint === (component.rating.kind === 'point')) continue;
+		const names = users(
+			(o) =>
+				o.kind === 'component' &&
+				o.componentId === component.id &&
+				(wasPoint ? o.field !== 'rating.value' : o.field === 'rating.value') &&
+				o.field.startsWith('rating.')
+		);
+		if (names.length) {
+			const now =
+				component.rating.kind === 'point'
+					? 'a pressure drop at a flow'
+					: `a ${component.rating.kind}`;
+			const then = wasPoint ? 'a pressure drop at a flow' : `a ${old.rating.kind}`;
+			notes.push(
+				`The rating value changes of ${component.name} in ${namesList(names)} no longer apply: it is rated by ${now} now. They apply again if it is rated by ${then}.`
 			);
 		}
 	}
@@ -983,6 +1111,18 @@ export function fieldLabelFor(component: Component | undefined, field: string): 
 			return 'Pressure';
 		case 'flow':
 			return 'Assigned flow';
+		case 'rating':
+			return 'Rating';
+		case 'rating.pressureLoss':
+			return 'Rated pressure drop';
+		case 'rating.flow':
+			return 'Rated flow';
+		case 'rating.density':
+			return 'Rated fluid density';
+		case 'rating.value':
+			return component?.type === 'equipment' && component.rating.kind !== 'point'
+				? component.rating.kind
+				: 'Flow coefficient';
 		default:
 			return humanize(field.replace(/\./g, ' '));
 	}
@@ -1054,6 +1194,23 @@ function specText(value: unknown, units: UnitPreferences, options: ValueTextOpti
 	if (typeof value.roughness === 'number')
 		parts.push(`roughness ${formatValue(value.roughness, 'diameter', units)}`);
 	return parts.join(', ');
+}
+
+/**
+ * An equipment item's rating as entered, in display units: "Cv 120", or "50 kPa at 15 L/s,
+ * 999.1 kg/m³" (the rated pressure drop is a difference: no gauge marker). 4 significant digits,
+ * as every change text.
+ */
+export function ratingText(value: unknown, units: UnitPreferences): string {
+	if (!isRecord(value)) return 'not a rating';
+	if (value.kind === 'point') {
+		const n = (v: unknown, category: Parameters<typeof formatValue>[1]) =>
+			typeof v === 'number' ? formatValue(v, category, units) : '—';
+		return `${n(value.pressureLoss, 'pressure')} at ${n(value.flow, 'flow')}, ${n(value.density, 'density')}`;
+	}
+	const number =
+		typeof value.value === 'number' ? formatValue(value.value, 'dimensionless', units) : '—';
+	return `${String(value.kind)} ${number}`;
 }
 
 /** A custom fluid's properties, or a built-in fluid's property overrides, with their values. */
@@ -1142,6 +1299,25 @@ export function changeValueText(
 			if (isRecord(value))
 				return `${String(value.kind)} ${formatValue(Number(value.value), 'dimensionless', units)}`;
 			return String(value);
+		case 'rating':
+			return ratingText(value, units);
+		case 'rating.pressureLoss':
+			// A pressure difference: no gauge marker.
+			return number('pressure');
+		case 'rating.flow':
+			return number('flow');
+		case 'rating.density':
+			return number('density');
+		case 'rating.value': {
+			// A Cv or Kv as entered, with its kind (as a resistance is written).
+			const kind =
+				component?.type === 'equipment' && component.rating.kind !== 'point'
+					? `${component.rating.kind} `
+					: '';
+			return typeof value === 'number'
+				? `${kind}${formatValue(value, 'dimensionless', units)}`
+				: String(value);
+		}
 		default:
 			return typeof value === 'number' ? formatValue(value, 'dimensionless', units) : String(value);
 	}

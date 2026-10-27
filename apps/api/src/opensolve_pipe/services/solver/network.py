@@ -26,6 +26,9 @@ class LinkKind(StrEnum):
     PUMP = "pump"
     VALVE = "valve"
     BRANCH_LEG = "branch_leg"
+    EQUIPMENT = "equipment"
+    """An equipment element's inlet -> outlet link (proposal equipment-pressure-drop.md §3.4): no
+    status, so always NORMAL; the GGA floors its slope as for any link that is not a pipe."""
 
 
 class LinkMode(Enum):

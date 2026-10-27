@@ -11,9 +11,9 @@
  * that piping.
  *
  * Values the server states in its message (a pipe's roughness and inner diameter, a valve's
- * resistance, a controlled pump curve's flow interval or setpoint bound, a pipe library's
- * schedules and sizes) are taken from the message, which states what the server solved, and
- * shown in the display unit; pipes are numbered from 1, as the message and the piping editor
+ * resistance, an equipment item's rating, a controlled pump curve's flow interval or setpoint
+ * bound, a pipe library's schedules and sizes) are taken from the message, which states what the
+ * server solved, and shown in the display unit; pipes are numbered from 1, as the message and the piping editor
  * number them. Values that the message does not state are taken from the project only when the
  * error is for the project as it is now (`current`).
  *
@@ -309,6 +309,21 @@ function tell(issue: TopologyIssue, links: IssueLink[], context: Context): Issue
 		case 'ROUGHNESS_OUT_OF_RANGE':
 		case 'PIPE_SIZE_OUT_OF_RANGE':
 			return pipeIssue(issue, links, context);
+		case 'EQUIPMENT_RATING_OUT_OF_RANGE': {
+			const match = EQUIPMENT_RATING.exec(issue.message);
+			if (!match || match[1] !== only || !component) return null;
+			const [, , loss, flow, density, kind, value] = match;
+			const rating =
+				kind !== undefined
+					? `a ${kind} of ${formatNumber(Number(value), 6)}`
+					: `a rated pressure drop of ${formatValue(Number(loss), 'pressure', units, 6)} at ${formatValue(Number(flow), 'flow', units, 6)} for a fluid of ${formatValue(Number(density), 'density', units, 6)}`;
+			return {
+				text:
+					`${component.name}: ${rating} gives a loss coefficient that is not a finite positive ` +
+					'floating-point number, so the solver cannot represent this element. Check its rating.',
+				links
+			};
+		}
 		case 'VALVE_RESISTANCE_OUT_OF_RANGE': {
 			const match = VALVE_RESISTANCE.exec(issue.message);
 			if (!match || match[1] !== only || !component) return null;
@@ -472,6 +487,17 @@ const VALVE_RESISTANCE = new RegExp(
 	`^valve '${ID}': a (K|Cv|Kv) of ${NUM} on the inlet pipe's inner diameter of ${NUM} m gives a ` +
 		'loss coefficient that is not a finite floating-point number; the solver cannot represent ' +
 		'this valve$'
+);
+/**
+ * An equipment item whose rating gives no representable loss coefficient (the builder's
+ * _unrepresentable_equipment): its rating as the server solved it, SI (services/solver/equipment.py
+ * rating_text: "50000 Pa at 0.015 m³/s for a fluid of 999.1 kg/m³", or "Cv 90").
+ */
+const EQUIPMENT_RATING = new RegExp(
+	`^equipment '${ID}': a rating of (?:${NUM} Pa at ${NUM} m³/s for a fluid of ${NUM} kg/m³|(Cv|Kv) ${NUM}) ` +
+		'gives a loss coefficient, .*, that is not a finite positive floating-point number; the ' +
+		'solver cannot represent this element$',
+	's'
 );
 /** "connection 'L1' pipe 2: <the pipe's problem>" (pipes numbered from 1). */
 const PIPE_PREFIX = new RegExp(`^connection '${ID}' pipe (\\d+): (.*)$`, 's');

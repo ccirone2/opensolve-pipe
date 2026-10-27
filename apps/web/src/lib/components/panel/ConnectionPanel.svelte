@@ -8,7 +8,13 @@
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { removePort } from '$lib/utils/edit';
-	import { missingEntry, type ComponentKind, type EnteredValues } from '$lib/utils/factory';
+	import {
+		ENTRY_KINDS,
+		missingEntries,
+		type ComponentKind,
+		type EnteredValues,
+		type MissingEntry
+	} from '$lib/utils/factory';
 	import { connectionAtPort, freePorts, otherEnd } from '$lib/utils/graph';
 	import { componentName, npsLabel, portLabel } from '$lib/utils/labels';
 	import { addPipe } from '$lib/utils/piping';
@@ -37,12 +43,12 @@
 	let kind = $state<ComponentKind>('gate');
 	/** Values entered for a kind with no default for them (see NewComponentFields). */
 	let values = $state<EnteredValues>({});
-	let missing = $state<string | null>(null);
+	let missing = $state<readonly MissingEntry[]>([]);
 	let target = $state('');
 
 	function addHere(portId: string) {
-		missing = missingEntry(kind, values);
-		if (!missing) ws.addAfter(component.id, portId, kind, values);
+		missing = missingEntries(kind, values);
+		if (!missing.length) ws.addAfter(component.id, portId, kind, values);
 	}
 
 	/** Free ports of other components, for closing a loop. */
@@ -186,12 +192,12 @@
 						class="min-w-48 flex-1"
 						onchange={(v) => {
 							kind = v;
-							missing = null;
+							missing = [];
 						}}
 					/>
-					{#if kind === 'assigned_flow'}
+					{#if ENTRY_KINDS.includes(kind)}
 						<div class="grid basis-full gap-3 sm:grid-cols-2">
-							<NewComponentFields {kind} units={ws.units} bind:values bind:error={missing} />
+							<NewComponentFields {kind} units={ws.units} bind:values bind:errors={missing} />
 						</div>
 					{/if}
 					<button type="button" class="btn btn-primary" onclick={() => addHere(portId)}>

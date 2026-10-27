@@ -507,7 +507,7 @@ export interface components {
              * @description camelCase path of the value relative to the component
              * @enum {string}
              */
-            field: "status" | "speed" | "control.setpoint" | "setpoint" | "resistance" | "liquidLevel" | "surfacePressure" | "pressure" | "flow";
+            field: "status" | "speed" | "control.setpoint" | "setpoint" | "resistance" | "liquidLevel" | "surfacePressure" | "pressure" | "flow" | "rating" | "rating.pressureLoss" | "rating.flow" | "rating.density" | "rating.value";
             /**
              * Kind
              * @constant
@@ -536,7 +536,7 @@ export interface components {
              * @description camelCase path of the value relative to the component (x-goal-variables)
              * @enum {string}
              */
-            field: "speed" | "control.setpoint" | "setpoint" | "resistance" | "liquidLevel" | "surfacePressure" | "pressure" | "flow";
+            field: "speed" | "control.setpoint" | "setpoint" | "resistance" | "liquidLevel" | "surfacePressure" | "pressure" | "flow" | "rating.pressureLoss" | "rating.flow" | "rating.density" | "rating.value";
             /**
              * Kind
              * @constant
@@ -697,6 +697,74 @@ export interface components {
             intermediates: components["schemas"]["TraceValue"][];
             /** Notes */
             notes: string[];
+        };
+        /**
+         * Equipment
+         * @description A passive element given by its datasheet (one side of a heat exchanger, a coil, a
+         *     strainer, a filter): a pressure drop at a rated flow, or a Cv or Kv, scaled with the square
+         *     of the flow and with density (SDD §4.14). It has no status: it always passes flow.
+         */
+        Equipment: {
+            /**
+             * Elevation
+             * @description Elevation above the project datum, m
+             */
+            elevation: number;
+            /**
+             * Id
+             * @description Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Ports */
+            ports: components["schemas"]["Port"][];
+            /**
+             * Rating
+             * @description The datasheet rating, with no default: a pressure drop at a flow for a fluid of a stated density (point), or a Cv or Kv (a rated point on water). The loss of total pressure from inlet to outlet is c·Q|Q| on the EGL, c from the rating (constant K: scaled with the square of the flow and with density)
+             */
+            rating: components["schemas"]["RatedPoint"] | components["schemas"]["RatedFlowCoefficient"];
+            /**
+             * Type
+             * @constant
+             */
+            type: "equipment";
+        };
+        /**
+         * EquipmentResult
+         * @description An equipment item (SDD §4.14): its rating scaled to the solved flow and density.
+         */
+        EquipmentResult: {
+            /**
+             * Flow
+             * @description m³/s, positive inlet -> outlet
+             */
+            flow: number;
+            /**
+             * Flowratio
+             * @description Q/Q_r, signed; null for a Cv or Kv rating, which has no rated flow
+             */
+            flowRatio: number | null;
+            /**
+             * Headloss
+             * @description EGL(inlet) - EGL(outlet), m
+             */
+            headLoss: number;
+            /**
+             * Pressuredrop
+             * @description Static pressure drop inlet -> outlet, Pa (a difference), as a valve's: what gauges at the ports read. It equals pressureLoss + ρg(z_outlet - z_inlet) + ρ(v_outlet² - v_inlet²)/2, with the velocities in the connected pipes
+             */
+            pressureDrop: number;
+            /**
+             * Pressureloss
+             * @description ρg × headLoss, Pa (a difference): the rating scaled to the solved flow and density
+             */
+            pressureLoss: number;
+            /**
+             * Rating
+             * @description The rating the solve used, after any scenario or goal-seek trial
+             */
+            rating: components["schemas"]["RatedPoint"] | components["schemas"]["RatedFlowCoefficient"];
         };
         /** ErrorResponse */
         ErrorResponse: {
@@ -1040,7 +1108,7 @@ export interface components {
              * Quantity
              * @enum {string}
              */
-            quantity: "port_pressure" | "link_flow" | "link_velocity" | "link_head_loss" | "pump_flow" | "pump_head" | "pump_npsh_available" | "pump_npsh_margin" | "valve_flow" | "valve_pressure_drop" | "boundary_outflow";
+            quantity: "port_pressure" | "link_flow" | "link_velocity" | "link_head_loss" | "pump_flow" | "pump_head" | "pump_npsh_available" | "pump_npsh_margin" | "valve_flow" | "valve_pressure_drop" | "equipment_flow" | "equipment_pressure_loss" | "equipment_pressure_drop" | "boundary_outflow";
             /**
              * Target
              * @description SI, in the quantity's unit
@@ -1847,7 +1915,7 @@ export interface components {
          */
         Project: {
             /** Components */
-            components: (components["schemas"]["Reservoir"] | components["schemas"]["IdealReferenceNode"] | components["schemas"]["Plug"] | components["schemas"]["AssignedFlow"] | components["schemas"]["TeeBranch"] | components["schemas"]["WyeBranch"] | components["schemas"]["Pump"] | components["schemas"]["IsolationValve"] | components["schemas"]["CheckValve"] | components["schemas"]["ControlValve"])[];
+            components: (components["schemas"]["Reservoir"] | components["schemas"]["IdealReferenceNode"] | components["schemas"]["Plug"] | components["schemas"]["AssignedFlow"] | components["schemas"]["TeeBranch"] | components["schemas"]["WyeBranch"] | components["schemas"]["Pump"] | components["schemas"]["IsolationValve"] | components["schemas"]["CheckValve"] | components["schemas"]["ControlValve"] | components["schemas"]["Equipment"])[];
             /** Connections */
             connections: components["schemas"]["PipeConnection"][];
             /** Fluid */
@@ -2187,6 +2255,55 @@ export interface components {
             /** Unit */
             unit: string;
         };
+        /**
+         * RatedFlowCoefficient
+         * @description A datasheet rating as a flow coefficient, stored as entered: Cv (US gpm of water at
+         *     1 psi) or Kv (m³/h of water at 1 bar). A FlowCoefficient narrowed to Cv and Kv, converted as
+         *     a valve's (services/solver/valves.k_from_coefficient); a K needs the bore it refers to (not
+         *     in v1).
+         */
+        RatedFlowCoefficient: {
+            /**
+             * Kind
+             * @description How the datasheet gives the rating: Cv (US gpm of water at 1 psi) or Kv (m³/h of water at 1 bar)
+             * @enum {string}
+             */
+            kind: "Cv" | "Kv";
+            /**
+             * Value
+             * @description The flow coefficient as the datasheet prints it: Cv in US gpm of water at 1 psi, Kv in m³/h of water at 1 bar, stored as entered (as a valve's resistance). It is a rated point on water (999.297 kg/m³, fluids' Kv_to_K): the loss scales with the square of the flow and with density, and needs no pipe diameter
+             */
+            value: number;
+        };
+        /**
+         * RatedPoint
+         * @description A datasheet rating: a pressure drop at a flow, for a fluid of a stated density. Each
+         *     value is required and has no default: no source gives a default rating (proposal
+         *     equipment-pressure-drop.md decision 3).
+         */
+        RatedPoint: {
+            /**
+             * Density
+             * @description The density of the fluid the datasheet's rating is for, kg/m³, which may differ from the fluid being solved
+             */
+            density: number;
+            /**
+             * Flow
+             * @description The flow, inlet -> outlet, at which the datasheet gives that drop, m³/s. A mass-flow rating ṁ_r is entered as ṁ_r/ρ_r
+             */
+            flow: number;
+            /**
+             * Kind
+             * @description How the datasheet gives the rating: point, a pressure drop at a flow
+             * @constant
+             */
+            kind: "point";
+            /**
+             * Pressureloss
+             * @description The datasheet pressure drop at the rated flow, Pa (a difference), as the loss of total pressure from inlet to outlet: the dissipative loss (friction and form), without the static head between the ports. It scales to the result's pressureLoss. It equals the static pressure difference when both ports have one elevation and their pipes one bore. Keep the ports at their real elevations; a datasheet's static drop S between nozzles at different elevations or bores is entered as S - ρ_r g (z_out - z_in) - ρ_r (v_out² - v_in²)/2, with the nozzle velocities at the rated flow
+             */
+            pressureLoss: number;
+        };
         /** Reference */
         Reference: {
             /** Citation */
@@ -2257,7 +2374,7 @@ export interface components {
             name: string;
             /**
              * Overrides
-             * @description At most one per value: no two set the same value of one target, nor a value and a part of it (fluid and fluid.temperature)
+             * @description At most one per value: no two set the same value of one target, nor a value and a part of it (fluid and fluid.temperature; an equipment item's rating and rating.flow)
              */
             overrides?: (components["schemas"]["ComponentOverride"] | components["schemas"]["PipeOverride"] | components["schemas"]["ProjectOverride"])[];
         };
@@ -2392,6 +2509,13 @@ export interface components {
             /** Converged */
             converged: boolean;
             convergence: components["schemas"]["ConvergenceReport"];
+            /**
+             * Equipmentresults
+             * @description Keyed by component id; {} when the project has no equipment or the solve did not converge
+             */
+            equipmentResults: {
+                [key: string]: components["schemas"]["EquipmentResult"];
+            };
             /** Flags */
             flags: components["schemas"]["Flag"][];
             fluid: components["schemas"]["FluidProperties"];
@@ -2798,7 +2922,7 @@ export interface components {
              * @description The value equals lower or upper exactly
              */
             atBound: ("lower" | "upper") | null;
-            /** @description The base project's value (equal to caseValue for a base run) */
+            /** @description The base project's value (equal to caseValue for a base run); null where the base holds no value of this variable (an equipment item the base rates by another kind: a point, or the other of Cv and Kv) */
             baseValue: components["schemas"]["JsonValue"];
             /** @description The case's value of the field, SI (a resistance: its FlowCoefficient or null) */
             caseValue: components["schemas"]["JsonValue"];

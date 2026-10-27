@@ -7,6 +7,7 @@
  */
 import type {
 	ElementTrace,
+	EquipmentResult,
 	Flag,
 	GoalSeekEvaluation,
 	GoalSeekResponse,
@@ -277,6 +278,7 @@ export function pumpTransferSolved(values: Partial<SolvedState> = {}): SolvedSta
 				setpointAchieved: null
 			}
 		},
+		equipmentResults: {},
 		branchResults: {},
 		boundaryResults: {
 			R1: { type: 'reservoir', egl: 3, outflow: 0.02, portOutflows: { port_1: 0.02 } },
@@ -343,6 +345,74 @@ export function assignedFlowSolved(values: Partial<SolvedState> = {}): SolvedSta
 			maxEnergyResidual: { value: 1e-12, elementId: 'L1' },
 			oscillatingComponents: [],
 			message: 'converged: 2 Newton iterations in 1 outer iteration(s)'
+		},
+		...values
+	});
+}
+
+/** A made-up equipment result: 0.012 m³/s at 1.2 × the rated flow, a 36 kPa loss. */
+export function equipmentResult(values: Partial<EquipmentResult> = {}): EquipmentResult {
+	return {
+		flow: 0.012,
+		flowRatio: 1.2,
+		headLoss: 3.675,
+		pressureLoss: 36000,
+		pressureDrop: 36500,
+		rating: { kind: 'point', pressureLoss: 25000, flow: 0.01, density: 999.1 },
+		...values
+	};
+}
+
+/**
+ * A made-up state for testing/helpers.ts equipmentProject (R1 → L1 → E1 → L2 → R2): E1 carries
+ * 0.012 m³/s. `item` replaces fields of E1's result.
+ */
+export function equipmentSolved(
+	item: Partial<EquipmentResult> = {},
+	values: Partial<SolvedState> = {}
+): SolvedState {
+	return pumpTransferSolved({
+		nodeResults: {
+			'R1:port_1': node('R1', 'port_1', {
+				pressure: 49000,
+				absolutePressure: 150325,
+				hgl: 5,
+				egl: 5
+			}),
+			'E1:inlet': node('E1', 'inlet', {
+				velocity: 1.46,
+				pressure: 38000,
+				absolutePressure: 139325,
+				hgl: 3.88,
+				egl: 3.99
+			}),
+			'E1:outlet': node('E1', 'outlet', {
+				velocity: 1.46,
+				pressure: 1500,
+				absolutePressure: 102825,
+				hgl: 0.15,
+				egl: 0.26
+			}),
+			'R2:port_1': node('R2', 'port_1', { pressure: 0, absolutePressure: 101325, hgl: 0, egl: 0 })
+		},
+		linkResults: {
+			L1: link({ flow: 0.012, velocity: 1.46 }),
+			L2: link({ flow: 0.012, velocity: 1.46 })
+		},
+		pumpResults: {},
+		valveResults: {},
+		equipmentResults: { E1: equipmentResult(item) },
+		boundaryResults: {
+			R1: { type: 'reservoir', egl: 5, outflow: 0.012, portOutflows: { port_1: 0.012 } },
+			R2: { type: 'reservoir', egl: 0, outflow: -0.012, portOutflows: { port_1: -0.012 } }
+		},
+		convergence: {
+			innerIterations: 5,
+			outerIterations: 1,
+			maxContinuityResidual: { value: 0, elementId: 'E1:inlet' },
+			maxEnergyResidual: { value: 1e-12, elementId: 'L2' },
+			oscillatingComponents: [],
+			message: 'converged: 5 Newton iterations in 1 outer iteration(s)'
 		},
 		...values
 	});

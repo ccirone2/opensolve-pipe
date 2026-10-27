@@ -9,7 +9,8 @@ const GROUPS: readonly { group: string; kinds: readonly ComponentKind[] }[] = [
 	{ group: 'Pumps', kinds: ['pump'] },
 	{ group: 'Isolation valves', kinds: ['gate', 'ball', 'butterfly', 'globe'] },
 	{ group: 'Check valves', kinds: ['check', 'stop_check'] },
-	{ group: 'Control valves', kinds: ['prv', 'psv', 'fcv'] }
+	{ group: 'Control valves', kinds: ['prv', 'psv', 'fcv'] },
+	{ group: 'Equipment: heat exchangers, coils, strainers, filters', kinds: ['equipment'] }
 ];
 
 /** Grouped select options for the kinds allowed by `include` (all by default). */

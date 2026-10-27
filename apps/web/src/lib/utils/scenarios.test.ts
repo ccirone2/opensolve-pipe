@@ -6,9 +6,10 @@
  * never take a changed element's id.
  */
 import { describe, expect, it } from 'vitest';
-import type { Override, PipeDefinition, Project, Scenario } from '../api/types';
+import type { Component, Override, PipeDefinition, Project, Scenario } from '../api/types';
+import openapi from '../api/openapi.json';
 import fixture from './__fixtures__/scenario-cases.json';
-import { deepFreeze } from '../testing/helpers';
+import { deepFreeze, enteredFor } from '../testing/helpers';
 import {
 	addBranch,
 	connectPorts,
@@ -21,7 +22,10 @@ import {
 	updateConnection
 } from './edit';
 import { pumpTransferExample } from './examples';
-import { createComponent, newId, usedIds } from './factory';
+import { changeCategory } from './export/tables';
+import { COMPONENT_KINDS, createComponent, newId, usedIds } from './factory';
+import { variableSpec } from './goal-seek';
+import { componentSchemaName, GOAL_VARIABLE_FIELDS, OVERRIDE_FIELDS } from './model-rules';
 import { canonicalJson } from './json';
 import { addPipe, removePipe, updatePipe, withMaterial } from './piping';
 import { scenarioProblems } from './scenario-problems';
@@ -30,8 +34,12 @@ import {
 	carryChanges,
 	caseKey,
 	caseProject,
+	changeFieldLabel,
 	changeValueText,
 	copyName,
+	fieldLabelFor,
+	makeOverride,
+	type ChangeTarget,
 	lapsedChanges,
 	MAX_CHANGES,
 	newScenarioId,
@@ -44,7 +52,7 @@ import {
 	withoutChange,
 	withScenarios
 } from './scenarios';
-import { formatValue, SI_UNITS } from './units';
+import { displayUnit, formatValue, SI_UNITS, unitLabel } from './units';
 import { parseProject, referenceProblems, schemaProblems } from './validate';
 
 interface FixtureCase {
@@ -734,5 +742,114 @@ describe('what a scenario says about its values', () => {
 		// Two custom fluids of one name differ in their values.
 		const custom = { kind: 'custom', name: 'test liquid', density: 998, dynamicViscosity: 0.001 };
 		expect(text(custom)).not.toBe(text({ ...custom, density: 1200 }));
+	});
+});
+
+describe('the words of every allow-listed number (exhaustiveness, equipment-pressure-drop.md §7.6)', () => {
+	/**
+	 * One component of every kind (the values with no default as a user enters them), a pump with
+	 * flow control and an equipment item rated by a Cv, so every allow-listed number is held.
+	 */
+	function samples(): Project {
+		const base = pumpTransferExample();
+		const components = COMPONENT_KINDS.reduce<Project['components']>((list, kind) => {
+			const sofar = { ...base, components: [...base.components, ...list] };
+			return [...list, createComponent(kind, sofar, enteredFor(kind))];
+		}, []);
+		const all = [...base.components, ...components];
+		const sofar = { ...base, components: all };
+		const pump = createComponent('pump', sofar);
+		const controlled = {
+			...pump,
+			curveId: base.pumpLibrary[0]!.id,
+			control: { mode: 'flow', setpoint: 0.012, minSpeed: 0.5 }
+		} as Component;
+		const cv = createComponent(
+			'equipment',
+			{ ...sofar, components: [...all, controlled] },
+			{
+				rating: { kind: 'Cv', value: 80 }
+			}
+		);
+		return { ...base, components: [...all, controlled, cv] };
+	}
+
+	/** Whether a published schema property is a number (directly or as anyOf's number). */
+	function numeric(schema: string, key: string): boolean {
+		const property = (
+			openapi.components.schemas as unknown as Record<
+				string,
+				{ properties?: Record<string, { type?: string; anyOf?: { type?: string }[] }> }
+			>
+		)[schema]?.properties?.[key];
+		const types = [property?.type, ...(property?.anyOf ?? []).map((a) => a.type)];
+		return types.includes('number') || types.includes('integer');
+	}
+
+	it('has a label, a value text with its unit, an export category and a variable spec', () => {
+		const project = samples();
+		const expected = new Set<string>();
+		for (const [target, entries] of Object.entries(OVERRIDE_FIELDS)) {
+			for (const [field, entry] of Object.entries(entries)) {
+				if (!entry.keys.length && numeric(entry.schema, entry.path[entry.path.length - 1]!)) {
+					expected.add(`${target}.${field}`);
+				}
+			}
+		}
+		const checked = new Set<string>();
+		const targets: { schema: string; target: ChangeTarget; component?: Component }[] = [
+			...project.components.map((component) => ({
+				schema: componentSchemaName(component)!,
+				target: { kind: 'component', componentId: component.id } as ChangeTarget,
+				component
+			})),
+			{ schema: 'PipeDefinition', target: { kind: 'pipe', connectionId: 'L1', pipeIndex: 0 } },
+			{ schema: 'Project', target: { kind: 'project' } }
+		];
+		for (const { schema, target, component } of targets) {
+			for (const field of Object.keys(OVERRIDE_FIELDS[schema] ?? {})) {
+				const value = valueOf(project, target, field);
+				if (typeof value !== 'number') continue;
+				const where = `${schema}.${field}`;
+				checked.add(where);
+				const override = makeOverride(target, field, value);
+				// A label: never a raw path (a dot, or a camelCase join such as "pressureLoss").
+				const label = changeFieldLabel(project, override);
+				const own = component ? fieldLabelFor(component, field) : label;
+				for (const text of [label, own]) expect(text, where).not.toMatch(/\.|[a-z][A-Z]/);
+				// The variable spec, the value text and the export category agree on one unit.
+				const spec = variableSpec(project, { target, field });
+				const text = changeValueText(project, override, value, SI_UNITS);
+				const category = changeCategory(project, {
+					index: 0,
+					override,
+					state: 'applied',
+					value,
+					baseValue: value,
+					unit: '',
+					message: ''
+				});
+				if (field === 'rating.value') {
+					// The named exception: a coefficient as entered, written with its kind.
+					expect(spec, where).toEqual({ category: 'dimensionless', options: {}, prefix: 'Cv ' });
+					expect(text, where).toBe('Cv 80');
+					expect(category, where).toBeNull();
+					continue;
+				}
+				expect(spec.category, where).not.toBe('dimensionless');
+				expect(category, where).toEqual({ category: spec.category, options: spec.options });
+				const unit = unitLabel(spec.category, displayUnit(spec.category, SI_UNITS), spec.options);
+				expect(unit, where).not.toBe('');
+				expect(text, where).toContain(unit);
+			}
+		}
+		expect([...checked].sort()).toEqual([...expected].sort());
+		// Every number goal seek varies is one of them, or a valve's coefficient (resistance).
+		for (const [schema, fields] of Object.entries(GOAL_VARIABLE_FIELDS)) {
+			for (const field of Object.keys(fields)) {
+				if (field === 'resistance') continue;
+				expect(expected, `${schema}.${field}`).toContain(`${schema}.${field}`);
+			}
+		}
 	});
 });

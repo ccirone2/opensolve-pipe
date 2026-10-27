@@ -59,6 +59,20 @@ def _pump(cid: str, **fields: Any) -> dict[str, Any]:
     }
 
 
+def _equipment(cid: str, rating: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "equipment",
+        "id": cid,
+        "name": cid,
+        "elevation": 0.0,
+        "ports": _ports("inlet", "outlet"),
+        "rating": rating,
+    }
+
+
+POINT = {"kind": "point", "pressureLoss": 5.0e4, "flow": 0.015, "density": 999.102621}
+"""A rated point (test input): 50 kPa at 15 L/s on water at 15 °C."""
+
 CURVE = {
     "id": "C1",
     "name": "curve",
@@ -97,6 +111,9 @@ def base_json(fluid: dict[str, Any] | None = None) -> dict[str, Any]:
         _valve("C1", "check"),
         _valve("V1", "prv", setpoint=2.0e5),
         _valve("F1", "fcv", setpoint=0.01, resistance={"kind": "K", "value": 1.5}),
+        _equipment("E1", POINT),
+        _equipment("E2", {"kind": "Kv", "value": 60.0}),
+        _equipment("E3", {"kind": "Cv", "value": 90.0}),
     ]
     conns = [
         connection(
@@ -148,6 +165,13 @@ VALID = {
     "ControlValve.status": comp("V1", "status", "failed_open"),
     "ControlValve.resistance": comp("F1", "resistance", None),
     "ControlValve.setpoint": comp("V1", "setpoint", 1.5e5),
+    "Equipment.rating": comp(
+        "E3", "rating", {"kind": "point", "pressureLoss": 7.0e4, "flow": 0.012, "density": 1043.47}
+    ),
+    "Equipment.rating.pressureLoss": comp("E1", "rating.pressureLoss", 7.0e4),
+    "Equipment.rating.flow": comp("E1", "rating.flow", 0.012),
+    "Equipment.rating.density": comp("E1", "rating.density", 1043.47),
+    "Equipment.rating.value": comp("E2", "rating.value", 72.0),
     "PipeDefinition.spec": pipe(
         "L1", 0, "spec", {"materialId": "stainless_steel", "schedule": "40S", "nominalSize": 0.1524}
     ),
@@ -302,6 +326,48 @@ def test_orphaned_and_not_applicable_overrides_are_kept_and_ignored() -> None:
     assert hand_states == [s for s, _ in states]
     assert applied.project == Project.model_validate(expected)
     assert [r.override for r in applied.result().overrides] == project.scenarios[1].overrides
+
+
+def test_a_rating_value_applies_only_to_a_rating_of_its_kind() -> None:
+    """An equipment item's rating holds the values of its kind: a rated point's three, or a
+    Cv's or Kv's one (equipment-pressure-drop.md §5.1); a value of the other kind is kept and
+    ignored, and the whole rating changes the kind."""
+    overrides = [
+        comp("E1", "rating.value", 50.0),
+        comp("E2", "rating.pressureLoss", 1.0e4),
+        comp("E2", "rating.density", 998.0),
+        comp("E1", "status", "off"),
+        comp("E3", "rating", POINT),  # a whole rating of another kind: never with a part of it
+        comp("E2", "rating.value", 72.0),
+    ]
+    project = _with(*overrides)
+    applied = apply_scenario(project, "S1")
+    states = [(r.state, r.message) for r in applied.overrides]
+    assert states == [
+        (
+            "not_applicable",
+            "equipment E1 is rated by a pressure drop at a flow in the base project "
+            "(rating.value applies to a Cv or Kv rating; set the whole rating instead)",
+        ),
+        (
+            "not_applicable",
+            "equipment E2 is rated by a Cv or Kv in the base project (rating.pressureLoss "
+            "applies to a rated point; set the whole rating instead)",
+        ),
+        (
+            "not_applicable",
+            "equipment E2 is rated by a Cv or Kv in the base project (rating.density applies "
+            "to a rated point; set the whole rating instead)",
+        ),
+        ("not_applicable", "equipment E1 has no status to override"),
+        ("applied", ""),
+        ("applied", ""),
+    ]
+    expected, hand_states = hand_patched(_dump(project), overrides)
+    assert hand_states == [s for s, _ in states]
+    assert applied.project == Project.model_validate(expected)
+    records = [(r.value, r.base_value, r.unit) for r in applied.overrides[4:]]
+    assert records == [(POINT, {"kind": "Cv", "value": 90.0}, ""), (72.0, 60.0, "")]
 
 
 def test_a_temperature_does_not_apply_to_a_custom_fluid() -> None:

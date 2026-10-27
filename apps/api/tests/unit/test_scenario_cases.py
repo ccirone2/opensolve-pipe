@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from opensolve_pipe.models.scenarios import COMPONENT_FIELDS, PIPE_FIELDS, PROJECT_FIELDS
+from tests.fixtures.round_off import round_off_differences
 from tests.fixtures.scenario_cases import generate
 
 WEB_FIXTURE = (
@@ -48,6 +49,7 @@ def test_the_web_fixture_is_current() -> None:
         "writes it: cd ../api && uv run --quiet python -m tests.fixtures.scenario_cases)"
     )
     web = json.loads(WEB_FIXTURE.read_text(encoding="utf-8"))
-    assert web == json.loads(json.dumps(generate())), (
+    # To round-off: the solver's last bits differ between CPUs (round_off_differences).
+    assert round_off_differences(json.loads(json.dumps(generate())), web) == [], (
         f"{WEB_FIXTURE} is out of date: run `pnpm gen:types` in apps/web"
     )

@@ -10,7 +10,13 @@
  * `Case id` and `Case` in a project with scenarios, then `Solved at` and `Results` (decision 28),
  * so a row read alone still names its solve and its state.
  */
-import type { BoundaryResult, Flag, OverrideResult, Project } from '../../api/types';
+import type {
+	BoundaryResult,
+	EquipmentRating,
+	Flag,
+	OverrideResult,
+	Project
+} from '../../api/types';
 import {
 	compareCells,
 	compareValue,
@@ -253,6 +259,13 @@ function portOrder(
 }
 
 const isAssigned = (b: BoundaryResult | undefined) => b?.type === 'assigned_flow';
+
+/** An equipment rating's kind in words (the form's Rated by choice). */
+const RATED_BY: Readonly<Record<EquipmentRating['kind'], string>> = {
+	point: 'Pressure drop at a flow',
+	Cv: 'Cv',
+	Kv: 'Kv'
+};
 
 /** The element tables (§2.6), in sheet order; each is written only when it has rows. */
 export function elementTables(ctx: ExportContext): SheetSpec[] {
@@ -641,6 +654,58 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 		}
 	);
 
+	// Equipment (proposal equipment-pressure-drop.md §5.4): the results, then the rating the solve
+	// used (EquipmentResult.rating: a scenario's or a goal-seek trial's), its one named departure
+	// from the screen's table, since a file has no form to read the rating from. "(loss)" says
+	// which result the rated drop scales to.
+	const equipmentIds = (c: CaseView) =>
+		orderedIds(c.structure, Object.keys(solvedOf(c).equipmentResults ?? {}));
+	const equipment = table(
+		ctx,
+		'equipment',
+		'Equipment',
+		[
+			text('Equipment id'),
+			text('Equipment'),
+			q('Flow (+ inlet → outlet)', 'flow'),
+			q('Flow ÷ rated flow', 'fraction'),
+			q('Pressure loss', 'pressure'),
+			q('Head loss', 'head'),
+			q('Pressure drop, static', 'pressure'),
+			text('Rated by'),
+			q('Rated pressure drop (loss)', 'pressure'),
+			q('Rated flow', 'flow'),
+			q('Rated fluid density', 'density'),
+			number('Flow coefficient'),
+			text('Flags')
+		],
+		cases,
+		(c) => equipmentIds(c).length,
+		function* (c) {
+			const solved = solvedOf(c);
+			for (const id of equipmentIds(c)) {
+				const item = solved.equipmentResults[id]!;
+				const rating = item.rating;
+				const point = rating.kind === 'point' ? rating : null;
+				yield [
+					id,
+					componentName(c, id),
+					u.value(item.flow, 'flow'),
+					u.value(item.flowRatio, 'fraction'),
+					u.value(item.pressureLoss, 'pressure'),
+					u.value(item.headLoss, 'head'),
+					u.value(item.pressureDrop, 'pressure'),
+					RATED_BY[rating.kind],
+					u.value(point?.pressureLoss, 'pressure'),
+					u.value(point?.flow, 'flow'),
+					u.value(point?.density, 'density'),
+					rating.kind === 'point' ? null : rating.value,
+					codes(flagsForElement(solved.flags, { kind: 'component', id }))
+				];
+			}
+		}
+	);
+
 	const branchIds = (c: CaseView) =>
 		orderedIds(c.structure, Object.keys(solvedOf(c).branchResults));
 	const branches = table(
@@ -878,6 +943,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 		pumpCurves,
 		systemCurves,
 		valves,
+		equipment,
 		branches,
 		branchPorts,
 		boundaries,
@@ -897,7 +963,7 @@ const CHANGE_STATES: Readonly<Record<OverrideResult['state'], string>> = {
 };
 
 /** The unit category of a change's numeric value, by its field (null: a text value). */
-function changeCategory(
+export function changeCategory(
 	project: Project,
 	record: OverrideResult
 ): { category: UnitCategory; options: LabelOptions } | null {
@@ -923,8 +989,18 @@ function changeCategory(
 		case 'surfacePressure':
 		case 'pressure':
 			return { category: 'pressure', options: { gauge: true } };
+		case 'rating.pressureLoss':
+			// A pressure difference: no gauge marker.
+			return { category: 'pressure', options: {} };
+		case 'rating.flow':
+			return { category: 'flow', options: {} };
+		case 'rating.density':
+			return { category: 'density', options: {} };
 		case 'status':
 		case 'resistance':
+		case 'rating':
+		case 'rating.value':
+			// Text: a coefficient as entered with its kind ("Cv 120"), or a whole rating.
 			return null;
 		default:
 			return { category: 'dimensionless', options: {} };
@@ -933,6 +1009,20 @@ function changeCategory(
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
 	!!v && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * A whole rating as text in the file's units, every number exact (as a resistance's, never
+ * rounded): "Cv 120", or "50 kPa at 15 L/s, 999.1 kg/m³" (the drop a difference: no marker).
+ */
+function ratingCell(value: Record<string, unknown>, u: ExportContext['units']): string {
+	if (value.kind !== 'point') return `${String(value.kind)} ${String(value.value)}`;
+	const part = (v: unknown, category: UnitCategory) => {
+		const n = typeof v === 'number' ? u.value(v, category) : null;
+		const label = u.label(category);
+		return n === null ? '—' : label ? `${n} ${label}` : String(n);
+	};
+	return `${part(value.pressureLoss, 'pressure')} at ${part(value.flow, 'flow')}, ${part(value.density, 'density')}`;
+}
 
 /** Scenario changes (§2.6): the overrides the server applied, from its record. */
 export function scenarioChangesTable(ctx: ExportContext): SheetSpec {
@@ -981,6 +1071,18 @@ export function scenarioChangesTable(ctx: ExportContext): SheetSpec {
 					if (resistance) {
 						if (isRecord(value)) return `${String(value.kind)} ${String(value.value)}`;
 						return String(value);
+					}
+					if (o.kind === 'component' && o.field === 'rating') {
+						return isRecord(value) ? ratingCell(value, u) : String(value);
+					}
+					if (o.kind === 'component' && o.field === 'rating.value') {
+						// The coefficient as entered, with its kind in the case solved (exact text).
+						const item = componentById(solvedAs, o.componentId);
+						const kind =
+							item?.type === 'equipment' && item.rating.kind !== 'point'
+								? `${item.rating.kind} `
+								: '';
+						return `${kind}${String(value)}`;
 					}
 					if (category && typeof value === 'number') return u.value(value, category.category);
 					return changeValueText(solvedAs, o, value, u.prefs, options);

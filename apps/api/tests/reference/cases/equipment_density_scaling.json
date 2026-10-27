@@ -1,0 +1,164 @@
+{
+  "name": "equipment_density_scaling",
+  "description": "The equipment line in a liquid 10 % denser than water at the same kinematic viscosity: verifies that the flow and heads are unchanged while the loss and the static pressures scale with density (dP = dP_r (rho/rho_r)(Q/Q_r)^2).",
+  "source": "closed-form: tests/reference/derivations_equipment.py::equipment_density_scaling (equipment loss on the EGL h = c Q|Q|, c = dP_ref/(rho_ref g Q_ref^2) (constant K, ISA-75.01.01 eq. (1) form), rated point as entered; Darcy-Weisbach + Swamee-Jain lines; brentq; static p = rho g (EGL - z - v^2/2g), v in the connected pipe (D7))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-equipment-density-scaling",
+    "metadata": {
+      "name": "Equipment in a denser liquid",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "swamee_jain",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Dense liquid (custom input)",
+      "density": 1100.0,
+      "dynamicViscosity": 0.0011241267840000002
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 10.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "E1",
+        "name": "Equipment E1",
+        "elevation": 3.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "equipment",
+        "rating": {
+          "kind": "point",
+          "pressureLoss": 50000.0,
+          "flow": 0.015,
+          "density": 999.1026214671009
+        }
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 1.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "E1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 60.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "E1",
+        "fromPortId": "outlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 40.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 1100.0,
+      "dynamicViscosity": 0.0011241267840000002
+    },
+    "flows": {
+      "L1": 0.017399475945416437,
+      "L2": 0.017399475945416437
+    },
+    "egl": {
+      "R1:port_1": 12.0,
+      "E1:inlet": 9.519839512273299,
+      "E1:outlet": 2.6534403251511343,
+      "R2:port_1": 1.0
+    },
+    "pressures": {
+      "E1:inlet": 67866.92690834437,
+      "E1:outlet": -6203.084038886346
+    },
+    "equipment": {
+      "E1": {
+        "flow": 0.017399475945416437,
+        "flowRatio": 1.1599650630277625,
+        "headLoss": 6.866399187122164,
+        "pressureLoss": 74070.01094723072,
+        "pressureDrop": 74070.01094723071
+      }
+    }
+  }
+}

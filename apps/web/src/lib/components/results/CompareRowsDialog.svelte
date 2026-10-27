@@ -44,11 +44,13 @@
 					? 'pump'
 					: c.type === 'valve'
 						? 'valve'
-						: c.type === 'reservoir' || c.type === 'reference_node'
-							? 'boundary'
-							: c.type === 'assigned_flow'
-								? 'assigned'
-								: null;
+						: c.type === 'equipment'
+							? 'equipment'
+							: c.type === 'reservoir' || c.type === 'reference_node'
+								? 'boundary'
+								: c.type === 'assigned_flow'
+									? 'assigned'
+									: null;
 			if (kind) {
 				list.push({
 					value: `${kind}:${c.id}`,
@@ -87,6 +89,7 @@
 		network: 'Network',
 		pump: 'Pumps',
 		valve: 'Valves',
+		equipment: 'Equipment',
 		connection: 'Pipe connections',
 		port: 'Ports',
 		boundary: 'Reservoirs and reference nodes',

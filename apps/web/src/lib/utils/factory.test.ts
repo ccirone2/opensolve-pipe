@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { link, projectWith } from '../testing/helpers';
+import { enteredFor, link, projectWith } from '../testing/helpers';
 import { pumpTransferExample } from './examples';
 import {
 	COMPONENT_KINDS,
@@ -11,9 +11,11 @@ import {
 	DEFAULT_NOMINAL_SIZE,
 	defaultPipe,
 	defaultPiping,
+	ENTRY_KINDS,
 	ID_PREFIX,
 	KIND_LABELS,
-	MissingFlowError,
+	MissingEntryError,
+	missingEntries,
 	missingEntry,
 	newId,
 	newProjectId,
@@ -79,6 +81,8 @@ describe('ids', () => {
 		expect(createComponent('wye', project).id).toBe('Y1');
 		expect(createComponent('pump', project).id).toBe('P1');
 		expect(createComponent('assigned_flow', project, { flow: 0.004 }).id).toBe('AF1');
+		expect(createComponent('equipment', project, enteredFor('equipment')).id).toBe('E1');
+		expect(ID_PREFIX.equipment).toBe('E');
 		for (const kind of [
 			'gate',
 			'ball',
@@ -111,10 +115,12 @@ describe('createComponent', () => {
 	it('makes every kind valid against the API schema and model rules', () => {
 		const project = pumpTransferExample(); // has a pump curve
 		for (const kind of COMPONENT_KINDS) {
-			// An assigned-flow node's flow has no default: given here as a user enters it (made-up).
+			// An assigned-flow node's flow and an equipment item's rating have no default: given here
+			// as a user enters them (made-up).
 			const component = createComponent(kind, project, {
 				elevation: 2.5,
 				nominalSize: 3 * INCH,
+				...enteredFor(kind),
 				flow: -0.004
 			});
 			const alone = { ...project, components: [...project.components, component] };
@@ -195,19 +201,88 @@ describe('createComponent', () => {
 			ports: [{ id: 'port_1', nominalSize: DEFAULT_NOMINAL_SIZE, direction: 'bidirectional' }]
 		});
 		expect(createComponent('assigned_flow', project, { flow: 0 })).toMatchObject({ flow: 0 });
-		expect(() => createComponent('assigned_flow', project)).toThrow(MissingFlowError);
+		expect(() => createComponent('assigned_flow', project)).toThrow(MissingEntryError);
 		expect(() => createComponent('assigned_flow', project, { flow: Number.NaN })).toThrow(
-			MissingFlowError
+			MissingEntryError
 		);
 		// Where it is added, the user is asked for it first.
 		expect(missingEntry('assigned_flow', {})).toBe(
 			'Enter the flow: an assigned-flow node has no default flow.'
 		);
 		expect(missingEntry('assigned_flow', { flow: 0 })).toBeNull();
-		for (const kind of COMPONENT_KINDS.filter((k) => k !== 'assigned_flow')) {
+		for (const kind of COMPONENT_KINDS.filter((k) => !ENTRY_KINDS.includes(k))) {
 			expect(missingEntry(kind, {}), kind).toBeNull();
+			expect(missingEntries(kind, {}), kind).toEqual([]);
 		}
+		expect(ENTRY_KINDS).toEqual(['assigned_flow', 'equipment']);
 		expect(KIND_LABELS.assigned_flow).toBe('Assigned flow (demand or supply)');
+	});
+
+	it('makes an equipment item only with every value of the rating the user entered', () => {
+		// Proposal equipment-pressure-drop.md decisions 2, 3 and 22: ports inlet and outlet, no type
+		// field, a required rating with no default. Ratings are made-up test inputs.
+		const project = createEmptyProject();
+		const point = { kind: 'point', pressureLoss: 35000, flow: 0.01, density: 998.2072 } as const;
+		expect(createComponent('equipment', project, { rating: point })).toEqual({
+			id: 'E1',
+			name: 'Equipment E1',
+			elevation: 0,
+			type: 'equipment',
+			rating: point,
+			ports: [
+				{ id: 'inlet', nominalSize: DEFAULT_NOMINAL_SIZE, direction: 'inlet' },
+				{ id: 'outlet', nominalSize: DEFAULT_NOMINAL_SIZE, direction: 'outlet' }
+			]
+		});
+		// A Cv or Kv is stored as entered.
+		expect(
+			createComponent('equipment', project, { rating: { kind: 'Cv', value: 80 } }).rating
+		).toEqual({ kind: 'Cv', value: 80 });
+		// Nothing is invented: no rating, or one value of a rated point missing, throws.
+		expect(() => createComponent('equipment', project)).toThrow(MissingEntryError);
+		expect(() =>
+			createComponent('equipment', project, {
+				rating: { kind: 'point', pressureLoss: 35000, flow: 0.01 }
+			})
+		).toThrow(MissingEntryError);
+		expect(() =>
+			createComponent('equipment', project, { rating: { kind: 'Kv', value: Number.NaN } })
+		).toThrow(MissingEntryError);
+		// A value of another kind is never used (a rated flow is not a Cv).
+		expect(() =>
+			createComponent('equipment', project, { rating: { kind: 'Cv', flow: 0.01 } })
+		).toThrow(MissingEntryError);
+		expect(KIND_LABELS.equipment).toBe('Equipment (rated pressure drop)');
+	});
+
+	it('names each rating value still to enter, of the kind chosen (a rated point at first)', () => {
+		expect(missingEntries('equipment', {})).toEqual([
+			{
+				field: 'rating.pressureLoss',
+				message: 'Enter the rated pressure drop from the datasheet: it has no default.'
+			},
+			{
+				field: 'rating.flow',
+				message: 'Enter the rated flow from the datasheet: it has no default.'
+			},
+			{
+				field: 'rating.density',
+				message: 'Enter the rated fluid density, or use one of the buttons: it has no default.'
+			}
+		]);
+		expect(
+			missingEntries('equipment', { rating: { kind: 'point', flow: 0.01 } }).map((e) => e.field)
+		).toEqual(['rating.pressureLoss', 'rating.density']);
+		expect(missingEntries('equipment', { rating: { kind: 'Cv' } })).toEqual([
+			{ field: 'rating.value', message: 'Enter the Cv from the datasheet: it has no default.' }
+		]);
+		expect(missingEntry('equipment', { rating: { kind: 'Kv' } })).toBe(
+			'Enter the Kv from the datasheet: it has no default.'
+		);
+		expect(missingEntries('equipment', enteredFor('equipment'))).toEqual([]);
+		expect(missingEntries('assigned_flow', {})).toEqual([
+			{ field: 'flow', message: 'Enter the flow: an assigned-flow node has no default flow.' }
+		]);
 	});
 
 	it('takes an explicit id and name', () => {

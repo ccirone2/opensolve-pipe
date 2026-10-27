@@ -1,0 +1,162 @@
+{
+  "name": "equipment_kv_definition",
+  "description": "An equipment item rated Kv 60 in water at the Kv's reference density, between reservoirs whose heads differ by the pipes' loss plus 1 bar at 60 m3/h: verifies that the solve gives back the definition (Q = 60 m3/h, 1 bar across) and that a Kv rating needs no pipe diameter.",
+  "source": "closed-form: tests/reference/derivations_equipment.py::equipment_kv_definition (equipment loss on the EGL h = c Q|Q|, c = dP_ref/(rho_ref g Q_ref^2) (constant K, ISA-75.01.01 eq. (1) form), a Cv/Kv the rated point 1 psi at Cv US gpm / 1 bar at Kv m3/h of water at 60 F (CoolProp IAPWS-95, 703572 Pa; scipy.constants units); H1 - H2 = h_L1(Q1) + 1 bar/(rho_w g) + h_L2(Q1), Q1 = Kv m3/h, explicit, Darcy-Weisbach + Colebrook; static p = rho g (EGL - z - v^2/2g), v in the connected pipe (D7))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-equipment-kv-definition",
+    "metadata": {
+      "name": "Equipment rated by a Kv at its definition",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Reference water (custom input)",
+      "density": 999.2974452976677,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 10.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 4.983545266734978,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "E1",
+        "name": "Equipment E1",
+        "elevation": 5.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "equipment",
+        "rating": {
+          "kind": "Kv",
+          "value": 60.0
+        }
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 1.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "E1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 60.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "E1",
+        "fromPortId": "outlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 40.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 999.2974452976677,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.016666666666666666,
+      "L2": 0.016666666666666666
+    },
+    "egl": {
+      "R1:port_1": 14.983545266734978,
+      "E1:inlet": 12.71601684509572,
+      "E1:outlet": 2.511685614426173,
+      "R2:port_1": 1.0
+    },
+    "pressures": {
+      "E1:inlet": 73560.73925247496,
+      "E1:outlet": -26439.260747525048
+    },
+    "equipment": {
+      "E1": {
+        "flow": 0.016666666666666666,
+        "flowRatio": null,
+        "headLoss": 10.204331230669546,
+        "pressureLoss": 100000.0,
+        "pressureDrop": 100000.0
+      }
+    }
+  }
+}

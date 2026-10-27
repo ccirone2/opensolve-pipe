@@ -13,6 +13,8 @@ A case file ``cases/<name>.json`` holds::
                                      "npshMargin"?, "speed"?,
                                      "controlState"?}},                    # optional
                   "valves": {valveId: {"state"}},                          # optional
+                  "equipment": {equipmentId: {"flow", "flowRatio", "headLoss",
+                                              "pressureLoss", "pressureDrop"}},  # optional
                   "flags": [{"code", "componentId"?, "connectionId"?}],   # optional
                   "stepHolds": {branchId: {"step", "splitA", "splitB"}}}}  # optional
 
@@ -25,9 +27,13 @@ or ``control.minSpeed``).
 Ports in an isolated section (no fixed head reachable through open elements) have no expected
 EGL, as the solver reports them without a head (design §4). An assigned-flow node's port is a
 free node like any other (an expected EGL and pressure); the expected flows satisfy continuity
-with its flow withdrawn there (SDD §4.11). ``stepHolds`` names a Crane branch
-whose K is held across a correlation step (design §5.4) at the mean of the fluids values at
-splitA and splitB: the self-checks evaluate that branch's law with the held K.
+with its flow withdrawn there (SDD §4.11). An equipment item (proposal
+equipment-pressure-drop.md) has no status; its ``equipment`` entry gives the result its rating
+scales to: the flow (inlet → outlet), Q/Q_r (null for a Cv or Kv rating, which has no rated
+flow), the EGL drop inlet → outlet, ρ g times that drop (the loss) and the static pressure drop
+inlet → outlet. ``stepHolds`` names a Crane branch whose K is held across a correlation step
+(design §5.4) at the mean of the fluids values at splitA and splitB: the self-checks evaluate
+that branch's law with the held K.
 
 ``source`` says exactly where the expected values came from. Case files are generated, never
 edited by hand: closed-form cases by ``build_closed_form_cases.py`` from ``derivations.py``, EPANET
@@ -46,12 +52,15 @@ from opensolve_pipe.models.components import (
     CheckValve,
     Component,
     ControlValve,
+    Equipment,
     FlowCoefficient,
     IdealReferenceNode,
     IsolationValve,
     Plug,
     Pump,
     PumpControl,
+    RatedFlowCoefficient,
+    RatedPoint,
     Reservoir,
     TeeBranch,
     WyeBranch,
@@ -97,6 +106,7 @@ class Expected:
     pumps: dict[str, dict[str, float | str]] = field(default_factory=dict)
     valves: dict[str, dict[str, str]] = field(default_factory=dict)
     step_holds: dict[str, dict[str, float]] = field(default_factory=dict)
+    equipment: dict[str, dict[str, float | None]] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         fluid: dict[str, Any] = {
@@ -118,6 +128,8 @@ class Expected:
             out["flags"] = self.flags
         if self.step_holds:
             out["stepHolds"] = self.step_holds
+        if self.equipment:
+            out["equipment"] = self.equipment
         return out
 
 
@@ -380,6 +392,43 @@ def control_valve(
         status=status,
         resistance=resistance,
         ports=_valve_ports(nominal_size),
+    )
+
+
+def rated_point(pressure_loss: float, flow: float, density: float) -> RatedPoint:
+    """A datasheet rating (test input): the loss ΔP_r, Pa, at the rated flow Q_r, m³/s, inlet →
+    outlet, of a fluid of density ρ_r, kg/m³ (proposal equipment-pressure-drop.md §2.1)."""
+    return RatedPoint(kind="point", pressure_loss=pressure_loss, flow=flow, density=density)
+
+
+def rated_coefficient(kind: Literal["Cv", "Kv"], value: float) -> RatedFlowCoefficient:
+    """A datasheet rating as a Cv (US gpm of water at 1 psi) or Kv (m³/h of water at 1 bar),
+    stored as entered (test input)."""
+    return RatedFlowCoefficient(kind=kind, value=value)
+
+
+def equipment(
+    cid: str,
+    elevation: float,
+    rating: RatedPoint | RatedFlowCoefficient,
+    *,
+    inlet_elevation: float | None = None,
+    outlet_elevation: float | None = None,
+    nominal_size: float = 0.1016,
+) -> Equipment:
+    """An equipment item (heat exchanger side, coil, strainer, filter) with ports inlet → outlet,
+    each at the component's elevation unless given (proposal decision 4: the ports keep their
+    real elevations)."""
+    return Equipment(
+        type="equipment",
+        id=cid,
+        name=f"Equipment {cid}",
+        elevation=elevation,
+        rating=rating,
+        ports=[
+            Port(id="inlet", nominal_size=nominal_size, elevation=inlet_elevation),
+            Port(id="outlet", nominal_size=nominal_size, elevation=outlet_elevation),
+        ],
     )
 
 

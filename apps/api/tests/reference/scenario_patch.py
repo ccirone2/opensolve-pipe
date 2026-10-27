@@ -13,6 +13,12 @@ is a list of overrides of base values, each naming a target and a field:
 - ``{"kind": "project", "field", "value"}``: the whole ``fluid``, or a built-in fluid's
   ``fluid.temperature``.
 
+An equipment item (docs/proposals/equipment-pressure-drop.md §5.1, decisions 14 and 22) takes its
+whole ``rating`` (another datasheet, of either kind, as ``fluid`` is the whole fluid) and each of
+its values: ``rating.pressureLoss``, ``rating.flow`` and ``rating.density``, held by a rated point,
+and ``rating.value``, held by a Cv or Kv. A value the base element's rating kind does not hold is
+not applicable, as a flow setpoint on a fixed-speed pump is.
+
 ``by_hand`` edits the project's JSON the way a user would edit it by hand. It finds each target
 with the model types (``opensolve_pipe.models``) and writes the raw value in place: a ``spec``
 first removes the pipe's five spec keys. Then it drops ``scenarios``. An override whose target is
@@ -35,6 +41,7 @@ from opensolve_pipe.models.components import (
     AssignedFlow,
     CheckValve,
     ControlValve,
+    Equipment,
     IdealReferenceNode,
     IsolationValve,
     Plug,
@@ -59,10 +66,26 @@ COMPONENT_FIELDS: dict[type[BaseModel], dict[str, str | None]] = {
     Plug: {},
     TeeBranch: {},
     WyeBranch: {},
+    Equipment: {
+        "rating": "",
+        "rating.pressureLoss": "Pa (difference)",
+        "rating.flow": "m³/s",
+        "rating.density": "kg/m³",
+        "rating.value": "",
+    },
 }
 """The allow-list for components (proposal §2.2): field -> the unit its record states ('' for
 none). None means the design leaves the unit open and it is not checked: a resistance is K, Cv or
-Kv as entered, and a control valve's setpoint unit depends on its type (``SETPOINT_UNITS``)."""
+Kv as entered, and a control valve's setpoint unit depends on its type (``SETPOINT_UNITS``). An
+equipment item's rated pressure drop is a difference, "Pa (difference)" (never a bare "Pa",
+SDD §4.10); its whole rating and its Cv or Kv have none (proposal §5.1)."""
+RATING_PARTS: dict[str, tuple[str, ...]] = {
+    "rating.pressureLoss": ("point",),
+    "rating.flow": ("point",),
+    "rating.density": ("point",),
+    "rating.value": ("Cv", "Kv"),
+}
+"""The rating kinds that hold each part of an equipment rating (proposal decision 22)."""
 SETPOINT_UNITS = {"prv": "Pa(g)", "psv": "Pa(g)", "fcv": "m³/s"}
 PIPE_FIELDS: dict[str, str | None] = {"spec": None, "length": "m"}
 PROJECT_FIELDS: dict[str, str | None] = {"fluid": None, "fluid.temperature": "K"}
@@ -76,6 +99,11 @@ COMPONENT_FIELD_NAMES = (
     "surfacePressure",
     "pressure",
     "flow",
+    "rating",
+    "rating.pressureLoss",
+    "rating.flow",
+    "rating.density",
+    "rating.value",
 )
 """Every field a component override may name. A field its target's type lacks is not applicable."""
 SPEC_KEYS = ("materialId", "schedule", "nominalSize", "innerDiameter", "roughness")
@@ -132,6 +160,12 @@ def resolve(base: Project, override: dict[str, Any]) -> tuple[State, Where | Non
         if field not in COMPONENT_FIELDS[type(component)]:
             return "not_applicable", None, None
         if field == "control.setpoint" and getattr(component, "control", None) is None:
+            return "not_applicable", None, None
+        if (
+            isinstance(component, Equipment)
+            and field in RATING_PARTS
+            and component.rating.kind not in RATING_PARTS[field]
+        ):
             return "not_applicable", None, None
         return "applied", ("component", index, field), component.id
     if kind == "pipe":

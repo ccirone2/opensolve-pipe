@@ -161,6 +161,9 @@ describe('catalogues (x-goal-quantities, x-goal-variables)', () => {
 			pump_npsh_margin: 'pumpNpshMargin',
 			valve_flow: 'valveFlow',
 			valve_pressure_drop: 'valvePressureDrop',
+			equipment_flow: 'equipmentFlow',
+			equipment_pressure_loss: 'equipmentPressureLoss',
+			equipment_pressure_drop: 'equipmentPressureDrop',
 			boundary_outflow: 'boundaryOutflow'
 		});
 		for (const [quantity, compare] of Object.entries(GOAL_QUANTITIES)) {

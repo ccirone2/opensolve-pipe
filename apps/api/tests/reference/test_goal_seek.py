@@ -26,6 +26,12 @@ seek. Each case posts ``POST /api/v1/goal-seek`` and checks:
    unsolved crossing across a flow-controlled pump's setpoint (G16); a check valve's state
    change (G17); met at the start in 1 evaluation (G18); a scenario run whose value replaces the
    scenario's own (G19).
+5. **Equipment** (docs/proposals/equipment-pressure-drop.md §5.2, §7.3): G25-G31 are met cases
+   (item 2) for each rating value as a variable and each equipment goal; G32 varies two parts of
+   a rating its scenario sets whole, whose overrides must both be that whole rating holding both
+   values found (each naming the scenario's override), and applied alone or together reproduce
+   the state; a part the element's rating kind does not hold is not a variable there (400
+   VARIABLE_NOT_APPLICABLE), nor is the whole rating.
 """
 
 import copy
@@ -164,9 +170,21 @@ def expected_start(case: GoalSeekCase, i: int) -> tuple[float, str]:
     return float(value), "case"
 
 
+LOG_SCALE = (
+    "length",
+    "resistance",
+    "rating.pressureLoss",
+    "rating.flow",
+    "rating.value",
+)
+"""Fields searched in log x (design §2.1; an equipment item's rated drop, rated flow and Cv or
+Kv by equipment-pressure-drop.md decision 15: each > 0 and spanning decades). An equipment
+item's rated density is linear."""
+
+
 def scale(variable: dict[str, Any]) -> str:
-    """Linear in x, except a length and a resistance, linear in log x (design §2.1)."""
-    return "log" if variable["field"] in ("length", "resistance") else "linear"
+    """Linear in x, except the LOG_SCALE fields, linear in log x."""
+    return "log" if variable["field"] in LOG_SCALE else "linear"
 
 
 def unit_coordinate(variable: dict[str, Any], x: float) -> float:
@@ -175,6 +193,61 @@ def unit_coordinate(variable: dict[str, Any], x: float) -> float:
     if scale(variable) == "log":
         return math.log(x / lower) / math.log(upper / lower)
     return (x - lower) / (upper - lower)
+
+
+def whole_override(case: GoalSeekCase, variable: dict[str, Any]) -> int | None:
+    """The index of the case scenario's override that sets a whole value the variable's field
+    is a part of (the same target, a field that is a proper prefix of the variable's: an
+    equipment item's ``rating`` for ``rating.flow``, the ``fluid`` for ``fluid.temperature``),
+    or None (equipment-pressure-drop.md §5.2)."""
+    if case.scenario_id is None:
+        return None
+    scenario = next(s for s in case.project["scenarios"] if s["id"] == case.scenario_id)
+    target = ("componentId", "connectionId", "pipeIndex")
+    parts = variable["field"].split(".")
+    for j, o in enumerate(scenario["overrides"]):
+        if o["kind"] != variable["kind"] or any(o.get(k) != variable.get(k) for k in target):
+            continue
+        whole = o["field"].split(".")
+        if len(whole) < len(parts) and parts[: len(whole)] == whole:
+            return j
+    return None
+
+
+def expected_override(
+    case: GoalSeekCase, i: int, found: Sequence[float]
+) -> tuple[dict[str, Any], int | None]:
+    """(override, the scenario override it replaces when it is a whole value) of variable i at
+    the values found (design §4.4; equipment-pressure-drop.md §5.2): its own field and value; a
+    resistance as {kind: its coefficient, value}; and a part of a value the scenario sets whole
+    as that whole value, from the case with every variable written at its found value, so the
+    overrides of two parts of one whole value are equal and hold both."""
+    v = case.variables[i]
+    target = {k: v[k] for k in ("kind", "componentId", "connectionId", "pipeIndex") if k in v}
+    j = whole_override(case, v)
+    if j is None:
+        value: Any = (
+            {"kind": v["coefficient"], "value": found[i]}
+            if v["field"] == "resistance"
+            else found[i]
+        )
+        return {**target, "field": v["field"], "value": value}, None
+    scenario = next(s for s in case.project["scenarios"] if s["id"] == case.scenario_id)
+    whole_field = scenario["overrides"][j]["field"]
+    effective = effective_project(case)
+    whole = copy.deepcopy(
+        case_value(effective, {**v, "field": whole_field})
+        if v["kind"] == "component"
+        else effective["fluid"]
+    )
+    for k, other in enumerate(case.variables):
+        if whole_override(case, other) == j:
+            holder = whole
+            *head, leaf = other["field"].split(".")[len(whole_field.split(".")) :]
+            for key in head:
+                holder = holder[key]
+            holder[leaf] = found[k]
+    return {**target, "field": whole_field, "value": whole}, j
 
 
 def tolerances_for(case: GoalSeekCase, kind: str) -> list[float | None]:
@@ -427,17 +500,12 @@ def response_problems(
         at_bound = "lower" if x == v["lower"] else "upper" if x == v["upper"] else None
         want(f"{at} atBound", r["atBound"], at_bound)
         override = r["override"]
-        expected_value: Any = (
-            {"kind": v["coefficient"], "value": x} if v["field"] == "resistance" else x
-        )
-        target: dict[str, Any] = {
-            k: v[k] for k in ("kind", "componentId", "connectionId", "pipeIndex") if k in v
-        }
-        expected_override = {**target, "field": v["field"], "value": expected_value}
-        if not same_json(override, expected_override):
-            problems.append(f"{at}: override {override}, expected {expected_override}")
-        if case.scenario_id is None:
-            want(f"{at} replacedOverride", r["replacedOverride"], None)
+        found = evaluations[reported]["variableValues"]
+        wanted, replaced = expected_override(case, i, found)
+        if not same_json(override, wanted):
+            problems.append(f"{at}: override {override}, expected {wanted}")
+        if case.scenario_id is None or replaced is not None:
+            want(f"{at} replacedOverride", r["replacedOverride"], replaced)
 
     for j, (g, r) in enumerate(zip(case.goals, result["goals"], strict=True)):
         at = f"goal {j}"
@@ -706,3 +774,112 @@ def test_derivation_is_self_consistent(derive: Callable[[], GoalSeekCase]) -> No
         assert abs(value - g["target"]) <= 1.0e-9 * max(1.0, abs(g["target"])), (value, g)
     for v, x in zip(case.variables, case.inverse, strict=True):
         assert v["lower"] < x < v["upper"], (v, x)
+
+
+# --------------------------------------------------------------------------- equipment
+
+PARTS_MARK = "In this goal seek the values found take the place of its"
+"""The start of the mark on a whole rating whose parts a goal seek varied (equipment-pressure-
+drop.md §5.2: "In this goal seek the values found take the place of its rated pressure drop and
+rated flow (see Goal seek)"), which names the parts replaced."""
+
+
+def test_g32_two_parts_of_a_scenario_rating_carry_one_whole_rating(api: Api) -> None:
+    """G32 (equipment-pressure-drop.md §5.2, §7.3): on S1, which sets E1's whole rating, the two
+    variables rating.pressureLoss and rating.flow start at S1's values; whether met or not, both
+    overrides are the same whole rating, a rated point holding both values found and S1's
+    density, each naming S1's override 0 as replaced; applied alone (each at its
+    replacedOverride) or both, they reproduce the state bit for bit (``_run``'s
+    apply_problems); the Scenario section's item and E1's scenario note name the two parts
+    replaced, never the whole rating."""
+    case, body = _run(api, dg.goal_seek_equipment_scenario_parts)
+    result = body["result"]
+    assert result["reportedEvaluation"] is not None, result["message"]
+    [loss, flow] = result["variables"]
+    for r, start in zip((loss, flow), case.start or (), strict=True):
+        assert r["start"] == start, (r["start"], start)
+        assert r["replacedOverride"] == case.data["replacedOverride"], r
+    assert same_json(loss["override"], flow["override"]), (loss["override"], flow["override"])
+    whole = {
+        **case.data["whole"],
+        "pressureLoss": loss["value"],
+        "flow": flow["value"],
+    }
+    want = {"kind": "component", "componentId": "E1", "field": "rating", "value": whole}
+    assert same_json(loss["override"], want), (loss["override"], want)
+    # Each override applied alone, at the override it replaces, gives the same state as both.
+    state = without_annotation(body["solvedState"])
+    base = {k: v for k, v in case.project.items() if k != "scenarios"}
+    for r in (loss, flow):
+        scenario = {"id": "GS1", "name": "One part", "overrides": [r["override"]]}
+        alone = api.solve({**base, "scenarios": [scenario]}, "GS1")["solvedState"]
+        assert not differences(without_annotation(alone), state, "alone")
+    # The marks name the parts.
+    sections = body["solvedState"]["trace"]["methods"]["sections"]
+    items = [i for i in sections[1]["items"] if PARTS_MARK in i]
+    assert len(items) == 1, sections[1]["items"]
+    mark = items[0][items[0].index(PARTS_MARK) :]
+    assert "rated pressure drop" in mark, mark
+    assert "rated flow" in mark, mark
+    assert not any(REPLACED_MARK in i for i in sections[1]["items"]), sections[1]["items"]
+    notes = body["solvedState"]["trace"]["elements"]["E1"]["notes"]
+    scenario_notes = [n for n in notes if n.startswith("Scenario ")]
+    assert len(scenario_notes) == 1, notes
+    note_mark = scenario_notes[0][scenario_notes[0].index(PARTS_MARK) :]
+    assert "rated pressure drop" in note_mark, note_mark
+    assert "rated flow" in note_mark, note_mark
+    # The closed form at the values found: c = ΔP_r/(ρ_r g Q_r²) gives each goal within D6.
+    forward = case.forward([loss["value"], flow["value"]])
+    for j, g in enumerate(result["goals"]):
+        if g["value"] is not None:
+            q = case.goals[j]["quantity"]
+            assert abs(g["value"] - forward[j]) <= dg.d6(q, forward[j], case.density), (g, forward)
+
+
+NOT_APPLICABLE = [
+    ("equipment_line", "rating.value", (9.0, 900.0)),
+    ("equipment_cv_glycol", "rating.pressureLoss", (5.0e3, 5.0e5)),
+    ("equipment_cv_glycol", "rating.density", (500.0, 2000.0)),
+]
+"""A part the element's rating kind does not hold (equipment-pressure-drop.md §5.2): a Cv or
+Kv value on a rated point, a rated point's values on a Cv."""
+
+
+@pytest.mark.parametrize(("name", "field", "bounds"), NOT_APPLICABLE, ids=lambda x: str(x))
+def test_a_rating_part_of_another_kind_is_not_a_variable(
+    api: Api, name: str, field: str, bounds: tuple[float, float]
+) -> None:
+    """400 VALIDATION_ERROR with one VARIABLE_NOT_APPLICABLE issue at the variable, naming the
+    element in componentIds (D16's "inputs that do not apply")."""
+    from tests.reference.case_format import case_path, read_case
+
+    project = read_case(case_path(name))["project"]
+    goal = dg.goal("equipment_flow", "E1", 0.016)
+    body = {
+        "project": project,
+        "variables": [dg.component_variable("E1", field, *bounds)],
+        "goals": [goal],
+    }
+    response = api.post(GOAL_SEEK, body)
+    assert response.status_code == 400, response.text
+    data = response.json()
+    assert data["error"] == "VALIDATION_ERROR", data
+    [issue] = data["issues"]
+    assert issue["code"] == "VARIABLE_NOT_APPLICABLE", issue
+    assert issue["message"].startswith("body.variables.0"), issue
+    assert issue["componentIds"] == ["E1"], issue
+
+
+def test_a_whole_rating_is_not_a_variable(api: Api) -> None:
+    """The whole rating is not a number (equipment-pressure-drop.md decision 15, as the whole
+    fluid): a variable naming it is a 400 request error."""
+    from tests.reference.case_format import case_path, read_case
+
+    body = {
+        "project": read_case(case_path("equipment_line"))["project"],
+        "variables": [dg.component_variable("E1", "rating", 1.0, 2.0)],
+        "goals": [dg.goal("equipment_flow", "E1", 0.016)],
+    }
+    response = api.post(GOAL_SEEK, body)
+    assert response.status_code == 400, response.text
+    assert response.json()["error"] == "VALIDATION_ERROR"

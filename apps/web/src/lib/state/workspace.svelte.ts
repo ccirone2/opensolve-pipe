@@ -63,13 +63,12 @@ import {
 	asNewScenario,
 	EMPTY_SETUP,
 	foundOverrides,
+	foundValueTexts,
 	keptByScenarios,
 	localDate,
 	newScenarioDescription,
-	overrideValueText,
 	reservedIds,
 	toRequest,
-	variableLabelOf,
 	type GoalSeekSetup,
 	type WordsContext
 } from '../utils/goal-seek';
@@ -113,7 +112,8 @@ export const INLINE_KINDS: readonly ComponentKind[] = [
 	'psv',
 	'fcv',
 	'tee',
-	'wye'
+	'wye',
+	'equipment'
 ];
 
 export class Workspace {
@@ -241,6 +241,7 @@ export class Workspace {
 			sent: run.project,
 			prefs: this.displayUnits,
 			caseWords: this.caseWords(run.caseId),
+			caseId: run.caseId,
 			...(stale ? { stale } : {})
 		};
 	}
@@ -307,12 +308,8 @@ export class Workspace {
 			return false;
 		}
 		const overrides = foundOverrides(response);
-		const values = overrides
-			.map(
-				(o) =>
-					`${variableLabelOf(this.labelsProject, o)} ${overrideValueText(run.project, o, this.displayUnits)}`
-			)
-			.join(', ');
+		// Each value by its variable (never by its override, which may be a whole rating or fluid).
+		const values = foundValueTexts(response, this.goalSeekWords(run)).join(', ');
 		if (this.store.activeCase !== run.caseId) this.setCase(run.caseId);
 		if (mode === 'case') {
 			const label =
@@ -692,12 +689,14 @@ export class Workspace {
 	/**
 	 * Insert a component into a connection of the current component and show it: in the
 	 * connection the walk arrived by it goes before the current component, in any other after.
+	 * `values` are what the user entered for a kind with no default (an equipment item's rating).
 	 */
-	insert(connectionId: string, kind: ComponentKind): string | null {
+	insert(connectionId: string, kind: ComponentKind, values: EnteredValues = {}): string | null {
 		const connection = this.project.connections.find((c) => c.id === connectionId);
 		if (!connection) return null;
 		const reserved = this.reservedIds;
 		const component = createComponent(kind, this.project, {
+			...values,
 			...this.#insertOptions(connection),
 			reserved
 		});

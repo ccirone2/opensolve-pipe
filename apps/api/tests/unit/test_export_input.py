@@ -7,7 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from tests.fixtures.export_input import generate, round_off_differences
+from tests.fixtures.export_input import generate
+from tests.fixtures.round_off import round_off_differences
 
 WEB_FIXTURE = (
     Path(__file__).parents[3] / "web" / "src" / "lib" / "utils" / "__fixtures__"

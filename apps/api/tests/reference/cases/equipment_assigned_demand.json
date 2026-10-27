@@ -1,0 +1,164 @@
+{
+  "name": "equipment_assigned_demand",
+  "description": "An equipment item on a dead-end line to an assigned demand of 12 L/s: verifies that the element carries the demand with its square-law loss and that its static drop includes the smaller outlet pipe's velocity head.",
+  "source": "closed-form: tests/reference/derivations_equipment.py::equipment_assigned_demand (equipment loss on the EGL h = c Q|Q|, c = dP_ref/(rho_ref g Q_ref^2) (constant K, ISA-75.01.01 eq. (1) form), rated point as entered; continuity: every connection carries the demand; heads stepped from R1, Darcy-Weisbach + Colebrook; static p = rho g (EGL - z - v^2/2g), v in the connected pipe (D7))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-equipment-assigned-demand",
+    "metadata": {
+      "name": "Equipment feeding an assigned demand",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 20.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 5.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "E7",
+        "name": "Equipment E7",
+        "elevation": 2.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "equipment",
+        "rating": {
+          "kind": "point",
+          "pressureLoss": 30000.0,
+          "flow": 0.01,
+          "density": 999.1026214671009
+        }
+      },
+      {
+        "id": "D",
+        "name": "Assigned flow D",
+        "elevation": 1.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "assigned_flow",
+        "flow": 0.012
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "E7",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 60.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "E7",
+        "fromPortId": "outlet",
+        "toComponentId": "D",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 30.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.012,
+      "L2": 0.012
+    },
+    "egl": {
+      "R1:port_1": 25.0,
+      "E7:inlet": 23.78296040777211,
+      "E7:outlet": 19.37382970846916,
+      "D:port_1": 16.97884562541331
+    },
+    "pressures": {
+      "E7:inlet": 212127.0270397151,
+      "E7:outlet": 166875.05950378897,
+      "D:port_1": 153222.29908700552
+    },
+    "equipment": {
+      "E7": {
+        "flow": 0.012,
+        "flowRatio": 1.2,
+        "headLoss": 4.409130699302949,
+        "pressureLoss": 43152.32396917462,
+        "pressureDrop": 45251.96753592612
+      }
+    }
+  }
+}

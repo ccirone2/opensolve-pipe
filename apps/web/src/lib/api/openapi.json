@@ -460,7 +460,12 @@
               "liquidLevel",
               "surfacePressure",
               "pressure",
-              "flow"
+              "flow",
+              "rating",
+              "rating.pressureLoss",
+              "rating.flow",
+              "rating.density",
+              "rating.value"
             ],
             "title": "Field",
             "type": "string"
@@ -523,7 +528,11 @@
               "liquidLevel",
               "surfacePressure",
               "pressure",
-              "flow"
+              "flow",
+              "rating.pressureLoss",
+              "rating.flow",
+              "rating.density",
+              "rating.value"
             ],
             "title": "Field",
             "type": "string"
@@ -881,6 +890,137 @@
           "notes"
         ],
         "title": "ElementTrace",
+        "type": "object"
+      },
+      "Equipment": {
+        "additionalProperties": false,
+        "description": "A passive element given by its datasheet (one side of a heat exchanger, a coil, a\nstrainer, a filter): a pressure drop at a rated flow, or a Cv or Kv, scaled with the square\nof the flow and with density (SDD §4.14). It has no status: it always passes flow.",
+        "properties": {
+          "elevation": {
+            "description": "Elevation above the project datum, m",
+            "maximum": 10000.0,
+            "minimum": -10000.0,
+            "title": "Elevation",
+            "type": "number"
+          },
+          "id": {
+            "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "ports": {
+            "items": {
+              "$ref": "#/components/schemas/Port"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Ports",
+            "type": "array"
+          },
+          "rating": {
+            "description": "The datasheet rating, with no default: a pressure drop at a flow for a fluid of a stated density (point), or a Cv or Kv (a rated point on water). The loss of total pressure from inlet to outlet is c·Q|Q| on the EGL, c from the rating (constant K: scaled with the square of the flow and with density)",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RatedPoint"
+              },
+              {
+                "$ref": "#/components/schemas/RatedFlowCoefficient"
+              }
+            ],
+            "title": "Rating"
+          },
+          "type": {
+            "const": "equipment",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "elevation",
+          "ports",
+          "type",
+          "rating"
+        ],
+        "title": "Equipment",
+        "type": "object",
+        "x-port-ids": [
+          "inlet",
+          "outlet"
+        ],
+        "x-port-roles": {
+          "inlet": "inlet",
+          "outlet": "outlet"
+        }
+      },
+      "EquipmentResult": {
+        "additionalProperties": false,
+        "description": "An equipment item (SDD §4.14): its rating scaled to the solved flow and density.",
+        "properties": {
+          "flow": {
+            "description": "m³/s, positive inlet -> outlet",
+            "title": "Flow",
+            "type": "number"
+          },
+          "flowRatio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Q/Q_r, signed; null for a Cv or Kv rating, which has no rated flow",
+            "title": "Flowratio"
+          },
+          "headLoss": {
+            "description": "EGL(inlet) - EGL(outlet), m",
+            "title": "Headloss",
+            "type": "number"
+          },
+          "pressureDrop": {
+            "description": "Static pressure drop inlet -> outlet, Pa (a difference), as a valve's: what gauges at the ports read. It equals pressureLoss + ρg(z_outlet - z_inlet) + ρ(v_outlet² - v_inlet²)/2, with the velocities in the connected pipes",
+            "title": "Pressuredrop",
+            "type": "number"
+          },
+          "pressureLoss": {
+            "description": "ρg × headLoss, Pa (a difference): the rating scaled to the solved flow and density",
+            "title": "Pressureloss",
+            "type": "number"
+          },
+          "rating": {
+            "description": "The rating the solve used, after any scenario or goal-seek trial",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RatedPoint"
+              },
+              {
+                "$ref": "#/components/schemas/RatedFlowCoefficient"
+              }
+            ],
+            "title": "Rating"
+          }
+        },
+        "required": [
+          "flow",
+          "flowRatio",
+          "headLoss",
+          "pressureLoss",
+          "pressureDrop",
+          "rating"
+        ],
+        "title": "EquipmentResult",
         "type": "object"
       },
       "ErrorResponse": {
@@ -1695,6 +1835,9 @@
               "pump_npsh_margin",
               "valve_flow",
               "valve_pressure_drop",
+              "equipment_flow",
+              "equipment_pressure_loss",
+              "equipment_pressure_drop",
               "boundary_outflow"
             ],
             "title": "Quantity",
@@ -2117,6 +2260,54 @@
             ],
             "unit": "m³/s"
           },
+          "equipment_flow": {
+            "floor": {
+              "flow": 1e-06
+            },
+            "minimum": {
+              "absolute": 1e-09,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "Equipment"
+            ],
+            "unit": "m³/s"
+          },
+          "equipment_pressure_drop": {
+            "floor": {
+              "head": 0.01
+            },
+            "minimum": {
+              "absolute": 0.1,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "Equipment"
+            ],
+            "unit": "Pa (difference)"
+          },
+          "equipment_pressure_loss": {
+            "floor": {
+              "head": 0.01
+            },
+            "minimum": {
+              "absolute": 0.1,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "Equipment"
+            ],
+            "unit": "Pa (difference)"
+          },
           "link_flow": {
             "floor": {
               "flow": 1e-06
@@ -2186,7 +2377,8 @@
               "Pump",
               "IsolationValve",
               "CheckValve",
-              "ControlValve"
+              "ControlValve",
+              "Equipment"
             ],
             "unit": "Pa(g)"
           },
@@ -2363,6 +2555,40 @@
               ],
               "scale": "linear",
               "schema": "ControlValve"
+            }
+          },
+          "Equipment": {
+            "rating.density": {
+              "path": [
+                "rating",
+                "density"
+              ],
+              "scale": "linear",
+              "schema": "RatedPoint"
+            },
+            "rating.flow": {
+              "path": [
+                "rating",
+                "flow"
+              ],
+              "scale": "log",
+              "schema": "RatedPoint"
+            },
+            "rating.pressureLoss": {
+              "path": [
+                "rating",
+                "pressureLoss"
+              ],
+              "scale": "log",
+              "schema": "RatedPoint"
+            },
+            "rating.value": {
+              "path": [
+                "rating",
+                "value"
+              ],
+              "scale": "log",
+              "schema": "RatedFlowCoefficient"
             }
           },
           "IdealReferenceNode": {
@@ -3732,6 +3958,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/ControlValve"
+                },
+                {
+                  "$ref": "#/components/schemas/Equipment"
                 }
               ]
             },
@@ -4549,6 +4778,75 @@
         "title": "RangeInfo",
         "type": "object"
       },
+      "RatedFlowCoefficient": {
+        "additionalProperties": false,
+        "description": "A datasheet rating as a flow coefficient, stored as entered: Cv (US gpm of water at\n1 psi) or Kv (m³/h of water at 1 bar). A FlowCoefficient narrowed to Cv and Kv, converted as\na valve's (services/solver/valves.k_from_coefficient); a K needs the bore it refers to (not\nin v1).",
+        "properties": {
+          "kind": {
+            "description": "How the datasheet gives the rating: Cv (US gpm of water at 1 psi) or Kv (m³/h of water at 1 bar)",
+            "enum": [
+              "Cv",
+              "Kv"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "value": {
+            "description": "The flow coefficient as the datasheet prints it: Cv in US gpm of water at 1 psi, Kv in m³/h of water at 1 bar, stored as entered (as a valve's resistance). It is a rated point on water (999.297 kg/m³, fluids' Kv_to_K): the loss scales with the square of the flow and with density, and needs no pipe diameter",
+            "exclusiveMinimum": 0.0,
+            "maximum": 10000000.0,
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "value"
+        ],
+        "title": "RatedFlowCoefficient",
+        "type": "object"
+      },
+      "RatedPoint": {
+        "additionalProperties": false,
+        "description": "A datasheet rating: a pressure drop at a flow, for a fluid of a stated density. Each\nvalue is required and has no default: no source gives a default rating (proposal\nequipment-pressure-drop.md decision 3).",
+        "properties": {
+          "density": {
+            "description": "The density of the fluid the datasheet's rating is for, kg/m³, which may differ from the fluid being solved",
+            "exclusiveMinimum": 0.0,
+            "maximum": 30000.0,
+            "title": "Density",
+            "type": "number"
+          },
+          "flow": {
+            "description": "The flow, inlet -> outlet, at which the datasheet gives that drop, m³/s. A mass-flow rating ṁ_r is entered as ṁ_r/ρ_r",
+            "exclusiveMinimum": 0.0,
+            "maximum": 100.0,
+            "title": "Flow",
+            "type": "number"
+          },
+          "kind": {
+            "const": "point",
+            "description": "How the datasheet gives the rating: point, a pressure drop at a flow",
+            "title": "Kind",
+            "type": "string"
+          },
+          "pressureLoss": {
+            "description": "The datasheet pressure drop at the rated flow, Pa (a difference), as the loss of total pressure from inlet to outlet: the dissipative loss (friction and form), without the static head between the ports. It scales to the result's pressureLoss. It equals the static pressure difference when both ports have one elevation and their pipes one bore. Keep the ports at their real elevations; a datasheet's static drop S between nozzles at different elevations or bores is entered as S - ρ_r g (z_out - z_in) - ρ_r (v_out² - v_in²)/2, with the nozzle velocities at the rated flow",
+            "exclusiveMinimum": 0.0,
+            "maximum": 100000000.0,
+            "title": "Pressureloss",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "pressureLoss",
+          "flow",
+          "density"
+        ],
+        "title": "RatedPoint",
+        "type": "object"
+      },
       "Reference": {
         "additionalProperties": false,
         "properties": {
@@ -4699,7 +4997,7 @@
             "type": "string"
           },
           "overrides": {
-            "description": "At most one per value: no two set the same value of one target, nor a value and a part of it (fluid and fluid.temperature)",
+            "description": "At most one per value: no two set the same value of one target, nor a value and a part of it (fluid and fluid.temperature; an equipment item's rating and rating.flow)",
             "items": {
               "oneOf": [
                 {
@@ -4765,6 +5063,42 @@
                 "status"
               ],
               "schema": "ControlValve"
+            }
+          },
+          "Equipment": {
+            "rating": {
+              "path": [
+                "rating"
+              ],
+              "schema": "Equipment"
+            },
+            "rating.density": {
+              "path": [
+                "rating",
+                "density"
+              ],
+              "schema": "RatedPoint"
+            },
+            "rating.flow": {
+              "path": [
+                "rating",
+                "flow"
+              ],
+              "schema": "RatedPoint"
+            },
+            "rating.pressureLoss": {
+              "path": [
+                "rating",
+                "pressureLoss"
+              ],
+              "schema": "RatedPoint"
+            },
+            "rating.value": {
+              "path": [
+                "rating",
+                "value"
+              ],
+              "schema": "RatedFlowCoefficient"
             }
           },
           "IdealReferenceNode": {
@@ -5113,6 +5447,14 @@
           "convergence": {
             "$ref": "#/components/schemas/ConvergenceReport"
           },
+          "equipmentResults": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/EquipmentResult"
+            },
+            "description": "Keyed by component id; {} when the project has no equipment or the solve did not converge",
+            "title": "Equipmentresults",
+            "type": "object"
+          },
           "flags": {
             "items": {
               "$ref": "#/components/schemas/Flag"
@@ -5178,6 +5520,7 @@
           "linkResults",
           "pumpResults",
           "valveResults",
+          "equipmentResults",
           "branchResults",
           "boundaryResults",
           "flags",
@@ -6020,7 +6363,7 @@
           },
           "baseValue": {
             "$ref": "#/components/schemas/JsonValue",
-            "description": "The base project's value (equal to caseValue for a base run)"
+            "description": "The base project's value (equal to caseValue for a base run); null where the base holds no value of this variable (an equipment item the base rates by another kind: a point, or the other of Cv and Kv)"
           },
           "caseValue": {
             "$ref": "#/components/schemas/JsonValue",

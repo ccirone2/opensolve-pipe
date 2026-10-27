@@ -24,6 +24,7 @@ import {
 	missingFittingParameters,
 	overrideSchemaName,
 	orderViolations,
+	ratingSchemaName,
 	REDUCER_TYPES,
 	requiredPortCount,
 	requiredPortIds,
@@ -79,7 +80,8 @@ function validatorFor(name: string): ValidateFunction {
 
 /**
  * The schema a oneOf member is meant to match, from its tag (component type refined by
- * branchType or valveType; fluid kind), read from the schema's unions (model-rules.ts) as the
+ * branchType or valveType; fluid kind; an equipment rating's kind, which no fluid kind shares),
+ * read from the schema's unions (model-rules.ts) as the
  * API's discriminators pick it, so problems are reported against the intended schema instead of
  * every alternative.
  */
@@ -87,7 +89,8 @@ function taggedSchema(value: unknown): string | null {
 	if (!isRecord(value)) return null;
 	// A scenario change: kind and field (a fluid has a kind and no field).
 	if ('kind' in value && 'field' in value) return overrideSchemaName(value.kind);
-	if ('kind' in value && !('type' in value)) return fluidSchemaName(value.kind);
+	if ('kind' in value && !('type' in value))
+		return fluidSchemaName(value.kind) ?? ratingSchemaName(value.kind);
 	return componentSchemaName(value);
 }
 
@@ -179,6 +182,11 @@ function collect(
 			problems.push({
 				pointer,
 				text: `${where}: unknown component type (or branchType / valveType)`
+			});
+		else if (isRecord(member) && 'kind' in member && pointer.endsWith('/rating'))
+			problems.push({
+				pointer,
+				text: `${where}: unknown rating kind ${JSON.stringify(member.kind)} (a pressure drop at a flow, 'point'; 'Cv'; or 'Kv')`
 			});
 		else if (isRecord(member) && 'kind' in member && 'field' in member)
 			problems.push({

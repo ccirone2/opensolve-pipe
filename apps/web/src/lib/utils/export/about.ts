@@ -150,10 +150,16 @@ export function projectLinks(ctx: ExportContext): ProjectLink[] {
 
 const units = (ctx: ExportContext) => ctx.units;
 
-/** The Units rows (§2.7): every category's unit, the gauge note and the exceptions. */
-function unitRows(ctx: ExportContext): AboutRow[] {
+/**
+ * The Units rows (§2.7): every category's unit, the gauge note and the exceptions. `equipment`: the
+ * file has an Equipment sheet, whose flow ratio is written in the fraction category (signed and
+ * unbounded, Q ÷ Q_r: no 0–1 fraction) and whose Cv or Kv is as entered (lines added only then,
+ * so a file without equipment is as before).
+ */
+function unitRows(ctx: ExportContext, equipment: boolean): AboutRow[] {
 	const u = units(ctx);
 	const label = (unit: string) => unit || 'none (a pure number)';
+	const fractions = equipment ? 'speed, efficiency, flow ÷ rated flow' : 'speed, efficiency';
 	const rows: AboutRow[] = [
 		['Export', 'Units: elevations and lengths', u.label('length')],
 		['Export', 'Units: diameters and roughness', u.label('diameter')],
@@ -168,7 +174,7 @@ function unitRows(ctx: ExportContext): AboutRow[] {
 		['Export', 'Units: dynamic viscosity', u.label('viscosity')],
 		['Export', 'Units: kinematic viscosity', 'm²/s'],
 		['Export', 'Units: power', u.label('power')],
-		['Export', 'Units: fractions (speed, efficiency)', label(u.label('fraction'))],
+		['Export', `Units: fractions (${fractions})`, label(u.label('fraction'))],
 		[
 			'Export',
 			'Units: gauge and absolute',
@@ -177,21 +183,38 @@ function unitRows(ctx: ExportContext): AboutRow[] {
 		[
 			'Export',
 			'Units: exceptions',
-			"The trace, the methods text, the server's flag messages and the JSON columns are in SI as the server reported them. The app's sentences (flag messages, the goal seek report) give speeds and efficiencies in % and powers in kW (hp with gpm)."
+			"The trace, the methods text, the server's flag messages and the JSON columns are in SI as the server reported them. The app's sentences (flag messages, the goal seek report) give speeds and efficiencies in % and powers in kW (hp with gpm)." +
+				(equipment
+					? ' A Cv (US gpm of water at 1 psi) or Kv (m³/h of water at 1 bar) is as entered in every unit system.'
+					: '')
 		]
 	];
 	if (u.units === 'si') {
 		rows.push([
 			'Export',
 			'Units: fractions',
-			'Fractions (speed, efficiency) are 0–1 and carry no unit.'
+			'Fractions (speed, efficiency) are 0–1 and carry no unit.' +
+				(equipment
+					? ' Flow ÷ rated flow is a signed ratio with no unit: 1 at the rated flow, negative when the flow runs from outlet to inlet.'
+					: '')
 		]);
 	}
 	return rows;
 }
 
-const NUMBERS =
-	'Full precision: each number is the value the calculation server returned, converted to these units, not rounded. The app shows 4 significant figures, and heads, elevations and lengths to at least 0.01 m (or its equivalent); it shows head differences below 1×10⁻⁷ m, valve pressure drops below ρg·10⁻⁷ m and branch K below 1×10⁻⁴ as ≈ 0 (round-off). The file gives them as computed. Spreadsheets display and re-save at most 15 significant digits.';
+/** The Numbers row; `equipment`: the ≈ 0 rule names equipment's pressure differences too. */
+function numbersText(equipment: boolean): string {
+	const pressures = equipment
+		? 'valve and equipment pressure drops and equipment pressure losses'
+		: 'valve pressure drops';
+	return `Full precision: each number is the value the calculation server returned, converted to these units, not rounded. The app shows 4 significant figures, and heads, elevations and lengths to at least 0.01 m (or its equivalent); it shows head differences below 1×10⁻⁷ m, ${pressures} below ρg·10⁻⁷ m and branch K below 1×10⁻⁴ as ≈ 0 (round-off). The file gives them as computed. Spreadsheets display and re-save at most 15 significant digits.`;
+}
+
+/** The equipment sign row, only in a file with an Equipment sheet. */
+const EQUIPMENT_SIGN: [string, string] = [
+	'Sign: equipment flow',
+	"+ inlet → outlet; flow ÷ rated flow, the pressure loss and the head loss are signed like it; the static pressure drop, inlet minus outlet, also holds the ports' elevation and velocity terms, so its sign need not follow the flow."
+];
 
 const SIGNS: [string, string][] = [
 	['Sign: link flow', '+ from → to'],
@@ -366,6 +389,7 @@ function goalSeekContext(ctx: ExportContext) {
 		sent: gs.run.project,
 		prefs: units(ctx).prefs,
 		caseWords: gs.run.caseId === null ? 'the base case' : `scenario ${name}`,
+		caseId: gs.run.caseId,
 		...(gs.stale ? { stale: true } : {})
 	};
 	const solved = response.solvedState;
@@ -546,9 +570,14 @@ export function aboutRows(
 	for (const sheet of sheets) {
 		rows.push(['Export', csv ? `File: ${sheet.file}` : `Sheet: ${sheet.title}`, sheet.rowCount]);
 	}
-	rows.push(...unitRows(ctx));
-	rows.push(['Export', 'Numbers', NUMBERS]);
-	for (const [item, value] of SIGNS) rows.push(['Export', item, value]);
+	// Lines about equipment only with an Equipment sheet: a file without one is as before.
+	const equipment = sheets.some((sheet) => sheet.file === 'equipment.csv');
+	rows.push(...unitRows(ctx, equipment));
+	rows.push(['Export', 'Numbers', numbersText(equipment)]);
+	for (const [item, value] of SIGNS) {
+		rows.push(['Export', item, value]);
+		if (equipment && item === 'Sign: valve flow') rows.push(['Export', ...EQUIPMENT_SIGN]);
+	}
 	// Compare cases names connections by their ends now: what reads otherwise than as solved.
 	const compared = compareNotes(ctx);
 	if (compared.reversed.length) {

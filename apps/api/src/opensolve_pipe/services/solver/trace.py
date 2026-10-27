@@ -14,7 +14,8 @@ Every component and pipe connection of a solved project gets an ``ElementTrace``
 
 Units are SI strings the frontend converts (apps/web/src/lib/utils/trace.ts): 'm', 'm³/s',
 'm/s', 'Pa(g)' (gauge), 'Pa(a)' (absolute), 'Pa (difference)', 'kg/m³', 'Pa·s', 'W';
-'' for dimensionless values; anything else ('m²', 'm²/s', 'm/s²', '°', 'K') is shown as is.
+'' for dimensionless values; anything else ('m²', 'm²/s', 'm/s²', '°', 'K', 's²/m⁵' for an
+equipment element's loss coefficient c) is shown as is.
 
 Elements without a result (a closed-off section, or a solve that did not converge) still get
 their inputs, equations and sources, and a note saying why there are no values. Elements in a
@@ -39,10 +40,12 @@ from ...models.components import (
     CheckValve,
     Component,
     ControlValve,
+    Equipment,
     IdealReferenceNode,
     IsolationValve,
     Plug,
     Pump,
+    RatedPoint,
     Reservoir,
     TeeBranch,
     WyeBranch,
@@ -53,6 +56,7 @@ from ...models.results import (
     BoundaryResult,
     BranchResult,
     ElementTrace,
+    EquipmentResult,
     Flag,
     LinkResult,
     NodeResult,
@@ -63,7 +67,23 @@ from ...models.results import (
     ValveResult,
 )
 from .branches import DARBY_TEE
-from .builder import BuiltNetwork, ConnectionData, PumpData, ValveData, node_key, port_elevation
+from .builder import (
+    BuiltNetwork,
+    ConnectionData,
+    EquipmentData,
+    PumpData,
+    ValveData,
+    node_key,
+    port_elevation,
+)
+from .equipment import (
+    COEFFICIENT_POINT,
+    COEFFICIENT_SOURCE,
+    COEFFICIENT_UNITS,
+    LAW,
+    RATING_SOURCE,
+    UNIT_BORE,
+)
 from .friction import (
     COLEBROOK_ED_DOCUMENTED_MAX,
     RE_LAMINAR_MAX,
@@ -195,6 +215,7 @@ class TraceInputs:
     links: dict[str, LinkResult] = field(default_factory=dict)
     pumps: dict[str, PumpResult] = field(default_factory=dict)
     valves: dict[str, ValveResult] = field(default_factory=dict)
+    equipment: dict[str, EquipmentResult] = field(default_factory=dict)
     branches: dict[str, BranchResult] = field(default_factory=dict)
     boundaries: dict[str, BoundaryResult] = field(default_factory=dict)
     flags: list[Flag] = field(default_factory=list)
@@ -650,17 +671,25 @@ PORT_PRESSURE_EQUATION = (
 
 
 def _port_state_values(
-    t: _Trace, ctx: TraceInputs, comp: Component, labels: dict[str, tuple[str, str]] | None = None
+    t: _Trace,
+    ctx: TraceInputs,
+    comp: Component,
+    labels: dict[str, tuple[str, str]] | None = None,
+    *,
+    velocity: bool = True,
 ) -> None:
     """Velocity and static pressure at each port with a result, so that its pressure follows
     from the EGL, the port elevation input and PORT_PRESSURE_EQUATION. ``labels``: port id ->
-    (label, symbol subscript)."""
+    (label, symbol subscript). ``velocity`` False: the element's trace already gives each port's
+    velocity under the same symbol (equipment: v = Q/A, signed as its flow), so it is not
+    repeated as the port's speed |v|."""
     for port in comp.ports:
         node = ctx.nodes.get(node_key(comp.id, port.id))
         if node is None:
             continue
         label, sub = (labels or {}).get(port.id, (f"Port {port.id}", ""))
-        t.value(f"{label} velocity v{sub} (connected pipe)", node.velocity, MS)
+        if velocity:
+            t.value(f"{label} velocity v{sub} (connected pipe)", node.velocity, MS)
         t.value(f"{label} static pressure p{sub}", node.pressure, PA_G)
 
 
@@ -1844,6 +1873,195 @@ def _valve_state_notes(
                 t.note("The setpoint is met within the status tolerance without throttling.")
 
 
+# --------------------------------------------------------------------------- equipment
+
+S2M5 = "s²/m⁵"
+
+EQUIPMENT_RATED_DROP_NOTE = (
+    "The rated drop is the dissipative loss of total pressure between the ports (friction and "
+    "form), without the static head between them: the law acts on the energy grade line, and "
+    "each port's static pressure follows from its EGL with the velocity in the pipe connected "
+    "there, so the static drop also holds the ports' elevation and velocity-head terms. A "
+    "datasheet's static drop S between nozzles at different elevations or bores is entered as "
+    "S − ρ_r g (z_out − z_in) − ρ_r (v_out² − v_in²)/2, with the ports at their real elevations."
+)
+EQUIPMENT_VISCOSITY_NOTE = (
+    "The loss scales with density only. It does not account for a viscosity or Reynolds number "
+    "different from the datasheet's: with a more viscous fluid, or at flows well below the "
+    "rated flow, the real loss may be higher than this law gives."
+)
+
+
+def _density_words(rho: float, rho_r: float, symbol: str, scaled: str) -> str:
+    """The density ratio stated in words (proposal §4.1). ``scaled``: the rating scaled with
+    the flow squared ('ΔP_r (Q/Q_r)²')."""
+    ratio = rho / rho_r
+    than = "denser than" if ratio > 1.0 else "lighter than" if ratio < 1.0 else "as dense as"
+    return (
+        f"Density ratio ρ/{symbol} = {_num(ratio)}: the case fluid ({_num(rho)} kg/m³) is "
+        f"{than} the fluid the rating is for ({_num(rho_r)} kg/m³), so at any flow the pressure "
+        f"loss is {_num(ratio)} × {scaled}; the head loss does not depend on the density."
+    )
+
+
+def _equipment_trace(ctx: TraceInputs, data: EquipmentData) -> ElementTrace:
+    """Proposal equipment-pressure-drop.md §4.1: the rating as entered, the law and its
+    constants, the solved loss and static drop with each term of their identity, and the notes
+    that bound the law (rated drop, density, viscosity, reverse and laminar flow)."""
+    comp = data.component
+    rating = comp.rating
+    law = data.law
+    t = _Trace(comp.id, "equipment")
+    if isinstance(rating, RatedPoint):
+        t.input(
+            "Rated pressure drop ΔP_r (loss of total pressure, inlet → outlet)",
+            rating.pressure_loss,
+            PA_D,
+            "user",
+        )
+        t.input("Rated flow Q_r (inlet → outlet)", rating.flow, M3S, "user")
+        t.input("Rated fluid density ρ_r", rating.density, KGM3, "user")
+        symbol = "ρ_r"
+    else:
+        t.input(
+            f"Flow coefficient {rating.kind} (as entered)",
+            rating.value,
+            COEFFICIENT_UNITS[rating.kind],
+            "user",
+        )
+        symbol = "ρ_w"
+    _port_elevation_input(t, comp, "inlet", "Inlet port elevation z_in")
+    _port_elevation_input(t, comp, "outlet", "Outlet port elevation z_out")
+    for label, key, pipe in (
+        ("Inlet", data.inlet, data.inlet_pipe),
+        ("Outlet", data.outlet, data.outlet_pipe),
+    ):
+        t.input(
+            f"{label} pipe inner diameter (its end segment at the port)",
+            pipe.segment.diameter,
+            M,
+            _port_pipe_source(ctx, key),
+        )
+    _fluid(t, ctx, viscosity=True)
+    _gravity(t, ctx)
+
+    if isinstance(rating, RatedPoint):
+        t.equation("h_r = ΔP_r/(ρ_r g): the rated head loss")
+        t.equation("c = h_r/Q_r²: the loss coefficient")
+        t.equation("EGL_in − EGL_out = h = c Q|Q| = h_r (Q/Q_r)|Q/Q_r| (Q: flow inlet → outlet)")
+        t.equation(
+            "ρ g h = ΔP_r (ρ/ρ_r)(Q/Q_r)|Q/Q_r|: the pressure loss at the solved flow and the "
+            "case fluid's density ρ"
+        )
+    else:
+        dp_words, unit = COEFFICIENT_POINT[rating.kind][2:]
+        t.equation(
+            f"K = fluids.fittings.{rating.kind}_to_K({rating.kind}, D) = 1.6·10⁹ D⁴/Kv² with D "
+            "in m"
+            + ("; Kv = Cv/1.1560992283536566" if rating.kind == "Cv" else "")
+            + ", and c = K/(2 g A²), A = π D²/4: the same for every bore D (K ∝ D⁴ ∝ A²), "
+            f"evaluated at D = {UNIT_BORE:g} m"
+        )
+        t.equation("EGL_in − EGL_out = h = c Q|Q| (Q: flow inlet → outlet)")
+        t.equation(
+            f"ρ g h = (ρ/ρ_w) · {dp_words} · (Q/Q₁)|Q/Q₁| with Q₁ = {rating.kind} {unit}: the "
+            f"coefficient's rated point, {dp_words} at Q₁ on water of density "
+            "ρ_w = ΔP₁/(g c Q₁²)"
+        )
+        t.correlation(
+            f"fluids.fittings.{rating.kind}_to_K({rating.kind}, D)", f"{ISA_75} Via fluids 1.3.1."
+        )
+    t.equation(
+        "A = π D²/4, v = Q/A and Re = |v| D/ν in the end segment of the pipe connected at each "
+        "port (ν = μ/ρ)"
+    )
+    t.equation(
+        "p_in = ρ g (EGL_in − z_in − v_in²/(2g)), p_out = ρ g (EGL_out − z_out − v_out²/(2g)): "
+        "static gauge pressures at the ports"
+    )
+    t.equation(
+        "Δp_static = p_in − p_out = ρ g h + ρ g (z_out − z_in) + ρ (v_out² − v_in²)/2: the "
+        "static pressure drop"
+    )
+    t.correlation(LAW, f"{ISA_75} {DARBY}")
+    t.data("Rating", RATING_SOURCE)
+    if not isinstance(rating, RatedPoint):
+        t.data(f"{rating.kind} to K", COEFFICIENT_SOURCE)
+    t.data("Loss coefficient c", law.source)
+
+    t.value("Loss coefficient c", law.coefficient, S2M5)
+    if isinstance(rating, RatedPoint):
+        t.value("Rated head loss h_r = ΔP_r/(ρ_r g)", law.rated_head, M)
+    else:
+        dp_words, unit = COEFFICIENT_POINT[rating.kind][2:]
+        t.value(f"Rated point: pressure drop ΔP₁ ({dp_words})", law.rated_pressure, PA_D)
+        t.value(f"Rated point: flow Q₁ ({rating.kind} {unit})", law.rated_flow, M3S)
+        t.value("Rated point: head loss h₁ = c Q₁²", law.rated_head, M)
+        t.value("Water density of the definition ρ_w = ΔP₁/(g c Q₁²)", law.rating_density, KGM3)
+    result = ctx.equipment.get(comp.id)
+    rho = ctx.fluid.density
+    if result is not None:
+        q = result.flow
+        a_in, a_out = data.inlet_pipe.segment.area, data.outlet_pipe.segment.area
+        v_in, v_out = q / a_in, q / a_out
+        t.value("Flow Q (inlet → outlet)", q, M3S)
+        t.value("Flow ratio Q/Q_r", result.flow_ratio, NO_UNIT)
+        t.value("Inlet pipe velocity v_in = Q/A_in", v_in, MS)
+        t.value("Outlet pipe velocity v_out = Q/A_out", v_out, MS)
+        re_in = data.inlet_pipe.segment.reynolds(q)
+        re_out = data.outlet_pipe.segment.reynolds(q)
+        t.value("Inlet pipe Reynolds number Re_in", re_in, NO_UNIT)
+        t.value("Outlet pipe Reynolds number Re_out", re_out, NO_UNIT)
+        t.value("EGL at the inlet EGL_in", ctx.egl(data.inlet), M)
+        t.value("EGL at the outlet EGL_out", ctx.egl(data.outlet), M)
+        t.value("Head loss h = EGL_in − EGL_out (solved)", result.head_loss, M)
+        t.value("Head loss by the law c Q|Q|", law.head(q), M)
+        t.value(f"Density ratio ρ/{symbol}", rho / law.rating_density, NO_UNIT)
+        t.value("Pressure loss ρ g h", result.pressure_loss, PA_D)
+        _port_state_values(
+            t,
+            ctx,
+            comp,
+            {"inlet": ("Inlet", "_in"), "outlet": ("Outlet", "_out")},
+            velocity=False,  # v_in and v_out are above, signed as Q
+        )
+        z_in, z_out = port_elevation(comp, "inlet"), port_elevation(comp, "outlet")
+        t.value("Elevation term ρ g (z_out − z_in)", rho * ctx.g * (z_out - z_in), PA_D)
+        t.value("Velocity-head term ρ (v_out² − v_in²)/2", 0.5 * rho * (v_out**2 - v_in**2), PA_D)
+        t.value("Static pressure drop Δp_static = p_in − p_out", result.pressure_drop, PA_D)
+    t.note(EQUIPMENT_RATED_DROP_NOTE)
+    if not isinstance(rating, RatedPoint):
+        dp_words, unit = COEFFICIENT_POINT[rating.kind][2:]
+        t.note(
+            f"A {rating.kind} is a rated point on water by definition, {dp_words} at "
+            f"{rating.kind} {unit} (water of {_num(law.rating_density)} kg/m³ in fluids' "
+            f"conversion): its loss scales with ρ/ρ_w, and it needs no pipe diameter."
+        )
+    t.note(EQUIPMENT_VISCOSITY_NOTE)
+    scaled = "ΔP_r (Q/Q_r)²" if isinstance(rating, RatedPoint) else "ΔP₁ (Q/Q₁)²"
+    t.note(_density_words(rho, law.rating_density, symbol, scaled))
+    if result is not None:
+        q = result.flow
+        if q < 0.0:
+            t.note(
+                f"Reverse flow: Q = {_num(q)} m³/s < 0, from outlet to inlet. No datasheet rates "
+                "reverse flow: the loss is taken as for forward flow at the same flow rate (the "
+                "law is symmetric), and it is flagged."
+            )
+        laminar = data.laminar_pipe(q)
+        if laminar is not None:
+            side, re = laminar
+            t.note(
+                f"Laminar flow in its {side} pipe: Re = {_num(re)} < {RE_LAMINAR_MAX:g} (the "
+                "lower of the two connected pipes' Reynolds numbers at their ends). The rating "
+                "is scaled at constant K, the turbulent-flow law, so the loss is likely "
+                "underestimated; it is flagged, as a valve's Cv or Kv is."
+            )
+    _no_values_note(t, ctx, result is None)
+    _flag_notes(t, ctx)
+    return t.build()
+
+
 # --------------------------------------------------------------------------- entry point
 
 
@@ -1864,6 +2082,8 @@ def element_traces(ctx: TraceInputs) -> dict[str, ElementTrace]:
             traces[comp.id] = _branch_trace(ctx, comp)
         elif isinstance(comp, Pump):
             traces[comp.id] = _pump_trace(ctx, built.pumps[comp.id])
+        elif isinstance(comp, Equipment):
+            traces[comp.id] = _equipment_trace(ctx, built.equipment[comp.id])
         else:
             traces[comp.id] = _valve_trace(ctx, built.valves[comp.id])
     for conn_id, data in built.connections.items():

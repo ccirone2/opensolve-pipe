@@ -24,7 +24,7 @@ import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 from pydantic import BaseModel, JsonValue, ValidationError
@@ -34,7 +34,9 @@ from ..models.api import GoalSeekRequest, TopologyIssue
 from ..models.components import (
     BaseComponent,
     ControlValve,
+    Equipment,
     Pump,
+    RatedPoint,
 )
 from ..models.fluids import FluidProperties
 from ..models.goal_seek import (
@@ -72,8 +74,10 @@ from ..models.goal_seek import (
 from ..models.project import Project
 from ..models.results import MethodsSection, SolvedState
 from ..models.scenarios import (
+    ComponentField,
     ComponentOverride,
     PipeOverride,
+    ProjectField,
     ProjectOverride,
     ScenarioResult,
     override_label,
@@ -1429,13 +1433,19 @@ _ELEMENT_NEEDED: dict[str, str] = {
     "connection": "a connection",
     "pump": "a pump",
     "valve": "a valve",
+    "equipment": "an equipment item",
     "boundary": "a reservoir or reference node",
 }
 _TOLERANCE_UNITS = {"pressure": "Pa", "head": "m", "flow": "m³/s", "velocity": "m/s"}
 
 
+_WITH_ARTICLE = {"equipment": "an equipment item"}
+"""Element kinds a text names with another noun after the article (a mass noun takes 'item')."""
+
+
 def _a(noun: str) -> str:
-    return f"{'an' if noun[:1] in 'aeiou' else 'a'} {noun}"
+    """``noun`` with its indefinite article: 'a pump', 'an equipment item'."""
+    return _WITH_ARTICLE.get(noun) or f"{'an' if noun[:1] in 'aeiou' else 'a'} {noun}"
 
 
 @dataclass(frozen=True)
@@ -1456,8 +1466,10 @@ class _Var:
     case_value: JsonValue
     base_value: JsonValue
     replaced: int | None
-    whole_fluid: bool
-    """The case's scenario overrides the whole fluid: the override carries that fluid."""
+    whole: str | None
+    """The field of a whole value the case's scenario overrides and this variable's value is a
+    part of ('fluid' for fluid.temperature, 'rating' for an equipment rating's value; None
+    otherwise): the override carries that whole value (``override``)."""
     default_text: str
     """A resistance the case leaves on its default: what that default is ('' otherwise)."""
 
@@ -1473,8 +1485,35 @@ class _Var:
             holder[leaf] = x
 
     def override(self, x: float, dump: Mapping[str, Any]) -> AnyOverride:
-        """The scenario override that sets ``x`` (§4.4)."""
+        """The scenario override that sets ``x`` (§4.4). Under a whole value the case's scenario
+        overrides (``whole``), it is that whole value as ``dump`` holds it, with ``x`` at this
+        variable's place. Pass the reported evaluation's dump (``Prepared.written``, every
+        variable at its found value): then the overrides of several parts of one whole value
+        are equal, and each, applied, gives the reported state (proposal
+        equipment-pressure-drop.md §5.2). A fluid's only part is its temperature, so its
+        override is the same from either dump."""
         request = self.request
+        if self.whole is not None:
+            depth = request.field.count(".") - self.whole.count(".")
+            at = len(self.location) - depth
+            holder: Any = dump
+            for key in self.location[:at]:
+                holder = holder[key]
+            whole = copy.deepcopy(dict(holder))
+            inner: Any = whole
+            for key in self.location[at:-1]:
+                inner = inner[key]
+            inner[self.location[-1]] = x
+            if isinstance(request, ComponentVariable):
+                return ComponentOverride(
+                    kind="component",
+                    component_id=request.component_id,
+                    field=cast(ComponentField, self.whole),
+                    value=whole,
+                )
+            return ProjectOverride(
+                kind="project", field=cast(ProjectField, self.whole), value=whole
+            )
         if isinstance(request, ComponentVariable):
             value: JsonValue = (
                 {"kind": request.coefficient, "value": x} if request.coefficient is not None else x
@@ -1493,10 +1532,6 @@ class _Var:
                 field="length",
                 value=x,
             )
-        if self.whole_fluid:
-            fluid = copy.deepcopy(dict(dump["fluid"]))
-            fluid["temperature"] = x
-            return ProjectOverride(kind="project", field="fluid", value=fluid)
         return ProjectOverride(kind="project", field="fluid.temperature", value=x)
 
 
@@ -1578,6 +1613,29 @@ def _default_text(component: BaseComponent) -> str:
     return _DEFAULTS["control" if isinstance(component, ControlValve) else "crane"][0]
 
 
+def _rating_part_reason(component: Equipment, field: str) -> str:
+    """Why a value of an equipment rating does not apply: the case rates the element by the
+    other kind (proposal equipment-pressure-drop.md §5.2; ids only in componentIds, D16)."""
+    if isinstance(component.rating, RatedPoint):
+        return (
+            "the equipment is rated by a pressure drop at a flow in this case "
+            f"({field} applies to a Cv or Kv rating)"
+        )
+    return (
+        f"the equipment is rated by a {component.rating.kind} in this case "
+        f"({field} applies to a rated point)"
+    )
+
+
+def _rated_otherwise(base: object, case: object) -> bool:
+    """The base rates an equipment item by another kind than the case does (a Kv, or a point,
+    where the case's scenario rates it by a Cv): the base's number is then not a value of the
+    variable (a Kv of 60 is a Cv of about 69.4), so the variable reports no base value."""
+    if not isinstance(base, Equipment) or not isinstance(case, Equipment):
+        return False
+    return base.rating.kind != case.rating.kind
+
+
 def _resolve_variable(
     i: int,
     variable: AnyVariable,
@@ -1609,6 +1667,8 @@ def _resolve_variable(
                     "the pump has no speed control in this case (control.setpoint applies to a "
                     "speed-controlled pump)"
                 )
+            elif isinstance(component, Equipment) and variable.field.startswith("rating."):
+                message = _rating_part_reason(component, variable.field)
             else:
                 label = FIELD_LABELS.get(variable.field, variable.field)
                 message = f"{_a(kind)} has no {label} to vary"
@@ -1667,10 +1727,12 @@ def _resolve_variable(
     base_plan = plan_override(project, i, override)
     if base_plan.target is not None and base_plan.entry is not None:
         base_value = _json(_walk(base_plan.target, base_plan.entry.path))
+        if _rated_otherwise(base_plan.target, target):
+            base_value = None  # the base's number is not a value of this variable
     else:  # the base fluid is custom: its (informational) temperature, if any
         base_value = _json(_walk(project, entry.path))
     replaced: int | None = None
-    whole_fluid = False
+    whole: str | None = None
     if applied is not None:
         for o in applied.overrides:
             if o.state != "applied":
@@ -1678,8 +1740,9 @@ def _resolve_variable(
             same = override_target(o.override) == override_target(override)
             if same and o.override.field == variable.field:
                 replaced = o.index
-            elif same and variable.field == "fluid.temperature" and o.override.field == "fluid":
-                replaced, whole_fluid = o.index, True
+            elif same and variable.field.startswith(f"{o.override.field}."):
+                # a whole value holding this one (the fluid's temperature, a rating's value)
+                replaced, whole = o.index, o.override.field
     return _Var(
         index=i,
         request=variable,
@@ -1693,7 +1756,7 @@ def _resolve_variable(
         case_value=case_value,
         base_value=base_value,
         replaced=replaced,
-        whole_fluid=whole_fluid,
+        whole=whole,
         default_text=default_text,
     )
 
@@ -1904,6 +1967,16 @@ def goal_value(state: SolvedState, goal: Goal, name: str) -> tuple[float | None,
         if valve is None:
             return None, f"{name} has no result (it lies in a closed-off section)"
         value = valve.flow if q == "valve_flow" else valve.pressure_drop
+    elif q.startswith("equipment_"):
+        item = state.equipment_results.get(eid)
+        if item is None:
+            return None, f"{name} has no result (it lies in a closed-off section)"
+        if q == "equipment_flow":
+            value = item.flow
+        elif q == "equipment_pressure_loss":
+            value = item.pressure_loss
+        else:
+            value = item.pressure_drop
     else:
         boundary = state.boundary_results.get(eid)
         if boundary is None:
@@ -2233,12 +2306,17 @@ class Prepared:
     def evaluate(self) -> Evaluate:
         return _evaluator(self.dump, self.variables, self.goals)
 
-    def trial(self, xs: Sequence[float]) -> Project:
-        """The trial project of the values ``xs`` (what an evaluation solves)."""
+    def written(self, xs: Sequence[float]) -> dict[str, Any]:
+        """The case dump with the values ``xs`` written at their variables' places (the trial
+        an evaluation validates and solves)."""
         data = copy.deepcopy(self.dump)
         for var, x in zip(self.variables, xs, strict=True):
             var.write(data, x)
-        return Project.model_validate(data)
+        return data
+
+    def trial(self, xs: Sequence[float]) -> Project:
+        """The trial project of the values ``xs`` (what an evaluation solves)."""
+        return Project.model_validate(self.written(xs))
 
 
 def prepare(request: GoalSeekRequest) -> Prepared:
@@ -2314,6 +2392,10 @@ def goal_seek_case(request: GoalSeekRequest) -> GoalSeekOutcome:
     values: list[float | None] = (
         list(reported.variable_values) if reported is not None else [None] * len(variables)
     )
+    # The overrides carry whole values as the reported evaluation holds them (``_Var.override``).
+    found_dump = (
+        prepared.written(reported.variable_values) if reported is not None else prepared.dump
+    )
     variable_results = []
     for var, axis, x in zip(variables, found.axes, values, strict=True):
         at_bound: Literal["lower", "upper"] | None = None
@@ -2334,7 +2416,7 @@ def goal_seek_case(request: GoalSeekRequest) -> GoalSeekOutcome:
                 base_value=var.base_value,
                 value=x,
                 at_bound=at_bound,
-                override=var.override(x, prepared.dump) if x is not None else None,
+                override=var.override(x, found_dump) if x is not None else None,
                 replaced_override=var.replaced,
             )
         )
@@ -2392,6 +2474,10 @@ def goal_seek_case(request: GoalSeekRequest) -> GoalSeekOutcome:
     if state is not None:
         if applied is not None:
             replaced = frozenset(v.replaced for v in variables if v.replaced is not None)
-            state = annotate(state, applied, replaced, goal_seek=True)
+            parts: dict[int, list[str]] = {}  # the values replaced inside a whole rating
+            for v in variables:
+                if v.replaced is not None and v.whole is not None and v.element_id is not None:
+                    parts.setdefault(v.replaced, []).append(v.name)
+            state = annotate(state, applied, replaced, goal_seek=True, parts=parts)
         state = _annotate(state, section, _element_notes(variables, values, found.met, applied))
     return GoalSeekOutcome(result, state, applied.result() if applied is not None else None)

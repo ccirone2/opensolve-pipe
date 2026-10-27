@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Component, PipeConnection, Project } from '../api/types';
-import { deepFreeze, link, projectWith, referentialIssues } from '../testing/helpers';
+import { deepFreeze, enteredFor, link, projectWith, referentialIssues } from '../testing/helpers';
 import {
 	addBranch,
 	addComponentAtPort,
@@ -58,7 +58,8 @@ const TWO_PORT_KINDS: ComponentKind[] = [
 	'psv',
 	'fcv',
 	'tee',
-	'wye'
+	'wye',
+	'equipment'
 ];
 
 /** Schema-valid, port graph consistent (two independent checks) and backend model rules. */
@@ -90,15 +91,15 @@ function readyFor(kind: ComponentKind, project: Project): Project {
 /**
  * A new component of `kind` for a project made by readyFor. A new pump gets a curve id of its
  * own, still to be defined; here, as a user does in the pump form, it is set to use the
- * library's first curve. An assigned-flow node gets the flow a user enters where it is added
- * (it has no default; 0.004 m³/s is a made-up test input).
+ * library's first curve. An assigned-flow node gets the flow, and an equipment item the rating, a
+ * user enters where it is added (no default; made-up test inputs, testing/helpers.ts enteredFor).
  */
 function newComponent(
 	kind: ComponentKind,
 	project: Project,
 	options: Parameters<typeof createComponent>[2] = {}
 ): Component {
-	const component = createComponent(kind, project, { flow: 0.004, ...options });
+	const component = createComponent(kind, project, { ...enteredFor(kind), ...options });
 	return component.type === 'pump'
 		? { ...component, curveId: project.pumpLibrary[0]!.id }
 		: component;

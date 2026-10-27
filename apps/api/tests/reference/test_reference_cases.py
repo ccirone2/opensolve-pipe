@@ -21,7 +21,11 @@ the reference, and the head that speed implies at the reference flow, F(s, Q_ref
 s² H₀(Q_ref/s) with H₀ the case curve's PCHIP (``element_laws.pump_head``), within 0.01 m of
 the reference head (owner's answer Q6, proposal vfd-pump-modes.md §7). A case that expects a Crane
 K held across a correlation step (``stepHolds``) also checks the two splits the solver reports
-holding between (its flag's details) against the derived pair, to SPLIT_TOLERANCE.
+holding between (its flag's details) against the derived pair, to SPLIT_TOLERANCE. An equipment
+item (docs/proposals/equipment-pressure-drop.md §2.2) has its ``equipmentResults`` entry: flow
+and flow ratio (0.5 % or the flow floor; the ratio null exactly when the rating is a Cv or Kv),
+head loss (0.5 % or 0.01 m), pressure loss and static pressure drop (0.5 % or ρ·g·0.01 m), and
+the rating it echoes equal to the project's (no scenario here).
 """
 
 from collections import defaultdict
@@ -30,7 +34,7 @@ from typing import Any
 
 import pytest
 
-from opensolve_pipe.models.components import AssignedFlow, Pump
+from opensolve_pipe.models.components import AssignedFlow, Equipment, Pump
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.results import SolvedState
 from tests.reference.case_format import case_files, read_case
@@ -187,6 +191,52 @@ def _component_failures(
     return failures
 
 
+EQUIPMENT_FIELDS = {
+    "flow": ("flow", "flow"),
+    "flowRatio": ("flow_ratio", "ratio"),
+    "headLoss": ("head_loss", "head"),
+    "pressureLoss": ("pressure_loss", "pressure"),
+    "pressureDrop": ("pressure_drop", "pressure"),
+}
+"""Expected key -> (EquipmentResult attribute, D6 floor kind)."""
+
+
+def _equipment_failures(
+    project: Project, result: SolvedState, expected: dict[str, Any], density: float
+) -> list[str]:
+    """Every expected equipment result (proposal §2.2) within D6, and every equipment item of
+    the project expected, so none goes unchecked."""
+    floors = {
+        "flow": FLOW_FLOOR,
+        "ratio": FLOW_FLOOR,
+        "head": HEAD_FLOOR,
+        "pressure": density * G * HEAD_FLOOR,
+    }
+    wanted = expected.get("equipment", {})
+    failures = [
+        f"equipment {c.id} has no expected result"
+        for c in project.components
+        if isinstance(c, Equipment) and c.id not in wanted
+    ]
+    for eid, want in wanted.items():
+        got = result.equipment_results.get(eid)
+        if got is None:
+            failures.append(f"no equipment result for {eid}")
+            continue
+        component = next(c for c in project.components if c.id == eid)
+        assert isinstance(component, Equipment)
+        if got.rating != component.rating:
+            failures.append(f"equipment {eid}: rating {got.rating!r}, not {component.rating!r}")
+        for key, (attr, kind) in EQUIPMENT_FIELDS.items():
+            value = getattr(got, attr)
+            if want[key] is None or value is None:
+                if want[key] is not value:
+                    failures.append(f"equipment {eid} {key}: got {value!r}, expected {want[key]!r}")
+            elif not _within(value, want[key], floors[kind]):
+                failures.append(f"equipment {eid} {key}: got {value!r}, expected {want[key]!r}")
+    return failures
+
+
 def _step_hold_failures(result: SolvedState, expected: dict[str, Any]) -> list[str]:
     """The step and the two splits of every expected step hold, from the solver's
     CORRELATION_OUT_OF_RANGE flag on that branch (details step, splitA, splitB)."""
@@ -272,6 +322,7 @@ def test_reference_case(case_path: Path) -> None:
         + _check_flags(result, expected.get("flags", []))
         + _component_failures(project, result, expected)
         + _step_hold_failures(result, expected)
+        + _equipment_failures(project, result, expected, fluid["density"])
     )
     assert not failures, "\n".join(failures)
 

@@ -1,4 +1,4 @@
-"""Components: the nodes of the port graph (SDD §4.2-4.9, §4.11), v1 scope."""
+"""Components: the nodes of the port graph (SDD §4.2-4.9, §4.11, §4.14), v1 scope."""
 
 from typing import Annotated, Any, ClassVar, Literal, Self
 
@@ -17,6 +17,10 @@ FCV_SETPOINT_RANGE = (0.0, 100.0)
 ASSIGNED_FLOW_RANGE = (-FCV_SETPOINT_RANGE[1], FCV_SETPOINT_RANGE[1])
 """Bounds of an assigned flow, m³/s: the flow bound of an FCV or a speed-controlled pump's
 setpoint (CLAUDE.md D11), in either direction (TSD §4.8)."""
+
+FLOW_COEFFICIENT_MAX = 1.0e7
+"""Upper bound of a flow coefficient as entered (K, Cv or Kv): a valve's resistance and an
+equipment item's Cv or Kv rating (proposal equipment-pressure-drop.md decision 3)."""
 
 
 def _component_schema_extra(schema: JsonDict, cls: type[Any]) -> None:
@@ -62,7 +66,7 @@ class FlowCoefficient(CamelModel):
     """
 
     kind: Literal["K", "Cv", "Kv"]
-    value: float = Field(gt=0, le=1.0e7)
+    value: float = Field(gt=0, le=FLOW_COEFFICIENT_MAX)
 
 
 class BaseComponent(CamelModel):
@@ -318,6 +322,115 @@ class ControlValve(_TwoPortValve):
         return self
 
 
+RATED_PRESSURE_LOSS_MAX = 1.0e8
+"""Pa (a difference): the upper bound of a PRV/PSV setpoint and of a gauge pressure
+(``ControlValve.setpoint``, ``base.GaugePressure``)."""
+RATED_DENSITY_MAX = 3.0e4
+"""kg/m³: the upper bound of a custom fluid's density (``fluids.CustomFluid.density``)."""
+
+
+class RatedPoint(CamelModel):
+    """A datasheet rating: a pressure drop at a flow, for a fluid of a stated density. Each
+    value is required and has no default: no source gives a default rating (proposal
+    equipment-pressure-drop.md decision 3)."""
+
+    kind: Literal["point"] = Field(
+        description="How the datasheet gives the rating: point, a pressure drop at a flow"
+    )
+    pressure_loss: float = Field(
+        gt=0,
+        le=RATED_PRESSURE_LOSS_MAX,
+        description=(
+            "The datasheet pressure drop at the rated flow, Pa (a difference), as the loss of "
+            "total pressure from inlet to outlet: the dissipative loss (friction and form), "
+            "without the static head between the ports. It scales to the result's pressureLoss. "
+            "It equals the static pressure difference when both ports have one elevation and "
+            "their pipes one bore. Keep the ports at their real elevations; a datasheet's static "
+            "drop S between nozzles at different elevations or bores is entered as "
+            "S - ρ_r g (z_out - z_in) - ρ_r (v_out² - v_in²)/2, with the nozzle velocities at the "
+            "rated flow"
+        ),
+    )
+    flow: float = Field(
+        gt=0,
+        le=FCV_SETPOINT_RANGE[1],
+        description=(
+            "The flow, inlet -> outlet, at which the datasheet gives that drop, m³/s. A "
+            "mass-flow rating ṁ_r is entered as ṁ_r/ρ_r"
+        ),
+    )
+    density: float = Field(
+        gt=0,
+        le=RATED_DENSITY_MAX,
+        description=(
+            "The density of the fluid the datasheet's rating is for, kg/m³, which may differ "
+            "from the fluid being solved"
+        ),
+    )
+
+
+class RatedFlowCoefficient(FlowCoefficient):
+    """A datasheet rating as a flow coefficient, stored as entered: Cv (US gpm of water at
+    1 psi) or Kv (m³/h of water at 1 bar). A FlowCoefficient narrowed to Cv and Kv, converted as
+    a valve's (services/solver/valves.k_from_coefficient); a K needs the bore it refers to (not
+    in v1)."""
+
+    kind: Literal["Cv", "Kv"] = Field(
+        description=(
+            "How the datasheet gives the rating: Cv (US gpm of water at 1 psi) or Kv (m³/h of "
+            "water at 1 bar)"
+        )
+    )
+    value: float = Field(
+        gt=0,
+        le=FLOW_COEFFICIENT_MAX,
+        description=(
+            "The flow coefficient as the datasheet prints it: Cv in US gpm of water at 1 psi, Kv "
+            "in m³/h of water at 1 bar, stored as entered (as a valve's resistance). It is a "
+            "rated point on water (999.297 kg/m³, fluids' Kv_to_K): the loss scales with the "
+            "square of the flow and with density, and needs no pipe diameter"
+        ),
+    )
+
+
+def _rating_tag(value: object) -> str | None:
+    kind = value.get("kind") if isinstance(value, dict) else getattr(value, "kind", None)
+    return "point" if kind == "point" else "coefficient" if kind in ("Cv", "Kv") else None
+
+
+EquipmentRating = Annotated[
+    Annotated[RatedPoint, Tag("point")] | Annotated[RatedFlowCoefficient, Tag("coefficient")],
+    Discriminator(
+        # A callable discriminator, as FluidDefinition's, so that an unknown kind (a K included)
+        # gets the custom error below: pydantic's own message quotes the submitted tag, and
+        # errors never echo input (SDD §5.1.2).
+        _rating_tag,
+        custom_error_type="invalid_rating",
+        custom_error_message="unknown rating kind (expected 'point', 'Cv' or 'Kv')",
+    ),
+]
+"""An equipment item's rating: a rated point, or a Cv or Kv (proposal decision 22)."""
+
+
+class Equipment(BaseComponent):
+    """A passive element given by its datasheet (one side of a heat exchanger, a coil, a
+    strainer, a filter): a pressure drop at a rated flow, or a Cv or Kv, scaled with the square
+    of the flow and with density (SDD §4.14). It has no status: it always passes flow."""
+
+    PORT_IDS = ("inlet", "outlet")
+    PORT_ROLES: ClassVar[dict[str, PortRole]] = {"inlet": "inlet", "outlet": "outlet"}
+
+    type: Literal["equipment"]
+    rating: EquipmentRating = Field(
+        description=(
+            "The datasheet rating, with no default: a pressure drop at a flow for a fluid of a "
+            "stated density (point), or a Cv or Kv (a rated point on water). The loss of total "
+            "pressure from inlet to outlet is c·Q|Q| on the EGL, c from the rating (constant K: "
+            "scaled with the square of the flow and with density)"
+        )
+    )
+
+
 _VALVE_FAMILY = {
     "gate": "isolation",
     "ball": "isolation",
@@ -360,7 +473,8 @@ Component = Annotated[
     | Annotated[Pump, Tag("pump")]
     | Annotated[IsolationValve, Tag("valve:isolation")]
     | Annotated[CheckValve, Tag("valve:check")]
-    | Annotated[ControlValve, Tag("valve:control")],
+    | Annotated[ControlValve, Tag("valve:control")]
+    | Annotated[Equipment, Tag("equipment")],
     Discriminator(
         _component_tag,
         custom_error_type="invalid_component",

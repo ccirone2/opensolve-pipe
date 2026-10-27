@@ -4,7 +4,8 @@ vfd-pump-modes.md §4.5 at its tolerance edges, the closed-form implied speed, t
 generator profile, the EPANET substitutes, the control search's split of distinct valid states
 into multiple states and alternatives at rest, the networks without a steady state that
 assigned flows make (``checks.assigned_flow_expectations``), the 'assigned_flow' generator
-profile and its EPANET demands, ``compare --ignore`` and ``--ignore-null``, and the check of
+profile and its EPANET demands, ``compare --ignore``, ``--ignore-null`` and ``--ignore-empty``,
+and the check of
 pumps and valves without a result (``checks.missing_result_problems``: a result deleted from a
 solve where flow runs, in a floating section or from a dead-headed pump is reported, and the
 results the rule leaves out are not). Fast; no EPANET run (the WNTR model build is skipped where
@@ -514,6 +515,62 @@ def test_compare_ignore_null(tmp_path: Path) -> None:
     write(b, "p", {"x": [1, 2]})
     _, diff = compare.compare_dirs(a, b, ignore_null=["x.*"])
     assert diff == 1
+
+
+def test_compare_ignore_empty(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """--ignore-empty leaves out a map that is empty or absent on both sides (the result map
+    every solved state gained with equipment, proposal equipment-pressure-drop.md §3.5), and
+    compares it anywhere else: a non-empty value is still a difference."""
+    a, b = tmp_path / "a", tmp_path / "b"
+    item = {"flow": 0.01, "headLoss": 1.0, "rating": {"kind": "Kv", "value": 60.0}}
+    write(a, "p", {"x": 1})  # a dump from before the map
+    write(b, "p", {"x": 1, "equipmentResults": {}})
+    _, diff = compare.compare_dirs(a, b)
+    assert diff == 1
+    lines, diff = compare.compare_dirs(a, b, ignore_empty=["equipmentResults"])
+    assert diff == 0
+    assert "ignored equipmentResults (empty or absent): 1 values in 1 projects" in lines
+    # an equipment result where the old dump has none is a difference (--ignore would hide it)
+    write(b, "p", {"x": 1, "equipmentResults": {"E1": item}})
+    lines, diff = compare.compare_dirs(a, b, ignore_empty=["equipmentResults"])
+    assert diff == 1
+    assert "ignored equipmentResults (empty or absent): 0 values in 0 projects" in lines
+    _, diff = compare.compare_dirs(a, b, ["equipmentResults"])
+    assert diff == 0
+    # empty on both sides (a map or a list) is left out; null is not empty, so it is compared
+    write(a, "p", {"x": 1, "equipmentResults": {}})
+    write(b, "p", {"x": 1, "equipmentResults": []})
+    _, diff = compare.compare_dirs(a, b, ignore_empty=["equipmentResults"])
+    assert diff == 0
+    write(b, "p", {"x": 1, "equipmentResults": None})
+    _, diff = compare.compare_dirs(a, b, ignore_empty=["equipmentResults"])
+    assert diff == 1
+    # equal values that are not empty compare as usual, and a changed one shows
+    write(a, "p", {"equipmentResults": {"E1": item}})
+    write(b, "p", {"equipmentResults": {"E1": item}})
+    lines, diff = compare.compare_dirs(a, b, ignore_empty=["equipmentResults"])
+    assert diff == 0
+    assert "ignored equipmentResults (empty or absent): 0 values in 0 projects" in lines
+    write(b, "p", {"equipmentResults": {"E1": {**item, "flow": 0.02}}})
+    _, diff = compare.compare_dirs(a, b, ignore_empty=["equipmentResults"])
+    assert diff == 1
+    # a path matches at its depth only, with wildcards; a value under it is not empty
+    write(a, "p", {"r": {"P1": {"c": []}, "P2": {}}})
+    write(b, "p", {"r": {"P1": {}, "P2": {"c": {}}}})
+    lines, diff = compare.compare_dirs(a, b, ignore_empty=["r.*.c"])
+    assert diff == 0
+    assert "ignored r.*.c (empty or absent): 2 values in 1 projects" in lines
+    _, diff = compare.compare_dirs(a, b, ignore_empty=["r.c"])
+    assert diff == 1
+    write(b, "p", {"r": {"P1": {}, "P2": {"c": {"k": 1}}}})
+    _, diff = compare.compare_dirs(a, b, ignore_empty=["r.*.c"])
+    assert diff == 1
+    # the command line
+    write(b, "p", {"r": {"P1": {}, "P2": {"c": {}}}})
+    with pytest.raises(SystemExit) as stop:
+        compare.main([str(a), str(b), "--ignore-empty", "r.*.c"])
+    assert stop.value.code == 0
+    assert "ignored r.*.c (empty or absent): 2 values in 1 projects" in capsys.readouterr().out
 
 
 # --------------------------------------------------------------------------- missing results

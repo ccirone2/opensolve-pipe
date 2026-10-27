@@ -64,6 +64,30 @@ function unionMembers(union: JsonObject): string[] {
 		.filter((name): name is string => !!name);
 }
 
+/**
+ * Whether schema `name` is a member of a union a value is told apart in by its `kind` (a fluid, an
+ * equipment rating): a value held by such a schema must be of that member (holderSchema).
+ */
+function kindUnionOf(name: string): 'fluid' | 'rating' | null {
+	if ([...FLUID_SCHEMAS.values()].includes(name)) return 'fluid';
+	if ([...RATING_SCHEMAS.values()].includes(name)) return 'rating';
+	return null;
+}
+
+/**
+ * Whether `holder` (an object found at a value's path) is a holder of schema `name`, as the API's
+ * holder test (`isinstance`, services/scenarios.plan_override) decides it: a member of a union
+ * told apart by `kind` (a fluid, an equipment rating) must be that member; any other holder (a
+ * component, a pump's control) need only exist.
+ */
+export function holdsSchema(holder: unknown, name: string): boolean {
+	if (!isRecord(holder)) return false;
+	const union = kindUnionOf(name);
+	if (union === 'fluid') return fluidSchemaName(holder.kind) === name;
+	if (union === 'rating') return ratingSchemaName(holder.kind) === name;
+	return true;
+}
+
 /** Every `x-` extension keyword used in the schemas (annotations, not validation keywords). */
 export function schemaExtensions(): string[] {
 	const found = new Set<string>();
@@ -137,6 +161,29 @@ const FLUID_SCHEMAS: ReadonlyMap<unknown, string> = new Map(
 /** The schema a fluid definition is validated against, by its kind; null when none matches. */
 export function fluidSchemaName(kind: unknown): string | null {
 	return FLUID_SCHEMAS.get(kind) ?? null;
+}
+
+/**
+ * The rating schemas of the `Equipment.rating` union, by each `kind` a member allows: its `kind`
+ * const (a rated point) or enum (Cv and Kv share one schema), read from the members, never copied
+ * (proposal equipment-pressure-drop.md decision 22, §6.4).
+ */
+const RATING_SCHEMAS: ReadonlyMap<unknown, string> = new Map(
+	unionMembers(property('Equipment', 'rating')).flatMap((name) => {
+		const kind = property(name, 'kind');
+		const kinds = Array.isArray(kind.enum) ? kind.enum : [kind.const];
+		return kinds.map((k): [unknown, string] => [k, name]);
+	})
+);
+
+/** The schema an equipment rating is validated against, by its kind; null when none matches. */
+export function ratingSchemaName(kind: unknown): string | null {
+	return RATING_SCHEMAS.get(kind) ?? null;
+}
+
+/** The rating kinds the `Equipment.rating` union allows, in its members' order. */
+export function ratingKinds(): unknown[] {
+	return [...RATING_SCHEMAS.keys()];
 }
 
 /** The override schemas of the `Scenario.overrides` union, by their `kind`. */

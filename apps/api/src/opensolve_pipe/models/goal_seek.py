@@ -38,6 +38,7 @@ from .components import (
     BaseComponent,
     CheckValve,
     ControlValve,
+    Equipment,
     FlowCoefficient,
     IdealReferenceNode,
     IsolationValve,
@@ -67,6 +68,10 @@ VariableComponentField = Literal[
     "surfacePressure",
     "pressure",
     "flow",
+    "rating.pressureLoss",
+    "rating.flow",
+    "rating.density",
+    "rating.value",
 ]
 """The numeric overridable values of components (x-goal-variables gives each type's)."""
 VariablePipeField = Literal["length"]
@@ -96,9 +101,12 @@ class Variable:
         return self.schema or self.entry.holder or target
 
 
-LOG_FIELDS = frozenset({"length", "resistance"})
-"""Values searched in log x: both are > 0 by their field bounds, and span decades (a K from 0.01
-to 10⁵), proposal §1.2 decision 6."""
+LOG_FIELDS = frozenset(
+    {"length", "resistance", "rating.pressureLoss", "rating.flow", "rating.value"}
+)
+"""Values searched in log x: each is > 0 by its field bounds, and spans decades (a K from 0.01
+to 10⁵), proposal §1.2 decision 6; an equipment item's rated pressure drop, rated flow and Cv or
+Kv likewise (equipment-pressure-drop.md decision 15; its rated density is linear)."""
 
 _NUMBER_IN: dict[type[BaseModel], tuple[str, ...]] = {FlowCoefficient: ("value",)}
 """Values that are a model holding one number: the attributes to it."""
@@ -144,6 +152,7 @@ NOT_VARIABLES: dict[str, str] = {
     "status": "discrete: set it in a scenario and compare cases",
     "spec": "a library choice replaced as a group, not a number",
     "fluid": "a whole definition; vary its temperature",
+    "rating": "a whole rating, a rated point or a flow coefficient; vary one of its values",
 }
 """Allow-list fields that are not variables, with the reason."""
 
@@ -292,10 +301,13 @@ GoalQuantity = Literal[
     "pump_npsh_margin",
     "valve_flow",
     "valve_pressure_drop",
+    "equipment_flow",
+    "equipment_pressure_loss",
+    "equipment_pressure_drop",
     "boundary_outflow",
 ]
 Category = Literal["pressure", "head", "flow", "velocity"]
-ElementKind = Literal["port", "connection", "pump", "valve", "boundary"]
+ElementKind = Literal["port", "connection", "pump", "valve", "equipment", "boundary"]
 
 RELATIVE_TOLERANCE = 0.005
 """The default tolerance's relative part, D6's 0.5 %."""
@@ -383,6 +395,23 @@ GOAL_QUANTITIES: dict[str, QuantitySpec] = {
     "valve_flow": QuantitySpec("m³/s", "flow", "valve", _VALVES, "flow through {element}"),
     "valve_pressure_drop": QuantitySpec(
         "Pa (difference)", "pressure", "valve", _VALVES, "pressure drop across {element}"
+    ),
+    "equipment_flow": QuantitySpec(
+        "m³/s", "flow", "equipment", (Equipment,), "flow through {element}"
+    ),
+    "equipment_pressure_loss": QuantitySpec(
+        "Pa (difference)",
+        "pressure",
+        "equipment",
+        (Equipment,),
+        "pressure loss across {element}",
+    ),
+    "equipment_pressure_drop": QuantitySpec(
+        "Pa (difference)",
+        "pressure",
+        "equipment",
+        (Equipment,),
+        "static pressure drop across {element}",
     ),
     "boundary_outflow": QuantitySpec(
         "m³/s", "flow", "boundary", (Reservoir, IdealReferenceNode), "outflow of {element}"
@@ -619,7 +648,11 @@ class VariableResult(OutputModel):
         description="The case's value of the field, SI (a resistance: its FlowCoefficient or null)"
     )
     base_value: JsonValue = Field(
-        description="The base project's value (equal to caseValue for a base run)"
+        description=(
+            "The base project's value (equal to caseValue for a base run); null where the base "
+            "holds no value of this variable (an equipment item the base rates by another kind: "
+            "a point, or the other of Cv and Kv)"
+        )
     )
     value: float | None = Field(description="At the reported evaluation (null: none usable)")
     at_bound: Literal["lower", "upper"] | None = Field(

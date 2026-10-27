@@ -9,7 +9,7 @@ You are continuing **OpenSolve Pipe**, a free, browser-based steady-state hydrau
 ## 1. Read first
 
 1. `docs/GOALS.md`: the priority order (correctness → traceability → longevity → accessibility → privacy → usability → breadth) and the feature gates. Every judgment call starts here.
-2. `CLAUDE.md`: decisions D1–D13. These record how v1 was actually built and why; treat them as binding.
+2. `CLAUDE.md`: decisions D1–D18. These record how v1 was actually built and why; treat them as binding.
 3. `docs/TSD.md` §4–§5 and §10, and `docs/SDD.md` §4–§5. They describe the implementation as built.
 4. `docs/prompts/build-v1.md` §2 (non-negotiables) and §5 (reference-suite rules). They still apply in full.
 
@@ -28,21 +28,31 @@ Session 3 (2026-10-23 to 10-25) added, each with every gate green and CI passing
 - `7d5338a`: METHOD_VERSION 1.2.0 (a round-off-aware energy stop test and the `NOT_CONVERGED` flag rule) and **D13**, the owner's same-answer rule;
 - design records, not built: `docs/proposals/vfd-slice2-discharge-pressure.md` (slice 2 and C1, shelved by D13).
 
-Verified state at `7d5338a`:
+Session 4 (2026-10-25 to 10-26) added, each from a design proposal in `docs/proposals/` with its as-built record:
+- `4ccdf9f`: **D14**, deployed is not stable;
+- `3eaf6ca`: the scenario manager (D15); `6d60ad4` and `e0dff4b`: the API offers the source of the commit it runs (AGPL-3.0 §13);
+- `d700ba1`: goal seek (D16); `7babcc6`: a valve resistance the solver cannot represent is a topology issue;
+- `490e057`: system-curve reasons and topology issues in names and display units;
+- `bbafbff`: export (D17);
+- the UI/UX refinement PRs (proposal `ui-ux-refinement.md`): results near the top (#231), results in context in Build (#235), the Summary and sortable tables (#236), the splitter (#238), the breadcrumb (#242), and `1b9e7ec` (#241: a solve's connection values read on the connection as it is now);
+- `3da03c1` (#240): the fuzz check that a pump or valve without a result has none by the documented rule;
+- the equipment pressure-drop element (**D18**, `METHOD_VERSION` 1.3.0), built on `3da03c1` from `docs/proposals/equipment-pressure-drop.md`.
+
+Verified state with the equipment element (D18):
 
 | Area | Result |
 |---|---|
-| API pytest | 3,690 passed (97% coverage of `opensolve_pipe` at `d78a8ef`) |
+| API pytest | 5,038 passed |
 | API ruff, ruff format, mypy strict, pipe data | clean |
-| Web svelte-check, Prettier + ESLint | clean |
-| Web Vitest | 531 passed |
-| Web Playwright (desktop 1280×800 and mobile 390×844, one worker) | 77 passed, 3 skipped by design (mobile-only checks) |
+| Web svelte-check, Prettier + ESLint | clean (svelte-check: 0 errors, 0 warnings in 732 files) |
+| Web Vitest | 1,088 passed (83 files) |
+| Web Playwright (desktop 1280×800 and mobile 390×844, one worker) | 141 passed (the 4 `equipment` flows on each), 7 skipped by design (each a check for the other viewport) |
 
-**Reference suite** (`apps/api/tests/reference/`): 110 cases, 98 closed-form and 12 run through EPANET 2.2 via WNTR 1.5.0. Every component type, fluid and pump control state has at least one case.
-- Closed-form cases: worst deviation 9e-7 relative in flow and 3.7 µm in EGL (the large-head round-off case agrees to one float64 step at 4·10⁹ m).
-- EPANET cases: worst 0.084% in flow and 16.4 mm in EGL on a 19.7 m head (EPANET's g = 32.2 ft/s² bias, 0.17 of the D6 tolerance).
+**Reference suite** (`apps/api/tests/reference/`): 125 cases, 110 closed-form and 15 run through EPANET 2.2 via WNTR 1.5.0, plus the metamorphic scenario and goal-seek files; 1,850 tests passed. Every component type, fluid and pump control state has at least one case.
+- Closed-form cases: worst deviation 9e-7 relative in flow (`psv_open_pump_dead_headed`) and 3.7 µm in EGL (`twin_lines_crane_rung`), unchanged by D18, whose cases' worst are 2.7e-7 and 1.9 µm (the large-head round-off case agrees to one float64 step at 4·10⁹ m). The equipment cases agree to about 10⁻¹⁶ (Colebrook rated points), 10⁻¹⁰ (Cv and Kv: the suite's water against fluids' constant) and up to 2.8·10⁻⁷ in flow and 2·10⁻⁶ m in EGL (Swamee–Jain, the suite's form against EPANET's, D7: 1.1·10⁻⁷ on the single lines, 2.8·10⁻⁷ in the loop's bypass leg).
+- EPANET cases: worst 0.084% in flow and 16.4 mm in EGL on a 19.7 m head (EPANET's g = 32.2 ft/s² bias, 0.17 of the D6 tolerance); the three equipment cases differ by 4.2–4.5·10⁻⁴ in flow (the loop's bypass leg 4.16·10⁻⁴; EPANET's rounded minor-loss constant).
 
-**Differential test** (TSD §10.4): three profiles of 3,000 random networks against EPANET, `default` (seeds 0–2,999), `flow_control` (10,000–12,999) and `assigned_flow` (20,000–22,999), each with 0 critical seeds; the 1.2.0 class tables in TSD §10.4 are the baseline.
+**Differential test** (TSD §10.4): three profiles of 3,000 random networks against EPANET, `default` (seeds 0–2,999), `flow_control` (10,000–12,999) and `assigned_flow` (20,000–22,999), each with 0 critical seeds; the 1.2.0 class tables in TSD §10.4 are the baseline, and 1.3.0 (D18) left all 9,000 records identical. `equipment_check` (TSD §10.4) replaces every active isolation valve of the corpus by an equipment item of the same loss: 1,781 valves, 0 different.
 
 **Before changing anything, re-run every gate and confirm these numbers.**
 
@@ -113,9 +123,9 @@ Pass each item through the GOALS §5 gates first. **Apply D13 (the same-answer r
 
 1. **Deployment: done by the owner (2026-10-25)** on Cloudflare Pages and Google Cloud Run (TSD §11; §11.4 lists the checks to run after each deployment). It is not a stable release (D14): until the owner declares one, the model, links, API and methods may change without migrations.
 2. **Tee and wye coverage:** blocked on a source the owner supplies (Idelchik's AEC translation and Bassett et al. 2001 are not readable here; Gardel 1957, *Bulletin technique de la Suisse romande* 83, is on e-periodica behind a human-verification page, and may cover only the patterns already built).
-3. **Next feature: the owner's choice.** The scenario manager (D15), goal seek (D16) and export (D17) are built. Candidates, in the PRD's order: relief valves, HI viscosity correction (needs a source in hand), and goal seek's Later items (PRD §3.9; `docs/proposals/goal-seek.md` §10: saved setups, a start value, more goals, a coefficient select, more than one goal seek in the pool). Each ships as one verified slice with reference cases and traces.
+3. **Next feature: the owner's choice.** The scenario manager (D15), goal seek (D16), export (D17) and the equipment element (D18) are built. Candidates, in the PRD's order: relief valves, HI viscosity correction (needs a source in hand), equipment's Later items (`docs/proposals/equipment-pressure-drop.md` §9: a K on a stated diameter, a head or mass-flow rating, a pressure-drop curve, a viscosity correction, which needs geometry or a cited correlation per type, and an `equipment` fuzz profile once the element gains behaviour an open valve does not have), and goal seek's Later items (PRD §3.9; `docs/proposals/goal-seek.md` §10: saved setups, a start value, more goals, a coefficient select, more than one goal seek in the pool). Each ships as one verified slice with reference cases and traces.
 4. **Shelved (D13):** speed-controlled pumps slice 2 (discharge pressure) and C1 (an exact Newton step for an active PRV's velocity-head term). Their design and measurements are in `docs/proposals/vfd-slice2-discharge-pressure.md`; the owner's answers there are provisional notes. Revisit with a simpler design under D13 if the owner asks for slice 2 again. The PRV slow lag is TSD §12's open item "Slow convergence of an active PRV" (open item 5).
-5. **Decided and done:** the owner's TSD §12 decisions of 2026-10-23 (setpoint rule, system curves, drooping curves kept, Cancel); the "default" label rule (D10); the scenario manager (D15); goal seek (D16, TSD §12 item 11); export (D17, TSD §12 item 12; its by-hand checks, TSD §10.3: the workbook in Excel for Android and the chart image on Android are recorded, the rest is still to do).
+5. **Decided and done:** the owner's TSD §12 decisions of 2026-10-23 (setpoint rule, system curves, drooping curves kept, Cancel); the "default" label rule (D10); the scenario manager (D15); goal seek (D16, TSD §12 item 11); export (D17, TSD §12 item 12; its by-hand checks, TSD §10.3: the workbook in Excel for Android and the chart image on Android are recorded, the rest is still to do); the equipment element (D18, TSD §12 item 13; `goal_seek_check` for 1.3.0 over the whole corpus: 5,151 projects, 15,405 goal seeks, 0 violations).
 6. **Known gaps, closed:** a pump or valve reported without a result must have none by the documented rule (`checks.missing_result_problems`, measured by `missing_result_check.py`, TSD §10.4); the pump chart words system-curve messages with names and display units (`utils/system-curve-text.ts`).
 
 ## 7. Report

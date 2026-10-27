@@ -21,6 +21,7 @@ import {
 	assignedFlowTable,
 	boundaryTable,
 	branchTable,
+	equipmentTable,
 	fittingTable,
 	Formatter,
 	HEAD_NOISE,
@@ -53,6 +54,7 @@ const SI: Readonly<Record<string, UnitId>> = {
 	pressure: 'Pa',
 	flow: 'm3/s',
 	velocity: 'm/s',
+	density: 'kg/m3',
 	power: 'W',
 	fraction: '',
 	dimensionless: ''
@@ -108,7 +110,15 @@ function checkFields<T>(
 				// …whose unit label is the base unit's (none for a pure number or a 0–1 fraction).
 				// A pressure's marker, (g) or (a), aside.
 				const column = t.sheet.columns[t.labels.indexOf(label)]!;
-				const base = { m: 'm', Pa: 'Pa', 'm3/s': 'm³/s', 'm/s': 'm/s', W: 'W', '': '' };
+				const base = {
+					m: 'm',
+					Pa: 'Pa',
+					'm3/s': 'm³/s',
+					'm/s': 'm/s',
+					'kg/m3': 'kg/m³',
+					W: 'W',
+					'': ''
+				};
 				expect((column.unit ?? '').replace(/\((g|a)\)$/, ''), `${t.sheet.id} ${label}`).toBe(
 					base[SI[category] as keyof typeof base]
 				);
@@ -196,6 +206,24 @@ const valveFields: Field<Valve>[] = [
 	['Flow setpoint', (v) => (v.valveType === 'fcv' ? v.setpoint : null), 'flow']
 ];
 
+type Equipment = SolvedState['equipmentResults'][string];
+/** The Equipment sheet's number columns (§5.4 of equipment-pressure-drop.md). */
+const equipmentFields: Field<Equipment>[] = [
+	['Flow (+ inlet → outlet)', (e) => e.flow, 'flow'],
+	['Flow ÷ rated flow', (e) => e.flowRatio, 'fraction'],
+	['Pressure loss', (e) => e.pressureLoss, 'pressure'],
+	['Head loss', (e) => e.headLoss, 'head'],
+	['Pressure drop, static', (e) => e.pressureDrop, 'pressure'],
+	[
+		'Rated pressure drop (loss)',
+		(e) => (e.rating.kind === 'point' ? e.rating.pressureLoss : null),
+		'pressure'
+	],
+	['Rated flow', (e) => (e.rating.kind === 'point' ? e.rating.flow : null), 'flow'],
+	['Rated fluid density', (e) => (e.rating.kind === 'point' ? e.rating.density : null), 'density'],
+	['Flow coefficient', (e) => (e.rating.kind === 'point' ? null : e.rating.value)]
+];
+
 type Branch = SolvedState['branchResults'][string];
 type Boundary = SolvedState['boundaryResults'][string];
 
@@ -277,6 +305,15 @@ describe('number cells are the API values (items 1 and 2)', () => {
 				t,
 				(s, r) => s.valveResults[key(t, r, 'Valve id')]!,
 				valveFields
+			);
+		}
+		if (ids.has('equipment')) {
+			const t = readSheet(bundle, 'equipment');
+			checked += checkFields(
+				input,
+				t,
+				(s, r) => s.equipmentResults[key(t, r, 'Equipment id')]!,
+				equipmentFields
 			);
 		}
 		if (ids.has('branches')) {
@@ -524,6 +561,28 @@ describe('the screen and the file read one field in one category (item 3)', () =
 							f.value(v.setpoint, 'pressure', { gauge: true })
 						);
 					}
+				}
+			}
+			if (ids.has('equipment')) {
+				const equipment = readSheet(bundle, 'equipment');
+				const screen = equipmentTable(project, solved, prefs);
+				expect(mine(equipment).map((r) => equipment.get(r, 'Equipment id'))).toEqual(
+					screen.rows.map((r) => r.key)
+				);
+				const noise = solved.fluid.density * STANDARD_GRAVITY * HEAD_NOISE;
+				for (const row of screen.rows) {
+					const e = solved.equipmentResults[row.key]!;
+					expect(screenText(row.cells.flow)).toBe(f.num(e.flow, 'flow'));
+					expect(screenText(row.cells.flowRatio)).toBe(f.num(e.flowRatio, 'fraction'));
+					expect(screenText(row.cells.pressureLoss)).toBe(
+						valueText(f.diff(e.pressureLoss, 'pressure', noise))
+					);
+					expect(screenText(row.cells.headLoss)).toBe(
+						valueText(f.diff(e.headLoss, 'head', HEAD_NOISE))
+					);
+					expect(screenText(row.cells.pressureDrop)).toBe(
+						valueText(f.diff(e.pressureDrop, 'pressure', noise))
+					);
 				}
 			}
 			if (ids.has('branches')) {

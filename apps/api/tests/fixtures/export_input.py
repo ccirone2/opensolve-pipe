@@ -19,9 +19,11 @@ so the fixture does not change from one run to the next.
 - ``pump-transfer``: the "Pump transfer between two tanks" example, its pump's system curve and
   a finished goal seek (the pump's speed for a flow), exported as the case shown, display units.
 - ``scenarios``: a project with two scenarios, a Crane tee, a PRV, a reservoir with two ports, a
-  reference node and an assigned-flow node; one scenario changes the PRV's resistance to a Cv
-  (and a reservoir's level), the other sets a negative assigned flow (a supply) and a pipe's
-  length; names hold ``_x0041_x0042_`` (two escapes that share an underscore) and a CR, a
+  reference node, an assigned-flow node and two equipment items, a strainer rated by a pressure
+  drop at a flow and a cooler rated by a Kv (proposal equipment-pressure-drop.md §7.6); one
+  scenario changes the PRV's resistance to a Cv, a reservoir's level and the strainer's rated
+  pressure drop (a dirty strainer), the other sets a negative assigned flow (a supply) and a
+  pipe's length; names hold ``_x0041_x0042_`` (two escapes that share an underscore) and a CR, a
   formula (``=HYPERLINK(...)``) and a leading ``-``. Exported as All cases, SI base units: the
   committed workbook.
 - ``tee-fallback``: ``tests/reference/cases/tee_crane_bullhead_fallback.json``, a tee on the Darby
@@ -267,9 +269,18 @@ def _link(
     }
 
 
+STRAINER_RATING = {"kind": "point", "pressureLoss": 20000.0, "flow": 0.01, "density": 999.102621}
+"""The strainer E1's rating (test input): 20 kPa at 10 L/s on water at 15 °C."""
+COOLER_RATING = {"kind": "Kv", "value": 60.0}
+"""The cooler E2's rating (test input): Kv 60."""
+
+
 def scenario_project() -> dict[str, Any]:
-    """R1 (two ports) feeds a Crane tee T1, whose run goes through PRV1 to R2 and whose branch
-    ends at the demand AF1; R1's second port feeds the reference node R3."""
+    """R1 (two ports) feeds a Crane tee T1, whose run goes through the strainer E1 and PRV1 to
+    R2 and whose branch ends at the demand AF1; R1's second port feeds the reference node R3
+    through the cooler E2. E1's outlet pipe is a size up and E2's outlet port 0.5 m up, so each
+    element's static pressure drop differs from its pressure loss (proposal
+    equipment-pressure-drop.md §3.3)."""
     components = [
         {
             "type": "reservoir",
@@ -297,6 +308,25 @@ def scenario_project() -> dict[str, Any]:
             "elevation": 0.0,
             "setpoint": 120000.0,
             "ports": _ports("inlet", "outlet"),
+        },
+        {
+            "type": "equipment",
+            "id": "E1",
+            "name": "Y-strainer",
+            "elevation": 0.0,
+            "rating": STRAINER_RATING,
+            "ports": _ports("inlet", "outlet"),
+        },
+        {
+            "type": "equipment",
+            "id": "E2",
+            "name": "Cooler (hot side)",
+            "elevation": 0.0,
+            "rating": COOLER_RATING,
+            "ports": [
+                {"id": "inlet", "nominalSize": 0.0508},
+                {"id": "outlet", "nominalSize": 0.0508, "elevation": 0.5},
+            ],
         },
         {
             "type": "reservoir",
@@ -333,7 +363,8 @@ def scenario_project() -> dict[str, Any]:
             [_steel(20.0)],
             [{"type": "entrance_sharp", "quantity": 1, "pipeIndex": 0}],
         ),
-        _link("L2", ("T1", "run_outlet"), ("PRV1", "inlet"), [_steel(10.0)]),
+        _link("L2", ("T1", "run_outlet"), ("E1", "inlet"), [_steel(10.0)]),
+        _link("L6", ("E1", "outlet"), ("PRV1", "inlet"), [_steel(2.0, size=0.1016)]),
         _link(
             "L3",
             ("PRV1", "outlet"),
@@ -346,7 +377,8 @@ def scenario_project() -> dict[str, Any]:
             ],
         ),
         _link("L4", ("T1", "branch"), ("AF1", "port_1"), [_custom(15.0, 0.05)]),
-        _link("L5", ("R1", "port_2"), ("R3", "port_1"), [_custom(50.0, 0.05)]),
+        _link("L5", ("R1", "port_2"), ("E2", "inlet"), [_custom(50.0, 0.05)]),
+        _link("L7", ("E2", "outlet"), ("R3", "port_1"), [_custom(5.0, 0.05)]),
     ]
     return {
         "schemaVersion": 1,
@@ -354,7 +386,10 @@ def scenario_project() -> dict[str, Any]:
         "id": "fixture-export-scenarios",
         "metadata": {
             "name": "Plant water header",
-            "description": "Export fixture: a tee, a PRV and a demand, with two scenarios.",
+            "description": (
+                "Export fixture: a tee, a PRV, a demand, a strainer and a cooler, with two "
+                "scenarios."
+            ),
             "created": "2026-10-25T00:00:00Z",
             "modified": "2026-10-25T00:00:00Z",
         },
@@ -375,7 +410,9 @@ def scenario_project() -> dict[str, Any]:
             {
                 "id": "S1",
                 "name": "Cv valve",
-                "description": "The PRV with a Cv 120 trim, and a higher low tank.",
+                "description": (
+                    "The PRV with a Cv 120 trim, a higher low tank and a dirty strainer."
+                ),
                 "overrides": [
                     {
                         "kind": "component",
@@ -388,6 +425,12 @@ def scenario_project() -> dict[str, Any]:
                         "componentId": "R2",
                         "field": "liquidLevel",
                         "value": 6.0,
+                    },
+                    {
+                        "kind": "component",
+                        "componentId": "E1",
+                        "field": "rating.pressureLoss",
+                        "value": 40000.0,
                     },
                 ],
             },
@@ -423,6 +466,9 @@ def scenarios(client: TestClient, library: dict[str, Any]) -> dict[str, Any]:
         {"quantity": "portPressure", "elementId": "T1", "portId": "branch"},
         {"quantity": "boundaryOutflow", "elementId": "R1"},
         {"quantity": "assignedPressure", "elementId": "AF1"},
+        {"quantity": "equipmentFlow", "elementId": "E1"},
+        {"quantity": "equipmentPressureLoss", "elementId": "E1"},
+        {"quantity": "equipmentPressureDrop", "elementId": "E2"},
         {"quantity": "lowestPressure"},
         {"quantity": "highestVelocity"},
     ]
@@ -451,54 +497,6 @@ def tee_fallback(client: TestClient, library: dict[str, Any]) -> dict[str, Any]:
         library,
         options={"cases": "shown", "format": "xlsx", "units": "display", "link": True},
     )
-
-
-ROUND_OFF_REL = 1e-9
-ROUND_OFF_ABS = 1e-9
-"""How far a fresh run may be from the committed fixture, in SI units. The solver's last bits
-differ between CPUs (two CI runners gave 275862.7184869591 and 275862.7184869592 Pa(g) for one
-pressure, from the same commit), so the fixture is current when every number agrees with it to
-round-off and every other value exactly."""
-
-CONVERGENCE_NOISE = frozenset(
-    {"innerIterations", "outerIterations", "maxContinuityResidual", "maxEnergyResidual", "message"}
-)
-"""A solve's convergence diagnostics: iteration counts and the largest residuals below their
-stop tolerances, which are not answers (CLAUDE.md D13) and differ between CPUs by more than
-round-off; left out of the comparison (``converged`` itself is compared)."""
-
-
-def round_off_differences(fresh: Any, kept: Any, path: str = "") -> list[str]:
-    """Where ``fresh`` differs from ``kept`` by more than round-off (``ROUND_OFF_REL``,
-    ``ROUND_OFF_ABS``), convergence diagnostics aside (``CONVERGENCE_NOISE``)."""
-    if isinstance(fresh, dict) and isinstance(kept, dict):
-        if set(fresh) != set(kept):
-            return [f"{path}: keys {sorted(set(fresh) ^ set(kept))}"]
-        out: list[str] = []
-        for key in fresh:
-            if path.endswith("convergence") and key in CONVERGENCE_NOISE:
-                continue
-            out += round_off_differences(fresh[key], kept[key], f"{path}.{key}" if path else key)
-        return out
-    if isinstance(fresh, list) and isinstance(kept, list):
-        if len(fresh) != len(kept):
-            return [f"{path}: {len(fresh)} items against {len(kept)}"]
-        out = []
-        for i, (a, b) in enumerate(zip(fresh, kept, strict=True)):
-            out += round_off_differences(a, b, f"{path}[{i}]")
-        return out
-    numbers = (int, float)
-    if (
-        (isinstance(fresh, float) or isinstance(kept, float))
-        and not isinstance(fresh, bool)
-        and not isinstance(kept, bool)
-    ):
-        if isinstance(fresh, numbers) and isinstance(kept, numbers):
-            bound = ROUND_OFF_REL * max(abs(fresh), abs(kept)) + ROUND_OFF_ABS
-            if abs(fresh - kept) <= bound:
-                return []
-        return [f"{path}: {fresh!r} against {kept!r}"]
-    return [] if fresh == kept else [f"{path}: {fresh!r} against {kept!r}"]
 
 
 def generate() -> dict[str, Any]:

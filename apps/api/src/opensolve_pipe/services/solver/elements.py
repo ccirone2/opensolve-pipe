@@ -14,6 +14,9 @@ Pipe connection (segments in series, plus inline fittings), Darcy–Weisbach:
 Valve (open, design §2.3): h = h_c + K Q|Q| / (2 g A_ref²), slope 2 K |Q| / (2 g A_ref²), with
 K at the reference (inlet pipe) area and h_c the check valve's cracking head (0 otherwise).
 
+Equipment (proposal equipment-pressure-drop.md §3.1): h = c Q|Q|, slope 2 c |Q|, with c from
+the element's rating (a rated point, or a Cv or Kv).
+
 Pump (running, design §2.2): h = −H(Q) with H the curve at speed (``pumps.PumpCurveModel``),
 slope −dH/dQ (positive on a falling curve).
 
@@ -361,6 +364,26 @@ class ValveLaw:
 
     def evaluate(self, flow: float) -> tuple[float, float]:
         return self.cracking_head + self._c * flow * abs(flow), 2.0 * self._c * abs(flow)
+
+
+class QuadraticLossLaw:
+    """Equipment (proposal equipment-pressure-drop.md §3.1, §3.4): h = c Q|Q|, dh/dQ = 2 c |Q|,
+    c > 0 in s²/m⁵ from the element's rating (``equipment.equipment_law``).
+
+    ``ValveLaw``'s form without a cracking head, taking c itself rather than K and an area, so
+    that the valves' arithmetic stays exactly as it is. The slope is 0 at Q = 0: the GGA floors
+    it in its Jacobian only, as for every Newton link that is not a pipe
+    (``gga.JACOBIAN_FLOOR_RELATIVE``), and the law itself stays exact.
+    """
+
+    def __init__(self, coefficient: float) -> None:
+        if not (math.isfinite(coefficient) and coefficient > 0.0):
+            raise ValueError("an equipment law needs a finite c > 0")
+        self.coefficient = coefficient
+
+    def evaluate(self, flow: float) -> tuple[float, float]:
+        c = self.coefficient
+        return c * flow * abs(flow), 2.0 * c * abs(flow)
 
 
 class PumpLaw:

@@ -41,6 +41,13 @@ overrides are applied here by an independent JSON patcher (``scenario_patch.by_h
 
 The allow-list as the design states it (``scenario_patch``) must also be the one the API
 publishes in ``x-override-fields``.
+
+5. **Equipment** (docs/proposals/equipment-pressure-drop.md §5.1, §7.3): a dirty strainer (its
+   rated pressure drop), another vendor's datasheet as a whole rating of each kind (a point on
+   another fluid, a Cv, a Kv), parts of a rating, and parts the base element's kind does not
+   hold (not applicable) each solve as the hand-edited project; a rating and a part of it in one
+   scenario are rejected; bad rating values are a 400 at the override, never echoed; ratings
+   whose coefficient cannot be represented fail as the hand-edited project does (422).
 """
 
 import functools
@@ -64,14 +71,17 @@ from opensolve_pipe.main import app
 from opensolve_pipe.models.components import (
     CheckValve,
     ControlValve,
+    Equipment,
     IsolationValve,
     Pump,
+    RatedPoint,
 )
 from opensolve_pipe.models.fluids import BuiltinFluid, CustomFluid
 from opensolve_pipe.models.piping import CUSTOM_MATERIAL_ID, MAX_PIPES, PipeDefinition
 from opensolve_pipe.models.project import Project
 from tests.differential import networks
 from tests.differential.generator import ASSIGNED_FLOW, DEFAULT, FLOW_CONTROL, generate
+from tests.reference import element_laws as el
 from tests.reference.case_format import case_files
 from tests.reference.derivations import G
 from tests.reference.scenario_patch import (
@@ -79,6 +89,7 @@ from tests.reference.scenario_patch import (
     COMPONENT_FIELDS,
     PIPE_FIELDS,
     PROJECT_FIELDS,
+    RATING_PARTS,
     HandApplied,
     State,
     by_hand,
@@ -240,8 +251,8 @@ class Slot:
     kind: str
     """'<target type>.<field>': 'Pump.speed', 'PipeDefinition.spec', 'Project.fluid', ..."""
     key: tuple[Any, ...]
-    """A scenario sets each key once (a fluid and its temperature share one: a value and a part
-    of it are rejected, proposal decision 9)."""
+    """A scenario sets each key once (a fluid and its temperature share one, and an equipment
+    item's rating and its parts: a value and a part of it are rejected, proposal decision 9)."""
     target: dict[str, Any]
     field: str
     model: Any
@@ -256,8 +267,13 @@ def slots(project: Project) -> list[Slot]:
         for field in COMPONENT_FIELDS[type(c)]:
             if field == "control.setpoint" and getattr(c, "control", None) is None:
                 continue
+            if isinstance(c, Equipment) and c.rating.kind not in RATING_PARTS.get(
+                field, (c.rating.kind,)
+            ):
+                continue  # a part the element's rating kind does not hold
+            key = ("c", c.id, "rating" if field.startswith("rating") else field)
             target: dict[str, Any] = {"kind": "component", "componentId": c.id}
-            out.append(Slot(f"{type(c).__name__}.{field}", ("c", c.id, field), target, field, c))
+            out.append(Slot(f"{type(c).__name__}.{field}", key, target, field, c))
     for conn in project.connections:
         for i, pipe in enumerate(conn.piping.pipes):
             for field in PIPE_FIELDS:
@@ -340,6 +356,40 @@ def _clip(value: float, low: float, high: float) -> float:
     return min(high, max(low, value))
 
 
+RATING_BOUNDS = {
+    "pressureLoss": 1.0e8,
+    "flow": 100.0,
+    "density": 3.0e4,
+    "value": 1.0e7,
+}
+"""Upper bounds of the rating values (proposal §2.1); each is > 0."""
+
+
+def _factor(rng: random.Random) -> float:
+    """A factor that moves a rating value well beyond D6 either way."""
+    return rng.uniform(0.4, 0.8) if rng.random() < 0.5 else rng.uniform(1.25, 2.5)
+
+
+def _draw_rating(rng: random.Random, rating: Any) -> dict[str, Any]:
+    """Another datasheet: a rated point (on a fluid of 800-1200 kg/m³), a Cv or a Kv, whose
+    coefficient c is the base rating's times a drawn factor (c from the definitions,
+    ``element_laws``: c = ΔP_ref/(ρ_ref g Q_ref²))."""
+    c = el.equipment_coefficient(rating) * _factor(rng)
+    _, q_ref, _ = el.rated_reference(rating)
+    kind = rng.choice(["point", "Cv", "Kv"])
+    if kind == "point":
+        density = rng.uniform(800.0, 1200.0)
+        flow = _clip(q_ref * rng.uniform(0.5, 2.0), 1.0e-6, 100.0)
+        loss = _clip(c * density * G * flow * flow, 1.0, 1.0e8)
+        return {"kind": "point", "pressureLoss": loss, "flow": flow, "density": density}
+    if kind == "Cv":
+        dp, q_unit = el.CV_PRESSURE_DROP, el.CV_FLOW
+    else:
+        dp, q_unit = el.KV_PRESSURE_DROP, el.KV_FLOW
+    value = (dp / (el.REFERENCE_WATER_DENSITY * G * c)) ** 0.5 / q_unit
+    return {"kind": kind, "value": _clip(value, 1.0e-3, 1.0e7)}
+
+
 def draw(rng: random.Random, slot: Slot) -> Any:
     """A value of the slot's field, within its bounds, other than the base value."""
     m, field = slot.model, slot.field
@@ -369,6 +419,12 @@ def draw(rng: random.Random, slot: Slot) -> Any:
         return _clip(m.surface_pressure + rng.uniform(-20.0e3, 60.0e3), -1.0e5, 1.0e8)
     if field == "pressure":
         return _clip(m.pressure + rng.uniform(-30.0e3, 60.0e3), -1.0e5, 1.0e8)
+    if field == "rating":
+        return _draw_rating(rng, m.rating)
+    if field.startswith("rating."):
+        part = field.split(".")[1]
+        value = m.rating.model_dump(by_alias=True)[part]
+        return _clip(value * _factor(rng), 1.0e-9 * value, RATING_BOUNDS[part])
     if field == "flow":
         return 0.0 if rng.random() < 0.15 else _clip(m.flow * rng.uniform(0.6, 1.4), -100, 100)
     if field == "length":
@@ -444,6 +500,24 @@ def ignored(rng: random.Random, project: Project, n: int, keys: set[Any]) -> lis
         )
     if isinstance(project.fluid, CustomFluid) and ("fluid",) not in keys:
         candidates.append({"kind": "project", "field": "fluid.temperature", "value": _garbage(rng)})
+    rated = [
+        c
+        for c in project.components
+        if isinstance(c, Equipment) and ("c", c.id, "rating") not in keys
+    ]
+    if rated:
+        # A part the element's rating kind does not hold (never beside its whole rating, which
+        # would be a value and a part of it).
+        e = rng.choice(rated)
+        other = [f for f, kinds in RATING_PARTS.items() if e.rating.kind not in kinds]
+        candidates.append(
+            {
+                "kind": "component",
+                "componentId": e.id,
+                "field": rng.choice(other),
+                "value": _garbage(rng),
+            }
+        )
     return rng.sample(candidates, min(n, len(candidates)))
 
 
@@ -1145,6 +1219,19 @@ MALFORMED: list[tuple[str, list[dict[str, Any]]]] = [
         [_scenario("S1", "x", [_pipe("L1", "status", "off"), _component("PU1", "spec", {})])],
     ),
     ("a field outside the allow-list", [_scenario("S1", "x", [_component("PU1", "elevation", 1)])]),
+    (
+        "a rating and a part of it",
+        [
+            _scenario(
+                "S1",
+                "x",
+                [
+                    _component("E1", "rating", {"kind": "Cv", "value": 90.1234567}),
+                    _component("E1", "rating.flow", 0.01234567),
+                ],
+            )
+        ],
+    ),
     ("pipe index 100", [_scenario("S1", "x", [{**_pipe("L1", "length", 1.0), "pipeIndex": 100}])]),
     ("an unknown key", [_scenario("S1", "x", [{**_pipe("L1", "length", 1.0), SENTINEL: 1}])]),
     ("21 scenarios", [_scenario(f"S{i}", "x", []) for i in range(21)]),
@@ -1174,7 +1261,7 @@ def test_a_malformed_scenario_is_rejected_with_the_project(
         assert response.status_code == 400, response.text
         assert response.json()["error"] == "VALIDATION_ERROR"
         assert not _no_echo(response), _no_echo(response)
-        if label in ("one value twice", "a value and a part of it"):
+        if label in ("one value twice", "a value and a part of it", "a rating and a part of it"):
             assert "overrides 0 and 1" in response.text, response.text
         if label == "two scenarios with one id":
             assert "scenarios 0 and 1" in response.text, response.text
@@ -1304,3 +1391,235 @@ def test_the_published_allow_list_is_the_designs() -> None:
     assert {k: set(v) for k, v in published.items()} == mine
     literals = schemas["ComponentOverride"]["properties"]["field"]
     assert set(literals["enum"]) == set(COMPONENT_FIELD_NAMES)
+
+
+# --------------------------------------------------------------------------- 5. equipment
+
+MEG_30_AT_5C_DENSITY = 1043.4700187522
+"""kg/m³: a vendor's rating fluid, 30 % MEG at 5 °C as CoolProp gives it (proposal §7.1;
+a test input here, written as the datasheet prints it)."""
+
+EQUIPMENT_SCENARIOS: list[tuple[str, list[tuple[dict[str, Any], tuple[State, ...]]]]] = [
+    (
+        "equipment_line",
+        [
+            (
+                _scenario("S1", "Dirty strainer", [_component("E1", "rating.pressureLoss", 7.0e4)]),
+                ("applied",),
+            ),
+            (
+                _scenario(
+                    "S2",
+                    "Vendor B",
+                    [
+                        _component(
+                            "E1",
+                            "rating",
+                            {
+                                "kind": "point",
+                                "pressureLoss": 42_000.0,
+                                "flow": 0.012,
+                                "density": MEG_30_AT_5C_DENSITY,
+                            },
+                        )
+                    ],
+                ),
+                ("applied",),
+            ),
+            (
+                _scenario(
+                    "S3", "Vendor C", [_component("E1", "rating", {"kind": "Cv", "value": 120.0})]
+                ),
+                ("applied",),
+            ),
+            (
+                _scenario(
+                    "S4", "Vendor D", [_component("E1", "rating", {"kind": "Kv", "value": 75.0})]
+                ),
+                ("applied",),
+            ),
+            (
+                _scenario(
+                    "S5",
+                    "Rated flow and fluid",
+                    [
+                        _component("E1", "rating.flow", 0.02),
+                        _component("E1", "rating.density", 870.0),
+                    ],
+                ),
+                ("applied", "applied"),
+            ),
+            (
+                _scenario(
+                    "S6",
+                    "A Cv on a rated point",
+                    [
+                        _component("E1", "rating.value", 80.0),
+                        _component("E1", "rating.density", 1.2e3),
+                    ],
+                ),
+                ("not_applicable", "applied"),
+            ),
+        ],
+    ),
+    (
+        "equipment_cv_glycol",
+        [
+            (
+                _scenario("S1", "Cv 90 to 80", [_component("E1", "rating.value", 80.0)]),
+                ("applied",),
+            ),
+            (
+                _scenario(
+                    "S2",
+                    "Points on a Cv",
+                    [
+                        _component("E1", "rating.pressureLoss", 6.0e4),
+                        _component("E1", "rating.flow", 0.02),
+                        _component("E1", "rating.density", 999.0),
+                    ],
+                ),
+                ("not_applicable", "not_applicable", "not_applicable"),
+            ),
+            (
+                _scenario(
+                    "S3",
+                    "Rated on its own fluid",
+                    [
+                        _component(
+                            "E1",
+                            "rating",
+                            {
+                                "kind": "point",
+                                "pressureLoss": 35_000.0,
+                                "flow": 0.015,
+                                "density": MEG_30_AT_5C_DENSITY,
+                            },
+                        )
+                    ],
+                ),
+                ("applied",),
+            ),
+        ],
+    ),
+]
+"""Proposal §5.1's use cases on a point-rated and a Cv-rated element (test inputs), with the
+state the design gives each override: a part the base element's rating kind does not hold is
+not applicable (kept, reported, ignored)."""
+
+
+@pytest.mark.parametrize("name", [n for n, _ in EQUIPMENT_SCENARIOS])
+def test_equipment_scenarios_solve_as_the_hand_edited_project(name: str) -> None:
+    """Each scenario solves as its hand-edited project (bit for bit, apart from its record and
+    text), with the states the design gives; one that applies a value moves the solution beyond
+    D6, and the element's result echoes the rating used (proposal §2.2)."""
+    scenarios = dict(EQUIPMENT_SCENARIOS)[name]
+    base = _case(name)
+    project = {**base, "scenarios": [s for s, _ in scenarios]}
+    api = Api()
+    base_response = api.solve(base)
+    assert base_response.status_code == 200, base_response.text
+    base_state = base_response.json()["solvedState"]
+    problems = []
+    for s_index, (scenario, states) in enumerate(scenarios):
+        hand = by_hand(project, scenario)
+        assert tuple(o.state for o in hand.outcomes) == states, scenario["id"]
+        got = api.solve(project, scenario["id"])
+        applied = "applied" in states
+        want = api.solve(hand.project) if applied else base_response
+        problems += solve_problems(scenario, s_index, hand, got, want)
+        if got.status_code != 200:
+            continue
+        state = got.json()["solvedState"]
+        if applied and not _moved(base_state, state):
+            problems.append(f"{scenario['id']}: the solution did not move beyond D6")
+        components = Project.model_validate(hand.project).components
+        [e1] = [c for c in components if c.id == "E1"]
+        assert isinstance(e1, Equipment)
+        echoed = state["equipmentResults"]["E1"]["rating"]
+        if not same_json(echoed, e1.rating.model_dump(mode="json", by_alias=True)):
+            problems.append(f"{scenario['id']}: equipmentResults.E1.rating {echoed}")
+        if isinstance(e1.rating, RatedPoint) != (
+            state["equipmentResults"]["E1"]["flowRatio"] is not None
+        ):
+            problems.append(f"{scenario['id']}: flowRatio is null exactly for a Cv or Kv")
+    assert not problems, "\n".join(problems)
+
+
+EQUIPMENT_INVALID = [
+    ("rated pressure drop above 1e8", [_component("E1", "rating.pressureLoss", 1.01234567e8)]),
+    ("negative rated density", [_component("E1", "rating.density", -9.1234567)]),
+    ("zero rated flow", [_component("E1", "rating.flow", 0.0)]),
+    (
+        "a whole rating of kind K",
+        [_component("E1", "rating", {"kind": "K", "value": 1.1234567})],
+    ),
+    (
+        "an unknown rating kind",
+        [_component("E1", "rating", {"kind": SENTINEL, "value": 1.1234567})],
+    ),
+    (
+        "a rated point without its flow",
+        [
+            _component(
+                "E1", "rating", {"kind": "point", "pressureLoss": 5.0e4, "density": 1000.1234567}
+            )
+        ],
+    ),
+    ("a Cv above 1e7", [_component("E1", "rating", {"kind": "Cv", "value": 1.01234567e7})]),
+]
+"""Rating values the model rejects (proposal §2.1): a value out of its bounds, a missing value,
+and a kind that is not point, Cv or Kv (a K included): each a 400 at the override."""
+
+
+def test_invalid_equipment_ratings_are_400_at_the_override() -> None:
+    """Each invalid rating value makes its scenario a 400 (VALIDATION_ERROR), its issues at the
+    override with the hand-edited project's error codes and messages (the union's tag dropped
+    from the location, proposal §2.1), and no submitted value or name echoed; the base solves."""
+    base = _case("equipment_line")
+    scenarios = [
+        _scenario(f"B{i + 1}", f"{label} {SENTINEL}", overrides)
+        for i, (label, overrides) in enumerate(EQUIPMENT_INVALID)
+    ]
+    project = {**base, "scenarios": scenarios}
+    api = Api()
+    problems = []
+    for s_index, scenario in enumerate(scenarios):
+        sid = scenario["id"]
+        hand = by_hand(project, scenario)
+        with pytest.raises(ValidationError):
+            Project.model_validate(hand.project)
+        got, want = api.solve(project, sid), api.solve(hand.project)
+        assert want.status_code == 400, want.text
+        problems += error_problems(sid, s_index, hand, got, want) + _no_echo(got)
+    assert api.solve(project).status_code == 200
+    assert not problems, "\n".join(problems)
+
+
+def test_unrepresentable_equipment_ratings_fail_as_the_hand_edited_project() -> None:
+    """Ratings inside the bounds whose coefficient c is not a finite positive double (proposal
+    decision 10: ρ_r = Q_r = 10⁻³⁰⁰, whose Q_r² underflows to 0; a Cv of 10⁻¹⁷⁰) are a topology
+    issue (422) in a scenario as in the hand-edited project, with the scenario's id in the
+    message; the base still solves."""
+    base = _case("equipment_line")
+    tiny_point = {"kind": "point", "pressureLoss": 5.0e4, "flow": 1.0e-300, "density": 1.0e-300}
+    scenarios = [
+        _scenario("U1", "Tiny point", [_component("E1", "rating", tiny_point)]),
+        _scenario("U2", "Tiny Cv", [_component("E1", "rating", {"kind": "Cv", "value": 1.0e-170})]),
+        _scenario(
+            "U3", "Tiny Kv value", [_component("E1", "rating", {"kind": "Kv", "value": 1.0e-160})]
+        ),
+    ]
+    project = {**base, "scenarios": scenarios}
+    api = Api()
+    problems = []
+    for s_index, scenario in enumerate(scenarios):
+        hand = by_hand(project, scenario)
+        got, want = api.solve(project, scenario["id"]), api.solve(hand.project)
+        assert want.status_code == 422, want.text
+        codes = {i["code"] for i in want.json()["issues"]}
+        assert codes == {"EQUIPMENT_RATING_OUT_OF_RANGE"}, want.text
+        assert all("E1" in i["componentIds"] for i in want.json()["issues"]), want.text
+        problems += error_problems(scenario["id"], s_index, hand, got, want)
+    assert api.solve(project).status_code == 200
+    assert not problems, "\n".join(problems)

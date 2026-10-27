@@ -10,6 +10,7 @@ from typing import Any
 
 from opensolve_pipe.models.goal_seek import GOAL_QUANTITIES
 from tests.fixtures.goal_seek_cases import generate
+from tests.fixtures.round_off import round_off_differences
 
 WEB_FIXTURE = (
     Path(__file__).parents[3] / "web" / "src" / "lib" / "utils" / "__fixtures__"
@@ -44,6 +45,7 @@ def test_the_web_fixture_is_current() -> None:
         "writes it: cd ../api && uv run --quiet python -m tests.fixtures.goal_seek_cases)"
     )
     web = json.loads(WEB_FIXTURE.read_text(encoding="utf-8"))
-    assert web == json.loads(json.dumps(generate())), (
+    # To round-off: the solver's last bits differ between CPUs (round_off_differences).
+    assert round_off_differences(json.loads(json.dumps(generate())), web) == [], (
         f"{WEB_FIXTURE} is out of date: run `pnpm gen:types` in apps/web"
     )

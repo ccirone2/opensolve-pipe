@@ -24,9 +24,7 @@
 		rowIssues,
 		runProblems,
 		variableKey,
-		variableLabelOf,
-		overrideValueText,
-		foundOverrides,
+		foundValueTexts,
 		type GoalDraft,
 		type VariableChoice,
 		type VariableDraft
@@ -125,12 +123,8 @@
 		if (s.status === 'failed') return `Goal seek failed: ${s.error?.message ?? 'no answer'}.`;
 		if (s.status !== 'done' || !s.response) return '';
 		if (!s.response.result.met) return 'Goal not met; see the result.';
-		const values = foundOverrides(s.response)
-			.map(
-				(o) =>
-					`${variableLabelOf(ws.labelsProject, o)} ${overrideValueText(s.run.project, o, ws.displayUnits)}`
-			)
-			.join(', ');
+		// Each value found by its variable, never by its override (a whole rating or fluid).
+		const values = foundValueTexts(s.response, ws.goalSeekWords(s.run)).join(', ');
 		const title = s.response.result.goals.length === 1 ? 'Goal met' : 'Goals met';
 		return values ? `${title}: ${values}.` : `${title}.`;
 	}

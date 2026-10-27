@@ -9,6 +9,7 @@
 	import { hasChangeNote, type FieldChange } from '$lib/components/ui/field-mode';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
+	import { COEFFICIENT_HINTS, COEFFICIENT_LABELS } from '$lib/utils/flow-coefficient';
 	import { schemaBounds } from '$lib/utils/schema-bounds';
 
 	type Choice = 'default' | FlowCoefficient['kind'];
@@ -34,12 +35,6 @@
 	 */
 	let pending = $state<FlowCoefficient['kind'] | null>(null);
 	const choice = $derived<Choice>(value?.kind ?? pending ?? 'default');
-
-	const HINTS: Record<FlowCoefficient['kind'], string> = {
-		K: 'Loss coefficient, referenced to the velocity in the connected pipe.',
-		Cv: 'US gpm of water at 1 psi pressure drop (stored as entered).',
-		Kv: 'm³/h of water at 1 bar pressure drop (stored as entered).'
-	};
 
 	/**
 	 * K, Cv and Kv are different quantities: a stored number is never carried over to another
@@ -70,9 +65,9 @@
 		value={choice}
 		options={[
 			{ value: 'default', label: `Default: ${defaultLabel}` },
-			{ value: 'K', label: 'K (loss coefficient)' },
-			{ value: 'Cv', label: 'Cv (US flow coefficient)' },
-			{ value: 'Kv', label: 'Kv (metric flow coefficient)' }
+			{ value: 'K', label: COEFFICIENT_LABELS.K },
+			{ value: 'Cv', label: COEFFICIENT_LABELS.Cv },
+			{ value: 'Kv', label: COEFFICIENT_LABELS.Kv }
 		]}
 		{change}
 		changeNote={false}
@@ -86,7 +81,7 @@
 			category="dimensionless"
 			{units}
 			bounds={schemaBounds('FlowCoefficient', 'value')}
-			hint={HINTS[choice]}
+			hint={COEFFICIENT_HINTS[choice]}
 			warning={value ? null : `Enter ${choice} to use it; until then the default applies.`}
 			{change}
 			changeNote={false}

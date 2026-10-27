@@ -50,7 +50,7 @@ def test_a_goal_seek_returns_its_result_and_the_solved_state() -> None:
     assert parsed.success is parsed.result.met is True
     assert parsed.result.stop_reason == "met"
     assert parsed.result.method == "scan_brent"
-    assert parsed.result.method_version == "1.2.0"
+    assert parsed.result.method_version == "1.3.0"
     assert parsed.result.evaluation_limit == 60
     assert parsed.result.time_budget == workers.REQUEST_BUDGET_S
     assert parsed.scenario is None

@@ -44,6 +44,13 @@ Conversion rules (design §11; facts from research notes coolprop_wntr_epanet.md
   against the assigned flow (a pressure-driven run would deliver less where pressure is low).
 - PRV / PSV / FCV → EPANET valve of the same type between two junctions (its inlet and outlet
   ports), diameter of the inlet pipe, no minor loss (our control valves default to ideal).
+- Equipment (docs/proposals/equipment-pressure-drop.md decision 20, §7.2) → EPANET TCV between
+  two junctions at its ports' elevations, diameter of the inlet pipe's end segment, minor loss
+  0, setting K_E = 2gA²c (``element_laws.equipment_k`` on that bore): 2ΔP_r A²/(ρ_r Q_r²) for a
+  rated point, and for a Cv or Kv the K of that coefficient on the inlet bore by its definition
+  (``element_laws.k_from_flow_coefficient``, the isolation valves' path). The mapping is exact
+  for any bore; EPANET evaluates the TCV with its minor-loss constant 0.02517 K/d⁴ (ft) and
+  g = 32.2 ft/s², which ``network_check.EPANET_MODEL`` models. A TCV passes flow both ways.
   FCV setting = our flow setpoint. EPANET's PRV/PSV setting is a pressure head without velocity
   head (hset = El + setting, hydstatus.c:74, 79), ours is a static pressure at the port, i.e.
   EGL = z + p_set/(ρg) + v²/(2g) with v in the pipe on that port (design §5.3). The generator
@@ -91,6 +98,7 @@ from opensolve_pipe.models.components import (
     AssignedFlow,
     Component,
     ControlValve,
+    Equipment,
     Pump,
     Reservoir,
     TeeBranch,
@@ -99,6 +107,7 @@ from opensolve_pipe.models.fluids import CustomFluid
 from opensolve_pipe.models.piping import CUSTOM_MATERIAL_ID, PipeConnection
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.pumps import PumpCurve
+from tests.reference import derivations_equipment as de
 from tests.reference import element_laws as el
 from tests.reference.case_format import (
     Expected,
@@ -114,6 +123,7 @@ from tests.reference.case_format import (
     make_project,
     pump,
     pump_curve,
+    rated_coefficient,
     reservoir,
     write_case,
 )
@@ -178,6 +188,17 @@ def source_text(project: Project | None = None) -> str:
                 "head, ours a static pressure at the valve port, so the generator iterates "
                 "setting = p_set/(rho g) + v^2/(2g) with v from the previous EPANET run in the "
                 "pipe on that port until the setting changes by < 1e-12 m."
+            )
+        if any(isinstance(c, Equipment) for c in project.components):
+            extra += (
+                " Equipment: EPANET TCV between junctions at its ports' elevations, diameter of "
+                "the inlet pipe, minor loss 0, setting K_E = 2 g A^2 c on that bore (2 dP_r "
+                "A^2/(rho_r Q_r^2) for a rated point; for a Cv or Kv the K of that coefficient on "
+                "the inlet bore by its definition, element_laws.k_from_flow_coefficient), written "
+                "by WNTR with 11 significant digits; EPANET's TCV loss is 0.02517 K/d^4 in ft "
+                "with g = 32.2 ft/s2, 0.99908 of ours (network_check.EPANET_MODEL). Expected "
+                "equipment results from EPANET's flow and heads: loss rho g (H_in - H_out), "
+                "static drop with v in each port's pipe."
             )
         if any(isinstance(c, ControlValve) and c.valve_type == "fcv" for c in project.components):
             extra += (
@@ -561,6 +582,30 @@ def assigned_flow_network() -> Project:
     )
 
 
+def equipment_line_network() -> Project:
+    """The closed-form ``equipment_line`` network (derivations_equipment): R1 (H 12 m) → 102.3 mm
+    × 60 m → E1 (50 kPa at 15 L/s, rated on water at 15 °C; z 3 m) → 102.3 mm × 40 m → R2
+    (H 1 m)."""
+    return de.equipment_line_project(
+        pid="ref-epanet-equipment-line", title="Equipment on a line (EPANET reference)"
+    )
+
+
+def equipment_loop_network() -> Project:
+    """The closed-form ``equipment_in_loop`` network: E5 (80 kPa at 20 L/s) on one leg of a loop
+    beside a 77.9 mm bypass leg, between ideal tees, R1 (H 20 m) to R2 (H 2 m)."""
+    return de.loop_project("ref-epanet-equipment-loop", "Equipment in a loop (EPANET reference)")
+
+
+def equipment_cv_line_network() -> Project:
+    """``equipment_line`` with E1 rated Cv 90 (test input) in EPANET's water."""
+    return de.equipment_line_project(
+        rated_coefficient("Cv", de.E1_CV),
+        pid="ref-epanet-equipment-cv-line",
+        title="Equipment rated by a Cv on a line (EPANET reference)",
+    )
+
+
 def assigned_flow_pump_network() -> Project:
     """A pump at speed ratio 0.9 (the pump_network curve, H = 50 − 300 Q) lifting from S1
     (head 5 m) into a loop TA-TB-TC whose only outlets are two assigned demands, D1 (12 L/s at
@@ -645,6 +690,24 @@ EPANET_NETWORKS = {
         "EPANET junction demands: verifies a network driven by its demands (the pump's flow is "
         "their sum, its head read from its curve) against EPANET 2.2.",
     ),
+    "epanet_equipment_line": (
+        equipment_line_network,
+        "An equipment item rated 50 kPa at 15 L/s (water at 15 C) between two reservoirs, as an "
+        "EPANET TCV of the same K on its inlet pipe's bore: verifies the element's square law "
+        "and the line's flow and heads against EPANET 2.2.",
+    ),
+    "epanet_equipment_loop": (
+        equipment_loop_network,
+        "An equipment item on one leg of a loop beside a bypass leg, as an EPANET TCV: verifies "
+        "the element in a looped network (the flow split and the EGL at every node) against "
+        "EPANET 2.2.",
+    ),
+    "epanet_equipment_cv_line": (
+        equipment_cv_line_network,
+        "The equipment line with the element rated Cv 90, as an EPANET TCV whose K is that Cv's "
+        "on the inlet bore: verifies a Cv rating (a rated point on water, no pipe diameter) "
+        "against EPANET 2.2.",
+    ),
     "epanet_pump_flow_control": (
         pump_flow_control_network,
         "The pump network with its pump flow-controlled at 18 L/s within speeds 0.6 to 0.9: "
@@ -676,7 +739,7 @@ EPANET_NETWORKS = {
 
 def _node_names(project: Project) -> dict[str, str]:
     """EPANET node for every "componentId:portId": one per reservoir and ideal tee (all its
-    ports share it), one junction per port of a pump or control valve."""
+    ports share it), one junction per port of a pump, control valve or equipment item."""
     names: dict[str, str] = {}
     for component in project.components:
         if isinstance(component, Reservoir) or (
@@ -684,7 +747,7 @@ def _node_names(project: Project) -> dict[str, str]:
         ):
             for port in component.ports:
                 names[f"{component.id}:{port.id}"] = component.id
-        elif isinstance(component, Pump | ControlValve):
+        elif isinstance(component, Pump | ControlValve | Equipment):
             for port in component.ports:
                 names[f"{component.id}:{port.id}"] = f"{component.id}_{port.id}"
         elif isinstance(component, AssignedFlow):
@@ -770,7 +833,7 @@ def project_to_wntr(
             wn.add_reservoir(component.id, base_head=head)
         elif isinstance(component, TeeBranch):
             wn.add_junction(component.id, base_demand=0.0, elevation=component.elevation)
-        elif isinstance(component, Pump | ControlValve):
+        elif isinstance(component, Pump | ControlValve | Equipment):
             for port in component.ports:
                 z = component.elevation if port.elevation is None else port.elevation
                 junction = f"{component.id}_{port.id}"
@@ -814,6 +877,17 @@ def project_to_wntr(
                 valve_type=component.valve_type.upper(),
                 minor_loss=0.0,
                 initial_setting=setting,
+            )
+        elif isinstance(component, Equipment):
+            _, d_in = _port_pipe(project, f"{component.id}:inlet")
+            wn.add_valve(
+                component.id,
+                nodes[f"{component.id}:inlet"],
+                nodes[f"{component.id}:outlet"],
+                diameter=d_in,
+                valve_type="TCV",
+                minor_loss=0.0,
+                initial_setting=el.equipment_k(component.rating, d_in),
             )
 
     for connection in project.connections:
@@ -870,7 +944,7 @@ def run_epanet(
     statuses = {
         c.id: int(status_table.loc[0, c.id])
         for c in project.components
-        if isinstance(c, Pump | ControlValve)
+        if isinstance(c, Pump | ControlValve | Equipment)
     }
     return flows, heads, statuses
 
@@ -1102,6 +1176,15 @@ PUMP_CONTROL_RUNS: dict[str, Callable[[Project], ControlRun]] = {
 }
 
 
+def _equipment_ports(project: Project, run: EpanetRun, e: Equipment) -> de.Ports:
+    """An equipment item's ports in an EPANET run: its flow (inlet → outlet, from the pipe on its
+    inlet port), EPANET's heads as EGLs, and the pipes' end-segment diameters."""
+    c_in, d_in = _port_pipe(project, f"{e.id}:inlet")
+    _, d_out = _port_pipe(project, f"{e.id}:outlet")
+    q = (1.0 if c_in.to_component_id == e.id else -1.0) * run[0][c_in.id]
+    return de.ports(q, run[1][f"{e.id}:inlet"], run[1][f"{e.id}:outlet"], d_in, d_out, NU_EPANET)
+
+
 def build_case(name: str) -> ReferenceCase:
     make, description = EPANET_NETWORKS[name]
     project = make()
@@ -1111,6 +1194,8 @@ def build_case(name: str) -> ReferenceCase:
     assert fluid.kind == "custom"
     pumps: dict[str, dict[str, float | str]] = {}
     valves: dict[str, dict[str, str]] = {}
+    equipment: dict[str, dict[str, float | None]] = {}
+    pressures: dict[str, float] = {}
     flags: list[dict[str, str]] = []
     for c in project.components:
         if isinstance(c, Pump) and c.control is not None:
@@ -1131,6 +1216,14 @@ def build_case(name: str) -> ReferenceCase:
             valves[c.id] = {"state": VALVE_STATE[statuses[c.id]]}
             if valves[c.id]["state"] != "active":
                 raise ValueError(f"{name}: {c.id} is {valves[c.id]['state']} in EPANET")
+        elif isinstance(c, Equipment):
+            # The TCV stands for an element without a status: EPANET must not close it.
+            if VALVE_STATE[statuses[c.id]] == "closed":
+                raise ValueError(f"{name}: {c.id}'s TCV is closed in EPANET")
+            at = _equipment_ports(project, (flows, heads, statuses), c)
+            equipment[c.id] = de.equipment_result(c, at, fluid.density)
+            pressures |= de.port_pressures(c, at, fluid.density)
+            flags += de.equipment_flags(c, at)
     source = source_text(project)
     if control is not None:
         source += control.method
@@ -1144,9 +1237,11 @@ def build_case(name: str) -> ReferenceCase:
             dynamic_viscosity=fluid.dynamic_viscosity,
             flows=flows,
             egl=heads,
+            pressures=pressures,
             pumps=pumps,
             valves=valves,
             flags=flags + regime_flags(project, flows),
+            equipment=equipment,
         ),
     )
 

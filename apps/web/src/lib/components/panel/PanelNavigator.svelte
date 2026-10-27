@@ -6,7 +6,13 @@
 <script lang="ts">
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
-	import { missingEntry, type ComponentKind, type EnteredValues } from '$lib/utils/factory';
+	import {
+		ENTRY_KINDS,
+		missingEntries,
+		type ComponentKind,
+		type EnteredValues,
+		type MissingEntry
+	} from '$lib/utils/factory';
 	import { componentById, onwardFreePort, type NextOption } from '$lib/utils/graph';
 	import { portLabel } from '$lib/utils/labels';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
@@ -25,7 +31,7 @@
 	let firstKind = $state<ComponentKind>('reservoir');
 	/** Values entered for a kind with no default for them (see NewComponentFields). */
 	let firstValues = $state<EnteredValues>({});
-	let firstMissing = $state<string | null>(null);
+	let firstMissing = $state<readonly MissingEntry[]>([]);
 
 	/** The current component, with the values of the case shown (the walk is the same in every case). */
 	const current = $derived(
@@ -143,8 +149,8 @@
 					class="flex flex-wrap items-end gap-2"
 					onsubmit={(event) => {
 						event.preventDefault();
-						firstMissing = missingEntry(firstKind, firstValues);
-						if (!firstMissing) ws.addStandalone(firstKind, firstValues);
+						firstMissing = missingEntries(firstKind, firstValues);
+						if (!firstMissing.length) ws.addStandalone(firstKind, firstValues);
 					}}
 				>
 					<SelectField
@@ -154,16 +160,16 @@
 						class="min-w-48 flex-1"
 						onchange={(v) => {
 							firstKind = v;
-							firstMissing = null;
+							firstMissing = [];
 						}}
 					/>
-					{#if firstKind === 'assigned_flow'}
+					{#if ENTRY_KINDS.includes(firstKind)}
 						<div class="grid basis-full gap-3 sm:grid-cols-2">
 							<NewComponentFields
 								kind={firstKind}
 								units={ws.units}
 								bind:values={firstValues}
-								bind:error={firstMissing}
+								bind:errors={firstMissing}
 							/>
 						</div>
 					{/if}

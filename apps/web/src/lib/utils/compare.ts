@@ -5,8 +5,9 @@
  * Every value comes from a case's solved state; nothing is computed here but differences of
  * values the API returned, in the display units. A difference is the scenario's value minus the
  * base case's, with a true minus sign and + for an increase. A relative difference is given only
- * for quantities with a true zero (flows, velocities, a pump's head, head losses, power, speed),
- * never for gauge pressures, grade lines, elevations or NPSH margins. "Same" means the two values
+ * for quantities with a true zero (flows, velocities, a pump's head, head losses, an equipment
+ * item's pressure loss, power, speed), never for gauge pressures, static pressure drops, grade
+ * lines, elevations or NPSH margins. "Same" means the two values
  * display the same: there is no tolerance snapping (D6 and D13 are acceptance rules for solver
  * changes; differences between cases are real results of changed inputs). A case that did not
  * converge shows no values, since they are not a solution; its status row says so. A
@@ -52,6 +53,9 @@ export type Quantity =
 	| 'valvePressureDrop'
 	| 'valveState'
 	| 'valveSetpointMet'
+	| 'equipmentFlow'
+	| 'equipmentPressureLoss'
+	| 'equipmentPressureDrop'
 	| 'linkFlow'
 	| 'linkVelocity'
 	| 'linkHeadLoss'
@@ -80,7 +84,8 @@ interface Spec {
 	options?: LabelOptions;
 	/** A relative difference is meaningful (a true zero). */
 	relative?: boolean;
-	element: 'network' | 'pump' | 'valve' | 'connection' | 'port' | 'boundary' | 'assigned';
+	element:
+		'network' | 'pump' | 'valve' | 'equipment' | 'connection' | 'port' | 'boundary' | 'assigned';
 	value: (solved: SolvedState, row: CompareRow) => number | string | null | undefined;
 	/** Where a network extreme occurs, for the cell's second line. */
 	where?: (solved: SolvedState, project: Project) => string;
@@ -90,6 +95,8 @@ const pump = (s: SolvedState, r: CompareRow) =>
 	r.elementId ? s.pumpResults[r.elementId] : undefined;
 const valve = (s: SolvedState, r: CompareRow) =>
 	r.elementId ? s.valveResults[r.elementId] : undefined;
+const equipment = (s: SolvedState, r: CompareRow) =>
+	r.elementId ? s.equipmentResults[r.elementId] : undefined;
 const link = (s: SolvedState, r: CompareRow) =>
 	r.elementId ? s.linkResults[r.elementId] : undefined;
 const node = (s: SolvedState, r: CompareRow) =>
@@ -241,6 +248,28 @@ export const QUANTITIES: Readonly<Record<Quantity, Spec>> = {
 			return met === null || met === undefined ? null : met ? 'Yes' : 'No';
 		}
 	},
+	equipmentFlow: {
+		label: 'Flow',
+		category: 'flow',
+		relative: true,
+		element: 'equipment',
+		value: (s, r) => equipment(s, r)?.flow
+	},
+	equipmentPressureLoss: {
+		// The rating scaled to the solved flow and density (ρg × head loss): a true zero.
+		label: 'Pressure loss',
+		category: 'pressure',
+		relative: true,
+		element: 'equipment',
+		value: (s, r) => equipment(s, r)?.pressureLoss
+	},
+	equipmentPressureDrop: {
+		// The static difference holds the ports' elevation and velocity terms: no true zero.
+		label: 'Pressure drop',
+		category: 'pressure',
+		element: 'equipment',
+		value: (s, r) => equipment(s, r)?.pressureDrop
+	},
 	linkFlow: {
 		label: 'Flow',
 		category: 'flow',
@@ -325,6 +354,7 @@ export const ELEMENT_QUANTITIES: Readonly<Record<Spec['element'], readonly Quant
 		'pumpStatus'
 	],
 	valve: ['valveFlow', 'valveHeadLoss', 'valvePressureDrop', 'valveState', 'valveSetpointMet'],
+	equipment: ['equipmentFlow', 'equipmentPressureLoss', 'equipmentPressureDrop'],
 	connection: ['linkFlow', 'linkVelocity', 'linkHeadLoss'],
 	port: ['portPressure', 'portAbsolutePressure', 'portHgl', 'portEgl'],
 	boundary: ['boundaryOutflow', 'boundaryEgl'],
@@ -378,9 +408,10 @@ export const DEFAULT_ROW_LIMIT = 40;
 /**
  * The default rows (proposal §6.12): the network's status; each pump's flow and head, its NPSH
  * margin where the base case has one, and its speed where a case flow-controls it or changes its
- * speed; each element a scenario changes (a valve's flow and state, a reservoir's or reference
- * node's outflow, a pipe's connection flow and head loss, the fluid's density and vapor
- * pressure); each assigned-flow node's pressure; the lowest pressure and the highest velocity.
+ * speed; each element a scenario changes (a valve's flow and state, an equipment item's flow and
+ * pressure loss, a reservoir's or reference node's outflow, a pipe's connection flow and head
+ * loss, the fluid's density and vapor pressure); each assigned-flow node's pressure; the lowest
+ * pressure and the highest velocity.
  * Pumps and changed elements first, at most 40.
  */
 export function defaultRows(
@@ -410,6 +441,11 @@ export function defaultRows(
 				rows.push(
 					{ quantity: 'valveFlow', elementId: o.componentId },
 					{ quantity: 'valveState', elementId: o.componentId }
+				);
+			} else if (component?.type === 'equipment') {
+				rows.push(
+					{ quantity: 'equipmentFlow', elementId: o.componentId },
+					{ quantity: 'equipmentPressureLoss', elementId: o.componentId }
 				);
 			} else if (component?.type === 'reservoir' || component?.type === 'reference_node') {
 				rows.push({ quantity: 'boundaryOutflow', elementId: o.componentId });

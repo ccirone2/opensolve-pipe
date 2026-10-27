@@ -29,8 +29,18 @@ FIELDS = {
     "valve:prv": _ISOLATION | {"setpoint"},
     "valve:psv": _ISOLATION | {"setpoint"},
     "valve:fcv": _ISOLATION | {"setpoint"},
+    "equipment": {"rating", "rating.pressureLoss", "rating.flow", "rating.density", "rating.value"},
 }
-"""The overridable fields of each component kind, restated from the proposal's table (§2.2)."""
+"""The overridable fields of each component kind, restated from the proposal's table (§2.2) and
+equipment-pressure-drop.md §5.1."""
+
+RATING_VALUES = {
+    "point": ("pressureLoss", "flow", "density"),
+    "Cv": ("value",),
+    "Kv": ("value",),
+}
+"""The values an equipment item's rating holds, by its kind (equipment-pressure-drop.md decision
+22): a part of the other kind does not apply."""
 
 
 def _kind(component: dict[str, Any]) -> str:
@@ -62,6 +72,9 @@ def hand_patched(
             *parents, leaf = field.split(".")
             if parents and holder.get(parents[0]) is None:  # no speed control in the base
                 states.append("not_applicable")
+                continue
+            if parents == ["rating"] and leaf not in RATING_VALUES[holder["rating"]["kind"]]:
+                states.append("not_applicable")  # a value the base rating's kind does not hold
                 continue
             for name in parents:
                 holder = holder[name]
@@ -163,7 +176,38 @@ def _component_value(rng: random.Random, c: dict[str, Any], field: str) -> Any:
         return c["pressure"] * rng.uniform(0.9, 1.1) + rng.uniform(-1.0e4, 1.0e4)
     if field == "flow":
         return c["flow"] * rng.uniform(0.8, 1.2)
+    if field == "rating":
+        return _rating(rng, c["rating"])
+    if field.startswith("rating."):  # a dirty strainer's drop, or another rated flow or fluid
+        part = field.split(".", 1)[1]
+        low, high = (0.5, 2.0) if part == "pressureLoss" else (0.8, 1.25)
+        return min(c["rating"][part] * rng.uniform(low, high), RATING_MAX[part])
     raise ValueError(field)
+
+
+GRAVITY = 9.80665
+"""m/s², standard gravity (the solver's g)."""
+COEFFICIENT_C = {"Cv": 1.76758281804e8, "Kv": 1.32248132708e8}
+"""c × Cv² and c × Kv², s²/m⁵, for the loss c·Q|Q| (equipment-pressure-drop.md §3.1, fluids'
+Cv_to_K and Kv_to_K): used only to draw another datasheet's rating near the base one."""
+RATING_MAX = {"pressureLoss": 1.0e8, "flow": 100.0, "density": 3.0e4, "value": 1.0e7}
+"""Upper bounds of the rating's values (equipment-pressure-drop.md §2.1)."""
+
+
+def _rating(rng: random.Random, rating: dict[str, Any]) -> dict[str, Any]:
+    """Another datasheet's whole rating, of any kind, whose c is 0.8-1.25 times the base's."""
+    if rating["kind"] == "point":
+        c = rating["pressureLoss"] / (rating["density"] * GRAVITY * rating["flow"] ** 2)
+    else:
+        c = COEFFICIENT_C[rating["kind"]] / rating["value"] ** 2
+    c *= rng.uniform(0.8, 1.25)
+    kind = rng.choice(("point", "Cv", "Kv"))
+    if kind != "point":
+        return {"kind": kind, "value": min((COEFFICIENT_C[kind] / c) ** 0.5, RATING_MAX["value"])}
+    density = rng.uniform(800.0, 1200.0)
+    flow = min((rng.uniform(1.0e4, 1.0e5) / (density * GRAVITY * c)) ** 0.5, RATING_MAX["flow"])
+    loss = density * GRAVITY * c * flow**2
+    return {"kind": "point", "pressureLoss": loss, "flow": flow, "density": density}
 
 
 def _whole_fluid(rng: random.Random, fluid: dict[str, Any]) -> dict[str, Any]:
@@ -183,7 +227,11 @@ def draw_overrides(
     ones; in random order."""
     pairs: list[tuple[dict[str, Any], Any]] = []
     for c in project["components"]:
-        for field in sorted(FIELDS[_kind(c)]):
+        fields = sorted(FIELDS[_kind(c)])
+        if c["type"] == "equipment":  # never the whole rating and a part of it; parts of its kind
+            parts = [f"rating.{value}" for value in RATING_VALUES[c["rating"]["kind"]]]
+            fields = rng.choice([["rating"], parts])
+        for field in fields:
             if field == "control.setpoint" and not c.get("control"):
                 continue
             target = {"kind": "component", "componentId": c["id"], "field": field}
@@ -211,7 +259,7 @@ def draw_overrides(
     keys = {_key(o) for o in overrides}
     while len(overrides) < len(chosen) + ignored:
         extra = _ignored(rng, project, len(overrides))
-        if _key(extra) not in keys:  # one override per value (Scenario's rule)
+        if not _clashes(_key(extra), keys):  # one override per value (Scenario's rule)
             keys.add(_key(extra))
             overrides.append(extra)
     rng.shuffle(overrides)
@@ -223,9 +271,23 @@ def _key(override: dict[str, Any]) -> tuple[Any, ...]:
     return tuple(override.get(k) for k in keys)
 
 
+def _clashes(key: tuple[Any, ...], keys: set[tuple[Any, ...]]) -> bool:
+    """Whether an override with this key would set a value one of ``keys`` sets, or a value and
+    a part of it (a rating and rating.value): Scenario's rule, whether or not either applies."""
+    *target, field = key
+    for *other, other_field in keys:
+        if other == target and (
+            field == other_field
+            or field.startswith(f"{other_field}.")
+            or other_field.startswith(f"{field}.")
+        ):
+            return True
+    return False
+
+
 def _ignored(rng: random.Random, project: dict[str, Any], n: int) -> dict[str, Any]:
     """An orphaned or not-applicable override (a value it never applies); ``n`` makes a missing
-    component's id distinct."""
+    component's id distinct. On an equipment item, a value of the other rating kind."""
     ids = {c["id"] for c in project["components"]} | {c["id"] for c in project["connections"]}
     choice = rng.randrange(3)
     if choice == 0:
@@ -242,7 +304,12 @@ def _ignored(rng: random.Random, project: dict[str, Any], n: int) -> dict[str, A
             "value": 1.0,
         }
     c = rng.choice(project["components"])
-    field = next(
-        f for f in ("status", "liquidLevel", "pressure", "flow") if f not in FIELDS[_kind(c)]
-    )
+    if c["type"] == "equipment":  # a value its rating's kind does not hold (the holder rule)
+        held = RATING_VALUES[c["rating"]["kind"]]
+        other = sorted({v for values in RATING_VALUES.values() for v in values} - set(held))
+        field = f"rating.{rng.choice(other)}"
+    else:
+        field = next(
+            f for f in ("status", "liquidLevel", "pressure", "flow") if f not in FIELDS[_kind(c)]
+        )
     return {"kind": "component", "componentId": c["id"], "field": field, "value": 1.0}

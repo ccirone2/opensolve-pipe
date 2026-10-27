@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from tests.differential.corpus import items
+from tests.differential.corpus import items, load
 from tests.differential.goal_seek_check import (
     Api,
     Case,
@@ -27,6 +27,7 @@ from tests.differential.goal_seek_check import (
     select,
     summarize,
 )
+from tests.unit.scenario_patch import hand_patched
 
 SMOKE_FUZZ = (
     [f"fuzz_{s}" for s in range(10)]
@@ -310,6 +311,65 @@ def test_the_checks_over_a_discontinuity(
         assert draw.jump_sides, "the jump's sides were not checked"
 
 
+def test_the_checks_catch_a_whole_rating_override_that_loses_a_value_found(
+    met_draw: tuple[Api, Draw],
+) -> None:
+    """Two values of one whole rating that the scenario sets (proposal
+    equipment-pressure-drop.md §5.2): each variable's override is that whole rating with both
+    values found, and replaces the scenario's; an override that keeps the scenario's value of the
+    other part (one built from the case, not from the reported evaluation) is a violation (g)."""
+    api, _ = met_draw
+    name = "ref_equipment_line"
+    case = Case(api, name, dict(items())[name], scenario=False)
+    rating = next(c for c in case.base["components"] if c["id"] == "E1")["rating"]
+    assert rating["kind"] == "point"
+    vendor = {**rating, "pressureLoss": rating["pressureLoss"] * 1.25}  # test input
+    scenario = [{"kind": "component", "componentId": "E1", "field": "rating", "value": vendor}]
+    project = {
+        **copy.deepcopy(case.base),
+        "scenarios": [{"id": "S1", "name": "S1", "overrides": scenario}],
+    }
+    case_json, states = hand_patched(case.base, scenario)
+    assert states == ["applied"]
+    status, data = api.solve(project, "S1")
+    assert status == 200
+    part = {"kind": "component", "componentId": "E1"}
+    drawn = {
+        "variables": [
+            {**part, "field": "rating.pressureLoss", "lower": 2.0e4, "upper": 2.0e5},
+            {**part, "field": "rating.flow", "lower": 0.005, "upper": 0.05},
+        ],
+        "goals": [
+            {"quantity": "equipment_flow", "elementId": "E1", "target": 0.012},
+            {"quantity": "equipment_pressure_loss", "elementId": "E1", "target": 9.0e4},
+        ],
+        "kind": "interior",
+    }
+    draw = Draw(
+        api,
+        random.Random(name),
+        case.base,
+        project,
+        case_json,
+        data["solvedState"],
+        scenario,
+        drawn,
+    )
+    draw.run()
+    assert not draw.violations, draw.violations
+    variables = draw.responses[0]["result"]["variables"]
+    first, second = (v["override"] for v in variables)
+    assert first == second
+    assert first["field"] == "rating"
+    assert [v["replacedOverride"] for v in variables] == [0, 0]
+    assert first["value"]["pressureLoss"] != vendor["pressureLoss"]
+    lost = copy.deepcopy(draw.responses[0])
+    lost["result"]["variables"][1]["override"]["value"]["pressureLoss"] = vendor["pressureLoss"]
+    draw.violations, draw.jump_sides = [], []
+    draw.check(lost)
+    assert any(v.startswith("(g) variable 1: override") for v in draw.violations), draw.violations
+
+
 def test_the_checks_over_values_tied_at_both_bounds(met_draw: tuple[Api, Draw]) -> None:
     """The largest velocity in L1 is |Q|/A: equal at an assigned flow of -0.01 and +0.01 m³/s,
     smaller between. The closest value to an unreachable 50 m/s is at a bound, and no plateau is
@@ -367,3 +427,53 @@ def test_a_sample_and_its_complement_partition_the_selection() -> None:
     assert [t[0] for t in select(corpus, "fuzzaf_", sample=1000)] == fuzz
     assert select(corpus, "fuzzaf_", sample=1000, complement=True) == []
     assert [t[0] for t in select(corpus, "", ["fuzzaf_20003", "ref_x"])] == ["fuzzaf_20003"]
+
+
+def test_a_rating_value_of_another_kind_than_the_base_has_no_base_value() -> None:
+    """Where S1 rates an equipment item by another kind than the base (a whole rating of Cv 80
+    over the base's Kv 60), the variable rating.value reports baseValue null (proposal
+    equipment-pressure-drop.md §12 item 32): the check expects it, and catches the base's number
+    of the other kind reported in its place."""
+    api = Api()
+    base = load(dict(items())["ref_equipment_kv_definition"]).model_dump(
+        mode="json", exclude_unset=True
+    )
+    base.pop("scenarios", None)
+    overrides = [
+        {
+            "kind": "component",
+            "componentId": "E1",
+            "field": "rating",
+            "value": {"kind": "Cv", "value": 80.0},
+        }
+    ]
+    project = {
+        **copy.deepcopy(base),
+        "scenarios": [{"id": "S1", "name": "S1", "overrides": overrides}],
+    }
+    case, _ = hand_patched(base, overrides)
+    status, data = api.solve(project, "S1")
+    assert status == 200
+    drawn = {
+        "variables": [
+            {
+                "kind": "component",
+                "componentId": "E1",
+                "field": "rating.value",
+                "lower": 8.0,
+                "upper": 800.0,
+            }
+        ],
+        "goals": [{"quantity": "equipment_flow", "elementId": "E1", "target": 0.016}],
+    }
+    draw = Draw(
+        api, random.Random("kinds"), base, project, case, data["solvedState"], overrides, drawn
+    )
+    draw.run()
+    assert not draw.violations, draw.violations
+    response = copy.deepcopy(draw.responses[0])
+    assert response["result"]["variables"][0]["baseValue"] is None
+    response["result"]["variables"][0]["baseValue"] = 60.0  # the base's Kv, read as a Cv
+    draw.violations, draw.jump_sides = [], []
+    draw.check(response)
+    assert any(v.startswith("(g) variable 0: baseValue") for v in draw.violations), draw.violations

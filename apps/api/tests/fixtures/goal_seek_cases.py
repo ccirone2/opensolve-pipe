@@ -11,10 +11,13 @@ the API by Vitest:
 
 - ``apply``: a request (``project`` as API JSON with its set fields only, ``scenarioId`` or null,
   ``variables``) with found ``values`` (SI); each variable's ``override`` and
-  ``replacedOverride`` as ``result.variables`` gives them; and ``trial``, the case project the
-  goal seek solves at those values (the same JSON form, without ``scenarios``). Applying the
-  overrides to the case they ran on (written into the base, or upserted into the scenario by
-  target and field) and taking that case's project gives ``trial``.
+  ``replacedOverride`` as ``result.variables`` gives them (an override of a whole value the
+  scenario sets, a whole fluid or a whole equipment rating, built from the case with every value
+  written, as the API builds it from the reported evaluation: proposal
+  equipment-pressure-drop.md §5.2); and ``trial``, the case project the goal seek solves at
+  those values (the same JSON form, without ``scenarios``). Applying the overrides to the case
+  they ran on (written into the base, or upserted into the scenario by target and field) and
+  taking that case's project gives ``trial``.
 - ``goals``: a solved ``state`` (a SolvedState without its ``trace`` and ``timestamp``) and, for
   goals on it
   (``goal`` as a request's), the ``value`` the API reads (SI, null when there is none) and its
@@ -52,9 +55,14 @@ def _ports(*ids: str) -> list[dict[str, Any]]:
     return [{"id": p, "nominalSize": 0.1} for p in ids]
 
 
+RATING = {"kind": "point", "pressureLoss": 30000.0, "flow": 0.02, "density": 999.102621}
+"""The equipment item E1's rating (test input): 30 kPa at 20 L/s on water at 15 °C."""
+
+
 def base_project(*, pump: dict[str, Any] | None = None) -> dict[str, Any]:
-    """R1 (5 m) -> L1 (two pipes, the second narrower) -> P1 -> L2 -> G1 (gate) -> L3 -> R2
-    (20 m), water with a vapor-pressure override."""
+    """R1 (5 m) -> L1 (two pipes, the second narrower) -> P1 -> L2 -> G1 (gate) -> L3 -> E1
+    (equipment rated by a point, its outlet port 1 m up, so that its static pressure drop is not
+    its pressure loss) -> L4 -> R2 (20 m), water with a vapor-pressure override."""
     comps = [
         reservoir("R1", level=5.0),
         {
@@ -74,6 +82,17 @@ def base_project(*, pump: dict[str, Any] | None = None) -> dict[str, Any]:
             "valveType": "gate",
             "ports": _ports("inlet", "outlet"),
         },
+        {
+            "type": "equipment",
+            "id": "E1",
+            "name": "Coil",
+            "elevation": 0.0,
+            "rating": RATING,
+            "ports": [
+                {"id": "inlet", "nominalSize": 0.1},
+                {"id": "outlet", "nominalSize": 0.1, "elevation": 1.0},
+            ],
+        },
         reservoir("R2", level=20.0),
     ]
     conns = [
@@ -84,7 +103,8 @@ def base_project(*, pump: dict[str, Any] | None = None) -> dict[str, Any]:
             pipes=[custom_pipe(4.0, 0.1, 4.5e-5), custom_pipe(6.0, 0.08, 4.5e-5)],
         ),
         connection("L2", ("P1", "discharge"), ("G1", "inlet"), length=50.0),
-        connection("L3", ("G1", "outlet"), ("R2", "port_1"), length=10.0),
+        connection("L3", ("G1", "outlet"), ("E1", "inlet"), length=10.0),
+        connection("L4", ("E1", "outlet"), ("R2", "port_1"), length=5.0),
     ]
     fluid = {**WATER, "overrides": {"vaporPressure": 2339.0}}
     data = project_dict(comps, conns, fluid=fluid, pump_library=[CURVE])
@@ -140,6 +160,10 @@ def _apply_cases() -> list[tuple[str, dict[str, Any], str | None, list[Any], lis
     base = base_project()
     speed = variable("P1", "speed", 0.2, 1.0)
     level = variable("R1", "liquidLevel", 0.0, 20.0)
+    rated_loss = variable("E1", "rating.pressureLoss", 1.0e3, 1.0e6)
+    rated_flow = variable("E1", "rating.flow", 1.0e-3, 0.1)
+    rated_density = variable("E1", "rating.density", 500.0, 2000.0)
+    vendor = {"kind": "point", "pressureLoss": 45000.0, "flow": 0.025, "density": 1043.47}
     winter = _with_scenario(
         base,
         comp("R1", "liquidLevel", 4.0),
@@ -175,6 +199,28 @@ def _apply_cases() -> list[tuple[str, dict[str, Any], str | None, list[Any], lis
             [variable("G1", "resistance", 0.01, 100.0, coefficient="Cv")],
             [33.3],
         ),
+        ("base run: a rated pressure drop", base, None, [rated_loss], [23456.789]),
+        (
+            "base run: a rated flow and a rated density",
+            base,
+            None,
+            [rated_flow, rated_density],
+            [0.0123, 1043.47],
+        ),
+        (
+            "scenario run: two values inside a whole-rating override",
+            _with_scenario(base, comp("E1", "rating", vendor)),
+            "S1",
+            [rated_loss, rated_flow],
+            [51234.5, 0.0187],
+        ),
+        (
+            "scenario run: a Cv inside a whole-rating override of another kind",
+            _with_scenario(base, comp("E1", "rating", {"kind": "Cv", "value": 120.0})),
+            "S1",
+            [variable("E1", "rating.value", 10.0, 1000.0)],
+            [95.5],
+        ),
     ]
 
 
@@ -197,6 +243,9 @@ GOALS = [
     _goal("pump_npsh_margin", "P1"),
     _goal("valve_flow", "G1"),
     _goal("valve_pressure_drop", "G1"),
+    _goal("equipment_flow", "E1"),
+    _goal("equipment_pressure_loss", "E1"),
+    _goal("equipment_pressure_drop", "E1"),
     _goal("boundary_outflow", "R1"),
     _goal("boundary_outflow", "R2"),
 ]
@@ -246,6 +295,7 @@ def generate() -> dict[str, Any]:
             body["scenarioId"] = scenario_id
         prepared = prepare(GoalSeekRequest.model_validate(body))
         trial = prepared.trial(values).model_dump(mode="json", exclude_unset=True)
+        found = prepared.written(values)  # the case with every value found, as the API reports
         apply.append(
             {
                 "name": name,
@@ -254,7 +304,7 @@ def generate() -> dict[str, Any]:
                 "variables": variables,
                 "values": values,
                 "overrides": [
-                    v.override(x, prepared.dump).model_dump(mode="json")
+                    v.override(x, found).model_dump(mode="json")
                     for v, x in zip(prepared.variables, values, strict=True)
                 ],
                 "replacedOverrides": [v.replaced for v in prepared.variables],

@@ -10,6 +10,7 @@ import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { Override, Project, ScenarioResult, SolveResponse } from '$lib/api/types';
+import { enteredFor } from '$lib/testing/helpers';
 import { pumpTransferSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import { pumpTransferExample } from '$lib/utils/examples';
@@ -255,10 +256,10 @@ describe('fields in a scenario', () => {
 
 	it('makes every allow-listed value of every component type editable in a scenario', async () => {
 		const base = pumpTransferExample();
-		const kinds = ['reference_node', 'assigned_flow', 'check', 'prv', 'fcv'] as const;
+		const kinds = ['reference_node', 'assigned_flow', 'check', 'prv', 'fcv', 'equipment'] as const;
 		const extra = kinds.reduce<Project['components']>((list, kind) => {
 			const so_far = { ...base, components: [...base.components, ...list] };
-			return [...list, createComponent(kind, so_far, { flow: 0.002 })];
+			return [...list, createComponent(kind, so_far, { ...enteredFor(kind), flow: 0.002 })];
 		}, []);
 		const pump = base.components[1]!;
 		if (pump.type === 'pump') pump.control = { mode: 'flow', setpoint: 0.015, minSpeed: 0.5 };
@@ -273,14 +274,20 @@ describe('fields in a scenario', () => {
 			[extra[1]!.id]: ['Direction', 'Flow (L/s)'],
 			[extra[2]!.id]: ['Status', 'Resistance given as'],
 			[extra[3]!.id]: ['Status', 'Outlet pressure setpoint (kPa(g))', 'Resistance given as'],
-			[extra[4]!.id]: ['Status', 'Flow setpoint (L/s)', 'Resistance given as']
+			[extra[4]!.id]: ['Status', 'Flow setpoint (L/s)', 'Resistance given as'],
+			[extra[5]!.id]: [
+				'Rated by',
+				'Rated pressure drop (kPa)',
+				'Rated flow (L/s)',
+				'Rated fluid density (kg/m³)'
+			]
 		};
 		for (const [id, names] of Object.entries(expected)) {
 			ws.nav.jumpTo(id);
 			await tick();
 			for (const name of names) {
 				const field = screen.getByRole(
-					/given as|Status|Direction/.test(name) ? 'combobox' : 'textbox',
+					/given as|Status|Direction|Rated by/.test(name) ? 'combobox' : 'textbox',
 					{
 						name
 					}
@@ -310,6 +317,7 @@ describe('fields in a scenario', () => {
 				'AssignedFlow',
 				'CheckValve',
 				'ControlValve',
+				'Equipment',
 				'IdealReferenceNode',
 				'IsolationValve',
 				'PipeDefinition',

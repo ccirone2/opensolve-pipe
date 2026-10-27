@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import Field
 
 from .base import OutputModel
+from .components import EquipmentRating
 from .fluids import FluidProperties
 
 FlowRegime = Literal["none", "laminar", "transitional", "turbulent"]
@@ -291,6 +292,31 @@ class ValveResult(OutputModel):
     setpoint_achieved: bool | None
 
 
+class EquipmentResult(OutputModel):
+    """An equipment item (SDD §4.14): its rating scaled to the solved flow and density."""
+
+    flow: float = Field(description="m³/s, positive inlet -> outlet")
+    flow_ratio: float | None = Field(
+        description="Q/Q_r, signed; null for a Cv or Kv rating, which has no rated flow"
+    )
+    head_loss: float = Field(description="EGL(inlet) - EGL(outlet), m")
+    pressure_loss: float = Field(
+        description=(
+            "ρg × headLoss, Pa (a difference): the rating scaled to the solved flow and density"
+        )
+    )
+    pressure_drop: float = Field(
+        description=(
+            "Static pressure drop inlet -> outlet, Pa (a difference), as a valve's: what gauges "
+            "at the ports read. It equals pressureLoss + ρg(z_outlet - z_inlet) + "
+            "ρ(v_outlet² - v_inlet²)/2, with the velocities in the connected pipes"
+        )
+    )
+    rating: EquipmentRating = Field(
+        description="The rating the solve used, after any scenario or goal-seek trial"
+    )
+
+
 class BranchResult(OutputModel):
     branch_type: Literal["tee", "wye"]
     loss_model: Literal["crane", "ideal"]
@@ -402,6 +428,12 @@ class SolvedState(OutputModel):
     link_results: dict[str, LinkResult] = Field(description="Keyed by connection id")
     pump_results: dict[str, PumpResult] = Field(description="Keyed by component id")
     valve_results: dict[str, ValveResult] = Field(description="Keyed by component id")
+    equipment_results: dict[str, EquipmentResult] = Field(
+        description=(
+            "Keyed by component id; {} when the project has no equipment or the solve did not "
+            "converge"
+        )
+    )
     branch_results: dict[str, BranchResult] = Field(description="Keyed by component id")
     boundary_results: dict[str, BoundaryResult] = Field(description="Keyed by component id")
     flags: list[Flag]

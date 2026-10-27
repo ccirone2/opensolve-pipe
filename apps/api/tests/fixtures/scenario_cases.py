@@ -63,9 +63,14 @@ def _component(kind: str, cid: str, ports: tuple[str, ...], **fields: Any) -> di
     }
 
 
+RATED_POINT = {"kind": "point", "pressureLoss": 5.0e4, "flow": 0.015, "density": 999.102621}
+"""An equipment item's rated point (test input): 50 kPa at 15 L/s on water at 15 °C."""
+
+
 def base_project() -> dict[str, Any]:
-    """Every component type, with statuses, speeds and resistances left unset (defaults), a
-    connection of two pipes (the first a library pipe with a bore override) and water."""
+    """Every component type (equipment rated by a point and by a Kv), with statuses, speeds and
+    resistances left unset (defaults), a connection of two pipes (the first a library pipe with
+    a bore override) and water."""
     valve = ("inlet", "outlet")
     comps = [
         reservoir("R1", level=3.0),
@@ -94,6 +99,8 @@ def base_project() -> dict[str, Any]:
             setpoint=0.01,
             resistance={"kind": "K", "value": 1.5},
         ),
+        _component("equipment", "E1", valve, rating=RATED_POINT),
+        _component("equipment", "E2", valve, rating={"kind": "Kv", "value": 60.0}),
     ]
     library = {
         "materialId": "carbon_steel",
@@ -171,9 +178,24 @@ APPLIED: list[tuple[str, list[dict[str, Any]]]] = [
             comp("V1", "setpoint", 1.5e5),
             comp("F1", "resistance", None),
             comp("F1", "setpoint", 0.02),
+            comp("E1", "rating.pressureLoss", 7.0e4),
+            comp("E1", "rating.flow", 0.012),
+            comp("E1", "rating.density", 1043.47),
+            comp("E2", "rating.value", 72.0),
             pipe("L1", 0, "spec", SPEC),
             pipe("L1", 1, "length", 33.0),
             proj("fluid.temperature", 278.15),
+        ],
+    ),
+    (
+        "a whole rating of another kind",
+        [
+            comp("E1", "rating", {"kind": "Cv", "value": 120.0}),
+            comp(
+                "E2",
+                "rating",
+                {"kind": "point", "pressureLoss": 3.0e4, "flow": 0.01, "density": 1043.47},
+            ),
         ],
     ),
     (
@@ -216,6 +238,9 @@ APPLIED: list[tuple[str, list[dict[str, Any]]]] = [
             comp("X1", "liquidLevel", 1.0),
             comp("A1", "control.setpoint", 0.01),
             comp("P1", "control.setpoint", 0.01),
+            comp("E1", "rating.value", 50.0),
+            comp("E2", "rating.pressureLoss", 1.0e4),
+            comp("E1", "status", "off"),
             comp("R1", "liquidLevel", 4.0),
         ],
     ),
@@ -251,6 +276,20 @@ INVALID: list[tuple[str, list[dict[str, Any]]]] = [
         "an invalid whole fluid",
         [proj("fluid", {"kind": "builtin", "fluidId": "brine", "temperature": 300.0})],
     ),
+    (
+        "rating values their kinds reject, and a K, which is no rating kind",
+        [
+            comp("E1", "rating.pressureLoss", 0.0),
+            comp("E2", "rating", {"kind": "K", "value": 2.0}),
+        ],
+    ),
+    (
+        "a whole rating with a value its kind rejects (the union's tag is not in the location)",
+        [
+            comp("E1", "rating", {**RATED_POINT, "density": 0.0}),
+            comp("E2", "rating.value", 2.0e7),
+        ],
+    ),
 ]
 """Scenarios of ``base_project()`` whose values the models reject (400 for that scenario)."""
 
@@ -263,6 +302,10 @@ def _rejected_structures() -> list[tuple[str, list[dict[str, Any]]]]:
         (
             "a value and a part of it",
             [_scenario("S1", proj("fluid.temperature", 280.0), proj("fluid", {"kind": "custom"}))],
+        ),
+        (
+            "a rating and a part of it",
+            [_scenario("S1", comp("E1", "rating.flow", 0.02), comp("E1", "rating", RATED_POINT))],
         ),
         ("two scenarios with one id", [_scenario("S1"), _scenario("S2"), _scenario("S1")]),
         ("a field of another kind", [_scenario("S1", {**length, "field": "status"})]),

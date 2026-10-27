@@ -15,10 +15,13 @@ For every corpus project (``corpus.items()``) and n = 1 to 4, a request is drawn
 (``--scenario-every``) the case is a scenario S1 drawn by ``scenario_patch.draw_overrides``:
 
 1. Variables: a field kind uniformly among the numeric allow-list values the case has, then a
-   target that has it; bounds an interval around the case's value within the field's published
-   bounds (log-uniform widths for log variables), the case's value outside them in about one
-   draw in ten (a clipped start). A resistance varies the coefficient the valve holds (K on its
-   default, centred on the case's kOpen), another one in about one draw in five (a middle start).
+   target that has it (a value inside a holder only where the case holds it, and a holder whose
+   published schema names its kinds only of those kinds: a speed-controlled pump's setpoint, an
+   equipment rating's values of its kind); bounds an interval around the case's value within
+   the field's published bounds (log-uniform widths for log variables), the case's value outside
+   them in about one draw in ten (a clipped start). A resistance varies the coefficient the
+   valve holds (K on its default, centred on the case's kOpen), another one in about one draw in
+   five (a middle start).
 2. Goals: among the case's results that have values, a quantity uniformly, then an element.
 3. Targets: the goal values at a seeded point of the bounds, solved through ``/solve`` with the
    values written by the patcher: an interior point (60 %), a point near the start (15 %), or
@@ -53,9 +56,13 @@ Checks, each a claim of the response (a violation names its letter):
   closest-value notes, goal_no_effect, sensitive and state_changes);
 - (g) bounds: every evaluation's values lie within the variable's bounds, evaluation 0 is the
   start, the start follows its source (the case's value, the nearer bound, or the middle on the
-  log scale), caseValue and baseValue are the projects' values, value and atBound match the
-  reported evaluation, the override sets that value at the variable's target, and
-  replacedOverride names the scenario override with the variable's target and field;
+  log scale), caseValue and baseValue are the projects' values (baseValue null where the base
+  rates an equipment item by another kind than the case), value and atBound match the
+  reported evaluation, the override sets that value at the variable's target (or, where the
+  scenario overrides a whole value that holds it, a whole fluid or a whole equipment rating,
+  that whole value as the reported evaluation's case holds it: every variable written at its
+  value found, proposal equipment-pressure-drop.md §5.2), and replacedOverride names the
+  scenario override with the variable's target and field, or that whole value's;
 - (h) spot checks: evaluation 0 and up to SPOT_CHECKS others (an unusable one first), and both
   sides of a jump, solved again through ``/solve``: the outcome (usable, not converged, no
   value, 422 topology, 400 fluid), the goal values bit for bit, the residuals, and the state
@@ -139,6 +146,7 @@ SPAN_FLOOR = {
     "setpoint:pressure": 1.0e5,
     "setpoint:flow": 5.0e-3,
     "fluid.temperature": 10.0,
+    "rating.density": 100.0,
 }
 """The smallest width scale of a linear variable's bounds, SI (the case's value sets it above)."""
 
@@ -379,12 +387,25 @@ def case_value(api: Api, project: dict[str, Any], variable: dict[str, Any]) -> A
         return None
     if field == "resistance":
         return component.get("resistance")
-    if field == "control.setpoint":
-        control = component.get("control")
-        return control["setpoint"] if control else None
+    schema = api.schema_names[(component["type"], component.get("valveType"))]
+    path = api.goal_variables[schema][field]["path"]
+    if len(path) > 1:  # inside a holder (control.setpoint, rating.flow): None where it is not held
+        return _path_value(component, ".".join(path))
     if field in component:
         return component[field]
     return api.default(api.schema_names[(component["type"], component.get("valveType"))], field)
+
+
+def rated_otherwise(base: dict[str, Any], case: dict[str, Any], variable: dict[str, Any]) -> bool:
+    """The base rates the variable's equipment item by another kind than the case (a Kv or a
+    point where S1 rates it by a Cv): the base's number is not a value of the variable, so its
+    baseValue is null (proposal equipment-pressure-drop.md §12 item 32)."""
+    if variable["kind"] != "component" or not variable["field"].startswith("rating."):
+        return False
+    b, c = _component(base, variable["componentId"]), _component(case, variable["componentId"])
+    if b is None or c is None or b.get("type") != "equipment":
+        return False
+    return bool(b["rating"]["kind"] != c["rating"]["kind"])
 
 
 def _number(value: Any, variable: dict[str, Any]) -> float | None:
@@ -426,13 +447,30 @@ def from_u(u: float, lower: float, upper: float, scale: str) -> float:
     return min(max(x, lower), upper)
 
 
+def holds(api: Api, component: dict[str, Any], schema: str, field: str) -> bool:
+    """Whether the component holds the variable's value, read from x-goal-variables: a value
+    inside a holder (a published path of more than one name) needs the holder (a pump's
+    control), and a holder whose published schema names its kinds (``kind``, a const or an
+    enum: RatedPoint's 'point', RatedFlowCoefficient's 'Cv' and 'Kv') one of them."""
+    entry = api.goal_variables[schema][field]
+    path = entry["path"]
+    if len(path) < 2:
+        return True
+    holder = _path_value(component, ".".join(path[:-1]))
+    if not isinstance(holder, dict):
+        return False
+    kind = api.components[entry["schema"]].get("properties", {}).get("kind", {})
+    kinds = [kind["const"]] if "const" in kind else kind.get("enum")
+    return kinds is None or holder.get("kind") in kinds
+
+
 def candidates(api: Api, case: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     """The case's variables by field kind (each a variable without bounds)."""
     found: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for c in case["components"]:
         name = api.schema_names.get((c["type"], c.get("valveType")))
         for field in api.goal_variables.get(name or "", {}):
-            if field == "control.setpoint" and not c.get("control"):
+            if name is None or not holds(api, c, name, field):
                 continue
             found[field].append({"kind": "component", "componentId": c["id"], "field": field})
     for conn in case["connections"]:
@@ -591,6 +629,13 @@ def goal_value(state: dict[str, Any], goal: dict[str, Any]) -> float | None:
     elif quantity.startswith("valve_"):
         field = "flow" if quantity == "valve_flow" else "pressureDrop"
         value = state["valveResults"].get(element, {}).get(field)
+    elif quantity.startswith("equipment_"):
+        field = {
+            "equipment_flow": "flow",
+            "equipment_pressure_loss": "pressureLoss",
+            "equipment_pressure_drop": "pressureDrop",
+        }[quantity]
+        value = state["equipmentResults"].get(element, {}).get(field)
     elif quantity == "boundary_outflow":
         value = state["boundaryResults"].get(element, {}).get("outflow")
     return None if value is None else float(value)
@@ -615,6 +660,9 @@ def goal_candidates(
     for vid in state["valveResults"]:
         for q in ("valve_flow", "valve_pressure_drop"):
             found[q].append({"quantity": q, "elementId": vid})
+    for eid in state["equipmentResults"]:
+        for q in ("equipment_flow", "equipment_pressure_loss", "equipment_pressure_drop"):
+            found[q].append({"quantity": q, "elementId": eid})
     for bid in state["boundaryResults"]:
         component = _component(case, bid)
         name = (
@@ -880,6 +928,8 @@ class Draw:
         self.api, self.rng = api, rng
         self.base, self.project, self.case, self.case_state = base, project, case, case_state
         self.scenario = scenario
+        self.scenario_states = hand_patched(base, scenario)[1] if scenario is not None else []
+        """Each S1 override's state, by the patcher (a whole value replaced must be applied)."""
         self.variables: list[dict[str, Any]] = drawn["variables"]
         self.goals: list[dict[str, Any]] = drawn["goals"]
         self.body: dict[str, Any] = {
@@ -1040,10 +1090,19 @@ class Draw:
         evaluations = result["evaluations"]
         reported = result["reportedEvaluation"]
         start_values = evaluations[0]["variableValues"] if evaluations else None
+        found_case = (  # the reported evaluation's case: every variable at its value found
+            patch(self.case, self.variables, evaluations[reported]["variableValues"])
+            if reported is not None
+            else None
+        )
         for i, (res, v) in enumerate(zip(result["variables"], self.variables, strict=True)):
             lower, upper = v["lower"], v["upper"]
             case = case_value(self.api, self.case, v)
-            base = case_value(self.api, self.base, v)
+            base = (
+                None
+                if rated_otherwise(self.base, self.case, v)
+                else case_value(self.api, self.base, v)
+            )
             if res["caseValue"] != case:
                 self.fail(f"(g) variable {i}: caseValue {res['caseValue']!r} != {case!r}")
             if res["baseValue"] != base:
@@ -1081,26 +1140,42 @@ class Draw:
             bound = "lower" if value == lower else "upper" if value == upper else None
             if res["atBound"] != bound:
                 self.fail(f"(g) variable {i}: atBound {res['atBound']!r} != {bound!r}")
-            self.check_override(i, res, v, value)
+            assert found_case is not None
+            self.check_override(i, res, v, value, found_case)
 
-    def check_override(self, i: int, res: dict[str, Any], v: dict[str, Any], value: float) -> None:
+    def whole_override(self, v: dict[str, Any]) -> int | None:
+        """The index of the applied S1 override that sets a whole value holding the variable's
+        (the fluid of fluid.temperature, an equipment item's rating of rating.flow), or None."""
+        *target, field = _key(v)
+        for j, (o, state) in enumerate(zip(self.scenario or [], self.scenario_states, strict=True)):
+            *other, whole = _key(o)
+            if state == "applied" and other == target and field.startswith(f"{whole}."):
+                return j
+        return None
+
+    def check_override(
+        self,
+        i: int,
+        res: dict[str, Any],
+        v: dict[str, Any],
+        value: float,
+        found_case: dict[str, Any],
+    ) -> None:
+        """The override sets the value found at the variable's target; under a whole value S1
+        overrides, it is that whole value as the reported evaluation's case holds it (every
+        variable written at its value found), so that the overrides of several parts of one
+        whole value are equal (proposal equipment-pressure-drop.md §5.2)."""
         override = res["override"]
-        whole_fluid = None
-        if self.scenario is not None and v["field"] == "fluid.temperature":
-            whole_fluid = next(
-                (
-                    j
-                    for j, o in enumerate(self.scenario)
-                    if _key(o) == ("project", None, None, None, "fluid")
-                ),
-                None,
+        whole = self.whole_override(v)
+        if whole is not None:
+            field = self.scenario[whole]["field"] if self.scenario else ""
+            holder = (
+                found_case
+                if v["kind"] == "project"
+                else _component(found_case, v["componentId"]) or {}
             )
-        if whole_fluid is not None:
-            expected = {
-                "kind": "project",
-                "field": "fluid",
-                "value": {**self.case["fluid"], "temperature": value},
-            }
+            target = {k: x for k, x in _target(v).items() if k != "field"}
+            expected = {**target, "field": field, "value": _path_value(holder, field)}
         else:
             expected = written(v, value)
         if override != expected:
@@ -1109,9 +1184,7 @@ class Draw:
         if self.scenario is not None:
             keys = [_key(o) for o in self.scenario]
             replaced = (
-                whole_fluid
-                if whole_fluid is not None
-                else (keys.index(_key(v)) if _key(v) in keys else None)
+                whole if whole is not None else (keys.index(_key(v)) if _key(v) in keys else None)
             )
         if res["replacedOverride"] != replaced:
             self.fail(

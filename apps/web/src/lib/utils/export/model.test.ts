@@ -640,7 +640,7 @@ describe('branch K is on the combined-flow velocity (item 13, decision 29)', () 
 		const input = fixtureInput(name, { units });
 		const bundle = exportOf(input);
 		if (!bundle.sheets.some((s) => s.id === 'branch-ports'))
-			return expect(name).toBe('pump-transfer');
+			return expect(['pump-transfer', 'design-checks']).toContain(name);
 		const t = readSheet(bundle, 'branch-ports');
 		const si = units === 'si';
 		const toSi = (v: number, category: UnitCategory) =>
@@ -830,7 +830,11 @@ describe('scenario changes (item 15)', () => {
 
 describe('the fixture itself', () => {
 	it('has the cases the design names', () => {
-		expect(FIXTURE_NAMES).toEqual(['pump-transfer', 'scenarios', 'tee-fallback']);
+		expect(FIXTURE_NAMES).toEqual(['pump-transfer', 'scenarios', 'tee-fallback', 'design-checks']);
+		const checks = fixtureInput('design-checks').cases[0]!.response!.solvedState.designChecks;
+		expect(new Set(checks.map((c) => c.outcome))).toEqual(
+			new Set(['pass', 'fail', 'not_evaluated'])
+		);
 		const tee = fixtureInput('tee-fallback');
 		expect(tee.cases[0]!.response!.solvedState.flags.map((f) => f.code)).toContain(
 			'TEE_PATTERN_FALLBACK'

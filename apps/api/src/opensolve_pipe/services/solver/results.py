@@ -1298,6 +1298,7 @@ def build_solved_state(
             equipment_results={},
             branch_results={},
             boundary_results={},
+            design_checks=[],
             flags=mapper.flags,
             convergence=ConvergenceReport(
                 inner_iterations=outer.inner_iterations,
@@ -1363,6 +1364,7 @@ def build_solved_state(
         equipment_results=equipment,
         branch_results=branches,
         boundary_results=boundaries,
+        design_checks=[],
         flags=mapper.flags,
         convergence=ConvergenceReport(
             inner_iterations=outer.inner_iterations,

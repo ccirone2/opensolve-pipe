@@ -115,7 +115,7 @@ The frontend is a static SvelteKit site (TSD §2.1, §3.1) with two pages:
 
 The **workspace** (`components/workspace/Workspace.svelte`) has a header, a **Build** pane (the panel navigator, §3.1.1) and a **Results** pane (§3.1.3):
 
-- **Header.** Home link, editable project name, Undo and Redo (labelled with the change they undo or redo), Solve, Share (§3.1.5) and Settings. While a solve runs, Solve shows a spinner and "Solving…" (below 24rem the label is for screen readers only), and **Cancel** ("Cancel solve"; an icon button on phones, like Share and Settings), to its left, aborts it (PRD §4.2); if Cancel has the focus when it goes, Solve takes it. Solve keeps its width whether it is solving or not (below 22.5rem it shows its icon only, so that Cancel fits beside it), so neither button comes in under the pointer where the other was, and the second click of a double click or double tap on either does nothing (a keyboard press is not affected). Settings covers the description, fluid, site elevation and atmospheric-pressure override, display units and solver options.
+- **Header.** Home link, editable project name, Undo and Redo (labelled with the change they undo or redo), Solve, Share (§3.1.5) and Settings. While a solve runs, Solve shows a spinner and "Solving…" (below 24rem the label is for screen readers only), and **Cancel** ("Cancel solve"; an icon button on phones, like Share and Settings), to its left, aborts it (PRD §4.2); if Cancel has the focus when it goes, Solve takes it. Solve keeps its width whether it is solving or not (below 22.5rem it shows its icon only, so that Cancel fits beside it), so neither button comes in under the pointer where the other was, and the second click of a double click or double tap on either does nothing (a keyboard press is not affected). Settings covers the description, fluid, site elevation and atmospheric-pressure override, display units, the opt-in design checks (a switch per check, its limits and the cited presets; locked in a scenario, as the site and solver are; §4.15) and solver options.
 - **Layout.** From 1024 px the two panes are side by side, Build 3/5 of the width (at most 52 rem) by default; on narrow screens they are tabs. A splitter between them (WAI-ARIA window splitter, `role="separator"`, its value Build's share) resizes them by dragging or with ←/→ (5 % steps), Home and End; Enter or a double-click returns to the default. Each pane keeps at least 22 rem and 25 %. The choice is remembered in this browser (`localStorage`), never in the project or its link. The Results tab is marked (icon and text) when the last solve failed, did not converge, has physically invalid flags or is out of date.
 - **Notices.** Info notices fade after 6 s; error notices (e.g. a refused edit) stay until dismissed.
 - **Keyboard.** Outside text fields, Ctrl/⌘+Z undoes, and Ctrl/⌘+Shift+Z or Ctrl/⌘+Y redoes.
@@ -301,7 +301,7 @@ The pane shows, top to bottom:
 
 **Footer** (`SiteFooter`): the disclaimer (GOALS §4.8), the copyright notice, About and privacy, the license (AGPL-3.0-or-later) and the source code, both at the commit the build was made from, the calculation server's source code (`<API>/source`, which redirects to the commit the API runs), and the third-party licenses (TSD §11.1).
 
-Later: design-check warnings (opt-in).
+**Design checks** (CLAUDE.md D19, §4.15; `components/results/ChecksView.svelte`, `utils/design-checks.ts`). When the solve has check results, a **Checks** view follows Summary: not met, then met, then not evaluated, each naming its element (a link to its results and trace; a connection as solved, as flags name it), its value against its limits in display units, built from the result's numbers (a value that rounds to its limit's text gets more digits, up to 10, so a failure never reads as equal to its limit), its limits' source ("your values", a preset's name, the pump curve's manufacturer data) and the server's message under Details; the presets' citations are listed once below. The Summary shows a **Design checks** card: the counts, the first three not met, and All checks. Checks never mark the Results tab and never change a value. On the pump chart, behind a "Design checks" chip (remembered with the others), the limits as solved (`ProjectStore.solvedProject`): the preferred operating region shaded on the head panel (fractions × Q_BEP at the running speed), the allowable region shaded grey and the larger minimum flow as a dash-dot line through every panel (the curve's manufacturer data × speed), the NPSHa the NPSH margin check requires, max(NPSHr + margin, ratio × NPSHr), dotted along NPSHr, and the motor's rating dashed across the power panel; each in a note under the chart and in the image's footer. The export has a Design checks sheet after Flags (TSD §8.3).
 
 #### 3.1.4 State Manager
 
@@ -464,7 +464,7 @@ interface ProjectSettings {
   siteElevation: number;          // m above sea level, -500..9000
   atmosphericPressure?: number;   // Pa absolute; overrides the standard-atmosphere value
   solverOptions: SolverOptions;
-  // Later: enabledChecks (design checks)
+  designChecks?: DesignChecks;    // opt-in design checks (§4.15); omitted when none is on
 }
 
 interface SolverOptions {         // options that change results travel with the project
@@ -680,6 +680,11 @@ interface PumpCurve {
   points: FlowHeadPoint[];                    // ≥ 3 points, flows strictly increasing (m³/s, m)
   efficiencyCurve?: FlowEfficiencyPoint[];    // m³/s, fraction 0–1
   npshrCurve?: FlowNpshrPoint[];              // m³/s, m
+  // Manufacturer data at rated speed, read only by the design checks (§4.15), never the solve:
+  allowableOperatingRegion?: { flowMin: number; flowMax: number };  // m³/s, 0 ≤ flowMin < flowMax
+  minimumContinuousStableFlow?: number;       // m³/s > 0
+  minimumThermalFlow?: number;                // m³/s > 0
+  motorRatedPower?: number;                   // W, (0, 1e8]
 }
 ```
 
@@ -743,6 +748,7 @@ interface SolvedState {
   branchResults: Record<string, BranchResult>;     // tee / wye id
   boundaryResults: Record<string, BoundaryResult>; // reservoir, reference node, plug, assigned-flow node id
   flags: Flag[];
+  designChecks: DesignCheckResult[]; // opt-in design checks (§4.15); [] without checks or not converged
   convergence: ConvergenceReport;  // iterations, largest residuals and where (value null when not finite: the iteration diverged), oscillating ids, message
   trace: Trace;                    // per-element trace + methods summary
 }
@@ -1080,6 +1086,46 @@ The element has no status and no type field: it always passes flow, valves isola
 
 Solver mapping: TSD §4.9.
 
+### 4.15 Design Check Model
+
+Opt-in design practice (CLAUDE.md D19; `docs/proposals/design-checks.md`; `models/design_checks.py`, `services/design_checks.py`). A check is on when its object is present in `ProjectSettings.designChecks`; every limit is user data, and a preset only fills limits in, labelled with its source. Checks are computed by the API from a converged solved state, never in the solver: they change no solved value, status or flag (GOALS §4.6), and `METHOD_VERSION` does not change.
+
+```typescript
+interface DesignChecks {
+  npshMargin?: { minimumMargin?: number /* m, [0, 100] */; minimumRatio?: number /* [1, 10] */; source: CheckSource };
+  operatingRegion?: { preferredMin?: number; preferredMax?: number /* fractions of Q_BEP, (0, 5], min < max */; source: CheckSource };
+  pipeVelocity?: { minimum?: number /* m/s, [0, 100] */; maximum?: number /* (0, 100], min < max */; source: CheckSource };
+}
+type CheckSource = { kind: 'user' } | { kind: 'preset'; preset: 'api610_por' | 'hi961_2012_general' };
+
+interface DesignCheckResult {
+  check: 'npsh_margin' | 'operating_region' | 'allowable_region' | 'minimum_flow' | 'motor_power' | 'pipe_velocity';
+  componentId: string | null;    // the pump
+  connectionId: string | null;   // the connection (pipe_velocity)
+  outcome: 'pass' | 'fail' | 'not_evaluated';
+  value: number | null;          // SI; null: not evaluated
+  pipeIndex: number | null;      // pipe_velocity: the pipe whose velocity is the value (0-based)
+  pipesOutside: number[];        // pipe_velocity: the pipes outside the limits (0-based)
+  limits: { min: number | null; max: number | null };  // SI
+  unit: string;                  // 'm', '1', 'm³/s', 'W', 'm/s'
+  source: string;                // 'user', 'manufacturer data (user)' or the preset's citation
+  message: string;               // the inequality that set the outcome, or 'not evaluated: <why>'
+}
+```
+
+The ordered pairs (and `PumpCurve.allowableOperatingRegion`'s) are model rules (400), published as `x-ordered-fields`; the presets, with their values and citations, as `x-design-check-presets` on `DesignChecks` (the web reads both).
+
+| Check | Passes when | Not evaluated when |
+|---|---|---|
+| `npsh_margin` | NPSHa ≥ max(NPSHr + margin, ratio × NPSHr), for the limits set | the pump is off or held at zero flow; no limit set; no NPSHr curve; no NPSHa |
+| `operating_region` | preferredMin ≤ Q/Q_BEP ≤ preferredMax, Q_BEP the best efficiency point at the running speed (§4.10) | not running; no limit set; no best efficiency point (no efficiency curve, or its largest value at an end of its data) |
+| `allowable_region` | flowMin ≤ Q/s ≤ flowMax (rated-speed equivalent flow, affinity laws) | listed only for a running pump whose curve has the data |
+| `minimum_flow` | Q/s ≥ the larger of the minimum continuous stable and thermal flows | likewise |
+| `motor_power` | P_shaft ≤ motorRatedPower (no service-factor margin) | no shaft power (no efficiency curve) |
+| `pipe_velocity` | minimum ≤ \|v\| ≤ maximum in every pipe of the connection | no limit set |
+
+The manufacturer-data checks run with `operating_region`. Results are listed per pump in component order (its checks in the table's order), then per connection in project order; a solve that did not converge has none. The methods summary ends with a "Design checks" section (each check, its limits, the presets' citations as references) only when a check is on. Presets (each cited through the secondary source that quotes it, the standard itself not read): `api610_por`, API 610's preferred operating region 0.7–1.2 of Q_BEP; `hi961_2012_general`, ANSI/HI 9.6.1-2012 "General", ratio 1.1 or 1.0 m, the greater. No velocity preset.
+
 ---
 
 ## 5. Interface Contracts
@@ -1334,19 +1380,9 @@ New fluids can be added via:
 2. User-defined fluids (runtime, per-project)
 3. Future: Global fluid database (user submissions)
 
-### 9.3 Design Checks (Later)
+### 9.3 Design Checks
 
-Check library is data-driven:
-
-```typescript
-interface DesignCheck {
-  id: string;
-  name: string;
-  category: 'velocity' | 'pressure' | 'npsh' | 'code' | 'custom';
-  description: string;
-  evaluate: (state: SolvedState, project: Project) => CheckResult[];
-}
-```
+Three checks are built (§4.15, CLAUDE.md D19). A new check is: an optional object in `DesignChecks` with its limits (bounded, ordered pairs in `x-ordered-fields`) and a `source`; an evaluator in `services/design_checks.py` that reads only the solved state and the project and returns `DesignCheckResult`s (a new `check` id) with the inequality in the message; a line in the "Design checks" methods section; and on the web its switch and fields in Settings, its wording from the result's numbers (`utils/design-checks.ts`) and, where it has one, its mark on the pump chart. A preset needs a cited source, labelled as read. Later: code-compliance libraries (NFPA 13, NFPA 20, ASME B31.1) and user-defined check libraries (PRD §5.5).
 
 ### 9.4 API (Future)
 

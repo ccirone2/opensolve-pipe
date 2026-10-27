@@ -314,6 +314,22 @@ export interface components {
             version: string;
         };
         /**
+         * AllowableOperatingRegion
+         * @description The manufacturer's allowable operating region at rated speed (D19).
+         */
+        AllowableOperatingRegion: {
+            /**
+             * Flowmax
+             * @description m³/s at rated speed
+             */
+            flowMax: number;
+            /**
+             * Flowmin
+             * @description m³/s at rated speed
+             */
+            flowMin: number;
+        };
+        /**
          * AssignedFlow
          * @description Fixed flow out of (demand, positive) or into (supply, negative) the network at its port,
          *     whatever the pressure there, which is a result (SDD §4.11). Not a fixed-pressure boundary:
@@ -688,6 +704,81 @@ export interface components {
              * @description Vapor pressure, Pa absolute (for NPSH)
              */
             vaporPressure?: number | null;
+        };
+        /** DesignCheckLimits */
+        DesignCheckLimits: {
+            /** Max */
+            max: number | null;
+            /** Min */
+            min: number | null;
+        };
+        /**
+         * DesignCheckResult
+         * @description One check of one element (proposal design-checks.md §4). Not a flag.
+         */
+        DesignCheckResult: {
+            /**
+             * Check
+             * @enum {string}
+             */
+            check: "npsh_margin" | "operating_region" | "allowable_region" | "minimum_flow" | "motor_power" | "pipe_velocity";
+            /**
+             * Componentid
+             * @description The pump checked
+             */
+            componentId: string | null;
+            /**
+             * Connectionid
+             * @description The connection checked
+             */
+            connectionId: string | null;
+            /** @description The limits it was checked against, SI */
+            limits: components["schemas"]["DesignCheckLimits"];
+            /**
+             * Message
+             * @description The inequality that set the outcome, or why not evaluated
+             */
+            message: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "pass" | "fail" | "not_evaluated";
+            /**
+             * Pipeindex
+             * @description pipe_velocity: the connection's pipe (0-based) whose velocity is the value
+             */
+            pipeIndex: number | null;
+            /**
+             * Pipesoutside
+             * @description pipe_velocity: the connection's pipes (0-based) outside the limits
+             */
+            pipesOutside: number[];
+            /**
+             * Source
+             * @description 'user', or the preset's citation
+             */
+            source: string;
+            /**
+             * Unit
+             * @description SI unit of value and limits
+             */
+            unit: string;
+            /**
+             * Value
+             * @description The value checked, SI (null: not evaluated)
+             */
+            value: number | null;
+        };
+        /**
+         * DesignChecks
+         * @description The design checks a project turns on (each present object is one check). Opt-in, never
+         *     a flag: a check's result never changes a solved value (GOALS §4.6).
+         */
+        DesignChecks: {
+            npshMargin?: components["schemas"]["NpshMarginCheck"] | null;
+            operatingRegion?: components["schemas"]["OperatingRegionCheck"] | null;
+            pipeVelocity?: components["schemas"]["PipeVelocityCheck"] | null;
         };
         /** EfficiencyCurvePoint */
         EfficiencyCurvePoint: {
@@ -1655,6 +1746,24 @@ export interface components {
              */
             velocity: number;
         };
+        /**
+         * NpshMarginCheck
+         * @description NPSHa ≥ max(NPSHr + minimumMargin, minimumRatio × NPSHr), for the limits set.
+         */
+        NpshMarginCheck: {
+            /**
+             * Minimummargin
+             * @description NPSHa − NPSHr at least this, m
+             */
+            minimumMargin?: number | null;
+            /**
+             * Minimumratio
+             * @description NPSHa / NPSHr at least this
+             */
+            minimumRatio?: number | null;
+            /** Source */
+            source: components["schemas"]["UserSource"] | components["schemas"]["PresetSource"];
+        };
         /** NpshrCurvePoint */
         NpshrCurvePoint: {
             /**
@@ -1667,6 +1776,25 @@ export interface components {
              * @description NPSH required, m
              */
             npshr: number;
+        };
+        /**
+         * OperatingRegionCheck
+         * @description A running pump's flow within [preferredMin, preferredMax] × its BEP flow; with it, the
+         *     curve's manufacturer data (allowable region, minimum flows, motor rating) are checked.
+         */
+        OperatingRegionCheck: {
+            /**
+             * Preferredmax
+             * @description Fraction of the BEP flow
+             */
+            preferredMax?: number | null;
+            /**
+             * Preferredmin
+             * @description Fraction of the BEP flow
+             */
+            preferredMin?: number | null;
+            /** Source */
+            source: components["schemas"]["UserSource"] | components["schemas"]["PresetSource"];
         };
         /**
          * OverrideResult
@@ -1899,6 +2027,24 @@ export interface components {
             upper: number;
         };
         /**
+         * PipeVelocityCheck
+         * @description Every pipe segment's |velocity| within [minimum, maximum], for the limits set.
+         */
+        PipeVelocityCheck: {
+            /**
+             * Maximum
+             * @description m/s
+             */
+            maximum?: number | null;
+            /**
+             * Minimum
+             * @description m/s
+             */
+            minimum?: number | null;
+            /** Source */
+            source: components["schemas"]["UserSource"] | components["schemas"]["PresetSource"];
+        };
+        /**
          * PipingSegment
          * @description The pipes (in series, from -> to) and inline fittings of one connection.
          */
@@ -1973,6 +2119,19 @@ export interface components {
              * @description ρgQH/η, W
              */
             shaftPower: number;
+        };
+        /** PresetSource */
+        PresetSource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "preset";
+            /**
+             * Preset
+             * @enum {string}
+             */
+            preset: "api610_por" | "hi961_2012_general";
         };
         /**
          * Project
@@ -2055,6 +2214,8 @@ export interface components {
              * @description Atmospheric pressure override, Pa absolute
              */
             atmosphericPressure?: number | null;
+            /** @description The opt-in design checks this project turns on (D19); omitted: none */
+            designChecks?: components["schemas"]["DesignChecks"] | null;
             /**
              * Siteelevation
              * @description Site elevation above sea level, m; sets the standard-atmosphere pressure
@@ -2205,6 +2366,8 @@ export interface components {
          * @description Pump performance at rated speed. Curves are fitted with a monotone piecewise cubic.
          */
         PumpCurve: {
+            /** @description Manufacturer data, at rated speed (design checks, D19) */
+            allowableOperatingRegion?: components["schemas"]["AllowableOperatingRegion"] | null;
             /** Efficiencycurve */
             efficiencyCurve?: components["schemas"]["FlowEfficiencyPoint"][] | null;
             /**
@@ -2214,8 +2377,23 @@ export interface components {
             id: string;
             /** Manufacturer */
             manufacturer?: string | null;
+            /**
+             * Minimumcontinuousstableflow
+             * @description Manufacturer data, m³/s at rated speed
+             */
+            minimumContinuousStableFlow?: number | null;
+            /**
+             * Minimumthermalflow
+             * @description Manufacturer data, m³/s at rated speed
+             */
+            minimumThermalFlow?: number | null;
             /** Model */
             model?: string | null;
+            /**
+             * Motorratedpower
+             * @description The driver's rated power, W
+             */
+            motorRatedPower?: number | null;
             /** Name */
             name: string;
             /** Npshrcurve */
@@ -2607,6 +2785,11 @@ export interface components {
             converged: boolean;
             convergence: components["schemas"]["ConvergenceReport"];
             /**
+             * Designchecks
+             * @description The project's opt-in design checks, each element checked (D19); empty when none is on or the solve did not converge. Not flags: they never change a solved value
+             */
+            designChecks: components["schemas"]["DesignCheckResult"][];
+            /**
              * Equipmentresults
              * @description Keyed by component id; {} when the project has no equipment or the solve did not converge
              */
@@ -2980,6 +3163,14 @@ export interface components {
              * @enum {string}
              */
             viscosity: "Pa.s" | "mPa.s" | "cP";
+        };
+        /** UserSource */
+        UserSource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "user";
         };
         /** ValveResult */
         ValveResult: {

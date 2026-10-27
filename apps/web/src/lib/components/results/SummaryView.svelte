@@ -4,14 +4,16 @@
 	element's results and trace) and a link to the table sorted on it: the lowest and highest static
 	pressure (Nodes), the highest velocity (Links) and the smallest NPSH margin (Pumps). The fluid
 	properties and atmospheric pressure the solver used, with their sources, are one disclosure
-	below (inputs, not answers). Flags come before the views, in the Results pane. All values are
-	from the solved state.
+	below (inputs, not answers). With design checks on (D19), a card counts them and lists the
+	checks not met, with a link to the Checks view. Flags come before the views, in the Results
+	pane. All values are from the solved state.
 -->
 <script lang="ts">
 	import type { SolvedState } from '$lib/api/types';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import { componentById } from '$lib/utils/graph';
 	import { portLabel } from '$lib/utils/labels';
+	import { CHECK_TITLES, checkCounts, checkElement, checkText } from '$lib/utils/design-checks';
 	import {
 		connectionName,
 		fastestLink,
@@ -31,9 +33,11 @@
 		solved: SolvedState;
 		/** Show a view sorted by one column (the extremes' "sorted" links). */
 		onsort?: (view: ResultsView, key: string, direction: SortDirection) => void;
+		/** Show a view (the design checks card's link to the Checks view). */
+		onview?: (view: ResultsView) => void;
 	}
 
-	let { solved, onsort }: Props = $props();
+	let { solved, onsort, onview }: Props = $props();
 	const ws = useWorkspace();
 	const id = $props.id();
 	const f = $derived(new Formatter(ws.displayUnits));
@@ -43,6 +47,14 @@
 	const highest = $derived(highestPressureNode(solved));
 	const fastest = $derived(fastestLink(solved));
 	const npsh = $derived(smallestNpshMargin(solved));
+	const checks = $derived(solved.designChecks ?? []);
+	const failed = $derived(checks.filter((c) => c.outcome === 'fail'));
+	/** Checks not met listed on the card before "All checks". */
+	const SHOWN_FAILED = 3;
+	const nameOf = (element: ElementRef) =>
+		element.kind === 'connection'
+			? connectionName(resultsProject(ws.labelsProject, solved), element.id)
+			: (componentById(ws.project, element.id)?.name ?? element.id);
 	const pumps = $derived(
 		Object.entries(solved.pumpResults).map(([pumpId, result]) => ({
 			element: { kind: 'component', id: pumpId } as ElementRef,
@@ -143,6 +155,40 @@
 					</li>
 				{/each}
 			</ul>
+		</section>
+	{/if}
+
+	{#if checks.length}
+		<section class="card space-y-1 p-3" aria-labelledby="{id}-checks">
+			<div class="flex flex-wrap items-center gap-x-2">
+				<h3 id="{id}-checks" class="font-semibold">Design checks</h3>
+				<span class="text-slate-700">{checkCounts(checks)}</span>
+				{#if onview}
+					<button
+						type="button"
+						class="ml-auto min-h-11 text-right text-xs text-slate-700 underline underline-offset-2 hover:text-slate-900"
+						onclick={() => onview('checks')}>All checks</button
+					>
+				{/if}
+			</div>
+			{#if failed.length}
+				<ul class="space-y-1">
+					{#each failed.slice(0, SHOWN_FAILED) as result, i (i)}
+						{@const element = checkElement(result)}
+						<li class="flex flex-wrap items-baseline gap-x-2">
+							{#if element}{@render link(element, nameOf(element))}{/if}
+							<span class="text-slate-700"
+								>{CHECK_TITLES[result.check]}: {checkText(result, ws.displayUnits)}</span
+							>
+						</li>
+					{/each}
+				</ul>
+				{#if failed.length > SHOWN_FAILED}
+					<p class="text-xs text-slate-600">
+						and {failed.length - SHOWN_FAILED} more not met
+					</p>
+				{/if}
+			{/if}
 		</section>
 	{/if}
 

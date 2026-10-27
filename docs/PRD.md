@@ -111,9 +111,10 @@ v1 is the core analysis MVP. Everything else in this document is **Later**. The 
 - Scenario manager: named cases of one project, solved one at a time or all together and compared side by side (§3.8; CLAUDE.md D15)
 - Goal seek: the input values (1 to 4) that bring as many results to their targets, each trial a full solve (§3.9; CLAUDE.md D16)
 - Export: a results workbook (.xlsx) or CSV files (.zip) of the case shown or all cases, and the pump chart as a PNG, made in the browser (§3.2.3; CLAUDE.md D17)
+- Opt-in design checks: NPSH margin, the pump's operating region with its manufacturer data, and pipe velocity, with cited presets (§5; CLAUDE.md D19)
 - Sharing by link (§4.4)
 
-**Later:** VFD pressure and differential-pressure control modes (D11 slices 2-3); HI viscosity correction; pressure relief valves; three-way valves; differential-pressure control valve mode; non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, user-defined elements; other ways to rate equipment (a K on a stated diameter, a head, a mass flow, a pressure-drop curve) and its viscosity correction; fuels in the fluid library; auto-generated schematic; SVG and schematic image export; form/table entry and CSV pump curve import; design checks; version history and accounts.
+**Later:** VFD pressure and differential-pressure control modes (D11 slices 2-3); HI viscosity correction; pressure relief valves; three-way valves; differential-pressure control valve mode; non-ideal reference nodes; variable-level tanks; cross and elbow-with-branch fittings; sprinklers, orifices, user-defined elements; other ways to rate equipment (a K on a stated diameter, a head, a mass flow, a pressure-drop curve) and its viscosity correction; fuels in the fluid library; auto-generated schematic; SVG and schematic image export; form/table entry and CSV pump curve import; design checks beyond §5's three (code compliance, user-defined libraries); version history and accounts.
 
 ### 2.4 Future Features (Planned)
 
@@ -515,34 +516,37 @@ Goal seek finds the input values that make chosen results hit target values, e.g
 
 ---
 
-## 5. Design Checks (Optional, Later)
+## 5. Design Checks (Optional)
 
-Users may enable checks from a library:
+Design practice, not physics: a check never changes a result or raises a flag (GOALS §4.6). Built in v1 (CLAUDE.md D19; `docs/proposals/design-checks.md`): three checks, each limit the user's value or a cited preset.
 
-### 5.1 Velocity Checks
+### 5.1 Velocity Check
 
-- Minimum velocity (sedimentation)
-- Maximum velocity (erosion, noise, water hammer risk)
-- Configurable by pipe material and application
+- Every pipe's velocity within a minimum (sedimentation) and/or a maximum (erosion, noise, water hammer risk), one result per connection naming the pipes outside
+- The user's values: no preset, since no source read gives limits that suit every fluid and use
 
-### 5.2 NPSH Checks
+### 5.2 NPSH Margin Check
 
-- NPSH margin (NPSH_A - NPSH_R)
-- Configurable minimum margin
+- NPSHa at least NPSHr plus a margin and/or a ratio times NPSHr, the greater applying
+- Preset: ANSI/HI 9.6.1-2012 "General" (ratio 1.1 or 1.0 m), as reproduced by a secondary source
 
-### 5.3 Code Compliance (Future)
+### 5.3 Pump Operating Region Check
 
-- NFPA 13 (fire sprinkler systems)
-- NFPA 20 (fire pumps)
-- ASME B31.1 (power piping)
-- User-defined check libraries
+- The flow as a fraction of the best efficiency flow at the running speed
+- Preset: API 610's preferred operating region (70–120 %), as quoted by a secondary source
+- With it, the pump curve's optional manufacturer data at rated speed: the allowable operating region, the minimum continuous stable and thermal flows, and the motor's rated power against the shaft power
 
 ### 5.4 Check Behavior
 
-- Not active by default
-- User toggles individual checks on/off
-- "Check Model" button for on-demand validation
-- Violations flagged on solve attempt
+- Not active by default; the user turns each check on in Settings, and the limits travel with the project's link
+- Results on every solve: not met, met, or not evaluated with the reason, in Results → Checks and a Summary card, each linked to its element
+- The pump chart shows the limits (regions, minimum flow, NPSHa required, motor rating); the export has a Design checks sheet
+
+### 5.5 Later
+
+- Code compliance: NFPA 13 (fire sprinkler systems), NFPA 20 (fire pumps), ASME B31.1 (power piping)
+- User-defined check libraries, velocity limits by pipe material and application
+- A "Check model" button for on-demand validation
 
 ---
 

@@ -21,7 +21,7 @@ def _cases(fixture: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 def test_the_fixture_holds_the_cases_the_export_design_names() -> None:
     cases = _cases(generate())
-    assert list(cases) == ["pump-transfer", "scenarios", "tee-fallback"]
+    assert list(cases) == ["pump-transfer", "scenarios", "tee-fallback", "design-checks"]
     for case in cases.values():
         assert case["utcOffsetMinutes"] != 0
         assert len(case["appVersion"]) == 40
@@ -47,6 +47,12 @@ def test_the_fixture_holds_the_cases_the_export_design_names() -> None:
     tee = cases["tee-fallback"]["cases"][0]["response"]["solvedState"]
     flags = [f["code"] for f in tee["flags"]]
     assert "TEE_PATTERN_FALLBACK" in flags
+    checked = cases["design-checks"]["cases"][0]["response"]["solvedState"]["designChecks"]
+    assert {r["outcome"] for r in checked} == {"pass", "fail", "not_evaluated"}
+    assert {r["check"] for r in checked} == {
+        "npsh_margin", "operating_region", "allowable_region", "minimum_flow", "motor_power",
+        "pipe_velocity",
+    }  # fmt: skip
 
 
 def test_the_web_fixture_is_current() -> None:

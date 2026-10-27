@@ -1,8 +1,8 @@
 <!--
 	Project settings: description, fluid, site (elevation and atmospheric pressure), display
-	units and solver options. Unit preferences change only what is shown; stored values are SI.
+	units, the opt-in design checks and solver options. Unit preferences change only what is shown; stored values are SI.
 	In a scenario, the fluid is a scenario value; the description and units are shared by every
-	case; the site and solver settings are the same in every case (locked). Opened from the
+	case; the site, design checks and solver settings are the same in every case (locked). Opened from the
 	header's fluid chip, it shows the Fluid section with the focus on its first field.
 -->
 <script lang="ts">
@@ -25,6 +25,7 @@
 	} from '$lib/utils/units';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import FluidSettings from './FluidSettings.svelte';
+	import DesignChecksSettings from './DesignChecksSettings.svelte';
 
 	let { onclose }: { onclose: () => void } = $props();
 	const ws = useWorkspace();
@@ -85,8 +86,8 @@
 				<Icon name="layers" class="mt-0.5 size-4 shrink-0 text-teal-700" />
 				<span>
 					<strong>Scenario: {ws.activeScenario.name}.</strong> The fluid you set here is recorded in this
-					scenario. The description and units are shared by every case; the site and solver settings are
-					the same in every case.
+					scenario. The description and units are shared by every case; the site, design checks and solver
+					settings are the same in every case.
 				</span>
 			</p>
 		{/if}
@@ -182,6 +183,11 @@
 					/>
 				{/each}
 			</div>
+		</section>
+
+		<section aria-labelledby="settings-checks" class="space-y-3">
+			<h3 id="settings-checks" class="text-base font-semibold">Design checks</h3>
+			<DesignChecksSettings />
 		</section>
 
 		<section aria-labelledby="settings-solver" class="space-y-3">

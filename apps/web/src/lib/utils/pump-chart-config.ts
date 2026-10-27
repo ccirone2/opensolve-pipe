@@ -24,7 +24,13 @@ export const CHART_COLORS = {
 	text: '#475569',
 	legend: '#1e293b',
 	/** Where the head rises with flow: amber-700, 5.0:1 on white (a fact, not a flag colour). */
-	rising: '#b45309'
+	rising: '#b45309',
+	/**
+	 * The design checks' regions (D19), light tints under the curves: the preferred region in the
+	 * pump's blue, the allowable region in slate; their edges and labels in the slate ink.
+	 */
+	preferredFill: 'rgba(42, 120, 214, 0.13)',
+	allowableFill: 'rgba(71, 85, 105, 0.08)'
 } as const;
 
 /** The legend entry of a pump held at zero flow. */
@@ -57,6 +63,8 @@ export interface PumpChartConfigOptions {
 	cursor?: () => number | null;
 	/** A speed-controlled pump's speed range (limit curves, iso-efficiency lines) is shown. */
 	speedRange?: boolean;
+	/** The design checks' limits (D19) are shown. */
+	checks?: boolean;
 }
 
 /** Each panel's y-axis id and share of the height (proposal pump-chart.md §4.1). */
@@ -68,7 +76,13 @@ const PANEL_AXES: Readonly<Record<PanelKey, { id: string; weight: number }>> = {
 };
 
 /** Legend markers: curves as a line (dashed where dashed), points as their marker. */
-function legendStyle(dataset: { label?: string; showLine?: boolean; pointStyle?: unknown }) {
+function legendStyle(dataset: {
+	label?: string;
+	showLine?: boolean;
+	pointStyle?: unknown;
+	legendBox?: boolean;
+}) {
+	if (dataset.legendBox) return 'rect';
 	if (dataset.label === 'Operating point') return 'circle';
 	if (dataset.label === HELD_LABEL) return 'rectRot';
 	return dataset.showLine === false && typeof dataset.pointStyle === 'string'
@@ -176,6 +190,80 @@ function factDatasets(d: PumpChartData, shown: (key: PanelKey) => boolean, speed
 	];
 }
 
+/**
+ * The design checks' limits as datasets (D19): legend entries for the regions (drawn by the
+ * checkMarks plugin, under the curves), the NPSHa the NPSH margin check requires (dotted, on the
+ * NPSH panel) and the motor's rated power (dashed, across the power panel). As datasets, the
+ * panels' axes reach them.
+ */
+function checkDatasets(d: PumpChartData, shown: (key: PanelKey) => boolean) {
+	const c = d.checks;
+	if (!c) return [];
+	const { ink: INK, slate: SLATE, preferredFill, allowableFill } = CHART_COLORS;
+	const box = (label: string, fill: string) => ({
+		label,
+		data: [],
+		yAxisID: 'y',
+		borderColor: SLATE,
+		backgroundColor: fill,
+		borderWidth: 1,
+		legendBox: true
+	});
+	const n = shown('npsh') && d.npsh ? c.npshRequired : null;
+	const power = shown('power') ? d.power : null;
+	const xs = power?.curve.map((p) => p.x) ?? [];
+	return [
+		...(c.preferred ? [box('Preferred operating region (POR)', preferredFill)] : []),
+		...(c.allowable ? [box('Allowable operating region (AOR)', allowableFill)] : []),
+		...(c.minimumFlow
+			? [
+					{
+						label: 'Minimum flow (dash-dot)',
+						data: [],
+						yAxisID: 'y',
+						borderColor: SLATE,
+						backgroundColor: SLATE,
+						borderWidth: 1.5,
+						borderDash: [8, 3, 2, 3]
+					}
+				]
+			: []),
+		...(n
+			? [
+					{
+						label: 'NPSHa required by the check (dotted)',
+						data: n.line,
+						yAxisID: 'yNpsh',
+						borderColor: INK,
+						backgroundColor: INK,
+						borderWidth: 1.5,
+						borderDash: [2, 2],
+						pointRadius: 0,
+						pointHitRadius: 4
+					}
+				]
+			: []),
+		...(c.motorRating !== null && power && xs.length
+			? [
+					{
+						label: 'Motor rated power (dashed)',
+						data: [
+							{ x: Math.min(0, ...xs), y: c.motorRating },
+							{ x: Math.max(...xs), y: c.motorRating }
+						],
+						yAxisID: 'yPower',
+						borderColor: INK,
+						backgroundColor: INK,
+						borderWidth: 1.5,
+						borderDash: [6, 3],
+						pointRadius: 0,
+						pointHitRadius: 4
+					}
+				]
+			: [])
+	];
+}
+
 /** A percentage written briefly ("70", "62.5"). */
 function trim(value: number): string {
 	return String(Number(value.toFixed(1)));
@@ -243,7 +331,8 @@ export function pumpChartConfig(
 		forImage = false,
 		panels = ['head'],
 		cursor,
-		speedRange = false
+		speedRange = false,
+		checks = false
 	}: PumpChartConfigOptions
 ): PumpChartConfig {
 	const shown = (key: PanelKey) => panels.includes(key);
@@ -335,6 +424,7 @@ export function pumpChartConfig(
 			: []),
 		...factDatasets(d, shown, speedRange),
 		...lowerDatasets(d, shown),
+		...(checks ? checkDatasets(d, shown) : []),
 		...cases.flatMap((c) => [
 			...(c.curve
 				? [
@@ -457,6 +547,71 @@ export function pumpChartConfig(
 			if (at !== null && at !== undefined) draw(at, SLATE, [4, 3]);
 		}
 	};
+	// The design checks' regions under the curves on the head panel, and the minimum flow
+	// through every panel (D19), each labelled at its top; outside the axis, only the notes
+	// tell them.
+	const checkMarks: Plugin<'line'> = {
+		id: 'checkMarks',
+		beforeDatasetsDraw(chart) {
+			const c = d.checks;
+			const { ctx, chartArea, scales } = chart;
+			const xScale = scales.x;
+			const head = scales.y;
+			if (!checks || !c || !xScale || !head) return;
+			const size = forImage ? 13 : 11;
+			const clamp = (px: number) => Math.min(Math.max(px, chartArea.left), chartArea.right);
+			const band = (
+				from: number | null,
+				to: number | null,
+				fill: string,
+				label: string,
+				labelAt: 'top' | 'bottom'
+			) => {
+				const left = clamp(from === null ? chartArea.left : xScale.getPixelForValue(from));
+				const right = clamp(to === null ? chartArea.right : xScale.getPixelForValue(to));
+				if (right - left < 1) return;
+				ctx.save();
+				ctx.fillStyle = fill;
+				ctx.fillRect(left, head.top, right - left, head.bottom - head.top);
+				ctx.strokeStyle = CHART_COLORS.slate;
+				ctx.lineWidth = 1;
+				ctx.setLineDash([3, 3]);
+				for (const [value, px] of [
+					[from, left],
+					[to, right]
+				] as const) {
+					if (value === null || px <= chartArea.left || px >= chartArea.right) continue;
+					ctx.beginPath();
+					ctx.moveTo(px, head.top);
+					ctx.lineTo(px, head.bottom);
+					ctx.stroke();
+				}
+				ctx.fillStyle = CHART_COLORS.slate;
+				ctx.font = `${size}px system-ui, sans-serif`;
+				if (right - left > ctx.measureText(label).width + 8)
+					ctx.fillText(label, left + 4, labelAt === 'top' ? head.top + size + 3 : head.bottom - 4);
+				ctx.restore();
+			};
+			if (c.allowable)
+				band(c.allowable.from, c.allowable.to, CHART_COLORS.allowableFill, 'AOR', 'bottom');
+			if (c.preferred)
+				band(c.preferred.from, c.preferred.to, CHART_COLORS.preferredFill, 'POR', 'top');
+			if (c.minimumFlow) {
+				const px = xScale.getPixelForValue(c.minimumFlow.flow);
+				if (px >= chartArea.left && px <= chartArea.right) {
+					ctx.save();
+					ctx.strokeStyle = CHART_COLORS.slate;
+					ctx.lineWidth = 1.5;
+					ctx.setLineDash([8, 3, 2, 3]);
+					ctx.beginPath();
+					ctx.moveTo(px, chartArea.top);
+					ctx.lineTo(px, chartArea.bottom);
+					ctx.stroke();
+					ctx.restore();
+				}
+			}
+		}
+	};
 	const yScale = (key: PanelKey, title: string) => ({
 		type: 'linear' as const,
 		beginAtZero: true,
@@ -484,7 +639,7 @@ export function pumpChartConfig(
 		]);
 	return {
 		type: 'line',
-		plugins: [caseLabels, lines],
+		plugins: [checkMarks, caseLabels, lines],
 		data: { datasets },
 		options: {
 			animation: false,

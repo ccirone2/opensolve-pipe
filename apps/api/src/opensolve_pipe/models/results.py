@@ -10,6 +10,7 @@ from pydantic import Field
 
 from .base import OutputModel
 from .components import EquipmentRating
+from .design_checks import DesignCheckResult
 from .fluids import FluidProperties
 
 FlowRegime = Literal["none", "laminar", "transitional", "turbulent"]
@@ -437,5 +438,11 @@ class SolvedState(OutputModel):
     branch_results: dict[str, BranchResult] = Field(description="Keyed by component id")
     boundary_results: dict[str, BoundaryResult] = Field(description="Keyed by component id")
     flags: list[Flag]
+    design_checks: list[DesignCheckResult] = Field(
+        description=(
+            "The project's opt-in design checks, each element checked (D19); empty when none is "
+            "on or the solve did not converge. Not flags: they never change a solved value"
+        )
+    )
     convergence: ConvergenceReport
     trace: Trace

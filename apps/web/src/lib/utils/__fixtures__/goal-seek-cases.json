@@ -7845,6 +7845,7 @@
           "oscillatingComponents": [],
           "outerIterations": 1
         },
+        "designChecks": [],
         "equipmentResults": {
           "E1": {
             "flow": 0.027675604544287736,
@@ -8879,6 +8880,7 @@
           "oscillatingComponents": [],
           "outerIterations": 1
         },
+        "designChecks": [],
         "equipmentResults": {
           "E1": {
             "flow": 0.0,

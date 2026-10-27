@@ -39,6 +39,14 @@ import {
 	PUMP_CONTROL_STATE_LABELS
 } from '../labels';
 import { flagText } from '../flag-text';
+import {
+	CHECK_CATEGORIES,
+	CHECK_TITLES,
+	checkText,
+	groupChecks,
+	OUTCOME_TITLES,
+	sourceLabel
+} from '../design-checks';
 import { DIRECTION_NAMES, flowDirection } from '../assigned-flow';
 import { pumpChartData } from '../pump-chart';
 import {
@@ -202,6 +210,72 @@ export function flagsTable(ctx: ExportContext): SheetSpec {
 						flagText(flag, context),
 						flag.message,
 						canonicalJson(flag.details)
+					];
+				}
+			}
+		}
+	);
+}
+
+/**
+ * Design checks (CLAUDE.md D19): one row per check result of every case with values, in the
+ * screen's order (not met, met, not evaluated). A check's value and limits are in its own
+ * quantity, so the row says which (Unit); the words are the screen's, in the file's units, and
+ * the server's message (SI) and source are kept as reported. Design practice, not flags.
+ */
+export function designChecksTable(ctx: ExportContext): SheetSpec {
+	const u = ctx.units;
+	return table(
+		ctx,
+		'design-checks',
+		'Design checks',
+		[
+			text('Outcome'),
+			text('Check'),
+			text('Element kind'),
+			text('Element id'),
+			text('Element'),
+			number('Pipe #'),
+			text('Pipes outside #'),
+			number('Value'),
+			number('Lower limit'),
+			number('Upper limit'),
+			text('Unit'),
+			text('Limits from'),
+			text('Result'),
+			text('Message (as reported, SI)'),
+			text('Limits from (as reported)')
+		],
+		ctx.valued,
+		(c) => c.solved?.designChecks?.length ?? 0,
+		function* (c) {
+			const results = c.solved?.designChecks ?? [];
+			for (const group of groupChecks(results)) {
+				for (const r of group.results) {
+					const category = CHECK_CATEGORIES[r.check];
+					const kind = r.componentId ? 'component' : 'connection';
+					const id = r.componentId ?? r.connectionId ?? null;
+					const pipes = r.check === 'pipe_velocity';
+					yield [
+						OUTCOME_TITLES[r.outcome],
+						CHECK_TITLES[r.check],
+						ELEMENT_KINDS[kind],
+						id,
+						id === null
+							? null
+							: kind === 'component'
+								? componentName(c, id)
+								: connectionLabel(c, id),
+						pipes && r.pipeIndex !== null && r.pipeIndex !== undefined ? r.pipeIndex + 1 : null,
+						pipes && r.pipesOutside?.length ? r.pipesOutside.map((i) => i + 1).join('; ') : null,
+						u.value(r.value, category),
+						u.value(r.limits.min, category),
+						u.value(r.limits.max, category),
+						u.label(category) || null,
+						sourceLabel(r.source),
+						checkText(r, u.prefs),
+						r.message,
+						r.source
 					];
 				}
 			}

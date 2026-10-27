@@ -69,4 +69,45 @@ describe('PumpCurveEditor', () => {
 		);
 		expect(ws.store.undoLabel).toBe('add pump curve');
 	});
+
+	it('stores the manufacturer data the design checks read, an allowable region with both ends', async () => {
+		const ws = testWorkspace(pumpTransferExample());
+		ws.nav.jumpTo('P1');
+		render(WorkspaceView, { workspace: ws });
+		const curve = within(screen.getByRole('region', { name: 'Pump curve' }));
+		const details = curve.getByText('Manufacturer data (optional)').closest('details')!;
+		expect(details.open).toBe(false);
+		const field = (name: RegExp) => within(details).getByRole('textbox', { name });
+		const stored = () => ws.project.pumpLibrary[0]!;
+
+		// One end alone is kept on the page, not stored: the API needs both.
+		const low = field(/^Allowable operating region, lowest flow/);
+		await enter(low, '6');
+		expect(stored().allowableOperatingRegion).toBeUndefined();
+		const high = field(/^Allowable operating region, highest flow/);
+		expect(high).toHaveAccessibleDescription(/Enter both ends of the allowable operating region\./);
+		// The upper end below the lower one is refused, and says why.
+		await enter(high, '5');
+		expect(high).toHaveAccessibleDescription(/Enter a flow above the lowest flow\./);
+		expect(stored().allowableOperatingRegion).toBeUndefined();
+		await enter(high, '26');
+		expect(stored().allowableOperatingRegion).toEqual({
+			flowMin: expect.closeTo(0.006, 15),
+			flowMax: expect.closeTo(0.026, 15)
+		});
+		expect(high).not.toHaveAttribute('aria-invalid');
+
+		await enter(field(/^Minimum continuous stable flow/), '4');
+		await enter(field(/^Minimum thermal flow/), '3');
+		await enter(field(/^Motor rated power/), '5.5');
+		expect(stored()).toMatchObject({
+			minimumContinuousStableFlow: expect.closeTo(0.004, 15),
+			minimumThermalFlow: expect.closeTo(0.003, 15),
+			motorRatedPower: expect.closeTo(5500, 9)
+		});
+		expect(ws.store.undoLabel).toBe('change motor rated power');
+		// Clearing a value removes it.
+		await enter(field(/^Motor rated power/), '');
+		expect('motorRatedPower' in stored()).toBe(false);
+	});
 });

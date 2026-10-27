@@ -29,6 +29,10 @@ so the fixture does not change from one run to the next.
 - ``tee-fallback``: ``tests/reference/cases/tee_crane_bullhead_fallback.json``, a tee on the Darby
   3-K fallback (TEE_PATTERN_FALLBACK), in US display units: its K values are on the combined-flow
   velocity (export.md decision 29).
+- ``design-checks``: ``pump_system.json`` with every design check on (CLAUDE.md D19): the pump at
+  90 % speed with an efficiency curve and the manufacturer data, but no NPSHr curve, so the
+  results are not met, met and not evaluated; API 610's preferred region, HI 9.6.1-2012's NPSH
+  margin and a 3 m/s maximum velocity; US display units.
 """
 
 import copy
@@ -499,6 +503,48 @@ def tee_fallback(client: TestClient, library: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def design_checks(client: TestClient, library: dict[str, Any]) -> dict[str, Any]:
+    project = json.loads((TESTS / "fixtures" / "pump_system.json").read_text())
+    project["settings"]["units"] = dict(US_UNITS)
+    project["settings"]["designChecks"] = {
+        "npshMargin": {
+            "minimumRatio": 1.1,
+            "minimumMargin": 1.0,
+            "source": {"kind": "preset", "preset": "hi961_2012_general"},
+        },
+        "operatingRegion": {
+            "preferredMin": 0.7,
+            "preferredMax": 1.2,
+            "source": {"kind": "preset", "preset": "api610_por"},
+        },
+        "pipeVelocity": {"maximum": 3.0, "source": {"kind": "user"}},
+    }
+    [pump] = [c for c in project["components"] if c["type"] == "pump"]
+    pump["speed"] = 0.9
+    project["pumpLibrary"][0].update(
+        {
+            "efficiencyCurve": [
+                {"flow": 0.005, "efficiency": 0.45},
+                {"flow": 0.015, "efficiency": 0.7},
+                {"flow": 0.025, "efficiency": 0.6},
+            ],
+            "allowableOperatingRegion": {"flowMin": 0.006, "flowMax": 0.026},
+            "minimumContinuousStableFlow": 0.004,
+            "minimumThermalFlow": 0.005,
+            "motorRatedPower": 4000.0,
+        }
+    )
+    response = _solve(client, project, None)
+    outcomes = {r["outcome"] for r in response["solvedState"]["designChecks"]}
+    assert outcomes == {"pass", "fail", "not_evaluated"}, outcomes
+    return _input(
+        project,
+        [_case(project, response, None, "Base case")],
+        library,
+        options={"cases": "shown", "format": "xlsx", "units": "display", "link": True},
+    )
+
+
 def generate() -> dict[str, Any]:
     client = _client()
     library = _library(client)
@@ -508,6 +554,7 @@ def generate() -> dict[str, Any]:
             {"name": "pump-transfer", "input": pump_transfer(client, library)},
             {"name": "scenarios", "input": scenarios(client, library)},
             {"name": "tee-fallback", "input": tee_fallback(client, library)},
+            {"name": "design-checks", "input": design_checks(client, library)},
         ],
     }
 

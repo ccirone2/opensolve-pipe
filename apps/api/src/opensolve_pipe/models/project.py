@@ -6,6 +6,7 @@ from pydantic import Field, field_validator
 
 from .base import CamelModel, Identifier
 from .components import Component
+from .design_checks import DesignChecks
 from .fluids import FluidDefinition
 from .piping import PipeConnection
 from .pumps import PumpCurve
@@ -66,6 +67,12 @@ class ProjectSettings(CamelModel):
         description="Atmospheric pressure override, Pa absolute",
     )
     solver_options: SolverOptions
+    design_checks: DesignChecks | None = Field(
+        default=None,
+        # Left out of every dump when none is on, so such a project serializes as before.
+        exclude_if=lambda checks: checks is None,
+        description="The opt-in design checks this project turns on (D19); omitted: none",
+    )
 
 
 class ProjectMetadata(CamelModel):

@@ -166,6 +166,7 @@ describe("the CSV zip's folder", () => {
 			'README.txt',
 			'about.csv',
 			'flags.csv',
+			'design-checks.csv',
 			'compare-cases.csv',
 			'nodes.csv',
 			'links.csv',

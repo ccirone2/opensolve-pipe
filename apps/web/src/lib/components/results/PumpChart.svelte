@@ -23,6 +23,11 @@
 	pump curve. Their system curves are computed only on request (each costs about 41 solves), one
 	at a time, with Cancel. Checkboxes choose the cases shown (at most six at once); the data table
 	lists the operating points by case.
+
+	Design checks (CLAUDE.md D19): with checks on, a chip shows their limits: the preferred and
+	allowable operating regions shaded under the curves, the minimum flow, the NPSHa the NPSH margin
+	check requires and the motor's rating, each told in a note. Never the verdicts: Results →
+	Checks has those.
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
@@ -48,6 +53,7 @@
 		type ChipKey,
 		type OtherCaseInput,
 		type PanelKey,
+		type PumpChecksInput,
 		type SystemCurveNames
 	} from '$lib/utils/pump-chart';
 	import { mediaQuery } from '$lib/utils/media.svelte';
@@ -64,6 +70,8 @@
 		ratedRange?: [number, number] | null;
 		/** Names (and kinds as solved) to tell why a system-curve point has no head. */
 		names?: SystemCurveNames | null;
+		/** The design checks as solved (D19), whose limits the chart can show. */
+		checks?: PumpChecksInput | null;
 		/** The pump's system curve for the same solve (undefined: not requested). */
 		system?: SystemCurveState;
 		/** Compute the system curve (again, after a failure or a cancellation). */
@@ -102,6 +110,7 @@
 		prefs,
 		ratedRange = null,
 		names = null,
+		checks = null,
 		system,
 		onretry,
 		oncancel,
@@ -145,7 +154,14 @@
 	const high = $derived(ratedRange?.[1] ?? null);
 	const curve = $derived(system?.status === 'ready' ? system.curve : null);
 	const data = $derived(
-		pumpChartData(result, prefs, low !== null && high !== null ? [low, high] : null, curve, names)
+		pumpChartData(
+			result,
+			prefs,
+			low !== null && high !== null ? [low, high] : null,
+			curve,
+			names,
+			checks
+		)
 	);
 	const loading = $derived(system?.status === 'loading');
 
@@ -158,11 +174,14 @@
 		data.panels.filter((p): p is PanelKey => p === 'head' || !hidden.includes(p))
 	);
 	const speedShown = $derived(!!data.facts.speedRange && !hidden.includes('speed'));
+	const checksShown = $derived(!!data.checks && !hidden.includes('checks'));
 	const chips = $derived([
 		...data.panels.filter((p): p is Exclude<PanelKey, 'head'> => p !== 'head'),
-		...(data.facts.speedRange ? (['speed'] as const) : [])
+		...(data.facts.speedRange ? (['speed'] as const) : []),
+		...(data.checks ? (['checks'] as const) : [])
 	]);
-	const isShown = (key: ChipKey) => (key === 'speed' ? speedShown : shown.includes(key));
+	const isShown = (key: ChipKey) =>
+		key === 'speed' ? speedShown : key === 'checks' ? checksShown : shown.includes(key as PanelKey);
 	function togglePanel(key: ChipKey) {
 		hidden = hidden.includes(key) ? hidden.filter((p) => p !== key) : [...hidden, key];
 		saveHiddenPanels(hidden);
@@ -278,7 +297,10 @@
 						range.iso.length ? ', with lines of constant efficiency' : ''
 					}`
 				: '';
-		return `${parts.join(' and ')}${at}${extrapolated}${best}${panels}${speeds}${cases}.`;
+		const limits = checksShown
+			? "; with the design checks' limits, which the notes below list"
+			: '';
+		return `${parts.join(' and ')}${at}${extrapolated}${best}${panels}${speeds}${limits}${cases}.`;
 	});
 
 	/** The panels' curves as tables (the chart's long description), for the panels shown. */
@@ -322,7 +344,9 @@
 		].filter((table) => table !== null)
 	);
 	/** The figure's sentences under the chart, which the image's footer repeats (export.md §3.4). */
-	const notes = $derived(chartNotes({ data, result, system, othersControlled, shown, speedShown }));
+	const notes = $derived(
+		chartNotes({ data, result, system, othersControlled, shown, speedShown, checksShown })
+	);
 
 	// Before the DOM drops Cancel when the curve stops loading (cancelled, computed or failed): if
 	// it has the focus, what replaces it takes it: the button to compute it again, else the chart.
@@ -358,6 +382,7 @@
 		const cases = otherData;
 		const panels = shown;
 		const speedRange = speedShown;
+		const checkLimits = checksShown;
 		if (!element) return;
 		let cancelled = false;
 		let chart: ChartInstance<'line'> | null = null;
@@ -380,6 +405,7 @@
 						format: fmt,
 						panels,
 						speedRange,
+						checks: checkLimits,
 						cursor: () => cursorNow
 					})
 				);
@@ -430,7 +456,8 @@
 				format: fmt,
 				forImage: true,
 				panels: shown,
-				speedRange: speedShown
+				speedRange: speedShown,
+				checks: checksShown
 			}),
 			notes: chartNotes({
 				data,
@@ -439,7 +466,8 @@
 				othersControlled,
 				reasonsIn: IMAGE_REASONS_IN,
 				shown,
-				speedShown
+				speedShown,
+				checksShown
 			}),
 			others: otherData,
 			markerSymbols: MARKER_SYMBOLS,
@@ -602,7 +630,7 @@
 	{#if notes.extrapolated}
 		<p class="text-xs text-slate-600">{notes.extrapolated}</p>
 	{/if}
-	{#each [...notes.facts, ...notes.panels] as note (note)}
+	{#each [...notes.facts, ...notes.panels, ...notes.checks] as note (note)}
 		<p class="text-xs text-slate-600">{note}</p>
 	{/each}
 	{#if others.length}

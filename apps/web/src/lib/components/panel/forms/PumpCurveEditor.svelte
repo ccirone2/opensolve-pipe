@@ -1,12 +1,14 @@
 <!--
 	A pump curve in the project's pump library (PRD §3.4): name, head points (at least 3), and
-	optional efficiency and NPSHr curves (at least 2 points each). With no curve yet (`curve`
+	optional efficiency and NPSHr curves (at least 2 points each), and the manufacturer's data the
+	opt-in design checks read (allowable operating region, minimum flows, motor rating; D19). With no curve yet (`curve`
 	undefined), the curve `curveId` is created once 3 complete head points are entered, and the
 	pump is set to use it.
 -->
 <script lang="ts">
 	import type { Project, Pump, PumpCurve } from '$lib/api/types';
 	import Icon from '$lib/components/ui/Icon.svelte';
+	import NumberField from '$lib/components/ui/NumberField.svelte';
 	import TextField from '$lib/components/ui/TextField.svelte';
 	import { setPumpCurve, updateComponent } from '$lib/utils/edit';
 	import { withOptional } from '$lib/utils/piping';
@@ -28,6 +30,66 @@
 	let newName = $derived(`Pump curve ${curveId}`);
 	let showEfficiency = $state(false);
 	let showNpshr = $state(false);
+
+	/** An allowable region with one end entered: kept here until the other is (the API needs both). */
+	let regionDraft = $state<{ flowMin: number | null; flowMax: number | null }>({
+		flowMin: null,
+		flowMax: null
+	});
+	const region = $derived(
+		curve?.allowableOperatingRegion || regionDraft.flowMin !== null || regionDraft.flowMax !== null
+			? {
+					flowMin: curve?.allowableOperatingRegion?.flowMin ?? regionDraft.flowMin,
+					flowMax: curve?.allowableOperatingRegion?.flowMax ?? regionDraft.flowMax
+				}
+			: null
+	);
+	const regionError = $derived(
+		region && (region.flowMin === null || region.flowMax === null)
+			? 'Enter both ends of the allowable operating region.'
+			: null
+	);
+	/** An end refused for its order (the API's x-ordered-fields), until the next edit. */
+	let regionOrder = $state<'flowMin' | 'flowMax' | null>(null);
+	const regionErrorAt = (end: 'flowMin' | 'flowMax') =>
+		regionOrder === end
+			? end === 'flowMin'
+				? 'Enter a flow below the highest flow.'
+				: 'Enter a flow above the lowest flow.'
+			: regionError && region?.[end] === null
+				? regionError
+				: null;
+
+	function setRegion(end: 'flowMin' | 'flowMax', value: number | null): boolean {
+		const next = {
+			flowMin: region?.flowMin ?? null,
+			flowMax: region?.flowMax ?? null,
+			[end]: value
+		};
+		regionOrder = null;
+		if (next.flowMin !== null && next.flowMax !== null) {
+			if (!(next.flowMin < next.flowMax)) {
+				regionOrder = end;
+				return false;
+			}
+			regionDraft = { flowMin: null, flowMax: null };
+			return save('change allowable operating region', (c) => ({
+				...c,
+				allowableOperatingRegion: { flowMin: next.flowMin!, flowMax: next.flowMax! }
+			}));
+		}
+		regionDraft = next;
+		if (curve?.allowableOperatingRegion)
+			save('remove allowable operating region', (c) =>
+				withOptional(c, 'allowableOperatingRegion', null)
+			);
+		return true;
+	}
+
+	type ManufacturerField = 'minimumContinuousStableFlow' | 'minimumThermalFlow' | 'motorRatedPower';
+	function setManufacturer(field: ManufacturerField, value: number | null, label: string) {
+		return save(label, (c) => withOptional(c, field, value));
+	}
 
 	const flowAxis = {
 		label: 'Flow',
@@ -192,6 +254,84 @@
 				<Icon name="plus" class="size-4" /> Add NPSHr curve
 			</button>
 		{/if}
+		<details
+			class="group"
+			open={!!(
+				region ||
+				curve.minimumContinuousStableFlow ||
+				curve.minimumThermalFlow ||
+				curve.motorRatedPower
+			)}
+		>
+			<summary class="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">
+				<span
+					class="text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+					aria-hidden="true">▸</span
+				>
+				Manufacturer data (optional)
+			</summary>
+			<p class="hint mb-2">
+				From the pump's datasheet, at rated speed. Read only by the opt-in pump operating region
+				check (Settings → Design checks); the solve does not use them.
+			</p>
+			<div class="grid gap-3 sm:grid-cols-2">
+				<NumberField
+					label="Allowable operating region, lowest flow"
+					value={region?.flowMin}
+					category="flow"
+					units={ws.units}
+					optional
+					placeholder="Not given"
+					bounds={schemaBounds('AllowableOperatingRegion', 'flowMin')}
+					error={regionErrorAt('flowMin')}
+					oninput={() => (regionOrder = null)}
+					onchange={(v) => setRegion('flowMin', v)}
+				/>
+				<NumberField
+					label="Allowable operating region, highest flow"
+					value={region?.flowMax}
+					category="flow"
+					units={ws.units}
+					optional
+					placeholder="Not given"
+					bounds={schemaBounds('AllowableOperatingRegion', 'flowMax')}
+					error={regionErrorAt('flowMax')}
+					oninput={() => (regionOrder = null)}
+					onchange={(v) => setRegion('flowMax', v)}
+				/>
+				<NumberField
+					label="Minimum continuous stable flow"
+					value={curve.minimumContinuousStableFlow}
+					category="flow"
+					units={ws.units}
+					optional
+					placeholder="Not given"
+					bounds={schemaBounds('PumpCurve', 'minimumContinuousStableFlow')}
+					onchange={(v) =>
+						setManufacturer('minimumContinuousStableFlow', v, 'change minimum stable flow')}
+				/>
+				<NumberField
+					label="Minimum thermal flow"
+					value={curve.minimumThermalFlow}
+					category="flow"
+					units={ws.units}
+					optional
+					placeholder="Not given"
+					bounds={schemaBounds('PumpCurve', 'minimumThermalFlow')}
+					onchange={(v) => setManufacturer('minimumThermalFlow', v, 'change minimum thermal flow')}
+				/>
+				<NumberField
+					label="Motor rated power"
+					value={curve.motorRatedPower}
+					category="power"
+					units={ws.units}
+					optional
+					placeholder="Not given"
+					bounds={schemaBounds('PumpCurve', 'motorRatedPower')}
+					onchange={(v) => setManufacturer('motorRatedPower', v, 'change motor rated power')}
+				/>
+			</div>
+		</details>
 		<p class="hint">
 			Curves are fitted with a monotone piecewise cubic through the points. The NPSHr curve gives
 			the NPSH margin in the results.

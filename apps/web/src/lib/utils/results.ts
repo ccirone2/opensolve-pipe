@@ -1254,6 +1254,7 @@ export function markChanged(table: Table, changed: ReadonlySet<string>): Table {
 /** The views of the results pane, in tab order. */
 export type ResultsView =
 	| 'summary'
+	| 'checks'
 	| 'nodes'
 	| 'links'
 	| 'pumps'
@@ -1266,6 +1267,7 @@ export type ResultsView =
 
 export const VIEW_LABELS: Readonly<Record<ResultsView, string>> = {
 	summary: 'Summary',
+	checks: 'Checks',
 	nodes: 'Nodes',
 	links: 'Links',
 	pumps: 'Pumps',
@@ -1282,6 +1284,8 @@ export function availableViews(solved: SolvedState): ResultsView[] {
 	const has = (map: Readonly<Record<string, unknown>>) => Object.keys(map).length > 0;
 	const boundaries = Object.values(solved.boundaryResults);
 	const views: ResultsView[] = ['summary'];
+	// The opt-in design checks (D19), when the project has some (an older response has none).
+	if (solved.designChecks?.length) views.push('checks');
 	if (has(solved.nodeResults)) views.push('nodes');
 	if (has(solved.linkResults)) views.push('links');
 	if (has(solved.pumpResults)) views.push('pumps');

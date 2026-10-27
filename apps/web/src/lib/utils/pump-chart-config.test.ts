@@ -22,7 +22,8 @@ describe('pump chart configuration', () => {
 		expect(labelsOf(screen)).toEqual([
 			'Pump curve at 100 % speed',
 			'System curve',
-			'Operating point'
+			'Operating point',
+			'Shutoff head'
 		]);
 		expect(screen.options?.responsive).toBe(true);
 		expect(screen.options?.animation).toBe(false);

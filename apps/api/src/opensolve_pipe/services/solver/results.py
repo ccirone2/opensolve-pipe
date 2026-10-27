@@ -40,7 +40,7 @@ import math
 from collections import defaultdict, deque
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, TypedDict
 
 import fluids.fittings
 import numpy as np
@@ -57,6 +57,7 @@ from ...models.components import (
     WyeBranch,
 )
 from ...models.results import (
+    BestEfficiencyPoint,
     BoundaryResult,
     BranchResult,
     ConvergenceReport,
@@ -65,6 +66,8 @@ from ...models.results import (
     EquipmentResult,
     FittingResult,
     Flag,
+    FlowInterval,
+    IsoEfficiencyLine,
     LinkResult,
     NodeResult,
     NpshrCurvePoint,
@@ -73,10 +76,13 @@ from ...models.results import (
     PumpResult,
     ResidualLocation,
     SegmentResult,
+    ShutoffHead,
     SolvedState,
+    SpeedCurve,
     Trace,
     ValveResult,
 )
+from . import curve_facts
 from .branches import DARBY_TEE, flow_pattern
 from .builder import BuiltNetwork, ConnectionData, EquipmentData, PumpData, ValveData, node_key
 from .elements import segment_state
@@ -183,6 +189,62 @@ def _points[P](
 ) -> list[P] | None:
     """A sampled curve as output points (None stays None)."""
     return None if samples is None else [point(f, v) for f, v in samples]
+
+
+class _CurveFacts(TypedDict):
+    best_efficiency_point: BestEfficiencyPoint | None
+    shutoff_head: ShutoffHead
+    rising_head_ranges: list[FlowInterval]
+    speed_curves: list[SpeedCurve]
+    iso_efficiency_lines: list[IsoEfficiencyLine]
+
+
+def _speed_limits(low: float, high: float) -> tuple[tuple[Literal["min", "max"], float], ...]:
+    return (("min", low), ("max", high))
+
+
+def _curve_facts(pump: PumpData, s: float) -> _CurveFacts:
+    """The pump chart's curve facts at speed s (``curve_facts``; proposal pump-chart.md §6)."""
+    curve = pump.curve
+    best = curve_facts.best_efficiency(curve)
+    control = pump.control
+    return {
+        "best_efficiency_point": None
+        if best is None
+        else BestEfficiencyPoint(
+            flow=best.flow * s,
+            efficiency=best.efficiency,
+            head=curve.head(best.flow * s, s)[0],
+            head_extrapolated=not curve.head_curve.contains(best.flow),
+        ),
+        "shutoff_head": ShutoffHead(
+            head=curve.shutoff_head(s), extrapolated=curve_facts.shutoff_extrapolated(curve)
+        ),
+        "rising_head_ranges": [
+            FlowInterval(flow_min=lo, flow_max=hi) for lo, hi in curve_facts.rising_ranges(curve, s)
+        ],
+        "speed_curves": []
+        if control is None
+        else [
+            SpeedCurve(
+                limit=limit,
+                speed=speed,
+                curve=[CurvePoint(flow=f, head=h) for f, h in curve_facts.sample_at(curve, speed)],
+            )
+            for limit, speed in _speed_limits(control.min_speed, control.max_speed)
+        ],
+        "iso_efficiency_lines": []
+        if control is None
+        else [
+            IsoEfficiencyLine(
+                efficiency=line.efficiency,
+                best=line.best,
+                rated_flow=line.rated_flow,
+                points=[CurvePoint(flow=f, head=h) for f, h in line.points],
+            )
+            for line in curve_facts.iso_lines(curve, control.min_speed, control.max_speed)
+        ],
+    }
 
 
 def _timestamp() -> str:
@@ -877,6 +939,7 @@ class _Mapper:
                 curve.sample_shaft_power(s, self.rho, self.g, CURVE_SAMPLES),
                 lambda f, v: PowerCurvePoint(flow=f, shaft_power=v),
             ),
+            **_curve_facts(pump, s),
             system_curve=None,
         )
 

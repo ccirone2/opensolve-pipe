@@ -8094,6 +8094,7 @@
         },
         "pumpResults": {
           "P1": {
+            "bestEfficiencyPoint": null,
             "control": null,
             "curve": [
               {
@@ -8265,6 +8266,7 @@
             "efficiencyCurve": null,
             "hydraulicPower": 8341.601412912025,
             "inCurveRange": true,
+            "isoEfficiencyLines": [],
             "npshAvailable": 12.558978407300891,
             "npshMargin": 9.483308066479312,
             "npshRequired": 3.07567034082158,
@@ -8437,8 +8439,14 @@
             "operatingFlow": 0.027675604544287736,
             "operatingHead": 30.79009051584346,
             "powerCurve": null,
+            "risingHeadRanges": [],
             "shaftPower": null,
+            "shutoffHead": {
+              "extrapolated": false,
+              "head": 40.0
+            },
             "speed": 1.0,
+            "speedCurves": [],
             "status": "running",
             "suctionAbsolutePressure": 110149.47694457574,
             "systemCurve": null
@@ -9120,6 +9128,7 @@
         },
         "pumpResults": {
           "P1": {
+            "bestEfficiencyPoint": null,
             "control": null,
             "curve": [
               {
@@ -9291,6 +9300,7 @@
             "efficiencyCurve": null,
             "hydraulicPower": 0.0,
             "inCurveRange": true,
+            "isoEfficiencyLines": [],
             "npshAvailable": 15.111892006635621,
             "npshMargin": null,
             "npshRequired": null,
@@ -9463,8 +9473,14 @@
             "operatingFlow": 0.0,
             "operatingHead": 15.0,
             "powerCurve": null,
+            "risingHeadRanges": [],
             "shaftPower": null,
+            "shutoffHead": {
+              "extrapolated": false,
+              "head": 40.0
+            },
             "speed": 1.0,
+            "speedCurves": [],
             "status": "off",
             "suctionAbsolutePressure": 150270.3407606823,
             "systemCurve": null

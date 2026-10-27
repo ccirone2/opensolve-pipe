@@ -40,10 +40,12 @@
 		MARKER_SYMBOLS,
 		MAX_CHART_CASES,
 		otherCasesData,
+		CHIP_LABELS,
 		PANEL_LABELS,
 		pumpChartData,
 		pumpLine,
 		saveHiddenPanels,
+		type ChipKey,
 		type OtherCaseInput,
 		type PanelKey,
 		type SystemCurveNames
@@ -147,12 +149,22 @@
 	);
 	const loading = $derived(system?.status === 'loading');
 
-	/** The panels the user hid (this browser), and those shown: the head and the rest with data. */
-	let hidden = $state<PanelKey[]>(loadHiddenPanels());
-	const shown = $derived(data.panels.filter((p) => !hidden.includes(p)));
-	const lowerPanels = $derived(data.panels.filter((p) => p !== 'head'));
-	function togglePanel(panel: PanelKey) {
-		hidden = hidden.includes(panel) ? hidden.filter((p) => p !== panel) : [...hidden, panel];
+	/**
+	 * What the user hid (this browser), and what is shown: the head panel, the other panels with
+	 * data, and a speed-controlled pump's speed range.
+	 */
+	let hidden = $state<ChipKey[]>(loadHiddenPanels());
+	const shown = $derived(
+		data.panels.filter((p): p is PanelKey => p === 'head' || !hidden.includes(p))
+	);
+	const speedShown = $derived(!!data.facts.speedRange && !hidden.includes('speed'));
+	const chips = $derived([
+		...data.panels.filter((p): p is Exclude<PanelKey, 'head'> => p !== 'head'),
+		...(data.facts.speedRange ? (['speed'] as const) : [])
+	]);
+	const isShown = (key: ChipKey) => (key === 'speed' ? speedShown : shown.includes(key));
+	function togglePanel(key: ChipKey) {
+		hidden = hidden.includes(key) ? hidden.filter((p) => p !== key) : [...hidden, key];
 		saveHiddenPanels(hidden);
 	}
 	const phone = mediaQuery('(max-width: 639px)');
@@ -255,7 +267,18 @@
 			: '';
 		const below = shown.filter((p) => p !== 'head').map((p) => PANEL_LABELS[p].toLowerCase());
 		const panels = below.length ? `; below, on the same flow axis: ${below.join(', ')}` : '';
-		return `${parts.join(' and ')}${at}${extrapolated}${panels}${cases}.`;
+		const bep = data.facts.bep;
+		const best = bep
+			? `; best efficiency point ${fmt(bep.efficiency.y)} % at ${fmt(bep.head.x)} ${data.flowUnit}`
+			: '';
+		const range = data.facts.speedRange;
+		const speeds =
+			speedShown && range
+				? `; speed range from ${fmt(range.min.speed)} % to ${fmt(range.max.speed)} % speed${
+						range.iso.length ? ', with lines of constant efficiency' : ''
+					}`
+				: '';
+		return `${parts.join(' and ')}${at}${extrapolated}${best}${panels}${speeds}${cases}.`;
 	});
 
 	/** The panels' curves as tables (the chart's long description), for the panels shown. */
@@ -284,11 +307,22 @@
 						column: `NPSHr (${data.headUnit})`,
 						rows: data.npsh.required
 					}
-				: null
+				: null,
+			...(speedShown && data.facts.speedRange
+				? (['min', 'max'] as const).map((limit) => {
+						const line = data.facts.speedRange![limit];
+						return {
+							key: `speed-${limit}`,
+							caption: `Pump curve at ${fmt(line.speed)} % speed (${limit === 'min' ? 'minimum' : 'maximum'})`,
+							column: `Head (${data.headUnit})`,
+							rows: line.curve
+						};
+					})
+				: [])
 		].filter((table) => table !== null)
 	);
 	/** The figure's sentences under the chart, which the image's footer repeats (export.md §3.4). */
-	const notes = $derived(chartNotes({ data, result, system, othersControlled, shown }));
+	const notes = $derived(chartNotes({ data, result, system, othersControlled, shown, speedShown }));
 
 	// Before the DOM drops Cancel when the curve stops loading (cancelled, computed or failed): if
 	// it has the focus, what replaces it takes it: the button to compute it again, else the chart.
@@ -323,6 +357,7 @@
 		const speed = speedText;
 		const cases = otherData;
 		const panels = shown;
+		const speedRange = speedShown;
 		if (!element) return;
 		let cancelled = false;
 		let chart: ChartInstance<'line'> | null = null;
@@ -344,6 +379,7 @@
 						legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
 						format: fmt,
 						panels,
+						speedRange,
 						cursor: () => cursorNow
 					})
 				);
@@ -393,7 +429,8 @@
 				legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
 				format: fmt,
 				forImage: true,
-				panels: shown
+				panels: shown,
+				speedRange: speedShown
 			}),
 			notes: chartNotes({
 				data,
@@ -401,7 +438,8 @@
 				system,
 				othersControlled,
 				reasonsIn: IMAGE_REASONS_IN,
-				shown
+				shown,
+				speedShown
 			}),
 			others: otherData,
 			markerSymbols: MARKER_SYMBOLS,
@@ -439,15 +477,15 @@
 		>
 			<canvas bind:this={canvas} aria-hidden="true"></canvas>
 		</div>
-		{#if lowerPanels.length}
-			<div role="group" aria-label="Panels" class="flex flex-wrap items-center gap-2">
-				<span class="text-xs text-slate-700" aria-hidden="true">Panels</span>
-				{#each lowerPanels as panel (panel)}
+		{#if chips.length}
+			<div role="group" aria-label="Show" class="flex flex-wrap items-center gap-2">
+				<span class="text-xs text-slate-700" aria-hidden="true">Show</span>
+				{#each chips as chip (chip)}
 					<button
 						type="button"
-						class={['btn px-3 text-sm', shown.includes(panel) && 'border-blue-700 bg-blue-50']}
-						aria-pressed={shown.includes(panel)}
-						onclick={() => togglePanel(panel)}>{PANEL_LABELS[panel]}</button
+						class={['btn px-3 text-sm', isShown(chip) && 'border-blue-700 bg-blue-50']}
+						aria-pressed={isShown(chip)}
+						onclick={() => togglePanel(chip)}>{CHIP_LABELS[chip]}</button
 					>
 				{/each}
 			</div>
@@ -564,7 +602,7 @@
 	{#if notes.extrapolated}
 		<p class="text-xs text-slate-600">{notes.extrapolated}</p>
 	{/if}
-	{#each notes.panels as note (note)}
+	{#each [...notes.facts, ...notes.panels] as note (note)}
 		<p class="text-xs text-slate-600">{note}</p>
 	{/each}
 	{#if others.length}

@@ -1101,6 +1101,16 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
             "points, held at its end values outside [Q₀,min, Q₀,max] of those points"
         )
         t.equation("η(Q) = η₀(Q/s) (affinity laws: efficiency unchanged); P_shaft = P_hyd/η")
+        t.equation(
+            "Best efficiency point: Q₀* where η₀ is largest strictly inside its points "
+            "(dη₀/dQ₀ = 0 on a PCHIP piece, or a knot), above η₀ at both end points; at speed s "
+            "(s Q₀*, η₀(Q₀*)) with head s² H₀(Q₀*); none when the largest η₀ is at an end"
+        )
+        if control is not None:
+            t.equation(
+                "Iso-efficiency line through Q₀ with η₀(Q₀) = η: (s Q₀, s² H₀(Q₀)) for s from "
+                "s_min to s_max (H ∝ Q², along which η₀(Q/s) is constant)"
+            )
     if data.curve.npshr_curve is not None:
         t.equation(
             "NPSHr₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed NPSHr points; "
@@ -1190,6 +1200,22 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
         t.value("Efficiency η", result.efficiency, NO_UNIT)
         t.value("Hydraulic power P_hyd", result.hydraulic_power, W)
         t.value("Shaft power P_shaft", result.shaft_power, W)
+        bep = result.best_efficiency_point
+        if bep is not None:
+            t.value("Best efficiency flow s Q₀*", bep.flow, M3S)
+            t.value("Best efficiency η₀(Q₀*)", bep.efficiency, NO_UNIT)
+            t.value(
+                "Head at best efficiency s² H₀(Q₀*)"
+                + (" (extrapolated)" if bep.head_extrapolated else ""),
+                bep.head,
+                M,
+            )
+        for interval in result.rising_head_ranges:
+            t.note(
+                f"The head rises with flow (dH/dQ > 0) from {interval.flow_min:.6g} to "
+                f"{interval.flow_max:.6g} m³/s at speed {s:g}: a system curve can cross the pump "
+                "curve more than once there."
+            )
         if control is not None:
             _speed_control_values(t, data, result)
         if result.status == "running":

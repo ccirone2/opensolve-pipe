@@ -21,7 +21,7 @@ test('draws the efficiency, power and NPSH panels and reads them at the duty', a
 	await expect(chart).toHaveAccessibleName(
 		/below, on the same flow axis: efficiency, shaft power, npsh/
 	);
-	const panels = figure.getByRole('group', { name: 'Panels' });
+	const panels = figure.getByRole('group', { name: 'Show' });
 	for (const name of ['Efficiency', 'Shaft power', 'NPSH'])
 		await expect(panels.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'true');
 
@@ -61,6 +61,6 @@ test('draws the efficiency, power and NPSH panels and reads them at the duty', a
 	await solveConverged(page);
 	const again = await resultsView(page, 'Pumps');
 	await expect(
-		again.getByRole('group', { name: 'Panels' }).getByRole('button', { name: 'Shaft power' })
+		again.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'Shaft power' })
 	).toHaveAttribute('aria-pressed', 'false', { timeout: 30_000 });
 });

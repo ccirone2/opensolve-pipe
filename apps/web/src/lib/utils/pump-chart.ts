@@ -95,6 +95,35 @@ export interface NpshPanel {
 	crossing: number | null;
 }
 
+/** A speed-controlled pump's curve at a limit speed (display units). */
+export interface SpeedLine {
+	/** Percent of rated speed. */
+	speed: number;
+	curve: ChartPoint[];
+}
+
+/** An iso-efficiency line over the speed range (display units). */
+export interface IsoLine {
+	/** Percent. */
+	efficiency: number;
+	/** The line through the best efficiency point. */
+	best: boolean;
+	points: ChartPoint[];
+}
+
+/** Facts of the pump's curves (proposal pump-chart.md §6, slice 2), from the API. */
+export interface CurveFacts {
+	/** The best efficiency point at the running speed: on the head and efficiency panels. */
+	bep: { head: ChartPoint; efficiency: ChartPoint; headExtrapolated: boolean } | null;
+	/** Whether the pump has an efficiency curve (to say why there is no BEP). */
+	hasEfficiency: boolean;
+	shutoff: { point: ChartPoint; extrapolated: boolean };
+	/** Where the head rises with flow: the flow ranges and the stretches of the pump line. */
+	rising: { ranges: [number, number][]; lines: ChartPoint[][] };
+	/** A speed-controlled pump's limit curves and iso-efficiency lines. */
+	speedRange: { min: SpeedLine; max: SpeedLine; iso: IsoLine[] } | null;
+}
+
 export interface PumpChartData {
 	flowUnit: string;
 	headUnit: string;
@@ -129,6 +158,7 @@ export interface PumpChartData {
 	curveRows: { flow: string; head: string; extrapolated: boolean }[];
 	/** Data table rows of the system curve: '—' and the reason for a point with no head. */
 	systemRows: SystemRow[];
+	facts: CurveFacts;
 }
 
 /** Flow range (m³/s) of a pump's head-curve points at rated speed, from the project. */
@@ -197,6 +227,12 @@ export function pumpChartData(
 		}
 	}
 	closeRun();
+	// Data that start above zero flow: the start tangent down to the shutoff head (straight in Q
+	// at a fixed speed, H = s²·H₀(Q/s) with H₀ linear), as the solver extrapolates.
+	const first = sampled[0];
+	if (result.shutoffHead.extrapolated && first && first.flow > 0) {
+		extrapolated.unshift([point({ flow: 0, head: result.shutoffHead.head }), point(first)]);
+	}
 
 	const running = result.status === 'running';
 	const operatingSI: CurvePoint = { flow: result.operatingFlow, head: result.operatingHead };
@@ -221,7 +257,9 @@ export function pumpChartData(
 		})) ?? null;
 	const fmt = (v: number) => formatNumber(v, 4);
 	const panels = lowerPanels(result, prefs, systemPoints);
+	const facts = curveFacts(result, prefs, [...curve, ...extrapolated.flat()]);
 	return {
+		facts,
 		flowUnit: unitLabel('flow', flowUnit),
 		headUnit: unitLabel('head', headUnit),
 		powerUnit: unitLabel('power', powerUnit),
@@ -260,6 +298,57 @@ export function pumpChartData(
 				...(why.detail ? { detail: why.detail } : {})
 			};
 		})
+	};
+}
+
+/** The curve facts in display units; `line` is every drawn point of the pump curve. */
+function curveFacts(result: PumpResult, prefs: UnitPreferences, line: ChartPoint[]): CurveFacts {
+	const flowUnit = displayUnit('flow', prefs);
+	const headUnit = displayUnit('head', prefs);
+	const x = (flow: number) => fromSI(flow, flowUnit);
+	const y = (head: number) => fromSI(head, headUnit);
+	const bep = result.bestEfficiencyPoint;
+	const sorted = [...line].sort((a, b) => a.x - b.x);
+	const ranges = result.risingHeadRanges.map((r): [number, number] => [x(r.flowMin), x(r.flowMax)]);
+	const lines = ranges.map(([lo, hi]) => {
+		const ends = [lo, hi].flatMap((at) => {
+			const value = valueAt(sorted, at);
+			return value === null ? [] : [{ x: at, y: value }];
+		});
+		return [...ends, ...sorted.filter((p) => p.x > lo && p.x < hi)].sort((a, b) => a.x - b.x);
+	});
+	const min = result.speedCurves.find((c) => c.limit === 'min');
+	const max = result.speedCurves.find((c) => c.limit === 'max');
+	const speedLine = (c: NonNullable<typeof min>): SpeedLine => ({
+		speed: c.speed * 100,
+		curve: c.curve.map((p) => ({ x: x(p.flow), y: y(p.head) }))
+	});
+	return {
+		bep: bep
+			? {
+					head: { x: x(bep.flow), y: y(bep.head) },
+					efficiency: { x: x(bep.flow), y: bep.efficiency * 100 },
+					headExtrapolated: bep.headExtrapolated
+				}
+			: null,
+		hasEfficiency: !!result.efficiencyCurve?.length,
+		shutoff: {
+			point: { x: 0, y: y(result.shutoffHead.head) },
+			extrapolated: result.shutoffHead.extrapolated
+		},
+		rising: { ranges, lines },
+		speedRange:
+			min && max
+				? {
+						min: speedLine(min),
+						max: speedLine(max),
+						iso: result.isoEfficiencyLines.map((l) => ({
+							efficiency: l.efficiency * 100,
+							best: l.best,
+							points: l.points.map((p) => ({ x: x(p.flow), y: y(p.head) }))
+						}))
+					}
+				: null
 	};
 }
 
@@ -408,18 +497,30 @@ export function chartHeightRem(panels: readonly PanelKey[], phone: boolean): num
 /** localStorage key of the panels the user hid (a per-browser choice, never project data). */
 export const HIDDEN_PANELS_KEY = 'opensolve-pipe:pump-chart-hidden-panels';
 
-/** The panels hidden before in this browser ([] where storage is refused or holds nothing). */
-export function loadHiddenPanels(): PanelKey[] {
+/** What a chip shows or hides: a panel below the head, or a speed-controlled pump's speed range. */
+export type ChipKey = Exclude<PanelKey, 'head'> | 'speed';
+const CHIP_KEYS: readonly ChipKey[] = ['efficiency', 'power', 'npsh', 'speed'];
+
+/** The chips' names. */
+export const CHIP_LABELS: Readonly<Record<ChipKey, string>> = {
+	efficiency: 'Efficiency',
+	power: 'Shaft power',
+	npsh: 'NPSH',
+	speed: 'Speed range'
+};
+
+/** What was hidden before in this browser ([] where storage is refused or holds nothing). */
+export function loadHiddenPanels(): ChipKey[] {
 	try {
 		const parsed: unknown = JSON.parse(localStorage.getItem(HIDDEN_PANELS_KEY) ?? '[]');
-		return Array.isArray(parsed) ? PANELS.filter((p) => p !== 'head' && parsed.includes(p)) : [];
+		return Array.isArray(parsed) ? CHIP_KEYS.filter((p) => parsed.includes(p)) : [];
 	} catch {
 		return [];
 	}
 }
 
-/** Remember the hidden panels; a refused write only loses the convenience. */
-export function saveHiddenPanels(hidden: readonly PanelKey[]): void {
+/** Remember what is hidden; a refused write only loses the convenience. */
+export function saveHiddenPanels(hidden: readonly ChipKey[]): void {
 	try {
 		if (hidden.length) localStorage.setItem(HIDDEN_PANELS_KEY, JSON.stringify(hidden));
 		else localStorage.removeItem(HIDDEN_PANELS_KEY);
@@ -609,6 +710,8 @@ export interface ChartNotes {
 	extrapolated: string | null;
 	/** What the panels below the head show and where they stop (proposal pump-chart.md §4.2). */
 	panels: string[];
+	/** The curve facts: best efficiency, shutoff, rising head, speed range (§6, slice 2). */
+	facts: string[];
 }
 
 export interface ChartNotesInput {
@@ -625,6 +728,8 @@ export interface ChartNotesInput {
 	reasonsIn?: string;
 	/** The panels shown (default: the head only). */
 	shown?: readonly PanelKey[];
+	/** A speed-controlled pump's speed range is shown. */
+	speedShown?: boolean;
 }
 
 /** The figure's notes, from one function the screen and the image both use. */
@@ -634,7 +739,8 @@ export function chartNotes({
 	system,
 	othersControlled = false,
 	reasonsIn = 'the data table says',
-	shown = ['head']
+	shown = ['head'],
+	speedShown = false
 }: ChartNotesInput): ChartNotes {
 	const fmt = (v: number) => formatNumber(v, 4);
 	const controlled = !!result.control;
@@ -695,7 +801,55 @@ export function chartNotes({
 					: ''
 			}, along the curve's end slope, as the solver does.`
 		: null;
-	return { pump, curve, method, extrapolated, panels: panelNotes(data, result, shown) };
+	return {
+		pump,
+		curve,
+		method,
+		extrapolated,
+		panels: panelNotes(data, result, shown),
+		facts: factNotes(data, speedShown)
+	};
+}
+
+/** The curve facts as sentences (screen and image). */
+function factNotes(d: PumpChartData, speedShown: boolean): string[] {
+	const fmt = (v: number) => formatNumber(v, 4);
+	const { bep, shutoff, rising, speedRange } = d.facts;
+	const notes: string[] = [];
+	if (bep)
+		notes.push(
+			`Best efficiency point (+): ${fmt(bep.efficiency.y)} % at ${fmt(bep.head.x)} ${d.flowUnit} and ${fmt(bep.head.y)} ${d.headUnit}${
+				bep.headExtrapolated ? ' (head extrapolated)' : ''
+			}, the efficiency curve's highest point inside its data, at this speed.`
+		);
+	else if (d.facts.hasEfficiency)
+		notes.push(
+			"No best efficiency point is marked: the efficiency data's highest point is at an end of the data, so the data do not show a maximum."
+		);
+	notes.push(
+		`Shutoff head (–): ${fmt(shutoff.point.y)} ${d.headUnit}${
+			shutoff.extrapolated
+				? ", extrapolated along the curve's start slope (the data start above zero flow)"
+				: ''
+		}.`
+	);
+	for (const [lo, hi] of rising.ranges)
+		notes.push(
+			`The head rises with flow from ${fmt(lo)} to ${fmt(hi)} ${d.flowUnit} (amber): a system curve can cross the pump curve more than once there.`
+		);
+	if (speedShown && speedRange) {
+		const levels = speedRange.iso.filter((l) => !l.best).map((l) => l.efficiency);
+		const unique = [...new Set(levels.map((l) => fmt(l)))];
+		const iso = speedRange.iso.length
+			? `; dotted, the lines of constant efficiency through the best efficiency point${
+					unique.length ? ` and at ${unique.join(', ')} %` : ''
+				}, H ∝ Q² by the affinity laws with η₀(Q/s) unchanged (no reduced-speed efficiency correction)`
+			: '';
+		notes.push(
+			`Speed range of the flow control: the pump curve at its minimum (${fmt(speedRange.min.speed)} %) and maximum (${fmt(speedRange.max.speed)} %) speeds${iso}.`
+		);
+	}
+	return notes;
 }
 
 /** The notes of the panels below the head, in panel order. */

@@ -73,12 +73,18 @@ export interface SolveAnswer {
 	request: SolveRequest;
 }
 
-/** Press Solve and wait for the API's answer. */
+/**
+ * Press the header's Solve and wait for the API's answer. In a project with scenarios the button
+ * names the case shown, the base case when a link has just been opened (D15).
+ */
 export async function solve(page: Page): Promise<SolveAnswer> {
 	const answer = page.waitForResponse(
 		(r) => r.url().endsWith('/api/v1/solve') && r.request().method() === 'POST'
 	);
-	await page.getByRole('button', { name: 'Solve', exact: true }).click();
+	await page
+		.getByRole('banner')
+		.getByRole('button', { name: /^Solve( Base case)?$/ })
+		.click();
 	const response = await answer;
 	return {
 		status: response.status(),

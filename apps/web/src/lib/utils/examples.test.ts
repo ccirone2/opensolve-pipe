@@ -4,6 +4,7 @@ import { decodeProject, encodeProject, URL_LENGTH_WARNING, projectUrl } from './
 import { EXAMPLES, exampleProject } from './examples';
 import { componentKind } from './factory';
 import { defaultStart, isBoundary, reachable } from './graph';
+import { US_GALLON } from './units';
 import { projectProblems, schemaProblems } from './validate';
 
 describe('examples', () => {
@@ -36,8 +37,8 @@ describe('examples', () => {
 		const a = exampleProject('pump-transfer')!;
 		a.metadata.name = 'changed';
 		expect(exampleProject('pump-transfer')!.metadata.name).toBe('Pump transfer between two tanks');
-		expect(encodeProject(exampleProject('closed-loop')!)).toBe(
-			encodeProject(exampleProject('closed-loop')!)
+		expect(encodeProject(exampleProject('condenser-water')!)).toBe(
+			encodeProject(exampleProject('condenser-water')!)
 		);
 		expect(exampleProject('nope')).toBeUndefined();
 	});
@@ -50,7 +51,7 @@ describe('examples', () => {
 		}
 	});
 
-	it('cover the three v1 scenarios', () => {
+	it('cover the three example systems', () => {
 		const kinds = (slug: string) => exampleProject(slug)!.components.map(componentKind);
 		// (1) reservoir → pump → gate valve → reservoir, water at 20 °C, a 4-point curve
 		const transfer = exampleProject('pump-transfer')!;
@@ -66,10 +67,35 @@ describe('examples', () => {
 		expect(kinds('gravity-branch').sort()).toEqual(
 			['globe', 'reservoir', 'reservoir', 'reservoir', 'tee'].sort()
 		);
-		// (3) closed loop: pump, check valve, ideal reference node, and a loop
-		const loop = exampleProject('closed-loop')!;
-		expect(kinds('closed-loop').sort()).toEqual(['check', 'pump', 'reference_node', 'tee'].sort());
-		expect(loop.connections.length).toBe(loop.components.length); // one independent loop
-		expect(loop.components.some((c) => c.type === 'reservoir')).toBe(false);
+		// (3) condenser water, 90,000 gpm: six 15,000 gpm pumps on a common header, seven
+		// condensers (4 × 15,000 and 3 × 10,000 gpm) each held by a flow control valve, six
+		// 15,000 gpm tower cells with nozzle headers, and a tower bypass valve closed at design
+		const plant = exampleProject('condenser-water')!;
+		const count = (kind: string) => kinds('condenser-water').filter((k) => k === kind).length;
+		expect([count('pump'), count('check'), count('fcv'), count('equipment')]).toEqual([
+			6, 6, 7, 13
+		]);
+		const gpm = US_GALLON / 60;
+		const fcvs = plant.components.filter((c) => c.type === 'valve' && c.valveType === 'fcv');
+		const setpoints = fcvs.map((c) => ('setpoint' in c ? c.setpoint : 0) / gpm);
+		expect(setpoints.map((q) => Math.round(q))).toEqual([
+			15_000, 15_000, 15_000, 15_000, 10_000, 10_000, 10_000
+		]);
+		const cells = plant.components.filter((c) => /^Cell \d nozzle header$/.test(c.name));
+		expect(
+			cells.map(
+				(c) =>
+					c.type === 'equipment' && Math.round(c.rating.kind === 'point' ? c.rating.flow / gpm : 0)
+			)
+		).toEqual(Array(6).fill(15_000));
+		expect(plant.components.find((c) => c.name === 'Tower bypass valve')).toMatchObject({
+			valveType: 'butterfly',
+			status: 'isolated'
+		});
+		expect(plant.scenarios?.map((s) => s.name)).toEqual(['Winter: tower bypassed']);
+		// An open circuit: the tower basin feeds the pumps and takes the bypass; each cell sprays
+		// to atmosphere.
+		expect(count('reservoir')).toBe(7);
+		expect(plant.connections.length).toBeGreaterThan(plant.components.length - 1);
 	});
 });

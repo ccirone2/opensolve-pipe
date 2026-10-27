@@ -24,6 +24,7 @@ import {
 	updateConnection,
 	withReservoirLosses
 } from './edit';
+import { closedLoopProject } from '../testing/closed-loop';
 import { EXAMPLES } from './examples';
 import {
 	COMPONENT_KINDS,
@@ -40,9 +41,16 @@ import openapi from '../api/openapi.json';
 
 const fixture = fixtureJson as unknown as Project;
 
-/** Example and fixture projects, frozen so any modification of an input fails the test. */
+/**
+ * Example and fixture projects, frozen so any modification of an input fails the test. The
+ * condenser water example is left out: these tests try every edit at every port, and its 86
+ * connections repeat the patterns of the projects here (the small closed loop stands in for it).
+ */
 const SOURCES: [string, () => Project][] = [
-	...EXAMPLES.map((e) => [e.slug, () => deepFreeze(e.create())] as [string, () => Project]),
+	...EXAMPLES.filter((e) => e.slug !== 'condenser-water').map(
+		(e) => [e.slug, () => deepFreeze(e.create())] as [string, () => Project]
+	),
+	['closed-loop', () => deepFreeze(closedLoopProject())],
 	['fixture', () => deepFreeze(structuredClone(fixture))]
 ];
 

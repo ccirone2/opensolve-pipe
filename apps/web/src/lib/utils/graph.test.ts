@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Component } from '../api/types';
 import { assignedFlowProject, link, projectWith } from '../testing/helpers';
-import { closedLoopExample, gravityBranchExample, pumpTransferExample } from './examples';
+import { closedLoopProject } from '../testing/closed-loop';
+import { gravityBranchExample, pumpTransferExample } from './examples';
 import { createComponent, createEmptyProject } from './factory';
 import {
 	componentById,
@@ -190,7 +191,7 @@ describe('nextOptions', () => {
 	});
 
 	it('flags a way back to a component on the path as a loop', () => {
-		const project = closedLoopExample();
+		const project = closedLoopProject();
 		let path: NavigationStep[] = [{ componentId: defaultStart(project)! }];
 		expect(path[0]!.componentId).toBe('N1');
 		path = step(project, path, 'T1');
@@ -327,7 +328,7 @@ describe('reachable and pathTo', () => {
 		]);
 		expect(pathTo(project, 'T1', 'T1')).toEqual([{ componentId: 'T1' }]);
 		// Around a loop, the shorter way wins.
-		const loop = closedLoopExample();
+		const loop = closedLoopProject();
 		expect(pathTo(loop, 'N1', 'V1')?.map((s) => s.componentId)).toEqual(['N1', 'T1', 'V1']);
 	});
 });

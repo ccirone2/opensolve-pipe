@@ -104,7 +104,10 @@ export async function solveConverged(page: Page): Promise<SolvedState> {
 	expect(body.success).toBe(true);
 	expect(body.solvedState?.converged).toBe(true);
 	await expect(resultsPane(page).getByRole('heading', { name: 'Converged' })).toBeVisible();
-	await expect(resultsPane(page).getByRole('status')).toHaveText('Last solve: converged');
+	// With scenarios the status names the case (D15).
+	await expect(resultsPane(page).getByRole('status')).toHaveText(
+		/^Last solve( of Base case)?: converged$/
+	);
 	return body.solvedState!;
 }
 

@@ -74,6 +74,14 @@ class ProjectSettings(CamelModel):
         description="The opt-in design checks this project turns on (D19); omitted: none",
     )
 
+    @field_validator("design_checks", mode="after")
+    @classmethod
+    def _none_on(cls, checks: DesignChecks | None) -> DesignChecks | None:
+        """No check present is no design checks: left out of the dump, no methods section."""
+        if checks is not None and not checks.any_on():
+            return None
+        return checks
+
 
 class ProjectMetadata(CamelModel):
     name: str = Field(min_length=1, max_length=200)

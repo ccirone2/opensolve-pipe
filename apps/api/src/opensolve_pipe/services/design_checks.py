@@ -6,6 +6,8 @@ value, a status or a flag (design practice is opt-in and never a flag, GOALS §4
 is the solved state's own (SI); the messages state the inequality that set each outcome.
 """
 
+from collections.abc import Callable
+
 from ..models.design_checks import (
     PRESETS,
     CheckSource,
@@ -28,6 +30,19 @@ def source_text(source: CheckSource) -> str:
 
 def _g(value: float) -> str:
     return f"{value:.6g}"
+
+
+def _digits(value: float, *limits: float | None) -> Callable[[float], str]:
+    """A format for a value and its limits: 6 significant digits, or as many more (up to 17,
+    enough for any two doubles) as tell the value from a limit it is not equal to, so that a
+    message never states a strict inequality between equal-looking numbers."""
+    sig = 6
+    while sig < 17 and any(
+        lim is not None and lim != value and f"{lim:.{sig}g}" == f"{value:.{sig}g}"
+        for lim in limits
+    ):
+        sig += 1
+    return lambda x: f"{x:.{sig}g}"
 
 
 def _result(
@@ -69,14 +84,14 @@ def _interval(lo: float | None, hi: float | None) -> str:
     return f"≥ {_g(lo)}" if lo is not None else f"≤ {_g(hi or 0.0)}"
 
 
-def _compare(ok: bool, lo: float | None, hi: float | None) -> str:
+def _compare(ok: bool, lo: float | None, hi: float | None, fmt: Callable[[float], str] = _g) -> str:
     """How a value stands against the limits set: "within [0.7, 1.2]", "outside [0.7, 1.2]",
     "≥ 0.7", "< 0.7", "≤ 1.2" or "> 1.2"."""
     if lo is not None and hi is not None:
-        return f"{'within' if ok else 'outside'} [{_g(lo)}, {_g(hi)}]"
+        return f"{'within' if ok else 'outside'} [{fmt(lo)}, {fmt(hi)}]"
     if lo is not None:
-        return f"{'≥' if ok else '<'} {_g(lo)}"
-    return f"{'≤' if ok else '>'} {_g(hi or 0.0)}"
+        return f"{'≥' if ok else '<'} {fmt(lo)}"
+    return f"{'≤' if ok else '>'} {fmt(hi or 0.0)}"
 
 
 def _not_running(pump: PumpResult) -> str | None:
@@ -109,19 +124,21 @@ def _npsh(checks: DesignChecks, pid: str, pump: PumpResult) -> list[DesignCheckR
             "level is undetermined)"
         )
     npshr, npsha = pump.npsh_required, pump.npsh_available
-    terms: list[tuple[float, str]] = []
-    if check.minimum_margin is not None:
-        terms.append(
-            (npshr + check.minimum_margin, f"NPSHr {_g(npshr)} m + {_g(check.minimum_margin)} m")
-        )
-    if check.minimum_ratio is not None:
-        terms.append(
-            (check.minimum_ratio * npshr, f"{_g(check.minimum_ratio)} × NPSHr {_g(npshr)} m")
-        )
-    required = max(t[0] for t in terms)
-    formula = terms[0][1] if len(terms) == 1 else f"max({terms[0][1]}, {terms[1][1]})"
+    margin, ratio = check.minimum_margin, check.minimum_ratio
+    required = max(
+        v for v in (
+            None if margin is None else npshr + margin,
+            None if ratio is None else ratio * npshr,
+        ) if v is not None
+    )  # fmt: skip
+    f = _digits(npsha, required)
+    terms = [
+        *([f"NPSHr {f(npshr)} m + {_g(margin)} m"] if margin is not None else []),
+        *([f"{_g(ratio)} × NPSHr {f(npshr)} m"] if ratio is not None else []),
+    ]
+    formula = terms[0] if len(terms) == 1 else f"max({terms[0]}, {terms[1]})"
     ok = npsha >= required
-    message = f"NPSHa {_g(npsha)} m {'≥' if ok else '<'} {_g(required)} m = {formula}"
+    message = f"NPSHa {f(npsha)} m {'≥' if ok else '<'} {f(required)} m = {formula}"
     return [
         _result(
             "npsh_margin",
@@ -173,9 +190,10 @@ def _region(
     else:
         ratio = q / bep.flow
         ok = (lo is None or lo <= ratio) and (hi is None or ratio <= hi)
+        f = _digits(ratio, lo, hi)
         message = (
-            f"Q/Q_BEP = {_g(q)} / {_g(bep.flow)} m³/s = {_g(ratio)} "
-            f"{_compare(ok, lo, hi)} (Q_BEP at the running speed "
+            f"Q/Q_BEP = {_g(q)} / {_g(bep.flow)} m³/s = {f(ratio)} "
+            f"{_compare(ok, lo, hi, f)} (Q_BEP at the running speed "
             f"{_g(s)}, by the affinity laws)"
         )
         out.append(
@@ -193,11 +211,12 @@ def _region(
     aor = curve.allowable_operating_region
     if aor is not None:
         ok = aor.flow_min <= rated <= aor.flow_max
+        f = _digits(rated, aor.flow_min, aor.flow_max)
         out.append(
             _result(
                 "allowable_region", "pass" if ok else "fail",
-                f"Q/s = {_g(rated)} m³/s {'within' if ok else 'outside'} the allowable operating "
-                f"region [{_g(aor.flow_min)}, {_g(aor.flow_max)}] m³/s at rated speed",
+                f"Q/s = {f(rated)} m³/s {'within' if ok else 'outside'} the allowable operating "
+                f"region [{f(aor.flow_min)}, {f(aor.flow_max)}] m³/s at rated speed",
                 data, "m³/s", value=rated, low=aor.flow_min, high=aor.flow_max, component_id=pid,
             )
         )  # fmt: skip
@@ -210,12 +229,14 @@ def _region(
         if v is not None
     ]
     if minimums:
-        floor, name = max(minimums)
+        # The larger; on a tie the first, the stable flow (the chart names the same one).
+        floor, name = max(minimums, key=lambda m: m[0])
         ok = rated >= floor
+        f = _digits(rated, floor)
         out.append(
             _result(
                 "minimum_flow", "pass" if ok else "fail",
-                f"Q/s = {_g(rated)} m³/s {'≥' if ok else '<'} the {name} {_g(floor)} m³/s at "
+                f"Q/s = {f(rated)} m³/s {'≥' if ok else '<'} the {name} {f(floor)} m³/s at "
                 "rated speed", data, "m³/s", value=rated, low=floor, component_id=pid,
             )
         )  # fmt: skip
@@ -231,11 +252,12 @@ def _region(
             )  # fmt: skip
         else:
             ok = pump.shaft_power <= rating
+            f = _digits(pump.shaft_power, rating)
             out.append(
                 _result(
                     "motor_power", "pass" if ok else "fail",
-                    f"P_shaft {_g(pump.shaft_power)} W {'≤' if ok else '>'} the motor's rated "
-                    f"power {_g(rating)} W (no service-factor margin)",
+                    f"P_shaft {f(pump.shaft_power)} W {'≤' if ok else '>'} the motor's rated "
+                    f"power {f(rating)} W (no service-factor margin)",
                     data, "W", value=pump.shaft_power, high=rating, component_id=pid,
                 )
             )  # fmt: skip
@@ -267,16 +289,19 @@ def _velocity(checks: DesignChecks, state: SolvedState) -> list[DesignCheckResul
         below = [i for v, i in speeds if lo is not None and v < lo]
         # Traces and messages number a connection's pipes from 1; data indexes stay 0-based (D10).
         if above and hi is not None:
-            message = f"|v| {_g(fast)} m/s in pipe {fast_i + 1} above {_g(hi)} m/s"
+            f = _digits(fast, hi)
+            message = f"|v| {f(fast)} m/s in pipe {fast_i + 1} above {f(hi)} m/s"
             value, at = fast, fast_i
         elif below and lo is not None:
-            message = f"|v| {_g(slow)} m/s in pipe {slow_i + 1} below {_g(lo)} m/s"
+            f = _digits(slow, lo)
+            message = f"|v| {f(slow)} m/s in pipe {slow_i + 1} below {f(lo)} m/s"
             value, at = slow, slow_i
         else:
-            spread = _g(fast) if slow == fast else f"from {_g(slow)} to {_g(fast)}"
-            message = f"|v| {spread} m/s, {_compare(True, lo, hi)} m/s"
             # The value nearest a limit set: the fastest against a maximum, else the slowest.
             value, at = (fast, fast_i) if hi is not None else (slow, slow_i)
+            f = _digits(value, lo, hi)
+            spread = f(fast) if slow == fast else f"from {f(slow)} to {f(fast)}"
+            message = f"|v| {spread} m/s, {_compare(True, lo, hi, f)} m/s"
         outside = sorted({*above, *below})
         if len(outside) > 1:
             message += f" (pipes outside: {', '.join(str(i + 1) for i in outside)})"
@@ -313,8 +338,9 @@ def evaluate(project: Project, state: SolvedState) -> list[DesignCheckResult]:
 def methods_section(project: Project) -> MethodsSection | None:
     """The "Design checks" methods section (only when a check is on)."""
     checks = project.settings.design_checks
-    if checks is None:
+    if checks is None or not checks.any_on():
         return None
+    unset = "on, with no limit set, so each {} is listed as not evaluated."
     items: list[str] = [
         "Design checks are opt-in design practice, not physics flags: a result never changes a "
         "solved value (GOALS §4.6). Each limit is user data or a cited preset."
@@ -324,32 +350,40 @@ def methods_section(project: Project) -> MethodsSection | None:
         parts = [f"NPSHr + {_g(c.minimum_margin)} m"] if c.minimum_margin is not None else []
         if c.minimum_ratio is not None:
             parts.append(f"{_g(c.minimum_ratio)} × NPSHr")
-        rule = (
-            f"max({', '.join(parts)})"
-            if len(parts) > 1
-            else (parts[0] if parts else "no limit set")
+        rule = f"max({', '.join(parts)})" if len(parts) > 1 else (parts[0] if parts else "")
+        items.append(
+            f"NPSH margin: each running pump's NPSHa ≥ {rule}."
+            if rule
+            else f"NPSH margin: {unset.format('pump')}"
         )
-        items.append(f"NPSH margin: each running pump's NPSHa ≥ {rule}.")
         if c.source.kind == "preset":
             refs.append(CITATIONS[c.source.preset])
     if (c2 := checks.operating_region) is not None:
-        region = (
-            "no limit set"
-            if c2.preferred_min is None and c2.preferred_max is None
-            else _interval(c2.preferred_min, c2.preferred_max)
-        )
-        items.append(
-            f"Operating region: each running pump's Q/Q_BEP {region}, Q_BEP the best efficiency "
-            "point at the running speed; with "
-            "it, the curve's manufacturer data at rated speed against Q/s: the allowable operating "
+        data = (
+            "the curve's manufacturer data at rated speed against Q/s: the allowable operating "
             "region, the minimum continuous stable and thermal flows, and P_shaft against the "
             "motor's rated power (no service-factor margin)."
         )
+        if c2.preferred_min is None and c2.preferred_max is None:
+            items.append(
+                f"Operating region: on, with no limit set, so each pump's Q/Q_BEP is listed as "
+                f"not evaluated; with it, {data}"
+            )
+        else:
+            region = _interval(c2.preferred_min, c2.preferred_max)
+            items.append(
+                f"Operating region: each running pump's Q/Q_BEP {region}, Q_BEP the best "
+                f"efficiency point at the running speed; with it, {data}"
+            )
         if c2.source.kind == "preset":
             refs.append(CITATIONS[c2.source.preset])
     if (c3 := checks.pipe_velocity) is not None:
         lo = f"at least {_g(c3.minimum)} m/s" if c3.minimum is not None else None
         hi = f"at most {_g(c3.maximum)} m/s" if c3.maximum is not None else None
-        rule = " and ".join(x for x in (lo, hi) if x) or "no limit set"
-        items.append(f"Pipe velocity: every pipe segment's |v| {rule}.")
+        rule = " and ".join(x for x in (lo, hi) if x)
+        items.append(
+            f"Pipe velocity: every pipe segment's |v| {rule}."
+            if rule
+            else f"Pipe velocity: {unset.format('connection')}"
+        )
     return MethodsSection(title="Design checks", items=items, references=refs)

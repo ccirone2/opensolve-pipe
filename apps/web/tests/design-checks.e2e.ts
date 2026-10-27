@@ -67,11 +67,9 @@ test('lists the checks not met first, and draws their limits on the pump chart',
 	// The API's own words are under Details.
 	await met.getByText(/HI 9\.6\.1-2012 \(general\) preset · Details/).click();
 	await expect(met.getByText(/= max\(NPSHr 3\.03913 m \+ 1 m, 1\.1 × NPSHr/)).toBeVisible();
-	// A check never marks the results as flagged.
-	await page.screenshot({
-		path: `test-results/design-checks-${test.info().project.name}-checks.png`,
-		fullPage: true
-	});
+	// A check not met never marks the Results tab (checks are not flags; it is a tab on phones).
+	const tab = page.getByRole('tablist', { name: 'View' }).getByRole('tab', { name: /^Results/ });
+	if (await tab.isVisible()) await expect(tab).toHaveAccessibleName('Results');
 
 	// The pump chart: the limits shown, in notes, behind a chip.
 	const pumps = await resultsView(page, 'Pumps');
@@ -92,9 +90,6 @@ test('lists the checks not met first, and draws their limits on the pump chart',
 		figure.getByText(/^Dashed on the power panel: the motor's rated power, 5.5 kW/)
 	).toBeVisible();
 	await expect(figure.getByRole('img')).toHaveAccessibleName(/with the design checks' limits/);
-	await figure.screenshot({
-		path: `test-results/design-checks-${test.info().project.name}-chart.png`
-	});
 	const chip = figure
 		.getByRole('group', { name: 'Show' })
 		.getByRole('button', { name: 'Design checks' });
@@ -134,10 +129,6 @@ test('turns a check on in Settings, fills it from a preset, and solves with it',
 	const maximum = dialog.getByRole('textbox', { name: 'Maximum velocity' });
 	await maximum.fill('3');
 	await maximum.press('Enter');
-	await page.screenshot({
-		path: `test-results/design-checks-${test.info().project.name}-settings.png`,
-		fullPage: true
-	});
 	await dialog.getByRole('button', { name: 'Done' }).click();
 	await expect(dialog).toBeHidden();
 

@@ -305,7 +305,9 @@ export function pumpChartData(
 	const facts = curveFacts(result, prefs, [...curve, ...extrapolated.flat()]);
 	return {
 		facts,
-		checks: checks ? checkOverlays(result, prefs, checks, panels.npsh?.required ?? null) : null,
+		checks: checks
+			? checkOverlays(result, prefs, checks, panels.npsh?.required ?? null, panels.power !== null)
+			: null,
 		flowUnit: unitLabel('flow', flowUnit),
 		headUnit: unitLabel('head', headUnit),
 		powerUnit: unitLabel('power', powerUnit),
@@ -408,7 +410,8 @@ export function checkOverlays(
 	result: PumpResult,
 	prefs: UnitPreferences,
 	{ checks, curve, sources }: PumpChecksInput,
-	npshr: readonly ChartPoint[] | null
+	npshr: readonly ChartPoint[] | null,
+	hasPower = true
 ): CheckOverlays | null {
 	const flowUnit = displayUnit('flow', prefs);
 	const headUnit = displayUnit('head', prefs);
@@ -469,8 +472,11 @@ export function checkOverlays(
 			? { flow: x(floor.value * s), rated: x(floor.value), name: floor.name }
 			: null,
 		npshRequired,
+		// On the power panel, which needs a shaft-power curve; without one, nothing to draw on.
 		motorRating:
-			rating === null || rating === undefined ? null : fromSI(rating, displayUnit('power', prefs))
+			rating === null || rating === undefined || !hasPower
+				? null
+				: fromSI(rating, displayUnit('power', prefs))
 	};
 	return Object.values(overlays).some((v) => v !== null) ? overlays : null;
 }
@@ -944,6 +950,19 @@ export function chartNotes({
 	};
 }
 
+/** Whether any design-check limit is drawn with `shown` panels (the chip on). */
+export function checksDrawn(d: PumpChartData, shown: readonly PanelKey[]): boolean {
+	const c = d.checks;
+	return (
+		!!c &&
+		(!!c.preferred ||
+			!!c.allowable ||
+			!!c.minimumFlow ||
+			(!!c.npshRequired && shown.includes('npsh') && !!d.npsh) ||
+			(c.motorRating !== null && shown.includes('power') && !!d.power))
+	);
+}
+
 /**
  * The design checks' limits as sentences (screen and image): what each mark is, its values and
  * where they came from. Design practice, not physics (GOALS §4.6); the verdicts are the Checks
@@ -998,9 +1017,10 @@ function checkNotes(d: PumpChartData, shown: readonly PanelKey[]): string[] {
 		notes.push(
 			`Dashed on the power panel: the motor's rated power, ${fmt(c.motorRating)} ${d.powerUnit} (manufacturer data; no service-factor margin).`
 		);
-	notes.push(
-		'These are the limits of the design checks you turned on, design practice, not physics: Results → Checks says whether the duty meets them.'
-	);
+	if (notes.length)
+		notes.push(
+			'These are the limits of the design checks you turned on, design practice, not physics: Results → Checks says whether the duty meets them.'
+		);
 	return notes;
 }
 

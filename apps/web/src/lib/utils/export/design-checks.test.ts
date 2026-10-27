@@ -116,6 +116,10 @@ describe('the Design checks sheet', () => {
 		}
 		const [line] = about(fixtureInput('design-checks'));
 		expect(line?.[2]).toMatch(/^Opt-in design practice the project turned on, not physics flags/);
+		expect(line?.[2]).toContain("in the fractions' unit");
+		const [si] = about(fixtureInput('design-checks', { units: 'si' }));
+		expect(si?.[2]).toContain('a ratio with no unit, 1 at the best efficiency flow');
+		expect(si?.[2]).toContain('give fractions in % and powers in kW');
 	});
 
 	it('has no rows for a case that did not converge', () => {

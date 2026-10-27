@@ -220,7 +220,8 @@ export function flagsTable(ctx: ExportContext): SheetSpec {
 /**
  * Design checks (CLAUDE.md D19): one row per check result of every case with values, in the
  * screen's order (not met, met, not evaluated). A check's value and limits are in its own
- * quantity, so the row says which (Unit); the words are the screen's, in the file's units, and
+ * quantity, so the row says which (Unit); the words are the screen's, in the file's units but
+ * with fractions in % and powers in kW (hp with gpm), as the app's sentences give them, and
  * the server's message (SI) and source are kept as reported. Design practice, not flags.
  */
 export function designChecksTable(ctx: ExportContext): SheetSpec {

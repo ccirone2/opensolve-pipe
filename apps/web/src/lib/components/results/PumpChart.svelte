@@ -41,6 +41,7 @@
 		chartHeightRem,
 		chartNotes,
 		chartReadout,
+		checksDrawn,
 		loadHiddenPanels,
 		MARKER_SYMBOLS,
 		MAX_CHART_CASES,
@@ -297,9 +298,10 @@
 						range.iso.length ? ', with lines of constant efficiency' : ''
 					}`
 				: '';
-		const limits = checksShown
-			? "; with the design checks' limits, which the notes below list"
-			: '';
+		const limits =
+			checksShown && checksDrawn(data, shown)
+				? "; with the design checks' limits, which the notes below list"
+				: '';
 		return `${parts.join(' and ')}${at}${extrapolated}${best}${panels}${speeds}${limits}${cases}.`;
 	});
 

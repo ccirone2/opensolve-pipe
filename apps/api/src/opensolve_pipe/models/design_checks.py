@@ -67,7 +67,37 @@ class PresetSource(CamelModel):
     preset: PresetId
 
 
+class NpshPresetSource(PresetSource):
+    """A preset of the NPSH margin check."""
+
+    preset: Literal["hi961_2012_general"]
+
+
+class RegionPresetSource(PresetSource):
+    """A preset of the operating region check."""
+
+    preset: Literal["api610_por"]
+
+
 CheckSource = Annotated[UserSource | PresetSource, Field(discriminator="kind")]
+"""Any check's source, as the services read it (each check narrows its own)."""
+NpshSource = Annotated[UserSource | NpshPresetSource, Field(discriminator="kind")]
+RegionSource = Annotated[UserSource | RegionPresetSource, Field(discriminator="kind")]
+
+
+def _preset_values(check: CamelModel, source: UserSource | PresetSource) -> None:
+    """A preset source labels limits only when they are the preset's own (D19: a preset only
+    fills limits in; a limit typed by hand has the user's source). Never quotes the input."""
+    if source.kind != "preset":
+        return
+    preset = next(p for p in PRESETS if p.id == source.preset)
+    limits = check.model_dump(by_alias=True, exclude={"source"})
+    if limits != {k: preset.values.get(k) for k in limits}:
+        wanted = ", ".join(f"{k} {v:g}" for k, v in preset.values.items())
+        raise ValueError(
+            f"a {preset.id} source holds exactly the preset's limits ({wanted}); limits of "
+            "your own have the source user"
+        )
 
 
 class NpshMarginCheck(CamelModel):
@@ -79,7 +109,12 @@ class NpshMarginCheck(CamelModel):
     minimum_ratio: float | None = Field(
         default=None, ge=1.0, le=10.0, description="NPSHa / NPSHr at least this"
     )
-    source: CheckSource
+    source: NpshSource
+
+    @model_validator(mode="after")
+    def _preset(self) -> Self:
+        _preset_values(self, self.source)
+        return self
 
 
 class OperatingRegionCheck(CamelModel):
@@ -95,13 +130,14 @@ class OperatingRegionCheck(CamelModel):
     preferred_max: float | None = Field(
         default=None, gt=0.0, le=5.0, description="Fraction of the BEP flow"
     )
-    source: CheckSource
+    source: RegionSource
 
     @model_validator(mode="after")
     def _ordered(self) -> Self:
         low, high = self.preferred_min, self.preferred_max
         if low is not None and high is not None and not low < high:
             raise ValueError("preferredMin must be below preferredMax")
+        _preset_values(self, self.source)
         return self
 
 
@@ -113,7 +149,7 @@ class PipeVelocityCheck(CamelModel):
 
     minimum: float | None = Field(default=None, ge=0.0, le=100.0, description="m/s")
     maximum: float | None = Field(default=None, gt=0.0, le=100.0, description="m/s")
-    source: CheckSource
+    source: UserSource = Field(description="The user's values: no velocity preset (D19)")
 
     @model_validator(mode="after")
     def _ordered(self) -> Self:
@@ -139,6 +175,11 @@ class DesignChecks(CamelModel):
     npsh_margin: NpshMarginCheck | None = None
     operating_region: OperatingRegionCheck | None = None
     pipe_velocity: PipeVelocityCheck | None = None
+
+    def any_on(self) -> bool:
+        return any(
+            c is not None for c in (self.npsh_margin, self.operating_region, self.pipe_velocity)
+        )
 
 
 DesignCheckId = Literal[

@@ -9,7 +9,13 @@
 <script lang="ts">
 	import type { DesignChecks } from '$lib/api/types';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
-	import { designCheckPresets, type DesignCheckPreset } from '$lib/utils/model-rules';
+	import {
+		designCheckPresets,
+		intersectBounds,
+		pairBounds,
+		schemaOrderedFields,
+		type DesignCheckPreset
+	} from '$lib/utils/model-rules';
 	import { schemaBounds } from '$lib/utils/schema-bounds';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 
@@ -73,29 +79,25 @@
 
 	function applyPreset(key: CheckKey, preset: DesignCheckPreset, label: string) {
 		setChecks((c) => {
-			c[key] = { ...preset.values, source: { kind: 'preset', preset: preset.id } };
+			// The preset's own values and nothing else: the API refuses a preset source on others.
+			(c as Record<CheckKey, unknown>)[key] = {
+				...preset.values,
+				source: { kind: 'preset', preset: preset.id }
+			};
 		}, `use a preset for the ${label.toLowerCase()} check`);
 	}
 
-	/** A limit refused for its order, and why (shown at its field until the next edit). */
-	let orderError = $state<{ field: string; message: string } | null>(null);
-
 	/**
-	 * Refuse a pair out of order (the API's x-ordered-fields: lower below upper), saying why at
-	 * `field`; the field then shows the stored value again.
+	 * A limit's bounds: its own (the schema's) and, for an ordered pair, the other end's as
+	 * stored (x-ordered-fields, read from the API's schema): a pair out of order is refused by
+	 * the field, which says why, and its message goes when the stored value changes.
 	 */
-	function ordered(
-		low: number | null | undefined,
-		high: number | null | undefined,
-		field: string,
-		message: string
-	): boolean {
-		const ok =
-			low === null || low === undefined || high === null || high === undefined || low < high;
-		orderError = ok ? null : { field, message };
-		return ok;
+	function boundsOf(schemaName: string, check: unknown, field: string) {
+		return intersectBounds(
+			schemaBounds(schemaName, field),
+			pairBounds(schemaOrderedFields(schemaName), check ?? {}, field)
+		);
 	}
-	const errorAt = (field: string) => (orderError?.field === field ? orderError.message : null);
 
 	function presetOf(key: CheckKey): DesignCheckPreset | null {
 		const source = checks[key]?.source;
@@ -157,16 +159,8 @@
 							units={settings.units}
 							optional
 							placeholder="Not set"
-							bounds={schemaBounds('OperatingRegionCheck', 'preferredMin')}
-							error={errorAt('preferredMin')}
-							oninput={() => (orderError = null)}
-							onchange={(v) =>
-								ordered(
-									v,
-									checks.operatingRegion?.preferredMax,
-									'preferredMin',
-									'Enter a fraction below the highest flow.'
-								) && setLimit('operatingRegion', 'preferredMin', v, check.label)}
+							bounds={boundsOf('OperatingRegionCheck', checks.operatingRegion, 'preferredMin')}
+							onchange={(v) => setLimit('operatingRegion', 'preferredMin', v, check.label)}
 						/>
 						<NumberField
 							label="Highest flow, of BEP flow"
@@ -175,16 +169,8 @@
 							units={settings.units}
 							optional
 							placeholder="Not set"
-							bounds={schemaBounds('OperatingRegionCheck', 'preferredMax')}
-							error={errorAt('preferredMax')}
-							oninput={() => (orderError = null)}
-							onchange={(v) =>
-								ordered(
-									checks.operatingRegion?.preferredMin,
-									v,
-									'preferredMax',
-									'Enter a fraction above the lowest flow.'
-								) && setLimit('operatingRegion', 'preferredMax', v, check.label)}
+							bounds={boundsOf('OperatingRegionCheck', checks.operatingRegion, 'preferredMax')}
+							onchange={(v) => setLimit('operatingRegion', 'preferredMax', v, check.label)}
 						/>
 					{:else}
 						<NumberField
@@ -194,16 +180,8 @@
 							units={settings.units}
 							optional
 							placeholder="Not set"
-							bounds={schemaBounds('PipeVelocityCheck', 'minimum')}
-							error={errorAt('minimum')}
-							oninput={() => (orderError = null)}
-							onchange={(v) =>
-								ordered(
-									v,
-									checks.pipeVelocity?.maximum,
-									'minimum',
-									'Enter a velocity below the maximum.'
-								) && setLimit('pipeVelocity', 'minimum', v, check.label)}
+							bounds={boundsOf('PipeVelocityCheck', checks.pipeVelocity, 'minimum')}
+							onchange={(v) => setLimit('pipeVelocity', 'minimum', v, check.label)}
 						/>
 						<NumberField
 							label="Maximum velocity"
@@ -212,16 +190,8 @@
 							units={settings.units}
 							optional
 							placeholder="Not set"
-							bounds={schemaBounds('PipeVelocityCheck', 'maximum')}
-							error={errorAt('maximum')}
-							oninput={() => (orderError = null)}
-							onchange={(v) =>
-								ordered(
-									checks.pipeVelocity?.minimum,
-									v,
-									'maximum',
-									'Enter a velocity above the minimum.'
-								) && setLimit('pipeVelocity', 'maximum', v, check.label)}
+							bounds={boundsOf('PipeVelocityCheck', checks.pipeVelocity, 'maximum')}
+							onchange={(v) => setLimit('pipeVelocity', 'maximum', v, check.label)}
 						/>
 					{/if}
 				</div>

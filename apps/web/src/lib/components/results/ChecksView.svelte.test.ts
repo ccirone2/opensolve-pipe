@@ -13,7 +13,6 @@ import type { SolveResponse } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import { testWorkspace } from '$lib/testing/workspace';
 import { fixtureInput } from '$lib/utils/export/export-testing.testing';
-import { pumpTransferExample } from '$lib/utils/examples';
 
 const results = () => within(screen.getByRole('region', { name: 'Results' }));
 
@@ -114,11 +113,10 @@ describe("the Summary's design checks card", () => {
 		expect(results().getByRole('tab', { name: 'Checks' })).toHaveAttribute('aria-selected', 'true');
 	});
 
-	it('is not there for a project without checks', async () => {
-		const solve = vi.fn();
-		render(WorkspaceView, {
-			workspace: testWorkspace(pumpTransferExample(), { solver: { solve } })
-		});
-		expect(screen.queryByRole('region', { name: 'Design checks' })).toBeNull();
+	it('never marks the Results tab, with checks not met', async () => {
+		const { answer } = await solveFixture();
+		expect(answer.solvedState.designChecks.some((r) => r.outcome === 'fail')).toBe(true);
+		expect(answer.solvedState.flags.some((f) => f.severity === 'invalid')).toBe(false);
+		expect(screen.getByRole('tab', { name: /^Results/ })).toHaveAccessibleName('Results');
 	});
 });

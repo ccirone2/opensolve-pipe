@@ -22,7 +22,7 @@ DesignChecks {
   operatingRegion?: { preferredMin?: (0, 5]; preferredMax?: (0, 5], above preferredMin; source: CheckSource }
   pipeVelocity?:    { minimum?: m/s in [0, 100]; maximum?: m/s in (0, 100], above minimum; source: CheckSource }
 }
-CheckSource = { kind: 'user' } | { kind: 'preset'; preset: PresetId }
+CheckSource = { kind: 'user' } | { kind: 'preset'; preset: PresetId }   // as built: each check its own (§7)
 ```
 
 A check is on when its object is present; a check with no limit set is listed as not evaluated ("no limit set"). The ordered pairs are model rules (400), published as `x-ordered-fields`. Presets (published as `x-design-check-presets` on `DesignChecks`, with their values and citations, which the web reads):
@@ -80,3 +80,12 @@ API: unit tests of every check's pass/fail/not-evaluated boundary in closed form
 - **The chart draws limits from the project as solved** (`ProjectStore.solvedProject`), not from the results: the NPSH requirement is a line along NPSHr, which a result at the duty cannot give. Neither the checks nor the pump library are scenario values, so the base project sent is every case's.
 - **The export's Pipes outside #** lists every pipe outside the limits, one too; the words name a single pipe only once.
 - **Corpus tool coverage.** Few corpus pumps have an efficiency or NPSHr curve, so `design_checks_check` gives each pump curve without one a test-input curve in both solves (neither changes a flow or a head); the counts per check and outcome are TSD §10.4's.
+- **After an adversarial review** (six reviewers, each finding checked by two skeptics; 2026-10-27):
+  - A check's `source` takes only its own presets (velocity: the user's values only), and a preset source holds exactly the preset's values (else 400, never quoting them): before, an API user or an edited link could make a result cite a standard for limits it does not give.
+  - `designChecks: {}` is no checks (left out of the dump, no methods section), and the methods text of a check on without limits says so instead of an empty inequality.
+  - The server's messages and the web's words give as many digits (up to 17) as tell a value from a limit it is not equal to; the web says "by round-off" where a unit conversion still makes them read the same.
+  - Equal minimum flows name the stable flow on both sides.
+  - The web reads the ordered pairs from `x-ordered-fields` as field bounds (a refusal goes when the stored value changes); the curve form's section no longer closes as its last value is cleared.
+  - The chart's tooltips give each panel's unit (they gave the head unit on the efficiency and power panels since slice 1), the regions' legend entries hide them, the motor's rating spans the chart's flows, and the chip's description and notes claim a limit only where one is drawn.
+  - The export's About says that in SI base units Q/Q_BEP is a ratio, not a 0–1 fraction, and that the Result words give % and kW as the app's sentences do.
+  - The corpus tool also compares each result's unit and its message's comparison and numbers.

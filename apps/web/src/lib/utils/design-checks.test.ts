@@ -102,6 +102,39 @@ describe('checkText', () => {
 		);
 	});
 
+	it('tells doubles one ulp apart, and says so when display units make them read the same', () => {
+		/** The next double above `x` (> 0). */
+		const up = (x: number) => {
+			const view = new DataView(new ArrayBuffer(8));
+			view.setFloat64(0, x);
+			view.setBigUint64(0, view.getBigUint64(0) + 1n);
+			return view.getFloat64(0);
+		};
+		const minimum = (value: number, floor: number) =>
+			result({
+				check: 'minimum_flow',
+				componentId: 'P1',
+				connectionId: null,
+				outcome: value >= floor ? 'pass' : 'fail',
+				value,
+				limits: { min: floor, max: null },
+				unit: 'm³/s'
+			});
+		const floor = 0.0031702823690999997;
+		const below = checkText(minimum(floor - 1e-18, floor), SI_UNITS);
+		const [shown, limit] = [...below.matchAll(/([\d.]+) L\/s/g)].map((m) => m[1]);
+		expect(shown).not.toBe(limit);
+		expect(below).not.toContain('round-off');
+		// Two neighbouring doubles that the conversion to L/s makes equal: the words say so.
+		let a = floor;
+		while (
+			fromSI(up(a), displayUnit('flow', SI_UNITS)) !== fromSI(a, displayUnit('flow', SI_UNITS))
+		)
+			a = up(a);
+		const tied = checkText(minimum(a, up(a)), SI_UNITS);
+		expect(tied).toMatch(/, below the minimum [\d.]+ L\/s \(by round-off\)$/);
+	});
+
 	it('words NPSH, one-sided regions, a minimum velocity and several pipes', () => {
 		expect(
 			checkText(
@@ -184,21 +217,29 @@ describe('grouping, counts, elements and sources', () => {
 		expect(settingsSourceLabel({ kind: 'user' })).toBe('your values');
 	});
 
-	it('maps each check to the unit its API value is in', () => {
-		for (const r of results) {
-			const unit = displayUnit(CHECK_CATEGORIES[r.check], SI_UNITS);
-			// The API's SI unit is the SI display unit's base (L/s and kW aside, by a factor).
-			expect(fromSI(1, unit)).toBeGreaterThan(0);
-			expect(
-				{
-					npsh_margin: 'm',
-					operating_region: '1',
-					allowable_region: 'm³/s',
-					minimum_flow: 'm³/s',
-					motor_power: 'W',
-					pipe_velocity: 'm/s'
-				}[r.check]
-			).toBe(r.unit);
-		}
+	it('maps each check to the display category of the unit its API value is in', () => {
+		expect(CHECK_CATEGORIES).toEqual({
+			npsh_margin: 'head',
+			operating_region: 'fraction',
+			allowable_region: 'flow',
+			minimum_flow: 'flow',
+			motor_power: 'power',
+			pipe_velocity: 'velocity'
+		});
+		const categoryOf: Record<string, string> = {
+			m: 'head',
+			'1': 'fraction',
+			'm³/s': 'flow',
+			W: 'power',
+			'm/s': 'velocity'
+		};
+		for (const r of results) expect(CHECK_CATEGORIES[r.check]).toBe(categoryOf[r.unit]);
+		// Each in its display unit, not only through CHECK_CATEGORIES.
+		expect(checkText(byCheck('allowable_region', 'P1'), prefs)).toMatch(
+			/ gpm, within .* gpm to .* gpm$/
+		);
+		expect(checkText(byCheck('minimum_flow', 'P1'), prefs)).toMatch(
+			/ gpm, at least the minimum .* gpm$/
+		);
 	});
 });

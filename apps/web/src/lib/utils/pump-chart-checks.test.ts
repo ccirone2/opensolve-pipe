@@ -11,6 +11,7 @@ import { pumpResult } from '../testing/results';
 import { fixtureInput } from './export/export-testing.testing';
 import {
 	checkOverlays,
+	checksDrawn,
 	chartNotes,
 	pumpChartData,
 	type PanelKey,
@@ -166,13 +167,20 @@ describe('the chart', () => {
 		expect(axis('Minimum flow (dash-dot)')).toBe('y');
 		expect(axis('NPSHa required by the check (dotted)')).toBe('yNpsh');
 		expect(axis('Motor rated power (dashed)')).toBe('yPower');
-		// The rating across the power curve's flows, at 5.5 kW.
+		// The rating at 5.5 kW across every flow the chart shows (the head curve's 30 L/s), not
+		// only the power curve's 20 L/s, so a duty beyond the efficiency data is under it.
 		expect(sets.find((d) => d.label === 'Motor rated power (dashed)')).toMatchObject({
 			data: [
 				{ x: 0, y: 5.5 },
-				{ x: 20, y: 5.5 }
+				{ x: 30, y: 5.5 }
 			]
 		});
+		// The plugin's marks are named on their legend entries, so a click there hides them.
+		expect(sets.flatMap((d) => (d as { checkMark?: string }).checkMark ?? [])).toEqual([
+			'preferred',
+			'allowable',
+			'minimum'
+		]);
 		expect(config(true).plugins?.map((p) => p.id)).toContain('checkMarks');
 	});
 
@@ -214,6 +222,59 @@ describe('the chart', () => {
 		expect(all.at(-1)).toMatch(/^These are the limits of the design checks you turned on/);
 		const headOnly = notes(true, ['head']);
 		expect(headOnly.some((n) => n.startsWith('Dotted') || n.startsWith('Dashed'))).toBe(false);
+	});
+
+	it('gives each panel its own unit in the tooltip', () => {
+		const label = config(true).options?.plugins?.tooltip as {
+			callbacks: { label: (item: unknown) => string };
+		};
+		const item = (dataset: object, y: number) => ({ dataset, raw: { x: 10, y } });
+		expect(
+			label.callbacks.label(item({ label: 'Motor rated power (dashed)', yAxisID: 'yPower' }, 5.5))
+		).toBe('Motor rated power (dashed): 10 L/s, 5.5 kW');
+		expect(label.callbacks.label(item({ label: 'Efficiency', yAxisID: 'yEfficiency' }, 70))).toBe(
+			'Efficiency: 10 L/s, 70 %'
+		);
+		expect(label.callbacks.label(item({ label: 'NPSHr', yAxisID: 'yNpsh' }, 2))).toBe(
+			'NPSHr: 10 L/s, 2 m'
+		);
+		expect(label.callbacks.label(item({ label: 'System curve', yAxisID: 'y' }, 12))).toBe(
+			'System curve: 10 L/s, 12 m'
+		);
+	});
+
+	it('claims limits only where one is drawn with the panels shown', () => {
+		const npshOnly = pumpChartData(fullPump(), SI_UNITS, null, null, null, {
+			...everything,
+			checks: { npshMargin: { minimumMargin: 1, source: { kind: 'user' } } }
+		});
+		expect(checksDrawn(npshOnly, ['head', 'npsh'])).toBe(true);
+		expect(checksDrawn(npshOnly, ['head'])).toBe(false);
+		const notes = chartNotes({
+			data: npshOnly,
+			result: fullPump(),
+			system: undefined,
+			shown: ['head'],
+			checksShown: true
+		}).checks;
+		expect(notes).toEqual([]); // not even the closing sentence
+		// A motor rating with no shaft-power curve has no panel to be drawn on.
+		const region = { operatingRegion: { source: { kind: 'user' as const } } };
+		const noPower = pumpChartData(fullPump({ powerCurve: null }), SI_UNITS, null, null, null, {
+			...everything,
+			checks: region
+		});
+		expect(noPower.checks?.motorRating).toBeNull();
+		const ratingOnly = pumpChartData(fullPump({ powerCurve: null }), SI_UNITS, null, null, null, {
+			...everything,
+			checks: region,
+			curve: {
+				...everything.curve!,
+				allowableOperatingRegion: null,
+				minimumContinuousStableFlow: null
+			}
+		});
+		expect(ratingOnly.checks).toBeNull();
 	});
 
 	it('has no limits without checks, and a chip to hide them', () => {

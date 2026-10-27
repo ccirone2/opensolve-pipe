@@ -20,6 +20,7 @@ from tests.differential.design_checks_check import (
     CHECK_IDS,
     NO_CURVES,
     _dump,
+    _equal_numbers,
     check,
     check_all,
     result_problems,
@@ -63,6 +64,13 @@ def _case() -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
     return data, state, reported
 
 
+def _flip_words(result: dict[str, Any]) -> None:
+    """A pass message made to state a fail's comparison."""
+    flipped = result["message"].replace("within", "outside").replace("≥", "<").replace("≤", ">")
+    assert flipped != result["message"]
+    result["message"] = flipped
+
+
 def test_falsified_results_are_caught() -> None:
     data, state, reported = _case()
     assert result_problems(data, state, reported) == []
@@ -73,6 +81,8 @@ def test_falsified_results_are_caught() -> None:
         lambda rs: rs.pop(),
         lambda rs: rs.reverse(),
         lambda rs: rs[-1].update(pipesOutside=[0, 1]),
+        lambda rs: rs[0].update(unit="ft"),
+        lambda rs: _flip_words(next(r for r in rs if r["outcome"] == "pass")),
     ):
         changed = copy.deepcopy(reported)
         falsify(changed)
@@ -106,3 +116,29 @@ def test_a_solved_value_changed_by_the_checks_is_caught(monkeypatch: pytest.Monk
     record = check("ref_npsh_margin_standard_atmosphere", load(spec))
     assert record["outcome"] == "different"
     assert any(d.startswith("(a) B's solved state differs") for d in record["differences"])
+
+
+@pytest.mark.parametrize(
+    ("message", "equal"),
+    [
+        ("|v| 3.82049 m/s in pipe 3 above 3 m/s (pipes outside: 1, 2, 3)", False),
+        ("|v| 2.13301 m/s in pipe 1 above 2.13301 m/s", True),
+        (
+            "Q/Q_BEP = 0.0189 / 0.015 m³/s = 1.2 outside [0.7, 1.2] (Q_BEP at the running speed 1)",
+            True,
+        ),
+        (
+            "Q/Q_BEP = 0.0189 / 0.015 m³/s = 1.26567 outside [0.7, 1.2] (Q_BEP at the speed 1)",
+            False,
+        ),
+        ("Q/Q_BEP = 0.0189 / 0.015 m³/s = 0.7 < 0.7 (Q_BEP at the running speed 1)", True),
+        ("Q/s = 0.026 m³/s outside the allowable operating region [0.006, 0.026] m³/s", True),
+        ("NPSHa 12.7404 m < 12.7404 m = max(NPSHr 3 m + 1 m, 1.1 × NPSHr 3 m)", True),
+        ("NPSHa 2.5 m < 4.03913 m = max(NPSHr 3 m + 1 m, 1.1 × NPSHr 3 m)", False),
+        ("P_shaft 4328.75 W > the motor's rated power 4000 W (no service-factor margin)", False),
+        ("Q/s = 0.0179386 m³/s < the minimum thermal flow 0.0179386 m³/s at rated speed", True),
+    ],
+)
+def test_equal_looking_numbers_are_found(message: str, equal: bool) -> None:
+    """(b)'s reading of a fail message: the compared numbers, never a pipe number or a speed."""
+    assert _equal_numbers(message) is equal

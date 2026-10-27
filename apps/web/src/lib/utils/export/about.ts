@@ -583,7 +583,11 @@ export function aboutRows(
 		rows.push([
 			'Export',
 			'Design checks',
-			"Opt-in design practice the project turned on, not physics flags: a check never changes a value. Each row's value and limits are in its Unit (a pump's flow ÷ best efficiency flow as a fraction; a pump's manufacturer data compared at rated speed, flow ÷ speed). Pipe numbers count from 1."
+			"Opt-in design practice the project turned on, not physics flags: a check never changes a value. Each row's value and limits are in its Unit (a pump's manufacturer data compared at rated speed, flow ÷ speed). " +
+				(ctx.units.units === 'si'
+					? "A pump's flow ÷ best efficiency flow is a ratio with no unit, 1 at the best efficiency flow, not a 0–1 fraction. "
+					: "A pump's flow ÷ best efficiency flow is in the fractions' unit. ") +
+				"The Result words are the app's sentences, which give fractions in % and powers in kW (hp with gpm). Pipe numbers count from 1."
 		]);
 	}
 	// Compare cases names connections by their ends now: what reads otherwise than as solved.

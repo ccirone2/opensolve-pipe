@@ -1762,7 +1762,23 @@ export interface components {
              */
             minimumRatio?: number | null;
             /** Source */
-            source: components["schemas"]["UserSource"] | components["schemas"]["PresetSource"];
+            source: components["schemas"]["UserSource"] | components["schemas"]["NpshPresetSource"];
+        };
+        /**
+         * NpshPresetSource
+         * @description A preset of the NPSH margin check.
+         */
+        NpshPresetSource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "preset";
+            /**
+             * Preset
+             * @constant
+             */
+            preset: "hi961_2012_general";
         };
         /** NpshrCurvePoint */
         NpshrCurvePoint: {
@@ -1794,7 +1810,7 @@ export interface components {
              */
             preferredMin?: number | null;
             /** Source */
-            source: components["schemas"]["UserSource"] | components["schemas"]["PresetSource"];
+            source: components["schemas"]["UserSource"] | components["schemas"]["RegionPresetSource"];
         };
         /**
          * OverrideResult
@@ -2041,8 +2057,8 @@ export interface components {
              * @description m/s
              */
             minimum?: number | null;
-            /** Source */
-            source: components["schemas"]["UserSource"] | components["schemas"]["PresetSource"];
+            /** @description The user's values: no velocity preset (D19) */
+            source: components["schemas"]["UserSource"];
         };
         /**
          * PipingSegment
@@ -2119,19 +2135,6 @@ export interface components {
              * @description ρgQH/η, W
              */
             shaftPower: number;
-        };
-        /** PresetSource */
-        PresetSource: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "preset";
-            /**
-             * Preset
-             * @enum {string}
-             */
-            preset: "api610_por" | "hi961_2012_general";
         };
         /**
          * Project
@@ -2572,6 +2575,22 @@ export interface components {
             citation: string;
             /** Name */
             name: string;
+        };
+        /**
+         * RegionPresetSource
+         * @description A preset of the operating region check.
+         */
+        RegionPresetSource: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "preset";
+            /**
+             * Preset
+             * @constant
+             */
+            preset: "api610_por";
         };
         /**
          * Reservoir

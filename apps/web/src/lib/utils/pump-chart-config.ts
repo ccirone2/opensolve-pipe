@@ -200,21 +200,24 @@ function checkDatasets(d: PumpChartData, shown: (key: PanelKey) => boolean) {
 	const c = d.checks;
 	if (!c) return [];
 	const { ink: INK, slate: SLATE, preferredFill, allowableFill } = CHART_COLORS;
-	const box = (label: string, fill: string) => ({
+	// The regions and the minimum flow are drawn by the checkMarks plugin; these entries carry
+	// `checkMark`, so a click on one in the legend hides what it names.
+	const box = (label: string, fill: string, checkMark: CheckMark) => ({
 		label,
 		data: [],
 		yAxisID: 'y',
 		borderColor: SLATE,
 		backgroundColor: fill,
 		borderWidth: 1,
-		legendBox: true
+		legendBox: true,
+		checkMark
 	});
 	const n = shown('npsh') && d.npsh ? c.npshRequired : null;
 	const power = shown('power') ? d.power : null;
 	const xs = power?.curve.map((p) => p.x) ?? [];
 	return [
-		...(c.preferred ? [box('Preferred operating region (POR)', preferredFill)] : []),
-		...(c.allowable ? [box('Allowable operating region (AOR)', allowableFill)] : []),
+		...(c.preferred ? [box('Preferred operating region (POR)', preferredFill, 'preferred')] : []),
+		...(c.allowable ? [box('Allowable operating region (AOR)', allowableFill, 'allowable')] : []),
 		...(c.minimumFlow
 			? [
 					{
@@ -224,7 +227,8 @@ function checkDatasets(d: PumpChartData, shown: (key: PanelKey) => boolean) {
 						borderColor: SLATE,
 						backgroundColor: SLATE,
 						borderWidth: 1.5,
-						borderDash: [8, 3, 2, 3]
+						borderDash: [8, 3, 2, 3],
+						checkMark: 'minimum' as const
 					}
 				]
 			: []),
@@ -247,9 +251,10 @@ function checkDatasets(d: PumpChartData, shown: (key: PanelKey) => boolean) {
 			? [
 					{
 						label: 'Motor rated power (dashed)',
+						// Across every flow the chart shows, so the duty it is checked at is under it.
 						data: [
 							{ x: Math.min(0, ...xs), y: c.motorRating },
-							{ x: Math.max(...xs), y: c.motorRating }
+							{ x: flowExtent(d), y: c.motorRating }
 						],
 						yAxisID: 'yPower',
 						borderColor: INK,
@@ -262,6 +267,22 @@ function checkDatasets(d: PumpChartData, shown: (key: PanelKey) => boolean) {
 				]
 			: [])
 	];
+}
+
+/** The marks the checkMarks plugin draws, named on their legend entries. */
+type CheckMark = 'preferred' | 'allowable' | 'minimum';
+
+/** The largest flow any line or point of the chart reaches (display unit). */
+function flowExtent(d: PumpChartData): number {
+	const xs = [
+		...d.curve,
+		...d.extrapolated.flat(),
+		...(d.system ?? []),
+		...(d.power?.curve ?? []),
+		...(d.power?.duty ? [d.power.duty] : []),
+		...(d.operating ? [d.operating] : [])
+	].map((p) => p.x);
+	return Math.max(0, ...xs);
 }
 
 /** A percentage written briefly ("70", "62.5"). */
@@ -558,6 +579,13 @@ export function pumpChartConfig(
 			const xScale = scales.x;
 			const head = scales.y;
 			if (!checks || !c || !xScale || !head) return;
+			// A mark whose legend entry was clicked off is not drawn.
+			const shown = (mark: CheckMark) => {
+				const i = chart.data.datasets.findIndex(
+					(ds) => (ds as { checkMark?: CheckMark }).checkMark === mark
+				);
+				return i < 0 || chart.isDatasetVisible(i);
+			};
 			const size = forImage ? 13 : 11;
 			const clamp = (px: number) => Math.min(Math.max(px, chartArea.left), chartArea.right);
 			const band = (
@@ -592,11 +620,11 @@ export function pumpChartConfig(
 					ctx.fillText(label, left + 4, labelAt === 'top' ? head.top + size + 3 : head.bottom - 4);
 				ctx.restore();
 			};
-			if (c.allowable)
+			if (c.allowable && shown('allowable'))
 				band(c.allowable.from, c.allowable.to, CHART_COLORS.allowableFill, 'AOR', 'bottom');
-			if (c.preferred)
+			if (c.preferred && shown('preferred'))
 				band(c.preferred.from, c.preferred.to, CHART_COLORS.preferredFill, 'POR', 'top');
-			if (c.minimumFlow) {
+			if (c.minimumFlow && shown('minimum')) {
 				const px = xScale.getPixelForValue(c.minimumFlow.flow);
 				if (px >= chartArea.left && px <= chartArea.right) {
 					ctx.save();
@@ -687,7 +715,11 @@ export function pumpChartConfig(
 								label: (item) => {
 									const p = item.raw as ChartDatum;
 									if (p.y === null) return '';
-									return `${item.dataset.label}: ${fmt(p.x)} ${d.flowUnit}, ${fmt(p.y)} ${d.headUnit}`;
+									// Each panel's own unit: % on the efficiency panel, power on the power panel.
+									const axis = (item.dataset as { yAxisID?: string }).yAxisID;
+									const unit =
+										axis === 'yEfficiency' ? '%' : axis === 'yPower' ? d.powerUnit : d.headUnit;
+									return `${item.dataset.label}: ${fmt(p.x)} ${d.flowUnit}, ${fmt(p.y)} ${unit}`;
 								}
 							}
 						}

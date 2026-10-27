@@ -6,6 +6,7 @@
  * One undo step per change. The API is replaced by fakes.
  */
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { describe, expect, it } from 'vitest';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import { testWorkspace } from '$lib/testing/workspace';
@@ -73,10 +74,28 @@ describe('DesignChecksSettings', () => {
 			source: { kind: 'user' }
 		});
 		expect(minimum).toHaveAttribute('aria-invalid', 'true');
-		expect(minimum).toHaveAccessibleDescription(/Enter a velocity below the maximum\./);
+		expect(minimum).toHaveAccessibleDescription(/Must be less than 3 m\/s\./);
 		await enter(minimum, '0.5');
 		expect(minimum).not.toHaveAttribute('aria-invalid');
 		expect(ws.project.settings.designChecks?.pipeVelocity?.minimum).toBe(0.5);
+	});
+
+	it('drops a refusal once the stored value changes (a preset, an undo)', async () => {
+		const { ws, dialog } = await openSettings();
+		await fireEvent.click(dialog.getByRole('checkbox', { name: 'Pump operating region' }));
+		await enter(dialog.getByRole('textbox', { name: /^Highest flow, of BEP flow/ }), '50');
+		const lowest = dialog.getByRole('textbox', { name: /^Lowest flow, of BEP flow/ });
+		await enter(lowest, '80');
+		expect(lowest).toHaveAttribute('aria-invalid', 'true');
+		await fireEvent.click(dialog.getByRole('button', { name: 'Use API 610' }));
+		expect(lowest).not.toHaveAttribute('aria-invalid');
+		expect(lowest).toHaveValue('70');
+		await enter(lowest, '130');
+		expect(lowest).toHaveAttribute('aria-invalid', 'true');
+		ws.undo(); // back to 50 % with no lowest flow: the field's value changed
+		await tick();
+		expect(lowest).not.toHaveAttribute('aria-invalid');
+		expect(lowest).toHaveValue('');
 	});
 
 	it('removes the field when the last check goes off, one undo step per change', async () => {

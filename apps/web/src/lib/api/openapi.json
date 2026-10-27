@@ -3591,7 +3591,7 @@
           "source": {
             "discriminator": {
               "mapping": {
-                "preset": "#/components/schemas/PresetSource",
+                "preset": "#/components/schemas/NpshPresetSource",
                 "user": "#/components/schemas/UserSource"
               },
               "propertyName": "kind"
@@ -3601,7 +3601,7 @@
                 "$ref": "#/components/schemas/UserSource"
               },
               {
-                "$ref": "#/components/schemas/PresetSource"
+                "$ref": "#/components/schemas/NpshPresetSource"
               }
             ],
             "title": "Source"
@@ -3611,6 +3611,28 @@
           "source"
         ],
         "title": "NpshMarginCheck",
+        "type": "object"
+      },
+      "NpshPresetSource": {
+        "additionalProperties": false,
+        "description": "A preset of the NPSH margin check.",
+        "properties": {
+          "kind": {
+            "const": "preset",
+            "title": "Kind",
+            "type": "string"
+          },
+          "preset": {
+            "const": "hi961_2012_general",
+            "title": "Preset",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "preset"
+        ],
+        "title": "NpshPresetSource",
         "type": "object"
       },
       "NpshrCurvePoint": {
@@ -3669,7 +3691,7 @@
           "source": {
             "discriminator": {
               "mapping": {
-                "preset": "#/components/schemas/PresetSource",
+                "preset": "#/components/schemas/RegionPresetSource",
                 "user": "#/components/schemas/UserSource"
               },
               "propertyName": "kind"
@@ -3679,7 +3701,7 @@
                 "$ref": "#/components/schemas/UserSource"
               },
               {
-                "$ref": "#/components/schemas/PresetSource"
+                "$ref": "#/components/schemas/RegionPresetSource"
               }
             ],
             "title": "Source"
@@ -4158,22 +4180,8 @@
             "title": "Minimum"
           },
           "source": {
-            "discriminator": {
-              "mapping": {
-                "preset": "#/components/schemas/PresetSource",
-                "user": "#/components/schemas/UserSource"
-              },
-              "propertyName": "kind"
-            },
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/UserSource"
-              },
-              {
-                "$ref": "#/components/schemas/PresetSource"
-              }
-            ],
-            "title": "Source"
+            "$ref": "#/components/schemas/UserSource",
+            "description": "The user's values: no velocity preset (D19)"
           }
         },
         "required": [
@@ -4346,30 +4354,6 @@
           "shaftPower"
         ],
         "title": "PowerCurvePoint",
-        "type": "object"
-      },
-      "PresetSource": {
-        "additionalProperties": false,
-        "properties": {
-          "kind": {
-            "const": "preset",
-            "title": "Kind",
-            "type": "string"
-          },
-          "preset": {
-            "enum": [
-              "api610_por",
-              "hi961_2012_general"
-            ],
-            "title": "Preset",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "preset"
-        ],
-        "title": "PresetSource",
         "type": "object"
       },
       "Project": {
@@ -5378,6 +5362,28 @@
           "citation"
         ],
         "title": "Reference",
+        "type": "object"
+      },
+      "RegionPresetSource": {
+        "additionalProperties": false,
+        "description": "A preset of the operating region check.",
+        "properties": {
+          "kind": {
+            "const": "preset",
+            "title": "Kind",
+            "type": "string"
+          },
+          "preset": {
+            "const": "api610_por",
+            "title": "Preset",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "preset"
+        ],
+        "title": "RegionPresetSource",
         "type": "object"
       },
       "Reservoir": {

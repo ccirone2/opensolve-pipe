@@ -30,9 +30,11 @@ Checks (a difference names its letter):
   and the checks' limits, by a second implementation of the rules of the proposal's §3 that
   does not import ``services.design_checks``: the same list in the same order (pumps in
   component order, then connections in project order), each result's check, element, outcome,
-  value, limits, pipe index and pipes outside exactly equal (the same floating-point
-  operations), a message starting "not evaluated:" exactly when not evaluated, and the source
-  the preset's citation, "user" or "manufacturer data (user)";
+  value, limits, pipe index, pipes outside and unit exactly equal (the same floating-point
+  operations), the source the preset's citation, "user" or "manufacturer data (user)", and the
+  message starting "not evaluated:" exactly when not evaluated, else stating the comparison its
+  outcome says (≥, ≤ or within for a pass; <, >, outside, above or below for a fail) between
+  numbers that differ in their text;
 - (c) a solve that did not converge has no design check results.
 
 The report counts, per profile (ref, unit, ladder, wye, fuzz, fuzzfc, fuzzaf), the projects
@@ -139,6 +141,19 @@ def _source(source: dict[str, Any]) -> str:
     return "user" if source["kind"] == "user" else CITATIONS[source["preset"]]
 
 
+UNITS = {
+    "npsh_margin": "m",
+    "operating_region": "1",
+    "allowable_region": "m³/s",
+    "minimum_flow": "m³/s",
+    "motor_power": "W",
+    "pipe_velocity": "m/s",
+}
+"""The SI unit of each check's value and limits (proposal §4)."""
+PASS_WORDS = ("≥", "≤", "within")
+FAIL_WORDS = ("<", ">", "outside", "above", "below")
+
+
 def _result(
     check: str,
     outcome: str,
@@ -161,6 +176,7 @@ def _result(
         "limits": {"min": low, "max": high},
         "pipeIndex": pipe,
         "pipesOutside": outside or [],
+        "unit": UNITS[check],
         "source": source,
     }
 
@@ -326,10 +342,60 @@ def result_problems(
         for key in exp:
             if got.get(key) != exp[key]:
                 problems.append(f"(b) {where}: {key} {got.get(key)!r}, expected {exp[key]!r}")
-        not_evaluated = got["message"].startswith("not evaluated:")
+        message = got["message"]
+        not_evaluated = message.startswith("not evaluated:")
         if not_evaluated != (got["outcome"] == "not_evaluated"):
-            problems.append(f"(b) {where}: message {got['message']!r} for {got['outcome']}")
+            problems.append(f"(b) {where}: message {message!r} for {got['outcome']}")
+        elif not not_evaluated:
+            words = PASS_WORDS if got["outcome"] == "pass" else FAIL_WORDS
+            wrong = FAIL_WORDS if got["outcome"] == "pass" else PASS_WORDS
+            if not any(w in message for w in words) or any(f" {w} " in message for w in wrong):
+                problems.append(f"(b) {where}: message {message!r} for {got['outcome']}")
+            if got["outcome"] == "fail" and _equal_numbers(message):
+                problems.append(f"(b) {where}: a fail between equal-looking numbers: {message!r}")
     return problems
+
+
+UNIT_WORDS = ("m", "m/s", "m³/s", "W")
+COMPARISONS = ("<", ">", "above", "below", "outside")
+
+
+def _is_number(token: str) -> bool:
+    try:
+        float(token.strip("[],"))
+    except ValueError:
+        return False
+    return True
+
+
+def _quoted(tokens: list[str], i: int) -> bool:
+    """Whether ``tokens[i]`` is a compared number: one with a unit after it, inside an
+    interval's brackets, the ratio "= Q/Q_BEP" just before the comparison word, or the limit
+    just after it; not a pipe number or a speed."""
+    word = tokens[i]
+    after = tokens[i + 1] if i + 1 < len(tokens) else ""
+    before = tokens[i - 1] if i > 0 else ""
+    return _is_number(word) and (
+        after.strip("[],") in UNIT_WORDS
+        or word.startswith("[")
+        or word.endswith(("]", ","))
+        or (before == "=" and after in COMPARISONS)
+        or before in COMPARISONS
+    )
+
+
+def _equal_numbers(message: str) -> bool:
+    """A fail message whose compared numbers read the same: "2.13301 m/s ... above 2.13301",
+    or a value that reads as one end of the interval it is outside."""
+    tokens = message.split()
+    at = next((i for i, w in enumerate(tokens) if w in COMPARISONS), None)
+    if at is None:
+        return False
+    left = [tokens[i].strip("[],") for i in range(at) if _quoted(tokens, i)]
+    right = [tokens[i].strip("[],") for i in range(at + 1, len(tokens)) if _quoted(tokens, i)]
+    if not left or not right:
+        return False
+    return left[-1] in (right[:2] if tokens[at] == "outside" else right[:1])
 
 
 def check(name: str, project: Project) -> dict[str, Any]:

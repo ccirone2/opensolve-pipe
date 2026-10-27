@@ -8,6 +8,7 @@ values the solve reports, never a new calculation.
 """
 
 import math
+import re
 from typing import Any
 
 import pytest
@@ -176,7 +177,12 @@ def test_pipe_velocity_names_the_pipes_outside() -> None:
     assert ok["L1"].outcome == "pass"  # equal to the maximum passes
     fast = run(maximum=v1 * (1 - 1e-9))
     assert fast["L1"].outcome == "fail"
-    assert fast["L1"].message == f"|v| {v1:.6g} m/s in pipe 1 above {v1 * (1 - 1e-9):.6g} m/s"
+    # Just past the limit: as many digits as tell the two apart (never "2.13301 above 2.13301").
+    shown = re.fullmatch(r"\|v\| (\S+) m/s in pipe 1 above (\S+) m/s", fast["L1"].message)
+    assert shown is not None
+    assert shown[1] != shown[2]
+    assert float(shown[1]) == pytest.approx(v1, rel=2e-10)
+    assert float(shown[2]) == pytest.approx(v1 * (1 - 1e-9), rel=2e-10)
     assert (fast["L1"].pipe_index, fast["L1"].pipes_outside) == (0, [0])
     assert ok["L1"].pipes_outside == []
     slow = run(minimum=v1 * (1 + 1e-9))
@@ -265,3 +271,64 @@ def test_the_endpoint_returns_checks_and_never_echoes_a_bad_limit() -> None:
     bad = client.post("/api/v1/solve", json={"project": body})
     assert bad.status_code == 400
     assert "1.3" not in bad.text
+
+
+def _settings_error(checks: dict[str, Any]) -> str:
+    body = line().model_dump(mode="json", by_alias=True, exclude_none=True)
+    body["settings"]["designChecks"] = checks
+    client = TestClient(app, client=("198.51.100.244", 50000))
+    response = client.post("/api/v1/solve", json={"project": body})
+    assert response.status_code == 400, response.text
+    return response.text
+
+
+def test_a_preset_source_labels_only_its_own_check_and_values() -> None:
+    """D19: a preset only fills limits in. A preset of another check, a preset's source on
+    limits that are not its own, and any preset on the velocity check (none exists) are 400,
+    never quoting the values sent."""
+    api610 = {"kind": "preset", "preset": "api610_por"}
+    hi = {"kind": "preset", "preset": "hi961_2012_general"}
+    _settings_error({"npshMargin": {"minimumMargin": 9.25, "source": api610}})
+    _settings_error({"operatingRegion": {"preferredMin": 0.7, "preferredMax": 1.2, "source": hi}})
+    _settings_error({"pipeVelocity": {"maximum": 2.75, "source": api610}})
+    changed = _settings_error(
+        {"operatingRegion": {"preferredMin": 0.65, "preferredMax": 1.2, "source": api610}}
+    )
+    assert "0.65" not in changed
+    _settings_error({"npshMargin": {"minimumRatio": 1.1, "source": hi}})  # one value missing
+    # Exactly the preset's values: accepted, and cited.
+    exact = {"preferredMin": 0.7, "preferredMax": 1.2, "source": api610}
+    [result] = checks_of(solve_project(line({"operatingRegion": exact})), "operating_region")
+    assert result.source == PRESETS[0].citation
+
+
+def test_no_check_present_is_no_design_checks() -> None:
+    project = line({})
+    assert project.settings.design_checks is None
+    assert "designChecks" not in project.model_dump(mode="json", by_alias=True)["settings"]
+    state = solve_project(project)
+    assert state.design_checks == []
+    assert all(s.title != "Design checks" for s in state.trace.methods.sections)
+
+
+def test_a_check_without_limits_says_so_in_the_methods() -> None:
+    project = line({k: {"source": USER} for k in ("npshMargin", "operatingRegion", "pipeVelocity")})
+    items = solve_project(project).trace.methods.sections[-1].items
+    assert items[1] == (
+        "NPSH margin: on, with no limit set, so each pump is listed as not evaluated."
+    )
+    assert items[2].startswith(
+        "Operating region: on, with no limit set, so each pump's Q/Q_BEP is listed as not "
+        "evaluated; with it, the curve's manufacturer data"
+    )
+    assert items[3] == (
+        "Pipe velocity: on, with no limit set, so each connection is listed as not evaluated."
+    )
+    assert not any("no limit set." in i and "≥" in i for i in items)
+
+
+def test_equal_minimum_flows_name_the_stable_flow() -> None:
+    region = {"operatingRegion": {"preferredMin": 0.1, "preferredMax": 5.0, "source": USER}}
+    curve = {**pump_curve(), "minimumContinuousStableFlow": 0.004, "minimumThermalFlow": 0.004}
+    [result] = checks_of(solve_project(line(region, curve=curve)), "minimum_flow")
+    assert "minimum continuous stable flow" in result.message

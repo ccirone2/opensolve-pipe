@@ -6,6 +6,7 @@
 	pump is set to use it.
 -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import type { Project, Pump, PumpCurve } from '$lib/api/types';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
@@ -13,6 +14,7 @@
 	import { setPumpCurve, updateComponent } from '$lib/utils/edit';
 	import { withOptional } from '$lib/utils/piping';
 	import { schemaBounds, stringLimits } from '$lib/utils/schema-bounds';
+	import { intersectBounds, pairBounds, schemaOrderedFields } from '$lib/utils/model-rules';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import PointsTable, { type Point } from '../PointsTable.svelte';
 
@@ -49,16 +51,32 @@
 			? 'Enter both ends of the allowable operating region.'
 			: null
 	);
-	/** An end refused for its order (the API's x-ordered-fields), until the next edit. */
-	let regionOrder = $state<'flowMin' | 'flowMax' | null>(null);
 	const regionErrorAt = (end: 'flowMin' | 'flowMax') =>
-		regionOrder === end
-			? end === 'flowMin'
-				? 'Enter a flow below the highest flow.'
-				: 'Enter a flow above the lowest flow.'
-			: regionError && region?.[end] === null
-				? regionError
-				: null;
+		regionError && region?.[end] === null ? regionError : null;
+	/**
+	 * An end's bounds: its own and the other end's, as stored or drafted (x-ordered-fields, read
+	 * from the API's schema): an end out of order is refused by the field, which says why.
+	 */
+	const regionBounds = (end: 'flowMin' | 'flowMax') =>
+		intersectBounds(
+			schemaBounds('AllowableOperatingRegion', end),
+			pairBounds(schemaOrderedFields('AllowableOperatingRegion'), region ?? {}, end)
+		);
+	/**
+	 * The manufacturer data section starts open when the curve has some; then it is the user's
+	 * (it never closes under them as they clear a value). The editor is keyed by pump and curve.
+	 */
+	let manufacturerOpen = $state(
+		untrack(
+			() =>
+				!!(
+					curve?.allowableOperatingRegion ||
+					curve?.minimumContinuousStableFlow ||
+					curve?.minimumThermalFlow ||
+					curve?.motorRatedPower
+				)
+		)
+	);
 
 	function setRegion(end: 'flowMin' | 'flowMax', value: number | null): boolean {
 		const next = {
@@ -66,12 +84,9 @@
 			flowMax: region?.flowMax ?? null,
 			[end]: value
 		};
-		regionOrder = null;
 		if (next.flowMin !== null && next.flowMax !== null) {
-			if (!(next.flowMin < next.flowMax)) {
-				regionOrder = end;
-				return false;
-			}
+			// The fields' bounds refuse an end out of order before this is called.
+			if (!(next.flowMin < next.flowMax)) return false;
 			regionDraft = { flowMin: null, flowMax: null };
 			return save('change allowable operating region', (c) => ({
 				...c,
@@ -254,15 +269,7 @@
 				<Icon name="plus" class="size-4" /> Add NPSHr curve
 			</button>
 		{/if}
-		<details
-			class="group"
-			open={!!(
-				region ||
-				curve.minimumContinuousStableFlow ||
-				curve.minimumThermalFlow ||
-				curve.motorRatedPower
-			)}
-		>
+		<details class="group" bind:open={manufacturerOpen}>
 			<summary class="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">
 				<span
 					class="text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
@@ -282,9 +289,8 @@
 					units={ws.units}
 					optional
 					placeholder="Not given"
-					bounds={schemaBounds('AllowableOperatingRegion', 'flowMin')}
+					bounds={regionBounds('flowMin')}
 					error={regionErrorAt('flowMin')}
-					oninput={() => (regionOrder = null)}
 					onchange={(v) => setRegion('flowMin', v)}
 				/>
 				<NumberField
@@ -294,9 +300,8 @@
 					units={ws.units}
 					optional
 					placeholder="Not given"
-					bounds={schemaBounds('AllowableOperatingRegion', 'flowMax')}
+					bounds={regionBounds('flowMax')}
 					error={regionErrorAt('flowMax')}
-					oninput={() => (regionOrder = null)}
 					onchange={(v) => setRegion('flowMax', v)}
 				/>
 				<NumberField

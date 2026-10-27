@@ -88,7 +88,7 @@ describe('PumpCurveEditor', () => {
 		expect(high).toHaveAccessibleDescription(/Enter both ends of the allowable operating region\./);
 		// The upper end below the lower one is refused, and says why.
 		await enter(high, '5');
-		expect(high).toHaveAccessibleDescription(/Enter a flow above the lowest flow\./);
+		expect(high).toHaveAccessibleDescription(/Must be greater than 6 L\/s\./);
 		expect(stored().allowableOperatingRegion).toBeUndefined();
 		await enter(high, '26');
 		expect(stored().allowableOperatingRegion).toEqual({
@@ -109,5 +109,20 @@ describe('PumpCurveEditor', () => {
 		// Clearing a value removes it.
 		await enter(field(/^Motor rated power/), '');
 		expect('motorRatedPower' in stored()).toBe(false);
+	});
+
+	it('keeps the manufacturer data section open while the user clears the last value', async () => {
+		const ws = testWorkspace(pumpTransferExample());
+		ws.nav.jumpTo('P1');
+		render(WorkspaceView, { workspace: ws });
+		const curve = within(screen.getByRole('region', { name: 'Pump curve' }));
+		const details = curve.getByText('Manufacturer data (optional)').closest('details')!;
+		details.open = true;
+		await fireEvent(details, new Event('toggle'));
+		const thermal = within(details).getByRole('textbox', { name: /^Minimum thermal flow/ });
+		await enter(thermal, '3');
+		await enter(thermal, '');
+		expect('minimumThermalFlow' in ws.project.pumpLibrary[0]!).toBe(false);
+		expect(details.open).toBe(true);
 	});
 });

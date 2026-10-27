@@ -2,17 +2,20 @@
  * Design check results (CLAUDE.md D19; proposal design-checks.md §4–5) in words and display
  * units. The API's results are the data: the value checked, its limits and the outcome, in SI.
  * The words here are built from those numbers, never parsed from the API's message (which is
- * SI and kept under Details); a value that rounds to its limit's text gets more digits, so a
- * failure never reads as equal to its limit. Checks are design practice, not flags: nothing
- * here changes a result or a flag.
+ * SI and kept under Details); a value that rounds to its limit's text gets more digits (up to
+ * 17, enough for any two doubles), and one that still reads as its limit in display units
+ * (two doubles a unit conversion makes equal) is said to differ by round-off, so a failure
+ * never reads as equal to its limit. Checks are design practice, not flags: nothing here
+ * changes a result or a flag.
  */
-import type { DesignCheckResult, DesignChecks, UnitPreferences } from '$lib/api/types';
+import type { DesignCheckResult, UnitPreferences } from '$lib/api/types';
 import type { ElementRef } from './results';
 import { designCheckPresets } from './model-rules';
 import { formatValue, type UnitCategory } from './units';
 
 export type DesignCheckId = DesignCheckResult['check'];
-export type DesignCheckSource = NonNullable<DesignChecks['npshMargin']>['source'];
+/** A check's source as set: the user's values or a preset (each check allows its own). */
+export type DesignCheckSource = { kind: 'user' } | { kind: 'preset'; preset: string };
 export type DesignCheckOutcome = DesignCheckResult['outcome'];
 
 export const CHECK_TITLES: Readonly<Record<DesignCheckId, string>> = {
@@ -89,32 +92,34 @@ export function settingsSourceLabel(source: DesignCheckSource): string {
 	return source.kind === 'user' ? 'your values' : (PRESET_NAMES[source.preset] ?? source.preset);
 }
 
+/** Significant figures enough to tell any two doubles apart. */
+const MAX_DIGITS = 17;
+
 /**
- * The value and its limits in display units, with as many digits as tell them apart (4 to 10
- * significant figures): a value just past its limit never reads as equal to it.
+ * The value and its limits in display units, with as many digits as tell them apart (4 to 17
+ * significant figures), and whether a limit the value is not equal to still reads as it (a
+ * unit conversion can make two doubles equal).
  */
 function formatter(
 	result: DesignCheckResult,
 	prefs: UnitPreferences
-): (si: number | null | undefined) => string {
+): { fmt: (si: number | null | undefined) => string; tied: boolean } {
 	const category = CHECK_CATEGORIES[result.check];
 	const limits = [result.limits.min, result.limits.max].filter(
 		(l): l is number => l !== null && l !== undefined
 	);
-	let sig = 4;
 	const value = result.value;
-	if (value !== null && value !== undefined) {
-		while (
-			sig < 10 &&
-			limits.some(
-				(l) =>
-					l !== value &&
-					formatValue(l, category, prefs, sig) === formatValue(value, category, prefs, sig)
-			)
-		)
-			sig += 1;
-	}
-	return (si) => formatValue(si, category, prefs, sig);
+	const same = (sig: number) =>
+		value !== null &&
+		value !== undefined &&
+		limits.some(
+			(l) =>
+				l !== value &&
+				formatValue(l, category, prefs, sig) === formatValue(value, category, prefs, sig)
+		);
+	let sig = 4;
+	while (sig < MAX_DIGITS && same(sig)) sig += 1;
+	return { fmt: (si) => formatValue(si, category, prefs, sig), tied: same(sig) };
 }
 
 /** "within 70 %–120 %", "below 70 %", "at most 120 %" …, for the limits set. */
@@ -141,9 +146,17 @@ export function checkText(result: DesignCheckResult, prefs: UnitPreferences): st
 		const reason = result.message.replace(/^not evaluated: /, '');
 		return reason.charAt(0).toUpperCase() + reason.slice(1);
 	}
-	const fmt = formatter(result, prefs);
+	const { fmt, tied } = formatter(result, prefs);
+	const text = words(result, result.value, fmt);
+	return tied ? `${text} (by round-off)` : text;
+}
+
+function words(
+	result: DesignCheckResult,
+	v: number,
+	fmt: (si: number | null | undefined) => string
+): string {
 	const ok = result.outcome === 'pass';
-	const v = result.value;
 	const { min, max } = result.limits;
 	switch (result.check) {
 		case 'npsh_margin':

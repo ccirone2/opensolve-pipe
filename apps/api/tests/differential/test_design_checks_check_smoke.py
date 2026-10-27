@@ -71,6 +71,17 @@ def _flip_words(result: dict[str, Any]) -> None:
     result["message"] = flipped
 
 
+def _equal_looking(result: dict[str, Any]) -> None:
+    """A fail message whose limit is printed as the value (round-off hiding the difference)."""
+    value = f"{result['value']:.6g}"
+    limit = result["limits"]["min"] if result["limits"]["min"] is not None else None
+    limit = limit if limit is not None else result["limits"]["max"]
+    assert limit is not None
+    falsified = result["message"].replace(f"{limit:.6g}", value, 1)
+    assert falsified != result["message"]
+    result["message"] = falsified
+
+
 def test_falsified_results_are_caught() -> None:
     data, state, reported = _case()
     assert result_problems(data, state, reported) == []
@@ -83,6 +94,7 @@ def test_falsified_results_are_caught() -> None:
         lambda rs: rs[-1].update(pipesOutside=[0, 1]),
         lambda rs: rs[0].update(unit="ft"),
         lambda rs: _flip_words(next(r for r in rs if r["outcome"] == "pass")),
+        lambda rs: _equal_looking(next(r for r in rs if r["outcome"] == "fail")),
     ):
         changed = copy.deepcopy(reported)
         falsify(changed)

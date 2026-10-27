@@ -1770,8 +1770,8 @@ export interface components {
          */
         NpshPresetSource: {
             /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
+             * Kind
+             * @constant
              */
             kind: "preset";
             /**
@@ -2582,8 +2582,8 @@ export interface components {
          */
         RegionPresetSource: {
             /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
+             * Kind
+             * @constant
              */
             kind: "preset";
             /**
@@ -3186,8 +3186,8 @@ export interface components {
         /** UserSource */
         UserSource: {
             /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
+             * Kind
+             * @constant
              */
             kind: "user";
         };

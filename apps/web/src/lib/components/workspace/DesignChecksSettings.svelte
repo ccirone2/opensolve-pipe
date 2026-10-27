@@ -152,47 +152,56 @@
 							onchange={(v) => setLimit('npshMargin', 'minimumRatio', v, check.label)}
 						/>
 					{:else if check.key === 'operatingRegion'}
-						<NumberField
-							label="Lowest flow, of BEP flow"
-							value={checks.operatingRegion?.preferredMin}
-							category="fraction"
-							units={settings.units}
-							optional
-							placeholder="Not set"
-							bounds={boundsOf('OperatingRegionCheck', checks.operatingRegion, 'preferredMin')}
-							onchange={(v) => setLimit('operatingRegion', 'preferredMin', v, check.label)}
-						/>
-						<NumberField
-							label="Highest flow, of BEP flow"
-							value={checks.operatingRegion?.preferredMax}
-							category="fraction"
-							units={settings.units}
-							optional
-							placeholder="Not set"
-							bounds={boundsOf('OperatingRegionCheck', checks.operatingRegion, 'preferredMax')}
-							onchange={(v) => setLimit('operatingRegion', 'preferredMax', v, check.label)}
-						/>
+						<!-- Keyed by the other end as stored: a refusal against it goes when it changes. -->
+						{#key checks.operatingRegion?.preferredMax}
+							<NumberField
+								label="Lowest flow, of BEP flow"
+								value={checks.operatingRegion?.preferredMin}
+								category="fraction"
+								units={settings.units}
+								optional
+								placeholder="Not set"
+								bounds={boundsOf('OperatingRegionCheck', checks.operatingRegion, 'preferredMin')}
+								onchange={(v) => setLimit('operatingRegion', 'preferredMin', v, check.label)}
+							/>
+						{/key}
+						{#key checks.operatingRegion?.preferredMin}
+							<NumberField
+								label="Highest flow, of BEP flow"
+								value={checks.operatingRegion?.preferredMax}
+								category="fraction"
+								units={settings.units}
+								optional
+								placeholder="Not set"
+								bounds={boundsOf('OperatingRegionCheck', checks.operatingRegion, 'preferredMax')}
+								onchange={(v) => setLimit('operatingRegion', 'preferredMax', v, check.label)}
+							/>
+						{/key}
 					{:else}
-						<NumberField
-							label="Minimum velocity"
-							value={checks.pipeVelocity?.minimum}
-							category="velocity"
-							units={settings.units}
-							optional
-							placeholder="Not set"
-							bounds={boundsOf('PipeVelocityCheck', checks.pipeVelocity, 'minimum')}
-							onchange={(v) => setLimit('pipeVelocity', 'minimum', v, check.label)}
-						/>
-						<NumberField
-							label="Maximum velocity"
-							value={checks.pipeVelocity?.maximum}
-							category="velocity"
-							units={settings.units}
-							optional
-							placeholder="Not set"
-							bounds={boundsOf('PipeVelocityCheck', checks.pipeVelocity, 'maximum')}
-							onchange={(v) => setLimit('pipeVelocity', 'maximum', v, check.label)}
-						/>
+						{#key checks.pipeVelocity?.maximum}
+							<NumberField
+								label="Minimum velocity"
+								value={checks.pipeVelocity?.minimum}
+								category="velocity"
+								units={settings.units}
+								optional
+								placeholder="Not set"
+								bounds={boundsOf('PipeVelocityCheck', checks.pipeVelocity, 'minimum')}
+								onchange={(v) => setLimit('pipeVelocity', 'minimum', v, check.label)}
+							/>
+						{/key}
+						{#key checks.pipeVelocity?.minimum}
+							<NumberField
+								label="Maximum velocity"
+								value={checks.pipeVelocity?.maximum}
+								category="velocity"
+								units={settings.units}
+								optional
+								placeholder="Not set"
+								bounds={boundsOf('PipeVelocityCheck', checks.pipeVelocity, 'maximum')}
+								onchange={(v) => setLimit('pipeVelocity', 'maximum', v, check.label)}
+							/>
+						{/key}
 					{/if}
 				</div>
 				{#if ws.inScenario}

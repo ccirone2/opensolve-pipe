@@ -5,6 +5,7 @@
  * from the removed table (Svelte's derived_inert warning).
  */
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import { testWorkspace } from '$lib/testing/workspace';
@@ -124,5 +125,34 @@ describe('PumpCurveEditor', () => {
 		await enter(thermal, '');
 		expect('minimumThermalFlow' in ws.project.pumpLibrary[0]!).toBe(false);
 		expect(details.open).toBe(true);
+	});
+
+	it('drops a region refusal when the other end changes, by an undo or by clearing a draft', async () => {
+		const ws = testWorkspace(pumpTransferExample());
+		ws.nav.jumpTo('P1');
+		render(WorkspaceView, { workspace: ws });
+		const curve = within(screen.getByRole('region', { name: 'Pump curve' }));
+		const details = curve.getByText('Manufacturer data (optional)').closest('details')!;
+		const low = () =>
+			within(details).getByRole('textbox', { name: /^Allowable operating region, lowest flow/ });
+		const high = () =>
+			within(details).getByRole('textbox', { name: /^Allowable operating region, highest flow/ });
+		await enter(low(), '6');
+		await enter(high(), '26');
+		await enter(high(), '40');
+		await enter(low(), '50');
+		expect(low()).toHaveAccessibleDescription(/Must be less than 40 L\/s\./);
+		ws.undo(); // the highest flow back to 26
+		await tick();
+		expect(low()).not.toHaveAttribute('aria-invalid');
+		expect(low()).toHaveValue('6');
+		// A drafted end cleared: the refusal against it goes.
+		ws.undo(); // no region
+		await tick();
+		await enter(low(), '6');
+		await enter(high(), '5');
+		expect(high()).toHaveAccessibleDescription(/Must be greater than 6 L\/s\./);
+		await enter(low(), '');
+		expect(high()).not.toHaveAttribute('aria-invalid');
 	});
 });

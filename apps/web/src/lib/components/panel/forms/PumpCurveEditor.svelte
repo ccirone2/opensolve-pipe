@@ -84,9 +84,8 @@
 			flowMax: region?.flowMax ?? null,
 			[end]: value
 		};
+		// Both ends: the fields' bounds (x-ordered-fields) have refused an end out of order.
 		if (next.flowMin !== null && next.flowMax !== null) {
-			// The fields' bounds refuse an end out of order before this is called.
-			if (!(next.flowMin < next.flowMax)) return false;
 			regionDraft = { flowMin: null, flowMax: null };
 			return save('change allowable operating region', (c) => ({
 				...c,
@@ -282,28 +281,33 @@
 				check (Settings → Design checks); the solve does not use them.
 			</p>
 			<div class="grid gap-3 sm:grid-cols-2">
-				<NumberField
-					label="Allowable operating region, lowest flow"
-					value={region?.flowMin}
-					category="flow"
-					units={ws.units}
-					optional
-					placeholder="Not given"
-					bounds={regionBounds('flowMin')}
-					error={regionErrorAt('flowMin')}
-					onchange={(v) => setRegion('flowMin', v)}
-				/>
-				<NumberField
-					label="Allowable operating region, highest flow"
-					value={region?.flowMax}
-					category="flow"
-					units={ws.units}
-					optional
-					placeholder="Not given"
-					bounds={regionBounds('flowMax')}
-					error={regionErrorAt('flowMax')}
-					onchange={(v) => setRegion('flowMax', v)}
-				/>
+				<!-- Keyed by the other end as stored: a refusal against it goes when it changes. -->
+				{#key region?.flowMax}
+					<NumberField
+						label="Allowable operating region, lowest flow"
+						value={region?.flowMin}
+						category="flow"
+						units={ws.units}
+						optional
+						placeholder="Not given"
+						bounds={regionBounds('flowMin')}
+						error={regionErrorAt('flowMin')}
+						onchange={(v) => setRegion('flowMin', v)}
+					/>
+				{/key}
+				{#key region?.flowMin}
+					<NumberField
+						label="Allowable operating region, highest flow"
+						value={region?.flowMax}
+						category="flow"
+						units={ws.units}
+						optional
+						placeholder="Not given"
+						bounds={regionBounds('flowMax')}
+						error={regionErrorAt('flowMax')}
+						onchange={(v) => setRegion('flowMax', v)}
+					/>
+				{/key}
 				<NumberField
 					label="Minimum continuous stable flow"
 					value={curve.minimumContinuousStableFlow}

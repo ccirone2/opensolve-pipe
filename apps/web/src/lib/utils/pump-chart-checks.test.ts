@@ -7,13 +7,14 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { DesignChecks, PumpCurve, PumpResult } from '../api/types';
-import { pumpResult } from '../testing/results';
+import { pumpResult, systemCurvePoint, systemCurveResponse } from '../testing/results';
 import { fixtureInput } from './export/export-testing.testing';
 import {
 	checkOverlays,
 	checksDrawn,
 	chartNotes,
 	pumpChartData,
+	type OtherCaseData,
 	type PanelKey,
 	type PumpChecksInput
 } from './pump-chart';
@@ -222,6 +223,44 @@ describe('the chart', () => {
 		expect(all.at(-1)).toMatch(/^These are the limits of the design checks you turned on/);
 		const headOnly = notes(true, ['head']);
 		expect(headOnly.some((n) => n.startsWith('Dotted') || n.startsWith('Dashed'))).toBe(false);
+	});
+
+	it('spans the rating over the flows drawn: an undrawn system curve no, other cases yes', () => {
+		const ratingEnd = (data: ReturnType<typeof pumpChartData>, cases: OtherCaseData[] = []) => {
+			const sets = pumpChartConfig(data, cases, {
+				speedText: '100 % speed',
+				legendLabels: () => [],
+				format: String,
+				panels: ['head', 'power'],
+				checks: true
+			}).data.datasets;
+			return sets.find((s) => s.label === 'Motor rated power (dashed)')!.data.at(-1)!.x;
+		};
+		// A system curve none of whose points has a head is not drawn: it does not widen the line.
+		const wide = {
+			...systemCurveResponse(),
+			points: [0, 0.012, 0.024, 0.036].map((flow) => systemCurvePoint({ flow }))
+		};
+		const undrawn = pumpChartData(fullPump(), SI_UNITS, null, wide, null, everything);
+		expect(undrawn.systemMissing).toBe(4);
+		expect(ratingEnd(undrawn)).toBe(30);
+		// Another case's pump curve out to 45 L/s: the line reaches it.
+		const other: OtherCaseData = {
+			key: 'S1',
+			label: 'Faster',
+			marker: 'triangle',
+			operating: { x: 40, y: 20 },
+			held: null,
+			curve: [
+				{ x: 0, y: 40 },
+				{ x: 45, y: 15 }
+			],
+			curveLabel: 'Pump curve at 120 % speed (Faster)',
+			system: null,
+			row: { flow: '40', head: '20', speed: '120', state: 'Running' },
+			systemRows: []
+		};
+		expect(ratingEnd(data, [other])).toBe(45);
 	});
 
 	it('gives each panel its own unit in the tooltip', () => {

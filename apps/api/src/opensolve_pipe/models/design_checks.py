@@ -8,7 +8,7 @@ the web app reads them instead of copying them.
 
 from typing import Annotated, Any, ClassVar, Literal, Self
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Discriminator, Field, Tag, model_validator
 from pydantic.config import JsonDict
 
 from .base import CamelModel, OutputModel
@@ -79,10 +79,31 @@ class RegionPresetSource(PresetSource):
     preset: Literal["api610_por"]
 
 
-CheckSource = Annotated[UserSource | PresetSource, Field(discriminator="kind")]
+CheckSource = UserSource | PresetSource
 """Any check's source, as the services read it (each check narrows its own)."""
-NpshSource = Annotated[UserSource | NpshPresetSource, Field(discriminator="kind")]
-RegionSource = Annotated[UserSource | RegionPresetSource, Field(discriminator="kind")]
+
+
+def _source_tag(value: object) -> str | None:
+    kind = value.get("kind") if isinstance(value, dict) else getattr(value, "kind", None)
+    return kind if kind in ("user", "preset") else None
+
+
+# Callable discriminators, so that an unknown kind gets the custom error below: pydantic's own
+# message quotes the submitted tag, and errors never echo input (SDD §5.1.2).
+_SOURCE_ERROR = {
+    "custom_error_type": "invalid_source",
+    "custom_error_message": "unknown source kind (expected 'user' or 'preset')",
+}
+NpshSource = Annotated[
+    Annotated[UserSource, Tag("user")] | Annotated[NpshPresetSource, Tag("preset")],
+    Discriminator(_source_tag, **_SOURCE_ERROR),
+]
+"""The NPSH margin check's source: the user's values or its own preset."""
+RegionSource = Annotated[
+    Annotated[UserSource, Tag("user")] | Annotated[RegionPresetSource, Tag("preset")],
+    Discriminator(_source_tag, **_SOURCE_ERROR),
+]
+"""The operating region check's source: the user's values or its own preset."""
 
 
 def _preset_values(check: CamelModel, source: UserSource | PresetSource) -> None:

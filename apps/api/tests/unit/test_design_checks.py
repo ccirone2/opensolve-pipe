@@ -296,6 +296,9 @@ def test_a_preset_source_labels_only_its_own_check_and_values() -> None:
     )
     assert "0.65" not in changed
     _settings_error({"npshMargin": {"minimumRatio": 1.1, "source": hi}})  # one value missing
+    for check in ("npshMargin", "operatingRegion", "pipeVelocity"):
+        unknown = _settings_error({check: {"source": {"kind": "secretKIND"}}})
+        assert "secretKIND" not in unknown
     # Exactly the preset's values: accepted, and cited.
     exact = {"preferredMin": 0.7, "preferredMax": 1.2, "source": api610}
     [result] = checks_of(solve_project(line({"operatingRegion": exact})), "operating_region")

@@ -3589,13 +3589,6 @@
             "title": "Minimumratio"
           },
           "source": {
-            "discriminator": {
-              "mapping": {
-                "preset": "#/components/schemas/NpshPresetSource",
-                "user": "#/components/schemas/UserSource"
-              },
-              "propertyName": "kind"
-            },
             "oneOf": [
               {
                 "$ref": "#/components/schemas/UserSource"
@@ -3689,13 +3682,6 @@
             "title": "Preferredmin"
           },
           "source": {
-            "discriminator": {
-              "mapping": {
-                "preset": "#/components/schemas/RegionPresetSource",
-                "user": "#/components/schemas/UserSource"
-              },
-              "propertyName": "kind"
-            },
             "oneOf": [
               {
                 "$ref": "#/components/schemas/UserSource"

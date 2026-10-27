@@ -80,22 +80,33 @@ describe('DesignChecksSettings', () => {
 		expect(ws.project.settings.designChecks?.pipeVelocity?.minimum).toBe(0.5);
 	});
 
-	it('drops a refusal once the stored value changes (a preset, an undo)', async () => {
+	it('drops a refusal once either end as stored changes (a preset, the other end, an undo)', async () => {
 		const { ws, dialog } = await openSettings();
 		await fireEvent.click(dialog.getByRole('checkbox', { name: 'Pump operating region' }));
-		await enter(dialog.getByRole('textbox', { name: /^Highest flow, of BEP flow/ }), '50');
-		const lowest = dialog.getByRole('textbox', { name: /^Lowest flow, of BEP flow/ });
-		await enter(lowest, '80');
-		expect(lowest).toHaveAttribute('aria-invalid', 'true');
+		const highest = () => dialog.getByRole('textbox', { name: /^Highest flow, of BEP flow/ });
+		const lowest = () => dialog.getByRole('textbox', { name: /^Lowest flow, of BEP flow/ });
+		await enter(highest(), '100');
+		await enter(lowest(), '110');
+		expect(lowest()).toHaveAttribute('aria-invalid', 'true');
+		// A preset that leaves nothing the refusal was about: the field shows the preset's value.
 		await fireEvent.click(dialog.getByRole('button', { name: 'Use API 610' }));
-		expect(lowest).not.toHaveAttribute('aria-invalid');
-		expect(lowest).toHaveValue('70');
-		await enter(lowest, '130');
-		expect(lowest).toHaveAttribute('aria-invalid', 'true');
-		ws.undo(); // back to 50 % with no lowest flow: the field's value changed
+		expect(lowest()).not.toHaveAttribute('aria-invalid');
+		expect(lowest()).toHaveValue('70');
+		// The other end moved: the refusal against its old value goes.
+		await enter(lowest(), '130');
+		expect(lowest()).toHaveAccessibleDescription(/Must be less than 120 %\./);
+		await enter(highest(), '150');
+		expect(lowest()).not.toHaveAttribute('aria-invalid');
+		await enter(lowest(), '130');
+		expect(ws.project.settings.designChecks?.operatingRegion?.preferredMin).toBe(1.3);
+		// An undo of the other end too.
+		await enter(highest(), '140');
+		await enter(lowest(), '145');
+		expect(lowest()).toHaveAttribute('aria-invalid', 'true');
+		ws.undo();
 		await tick();
-		expect(lowest).not.toHaveAttribute('aria-invalid');
-		expect(lowest).toHaveValue('');
+		expect(lowest()).not.toHaveAttribute('aria-invalid');
+		expect(lowest()).toHaveValue('130');
 	});
 
 	it('removes the field when the last check goes off, one undo step per change', async () => {

@@ -251,11 +251,13 @@ function checkDatasets(d: PumpChartData, shown: (key: PanelKey) => boolean) {
 			? [
 					{
 						label: 'Motor rated power (dashed)',
-						// Across every flow the chart shows, so the duty it is checked at is under it.
+						// Its end is set to the largest flow of the datasets drawn (spanDrawnFlows),
+						// so the duty it is checked at, at any flow shown, is under it.
 						data: [
 							{ x: Math.min(0, ...xs), y: c.motorRating },
-							{ x: flowExtent(d), y: c.motorRating }
+							{ x: Math.max(...xs), y: c.motorRating }
 						],
+						spanDrawnFlows: true,
 						yAxisID: 'yPower',
 						borderColor: INK,
 						backgroundColor: INK,
@@ -272,17 +274,19 @@ function checkDatasets(d: PumpChartData, shown: (key: PanelKey) => boolean) {
 /** The marks the checkMarks plugin draws, named on their legend entries. */
 type CheckMark = 'preferred' | 'allowable' | 'minimum';
 
-/** The largest flow any line or point of the chart reaches (display unit). */
-function flowExtent(d: PumpChartData): number {
-	const xs = [
-		...d.curve,
-		...d.extrapolated.flat(),
-		...(d.system ?? []),
-		...(d.power?.curve ?? []),
-		...(d.power?.duty ? [d.power.duty] : []),
-		...(d.operating ? [d.operating] : [])
-	].map((p) => p.x);
-	return Math.max(0, ...xs);
+/**
+ * A line across the flows drawn (the motor's rating): its last point is moved to the largest
+ * flow any other dataset reaches with a value (a point without a head is not drawn, and a
+ * curve with none is not a dataset), the other cases and the speed range included.
+ */
+function spanDrawnFlows(datasets: readonly { data: ChartDatum[]; spanDrawnFlows?: boolean }[]) {
+	const xs = datasets
+		.filter((ds) => !ds.spanDrawnFlows)
+		.flatMap((ds) => ds.data.filter((p) => p.y !== null).map((p) => p.x));
+	for (const ds of datasets) {
+		const last = ds.spanDrawnFlows ? ds.data[ds.data.length - 1] : undefined;
+		if (last) last.x = Math.max(last.x, ...xs);
+	}
 }
 
 /** A percentage written briefly ("70", "62.5"). */
@@ -497,6 +501,7 @@ export function pumpChartConfig(
 				: [])
 		])
 	];
+	spanDrawnFlows(datasets);
 	// Direct labels next to the other cases' operating points.
 	const caseLabels: Plugin<'line'> = {
 		id: 'caseLabels',

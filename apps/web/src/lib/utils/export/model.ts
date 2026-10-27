@@ -25,6 +25,7 @@ import {
 	compareNotes,
 	compareSheet,
 	elementTables,
+	designChecksTable,
 	flagsTable,
 	scenarioChangesTable,
 	traceTable
@@ -169,6 +170,9 @@ export type SheetSpec = Omit<ExportSheet, 'caption'>;
 function sheetsOf(ctx: ExportContext): SheetSpec[] {
 	const tables = elementTables(ctx);
 	const before: SheetSpec[] = [flagsTable(ctx)];
+	// Design checks (D19), only when a case has some: a file without them is as before.
+	const checks = designChecksTable(ctx);
+	if (checks.rowCount > 0) before.push(checks);
 	const compare = compareSheet(ctx);
 	if (compare) before.push(compare);
 	const after = [scenarioChangesTable(ctx), goalSeekSheet(ctx), methodsSheet(ctx), traceTable(ctx)];

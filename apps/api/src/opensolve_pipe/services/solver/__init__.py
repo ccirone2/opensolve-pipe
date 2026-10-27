@@ -10,6 +10,7 @@ not an exception.
 from ...models.api import SolveOptions
 from ...models.project import Project
 from ...models.results import CurvePoint, SolvedState
+from .. import design_checks
 from ..fluids import FluidError, fluid_properties
 from .builder import build_network
 from .errors import TopologyError
@@ -27,6 +28,25 @@ from .system_curve import (
 from .version import METHOD_CHANGELOG, METHOD_VERSION
 
 
+def _with_design_checks(project: Project, state: SolvedState) -> SolvedState:
+    """The project's opt-in design checks on its solved state, and their methods section
+    (CLAUDE.md D19); the state itself unchanged without checks."""
+    section = design_checks.methods_section(project)
+    if section is None:
+        return state
+    methods = state.trace.methods
+    return state.model_copy(
+        update={
+            "design_checks": design_checks.evaluate(project, state),
+            "trace": state.trace.model_copy(
+                update={
+                    "methods": methods.model_copy(update={"sections": [*methods.sections, section]})
+                }
+            ),
+        }
+    )
+
+
 def solve_project(project: Project, options: SolveOptions | None = None) -> SolvedState:
     """Solve a project. With ``options.include_system_curve`` (the API default; None here
     means no options), every running pump's result also carries its system curve
@@ -42,7 +62,7 @@ def solve_project(project: Project, options: SolveOptions | None = None) -> Solv
         tolerance=solver_options.tolerance,
         max_iterations=solver_options.max_iterations,
     )
-    state = build_solved_state(built, outer, p_atm, p_atm_source)
+    state = _with_design_checks(project, build_solved_state(built, outer, p_atm, p_atm_source))
     if options is None or not options.include_system_curve or not state.converged:
         return state
     running = [pid for pid, pr in state.pump_results.items() if pr.status == "running"]

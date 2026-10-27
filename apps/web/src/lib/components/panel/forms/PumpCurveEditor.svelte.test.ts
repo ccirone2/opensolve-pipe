@@ -5,6 +5,7 @@
  * from the removed table (Svelte's derived_inert warning).
  */
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import { testWorkspace } from '$lib/testing/workspace';
@@ -68,5 +69,90 @@ describe('PumpCurveEditor', () => {
 			expect.stringMatching(/derived_inert/)
 		);
 		expect(ws.store.undoLabel).toBe('add pump curve');
+	});
+
+	it('stores the manufacturer data the design checks read, an allowable region with both ends', async () => {
+		const ws = testWorkspace(pumpTransferExample());
+		ws.nav.jumpTo('P1');
+		render(WorkspaceView, { workspace: ws });
+		const curve = within(screen.getByRole('region', { name: 'Pump curve' }));
+		const details = curve.getByText('Manufacturer data (optional)').closest('details')!;
+		expect(details.open).toBe(false);
+		const field = (name: RegExp) => within(details).getByRole('textbox', { name });
+		const stored = () => ws.project.pumpLibrary[0]!;
+
+		// One end alone is kept on the page, not stored: the API needs both.
+		const low = field(/^Allowable operating region, lowest flow/);
+		await enter(low, '6');
+		expect(stored().allowableOperatingRegion).toBeUndefined();
+		const high = field(/^Allowable operating region, highest flow/);
+		expect(high).toHaveAccessibleDescription(/Enter both ends of the allowable operating region\./);
+		// The upper end below the lower one is refused, and says why.
+		await enter(high, '5');
+		expect(high).toHaveAccessibleDescription(/Must be greater than 6 L\/s\./);
+		expect(stored().allowableOperatingRegion).toBeUndefined();
+		await enter(high, '26');
+		expect(stored().allowableOperatingRegion).toEqual({
+			flowMin: expect.closeTo(0.006, 15),
+			flowMax: expect.closeTo(0.026, 15)
+		});
+		expect(high).not.toHaveAttribute('aria-invalid');
+
+		await enter(field(/^Minimum continuous stable flow/), '4');
+		await enter(field(/^Minimum thermal flow/), '3');
+		await enter(field(/^Motor rated power/), '5.5');
+		expect(stored()).toMatchObject({
+			minimumContinuousStableFlow: expect.closeTo(0.004, 15),
+			minimumThermalFlow: expect.closeTo(0.003, 15),
+			motorRatedPower: expect.closeTo(5500, 9)
+		});
+		expect(ws.store.undoLabel).toBe('change motor rated power');
+		// Clearing a value removes it.
+		await enter(field(/^Motor rated power/), '');
+		expect('motorRatedPower' in stored()).toBe(false);
+	});
+
+	it('keeps the manufacturer data section open while the user clears the last value', async () => {
+		const ws = testWorkspace(pumpTransferExample());
+		ws.nav.jumpTo('P1');
+		render(WorkspaceView, { workspace: ws });
+		const curve = within(screen.getByRole('region', { name: 'Pump curve' }));
+		const details = curve.getByText('Manufacturer data (optional)').closest('details')!;
+		details.open = true;
+		await fireEvent(details, new Event('toggle'));
+		const thermal = within(details).getByRole('textbox', { name: /^Minimum thermal flow/ });
+		await enter(thermal, '3');
+		await enter(thermal, '');
+		expect('minimumThermalFlow' in ws.project.pumpLibrary[0]!).toBe(false);
+		expect(details.open).toBe(true);
+	});
+
+	it('drops a region refusal when the other end changes, by an undo or by clearing a draft', async () => {
+		const ws = testWorkspace(pumpTransferExample());
+		ws.nav.jumpTo('P1');
+		render(WorkspaceView, { workspace: ws });
+		const curve = within(screen.getByRole('region', { name: 'Pump curve' }));
+		const details = curve.getByText('Manufacturer data (optional)').closest('details')!;
+		const low = () =>
+			within(details).getByRole('textbox', { name: /^Allowable operating region, lowest flow/ });
+		const high = () =>
+			within(details).getByRole('textbox', { name: /^Allowable operating region, highest flow/ });
+		await enter(low(), '6');
+		await enter(high(), '26');
+		await enter(high(), '40');
+		await enter(low(), '50');
+		expect(low()).toHaveAccessibleDescription(/Must be less than 40 L\/s\./);
+		ws.undo(); // the highest flow back to 26
+		await tick();
+		expect(low()).not.toHaveAttribute('aria-invalid');
+		expect(low()).toHaveValue('6');
+		// A drafted end cleared: the refusal against it goes.
+		ws.undo(); // no region
+		await tick();
+		await enter(low(), '6');
+		await enter(high(), '5');
+		expect(high()).toHaveAccessibleDescription(/Must be greater than 6 L\/s\./);
+		await enter(low(), '');
+		expect(high()).not.toHaveAttribute('aria-invalid');
 	});
 });

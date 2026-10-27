@@ -252,6 +252,7 @@
 									"oscillatingComponents": [],
 									"outerIterations": 1
 								},
+								"designChecks": [],
 								"equipmentResults": {},
 								"flags": [],
 								"fluid": {
@@ -3349,6 +3350,7 @@
 								"oscillatingComponents": [],
 								"outerIterations": 1
 							},
+							"designChecks": [],
 							"equipmentResults": {},
 							"flags": [],
 							"fluid": {
@@ -6649,6 +6651,7 @@
 									"oscillatingComponents": [],
 									"outerIterations": 2
 								},
+								"designChecks": [],
 								"equipmentResults": {
 									"E1": {
 										"flow": 0.007547862785118279,
@@ -11092,6 +11095,7 @@
 									"oscillatingComponents": [],
 									"outerIterations": 2
 								},
+								"designChecks": [],
 								"equipmentResults": {
 									"E1": {
 										"flow": 0.0069727357857296,
@@ -15532,6 +15536,7 @@
 									"oscillatingComponents": [],
 									"outerIterations": 2
 								},
+								"designChecks": [],
 								"equipmentResults": {
 									"E1": {
 										"flow": 0.007547862785118279,
@@ -20408,6 +20413,7 @@
 									"oscillatingComponents": [],
 									"outerIterations": 3
 								},
+								"designChecks": [],
 								"equipmentResults": {},
 								"flags": [
 									{
@@ -22583,6 +22589,3525 @@
 				"utcOffsetMinutes": 120
 			},
 			"name": "tee-fallback"
+		},
+		{
+			"input": {
+				"appVersion": "0123456789abcdef0123456789abcdef01234567",
+				"cases": [
+					{
+						"error": null,
+						"id": null,
+						"inputs": {
+							"components": [
+								{
+									"elevation": 0,
+									"id": "R1",
+									"liquidLevel": 3,
+									"name": "Suction tank",
+									"ports": [
+										{
+											"direction": "bidirectional",
+											"id": "port_1",
+											"nominalSize": 0.1016
+										}
+									],
+									"surfacePressure": 0,
+									"type": "reservoir"
+								},
+								{
+									"curveId": "C1",
+									"elevation": 0,
+									"id": "P1",
+									"name": "Transfer pump",
+									"ports": [
+										{
+											"direction": "inlet",
+											"id": "suction",
+											"nominalSize": 0.1016
+										},
+										{
+											"direction": "outlet",
+											"id": "discharge",
+											"nominalSize": 0.0762
+										}
+									],
+									"speed": 0.9,
+									"status": "on",
+									"type": "pump"
+								},
+								{
+									"elevation": 0,
+									"id": "V1",
+									"name": "Discharge isolation valve",
+									"ports": [
+										{
+											"direction": "inlet",
+											"id": "inlet",
+											"nominalSize": 0.0762
+										},
+										{
+											"direction": "outlet",
+											"id": "outlet",
+											"nominalSize": 0.0762
+										}
+									],
+									"status": "active",
+									"type": "valve",
+									"valveType": "gate"
+								},
+								{
+									"elevation": 10,
+									"id": "R2",
+									"liquidLevel": 2,
+									"name": "Discharge tank",
+									"ports": [
+										{
+											"direction": "bidirectional",
+											"id": "port_1",
+											"nominalSize": 0.0762
+										}
+									],
+									"surfacePressure": 0,
+									"type": "reservoir"
+								}
+							],
+							"connections": [
+								{
+									"fromComponentId": "R1",
+									"fromPortId": "port_1",
+									"id": "L1",
+									"piping": {
+										"fittings": [
+											{
+												"pipeIndex": 0,
+												"quantity": 1,
+												"type": "entrance_sharp"
+											}
+										],
+										"pipes": [
+											{
+												"length": 5,
+												"materialId": "carbon_steel",
+												"nominalSize": 0.1016,
+												"schedule": "40"
+											}
+										]
+									},
+									"toComponentId": "P1",
+									"toPortId": "suction"
+								},
+								{
+									"fromComponentId": "P1",
+									"fromPortId": "discharge",
+									"id": "L2",
+									"piping": {
+										"fittings": [],
+										"pipes": [
+											{
+												"length": 3,
+												"materialId": "carbon_steel",
+												"nominalSize": 0.0762,
+												"schedule": "40"
+											}
+										]
+									},
+									"toComponentId": "V1",
+									"toPortId": "inlet"
+								},
+								{
+									"fromComponentId": "V1",
+									"fromPortId": "outlet",
+									"id": "L3",
+									"piping": {
+										"fittings": [
+											{
+												"pipeIndex": 0,
+												"quantity": 4,
+												"type": "elbow_90_lr"
+											},
+											{
+												"pipeIndex": 0,
+												"quantity": 1,
+												"type": "exit"
+											}
+										],
+										"pipes": [
+											{
+												"length": 60,
+												"materialId": "carbon_steel",
+												"nominalSize": 0.0762,
+												"schedule": "40"
+											}
+										]
+									},
+									"toComponentId": "R2",
+									"toPortId": "port_1"
+								}
+							],
+							"fluid": {
+								"fluidId": "water",
+								"kind": "builtin",
+								"temperature": 293.15
+							},
+							"id": "demo-pump-system",
+							"metadata": {
+								"created": "2026-10-21T00:00:00Z",
+								"modified": "2026-10-21T00:00:00Z",
+								"name": "Pump transfer between two tanks"
+							},
+							"methodVersion": "",
+							"pumpLibrary": [
+								{
+									"allowableOperatingRegion": {
+										"flowMax": 0.026,
+										"flowMin": 0.006
+									},
+									"efficiencyCurve": [
+										{
+											"efficiency": 0.45,
+											"flow": 0.005
+										},
+										{
+											"efficiency": 0.7,
+											"flow": 0.015
+										},
+										{
+											"efficiency": 0.6,
+											"flow": 0.025
+										}
+									],
+									"id": "C1",
+									"minimumContinuousStableFlow": 0.004,
+									"minimumThermalFlow": 0.005,
+									"motorRatedPower": 4000.0,
+									"name": "Example curve",
+									"points": [
+										{
+											"flow": 0,
+											"head": 30
+										},
+										{
+											"flow": 0.01,
+											"head": 28
+										},
+										{
+											"flow": 0.02,
+											"head": 22
+										},
+										{
+											"flow": 0.03,
+											"head": 12
+										}
+									]
+								}
+							],
+							"schemaVersion": 1,
+							"settings": {
+								"designChecks": {
+									"npshMargin": {
+										"minimumMargin": 1.0,
+										"minimumRatio": 1.1,
+										"source": {
+											"kind": "preset",
+											"preset": "hi961_2012_general"
+										}
+									},
+									"operatingRegion": {
+										"preferredMax": 1.2,
+										"preferredMin": 0.7,
+										"source": {
+											"kind": "preset",
+											"preset": "api610_por"
+										}
+									},
+									"pipeVelocity": {
+										"maximum": 3.0,
+										"source": {
+											"kind": "user"
+										}
+									}
+								},
+								"siteElevation": 0,
+								"solverOptions": {
+									"frictionMethod": "colebrook",
+									"maxIterations": 100,
+									"tolerance": 1e-9
+								},
+								"units": {
+									"density": "lb/ft3",
+									"diameter": "in",
+									"flow": "gpm",
+									"head": "ft",
+									"length": "ft",
+									"pressure": "psi",
+									"temperature": "F",
+									"velocity": "ft/s",
+									"viscosity": "cP"
+								}
+							}
+						},
+						"keptResponse": false,
+						"name": "Base case",
+						"response": {
+							"computeTime": 0.125,
+							"scenario": null,
+							"solvedState": {
+								"atmosphericPressure": 101325.0,
+								"boundaryResults": {
+									"R1": {
+										"egl": 3.0,
+										"outflow": 0.016144747855065724,
+										"portOutflows": {
+											"port_1": 0.016144747855065724
+										},
+										"type": "reservoir"
+									},
+									"R2": {
+										"egl": 12.0,
+										"outflow": -0.016144747855065724,
+										"portOutflows": {
+											"port_1": -0.016144747855065724
+										},
+										"type": "reservoir"
+									}
+								},
+								"branchResults": {},
+								"converged": true,
+								"convergence": {
+									"innerIterations": 6,
+									"maxContinuityResidual": {
+										"elementId": "P1:suction",
+										"value": 0.0
+									},
+									"maxEnergyResidual": {
+										"elementId": "L3",
+										"value": 3.552713678800501e-15
+									},
+									"message": "converged: 6 Newton iterations in 1 outer iteration(s)",
+									"oscillatingComponents": [],
+									"outerIterations": 1
+								},
+								"designChecks": [
+									{
+										"check": "npsh_margin",
+										"componentId": "P1",
+										"connectionId": null,
+										"limits": {
+											"max": null,
+											"min": null
+										},
+										"message": "not evaluated: the pump curve has no NPSHr curve",
+										"outcome": "not_evaluated",
+										"pipeIndex": null,
+										"pipesOutside": [],
+										"source": "ANSI/HI 9.6.1-2012, \"General\" application: NPSH margin ratio 1.1 or 1.0 m, whichever is greater, as reproduced by Michael Smith Engineers, \"NPSH\" (the standard itself was not read; the 2024 edition's tables may differ)",
+										"unit": "m",
+										"value": null
+									},
+									{
+										"check": "operating_region",
+										"componentId": "P1",
+										"connectionId": null,
+										"limits": {
+											"max": 1.2,
+											"min": 0.7
+										},
+										"message": "Q/Q_BEP = 0.0161447 / 0.0135 m³/s = 1.19591 within [0.7, 1.2] (Q_BEP at the running speed 0.9, by the affinity laws)",
+										"outcome": "pass",
+										"pipeIndex": null,
+										"pipesOutside": [],
+										"source": "API 610 (10th/11th ed.) 5.1.14: \"Pumps shall have a preferred operating region of 70 % to 120 % of best efficiency flowrate of the pump as furnished\", as quoted by Datacor, \"Are you operating your pump off BEP?\" (the standard itself was not read)",
+										"unit": "1",
+										"value": 1.1959072485233873
+									},
+									{
+										"check": "allowable_region",
+										"componentId": "P1",
+										"connectionId": null,
+										"limits": {
+											"max": 0.026,
+											"min": 0.006
+										},
+										"message": "Q/s = 0.0179386 m³/s within the allowable operating region [0.006, 0.026] m³/s at rated speed",
+										"outcome": "pass",
+										"pipeIndex": null,
+										"pipesOutside": [],
+										"source": "manufacturer data (user)",
+										"unit": "m³/s",
+										"value": 0.017938608727850806
+									},
+									{
+										"check": "minimum_flow",
+										"componentId": "P1",
+										"connectionId": null,
+										"limits": {
+											"max": null,
+											"min": 0.005
+										},
+										"message": "Q/s = 0.0179386 m³/s ≥ the minimum thermal flow 0.005 m³/s at rated speed",
+										"outcome": "pass",
+										"pipeIndex": null,
+										"pipesOutside": [],
+										"source": "manufacturer data (user)",
+										"unit": "m³/s",
+										"value": 0.017938608727850806
+									},
+									{
+										"check": "motor_power",
+										"componentId": "P1",
+										"connectionId": null,
+										"limits": {
+											"max": 4000.0,
+											"min": null
+										},
+										"message": "P_shaft 4328.75 W > the motor's rated power 4000 W (no service-factor margin)",
+										"outcome": "fail",
+										"pipeIndex": null,
+										"pipesOutside": [],
+										"source": "manufacturer data (user)",
+										"unit": "W",
+										"value": 4328.751480491969
+									},
+									{
+										"check": "pipe_velocity",
+										"componentId": null,
+										"connectionId": "L1",
+										"limits": {
+											"max": 3.0,
+											"min": null
+										},
+										"message": "|v| 1.96576 m/s, ≤ 3 m/s",
+										"outcome": "pass",
+										"pipeIndex": 0,
+										"pipesOutside": [],
+										"source": "user",
+										"unit": "m/s",
+										"value": 1.965756899053795
+									},
+									{
+										"check": "pipe_velocity",
+										"componentId": null,
+										"connectionId": "L2",
+										"limits": {
+											"max": 3.0,
+											"min": null
+										},
+										"message": "|v| 3.38566 m/s in pipe 1 above 3 m/s",
+										"outcome": "fail",
+										"pipeIndex": 0,
+										"pipesOutside": [0],
+										"source": "user",
+										"unit": "m/s",
+										"value": 3.385661208497401
+									},
+									{
+										"check": "pipe_velocity",
+										"componentId": null,
+										"connectionId": "L3",
+										"limits": {
+											"max": 3.0,
+											"min": null
+										},
+										"message": "|v| 3.38566 m/s in pipe 1 above 3 m/s",
+										"outcome": "fail",
+										"pipeIndex": 0,
+										"pipesOutside": [0],
+										"source": "user",
+										"unit": "m/s",
+										"value": 3.385661208497401
+									}
+								],
+								"equipmentResults": {},
+								"flags": [],
+								"fluid": {
+									"concentration": null,
+									"density": 998.2071504679437,
+									"dynamicViscosity": 0.001001596143120583,
+									"kinematicViscosity": 1.003395079519367e-6,
+									"name": "Water",
+									"sources": {
+										"density": {
+											"citation": "CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+											"origin": "library"
+										},
+										"dynamicViscosity": {
+											"citation": "CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: M. L. Huber et al., 'New International Formulation for the Viscosity of H2O', J. Phys. Chem. Ref. Data 38 (2009) 101-125, doi:10.1063/1.3088050",
+											"origin": "library"
+										},
+										"vaporPressure": {
+											"citation": "CoolProp 8.0.0 'Water' (HEOS), saturation pressure at 293.15 K: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+											"origin": "library"
+										}
+									},
+									"temperature": 293.15,
+									"vaporPressure": 2339.3181834056754
+								},
+								"linkResults": {
+									"L1": {
+										"fittings": [
+											{
+												"headLoss": 0.0985096895009405,
+												"index": 0,
+												"k": 0.5,
+												"quantity": 1,
+												"referenceDiameter": 0.10226,
+												"source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.entrance_sharp(method='Crane')",
+												"type": "entrance_sharp"
+											}
+										],
+										"fittingsHeadLoss": 0.0985096895009405,
+										"flow": 0.016144747855065724,
+										"flowRegime": "turbulent",
+										"frictionFactor": 0.01796438308882772,
+										"frictionHeadLoss": 0.17305552514730735,
+										"headLoss": 0.2715652146482479,
+										"reynoldsNumber": 200338.13659274692,
+										"segments": [
+											{
+												"flowRegime": "turbulent",
+												"frictionFactor": 0.01796438308882772,
+												"headLoss": 0.17305552514730735,
+												"index": 0,
+												"innerDiameter": 0.10226,
+												"length": 5.0,
+												"reynoldsNumber": 200338.13659274692,
+												"roughness": 3.500960292667761e-5,
+												"velocity": 1.965756899053795
+											}
+										],
+										"velocity": 1.965756899053795
+									},
+									"L2": {
+										"fittings": [],
+										"fittingsHeadLoss": 0.0,
+										"flow": 0.016144747855065724,
+										"flowRegime": "turbulent",
+										"frictionFactor": 0.01811396961357151,
+										"frictionHeadLoss": 0.407588826273632,
+										"headLoss": 0.40758882627363135,
+										"reynoldsNumber": 262918.0935314977,
+										"segments": [
+											{
+												"flowRegime": "turbulent",
+												"frictionFactor": 0.01811396961357151,
+												"headLoss": 0.407588826273632,
+												"index": 0,
+												"innerDiameter": 0.07792,
+												"length": 3.0,
+												"reynoldsNumber": 262918.0935314977,
+												"roughness": 3.511635427117792e-5,
+												"velocity": 3.385661208497401
+											}
+										],
+										"velocity": 3.385661208497401
+									},
+									"L3": {
+										"fittings": [
+											{
+												"headLoss": 0.5658047303620182,
+												"index": 0,
+												"k": 0.24203058959193563,
+												"quantity": 4,
+												"referenceDiameter": 0.07792,
+												"source": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.bend_rounded_Crane (K = Crane multiplier x ft_Crane(Di), Chebyshev fit to the Crane r/D table)",
+												"type": "elbow_90_lr"
+											},
+											{
+												"headLoss": 0.5844351444542265,
+												"index": 1,
+												"k": 1.0,
+												"quantity": 1,
+												"referenceDiameter": 0.07792,
+												"source": "Rennels, D. C., and H. M. Hudson. Pipe Flow: A Practical and Comprehensive Guide. Wiley, 2012; via fluids 1.3.1 fluids.fittings.exit_normal",
+												"type": "exit"
+											}
+										],
+										"fittingsHeadLoss": 1.1502398748162448,
+										"flow": 0.016144747855065724,
+										"flowRegime": "turbulent",
+										"frictionFactor": 0.01811396961357151,
+										"frictionHeadLoss": 8.15177652547264,
+										"headLoss": 9.302016400288881,
+										"reynoldsNumber": 262918.0935314977,
+										"segments": [
+											{
+												"flowRegime": "turbulent",
+												"frictionFactor": 0.01811396961357151,
+												"headLoss": 8.15177652547264,
+												"index": 0,
+												"innerDiameter": 0.07792,
+												"length": 60.0,
+												"reynoldsNumber": 262918.0935314977,
+												"roughness": 3.511635427117792e-5,
+												"velocity": 3.385661208497401
+											}
+										],
+										"velocity": 3.385661208497401
+									}
+								},
+								"methodVersion": "1.3.0",
+								"nodeResults": {
+									"P1:discharge": {
+										"absolutePressure": 308908.5726155989,
+										"componentId": "P1",
+										"dynamicPressure": 5721.075459566141,
+										"egl": 21.790087142115908,
+										"elevation": 0.0,
+										"hgl": 21.205651997661683,
+										"portId": "discharge",
+										"pressure": 207583.57261559888,
+										"totalPressure": 213304.64807516502,
+										"velocity": 3.385661208497401
+									},
+									"P1:suction": {
+										"absolutePressure": 126105.19793412709,
+										"componentId": "P1",
+										"dynamicPressure": 1928.636128341016,
+										"egl": 2.728434785351752,
+										"elevation": 0.0,
+										"hgl": 2.531415406349871,
+										"portId": "suction",
+										"pressure": 24780.1979341271,
+										"totalPressure": 26708.834062468115,
+										"velocity": 1.965756899053795
+									},
+									"R1:port_1": {
+										"absolutePressure": 130692.20445640938,
+										"componentId": "R1",
+										"dynamicPressure": 0.0,
+										"egl": 3.0,
+										"elevation": 0.0,
+										"hgl": 3.0,
+										"portId": "port_1",
+										"pressure": 29367.20445640938,
+										"totalPressure": 29367.20445640938,
+										"velocity": 0.0
+									},
+									"R2:port_1": {
+										"absolutePressure": 120903.13630427292,
+										"componentId": "R2",
+										"dynamicPressure": 0.0,
+										"egl": 12.0,
+										"elevation": 10.0,
+										"hgl": 12.0,
+										"portId": "port_1",
+										"pressure": 19578.13630427292,
+										"totalPressure": 19578.13630427292,
+										"velocity": 0.0
+									},
+									"V1:inlet": {
+										"absolutePressure": 304918.657817157,
+										"componentId": "V1",
+										"dynamicPressure": 5721.075459566141,
+										"egl": 21.382498315842277,
+										"elevation": 0.0,
+										"hgl": 20.79806317138805,
+										"portId": "inlet",
+										"pressure": 203593.657817157,
+										"totalPressure": 209314.73327672316,
+										"velocity": 3.385661208497401
+									},
+									"V1:outlet": {
+										"absolutePressure": 304130.8148607903,
+										"componentId": "V1",
+										"dynamicPressure": 5721.075459566141,
+										"egl": 21.30201640028888,
+										"elevation": 0.0,
+										"hgl": 20.717581255834656,
+										"portId": "outlet",
+										"pressure": 202805.81486079033,
+										"totalPressure": 208526.89032035647,
+										"velocity": 3.385661208497401
+									}
+								},
+								"pumpResults": {
+									"P1": {
+										"bestEfficiencyPoint": {
+											"efficiency": 0.7,
+											"flow": 0.013499999999999996,
+											"head": 20.705625000000005,
+											"headExtrapolated": false
+										},
+										"control": null,
+										"curve": [
+											{
+												"flow": 0.0,
+												"head": 24.3
+											},
+											{
+												"flow": 0.000675,
+												"head": 24.286672968750004
+											},
+											{
+												"flow": 0.00135,
+												"head": 24.248058750000002
+											},
+											{
+												"flow": 0.002025,
+												"head": 24.18620765625
+											},
+											{
+												"flow": 0.0027,
+												"head": 24.103170000000002
+											},
+											{
+												"flow": 0.0033750000000000004,
+												"head": 24.00099609375
+											},
+											{
+												"flow": 0.00405,
+												"head": 23.881736250000003
+											},
+											{
+												"flow": 0.004725,
+												"head": 23.74744078125
+											},
+											{
+												"flow": 0.0054,
+												"head": 23.600160000000002
+											},
+											{
+												"flow": 0.0060750000000000005,
+												"head": 23.441944218750002
+											},
+											{
+												"flow": 0.006750000000000001,
+												"head": 23.274843750000002
+											},
+											{
+												"flow": 0.007425,
+												"head": 23.100908906249998
+											},
+											{
+												"flow": 0.0081,
+												"head": 22.92219
+											},
+											{
+												"flow": 0.008775,
+												"head": 22.740737343750002
+											},
+											{
+												"flow": 0.00945,
+												"head": 22.549539375000002
+											},
+											{
+												"flow": 0.010125,
+												"head": 22.321669921875003
+											},
+											{
+												"flow": 0.0108,
+												"head": 22.05792
+											},
+											{
+												"flow": 0.011475,
+												"head": 21.761365078125003
+											},
+											{
+												"flow": 0.012150000000000001,
+												"head": 21.435080625
+											},
+											{
+												"flow": 0.012825000000000001,
+												"head": 21.082142109375003
+											},
+											{
+												"flow": 0.013500000000000002,
+												"head": 20.705625
+											},
+											{
+												"flow": 0.014175,
+												"head": 20.308604765625002
+											},
+											{
+												"flow": 0.01485,
+												"head": 19.894156875
+											},
+											{
+												"flow": 0.015525,
+												"head": 19.465356796875
+											},
+											{
+												"flow": 0.0162,
+												"head": 19.025280000000002
+											},
+											{
+												"flow": 0.016875,
+												"head": 18.577001953125002
+											},
+											{
+												"flow": 0.01755,
+												"head": 18.123598124999997
+											},
+											{
+												"flow": 0.018225,
+												"head": 17.666612578125005
+											},
+											{
+												"flow": 0.0189,
+												"head": 17.188605
+											},
+											{
+												"flow": 0.019575000000000002,
+												"head": 16.684626796874998
+											},
+											{
+												"flow": 0.02025,
+												"head": 16.155703125000002
+											},
+											{
+												"flow": 0.020925000000000003,
+												"head": 15.602859140624998
+											},
+											{
+												"flow": 0.0216,
+												"head": 15.02712
+											},
+											{
+												"flow": 0.022275,
+												"head": 14.429510859375004
+											},
+											{
+												"flow": 0.02295,
+												"head": 13.811056875000002
+											},
+											{
+												"flow": 0.023625,
+												"head": 13.172783203125
+											},
+											{
+												"flow": 0.024300000000000002,
+												"head": 12.515715
+											},
+											{
+												"flow": 0.024975,
+												"head": 11.840877421875001
+											},
+											{
+												"flow": 0.025650000000000003,
+												"head": 11.149295624999999
+											},
+											{
+												"flow": 0.026325,
+												"head": 10.441994765625
+											},
+											{
+												"flow": 0.027,
+												"head": 9.72
+											}
+										],
+										"efficiency": 0.6959379353659155,
+										"efficiencyCurve": [
+											{
+												"efficiency": 0.45,
+												"flow": 0.0045000000000000005
+											},
+											{
+												"efficiency": 0.47099062500000005,
+												"flow": 0.00495
+											},
+											{
+												"efficiency": 0.491425,
+												"flow": 0.0054
+											},
+											{
+												"efficiency": 0.5112468750000001,
+												"flow": 0.005850000000000001
+											},
+											{
+												"efficiency": 0.5304,
+												"flow": 0.006300000000000001
+											},
+											{
+												"efficiency": 0.548828125,
+												"flow": 0.006750000000000001
+											},
+											{
+												"efficiency": 0.566475,
+												"flow": 0.007200000000000001
+											},
+											{
+												"efficiency": 0.583284375,
+												"flow": 0.0076500000000000005
+											},
+											{
+												"efficiency": 0.5992000000000001,
+												"flow": 0.008100000000000001
+											},
+											{
+												"efficiency": 0.614165625,
+												"flow": 0.008550000000000002
+											},
+											{
+												"efficiency": 0.6281249999999999,
+												"flow": 0.009000000000000001
+											},
+											{
+												"efficiency": 0.6410218750000001,
+												"flow": 0.00945
+											},
+											{
+												"efficiency": 0.6528,
+												"flow": 0.0099
+											},
+											{
+												"efficiency": 0.663403125,
+												"flow": 0.010350000000000002
+											},
+											{
+												"efficiency": 0.672775,
+												"flow": 0.0108
+											},
+											{
+												"efficiency": 0.680859375,
+												"flow": 0.011250000000000001
+											},
+											{
+												"efficiency": 0.6876,
+												"flow": 0.011700000000000002
+											},
+											{
+												"efficiency": 0.692940625,
+												"flow": 0.012150000000000001
+											},
+											{
+												"efficiency": 0.6968249999999999,
+												"flow": 0.012600000000000002
+											},
+											{
+												"efficiency": 0.6991968749999999,
+												"flow": 0.01305
+											},
+											{
+												"efficiency": 0.7,
+												"flow": 0.013500000000000002
+											},
+											{
+												"efficiency": 0.699928125,
+												"flow": 0.01395
+											},
+											{
+												"efficiency": 0.6996749999999999,
+												"flow": 0.014400000000000001
+											},
+											{
+												"efficiency": 0.699184375,
+												"flow": 0.014850000000000002
+											},
+											{
+												"efficiency": 0.6983999999999999,
+												"flow": 0.015300000000000001
+											},
+											{
+												"efficiency": 0.6972656249999999,
+												"flow": 0.01575
+											},
+											{
+												"efficiency": 0.6957249999999999,
+												"flow": 0.0162
+											},
+											{
+												"efficiency": 0.6937218749999999,
+												"flow": 0.01665
+											},
+											{
+												"efficiency": 0.6911999999999999,
+												"flow": 0.017100000000000004
+											},
+											{
+												"efficiency": 0.6881031249999999,
+												"flow": 0.017550000000000003
+											},
+											{
+												"efficiency": 0.684375,
+												"flow": 0.018000000000000002
+											},
+											{
+												"efficiency": 0.679959375,
+												"flow": 0.01845
+											},
+											{
+												"efficiency": 0.6748,
+												"flow": 0.0189
+											},
+											{
+												"efficiency": 0.668840625,
+												"flow": 0.019350000000000003
+											},
+											{
+												"efficiency": 0.662025,
+												"flow": 0.0198
+											},
+											{
+												"efficiency": 0.654296875,
+												"flow": 0.02025
+											},
+											{
+												"efficiency": 0.6456,
+												"flow": 0.020700000000000003
+											},
+											{
+												"efficiency": 0.6358781250000001,
+												"flow": 0.021150000000000002
+											},
+											{
+												"efficiency": 0.625075,
+												"flow": 0.0216
+											},
+											{
+												"efficiency": 0.6131343749999999,
+												"flow": 0.022050000000000004
+											},
+											{
+												"efficiency": 0.6,
+												"flow": 0.022500000000000003
+											}
+										],
+										"hydraulicPower": 3012.542368045731,
+										"inCurveRange": true,
+										"isoEfficiencyLines": [],
+										"npshAvailable": 12.84029428803493,
+										"npshMargin": null,
+										"npshRequired": null,
+										"npshrCurve": null,
+										"operatingFlow": 0.016144747855065724,
+										"operatingHead": 19.061652356764156,
+										"powerCurve": [
+											{
+												"flow": 0.0045000000000000005,
+												"shaftPower": 2329.1864034489695
+											},
+											{
+												"flow": 0.00495,
+												"shaftPower": 2438.2426898050257
+											},
+											{
+												"flow": 0.0054,
+												"shaftPower": 2538.591449484976
+											},
+											{
+												"flow": 0.005850000000000001,
+												"shaftPower": 2631.8204495852656
+											},
+											{
+												"flow": 0.006300000000000001,
+												"shaftPower": 2719.2886869402605
+											},
+											{
+												"flow": 0.006750000000000001,
+												"shaftPower": 2802.176845380824
+											},
+											{
+												"flow": 0.007200000000000001,
+												"shaftPower": 2881.526742549143
+											},
+											{
+												"flow": 0.0076500000000000005,
+												"shaftPower": 2958.2727366499157
+											},
+											{
+												"flow": 0.008100000000000001,
+												"shaftPower": 3033.2672377509834
+											},
+											{
+												"flow": 0.008550000000000002,
+												"shaftPower": 3107.3019042747587
+											},
+											{
+												"flow": 0.009000000000000001,
+												"shaftPower": 3181.1257173557724
+											},
+											{
+												"flow": 0.00945,
+												"shaftPower": 3254.153128009802
+											},
+											{
+												"flow": 0.0099,
+												"shaftPower": 3325.6660580578096
+											},
+											{
+												"flow": 0.010350000000000002,
+												"shaftPower": 3396.1891571445685
+											},
+											{
+												"flow": 0.0108,
+												"shaftPower": 3466.2495001794628
+											},
+											{
+												"flow": 0.011250000000000001,
+												"shaftPower": 3536.3851132308296
+											},
+											{
+												"flow": 0.011700000000000002,
+												"shaftPower": 3607.153927424882
+											},
+											{
+												"flow": 0.012150000000000001,
+												"shaftPower": 3679.1435063843714
+											},
+											{
+												"flow": 0.012600000000000002,
+												"shaftPower": 3752.98194091918
+											},
+											{
+												"flow": 0.01305,
+												"shaftPower": 3829.350381188053
+											},
+											{
+												"flow": 0.013500000000000002,
+												"shaftPower": 3908.9977892533393
+											},
+											{
+												"flow": 0.01395,
+												"shaftPower": 3988.4802610743277
+											},
+											{
+												"flow": 0.014400000000000001,
+												"shaftPower": 4064.074067008321
+											},
+											{
+												"flow": 0.014850000000000002,
+												"shaftPower": 4136.200946364451
+											},
+											{
+												"flow": 0.015300000000000001,
+												"shaftPower": 4205.323316442478
+											},
+											{
+												"flow": 0.01575,
+												"shaftPower": 4271.943583316968
+											},
+											{
+												"flow": 0.0162,
+												"shaftPower": 4336.604481716708
+											},
+											{
+												"flow": 0.01665,
+												"shaftPower": 4399.890570592805
+											},
+											{
+												"flow": 0.017100000000000004,
+												"shaftPower": 4462.431033148577
+											},
+											{
+												"flow": 0.017550000000000003,
+												"shaftPower": 4524.903964057184
+											},
+											{
+												"flow": 0.018000000000000002,
+												"shaftPower": 4588.042375129558
+											},
+											{
+												"flow": 0.01845,
+												"shaftPower": 4651.00170498346
+											},
+											{
+												"flow": 0.0189,
+												"shaftPower": 4712.688274065504
+											},
+											{
+												"flow": 0.019350000000000003,
+												"shaftPower": 4773.531796103605
+											},
+											{
+												"flow": 0.0198,
+												"shaftPower": 4833.999285961247
+											},
+											{
+												"flow": 0.02025,
+												"shaftPower": 4894.602161228811
+											},
+											{
+												"flow": 0.020700000000000003,
+												"shaftPower": 4955.905506191001
+											},
+											{
+												"flow": 0.021150000000000002,
+												"shaftPower": 5018.540085475933
+											},
+											{
+												"flow": 0.0216,
+												"shaftPower": 5083.217916415133
+											},
+											{
+												"flow": 0.022050000000000004,
+												"shaftPower": 5150.752525618059
+											},
+											{
+												"flow": 0.022500000000000003,
+												"shaftPower": 5222.08547369011
+											}
+										],
+										"risingHeadRanges": [],
+										"shaftPower": 4328.751480491969,
+										"shutoffHead": {
+											"extrapolated": false,
+											"head": 24.3
+										},
+										"speed": 0.9,
+										"speedCurves": [],
+										"status": "running",
+										"suctionAbsolutePressure": 126105.19793412709,
+										"systemCurve": null
+									}
+								},
+								"timestamp": "2026-10-25T12:30:00Z",
+								"trace": {
+									"elements": {
+										"L1": {
+											"correlations": [
+												{
+													"citation": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.entrance_sharp(method='Crane')",
+													"name": "Fitting 1 (entrance_sharp): K = fluids.fittings.entrance_sharp(method='Crane')"
+												},
+												{
+													"citation": "Colebrook, C. F. J. ICE 11(4), 1939, 133-156, doi:10.1680/ijoti.1939.13150. Clamond, D. Ind. Eng. Chem. Res. 48(7), 2009, 3665-3671, doi:10.1021/ie801626g.",
+													"name": "Colebrook equation, exact solution fluids.friction.Clamond(Re, ε/D)"
+												}
+											],
+											"dataSources": [
+												{
+													"citation": "fluids.constants.g: the standard acceleration of gravity, 9.80665 m/s² (a defined value, 3rd CGPM, 1901)",
+													"name": "Gravitational acceleration g"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Fluid density (Water)"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: M. L. Huber et al., 'New International Formulation for the Viscosity of H2O', J. Phys. Chem. Ref. Data 38 (2009) 101-125, doi:10.1063/1.3088050",
+													"name": "Fluid dynamic viscosity (Water)"
+												},
+												{
+													"citation": "ANSI/ASME B36.10M-2004: Welded and Seamless Wrought Steel Pipe. New York: American Society of Mechanical Engineers, 2004; via fluids 1.3.1 fluids.piping.nearest_pipe; NPS 4 schedule 40",
+													"name": "Pipe 1 inner diameter"
+												},
+												{
+													"citation": "Farshad, F. F., and H. H. Rieke. 'Surface Roughness Design Values for Modern Pipes.' SPE Drilling & Completion 21, no. 3 (2006): 212-215. doi:10.2118/89040-PA; 'Carbon steel, bare', via fluids 1.3.1 fluids.friction.roughness_Farshad (per size: evaluated at the inner diameter; material value: the average). Roughness: Farshad & Rieke 'Carbon steel, bare', diameter dependent.",
+													"name": "Pipe 1 roughness"
+												}
+											],
+											"elementId": "L1",
+											"elementType": "pipe_connection",
+											"equations": [
+												"A = π D²/4 and v = Q/A (Q: flow from → to; D: segment inner diameter)",
+												"Re = |v| D/ν (ν = μ/ρ: kinematic viscosity)",
+												"h_f = f (L/D) v|v|/(2g) per segment (Darcy–Weisbach; f: Darcy friction factor, L: segment length)",
+												"1/√f = −2 log10(ε/(3.7 D) + 2.51/(Re √f)) for Re ≥ 4000 (Colebrook; ε: absolute roughness), solved exactly",
+												"h_j = n_j K_j v_j|v_j|/(2g) per fitting (n_j: quantity, K_j: loss coefficient of one fitting, v_j: velocity in the fitting's reference segment)",
+												"Δh = EGL_from − EGL_to = Σ h_f + Σ h_j"
+											],
+											"inputs": [
+												{
+													"name": "From port",
+													"source": "user",
+													"unit": "",
+													"value": "R1:port_1"
+												},
+												{
+													"name": "To port",
+													"source": "user",
+													"unit": "",
+													"value": "P1:suction"
+												},
+												{
+													"name": "Friction method",
+													"source": "default",
+													"unit": "",
+													"value": "colebrook"
+												},
+												{
+													"name": "Gravitational acceleration g",
+													"source": "library",
+													"unit": "m/s²",
+													"value": 9.80665
+												},
+												{
+													"name": "Fluid temperature T",
+													"source": "user",
+													"unit": "K",
+													"value": 293.15
+												},
+												{
+													"name": "Fluid density ρ",
+													"source": "library",
+													"unit": "kg/m³",
+													"value": 998.2071504679437
+												},
+												{
+													"name": "Fluid dynamic viscosity μ",
+													"source": "library",
+													"unit": "Pa·s",
+													"value": 0.001001596143120583
+												},
+												{
+													"name": "Kinematic viscosity ν = μ/ρ",
+													"source": "computed",
+													"unit": "m²/s",
+													"value": 1.003395079519367e-6
+												},
+												{
+													"name": "Pipe 1 material",
+													"source": "user",
+													"unit": "",
+													"value": "Carbon steel (carbon_steel)"
+												},
+												{
+													"name": "Pipe 1 schedule",
+													"source": "user",
+													"unit": "",
+													"value": "40"
+												},
+												{
+													"name": "Pipe 1 nominal diameter",
+													"source": "user",
+													"unit": "m",
+													"value": 0.1016
+												},
+												{
+													"name": "Pipe 1 NPS (library size)",
+													"source": "library",
+													"unit": "",
+													"value": "4"
+												},
+												{
+													"name": "Pipe 1 length L",
+													"source": "user",
+													"unit": "m",
+													"value": 5.0
+												},
+												{
+													"name": "Pipe 1 inner diameter D",
+													"source": "library",
+													"unit": "m",
+													"value": 0.10226
+												},
+												{
+													"name": "Pipe 1 roughness ε",
+													"source": "library",
+													"unit": "m",
+													"value": 3.500960292667761e-5
+												},
+												{
+													"name": "Fitting 1 (entrance_sharp) type",
+													"source": "user",
+													"unit": "",
+													"value": "entrance_sharp"
+												},
+												{
+													"name": "Fitting 1 (entrance_sharp) quantity n",
+													"source": "default",
+													"unit": "",
+													"value": 1.0
+												},
+												{
+													"name": "Fitting 1 (entrance_sharp) position",
+													"source": "default",
+													"unit": "",
+													"value": "pipe 1"
+												}
+											],
+											"intermediates": [
+												{
+													"name": "Flow Q",
+													"unit": "m³/s",
+													"value": 0.016144747855065724
+												},
+												{
+													"name": "Pipe 1 area A",
+													"unit": "m²",
+													"value": 0.0082129931034895
+												},
+												{
+													"name": "Pipe 1 velocity v",
+													"unit": "m/s",
+													"value": 1.965756899053795
+												},
+												{
+													"name": "Pipe 1 Reynolds number Re",
+													"unit": "",
+													"value": 200338.13659274692
+												},
+												{
+													"name": "Pipe 1 relative roughness ε/D",
+													"unit": "",
+													"value": 0.00034235872214627037
+												},
+												{
+													"name": "Pipe 1 friction factor f",
+													"unit": "",
+													"value": 0.01796438308882772
+												},
+												{
+													"name": "Pipe 1 friction head loss h_f",
+													"unit": "m",
+													"value": 0.17305552514730735
+												},
+												{
+													"name": "Fitting 1 K",
+													"unit": "",
+													"value": 0.5
+												},
+												{
+													"name": "Fitting 1 reference diameter",
+													"unit": "m",
+													"value": 0.10226
+												},
+												{
+													"name": "Fitting 1 head loss h_j",
+													"unit": "m",
+													"value": 0.0985096895009405
+												},
+												{
+													"name": "Friction head loss Σh_f",
+													"unit": "m",
+													"value": 0.17305552514730735
+												},
+												{
+													"name": "Fittings head loss Σh_j",
+													"unit": "m",
+													"value": 0.0985096895009405
+												},
+												{
+													"name": "Head loss Δh = EGL_from − EGL_to",
+													"unit": "m",
+													"value": 0.2715652146482479
+												},
+												{
+													"name": "EGL at the from port",
+													"unit": "m",
+													"value": 3.0
+												},
+												{
+													"name": "EGL at the to port",
+													"unit": "m",
+													"value": 2.728434785351752
+												}
+											],
+											"notes": [
+												"Pipe 1: turbulent, Re = 200338 ≥ 4000: Colebrook; ε/D = 0.0003424 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations.",
+												"Crane TP-410 K values use the fully turbulent friction factor ft_Crane(D); they are not valid in laminar flow (fluids docstrings): there they underestimate the loss, and a Crane K in a laminar segment is flagged."
+											]
+										},
+										"L2": {
+											"correlations": [
+												{
+													"citation": "Colebrook, C. F. J. ICE 11(4), 1939, 133-156, doi:10.1680/ijoti.1939.13150. Clamond, D. Ind. Eng. Chem. Res. 48(7), 2009, 3665-3671, doi:10.1021/ie801626g.",
+													"name": "Colebrook equation, exact solution fluids.friction.Clamond(Re, ε/D)"
+												}
+											],
+											"dataSources": [
+												{
+													"citation": "fluids.constants.g: the standard acceleration of gravity, 9.80665 m/s² (a defined value, 3rd CGPM, 1901)",
+													"name": "Gravitational acceleration g"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Fluid density (Water)"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: M. L. Huber et al., 'New International Formulation for the Viscosity of H2O', J. Phys. Chem. Ref. Data 38 (2009) 101-125, doi:10.1063/1.3088050",
+													"name": "Fluid dynamic viscosity (Water)"
+												},
+												{
+													"citation": "ANSI/ASME B36.10M-2004: Welded and Seamless Wrought Steel Pipe. New York: American Society of Mechanical Engineers, 2004; via fluids 1.3.1 fluids.piping.nearest_pipe; NPS 3 schedule 40",
+													"name": "Pipe 1 inner diameter"
+												},
+												{
+													"citation": "Farshad, F. F., and H. H. Rieke. 'Surface Roughness Design Values for Modern Pipes.' SPE Drilling & Completion 21, no. 3 (2006): 212-215. doi:10.2118/89040-PA; 'Carbon steel, bare', via fluids 1.3.1 fluids.friction.roughness_Farshad (per size: evaluated at the inner diameter; material value: the average). Roughness: Farshad & Rieke 'Carbon steel, bare', diameter dependent.",
+													"name": "Pipe 1 roughness"
+												}
+											],
+											"elementId": "L2",
+											"elementType": "pipe_connection",
+											"equations": [
+												"A = π D²/4 and v = Q/A (Q: flow from → to; D: segment inner diameter)",
+												"Re = |v| D/ν (ν = μ/ρ: kinematic viscosity)",
+												"h_f = f (L/D) v|v|/(2g) per segment (Darcy–Weisbach; f: Darcy friction factor, L: segment length)",
+												"1/√f = −2 log10(ε/(3.7 D) + 2.51/(Re √f)) for Re ≥ 4000 (Colebrook; ε: absolute roughness), solved exactly",
+												"Δh = EGL_from − EGL_to = Σ h_f + Σ h_j"
+											],
+											"inputs": [
+												{
+													"name": "From port",
+													"source": "user",
+													"unit": "",
+													"value": "P1:discharge"
+												},
+												{
+													"name": "To port",
+													"source": "user",
+													"unit": "",
+													"value": "V1:inlet"
+												},
+												{
+													"name": "Friction method",
+													"source": "default",
+													"unit": "",
+													"value": "colebrook"
+												},
+												{
+													"name": "Gravitational acceleration g",
+													"source": "library",
+													"unit": "m/s²",
+													"value": 9.80665
+												},
+												{
+													"name": "Fluid temperature T",
+													"source": "user",
+													"unit": "K",
+													"value": 293.15
+												},
+												{
+													"name": "Fluid density ρ",
+													"source": "library",
+													"unit": "kg/m³",
+													"value": 998.2071504679437
+												},
+												{
+													"name": "Fluid dynamic viscosity μ",
+													"source": "library",
+													"unit": "Pa·s",
+													"value": 0.001001596143120583
+												},
+												{
+													"name": "Kinematic viscosity ν = μ/ρ",
+													"source": "computed",
+													"unit": "m²/s",
+													"value": 1.003395079519367e-6
+												},
+												{
+													"name": "Pipe 1 material",
+													"source": "user",
+													"unit": "",
+													"value": "Carbon steel (carbon_steel)"
+												},
+												{
+													"name": "Pipe 1 schedule",
+													"source": "user",
+													"unit": "",
+													"value": "40"
+												},
+												{
+													"name": "Pipe 1 nominal diameter",
+													"source": "user",
+													"unit": "m",
+													"value": 0.0762
+												},
+												{
+													"name": "Pipe 1 NPS (library size)",
+													"source": "library",
+													"unit": "",
+													"value": "3"
+												},
+												{
+													"name": "Pipe 1 length L",
+													"source": "user",
+													"unit": "m",
+													"value": 3.0
+												},
+												{
+													"name": "Pipe 1 inner diameter D",
+													"source": "library",
+													"unit": "m",
+													"value": 0.07792
+												},
+												{
+													"name": "Pipe 1 roughness ε",
+													"source": "library",
+													"unit": "m",
+													"value": 3.511635427117792e-5
+												}
+											],
+											"intermediates": [
+												{
+													"name": "Flow Q",
+													"unit": "m³/s",
+													"value": 0.016144747855065724
+												},
+												{
+													"name": "Pipe 1 area A",
+													"unit": "m²",
+													"value": 0.004768565683579122
+												},
+												{
+													"name": "Pipe 1 velocity v",
+													"unit": "m/s",
+													"value": 3.385661208497401
+												},
+												{
+													"name": "Pipe 1 Reynolds number Re",
+													"unit": "",
+													"value": 262918.0935314977
+												},
+												{
+													"name": "Pipe 1 relative roughness ε/D",
+													"unit": "",
+													"value": 0.00045067189773072275
+												},
+												{
+													"name": "Pipe 1 friction factor f",
+													"unit": "",
+													"value": 0.01811396961357151
+												},
+												{
+													"name": "Pipe 1 friction head loss h_f",
+													"unit": "m",
+													"value": 0.407588826273632
+												},
+												{
+													"name": "Friction head loss Σh_f",
+													"unit": "m",
+													"value": 0.407588826273632
+												},
+												{
+													"name": "Fittings head loss Σh_j",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Head loss Δh = EGL_from − EGL_to",
+													"unit": "m",
+													"value": 0.40758882627363135
+												},
+												{
+													"name": "EGL at the from port",
+													"unit": "m",
+													"value": 21.790087142115908
+												},
+												{
+													"name": "EGL at the to port",
+													"unit": "m",
+													"value": 21.382498315842277
+												}
+											],
+											"notes": [
+												"Pipe 1: turbulent, Re = 262918 ≥ 4000: Colebrook; ε/D = 0.0004507 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
+											]
+										},
+										"L3": {
+											"correlations": [
+												{
+													"citation": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids 1.3.1 fluids.fittings.bend_rounded_Crane (K = Crane multiplier x ft_Crane(Di), Chebyshev fit to the Crane r/D table)",
+													"name": "Fitting 1 (elbow_90_lr): K = fluids.fittings.bend_rounded_Crane(Di=D, angle=90.0, bend_diameters=1.5)"
+												},
+												{
+													"citation": "Rennels, D. C., and H. M. Hudson. Pipe Flow: A Practical and Comprehensive Guide. Wiley, 2012; via fluids 1.3.1 fluids.fittings.exit_normal",
+													"name": "Fitting 2 (exit): K = fluids.fittings.exit_normal()"
+												},
+												{
+													"citation": "Colebrook, C. F. J. ICE 11(4), 1939, 133-156, doi:10.1680/ijoti.1939.13150. Clamond, D. Ind. Eng. Chem. Res. 48(7), 2009, 3665-3671, doi:10.1021/ie801626g.",
+													"name": "Colebrook equation, exact solution fluids.friction.Clamond(Re, ε/D)"
+												}
+											],
+											"dataSources": [
+												{
+													"citation": "fluids.constants.g: the standard acceleration of gravity, 9.80665 m/s² (a defined value, 3rd CGPM, 1901)",
+													"name": "Gravitational acceleration g"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Fluid density (Water)"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: M. L. Huber et al., 'New International Formulation for the Viscosity of H2O', J. Phys. Chem. Ref. Data 38 (2009) 101-125, doi:10.1063/1.3088050",
+													"name": "Fluid dynamic viscosity (Water)"
+												},
+												{
+													"citation": "ANSI/ASME B36.10M-2004: Welded and Seamless Wrought Steel Pipe. New York: American Society of Mechanical Engineers, 2004; via fluids 1.3.1 fluids.piping.nearest_pipe; NPS 3 schedule 40",
+													"name": "Pipe 1 inner diameter"
+												},
+												{
+													"citation": "Farshad, F. F., and H. H. Rieke. 'Surface Roughness Design Values for Modern Pipes.' SPE Drilling & Completion 21, no. 3 (2006): 212-215. doi:10.2118/89040-PA; 'Carbon steel, bare', via fluids 1.3.1 fluids.friction.roughness_Farshad (per size: evaluated at the inner diameter; material value: the average). Roughness: Farshad & Rieke 'Carbon steel, bare', diameter dependent.",
+													"name": "Pipe 1 roughness"
+												}
+											],
+											"elementId": "L3",
+											"elementType": "pipe_connection",
+											"equations": [
+												"A = π D²/4 and v = Q/A (Q: flow from → to; D: segment inner diameter)",
+												"Re = |v| D/ν (ν = μ/ρ: kinematic viscosity)",
+												"h_f = f (L/D) v|v|/(2g) per segment (Darcy–Weisbach; f: Darcy friction factor, L: segment length)",
+												"1/√f = −2 log10(ε/(3.7 D) + 2.51/(Re √f)) for Re ≥ 4000 (Colebrook; ε: absolute roughness), solved exactly",
+												"h_j = n_j K_j v_j|v_j|/(2g) per fitting (n_j: quantity, K_j: loss coefficient of one fitting, v_j: velocity in the fitting's reference segment)",
+												"Δh = EGL_from − EGL_to = Σ h_f + Σ h_j"
+											],
+											"inputs": [
+												{
+													"name": "From port",
+													"source": "user",
+													"unit": "",
+													"value": "V1:outlet"
+												},
+												{
+													"name": "To port",
+													"source": "user",
+													"unit": "",
+													"value": "R2:port_1"
+												},
+												{
+													"name": "Friction method",
+													"source": "default",
+													"unit": "",
+													"value": "colebrook"
+												},
+												{
+													"name": "Gravitational acceleration g",
+													"source": "library",
+													"unit": "m/s²",
+													"value": 9.80665
+												},
+												{
+													"name": "Fluid temperature T",
+													"source": "user",
+													"unit": "K",
+													"value": 293.15
+												},
+												{
+													"name": "Fluid density ρ",
+													"source": "library",
+													"unit": "kg/m³",
+													"value": 998.2071504679437
+												},
+												{
+													"name": "Fluid dynamic viscosity μ",
+													"source": "library",
+													"unit": "Pa·s",
+													"value": 0.001001596143120583
+												},
+												{
+													"name": "Kinematic viscosity ν = μ/ρ",
+													"source": "computed",
+													"unit": "m²/s",
+													"value": 1.003395079519367e-6
+												},
+												{
+													"name": "Pipe 1 material",
+													"source": "user",
+													"unit": "",
+													"value": "Carbon steel (carbon_steel)"
+												},
+												{
+													"name": "Pipe 1 schedule",
+													"source": "user",
+													"unit": "",
+													"value": "40"
+												},
+												{
+													"name": "Pipe 1 nominal diameter",
+													"source": "user",
+													"unit": "m",
+													"value": 0.0762
+												},
+												{
+													"name": "Pipe 1 NPS (library size)",
+													"source": "library",
+													"unit": "",
+													"value": "3"
+												},
+												{
+													"name": "Pipe 1 length L",
+													"source": "user",
+													"unit": "m",
+													"value": 60.0
+												},
+												{
+													"name": "Pipe 1 inner diameter D",
+													"source": "library",
+													"unit": "m",
+													"value": 0.07792
+												},
+												{
+													"name": "Pipe 1 roughness ε",
+													"source": "library",
+													"unit": "m",
+													"value": 3.511635427117792e-5
+												},
+												{
+													"name": "Fitting 1 (elbow_90_lr) type",
+													"source": "user",
+													"unit": "",
+													"value": "elbow_90_lr"
+												},
+												{
+													"name": "Fitting 1 (elbow_90_lr) quantity n",
+													"source": "user",
+													"unit": "",
+													"value": 4.0
+												},
+												{
+													"name": "Fitting 1 (elbow_90_lr) position",
+													"source": "default",
+													"unit": "",
+													"value": "pipe 1"
+												},
+												{
+													"name": "Fitting 2 (exit) type",
+													"source": "user",
+													"unit": "",
+													"value": "exit"
+												},
+												{
+													"name": "Fitting 2 (exit) quantity n",
+													"source": "default",
+													"unit": "",
+													"value": 1.0
+												},
+												{
+													"name": "Fitting 2 (exit) position",
+													"source": "default",
+													"unit": "",
+													"value": "pipe 1"
+												}
+											],
+											"intermediates": [
+												{
+													"name": "Flow Q",
+													"unit": "m³/s",
+													"value": 0.016144747855065724
+												},
+												{
+													"name": "Pipe 1 area A",
+													"unit": "m²",
+													"value": 0.004768565683579122
+												},
+												{
+													"name": "Pipe 1 velocity v",
+													"unit": "m/s",
+													"value": 3.385661208497401
+												},
+												{
+													"name": "Pipe 1 Reynolds number Re",
+													"unit": "",
+													"value": 262918.0935314977
+												},
+												{
+													"name": "Pipe 1 relative roughness ε/D",
+													"unit": "",
+													"value": 0.00045067189773072275
+												},
+												{
+													"name": "Pipe 1 friction factor f",
+													"unit": "",
+													"value": 0.01811396961357151
+												},
+												{
+													"name": "Pipe 1 friction head loss h_f",
+													"unit": "m",
+													"value": 8.15177652547264
+												},
+												{
+													"name": "Fitting 1 K",
+													"unit": "",
+													"value": 0.24203058959193563
+												},
+												{
+													"name": "Fitting 1 reference diameter",
+													"unit": "m",
+													"value": 0.07792
+												},
+												{
+													"name": "Fitting 1 head loss h_j",
+													"unit": "m",
+													"value": 0.5658047303620182
+												},
+												{
+													"name": "Fitting 2 K",
+													"unit": "",
+													"value": 1.0
+												},
+												{
+													"name": "Fitting 2 reference diameter",
+													"unit": "m",
+													"value": 0.07792
+												},
+												{
+													"name": "Fitting 2 head loss h_j",
+													"unit": "m",
+													"value": 0.5844351444542265
+												},
+												{
+													"name": "Friction head loss Σh_f",
+													"unit": "m",
+													"value": 8.15177652547264
+												},
+												{
+													"name": "Fittings head loss Σh_j",
+													"unit": "m",
+													"value": 1.1502398748162448
+												},
+												{
+													"name": "Head loss Δh = EGL_from − EGL_to",
+													"unit": "m",
+													"value": 9.302016400288881
+												},
+												{
+													"name": "EGL at the from port",
+													"unit": "m",
+													"value": 21.30201640028888
+												},
+												{
+													"name": "EGL at the to port",
+													"unit": "m",
+													"value": 12.0
+												}
+											],
+											"notes": [
+												"Pipe 1: turbulent, Re = 262918 ≥ 4000: Colebrook; ε/D = 0.0004507 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations.",
+												"Crane TP-410 K values use the fully turbulent friction factor ft_Crane(D); they are not valid in laminar flow (fluids docstrings): there they underestimate the loss, and a Crane K in a laminar segment is flagged."
+											]
+										},
+										"P1": {
+											"correlations": [
+												{
+													"citation": "U.S. Standard Atmosphere, 1976. NOAA, NASA, USAF, Washington, DC, 1976.",
+													"name": "US Standard Atmosphere 1976 (fluids.atmosphere.ATMOSPHERE_1976)"
+												},
+												{
+													"citation": "Fritsch, F. N., and R. E. Carlson. Monotone piecewise cubic interpolation. SIAM J. Numer. Anal. 17(2), 1980, 238-246. Fritsch, F. N., and J. Butland. A method for constructing local monotone piecewise cubic interpolants. SIAM J. Sci. Stat. Comput. 5(2), 1984, 300-304, doi:10.1137/0905021 (the derivative formula of scipy.interpolate.PchipInterpolator).",
+													"name": "Monotone piecewise cubic interpolation (scipy.interpolate.PchipInterpolator)"
+												},
+												{
+													"citation": "Similarity of geometrically similar operating points; EPANET 2.2 scales pump curves by relative speed the same way (Rossman et al. 2020).",
+													"name": "Affinity laws for a pump at speed ratio s: Q ∝ s, H ∝ s², η unchanged"
+												},
+												{
+													"citation": "Rossman, L. A., et al. EPANET 2.2. US EPA, 2020 (source: src/hydstatus.c, status rules).",
+													"name": "Pump status rule (EPANET 2.2 pumpstatus)"
+												}
+											],
+											"dataSources": [
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Fluid density (Water)"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), saturation pressure at 293.15 K: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Vapor pressure (Water)"
+												},
+												{
+													"citation": "fluids.constants.g: the standard acceleration of gravity, 9.80665 m/s² (a defined value, 3rd CGPM, 1901)",
+													"name": "Gravitational acceleration g"
+												},
+												{
+													"citation": "US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976)",
+													"name": "Atmospheric pressure p_atm"
+												}
+											],
+											"elementId": "P1",
+											"elementType": "pump",
+											"equations": [
+												"H₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed points; outside [Q₀,min, Q₀,max] the tangent line at the nearest end point",
+												"H(Q) = s² H₀(Q/s) (affinity laws at speed ratio s)",
+												"H = EGL_discharge − EGL_suction: the pump head is the EGL rise (total dynamic head)",
+												"H_sys(Q) = EGL_discharge − EGL_suction with the pump replaced by a fixed flow Q (system curve; other pumps keep running, valves follow their rules). Computed on request, at evenly spaced flows (default 0 to 1.2 × the curve's largest flow × s): POST /api/v1/system-curve, or with the solve when includeSystemCurve is set",
+												"No flow while EGL_discharge − EGL_suction > s² H₀(0) + 0.0001 m (the shutoff head) or the flow would reverse, Q < −1e-08 m³/s: the pump's integral check",
+												"P_hyd = ρ g Q H (hydraulic power)",
+												"p = ρ g (EGL − z_port − v²/(2g)): static gauge pressure at a port (z_port: the port's elevation; v: the velocity in the pipe connected there, Q/A of its end segment)",
+												"η₀(Q₀): monotone piecewise cubic (PCHIP) through the rated-speed efficiency points, held at its end values outside [Q₀,min, Q₀,max] of those points",
+												"η(Q) = η₀(Q/s) (affinity laws: efficiency unchanged); P_shaft = P_hyd/η",
+												"Best efficiency point: Q₀* where η₀ is largest strictly inside its points (dη₀/dQ₀ = 0 on a PCHIP piece, or a knot), above η₀ at both end points; at speed s (s Q₀*, η₀(Q₀*)) with head s² H₀(Q₀*); none when the largest η₀ is at an end",
+												"NPSHa = (EGL_s − z_s) + (p_atm − p_vap)/(ρ g) = p_s,abs/(ρg) + v_s²/(2g) − p_vap/(ρg) (s: suction port)"
+											],
+											"inputs": [
+												{
+													"name": "Pump curve",
+													"source": "user",
+													"unit": "",
+													"value": "Example curve (C1)"
+												},
+												{
+													"name": "Head curve point 1: flow Q₀",
+													"source": "user",
+													"unit": "m³/s",
+													"value": 0.0
+												},
+												{
+													"name": "Head curve point 1: head H₀",
+													"source": "user",
+													"unit": "m",
+													"value": 30.0
+												},
+												{
+													"name": "Head curve point 2: flow Q₀",
+													"source": "user",
+													"unit": "m³/s",
+													"value": 0.01
+												},
+												{
+													"name": "Head curve point 2: head H₀",
+													"source": "user",
+													"unit": "m",
+													"value": 28.0
+												},
+												{
+													"name": "Head curve point 3: flow Q₀",
+													"source": "user",
+													"unit": "m³/s",
+													"value": 0.02
+												},
+												{
+													"name": "Head curve point 3: head H₀",
+													"source": "user",
+													"unit": "m",
+													"value": 22.0
+												},
+												{
+													"name": "Head curve point 4: flow Q₀",
+													"source": "user",
+													"unit": "m³/s",
+													"value": 0.03
+												},
+												{
+													"name": "Head curve point 4: head H₀",
+													"source": "user",
+													"unit": "m",
+													"value": 12.0
+												},
+												{
+													"name": "Efficiency curve point 1: flow Q₀",
+													"source": "user",
+													"unit": "m³/s",
+													"value": 0.005
+												},
+												{
+													"name": "Efficiency curve point 1: efficiency η₀",
+													"source": "user",
+													"unit": "",
+													"value": 0.45
+												},
+												{
+													"name": "Efficiency curve point 2: flow Q₀",
+													"source": "user",
+													"unit": "m³/s",
+													"value": 0.015
+												},
+												{
+													"name": "Efficiency curve point 2: efficiency η₀",
+													"source": "user",
+													"unit": "",
+													"value": 0.7
+												},
+												{
+													"name": "Efficiency curve point 3: flow Q₀",
+													"source": "user",
+													"unit": "m³/s",
+													"value": 0.025
+												},
+												{
+													"name": "Efficiency curve point 3: efficiency η₀",
+													"source": "user",
+													"unit": "",
+													"value": 0.6
+												},
+												{
+													"name": "Speed ratio s",
+													"source": "user",
+													"unit": "",
+													"value": 0.9
+												},
+												{
+													"name": "Status",
+													"source": "default",
+													"unit": "",
+													"value": "on"
+												},
+												{
+													"name": "Suction port elevation z_s",
+													"source": "default",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Discharge port elevation z_d",
+													"source": "default",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Fluid temperature T",
+													"source": "user",
+													"unit": "K",
+													"value": 293.15
+												},
+												{
+													"name": "Fluid density ρ",
+													"source": "library",
+													"unit": "kg/m³",
+													"value": 998.2071504679437
+												},
+												{
+													"name": "Vapor pressure p_vap",
+													"source": "library",
+													"unit": "Pa(a)",
+													"value": 2339.3181834056754
+												},
+												{
+													"name": "Gravitational acceleration g",
+													"source": "library",
+													"unit": "m/s²",
+													"value": 9.80665
+												},
+												{
+													"name": "Site elevation above sea level",
+													"source": "default",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Atmospheric pressure p_atm",
+													"source": "library",
+													"unit": "Pa(a)",
+													"value": 101325.0
+												}
+											],
+											"intermediates": [
+												{
+													"name": "Operating flow Q",
+													"unit": "m³/s",
+													"value": 0.016144747855065724
+												},
+												{
+													"name": "Flow at rated speed Q/s",
+													"unit": "m³/s",
+													"value": 0.017938608727850806
+												},
+												{
+													"name": "Pump head H (EGL rise)",
+													"unit": "m",
+													"value": 19.061652356764156
+												},
+												{
+													"name": "Shutoff head s² H₀(0)",
+													"unit": "m",
+													"value": 24.3
+												},
+												{
+													"name": "Curve flow range at speed, lowest s Q₀,min",
+													"unit": "m³/s",
+													"value": 0.0
+												},
+												{
+													"name": "Curve flow range at speed, highest s Q₀,max",
+													"unit": "m³/s",
+													"value": 0.027
+												},
+												{
+													"name": "EGL at the suction port",
+													"unit": "m",
+													"value": 2.728434785351752
+												},
+												{
+													"name": "EGL at the discharge port",
+													"unit": "m",
+													"value": 21.790087142115908
+												},
+												{
+													"name": "Suction velocity v_s",
+													"unit": "m/s",
+													"value": 1.965756899053795
+												},
+												{
+													"name": "Suction velocity head v_s²/(2g)",
+													"unit": "m",
+													"value": 0.19701937900188096
+												},
+												{
+													"name": "Suction static pressure p_s",
+													"unit": "Pa(g)",
+													"value": 24780.1979341271
+												},
+												{
+													"name": "Discharge velocity v_d",
+													"unit": "m/s",
+													"value": 3.385661208497401
+												},
+												{
+													"name": "Discharge static pressure p_d",
+													"unit": "Pa(g)",
+													"value": 207583.57261559888
+												},
+												{
+													"name": "Suction absolute pressure p_s,abs",
+													"unit": "Pa(a)",
+													"value": 126105.19793412709
+												},
+												{
+													"name": "Head above the suction port EGL_s − z_s",
+													"unit": "m",
+													"value": 2.728434785351752
+												},
+												{
+													"name": "Atmospheric minus vapor pressure head (p_atm − p_vap)/(ρg)",
+													"unit": "m",
+													"value": 10.111859502683178
+												},
+												{
+													"name": "NPSH available NPSHa",
+													"unit": "m",
+													"value": 12.84029428803493
+												},
+												{
+													"name": "Efficiency η",
+													"unit": "",
+													"value": 0.6959379353659155
+												},
+												{
+													"name": "Hydraulic power P_hyd",
+													"unit": "W",
+													"value": 3012.542368045731
+												},
+												{
+													"name": "Shaft power P_shaft",
+													"unit": "W",
+													"value": 4328.751480491969
+												},
+												{
+													"name": "Best efficiency flow s Q₀*",
+													"unit": "m³/s",
+													"value": 0.013499999999999996
+												},
+												{
+													"name": "Best efficiency η₀(Q₀*)",
+													"unit": "",
+													"value": 0.7
+												},
+												{
+													"name": "Head at best efficiency s² H₀(Q₀*)",
+													"unit": "m",
+													"value": 20.705625000000005
+												}
+											],
+											"notes": [
+												"Running: the head across the pump stays within its shutoff head, EGL_d − EGL_s = 19.06165236 m ≤ s² H₀(0) + Htol = 24.3001 m, and the flow is forward, Q = 0.01614474786 m³/s ≥ −Qtol = -1e-08 m³/s (EPANET 2.2 pumpstatus).",
+												"No viscosity correction applied: the curves are used as entered for Water (the Hydraulic Institute correction, ANSI/HI 9.6.7, is not in this version)."
+											]
+										},
+										"R1": {
+											"correlations": [
+												{
+													"citation": "U.S. Standard Atmosphere, 1976. NOAA, NASA, USAF, Washington, DC, 1976.",
+													"name": "US Standard Atmosphere 1976 (fluids.atmosphere.ATMOSPHERE_1976)"
+												}
+											],
+											"dataSources": [
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Fluid density (Water)"
+												},
+												{
+													"citation": "fluids.constants.g: the standard acceleration of gravity, 9.80665 m/s² (a defined value, 3rd CGPM, 1901)",
+													"name": "Gravitational acceleration g"
+												},
+												{
+													"citation": "US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976)",
+													"name": "Atmospheric pressure p_atm"
+												}
+											],
+											"elementId": "R1",
+											"elementType": "reservoir",
+											"equations": [
+												"H = z + h_L + p_s/(ρ g): the EGL held at every port (a body of liquid at rest; p_s: gauge pressure on the liquid surface)",
+												"p_port = ρ g (H − z_port): static gauge pressure at a port (velocity 0)",
+												"Q_out = Σ Q_port: net flow from the reservoir into the network",
+												"p_surface,abs = p_atm + p_s (checked against the vapor pressure)"
+											],
+											"inputs": [
+												{
+													"name": "Elevation z",
+													"source": "user",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Liquid level h_L above z",
+													"source": "user",
+													"unit": "m",
+													"value": 3.0
+												},
+												{
+													"name": "Surface pressure p_s",
+													"source": "default",
+													"unit": "Pa(g)",
+													"value": 0.0
+												},
+												{
+													"name": "Port port_1 elevation z_port",
+													"source": "default",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Fluid temperature T",
+													"source": "user",
+													"unit": "K",
+													"value": 293.15
+												},
+												{
+													"name": "Fluid density ρ",
+													"source": "library",
+													"unit": "kg/m³",
+													"value": 998.2071504679437
+												},
+												{
+													"name": "Gravitational acceleration g",
+													"source": "library",
+													"unit": "m/s²",
+													"value": 9.80665
+												},
+												{
+													"name": "Site elevation above sea level",
+													"source": "default",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Atmospheric pressure p_atm",
+													"source": "library",
+													"unit": "Pa(a)",
+													"value": 101325.0
+												}
+											],
+											"intermediates": [
+												{
+													"name": "Liquid surface elevation z + h_L",
+													"unit": "m",
+													"value": 3.0
+												},
+												{
+													"name": "Surface pressure head p_s/(ρg)",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Boundary head H (EGL)",
+													"unit": "m",
+													"value": 3.0
+												},
+												{
+													"name": "Net outflow Q_out",
+													"unit": "m³/s",
+													"value": 0.016144747855065724
+												},
+												{
+													"name": "Port port_1 outflow",
+													"unit": "m³/s",
+													"value": 0.016144747855065724
+												},
+												{
+													"name": "Port port_1 static pressure p",
+													"unit": "Pa(g)",
+													"value": 29367.20445640938
+												},
+												{
+													"name": "Surface absolute pressure p_atm + p_s",
+													"unit": "Pa(a)",
+													"value": 101325.0
+												}
+											],
+											"notes": [
+												"Quiescent boundary: the liquid level is constant and the liquid at rest (velocity 0); velocity head develops in the connected pipes.",
+												"No entrance or exit loss is applied where a pipe meets this boundary unless the connection's piping has an entrance fitting (entrance_sharp, entrance_rounded, entrance_projecting: the loss where flow leaves the boundary into the pipe) or an exit fitting (exit: the loss where flow leaves the pipe into the boundary). Without one, the EGL at the port equals the boundary head H in either flow direction: the velocity head v²/(2g) of the connected pipe is gained on entry and given back on exit with no loss. Such a fitting is a loss of its connection (see that connection's trace). The web app adds a sharp-edged entrance (entrance_sharp) where new piping leaves a reservoir and an exit where it enters one, which the user can remove; it adds none at a reference node.",
+												"Port port_1, connection 'L1': its piping has entrance fitting(s) entrance_sharp."
+											]
+										},
+										"R2": {
+											"correlations": [
+												{
+													"citation": "U.S. Standard Atmosphere, 1976. NOAA, NASA, USAF, Washington, DC, 1976.",
+													"name": "US Standard Atmosphere 1976 (fluids.atmosphere.ATMOSPHERE_1976)"
+												}
+											],
+											"dataSources": [
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Fluid density (Water)"
+												},
+												{
+													"citation": "fluids.constants.g: the standard acceleration of gravity, 9.80665 m/s² (a defined value, 3rd CGPM, 1901)",
+													"name": "Gravitational acceleration g"
+												},
+												{
+													"citation": "US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976)",
+													"name": "Atmospheric pressure p_atm"
+												}
+											],
+											"elementId": "R2",
+											"elementType": "reservoir",
+											"equations": [
+												"H = z + h_L + p_s/(ρ g): the EGL held at every port (a body of liquid at rest; p_s: gauge pressure on the liquid surface)",
+												"p_port = ρ g (H − z_port): static gauge pressure at a port (velocity 0)",
+												"Q_out = Σ Q_port: net flow from the reservoir into the network",
+												"p_surface,abs = p_atm + p_s (checked against the vapor pressure)"
+											],
+											"inputs": [
+												{
+													"name": "Elevation z",
+													"source": "user",
+													"unit": "m",
+													"value": 10.0
+												},
+												{
+													"name": "Liquid level h_L above z",
+													"source": "user",
+													"unit": "m",
+													"value": 2.0
+												},
+												{
+													"name": "Surface pressure p_s",
+													"source": "default",
+													"unit": "Pa(g)",
+													"value": 0.0
+												},
+												{
+													"name": "Port port_1 elevation z_port",
+													"source": "default",
+													"unit": "m",
+													"value": 10.0
+												},
+												{
+													"name": "Fluid temperature T",
+													"source": "user",
+													"unit": "K",
+													"value": 293.15
+												},
+												{
+													"name": "Fluid density ρ",
+													"source": "library",
+													"unit": "kg/m³",
+													"value": 998.2071504679437
+												},
+												{
+													"name": "Gravitational acceleration g",
+													"source": "library",
+													"unit": "m/s²",
+													"value": 9.80665
+												},
+												{
+													"name": "Site elevation above sea level",
+													"source": "default",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Atmospheric pressure p_atm",
+													"source": "library",
+													"unit": "Pa(a)",
+													"value": 101325.0
+												}
+											],
+											"intermediates": [
+												{
+													"name": "Liquid surface elevation z + h_L",
+													"unit": "m",
+													"value": 12.0
+												},
+												{
+													"name": "Surface pressure head p_s/(ρg)",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Boundary head H (EGL)",
+													"unit": "m",
+													"value": 12.0
+												},
+												{
+													"name": "Net outflow Q_out",
+													"unit": "m³/s",
+													"value": -0.016144747855065724
+												},
+												{
+													"name": "Port port_1 outflow",
+													"unit": "m³/s",
+													"value": -0.016144747855065724
+												},
+												{
+													"name": "Port port_1 static pressure p",
+													"unit": "Pa(g)",
+													"value": 19578.13630427292
+												},
+												{
+													"name": "Surface absolute pressure p_atm + p_s",
+													"unit": "Pa(a)",
+													"value": 101325.0
+												}
+											],
+											"notes": [
+												"Quiescent boundary: the liquid level is constant and the liquid at rest (velocity 0); velocity head develops in the connected pipes.",
+												"No entrance or exit loss is applied where a pipe meets this boundary unless the connection's piping has an entrance fitting (entrance_sharp, entrance_rounded, entrance_projecting: the loss where flow leaves the boundary into the pipe) or an exit fitting (exit: the loss where flow leaves the pipe into the boundary). Without one, the EGL at the port equals the boundary head H in either flow direction: the velocity head v²/(2g) of the connected pipe is gained on entry and given back on exit with no loss. Such a fitting is a loss of its connection (see that connection's trace). The web app adds a sharp-edged entrance (entrance_sharp) where new piping leaves a reservoir and an exit where it enters one, which the user can remove; it adds none at a reference node.",
+												"Port port_1, connection 'L3': its piping has exit fitting(s) exit."
+											]
+										},
+										"V1": {
+											"correlations": [
+												{
+													"citation": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe, 2009. Via fluids 1.3.1 (fluids.fittings).",
+													"name": "fluids.fittings.K_gate_valve_Crane(D1=D, D2=D, angle=0)"
+												}
+											],
+											"dataSources": [
+												{
+													"citation": "inner diameter of connection 'L2' at the inlet port",
+													"name": "Reference diameter D_ref"
+												},
+												{
+													"citation": "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids fluids.fittings.K_gate_valve_Crane(D1=D, D2=D, angle=0), D = 0.07792 m",
+													"name": "Fully open K"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Fluid density (Water)"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: M. L. Huber et al., 'New International Formulation for the Viscosity of H2O', J. Phys. Chem. Ref. Data 38 (2009) 101-125, doi:10.1063/1.3088050",
+													"name": "Fluid dynamic viscosity (Water)"
+												},
+												{
+													"citation": "fluids.constants.g: the standard acceleration of gravity, 9.80665 m/s² (a defined value, 3rd CGPM, 1901)",
+													"name": "Gravitational acceleration g"
+												}
+											],
+											"elementId": "V1",
+											"elementType": "isolation_valve",
+											"equations": [
+												"K = fluids.fittings.K_gate_valve_Crane(D1=D, D2=D, angle=0) at D = D_ref: Crane TP-410 full bore, fully open, with the fully turbulent friction factor ft_Crane(D_ref)",
+												"A_ref = π D_ref²/4 and v = Q/A_ref (Q: flow inlet → outlet)",
+												"Open: EGL_in − EGL_out = K v|v|/(2g)",
+												"Re = |v| D_ref/ν",
+												"p_in = ρ g (H1 − z_in − v_in²/(2g)), p_out = ρ g (H2 − z_out − v_out²/(2g)): static gauge pressures at the ports (v_in, v_out: velocities in the inlet and outlet pipes)",
+												"Δp = p_in − p_out: static pressure drop"
+											],
+											"inputs": [
+												{
+													"name": "Valve type",
+													"source": "user",
+													"unit": "",
+													"value": "gate"
+												},
+												{
+													"name": "Status",
+													"source": "default",
+													"unit": "",
+													"value": "active"
+												},
+												{
+													"name": "Reference diameter D_ref (inner diameter of the inlet pipe)",
+													"source": "library",
+													"unit": "m",
+													"value": 0.07792
+												},
+												{
+													"name": "Inlet port elevation z_in",
+													"source": "default",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Outlet port elevation z_out",
+													"source": "default",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Resistance",
+													"source": "default",
+													"unit": "",
+													"value": "none: Crane TP-410 default for the valve type"
+												},
+												{
+													"name": "Fluid temperature T",
+													"source": "user",
+													"unit": "K",
+													"value": 293.15
+												},
+												{
+													"name": "Fluid density ρ",
+													"source": "library",
+													"unit": "kg/m³",
+													"value": 998.2071504679437
+												},
+												{
+													"name": "Fluid dynamic viscosity μ",
+													"source": "library",
+													"unit": "Pa·s",
+													"value": 0.001001596143120583
+												},
+												{
+													"name": "Kinematic viscosity ν = μ/ρ",
+													"source": "computed",
+													"unit": "m²/s",
+													"value": 1.003395079519367e-6
+												},
+												{
+													"name": "Gravitational acceleration g",
+													"source": "library",
+													"unit": "m/s²",
+													"value": 9.80665
+												}
+											],
+											"intermediates": [
+												{
+													"name": "Fully open K",
+													"unit": "",
+													"value": 0.13770889091303976
+												},
+												{
+													"name": "Reference area A_ref",
+													"unit": "m²",
+													"value": 0.004768565683579122
+												},
+												{
+													"name": "Flow Q",
+													"unit": "m³/s",
+													"value": 0.016144747855065724
+												},
+												{
+													"name": "Velocity v",
+													"unit": "m/s",
+													"value": 3.385661208497401
+												},
+												{
+													"name": "Reynolds number Re",
+													"unit": "",
+													"value": 262918.0935314977
+												},
+												{
+													"name": "EGL at the inlet H1",
+													"unit": "m",
+													"value": 21.382498315842277
+												},
+												{
+													"name": "EGL at the outlet H2",
+													"unit": "m",
+													"value": 21.30201640028888
+												},
+												{
+													"name": "Head loss EGL_in − EGL_out",
+													"unit": "m",
+													"value": 0.08048191555339557
+												},
+												{
+													"name": "Inlet velocity v_in (connected pipe)",
+													"unit": "m/s",
+													"value": 3.385661208497401
+												},
+												{
+													"name": "Inlet static pressure p_in",
+													"unit": "Pa(g)",
+													"value": 203593.657817157
+												},
+												{
+													"name": "Outlet velocity v_out (connected pipe)",
+													"unit": "m/s",
+													"value": 3.385661208497401
+												},
+												{
+													"name": "Outlet static pressure p_out",
+													"unit": "Pa(g)",
+													"value": 202805.81486079033
+												},
+												{
+													"name": "Static pressure drop Δp",
+													"unit": "Pa (difference)",
+													"value": 787.8429563666868
+												}
+											],
+											"notes": [
+												"The Crane K is for fully turbulent flow; it is not valid in laminar flow (fluids docstrings): there it underestimates the loss, and it is flagged.",
+												"Open (status 'active'): the loss is the fully open K."
+											]
+										}
+									},
+									"methods": {
+										"assumptions": [
+											"Steady, incompressible, isothermal, single-phase liquid flow.",
+											"Reservoirs and reference nodes are quiescent bodies of liquid (velocity 0) at a constant head.",
+											"No entrance or exit loss is applied where a pipe meets a reservoir or reference node unless the connection's piping has an entrance fitting (entrance_sharp, entrance_rounded, entrance_projecting) or an exit fitting (exit); without one, the EGL at the port equals the boundary head in either flow direction. The web app adds a sharp-edged entrance where new piping leaves a reservoir and an exit where it enters one (removable), and none at a reference node; each boundary's trace lists the entrance and exit fittings at its ports.",
+											"Fluid properties are constant at the operating temperature.",
+											"Pumps have an integral check: no reverse flow.",
+											"Check valves: a disc that opens fully above the cracking pressure and closes on reverse flow (no partial opening).",
+											"Control valves without an entered resistance are ideal: no loss when fully open.",
+											"Fittings and valves without a user K use the cited correlation for the type at the connected pipe's inner diameter."
+										],
+										"libraries": {
+											"CoolProp": "8.0.0",
+											"fluids": "1.3.1",
+											"numpy": "2.5.4",
+											"opensolve-pipe": "0.1.0",
+											"scipy": "1.18.1"
+										},
+										"methodVersion": "1.3.0",
+										"sections": [
+											{
+												"items": [
+													"Global Gradient Algorithm (Todini & Pilati 1988): Newton's method on the energy grade line at every node and the flow in every link; sparse direct solve of the Schur complement (SciPy SuperLU, splu). One solver for every topology; every connected part needs a reservoir or reference node.",
+													"Converged when the largest flow change is at most the project tolerance times the largest flow (plus 1e-14 m³/s), continuity closes at every node and over every component to 1e-09 x the largest flow + 1e-14 m³/s, and the energy equation holds on every link to 1e-07 m. On each link, 8.88178e-16 x the largest magnitude among the energy grade lines at its two ends and its head loss is added to that tolerance (4 x 2.22045e-16, the machine epsilon of double precision): an allowance for the round-off of the heads that the energy residual subtracts, larger than 1e-07 m only where that magnitude exceeds 1e-07 m divided by that factor, about 1.1259e+08 m.",
+													"An active PRV or PSV holds its port's head and passes the flow of the pipe on that port, coupled exactly in Newton's step (EPANET 2.2 lags it by one iteration, which converges the same answer more slowly).",
+													"This project: friction method 'colebrook', flow tolerance 1e-09 (relative to the largest flow), at most 100 Newton iterations per network solve.",
+													"This solve: 6 Newton iterations in 1 outer iteration(s); converged.",
+													"Branch components (tees, wyes) are imposed exactly: each one's ports share one head unknown, offset by the branch's path losses (zero for an ideal junction), and its internal flows follow from continuity.",
+													"Flows below 1e-12 x the largest flow (plus 1e-14 m³/s) are round-off and reported as zero. Dead-end branches (no way out but the node they hang from) carry no flow by continuity and are reported as exactly zero.",
+													"Outer loop for statuses and branch losses: at most 30 counted iterations; an iteration that only holds or releases branch legs at zero flow is not counted (each branch is held a bounded number of times). Once pump and valve statuses repeat after an iteration that changed several of them, one status changes per iteration; a status pattern that still repeats goes back to the latest iteration that asked for several changes and takes one not yet taken, and with none left is reported as not converged, naming the elements that oscillate.",
+													"Parts of the network closed off from every reservoir and reference node by closed elements carry no flow and have no computed pressure (flagged).",
+													"A closed-off part that cannot carry zero flow (a pump loop behind a closed valve) has determined flows but no pressure level: its flows and head differences are solved with one node held at an arbitrary head, and its pressures, NPSH available and PRV/PSV setpoint checks are not reported (flagged)."
+												],
+												"references": [
+													"Todini, E., and S. Pilati. A gradient algorithm for the analysis of pipe networks. Computer Applications in Water Supply, Vol. 1. Wiley, 1988, 1-20."
+												],
+												"title": "Network solution"
+											},
+											{
+												"items": [
+													"Darcy–Weisbach head loss h = f (L/D) v²/(2g), g = 9.80665 m/s² (standard gravity, fluids.constants.g), Re = |v| D/ν.",
+													"Laminar, Re < 2000: f = 64/Re (Hagen–Poiseuille).",
+													"Turbulent, Re ≥ 4000: the Colebrook (1939) equation, solved exactly with fluids.friction.Clamond (Clamond 2009).",
+													"Transition, 2000 ≤ Re < 4000: cubic interpolation between the laminar and turbulent laws (Dunlop's method, as in EPANET 2.2); flagged as transitional flow.",
+													"Flagged outside the cited range: Swamee–Jain beyond its documented 5000 ≤ Re ≤ 1e+08 and 1e-06 ≤ ε/D ≤ 0.05; Colebrook beyond ε/D = 0.05, the largest relative roughness documented for its explicit approximations (fluids.friction.fmethods). ε/D ≥ 3.7 has no Colebrook solution and is rejected.",
+													"Pipe dimensions: ASME B36.10M / B36.19M and ASTM D1785 via fluids.piping; roughness: Farshad & Rieke (2006) via fluids.friction.roughness_Farshad; user values where entered (each element's trace names its sources)."
+												],
+												"references": [
+													"Colebrook, C. F. J. ICE 11(4), 1939, 133-156, doi:10.1680/ijoti.1939.13150.",
+													"Clamond, D. Ind. Eng. Chem. Res. 48(7), 2009, 3665-3671, doi:10.1021/ie801626g.",
+													"Swamee, P. K., and A. K. Jain. J. Hydraulics Div. ASCE 102(5), 1976, 657-664.",
+													"Rossman, L. A., et al. EPANET 2.2 User Manual. US EPA, 2020 (source: src/hydcoeffs.c)."
+												],
+												"title": "Pipe friction"
+											},
+											{
+												"items": [
+													"Fitting loss h = n K v²/(2g), K from the cited fluids correlation for the fitting type (data/fittings.json) at the reference pipe's inner diameter; a user K overrides it.",
+													"Crane TP-410 K values use the fully turbulent friction factor ft_Crane(D); they are not valid in laminar flow, and a Crane K in a laminar segment is flagged."
+												],
+												"references": [
+													"Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe, 2009.",
+													"Rennels, D. C., and H. M. Hudson. Pipe Flow: A Practical and Comprehensive Guide. Wiley, 2012."
+												],
+												"title": "Minor losses"
+											},
+											{
+												"items": [
+													"Tees and wyes with lossModel 'ideal' are junctions without loss, as in EPANET.",
+													"lossModel 'crane': the path losses follow the solved flow split with the Crane TP-410 tee and lateral correlations (fluids.fittings.K_branch_diverging_Crane, K_run_diverging_Crane, K_branch_converging_Crane, K_run_converging_Crane), K on the combined-flow velocity in the run diameter; updated in the outer loop until K changes by less than 0.0001 and the path loss by less than 1e-06 m.",
+													"A tee whose combined flow passes through the branch uses the Darby 3-K tee 'Tee, Through-branch, (as elbow), flanged, (r/D = 1)' per run path on its own velocity (flagged); a wye in that pattern has no cited correlation and is reported as not converged.",
+													"Flagged outside the correlations' range: a branch larger than the run (β > 1), unequal run pipes, a wye lateral turning against its lean, and a laminar combined flow (Re < 2000 on the combined-flow velocity in the run diameter: the Crane tee data are for turbulent flow).",
+													"Zero flow through a leg: the correlations for flow out through a leg and flow in through it give different port heads in the limit of zero flow. A leg whose flow reverses and reverses back between outer iterations is held at zero flow while the head the network gives its port lies between those two limits; its K is the one its head implies.",
+													"A flow split that keeps alternating across a step of a Crane correlation (a split at which the fluids function switches formula, q = 0.4, 0.5 or 0.6, and K jumps by more than 0.0001) holds K at the mean of the fluids values at the two splits while the solved split stays between them (flagged; the trace lists both values); a split alternating where the correlation is continuous has its K update under-relaxed instead."
+												],
+												"references": [
+													"Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe, 2009.",
+													"Silverberg, P., and R. Darby. Correlate pressure drops through fittings. Chem. Eng. 106(7), 1999, 101."
+												],
+												"title": "Branches"
+											},
+											{
+												"items": [
+													"Head, efficiency and NPSHr curves: monotone piecewise cubic interpolation (SciPy PchipInterpolator) through the entered points; head and NPSHr are extrapolated along the end slope outside the points (flagged), efficiency is held at its end values (flagged).",
+													"Speed: affinity laws, H(Q) = s² H₀(Q/s), NPSHr(Q) = s² NPSHr₀(Q/s), η(Q) = η₀(Q/s).",
+													"No viscosity correction: the curves are used as entered for the fluid (the Hydraulic Institute correction, ANSI/HI 9.6.7, is not in this version).",
+													"Integral check: a pump closes when the system head exceeds its shutoff head s² H₀(0) or the flow would reverse (EPANET 2.2 pumpstatus), and is flagged as flow reversal.",
+													"System curve of a pump: at each flow the pump is replaced by that fixed flow and the network solved, every other element following its own law and status rules (other pumps keep running); the system head is EGL(discharge) − EGL(suction). Default flows: 0 to 1.2 x the curve's largest flow x s. Each point starts from the solution at the neighbouring flow (statuses, branch losses and flows; the first from the network's own solve when the solve computes the curves, from the initial state otherwise), so where the statuses or branch patterns admit more than one solution the curve follows one continuously; a point that fails from there is solved from the initial state, and one that still has no head while the flow has a way through (unless a control valve in series is at its switch, below) is solved again from the initial state (if it did not start there) and from it with its active control valves open, the first solve that gives a head, or finds a control valve in series at its switch, being used (with none, the point keeps its first result) and the next point starting from the result used; a flowing point is not solved again when its flow exceeds what every way from the pump's discharge back to its suction can pass that way (an FCV at most its setpoint, a check valve, PRV, PSV or pump nothing in reverse: a cut, Ford and Fulkerson), since no steady state carries it, and one whose flow is that limit, where every steady state passes each FCV of the cut at its setpoint, is also solved with each such FCV held open, to find whether it sits at its switch. A point has no head where no steady state carries its flow, where its head is undetermined (a side of the pump with no fixed pressure, or a control valve in series at its switch, which could also hold the flow throttled with any higher head) or where its solve does not converge; its message says which."
+												],
+												"references": [
+													"Fritsch, F. N., and R. E. Carlson. Monotone piecewise cubic interpolation. SIAM J. Numer. Anal. 17(2), 1980, 238-246.",
+													"Fritsch, F. N., and J. Butland. A method for constructing local monotone piecewise cubic interpolants. SIAM J. Sci. Stat. Comput. 5(2), 1984, 300-304, doi:10.1137/0905021 (the derivative formula of scipy.interpolate.PchipInterpolator).",
+													"Rossman, L. A., et al. EPANET 2.2. US EPA, 2020 (source: src/hydstatus.c, status rules).",
+													"Ford, L. R., and D. R. Fulkerson. Maximal flow through a network. Canadian Journal of Mathematics 8, 1956, 399-404 (the max-flow min-cut theorem: the flows no state carries through a pump on its system curve)."
+												],
+												"title": "Pumps"
+											},
+											{
+												"items": [
+													"Open valve loss h = K v²/(2g) on the inlet pipe's inner diameter; Cv and Kv converted with fluids.fittings.Cv_to_K / Kv_to_K (ISA-75.01.01, turbulent flow, without the Reynolds number factor F_R); without a resistance, the Crane TP-410 full-bore K for the valve type. A Cv, Kv or Crane K in laminar flow (Re < 2000 in the inlet pipe) is flagged.",
+													"Active check valves: open loss h = Δp_crack/(ρg) + K v²/(2g); open above their cracking head and close on reverse flow (EPANET 2.2 cvstatus with the cracking head). A check valve locked open by the user has the open loss K v²/(2g) only, with no cracking head and no check action; locked closed, it passes no flow.",
+													"PRV, PSV and FCV hold the outlet static pressure, inlet static pressure or flow when active; status rules from EPANET 2.2 (hydstatus.c) applied to the energy grade line, with the setpoint head z + p/(ρg) + v²/(2g) at the port; an FCV closes on reverse flow (EPANET's would pass it), and an active FCV opens once the head across it is below its fully open loss at the setpoint (EPANET's waits for a reverse head), as the PRV and PSV rules do. Control valves without a resistance: ideal control valve: no loss when fully open (K = 0); give a resistance for a real valve.",
+													"Status tolerances: 0.0001 m in head, 1e-08 m³/s in flow.",
+													"An active state with no solution falls back to the states the valve rules give at that solve's first iterations (EPANET 2.2 applies them at every iteration), then to open and closed valves (EPANET's badvalve).",
+													"A section closed off by closed pumps or valves carries no flow and has no computed pressure; the closed elements around it are re-tested against the heads it can take at zero flow (a dead-headed pump puts its shutoff head on it), and re-opened when no such head keeps them all closed. A PRV or PSV inside such a section or one whose pressure level is undetermined, or closed between two of them, keeps its state only if one set of section levels holds it together with those closed elements and the other such valves; otherwise the fewest of these elements change, each to the state its rule gives at levels that hold the others (a PRV or PSV that could not be active there, with no fixed head to draw from or deliver to, closes if open and opens if closed)."
+												],
+												"references": [
+													"Rossman, L. A., et al. EPANET 2.2. US EPA, 2020 (source: src/hydstatus.c, status rules).",
+													"ISA-75.01.01-2007 (60534-2-1 Mod), Flow Equations for Sizing Control Valves.",
+													"Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe, 2009."
+												],
+												"title": "Valves"
+											},
+											{
+												"items": [
+													"Water at 293.15 K: density 998.207 kg/m³, dynamic viscosity 0.0010016 Pa·s, kinematic viscosity 1.0034e-06 m²/s, vapor pressure 2339.32 Pa absolute.",
+													"density: library, CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"dynamicViscosity: library, CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: M. L. Huber et al., 'New International Formulation for the Viscosity of H2O', J. Phys. Chem. Ref. Data 38 (2009) 101-125, doi:10.1063/1.3088050",
+													"vaporPressure: library, CoolProp 8.0.0 'Water' (HEOS), saturation pressure at 293.15 K: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"Properties are constant throughout the network (isothermal)."
+												],
+												"references": [],
+												"title": "Fluid properties"
+											},
+											{
+												"items": [
+													"Atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
+													"NPSH available at the pump suction port = (EGL − z) + (p_atm − p_vap)/(ρg), the absolute static plus velocity head above the vapor pressure; margin = NPSHa − NPSHr, flagged as cavitation when negative.",
+													"Every port's absolute static pressure is checked against the vapor pressure (0 Pa absolute when none is known) and flagged where the liquid would flash."
+												],
+												"references": [
+													"U.S. Standard Atmosphere, 1976. NOAA, NASA, USAF, Washington, DC, 1976."
+												],
+												"title": "Atmosphere and NPSH"
+											},
+											{
+												"items": [
+													"SI units throughout. Pressures are gauge unless labeled absolute; elevations and heads are measured from the single project datum.",
+													"Gauge pressures are relative to the atmospheric pressure: US Standard Atmosphere 1976 at the site elevation 0 m (fluids.atmosphere.ATMOSPHERE_1976).",
+													"The energy grade line EGL = z + p/(ρg) + v²/(2g) is the nodal unknown; the hydraulic grade line HGL = EGL − v²/(2g), with v the velocity in the pipe connected at the port. Pump head is the EGL rise.",
+													"Flow is positive from a connection's 'from' port to its 'to' port; branch port flows are positive into the component.",
+													"Every element's trace lists its inputs (with their source: user, default, library or computed), equations, correlations, data sources and intermediate values."
+												],
+												"references": [],
+												"title": "Conventions"
+											},
+											{
+												"items": [
+													"Design checks are opt-in design practice, not physics flags: a result never changes a solved value (GOALS §4.6). Each limit is user data or a cited preset.",
+													"NPSH margin: each running pump's NPSHa ≥ max(NPSHr + 1 m, 1.1 × NPSHr).",
+													"Operating region: each running pump's Q/Q_BEP [0.7, 1.2], Q_BEP the best efficiency point at the running speed; with it, the curve's manufacturer data at rated speed against Q/s: the allowable operating region, the minimum continuous stable and thermal flows, and P_shaft against the motor's rated power (no service-factor margin).",
+													"Pipe velocity: every pipe segment's |v| at most 3 m/s."
+												],
+												"references": [
+													"ANSI/HI 9.6.1-2012, \"General\" application: NPSH margin ratio 1.1 or 1.0 m, whichever is greater, as reproduced by Michael Smith Engineers, \"NPSH\" (the standard itself was not read; the 2024 edition's tables may differ)",
+													"API 610 (10th/11th ed.) 5.1.14: \"Pumps shall have a preferred operating region of 70 % to 120 % of best efficiency flowrate of the pump as furnished\", as quoted by Datacor, \"Are you operating your pump off BEP?\" (the standard itself was not read)"
+												],
+												"title": "Design checks"
+											}
+										]
+									}
+								},
+								"valveResults": {
+									"V1": {
+										"cvEffective": null,
+										"flow": 0.016144747855065724,
+										"headLoss": 0.08048191555339557,
+										"kEffective": null,
+										"kOpen": 0.13770889091303976,
+										"pressureDrop": 787.8429563666868,
+										"referenceDiameter": 0.07792,
+										"setpoint": null,
+										"setpointAchieved": null,
+										"state": "open",
+										"valveType": "gate"
+									}
+								}
+							},
+							"success": true
+						},
+						"sent": {
+							"components": [
+								{
+									"elevation": 0,
+									"id": "R1",
+									"liquidLevel": 3,
+									"name": "Suction tank",
+									"ports": [
+										{
+											"direction": "bidirectional",
+											"id": "port_1",
+											"nominalSize": 0.1016
+										}
+									],
+									"surfacePressure": 0,
+									"type": "reservoir"
+								},
+								{
+									"curveId": "C1",
+									"elevation": 0,
+									"id": "P1",
+									"name": "Transfer pump",
+									"ports": [
+										{
+											"direction": "inlet",
+											"id": "suction",
+											"nominalSize": 0.1016
+										},
+										{
+											"direction": "outlet",
+											"id": "discharge",
+											"nominalSize": 0.0762
+										}
+									],
+									"speed": 0.9,
+									"status": "on",
+									"type": "pump"
+								},
+								{
+									"elevation": 0,
+									"id": "V1",
+									"name": "Discharge isolation valve",
+									"ports": [
+										{
+											"direction": "inlet",
+											"id": "inlet",
+											"nominalSize": 0.0762
+										},
+										{
+											"direction": "outlet",
+											"id": "outlet",
+											"nominalSize": 0.0762
+										}
+									],
+									"status": "active",
+									"type": "valve",
+									"valveType": "gate"
+								},
+								{
+									"elevation": 10,
+									"id": "R2",
+									"liquidLevel": 2,
+									"name": "Discharge tank",
+									"ports": [
+										{
+											"direction": "bidirectional",
+											"id": "port_1",
+											"nominalSize": 0.0762
+										}
+									],
+									"surfacePressure": 0,
+									"type": "reservoir"
+								}
+							],
+							"connections": [
+								{
+									"fromComponentId": "R1",
+									"fromPortId": "port_1",
+									"id": "L1",
+									"piping": {
+										"fittings": [
+											{
+												"pipeIndex": 0,
+												"quantity": 1,
+												"type": "entrance_sharp"
+											}
+										],
+										"pipes": [
+											{
+												"length": 5,
+												"materialId": "carbon_steel",
+												"nominalSize": 0.1016,
+												"schedule": "40"
+											}
+										]
+									},
+									"toComponentId": "P1",
+									"toPortId": "suction"
+								},
+								{
+									"fromComponentId": "P1",
+									"fromPortId": "discharge",
+									"id": "L2",
+									"piping": {
+										"fittings": [],
+										"pipes": [
+											{
+												"length": 3,
+												"materialId": "carbon_steel",
+												"nominalSize": 0.0762,
+												"schedule": "40"
+											}
+										]
+									},
+									"toComponentId": "V1",
+									"toPortId": "inlet"
+								},
+								{
+									"fromComponentId": "V1",
+									"fromPortId": "outlet",
+									"id": "L3",
+									"piping": {
+										"fittings": [
+											{
+												"pipeIndex": 0,
+												"quantity": 4,
+												"type": "elbow_90_lr"
+											},
+											{
+												"pipeIndex": 0,
+												"quantity": 1,
+												"type": "exit"
+											}
+										],
+										"pipes": [
+											{
+												"length": 60,
+												"materialId": "carbon_steel",
+												"nominalSize": 0.0762,
+												"schedule": "40"
+											}
+										]
+									},
+									"toComponentId": "R2",
+									"toPortId": "port_1"
+								}
+							],
+							"fluid": {
+								"fluidId": "water",
+								"kind": "builtin",
+								"temperature": 293.15
+							},
+							"id": "demo-pump-system",
+							"metadata": {
+								"created": "2026-10-21T00:00:00Z",
+								"modified": "2026-10-21T00:00:00Z",
+								"name": "Pump transfer between two tanks"
+							},
+							"methodVersion": "",
+							"pumpLibrary": [
+								{
+									"allowableOperatingRegion": {
+										"flowMax": 0.026,
+										"flowMin": 0.006
+									},
+									"efficiencyCurve": [
+										{
+											"efficiency": 0.45,
+											"flow": 0.005
+										},
+										{
+											"efficiency": 0.7,
+											"flow": 0.015
+										},
+										{
+											"efficiency": 0.6,
+											"flow": 0.025
+										}
+									],
+									"id": "C1",
+									"minimumContinuousStableFlow": 0.004,
+									"minimumThermalFlow": 0.005,
+									"motorRatedPower": 4000.0,
+									"name": "Example curve",
+									"points": [
+										{
+											"flow": 0,
+											"head": 30
+										},
+										{
+											"flow": 0.01,
+											"head": 28
+										},
+										{
+											"flow": 0.02,
+											"head": 22
+										},
+										{
+											"flow": 0.03,
+											"head": 12
+										}
+									]
+								}
+							],
+							"schemaVersion": 1,
+							"settings": {
+								"designChecks": {
+									"npshMargin": {
+										"minimumMargin": 1.0,
+										"minimumRatio": 1.1,
+										"source": {
+											"kind": "preset",
+											"preset": "hi961_2012_general"
+										}
+									},
+									"operatingRegion": {
+										"preferredMax": 1.2,
+										"preferredMin": 0.7,
+										"source": {
+											"kind": "preset",
+											"preset": "api610_por"
+										}
+									},
+									"pipeVelocity": {
+										"maximum": 3.0,
+										"source": {
+											"kind": "user"
+										}
+									}
+								},
+								"siteElevation": 0,
+								"solverOptions": {
+									"frictionMethod": "colebrook",
+									"maxIterations": 100,
+									"tolerance": 1e-9
+								},
+								"units": {
+									"density": "lb/ft3",
+									"diameter": "in",
+									"flow": "gpm",
+									"head": "ft",
+									"length": "ft",
+									"pressure": "psi",
+									"temperature": "F",
+									"velocity": "ft/s",
+									"viscosity": "cP"
+								}
+							}
+						},
+						"stale": false,
+						"status": "solved",
+						"systemCurves": {}
+					}
+				],
+				"compareRows": [
+					{
+						"quantity": "status"
+					}
+				],
+				"goalSeek": null,
+				"library": {
+					"fittings": {
+						"ball_valve": "Ball valve, full bore, fully open (inline loss only)",
+						"bend": "Pipe bend (any angle and bend radius)",
+						"butterfly_valve": "Butterfly valve, centric, fully open (inline loss only)",
+						"custom": "Custom fitting (user K)",
+						"elbow_45_lr": "45° elbow, long radius (r/D = 1.5), welded or flanged",
+						"elbow_45_sr": "45° elbow, short radius (r/D = 1), welded or flanged",
+						"elbow_45_threaded": "45° standard elbow, threaded",
+						"elbow_90_lr": "90° elbow, long radius (r/D = 1.5), welded or flanged",
+						"elbow_90_sr": "90° elbow, short radius (r/D = 1), welded or flanged",
+						"elbow_90_threaded": "90° standard elbow, threaded",
+						"entrance_projecting": "Pipe entrance, projecting inward (re-entrant, Borda mouthpiece)",
+						"entrance_rounded": "Pipe entrance, rounded (flush)",
+						"entrance_sharp": "Pipe entrance, sharp-edged (flush)",
+						"exit": "Pipe exit into a large body of liquid",
+						"gate_valve": "Gate valve, full bore, fully open (inline loss only)",
+						"globe_valve": "Globe valve, full seat, fully open (inline loss only)",
+						"lift_check_valve": "Lift check valve, angled pattern, fully open (inline loss only, no check action)",
+						"plug_valve": "Plug valve, straight-through, fully open (inline loss only)",
+						"reducer_conical": "Conical reducer (contraction or expansion by flow direction)",
+						"reducer_sudden": "Sudden reducer (contraction or expansion by flow direction)",
+						"swing_check_valve": "Swing check valve, angled pattern, fully open (inline loss only, no check action)"
+					},
+					"materials": {
+						"carbon_steel": "Carbon steel",
+						"pvc": "PVC",
+						"stainless_steel": "Stainless steel (13Cr roughness)"
+					},
+					"nominalSizes": [
+						{
+							"nominalSize": 0.003175,
+							"nps": "0.125"
+						},
+						{
+							"nominalSize": 0.00635,
+							"nps": "0.25"
+						},
+						{
+							"nominalSize": 0.009524999999999999,
+							"nps": "0.375"
+						},
+						{
+							"nominalSize": 0.0127,
+							"nps": "0.5"
+						},
+						{
+							"nominalSize": 0.019049999999999997,
+							"nps": "0.75"
+						},
+						{
+							"nominalSize": 0.0254,
+							"nps": "1"
+						},
+						{
+							"nominalSize": 0.03175,
+							"nps": "1.25"
+						},
+						{
+							"nominalSize": 0.038099999999999995,
+							"nps": "1.5"
+						},
+						{
+							"nominalSize": 0.0508,
+							"nps": "2"
+						},
+						{
+							"nominalSize": 0.0635,
+							"nps": "2.5"
+						},
+						{
+							"nominalSize": 0.07619999999999999,
+							"nps": "3"
+						},
+						{
+							"nominalSize": 0.08889999999999999,
+							"nps": "3.5"
+						},
+						{
+							"nominalSize": 0.1016,
+							"nps": "4"
+						},
+						{
+							"nominalSize": 0.127,
+							"nps": "5"
+						},
+						{
+							"nominalSize": 0.15239999999999998,
+							"nps": "6"
+						},
+						{
+							"nominalSize": 0.2032,
+							"nps": "8"
+						},
+						{
+							"nominalSize": 0.254,
+							"nps": "10"
+						},
+						{
+							"nominalSize": 0.30479999999999996,
+							"nps": "12"
+						},
+						{
+							"nominalSize": 0.35559999999999997,
+							"nps": "14"
+						},
+						{
+							"nominalSize": 0.4064,
+							"nps": "16"
+						},
+						{
+							"nominalSize": 0.4572,
+							"nps": "18"
+						},
+						{
+							"nominalSize": 0.508,
+							"nps": "20"
+						},
+						{
+							"nominalSize": 0.5588,
+							"nps": "22"
+						},
+						{
+							"nominalSize": 0.6095999999999999,
+							"nps": "24"
+						},
+						{
+							"nominalSize": 0.6604,
+							"nps": "26"
+						},
+						{
+							"nominalSize": 0.7111999999999999,
+							"nps": "28"
+						},
+						{
+							"nominalSize": 0.762,
+							"nps": "30"
+						},
+						{
+							"nominalSize": 0.8128,
+							"nps": "32"
+						},
+						{
+							"nominalSize": 0.8635999999999999,
+							"nps": "34"
+						},
+						{
+							"nominalSize": 0.9144,
+							"nps": "36"
+						},
+						{
+							"nominalSize": 0.9652,
+							"nps": "38"
+						},
+						{
+							"nominalSize": 1.016,
+							"nps": "40"
+						},
+						{
+							"nominalSize": 1.0668,
+							"nps": "42"
+						},
+						{
+							"nominalSize": 1.1176,
+							"nps": "44"
+						},
+						{
+							"nominalSize": 1.1683999999999999,
+							"nps": "46"
+						},
+						{
+							"nominalSize": 1.2191999999999998,
+							"nps": "48"
+						}
+					]
+				},
+				"loadedMethodVersion": "",
+				"now": "2026-10-25T12:32:05.000Z",
+				"options": {
+					"cases": "shown",
+					"format": "xlsx",
+					"link": true,
+					"units": "display"
+				},
+				"origin": "https://opensolve-pipe.app",
+				"prefs": {
+					"density": "lb/ft3",
+					"diameter": "in",
+					"flow": "gpm",
+					"head": "ft",
+					"length": "ft",
+					"pressure": "psi",
+					"temperature": "F",
+					"velocity": "ft/s",
+					"viscosity": "cP"
+				},
+				"project": {
+					"components": [
+						{
+							"elevation": 0,
+							"id": "R1",
+							"liquidLevel": 3,
+							"name": "Suction tank",
+							"ports": [
+								{
+									"direction": "bidirectional",
+									"id": "port_1",
+									"nominalSize": 0.1016
+								}
+							],
+							"surfacePressure": 0,
+							"type": "reservoir"
+						},
+						{
+							"curveId": "C1",
+							"elevation": 0,
+							"id": "P1",
+							"name": "Transfer pump",
+							"ports": [
+								{
+									"direction": "inlet",
+									"id": "suction",
+									"nominalSize": 0.1016
+								},
+								{
+									"direction": "outlet",
+									"id": "discharge",
+									"nominalSize": 0.0762
+								}
+							],
+							"speed": 0.9,
+							"status": "on",
+							"type": "pump"
+						},
+						{
+							"elevation": 0,
+							"id": "V1",
+							"name": "Discharge isolation valve",
+							"ports": [
+								{
+									"direction": "inlet",
+									"id": "inlet",
+									"nominalSize": 0.0762
+								},
+								{
+									"direction": "outlet",
+									"id": "outlet",
+									"nominalSize": 0.0762
+								}
+							],
+							"status": "active",
+							"type": "valve",
+							"valveType": "gate"
+						},
+						{
+							"elevation": 10,
+							"id": "R2",
+							"liquidLevel": 2,
+							"name": "Discharge tank",
+							"ports": [
+								{
+									"direction": "bidirectional",
+									"id": "port_1",
+									"nominalSize": 0.0762
+								}
+							],
+							"surfacePressure": 0,
+							"type": "reservoir"
+						}
+					],
+					"connections": [
+						{
+							"fromComponentId": "R1",
+							"fromPortId": "port_1",
+							"id": "L1",
+							"piping": {
+								"fittings": [
+									{
+										"pipeIndex": 0,
+										"quantity": 1,
+										"type": "entrance_sharp"
+									}
+								],
+								"pipes": [
+									{
+										"length": 5,
+										"materialId": "carbon_steel",
+										"nominalSize": 0.1016,
+										"schedule": "40"
+									}
+								]
+							},
+							"toComponentId": "P1",
+							"toPortId": "suction"
+						},
+						{
+							"fromComponentId": "P1",
+							"fromPortId": "discharge",
+							"id": "L2",
+							"piping": {
+								"fittings": [],
+								"pipes": [
+									{
+										"length": 3,
+										"materialId": "carbon_steel",
+										"nominalSize": 0.0762,
+										"schedule": "40"
+									}
+								]
+							},
+							"toComponentId": "V1",
+							"toPortId": "inlet"
+						},
+						{
+							"fromComponentId": "V1",
+							"fromPortId": "outlet",
+							"id": "L3",
+							"piping": {
+								"fittings": [
+									{
+										"pipeIndex": 0,
+										"quantity": 4,
+										"type": "elbow_90_lr"
+									},
+									{
+										"pipeIndex": 0,
+										"quantity": 1,
+										"type": "exit"
+									}
+								],
+								"pipes": [
+									{
+										"length": 60,
+										"materialId": "carbon_steel",
+										"nominalSize": 0.0762,
+										"schedule": "40"
+									}
+								]
+							},
+							"toComponentId": "R2",
+							"toPortId": "port_1"
+						}
+					],
+					"fluid": {
+						"fluidId": "water",
+						"kind": "builtin",
+						"temperature": 293.15
+					},
+					"id": "demo-pump-system",
+					"metadata": {
+						"created": "2026-10-21T00:00:00Z",
+						"modified": "2026-10-21T00:00:00Z",
+						"name": "Pump transfer between two tanks"
+					},
+					"methodVersion": "",
+					"pumpLibrary": [
+						{
+							"allowableOperatingRegion": {
+								"flowMax": 0.026,
+								"flowMin": 0.006
+							},
+							"efficiencyCurve": [
+								{
+									"efficiency": 0.45,
+									"flow": 0.005
+								},
+								{
+									"efficiency": 0.7,
+									"flow": 0.015
+								},
+								{
+									"efficiency": 0.6,
+									"flow": 0.025
+								}
+							],
+							"id": "C1",
+							"minimumContinuousStableFlow": 0.004,
+							"minimumThermalFlow": 0.005,
+							"motorRatedPower": 4000.0,
+							"name": "Example curve",
+							"points": [
+								{
+									"flow": 0,
+									"head": 30
+								},
+								{
+									"flow": 0.01,
+									"head": 28
+								},
+								{
+									"flow": 0.02,
+									"head": 22
+								},
+								{
+									"flow": 0.03,
+									"head": 12
+								}
+							]
+						}
+					],
+					"schemaVersion": 1,
+					"settings": {
+						"designChecks": {
+							"npshMargin": {
+								"minimumMargin": 1.0,
+								"minimumRatio": 1.1,
+								"source": {
+									"kind": "preset",
+									"preset": "hi961_2012_general"
+								}
+							},
+							"operatingRegion": {
+								"preferredMax": 1.2,
+								"preferredMin": 0.7,
+								"source": {
+									"kind": "preset",
+									"preset": "api610_por"
+								}
+							},
+							"pipeVelocity": {
+								"maximum": 3.0,
+								"source": {
+									"kind": "user"
+								}
+							}
+						},
+						"siteElevation": 0,
+						"solverOptions": {
+							"frictionMethod": "colebrook",
+							"maxIterations": 100,
+							"tolerance": 1e-9
+						},
+						"units": {
+							"density": "lb/ft3",
+							"diameter": "in",
+							"flow": "gpm",
+							"head": "ft",
+							"length": "ft",
+							"pressure": "psi",
+							"temperature": "F",
+							"velocity": "ft/s",
+							"viscosity": "cP"
+						}
+					}
+				},
+				"serverSource": "https://api.opensolve-pipe.app/source",
+				"shownCase": null,
+				"utcOffsetMinutes": 120
+			},
+			"name": "design-checks"
 		}
 	],
 	"generatedBy": "apps/api/tests/fixtures/export_input.py"

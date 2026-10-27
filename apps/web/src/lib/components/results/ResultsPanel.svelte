@@ -98,6 +98,7 @@
 	import ResultsTable from './ResultsTable.svelte';
 	import ScenarioCard from './ScenarioCard.svelte';
 	import SummaryView from './SummaryView.svelte';
+	import ChecksView from './ChecksView.svelte';
 	import TraceView from './TraceView.svelte';
 
 	const ws = useWorkspace();
@@ -136,6 +137,12 @@
 	/** Show a view sorted by one column, with the focus on its tab. */
 	async function showSorted(target: ResultsView, key: string, direction: SortDirection) {
 		sortRequests = { ...sortRequests, [target]: { key, direction, id: ++sortRequestId } };
+		selectedView = target;
+		await tick();
+		document.getElementById(`${id}-tab-${target}`)?.focus();
+	}
+	/** Show a view, with the focus on its tab (the Summary's link to the checks). */
+	async function showView(target: ResultsView) {
 		selectedView = target;
 		await tick();
 		document.getElementById(`${id}-tab-${target}`)?.focus();
@@ -909,7 +916,9 @@
 							hidden={v !== view}
 						>
 							{#if v === 'summary'}
-								<SummaryView {solved} onsort={showSorted} />
+								<SummaryView {solved} onsort={showSorted} onview={showView} />
+							{:else if v === 'checks'}
+								<ChecksView {solved} />
 							{:else if v === 'nodes' && nodes}
 								<ResultsTable
 									table={nodes}

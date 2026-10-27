@@ -18,6 +18,7 @@ Students checking hand calculations, field technicians sizing a retrofit, and pr
 - Results: flows, velocities, head loss, pressures, HGL/EGL, pump operating point, system curve, NPSH available, and each equipment item's pressure loss against its rating
 - Scenarios: named cases of one network (a pump off, a valve closed, a larger pipe, another fluid temperature, a dirty strainer) kept as changes of the base case, solved one at a time or all together and compared side by side
 - Goal seek: the input values (a pump speed, a reservoir level, a valve's Cv, a pipe length, up to four at once) that bring chosen results to their targets, each trial a full network solve, applied to the case or as a new scenario only when you choose
+- Design checks, off until you turn them on: each pump's NPSH margin and flow against its best efficiency flow (with the manufacturer's allowable region, minimum flows and motor rating, when entered) and every pipe's velocity, against your limits or a cited preset (API 610, HI 9.6.1), shown on the pump chart and listed as met, not met or not evaluated; they never change a result
 - Export: every results table of the case shown or of all cases as an Excel workbook or CSV files (each value at full precision, with the project, case, solve and methods version it came from), and the pump chart as a PNG, all made in your browser: nothing is sent
 - Imperial, SI or mixed units
 - Share by link: the project is compressed into the URL fragment and never sent to a server for storage

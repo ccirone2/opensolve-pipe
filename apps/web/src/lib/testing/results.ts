@@ -290,6 +290,7 @@ export function pumpTransferSolved(values: Partial<SolvedState> = {}): SolvedSta
 			R2: { type: 'reservoir', egl: 12, outflow: -0.02, portOutflows: { port_1: -0.02 } }
 		},
 		flags: [],
+		designChecks: [],
 		convergence: {
 			innerIterations: 6,
 			outerIterations: 1,

@@ -683,3 +683,38 @@ const GOAL_VARIABLE_SCHEMAS: ReadonlyMap<unknown, string> = new Map(
 export function goalVariableSchemaName(kind: unknown): string | null {
 	return GOAL_VARIABLE_SCHEMAS.get(kind) ?? null;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Design checks (CLAUDE.md D19)
+// ---------------------------------------------------------------------------------------------
+
+/** A cited preset of a design check's limits (`x-design-check-presets`). */
+export interface DesignCheckPreset {
+	id: 'api610_por' | 'hi961_2012_general';
+	check: 'npshMargin' | 'operatingRegion';
+	values: Record<string, number>;
+	citation: string;
+}
+
+const DESIGN_CHECK_PRESETS: readonly DesignCheckPreset[] = (() => {
+	const published = schema('DesignChecks')['x-design-check-presets'];
+	if (!Array.isArray(published)) throw new Error('openapi.json: DesignChecks has no presets');
+	return published.map((p: unknown, i) => {
+		if (
+			!isRecord(p) ||
+			typeof p.id !== 'string' ||
+			typeof p.check !== 'string' ||
+			typeof p.citation !== 'string' ||
+			!isRecord(p.values) ||
+			!Object.values(p.values).every((v) => typeof v === 'number')
+		) {
+			throw new Error(`openapi.json: x-design-check-presets[${i}]`);
+		}
+		return p as unknown as DesignCheckPreset;
+	});
+})();
+
+/** The design checks' cited presets, as the API publishes them. */
+export function designCheckPresets(check?: DesignCheckPreset['check']): DesignCheckPreset[] {
+	return DESIGN_CHECK_PRESETS.filter((p) => !check || p.check === check);
+}

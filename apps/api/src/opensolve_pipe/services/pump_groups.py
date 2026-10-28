@@ -266,7 +266,8 @@ class Station:
     oriented: bool
     """S and D told apart by the members' directions (else by the duty's flow)."""
     ways: tuple[tuple[str, ...], ...]
-    """The members each way from S to D passes forward (the default range's shutoff sums)."""
+    """Per way from S to D through the station's parts, the members whose heads add along it
+    (``_heads_along``; the default range's shutoff sums)."""
     interior_component_ids: tuple[str, ...]
     interior_connection_ids: tuple[str, ...]
 
@@ -400,89 +401,116 @@ def _station_cut(
 ) -> tuple[_Cut, _Cut]:
     """(the cut, the first cut). The first is the minimum cut toward the barriers. When it is one
     vertex c that is not a member's own port, the outside closes a loop through c (a closed
-    circuit whose only fixed head is a tank beyond c, a pump circulating around a loop): every
-    way from the members to a barrier passes c, but the station may meet the loop at two places
-    nearer the members. So the cut is searched again toward c alone (c a sink that passes any
-    flow), until it has two places or more, or is a member's own port: then the members meet
-    the rest at that one place, a dead end that no flow passes through. When that search ends
-    at three places or more and some c on the way was a reservoir or reference node, the station
-    with c taken whole (``_boundary_whole``) is the cut, if there is one: pumps that draw from a
-    tank's nozzles and return to it."""
+    circuit whose only fixed head is a tank, a pump circulating around a loop): every way from
+    the members to a barrier passes c, but the station may meet the loop at two places nearer
+    the members. So the cut is searched again toward c alone (c a sink that passes any flow),
+    until it has two places or more, or is a member's own port: then the members meet the rest
+    at that one place, a dead end that no flow passes through. That search never makes c a
+    place, so the stations with c as one of their places (``_place_cuts``) are candidates too,
+    with its two places if it found them: the best by ``_tier`` when c is a reservoir or
+    reference node (pumps that return to the tank they draw from), else the smallest whose
+    members lie on a way between its places (the smallest when none does), as for any station;
+    then the fewest interior links. A tank taken whole is a place only where every member faces
+    from one place to the other, or members face both ways or none lies on a way (refused for
+    that): with a member on no way, or none telling the places apart, some member circulates
+    through the tank itself (the rest, say, only one pump's suction pipe), which no topology
+    tells from a station."""
     first = cut = _cut(built, graph, members, sinks=sinks, plain_pumps=plain_pumps)
     ends = _ends(built, graph, members)
-    whole: _Cut | None = None
+    places: list[int] = []
     while cut.value == 1 and cut.cut[0] not in ends:
         check_budget()
         (c,) = cut.cut
-        if c in graph.boundary and whole is None:
-            whole = _boundary_whole(built, graph, members, c, plain_pumps)
+        places.append(c)
         cut = _cut(built, graph, members, sinks={c}, plain_pumps=plain_pumps, open_vertex=c)
-    if cut.value >= 3 and whole is not None:
-        return whole, first
-    return cut, first
+    if not places:
+        return cut, first
+    tank = places[0] in graph.boundary
+    ranked: list[tuple[tuple[int, int, tuple[int, ...]], _Cut]] = []
+    for candidate in [
+        k for c in places for k in _place_cuts(built, graph, members, c, plain_pumps)
+    ]:
+        shape = _shape(built, graph, members, candidate)
+        tier = _tier(built, graph, members, shape)
+        if tank and tier in (1, 2):
+            continue  # a member circulating through the tank, or no direction: no station
+        ranked.append(
+            ((tier if tank else int(tier == 4), len(shape.interior), candidate.cut), candidate)
+        )
+    if not ranked:
+        return cut, first
+    if cut.value == 2:
+        shape = _shape(built, graph, members, cut)
+        tier = _tier(built, graph, members, shape)
+        ranked.append(((tier if tank else int(tier == 4), len(shape.interior), cut.cut), cut))
+    return min(ranked, key=lambda r: r[0])[1], first
 
 
-def _boundary_whole(
+def _place_cuts(
     built: BuiltNetwork,
     graph: _Graph,
     members: Sequence[str],
     c: int,
     plain_pumps: Iterable[str],
-) -> _Cut | None:
-    """A station with the boundary ``c`` taken whole as one of its places, or None: a tank whose
-    own ports feed or take the members while the rest returns to it (``_station_cut``'s loop
-    search would make ``c`` pass any flow, so it could never be a place). For each port p of c,
-    the members' ends are cut from p alone, c's other ports left out (they are the place
-    itself); a cut of one vertex d gives the candidate {c, d}, whose inside is what the members
-    reach without passing c or d. Of the candidates whose members all face from one place to the
-    other, the one with the fewest interior links (then the lowest vertices)."""
-    ports = {i for i, r in enumerate(graph.rep) if r == c}
+) -> list[_Cut]:
+    """Every station with ``c`` as one of its places (a reservoir or reference node taken whole):
+    ``_station_cut``'s loop search makes ``c`` pass any flow, so it is never a place there. The
+    rest meets c through one of its links e; with c split into one vertex per link and the
+    others left out, the other place d is a vertex that cuts the members' ends from c's end of
+    e: each in turn along the chain of such vertices from the members toward it (a minimum cut
+    of one vertex, then the next from it). The inside is what the members reach without passing
+    c or d, and it must touch c."""
     member_links = {built.pumps[m].link_index for m in members}
     free = {built.pumps[p].link_index for p in plain_pumps}
     others = {d.link_index for p, d in built.pumps.items() if p not in members}
-    own = list(graph.rep)  # c's ports as vertices of their own
-    for i in ports:
-        own[i] = i
+    n = len(graph.rep)
+    copies: dict[int, int] = {}  # link index -> c's own end of that link, a vertex of its own
+    links: list[tuple[int, int, int]] = []
+    for u, v, link in graph.edges:
+        if link in member_links or (link in others and link not in free) or u == v:
+            continue
+        if c in (u, v):
+            copies[link] = n + len(copies)
+            u, v = (copies[link], v) if u == c else (u, copies[link])
+        links.append((u, v, link))
     index = built.network.node_index
     sources = [
-        own[index[key]]
+        graph.rep[index[key]]
         for m in members
         for key in (built.pumps[m].suction, built.pumps[m].discharge)
-    ]
-    links = [
-        (own[link.start], own[link.end])
-        for link in built.network.links
-        if link.index not in member_links and (link.index not in others or link.index in free)
     ]
     adjacent: dict[int, list[int]] = {}
     for u, v, _ in graph.edges:
         adjacent.setdefault(u, []).append(v)
         adjacent.setdefault(v, []).append(u)
-    best: tuple[tuple[int, tuple[int, ...]], _Cut] | None = None
-    for p in sorted(ports):
-        check_budget()
-        edges = [(a, b) for a, b in links if not ({a, b} & (ports - {p}))]
-        flow = _min_cut(len(own), edges, sources, [p], graph.centres | {p})
-        if flow.value != 1 or flow.cut[0] == p:
-            continue
-        d = flow.cut[0]
-        start = {graph.rep[v] for v in sources} - {c, d}
-        inside = set(start)
-        queue = deque(start)
-        while queue:
-            u = queue.popleft()
-            for v in adjacent.get(u, ()):
-                if v not in inside and v not in (c, d):
-                    inside.add(v)
-                    queue.append(v)
-        candidate = _Cut(2, frozenset(inside), tuple(sorted((c, d))))
-        shape = _shape(built, graph, members, candidate)
-        if not shape.oriented or set(shape.forward) != set(members):
-            continue
-        key = (len(shape.interior), candidate.cut)
-        if best is None or key < best[0]:
-            best = (key, candidate)
-    return None if best is None else best[1]
+    start = set(sources)
+    total = n + len(copies)
+    found: dict[tuple[int, ...], _Cut] = {}
+    for link, p in sorted(copies.items()):
+        edges = [(a, b) for a, b, k in links if k == link or not ({a, b} & set(copies.values()))]
+        froms, unbounded = sources, graph.centres | {p}
+        while True:
+            check_budget()
+            flow = _min_cut(total, edges, froms, [p], unbounded)
+            if flow.value != 1 or flow.cut[0] == p:
+                break
+            d = flow.cut[0]
+            inside = start - {c, d}
+            queue = deque(inside)
+            while queue:
+                u = queue.popleft()
+                for v in adjacent.get(u, ()):
+                    if v not in inside and v not in (c, d):
+                        inside.add(v)
+                        queue.append(v)
+            pair = tuple(sorted((c, d)))
+            if pair not in found and any(v in inside for v in adjacent.get(c, ())):
+                found[pair] = _Cut(2, frozenset(inside), pair)
+            # the next vertex of the chain: from d, the side behind it left out
+            behind = flow.inside
+            edges = [(a, b) for a, b in edges if a not in behind and b not in behind]
+            froms, unbounded = [d], unbounded | {d}
+    return list(found.values())
 
 
 def _chain_end(built: BuiltNetwork, key: str) -> str | None:
@@ -537,16 +565,20 @@ def _why_not(
 ) -> list[TopologyIssue]:
     """The reasons the members form no station (module docstring). With three places or more,
     the cut is searched again with one kind of barrier lifted at a time, and a search that then
-    finds a station by structure (two places, every member facing from one to the other)
-    explains it; members drawn from, or delivering to, different reservoirs or reference nodes
-    through their own chains are named as such. Otherwise the places themselves."""
+    finds a station ``find_station`` accepts (two places, ``_tier`` 0 to 2: every member that
+    faces a way facing from one to the other, or none telling them apart but one on a way
+    between them) explains it; members drawn from, or delivering to, different reservoirs or
+    reference nodes through their own chains are named as such. Otherwise the places themselves."""
     sinks, others = _barriers(built, graph, members)
     who = _who(members)
     meet = "meets" if len(members) == 1 else "meet"
 
     def explains(lifted: set[int], pumps: Sequence[str] = ()) -> _Cut | None:
         again, _ = _station_cut(built, graph, members, sinks=sinks - lifted, plain_pumps=pumps)
-        if again.value == 2 and _shape(built, graph, members, again).sound:
+        if (
+            again.value == 2
+            and _tier(built, graph, members, _shape(built, graph, members, again)) <= 2
+        ):
             return again
         return None
 
@@ -818,6 +850,19 @@ def _on_a_way(built: BuiltNetwork, graph: _Graph, shape: _Shape, member: str) ->
     return flow.value >= 2
 
 
+def _tier(built: BuiltNetwork, graph: _Graph, members: Sequence[str], shape: _Shape) -> int:
+    """How a two-place cut reads as a station, best first: 0 every member faces from one place
+    to the other on a way between them; 1 no member tells the places apart, but one lies on a
+    way between them; 2 a station by structure with a member on no way (circulating inside: with
+    a tank taken whole, through the tank itself); 3 members facing both ways (refused for them);
+    4 no member on a way (a dead end). ``find_station`` accepts 0 to 2."""
+    if not shape.oriented:
+        return 1 if any(_on_a_way(built, graph, shape, m) for m in members) else 4
+    if not shape.sound:
+        return 3
+    return 0 if set(shape.forward) == set(members) else 2
+
+
 def _pressure_controls(
     built: BuiltNetwork, members: Sequence[str], interior: Iterable[int]
 ) -> list[TopologyIssue]:
@@ -933,10 +978,23 @@ def find_station(project: Project, built: BuiltNetwork, members: Sequence[str]) 
         interior_links=interior,
         arrangement=arrangement,
         oriented=shape.oriented,
-        ways=tuple(tuple(m for m, f in way if f) for way in ways),
+        ways=tuple(_heads_along(pa, edges, way) for way in ways),
         interior_component_ids=_component_order(project, comps),
         interior_connection_ids=tuple(c.id for c in project.connections if c.id in conns),
     )
+
+
+def _heads_along(
+    start: int, edges: Sequence[tuple[str, int, int]], way: Sequence[tuple[str, bool]]
+) -> tuple[str, ...]:
+    """The members whose heads add along a way from part ``start``: those it passes forward, and
+    those whose two ends lie in a part it passes (a bypass beside them joins them)."""
+    ends = {m: (u, v) for m, u, v in edges}
+    parts = [start]
+    for m, forward in way:
+        parts.append(ends[m][1] if forward else ends[m][0])
+    beside = [m for m, u, v in edges if u == v and u in parts]
+    return tuple(m for m, f in way if f) + tuple(beside)
 
 
 def _nodes_of(graph: _Graph, vertex: int) -> tuple[int, ...]:
@@ -1130,16 +1188,15 @@ def _shutoff(data: PumpData) -> float:
 
 def default_head_max(built: BuiltNetwork, station: Station) -> float:
     """The largest rise the station can hold with flow: the largest sum of shutoff heads along a
-    way from S to D, members that are off adding nothing; every member's (an upper bound) when
-    the ways are not known or do not pass every member (the ways run through the station's parts,
-    so a bypass inside that joins a member's two ends hides it from them)."""
+    way from S to D (``_heads_along``: the members it passes forward and those beside a bypass in
+    the parts it passes), members that are off adding nothing; every member's (an upper bound)
+    when no way through the station's parts passes a member."""
 
     def head(pid: str) -> float:
         data = built.pumps[pid]
         return 0.0 if data.component.status == "off" else max(_shutoff(data), 0.0)
 
-    on_a_way = {m for way in station.ways for m in way}
-    if station.ways and on_a_way >= set(station.members):
+    if station.ways:
         return max(math.fsum(head(m) for m in way) for way in station.ways)
     return math.fsum(head(m) for m in station.members)
 
@@ -1511,10 +1568,12 @@ def methods_section(
         items.append(
             f"Points: {count} rises from {rng.min:.6g} to {rng.max:.6g} m, {where}; by default "
             "from the lower of 0 and the duty's rise to the largest rise the station can hold "
-            "with flow (the largest sum of shutoff heads s²H₀(0) along a way from S to D, a "
-            "speed-controlled pump's at its maximum speed, above which the status rules close "
-            "the pumps; the sum of every member's, an upper bound, where the ways through the "
-            "station's parts do not pass every member), or the duty's rise if higher. The "
+            "with flow (the largest sum of shutoff heads s²H₀(0) along a way from S to D, of the "
+            "members it passes forward and of those beside a bypass in the parts it passes, a "
+            "speed-controlled pump's at its maximum speed, a member that is off adding nothing, "
+            "above which the status rules close the pumps; every member's that is on, an upper "
+            "bound, where no way through the station's parts passes a member), or the duty's "
+            "rise if higher. The "
             "duty's rise is solved first, from the case's solve; then the rises above and "
             "below it, each from the converged point next to it toward the duty, so the curve "
             "is the branch through the duty; a point that does not converge from there is "

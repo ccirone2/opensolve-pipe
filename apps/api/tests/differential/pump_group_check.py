@@ -65,12 +65,14 @@ reaches D outside the station.
   station (or, when the refusal also named reversed members, refuses for those only);
 - (s6) the elements a structural refusal names: ``FIXED_HEAD_INSIDE``, ``ASSIGNED_FLOW_INSIDE``
   and ``OTHER_PUMP_INSIDE`` each name elements of their kind (another pump: not a member), and
-  with all of them lifted as barriers together the second finder finds a station (a larger
-  region is counted, not checked); the
-  members ``DIFFERENT_BOUNDARIES`` names have chains of pipes and two-port elements, from their
-  suctions or from their discharges, ending at two or more different boundaries; the one place
+  with all of them lifted as barriers together the second finder finds a station, or, with
+  several fixed heads named, with each of them lifted alone (a larger region is counted, not
+  checked); the members ``DIFFERENT_BOUNDARIES`` names have chains of pipes and two-port
+  elements, from their suctions or from their discharges, ending at two or more different
+  boundaries; the one place
   ``NO_SEPARATING_PORTS`` names alone cuts the members off from every barrier;
-  ``NO_WAY_THROUGH`` names the components of a dead pair of the second finder's; and a
+  ``NO_WAY_THROUGH`` names the components of a pair of places whose members lie on no simple
+  path between them (the second finder's station, dead, or another such pair); and a
   ``PRESSURE_CONTROL_INSIDE`` beside a reason that lifts barriers names active PRVs or PSVs
   inside a station the second finder gives with those barriers lifted, together or one alone.
 
@@ -114,11 +116,11 @@ names), and then a message and nothing else. The checks read the station as the 
   and listed; a point that did not converge has no flow and a reason;
 - (h) the grid: the head range's minimum min(0, the rise), its maximum the larger of the rise
   and the largest sum, over the ways from S's part to D's, of the shutoff heads of the members
-  the way passes forward that are on (a speed-controlled one's at its maximum speed), or, when
-  the ways do not pass every member forward (S and D joined inside, or a bypass joining a
-  member's two ends in one part), every on member's shutoff head added up; the points those
-  rises evenly spaced (to 1e-9 of the span), in rise order, with the duty's rise among them
-  exactly once, marked ``isDuty``, its head the duty's exactly.
+  the way passes forward and of those whose two ends lie in a part it passes (a bypass beside
+  them), each that is on (a speed-controlled one's at its maximum speed), or, when no member
+  faces only one way (S and D joined inside), every on member's shutoff head added up; the
+  points those rises evenly spaced (to 1e-9 of the span), in rise order, with the duty's rise
+  among them exactly once, marked ``isDuty``, its head the duty's exactly.
 
 The report counts groups by source (suggested, pair) and outcome, stations by arrangement (and
 ``oriented`` against the members facing S → D), refusals by reason, refusals whose reason
@@ -131,6 +133,7 @@ unit-test networks, the ladders and a few fuzz seeds, and falsified results.
 """
 
 import argparse
+import dataclasses
 import itertools
 import json
 import math
@@ -530,8 +533,8 @@ def second_station(
 
     def rests(pair: frozenset[int], links: frozenset[int]) -> tuple[str, str]:
         a, b = sorted(pair)
-        at_a = _rest_reaches(graph, a, b, links, targets)
-        return at_a, _rest_reaches(graph, b, a, links, targets)
+        at_a = _rest_reaches(graph, a, b, links, barriers)
+        return at_a, _rest_reaches(graph, b, a, links, barriers)
 
     # A place whose rest reaches neither the other place nor a barrier (a plug's branch) is no
     # place a flow passes, and members on no simple path between the two places are a dead end
@@ -542,9 +545,34 @@ def second_station(
         a, b = sorted(pair)
         return "dead" not in rests(pair, links) and _on_a_way(graph, a, b, links, member_links)
 
-    live = [v for v in valid if is_live(v[1], v[3])]
-    chosen = live or valid
-    size, pair, inside, links = chosen[0]
+    tank = _through_one_boundary(graph, starts, barriers, valid)
+    if tank is not None:
+        # The members' side loops through one tank, which can be a place taken whole: the pairs
+        # holding it, and the smallest pair that cuts the members off from it (the station the
+        # loop would give without it), are ranked by how they read as a station (``_tank_tier``)
+        # before their size, since a tank taken whole also gives pairs whose members circulate
+        # through the tank itself.
+        def rank(v: tuple[int, frozenset[int], frozenset[int], frozenset[int]]) -> tuple[int, int]:
+            size, pair, inside, links = v
+            if "dead" in rests(pair, links):  # a place whose rest leads nowhere: a dead end
+                return 4, size
+            return _tank_tier(graph, members, pair, inside, links, member_links), size
+
+        avoiding = [v for v in valid if tank not in v[1]][:1]  # valid is in size order
+        # with the tank taken whole, a member on no way or none telling the places apart means a
+        # member circulating through the tank itself: not a station
+        holding = [v for v in valid if tank in v[1] and rank(v)[0] not in (1, 2)]
+        ranked = sorted(avoiding + holding, key=lambda v: (rank(v), sorted(v[1])))
+        if not ranked:
+            return None
+        best = rank(ranked[0])
+        size, pair, inside, links = ranked[0]
+        alternatives = tuple((v[1], v[3]) for v in ranked[1:] if rank(v) == best)
+    else:
+        live = [v for v in valid if is_live(v[1], v[3])]
+        chosen = live or valid
+        size, pair, inside, links = chosen[0]
+        alternatives = tuple((p, lk) for n, p, _, lk in chosen[1:] if n == size)
     a, b = sorted(pair)
     at_a, at_b = rests(pair, links)
     return Found(
@@ -553,8 +581,63 @@ def second_station(
         links=links,
         live=is_live(pair, links),
         loop=at_a == "other" or at_b == "other" or _loops(graph, a, b, links),
-        alternatives=tuple((p, lk) for n, p, _, lk in chosen[1:] if n == size),
+        alternatives=alternatives,
     )
+
+
+def _through_one_boundary(
+    graph: Graph,
+    starts: set[int],
+    barriers: set[int],
+    valid: list[tuple[int, frozenset[int], frozenset[int], frozenset[int]]],
+) -> int | None:
+    """The reservoir or reference node c that alone, and no other vertex alone (tee and wye
+    centres aside), cuts the members' ends off from every barrier, when some valid pair holds
+    it (the members' side closes a loop through that tank), else None."""
+
+    def cuts(v: int) -> bool:
+        seen = {u for u in starts if u != v}
+        queue = deque(seen)
+        while queue:
+            u = queue.popleft()
+            if u in barriers:
+                return False
+            for w, _ in graph.adjacent[u]:
+                if w != v and w not in seen:
+                    seen.add(w)
+                    queue.append(w)
+        return True
+
+    region = _reach(graph, starts, barriers)
+    tanks = [c for c in sorted(barriers & graph.boundary) if c in region and cuts(c)]
+    if len(tanks) != 1 or not any(tanks[0] in pair for _, pair, _, _ in valid):
+        return None
+    if any(cuts(v) for v in region - barriers - graph.centre):
+        return None
+    return tanks[0]
+
+
+def _tank_tier(
+    graph: Graph,
+    members: Sequence[str],
+    pair: frozenset[int],
+    inside: frozenset[int],
+    links: frozenset[int],
+    member_links: frozenset[int],
+) -> int:
+    """How a pair with a tank taken whole reads as a station, best first: 0 every member faces
+    from one place to the other; 1 none faces only one way, but one lies on a simple path
+    between them; 2 the members that face only one way all face the same way, some member on no
+    way (circulating inside); 3 members face only one way in both directions; 4 no member on a
+    simple path between the places."""
+    a, b = sorted(pair)
+    st = structure(graph, View(s=a, d=b, inside=inside, links=links), members)
+    to_b, to_a = only_against(st, b, a), only_against(st, a, b)
+    if not to_a and not to_b:
+        return 1 if _on_a_way(graph, a, b, links, member_links) else 4
+    if to_a and to_b:
+        return 3
+    return 0 if (to_a or to_b) == set(members) else 2
 
 
 def _loops(graph: Graph, a: int, b: int, links: frozenset[int]) -> bool:
@@ -781,6 +864,35 @@ def refusal_problems(
         return problems
     if mine is None or not mine.live:
         return [f"(s5) refused for {sorted(codes)}, but the definition gives no live station"]
+    # the refusal holds for the definition's station or one tied with it (the API's choice)
+    found = [
+        _reversal_reasons(project, built, graph, members, error, o) for o in _options(graph, mine)
+    ]
+    return problems + (found[0] if all(found) else [])
+
+
+def _options(graph: Graph, mine: Found) -> list[Found]:
+    """The definition's station and those tied with it (``Found.alternatives``)."""
+    out = [mine]
+    for pair, links in mine.alternatives:
+        inside = frozenset(v for link in links for v in graph.ends[link]) - pair
+        out.append(
+            dataclasses.replace(mine, pair=pair, inside=inside, links=links, alternatives=())
+        )
+    return out
+
+
+def _reversal_reasons(
+    project: Project,
+    built: BuiltNetwork,
+    graph: Graph,
+    members: Sequence[str],
+    error: NotAStationError,
+    mine: Found,
+) -> list[str]:
+    """(s5) for one station of the definition: the reversal and PRV/PSV reasons hold there."""
+    codes = {i.code for i in error.issues}
+    problems: list[str] = []
     a, b = sorted(mine.pair)
     view = View(s=a, d=b, inside=mine.inside, links=mine.links)
     st = structure(graph, view, members)
@@ -893,12 +1005,23 @@ def _structural_reasons(
     inside_kinds = ("FIXED_HEAD_INSIDE", "ASSIGNED_FLOW_INSIDE", "OTHER_PUMP_INSIDE")
     named_inside = {c for i in error.issues if i.code in inside_kinds for c in i.component_ids}
     if named_inside:
-        # the barriers these reasons name, lifted together, leave a station by structure
-        lifted = {v for v in range(len(graph.label)) if graph.component[v] in named_inside}
-        found = second_station(graph, members, lifted)
-        if isinstance(found, Skipped):
+        # the barriers these reasons name, lifted together, leave a station by structure; or,
+        # where several fixed heads are named ("one more place than a station has"), each of
+        # them lifted alone does (lifting them all can leave none)
+        def vertices(ids: Iterable[str]) -> set[int]:
+            return {v for v in range(len(graph.label)) if graph.component[v] in set(ids)}
+
+        heads = {c for i in error.issues if i.code == "FIXED_HEAD_INSIDE" for c in i.component_ids}
+        together = second_station(graph, members, vertices(named_inside))
+        stations: list[Found | Skipped | None] = [together]
+        if together is None and len(heads) > 1:
+            stations = [
+                second_station(graph, members, vertices((named_inside - heads) | {h}))
+                for h in sorted(heads)
+            ]
+        if any(isinstance(f, Skipped) for f in stations):
             counts["reason_unchecked"] += 1
-        elif found is None:
+        elif any(f is None for f in stations):
             problems.append(
                 f"(s6) {sorted(i.code for i in error.issues if i.code in inside_kinds)} name "
                 f"{sorted(named_inside)}, but with them lifted the definition gives no station"
@@ -914,10 +1037,9 @@ def _structural_reasons(
                 # each named valve lies inside a station some lift finds: all the named
                 # elements together, or one alone (lifting more can give a smaller station)
                 counts["pressure_control_beside_a_lift"] += 1
-                links = set(found.links)
+                links = {link for f in stations if isinstance(f, Found) for link in f.links}
                 for element in sorted(named_inside):
-                    alone = {v for v in range(len(graph.label)) if graph.component[v] == element}
-                    one = second_station(graph, members, alone)
+                    one = second_station(graph, members, vertices({element}))
                     if isinstance(one, Found):
                         links |= one.links
                 inside = {
@@ -950,8 +1072,17 @@ def _structural_reasons(
             if problem:
                 problems.append(f"(s6) DIFFERENT_BOUNDARIES names {issue.component_ids}: {problem}")
         elif issue.code == "NO_WAY_THROUGH":
-            pair = sorted({graph.component[v] for v in mine.pair}) if mine is not None else None
-            if mine is None or mine.live or sorted(named) != pair:
+            pairs = (
+                [sorted({graph.component[v] for v in o.pair}) for o in _options(graph, mine)]
+                if mine is not None
+                else []
+            )
+            pair = pairs[0] if pairs else None
+            if (
+                mine is None
+                or mine.live
+                or (sorted(named) not in pairs and not _a_dead_pair(graph, members, named))
+            ):
                 problems.append(
                     f"(s6) NO_WAY_THROUGH names {issue.component_ids}; the definition's pair: "
                     f"{pair} ({'live' if mine is not None and mine.live else 'dead or none'})"
@@ -961,6 +1092,28 @@ def _structural_reasons(
             if problem:
                 problems.append(f"(s6) NO_SEPARATING_PORTS at one place: {problem}")
     return problems
+
+
+def _a_dead_pair(graph: Graph, members: Sequence[str], named: set[str]) -> bool:
+    """Whether some pair of places of the components ``named`` is a station by the definition
+    whose members lie on no simple path between its places (any such dead pair names the
+    refusal: none of them passes a flow through the members)."""
+    starts = {v for m in members for v in graph.pump_ends[m]}
+    barriers = anchors(graph, members)
+    member_links = frozenset(graph.pump_link[m] for m in members)
+    ids = sorted(named)
+    if len(ids) != 2:
+        return False
+    first = [v for v in range(len(graph.label)) if graph.component[v] == ids[0]]
+    second = [v for v in range(len(graph.label)) if graph.component[v] == ids[1]]
+    for a in first:
+        for b in second:
+            if a == b or a in graph.centre or b in graph.centre:
+                continue
+            found = _evaluate(graph, frozenset((a, b)), starts, member_links, barriers)
+            if found is not None and not _on_a_way(graph, a, b, found[1], member_links):
+                return True
+    return False
 
 
 def _one_place(graph: Graph, members: Sequence[str], component: str) -> str:
@@ -1531,14 +1684,24 @@ def _grid(
 
     every = ways(st, view.s, view.d)
     forward_only = [w for w in every if all(f for _, f in w)]
+    ends = {m: (p, q) for m, p, q in st.edges}
+
+    def along(way: list[tuple[str, bool]]) -> float:
+        # the members passed forward, and those whose two ends lie in a part the way passes
+        at, parts = st.part[view.s], {st.part[view.s]}
+        for m, forward in way:
+            at = ends[m][1] if forward else ends[m][0]
+            parts.add(at)
+        beside = [m for m, p, q in st.edges if p == q and p in parts]
+        return sum(shutoff(m) for m, f in way if f) + sum(shutoff(m) for m in beside)
+
     highs = {
-        max(duty.head, max((sum(shutoff(m) for m, f in w if f) for w in ws), default=0.0))
-        for ws in (every, forward_only)
+        max(duty.head, max((along(w) for w in ws), default=0.0)) for ws in (every, forward_only)
     }
-    if not {m for w in every for m, f in w if f} >= set(curve.station.members):
-        # the ways from S's part to D's do not pass every member forward (S and D joined
-        # inside, or a bypass joins a member's ends): the API bounds the rise by every member's
-        # shutoff head added up
+    oriented = only_against(st, view.s, view.d) or only_against(st, view.d, view.s)
+    if not oriented:
+        # no member faces only one way (S and D joined inside): the API bounds the rise by
+        # every member's shutoff head added up
         highs.add(max(duty.head, sum(shutoff(m) for m in curve.station.members)))
     low = min(0.0, duty.head)
     if rng.min != low:

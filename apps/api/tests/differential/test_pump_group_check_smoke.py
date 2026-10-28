@@ -4,7 +4,8 @@ profile go through the same checks as ``python -m tests.differential.pump_group_
 none may break a rule but the known API defect listed in ``KNOWN_API_DEFECTS``. The selection
 must reach parallel, series and mixed stations and refusals, so that a check that compared
 nothing would fail here; the second finder is tested on hand-built networks (a closed loop with
-one expansion tank, a dead end, a reversed member, a PRV in a leg); and the checks must catch
+one expansion tank, a dead end, a reversed member, a PRV in a leg, pumps returning to the tank
+they draw from); and the checks must catch
 falsified results: a moved S, a wrong interior, a perturbed route loss, a reported loss that does
 not add up, a point's flow changed, a wrong arrangement, duty check and grid, and a refusal that
 names the wrong elements. The full corpus run is the command-line tool."""
@@ -44,6 +45,7 @@ from tests.differential.pump_group_check import (
     summarize,
     violations_of,
 )
+from tests.differential.pump_group_random import check_seed
 
 SMOKE = (
     [f"fuzz_{s}" for s in range(40)]
@@ -203,6 +205,220 @@ def prv_in_leg() -> dict[str, Any]:
     return data
 
 
+def _net(
+    reservoirs: dict[str, int],
+    pumps: dict[str, float],
+    pipes: list[tuple[str, str]],
+    tees: tuple[str, ...] = (),
+    valves: dict[str, str] | None = None,
+    plugs: tuple[str, ...] = (),
+    assigned: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    """A network of ``pumps_in_parallel``'s parts: reservoirs with that many nozzles (R1's level),
+    ideal tees, pumps of PA's curve at the given speeds, valves of the given types and plugs,
+    joined by LA1's piping; ``pipes`` as ("COMP.port", "COMP.port")."""
+    data = _fixture("pumps_in_parallel")
+    proto = {c["id"]: c for c in data["components"]}
+    pipe = _connection(data, "LA1")
+
+    def ports(*ids: str) -> list[dict[str, Any]]:
+        return [{"id": i, "nominalSize": 0.1016, "direction": "bidirectional"} for i in ids]
+
+    comps: list[dict[str, Any]] = []
+    for cid, n in reservoirs.items():
+        res = copy.deepcopy(proto["R1"])
+        res.update(id=cid, name=cid, ports=ports(*(f"port_{i + 1}" for i in range(n))))
+        comps.append(res)
+    for cid in tees:
+        tee = copy.deepcopy(proto["T1"])
+        tee.update(id=cid, name=cid, lossModel="ideal")
+        comps.append(tee)
+    for cid, speed in pumps.items():
+        pump = copy.deepcopy(proto["PA"])
+        pump.update(id=cid, name=cid, speed=speed)
+        comps.append(pump)
+    for cid, kind in (valves or {}).items():
+        valve: dict[str, Any] = {
+            "id": cid,
+            "name": cid,
+            "elevation": 0.5,
+            "ports": ports("inlet", "outlet"),
+            "type": "valve",
+            "valveType": kind,
+        }
+        if kind in ("prv", "psv"):
+            valve["setpoint"] = 2.0e5
+        comps.append(valve)
+    for cid in plugs:
+        comps.append(
+            {"id": cid, "name": cid, "elevation": 0.5, "type": "plug", "ports": ports("port_1")}
+        )
+    for cid, flow in (assigned or {}).items():
+        comps.append(
+            {
+                "id": cid,
+                "name": cid,
+                "elevation": 0.0,
+                "type": "assigned_flow",
+                "flow": flow,
+                "ports": ports("port_1"),
+            }
+        )
+    conns = []
+    for i, (a, b) in enumerate(pipes):
+        conn = copy.deepcopy(pipe)
+        (fa, fp), (ta, tp) = a.split("."), b.split(".")
+        conn.update(
+            id=f"C{i + 1}", fromComponentId=fa, fromPortId=fp, toComponentId=ta, toPortId=tp
+        )
+        conns.append(conn)
+    data["components"], data["connections"] = comps, conns
+    return data
+
+
+TWO = {"PA": 1.0, "PB": 0.85}
+TANK_LAYOUTS: dict[str, tuple[dict[str, Any], tuple[str, ...]]] = {
+    # pumps on a tank's nozzles delivering through a header back into it
+    "nozzles_into_a_header": (
+        _net(
+            {"R": 3},
+            TWO,
+            [
+                ("R.port_1", "PA.suction"),
+                ("R.port_2", "PB.suction"),
+                ("PA.discharge", "T2.run_inlet"),
+                ("PB.discharge", "T2.branch"),
+                ("T2.run_outlet", "R.port_3"),
+            ],
+            tees=("T2",),
+        ),
+        ("PA", "PB"),
+    ),
+    # a suction header from the tank, each pump back into a nozzle of its own
+    "a_header_into_nozzles": (
+        _net(
+            {"R": 3},
+            TWO,
+            [
+                ("R.port_1", "T1.run_inlet"),
+                ("T1.run_outlet", "PA.suction"),
+                ("T1.branch", "PB.suction"),
+                ("PA.discharge", "R.port_2"),
+                ("PB.discharge", "R.port_3"),
+            ],
+            tees=("T1",),
+        ),
+        ("PA", "PB"),
+    ),
+    # each pump from a nozzle into a nozzle of its own
+    "nozzle_to_nozzle": (
+        _net(
+            {"R": 4},
+            TWO,
+            [
+                ("R.port_1", "PA.suction"),
+                ("R.port_2", "PB.suction"),
+                ("PA.discharge", "R.port_3"),
+                ("PB.discharge", "R.port_4"),
+            ],
+        ),
+        ("PA", "PB"),
+    ),
+    # headers on both sides of the pumps, both on the tank: the tees are the places
+    "headers_on_one_tank": (
+        _net(
+            {"R": 2},
+            TWO,
+            [
+                ("R.port_1", "T1.run_inlet"),
+                ("T1.run_outlet", "PA.suction"),
+                ("T1.branch", "PB.suction"),
+                ("PA.discharge", "T2.run_inlet"),
+                ("PB.discharge", "T2.branch"),
+                ("T2.run_outlet", "R.port_2"),
+            ],
+            tees=("T1", "T2"),
+        ),
+        ("PA", "PB"),
+    ),
+    # PA with a check-valve bypass and PB beside it, both back into the tank through T3
+    "a_bypassed_booster": (
+        _net(
+            {"R": 3},
+            TWO,
+            [
+                ("R.port_1", "T1.run_inlet"),
+                ("T1.run_outlet", "PA.suction"),
+                ("PA.discharge", "T2.run_inlet"),
+                ("T1.branch", "CV.inlet"),
+                ("CV.outlet", "T2.branch"),
+                ("R.port_2", "PB.suction"),
+                ("PB.discharge", "T3.branch"),
+                ("T2.run_outlet", "T3.run_inlet"),
+                ("T3.run_outlet", "R.port_3"),
+            ],
+            tees=("T1", "T2", "T3"),
+            valves={"CV": "check"},
+        ),
+        ("PA", "PB"),
+    ),
+    # PB piped backwards between a nozzle and the header
+    "piped_against_each_other": (
+        _net(
+            {"R": 3},
+            TWO,
+            [
+                ("R.port_1", "PA.suction"),
+                ("R.port_2", "PB.discharge"),
+                ("PA.discharge", "T2.run_inlet"),
+                ("PB.suction", "T2.branch"),
+                ("T2.run_outlet", "R.port_3"),
+            ],
+            tees=("T2",),
+        ),
+        ("PA", "PB"),
+    ),
+    # three pumps on the tank, PC piped backwards
+    "a_minority_reversed": (
+        _net(
+            {"R": 4},
+            {"PA": 1.0, "PB": 0.85, "PC": 0.9},
+            [
+                ("R.port_1", "PA.suction"),
+                ("R.port_2", "PB.suction"),
+                ("R.port_3", "PC.discharge"),
+                ("PA.discharge", "T2.run_inlet"),
+                ("PB.discharge", "T2.branch"),
+                ("T2.run_outlet", "T3.run_inlet"),
+                ("PC.suction", "T3.branch"),
+                ("T3.run_outlet", "R.port_4"),
+            ],
+            tees=("T2", "T3"),
+        ),
+        ("PA", "PB", "PC"),
+    ),
+    # PA straight on the tank, PB through a tee whose branch is plugged, both back through T2
+    "one_pump_on_the_nozzles": (
+        _net(
+            {"R": 3},
+            TWO,
+            [
+                ("R.port_1", "PA.suction"),
+                ("PA.discharge", "T2.run_inlet"),
+                ("T2.run_outlet", "R.port_2"),
+                ("R.port_3", "T1.run_inlet"),
+                ("T1.run_outlet", "PB.suction"),
+                ("PB.discharge", "T2.branch"),
+                ("T1.branch", "X.port_1"),
+            ],
+            tees=("T1", "T2"),
+            plugs=("X",),
+        ),
+        ("PA", "PB"),
+    ),
+}
+
+
 @dataclasses.dataclass
 class Case:
     project: Project
@@ -284,6 +500,110 @@ def test_a_closed_loop_with_one_tank_is_a_station() -> None:
     assert found.loop
     assert _labels(case, found) == {"T1:run_inlet", "T2:run_outlet"}
     assert _group(case, ("PA", "PB"))["violations"] == []
+
+
+TANK_OUTCOMES: dict[str, tuple[str, ...] | list[tuple[str, list[str]]]] = {
+    "nozzles_into_a_header": ("R", "T2:run_outlet", "parallel"),
+    "a_header_into_nozzles": ("T1:run_inlet", "R", "parallel"),
+    "nozzle_to_nozzle": [("NO_SEPARATING_PORTS", ["PA", "PB"])],
+    "headers_on_one_tank": ("T1:run_inlet", "T2:run_outlet", "parallel"),
+    "a_bypassed_booster": [("NO_SEPARATING_PORTS", ["PB", "T1", "T3"])],
+    "piped_against_each_other": [("MEMBERS_OPPOSED", ["PA", "PB"])],
+    "a_minority_reversed": [("MEMBER_REVERSED", ["PC"])],
+    "one_pump_on_the_nozzles": ("R", "T2:run_outlet", "parallel"),
+}
+"""What ``find_station`` gives for each of ``TANK_LAYOUTS``: a station (S, D, arrangement) or the
+refusal's (code, ids). A tank taken whole is a place only where every member faces from one
+place to the other (or members face both ways, refused for that): in ``nozzle_to_nozzle`` and
+``a_bypassed_booster`` every pair with the tank has a member circulating through the tank, or
+none telling the places apart, so they are refused at the places the loop's search finds."""
+
+
+@pytest.mark.parametrize("name", sorted(TANK_LAYOUTS))
+def test_pumps_returning_to_their_tank(name: str) -> None:
+    """The layouts of a tank closing the members' loop (proposal §14) against the definition's
+    rule for a tank taken whole, the outcome pinned, and the whole group checked (curve too)."""
+    data, members = TANK_LAYOUTS[name]
+    case = _case(data)
+    assert case.state.converged
+    expected = TANK_OUTCOMES[name]
+    if isinstance(expected, list):
+        refusal = _refusal(case, list(members))
+        assert [(i.code, i.component_ids) for i in refusal.issues] == expected
+    else:
+        st = find_station(case.project, case.built, list(members))
+        ports = [
+            p.component_id if p.port_id is None else f"{p.component_id}:{p.port_id}"
+            for p in (st.inlet_port, st.outlet_port)
+        ]
+        assert (*ports, st.arrangement) == expected
+    record = _group(case, members)
+    assert record["violations"] == []
+
+
+def test_a_lift_that_leaves_a_station_find_station_accepts_explains() -> None:
+    """A random network of the review (seed 6049): lifting the other pumps P0 and P1 leaves a
+    station whose members do not tell its places apart but lie on a way between them, which
+    ``find_station`` accepts; it explains the refusal alone. (Requiring every member to face
+    one way skipped it, and lifting the assigned flow too then named A0 and the PSV V1, which
+    lie outside the station the definition gives.)"""
+    data = _net(
+        {"R0": 4, "R1": 1},
+        {"P0": 1.0, "P1": 1.0, "P2": 1.0, "P3": 1.0},
+        [
+            ("A0.port_1", "V1.outlet"),
+            ("P1.discharge", "T0.run_inlet"),
+            ("P1.suction", "T2.branch"),
+            ("P2.suction", "T2.run_outlet"),
+            ("T0.branch", "V0.outlet"),
+            ("P0.suction", "P2.discharge"),
+            ("V0.inlet", "T1.branch"),
+            ("T1.run_inlet", "V1.inlet"),
+            ("R0.port_3", "P0.discharge"),
+            ("R0.port_2", "R1.port_1"),
+            ("R0.port_1", "T2.run_inlet"),
+            ("R0.port_4", "P3.discharge"),
+            ("P3.suction", "T0.run_outlet"),
+            ("T1.run_outlet", "X1.port_1"),
+        ],
+        tees=("T0", "T1", "T2"),
+        valves={"V0": "check", "V1": "psv"},
+        plugs=("X1",),
+        assigned={"A0": 0.001},
+    )
+    project = Project.model_validate(data)
+    built = build_network(project, fluid_properties(project.fluid))
+    with pytest.raises(NotAStationError) as raised:
+        find_station(project, built, ["P2", "P3"])
+    assert [(i.code, i.component_ids) for i in raised.value.issues] == [
+        ("OTHER_PUMP_INSIDE", ["P0", "P1"])
+    ]
+    graph = graph_of(built)
+    assert (
+        refusal_problems(
+            project,
+            built,
+            graph,
+            ["P2", "P3"],
+            raised.value,
+            second_station(graph, ["P2", "P3"]),
+            Counter(),
+        )
+        == []
+    )
+
+
+def test_random_networks_break_no_rule() -> None:
+    """``pump_group_random``'s first 300 networks (the command-line tool runs as many as asked):
+    the station finder against the second finder, and the lift candidates against lifting every
+    boundary, with no violation; the selection reaches stations, the tank taken whole and every
+    kind of refusal."""
+    counts: Counter[str] = Counter()
+    violations = [v for seed in range(300) for v in check_seed(seed, counts)]
+    assert violations == []
+    assert counts["station"] >= 50
+    for code in ("NO_SEPARATING_PORTS", "NO_WAY_THROUGH", "MEMBERS_OPPOSED", "MEMBER_REVERSED"):
+        assert counts[f"code:{code}"] >= 5, (code, counts)
 
 
 def _refusal(case: Case, members: list[str]) -> NotAStationError:

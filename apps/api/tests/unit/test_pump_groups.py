@@ -180,8 +180,8 @@ def test_pumps_returning_to_their_own_tank_take_it_whole(header: bool) -> None:
 def test_a_bypassed_member_counts_in_the_default_range() -> None:
     """A booster with a check-valve bypass: R1 -> PA -> T1, T1's run through a check valve to
     T2, T1's branch through PB to T2, T2 -> R2. The check valve joins PB's two ends in one part,
-    so the ways through the parts pass PA only; PA then PB in series is still a way, so the
-    default range reaches the sum of both shutoff heads."""
+    so the one way through the parts passes PA only, but it passes PB's part, where PB's head
+    adds in series: the default range reaches the sum of both shutoff heads."""
     data = _series()
     for cid in ("T1", "T2"):
         data["components"].append(_tee(cid))
@@ -206,11 +206,46 @@ def test_a_bypassed_member_counts_in_the_default_range() -> None:
     built = build_network(project, fluid_properties(project.fluid))
     st = find_station(project, built, ["PA", "PB"])
     assert st.arrangement == "mixed"
-    assert {m for way in st.ways for m in way} == {"PA"}
+    assert st.ways == (("PA", "PB"),)
     shutoffs = [
         built.pumps[p].curve.shutoff_head(built.pumps[p].component.speed) for p in ("PA", "PB")
     ]
     assert pump_groups.default_head_max(built, st) == pytest.approx(sum(shutoffs), rel=1e-15)
+
+
+def test_the_default_range_adds_a_bypassed_member_along_its_way() -> None:
+    """PA and PB in parallel, then PC with a check-valve bypass: each way passes one of PA and
+    PB and then PC's part, so the default top is the larger of theirs plus PC's, not every
+    member's added up."""
+    data = _parallel()
+    pc = copy.deepcopy(_component(data, "PA"))
+    pc.update(id="PC", name="PC")
+    _split(data, "L2", _tee("T3"), "run_inlet", "run_outlet")
+    _split(data, "L2x", pc, "suction", "discharge")
+    _split(data, "L2xx", _tee("T4"), "run_inlet", "run_outlet")
+    data["components"].append(
+        {
+            "type": "valve",
+            "valveType": "check",
+            "id": "CV",
+            "name": "CV",
+            "elevation": 0.5,
+            "ports": _ports("inlet", "outlet"),
+        }
+    )
+    _pipe(data, "B1", ("T3", "branch"), ("CV", "inlet"))
+    _pipe(data, "B2", ("CV", "outlet"), ("T4", "branch"))
+    project = Project.model_validate(data)
+    built = build_network(project, fluid_properties(project.fluid))
+    st = find_station(project, built, ["PA", "PB", "PC"])
+    shut = {
+        p: built.pumps[p].curve.shutoff_head(built.pumps[p].component.speed)
+        for p in ("PA", "PB", "PC")
+    }
+    assert sorted(st.ways) == [("PA", "PC"), ("PB", "PC")]
+    top = pump_groups.default_head_max(built, st)
+    assert top == pytest.approx(max(shut["PA"], shut["PB"]) + shut["PC"], rel=1e-15)
+    assert top < sum(shut.values())
 
 
 def test_a_recirculation_bypass_inside_makes_the_station_mixed() -> None:

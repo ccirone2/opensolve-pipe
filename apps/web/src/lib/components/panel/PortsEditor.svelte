@@ -1,7 +1,8 @@
 <!--
 	The ports of a component: size (the default for new connections at the port), elevation where
 	it matters, what each is connected to, and a way into its piping. Reservoirs can add and
-	remove ports.
+	remove ports. A connected pipe of a project library spec (CLAUDE.md D21) is named by its spec,
+	and compared with the port by the spec's nominal size when it states one.
 -->
 <script lang="ts">
 	import type { Component, PipeConnection, PipeDefinition, Port } from '$lib/api/types';
@@ -12,6 +13,7 @@
 	import { componentName, npsLabel, portLabel, sameSize } from '$lib/utils/labels';
 	import { pipeAtPort } from '$lib/utils/orifice';
 	import { CUSTOM_MATERIAL_ID, updatePipe, withOptional } from '$lib/utils/piping';
+	import { pipeSpecOf } from '$lib/utils/project-library';
 	import { schemaBounds } from '$lib/utils/schema-bounds';
 	import { formatValue } from '$lib/utils/units';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
@@ -35,12 +37,28 @@
 		return pipeAtPort(connection, component.id, port.id);
 	}
 
-	/** "NPS 3", or "custom, 80 mm bore" for a custom pipe. */
+	/**
+	 * "NPS 3", "a custom pipe (inner diameter 80 mm)", or for a pipe of a project library spec
+	 * "pipe spec “NPS 60 STD” (NPS 60, inner diameter 1505 mm)".
+	 */
 	function pipeSize(pipe: PipeDefinition): string {
+		if (pipe.specId != null) {
+			const spec = pipeSpecOf(ws.project, pipe.specId);
+			if (!spec) return `pipe spec ${pipe.specId} (not in the project library)`;
+			const nps =
+				spec.nominalSize != null ? `${npsLabel(spec.nominalSize, ws.library.nominalSizes)}, ` : '';
+			return `pipe spec “${spec.name}” (${nps}inner diameter ${formatValue(spec.innerDiameter, 'diameter', ws.units)})`;
+		}
 		if (pipe.materialId === CUSTOM_MATERIAL_ID || pipe.nominalSize == null) {
 			return `a custom pipe (inner diameter ${formatValue(pipe.innerDiameter, 'diameter', ws.units)})`;
 		}
 		return npsLabel(pipe.nominalSize, ws.library.nominalSizes);
+	}
+
+	/** A pipe's nominal size: its own, or its spec's (none for a custom pipe or a spec without one). */
+	function nominalOf(pipe: PipeDefinition): number | null | undefined {
+		if (pipe.specId != null) return pipeSpecOf(ws.project, pipe.specId)?.nominalSize;
+		return pipe.materialId === CUSTOM_MATERIAL_ID ? null : pipe.nominalSize;
 	}
 
 	function resizePipe(connection: PipeConnection, index: number, nominalSize: number) {
@@ -60,11 +78,8 @@
 				? otherEnd(connection, { componentId: component.id, portId: port.id })
 				: undefined}
 			{@const attached = connection ? pipeAt(connection, port) : undefined}
-			{@const mismatch =
-				attached &&
-				attached.pipe.materialId !== CUSTOM_MATERIAL_ID &&
-				attached.pipe.nominalSize != null &&
-				!sameSize(attached.pipe.nominalSize, port.nominalSize)}
+			{@const nominal = attached ? nominalOf(attached.pipe) : null}
+			{@const mismatch = attached && nominal != null && !sameSize(nominal, port.nominalSize)}
 			<li class="card space-y-3 p-3">
 				<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
 					<span class="font-medium">{portLabel(port.id)}</span>
@@ -107,6 +122,7 @@
 				</div>
 				{#if connection && attached && mismatch}
 					{@const resizable =
+						attached.pipe.specId == null &&
 						ws.library.libraryStatus === 'ready' &&
 						!!ws.library.size(attached.pipe.materialId, attached.pipe.schedule, port.nominalSize)}
 					<div

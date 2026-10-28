@@ -108,7 +108,7 @@ export function scenarioProblems(
 		if (change.invalid) {
 			problems.push({
 				index: change.index,
-				text: 'a pipe specification has a material and optionally a schedule, a nominal size, an inner diameter and a roughness, and nothing else'
+				text: 'a pipe specification has a material and optionally a schedule, a nominal size, an inner diameter and a roughness, or a pipe spec of the project library alone, and nothing else'
 			});
 		}
 	}

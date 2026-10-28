@@ -19,7 +19,11 @@
  *   target schema, with the schema that bounds each number and its search scale),
  *   `x-goal-quantities` (the results a goal may name, with their default-tolerance rules) and
  *   `x-goal-seek-rules` (the request's list rules), and `x-ordered-fields` on each goal-seek
- *   variable schema (its lower bound below its upper), PRD §3.9.
+ *   variable schema (its lower bound below its upper), PRD §3.9;
+ * - on `PipeDefinition` and `Fitting`, `x-reference-fields` (a field that refers to a project
+ *   library entry, the fields the entry stands in for and those required without it), and on
+ *   `PipeSpec` and `ResistanceSpec`, `x-fields-by-value` (the fields one field's value requires or
+ *   forbids) and `x-ordered-fields` (a spec's inner diameter below its outer), CLAUDE.md D21.
  *
  * The rest is what the schema states anyway: which schema a component is validated against (the
  * members of the `Project.components` union, by type refined by branchType or valveType, as the
@@ -429,10 +433,186 @@ export const ENTRANCE_TYPES: ReadonlySet<FittingType> = fittingTypes('x-entrance
 /** Fittings for the loss where flow leaves a pipe into a body of liquid (`x-exit-types`). */
 export const EXIT_TYPES: ReadonlySet<FittingType> = fittingTypes('x-exit-types');
 
-/** The fields of `fitting` its type requires that it does not have. */
+/**
+ * The fields of `fitting` its type requires that it does not have. A reference to a project
+ * library entry (`x-reference-fields`: a resistanceId) meets the need for the fields it stands in
+ * for (a custom fitting's kOverride).
+ */
 export function missingFittingParameters(fitting: Fitting): FittingParameter[] {
-	return (FITTING_PARAMETERS[fitting.type] ?? []).filter((f) => fitting[f] == null);
+	const given = referencedFields(fitting, FITTING_REFERENCES);
+	return (FITTING_PARAMETERS[fitting.type] ?? []).filter(
+		(f) => fitting[f] == null && !given.has(f)
+	);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Project library references and entries (CLAUDE.md D21)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * A field that refers to an entry of the project library (`x-reference-fields`): with it given,
+ * none of `replaces` may be given, and it meets any rule that requires one of them
+ * (`x-required-parameters`); without it, `requiredWithout` are required.
+ */
+export interface ReferenceField {
+	replaces: readonly string[];
+	requiredWithout: readonly string[];
+}
+
+/** The reference fields a schema publishes (`x-reference-fields`), by field; none when absent. */
+export function referenceFields(schemaName: string): Readonly<Record<string, ReferenceField>> {
+	const published = schema(schemaName)['x-reference-fields'];
+	if (published === undefined) return {};
+	if (!isRecord(published)) throw new Error(`openapi.json: ${schemaName} x-reference-fields`);
+	const properties = schema(schemaName).properties;
+	const known = (field: string) => isRecord(properties) && field in properties;
+	const fields: Record<string, ReferenceField> = {};
+	for (const [name, entry] of Object.entries(published)) {
+		const where = `${schemaName} x-reference-fields.${name}`;
+		if (!isRecord(entry) || !known(name)) throw new Error(`openapi.json: ${where}`);
+		const replaces = stringList(entry.replaces, `${where}.replaces`);
+		const requiredWithout = stringList(entry.requiredWithout, `${where}.requiredWithout`);
+		for (const field of [...replaces, ...requiredWithout]) {
+			if (!known(field)) throw new Error(`openapi.json: ${where} names "${field}"`);
+		}
+		fields[name] = { replaces, requiredWithout };
+	}
+	return fields;
+}
+
+/** A pipe's reference to a pipe spec of the project library (specId, `x-reference-fields`). */
+export const PIPE_REFERENCES = referenceFields('PipeDefinition');
+/** A fitting's reference to a resistance entry of the project library (resistanceId). */
+export const FITTING_REFERENCES = referenceFields('Fitting');
+
+/** The fields the references `value` holds stand in for (a resistanceId: kOverride). */
+export function referencedFields(
+	value: object,
+	references: Readonly<Record<string, ReferenceField>>
+): Set<string> {
+	const record = value as JsonObject;
+	const fields = new Set<string>();
+	for (const [name, ref] of Object.entries(references)) {
+		if (record[name] != null) for (const f of ref.replaces) fields.add(f);
+	}
+	return fields;
+}
+
+/**
+ * What `value` breaks of its references' rules (`x-reference-fields`), by reference field: the
+ * fields given beside a reference (`given`), and those missing without it (`missing`); none when
+ * it keeps them. Null counts as absent, as the API's.
+ */
+export function referenceViolations(
+	value: object,
+	references: Readonly<Record<string, ReferenceField>>
+): { reference: string; given: string[]; missing: string[] }[] {
+	const record = value as JsonObject;
+	const found: { reference: string; given: string[]; missing: string[] }[] = [];
+	for (const [name, ref] of Object.entries(references)) {
+		const given = record[name] != null ? ref.replaces.filter((f) => record[f] != null) : [];
+		const missing =
+			record[name] == null ? ref.requiredWithout.filter((f) => record[f] == null) : [];
+		if (given.length || missing.length) found.push({ reference: name, given, missing });
+	}
+	return found;
+}
+
+/**
+ * The fields one field's value requires (given, not null) and forbids (absent or null), published
+ * as `x-fields-by-value`: a value not listed adds no rule.
+ */
+export interface FieldsByValue {
+	field: string;
+	required: Readonly<Record<string, readonly string[]>>;
+	forbidden: Readonly<Record<string, readonly string[]>>;
+}
+
+function fieldLists(value: unknown, where: string): Record<string, string[]> {
+	if (!isRecord(value)) throw new Error(`openapi.json: ${where}`);
+	const lists: Record<string, string[]> = {};
+	for (const [key, fields] of Object.entries(value))
+		lists[key] = stringList(fields, `${where}.${key}`);
+	return lists;
+}
+
+/** The rule a schema publishes as `x-fields-by-value`, or null when it publishes none. */
+export function fieldsByValue(schemaName: string): FieldsByValue | null {
+	const published = schema(schemaName)['x-fields-by-value'];
+	if (published === undefined) return null;
+	const where = `${schemaName} x-fields-by-value`;
+	if (!isRecord(published) || typeof published.field !== 'string') {
+		throw new Error(`openapi.json: ${where}`);
+	}
+	return {
+		field: published.field,
+		required: fieldLists(published.required, `${where}.required`),
+		forbidden: fieldLists(published.forbidden, `${where}.forbidden`)
+	};
+}
+
+/**
+ * What `value` breaks of the `x-fields-by-value` rule of schema `schemaName`: the fields its
+ * deciding field's value requires that it lacks (`missing`), and those it forbids that it has
+ * (`extra`); both empty when it keeps the rule, or the schema has none.
+ */
+export function byValueViolations(
+	value: object,
+	schemaName: string
+): { field: string; value: string; missing: string[]; extra: string[] } {
+	const rule = fieldsByValue(schemaName);
+	const record = value as JsonObject;
+	const key = rule ? record[rule.field] : undefined;
+	if (!rule || typeof key !== 'string')
+		return { field: rule?.field ?? '', value: '', missing: [], extra: [] };
+	return {
+		field: rule.field,
+		value: key,
+		missing: (rule.required[key] ?? []).filter((f) => record[f] == null),
+		extra: (rule.forbidden[key] ?? []).filter((f) => record[f] != null)
+	};
+}
+
+/** The ordered pairs (`x-ordered-fields`) of schema `schemaName` whose values `value` breaks. */
+export function schemaOrderViolations(value: unknown, schemaName: string): OrderedFields[] {
+	return schemaOrderedFields(schemaName).filter((pair) => {
+		const lower = fieldValue(value, pair.lower);
+		const upper = fieldValue(value, pair.upper);
+		if (lower === null || upper === null) return false;
+		return pair.strict ? !(lower < upper) : !(lower <= upper);
+	});
+}
+
+/**
+ * The schemas of a valve's resistance union (a coefficient as entered, or a reference to a
+ * resistance entry), by each `kind` a member allows (its const or enum), read from the members of
+ * `IsolationValve.resistance` (the three valve schemas share it).
+ */
+const RESISTANCE_SCHEMAS: ReadonlyMap<unknown, string> = (() => {
+	const resistance = property('IsolationValve', 'resistance');
+	const branches = Array.isArray(resistance.anyOf) ? resistance.anyOf : [resistance];
+	const union = branches.find((b): b is JsonObject => isRecord(b) && Array.isArray(b.oneOf));
+	if (!union) throw new Error('openapi.json: IsolationValve.resistance is not a union');
+	return new Map(
+		unionMembers(union).flatMap((name) => {
+			const kind = property(name, 'kind');
+			const kinds = Array.isArray(kind.enum) ? kind.enum : [kind.const];
+			return kinds.map((k): [unknown, string] => [k, name]);
+		})
+	);
+})();
+
+/** The schema a valve's resistance is validated against, by its kind; null when none matches. */
+export function resistanceSchemaName(kind: unknown): string | null {
+	return RESISTANCE_SCHEMAS.get(kind) ?? null;
+}
+
+/** The kind of a valve resistance that refers to a resistance entry ('library'), from the schema. */
+export const LIBRARY_RESISTANCE_KIND: string = (() => {
+	const kind = property('ResistanceRef', 'kind').const;
+	if (typeof kind !== 'string') throw new Error('openapi.json: ResistanceRef.kind has no const');
+	return kind;
+})();
 
 // ---------------------------------------------------------------------------------------------
 // Scenario overrides

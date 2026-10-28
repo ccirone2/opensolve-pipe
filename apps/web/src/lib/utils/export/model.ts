@@ -27,6 +27,7 @@ import {
 	elementTables,
 	designChecksTable,
 	flagsTable,
+	projectLibraryTable,
 	scenarioChangesTable,
 	traceTable
 } from './tables';
@@ -175,7 +176,14 @@ function sheetsOf(ctx: ExportContext): SheetSpec[] {
 	if (checks.rowCount > 0) before.push(checks);
 	const compare = compareSheet(ctx);
 	if (compare) before.push(compare);
-	const after = [scenarioChangesTable(ctx), goalSeekSheet(ctx), methodsSheet(ctx), traceTable(ctx)];
+	const after = [
+		// The project library (D21), only in a file with one: a file without one is as before.
+		projectLibraryTable(ctx),
+		scenarioChangesTable(ctx),
+		goalSeekSheet(ctx),
+		methodsSheet(ctx),
+		traceTable(ctx)
+	];
 	return [
 		...before,
 		...tables.filter((t) => t.rowCount > 0),

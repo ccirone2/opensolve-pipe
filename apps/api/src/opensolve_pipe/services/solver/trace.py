@@ -53,6 +53,7 @@ from ...models.components import (
 )
 from ...models.fluids import BuiltinFluid, FluidProperties
 from ...models.piping import ENTRANCE_TYPES, EXIT_TYPES, REDUCER_TYPES
+from ...models.project_library import ResistanceRef
 from ...models.results import (
     BoundaryResult,
     BranchResult,
@@ -133,6 +134,13 @@ from .orifice import (
     k_of_c,
     rhg_terms_at,
     s_of_c,
+)
+from .project_library import (
+    ENTERED_UNITS,
+    EntryK,
+    entered_text,
+    provenance,
+    resistance_label,
 )
 from .pumps import speed_derivative_factor
 from .status import HTOL, QTOL, OuterLoopResult, Status, active_state, open_loss
@@ -536,6 +544,9 @@ def _connection_trace(ctx: TraceInputs, data: ConnectionData) -> ElementTrace:
     materials = load_pipe_materials()
     for i, (pipe, defn) in enumerate(zip(data.pipes, conn.piping.pipes, strict=True)):
         label = pipe_label(i)
+        spec = pipe.spec  # a project library pipe spec (CLAUDE.md D21), or None
+        if spec is not None:
+            t.input(f"{label} pipe spec", f'"{spec.name}" ({spec.id})', NO_UNIT, "user")
         material = materials.get(pipe.material_id)
         t.input(
             f"{label} material",
@@ -545,8 +556,9 @@ def _connection_trace(ctx: TraceInputs, data: ConnectionData) -> ElementTrace:
         )
         if pipe.schedule is not None:
             t.input(f"{label} schedule", pipe.schedule, NO_UNIT, "user")
-        if defn.nominal_size is not None:
-            t.input(f"{label} nominal diameter", defn.nominal_size, M, "user")
+        nominal = spec.nominal_size if spec is not None else defn.nominal_size
+        if nominal is not None:
+            t.input(f"{label} nominal diameter", nominal, M, "user")
         if pipe.nps is not None:
             t.input(f"{label} NPS (library size)", pipe.nps, NO_UNIT, "library")
         t.input(f"{label} length L", pipe.length, M, "user")
@@ -556,13 +568,18 @@ def _connection_trace(ctx: TraceInputs, data: ConnectionData) -> ElementTrace:
             f"{label} inner diameter D", pipe.inner_diameter, M, "user" if user_d else "library"
         )
         t.input(f"{label} roughness ε", pipe.roughness, M, "user" if user_e else "library")
-        t.data(f"{label} inner diameter", "user value" if user_d else pipe.diameter_source)
+        # A spec's values are user data, labelled with the spec and its source (proposal
+        # project-library.md §4.1); a roughness it leaves blank is the material's cited one.
+        given = provenance(spec) if spec is not None else "user value"
+        t.data(f"{label} inner diameter", given if user_d else pipe.diameter_source)
         t.data(
             f"{label} roughness",
-            "user value"
+            given
             if user_e
             else pipe.roughness_source + (f". {material.notes}" if material is not None else ""),
         )
+        if spec is not None:
+            t.note(f"{label}: {provenance(spec)}")
 
     q = float(ctx.flows[data.link_index])
     crane_fittings = False
@@ -576,7 +593,9 @@ def _connection_trace(ctx: TraceInputs, data: ConnectionData) -> ElementTrace:
             NO_UNIT,
             _given(fdef, "pipe_index"),
         )
-        if fdef.k_override is not None:
+        if fit.entry is not None:
+            _entry_inputs(t, fit.entry, label)
+        elif fdef.k_override is not None:
             t.input(f"{label} K (user)", fdef.k_override, NO_UNIT, "user")
         if fdef.angle is not None:
             t.input(f"{label} angle", fdef.angle, DEG, "user")
@@ -587,7 +606,9 @@ def _connection_trace(ctx: TraceInputs, data: ConnectionData) -> ElementTrace:
                     "rc = radiusRatio · D: the entrance's rounding radius (D: the inner diameter "
                     "of the fitting's reference segment)"
                 )
-        if fit.user_k:
+        if fit.entry is not None:
+            _entry_text(t, fit.entry, label, "the inner diameter of the fitting's pipe")
+        elif fit.user_k:
             t.correlation(f"{label}: K as entered", "user value (kOverride)")
         else:
             t.correlation(f"{label}: K = {fit.correlation(q)}", fit.source)
@@ -1610,37 +1631,76 @@ def _control_rule_values(
     return f"CLOSED: {why}, so it stays closed (EPANET 2.2 psvstatus)"
 
 
+def _flow_coefficient_text(t: _Trace, kind: str, bore: str) -> None:
+    """A Cv's or Kv's conversion to K on bore ``bore`` (its symbol: 'D_ref' for a valve)."""
+    t.equation(
+        f"K = 1.6·10⁹ {bore}⁴/Kv² with {bore} in m (Kv: m³/h of water at 1 bar)"
+        + ("; Kv = Cv/1.1560992283536566 (Cv: US gpm of water at 1 psi)" if kind == "Cv" else "")
+    )
+    t.correlation(f"fluids.fittings.{kind}_to_K({kind}, {bore})", f"{ISA_75} Via fluids 1.3.1.")
+    t.note(
+        f"{kind} → K uses the turbulent-flow valve equation (ISA-75.01.01) without the Reynolds "
+        "number factor F_R, which needs valve data not entered here."
+    )
+
+
+def _entry_inputs(t: _Trace, use: EntryK, label: str) -> None:
+    """A project library resistance entry's values as entered (CLAUDE.md D21): user data."""
+    entry = use.entry
+    t.input(
+        f"{label} {entry.kind} (project library, as entered)",
+        entry.value,
+        ENTERED_UNITS[entry.kind],
+        "user",
+    )
+    if entry.reference_diameter is not None:
+        t.input(f"{label} K stated at bore d₀", entry.reference_diameter, M, "user")
+
+
+def _entry_text(t: _Trace, use: EntryK, label: str, bore: str, symbol: str = "D") -> None:
+    """How an element's K follows from its project library entry (proposal project-library.md
+    §4.1): the conversion, the entry and its source. ``bore`` says what D is."""
+    entry = use.entry
+    if entry.kind == "K":
+        t.equation(
+            f"K = K₀ ({symbol}/d₀)⁴ ({symbol}: {bore}): the entry's K₀, stated at bore d₀, on "
+            f"{symbol}, the same head loss K₀ (Q/A₀)²/(2g) at a given flow (A₀ = π d₀²/4)"
+        )
+        t.correlation(
+            f"{label}: K = K₀ ({symbol}/d₀)⁴ from the project library",
+            "Same head loss at a given flow on either bore (proposal project-library.md §3.3; "
+            "the scaling of fluids.fittings.Cv_to_K)",
+        )
+    else:
+        _flow_coefficient_text(t, entry.kind, symbol)
+    t.data(f"{label} {entry.kind}", provenance(entry))
+    t.note(f"{label}: {provenance(entry)}")
+    t.note(f"{label}: {entered_text(entry)}, {resistance_label(entry)}; {use.how}.")
+
+
 def _resistance(t: _Trace, data: ValveData) -> None:
-    """The valve's fully open K: as entered, converted from Cv / Kv, a Crane default, or an
-    ideal control valve."""
+    """The valve's fully open K: as entered, from a project library entry, converted from Cv /
+    Kv, a Crane default, or an ideal control valve."""
     valve = data.component
     resistance = data.resistance
     entered = valve.resistance
-    if entered is not None:
-        units = {"K": NO_UNIT, "Cv": "US gpm/psi^0.5", "Kv": "m³/h/bar^0.5"}
+    if resistance.entry is not None:
+        _entry_inputs(t, resistance.entry, "Resistance")
+        _entry_text(
+            t, resistance.entry, "Resistance", "the inlet pipe's inner diameter", symbol="D_ref"
+        )
+    elif entered is not None:
+        assert not isinstance(entered, ResistanceRef)  # resolved: resistance.entry
         t.input(
-            f"Resistance {entered.kind} (as entered)", entered.value, units[entered.kind], "user"
+            f"Resistance {entered.kind} (as entered)",
+            entered.value,
+            ENTERED_UNITS[entered.kind],
+            "user",
         )
         if entered.kind == "K":
             t.equation("K: as entered, on the reference diameter")
         else:
-            t.equation(
-                "K = 1.6·10⁹ D_ref⁴/Kv² with D_ref in m (Kv: m³/h of water at 1 bar)"
-                + (
-                    "; Kv = Cv/1.1560992283536566 (Cv: US gpm of water at 1 psi)"
-                    if entered.kind == "Cv"
-                    else ""
-                )
-            )
-            t.correlation(
-                f"fluids.fittings.{entered.kind}_to_K({entered.kind}, D_ref)",
-                f"{ISA_75} Via fluids 1.3.1.",
-            )
-            t.note(
-                f"{entered.kind} → K uses the turbulent-flow valve equation (ISA-75.01.01) "
-                "without the Reynolds number factor F_R, which needs valve data not entered "
-                "here."
-            )
+            _flow_coefficient_text(t, entered.kind, "D_ref")
     elif isinstance(valve, ControlValve):
         t.input("Resistance", "none: ideal control valve", NO_UNIT, "default")
         t.equation("K = 0 when fully open (an ideal control valve)")

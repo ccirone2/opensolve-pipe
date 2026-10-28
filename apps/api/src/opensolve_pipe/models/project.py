@@ -9,6 +9,7 @@ from .components import Component
 from .design_checks import DesignChecks
 from .fluids import FluidDefinition
 from .piping import PipeConnection
+from .project_library import MAX_LIBRARY_ENTRIES, PipeSpec, ResistanceSpec, duplicate_entry_ids
 from .pumps import PumpCurve
 from .scenarios import MAX_SCENARIOS, Scenario, duplicate_scenario_ids
 
@@ -110,6 +111,27 @@ class Project(CamelModel):
     components: list[Component] = Field(max_length=1000)
     connections: list[PipeConnection] = Field(max_length=2000)
     pump_library: list[PumpCurve] = Field(max_length=200)
+    pipe_library: list[PipeSpec] = Field(
+        default_factory=list,
+        max_length=MAX_LIBRARY_ENTRIES,
+        # Left out of every dump when empty, as scenarios: a project without a library
+        # serializes exactly as before (CLAUDE.md D21).
+        exclude_if=lambda specs: not specs,
+        description=(
+            "Pipe specs the user defines once, each with its source, and refers to from pipe "
+            "segments (specId). Omitted when there are none"
+        ),
+    )
+    resistance_library: list[ResistanceSpec] = Field(
+        default_factory=list,
+        max_length=MAX_LIBRARY_ENTRIES,
+        exclude_if=lambda entries: not entries,
+        description=(
+            "Loss coefficients (K at a stated bore, Cv or Kv) the user defines once, each with "
+            "its source, and refers to from valves (resistance {kind: 'library', id}) and "
+            "fittings (resistanceId). Omitted when there are none"
+        ),
+    )
     scenarios: list[Scenario] = Field(
         default_factory=list,
         max_length=MAX_SCENARIOS,
@@ -129,3 +151,19 @@ class Project(CamelModel):
         if problems:
             raise ValueError("; ".join(problems))
         return scenarios
+
+    @field_validator("pipe_library")
+    @classmethod
+    def _check_pipe_spec_ids(cls, specs: list[PipeSpec]) -> list[PipeSpec]:
+        problems = duplicate_entry_ids(specs, "pipe specs")
+        if problems:
+            raise ValueError("; ".join(problems))
+        return specs
+
+    @field_validator("resistance_library")
+    @classmethod
+    def _check_resistance_ids(cls, entries: list[ResistanceSpec]) -> list[ResistanceSpec]:
+        problems = duplicate_entry_ids(entries, "resistance entries")
+        if problems:
+            raise ValueError("; ".join(problems))
+        return entries

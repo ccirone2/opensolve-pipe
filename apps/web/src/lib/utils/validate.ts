@@ -7,30 +7,49 @@
  *   an existing component and port, at most one connection per port.
  * - modelRuleProblems: rules the API models enforce in validators, which JSON Schema cannot
  *   express (port ids per component type, pipe size source, fitting parameters, increasing
- *   curve flows, ordered fields such as a pump's minimum speed below its maximum, ...), plus
- *   pump-curve references and ids shared by a component and a connection. The rules are read
- *   from the schema's extensions (model-rules.ts), never copied.
+ *   curve flows, ordered fields such as a pump's minimum speed below its maximum, a project
+ *   library entry's fields by its kind or material, a reference beside the values it stands in
+ *   for, ...), plus pump-curve and project library references (CLAUDE.md D21) and ids shared by a
+ *   component and a connection. The rules are read from the schema's extensions (model-rules.ts),
+ *   never copied.
  *   A project that breaks only these still opens; the solver reports them too.
  *
  * Every problem is a human-readable sentence that names where it is.
  */
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 import openapi from '../api/openapi.json';
-import type { PipeConnection, Project, UnitPreferences } from '../api/types';
+import type {
+	PipeConnection,
+	PipeSpec,
+	Project,
+	ResistanceSpec,
+	UnitPreferences
+} from '../api/types';
 import { componentName, fieldLabel, fittingFallbackName, portLabel } from './labels';
 import {
 	componentSchemaName,
+	FITTING_REFERENCES,
 	fluidSchemaName,
 	missingFittingParameters,
 	overrideSchemaName,
 	orderViolations,
+	PIPE_REFERENCES,
 	ratingSchemaName,
 	REDUCER_TYPES,
+	referenceViolations,
 	requiredPortCount,
 	requiredPortIds,
+	resistanceSchemaName,
 	schemaExtensions,
 	setpointBounds
 } from './model-rules';
+import {
+	isResistanceRef,
+	pipeSpecRuleProblems,
+	pipeSpecs,
+	resistanceEntries,
+	resistanceSpecRuleProblems
+} from './project-library';
 import { overlappingChanges } from './scenarios';
 import { formatValue, SI_UNITS } from './units';
 
@@ -78,17 +97,23 @@ function validatorFor(name: string): ValidateFunction {
 // Schema problems
 // ---------------------------------------------------------------------------------------------
 
+/** Whether a JSON pointer is at a valve's resistance (a union told apart by its kind). */
+function atResistance(pointer: string): boolean {
+	return pointer.endsWith('/resistance');
+}
+
 /**
  * The schema a oneOf member is meant to match, from its tag (component type refined by
- * branchType or valveType; fluid kind; an equipment rating's kind, which no fluid kind shares),
- * read from the schema's unions (model-rules.ts) as the
- * API's discriminators pick it, so problems are reported against the intended schema instead of
- * every alternative.
+ * branchType or valveType; fluid kind; an equipment rating's kind, which no fluid kind shares; a
+ * valve resistance's kind, at `pointer` '…/resistance', whose Cv and Kv a rating shares), read
+ * from the schema's unions (model-rules.ts) as the API's discriminators pick it, so problems are
+ * reported against the intended schema instead of every alternative.
  */
-function taggedSchema(value: unknown): string | null {
+function taggedSchema(value: unknown, pointer: string): string | null {
 	if (!isRecord(value)) return null;
 	// A scenario change: kind and field (a fluid has a kind and no field).
 	if ('kind' in value && 'field' in value) return overrideSchemaName(value.kind);
+	if ('kind' in value && atResistance(pointer)) return resistanceSchemaName(value.kind);
 	if ('kind' in value && !('type' in value))
 		return fluidSchemaName(value.kind) ?? ratingSchemaName(value.kind);
 	return componentSchemaName(value);
@@ -174,14 +199,19 @@ function collect(
 
 	for (const path of new Set(oneOfPaths)) {
 		const member = valueAt(value, path);
-		const name = taggedSchema(member);
 		const pointer = base + path;
+		const name = taggedSchema(member, pointer);
 		const where = describePath(root, pointer);
 		if (name) problems.push(...collect(validatorFor(name), member, root, pointer));
 		else if (isRecord(member) && 'type' in member)
 			problems.push({
 				pointer,
 				text: `${where}: unknown component type (or branchType / valveType)`
+			});
+		else if (isRecord(member) && 'kind' in member && atResistance(pointer))
+			problems.push({
+				pointer,
+				text: `${where}: unknown resistance kind ${JSON.stringify(member.kind)} ('K', 'Cv' or 'Kv' as entered, or 'library': a project library entry)`
 			});
 		else if (isRecord(member) && 'kind' in member && pointer.endsWith('/rating'))
 			problems.push({
@@ -228,6 +258,22 @@ export function schemaIssues(value: unknown): SchemaIssue[] {
 /** Problems found by checking `value` against the API's `Project` JSON schema. */
 export function schemaProblems(value: unknown): string[] {
 	return schemaIssues(value).map((issue) => issue.text);
+}
+
+/**
+ * Problems of a project library pipe spec as a form holds it (CLAUDE.md D21): the `PipeSpec`
+ * schema's (required fields, bounds, the source's length), then the model rules it breaks
+ * (project-library.ts pipeSpecRuleProblems); none for a spec the API accepts.
+ */
+export function pipeSpecProblems(value: unknown): string[] {
+	const schema = collect(validatorFor('PipeSpec'), value, value, '').map((i) => i.text);
+	return schema.length ? schema : pipeSpecRuleProblems(value as PipeSpec);
+}
+
+/** Problems of a project library resistance entry as a form holds it (as pipeSpecProblems). */
+export function resistanceSpecProblems(value: unknown): string[] {
+	const schema = collect(validatorFor('ResistanceSpec'), value, value, '').map((i) => i.text);
+	return schema.length ? schema : resistanceSpecRuleProblems(value as ResistanceSpec);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -345,6 +391,23 @@ export function referenceProblems(project: Project): string[] {
 		}
 	}
 	problems.push(...scenarioStructureProblems(project));
+	problems.push(...libraryStructureProblems(project));
+	return problems;
+}
+
+/**
+ * The project library's ids (CLAUDE.md D21): unique within each list, as the API checks on every
+ * request (400). The lists are namespaces of their own there (every reference names its list);
+ * the app's edits keep them apart from every other id too (factory.usedIds).
+ */
+function libraryStructureProblems(project: Project): string[] {
+	const problems: string[] = [];
+	for (const id of duplicates(pipeSpecs(project).map((s) => s.id))) {
+		problems.push(`Pipe spec id "${id}" is used more than once.`);
+	}
+	for (const id of duplicates(resistanceEntries(project).map((e) => e.id))) {
+		problems.push(`Resistance entry id "${id}" is used more than once.`);
+	}
 	return problems;
 }
 
@@ -394,6 +457,30 @@ export interface ModelRuleIssue {
 	pipeIndex?: number;
 }
 
+/** A pipe's or fitting's fields in a sentence, with their article ("a material"). */
+const PIPE_FIELD_WORDS: Readonly<Record<string, readonly [string, string]>> = {
+	materialId: ['a', 'material'],
+	schedule: ['a', 'schedule'],
+	nominalSize: ['a', 'nominal size'],
+	innerDiameter: ['an', 'inner diameter'],
+	roughness: ['a', 'roughness'],
+	kOverride: ['a', 'K value']
+};
+
+/**
+ * "materialId and innerDiameter" (`as` 'ids'), "a material and an inner diameter" ('words'), or
+ * "material and inner diameter" ('bare').
+ */
+function fieldList(fields: readonly string[], as: 'ids' | 'words' | 'bare' = 'words'): string {
+	const list = fields.map((f) => {
+		const [article, word] = PIPE_FIELD_WORDS[f] ?? ['', f];
+		return as === 'ids' ? f : as === 'bare' || !article ? word : `${article} ${word}`;
+	});
+	return list.length < 2
+		? (list[0] ?? '')
+		: `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+}
+
 function pipingIssues(project: Project, connection: PipeConnection): ModelRuleIssue[] {
 	const issues: ModelRuleIssue[] = [];
 	const where = `Connection "${connection.id}"`;
@@ -403,10 +490,47 @@ function pipingIssues(project: Project, connection: PipeConnection): ModelRuleIs
 		portId: connection.fromPortId,
 		connectionId: connection.id
 	};
-	const add = (text: string, message: string, pipeIndex?: number) =>
-		issues.push({ text, message, ...at, ...(pipeIndex === undefined ? {} : { pipeIndex }) });
+	const add = (text: string, message: string, pipeIndex?: number, code?: string) =>
+		issues.push({
+			text,
+			message,
+			...(code === undefined ? {} : { code }),
+			...at,
+			...(pipeIndex === undefined ? {} : { pipeIndex })
+		});
+	const specIds = new Set(pipeSpecs(project).map((s) => s.id));
+	const entryIds = new Set(resistanceEntries(project).map((e) => e.id));
 	const { pipes, fittings } = connection.piping;
 	pipes.forEach((pipe, i) => {
+		// A reference to a project library spec (x-reference-fields): only the length beside it.
+		for (const v of referenceViolations(pipe, PIPE_REFERENCES)) {
+			if (v.given.length) {
+				add(
+					`${where}, pipe ${i + 1}: ${fieldList(v.given, 'ids')} cannot be given with ${v.reference}: the project library entry gives them.`,
+					`${named}, pipe ${i + 1}: a pipe of a project library spec takes no ${fieldList(v.given, 'bare')} of its own: the spec gives them.`,
+					i
+				);
+			}
+			if (v.missing.length) {
+				add(
+					`${where}, pipe ${i + 1}: ${fieldList(v.missing, 'ids')} is required without ${v.reference}.`,
+					`${named}, pipe ${i + 1}: a pipe needs ${fieldList(v.missing)}, or a pipe spec of the project library.`,
+					i
+				);
+			}
+		}
+		if (pipe.specId != null) {
+			if (!specIds.has(pipe.specId)) {
+				add(
+					`${where}, pipe ${i + 1} refers to pipe spec "${pipe.specId}", which is not in the project library.`,
+					`${named}, pipe ${i + 1} refers to a pipe spec the project library does not have (“${pipe.specId}”): choose a spec from the library, or give the pipe its own size.`,
+					i,
+					'UNKNOWN_PIPE_SPEC'
+				);
+			}
+			return;
+		}
+		if (pipe.materialId == null) return;
 		if (pipe.materialId === 'custom') {
 			if (pipe.innerDiameter == null || pipe.roughness == null) {
 				add(
@@ -422,11 +546,28 @@ function pipingIssues(project: Project, connection: PipeConnection): ModelRuleIs
 	});
 	const fields = { angle: 'an angle', radiusRatio: 'a radius ratio', kOverride: 'a K value' };
 	fittings.forEach((fitting, i) => {
+		const kind = fittingFallbackName(fitting.type).toLowerCase();
 		const missing = missingFittingParameters(fitting);
 		if (missing.length) {
 			add(
 				`${where}, fitting ${i + 1} (${fitting.type}) needs ${missing.join(', ')}.`,
-				`${named}, fitting ${i + 1} (${fittingFallbackName(fitting.type).toLowerCase()}) needs ${missing.map((f) => fields[f]).join(' and ')}.`
+				`${named}, fitting ${i + 1} (${kind}) needs ${missing.map((f) => fields[f]).join(' and ')}.`
+			);
+		}
+		for (const v of referenceViolations(fitting, FITTING_REFERENCES)) {
+			if (v.given.length) {
+				add(
+					`${where}, fitting ${i + 1} (${fitting.type}): ${fieldList(v.given, 'ids')} cannot be given with ${v.reference}: the project library entry gives them.`,
+					`${named}, fitting ${i + 1} (${kind}) takes its K from the project library and has ${fieldList(v.given)} of its own too: keep one.`
+				);
+			}
+		}
+		if (fitting.resistanceId != null && !entryIds.has(fitting.resistanceId)) {
+			add(
+				`${where}, fitting ${i + 1} (${fitting.type}) refers to resistance entry "${fitting.resistanceId}", which is not in the project library.`,
+				`${named}, fitting ${i + 1} (${kind}) refers to a resistance entry the project library does not have (“${fitting.resistanceId}”): choose an entry from the library, or enter its K.`,
+				undefined,
+				'UNKNOWN_RESISTANCE'
 			);
 		}
 		const reducer = REDUCER_TYPES.has(fitting.type);
@@ -458,6 +599,7 @@ export function modelRuleIssues(
 ): ModelRuleIssue[] {
 	const issues: ModelRuleIssue[] = [];
 	const curveIds = new Set(project.pumpLibrary.map((c) => c.id));
+	const entryIds = new Set(resistanceEntries(project).map((e) => e.id));
 	const connectionIds = new Set(project.connections.map((c) => c.id));
 	const curveName = (id: string) => {
 		const curve = project.pumpLibrary.find((c) => c.id === id);
@@ -506,6 +648,18 @@ export function modelRuleIssues(
 				...at
 			});
 		}
+		if (
+			component.type === 'valve' &&
+			isResistanceRef(component.resistance) &&
+			!entryIds.has(component.resistance.id)
+		) {
+			issues.push({
+				text: `${where} refers to resistance entry "${component.resistance.id}", which is not in the project library.`,
+				message: `${component.name} refers to a resistance entry the project library does not have (“${component.resistance.id}”): choose an entry from the library, enter its resistance, or leave it on its default.`,
+				code: 'UNKNOWN_RESISTANCE',
+				...at
+			});
+		}
 		if (component.type === 'pump' && !curveIds.has(component.curveId)) {
 			issues.push({
 				text: `${where} uses pump curve "${component.curveId}", which is not in the pump library.`,
@@ -545,6 +699,25 @@ export function modelRuleIssues(
 		}
 		if (curve.npshrCurve && !increasing(curve.npshrCurve.map((p) => p.flow))) {
 			add('NPSHr curve flows must be strictly increasing.');
+		}
+	}
+	// The project library's entries (CLAUDE.md D21): the rules their fields keep by their kind or
+	// material (x-fields-by-value) and order (x-ordered-fields). Named by id in `text`, by name in
+	// `message`; located at no element (the library is the project's).
+	for (const spec of pipeSpecs(project)) {
+		for (const rule of pipeSpecRuleProblems(spec)) {
+			issues.push({
+				text: `Pipe spec "${spec.id}": ${rule}.`,
+				message: `Pipe spec “${spec.name}” in the project library: ${rule}.`
+			});
+		}
+	}
+	for (const entry of resistanceEntries(project)) {
+		for (const rule of resistanceSpecRuleProblems(entry)) {
+			issues.push({
+				text: `Resistance entry "${entry.id}": ${rule}.`,
+				message: `Resistance entry “${entry.name}” in the project library: ${rule}.`
+			});
 		}
 	}
 	return issues;

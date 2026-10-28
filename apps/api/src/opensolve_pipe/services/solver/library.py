@@ -5,13 +5,18 @@ The JSON is generated from fluids (``scripts/generate_pipe_data.py``): dimension
 with its citation. Resolution turns a ``PipeDefinition`` into the inner diameter and absolute
 roughness the solver uses, and records where each value came from (traceability, GOALS §4.2).
 
-A reference that does not resolve (unknown material, schedule or size) raises
+A pipe of a project library spec (``specId``, CLAUDE.md D21) resolves as the pipe the spec
+stands for (``project_library.spec_pipe``), so its numbers are that pipe's, and carries the spec
+for the trace.
+
+A reference that does not resolve (unknown material, schedule or size, or pipe spec) raises
 ``LibraryLookupError``. It is a dangling reference, like an unknown component, so the network
 builder collects these with the topology issues and reports them all in one ``TopologyError``.
 """
 
 import json
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from functools import cache
 from importlib.resources import files
 from typing import Any
@@ -20,6 +25,8 @@ from fluids.friction import roughness_Farshad
 from scipy.constants import inch
 
 from ...models.piping import CUSTOM_MATERIAL_ID, PipeDefinition
+from ...models.project_library import PipeSpec
+from .project_library import spec_pipe
 
 NOMINAL_SIZE_TOLERANCE = 1.0e-6
 """m. A stored nominal size matches a library size within this. Library sizes differ by at
@@ -71,6 +78,8 @@ class ResolvedPipe:
     material_id: str
     schedule: str | None
     nps: str | None
+    spec: PipeSpec | None = None
+    """The project library pipe spec the pipe refers to (None: its own values)."""
 
 
 def read_data_json(name: str) -> dict[str, Any]:
@@ -130,13 +139,30 @@ def _find_size(material: MaterialData, schedule: str, nominal_size: float) -> Pi
     )
 
 
-def resolve_pipe(pipe: PipeDefinition) -> ResolvedPipe:
+def resolve_pipe(pipe: PipeDefinition, specs: Mapping[str, PipeSpec] | None = None) -> ResolvedPipe:
     """Inner diameter and roughness for one pipe segment.
 
     Precedence (SDD §4.3): a user ``innerDiameter`` / ``roughness`` overrides the library.
     Without a size, a library material's roughness is the Farshad correlation evaluated at
     the user's inner diameter (the same function that generated the tabulated values).
+
+    A pipe of a project library spec (``specId``, looked up in ``specs``, the project's pipe
+    specs by id) resolves as the pipe the spec stands for, with the spec attached: the same
+    numbers and sources as that pipe typed in (module docstring).
     """
+    if pipe.spec_id is not None:
+        spec = (specs or {}).get(pipe.spec_id)
+        if spec is None:
+            raise LibraryLookupError(
+                "UNKNOWN_PIPE_SPEC", f"pipe spec '{pipe.spec_id}' is not in the project library"
+            )
+        try:
+            resolved = resolve_pipe(spec_pipe(pipe, spec))
+        except LibraryLookupError as exc:  # its material: names the spec, by id only (D10)
+            raise LibraryLookupError(exc.code, f"pipe spec '{spec.id}': {exc}") from exc
+        return replace(resolved, spec=spec)
+    # The model requires materialId without specId.
+    assert pipe.material_id is not None
     if pipe.material_id == CUSTOM_MATERIAL_ID:
         # The model guarantees both values for a custom pipe.
         assert pipe.inner_diameter is not None

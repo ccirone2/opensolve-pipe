@@ -151,10 +151,12 @@ export function resolvedPipe(pipe: PipeDefinition, size: PipeSize | undefined): 
 
 /**
  * The pipe with a new material. To a library material: the same schedule if it has one, else
- * its first; the same nominal size if that schedule has it, else the nearest; overrides are
- * dropped. To 'custom': the pipe keeps its length and takes its inner diameter and roughness
- * from its own overrides or the library values it resolved to (left empty when neither is
- * known, for the user to enter).
+ * its first; the same nominal size if that schedule has it, else the nearest (by nominal size, or
+ * by the inner diameter it resolved to: a custom pipe's, or a project library spec's); overrides
+ * are dropped. To 'custom': the pipe keeps its length and takes its inner diameter and roughness
+ * from its own overrides or the values it resolved to (left empty when neither is known, for the
+ * user to enter). Either way a reference to a project library spec (specId) is dropped: the pipe
+ * has its own values now.
  */
 export function withMaterial(
 	pipe: PipeDefinition,
@@ -177,7 +179,9 @@ export function withMaterial(
 	const keep =
 		pipe.nominalSize != null &&
 		sizes.some((s) => sameSize(s.nominalSize, pipe.nominalSize as number));
-	const size = keep ? undefined : nearestSize(sizes, pipe.nominalSize, pipe.innerDiameter);
+	const size = keep
+		? undefined
+		: nearestSize(sizes, pipe.nominalSize, pipe.innerDiameter ?? resolved.innerDiameter);
 	return {
 		...next,
 		schedule: schedule.id,

@@ -72,6 +72,16 @@ import {
 	ISO_COEFFICIENT_TEXT
 } from '../scenarios';
 import { CUSTOM_MATERIAL_ID } from '../piping';
+import {
+	isResistanceRef,
+	pipeSpecOf,
+	pipeSpecs,
+	pipeSpecUsers,
+	resistanceEntries,
+	resistanceEntryOf,
+	resistanceUsers,
+	type LibraryUser
+} from '../project-library';
 import type { LabelOptions, UnitCategory } from '../units';
 import {
 	componentById,
@@ -454,6 +464,14 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 		}
 	);
 
+	// The project library (CLAUDE.md D21): the entry each pipe, fitting and valve refers to, by id
+	// and name in the case as solved, as columns only in a file with a library (else as before).
+	const library = ctx.library;
+	const entryColumns = (what: string) =>
+		library ? [text(`${what} id`), text(what)] : ([] as ExportColumn[]);
+	const entryCells = (id: string | null | undefined, name: string | undefined): CellValue[] =>
+		library ? [id ?? null, id == null ? null : (name ?? null)] : [];
+
 	const pipes = table(
 		ctx,
 		'pipes',
@@ -462,6 +480,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 			text('Connection id'),
 			text('Connection'),
 			number('Pipe #'),
+			...entryColumns('Pipe spec'),
 			text('Material'),
 			text('Schedule'),
 			text('Nominal size'),
@@ -485,20 +504,22 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 				const piping = connectionById(c.structure, id)?.piping;
 				for (const s of link.segments) {
 					const pipe = piping?.pipes[s.index];
-					const custom = pipe?.materialId === CUSTOM_MATERIAL_ID;
+					// A pipe of a project library spec: the spec's material and nominal size.
+					const spec = pipeSpecOf(c.structure, pipe?.specId);
+					const materialId = spec?.materialId ?? pipe?.materialId ?? null;
+					const nominalSize = spec ? spec.nominalSize : pipe?.nominalSize;
 					yield [
 						id,
 						name,
 						s.index + 1,
-						pipe
-							? custom
+						...entryCells(pipe?.specId, spec?.name),
+						materialId === null
+							? null
+							: materialId === CUSTOM_MATERIAL_ID
 								? 'Custom pipe'
-								: (ctx.materialName(pipe.materialId) ?? pipe.materialId)
-							: null,
+								: (ctx.materialName(materialId) ?? materialId),
 						pipe?.schedule ?? null,
-						pipe?.nominalSize != null
-							? npsLabel(pipe.nominalSize, ctx.input.library.nominalSizes)
-							: null,
+						nominalSize != null ? npsLabel(nominalSize, ctx.input.library.nominalSizes) : null,
 						u.value(s.innerDiameter, 'diameter'),
 						u.value(s.length, 'length'),
 						u.value(s.roughness, 'diameter'),
@@ -529,6 +550,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 			number('K (each)'),
 			q('K referred to diameter', 'diameter'),
 			q('Head loss, all (+ with the flow)', 'head'),
+			...entryColumns('Resistance entry'),
 			text('K source'),
 			text('Flags')
 		],
@@ -553,6 +575,10 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 						f.k,
 						u.value(f.referenceDiameter, 'diameter'),
 						u.value(f.headLoss, 'head'),
+						...entryCells(
+							fitting?.resistanceId,
+							resistanceEntryOf(c.structure, fitting?.resistanceId)?.name
+						),
 						f.source,
 						codes(fittingFlags(solved.flags, id, f.index))
 					];
@@ -703,6 +729,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 			q('K referred to diameter', 'diameter'),
 			number('K effective'),
 			number('Cv effective'),
+			...entryColumns('Resistance entry'),
 			q('Pressure setpoint', 'pressure', { gauge: true }),
 			q('Flow setpoint', 'flow'),
 			bool('Setpoint achieved'),
@@ -715,6 +742,9 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 			for (const id of orderedIds(c.structure, Object.keys(solved.valveResults))) {
 				const valve = solved.valveResults[id]!;
 				const pressureSet = valve.valveType === 'prv' || valve.valveType === 'psv';
+				const own = componentById(c.structure, id);
+				const ref =
+					own?.type === 'valve' && isResistanceRef(own.resistance) ? own.resistance.id : null;
 				yield [
 					id,
 					componentName(c, id),
@@ -727,6 +757,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 					u.value(valve.referenceDiameter, 'diameter'),
 					valve.kEffective,
 					valve.cvEffective,
+					...entryCells(ref, resistanceEntryOf(c.structure, ref)?.name),
 					pressureSet ? u.value(valve.setpoint, 'pressure') : null,
 					valve.valveType === 'fcv' ? u.value(valve.setpoint, 'flow') : null,
 					valve.setpointAchieved,
@@ -1174,6 +1205,126 @@ function ratingCell(value: Record<string, unknown>, u: ExportContext['units']): 
 	return `${part(value.pressureLoss, 'pressure')} at ${part(value.flow, 'flow')}, ${part(value.density, 'density')}`;
 }
 
+/**
+ * The project library (CLAUDE.md D21, proposal project-library.md §5.3): every pipe spec and
+ * resistance entry of each case with a response, as that case was solved (its project as solved:
+ * an out-of-date case's may differ from the project now), one per row, pipe specs first, in the
+ * library's order: its values as entered in the file's units (a K with the bore it is stated at; a
+ * Cv or Kv as entered, in every unit system), its source as typed, and the elements of the case
+ * that refer to it (an entry nothing uses has none: the methods summary lists it as not used).
+ * A library material's roughness left blank is the material's at the inner diameter, which the
+ * server computes (Roughness from). Only in a file with a library (ctx.library).
+ */
+export function projectLibraryTable(ctx: ExportContext): SheetSpec | null {
+	if (!ctx.library) return null;
+	const u = ctx.units;
+	const q = (label: string, category: UnitCategory) => quantity(ctx, label, category);
+	const cases = ctx.responded;
+	const elementUsers = (users: readonly LibraryUser[]) =>
+		users.filter((x) => x.kind !== 'scenario');
+	const where = (c: CaseView, user: LibraryUser): { id: string; label: string } => {
+		switch (user.kind) {
+			case 'pipe':
+				return {
+					id: `${user.connectionId} pipe ${user.pipeIndex + 1}`,
+					label: `Pipe ${user.pipeIndex + 1} of ${connectionLabel(c, user.connectionId)}`
+				};
+			case 'fitting': {
+				const type = connectionById(c.structure, user.connectionId)?.piping.fittings[
+					user.fittingIndex
+				]?.type;
+				return {
+					id: `${user.connectionId} fitting ${user.fittingIndex + 1}`,
+					label: `Fitting ${user.fittingIndex + 1}${type ? ` (${ctx.fittingName(type)})` : ''} of ${connectionLabel(c, user.connectionId)}`
+				};
+			}
+			case 'valve':
+				return { id: user.componentId, label: componentName(c, user.componentId) };
+			default:
+				return { id: '', label: '' };
+		}
+	};
+	const used = (c: CaseView, users: readonly LibraryUser[]): CellValue[] => {
+		const found = elementUsers(users).map((x) => where(c, x));
+		return [
+			found.length,
+			found.length ? found.map((f) => f.label).join('; ') : null,
+			found.length ? found.map((f) => f.id).join('; ') : null
+		];
+	};
+	return table(
+		ctx,
+		'project-library',
+		'Project library',
+		[
+			text('List'),
+			text('Entry id'),
+			text('Entry'),
+			text('Material id'),
+			text('Material'),
+			text('Nominal size'),
+			q('Inner diameter', 'diameter'),
+			q('Outer diameter', 'diameter'),
+			q('Roughness', 'diameter'),
+			text('Roughness from'),
+			text('Coefficient kind'),
+			number('Coefficient (as entered)'),
+			q('Reference diameter (K)', 'diameter'),
+			text('Source'),
+			number('Used by (count)'),
+			text('Used by'),
+			text('Used by (ids)')
+		],
+		cases,
+		(c) => pipeSpecs(c.structure).length + resistanceEntries(c.structure).length,
+		function* (c) {
+			for (const spec of pipeSpecs(c.structure)) {
+				const custom = spec.materialId === CUSTOM_MATERIAL_ID;
+				yield [
+					'Pipe spec',
+					spec.id,
+					spec.name,
+					spec.materialId,
+					custom ? 'Custom pipe' : (ctx.materialName(spec.materialId) ?? spec.materialId),
+					spec.nominalSize != null
+						? npsLabel(spec.nominalSize, ctx.input.library.nominalSizes)
+						: null,
+					u.value(spec.innerDiameter, 'diameter'),
+					u.value(spec.outerDiameter, 'diameter'),
+					u.value(spec.roughness, 'diameter'),
+					spec.roughness != null
+						? 'The entry'
+						: "The material's at the inner diameter (Farshad & Rieke 2006), computed by the server",
+					null,
+					null,
+					null,
+					spec.source,
+					...used(c, pipeSpecUsers(c.structure, spec.id))
+				];
+			}
+			for (const entry of resistanceEntries(c.structure)) {
+				yield [
+					'Resistance',
+					entry.id,
+					entry.name,
+					null,
+					null,
+					null,
+					null,
+					null,
+					null,
+					null,
+					entry.kind,
+					entry.value,
+					u.value(entry.referenceDiameter, 'diameter'),
+					entry.source,
+					...used(c, resistanceUsers(c.structure, entry.id))
+				];
+			}
+		}
+	);
+}
+
 /** Scenario changes (§2.6): the overrides the server applied, from its record. */
 export function scenarioChangesTable(ctx: ExportContext): SheetSpec {
 	const u = ctx.units;
@@ -1223,6 +1374,13 @@ export function scenarioChangesTable(ctx: ExportContext): SheetSpec {
 						return resistance ? 'Default' : coefficient ? ISO_COEFFICIENT_TEXT : null;
 					}
 					if (resistance) {
+						// A project library entry by its id and name in the case solved (exact text).
+						if (isResistanceRef(value)) {
+							const entry = resistanceEntryOf(solvedAs, value.id);
+							return entry
+								? `Project library ${value.id} “${entry.name}”`
+								: `Project library ${value.id}`;
+						}
 						if (isRecord(value)) return `${String(value.kind)} ${String(value.value)}`;
 						return String(value);
 					}

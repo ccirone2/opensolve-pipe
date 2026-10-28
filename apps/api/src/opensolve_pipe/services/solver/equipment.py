@@ -9,7 +9,7 @@ c computed once from its rating, in this order:
   ISA-75.01.01-2007 eq. (1) for non-choked, turbulent liquid flow at constant C, and the
   high-Re limit of Darby's 3-K method (a constant K);
 - a Cv or Kv, a rated point on water by definition (1 psi at Cv US gpm, 1 bar at Kv m³/h):
-  c = K/(2 g A²) with K = ``valves.k_from_coefficient(rating, 1 m)`` (fluids'
+  c = K/(2 g A²) with K = ``coefficients.k_from_coefficient(rating, 1 m)`` (fluids'
   ``Cv_to_K`` / ``Kv_to_K``, K = 1.6e9 D⁴/Kv², Kv = Cv/1.1560992283536566) and A = π (1 m)²/4.
   K ∝ D⁴ ∝ A², so K/(2 g A²) is the same on every bore and a Cv or Kv needs no pipe: the 1 m
   bore's c equals a valve's (K on its inlet bore, then ``ValveLaw``'s K/(2 g A²)) to round-off,
@@ -31,7 +31,7 @@ from typing import Literal
 from fluids.constants import bar, gallon, hour, minute, psi
 
 from ...models.components import Equipment, RatedFlowCoefficient, RatedPoint
-from .valves import k_from_coefficient
+from .coefficients import k_from_coefficient
 
 UNIT_BORE = 1.0
 """m: the bore a Cv's or Kv's K is evaluated on; any bore gives the same c (module docstring)."""

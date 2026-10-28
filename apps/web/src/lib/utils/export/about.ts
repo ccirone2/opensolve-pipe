@@ -616,6 +616,14 @@ export function aboutRows(
 				"The Result words are the app's sentences, which give fractions in % and powers in kW (hp with gpm). Pipe numbers count from 1."
 		]);
 	}
+	// The project library (D21), only in a file that has its sheet.
+	if (sheets.some((sheet) => sheet.file === 'project-library.csv')) {
+		rows.push([
+			'Export',
+			'Project library',
+			"The Project library sheet lists the pipe specs and resistance entries each case was solved with, as that case was solved: each entry's values as entered (a K with the bore it is stated at; a Cv, US gpm of water at 1 psi, or a Kv, m³/h of water at 1 bar, as entered in every unit system), its source as typed, and the elements that use it; an entry nothing uses is listed too. The Pipes, Fittings and Valves sheets name the entry each element refers to, by id and name."
+		]);
+	}
 	// Compare cases names connections by their ends now: what reads otherwise than as solved.
 	const compared = compareNotes(ctx);
 	if (compared.reversed.length) {

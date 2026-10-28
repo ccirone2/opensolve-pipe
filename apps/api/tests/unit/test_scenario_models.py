@@ -183,7 +183,14 @@ def test_the_prd_list_is_overridable() -> None:
     }
     assert names["Orifice"] == {"boreDiameter", "dischargeCoefficient"}
     spec = PIPE_FIELDS["spec"]
-    assert spec.keys == ("material_id", "schedule", "nominal_size", "inner_diameter", "roughness")
+    assert spec.keys == (
+        "material_id",
+        "schedule",
+        "nominal_size",
+        "inner_diameter",
+        "roughness",
+        "spec_id",
+    )
     assert PIPE_FIELDS["length"].path == ("length",)
 
 
@@ -244,12 +251,14 @@ def test_x_override_fields_states_exactly_the_allow_list() -> None:
         "boreDiameter": {"schema": "Orifice", "path": ["boreDiameter"]},
         "dischargeCoefficient": {"schema": "Orifice", "path": ["dischargeCoefficient"]},
     }
+    # A pipe's spec: the library choice and its overrides, or a project library spec (D21).
     assert published["PipeDefinition"]["spec"]["keys"] == [
         "materialId",
         "schedule",
         "nominalSize",
         "innerDiameter",
         "roughness",
+        "specId",
     ]
 
 

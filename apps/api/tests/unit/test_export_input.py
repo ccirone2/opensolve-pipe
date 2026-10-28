@@ -21,7 +21,13 @@ def _cases(fixture: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 def test_the_fixture_holds_the_cases_the_export_design_names() -> None:
     cases = _cases(generate())
-    assert list(cases) == ["pump-transfer", "scenarios", "tee-fallback", "design-checks"]
+    assert list(cases) == [
+        "pump-transfer",
+        "scenarios",
+        "tee-fallback",
+        "design-checks",
+        "project-library",
+    ]
     for case in cases.values():
         assert case["utcOffsetMinutes"] != 0
         assert len(case["appVersion"]) == 40
@@ -53,6 +59,22 @@ def test_the_fixture_holds_the_cases_the_export_design_names() -> None:
         "npsh_margin", "operating_region", "allowable_region", "minimum_flow", "motor_power",
         "pipe_velocity",
     }  # fmt: skip
+    # CLAUDE.md D21: pipes, a valve and fittings from the project library, an entry of each list
+    # unused, and a scenario that changes a reference
+    library = cases["project-library"]
+    assert [c["id"] for c in library["cases"]] == [None, "S1"]
+    project = library["project"]
+    used_specs = {p.get("specId") for c in project["connections"] for p in c["piping"]["pipes"]}
+    assert {s["id"] for s in project["pipeLibrary"]} - used_specs == {"PS3"}
+    kinds = {e["kind"] for e in project["resistanceLibrary"]}
+    assert kinds == {"K", "Cv", "Kv"}
+    fittings = [f for c in project["connections"] for f in c["piping"]["fittings"]]
+    assert {f.get("resistanceId") for f in fittings} >= {"RS2", "RS3"}
+    for exported in library["cases"]:
+        sections = exported["response"]["solvedState"]["trace"]["methods"]["sections"]
+        assert "Project library" in [s["title"] for s in sections]
+    changed = library["cases"][1]["response"]["scenario"]["overrides"]
+    assert changed[0]["value"] == {"kind": "library", "id": "RS3"}
 
 
 def test_the_web_fixture_is_current() -> None:

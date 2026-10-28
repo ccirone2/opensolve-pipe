@@ -12,6 +12,11 @@
  * (TRANSITIONAL_FLOW, CORRELATION_OUT_OF_RANGE) is numbered from its segmentIndex, so a copy with
  * the pipe's index as it is now (Build's strip, utils/results.ts) names that pipe.
  *
+ * A Crane default's CORRELATION_OUT_OF_RANGE (a valve's default K, or an inline fitting's Crane
+ * K, outside the table it is cited for) ends with the advice to enter the manufacturer's
+ * coefficient, on the element or in the project library (CLAUDE.md D21, proposal
+ * project-library.md §4.3): the flag still fires, and the server's message is unchanged.
+ *
  * An orifice plate's validity flags (CORRELATION_OUT_OF_RANGE on the component, proposal
  * orifice-plate.md §3.5) are told from `details.limit` and their SI numbers; the flashing check at
  * its vena contracta (BELOW_VAPOR_PRESSURE) from `details.venaContractaAbsolutePressure`. Its
@@ -165,6 +170,29 @@ function orificeText(flag: Flag, f: Formatter): string | null {
 	}
 }
 
+/** The advice after a Crane default valve K's range flag (proposal project-library.md §4.3). */
+export const VALVE_LIBRARY_ADVICE =
+	"Enter the manufacturer's coefficient as a resistance, or in the project library.";
+/** The advice after an inline fitting's Crane range flag: its K is the fitting's resistance. */
+export const FITTING_LIBRARY_ADVICE =
+	"Enter the manufacturer's coefficient as its K, or in the project library.";
+
+/**
+ * Whether a CORRELATION_OUT_OF_RANGE flag is on a valve's Crane default K (builder.py: the valve's
+ * flag carries the inlet pipe's diameter its default K was evaluated at, `referenceDiameter`).
+ */
+function onValveDefault(flag: Flag, project: Project): boolean {
+	if (!flag.componentId || number(flag, 'referenceDiameter') === null) return false;
+	const component = componentById(project, flag.componentId);
+	return component === undefined || component.type === 'valve';
+}
+
+/** `text` with `advice` after it, as a sentence of its own. */
+function withAdvice(text: string, advice: string): string {
+	const trimmed = text.trimEnd();
+	return `${trimmed}${/[.!?]$/.test(trimmed) ? '' : '.'} ${advice}`;
+}
+
 /** Display text of a flag (see the module comment). */
 export function flagText(flag: Flag, context: FlagTextContext): string {
 	const f = new Formatter(context.prefs);
@@ -248,7 +276,16 @@ export function flagText(flag: Flag, context: FlagTextContext): string {
 					/fitting \d+ \(([^)]+)\)/.exec(flag.message)?.[1] ??
 					connectionById(context.project, flag.connectionId)?.piping.fittings[fitting]?.type;
 				const name = type ? (context.fittingName ?? fittingFallbackName)(type) : 'Fitting';
-				return `${name} (fitting ${fitting + 1}): ${messageText({ ...flag, message: reason(flag.message) }, context)}`;
+				const text = `${name} (fitting ${fitting + 1}): ${messageText({ ...flag, message: reason(flag.message) }, context)}`;
+				// A fitting's Crane table range (fittings.py _range_warning: its size, a bend's or an
+				// entrance's ratio) takes the advice; its laminar-flow flag (with the Reynolds number)
+				// does not: an entered coefficient is no more valid in laminar flow.
+				return number(flag, 'reynoldsNumber') === null
+					? withAdvice(text, FITTING_LIBRARY_ADVICE)
+					: text;
+			}
+			if (onValveDefault(flag, context.project)) {
+				return withAdvice(fallback(), VALVE_LIBRARY_ADVICE);
 			}
 			return orificeText(flag, f) ?? fallback();
 		}

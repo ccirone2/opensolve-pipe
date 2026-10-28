@@ -8,7 +8,10 @@ the flow direction (contraction or expansion), so each fitting carries a K and a
 segment for each direction.
 
 Precedence (SDD §6.2): a user ``kOverride`` always wins (labeled "user") and is referenced to
-pipe ``pipeIndex``; otherwise the cited correlation is used.
+pipe ``pipeIndex``; so does a project library entry (``resistanceId``, CLAUDE.md D21), its K
+moved to that pipe's inner diameter or its Cv or Kv converted on it
+(``project_library.entry_k``), exactly the kOverride a user could type there; otherwise the
+cited correlation is used.
 """
 
 from collections.abc import Mapping, Sequence
@@ -21,6 +24,7 @@ from scipy.constants import inch
 
 from ...models.piping import REDUCER_TYPES, Fitting
 from .library import read_data_json
+from .project_library import EntryK, ResistanceEntries, entry_k, provenance
 
 ArgumentValue = float | int | str
 
@@ -140,6 +144,8 @@ class ResolvedFitting:
     user_k: bool
     valid_in_laminar_flow: bool
     range_warning: str | None
+    entry: EntryK | None = None
+    """The project library entry the K comes from (None: none); ``user_k`` is then True."""
 
     def k(self, flow: float) -> float:
         return self.k_reverse if flow < 0 else self.k_forward
@@ -191,8 +197,19 @@ def _reducer_direction(
     return evaluate_call(call, symbols), segment, call.describe()
 
 
-def resolve_fitting(index: int, fitting: Fitting, diameters: Sequence[float]) -> ResolvedFitting:
-    """K for one fitting in a connection whose segments have the given inner diameters."""
+LIBRARY_K = "K from the project library (resistanceId)"
+"""The correlation text of a fitting whose K comes from a project library entry."""
+
+
+def resolve_fitting(
+    index: int,
+    fitting: Fitting,
+    diameters: Sequence[float],
+    entries: ResistanceEntries | None = None,
+) -> ResolvedFitting:
+    """K for one fitting in a connection whose segments have the given inner diameters.
+    ``entries``: the project's resistance entries by id, for a fitting that refers to one (every
+    reference resolves: a dangling one is a topology issue, ``builder.validate_topology``)."""
     spec = load_fittings()[fitting.type]
     i = fitting.pipe_index
     common: dict[str, Any] = {
@@ -201,6 +218,21 @@ def resolve_fitting(index: int, fitting: Fitting, diameters: Sequence[float]) ->
         "quantity": fitting.quantity,
         "range_warning": None,
     }
+    if fitting.resistance_id is not None:
+        use = entry_k((entries or {})[fitting.resistance_id], diameters[i])
+        return ResolvedFitting(
+            **common,
+            k_forward=use.k,
+            k_reverse=use.k,
+            segment_forward=i,
+            segment_reverse=i,
+            correlation_forward=LIBRARY_K,
+            correlation_reverse=LIBRARY_K,
+            source=provenance(use.entry),
+            user_k=True,
+            valid_in_laminar_flow=True,
+            entry=use,
+        )
     if fitting.k_override is not None:
         return ResolvedFitting(
             **common,

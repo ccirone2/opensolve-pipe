@@ -11,6 +11,7 @@ import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import { testWorkspace } from '$lib/testing/workspace';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { createEmptyProject } from '$lib/utils/factory';
+import { libraryProject } from '$lib/testing/helpers';
 
 const fittingsOf = (ws: ReturnType<typeof testWorkspace>, id: string) =>
 	(ws.project.connections.find((c) => c.id === id) as PipeConnection).piping.fittings;
@@ -101,6 +102,77 @@ describe('reservoir entrance and exit losses', () => {
 		expect(screen.queryByText(/No entrance or exit loss is applied/)).toBeNull();
 		expect(
 			screen.getByText(/^Exit loss where flow leaves this pipe into Discharge tank/)
+		).toBeInTheDocument();
+	});
+});
+
+/**
+ * A fitting's loss coefficient (CLAUDE.md D21; proposal project-library.md §6.2): the type's cited
+ * K, a K entered here, or a project library entry, which is used by reference (its K, Cv or Kv on
+ * the fitting's own pipe) and shown read-only. Test inputs: libraryProject's entries.
+ */
+describe('a fitting K from the project library', () => {
+	function setup() {
+		const ws = testWorkspace(libraryProject());
+		ws.nav.jumpTo('R1');
+		ws.nav.showConnection('port_1');
+		render(WorkspaceView, { workspace: ws });
+		return ws;
+	}
+
+	it('shows an entry, switches to a K entered here and back to the cited K', async () => {
+		const ws = setup();
+		const choice = screen.getByRole('combobox', { name: 'Fitting 1 loss coefficient' });
+		expect(choice).toHaveValue('entry:RS2');
+		expect(
+			[...choice.querySelectorAll('option')].map((o) => [o.value, o.textContent?.trim()])
+		).toEqual([
+			['cited', 'Cited K of this fitting type'],
+			['entered', 'K entered here'],
+			['entry:RS1', '“Gate, open” (Cv 900)'],
+			['entry:RS2', '“Elbow (K)” (K 0.3 at 90 mm)'],
+			['new-entry', 'New entry…']
+		]);
+		// The K entry on pipe 1's 100 mm bore: K₀ (D/d₀)⁴ = 0.3 × (100/90)⁴.
+		expect(screen.getByText(/K = K₀ \(D\/d₀\)⁴: K 0\.4572 at 100 mm\./)).toBeInTheDocument();
+
+		await fireEvent.change(choice, { target: { value: 'entered' } });
+		expect(fittingsOf(ws, 'L1')[0]).toEqual({ type: 'elbow_90_lr', quantity: 2, pipeIndex: 0 });
+		const k = screen.getByRole('textbox', { name: 'K override' });
+		expect(screen.getByText('Enter K to use it; until then the cited K applies.')).toBeVisible();
+		await fireEvent.input(k, { target: { value: '0.5' } });
+		await fireEvent.change(k);
+		expect(fittingsOf(ws, 'L1')[0]).toEqual({
+			type: 'elbow_90_lr',
+			quantity: 2,
+			pipeIndex: 0,
+			kOverride: 0.5
+		});
+
+		await fireEvent.change(screen.getByRole('combobox', { name: 'Fitting 1 loss coefficient' }), {
+			target: { value: 'entry:RS1' }
+		});
+		expect(fittingsOf(ws, 'L1')[0]).toEqual({
+			type: 'elbow_90_lr',
+			quantity: 2,
+			pipeIndex: 0,
+			resistanceId: 'RS1'
+		});
+		await fireEvent.change(screen.getByRole('combobox', { name: 'Fitting 1 loss coefficient' }), {
+			target: { value: 'cited' }
+		});
+		expect(fittingsOf(ws, 'L1')[0]).toEqual({ type: 'elbow_90_lr', quantity: 2, pipeIndex: 0 });
+	});
+
+	it('a custom fitting has no cited K: an entry or a K entered here', async () => {
+		setup();
+		const choice = screen.getByRole('combobox', { name: 'Fitting 2 loss coefficient' });
+		expect(choice).toHaveValue('entry:RS1');
+		expect(within(choice).queryByRole('option', { name: /^Cited K/ })).toBeNull();
+		const item = choice.closest('li') as HTMLElement;
+		expect(within(item).getByText('Source: test input')).toBeInTheDocument();
+		expect(
+			within(item).getByText(/^Converted to K at the bore of pipe 2 when solving/)
 		).toBeInTheDocument();
 	});
 });

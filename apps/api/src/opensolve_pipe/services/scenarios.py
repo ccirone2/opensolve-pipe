@@ -37,6 +37,7 @@ from ..models.components import (
     WyeBranch,
 )
 from ..models.project import Project
+from ..models.project_library import PipeSpec
 from ..models.results import MethodsSection, SolvedState
 from ..models.scenarios import (
     COMPONENT_FIELDS,
@@ -57,6 +58,7 @@ from ..models.scenarios import (
 from .fluids import FluidError
 from .solver import TopologyError, solve_project, system_curve
 from .solver.labels import pipe_name
+from .solver.project_library import resistance_label, spec_label
 from .solver.system_curve import SystemCurve
 
 SCENARIO_DECISION = (
@@ -347,15 +349,25 @@ def write_override(data: dict[str, Any], plan: OverridePlan) -> None:
 
 RATING_TAGS = ("point", "coefficient")
 """The tags of an equipment rating's union (models/components.py ``_rating_tag``)."""
+RESISTANCE_TAGS = ("coefficient", "library")
+"""The tags of a valve resistance's union (models/components.py ``_resistance_tag``)."""
 
 
 def _clean(loc: tuple[str | int, ...]) -> Location:
     """An error location in the project JSON without the union tags pydantic inserts: the
     component tag after a component index, an equipment rating's tag after 'rating' (proposal
-    equipment-pressure-drop.md §2.1), the fluid kind after 'fluid'."""
+    equipment-pressure-drop.md §2.1), a valve resistance's tag after 'resistance' (CLAUDE.md
+    D21), the fluid kind after 'fluid'."""
     if len(loc) > 2 and loc[0] == "components":
         tag, rest = loc[2], loc[3:]
-        if tag == "equipment" and len(rest) > 1 and rest[0] == "rating" and rest[1] in RATING_TAGS:
+        if len(rest) > 1 and (
+            (tag == "equipment" and rest[0] == "rating" and rest[1] in RATING_TAGS)
+            or (
+                str(tag).startswith("valve:")
+                and rest[0] == "resistance"
+                and rest[1] in RESISTANCE_TAGS
+            )
+        ):
             rest = rest[:1] + rest[2:]
         return loc[:2] + rest
     if len(loc) > 1 and loc[0] == "fluid":
@@ -515,10 +527,12 @@ def apply_scenario(project: Project, scenario_id: str) -> AppliedScenario:
         if plan.entry is None:
             continue
         if plan.entry.keys and not _spec_is_valid(plan.override.value, plan.entry.keys):
-            keys = ", ".join(to_camel(k) for k in plan.entry.keys[1:])
+            *own, reference = plan.entry.keys  # spec_id last (models/scenarios.PIPE_SPEC_KEYS)
+            keys = ", ".join(to_camel(k) for k in own[1:])
             message = (
-                f"a pipe spec is an object with {to_camel(plan.entry.keys[0])} and optionally "
-                f"{keys}, and no other key"
+                f"a pipe spec is an object with {to_camel(own[0])} and optionally {keys}, or "
+                f"with {to_camel(reference)} alone (a pipe spec of the project library), and no "
+                "other key"
             )
             where = f"body.project.scenarios.{s}.overrides.{plan.index}.value"
             issues.append((plan.index, _issue("invalid_pipe_spec", where, message, plan)))
@@ -568,7 +582,28 @@ def _number(value: float, unit: str) -> str:
     return f"{value:.6g} {unit}" if unit else f"{value:.6g}"
 
 
-def _spec_text(spec: dict[str, Any]) -> str:
+def _library_text(kind: str, entry_id: Any, project: Project | None) -> str:
+    """A project library entry a value refers to (CLAUDE.md D21), by name and id as traces name
+    it: 'project library pipe spec "NPS 60 STD" (PS1)'; by id only where the project does not
+    have it (its solve is then a topology issue) or is not given."""
+    entries = (
+        ()
+        if project is None
+        else project.pipe_library
+        if kind == "pipe spec"
+        else project.resistance_library
+    )
+    for entry in entries:
+        if entry.id == entry_id:
+            if isinstance(entry, PipeSpec):
+                return spec_label(entry)
+            return resistance_label(entry)
+    return f"project library {kind} {entry_id}"
+
+
+def _spec_text(spec: dict[str, Any], project: Project | None = None) -> str:
+    if spec.get("specId") is not None:
+        return _library_text("pipe spec", spec["specId"], project)
     parts = [str(spec.get("materialId", ""))]
     if spec.get("schedule") is not None:
         parts.append(f"schedule {spec['schedule']}")
@@ -640,17 +675,20 @@ NULL_TEXTS = {"dischargeCoefficient": "ISO 5167-2's (the default)"}
 discharge coefficient, proposal orifice-plate.md §5.1)."""
 
 
-def value_text(field: str, value: JsonValue, unit: str) -> str:
-    """A value in notes and the methods summary (proposal §5.4), SI with its unit."""
+def value_text(field: str, value: JsonValue, unit: str, project: Project | None = None) -> str:
+    """A value in notes and the methods summary (proposal §5.4), SI with its unit; a project
+    library entry by its name and id in ``project``'s library (by id without it)."""
     if value is None:
         return NULL_TEXTS.get(field, "none (the default)")
     if field == "spec" and isinstance(value, dict):
-        return _spec_text(value)
+        return _spec_text(value, project)
     if field == "fluid" and isinstance(value, dict):
         return _fluid_text(value)
     if field == "rating" and isinstance(value, dict):
         return _rating_text(value)
     if field == "resistance" and isinstance(value, dict):
+        if value.get("kind") == "library":
+            return _library_text("resistance", value.get("id"), project)
         number = value.get("value")
         return f"{value.get('kind')} {number:.6g}" if isinstance(number, int | float) else "?"
     if isinstance(value, bool):
@@ -660,10 +698,12 @@ def value_text(field: str, value: JsonValue, unit: str) -> str:
     return str(value)
 
 
-def _change(o: AppliedOverride) -> str:
+def _change(o: AppliedOverride, project: Project) -> str:
+    """``project``: the scenario's, whose library names the entries values refer to (the base's
+    library: entries are not scenario targets, proposal project-library.md §5.1)."""
     field = o.override.field
-    used = value_text(field, o.value, o.unit)
-    base = value_text(field, o.base_value, o.unit)
+    used = value_text(field, o.value, o.unit, project)
+    base = value_text(field, o.base_value, o.unit, project)
     if isinstance(o.override, ProjectOverride) and field == "fluid":
         return f"{used} (base: {base})"
     return f"{o.label} {used} (base: {base})"
@@ -754,7 +794,7 @@ def scenario_section(
     for o in applied.overrides:
         if o.state == "applied":
             mark = f" {_replaced_mark(o, parts or {})}" if o.index in replaced else ""
-            items.append(f"{_capitalized(o.target_label)}: {_change(o)}.{mark}")
+            items.append(f"{_capitalized(o.target_label)}: {_change(o, applied.project)}.{mark}")
     for o in applied.overrides:
         if o.state != "applied":
             state = "orphaned" if o.state == "orphaned" else "not applicable"
@@ -787,7 +827,7 @@ def element_notes(
     for o in applied.overrides:
         if o.state != "applied" or o.element_id is None:
             continue
-        text = _change(o)
+        text = _change(o, applied.project)
         if o.pipe_index is not None:
             text = f"{pipe_name(o.pipe_index)} {text}"
         changes.setdefault(o.element_id, []).append(text)

@@ -1028,7 +1028,7 @@ class _Mapper:
             * data.reference_diameter
             / (data.reference_area * self.built.fluid.kinematic_viscosity)
         )
-        coefficient = valve.resistance.kind if valve.resistance is not None else None
+        coefficient = data.resistance.coefficient  # as entered, or a library entry's
         if data.resistance.crane and 0.0 < re < RE_LAMINAR_MAX:
             self.flags.append(
                 make_flag(

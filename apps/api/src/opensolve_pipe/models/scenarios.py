@@ -36,7 +36,7 @@ from .components import (
     WyeBranch,
 )
 from .fluids import BuiltinFluid
-from .piping import MAX_PIPES
+from .piping import MAX_PIPES, SPEC_FIELDS
 
 MAX_SCENARIOS = 20
 """Scenarios per project: 20 of MAX_OVERRIDES fit the 1 MB body limit with the largest project
@@ -68,7 +68,8 @@ ComponentField = Literal[
 lists for it."""
 PipeField = Literal["spec", "length"]
 """Overridable values of one pipe: its spec (material, schedule, nominal size and the bore and
-roughness overrides, replaced together) and its length."""
+roughness overrides, or a pipe spec of the project library, replaced together) and its
+length."""
 ProjectField = Literal["fluid", "fluid.temperature"]
 """Overridable values of the project: the whole fluid, or a built-in fluid's temperature."""
 
@@ -185,9 +186,10 @@ COMPONENT_FIELDS: dict[type[BaseComponent], dict[str, Overridable]] = {
 }
 """Overridable values by component type (every type of the Component union; {} for none)."""
 
-PIPE_SPEC_KEYS = ("material_id", "schedule", "nominal_size", "inner_diameter", "roughness")
+PIPE_SPEC_KEYS = (*SPEC_FIELDS, "spec_id")
 """A pipe's spec: written as one value, so a scenario's pipe stays self-consistent (a material
-change rewrites the schedule and size and drops the bore and roughness overrides)."""
+change rewrites the schedule and size and drops the bore and roughness overrides; a specId, a
+pipe spec of the project library, replaces them all, and a spec without one leaves it)."""
 
 PIPE_FIELDS: dict[str, Overridable] = {
     "spec": Overridable((), keys=PIPE_SPEC_KEYS, label="spec"),
@@ -269,7 +271,8 @@ class PipeOverride(CamelModel):
     field: PipeField = Field(
         description=(
             "spec: an object with materialId and optionally schedule, nominalSize, "
-            "innerDiameter and roughness, which replace all five; length: m"
+            "innerDiameter and roughness, or with specId alone (a pipe spec of the project "
+            "library), which replace all six; length: m"
         )
     )
     value: JsonValue = Field(description=_VALUE_DESCRIPTION)

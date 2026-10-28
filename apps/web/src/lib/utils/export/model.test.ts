@@ -697,7 +697,7 @@ describe('branch K is on the combined-flow velocity (item 13, decision 29)', () 
 		const input = fixtureInput(name, { units });
 		const bundle = exportOf(input);
 		if (!bundle.sheets.some((s) => s.id === 'branch-ports'))
-			return expect(['pump-transfer', 'design-checks']).toContain(name);
+			return expect(['pump-transfer', 'design-checks', 'project-library']).toContain(name);
 		const t = readSheet(bundle, 'branch-ports');
 		const si = units === 'si';
 		const toSi = (v: number, category: UnitCategory) =>
@@ -887,7 +887,13 @@ describe('scenario changes (item 15)', () => {
 
 describe('the fixture itself', () => {
 	it('has the cases the design names', () => {
-		expect(FIXTURE_NAMES).toEqual(['pump-transfer', 'scenarios', 'tee-fallback', 'design-checks']);
+		expect(FIXTURE_NAMES).toEqual([
+			'pump-transfer',
+			'scenarios',
+			'tee-fallback',
+			'design-checks',
+			'project-library'
+		]);
 		const checks = fixtureInput('design-checks').cases[0]!.response!.solvedState.designChecks;
 		expect(new Set(checks.map((c) => c.outcome))).toEqual(
 			new Set(['pass', 'fail', 'not_evaluated'])

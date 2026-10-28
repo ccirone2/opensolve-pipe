@@ -42,6 +42,7 @@ import {
 	differenceText,
 	EMPTY_SETUP,
 	foundOverrides,
+	foundValueTexts,
 	GOAL_QUANTITIES,
 	goalChoices,
 	goalElements,
@@ -81,7 +82,8 @@ import {
 	type GoalDraft,
 	type GoalSeekSetup,
 	type VariableDraft,
-	type WordsContext
+	type WordsContext,
+	variableLabelOf
 } from './goal-seek';
 import { boundsProblem } from './schema-bounds';
 import { applyScenario, caseProject, withScenarios } from './scenarios';
@@ -772,6 +774,49 @@ describe("Run's reasons (§6.8) and the request", () => {
 
 describe('words (§6.9)', () => {
 	const met = goalSeekResponse();
+
+	it("names a valve's resistance by its coefficient once: 'resistance Cv 18.2346', never 'cv Cv'", () => {
+		// A made-up value, only formatted here.
+		for (const [kind, value, text] of [
+			['Cv', 18.2346, 'Cv 18.2346'],
+			['K', 0.5, 'K 0.5']
+		] as const) {
+			const override: Override = {
+				kind: 'component',
+				componentId: 'V1',
+				field: 'resistance',
+				value: { kind, value }
+			};
+			const response = goalSeekResponse({
+				variables: [
+					{
+						...goalSeekResponse().result.variables[0]!,
+						variable: {
+							kind: 'component',
+							componentId: 'V1',
+							field: 'resistance',
+							coefficient: kind,
+							lower: value / 10,
+							upper: value * 10
+						},
+						label: `resistance of valve V1 (${kind})`,
+						scale: 'log',
+						value,
+						override
+					}
+				]
+			});
+			const context = { labels: transfer(), sent: transfer(), prefs: SI_UNITS, caseId: null };
+			const expected = [`Discharge isolation valve resistance ${text}`];
+			expect(foundValueTexts(response, context), kind).toEqual(expected);
+			expect(foundValueTexts(response, { ...context, prefs: IMPERIAL_UNITS }), kind).toEqual(
+				expected
+			);
+			expect(variableLabelOf(transfer(), override), kind).toBe(
+				`Discharge isolation valve resistance ${kind}`
+			);
+		}
+	});
 
 	it('words a met run, met at the start and stopped early but met', () => {
 		expect(outcomeText(met, words(), request())).toEqual({

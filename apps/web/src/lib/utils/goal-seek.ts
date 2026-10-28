@@ -2500,8 +2500,14 @@ function variableNoticeLabel(
 	draft: Pick<VariableDraft, 'target' | 'field' | 'coefficient' | 'ratingKind'>
 ): string {
 	const label = variableFieldLabel(project, draft).replace(/ \(.*\)$/, '');
-	// A Cv or Kv keeps its symbol's case; every other label is lowercase in a sentence.
-	const field = label === 'Cv' || label === 'Kv' ? label : label.toLowerCase();
+	// A Cv, Kv or K keeps its symbol's case ("Strainer Cv", "valve resistance Cv"); every other
+	// label is lowercase in a sentence.
+	const field =
+		label === 'Cv' || label === 'Kv'
+			? label
+			: draft.field === 'resistance'
+				? `resistance ${draft.coefficient ?? 'K'}`
+				: label.toLowerCase();
 	if (draft.target.kind === 'project') return field;
 	return `${changeTargetLabel(project, makeOverride(draft.target, draft.field, null))} ${field}`;
 }
@@ -2530,10 +2536,10 @@ export function foundValueTexts(
 		const v = draft as VariableDraft;
 		const ratingKind = v.field === 'rating.value' ? caseRatingKind(words, v.target) : undefined;
 		const label = variableNoticeLabel(context.labels, ratingKind ? { ...v, ratingKind } : v);
-		// A Cv or Kv is named by its kind in the label ("Strainer Cv"): its number goes without
-		// the "Cv " a view prefixes, never "Strainer Cv Cv 81.0724".
+		// A Cv, Kv or K is named by its kind in the label ("Strainer Cv", "valve resistance Cv"):
+		// its number goes without the "Cv " a view prefixes, never "Strainer Cv Cv 81.0724".
 		const text =
-			v.field === 'rating.value'
+			v.field === 'rating.value' || v.field === 'resistance'
 				? variableText(
 						result.value,
 						{ category: view.spec.category, options: view.spec.options },

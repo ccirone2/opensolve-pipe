@@ -949,7 +949,7 @@ NOT_A_STATION: list[tuple[str, Callable[[], Project], list[str], str, set[str] |
         "member_reversed",
         lambda: dg.series_chain_project(reverse_b=True),
         ["PA", "PB"],
-        "MEMBER_REVERSED",
+        "MEMBERS_OPPOSED",
         None,
     ),
     (
@@ -1010,7 +1010,7 @@ def test_pg9_not_a_station(
     ids = set(issue["componentIds"])
     if component_ids is not None:
         assert ids == component_ids
-    elif code == "MEMBER_REVERSED":
+    elif code == "MEMBERS_OPPOSED":
         assert ids
         assert ids <= {"PA", "PB"}
     else:
@@ -1310,10 +1310,8 @@ def test_the_methods_section_names_the_station(api: Api) -> None:
 
 def test_the_methods_section_counts_the_rises(api: Api) -> None:
     """The "Points:" item states how many rises were solved: numPoints evenly spaced, "plus the
-    duty's rise" when the duty's is added (the grid of §5.3, as the response's own points). As
-    built it gives the number of points, the duty's included, and then adds "plus the duty's
-    rise" again (6 rises plus the duty's for 6 points; 5 plus the duty's when the duty is one
-    of the 5)."""
+    duty's rise" when the duty's is added (the grid of §5.3, as the response's own points), so
+    the number stated plus one for an added duty's rise is the number of points returned."""
     base = dp.pumps_in_parallel().project
     all_off = dg.with_component(dg.with_component(base, "PA", status="off"), "PB", status="off")
     problems = []

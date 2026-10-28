@@ -12,38 +12,37 @@ fixed head and assigned flow while touching both), then every pair of pumps, at 
 ``GROUP_CAP`` groups per project (the rest counted, not checked; a suggestion of more than
 ``MAX_GROUP_PUMPS`` pumps, the request's limit, is counted and left out).
 
-**A second station finder** (``second_station``), written from the definition of proposal
-§3.1 by plain reachability (breadth-first searches; no max flow, no articulation points), not
-from ``services/pump_groups.py``, whose public API only is used here. Vertices are the solver
-network's port nodes and tee or wye centres, every reservoir or reference node taken whole as
-one vertex. Barriers are what a station's interior may not hold: fixed heads, assigned-flow
-ports and the ports of pumps that are not members. For a pair {a, b} of vertices that are not
-centres, a and b are removed and the parts holding the members' ends are taken; the pair is a
-station when those parts hold no barrier and a and b each touch both the interior (the member
+**A second station finder** (``second_station``), written from the definition of proposal §3.1 by
+plain reachability (breadth-first searches, and Hopcroft and Tarjan's blocks for ``_on_a_way``; no
+max flow), not from ``services/pump_groups.py``, whose public API only is used here. Vertices are
+the solver network's port nodes and tee or wye centres, every reservoir or reference node taken
+whole as one vertex. Barriers are what a station's interior may not hold: fixed heads,
+assigned-flow ports and the ports of pumps that are not members. For a pair {a, b} of vertices that
+are not centres, a and b are removed and the parts holding the members' ends are taken; the pair is
+a station when those parts hold no barrier and a and b each touch both the interior (the member
 links and every link touching the parts) and the rest (a link outside it, or a fixed head or
 assigned flow of its own). The station is the live valid pair (below) with the fewest interior
 links, or the dead one with the fewest when no pair is live: a place whose rest reaches only a
-plug's branch is not where a flow can leave the station, and a pair whose members lie on no
-simple path between its two places (``_on_a_way``) passes its flow around them. Only
-vertices reachable from the members' ends without crossing a barrier are candidates (a group
-whose candidate region exceeds ``REGION_CAP`` vertices is skipped and counted), and only pairs
-that can separate the members from every barrier are tried: one of the pair lies on a shortest
-path from the members to a barrier, the other on a shortest path that avoids the first (or
-anywhere, when the first alone cuts every such path); a group that reaches no barrier at all
-tries every pair of its region, up to ``FLOATING_CAP`` vertices. The rest at S and at D is
-classified: *dead* when one of them reaches neither the other nor a barrier outside the
-interior, or when no member lies on a simple path between S and D (no flow can pass through
-the members), else *live*; *loop* when the rest at S reaches D outside the
-station.
+plug's branch is not where a flow can leave the station, and a pair whose members lie on no simple
+path between its two places (``_on_a_way``) passes its flow around them. Only vertices reachable
+from the members' ends without crossing a barrier are candidates (a group whose candidate region
+exceeds ``REGION_CAP`` vertices is skipped and counted), and only pairs that can separate the
+members from every barrier are tried: one of the pair lies on a shortest path from the members to a
+barrier, the other on a shortest path that avoids the first (or anywhere, when the first alone cuts
+every such path); a group that reaches no barrier at all tries every pair of its region, up to
+``FLOATING_CAP`` vertices. The rest at S and at D is classified: *dead* when one of them reaches
+neither the other nor a barrier outside the interior, or when no member lies on a simple path
+between S and D (no flow can pass through the members), else *live*; *loop* when the rest at S
+reaches D outside the station.
 
 **Station checks** (a violation names its letter):
 
-- (s1) ``find_station`` accepts only groups the second finder finds a station for, and a
-  refusal with a structural reason (``NO_SEPARATING_PORTS``, ``FIXED_HEAD_INSIDE``,
-  ``DIFFERENT_BOUNDARIES``, ``ASSIGNED_FLOW_INSIDE``, ``OTHER_PUMP_INSIDE``) of a group with a
-  live station that the definition accepts (its members all facing one way, no active PRV or
-  PSV inside) is a violation; of a live station the definition refuses too (members facing
-  each other, a PRV or PSV inside: only the reason differs) or of a dead one it is counted;
+- (s1) ``find_station`` accepts only groups the second finder finds a station for, and a refusal
+  with a structural reason (``NO_SEPARATING_PORTS``, ``NO_WAY_THROUGH``, ``FIXED_HEAD_INSIDE``,
+  ``DIFFERENT_BOUNDARIES``, ``ASSIGNED_FLOW_INSIDE``, ``OTHER_PUMP_INSIDE``) of a group with a live
+  station that the definition accepts (its members all facing one way, no active PRV or PSV inside)
+  is a violation; of a live station the definition refuses too (members facing each other, a PRV or
+  PSV inside: only the reason differs) or of a dead one it is counted;
 - (s2) S and D, as unordered vertices, are the second finder's pair (each node tuple one port
   node or every port of one boundary, its ``StationPort`` naming it);
 - (s3) the same interior link set; ``interior_connection_ids`` the connections whose link is
@@ -58,7 +57,8 @@ station.
   a member in a loop inside, its suction and discharge in one part, faces neither way);
   ``oriented`` is only reported against how many members face S → D (the API sets it for a
   station whose looped member faces no way, so it does not mean every member faces S → D);
-- (s5) a refusal of a station that exists by structure: ``MEMBER_REVERSED`` names members, and
+- (s5) a refusal of a station that exists by structure: ``MEMBERS_OPPOSED`` names every member
+  facing only one way when as many face each way, ``MEMBER_REVERSED`` the fewer otherwise, and
   in neither orientation of the pair does every member avoid facing only the other way;
   ``PRESSURE_CONTROL_INSIDE`` names exactly the PRVs and PSVs inside that are neither failed
   open nor failed closed, and with those failed open ``find_station`` gives the second finder's
@@ -69,7 +69,10 @@ station.
   region is counted, not checked); the
   members ``DIFFERENT_BOUNDARIES`` names have chains of pipes and two-port elements, from their
   suctions or from their discharges, ending at two or more different boundaries; the one place
-  ``NO_SEPARATING_PORTS`` names alone cuts the members off from every barrier.
+  ``NO_SEPARATING_PORTS`` names alone cuts the members off from every barrier;
+  ``NO_WAY_THROUGH`` names the components of a dead pair of the second finder's; and a
+  ``PRESSURE_CONTROL_INSIDE`` beside a reason that lifts barriers names active PRVs or PSVs
+  inside a station the second finder gives with those barriers lifted, together or one alone.
 
 **Curve checks**, for every station: ``group_curve(numPoints=NUM_POINTS)`` against the case's
 own ``solve_project`` state (no system curves). Its station is ``find_station``'s, or, when no
@@ -112,9 +115,10 @@ names), and then a message and nothing else. The checks read the station as the 
 - (h) the grid: the head range's minimum min(0, the rise), its maximum the larger of the rise
   and the largest sum, over the ways from S's part to D's, of the shutoff heads of the members
   the way passes forward that are on (a speed-controlled one's at its maximum speed), or, when
-  no way passes a member forward (S and D joined inside), every on member's shutoff head added
-  up; the points those rises evenly spaced (to 1e-9 of the span), in rise order, with the duty's
-  rise among them exactly once, marked ``isDuty``, its head the duty's exactly.
+  the ways do not pass every member forward (S and D joined inside, or a bypass joining a
+  member's two ends in one part), every on member's shutoff head added up; the points those
+  rises evenly spaced (to 1e-9 of the span), in rise order, with the duty's rise among them
+  exactly once, marked ``isDuty``, its head the duty's exactly.
 
 The report counts groups by source (suggested, pair) and outcome, stations by arrangement (and
 ``oriented`` against the members facing S → D), refusals by reason, refusals whose reason
@@ -193,14 +197,17 @@ steady state at the duty's rise) before the disagreements are a violation."""
 STRUCTURAL = frozenset(
     {
         "NO_SEPARATING_PORTS",
+        "NO_WAY_THROUGH",
         "FIXED_HEAD_INSIDE",
         "DIFFERENT_BOUNDARIES",
         "ASSIGNED_FLOW_INSIDE",
         "OTHER_PUMP_INSIDE",
     }
 )
-"""Refusal reasons that mean no station by structure; MEMBER_REVERSED and
+"""Refusal reasons that mean no station by structure; MEMBER_REVERSED, MEMBERS_OPPOSED and
 PRESSURE_CONTROL_INSIDE refuse a station that exists."""
+REVERSAL = frozenset({"MEMBER_REVERSED", "MEMBERS_OPPOSED"})
+"""Members facing D -> S: a minority against the rest, or as many each way (a tie)."""
 PROFILES = ("ref", "unit", "ladder", "wye", "fuzz", "fuzzfc", "fuzzaf")
 TWO_PORT = (Pump, IsolationValve, CheckValve, ControlValve, Equipment)
 """Components with two ports and one link between them, first port in (chains, §4)."""
@@ -757,7 +764,7 @@ def refusal_problems(
     codes = {i.code for i in error.issues}
     problems: list[str] = []
     if codes & STRUCTURAL:
-        problems += _structural_reasons(project, graph, members, error, counts)
+        problems += _structural_reasons(project, built, graph, members, error, mine, counts)
         if mine is not None and mine.live:
             a, b = sorted(mine.pair)
             where = (
@@ -778,12 +785,20 @@ def refusal_problems(
     view = View(s=a, d=b, inside=mine.inside, links=mine.links)
     st = structure(graph, view, members)
     for issue in error.issues:
-        if issue.code == "MEMBER_REVERSED":
+        if issue.code in REVERSAL:
             named = set(issue.component_ids)
             holds = bool(only_against(st, a, b)) and bool(only_against(st, b, a))
-            if not named or not named <= set(members) or not holds:
+            one_way, other_way = only_against(st, b, a), only_against(st, a, b)
+            # a tie names every member facing a way; else the minority facing only D -> S
+            tie = len(one_way) == len(other_way)
+            shown = (
+                named == one_way | other_way
+                if issue.code == "MEMBERS_OPPOSED"
+                else not tie and named == min(one_way, other_way, key=len)
+            )
+            if not named or not named <= set(members) or not holds or not shown:
                 problems.append(
-                    f"(s5) MEMBER_REVERSED names {issue.component_ids}: not shown (facing "
+                    f"(s5) {issue.code} names {issue.component_ids}: not shown (facing "
                     f"{sorted(facing(st, a, b))} one way, {sorted(facing(st, b, a))} the other)"
                 )
         elif issue.code != "PRESSURE_CONTROL_INSIDE":
@@ -804,7 +819,7 @@ def refusal_problems(
         if valves != inside:
             problems.append(f"(s5) PRESSURE_CONTROL_INSIDE names {valves}; inside: {inside}")
         reversed_ = next(
-            (i.component_ids for i in error.issues if i.code == "MEMBER_REVERSED"), None
+            ((i.code, i.component_ids) for i in error.issues if i.code in REVERSAL), None
         )
         problems += _with_controls_open(project, members, inside, mine, reversed_)
     return problems
@@ -813,14 +828,16 @@ def refusal_problems(
 def _other_reasons(
     project: Project, built: BuiltNetwork, graph: Graph, members: Sequence[str], mine: Found
 ) -> list[str]:
-    """The reasons the definition itself refuses ``mine`` for: MEMBER_REVERSED when in neither
-    orientation every member avoids facing only the other way, PRESSURE_CONTROL_INSIDE when an
-    active PRV or PSV is inside; [] when the station would be accepted."""
+    """The reasons the definition itself refuses ``mine`` for: MEMBER_REVERSED (a minority) or
+    MEMBERS_OPPOSED (a tie) when in neither orientation every member avoids facing only the
+    other way, PRESSURE_CONTROL_INSIDE when an active PRV or PSV is inside; [] when the station
+    would be accepted."""
     a, b = sorted(mine.pair)
     st = structure(graph, View(s=a, d=b, inside=mine.inside, links=mine.links), members)
     out = []
-    if only_against(st, a, b) and only_against(st, b, a):
-        out.append("MEMBER_REVERSED")
+    one_way, other_way = only_against(st, b, a), only_against(st, a, b)
+    if one_way and other_way:
+        out.append("MEMBERS_OPPOSED" if len(one_way) == len(other_way) else "MEMBER_REVERSED")
     if any(
         isinstance(c, ControlValve)
         and c.valve_type in ("prv", "psv")
@@ -837,10 +854,11 @@ def _with_controls_open(
     members: Sequence[str],
     valves: Sequence[str],
     mine: Found,
-    reversed_: list[str] | None,
+    reversed_: tuple[str, list[str]] | None,
 ) -> list[str]:
     """(s5): ``find_station`` with ``valves`` failed open finds the second finder's station, or,
-    when the refusal also named reversed members (``reversed_``), refuses for them only."""
+    when the refusal also named reversed members (``reversed_``: the code and the members),
+    refuses for them only."""
     data = project.model_dump(mode="json", by_alias=True, exclude_unset=True)
     for comp in data["components"]:
         if comp["id"] in valves:
@@ -851,11 +869,11 @@ def _with_controls_open(
         api = find_station(opened, built, members)
     except NotAStationError as ex:
         found = sorted((i.code, sorted(i.component_ids)) for i in ex.issues)
-        if reversed_ is not None and found == [("MEMBER_REVERSED", sorted(reversed_))]:
+        if reversed_ is not None and found == [(reversed_[0], sorted(reversed_[1]))]:
             return []
         return [f"(s5) with {list(valves)} failed open, refused: {found}"]
     if reversed_ is not None:
-        return [f"(s5) with {list(valves)} failed open, {reversed_} are no longer reversed"]
+        return [f"(s5) with {list(valves)} failed open, {reversed_[1]} are no longer reversed"]
     graph = graph_of(built)
     problems = station_problems(opened, built, graph, api, mine)
     return [f"{p} (with {list(valves)} failed open)" for p in problems]
@@ -863,9 +881,11 @@ def _with_controls_open(
 
 def _structural_reasons(
     project: Project,
+    built: BuiltNetwork,
     graph: Graph,
     members: Sequence[str],
     error: NotAStationError,
+    mine: Found | None,
     counts: Counter[str],
 ) -> list[str]:
     """(s6): each structural reason's named elements."""
@@ -883,6 +903,36 @@ def _structural_reasons(
                 f"(s6) {sorted(i.code for i in error.issues if i.code in inside_kinds)} name "
                 f"{sorted(named_inside)}, but with them lifted the definition gives no station"
             )
+        else:
+            valves = {
+                c
+                for i in error.issues
+                if i.code == "PRESSURE_CONTROL_INSIDE"
+                for c in i.component_ids
+            }
+            if valves:
+                # each named valve lies inside a station some lift finds: all the named
+                # elements together, or one alone (lifting more can give a smaller station)
+                counts["pressure_control_beside_a_lift"] += 1
+                links = set(found.links)
+                for element in sorted(named_inside):
+                    alone = {v for v in range(len(graph.label)) if graph.component[v] == element}
+                    one = second_station(graph, members, alone)
+                    if isinstance(one, Found):
+                        links |= one.links
+                inside = {
+                    c.id
+                    for c in project.components
+                    if isinstance(c, ControlValve)
+                    and c.valve_type in ("prv", "psv")
+                    and c.status == "active"
+                    and built.valves[c.id].link_index in links
+                }
+                if not valves <= inside:
+                    problems.append(
+                        f"(s6) PRESSURE_CONTROL_INSIDE names {sorted(valves)}; inside a station "
+                        f"with {sorted(named_inside)} lifted, together or alone: {sorted(inside)}"
+                    )
     for issue in error.issues:
         named = set(issue.component_ids)
         if issue.code in inside_kinds:
@@ -899,6 +949,13 @@ def _structural_reasons(
             problem = _different_boundaries(project, members, named)
             if problem:
                 problems.append(f"(s6) DIFFERENT_BOUNDARIES names {issue.component_ids}: {problem}")
+        elif issue.code == "NO_WAY_THROUGH":
+            pair = sorted({graph.component[v] for v in mine.pair}) if mine is not None else None
+            if mine is None or mine.live or sorted(named) != pair:
+                problems.append(
+                    f"(s6) NO_WAY_THROUGH names {issue.component_ids}; the definition's pair: "
+                    f"{pair} ({'live' if mine is not None and mine.live else 'dead or none'})"
+                )
         elif issue.code == "NO_SEPARATING_PORTS" and len(issue.component_ids) == 1:
             problem = _one_place(graph, members, issue.component_ids[0])
             if problem:
@@ -1478,9 +1535,10 @@ def _grid(
         max(duty.head, max((sum(shutoff(m) for m, f in w if f) for w in ws), default=0.0))
         for ws in (every, forward_only)
     }
-    if not any(f for w in every for _, f in w):
-        # no way from S's part to D's passes a member forward (S and D joined inside): the API
-        # bounds the rise by every member's shutoff head added up
+    if not {m for w in every for m, f in w if f} >= set(curve.station.members):
+        # the ways from S's part to D's do not pass every member forward (S and D joined
+        # inside, or a bypass joins a member's ends): the API bounds the rise by every member's
+        # shutoff head added up
         highs.add(max(duty.head, sum(shutoff(m) for m in curve.station.members)))
     low = min(0.0, duty.head)
     if rng.min != low:
@@ -1900,7 +1958,8 @@ def summarize(records: list[dict[str, Any]]) -> list[str]:
     dead = [(r, g) for r, g in groups if g.get("live") is False]
     lines.append(
         f"dead-end stations by the definition (no flow can pass): {len(dead)}, refused "
-        f"NO_SEPARATING_PORTS {sum(bool(g.get('dead_end_refused')) for _, g in dead)}"
+        "(NO_SEPARATING_PORTS at one place or NO_WAY_THROUGH) "
+        f"{sum(bool(g.get('dead_end_refused')) for _, g in dead)}"
     )
     lines += [f"  {r['name']} {g['members']}: dead end, {g.get('reasons')}" for r, g in dead[:20]]
     lines.append(

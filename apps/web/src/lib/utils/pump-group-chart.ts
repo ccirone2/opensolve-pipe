@@ -344,7 +344,7 @@ export function groupImageTitle(names: readonly string[], arrangement: string | 
 
 /** The state of the group curve the card tells, with the control the screen offers beside it. */
 export type GroupCurveNoteKind =
-	'loading' | 'error' | 'cancelled' | 'refused' | 'missing' | 'few' | 'not_converged';
+	'loading' | 'error' | 'cancelled' | 'refused' | 'missing' | 'few' | 'not_converged' | 'no_duty';
 
 /** The sentences under the chart, which the image's footer repeats (proposal §6.4). */
 export interface GroupNotes {
@@ -412,17 +412,24 @@ export function groupNotes({ data, members, state, project, prefs }: GroupNotesI
 											kind: 'not_converged',
 											text: `The case's solve did not converge, so no group curve is computed${state.response.message ? `: ${state.response.message}` : '.'}`
 										}
-									: data.total && data.missing === data.total
+									: !state.response.duty
 										? {
-												kind: 'missing',
-												text: 'No point of the group curve has a flow, so it is not drawn; the data table says why for each.'
+												// The station's inlet or outlet has no head in this case (closed off) or no
+												// level a rise can be read against (a floating section): no duty, no curve.
+												kind: 'no_duty',
+												text: `No group curve for this case: ${sentence(state.response.message || 'the station has no duty in this case')}`
 											}
-										: data.missing
+										: data.total && data.missing === data.total
 											? {
 													kind: 'missing',
-													text: `${data.missing} of ${data.total} group-curve points have no flow: the line has gaps there, and the data table says why for each.`
+													text: 'No point of the group curve has a flow, so it is not drawn; the data table says why for each.'
 												}
-											: null;
+											: data.missing
+												? {
+														kind: 'missing',
+														text: `${data.missing} of ${data.total} group-curve points have no flow: the line has gaps there, and the data table says why for each.`
+													}
+												: null;
 
 	const axes = response?.duty
 		? "Each pump's curve and point are drawn against the flow through that pump; the group curve and the Group point against the station's flow, the net flow into the station at its inlet."
@@ -456,6 +463,16 @@ export function groupNotes({ data, members, state, project, prefs }: GroupNotesI
 			duty.push(
 				"At the duty's rise the group curve gives the solve's flows, the station's and every pump's (within 0.5 %): it passes through the Group point."
 			);
+		} else if (check && check.flow === null) {
+			// The station alone at the duty's rise has no solved flow: not another steady state.
+			const reason = response.points.find((p) => p.isDuty)?.reason;
+			duty.push(
+				reason === 'not_converged'
+					? "The group curve's point at the duty's rise did not converge, so whether the curve passes through the Group point is not known."
+					: reason === 'not_computed'
+						? "The group curve's point at the duty's rise was not computed (the time budget ran out), so whether the curve passes through the Group point is not known."
+						: "The group curve has no solved flow at the duty's rise, so whether it passes through the Group point is not known."
+			);
 		} else if (check) {
 			duty.push(
 				`The group curve does not pass through the Group point: ${dutyCheckWords(response, name, prefs)}.`,
@@ -481,11 +498,17 @@ export function groupNotes({ data, members, state, project, prefs }: GroupNotesI
 		if (stop === 'never') {
 			memberNotes.push(`${member.name} delivers nothing at any rise the group curve samples.`);
 		} else if (stop !== null) {
+			// The rule compares the pump's own head, not the station's rise, with its shutoff head:
+			// in parallel its own head is the rise plus its losses on the way, so it can stop at a
+			// rise below its shutoff head.
 			const shutoff = result.control
 				? 'its shutoff head at its maximum speed'
 				: `its shutoff head, ${head(result.shutoffHead.head)}`;
+			const from = `${member.name} delivers nothing from a rise of ${head(stop)}, the first rise sampled where it has no flow`;
 			memberNotes.push(
-				`${member.name} delivers nothing from a rise of ${head(stop)}: above ${shutoff}, the solver closes it.`
+				response?.station.arrangement === 'parallel'
+					? `${from}: its own head there, the rise plus its losses on the way, would be above ${shutoff}, so the solver closes it.`
+					: `${from}: the solver closes a pump whose own head would be above ${shutoff}.`
 			);
 		}
 	}
@@ -529,6 +552,7 @@ export function dutyCheckWords(
 	const check = response.dutyCheck;
 	const duty = response.duty;
 	if (!check || !duty) return '';
+	if (check.flow === null) return "the station alone at the duty's rise has no solved flow";
 	const flowUnit = displayUnit('flow', prefs);
 	const flow = (q: number | null) =>
 		q === null
@@ -546,6 +570,11 @@ export function dutyCheckWords(
 		`at the duty's rise it gives ${flow(check.flow)} (the solve: ${flow(duty.flow)})` +
 		(pumps.length ? `, and ${andList(pumps)}` : '')
 	);
+}
+
+/** A sentence ending in one full stop. */
+function sentence(text: string): string {
+	return /[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`;
 }
 
 /**

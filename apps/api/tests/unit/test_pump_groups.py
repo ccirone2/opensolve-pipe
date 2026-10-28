@@ -136,6 +136,83 @@ def test_a_reservoir_taken_whole_is_the_inlet() -> None:
     assert st.arrangement == "parallel"
 
 
+def _same_tank(header: bool) -> dict[str, Any]:
+    """Pumps on tank R1 that return to it: without ``header`` each draws from its own nozzle
+    and both deliver through T2 to a third nozzle; with it they draw through T1 from one
+    nozzle and each delivers into a nozzle of its own."""
+    data = _parallel()
+    data["components"] = [c for c in data["components"] if c["id"] != "R2"]
+    _component(data, "R1")["ports"] = _ports("port_1", "port_2", "port_3")
+    if header:
+        data["components"] = [c for c in data["components"] if c["id"] != "T2"]
+        data["connections"] = [c for c in data["connections"] if c["id"] != "L2"]
+        _connection(data, "LA2").update(toComponentId="R1", toPortId="port_2")
+        _connection(data, "LB2").update(toComponentId="R1", toPortId="port_3")
+    else:
+        data["components"] = [c for c in data["components"] if c["id"] != "T1"]
+        data["connections"] = [c for c in data["connections"] if c["id"] != "L1"]
+        _connection(data, "LA1").update(fromComponentId="R1", fromPortId="port_1")
+        _connection(data, "LB1").update(fromComponentId="R1", fromPortId="port_2")
+        _connection(data, "L2").update(toComponentId="R1", toPortId="port_3")
+    return data
+
+
+@pytest.mark.parametrize("header", [False, True])
+def test_pumps_returning_to_their_own_tank_take_it_whole(header: bool) -> None:
+    """Pumps that draw from a tank's nozzles and return to the same tank: the rest of the
+    network is the one pipe between the pumps' side and the tank, so the station meets it at
+    the tank taken whole and at that pipe's end, and the case's duty is on its curve."""
+    data = _same_tank(header)
+    st = _station(data, ["PA", "PB"])
+    other = ("T1", "run_inlet") if header else ("T2", "run_outlet")
+    tank = ("R1", None)
+    assert (st.inlet_port.component_id, st.inlet_port.port_id) == (other if header else tank)
+    assert (st.outlet_port.component_id, st.outlet_port.port_id) == (tank if header else other)
+    assert st.arrangement == "parallel"
+    assert st.oriented
+    gc = group_curve(Project.model_validate(data), ["PA", "PB"], num_points=5)
+    assert gc.duty is not None
+    assert gc.duty.flow > 0.0
+    assert gc.duty_check is not None
+    assert gc.duty_check.agrees
+
+
+def test_a_bypassed_member_counts_in_the_default_range() -> None:
+    """A booster with a check-valve bypass: R1 -> PA -> T1, T1's run through a check valve to
+    T2, T1's branch through PB to T2, T2 -> R2. The check valve joins PB's two ends in one part,
+    so the ways through the parts pass PA only; PA then PB in series is still a way, so the
+    default range reaches the sum of both shutoff heads."""
+    data = _series()
+    for cid in ("T1", "T2"):
+        data["components"].append(_tee(cid))
+    data["components"].append(
+        {
+            "type": "valve",
+            "valveType": "check",
+            "id": "CV",
+            "name": "CV",
+            "elevation": 0.5,
+            "ports": _ports("inlet", "outlet"),
+        }
+    )
+    data["connections"] = [c for c in data["connections"] if c["id"] != "L2"]
+    _pipe(data, "L2", ("PA", "discharge"), ("T1", "run_inlet"))
+    _pipe(data, "B1", ("T1", "run_outlet"), ("CV", "inlet"))
+    _pipe(data, "B2", ("CV", "outlet"), ("T2", "run_inlet"))
+    _pipe(data, "L4", ("T1", "branch"), ("PB", "suction"))
+    _connection(data, "L3").update(fromComponentId="T2", fromPortId="run_outlet")
+    _pipe(data, "L5", ("PB", "discharge"), ("T2", "branch"))
+    project = Project.model_validate(data)
+    built = build_network(project, fluid_properties(project.fluid))
+    st = find_station(project, built, ["PA", "PB"])
+    assert st.arrangement == "mixed"
+    assert {m for way in st.ways for m in way} == {"PA"}
+    shutoffs = [
+        built.pumps[p].curve.shutoff_head(built.pumps[p].component.speed) for p in ("PA", "PB")
+    ]
+    assert pump_groups.default_head_max(built, st) == pytest.approx(sum(shutoffs), rel=1e-15)
+
+
 def test_a_recirculation_bypass_inside_makes_the_station_mixed() -> None:
     data = _parallel()
     _split(data, "LA2", _tee("T3"), "run_inlet", "run_outlet")
@@ -151,16 +228,38 @@ def test_a_recirculation_bypass_inside_makes_the_station_mixed() -> None:
     [
         ("assigned_flow", ["ASSIGNED_FLOW_INSIDE"]),
         ("other_pump", ["OTHER_PUMP_INSIDE"]),
-        ("reversed", ["MEMBER_REVERSED"]),
+        ("reversed", ["MEMBERS_OPPOSED"]),
         ("two_reservoirs", ["DIFFERENT_BOUNDARIES"]),
         ("two_reservoirs_through_a_plugged_tee", ["FIXED_HEAD_INSIDE"]),
         ("tank_on_header", ["FIXED_HEAD_INSIDE"]),
         ("prv", ["PRESSURE_CONTROL_INSIDE"]),
         ("three_feeds", ["NO_SEPARATING_PORTS"]),
+        ("assigned_flow+prv_b", ["ASSIGNED_FLOW_INSIDE", "PRESSURE_CONTROL_INSIDE"]),
+        ("tank_on_header+prv_b", ["FIXED_HEAD_INSIDE", "PRESSURE_CONTROL_INSIDE"]),
     ],
 )
 def test_every_reason_a_group_is_not_a_station(change: str, codes: list[str]) -> None:
+    """Each reason alone, and an active PRV beside a reason found by lifting a barrier: every
+    reason is listed, not only the first."""
     data = _parallel()
+    for one in change.split("+"):
+        _change(data, one)
+    assert _refusal(data, ["PA", "PB"]) == codes
+
+
+def _prv(cid: str = "V1") -> dict[str, Any]:
+    return {
+        "type": "valve",
+        "valveType": "prv",
+        "id": cid,
+        "name": cid,
+        "elevation": 0.5,
+        "setpoint": 2.0e5,
+        "ports": _ports("inlet", "outlet"),
+    }
+
+
+def _change(data: dict[str, Any], change: str) -> None:
     if change == "assigned_flow":
         _split(data, "LA2", _tee("T3"), "run_inlet", "run_outlet")
         data["components"].append(
@@ -199,23 +298,17 @@ def test_every_reason_a_group_is_not_a_station(change: str, codes: list[str]) ->
         data["components"].append(_reservoir("R4", level=30.0))
         _pipe(data, "LT", ("T3", "branch"), ("R4", "port_1"))
     elif change == "prv":
-        prv = {
-            "type": "valve",
-            "valveType": "prv",
-            "id": "V1",
-            "name": "V1",
-            "elevation": 0.5,
-            "setpoint": 2.0e5,
-            "ports": _ports("inlet", "outlet"),
-        }
-        _split(data, "LA2", prv, "inlet", "outlet")
+        _split(data, "LA2", _prv(), "inlet", "outlet")
+    elif change == "prv_b":
+        _split(data, "LB2", _prv(), "inlet", "outlet")
     elif change == "three_feeds":
         _split(data, "LA1", _tee("T3"), "run_inlet", "run_outlet")
         _split(data, "LB1", _tee("T4"), "run_inlet", "run_outlet")
         data["components"] += [_reservoir("R3"), _reservoir("R5")]
         _pipe(data, "F3", ("R3", "port_1"), ("T3", "branch"))
         _pipe(data, "F5", ("R5", "port_1"), ("T4", "branch"))
-    assert _refusal(data, ["PA", "PB"]) == codes
+    else:
+        raise AssertionError(change)
 
 
 def test_refusals_name_their_elements_in_words() -> None:
@@ -270,8 +363,44 @@ def test_opposed_pumps_are_named_together() -> None:
     with pytest.raises(NotAStationError) as info:
         _station(data, ["PA", "PB"])
     [only] = info.value.issues
+    assert only.code == "MEMBERS_OPPOSED"
     assert only.component_ids == ["PA", "PB"]
     assert "face opposite ways" in only.message
+
+
+def _add_parallel(data: dict[str, Any], pid: str, legs: tuple[str, str], reverse: bool) -> None:
+    """Pump ``pid`` beside PA, between new tees on the connections ``legs`` (PA's suction and
+    discharge sides), piped backwards when ``reverse``."""
+    ti, to = f"T{pid}i", f"T{pid}o"
+    _split(data, legs[0], _tee(ti), "run_inlet", "run_outlet")
+    _split(data, legs[1], _tee(to), "run_inlet", "run_outlet")
+    pump = copy.deepcopy(_component(data, "PB"))
+    pump.update(id=pid, name=pid)
+    data["components"].append(pump)
+    s, d = ("discharge", "suction") if reverse else ("suction", "discharge")
+    _pipe(data, f"{pid}1", (ti, "branch"), (pid, s))
+    _pipe(data, f"{pid}2", (pid, d), (to, "branch"))
+
+
+def test_a_reversed_minority_is_named_alone() -> None:
+    """Three pumps between T1 and T2, PC piped backwards: PC faces against the other two, so the
+    station's direction is theirs and PC alone is named (MEMBER_REVERSED, not a tie)."""
+    data = _parallel()
+    _add_parallel(data, "PC", ("LA1", "LA2"), reverse=True)
+    with pytest.raises(NotAStationError) as info:
+        _station(data, ["PA", "PB", "PC"])
+    [only] = info.value.issues
+    assert (only.code, only.component_ids) == ("MEMBER_REVERSED", ["PC"])
+    assert only.message.startswith("the pump PC faces from the station's outlet T2 (run_outlet)")
+    data = _parallel()
+    _add_parallel(data, "PC", ("LA1", "LA2"), reverse=False)
+    _add_parallel(data, "PD", ("LA1x", "LA2x"), reverse=True)
+    _add_parallel(data, "PE", ("LA1xx", "LA2xx"), reverse=True)
+    with pytest.raises(NotAStationError) as info:
+        _station(data, ["PA", "PB", "PC", "PD", "PE"])
+    [only] = info.value.issues
+    assert (only.code, only.component_ids) == ("MEMBER_REVERSED", ["PD", "PE"])
+    assert only.message.startswith("the pumps PD and PE face from the station's outlet")
 
 
 # --------------------------------------------------------------------------- the duty
@@ -397,6 +526,29 @@ def test_points_past_the_budget_are_not_computed(monkeypatch: pytest.MonkeyPatch
     assert all(p.message.startswith("not computed: ") and p.flow is None for p in skipped)
     assert gc.duty_check is not None
     assert gc.duty_check.agrees
+
+
+def test_a_duty_rise_out_of_time_is_not_computed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The budget runs out at the duty's rise: the duty check says it was not solved, never that
+    it did not converge."""
+    real = pump_groups.run_outer_loop
+    calls = {"n": 0}
+
+    def limited(*args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] > 1:  # the case's own solve only
+            raise SolveDeadlineError("the request's 45 s budget ran out")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(pump_groups, "run_outer_loop", limited)
+    gc = group_curve(Project.model_validate(_parallel()), ["PA", "PB"], num_points=5)
+    assert gc.duty_check is not None
+    assert not gc.duty_check.agrees
+    assert "was not solved (not computed: the request's 45 s budget ran out)" in (
+        gc.duty_check.message
+    )
+    assert "converge" not in gc.duty_check.message
+    assert all(p.reason == "not_computed" for p in gc.points)
 
 
 def test_a_case_that_does_not_converge_has_no_duty(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -590,7 +742,7 @@ def test_pumps_in_loops_of_their_own_are_no_station() -> None:
     with pytest.raises(NotAStationError) as info:
         _station(data, ["PA", "PB"])
     [only] = info.value.issues
-    assert only.code == "NO_SEPARATING_PORTS"
+    assert only.code == "NO_WAY_THROUGH"
     assert only.component_ids == ["TA", "TB"]
     assert "lie on no way between the two places" in only.message
     assert "TA (run_inlet) and TB (run_inlet)" in only.message

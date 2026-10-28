@@ -16,6 +16,8 @@ import type {
 	TopologyIssue
 } from '../api/types';
 import { goalSeekResponse, systemCurveResponse } from '../testing/results';
+import { testWorkspace } from '../testing/workspace';
+import { pumpTransferExample } from '../utils/examples';
 import fixture from '../utils/__fixtures__/pump-groups-input.json';
 import { newGoal, newVariable, toRequest } from '../utils/goal-seek';
 import { withScenarios } from '../utils/scenarios';
@@ -287,5 +289,19 @@ describe('group curves (D20: on demand, per solve and set of pumps)', () => {
 			status: 'error',
 			message: 'Group curves are not available from this server.'
 		});
+	});
+});
+
+describe('the group in page state keeps its pumps’ ids from new elements', () => {
+	it('a member deleted and a new pump added never takes its place, until the group lets go', () => {
+		const ws = testWorkspace(pumpTransferExample());
+		expect(ws.store.project.components.some((c) => c.id === 'P2')).toBe(false);
+		// P2 was ticked, then deleted: its slot still names it.
+		ws.pumpGroup = ['P1', null, 'P2'];
+		expect(ws.reservedIds).toEqual(expect.arrayContaining(['P1', 'P2']));
+		expect(ws.addStandalone('pump')).toBe('P3');
+		ws.undo();
+		ws.pumpGroup = ['P1'];
+		expect(ws.addStandalone('pump')).toBe('P2');
 	});
 });

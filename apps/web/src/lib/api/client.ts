@@ -110,10 +110,12 @@ export class NotFoundError extends ValidationError {
 
 /**
  * 422 NOT_A_STATION: the pumps of a group curve do not form a station (CLAUDE.md D20; proposal
- * pump-groups.md §5.6). Every reason is an issue with its code (NO_SEPARATING_PORTS,
- * FIXED_HEAD_INSIDE, ASSIGNED_FLOW_INSIDE, OTHER_PUMP_INSIDE, DIFFERENT_BOUNDARIES,
- * MEMBER_REVERSED, PRESSURE_CONTROL_INSIDE), the server's sentence and the ids it names, which
- * the Pumps together card words with element names.
+ * pump-groups.md §5.6). Every reason is an issue with its code (NO_SEPARATING_PORTS: one place,
+ * or three or more; NO_WAY_THROUGH: two places, no member on a way between them;
+ * FIXED_HEAD_INSIDE, ASSIGNED_FLOW_INSIDE, OTHER_PUMP_INSIDE, DIFFERENT_BOUNDARIES;
+ * MEMBERS_OPPOSED: as many members face each way; MEMBER_REVERSED: a minority faces against the
+ * rest; PRESSURE_CONTROL_INSIDE, alone or beside another reason), the server's sentence and the
+ * ids it names, which the Pumps together card words with element names.
  */
 export class NotAStationError extends ValidationError {
 	readonly issues: readonly TopologyIssue[];

@@ -7,8 +7,14 @@
  */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { TopologyError } from '$lib/api/client';
-import type { Project, PumpGroupCurveResponse, SolveResponse } from '$lib/api/types';
+import { NotAStationError, TopologyError } from '$lib/api/client';
+import type {
+	Component,
+	PipeConnection,
+	Project,
+	PumpGroupCurveResponse,
+	SolveResponse
+} from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Solver } from '$lib/state/project.svelte';
 import { testWorkspace } from '$lib/testing/workspace';
@@ -179,5 +185,122 @@ describe('the Pumps together card in the Pumps view', () => {
 		).toBeVisible();
 		expect(within(card()).queryByRole('table')).toBeNull();
 		expect(calls).toEqual([]);
+	});
+
+	it('suggests on the case as solved: a scenario that sets a PRV between the tees active', async () => {
+		const c = named('parallel-ideal');
+		const base = structuredClone(c.project);
+		const leg = base.connections.find((x) => x.id === 'LA2')!;
+		const pa = base.components.find((x) => x.id === 'PA')!;
+		// Made-up: a PRV on PA's discharge leg, failed open in the base, active in Winter.
+		const prv = {
+			type: 'valve',
+			valveType: 'prv',
+			id: 'V1',
+			name: 'PRV V1',
+			elevation: pa.elevation,
+			status: 'failed_open',
+			setpoint: 2e5,
+			ports: ['inlet', 'outlet'].map((id) => ({ id, nominalSize: 0.1016 }))
+		} as unknown as Component;
+		const project = withScenarios(
+			{
+				...base,
+				components: [...base.components, prv],
+				connections: [
+					...base.connections.filter((x) => x.id !== 'LA2'),
+					{ ...leg, toComponentId: 'V1', toPortId: 'inlet' },
+					{ ...leg, id: 'LA3', fromComponentId: 'V1', fromPortId: 'outlet' } as PipeConnection
+				]
+			},
+			[
+				{
+					id: 'S1',
+					name: 'Winter',
+					overrides: [{ kind: 'component', componentId: 'V1', field: 'status', value: 'active' }]
+				}
+			]
+		);
+		const { ws, calls } = setup(project, c);
+		await ws.store.solveAll();
+		// The PRV holds a pressure inside the station in Winter: nothing is suggested, nothing asked.
+		ws.setCase('S1');
+		await showPumps();
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		const boxes = () => within(card()).getAllByRole('checkbox') as HTMLInputElement[];
+		expect(boxes().map((b) => b.checked)).toEqual([false, false]);
+		expect(within(card()).queryByRole('button', { name: /^Also found/ })).toBeNull();
+		expect(calls).toEqual([]);
+		// In the base it is failed open: PA and PB are the group suggested, and asked for.
+		ws.setCase(null);
+		await waitFor(() => expect(calls).toEqual([{ pumpIds: ['PA', 'PB'] }]));
+		expect(boxes().map((b) => b.checked)).toEqual([true, true]);
+	});
+
+	it('words a refusal on the project it belongs to, not on edits made since', async () => {
+		const c = named('parallel-ideal');
+		const base = structuredClone(c.project);
+		const r1 = base.components.find((x) => x.id === 'R1')!;
+		const piping = base.connections.find((x) => x.id === 'LA1')!.piping;
+		const join = (id: string, from: string, to: string): PipeConnection => {
+			const [fromComponentId, fromPortId] = from.split(':') as [string, string];
+			const [toComponentId, toPortId] = to.split(':') as [string, string];
+			return { id, fromComponentId, fromPortId, toComponentId, toPortId, piping };
+		};
+		// Made-up: each pump draws from its own tank, R1 and R3, into one discharge header.
+		const project: Project = {
+			...base,
+			components: [
+				...base.components.filter((x) => x.id !== 'T1'),
+				{ ...r1, id: 'R3', name: 'Tank R3' } as Component
+			],
+			connections: [
+				join('LA1', 'R1:port_1', 'PA:suction'),
+				join('LB1', 'R3:port_1', 'PB:suction'),
+				...base.connections.filter((x) => ['LA2', 'LB2', 'L2'].includes(x.id))
+			]
+		};
+		HTMLCanvasElement.prototype.getContext = (() => ({})) as unknown as typeof getContext;
+		const message = 'the pumps PA and PB draw from different boundaries';
+		const issues = [
+			{
+				code: 'DIFFERENT_BOUNDARIES',
+				message: 'made-up server words',
+				componentIds: ['R1', 'R3'],
+				connectionIds: []
+			}
+		];
+		const ws = testWorkspace(project, {
+			solver: {
+				solve: async () => structuredClone(c.solve),
+				groupCurve: async () => {
+					throw new NotAStationError(message, [message], issues);
+				}
+			}
+		});
+		render(WorkspaceView, { workspace: ws });
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await results().findByRole('heading', { name: 'Converged' });
+		await showPumps();
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		for (const name of [/Pump PA/, /Pump PB/]) {
+			await fireEvent.click(within(card()).getByRole('checkbox', { name }));
+		}
+		const told = () =>
+			within(within(card()).getByRole('list', { name: 'Why they do not form a station' }))
+				.getByRole('listitem')
+				.textContent!.replace(/\s+/g, ' ');
+		await waitFor(() => expect(told()).toMatch(/^Pump PA and Pump PB draw from different/));
+		// Both pumps turned round since the solve: the tanks are now at their discharges, but the
+		// refusal answered the project as solved, whose tanks are at the suctions.
+		const turned = (x: PipeConnection) =>
+			x.toComponentId === 'PA' || x.toComponentId === 'PB'
+				? { ...x, toPortId: 'discharge' }
+				: x.fromComponentId === 'PA' || x.fromComponentId === 'PB'
+					? { ...x, fromPortId: 'suction' }
+					: x;
+		expect(ws.edit((p) => ({ ...p, connections: p.connections.map(turned) }), 'turn')).toBe(true);
+		await waitFor(() => expect(results().getAllByText(/out of date/i).length).toBeGreaterThan(0));
+		expect(told()).toMatch(/^Pump PA and Pump PB draw from different/);
 	});
 });

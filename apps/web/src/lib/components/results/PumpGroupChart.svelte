@@ -138,6 +138,24 @@
 		onslots?.(next);
 	}
 
+	let alsoFound: HTMLElement | undefined = $state();
+	let fieldset: HTMLElement | undefined = $state();
+
+	/**
+	 * Show a group found: its button goes (the group shown is not offered), so the focus moves on
+	 * to the next group offered (often the one shown before), else the chart, else a ticked box.
+	 */
+	function showSuggestion(pumpIds: readonly string[]) {
+		onslots?.([...pumpIds]);
+		void tick().then(() => {
+			const next =
+				alsoFound?.querySelector<HTMLElement>('button') ??
+				figure ??
+				fieldset?.querySelector<HTMLElement>('input:checked');
+			next?.focus();
+		});
+	}
+
 	const sameGroup = (ids: readonly string[]) =>
 		ids.length === memberIds.length && ids.every((x) => memberIds.includes(x));
 	const others = $derived(suggestions.filter((s) => !sameGroup(s.pumpIds)));
@@ -306,7 +324,7 @@
 	</h3>
 	{#if open}
 		<div id="{id}-body" class="space-y-3">
-			<fieldset class="space-y-1">
+			<fieldset bind:this={fieldset} class="space-y-1">
 				<legend class="text-xs font-medium text-slate-700">Pumps in the group</legend>
 				<div class="flex flex-wrap gap-x-4">
 					{#each pumps as pump (pump.id)}
@@ -344,12 +362,12 @@
 				</p>
 			</fieldset>
 			{#if others.length}
-				<div class="flex flex-wrap items-center gap-x-2">
+				<div bind:this={alsoFound} class="flex flex-wrap items-center gap-x-2">
 					{#each others as other (other.pumpIds.join('\u0000'))}
 						<button
 							type="button"
 							class="btn btn-quiet px-2 text-blue-800"
-							onclick={() => onslots?.([...other.pumpIds])}
+							onclick={() => showSuggestion(other.pumpIds)}
 							>Also found: {andList(other.pumpIds.map(nameOf))}</button
 						>
 					{/each}
@@ -707,7 +725,9 @@
 								{#if shown.dutyCheck}
 									Duty check: {shown.dutyCheck.agrees
 										? 'the group curve passes through it'
-										: 'the group curve does not pass through it'}; {dutyCheckWords(
+										: shown.dutyCheck.flow === null
+											? 'not known, its point at the duty’s rise was not solved'
+											: 'the group curve does not pass through it'}; {dutyCheckWords(
 										shown,
 										nameOf,
 										prefs

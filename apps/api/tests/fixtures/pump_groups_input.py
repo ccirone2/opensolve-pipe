@@ -29,7 +29,15 @@ a ``PumpGroupCurveResponse``; 422: the error envelope with its issues).
 - ``refused``: ``parallel-ideal`` with a tank on the discharge header (a third tee piped to a
   reservoir): not a station (422 NOT_A_STATION, FIXED_HEAD_INSIDE).
 - ``refused-reversed``: ``parallel-ideal`` with PB turned round: its members face opposite ways
-  (422 NOT_A_STATION, MEMBER_REVERSED).
+  (422 NOT_A_STATION, MEMBERS_OPPOSED).
+- ``refused-opposed-three``: PA from T1 to T2, PB turned round between them, and PC in a loop of
+  its own beside PA's suction pipe, on no way between T1 and T2 (MEMBERS_OPPOSED, naming PA and
+  PB only).
+- ``refused-own-loops``: each pump circulating around a tee of its own, TA and TB, off every way
+  between the two places where they meet the rest of the network (NO_WAY_THROUGH).
+- ``no-duty``: the corpus project ``fuzz_2168``, pumps PU1 and PU2: the station's outlet lies in
+  a section no reservoir or reference node reaches, so the case converges with no duty and no
+  curve (200, ``duty`` null, the reason in ``message``).
 """
 
 import copy
@@ -39,6 +47,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from opensolve_pipe.main import app
+from tests.differential.corpus import items, load
 from tests.reference import derivations_pump_groups as dpg
 from tests.reference import derivations_pumps as dp
 
@@ -127,6 +136,36 @@ def _case(
         "solve": solve,
         "groupCurve": {"status": response.status_code, "body": response.json()},
     }
+
+
+def _network(ids: list[str], links: list[tuple[str, str, str]]) -> dict[str, Any]:
+    """A project of ``parallel-ideal``'s parts: reservoirs (R…, one port per connection; R2
+    as its delivery tank), ideal tees (T…) and PA's pump at full speed (P…), joined by LA1's
+    piping."""
+    data = _parallel()
+    proto = {c["id"]: c for c in data["components"]}
+    pipe = _connection(data, "LA1")
+    ends = [end.split(":")[0] for _, a, b in links for end in (a, b)]
+    components = []
+    for cid in ids:
+        kind = cid[0]
+        comp = copy.deepcopy(
+            proto["R2" if cid == "R2" else {"R": "R1", "T": "T1", "P": "PA"}[kind]]
+        )
+        comp.update(id=cid, name=f"{comp['name'].split()[0]} {cid}")
+        if kind == "R":
+            comp["ports"] = [
+                {**comp["ports"][0], "id": f"port_{i + 1}"} for i in range(ends.count(cid))
+            ]
+        components.append(comp)
+    connections = []
+    for cid, a, b in links:
+        conn = copy.deepcopy(pipe)
+        (fa, fp), (ta, tp) = a.split(":"), b.split(":")
+        conn.update(id=cid, fromComponentId=fa, fromPortId=fp, toComponentId=ta, toPortId=tp)
+        connections.append(conn)
+    data["components"], data["connections"] = components, connections
+    return data
 
 
 def _tee(data: dict[str, Any], cid: str) -> dict[str, Any]:
@@ -226,6 +265,66 @@ def generate() -> dict[str, Any]:
     _connection(reversed_, "LB2").update(fromPortId="suction")
     case = _case(client, "refused-reversed", "PB turned round", reversed_, ["PA", "PB"], status=422)
     assert case["groupCurve"]["body"]["error"] == "NOT_A_STATION", case["groupCurve"]
+    cases.append(case)
+
+    opposed = _network(
+        ["R1", "T1", "T3", "T4", "PA", "PB", "PC", "T2", "R2"],
+        [
+            ("L1", "R1:port_1", "T1:run_inlet"),
+            ("LA0", "T1:run_outlet", "T3:run_inlet"),
+            ("LA0b", "T3:run_outlet", "T4:run_inlet"),
+            ("LC1", "T3:branch", "PC:suction"),
+            ("LC2", "PC:discharge", "T4:branch"),
+            ("LA1", "T4:run_outlet", "PA:suction"),
+            ("LA2", "PA:discharge", "T2:run_inlet"),
+            ("LB1", "T1:branch", "PB:discharge"),
+            ("LB2", "PB:suction", "T2:branch"),
+            ("L2", "T2:run_outlet", "R2:port_1"),
+        ],
+    )
+    case = _case(
+        client,
+        "refused-opposed-three",
+        "PB turned round, PC in a loop of its own",
+        opposed,
+        ["PA", "PB", "PC"],
+        status=422,
+    )
+    assert [i["code"] for i in case["groupCurve"]["body"]["issues"]] == ["MEMBERS_OPPOSED"]
+    cases.append(case)
+
+    loops = _network(
+        ["R1", "T0", "TA", "TB", "PA", "PB"],
+        [
+            ("C0", "R1:port_1", "T0:branch"),
+            ("C1", "T0:run_outlet", "TA:run_inlet"),
+            ("C2", "TA:run_outlet", "PA:suction"),
+            ("C3", "PA:discharge", "TA:branch"),
+            ("C4", "TB:run_inlet", "T0:run_inlet"),
+            ("C5", "TB:run_outlet", "PB:suction"),
+            ("C6", "PB:discharge", "TB:branch"),
+        ],
+    )
+    case = _case(
+        client, "refused-own-loops", "Each pump in a loop of its own", loops, ["PA", "PB"], 422
+    )
+    assert [i["code"] for i in case["groupCurve"]["body"]["issues"]] == ["NO_WAY_THROUGH"]
+    cases.append(case)
+
+    floating = _dump(load(dict(items())["fuzz_2168"]))
+    case = _case(
+        client,
+        "no-duty",
+        "The station's outlet in a floating section",
+        floating,
+        [
+            "PU1",
+            "PU2",
+        ],
+    )
+    body = case["groupCurve"]["body"]
+    assert body["converged"], body
+    assert body["duty"] is None, body
     cases.append(case)
 
     return {"generatedBy": GENERATED_BY, "cases": cases}

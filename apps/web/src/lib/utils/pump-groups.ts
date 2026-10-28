@@ -507,8 +507,9 @@ export function wordsText(words: Words): string {
 
 /**
  * Why the pumps `members` do not form a station, for one issue of a NOT_A_STATION answer, told
- * with element names from `project` (the labels project): the issue's code worded by the web,
- * the ids it names linked. An unknown code keeps the server's sentence.
+ * with element names from `project`, the project the answer belongs to (as solved while results
+ * are out of date: its topology tells DIFFERENT_BOUNDARIES' side): the issue's code worded by the
+ * web, the ids it names linked. An unknown code keeps the server's sentence.
  */
 export function refusalWords(
 	issue: TopologyIssue,
@@ -521,17 +522,40 @@ export function refusalWords(
 	const one = ids.length === 1;
 	switch (issue.code) {
 		case 'NO_SEPARATING_PORTS':
-			return ids.length
+			// One place, or three or more (two places are a station's, or NO_WAY_THROUGH). The ids are
+			// the places' components, each once: one id is one place or several ports of one
+			// component, two or more are three places or more.
+			return ids.length >= 2
 				? [
 						...pumps,
-						' meet the rest of the network at ',
+						' meet the rest of the network at more than two places, at ',
 						...list(ids, name),
-						', not at exactly two places: a station meets it only at its inlet and its outlet, with no other pump, reservoir, reference node or assigned flow between them.'
+						': a station meets it at exactly two, its inlet and its outlet, with no other pump, reservoir, reference node or assigned flow between them.'
 					]
-				: [
-						...pumps,
-						' do not meet the rest of the network at exactly two places: a station meets it only at its inlet and its outlet.'
-					];
+				: one
+					? [
+							...pumps,
+							' meet the rest of the network only at ',
+							...list(ids, name),
+							': a station meets it at exactly two places, its inlet and its outlet, so that flow passes through it.'
+						]
+					: [
+							...pumps,
+							' do not meet the rest of the network at exactly two places: a station meets it only at its inlet and its outlet.'
+						];
+		case 'NO_WAY_THROUGH':
+			// Two places, but no way between them passes a member (the ids: the places' components).
+			return [
+				...pumps,
+				members.length === 1 ? ' lies' : ' lie',
+				' on no way between the two places where ',
+				members.length === 1 ? 'it meets' : 'they meet',
+				' the rest of the network, at ',
+				...list(ids, name),
+				': each sits in a loop or dead end of its own, so no flow passes through ',
+				members.length === 1 ? 'it' : 'them',
+				'; a station’s pumps lie between its inlet and its outlet.'
+			];
 		case 'FIXED_HEAD_INSIDE':
 			return one
 				? [
@@ -566,17 +590,20 @@ export function refusalWords(
 				...list(ids, name),
 				', each through its own piping: a station has one inlet and one outlet, so they do not form one, even at equal levels (a scenario can change one).'
 			];
+		case 'MEMBERS_OPPOSED':
+			// As many members face each way (the ids: every member facing a way), so the station's
+			// inlet and outlet cannot be told apart.
+			return [
+				...list(ids, name),
+				' face opposite ways between the station’s two places, as many each way, so its inlet and outlet cannot be told apart: a station’s pumps all deliver from its inlet to its outlet.'
+			];
 		case 'MEMBER_REVERSED':
-			return ids.length >= 2 && ids.length === members.length
-				? [
-						...list(ids, name),
-						' face opposite ways between the station’s inlet and outlet: a station’s pumps all deliver from its inlet to its outlet.'
-					]
-				: [
-						...list(ids, name),
-						one ? ' faces' : ' face',
-						' against the other pumps, from the station’s outlet to its inlet: a station’s pumps all deliver from its inlet to its outlet.'
-					];
+			// A minority faces from the outlet to the inlet, against the rest (the ids: that minority).
+			return [
+				...list(ids, name),
+				one ? ' faces' : ' face',
+				' against the other pumps, from the station’s outlet to its inlet: a station’s pumps all deliver from its inlet to its outlet.'
+			];
 		case 'PRESSURE_CONTROL_INSIDE':
 			return [
 				...list(ids, name),

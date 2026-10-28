@@ -6,9 +6,10 @@
  * connections matter).
  */
 import { describe, expect, it } from 'vitest';
-import type { Component, Project, TopologyIssue } from '$lib/api/types';
+import type { Component, Project, Scenario, TopologyIssue } from '$lib/api/types';
 import { link, projectWith } from '$lib/testing/helpers';
 import fixture from './__fixtures__/pump-groups-input.json';
+import { applyScenario, withScenarios } from './scenarios';
 import {
 	defaultGroup,
 	MAX_GROUP_PUMPS,
@@ -213,6 +214,51 @@ describe('suggested groups on hand-built topologies', () => {
 		]);
 	});
 
+	it('finds pumps drawing from one tank and returning to it, the tank one of the places', () => {
+		// One tank at both ends of the pumps: the API takes the tank whole as the station's inlet
+		// or outlet, and accepted each of these as PA and PB in parallel (run from the working tree).
+		const pumps = [pump('PA'), pump('PB')];
+		// A suction header from the tank, each pump back through its own port.
+		const ownReturns = projectWith(
+			[reservoir('R', 3), tee('T1'), ...pumps],
+			[
+				pipe('L1', 'R:port_1', 'T1:run_inlet'),
+				pipe('LA1', 'T1:run_outlet', 'PA:suction'),
+				pipe('LB1', 'T1:branch', 'PB:suction'),
+				pipe('LA2', 'PA:discharge', 'R:port_2'),
+				pipe('LB2', 'PB:discharge', 'R:port_3')
+			]
+		);
+		// Each pump from its own port, a discharge header back to the tank.
+		const ownSuctions = projectWith(
+			[reservoir('R', 3), tee('T2'), ...pumps],
+			[
+				pipe('LA1', 'R:port_1', 'PA:suction'),
+				pipe('LB1', 'R:port_2', 'PB:suction'),
+				pipe('LA2', 'PA:discharge', 'T2:run_inlet'),
+				pipe('LB2', 'PB:discharge', 'T2:branch'),
+				pipe('L2', 'T2:run_outlet', 'R:port_3')
+			]
+		);
+		// Both headers, the tank closing the loop.
+		const { components, connections } = parallel();
+		const bothHeaders = projectWith(
+			[reservoir('R', 2), ...components.filter((c) => c.type !== 'reservoir')],
+			connections.map((c) =>
+				c.id === 'L1'
+					? pipe('L1', 'R:port_1', 'T1:run_inlet')
+					: c.id === 'L2'
+						? pipe('L2', 'T2:run_outlet', 'R:port_2')
+						: c
+			)
+		);
+		for (const project of [ownReturns, ownSuctions, bothHeaders]) {
+			expect(suggestGroups(project, ['PA', 'PB'])).toEqual([
+				{ pumpIds: ['PA', 'PB'], kind: 'parallel' }
+			]);
+		}
+	});
+
 	it('does not suggest pumps on two reservoirs', () => {
 		const { components, connections } = parallel();
 		const project = projectWith(
@@ -282,6 +328,22 @@ describe('suggested groups on hand-built topologies', () => {
 		expect(suggestGroups(withValve('active'), ['PA', 'PB'])).toEqual([]);
 		// Failed open or closed, it is no pressure control: the API accepts the station.
 		expect(ids(suggestGroups(withValve('failed_open'), ['PA', 'PB']))).toEqual([['PA', 'PB']]);
+
+		// A scenario can set the valve's status, so a case's suggestions come from the case as
+		// solved (the scenario applied, as the store's caseInputs() gives it), not from the base.
+		const status = (componentId: string, value: string): Scenario => ({
+			id: 'S1',
+			name: 'Valve',
+			overrides: [{ kind: 'component', componentId, field: 'status', value }]
+		});
+		const inCase = (base: Project, scenario: Scenario) =>
+			applyScenario(withScenarios(base, [scenario]), 'S1').project;
+		expect(
+			suggestGroups(inCase(withValve('failed_open'), status('V1', 'active')), ['PA', 'PB'])
+		).toEqual([]);
+		expect(
+			ids(suggestGroups(inCase(withValve('active'), status('V1', 'failed_open')), ['PA', 'PB']))
+		).toEqual([['PA', 'PB']]);
 	});
 
 	it('does not suggest pumps in series whose chain leads nowhere at one end', () => {
@@ -393,8 +455,23 @@ describe('why the pumps do not form a station, in words', () => {
 		expect(told('FIXED_HEAD_INSIDE', ['R2', 'R4'])).toBe(
 			'The pumps meet the fixed heads of Tank R2 and Tank R4, one place more than a station has: it meets the rest of the network at exactly two places, its inlet and its outlet, with no reservoir or reference node between them.'
 		);
+		// NO_SEPARATING_PORTS in each of its forms: three places or more, one place, nowhere (or
+		// too many to list). Two places are a station's, or NO_WAY_THROUGH.
 		expect(told('NO_SEPARATING_PORTS', ['T1', 'T2', 'R4'])).toBe(
-			'Pump PA and Pump PB meet the rest of the network at Tee T1, Tee T2 and Tank R4, not at exactly two places: a station meets it only at its inlet and its outlet, with no other pump, reservoir, reference node or assigned flow between them.'
+			'Pump PA and Pump PB meet the rest of the network at more than two places, at Tee T1, Tee T2 and Tank R4: a station meets it at exactly two, its inlet and its outlet, with no other pump, reservoir, reference node or assigned flow between them.'
+		);
+		expect(told('NO_SEPARATING_PORTS', ['T1'])).toBe(
+			'Pump PA and Pump PB meet the rest of the network only at Tee T1: a station meets it at exactly two places, its inlet and its outlet, so that flow passes through it.'
+		);
+		expect(told('NO_SEPARATING_PORTS', [])).toBe(
+			'Pump PA and Pump PB do not meet the rest of the network at exactly two places: a station meets it only at its inlet and its outlet.'
+		);
+		// Two places, the members on no way between them: never "not at exactly two places".
+		expect(told('NO_WAY_THROUGH', ['T1', 'T2'])).toBe(
+			'Pump PA and Pump PB lie on no way between the two places where they meet the rest of the network, at Tee T1 and Tee T2: each sits in a loop or dead end of its own, so no flow passes through them; a station’s pumps lie between its inlet and its outlet.'
+		);
+		expect(told('NO_WAY_THROUGH', ['T1', 'T2'], ['PA'])).toBe(
+			'Pump PA lies on no way between the two places where it meets the rest of the network, at Tee T1 and Tee T2: each sits in a loop or dead end of its own, so no flow passes through it; a station’s pumps lie between its inlet and its outlet.'
 		);
 		expect(told('ASSIGNED_FLOW_INSIDE', ['A1'])).toBe(
 			'The assigned flow at Demand A1 enters or leaves the network between the pumps and the rest of it: a station holds no assigned flow between its inlet and its outlet.'
@@ -402,11 +479,17 @@ describe('why the pumps do not form a station, in words', () => {
 		expect(told('OTHER_PUMP_INSIDE', ['PC'])).toBe(
 			'Pump PC lies between the pumps and the rest of the network but is not in the group: tick it too, or choose other pumps.'
 		);
-		expect(told('MEMBER_REVERSED', ['PA', 'PB'])).toBe(
-			'Pump PA and Pump PB face opposite ways between the station’s inlet and outlet: a station’s pumps all deliver from its inlet to its outlet.'
+		// A tie, from its own code: every member facing a way is named, here two of three (the
+		// third on no way between the places), so the tie is never inferred from the counts.
+		expect(told('MEMBERS_OPPOSED', ['PA', 'PB'], ['PA', 'PB', 'PC'])).toBe(
+			'Pump PA and Pump PB face opposite ways between the station’s two places, as many each way, so its inlet and outlet cannot be told apart: a station’s pumps all deliver from its inlet to its outlet.'
 		);
+		// A minority against the rest: the pumps named face D → S.
 		expect(told('MEMBER_REVERSED', ['PB'], ['PA', 'PB', 'PC'])).toBe(
 			'Pump PB faces against the other pumps, from the station’s outlet to its inlet: a station’s pumps all deliver from its inlet to its outlet.'
+		);
+		expect(told('MEMBER_REVERSED', ['PB', 'PC'], ['PA', 'PB', 'PC', 'PD', 'PE'])).toBe(
+			'Pump PB and Pump PC face against the other pumps, from the station’s outlet to its inlet: a station’s pumps all deliver from its inlet to its outlet.'
 		);
 		expect(told('PRESSURE_CONTROL_INSIDE', ['V1'])).toBe(
 			'Valve V1 is inside the station and holds a pressure (an active PRV or PSV): its setpoint is a pressure, not a head difference, so the station alone has no group curve that depends on its rise only.'
@@ -433,15 +516,44 @@ describe('why the pumps do not form a station, in words', () => {
 	});
 
 	it('words the refusals of the fixture, the API’s own answers', () => {
-		const refused = fixtureCase('refused') as unknown as {
-			project: Project;
-			memberIds: string[];
-			groupCurve: { body: { issues: TopologyIssue[] } };
+		const told = (name: string) => {
+			const refused = fixtureCase(name) as unknown as {
+				project: Project;
+				memberIds: string[];
+				groupCurve: { body: { issues: TopologyIssue[] } };
+			};
+			return refused.groupCurve.body.issues.map((issue) => ({
+				code: issue.code,
+				text: wordsText(refusalWords(issue, refused.memberIds, refused.project))
+			}));
 		};
-		const [only] = refused.groupCurve.body.issues;
-		expect(only!.code).toBe('FIXED_HEAD_INSIDE');
-		expect(wordsText(refusalWords(only!, refused.memberIds, refused.project))).toBe(
-			'The pumps meet the fixed heads of Reservoir R2 and Tank R4, one place more than a station has: it meets the rest of the network at exactly two places, its inlet and its outlet, with no reservoir or reference node between them.'
-		);
+		expect(told('refused')).toEqual([
+			{
+				code: 'FIXED_HEAD_INSIDE',
+				text: 'The pumps meet the fixed heads of Reservoir R2 and Tank R4, one place more than a station has: it meets the rest of the network at exactly two places, its inlet and its outlet, with no reservoir or reference node between them.'
+			}
+		]);
+		// Two pumps facing each other between the tees: a tie, every member named.
+		expect(told('refused-reversed')).toEqual([
+			{
+				code: 'MEMBERS_OPPOSED',
+				text: 'Pump PA and Pump PB face opposite ways between the station’s two places, as many each way, so its inlet and outlet cannot be told apart: a station’s pumps all deliver from its inlet to its outlet.'
+			}
+		]);
+		// Three pumps, two facing each other and the third in a loop of its own: still a tie,
+		// naming only the two that face a way.
+		expect(told('refused-opposed-three')).toEqual([
+			{
+				code: 'MEMBERS_OPPOSED',
+				text: 'Pump PA and Pump PB face opposite ways between the station’s two places, as many each way, so its inlet and outlet cannot be told apart: a station’s pumps all deliver from its inlet to its outlet.'
+			}
+		]);
+		// Each pump in a loop of its own between the two tees: two places, no way through.
+		expect(told('refused-own-loops')).toEqual([
+			{
+				code: 'NO_WAY_THROUGH',
+				text: 'Pump PA and Pump PB lie on no way between the two places where they meet the rest of the network, at Tee TA and Tee TB: each sits in a loop or dead end of its own, so no flow passes through them; a station’s pumps lie between its inlet and its outlet.'
+			}
+		]);
 	});
 });

@@ -268,6 +268,58 @@ describe('the card', () => {
 		expect(onslots).toHaveBeenLastCalledWith(['P1', 'P2', 'P3']);
 	});
 
+	it('keeps the focus in the card when a group found is shown and its button goes', async () => {
+		const c = named('ladder');
+		const suggestions = [
+			{ pumpIds: ['P1', 'P2', 'P3'], kind: 'parallel' },
+			{ pumpIds: ['P2', 'P3'], kind: 'parallel' }
+		];
+		const values = (slots: (string | null)[]) => ({
+			slots,
+			curve: undefined,
+			suggestions,
+			onslots: (next: string[]) => void view.rerender(props(c, values(next)))
+		});
+		const view = render(PumpGroupChart, props(c, values(['P2', 'P3'])));
+		const whole = screen.getByRole('button', { name: 'Also found: Pump P1, Pump P2 and Pump P3' });
+		whole.focus();
+		await fireEvent.click(whole);
+		await tick();
+		await tick();
+		// The button pressed is gone (its group is shown); the focus moves to the next one offered,
+		// the group shown before, never to the page's body.
+		expect(whole.isConnected).toBe(false);
+		const back = screen.getByRole('button', { name: 'Also found: Pump P2 and Pump P3' });
+		expect(back).toHaveFocus();
+		await fireEvent.click(back);
+		await tick();
+		await tick();
+		expect(
+			screen.getByRole('button', { name: 'Also found: Pump P1, Pump P2 and Pump P3' })
+		).toHaveFocus();
+		// No other group offered: the chart's figure takes the focus.
+		view.unmount();
+		const alone = render(
+			PumpGroupChart,
+			props(c, {
+				slots: ['P1'],
+				curve: undefined,
+				suggestions: [suggestions[0]],
+				onslots: (next: string[]) =>
+					void alone.rerender(
+						props(c, { slots: next, curve: undefined, suggestions: [suggestions[0]] })
+					)
+			})
+		);
+		const only = screen.getByRole('button', { name: 'Also found: Pump P1, Pump P2 and Pump P3' });
+		only.focus();
+		await fireEvent.click(only);
+		await tick();
+		await tick();
+		expect(document.activeElement).not.toBe(document.body);
+		expect(screen.getByRole('figure')).toHaveFocus();
+	});
+
 	it('says in words why the pumps are not a station, names linked, and still draws them', async () => {
 		const c = named('refused');
 		const body = c.groupCurve.body as { message: string; issues: TopologyIssue[] };
@@ -355,6 +407,49 @@ describe('the card', () => {
 		expect(
 			screen.getByText(/Duty check: the group curve passes through it; at the duty's rise it gives/)
 		).toBeVisible();
+	});
+
+	it('says the duty check is not known when the duty’s point was not solved', async () => {
+		const c = named('parallel-ideal');
+		// Made-up: the duty's point not computed, as the API reports it.
+		const response = structuredClone(c.groupCurve.body as PumpGroupCurveResponse);
+		response.dutyCheck = {
+			agrees: false,
+			flow: null,
+			members: response.duty!.members.map((x) => ({ pumpId: x.pumpId, flow: null })),
+			message: 'made-up server words'
+		};
+		Object.assign(
+			response.points.find((p) => p.isDuty)!,
+			{
+				flow: null,
+				converged: false,
+				reason: 'not_computed',
+				members: []
+			}
+		);
+		render(PumpGroupChart, props(c, { curve: { status: 'ready', response } }));
+		expect(
+			screen.getByText(
+				"The group curve's point at the duty's rise was not computed (the time budget ran out), so whether the curve passes through the Group point is not known."
+			)
+		).toBeVisible();
+		expect(screen.queryByText(/Several steady states can exist/)).toBeNull();
+		await fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
+		expect(
+			screen.getByText(
+				/Duty check: not known, its point at the duty’s rise was not solved; the station alone at the duty's rise has no solved flow\./
+			)
+		).toBeVisible();
+		expect(screen.queryByText(/the group curve does not pass through it/)).toBeNull();
+	});
+
+	it('says why a converged case has no group curve: no duty, in the API’s words', () => {
+		const c = named('no-duty');
+		const response = c.groupCurve.body as PumpGroupCurveResponse;
+		render(PumpGroupChart, props(c));
+		expect(screen.getByText(`No group curve for this case: ${response.message}.`)).toBeVisible();
+		expect(screen.queryByText(/Duty check/)).toBeNull();
 	});
 
 	it('says why no image can be made, and makes one with the caption and notes', async () => {

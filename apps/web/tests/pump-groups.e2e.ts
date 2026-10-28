@@ -202,6 +202,17 @@ test('two pumps that are not a station: why, in words, and their own curves stil
 	);
 	await expect(reason.getByRole('button', { name: 'Tank R4' })).toBeVisible();
 	const figure = card.getByRole('figure', { name: 'Pump PA and Pump PB' });
-	await expect(figure.getByRole('img')).toHaveAccessibleName(/; no group curve shown\.$/);
+	// Each member's point is drawn (the chart's name lists it, "without a point" otherwise) …
+	await expect(figure.getByRole('img')).toHaveAccessibleName(
+		/^Pump curves and points of Pump PA at [^;]+; Pump PB at [^;]+; no group curve shown\.$/
+	);
+	// … and each member's curve: the legend, made from the chart's datasets, has a line for it.
+	const legend = figure.getByRole('list', { name: 'Legend' });
+	for (const curve of ['Pump PA, 100 % speed (own flow)', 'Pump PB, 85 % speed (own flow)']) {
+		const entry = legend.getByRole('listitem').filter({ hasText: curve });
+		await expect(entry).toHaveCount(1);
+		await expect(entry.locator('svg line')).toHaveCount(1);
+	}
+	await expect(legend.getByRole('listitem').filter({ hasText: /group curve/i })).toHaveCount(0);
 	await noSidewaysScroll(page);
 });

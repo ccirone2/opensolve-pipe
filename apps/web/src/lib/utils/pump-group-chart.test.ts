@@ -336,8 +336,12 @@ describe('the notes (screen and image)', () => {
 		const response = responseOf(c);
 		const rise = stopRise(response.points, 'PB');
 		expect(typeof rise).toBe('number');
+		// In parallel the rule compares the pump's own head (the rise plus its losses on the way)
+		// with its shutoff head, so the rise itself can be below it: the words never say the rise
+		// is above it. (A sample's rise: the pump's own head between the samples is not known.)
+		const shutoff = c.solve.solvedState.pumpResults.PB!.shutoffHead.head;
 		expect(notesOf(c).members).toEqual([
-			`Pump PB delivers nothing from a rise of ${m(rise as number)}: above its shutoff head, ${m(c.solve.solvedState.pumpResults.PB!.shutoffHead.head)}, the solver closes it.`
+			`Pump PB delivers nothing from a rise of ${m(rise as number)}, the first rise sampled where it has no flow: its own head there, the rise plus its losses on the way, would be above its shutoff head, ${m(shutoff)}, so the solver closes it.`
 		]);
 		// The rise is a sample's: running below it, at no flow from it up.
 		const below = [...response.points]
@@ -345,6 +349,19 @@ describe('the notes (screen and image)', () => {
 			.sort((a, b) => b.head - a.head)[0]!;
 		expect(below.members.find((x) => x.pumpId === 'PB')!.status).toBe('running');
 		expect(stopRise(response.points, 'PA')).toBe(null);
+	});
+
+	it('a member that stops in series: the rule on its own head, without the parallel losses', () => {
+		const c = named('series');
+		// Made-up: PB carries no flow at the highest rise sampled (the series fixture runs at all).
+		const response = structuredClone(responseOf(c));
+		const top = [...response.points].sort((a, b) => b.head - a.head)[0]!;
+		const pb = top.members.find((x) => x.pumpId === 'PB')!;
+		Object.assign(pb, { status: 'no_flow', flow: 0 });
+		expect(stopRise(response.points, 'PB')).toBe(top.head);
+		expect(notesOf(c, { status: 'ready', response }).members).toEqual([
+			`Pump PB delivers nothing from a rise of ${ft(top.head)}, the first rise sampled where it has no flow: the solver closes a pump whose own head would be above its shutoff head, ${ft(c.solve.solvedState.pumpResults.PB!.shutoffHead.head)}.`
+		]);
 	});
 
 	it('an off member, and a speed-controlled one', () => {
@@ -377,6 +394,57 @@ describe('the notes (screen and image)', () => {
 			`The group curve does not pass through the Group point: at the duty's rise it gives ${l(duty.members[0]!.flow)} (the solve: ${l(duty.flow)}), and Pump PB 0 L/s (the solve: ${l(duty.members[1]!.flow)}).`,
 			'Several steady states can exist (D13); the point is the one the solve found.'
 		]);
+	});
+
+	it("a duty check with no flow at the duty's rise: not known, never another steady state", () => {
+		const c = named('parallel-ideal');
+		const withReason = (reason: 'not_converged' | 'not_computed' | null) => {
+			// Made-up: the station alone at the duty's rise has no solved flow, as the API reports
+			// it (every member's flow null, the duty point without a flow).
+			const response = structuredClone(responseOf(c));
+			response.dutyCheck = {
+				agrees: false,
+				flow: null,
+				members: response.duty!.members.map((x) => ({ pumpId: x.pumpId, flow: null })),
+				message: 'made-up server words'
+			};
+			const point = response.points.find((p) => p.isDuty)!;
+			Object.assign(point, { flow: null, converged: false, reason, members: [] });
+			return notesOf(c, { status: 'ready', response }).duty;
+		};
+		expect(withReason('not_converged')).toEqual([
+			"The group curve's point at the duty's rise did not converge, so whether the curve passes through the Group point is not known."
+		]);
+		expect(withReason('not_computed')).toEqual([
+			"The group curve's point at the duty's rise was not computed (the time budget ran out), so whether the curve passes through the Group point is not known."
+		]);
+		expect(withReason(null)).toEqual([
+			"The group curve has no solved flow at the duty's rise, so whether it passes through the Group point is not known."
+		]);
+	});
+
+	it('a converged case with no duty: the reason the API gives, and nothing about a duty', () => {
+		const c = named('no-duty');
+		const response = responseOf(c);
+		expect(response.converged).toBe(true);
+		expect(response.duty).toBe(null);
+		expect(response.points).toEqual([]);
+		const notes = notesOf(c);
+		expect(notes.curve).toEqual({
+			kind: 'no_duty',
+			text: `No group curve for this case: ${response.message}.`
+		});
+		expect(notes.curve!.text).toMatch(
+			/^No group curve for this case: the station's inlet or outlet lies in a part of the network that no reservoir or reference node reaches .*\.$/
+		);
+		expect(notes.frame).toBe(null);
+		expect(notes.duty).toEqual([]);
+		expect(groupNoteLines(notes)[0]).toBe(notes.curve!.text);
+		// Without the server's words, still a sentence.
+		const bare = { ...response, message: '' };
+		expect(notesOf(c, { status: 'ready', response: bare }).curve!.text).toBe(
+			'No group curve for this case: the station has no duty in this case.'
+		);
 	});
 
 	it("says the group curve's state: computing, failed, cancelled, refused, too few pumps", () => {

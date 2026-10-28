@@ -93,6 +93,7 @@ def test_the_smoke_selection_breaks_no_rule_but_the_known_api_defect() -> None:
         "FIXED_HEAD_INSIDE",
         "OTHER_PUMP_INSIDE",
         "MEMBER_REVERSED",
+        "MEMBERS_OPPOSED",
         "PRESSURE_CONTROL_INSIDE",
     ):
         assert reasons[code] >= 1, (code, reasons)
@@ -260,7 +261,7 @@ def test_a_dead_end_is_a_station_through_which_no_flow_passes() -> None:
 def test_parallel_pumps_into_a_dead_end_face_each_other() -> None:
     """Parallel pumps delivering into a plug: the smallest part meeting the rest at two places
     is the pumps and their delivery side, between the two suctions, where the pumps face each
-    other; the definition and the API both refuse it as MEMBER_REVERSED."""
+    other; the definition and the API both refuse it as MEMBERS_OPPOSED (as many face each way)."""
     case = _case(dead_end("pumps_in_parallel"))
     found = second_station(case.graph, ["PA", "PB"])
     assert isinstance(found, Found)
@@ -268,7 +269,7 @@ def test_parallel_pumps_into_a_dead_end_face_each_other() -> None:
     assert found.loop
     assert _labels(case, found) == {"PA:suction", "PB:suction"}
     record = _group(case, ("PA", "PB"))
-    assert record["reasons"] == ["MEMBER_REVERSED"]
+    assert record["reasons"] == ["MEMBERS_OPPOSED"]
     assert record["violations"] == []
     assert not record["counts"].get("reason_differs")
 
@@ -307,11 +308,12 @@ def test_a_reversed_member_and_a_prv_inside_are_checked() -> None:
     reversed_ = _case(reversed_member())
     assert _group(reversed_, ("PA", "PB"))["violations"] == []
     reversal = _refusal(reversed_, ["PA", "PB"])
-    assert {i.code for i in reversal.issues} == {"MEMBER_REVERSED"}
+    assert {i.code for i in reversal.issues} == {"MEMBERS_OPPOSED"}
     found = second_station(reversed_.graph, ["PA", "PB"])
     assert isinstance(found, Found)
     assert problems(reversed_, reversal, found) == []
-    assert problems(reversed_, _falsified(reversal, "MEMBER_REVERSED", ["R1"]), found)
+    assert problems(reversed_, _falsified(reversal, "MEMBERS_OPPOSED", ["R1"]), found)
+    assert problems(reversed_, _falsified(reversal, "MEMBERS_OPPOSED", ["PB"]), found)
     prv = _case(prv_in_leg())
     assert _group(prv, ("PA", "PB"))["violations"] == []
     error = _refusal(prv, ["PA", "PB"])

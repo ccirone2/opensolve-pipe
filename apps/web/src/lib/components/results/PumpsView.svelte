@@ -31,7 +31,13 @@
 		type OtherCaseInput,
 		type PumpChecksInput
 	} from '$lib/utils/pump-chart';
-	import { flagsForElement, markChanged, pumpTable, type TableSort } from '$lib/utils/results';
+	import {
+		flagsForElement,
+		markChanged,
+		pumpTable,
+		resultsProject,
+		type TableSort
+	} from '$lib/utils/results';
 	import { defaultGroup, suggestGroups } from '$lib/utils/pump-groups';
 	import type { GroupMemberInput } from '$lib/utils/pump-group-chart';
 	import PumpChart from './PumpChart.svelte';
@@ -255,18 +261,25 @@
 			};
 		});
 	});
-	/** The groups suggested on the topology as solved (once per solve). */
+	/**
+	 * The groups suggested on the case as solved (once per solve): the scenario applied to the base
+	 * sent, so a PRV or PSV a scenario sets active (or not) is read as the API reads it.
+	 */
+	const caseSolved = $derived(response ? ws.store.caseInputs() : null);
 	const suggestions = $derived(
-		ws.store.solvedProject && pumps.length >= 2
+		caseSolved && pumps.length >= 2
 			? suggestGroups(
-					ws.store.solvedProject,
+					caseSolved,
 					pumps.map((row) => row.key)
 				)
 			: []
 	);
 	/** The boxes ticked by slot: the user's, else the group suggested for the pump viewed. */
 	const groupSlots = $derived(ws.pumpGroup ?? defaultGroup(suggestions, viewed?.key ?? null));
-	/** The members with a result in this case (topology is the same in every case). */
+	/**
+	 * The members with a result in this case. The station's extent is the same in every case
+	 * (topology), but whether the API accepts it can differ (an active PRV or PSV inside).
+	 */
 	const groupMembers = $derived(
 		groupSlots.filter((pumpId): pumpId is string => !!pumpId && !!solved.pumpResults[pumpId])
 	);
@@ -376,7 +389,7 @@
 			onretry={() => ws.store.loadGroupCurve(groupMembers, { retry: true })}
 			oncancel={() => ws.store.cancelGroupCurve(groupMembers)}
 			prefs={ws.displayUnits}
-			project={ws.labelsProject}
+			project={resultsProject(ws.labelsProject, solved)}
 			nodes={solved.nodeResults}
 			unavailable={groupUnavailable}
 			stale={ws.store.results.stale}

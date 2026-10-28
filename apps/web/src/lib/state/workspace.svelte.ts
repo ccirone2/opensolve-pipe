@@ -151,8 +151,10 @@ export class Workspace {
 	/**
 	 * The pumps of the Pumps together card by slot (null in a slot: free; a member keeps its slot,
 	 * so its colour, while it stays ticked), or null: the group suggested for the pump viewed (CLAUDE.md
-	 * D20). Page state: not in the project or the link, not an undo step; the same in every case
-	 * (scenarios never change topology), so a case switch keeps it.
+	 * D20). Page state: not in the project or the link, not an undo step. The pumps ticked carry
+	 * across cases (scenarios never change topology), but the API's answer can differ by case: an
+	 * active PRV or PSV inside, a per-case status, makes it refuse the station. Its ids are
+	 * reserved (reservedIds), so a pump deleted and a new one added never takes a member's place.
 	 */
 	pumpGroup = $state.raw<readonly (string | null)[] | null>(null);
 	/** The Pumps together card is open (page state; closed by default). */
@@ -226,10 +228,14 @@ export class Workspace {
 
 	/**
 	 * Ids no new element may take (newId's alsoUsed): the components and connections the goal-seek
-	 * setup names, deleted ones included, so a row never moves to another element (§6.15).
+	 * setup names, deleted ones included, so a row never moves to another element (§6.15); and the
+	 * pumps ticked on the Pumps together card, so a new pump never comes back ticked in the place
+	 * of a deleted member (an undo of the delete brings that member back in its slot).
 	 */
 	get reservedIds(): string[] {
-		return reservedIds(this.goalSeekSetup);
+		const group = (this.pumpGroup ?? []).filter((id): id is string => id !== null);
+		const ids = [...reservedIds(this.goalSeekSetup), ...group];
+		return ids.filter((id, i) => ids.indexOf(id) === i);
 	}
 
 	/** Open the goal-seek dialog; `prefill` opens its New goal form on that element. */

@@ -412,7 +412,8 @@ def _why_not(
     explains it; members drawn from, or delivering to, different reservoirs or reference nodes
     through their own chains are named as such. Otherwise the places themselves."""
     sinks, others = _barriers(built, graph, members)
-    names = _quoted_list(list(members))
+    who = _who(members)
+    meet = "meets" if len(members) == 1 else "meet"
 
     def explains(lifted: set[int], pumps: Sequence[str] = ()) -> _Cut | None:
         again = _cut(built, graph, members, sinks=sinks - lifted, plain_pumps=pumps)
@@ -438,7 +439,7 @@ def _why_not(
                     issue(
                         "ASSIGNED_FLOW_INSIDE",
                         f"the assigned flow at {_quoted_list(inside_af)} enters or leaves the "
-                        f"network between the pumps {names} and the rest of it: a station holds "
+                        f"network between {who} and the rest of it: a station holds "
                         "no assigned flow between its inlet and outlet",
                         inside_af,
                     )
@@ -454,9 +455,10 @@ def _why_not(
                 found.append(
                     issue(
                         "OTHER_PUMP_INSIDE",
-                        f"pump {_quoted_list(inside_pumps)}, not in the group, lies between the "
-                        f"pumps {names} and the rest of the network: add it to the group, or "
-                        "choose other pumps",
+                        f"{_who(inside_pumps)}, not in the group, "
+                        f"{'lies' if len(inside_pumps) == 1 else 'lie'} between {who} and the "
+                        f"rest of the network: add {'it' if len(inside_pumps) == 1 else 'them'} "
+                        "to the group, or choose other pumps",
                         inside_pumps,
                     )
                 )
@@ -471,7 +473,7 @@ def _why_not(
                 return [
                     issue(
                         "DIFFERENT_BOUNDARIES",
-                        f"the pumps {names} {verb} different reservoirs or reference nodes, "
+                        f"{who} {verb} different reservoirs or reference nodes, "
                         f"{_quoted_list(ids)}, each through its own piping: a station has one "
                         "inlet and one outlet, so pumps on different ones do not form one, even "
                         "at equal levels (a scenario can change one)",
@@ -490,12 +492,12 @@ def _why_not(
                 bid, again = explaining[0]
                 other = _quoted_list([_place_words(built, graph, v) for v in again.cut])
                 what = (
-                    f"{_boundary_words(built, bid)} is a third place where the pumps {names} "
-                    f"meet a fixed head, besides {other}"
+                    f"{_boundary_words(built, bid)} is a third place where {who} {meet} a "
+                    f"fixed head, besides {other}"
                 )
             else:
                 what = (
-                    f"the pumps {names} meet the fixed heads of "
+                    f"{who} {meet} the fixed heads of "
                     f"{_quoted_list([_boundary_words(built, b) for b in ids])}, one more place "
                     "than a station has"
                 )
@@ -515,18 +517,24 @@ def _why_not(
     elif base.value >= 3:
         where = f"at {base.value} places: {_quoted_list(places)}"
     elif base.value == 1:
-        where = f"at one place only, {places[0]}, so no flow passes through them"
+        them = "it" if len(members) == 1 else "them"
+        where = f"at one place only, {places[0]}, so no flow passes through {them}"
     else:
-        where = "nowhere: they reach no reservoir, reference node, assigned flow or other pump"
+        where = "nowhere: no reservoir, reference node, assigned flow or other pump is reached"
     return [
         issue(
             "NO_SEPARATING_PORTS",
-            f"the pumps {names} meet the rest of the network {where}; a station meets it at "
+            f"{who} {meet} the rest of the network {where}; a station meets it at "
             "exactly two places, its inlet and outlet, with no other pump, reservoir, reference "
             "node or assigned flow between them",
             cut_ids,
         )
     ]
+
+
+def _who(members: Sequence[str]) -> str:
+    """'the pump PA', or 'the pumps PA and PB'."""
+    return f"the pump{'s' if len(members) > 1 else ''} {_quoted_list(list(members))}"
 
 
 def _boundary_words(built: BuiltNetwork, comp_id: str) -> str:
@@ -706,10 +714,9 @@ def find_station(project: Project, built: BuiltNetwork, members: Sequence[str]) 
             issues.append(
                 issue(
                     "PRESSURE_CONTROL_INSIDE",
-                    f"{kind} {cid} is inside the station of the pumps "
-                    f"{_quoted_list(list(members))}: its setpoint is a pressure, not a head "
-                    "difference, so the station alone has no group curve that depends on its "
-                    "rise only",
+                    f"{kind} {cid} is inside the station of {_who(members)}: its setpoint is "
+                    "a pressure, not a head difference, so the station alone has no group "
+                    "curve that depends on its rise only",
                     [cid],
                 )
             )
@@ -1182,7 +1189,9 @@ def group_curve(
         duty_check,
         points,
         head_range,
-        methods_section(built, station, duty, duty_check, (head_range, len(rises), within)),
+        methods_section(
+            built, station, duty, duty_check, (head_range, num_points, len(rises) > num_points)
+        ),
     )
 
 
@@ -1237,7 +1246,8 @@ def methods_section(
     check: PumpGroupDutyCheck | None,
     grid: tuple[HeadRange, int, bool] | None,
 ) -> MethodsSection:
-    """The "Pump group" methods section of a group-curve response (CLAUDE.md D20)."""
+    """The "Pump group" methods section of a group-curve response (CLAUDE.md D20). ``grid``:
+    the range, the number of evenly spaced rises and whether the duty's rise was added."""
     members = _quoted_list(list(station.members))
     s, d = _port_words(built, station.inlet_port), _port_words(built, station.outlet_port)
     arrangement = {
@@ -1286,10 +1296,12 @@ def methods_section(
         "throttle) is not modelled, so in series it blocks the line.",
     ]
     if grid is not None and duty is not None:
-        rng, count, within = grid
+        rng, count, added = grid
         where = (
             "plus the duty's rise"
-            if within
+            if added
+            else "the duty's rise among them"
+            if rng.min <= duty.head <= rng.max
             else f"the duty's rise {duty.head:.6g} m lying outside them (solved for the check)"
         )
         items.append(

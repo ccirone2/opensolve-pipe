@@ -11,9 +11,10 @@ is raised:
   pressure level nothing fixes (its pressures and NPSH are not computed), a running pump with
   an NPSHr curve whose NPSH available cannot be computed (no vapor pressure), so the cavitation
   check is lost.
-- ``info``: a state worth knowing (a closed check valve, a control valve off its setpoint, a
-  closed-off section, a fluid without a vapor pressure: a property of the fluid, which only
-  matters where a pump's cavitation check needs it, NPSH_NOT_CHECKED).
+- ``info``: a state worth knowing (a closed check valve, a relief valve at full lift or closed
+  with no result, a control valve off its setpoint, a closed-off section, a fluid without a
+  vapor pressure: a property of the fluid, which only matters where a pump's cavitation check
+  needs it, NPSH_NOT_CHECKED).
 """
 
 from ...models.results import Flag, FlagCode, FlagSeverity
@@ -33,6 +34,8 @@ FLAG_SEVERITY: dict[FlagCode, FlagSeverity] = {
     "NPSH_NOT_CHECKED": "warning",
     "NO_VAPOR_PRESSURE": "info",
     "CHECK_VALVE_CLOSED": "info",
+    "RELIEF_VALVE_OPEN": "info",
+    "RELIEF_VALVE_CLOSED": "info",
     "CONTROL_VALVE_SETPOINT_NOT_MET": "info",
     "PUMP_SETPOINT_NOT_MET": "info",
     "ISOLATED_SECTION": "info",

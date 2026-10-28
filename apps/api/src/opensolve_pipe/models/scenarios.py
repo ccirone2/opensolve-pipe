@@ -18,10 +18,13 @@ from pydantic.config import JsonDict
 
 from .base import CamelModel, Identifier, Name, OutputModel
 from .components import (
+    Api526Orifice,
     AssignedFlow,
     BaseComponent,
+    CertifiedOrifice,
     CheckValve,
     ControlValve,
+    EffectiveOrifice,
     Equipment,
     IdealReferenceNode,
     IsolationValve,
@@ -31,6 +34,7 @@ from .components import (
     PumpControl,
     RatedFlowCoefficient,
     RatedPoint,
+    ReliefValve,
     Reservoir,
     TeeBranch,
     WyeBranch,
@@ -63,6 +67,12 @@ ComponentField = Literal[
     "rating.value",
     "boreDiameter",
     "dischargeCoefficient",
+    "setPressure",
+    "capacity",
+    "capacity.letter",
+    "capacity.area",
+    "capacity.dischargeCoefficient",
+    "capacity.overpressure",
 ]
 """Overridable values of components; each component type takes the ones x-override-fields
 lists for it."""
@@ -85,7 +95,7 @@ class Overridable:
     holder: type[BaseModel] | None = None
     """The model that must hold the value's last attribute; None: the target itself. A value
     whose holder is missing in the base project (a fixed-speed pump's control) is not
-    applicable."""
+    applicable. Its schema bounds the value (x-override-fields' ``schema``)."""
     keys: tuple[str, ...] = ()
     """A group: these sibling attributes of the holder are replaced together."""
     unit: str | Callable[[Any], str] = ""
@@ -94,6 +104,16 @@ class Overridable:
     label: str | Callable[[Any], str] = ""
     """Name of the value in notes and the methods summary, or a function of the target (None
     where there is none: an orphaned override) giving it."""
+    also_held_by: tuple[type[BaseModel], ...] = ()
+    """Other models that hold the same value with the same bounds: members of a union told apart
+    by kind that each hold it (a relief valve's capacity.area, an effective or a certified area,
+    proposal pressure-relief-valve.md decision 18). The holder test admits each of ``holders``;
+    the bounds are ``holder``'s (a unit test pins them equal)."""
+
+    @property
+    def holders(self) -> tuple[type[BaseModel], ...]:
+        """Every model that may hold the value (empty: the target itself)."""
+        return (self.holder, *self.also_held_by) if self.holder is not None else ()
 
 
 def _setpoint_unit(valve: Any) -> str:
@@ -111,6 +131,17 @@ def _coefficient_label(equipment: Any) -> str:
     target, or a target rated by a point, the plain name."""
     kind = getattr(getattr(equipment, "rating", None), "kind", None)
     return kind if kind in ("Cv", "Kv") else "flow coefficient"
+
+
+def _capacity_area_label(relief: Any) -> str:
+    """A relief valve's capacity.area is an effective area or a certified (actual) area, by the
+    kind its capacity holds; with no target, or a letter, the plain name."""
+    kind = getattr(getattr(relief, "capacity", None), "kind", None)
+    if kind == "effective":
+        return "API 520 effective area"
+    if kind == "certified":
+        return "actual orifice area"
+    return "orifice area"
 
 
 def override_unit(entry: Overridable, target: BaseModel) -> str:
@@ -182,6 +213,36 @@ COMPONENT_FIELDS: dict[type[BaseComponent], dict[str, Overridable]] = {
             ("discharge_coefficient",), label="discharge coefficient"
         ),
     },
+    ReliefValve: {
+        # The whole capacity (another valve, of any kind), as an equipment item's whole rating,
+        # and each value, held by the capacity of its kind: a value the base valve's kind does
+        # not hold is not applicable (proposal pressure-relief-valve.md decision 18). An
+        # effective and a certified capacity each hold an area; a null overpressure sets ASME's
+        # default.
+        "status": _STATUS,
+        "setPressure": Overridable(("set_pressure",), unit="Pa (difference)", label="set pressure"),
+        "capacity": Overridable(("capacity",), label="capacity"),
+        "capacity.letter": Overridable(
+            ("capacity", "letter"), holder=Api526Orifice, label="API 526 orifice letter"
+        ),
+        "capacity.area": Overridable(
+            ("capacity", "area"),
+            holder=EffectiveOrifice,
+            also_held_by=(CertifiedOrifice,),
+            unit="m²",
+            label=_capacity_area_label,
+        ),
+        "capacity.dischargeCoefficient": Overridable(
+            ("capacity", "discharge_coefficient"),
+            holder=CertifiedOrifice,
+            label="rated coefficient of discharge",
+        ),
+        "capacity.overpressure": Overridable(
+            ("capacity", "overpressure"),
+            holder=CertifiedOrifice,
+            label="overpressure at full lift",
+        ),
+    },
 }
 """Overridable values by component type (every type of the Component union; {} for none)."""
 
@@ -209,12 +270,16 @@ def _published(entry: Overridable, target: str) -> JsonDict:
     schema = entry.holder.__name__ if entry.holder is not None else target
     if entry.keys:
         return {"schema": schema, "keys": [to_camel(k) for k in entry.keys]}
-    return {"schema": schema, "path": [to_camel(p) for p in entry.path]}
+    published: JsonDict = {"schema": schema, "path": [to_camel(p) for p in entry.path]}
+    if entry.also_held_by:
+        published["holders"] = [cls.__name__ for cls in entry.holders]
+    return published
 
 
 def override_fields() -> JsonDict:
     """The allow-list as published in x-override-fields: by target schema, each field's holder
-    schema and its camelCase path from the target (or the keys of a group)."""
+    schema and its camelCase path from the target (or the keys of a group), and, for a value
+    several members of a union hold, every holder schema (``holders``)."""
     published: JsonDict = {
         cls.__name__: {name: _published(e, cls.__name__) for name, e in fields.items()}
         for cls, fields in COMPONENT_FIELDS.items()
@@ -230,7 +295,10 @@ def _scenario_schema_extra(schema: JsonDict) -> None:
     """Publish the allow-list as ``x-override-fields`` (the frontend's utils/model-rules.ts):
     by target schema (each component schema, PipeDefinition, Project), the fields a scenario
     may override, with the schema that holds each value (its bounds are that schema's
-    property) and its camelCase path from the target, or the keys of a group (a pipe's spec)."""
+    property) and its camelCase path from the target, or the keys of a group (a pipe's spec).
+    A value that more than one member of a union holds (a relief valve's capacity.area, held by
+    an effective and a certified capacity) also lists every holder schema in ``holders``, the
+    first of them ``schema``; the value applies where the target holds any of them."""
     schema["x-override-fields"] = override_fields()
 
 
@@ -318,8 +386,8 @@ def overlap_problems(
     overrides: Sequence[ComponentOverride | PipeOverride | ProjectOverride],
 ) -> list[str]:
     """Pairs of overrides that set one value twice, or a value and a part of it (fluid with
-    fluid.temperature, a rating with rating.flow), by index only: request-validation errors
-    never echo submitted values (SDD §5.1.2)."""
+    fluid.temperature, a rating with rating.flow, a capacity with capacity.area), by index only:
+    request-validation errors never echo submitted values (SDD §5.1.2)."""
     problems: list[str] = []
     for j, later in enumerate(overrides):
         path_j = later.field.split(".")
@@ -353,7 +421,7 @@ class Scenario(CamelModel):
         description=(
             "At most one per value: no two set the same value of one target, nor a value and "
             "a part of it (fluid and fluid.temperature; an equipment item's rating and "
-            "rating.flow)"
+            "rating.flow; a relief valve's capacity and capacity.area)"
         ),
     )
 

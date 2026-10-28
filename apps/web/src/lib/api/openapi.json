@@ -92,6 +92,94 @@
           }
         ]
       },
+      "Api526Orifice": {
+        "additionalProperties": false,
+        "description": "An API 526 orifice letter: the letter's effective area, with API 520's effective\ncoefficient of discharge and ASME's overpressure, for preliminary sizing (proposal\npressure-relief-valve.md decision 7).",
+        "properties": {
+          "kind": {
+            "const": "api526",
+            "description": "api526: an API 526 orifice letter, with API 520's effective coefficient of discharge, 0.65, and ASME's liquid certification overpressure (10 % of the set or 3 psi (20.68 kPa), whichever is greater), for preliminary sizing",
+            "title": "Kind",
+            "type": "string"
+          },
+          "letter": {
+            "description": "The API 526 orifice letter, D to T; its effective area (m²) is x-relief-data's api526Areas, API 526's via fluids",
+            "enum": [
+              "D",
+              "E",
+              "F",
+              "G",
+              "H",
+              "J",
+              "K",
+              "L",
+              "M",
+              "N",
+              "P",
+              "Q",
+              "R",
+              "T"
+            ],
+            "title": "Letter",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "letter"
+        ],
+        "title": "Api526Orifice",
+        "type": "object"
+      },
+      "Api526OrificeResult": {
+        "additionalProperties": false,
+        "description": "An API 526 letter capacity as the solve used it (proposal pressure-relief-valve.md\n§2.2).",
+        "properties": {
+          "area": {
+            "description": "API 526's effective area of the letter, m²",
+            "title": "Area",
+            "type": "number"
+          },
+          "dischargeCoefficient": {
+            "description": "API 520's effective coefficient of discharge, 0.65 (preliminary)",
+            "title": "Dischargecoefficient",
+            "type": "number"
+          },
+          "kind": {
+            "const": "api526",
+            "title": "Kind",
+            "type": "string"
+          },
+          "letter": {
+            "enum": [
+              "D",
+              "E",
+              "F",
+              "G",
+              "H",
+              "J",
+              "K",
+              "L",
+              "M",
+              "N",
+              "P",
+              "Q",
+              "R",
+              "T"
+            ],
+            "title": "Letter",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "letter",
+          "area",
+          "dischargeCoefficient"
+        ],
+        "title": "Api526OrificeResult",
+        "type": "object"
+      },
       "AssignedFlow": {
         "additionalProperties": false,
         "description": "Fixed flow out of (demand, positive) or into (supply, negative) the network at its port,\nwhatever the pressure there, which is a result (SDD §4.11). Not a fixed-pressure boundary:\nit never satisfies NO_FIXED_HEAD. A flow of 0 behaves exactly as a plug.",
@@ -375,6 +463,94 @@
         "title": "BuiltinFluid",
         "type": "object"
       },
+      "CertifiedOrifice": {
+        "additionalProperties": false,
+        "description": "A valve's certified capacity: its actual orifice area and rated coefficient of\ndischarge, both from its certification, and optionally the overpressure at which it reaches\nfull lift (proposal decisions 6, 7).",
+        "properties": {
+          "area": {
+            "description": "The valve's actual orifice area, m², from its certification; used with its rated coefficient of discharge, never with API 520's effective coefficient",
+            "exclusiveMinimum": 0.0,
+            "maximum": 78.53981633974483,
+            "title": "Area",
+            "type": "number"
+          },
+          "dischargeCoefficient": {
+            "description": "The valve's rated coefficient of discharge for liquid, from its certification: ASME's K, 0.9 × the measured coefficient; never API 520's effective coefficient with an actual area",
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Dischargecoefficient",
+            "type": "number"
+          },
+          "kind": {
+            "const": "certified",
+            "description": "certified: the valve's actual orifice area and rated coefficient of discharge, from its certification",
+            "title": "Kind",
+            "type": "string"
+          },
+          "overpressure": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The rise of the pressure difference above the set, as a fraction of the set, at which this valve reaches full lift (its rated capacity), from its certification; not the allowable accumulation a valve is sized for. Absent: ASME's liquid certification overpressure, 10 % of the set or 3 psi (20.68 kPa), whichever is greater (the default), for a set of at least 15 psi (103.42 kPa); below it, enter it",
+            "title": "Overpressure"
+          }
+        },
+        "required": [
+          "kind",
+          "area",
+          "dischargeCoefficient"
+        ],
+        "title": "CertifiedOrifice",
+        "type": "object"
+      },
+      "CertifiedOrificeResult": {
+        "additionalProperties": false,
+        "description": "A certified capacity as the solve used it (proposal §2.2).",
+        "properties": {
+          "area": {
+            "description": "The valve's actual orifice area, m², as entered",
+            "title": "Area",
+            "type": "number"
+          },
+          "dischargeCoefficient": {
+            "description": "The valve's rated coefficient of discharge, as entered",
+            "title": "Dischargecoefficient",
+            "type": "number"
+          },
+          "kind": {
+            "const": "certified",
+            "title": "Kind",
+            "type": "string"
+          },
+          "overpressure": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The certified overpressure at full lift as entered, a fraction of the set; null on ASME's default (the result's overpressure is the value used)",
+            "title": "Overpressure"
+          }
+        },
+        "required": [
+          "kind",
+          "area",
+          "dischargeCoefficient",
+          "overpressure"
+        ],
+        "title": "CertifiedOrificeResult",
+        "type": "object"
+      },
       "CheckValve": {
         "additionalProperties": false,
         "description": "Check or stop-check valve: closes on reverse flow; opens above the cracking pressure.",
@@ -500,7 +676,13 @@
               "rating.density",
               "rating.value",
               "boreDiameter",
-              "dischargeCoefficient"
+              "dischargeCoefficient",
+              "setPressure",
+              "capacity",
+              "capacity.letter",
+              "capacity.area",
+              "capacity.dischargeCoefficient",
+              "capacity.overpressure"
             ],
             "title": "Field",
             "type": "string"
@@ -569,7 +751,11 @@
               "rating.density",
               "rating.value",
               "boreDiameter",
-              "dischargeCoefficient"
+              "dischargeCoefficient",
+              "setPressure",
+              "capacity.area",
+              "capacity.dischargeCoefficient",
+              "capacity.overpressure"
             ],
             "title": "Field",
             "type": "string"
@@ -1047,6 +1233,88 @@
             }
           }
         ]
+      },
+      "EffectiveOrifice": {
+        "additionalProperties": false,
+        "description": "An API 520 effective discharge area, with API 520's effective coefficient of discharge\nand ASME's overpressure, for preliminary sizing: the area API 520's liquid sizing equation\ngives (fluids' API520_A_l), which goal seek varies to size a valve (proposal decisions 7,\n19).",
+        "properties": {
+          "area": {
+            "description": "An API 520 effective discharge area, m², as API 520's liquid sizing equation gives it, used with API 520's effective coefficient of discharge 0.65; never a valve's actual orifice area",
+            "exclusiveMinimum": 0.0,
+            "maximum": 78.53981633974483,
+            "title": "Area",
+            "type": "number"
+          },
+          "kind": {
+            "const": "effective",
+            "description": "effective: an API 520 effective area, with API 520's effective coefficient of discharge, 0.65, and ASME's liquid certification overpressure (10 % of the set or 3 psi (20.68 kPa), whichever is greater), for preliminary sizing",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "area"
+        ],
+        "title": "EffectiveOrifice",
+        "type": "object"
+      },
+      "EffectiveOrificeResult": {
+        "additionalProperties": false,
+        "description": "An API 520 effective area capacity as the solve used it (proposal §2.2).",
+        "properties": {
+          "area": {
+            "description": "The API 520 effective area, m²",
+            "title": "Area",
+            "type": "number"
+          },
+          "coveringLetter": {
+            "anyOf": [
+              {
+                "enum": [
+                  "D",
+                  "E",
+                  "F",
+                  "G",
+                  "H",
+                  "J",
+                  "K",
+                  "L",
+                  "M",
+                  "N",
+                  "P",
+                  "Q",
+                  "R",
+                  "T"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The smallest API 526 letter whose effective area is at least the area (fluids' API520_round_size); null above T's",
+            "title": "Coveringletter"
+          },
+          "dischargeCoefficient": {
+            "description": "API 520's effective coefficient of discharge, 0.65 (preliminary)",
+            "title": "Dischargecoefficient",
+            "type": "number"
+          },
+          "kind": {
+            "const": "effective",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "area",
+          "dischargeCoefficient",
+          "coveringLetter"
+        ],
+        "title": "EffectiveOrificeResult",
+        "type": "object"
       },
       "EfficiencyCurvePoint": {
         "additionalProperties": false,
@@ -1570,6 +1838,8 @@
               "NO_VAPOR_PRESSURE",
               "PORT_ABOVE_LIQUID_LEVEL",
               "CHECK_VALVE_CLOSED",
+              "RELIEF_VALVE_OPEN",
+              "RELIEF_VALVE_CLOSED",
               "CONTROL_VALVE_SETPOINT_NOT_MET",
               "PUMP_SETPOINT_NOT_MET",
               "ISOLATED_SECTION",
@@ -2087,6 +2357,8 @@
               "orifice_pressure_loss",
               "orifice_differential_pressure",
               "orifice_pressure_drop",
+              "relief_valve_flow",
+              "relief_valve_pressure_drop",
               "boundary_outflow"
             ],
             "title": "Quantity",
@@ -2694,7 +2966,8 @@
               "CheckValve",
               "ControlValve",
               "Equipment",
-              "Orifice"
+              "Orifice",
+              "ReliefValve"
             ],
             "unit": "Pa(g)"
           },
@@ -2766,6 +3039,38 @@
               "Pump"
             ],
             "unit": "m"
+          },
+          "relief_valve_flow": {
+            "floor": {
+              "flow": 1e-06
+            },
+            "minimum": {
+              "absolute": 1e-09,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "ReliefValve"
+            ],
+            "unit": "m³/s"
+          },
+          "relief_valve_pressure_drop": {
+            "floor": {
+              "head": 0.01
+            },
+            "minimum": {
+              "absolute": 0.1,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "ReliefValve"
+            ],
+            "unit": "Pa (difference)"
           },
           "valve_flow": {
             "floor": {
@@ -2982,6 +3287,39 @@
               ],
               "scale": "linear",
               "schema": "Pump"
+            }
+          },
+          "ReliefValve": {
+            "capacity.area": {
+              "path": [
+                "capacity",
+                "area"
+              ],
+              "scale": "log",
+              "schema": "EffectiveOrifice"
+            },
+            "capacity.dischargeCoefficient": {
+              "path": [
+                "capacity",
+                "dischargeCoefficient"
+              ],
+              "scale": "linear",
+              "schema": "CertifiedOrifice"
+            },
+            "capacity.overpressure": {
+              "path": [
+                "capacity",
+                "overpressure"
+              ],
+              "scale": "linear",
+              "schema": "CertifiedOrifice"
+            },
+            "setPressure": {
+              "path": [
+                "setPressure"
+              ],
+              "scale": "linear",
+              "schema": "ReliefValve"
             }
           },
           "Reservoir": {
@@ -4735,6 +5073,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/Orifice"
+                },
+                {
+                  "$ref": "#/components/schemas/ReliefValve"
                 }
               ]
             },
@@ -5726,6 +6067,280 @@
         "title": "RegionPresetSource",
         "type": "object"
       },
+      "ReliefValve": {
+        "additionalProperties": false,
+        "description": "A conventional spring-loaded pressure relief valve in liquid service (SDD §4.17): closed\nwhile the static pressure difference across it is below its set pressure, its lift rising\nlinearly with the overpressure (a convention, flagged) to full lift at set plus overpressure,\nwith API 520's liquid capacity equation at its lift (proposal pressure-relief-valve.md §1.1).\nNot EPANET's PSV (a pressure-sustaining valve).",
+        "properties": {
+          "capacity": {
+            "description": "The capacity, with no default: api526, an API 526 orifice letter with API 526's effective area; effective, an API 520 effective area (m²); each with API 520's effective coefficient of discharge, 0.65, and ASME's certification overpressure, for preliminary sizing. certified: the valve's actual orifice area (m²) with its rated coefficient of discharge (ASME's K, 0.9 × the measured coefficient), both from its certification, and optionally its overpressure. Never one value from each set. API 526's letters and areas and ASME's overpressure and scope are x-relief-data",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Api526Orifice"
+              },
+              {
+                "$ref": "#/components/schemas/EffectiveOrifice"
+              },
+              {
+                "$ref": "#/components/schemas/CertifiedOrifice"
+              }
+            ],
+            "title": "Capacity"
+          },
+          "elevation": {
+            "description": "Elevation above the project datum, m",
+            "maximum": 10000.0,
+            "minimum": -10000.0,
+            "title": "Elevation",
+            "type": "number"
+          },
+          "id": {
+            "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "ports": {
+            "items": {
+              "$ref": "#/components/schemas/Port"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Ports",
+            "type": "array"
+          },
+          "setPressure": {
+            "description": "The static pressure difference, inlet minus outlet, at which the valve starts to open, Pa (a difference). Discharging to atmosphere at the valve's elevation, it is the gauge set pressure (an outlet pipe rising or falling to its open end adds its liquid-full static head); against a constant back pressure, the bench setting (the cold differential test pressure without its temperature correction: the set pressure minus that back pressure). A conventional spring-loaded valve: back pressure adds to the inlet pressure at which it opens",
+            "exclusiveMinimum": 0.0,
+            "maximum": 100000000.0,
+            "title": "Setpressure",
+            "type": "number"
+          },
+          "status": {
+            "default": "active",
+            "description": "active: it opens as its set pressure and capacity give (the default); locked_closed: gagged, or isolated by its block valve, it does not open",
+            "enum": [
+              "active",
+              "locked_closed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "const": "relief_valve",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "elevation",
+          "ports",
+          "type",
+          "setPressure",
+          "capacity"
+        ],
+        "title": "ReliefValve",
+        "type": "object",
+        "x-port-ids": [
+          "inlet",
+          "outlet"
+        ],
+        "x-port-roles": {
+          "inlet": "inlet",
+          "outlet": "outlet"
+        },
+        "x-relief-data": {
+          "api526Areas": {
+            "D": 7.09676e-05,
+            "E": 0.00012645136,
+            "F": 0.00019806412,
+            "G": 0.00032451547999999997,
+            "H": 0.0005064506,
+            "J": 0.00083032092,
+            "K": 0.00118580408,
+            "L": 0.00184064148,
+            "M": 0.002322576,
+            "N": 0.0027999944,
+            "P": 0.004116120799999999,
+            "Q": 0.007129018,
+            "R": 0.01032256,
+            "T": 0.01677416
+          },
+          "asmeMinimumSetPressure": 103421.3593975254,
+          "asmeOverpressureFloor": 20684.271879505082,
+          "asmeOverpressureFraction": 0.1,
+          "effectiveDischargeCoefficient": 0.65
+        }
+      },
+      "ReliefValveResult": {
+        "additionalProperties": false,
+        "description": "A pressure relief valve (SDD §4.17): its lift, flow and capacity at the solved pressures\n(proposal pressure-relief-valve.md §2.2). Δp_t, the total-pressure difference between the\nports, is what its law reads; the lift x rises linearly from the set Δp_s to full lift at\nΔp_f = Δp_s(1 + overpressure), and Q = x·Kd·A·√(2Δp_t/ρ).",
+        "properties": {
+          "backPressure": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Static pressure at the outlet port, Pa gauge; null where the pressure level is undetermined",
+            "title": "Backpressure"
+          },
+          "capacity": {
+            "description": "The capacity the solve used, after any scenario or goal-seek trial",
+            "discriminator": {
+              "mapping": {
+                "api526": "#/components/schemas/Api526OrificeResult",
+                "certified": "#/components/schemas/CertifiedOrificeResult",
+                "effective": "#/components/schemas/EffectiveOrificeResult"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Api526OrificeResult"
+              },
+              {
+                "$ref": "#/components/schemas/EffectiveOrificeResult"
+              },
+              {
+                "$ref": "#/components/schemas/CertifiedOrificeResult"
+              }
+            ],
+            "title": "Capacity"
+          },
+          "flow": {
+            "description": "m³/s, positive inlet -> outlet (never below zero: it closes on reverse flow)",
+            "title": "Flow",
+            "type": "number"
+          },
+          "flowRatio": {
+            "description": "flow / fullLiftFlow",
+            "title": "Flowratio",
+            "type": "number"
+          },
+          "fullLiftFlow": {
+            "description": "Q_f = Kd·A·√(2Δp_f/ρ), m³/s: the capacity at full lift for the case fluid's density",
+            "title": "Fullliftflow",
+            "type": "number"
+          },
+          "fullLiftPressureDifference": {
+            "description": "Δp_f = Δp_s(1 + overpressure), Pa (a difference)",
+            "title": "Fullliftpressuredifference",
+            "type": "number"
+          },
+          "headLoss": {
+            "description": "EGL(inlet) - EGL(outlet), m",
+            "title": "Headloss",
+            "type": "number"
+          },
+          "inletPressure": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Static pressure at the inlet port, Pa gauge; null where the pressure level is undetermined (UNDETERMINED_PRESSURE)",
+            "title": "Inletpressure"
+          },
+          "lift": {
+            "description": "x, a fraction from 0 (closed) to 1 (full lift): flow / (Kd·A·√(2Δp_t/ρ))",
+            "title": "Lift",
+            "type": "number"
+          },
+          "overpressure": {
+            "description": "The overpressure at full lift the solve used, a fraction of the set",
+            "title": "Overpressure",
+            "type": "number"
+          },
+          "overpressureSource": {
+            "description": "asme_default: ASME's liquid certification overpressure, 10 % of the set or 3 psi, whichever is greater (the default); user: the certified capacity's overpressure",
+            "enum": [
+              "asme_default",
+              "user"
+            ],
+            "title": "Overpressuresource",
+            "type": "string"
+          },
+          "pressureDrop": {
+            "description": "Static pressure drop inlet -> outlet, Pa (a difference), as a valve's: what gauges at the ports read. It equals totalPressureDifference - ρ(v_inlet² - v_outlet²)/2, with the velocities in the connected pipes",
+            "title": "Pressuredrop",
+            "type": "number"
+          },
+          "reynoldsNumber": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "API 520's Reynolds number on the orifice, ρ(Q/A)√(4A/π)/μ at the solved flow; null at zero flow",
+            "title": "Reynoldsnumber"
+          },
+          "setPressure": {
+            "description": "Δp_s, the set pressure difference the solve used, Pa (a difference)",
+            "title": "Setpressure",
+            "type": "number"
+          },
+          "setRatio": {
+            "description": "Δp_t / Δp_s: below 1 closed; above 1, 1 + the overpressure reached (on the set difference)",
+            "title": "Setratio",
+            "type": "number"
+          },
+          "state": {
+            "description": "closed: no flow; partial_lift: relieving short of full lift (0 < x < 1, the linear convention, flagged); full_lift: at or beyond full lift (x = 1, flow ≥ fullLiftFlow)",
+            "enum": [
+              "closed",
+              "partial_lift",
+              "full_lift"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "totalPressureDifference": {
+            "description": "Δp_t = ρg(headLoss - (z_inlet - z_outlet)), Pa (a difference): the total-pressure difference between the ports, (p + ρv²/2) at the inlet minus at the outlet, what the law reads",
+            "title": "Totalpressuredifference",
+            "type": "number"
+          }
+        },
+        "required": [
+          "state",
+          "flow",
+          "lift",
+          "headLoss",
+          "totalPressureDifference",
+          "pressureDrop",
+          "inletPressure",
+          "backPressure",
+          "setPressure",
+          "setRatio",
+          "overpressure",
+          "overpressureSource",
+          "fullLiftPressureDifference",
+          "fullLiftFlow",
+          "flowRatio",
+          "capacity",
+          "reynoldsNumber"
+        ],
+        "title": "ReliefValveResult",
+        "type": "object"
+      },
       "Reservoir": {
         "additionalProperties": false,
         "description": "Constant-level reservoir: a fixed-head boundary. Every port sees the same head.",
@@ -5857,7 +6472,7 @@
             "type": "string"
           },
           "overrides": {
-            "description": "At most one per value: no two set the same value of one target, nor a value and a part of it (fluid and fluid.temperature; an equipment item's rating and rating.flow)",
+            "description": "At most one per value: no two set the same value of one target, nor a value and a part of it (fluid and fluid.temperature; an equipment item's rating and rating.flow; a relief valve's capacity and capacity.area)",
             "items": {
               "oneOf": [
                 {
@@ -6050,6 +6665,58 @@
                 "status"
               ],
               "schema": "Pump"
+            }
+          },
+          "ReliefValve": {
+            "capacity": {
+              "path": [
+                "capacity"
+              ],
+              "schema": "ReliefValve"
+            },
+            "capacity.area": {
+              "holders": [
+                "EffectiveOrifice",
+                "CertifiedOrifice"
+              ],
+              "path": [
+                "capacity",
+                "area"
+              ],
+              "schema": "EffectiveOrifice"
+            },
+            "capacity.dischargeCoefficient": {
+              "path": [
+                "capacity",
+                "dischargeCoefficient"
+              ],
+              "schema": "CertifiedOrifice"
+            },
+            "capacity.letter": {
+              "path": [
+                "capacity",
+                "letter"
+              ],
+              "schema": "Api526Orifice"
+            },
+            "capacity.overpressure": {
+              "path": [
+                "capacity",
+                "overpressure"
+              ],
+              "schema": "CertifiedOrifice"
+            },
+            "setPressure": {
+              "path": [
+                "setPressure"
+              ],
+              "schema": "ReliefValve"
+            },
+            "status": {
+              "path": [
+                "status"
+              ],
+              "schema": "ReliefValve"
             }
           },
           "Reservoir": {
@@ -6383,6 +7050,14 @@
             "title": "Pumpresults",
             "type": "object"
           },
+          "reliefValveResults": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ReliefValveResult"
+            },
+            "description": "Keyed by component id; {} when the project has no relief valve or the solve did not converge; a relief valve with a closed-off or floating side has no result (RELIEF_VALVE_CLOSED says why)",
+            "title": "Reliefvalveresults",
+            "type": "object"
+          },
           "timestamp": {
             "description": "ISO 8601, UTC",
             "title": "Timestamp",
@@ -6412,6 +7087,7 @@
           "valveResults",
           "equipmentResults",
           "orificeResults",
+          "reliefValveResults",
           "branchResults",
           "boundaryResults",
           "flags",
@@ -7270,11 +7946,11 @@
           },
           "baseValue": {
             "$ref": "#/components/schemas/JsonValue",
-            "description": "The base project's value (equal to caseValue for a base run); null where the base holds no value of this variable (an equipment item the base rates by another kind: a point, or the other of Cv and Kv; an orifice plate's discharge coefficient on ISO 5167-2's default)"
+            "description": "The base project's value (equal to caseValue for a base run); null where the base holds no value of this variable (an equipment item the base rates by another kind: a point, or the other of Cv and Kv; an orifice plate's discharge coefficient on ISO 5167-2's default; a relief valve whose base capacity is of another kind, an effective area not being an actual area, or whose overpressure is ASME's default)"
           },
           "caseValue": {
             "$ref": "#/components/schemas/JsonValue",
-            "description": "The case's value of the field, SI (a resistance: its FlowCoefficient or null; an orifice plate's discharge coefficient: null on ISO 5167-2's default)"
+            "description": "The case's value of the field, SI (a resistance: its FlowCoefficient or null; an orifice plate's discharge coefficient: null on ISO 5167-2's default; a relief valve's overpressure: null on ASME's default)"
           },
           "index": {
             "title": "Index",
@@ -7333,7 +8009,7 @@
             "type": "number"
           },
           "startSource": {
-            "description": "case: the case's value; clipped: the case's value lies outside the bounds, and the nearer bound is used; middle: the case holds no value of this coefficient (a resistance on its default, or of another kind; an orifice plate's discharge coefficient on ISO 5167-2's default), and the middle of the bounds on the variable's scale is used",
+            "description": "case: the case's value; clipped: the case's value lies outside the bounds, and the nearer bound is used; middle: the case holds no value of this coefficient (a resistance on its default, or of another kind; an orifice plate's discharge coefficient on ISO 5167-2's default; a certified relief valve's overpressure on ASME's default), and the middle of the bounds on the variable's scale is used",
             "enum": [
               "case",
               "clipped",

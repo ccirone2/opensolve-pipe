@@ -40,9 +40,18 @@ the states the valve rules give at that solve's early iterate (``_check_changes`
 EPANET's badvalve options (``_open_bad_valves``).
 
 Statuses fixed by the user (pump 'off', isolation valve 'isolated', check valve 'locked_open'
-or 'locked_closed', control valve 'failed_open' or 'failed_closed') never change. Active
-control valves start ACTIVE (EPANET 2.2 hydraul.c:136-140), and so do speed-controlled pumps
-that are on; every other element starts OPEN.
+or 'locked_closed', control valve 'failed_open' or 'failed_closed', relief valve
+'locked_closed') never change. Active control valves start ACTIVE (EPANET 2.2
+hydraul.c:136-140), and so do speed-controlled pumps that are on; an active relief valve starts
+CLOSED, its normal state (proposal pressure-relief-valve.md decision 11); every other element
+starts OPEN.
+
+Relief valves (proposal pressure-relief-valve.md §3.4): the check valve's rule (EPANET 2.2
+cvstatus) with the cracking head h_set = Δp_s/(ρ g) + z_in − z_out, so that at zero flow it opens
+once the static pressure difference across it exceeds its set by ρ g Htol (a check valve's
+cracking head has no elevation term and reads the EGL difference). Kind "relief" takes the check
+branch wherever a rule is applied or a closed element is bounded, so every closed-off,
+free-level, disconnected-section and system-curve rule applies to it as to a check valve.
 
 Speed-controlled pumps (flow setpoint, CLAUDE.md D11; ``flow_pump_status``): ACTIVE carries the
 setpoint as a fixed flow, the speed recovered afterwards (``pumps.operating_speed``); OPEN is
@@ -79,7 +88,14 @@ from typing import Literal
 
 import numpy as np
 
-from ...models.components import CheckValve, ControlValve, IsolationValve, TeeBranch, WyeBranch
+from ...models.components import (
+    CheckValve,
+    ControlValve,
+    IsolationValve,
+    ReliefValve,
+    TeeBranch,
+    WyeBranch,
+)
 from ...models.results import Flag
 from .branches import BranchGeometry, BranchSolution, branch_solution, crane_k, path_k
 from .budget import check_budget
@@ -118,7 +134,9 @@ class Status(StrEnum):
     """A speed-controlled pump at its minimum speed (CLAUDE.md D11)."""
 
 
-ControlKind = Literal["pump", "isolation", "check", "prv", "psv", "fcv"]
+ControlKind = Literal["pump", "isolation", "check", "relief", "prv", "psv", "fcv"]
+ONE_WAY = ("check", "relief")
+"""The kinds whose rule is EPANET 2.2 cvstatus with a cracking head (``check_valve_status``)."""
 
 RULES = {
     "fcv": "an FCV passes neither reverse flow nor more than its setpoint",
@@ -131,6 +149,10 @@ RULES = {
         "below its setting"
     ),
     "check": "a check valve passes no reverse flow",
+    "relief": (
+        "a relief valve passes no reverse flow, and no flow while the pressure difference across "
+        "it is below its set pressure"
+    ),
     "pump": "a pump passes no reverse flow, nor any flow against more than its shutoff head",
 }
 """What each status rule that can close an element allows through, in words."""
@@ -139,6 +161,7 @@ KIND_NAMES = {
     "prv": "PRV",
     "psv": "PSV",
     "check": "check valve",
+    "relief": "relief valve",
     "isolation": "valve",
     "pump": "pump",
 }
@@ -383,6 +406,13 @@ def initial_controls(
         elif isinstance(valve, CheckValve):
             status = Status.CLOSED if valve.status == "locked_closed" else Status.OPEN
             controls[cid] = Control(cid, "check", data.link_index, status, valve.status != "active")
+        elif isinstance(valve, ReliefValve):
+            # Closed, its normal state, whether active or locked closed (decision 11): started
+            # open, a pump deadheaded behind a valve set above its shutoff closes with it and its
+            # discharge has no pressure (D9's zero-flow multiplicity).
+            controls[cid] = Control(
+                cid, "relief", data.link_index, Status.CLOSED, valve.status != "active"
+            )
         else:
             assert isinstance(valve, ControlValve)
             if cid in held_open:
@@ -546,7 +576,7 @@ def _update_controls(
             h1 = head(data.inlet)
             h2 = head(data.outlet)
             q = float(flows[control.link])
-            if control.kind == "check":
+            if control.kind in ONE_WAY:
                 control.status = check_valve_status(old, h1 - h2, q, data.cracking_head)
             elif control.kind == "fcv":
                 valve = data.component
@@ -591,7 +621,7 @@ def _runaway_status(
     difference alone, so an unknown other head (NaN) is taken as any finite value; a PRV's or
     PSV's compares it with the setpoint, so with an unknown other head the valve is taken to
     open whenever its flow could run toward the section (its rules decide in the next solve)."""
-    if control.kind in ("pump", "check", "fcv"):
+    if control.kind in ("pump", *ONE_WAY, "fcv"):
         h1, h2 = (0.0 if math.isnan(h) else h for h in (h1, h2))
     if control.kind == "pump":
         pump = built.pumps[control.component_id]
@@ -601,7 +631,7 @@ def _runaway_status(
             Status.CLOSED, h2 - h1, 0.0, pump.curve.shutoff_head(pump.component.speed)
         )
     data = built.valves[control.component_id]
-    if control.kind == "check":
+    if control.kind in ONE_WAY:
         return check_valve_status(Status.CLOSED, h1 - h2, 0.0, data.cracking_head)
     if control.kind == "fcv":
         valve = data.component
@@ -798,6 +828,7 @@ def zero_flow_openings(
                                            shutoff head; a dead-headed pump puts s²H₀(0) on
                                            its closed-off side)
         check valve (head drop H1 − H2):  H1 − H2 <= h_c + Htol
+        relief valve:                     H1 − H2 <= h_set + Htol (h_set: its cracking head)
         FCV:                              H1 − H2 <= Htol
         PRV / PSV:                        a bound on the closed-off side (``_closed_bound``)
 
@@ -862,7 +893,7 @@ def _border_constraints(
         if control.kind == "pump":
             pump = built.pumps[cid]
             difference(cid, link.start, link.end, -pump.curve.shutoff_head(pump.component.speed))
-        elif control.kind == "check":
+        elif control.kind in ONE_WAY:
             difference(cid, link.start, link.end, built.valves[cid].cracking_head + HTOL)
         elif control.kind == "fcv":
             difference(cid, link.start, link.end, HTOL)
@@ -1050,7 +1081,7 @@ def _level_changes(
             )
         data = built.valves[control.component_id]
         h1, h2 = head(data.inlet), head(data.outlet)
-        if control.kind == "check":
+        if control.kind in ONE_WAY:
             return check_valve_status(control.status, h1 - h2, q, data.cracking_head)
         if control.kind == "fcv":
             valve = data.component

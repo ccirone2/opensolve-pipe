@@ -1,5 +1,9 @@
-"""Components: the nodes of the port graph (SDD §4.2-4.9, §4.11, §4.14, §4.16), v1 scope."""
+"""Components: the nodes of the port graph (SDD §4.2-4.9, §4.11, §4.14, §4.16, §4.17), v1
+scope."""
 
+import json
+import math
+from importlib.resources import files
 from typing import Annotated, Any, ClassVar, Literal, Self
 
 from pydantic import ConfigDict, Discriminator, Field, Tag, model_validator
@@ -36,6 +40,8 @@ def _component_schema_extra(schema: JsonDict, cls: type[Any]) -> None:
       ``setpoint`` field's own;
     - ``x-ordered-fields``: pairs of fields (dotted camelCase paths) whose values must be
       ordered, ``lower`` < ``upper`` when ``strict``, checked when both are present.
+
+    A relief valve adds ``x-relief-data`` (``_relief_schema_extra``).
     """
     ids: tuple[str, ...] | None = getattr(cls, "PORT_IDS", None)
     if ids is not None:
@@ -324,7 +330,7 @@ class ControlValve(_TwoPortValve):
 
 RATED_PRESSURE_LOSS_MAX = 1.0e8
 """Pa (a difference): the upper bound of a PRV/PSV setpoint and of a gauge pressure
-(``ControlValve.setpoint``, ``base.GaugePressure``)."""
+(``ControlValve.setpoint``, ``base.GaugePressure``); also of a relief valve's set pressure."""
 RATED_DENSITY_MAX = 3.0e4
 """kg/m³: the upper bound of a custom fluid's density (``fluids.CustomFluid.density``)."""
 
@@ -481,6 +487,238 @@ class Orifice(BaseComponent):
     )
 
 
+# --------------------------------------------------------------------------- relief valve
+
+
+def _read_relief_data() -> dict[str, Any]:
+    """``data/api526_orifices.json``, written by ``scripts/generate_relief_data.py`` from fluids
+    and the cited constants (proposal pressure-relief-valve.md decision 27)."""
+    text = (
+        files("opensolve_pipe").joinpath("data", "api526_orifices.json").read_text(encoding="utf-8")
+    )
+    data: dict[str, Any] = json.loads(text)
+    return data
+
+
+RELIEF_DATA: dict[str, Any] = _read_relief_data()
+"""The relief valve's cited data, each entry with its source (``data/api526_orifices.json``)."""
+
+API526_AREAS: dict[str, float] = {o["letter"]: o["area"] for o in RELIEF_DATA["orifices"]}
+"""m²: API 526's effective orifice area of each letter, D to T in order (API 526 via fluids'
+``API526_A``)."""
+API520_EFFECTIVE_DISCHARGE_COEFFICIENT: float = RELIEF_DATA["effectiveDischargeCoefficient"][
+    "value"
+]
+"""API 520's effective coefficient of discharge for preliminary liquid sizing, 0.65 (fluids'
+``API520_A_l`` default Kd), used with an API 526 letter or an API 520 effective area only."""
+ASME_OVERPRESSURE_FRACTION: float = RELIEF_DATA["asmeOverpressureFraction"]["value"]
+"""ASME VIII's liquid certification overpressure as a fraction of the set pressure, 0.10."""
+ASME_OVERPRESSURE_FLOOR: float = RELIEF_DATA["asmeOverpressureFloor"]["value"]
+"""Pa (a difference): its floor, 3 psi: the default overpressure is max(0.10, 3 psi / set)."""
+ASME_MINIMUM_SET_PRESSURE: float = RELIEF_DATA["asmeMinimumSetPressure"]["value"]
+"""Pa (a difference): 15 psi, ASME VIII's scope. Below it ASME's overpressure is not cited, so a
+valve that would take it is refused (RELIEF_VALVE_OUT_OF_RANGE, proposal decision 14)."""
+
+RELIEF_AREA_MAX = math.pi * ORIFICE_BORE_MAX**2 / 4
+"""m²: the upper bound of a relief valve's orifice area, a bore at the pipe inner-diameter bound
+(``ORIFICE_BORE_MAX``, 10 m): 78.54 m² (proposal pressure-relief-valve.md §2.1)."""
+
+API526Letter = Literal["D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "P", "Q", "R", "T"]
+"""API 526's orifice letters (``API526_AREAS`` holds their areas; a unit test pins the two
+together and to fluids' ``API526_letters``)."""
+
+
+def relief_data_extension() -> JsonDict:
+    """``x-relief-data``, published on the ReliefValve schema: API 526's letters with their
+    effective areas (m²), API 520's effective coefficient of discharge, ASME's overpressure (the
+    fraction and its floor, Pa) and its scope (the smallest set pressure, Pa), as
+    ``data/api526_orifices.json`` holds them, so the web reads them instead of copying them
+    (D10; proposal decision 27)."""
+    areas: JsonDict = dict(API526_AREAS)
+    return {
+        "api526Areas": areas,
+        "effectiveDischargeCoefficient": API520_EFFECTIVE_DISCHARGE_COEFFICIENT,
+        "asmeOverpressureFraction": ASME_OVERPRESSURE_FRACTION,
+        "asmeOverpressureFloor": ASME_OVERPRESSURE_FLOOR,
+        "asmeMinimumSetPressure": ASME_MINIMUM_SET_PRESSURE,
+    }
+
+
+_ASME_OVERPRESSURE_TEXT = (
+    f"{ASME_OVERPRESSURE_FRACTION * 100:g} % of the set or "
+    f"{RELIEF_DATA['asmeOverpressureFloor']['psi']:g} psi "
+    f"({ASME_OVERPRESSURE_FLOOR / 1000:.2f} kPa), whichever is greater"
+)
+"""ASME's default overpressure in words, from the data file: '10 % of the set or 3 psi
+(20.68 kPa), whichever is greater'."""
+_ASME_SCOPE_TEXT = (
+    f"{RELIEF_DATA['asmeMinimumSetPressure']['psi']:g} psi "
+    f"({ASME_MINIMUM_SET_PRESSURE / 1000:.2f} kPa)"
+)
+"""ASME VIII's scope in words, from the data file: '15 psi (103.42 kPa)'."""
+_PRELIMINARY = (
+    "with API 520's effective coefficient of discharge, "
+    f"{API520_EFFECTIVE_DISCHARGE_COEFFICIENT:g}, and ASME's liquid certification overpressure "
+    f"({_ASME_OVERPRESSURE_TEXT}), for preliminary sizing"
+)
+
+
+class Api526Orifice(CamelModel):
+    """An API 526 orifice letter: the letter's effective area, with API 520's effective
+    coefficient of discharge and ASME's overpressure, for preliminary sizing (proposal
+    pressure-relief-valve.md decision 7)."""
+
+    kind: Literal["api526"] = Field(
+        description=f"api526: an API 526 orifice letter, {_PRELIMINARY}"
+    )
+    letter: API526Letter = Field(
+        description=(
+            "The API 526 orifice letter, D to T; its effective area (m²) is x-relief-data's "
+            "api526Areas, API 526's via fluids"
+        )
+    )
+
+
+class EffectiveOrifice(CamelModel):
+    """An API 520 effective discharge area, with API 520's effective coefficient of discharge
+    and ASME's overpressure, for preliminary sizing: the area API 520's liquid sizing equation
+    gives (fluids' API520_A_l), which goal seek varies to size a valve (proposal decisions 7,
+    19)."""
+
+    kind: Literal["effective"] = Field(
+        description=f"effective: an API 520 effective area, {_PRELIMINARY}"
+    )
+    area: float = Field(
+        gt=0,
+        le=RELIEF_AREA_MAX,
+        description=(
+            "An API 520 effective discharge area, m², as API 520's liquid sizing equation gives "
+            "it, used with API 520's effective coefficient of discharge "
+            f"{API520_EFFECTIVE_DISCHARGE_COEFFICIENT:g}; never a valve's actual orifice area"
+        ),
+    )
+
+
+class CertifiedOrifice(CamelModel):
+    """A valve's certified capacity: its actual orifice area and rated coefficient of
+    discharge, both from its certification, and optionally the overpressure at which it reaches
+    full lift (proposal decisions 6, 7)."""
+
+    kind: Literal["certified"] = Field(
+        description=(
+            "certified: the valve's actual orifice area and rated coefficient of discharge, from "
+            "its certification"
+        )
+    )
+    area: float = Field(
+        gt=0,
+        le=RELIEF_AREA_MAX,
+        description=(
+            "The valve's actual orifice area, m², from its certification; used with its rated "
+            "coefficient of discharge, never with API 520's effective coefficient"
+        ),
+    )
+    discharge_coefficient: float = Field(
+        gt=0,
+        le=1.0,
+        description=(
+            "The valve's rated coefficient of discharge for liquid, from its certification: "
+            "ASME's K, 0.9 × the measured coefficient; never API 520's effective coefficient "
+            "with an actual area"
+        ),
+    )
+    overpressure: float | None = Field(
+        default=None,
+        gt=0,
+        le=1.0,
+        description=(
+            "The rise of the pressure difference above the set, as a fraction of the set, at "
+            "which this valve reaches full lift (its rated capacity), from its certification; "
+            "not the allowable accumulation a valve is sized for. Absent: ASME's liquid "
+            f"certification overpressure, {_ASME_OVERPRESSURE_TEXT} (the default), for a set of "
+            f"at least {_ASME_SCOPE_TEXT}; below it, enter it"
+        ),
+    )
+
+
+def _capacity_tag(value: object) -> str | None:
+    kind = value.get("kind") if isinstance(value, dict) else getattr(value, "kind", None)
+    return kind if kind in ("api526", "effective", "certified") else None
+
+
+ReliefCapacity = Annotated[
+    Annotated[Api526Orifice, Tag("api526")]
+    | Annotated[EffectiveOrifice, Tag("effective")]
+    | Annotated[CertifiedOrifice, Tag("certified")],
+    Discriminator(
+        # A callable discriminator, as EquipmentRating's, so that an unknown kind gets the custom
+        # error below: pydantic's own message quotes the submitted tag, and errors never echo
+        # input (SDD §5.1.2).
+        _capacity_tag,
+        custom_error_type="invalid_capacity",
+        custom_error_message=(
+            "unknown capacity kind (expected 'api526', 'effective' or 'certified')"
+        ),
+    ),
+]
+"""A relief valve's capacity, one of three kinds never mixed (proposal decision 7)."""
+
+
+def _relief_schema_extra(schema: JsonDict, cls: type[Any]) -> None:
+    """The components' extensions and ``x-relief-data`` (``relief_data_extension``), on the
+    ReliefValve schema itself, where every other extension the web reads sits on its named
+    schema (the capacity union is inline and has none)."""
+    _component_schema_extra(schema, cls)
+    schema["x-relief-data"] = relief_data_extension()
+
+
+class ReliefValve(BaseComponent):
+    """A conventional spring-loaded pressure relief valve in liquid service (SDD §4.17): closed
+    while the static pressure difference across it is below its set pressure, its lift rising
+    linearly with the overpressure (a convention, flagged) to full lift at set plus overpressure,
+    with API 520's liquid capacity equation at its lift (proposal pressure-relief-valve.md §1.1).
+    Not EPANET's PSV (a pressure-sustaining valve)."""
+
+    model_config = ConfigDict(json_schema_extra=_relief_schema_extra)
+
+    PORT_IDS = ("inlet", "outlet")
+    PORT_ROLES: ClassVar[dict[str, PortRole]] = {"inlet": "inlet", "outlet": "outlet"}
+
+    type: Literal["relief_valve"]
+    set_pressure: float = Field(
+        gt=0,
+        le=RATED_PRESSURE_LOSS_MAX,
+        description=(
+            "The static pressure difference, inlet minus outlet, at which the valve starts to "
+            "open, Pa (a difference). Discharging to atmosphere at the valve's elevation, it is "
+            "the gauge set pressure (an outlet pipe rising or falling to its open end adds its "
+            "liquid-full static head); against a constant back pressure, the bench setting (the "
+            "cold differential test pressure without its temperature correction: the set "
+            "pressure minus that back pressure). A conventional spring-loaded valve: back "
+            "pressure adds to the inlet pressure at which it opens"
+        ),
+    )
+    capacity: ReliefCapacity = Field(
+        description=(
+            "The capacity, with no default: api526, an API 526 orifice letter with API 526's "
+            "effective area; effective, an API 520 effective area (m²); each with API 520's "
+            f"effective coefficient of discharge, {API520_EFFECTIVE_DISCHARGE_COEFFICIENT:g}, and "
+            "ASME's certification overpressure, for preliminary sizing. certified: the valve's "
+            "actual orifice area (m²) with its rated coefficient of discharge (ASME's K, 0.9 × "
+            "the measured coefficient), both from its certification, and optionally its "
+            "overpressure. Never one value from each set. API 526's letters and areas and "
+            "ASME's overpressure and scope are x-relief-data"
+        ),
+    )
+    status: Literal["active", "locked_closed"] = Field(
+        default="active",
+        description=(
+            "active: it opens as its set pressure and capacity give (the default); "
+            "locked_closed: gagged, or isolated by its block valve, it does not open"
+        ),
+    )
+
+
 _VALVE_FAMILY = {
     "gate": "isolation",
     "ball": "isolation",
@@ -525,7 +763,8 @@ Component = Annotated[
     | Annotated[CheckValve, Tag("valve:check")]
     | Annotated[ControlValve, Tag("valve:control")]
     | Annotated[Equipment, Tag("equipment")]
-    | Annotated[Orifice, Tag("orifice")],
+    | Annotated[Orifice, Tag("orifice")]
+    | Annotated[ReliefValve, Tag("relief_valve")],
     Discriminator(
         _component_tag,
         custom_error_type="invalid_component",

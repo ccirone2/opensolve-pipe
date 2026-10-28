@@ -40,6 +40,17 @@ its vena contracta, at the elevation of the port the flow leaves by, is checked 
 (BELOW_VAPOR_PRESSURE on the component), except at zero flow and in a floating section. Like
 equipment, it has no result in a closed-off section or beside a floating one.
 
+A relief valve (proposal pressure-relief-valve.md §2.2, §3.6) is a valve link with no
+``ValveResult``: its result gives the state (closed, partial lift, full lift), the flow, the lift
+from the flow, the head loss, the total-pressure difference its law reads and the static drop, the
+inlet and back pressures, the set, the overpressure and the capacity at full lift, the capacity it
+used and the Reynolds number on its orifice. Relieving, it is flagged at full lift
+(RELIEF_VALVE_OPEN, info), short of it (CORRELATION_OUT_OF_RANGE, partial lift: the linear lift is
+a convention), where the liquid would flash at its outlet (BELOW_VAPOR_PRESSURE on the component)
+and for a viscous liquid (CORRELATION_OUT_OF_RANGE, viscosity: API 520's Kv not applied). Like a
+check valve, it has no result with a closed-off or floating side, and an active one closed there
+raises RELIEF_VALVE_CLOSED (info) saying why.
+
 Flashing (design §8, GOALS §4.6): every port node and every reservoir's liquid surface is
 checked against the vapor pressure, in absolute pressure. Without a vapor pressure the bound is
 0 Pa absolute: no liquid exists at or below it, since every liquid's vapor pressure is positive,
@@ -56,22 +67,28 @@ import fluids.fittings
 import numpy as np
 
 from ...models.components import (
+    Api526Orifice,
     AssignedFlow,
+    CertifiedOrifice,
     CheckValve,
     ControlValve,
     IdealReferenceNode,
     Plug,
     RatedPoint,
+    ReliefValve,
     Reservoir,
     TeeBranch,
     WyeBranch,
 )
 from ...models.results import (
+    Api526OrificeResult,
     BestEfficiencyPoint,
     BoundaryResult,
     BranchResult,
+    CertifiedOrificeResult,
     ConvergenceReport,
     CurvePoint,
+    EffectiveOrificeResult,
     EfficiencyCurvePoint,
     EquipmentResult,
     FittingResult,
@@ -85,6 +102,7 @@ from ...models.results import (
     PowerCurvePoint,
     PumpControlResult,
     PumpResult,
+    ReliefValveResult,
     ResidualLocation,
     SegmentResult,
     ShutoffHead,
@@ -115,6 +133,7 @@ from .network import LinkMode, LinkState, SolverNetwork
 from .npsh import npsh_available
 from .orifice import TAP_NAMES
 from .pumps import CURVE_SAMPLES, operating_speed
+from .relief import VISCOSITY_LIMIT, ReliefData, covering_letter, kv_api520
 from .status import HTOL, QTOL, HeldStep, OuterLoopResult, Status
 from .trace import TraceInputs, element_traces
 from .version import METHOD_VERSION
@@ -966,6 +985,8 @@ class _Mapper:
 
     def valve_result(self, data: ValveData) -> ValveResult | None:
         valve = data.component
+        if isinstance(valve, ReliefValve):
+            return None  # its own result (``relief_result``), no ValveResult (decision 16)
         h1, h2 = self.heads_of(data.inlet, data.outlet)
         if math.isnan(h1) or math.isnan(h2):
             beside = self.is_floating(data.inlet) or self.is_floating(data.outlet)
@@ -1243,6 +1264,206 @@ class _Mapper:
             meter_discharge_coefficient=st.meter_c,
         )
 
+    def relief_result(self, data: ValveData) -> ReliefValveResult | None:
+        """A relief valve's result and flags (module docstring; proposal pressure-relief-valve.md
+        §2.2, §3.6). None, with RELIEF_VALVE_CLOSED where it applies, when a side has no head."""
+        comp = data.component
+        relief = data.relief
+        assert isinstance(comp, ReliefValve)
+        assert relief is not None
+        law = relief.law
+        h1, h2 = self.heads_of(data.inlet, data.outlet)
+        if math.isnan(h1) or math.isnan(h2):
+            self.relief_closed_flag(data, relief, h1, h2)
+            return None  # closed off, or beside a floating section
+        floating = self.is_floating(data.inlet)
+        q = float(self.flows[data.link_index])
+        head_loss = h1 - h2
+        rho_g = self.rho * self.g
+        dp_t = rho_g * (head_loss - law.dz)
+        p_in, p_out = self.static_pressure(data.inlet), self.static_pressure(data.outlet)
+        set_ratio = dp_t / law.set_pressure
+        flow_ratio = q / law.q_full
+        lift = law.lift(q)
+        mu = self.built.fluid.dynamic_viscosity
+        re = (
+            self.rho * abs(q) / relief.area * math.sqrt(4.0 * relief.area / math.pi) / mu
+            if q != 0.0
+            else None
+        )
+        if q > 0.0 and q >= law.q_full:
+            beyond = (
+                "; it is beyond its rated overpressure (the difference exceeds its full-lift "
+                f"difference Δp_f = {law.full_lift_pressure:.6g} Pa), where API 520's equation "
+                "holds, the flow growing with the square root of the difference"
+                if q > law.q_full
+                else ""
+            )
+            self.flags.append(
+                make_flag(
+                    "RELIEF_VALVE_OPEN",
+                    "info",
+                    f"relief valve '{comp.id}' is at full lift and relieves {q:.6g} m³/s at a "
+                    f"total-pressure difference of {dp_t:.6g} Pa, {set_ratio:.6g} × its set "
+                    f"pressure; its capacity at full lift is {law.q_full:.6g} m³/s (flow ÷ "
+                    f"capacity {flow_ratio:.6g}){beyond}",
+                    component_id=comp.id,
+                    details={
+                        "flow": q,
+                        "totalPressureDifference": dp_t,
+                        "setRatio": set_ratio,
+                        "flowRatio": flow_ratio,
+                    },
+                )
+            )
+        elif q > 0.0:
+            self.flags.append(
+                make_flag(
+                    "CORRELATION_OUT_OF_RANGE",
+                    "warning",
+                    f"relief valve '{comp.id}' relieves at partial lift ({lift:.6g}): between set "
+                    "and full lift the lift is the linear convention, not a cited law. A typical "
+                    "liquid-trim valve lifts more slowly, surges to full lift near 107 % of set "
+                    "and recloses near 90 % (Pentair TP-V300 Fig. 4-12). A valve that has surged "
+                    "open passes more flow at a lower inlet pressure.",
+                    component_id=comp.id,
+                    details={
+                        "limit": "partial_lift",
+                        "lift": lift,
+                        "setRatio": set_ratio,
+                        "overpressure": law.overpressure,
+                    },
+                )
+            )
+        if q > 0.0 and not floating:
+            p_abs = p_out + self.p_atm
+            p_vap = self.built.fluid.vapor_pressure
+            if _below_vapor_pressure(p_abs, p_vap):
+                bound = (
+                    f"the vapor pressure ({p_vap:.6g} Pa)"
+                    if p_vap is not None
+                    else "0 Pa, below any liquid's vapor pressure (this fluid has none given)"
+                )
+                self.flags.append(
+                    make_flag(
+                        "BELOW_VAPOR_PRESSURE",
+                        "invalid",
+                        f"relief valve '{comp.id}': the absolute static pressure at its outlet "
+                        f"({p_abs:.6g} Pa) is below {bound} while it relieves; the jet leaves "
+                        "the valve at that back pressure, so the liquid would flash there and the "
+                        "flow solved is too high",
+                        component_id=comp.id,
+                        details={
+                            "backAbsolutePressure": p_abs,
+                            "vaporPressure": _vapor_pressure_detail(p_vap),
+                        },
+                    )
+                )
+        if q > 0.0 and re is not None and mu >= VISCOSITY_LIMIT:
+            kv = kv_api520(re)
+            self.flags.append(
+                make_flag(
+                    "CORRELATION_OUT_OF_RANGE",
+                    "warning",
+                    f"relief valve '{comp.id}': the liquid's viscosity, {mu:.6g} Pa·s, is at or "
+                    f"above {VISCOSITY_LIMIT:g} Pa·s, where API 520 (10th edition) corrects the "
+                    f"capacity by its viscosity factor Kv ({kv:.6g} at the solved flow, Reynolds "
+                    f"number {re:.6g} on the orifice); Kv is not applied, so the capacity solved "
+                    "is likely overstated and the inlet pressure at this flow understated",
+                    component_id=comp.id,
+                    details={
+                        "limit": "viscosity",
+                        "value": mu,
+                        "lower": VISCOSITY_LIMIT,
+                        "kv": kv,
+                        "reynoldsNumber": re,
+                    },
+                )
+            )
+        return ReliefValveResult(
+            state=law.state(q),
+            flow=q,
+            lift=lift,
+            head_loss=head_loss,
+            total_pressure_difference=dp_t,
+            pressure_drop=p_in - p_out,
+            inlet_pressure=None if floating else p_in,
+            back_pressure=None if floating else p_out,
+            set_pressure=law.set_pressure,
+            set_ratio=set_ratio,
+            overpressure=law.overpressure,
+            overpressure_source=relief.overpressure_source,
+            full_lift_pressure_difference=law.full_lift_pressure,
+            full_lift_flow=law.q_full,
+            flow_ratio=flow_ratio,
+            capacity=_capacity_result(comp, relief),
+            reynolds_number=re,
+        )
+
+    def relief_closed_flag(self, data: ValveData, relief: ReliefData, h1: float, h2: float) -> None:
+        """RELIEF_VALVE_CLOSED (decision 15): an active relief valve that ends closed with no
+        result, a side of it closed off or on an undetermined level, and why; not one inside a
+        closed-off section (ISOLATED_SECTION names it), as for a check valve."""
+        comp = data.component
+        control = self.outer.controls[comp.id]
+        if control.status is not Status.CLOSED or comp.status != "active":
+            return
+
+        def missing(key: str, h: float) -> Literal["floating", "closed_off"] | None:
+            if self.is_floating(key):
+                return "floating"
+            return "closed_off" if math.isnan(h) else None
+
+        on_inlet, on_outlet = missing(data.inlet, h1), missing(data.outlet, h2)
+        if on_inlet == "closed_off" and on_outlet == "closed_off":
+            return  # inside a closed-off section
+        side: Literal["inlet", "outlet"] = "inlet" if on_inlet is not None else "outlet"
+        section = on_inlet or on_outlet
+        assert section is not None
+        law = relief.law
+        dps = law.set_pressure
+        what = (
+            "has no fixed pressure level (UNDETERMINED_PRESSURE)"
+            if section == "floating"
+            else "is closed off (no flow reaches it)"
+        )
+        details: dict[str, float | str] = {
+            "side": side,
+            "section": section,
+            "setHead": law.h_set,
+            "setPressure": dps,
+        }
+        level = ""
+        other = data.outlet if side == "inlet" else data.inlet
+        other_missing = on_outlet if side == "inlet" else on_inlet
+        if other_missing is None:
+            p_other = self.static_pressure(other)
+            if side == "inlet":
+                limit = p_other + dps
+                level = (
+                    f", that is, every inlet static pressure up to {limit:.6g} Pa(g) (its back "
+                    f"pressure {p_other:.6g} Pa(g) plus its set)"
+                )
+            else:
+                limit = p_other - dps
+                level = (
+                    f", that is, every back pressure down to {limit:.6g} Pa(g) (its inlet "
+                    f"pressure {p_other:.6g} Pa(g) less its set)"
+                )
+            details["pressureLimit"] = limit
+        self.flags.append(
+            make_flag(
+                "RELIEF_VALVE_CLOSED",
+                "info",
+                f"relief valve '{comp.id}' is closed and has no result: the section on its {side} "
+                f"side {what}, so the pressure difference across it is undetermined; every level "
+                "of that section at which the difference does not exceed its set pressure "
+                f"({dps:.6g} Pa) is a steady state{level}",
+                component_id=comp.id,
+                details=details,
+            )
+        )
+
     def closed_off_valve_flag(self, data: ValveData, inside: bool, floating: bool) -> None:
         """The state flag of an active check or control valve that ends closed with the
         section on one side of it closed off (no head there, so no valve result): the reason
@@ -1397,6 +1618,34 @@ class _Mapper:
         return float(abs(balance[worst])), worst
 
 
+def _capacity_result(
+    valve: ReliefValve, relief: ReliefData
+) -> Api526OrificeResult | EffectiveOrificeResult | CertifiedOrificeResult:
+    """The capacity a relief valve's solve used, with its area and coefficient resolved and, for
+    an effective area, the smallest API 526 letter covering it (proposal §2.2)."""
+    capacity = valve.capacity
+    if isinstance(capacity, Api526Orifice):
+        return Api526OrificeResult(
+            kind="api526",
+            letter=capacity.letter,
+            area=relief.area,
+            discharge_coefficient=relief.discharge_coefficient,
+        )
+    if isinstance(capacity, CertifiedOrifice):
+        return CertifiedOrificeResult(
+            kind="certified",
+            area=capacity.area,
+            discharge_coefficient=capacity.discharge_coefficient,
+            overpressure=capacity.overpressure,
+        )
+    return EffectiveOrificeResult(
+        kind="effective",
+        area=capacity.area,
+        discharge_coefficient=relief.discharge_coefficient,
+        covering_letter=covering_letter(capacity.area),
+    )
+
+
 def _finite(value: float) -> float | None:
     """A residual for the report: None when it is not a finite number (JSON has no inf or
     NaN; the iteration diverged)."""
@@ -1446,6 +1695,7 @@ def build_solved_state(
             valve_results={},
             equipment_results={},
             orifice_results={},
+            relief_valve_results={},
             branch_results={},
             boundary_results={},
             design_checks=[],
@@ -1483,6 +1733,11 @@ def build_solved_state(
     orifices = {
         cid: o for cid, d in built.orifices.items() if (o := mapper.orifice_result(d)) is not None
     }
+    reliefs = {
+        cid: r
+        for cid, d in built.valves.items()
+        if d.relief is not None and (r := mapper.relief_result(d)) is not None
+    }
     mapper.isolated_flags()
     mapper.floating_flags()
     balance, balance_node = mapper.mass_balance()
@@ -1499,6 +1754,7 @@ def build_solved_state(
             valves=valves,
             equipment=equipment,
             orifices=orifices,
+            relief_valves=reliefs,
             branches=branches,
             boundaries=boundaries,
             flags=mapper.flags,
@@ -1517,6 +1773,7 @@ def build_solved_state(
         valve_results=valves,
         equipment_results=equipment,
         orifice_results=orifices,
+        relief_valve_results=reliefs,
         branch_results=branches,
         boundary_results=boundaries,
         design_checks=[],

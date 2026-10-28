@@ -6,8 +6,8 @@ ideal-reference-node ports are fixed-head nodes; an assigned-flow node's port is
 whose demand is its flow (TSD §4.8).
 
 Links: one per pipe connection (from-port node -> to-port node); pump suction -> discharge;
-valve inlet -> outlet; equipment inlet -> outlet; orifice plate inlet -> outlet; three legs per
-tee or wye (center -> port).
+valve inlet -> outlet; equipment inlet -> outlet; orifice plate inlet -> outlet; relief valve
+inlet -> outlet; three legs per tee or wye (center -> port).
 Plugs and assigned-flow nodes add no link.
 
 Laws: pipes (segments and fittings); a pump's curve at its speed (a speed-controlled pump's
@@ -15,8 +15,11 @@ maximum speed; its minimum-speed law is built once, ``PumpControlData``); a valv
 the inlet pipe's inner diameter (``valves.valve_resistance``), as a head offset when K = 0
 (an ideal control valve); equipment's c Q|Q| with c from its rating (``equipment.equipment_law``,
 proposal equipment-pressure-drop.md §3.4); an orifice plate's ISO 5167-2 permanent pressure loss
-on its inlet pipe's bore (``orifice.OrificeLaw``, proposal orifice-plate.md §3.8); branch legs as
-head offsets set by the outer loop (design §2.4).
+on its inlet pipe's bore (``orifice.OrificeLaw``, proposal orifice-plate.md §3.8); a relief valve's
+linear lift and API 520's liquid equation on the total-pressure difference across it
+(``relief.ReliefLaw``, proposal pressure-relief-valve.md §3.8), a valve link whose status rule is
+the check valve's with its cracking head h_set; branch legs as head offsets set by the outer loop
+(design §2.4).
 
 Every problem that makes the project unsolvable is collected and raised together as one
 ``TopologyError`` (design §1.2), including pipe-library references that do not resolve.
@@ -42,6 +45,7 @@ from ...models.components import (
     Orifice,
     Plug,
     Pump,
+    ReliefValve,
     Reservoir,
     TeeBranch,
     WyeBranch,
@@ -77,6 +81,8 @@ from .orifice import (
     refusal,
 )
 from .pumps import PumpCurveModel, SpeedUniqueness, bracket_low, speed_uniqueness
+from .relief import ReliefData, ReliefRefusal, capacity_kind_words, refusal_text, relief_law
+from .relief import relief_refusal as relief_valve_refusal
 from .valves import Valve, ValveResistance, k_from_coefficient, valve_resistance
 
 G = float(fluids.constants.g)
@@ -188,13 +194,19 @@ class ValveData:
     """Inner diameter of the pipe at the inlet port: K is on this diameter (design §2.3)."""
     reference_area: float
     cracking_head: float
-    """crackingPressure / (ρ g) for an active check valve, else 0, m."""
+    """crackingPressure / (ρ g) for an active check valve, h_set = Δp_s/(ρ g) + z_in − z_out for
+    an active relief valve (proposal pressure-relief-valve.md decision 10), else 0, m."""
     law: LinkLaw
-    """The fully open law (ValveLaw, or a zero head offset for K = 0)."""
+    """The fully open law (ValveLaw, or a zero head offset for K = 0); a relief valve's
+    ``relief.ReliefLaw``."""
     inlet: str
     outlet: str
     inlet_pipe: PortPipe
     outlet_pipe: PortPipe
+    relief: ReliefData | None = None
+    """A relief valve's law and the capacity it comes from (None for every other valve). Its
+    ``resistance`` then holds the full-lift K on the inlet pipe's bore, (A_in/C)², for the trace
+    only."""
 
 
 @dataclass
@@ -770,6 +782,29 @@ def _unrepresentable_orifices(
     ]
 
 
+def relief_refusals(
+    project: Project, fluid: FluidProperties
+) -> dict[str, tuple[ReliefValve, ReliefRefusal]]:
+    """Relief valves decision 14 refuses (proposal pressure-relief-valve.md §3.7), by id: the
+    valve and the first rule it breaks, for the case fluid's density. {} without relief valves."""
+    found: dict[str, tuple[ReliefValve, ReliefRefusal]] = {}
+    for comp in project.components:
+        if isinstance(comp, ReliefValve):
+            why = relief_valve_refusal(comp, fluid.density)
+            if why is not None:
+                found[comp.id] = (comp, why)
+    return found
+
+
+def _unrepresentable_relief_valves(project: Project, fluid: FluidProperties) -> list[TopologyIssue]:
+    """RELIEF_VALVE_OUT_OF_RANGE (proposal pressure-relief-valve.md decision 14): one issue per
+    valve, quoting its values, the basis and a remedy; listed after ORIFICE_OUT_OF_RANGE."""
+    return [
+        issue("RELIEF_VALVE_OUT_OF_RANGE", refusal_text(comp, why), [comp.id], [])
+        for comp, why in relief_refusals(project, fluid).values()
+    ]
+
+
 def _orifice_input_flags(comp: Orifice, law: OrificeLaw, d_out: float) -> list[Flag]:
     """The plate's flags known before solving (decisions 11, 12): ISO 5167-2's geometric limits
     wherever eq. (4) is used, one per inequality broken, and an outlet pipe whose bore differs
@@ -837,6 +872,7 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
     issues.extend(_unrepresentable_valves(project, resolved))
     issues.extend(_unrepresentable_equipment(project))
     issues.extend(_unrepresentable_orifices(project, resolved))
+    issues.extend(_unrepresentable_relief_valves(project, fluid))
     if issues:
         raise TopologyError(issues)
 
@@ -1112,6 +1148,48 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
                 outlet=outlet,
                 inlet_pipe=inlet_pipe,
                 outlet_pipe=outlet_pipe,
+            )
+        elif isinstance(comp, ReliefValve):
+            inlet, outlet = node_key(comp.id, "inlet"), node_key(comp.id, "outlet")
+            inlet_pipe, outlet_pipe = built.port_pipe(inlet), built.port_pipe(outlet)
+            d_ref, a_ref = inlet_pipe.segment.diameter, inlet_pipe.segment.area
+            dz = port_elevation(comp, "inlet") - port_elevation(comp, "outlet")
+            relief = relief_law(comp, fluid.density, g, dz)
+            ratio = a_ref / relief.law.c_area
+            k_full = ratio * ratio
+            link = add_link(
+                SolverLink(
+                    index=len(links),
+                    key=comp.id,
+                    kind=LinkKind.VALVE,
+                    start=node_index[inlet],
+                    end=node_index[outlet],
+                    law=relief.law,
+                    # 1 ft/s in the inlet pipe, as for valves (EPANET 2.2 initlinkflow); it starts
+                    # closed (decision 11), so this is used only once it opens
+                    initial_flow=INITIAL_VELOCITY * a_ref,
+                    component_id=comp.id,
+                )
+            )
+            built.valves[comp.id] = ValveData(
+                component=comp,
+                link_index=link.index,
+                resistance=ValveResistance(
+                    k_full,
+                    f"full-lift K = (A_in/(Kd A))² on the inlet pipe's {d_ref:g} m bore, from "
+                    f"the {capacity_kind_words(comp.capacity)} capacity (for the trace only)",
+                    "library" if comp.capacity.kind == "api526" else "user",
+                    False,
+                ),
+                reference_diameter=d_ref,
+                reference_area=a_ref,
+                cracking_head=relief.law.h_set if comp.status == "active" else 0.0,
+                law=relief.law,
+                inlet=inlet,
+                outlet=outlet,
+                inlet_pipe=inlet_pipe,
+                outlet_pipe=outlet_pipe,
+                relief=relief,
             )
         else:
             assert isinstance(comp, Reservoir | IdealReferenceNode | Plug | AssignedFlow)

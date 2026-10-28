@@ -13422,6 +13422,7 @@
             "systemCurve": null
           }
         },
+        "reliefValveResults": {},
         "valveResults": {
           "G1": {
             "cvEffective": null,
@@ -14711,6 +14712,7 @@
             "systemCurve": null
           }
         },
+        "reliefValveResults": {},
         "valveResults": {
           "G1": {
             "cvEffective": null,
@@ -14746,6 +14748,8 @@
     "pump_head",
     "pump_npsh_available",
     "pump_npsh_margin",
+    "relief_valve_flow",
+    "relief_valve_pressure_drop",
     "valve_flow",
     "valve_pressure_drop"
   ]

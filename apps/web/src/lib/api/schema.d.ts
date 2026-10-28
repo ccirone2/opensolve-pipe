@@ -330,6 +330,53 @@ export interface components {
             flowMin: number;
         };
         /**
+         * Api526Orifice
+         * @description An API 526 orifice letter: the letter's effective area, with API 520's effective
+         *     coefficient of discharge and ASME's overpressure, for preliminary sizing (proposal
+         *     pressure-relief-valve.md decision 7).
+         */
+        Api526Orifice: {
+            /**
+             * Kind
+             * @description api526: an API 526 orifice letter, with API 520's effective coefficient of discharge, 0.65, and ASME's liquid certification overpressure (10 % of the set or 3 psi (20.68 kPa), whichever is greater), for preliminary sizing
+             * @constant
+             */
+            kind: "api526";
+            /**
+             * Letter
+             * @description The API 526 orifice letter, D to T; its effective area (m²) is x-relief-data's api526Areas, API 526's via fluids
+             * @enum {string}
+             */
+            letter: "D" | "E" | "F" | "G" | "H" | "J" | "K" | "L" | "M" | "N" | "P" | "Q" | "R" | "T";
+        };
+        /**
+         * Api526OrificeResult
+         * @description An API 526 letter capacity as the solve used it (proposal pressure-relief-valve.md
+         *     §2.2).
+         */
+        Api526OrificeResult: {
+            /**
+             * Area
+             * @description API 526's effective area of the letter, m²
+             */
+            area: number;
+            /**
+             * Dischargecoefficient
+             * @description API 520's effective coefficient of discharge, 0.65 (preliminary)
+             */
+            dischargeCoefficient: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "api526";
+            /**
+             * Letter
+             * @enum {string}
+             */
+            letter: "D" | "E" | "F" | "G" | "H" | "J" | "K" | "L" | "M" | "N" | "P" | "Q" | "R" | "T";
+        };
+        /**
          * AssignedFlow
          * @description Fixed flow out of (demand, positive) or into (supply, negative) the network at its port,
          *     whatever the pressure there, which is a result (SDD §4.11). Not a fixed-pressure boundary:
@@ -492,6 +539,61 @@ export interface components {
             temperature: number;
         };
         /**
+         * CertifiedOrifice
+         * @description A valve's certified capacity: its actual orifice area and rated coefficient of
+         *     discharge, both from its certification, and optionally the overpressure at which it reaches
+         *     full lift (proposal decisions 6, 7).
+         */
+        CertifiedOrifice: {
+            /**
+             * Area
+             * @description The valve's actual orifice area, m², from its certification; used with its rated coefficient of discharge, never with API 520's effective coefficient
+             */
+            area: number;
+            /**
+             * Dischargecoefficient
+             * @description The valve's rated coefficient of discharge for liquid, from its certification: ASME's K, 0.9 × the measured coefficient; never API 520's effective coefficient with an actual area
+             */
+            dischargeCoefficient: number;
+            /**
+             * Kind
+             * @description certified: the valve's actual orifice area and rated coefficient of discharge, from its certification
+             * @constant
+             */
+            kind: "certified";
+            /**
+             * Overpressure
+             * @description The rise of the pressure difference above the set, as a fraction of the set, at which this valve reaches full lift (its rated capacity), from its certification; not the allowable accumulation a valve is sized for. Absent: ASME's liquid certification overpressure, 10 % of the set or 3 psi (20.68 kPa), whichever is greater (the default), for a set of at least 15 psi (103.42 kPa); below it, enter it
+             */
+            overpressure?: number | null;
+        };
+        /**
+         * CertifiedOrificeResult
+         * @description A certified capacity as the solve used it (proposal §2.2).
+         */
+        CertifiedOrificeResult: {
+            /**
+             * Area
+             * @description The valve's actual orifice area, m², as entered
+             */
+            area: number;
+            /**
+             * Dischargecoefficient
+             * @description The valve's rated coefficient of discharge, as entered
+             */
+            dischargeCoefficient: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "certified";
+            /**
+             * Overpressure
+             * @description The certified overpressure at full lift as entered, a fraction of the set; null on ASME's default (the result's overpressure is the value used)
+             */
+            overpressure: number | null;
+        };
+        /**
          * CheckValve
          * @description Check or stop-check valve: closes on reverse flow; opens above the cracking pressure.
          */
@@ -549,7 +651,7 @@ export interface components {
              * @description camelCase path of the value relative to the component
              * @enum {string}
              */
-            field: "status" | "speed" | "control.setpoint" | "setpoint" | "resistance" | "liquidLevel" | "surfacePressure" | "pressure" | "flow" | "rating" | "rating.pressureLoss" | "rating.flow" | "rating.density" | "rating.value" | "boreDiameter" | "dischargeCoefficient";
+            field: "status" | "speed" | "control.setpoint" | "setpoint" | "resistance" | "liquidLevel" | "surfacePressure" | "pressure" | "flow" | "rating" | "rating.pressureLoss" | "rating.flow" | "rating.density" | "rating.value" | "boreDiameter" | "dischargeCoefficient" | "setPressure" | "capacity" | "capacity.letter" | "capacity.area" | "capacity.dischargeCoefficient" | "capacity.overpressure";
             /**
              * Kind
              * @constant
@@ -578,7 +680,7 @@ export interface components {
              * @description camelCase path of the value relative to the component (x-goal-variables)
              * @enum {string}
              */
-            field: "speed" | "control.setpoint" | "setpoint" | "resistance" | "liquidLevel" | "surfacePressure" | "pressure" | "flow" | "rating.pressureLoss" | "rating.flow" | "rating.density" | "rating.value" | "boreDiameter" | "dischargeCoefficient";
+            field: "speed" | "control.setpoint" | "setpoint" | "resistance" | "liquidLevel" | "surfacePressure" | "pressure" | "flow" | "rating.pressureLoss" | "rating.flow" | "rating.density" | "rating.value" | "boreDiameter" | "dischargeCoefficient" | "setPressure" | "capacity.area" | "capacity.dischargeCoefficient" | "capacity.overpressure";
             /**
              * Kind
              * @constant
@@ -779,6 +881,52 @@ export interface components {
             npshMargin?: components["schemas"]["NpshMarginCheck"] | null;
             operatingRegion?: components["schemas"]["OperatingRegionCheck"] | null;
             pipeVelocity?: components["schemas"]["PipeVelocityCheck"] | null;
+        };
+        /**
+         * EffectiveOrifice
+         * @description An API 520 effective discharge area, with API 520's effective coefficient of discharge
+         *     and ASME's overpressure, for preliminary sizing: the area API 520's liquid sizing equation
+         *     gives (fluids' API520_A_l), which goal seek varies to size a valve (proposal decisions 7,
+         *     19).
+         */
+        EffectiveOrifice: {
+            /**
+             * Area
+             * @description An API 520 effective discharge area, m², as API 520's liquid sizing equation gives it, used with API 520's effective coefficient of discharge 0.65; never a valve's actual orifice area
+             */
+            area: number;
+            /**
+             * Kind
+             * @description effective: an API 520 effective area, with API 520's effective coefficient of discharge, 0.65, and ASME's liquid certification overpressure (10 % of the set or 3 psi (20.68 kPa), whichever is greater), for preliminary sizing
+             * @constant
+             */
+            kind: "effective";
+        };
+        /**
+         * EffectiveOrificeResult
+         * @description An API 520 effective area capacity as the solve used it (proposal §2.2).
+         */
+        EffectiveOrificeResult: {
+            /**
+             * Area
+             * @description The API 520 effective area, m²
+             */
+            area: number;
+            /**
+             * Coveringletter
+             * @description The smallest API 526 letter whose effective area is at least the area (fluids' API520_round_size); null above T's
+             */
+            coveringLetter: ("D" | "E" | "F" | "G" | "H" | "J" | "K" | "L" | "M" | "N" | "P" | "Q" | "R" | "T") | null;
+            /**
+             * Dischargecoefficient
+             * @description API 520's effective coefficient of discharge, 0.65 (preliminary)
+             */
+            dischargeCoefficient: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "effective";
         };
         /** EfficiencyCurvePoint */
         EfficiencyCurvePoint: {
@@ -1005,7 +1153,7 @@ export interface components {
              * Code
              * @enum {string}
              */
-            code: "NOT_CONVERGED" | "CAVITATION" | "BELOW_VAPOR_PRESSURE" | "PUMP_FLOW_REVERSAL" | "PUMP_OUTSIDE_CURVE" | "TRANSITIONAL_FLOW" | "CORRELATION_OUT_OF_RANGE" | "TEE_PATTERN_FALLBACK" | "UNSUPPORTED_FLOW_PATTERN" | "NO_VAPOR_PRESSURE" | "PORT_ABOVE_LIQUID_LEVEL" | "CHECK_VALVE_CLOSED" | "CONTROL_VALVE_SETPOINT_NOT_MET" | "PUMP_SETPOINT_NOT_MET" | "ISOLATED_SECTION" | "UNDETERMINED_PRESSURE" | "NPSH_NOT_CHECKED";
+            code: "NOT_CONVERGED" | "CAVITATION" | "BELOW_VAPOR_PRESSURE" | "PUMP_FLOW_REVERSAL" | "PUMP_OUTSIDE_CURVE" | "TRANSITIONAL_FLOW" | "CORRELATION_OUT_OF_RANGE" | "TEE_PATTERN_FALLBACK" | "UNSUPPORTED_FLOW_PATTERN" | "NO_VAPOR_PRESSURE" | "PORT_ABOVE_LIQUID_LEVEL" | "CHECK_VALVE_CLOSED" | "RELIEF_VALVE_OPEN" | "RELIEF_VALVE_CLOSED" | "CONTROL_VALVE_SETPOINT_NOT_MET" | "PUMP_SETPOINT_NOT_MET" | "ISOLATED_SECTION" | "UNDETERMINED_PRESSURE" | "NPSH_NOT_CHECKED";
             /** Componentid */
             componentId: string | null;
             /** Connectionid */
@@ -1238,7 +1386,7 @@ export interface components {
              * Quantity
              * @enum {string}
              */
-            quantity: "port_pressure" | "link_flow" | "link_velocity" | "link_head_loss" | "pump_flow" | "pump_head" | "pump_npsh_available" | "pump_npsh_margin" | "valve_flow" | "valve_pressure_drop" | "equipment_flow" | "equipment_pressure_loss" | "equipment_pressure_drop" | "orifice_flow" | "orifice_pressure_loss" | "orifice_differential_pressure" | "orifice_pressure_drop" | "boundary_outflow";
+            quantity: "port_pressure" | "link_flow" | "link_velocity" | "link_head_loss" | "pump_flow" | "pump_head" | "pump_npsh_available" | "pump_npsh_margin" | "valve_flow" | "valve_pressure_drop" | "equipment_flow" | "equipment_pressure_loss" | "equipment_pressure_drop" | "orifice_flow" | "orifice_pressure_loss" | "orifice_differential_pressure" | "orifice_pressure_drop" | "relief_valve_flow" | "relief_valve_pressure_drop" | "boundary_outflow";
             /**
              * Target
              * @description SI, in the quantity's unit
@@ -2278,7 +2426,7 @@ export interface components {
          */
         Project: {
             /** Components */
-            components: (components["schemas"]["Reservoir"] | components["schemas"]["IdealReferenceNode"] | components["schemas"]["Plug"] | components["schemas"]["AssignedFlow"] | components["schemas"]["TeeBranch"] | components["schemas"]["WyeBranch"] | components["schemas"]["Pump"] | components["schemas"]["IsolationValve"] | components["schemas"]["CheckValve"] | components["schemas"]["ControlValve"] | components["schemas"]["Equipment"] | components["schemas"]["Orifice"])[];
+            components: (components["schemas"]["Reservoir"] | components["schemas"]["IdealReferenceNode"] | components["schemas"]["Plug"] | components["schemas"]["AssignedFlow"] | components["schemas"]["TeeBranch"] | components["schemas"]["WyeBranch"] | components["schemas"]["Pump"] | components["schemas"]["IsolationValve"] | components["schemas"]["CheckValve"] | components["schemas"]["ControlValve"] | components["schemas"]["Equipment"] | components["schemas"]["Orifice"] | components["schemas"]["ReliefValve"])[];
             /** Connections */
             connections: components["schemas"]["PipeConnection"][];
             /** Fluid */
@@ -2729,6 +2877,148 @@ export interface components {
             preset: "api610_por";
         };
         /**
+         * ReliefValve
+         * @description A conventional spring-loaded pressure relief valve in liquid service (SDD §4.17): closed
+         *     while the static pressure difference across it is below its set pressure, its lift rising
+         *     linearly with the overpressure (a convention, flagged) to full lift at set plus overpressure,
+         *     with API 520's liquid capacity equation at its lift (proposal pressure-relief-valve.md §1.1).
+         *     Not EPANET's PSV (a pressure-sustaining valve).
+         */
+        ReliefValve: {
+            /**
+             * Capacity
+             * @description The capacity, with no default: api526, an API 526 orifice letter with API 526's effective area; effective, an API 520 effective area (m²); each with API 520's effective coefficient of discharge, 0.65, and ASME's certification overpressure, for preliminary sizing. certified: the valve's actual orifice area (m²) with its rated coefficient of discharge (ASME's K, 0.9 × the measured coefficient), both from its certification, and optionally its overpressure. Never one value from each set. API 526's letters and areas and ASME's overpressure and scope are x-relief-data
+             */
+            capacity: components["schemas"]["Api526Orifice"] | components["schemas"]["EffectiveOrifice"] | components["schemas"]["CertifiedOrifice"];
+            /**
+             * Elevation
+             * @description Elevation above the project datum, m
+             */
+            elevation: number;
+            /**
+             * Id
+             * @description Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Ports */
+            ports: components["schemas"]["Port"][];
+            /**
+             * Setpressure
+             * @description The static pressure difference, inlet minus outlet, at which the valve starts to open, Pa (a difference). Discharging to atmosphere at the valve's elevation, it is the gauge set pressure (an outlet pipe rising or falling to its open end adds its liquid-full static head); against a constant back pressure, the bench setting (the cold differential test pressure without its temperature correction: the set pressure minus that back pressure). A conventional spring-loaded valve: back pressure adds to the inlet pressure at which it opens
+             */
+            setPressure: number;
+            /**
+             * Status
+             * @description active: it opens as its set pressure and capacity give (the default); locked_closed: gagged, or isolated by its block valve, it does not open
+             * @default active
+             * @enum {string}
+             */
+            status: "active" | "locked_closed";
+            /**
+             * Type
+             * @constant
+             */
+            type: "relief_valve";
+        };
+        /**
+         * ReliefValveResult
+         * @description A pressure relief valve (SDD §4.17): its lift, flow and capacity at the solved pressures
+         *     (proposal pressure-relief-valve.md §2.2). Δp_t, the total-pressure difference between the
+         *     ports, is what its law reads; the lift x rises linearly from the set Δp_s to full lift at
+         *     Δp_f = Δp_s(1 + overpressure), and Q = x·Kd·A·√(2Δp_t/ρ).
+         */
+        ReliefValveResult: {
+            /**
+             * Backpressure
+             * @description Static pressure at the outlet port, Pa gauge; null where the pressure level is undetermined
+             */
+            backPressure: number | null;
+            /**
+             * Capacity
+             * @description The capacity the solve used, after any scenario or goal-seek trial
+             */
+            capacity: components["schemas"]["Api526OrificeResult"] | components["schemas"]["EffectiveOrificeResult"] | components["schemas"]["CertifiedOrificeResult"];
+            /**
+             * Flow
+             * @description m³/s, positive inlet -> outlet (never below zero: it closes on reverse flow)
+             */
+            flow: number;
+            /**
+             * Flowratio
+             * @description flow / fullLiftFlow
+             */
+            flowRatio: number;
+            /**
+             * Fullliftflow
+             * @description Q_f = Kd·A·√(2Δp_f/ρ), m³/s: the capacity at full lift for the case fluid's density
+             */
+            fullLiftFlow: number;
+            /**
+             * Fullliftpressuredifference
+             * @description Δp_f = Δp_s(1 + overpressure), Pa (a difference)
+             */
+            fullLiftPressureDifference: number;
+            /**
+             * Headloss
+             * @description EGL(inlet) - EGL(outlet), m
+             */
+            headLoss: number;
+            /**
+             * Inletpressure
+             * @description Static pressure at the inlet port, Pa gauge; null where the pressure level is undetermined (UNDETERMINED_PRESSURE)
+             */
+            inletPressure: number | null;
+            /**
+             * Lift
+             * @description x, a fraction from 0 (closed) to 1 (full lift): flow / (Kd·A·√(2Δp_t/ρ))
+             */
+            lift: number;
+            /**
+             * Overpressure
+             * @description The overpressure at full lift the solve used, a fraction of the set
+             */
+            overpressure: number;
+            /**
+             * Overpressuresource
+             * @description asme_default: ASME's liquid certification overpressure, 10 % of the set or 3 psi, whichever is greater (the default); user: the certified capacity's overpressure
+             * @enum {string}
+             */
+            overpressureSource: "asme_default" | "user";
+            /**
+             * Pressuredrop
+             * @description Static pressure drop inlet -> outlet, Pa (a difference), as a valve's: what gauges at the ports read. It equals totalPressureDifference - ρ(v_inlet² - v_outlet²)/2, with the velocities in the connected pipes
+             */
+            pressureDrop: number;
+            /**
+             * Reynoldsnumber
+             * @description API 520's Reynolds number on the orifice, ρ(Q/A)√(4A/π)/μ at the solved flow; null at zero flow
+             */
+            reynoldsNumber: number | null;
+            /**
+             * Setpressure
+             * @description Δp_s, the set pressure difference the solve used, Pa (a difference)
+             */
+            setPressure: number;
+            /**
+             * Setratio
+             * @description Δp_t / Δp_s: below 1 closed; above 1, 1 + the overpressure reached (on the set difference)
+             */
+            setRatio: number;
+            /**
+             * State
+             * @description closed: no flow; partial_lift: relieving short of full lift (0 < x < 1, the linear convention, flagged); full_lift: at or beyond full lift (x = 1, flow ≥ fullLiftFlow)
+             * @enum {string}
+             */
+            state: "closed" | "partial_lift" | "full_lift";
+            /**
+             * Totalpressuredifference
+             * @description Δp_t = ρg(headLoss - (z_inlet - z_outlet)), Pa (a difference): the total-pressure difference between the ports, (p + ρv²/2) at the inlet minus at the outlet, what the law reads
+             */
+            totalPressureDifference: number;
+        };
+        /**
          * Reservoir
          * @description Constant-level reservoir: a fixed-head boundary. Every port sees the same head.
          */
@@ -2791,7 +3081,7 @@ export interface components {
             name: string;
             /**
              * Overrides
-             * @description At most one per value: no two set the same value of one target, nor a value and a part of it (fluid and fluid.temperature; an equipment item's rating and rating.flow)
+             * @description At most one per value: no two set the same value of one target, nor a value and a part of it (fluid and fluid.temperature; an equipment item's rating and rating.flow; a relief valve's capacity and capacity.area)
              */
             overrides?: (components["schemas"]["ComponentOverride"] | components["schemas"]["PipeOverride"] | components["schemas"]["ProjectOverride"])[];
         };
@@ -2983,6 +3273,13 @@ export interface components {
              */
             pumpResults: {
                 [key: string]: components["schemas"]["PumpResult"];
+            };
+            /**
+             * Reliefvalveresults
+             * @description Keyed by component id; {} when the project has no relief valve or the solve did not converge; a relief valve with a closed-off or floating side has no result (RELIEF_VALVE_CLOSED says why)
+             */
+            reliefValveResults: {
+                [key: string]: components["schemas"]["ReliefValveResult"];
             };
             /**
              * Timestamp
@@ -3391,9 +3688,9 @@ export interface components {
              * @description The value equals lower or upper exactly
              */
             atBound: ("lower" | "upper") | null;
-            /** @description The base project's value (equal to caseValue for a base run); null where the base holds no value of this variable (an equipment item the base rates by another kind: a point, or the other of Cv and Kv; an orifice plate's discharge coefficient on ISO 5167-2's default) */
+            /** @description The base project's value (equal to caseValue for a base run); null where the base holds no value of this variable (an equipment item the base rates by another kind: a point, or the other of Cv and Kv; an orifice plate's discharge coefficient on ISO 5167-2's default; a relief valve whose base capacity is of another kind, an effective area not being an actual area, or whose overpressure is ASME's default) */
             baseValue: components["schemas"]["JsonValue"];
-            /** @description The case's value of the field, SI (a resistance: its FlowCoefficient or null; an orifice plate's discharge coefficient: null on ISO 5167-2's default) */
+            /** @description The case's value of the field, SI (a resistance: its FlowCoefficient or null; an orifice plate's discharge coefficient: null on ISO 5167-2's default; a relief valve's overpressure: null on ASME's default) */
             caseValue: components["schemas"]["JsonValue"];
             /** Index */
             index: number;
@@ -3424,7 +3721,7 @@ export interface components {
             start: number;
             /**
              * Startsource
-             * @description case: the case's value; clipped: the case's value lies outside the bounds, and the nearer bound is used; middle: the case holds no value of this coefficient (a resistance on its default, or of another kind; an orifice plate's discharge coefficient on ISO 5167-2's default), and the middle of the bounds on the variable's scale is used
+             * @description case: the case's value; clipped: the case's value lies outside the bounds, and the nearer bound is used; middle: the case holds no value of this coefficient (a resistance on its default, or of another kind; an orifice plate's discharge coefficient on ISO 5167-2's default; a certified relief valve's overpressure on ASME's default), and the middle of the bounds on the variable's scale is used
              * @enum {string}
              */
             startSource: "case" | "clipped" | "middle";

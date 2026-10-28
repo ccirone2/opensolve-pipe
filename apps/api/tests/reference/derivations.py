@@ -331,14 +331,25 @@ def k_crane_valves(d: float) -> dict[str, float]:
 # --- Property sources -------------------------------------------------------------------------
 
 
+WATER_MAX_TEMPERATURE = 473.15
+"""K: the top of built-in water's range (TSD §4.6: 273.16 K < T ≤ 473.15 K)."""
+
+
 def water_properties(temperature: float) -> tuple[float, float]:
     """Density and dynamic viscosity of liquid water from CoolProp 'Water' (HEOS: IAPWS-95 EOS,
-    Wagner & Pruß 2002; viscosity Huber et al. 2009) at 101325 Pa (design §7, §10)."""
+    Wagner & Pruß 2002; viscosity Huber et al. 2009) at 101325 Pa (design §7, §10) below the
+    normal boiling point, and of the saturated liquid (quality 0) at and above it, up to
+    473.15 K (TSD §4.6's range: "at 101 325 Pa below the normal boiling point, saturated liquid
+    above it")."""
     t_sat = PropsSI("T", "P", WATER_REFERENCE_PRESSURE, "Q", 0, "Water")
-    if not temperature < t_sat:
-        raise ValueError("this derivation assumes liquid water below Tsat(101325 Pa)")
-    rho = float(PropsSI("D", "T", temperature, "P", WATER_REFERENCE_PRESSURE, "Water"))
-    mu = float(PropsSI("V", "T", temperature, "P", WATER_REFERENCE_PRESSURE, "Water"))
+    if temperature < t_sat:
+        rho = float(PropsSI("D", "T", temperature, "P", WATER_REFERENCE_PRESSURE, "Water"))
+        mu = float(PropsSI("V", "T", temperature, "P", WATER_REFERENCE_PRESSURE, "Water"))
+        return rho, mu
+    if not temperature <= WATER_MAX_TEMPERATURE:
+        raise ValueError("built-in water is defined up to 473.15 K (TSD §4.6)")
+    rho = float(PropsSI("D", "T", temperature, "Q", 0, "Water"))
+    mu = float(PropsSI("V", "T", temperature, "Q", 0, "Water"))
     return rho, mu
 
 

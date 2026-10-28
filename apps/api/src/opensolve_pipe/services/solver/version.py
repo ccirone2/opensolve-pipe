@@ -14,7 +14,7 @@ class MethodChange(TypedDict):
     changes: list[str]
 
 
-METHOD_VERSION = "1.4.0"
+METHOD_VERSION = "1.5.0"
 
 METHOD_CHANGELOG: list[MethodChange] = [
     {
@@ -141,6 +141,21 @@ METHOD_CHANGELOG: list[MethodChange] = [
             "at the vena contracta; a plate whose coefficient at D and D/2 tappings could exceed "
             "1 is refused. Flows, heads, pressures, statuses, traces, messages and system curves "
             "of projects without orifices are unchanged (corpus comparison).",
+        ],
+    },
+    {
+        "version": "1.5.0",
+        "date": "2026-10-28",
+        "changes": [
+            "Adds the liquid pressure relief valve: a conventional spring-loaded valve closed below "
+            "its set pressure difference, its lift rising linearly with the overpressure (a "
+            "convention, flagged; not the typical characteristic's surge and blowdown) to full "
+            "lift at set plus overpressure (ASME's 10 % or 3 psi by default, for sets of at least "
+            "15 psi), with API 520's liquid equation Q = Kd·A·√(2Δp/ρ) at its lift on the "
+            "total-pressure difference between its ports; API 526 letters and effective areas at "
+            "API 520's preliminary coefficient 0.65, or a certified area and rated coefficient. "
+            "Flows, heads, pressures, statuses, traces, messages and system curves of projects "
+            "without relief valves are unchanged (corpus comparison).",
         ],
     },
 ]

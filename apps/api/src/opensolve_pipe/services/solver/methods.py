@@ -1,8 +1,8 @@
 """Methods and assumptions of a solve (design §13, GOALS §4.2): ``MethodsSummary``.
 
 One summary per solve, written to be pasted into a deliverable: sections for the network
-solution, friction, minor losses, branches, pumps, valves, equipment and orifice plates (each only
-in a project that has some), fluid properties, atmosphere and NPSH, and conventions; the global
+solution, friction, minor losses, branches, pumps, valves, relief valves, equipment and orifice
+plates (each of the last three only in a project that has some), fluid properties, atmosphere and NPSH, and conventions; the global
 assumptions; and the software versions, with the calculation-method version. Every number in it
 is a constant the solver uses or a value of this solve.
 """
@@ -44,6 +44,20 @@ from .orifice import (
     RE_LO_MIN,
     READER_HARRIS_2019,
     WANDA,
+)
+from .relief import (
+    AFT,
+    API_520,
+    API_526,
+    API_CONSTANT,
+    ASME_DEFAULT_WORDS,
+    ASME_SCOPE_WORDS,
+    CONSTANT_EXCESS,
+    DECISION,
+    EXACT_CONSTANT,
+    PENTAIR,
+    SIMSCAPE,
+    VISCOSITY_LIMIT,
 )
 from .status import HTOL, K_TOL, MAX_OUTER_ITERATIONS, OFFSET_TOL, QTOL, OuterLoopResult
 from .system_curve import DEFAULT_RANGE_FACTOR
@@ -290,6 +304,91 @@ def orifice_section(built: BuiltNetwork) -> MethodsSection | None:
     )
 
 
+RELIEF_ASSUMPTION = (
+    "Relief valves are conventional spring-loaded valves in liquid service, lifting linearly (a "
+    "convention) from their set pressure difference to full lift at set plus overpressure, with "
+    "API 520's liquid capacity equation on the total-pressure difference across them."
+)
+"""The assumption a project with relief valves adds (proposal pressure-relief-valve.md §4.2)."""
+
+
+def relief_section(built: BuiltNetwork) -> MethodsSection | None:
+    """The "Relief valves" section, only for a project with a relief valve (proposal
+    pressure-relief-valve.md §4.2)."""
+    if not any(d.relief is not None for d in built.valves.values()):
+        return None
+    items = [
+        "Pressure relief valves (conventional spring-loaded, liquid service): the lift x rises "
+        "linearly from 0 at the set pressure difference Δp_s to 1 at full lift, Δp_f = Δp_s (1 + "
+        "op), and the flow is API 520's liquid capacity equation at that lift, Q = x Kd A √(2 Δp_t"
+        "/ρ), in exact SI with Kw = Kc = Kv = 1 (API 520's own form rounds its constant to "
+        f"{API_CONSTANT:g}, {CONSTANT_EXCESS:.6g} above the exact {EXACT_CONSTANT:.12g}, which "
+        "gives that fraction more area for a flow). Δp_t is the total-pressure difference between "
+        "the ports, (p_in + ρ v_in²/2) − (p_out + ρ v_out²/2) = ρ g (EGL_in − EGL_out − (z_in − "
+        "z_out)); on the energy grade line the law is h(Q) = h_set + (Δp(Q) − Δp_s)/(ρ g), h_set "
+        "= Δp_s/(ρ g) + z_in − z_out, with u = √Δp the largest real root of u³ − Δp_s u − R Q = 0 "
+        "between set and full lift (R = (Δp_f − Δp_s)/(Kd A √(2/ρ)); the increment R Q/u and its "
+        "slope computed without cancellation) and Δp = ρ Q²/(2 (Kd A)²) from full lift on. h is "
+        "continuous and strictly increasing, with a finite positive slope at zero flow.",
+        "Three named departures. (1) The band between set and full lift is a convention, the "
+        "linear lift of MathWorks Simscape and AFT Impulse, exact at the two points the "
+        "certification fixes, not the cited behaviour: Pentair's typical liquid-trim "
+        "characteristic (TP-V300 Fig. 4-12) lifts to about half at 107 % of set, surges to full "
+        "lift there, and on falling pressure stays at full lift to about 95 % and recloses near "
+        "90 %, so between about 90 % and 107 % of set a real valve has two steady states; a "
+        "valve that has surged open passes more flow at a lower inlet pressure. No cited source "
+        "verifies a band law, so every relieving state short of full lift is flagged "
+        "(CORRELATION_OUT_OF_RANGE, partial lift), and the band is an exception to the project's "
+        "verifiable gate that the owner accepted (CLAUDE.md D21). (2) API 520's P1 − P2 is read "
+        "as Δp_t; ASME's definitions as Pentair quotes them (the inlet stagnation pressure, the "
+        "outlet static pressure) differ by the outlet velocity head, and this reading gives the "
+        "higher inlet pressure at a given flow. (3) With a superimposed back pressure the "
+        "overpressure is taken on the set difference, as the opening is, so full lift comes op × "
+        "the back pressure below the in-situ relieving pressure; at the relieving pressure both "
+        "readings are at or past full lift and give API 520's flow.",
+        f"Overpressure at full lift: {ASME_DEFAULT_WORDS} (the default), ASME VIII's liquid "
+        f"certification overpressure, for a set of at least {ASME_SCOPE_WORDS}, ASME VIII's "
+        "scope; a certified capacity may give its own. Below that scope the default is not "
+        "cited: a valve that would take it is refused (RELIEF_VALVE_OUT_OF_RANGE), with the "
+        "remedy of a certified capacity and its overpressure.",
+        "Capacity, one of three kinds, never mixed: an API 526 orifice letter (its effective "
+        "area) or an API 520 effective area, each with API 520's effective coefficient of "
+        "discharge 0.65 and ASME's overpressure, for preliminary sizing (an effective area is "
+        "reported with the smallest API 526 letter covering it, fluids.safety_valve."
+        "API520_round_size); or the valve's certified actual orifice area with its rated "
+        "coefficient of discharge (ASME's K, 0.9 × the measured coefficient) and, optionally, "
+        "its full-lift overpressure. Pentair: never an effective coefficient or area with a "
+        "rated coefficient or actual area.",
+        "Status: active, or locked closed (gagged, or isolated by its block valve). Its status "
+        "rule is the check valve's (EPANET 2.2 cvstatus) with the cracking head h_set: at zero "
+        f"flow it opens once the static pressure difference across it exceeds its set by ρ g × "
+        f"{HTOL:g} m, and it closes on reverse flow. It starts closed, its normal state (a pump "
+        "deadheaded behind a valve set above its shutoff then runs at zero flow with its shutoff "
+        "pressure on the inlet). A check valve's cracking pressure, unlike the relief valve's "
+        "set, is compared with the difference of the energy grade lines. Every closed-off, "
+        "free-level and system-curve rule applies to it as to a check valve (in a pump's system "
+        "curve it passes no reverse flow).",
+        "Flagged: full lift (RELIEF_VALVE_OPEN, information); relieving short of full lift "
+        "(CORRELATION_OUT_OF_RANGE, partial lift, warning); an active valve closed with a side "
+        "closed off or on an undetermined level, which has no result (RELIEF_VALVE_CLOSED, "
+        "information, naming the levels that keep it closed); an outlet whose absolute static "
+        "pressure is below the vapor pressure while it relieves (BELOW_VAPOR_PRESSURE: the jet "
+        "would flash, and the flow solved is too high); a liquid of viscosity "
+        f"{VISCOSITY_LIMIT:g} Pa·s or more (CORRELATION_OUT_OF_RANGE, viscosity: API 520's Kv, "
+        "given in the trace, is not applied). Refused (RELIEF_VALVE_OUT_OF_RANGE): a law the "
+        "floating point cannot represent (Kd A, Q_f or R not a finite positive normal number), "
+        "and a set below ASME VIII's scope with ASME's default overpressure.",
+        "Not applied: API 520's back-pressure correction Kw (a conventional valve's set is the "
+        "difference across it), its rupture-disc combination factor Kc and its viscosity "
+        "correction Kv; no blowdown or pop action; the outlet piping is liquid-full.",
+    ]
+    return MethodsSection(
+        title="Relief valves",
+        items=items,
+        references=[API_520, API_526, PENTAIR, SIMSCAPE, AFT, EPANET_STATUS, DECISION],
+    )
+
+
 def libraries() -> dict[str, str]:
     """Versions of the software that produced the results."""
     return {
@@ -408,6 +507,7 @@ def methods_summary(
             "that floor is solved with each FCV of the cut held open too. A side of the pump "
             "that reaches only assigned-flow nodes has no point with a head."
         )
+    reliefs = relief_section(built)
     equipment = equipment_section(built)
     orifices = orifice_section(built)
     if outer is not None:
@@ -620,6 +720,7 @@ def methods_summary(
                 ],
                 references=[EPANET_STATUS, ISA_75, CRANE],
             ),
+            *([reliefs] if reliefs is not None else []),
             *([equipment] if equipment is not None else []),
             *([orifices] if orifices is not None else []),
             MethodsSection(
@@ -699,6 +800,7 @@ def methods_summary(
             "Control valves without an entered resistance are ideal: no loss when fully open.",
             "Fittings and valves without a user K use the cited correlation for the type at "
             "the connected pipe's inner diameter.",
+            *([RELIEF_ASSUMPTION] if reliefs is not None else []),
             *([EQUIPMENT_ASSUMPTION] if equipment is not None else []),
             *([ORIFICE_ASSUMPTION] if orifices is not None else []),
         ],

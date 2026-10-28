@@ -231,6 +231,10 @@ class BuiltNetwork:
     project: Project | None = None
     """The project the network was built from (its settings and which fields the user set,
     for the trace)."""
+    held_closed: frozenset[int] = frozenset()
+    """Links held CLOSED in every solve of this network, outside the status rules: everything
+    outside a pump station when the station is solved alone (``services.pump_groups``,
+    CLAUDE.md D20). Empty for every network ``build_network`` makes."""
 
     def port_pipe(self, key: str) -> PortPipe:
         """The connection and its end segment at port ``key`` ('componentId:portId')."""

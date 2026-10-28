@@ -11,10 +11,13 @@ from ..models.api import (
     SystemCurveRequest,
     SystemCurveResponse,
 )
+from ..models.pump_groups import PumpGroupCurveRequest, PumpGroupCurveResponse
 from ..models.scenarios import ScenarioResult
+from ..services.pump_groups import group_curve_case
 from ..services.scenarios import solve_case, system_curve_case
 from ..services.solver import solve_project, system_curve
 from ..services.solver.system_curve import SystemCurvePointResult
+from ..services.solver.version import METHOD_VERSION
 from ..workers import run_solve
 from ._common import _ERRORS, _client
 
@@ -93,6 +96,54 @@ async def system_curve_endpoint(request: SystemCurveRequest, http: Request) -> S
         flow_range=RangeInfo(min=curve.flow_min, max=curve.flow_max, unit="m³/s"),
         points=[_point(p) for p in curve.points],
         converged=[p.converged for p in curve.points],
+        scenario=scenario,
+    )
+
+
+@router.post(
+    "/pump-group-curve",
+    response_model=PumpGroupCurveResponse,
+    responses={
+        **_ERRORS,
+        404: {"model": ErrorResponse, "description": "Unknown pump id or scenario id"},
+    },
+)
+async def pump_group_curve_endpoint(
+    request: PumpGroupCurveRequest, http: Request
+) -> PumpGroupCurveResponse:
+    """The station holding a group of pumps, its duty in the case and its group curve (CLAUDE.md
+    D20): the station solved alone between its inlet S and outlet D held a rise apart, every
+    element inside on its own law and rules, from the duty's rise outward.
+
+    Checks in order: the request (400), the scenario (404, then 400 for its values), the case's
+    fluid (400), pump ids that name no pump (404, all listed), the case's topology (422), whether
+    the pumps form a station (422 NOT_A_STATION, every reason listed), the head range (400).
+    A case whose solve does not converge is 200 with converged = false and no points."""
+    # PumpGroupNotFoundError, NotAStationError, HeadRangeError and the errors /system-curve
+    # raises are mapped in main.py.
+    curve, scenario = (
+        await run_solve(
+            http,
+            _client(http),
+            group_curve_case,
+            request.project,
+            request.pump_ids,
+            request.scenario_id,
+            head_min=request.head_min,
+            head_max=request.head_max,
+            num_points=request.num_points,
+        )
+    )[0]
+    return PumpGroupCurveResponse(
+        station=curve.station.model(),
+        converged=curve.converged,
+        message=curve.message,
+        duty=curve.duty,
+        duty_check=curve.duty_check,
+        points=curve.points,
+        head_range=curve.head_range,
+        methods=curve.methods,
+        method_version=METHOD_VERSION,
         scenario=scenario,
     )
 

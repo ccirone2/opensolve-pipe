@@ -119,6 +119,7 @@ class GoalSeekResponse(OutputModel):
 
 ErrorCode = Literal[
     "TOPOLOGY_ERROR",
+    "NOT_A_STATION",
     "VALIDATION_ERROR",
     "FLUID_ERROR",
     "NOT_FOUND",

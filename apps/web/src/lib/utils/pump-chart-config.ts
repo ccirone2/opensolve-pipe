@@ -735,7 +735,7 @@ export function pumpChartConfig(
 }
 
 // ---------------------------------------------------------------------------------------------
-// The Pumps together card (CLAUDE.md D20, proposal pump-groups.md §6.3)
+// The Pumps together card (CLAUDE.md D21, proposal pump-groups.md §6.3)
 // ---------------------------------------------------------------------------------------------
 
 /** The group curve and the station's point: the primary ink, as the pump chart's duty. */

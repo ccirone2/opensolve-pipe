@@ -40,6 +40,7 @@ BASE: dict[str, dict[str, Any]] = {
     "CheckValve": {"type": "valve", "valveType": "check"},
     "ControlValve": {"type": "valve", "valveType": "prv", "setpoint": 0.0},
     "Equipment": {"type": "equipment", "rating": {"kind": "Cv", "value": 90.0}},
+    "Orifice": {"type": "orifice", "boreDiameter": 0.05},
 }
 """One valid instance per component schema, without its ports (test inputs)."""
 
@@ -165,7 +166,7 @@ def test_ordered_fields_are_what_the_validators_enforce() -> None:
         ],
         "PipeVelocityCheck": [{"lower": "minimum", "upper": "maximum", "strict": True}],
         "AllowableOperatingRegion": [{"lower": "flowMin", "upper": "flowMax", "strict": True}],
-        # A group curve's rises (CLAUDE.md D20).
+        # A group curve's rises (CLAUDE.md D21).
         "PumpGroupCurveRequest": [{"lower": "headMin", "upper": "headMax", "strict": True}],
     }
     user = {"source": {"kind": "user"}}

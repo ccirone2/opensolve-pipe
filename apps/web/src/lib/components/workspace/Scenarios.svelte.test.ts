@@ -256,7 +256,15 @@ describe('fields in a scenario', () => {
 
 	it('makes every allow-listed value of every component type editable in a scenario', async () => {
 		const base = pumpTransferExample();
-		const kinds = ['reference_node', 'assigned_flow', 'check', 'prv', 'fcv', 'equipment'] as const;
+		const kinds = [
+			'reference_node',
+			'assigned_flow',
+			'check',
+			'prv',
+			'fcv',
+			'equipment',
+			'orifice'
+		] as const;
 		const extra = kinds.reduce<Project['components']>((list, kind) => {
 			const so_far = { ...base, components: [...base.components, ...list] };
 			return [...list, createComponent(kind, so_far, { ...enteredFor(kind), flow: 0.002 })];
@@ -280,14 +288,17 @@ describe('fields in a scenario', () => {
 				'Rated pressure drop (kPa)',
 				'Rated flow (L/s)',
 				'Rated fluid density (kg/m³)'
-			]
+			],
+			[extra[6]!.id]: ['Bore diameter (mm)', 'Discharge coefficient']
 		};
 		for (const [id, names] of Object.entries(expected)) {
 			ws.nav.jumpTo(id);
 			await tick();
 			for (const name of names) {
 				const field = screen.getByRole(
-					/given as|Status|Direction|Rated by/.test(name) ? 'combobox' : 'textbox',
+					/given as|Status|Direction|Rated by|Discharge coefficient/.test(name)
+						? 'combobox'
+						: 'textbox',
 					{
 						name
 					}
@@ -295,6 +306,10 @@ describe('fields in a scenario', () => {
 				expect(field, `${id} ${name}`).not.toHaveAttribute('readonly');
 			}
 		}
+		// Locked on the orifice plate: its taps (installation, the same in every case).
+		ws.nav.jumpTo(extra[6]!.id);
+		await tick();
+		expect(screen.getByRole('textbox', { name: 'Pressure taps' })).toHaveAttribute('readonly');
 		// Locked on the pump: its control mode and minimum speed.
 		ws.nav.jumpTo('P1');
 		await tick();
@@ -320,6 +335,7 @@ describe('fields in a scenario', () => {
 				'Equipment',
 				'IdealReferenceNode',
 				'IsolationValve',
+				'Orifice',
 				'PipeDefinition',
 				'Plug',
 				'Project',

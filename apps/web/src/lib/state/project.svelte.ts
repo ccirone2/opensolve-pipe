@@ -35,7 +35,7 @@
  *   solve() and solveAll() send nothing, and while a solve or Solve all runs runGoalSeek() sends
  *   nothing (refused, never dropped); only Cancel, load() and dispose() stop a request in flight.
  *   System curves wait for a goal seek, and one in flight is cancelled when it starts.
- * - Group curves (CLAUDE.md D20, proposal pump-groups.md §6.1) follow the system curves' rules:
+ * - Group curves (CLAUDE.md D21, proposal pump-groups.md §6.1) follow the system curves' rules:
  *   fetched on demand for the solve shown, per case and set of pumps (the sorted ids), on the same
  *   queue, cached with that solve and dropped by the next, cancelled by a solve or a goal seek.
  *
@@ -242,7 +242,7 @@ export type SystemCurveState =
 	| { status: 'cancelled'; by: 'solve' | 'goalSeek' | 'user' };
 
 /**
- * The group curve of a set of pumps for the solve whose results are shown (CLAUDE.md D20): being
+ * The group curve of a set of pumps for the solve whose results are shown (CLAUDE.md D21): being
  * computed, computed, refused (the pumps do not form a station: 422 NOT_A_STATION, every reason
  * an issue), failed, or cancelled before it was computed, `by` a newer solve, a goal seek or the
  * user (cancelGroupCurve()).

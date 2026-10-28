@@ -1,12 +1,13 @@
 /**
- * Pump groups (CLAUDE.md D20, proposal pump-groups.md §4 and §6.2): the groups the Pumps together
+ * Pump groups (CLAUDE.md D21, proposal pump-groups.md §4 and §6.2): the groups the Pumps together
  * card suggests, found on the topology as solved, and the words for the reasons the API gives
  * when the pumps do not form a station (422 NOT_A_STATION).
  *
  * The suggestion only picks members. The API is the authority on the station (its inlet S and
  * outlet D) and its arrangement (§5.2); a suggestion it refuses says why in words. Two kinds of
  * group are found:
- * - pumps on one chain of two-port elements (pumps, valves and equipment joined by connections),
+ * - pumps on one chain of two-port elements (pumps, valves, equipment and orifice plates joined by
+ *   connections),
  *   all facing the same way, with no active PRV or PSV between them and each end of the chain
  *   leading on to a fixed head, an assigned flow, another pump or the other end (series);
  * - pumps whose chains lie between one pair of junctions (S, D) whose removal cuts them off from
@@ -49,9 +50,9 @@ interface Chain {
 	order: string[];
 }
 
-const TWO_PORT: ReadonlySet<Component['type']> = new Set(['pump', 'valve', 'equipment']);
+const TWO_PORT: ReadonlySet<Component['type']> = new Set(['pump', 'valve', 'equipment', 'orifice']);
 
-/** A pump, valve or equipment item with its two ports: an element of a chain. */
+/** A pump, valve, equipment item or orifice plate with its two ports: an element of a chain. */
 function isTwoPort(component: Component): boolean {
 	return TWO_PORT.has(component.type) && component.ports.length === 2;
 }

@@ -1,5 +1,5 @@
 /**
- * The Pumps together card (CLAUDE.md D20, proposal pump-groups.md §6): the disclosure, the
+ * The Pumps together card (CLAUDE.md D21, proposal pump-groups.md §6): the disclosure, the
  * members (the cap and its hint, slots kept, the other groups found), the group curve's states
  * (progress with Cancel and the focus moves, a refusal in words), the accessible name, the data
  * table, the group table and the image. Chart.js is replaced by a recorder (jsdom has no canvas);

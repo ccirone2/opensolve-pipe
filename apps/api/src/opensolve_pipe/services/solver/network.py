@@ -29,6 +29,9 @@ class LinkKind(StrEnum):
     EQUIPMENT = "equipment"
     """An equipment element's inlet -> outlet link (proposal equipment-pressure-drop.md §3.4): no
     status, so always NORMAL; the GGA floors its slope as for any link that is not a pipe."""
+    ORIFICE = "orifice"
+    """An orifice plate's inlet -> outlet link (proposal orifice-plate.md §3.8): no status, so
+    always NORMAL; the GGA floors its slope as for any link that is not a pipe."""
 
 
 class LinkMode(Enum):

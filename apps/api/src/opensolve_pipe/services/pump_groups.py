@@ -1,5 +1,5 @@
 """Pump groups: the station that holds a group of pumps, its duty and its group curve (CLAUDE.md
-D20, proposal docs/proposals/pump-groups.md §3 and §5).
+D21, proposal docs/proposals/pump-groups.md §3 and §5).
 
 **Station.** The smallest part of the solver network that holds every member's link and meets
 the rest of the network at exactly two places, its inlet S and its outlet D, with no fixed
@@ -515,8 +515,8 @@ def _place_cuts(
 
 def _chain_end(built: BuiltNetwork, key: str) -> str | None:
     """The reservoir or reference node a pump port leads to through a chain of connections and
-    two-port elements (pumps, valves, equipment), or None when the chain ends elsewhere (a tee
-    or wye, an assigned flow, a plug)."""
+    two-port elements (pumps, valves, equipment, orifice plates), or None when the chain ends
+    elsewhere (a tee or wye, an assigned flow, a plug)."""
     seen: set[str] = set()
     while key not in seen:
         seen.add(key)
@@ -1529,7 +1529,7 @@ def methods_section(
     check: PumpGroupDutyCheck | None,
     grid: tuple[HeadRange, int, bool] | None,
 ) -> MethodsSection:
-    """The "Pump group" methods section of a group-curve response (CLAUDE.md D20). ``grid``:
+    """The "Pump group" methods section of a group-curve response (CLAUDE.md D21). ``grid``:
     the range, the number of evenly spaced rises and whether the duty's rise was added."""
     members = _quoted_list(list(station.members))
     s, d = _port_words(built, station.inlet_port), _port_words(built, station.outlet_port)

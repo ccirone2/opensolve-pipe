@@ -148,7 +148,7 @@ def test_a_goal_seek_request_logs_nothing_of_its_body(caplog: pytest.LogCaptureF
 
 def test_a_pump_group_request_logs_nothing_of_its_body(caplog: pytest.LogCaptureFixture) -> None:
     """A group curve's pumps, rises and scenario travel in the body, as the project does
-    (CLAUDE.md D20): neither its run nor its rejections (a refused group, a head range out of
+    (CLAUDE.md D21): neither its run nor its rejections (a refused group, a head range out of
     order) log them."""
     from tests.reference import derivations_pumps as dp
 

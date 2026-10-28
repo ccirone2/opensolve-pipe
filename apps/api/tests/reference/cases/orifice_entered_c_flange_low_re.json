@@ -1,0 +1,182 @@
+{
+  "name": "orifice_entered_c_flange_low_re",
+  "description": "A flange-tapped orifice meter of beta 0.7 with a calibrated discharge coefficient of 0.6 in a light oil on a 0.3 m line, at a Reynolds number between ISO 5167-2's lowest at D and D/2 tappings and at flange tappings: verifies the move of the entered C at that Reynolds number, the Reynolds-number flag of the move, and the elevation terms of the vena contracta and static pressures with the ports at different elevations.",
+  "source": "closed-form: tests/reference/derivations_orifice.py::orifice_entered_c_flange_low_re (orifice loss on the EGL h = K(C_L) v|v|/2g (ISO 5167-2 pressure-loss relation), C_L = C_e C_ISO(D and D/2)/C_ISO(taps) at max(Re_D, Re_lo), eq. (4) in element_laws.rhg_terms; reading dp = (1 - b^4)/(C_M^2 b^4) rho v|v|/2 (ISO 5167-2 eq. (1), eps = 1) at C_M = C_e; p_vc = p_up + rho g (z_up - z_down) - (1 - b^4)/(C_L^2 b^4) rho v^2/2 (up = the inlet port); Darcy-Weisbach + Colebrook lines; brentq; static p = rho g (EGL - z - v^2/2g), v in the connected pipe (D7))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-orifice-entered-c-flange-low-re",
+    "metadata": {
+      "name": "Calibrated flange-tapped meter below its taps' Reynolds number",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Light oil (custom input)",
+      "density": 870.0,
+      "dynamicViscosity": 0.012
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 1.12,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "OR1",
+        "name": "Orifice OR1",
+        "elevation": 0.5,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional",
+            "elevation": 0.2
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional",
+            "elevation": 0.9
+          }
+        ],
+        "type": "orifice",
+        "boreDiameter": 0.21,
+        "dischargeCoefficient": 0.6,
+        "taps": "flange"
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 1.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "OR1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.3,
+              "length": 10.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "OR1",
+        "fromPortId": "outlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.3,
+              "length": 10.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 870.0,
+      "dynamicViscosity": 0.012
+    },
+    "flows": {
+      "L1": 0.04301375639945723,
+      "L2": 0.04301375639945723
+    },
+    "egl": {
+      "R1:port_1": 1.12,
+      "OR1:inlet": 1.1017671603046493,
+      "OR1:outlet": 1.0182328396953508,
+      "R2:port_1": 1.0
+    },
+    "pressures": {
+      "OR1:inlet": 7532.604873984,
+      "OR1:outlet": 847.6581186572357
+    },
+    "flags": [
+      {
+        "code": "CORRELATION_OUT_OF_RANGE",
+        "componentId": "OR1",
+        "limit": "reynoldsNumber"
+      }
+    ],
+    "orifices": {
+      "OR1": {
+        "flow": 0.04301375639945723,
+        "headLoss": 0.08353432060929844,
+        "pressureLoss": 712.6969053267636,
+        "pressureDrop": 6684.946755326764,
+        "differentialPressure": 1416.1230816495793,
+        "venaContractaPressure": 170.01342630411273,
+        "beta": 0.7,
+        "pipeDiameter": 0.3,
+        "boreDiameter": 0.21,
+        "reynoldsNumber": 13235.313773720247,
+        "dischargeCoefficient": 0.605537429331663,
+        "coefficientSource": "entered",
+        "coefficientReynoldsNumber": 13235.313773720247,
+        "tapCoefficientRatio": 1.009229048886105,
+        "lossCoefficient": 4.424514831065648,
+        "taps": "flange",
+        "meterDischargeCoefficient": 0.6
+      }
+    }
+  }
+}

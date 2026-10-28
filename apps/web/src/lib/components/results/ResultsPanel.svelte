@@ -3,7 +3,7 @@
 	network error; or the solve's status (with the convergence report when it did not converge),
 	a notice when the results are out of date or the calculation methods changed, the physics
 	flags by severity, and the results by view: Summary, Nodes, Links, Pumps, Valves, Equipment,
-	Branches, Boundaries, Assigned flows, Methods. Rows and flags open an element's results and trace, and
+	Orifices, Branches, Boundaries, Assigned flows, Methods. Rows and flags open an element's results and trace, and
 	point the navigator at it. Input problems the solver would also report are listed so they can
 	be fixed first; solving is never blocked. After a cancelled solve, a note says so above what
 	earlier solves left. Only the short status line is a live region.
@@ -52,6 +52,7 @@
 		anyBranchFallback,
 		branchBases,
 		equipmentTable,
+		orificeTable,
 		branchTable,
 		nodeTable,
 		valveTable,
@@ -177,6 +178,9 @@
 	);
 	const equipment = $derived(
 		solved ? markChanged(equipmentTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
+	);
+	const orifices = $derived(
+		solved ? markChanged(orificeTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
 	);
 	const branches = $derived(
 		solved ? markChanged(branchTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
@@ -970,6 +974,22 @@
 									negative when the flow runs from outlet to inlet; the pressure drop also holds the
 									ports' elevation and velocity terms, so its sign need not follow the flow. An
 									element rated by a Cv or Kv has no rated flow.
+								</p>
+							{:else if v === 'orifices' && orifices}
+								<ResultsTable
+									table={orifices}
+									caption="Results per orifice plate"
+									first="Orifice plate"
+									onselect={(row) => ws.inspect(row.element)}
+								/>
+								<p class="text-xs text-slate-600">
+									Permanent loss is ISO 5167-2's pressure loss: what the plate takes from the line
+									once the jet has recovered downstream, ρg × head loss; it sets the flow, with the
+									discharge coefficient at D and D/2 tappings. Differential pressure is what a flow
+									meter reads between its taps; it is larger than the permanent loss and does not
+									act on the network. Pressure drop is the static difference, inlet minus outlet, as
+									for valves. Flow, the losses and the differential pressure are negative when the
+									flow runs from outlet to inlet.
 								</p>
 							{:else if v === 'branches' && branches}
 								<ResultsTable

@@ -1,5 +1,5 @@
 /**
- * The Pumps together card in the Pumps view (CLAUDE.md D20, proposal pump-groups.md §4, §6.1):
+ * The Pumps together card in the Pumps view (CLAUDE.md D21, proposal pump-groups.md §4, §6.1):
  * shown with two pumps or more, closed by default; opening it asks for the group curve of the
  * suggested group for this solve; the members are page state, kept when the case shown changes,
  * and the card asks for the case shown (its scenario id). The solves and group curves are the

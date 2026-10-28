@@ -561,7 +561,7 @@ describe('goal seek (proposal goal-seek.md §6.15)', () => {
 	});
 });
 
-describe('group curves (CLAUDE.md D20)', () => {
+describe('group curves (CLAUDE.md D21)', () => {
 	it('requests the group curve of the pumps, the scenario in the body only', async () => {
 		const { api, fetch } = client([json({}), json({})]);
 		await api.groupCurve(project, ['PA', 'PB']);

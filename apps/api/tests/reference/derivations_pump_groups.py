@@ -1,4 +1,4 @@
-"""Closed forms for the pump group curve (CLAUDE.md D20; docs/proposals/pump-groups.md §3, §9.1).
+"""Closed forms for the pump group curve (CLAUDE.md D21; docs/proposals/pump-groups.md §3, §9.1).
 
 Written from the proposal and the models by a tester who did not read ``services/``; nothing here
 imports ``opensolve_pipe.services``. The group's **station** meets the rest of the network at two

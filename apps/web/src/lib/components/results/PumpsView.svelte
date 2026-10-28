@@ -8,7 +8,7 @@
 	one shown that the chart shows, whichever case is shown. A pump the scenario of these results
 	changed says so in the table (`changed`).
 
-	Under it, with two pumps or more, the Pumps together card (CLAUDE.md D20, proposal
+	Under it, with two pumps or more, the Pumps together card (CLAUDE.md D21, proposal
 	pump-groups.md §6): its members are page state (the workspace's `pumpGroup`, the same in every
 	case), defaulting to the group suggested on the topology as solved for the pump viewed; its
 	group curve is computed on demand for this solve and case, cached with it (ProjectStore
@@ -244,7 +244,7 @@
 		unticked = [...untickedKeys];
 	}
 
-	// ---- Pumps together (D20) ----------------------------------------------------------------
+	// ---- Pumps together (D21) ----------------------------------------------------------------
 
 	/** The project the results belong to (as solved while out of date, else the labels project). */
 	const groupSolvedProject = $derived(resultsProject(ws.labelsProject, solved));

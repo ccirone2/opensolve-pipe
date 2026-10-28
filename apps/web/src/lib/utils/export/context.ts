@@ -394,7 +394,7 @@ export function curvesOverlayOnly(c: CaseView): { pumpId: string; reason: string
 		.map((pumpId) => ({ pumpId, reason: curveReason(c.input.systemCurves[pumpId]) }));
 }
 
-/** Why group curves are not in an export (CLAUDE.md D20, proposal pump-groups.md §6.6). */
+/** Why group curves are not in an export (CLAUDE.md D21, proposal pump-groups.md §6.6). */
 export const GROUP_CURVES_LEFT_OUT =
 	'not exported in this version: the Pumps together card under the pump chart draws them on request, and its Download image saves its chart';
 

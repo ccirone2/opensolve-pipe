@@ -1,4 +1,4 @@
-"""Pump groups (CLAUDE.md D20, proposal docs/proposals/pump-groups.md §5): the station finder and
+"""Pump groups (CLAUDE.md D21, proposal docs/proposals/pump-groups.md §5): the station finder and
 its reasons, the duty from the case's own solve, the group curve's grid and order, the error
 order of POST /api/v1/pump-group-curve, scenarios, the time budget and the methods section.
 The independent reference cases are tests/reference/test_pump_groups.py."""

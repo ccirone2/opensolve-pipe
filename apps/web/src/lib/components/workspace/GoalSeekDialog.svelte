@@ -18,9 +18,11 @@
 	import { finishedGoalSeek } from '$lib/state/project.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import {
+		currentOrificeResult,
 		GOAL_SEEK_BUDGET_S,
 		goalKey,
 		newVariable,
+		orificePipeDiameter,
 		rowIssues,
 		runProblems,
 		variableKey,
@@ -30,6 +32,8 @@
 		type VariableDraft
 	} from '$lib/utils/goal-seek';
 	import { goalSeekLimits } from '$lib/utils/model-rules';
+	import { componentById } from '$lib/utils/graph';
+	import { inletBore } from '$lib/utils/orifice';
 	import GoalCard from './goal-seek/GoalCard.svelte';
 	import GoalSeekResult from './goal-seek/GoalSeekResult.svelte';
 	import NewGoalForm from './goal-seek/NewGoalForm.svelte';
@@ -164,11 +168,29 @@
 		return response.solvedState.valveResults[choice.target.componentId]?.kOpen ?? null;
 	}
 
+	/** An orifice plate's result in the case's last converged solve, unless out of date. */
+	function orificeOf(choice: VariableChoice) {
+		if (choice.target.kind !== 'component') return null;
+		return currentOrificeResult(store.results, choice.target.componentId);
+	}
+
+	/** An orifice plate's D: as its form resolves it for the case now, else the current solve's. */
+	function pipeDiameterOf(choice: VariableChoice): number | null {
+		if (choice.target.kind !== 'component') return null;
+		const inlet = inletBore(ws.project, choice.target.componentId, ws.library);
+		return orificePipeDiameter(inlet, orificeOf(choice));
+	}
+
 	async function addVariable(choice: VariableChoice) {
 		const fluid = ws.project.fluid;
 		const info = fluid.kind === 'builtin' ? ws.library.fluid(fluid.fluidId) : undefined;
+		const target = choice.target;
+		const plate =
+			target.kind === 'component' &&
+			componentById(ws.project, target.componentId)?.type === 'orifice';
 		const variable = newVariable(ws.project, choice, {
 			kOpen: kOpenOf(choice),
+			...(plate ? { pipeDiameter: pipeDiameterOf(choice), orifice: orificeOf(choice) } : {}),
 			...(info ? { fluid: info } : {})
 		});
 		setVariables([...setup.variables, variable]);

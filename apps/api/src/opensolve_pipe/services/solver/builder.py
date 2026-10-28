@@ -6,15 +6,17 @@ ideal-reference-node ports are fixed-head nodes; an assigned-flow node's port is
 whose demand is its flow (TSD §4.8).
 
 Links: one per pipe connection (from-port node -> to-port node); pump suction -> discharge;
-valve inlet -> outlet; equipment inlet -> outlet; three legs per tee or wye (center -> port).
+valve inlet -> outlet; equipment inlet -> outlet; orifice plate inlet -> outlet; three legs per
+tee or wye (center -> port).
 Plugs and assigned-flow nodes add no link.
 
 Laws: pipes (segments and fittings); a pump's curve at its speed (a speed-controlled pump's
 maximum speed; its minimum-speed law is built once, ``PumpControlData``); a valve's fully open K on
 the inlet pipe's inner diameter (``valves.valve_resistance``), as a head offset when K = 0
 (an ideal control valve); equipment's c Q|Q| with c from its rating (``equipment.equipment_law``,
-proposal equipment-pressure-drop.md §3.4); branch legs as head offsets set by the outer loop
-(design §2.4).
+proposal equipment-pressure-drop.md §3.4); an orifice plate's ISO 5167-2 permanent pressure loss
+on its inlet pipe's bore (``orifice.OrificeLaw``, proposal orifice-plate.md §3.8); branch legs as
+head offsets set by the outer loop (design §2.4).
 
 Every problem that makes the project unsolvable is collected and raised together as one
 ``TopologyError`` (design §1.2), including pipe-library references that do not resolve.
@@ -37,6 +39,7 @@ from ...models.components import (
     Equipment,
     IdealReferenceNode,
     IsolationValve,
+    Orifice,
     Plug,
     Pump,
     Reservoir,
@@ -46,6 +49,7 @@ from ...models.components import (
 from ...models.fluids import FluidProperties
 from ...models.piping import PipeConnection
 from ...models.project import Project
+from ...models.results import Flag
 from .branches import BranchGeometry
 from .elements import (
     HeadOffsetLaw,
@@ -63,6 +67,15 @@ from .friction import COLEBROOK_ED_LIMIT, RE_LAMINAR_MAX, FrictionMethod
 from .labels import fitting_name, pipe_name
 from .library import LibraryLookupError, ResolvedPipe, resolve_pipe
 from .network import LinkKind, LinkLaw, SolverLink, SolverNetwork, SolverNode
+from .orifice import (
+    BETA_RANGE,
+    BORE_MIN,
+    PIPE_RANGE,
+    TAP_NAMES,
+    OrificeLaw,
+    Refusal,
+    refusal,
+)
 from .pumps import PumpCurveModel, SpeedUniqueness, bracket_low, speed_uniqueness
 from .valves import Valve, ValveResistance, k_from_coefficient, valve_resistance
 
@@ -212,6 +225,22 @@ class EquipmentData:
 
 
 @dataclass
+class OrificeData:
+    """An orifice plate (proposal orifice-plate.md §3.8): its link inlet -> outlet follows
+    ``law`` (ISO 5167-2's permanent pressure loss on the inlet pipe's bore D)."""
+
+    component: Orifice
+    link_index: int
+    law: OrificeLaw
+    inlet: str
+    outlet: str
+    """Node keys of the inlet and outlet ports."""
+    inlet_pipe: PortPipe
+    outlet_pipe: PortPipe
+    """The end segments of the pipes at the ports: D is the inlet one's (decision 3)."""
+
+
+@dataclass
 class BuiltNetwork:
     network: SolverNetwork
     components: dict[str, Component]
@@ -228,13 +257,15 @@ class BuiltNetwork:
     valves: dict[str, ValveData] = field(default_factory=dict)
     equipment: dict[str, EquipmentData] = field(default_factory=dict)
     """Equipment component id -> its data ({} for a project without equipment)."""
+    orifices: dict[str, OrificeData] = field(default_factory=dict)
+    """Orifice plate component id -> its data ({} for a project without orifice plates)."""
     project: Project | None = None
     """The project the network was built from (its settings and which fields the user set,
     for the trace)."""
     held_closed: frozenset[int] = frozenset()
     """Links held CLOSED in every solve of this network, outside the status rules: everything
     outside a pump station when the station is solved alone (``services.pump_groups``,
-    CLAUDE.md D20). Empty for every network ``build_network`` makes."""
+    CLAUDE.md D21). Empty for every network ``build_network`` makes."""
 
     def port_pipe(self, key: str) -> PortPipe:
         """The connection and its end segment at port ``key`` ('componentId:portId')."""
@@ -542,6 +573,20 @@ def _unrepresentable_pipes(
     return issues
 
 
+def _port_end_pipes(
+    project: Project, resolved: dict[str, list[ResolvedPipe]]
+) -> dict[str, ResolvedPipe]:
+    """Node key -> the resolved pipe at that port's end of its connection (the first connection
+    that names the port; a port connected twice is a topology issue)."""
+    pipes_at: dict[str, ResolvedPipe] = {}
+    for conn in project.connections:
+        pipes = resolved.get(conn.id)
+        if pipes:
+            pipes_at.setdefault(node_key(conn.from_component_id, conn.from_port_id), pipes[0])
+            pipes_at.setdefault(node_key(conn.to_component_id, conn.to_port_id), pipes[-1])
+    return pipes_at
+
+
 def _unrepresentable_valves(
     project: Project, resolved: dict[str, list[ResolvedPipe]]
 ) -> list[TopologyIssue]:
@@ -549,12 +594,7 @@ def _unrepresentable_valves(
     on the inlet pipe's inner diameter, and K/(2 g A²). A schema-valid but extreme Cv (below
     about 1e-160) makes the conversion divide by zero or overflow, and the solver could only
     fail on it. An unconnected inlet is left to the topology check."""
-    inlet_pipes: dict[str, ResolvedPipe] = {}
-    for conn in project.connections:
-        pipes = resolved.get(conn.id)
-        if pipes:
-            inlet_pipes.setdefault(node_key(conn.from_component_id, conn.from_port_id), pipes[0])
-            inlet_pipes.setdefault(node_key(conn.to_component_id, conn.to_port_id), pipes[-1])
+    inlet_pipes = _port_end_pipes(project, resolved)
     issues: list[TopologyIssue] = []
     for comp in project.components:
         if not isinstance(comp, IsolationValve | CheckValve | ControlValve):
@@ -613,6 +653,185 @@ def _unrepresentable_equipment(project: Project) -> list[TopologyIssue]:
     return issues
 
 
+def orifice_refusals(
+    project: Project, resolved: dict[str, list[ResolvedPipe]] | None = None
+) -> dict[str, tuple[Orifice, float, Refusal]]:
+    """Orifice plates the law cannot represent (proposal orifice-plate.md decision 17), by id:
+    the plate, its inlet pipe's inner diameter D and the first rule it breaks. D is the inner
+    diameter of the inlet pipe's end segment at the inlet port (decision 3), resolved as the
+    builder resolves it; an unconnected inlet, or one whose pipe does not resolve, is left to
+    the other topology checks. ``resolved``: the project's resolved pipes (resolved here when
+    None)."""
+    if not any(isinstance(c, Orifice) for c in project.components):
+        return {}
+    if resolved is None:
+        resolved = _resolve_pipes(project)[0]
+    inlet_pipes = _port_end_pipes(project, resolved)
+    found: dict[str, tuple[Orifice, float, Refusal]] = {}
+    for comp in project.components:
+        if not isinstance(comp, Orifice):
+            continue
+        pipe = inlet_pipes.get(node_key(comp.id, "inlet"))
+        if pipe is None:
+            continue
+        d = pipe.inner_diameter
+        why = refusal(d, comp.bore_diameter, comp.discharge_coefficient, comp.taps, G)
+        if why is not None:
+            found[comp.id] = (comp, d, why)
+    return found
+
+
+def _orifice_issue_text(comp: Orifice, d_pipe: float, why: Refusal) -> str:
+    """The 422 text of decision 17's issue: it names the plate and quotes d, D, β and the C
+    bound it breaks (D10)."""
+    head = (
+        f"orifice '{comp.id}': a bore diameter of {comp.bore_diameter:g} m in an inlet pipe of "
+        f"inner diameter {d_pipe:g} m (β = d/D = {why.beta:.6g})"
+    )
+    if why.rule == "beta":
+        return (
+            f"{head}: the bore is not smaller than the pipe; an orifice plate needs β < 1, so the "
+            "solver cannot represent this plate"
+        )
+    if why.rule == "iso_coefficient":
+        return f"{head}: {_orifice_iso_tail(comp, why)}"
+    if why.rule == "moved_coefficient":
+        taps = TAP_NAMES[comp.taps or "d_and_d_2"]
+        return (
+            f"{head}: its entered discharge coefficient {comp.discharge_coefficient:g} at its "
+            f"{taps}, moved to D and D/2 tappings by ISO 5167-2's ratio of the two tap sets' "
+            f"coefficients (up to {why.ratio:.6g} at this plate), can reach "
+            f"{why.coefficient:.6g} at some flow, above 1, which would make the jet larger than "
+            "the bore, physically impossible; check the entered coefficient (ISO 5167-2's C at "
+            "the plate's taps, not the flow coefficient C/√(1 - β⁴))"
+        )
+    if why.coefficient is None:  # eq. (4)'s bounds raised: not reached inside the schema's bounds
+        return (
+            f"{head}: ISO 5167-2's discharge coefficient cannot be bounded at this plate; the "
+            "solver cannot represent this plate"
+        )
+    return (
+        f"{head}: with a discharge coefficient down to {why.coefficient:.6g} it gives a loss "
+        "coefficient, K/(2 g A²), that is not a finite positive floating-point number; the "
+        "solver cannot represent this plate"
+    )
+
+
+def _orifice_iso_tail(comp: Orifice, why: Refusal) -> str:
+    """Decision 17 (b)'s text by what eq. (4) at ``why.where`` is used for (``Refusal.basis``),
+    with a remedy that works for this plate: only the loss's C bounds the jet (Borda-Carnot), and
+    an entered C is offered only where it would be used as entered, without taps or at D and D/2
+    taps (an entered C at corner or flange taps is moved by eq. (4) and refused the same way)."""
+    iso = (
+        f"ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher) at {why.where}"
+        if why.where is not None
+        else "ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher)"
+    )
+    reach = f"can reach {why.coefficient:.6g} at some flow, above 1"
+    taps = TAP_NAMES[comp.taps] if comp.taps is not None else None
+    if why.basis == "reading":
+        return (
+            f"{iso}, which gives only the meter's reading, {reach}: the correlation is "
+            "extrapolated far beyond ISO 5167-2's range, so the reading at these taps has no "
+            "basis (the plate's loss uses the coefficient at D and D/2 tappings, which stays at "
+            "or below 1); use a smaller bore, D and D/2 taps, or no taps (a restriction orifice, "
+            "with no reading)"
+        )
+    if why.basis == "move":
+        return (
+            f"{iso}, one of the two in the ratio that moves its entered discharge coefficient "
+            f"{comp.discharge_coefficient:g} from its {taps} to D and D/2 tappings, {reach}: the "
+            "correlation is extrapolated far beyond ISO 5167-2's range, so the move has no basis "
+            "at this plate; use a smaller bore, or give the discharge coefficient at D and D/2 "
+            "tappings (with D and D/2 taps, or no taps), where it is used as entered"
+        )
+    if comp.taps in ("corner", "flange"):
+        remedy = (
+            f"use a smaller bore (an entered discharge coefficient at its {taps} would be moved "
+            "to D and D/2 tappings by ISO 5167-2's ratio, which uses this coefficient, and "
+            "refused the same way)"
+        )
+    else:
+        remedy = (
+            "use a smaller bore, or enter a discharge coefficient (ISO 5167-2's C at D and D/2 "
+            "tappings, used as entered)"
+        )
+    return (
+        f"{iso}, which sets the plate's loss, {reach}, which would make the jet larger than the "
+        "bore and the loss smaller than the sudden expansion from the bore (Borda-Carnot), "
+        f"physically impossible; {remedy}"
+    )
+
+
+def _unrepresentable_orifices(
+    project: Project, resolved: dict[str, list[ResolvedPipe]]
+) -> list[TopologyIssue]:
+    """ORIFICE_OUT_OF_RANGE (proposal orifice-plate.md decision 17): one issue per plate the law
+    cannot represent, naming the first rule it breaks; listed after every other issue."""
+    return [
+        issue("ORIFICE_OUT_OF_RANGE", _orifice_issue_text(comp, d, why), [comp.id], [])
+        for comp, d, why in orifice_refusals(project, resolved).values()
+    ]
+
+
+def _orifice_input_flags(comp: Orifice, law: OrificeLaw, d_out: float) -> list[Flag]:
+    """The plate's flags known before solving (decisions 11, 12): ISO 5167-2's geometric limits
+    wherever eq. (4) is used, one per inequality broken, and an outlet pipe whose bore differs
+    from D. Each is CORRELATION_OUT_OF_RANGE with ``details.limit`` naming it, SI."""
+    flags: list[Flag] = []
+    d, d_pipe, beta = law.bore_diameter, law.pipe_diameter, law.beta
+    tail = (
+        "ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher) is used outside its "
+        "validated range"
+    )
+
+    def add(text: str, details: dict[str, float | str]) -> None:
+        flags.append(
+            make_flag(
+                "CORRELATION_OUT_OF_RANGE",
+                "warning",
+                f"orifice '{comp.id}': {text}",
+                component_id=comp.id,
+                details=details,
+            )
+        )
+
+    if law.uses_rhg:
+        if d < BORE_MIN:
+            add(
+                f"its bore diameter {d:g} m is below ISO 5167-2's smallest, {BORE_MIN:g} m; {tail}",
+                {"limit": "boreDiameter", "value": d, "lower": BORE_MIN},
+            )
+        low, high = PIPE_RANGE
+        if d_pipe < low or d_pipe > high:
+            side, bound = ("below", low) if d_pipe < low else ("above", high)
+            add(
+                f"its inlet pipe diameter {d_pipe:g} m is {side} ISO 5167-2's range, {low:g} m to "
+                f"{high:g} m; {tail}",
+                {
+                    "limit": "pipeDiameter",
+                    "value": d_pipe,
+                    ("lower" if d_pipe < low else "upper"): bound,
+                },
+            )
+        low, high = BETA_RANGE
+        if beta < low or beta > high:
+            side, bound = ("below", low) if beta < low else ("above", high)
+            add(
+                f"its diameter ratio β = d/D = {beta:.6g} is {side} ISO 5167-2's range, {low:g} "
+                f"to {high:g}; {tail}",
+                {"limit": "beta", "value": beta, ("lower" if beta < low else "upper"): bound},
+            )
+    if d_out != d_pipe:
+        add(
+            f"its outlet pipe diameter {d_out:g} m differs from its inlet pipe diameter "
+            f"{d_pipe:g} m; ISO 5167-2's pressure-loss relation assumes the jet recovers in a "
+            "pipe of the inlet's bore, about 6 D downstream, so the loss is less certain",
+            {"limit": "outletDiameter", "value": d_out, "inlet": d_pipe},
+        )
+    return flags
+
+
 def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
     """Validate the project and build its solver network. Raises ``TopologyError``."""
     issues = validate_topology(project)
@@ -621,6 +840,7 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
     issues.extend(_unrepresentable_pipes(resolved, fluid))
     issues.extend(_unrepresentable_valves(project, resolved))
     issues.extend(_unrepresentable_equipment(project))
+    issues.extend(_unrepresentable_orifices(project, resolved))
     if issues:
         raise TopologyError(issues)
 
@@ -857,6 +1077,41 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
                 component=comp,
                 link_index=link.index,
                 law=rating_law,
+                inlet=inlet,
+                outlet=outlet,
+                inlet_pipe=inlet_pipe,
+                outlet_pipe=outlet_pipe,
+            )
+        elif isinstance(comp, Orifice):
+            inlet, outlet = node_key(comp.id, "inlet"), node_key(comp.id, "outlet")
+            inlet_pipe, outlet_pipe = built.port_pipe(inlet), built.port_pipe(outlet)
+            orifice_law = OrificeLaw(
+                inlet_pipe.segment.diameter,
+                comp.bore_diameter,
+                fluid.density,
+                fluid.dynamic_viscosity,
+                comp.discharge_coefficient,
+                comp.taps,
+                g,
+            )
+            flags.extend(_orifice_input_flags(comp, orifice_law, outlet_pipe.segment.diameter))
+            link = add_link(
+                SolverLink(
+                    index=len(links),
+                    key=comp.id,
+                    kind=LinkKind.ORIFICE,
+                    start=node_index[inlet],
+                    end=node_index[outlet],
+                    law=orifice_law,
+                    # 1 ft/s in the inlet pipe, as for valves (EPANET 2.2 initlinkflow)
+                    initial_flow=INITIAL_VELOCITY * inlet_pipe.segment.area,
+                    component_id=comp.id,
+                )
+            )
+            built.orifices[comp.id] = OrificeData(
+                component=comp,
+                link_index=link.index,
+                law=orifice_law,
                 inlet=inlet,
                 outlet=outlet,
                 inlet_pipe=inlet_pipe,

@@ -273,7 +273,7 @@ describe('downloading the image', () => {
 	});
 });
 
-describe('an image of the Pumps together card (CLAUDE.md D20)', () => {
+describe('an image of the Pumps together card (CLAUDE.md D21)', () => {
 	const FakeChart = {} as unknown as typeof Chart;
 	const now = new Date(Date.UTC(2026, 9, 28, 9, 32, 5));
 

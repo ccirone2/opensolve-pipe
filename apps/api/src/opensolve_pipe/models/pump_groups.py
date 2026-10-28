@@ -1,4 +1,4 @@
-"""Pump group curve: the request's and response's models (CLAUDE.md D20, proposal
+"""Pump group curve: the request's and response's models (CLAUDE.md D21, proposal
 docs/proposals/pump-groups.md §5).
 
 A group is the pumps a request names; the API finds the **station** that holds them: the
@@ -38,7 +38,7 @@ def _ordered_heads(schema: JsonDict, cls: type[Any]) -> None:
 
 
 class PumpGroupCurveRequest(CamelModel):
-    """The group curve of the station holding ``pumpIds`` (CLAUDE.md D20). Checks in order: this
+    """The group curve of the station holding ``pumpIds`` (CLAUDE.md D21). Checks in order: this
     request (400), the scenario (404, then 400 for its values), the case's fluid (400), pump
     ids that name no pump (404, all listed), the case's topology (422), then whether the pumps
     form a station (422 NOT_A_STATION, every reason listed), then the head range (400)."""
@@ -237,7 +237,7 @@ class HeadRange(OutputModel):
 
 
 class PumpGroupCurveResponse(OutputModel):
-    """The station holding the pumps, its duty in the case and its group curve (CLAUDE.md D20)."""
+    """The station holding the pumps, its duty in the case and its group curve (CLAUDE.md D21)."""
 
     station: PumpGroupStation
     converged: bool = Field(description="The case's solve converged (else no duty and no points)")

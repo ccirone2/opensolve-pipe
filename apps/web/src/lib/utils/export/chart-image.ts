@@ -308,7 +308,7 @@ export interface ChartImageRequest {
 }
 
 /**
- * An image of another figure than a pump's chart (the Pumps together card, CLAUDE.md D20): its
+ * An image of another figure than a pump's chart (the Pumps together card, CLAUDE.md D21): its
  * caption's title and the footer's lines as the figure gives them.
  */
 export interface FigureImageRequest {

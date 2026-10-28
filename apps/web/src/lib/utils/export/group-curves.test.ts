@@ -1,5 +1,5 @@
 /**
- * The export and the Pumps together card (CLAUDE.md D20, proposal pump-groups.md §6.6): the
+ * The export and the Pumps together card (CLAUDE.md D21, proposal pump-groups.md §6.6): the
  * workbook is unchanged in slice 4a, and its About (and the dialog) list group curves among what
  * is left out, with the reason, whenever a case of the file has two or more pumps with results.
  * The solve is the pump-group fixture's (a real API response).

@@ -1,5 +1,5 @@
 /**
- * The Pumps together card's data (CLAUDE.md D20, proposal pump-groups.md §6.3–6.5): the members'
+ * The Pumps together card's data (CLAUDE.md D21, proposal pump-groups.md §6.3–6.5): the members'
  * curves and points, the group curve and the station's duty, in display units; the notes under
  * the chart (one function for the screen and the image's footer); the group table and the data
  * table. Everything comes from the API: each member's curve and point from its PumpResult
@@ -597,7 +597,7 @@ export function dutyCheckWords(
 
 /**
  * The duty check's floor (m³/s): flows agree within 0.5 % or this, whichever is looser (the API's
- * PumpGroupDutyCheck.agrees; CLAUDE.md D20).
+ * PumpGroupDutyCheck.agrees; CLAUDE.md D21).
  */
 export const DUTY_CHECK_FLOOR = 1e-6;
 

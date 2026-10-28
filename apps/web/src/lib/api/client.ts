@@ -109,7 +109,7 @@ export class NotFoundError extends ValidationError {
 }
 
 /**
- * 422 NOT_A_STATION: the pumps of a group curve do not form a station (CLAUDE.md D20; proposal
+ * 422 NOT_A_STATION: the pumps of a group curve do not form a station (CLAUDE.md D21; proposal
  * pump-groups.md §5.6). Every reason is an issue with its code (NO_SEPARATING_PORTS: one place,
  * or three or more; NO_WAY_THROUGH: two places, no member on a way between them;
  * FIXED_HEAD_INSIDE, ASSIGNED_FLOW_INSIDE, OTHER_PUMP_INSIDE, DIFFERENT_BOUNDARIES;
@@ -364,7 +364,7 @@ export class ApiClient {
 
 	/**
 	 * The group curve of the station holding `pumpIds` (POST /api/v1/pump-group-curve, CLAUDE.md
-	 * D20): the station the API finds, its duty in the case's solve and the station solved alone
+	 * D21): the station the API finds, its duty in the case's solve and the station solved alone
 	 * at a grid of rises; of a scenario with `scenarioId` (in the body only). Pumps that do not form
 	 * a station: NotAStationError, with every reason.
 	 */

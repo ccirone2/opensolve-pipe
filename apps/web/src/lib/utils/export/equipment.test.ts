@@ -106,6 +106,23 @@ function withoutEquipment(input: ExportInput): ExportInput {
 	};
 }
 
+/**
+ * `input` without orifice plate results (the shared fixture has a flow meter, orifice-plate.md
+ * §7.6), so About's lines compared here are the equipment's alone.
+ */
+function withoutOrifices(input: ExportInput): ExportInput {
+	return {
+		...input,
+		cases: input.cases.map((c) => ({
+			...c,
+			response: c.response && {
+				...c.response,
+				solvedState: { ...c.response.solvedState, orificeResults: {} }
+			}
+		}))
+	};
+}
+
 const solvedOf = (input: ExportInput, id: string | null): SolvedState =>
 	input.cases.find((c) => c.id === id)!.response!.solvedState;
 
@@ -207,9 +224,9 @@ describe('the Equipment sheet', () => {
 });
 
 describe('About and Scenario changes with equipment', () => {
-	/** About's rows as Item → Value. */
+	/** About's rows as Item → Value (without orifice plates: their lines are their own). */
 	function about(input: ExportInput): Map<string, unknown> {
-		const t = readSheet(buildExport(input), 'about');
+		const t = readSheet(buildExport(withoutOrifices(input)), 'about');
 		return new Map(t.rows.map((r) => [String(t.get(r, 'Item')), t.get(r, 'Value')]));
 	}
 

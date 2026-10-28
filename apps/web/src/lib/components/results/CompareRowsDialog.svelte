@@ -9,6 +9,7 @@
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import {
+		compareElementKind,
 		ELEMENT_QUANTITIES,
 		QUANTITIES,
 		rowKey,
@@ -39,18 +40,7 @@
 			{ value: 'network', label: 'The whole network', group: 'Network', kind: 'network' }
 		];
 		for (const c of project.components) {
-			const kind: Kind | null =
-				c.type === 'pump'
-					? 'pump'
-					: c.type === 'valve'
-						? 'valve'
-						: c.type === 'equipment'
-							? 'equipment'
-							: c.type === 'reservoir' || c.type === 'reference_node'
-								? 'boundary'
-								: c.type === 'assigned_flow'
-									? 'assigned'
-									: null;
+			const kind: Kind | null = compareElementKind(c);
 			if (kind) {
 				list.push({
 					value: `${kind}:${c.id}`,
@@ -90,6 +80,7 @@
 		pump: 'Pumps',
 		valve: 'Valves',
 		equipment: 'Equipment',
+		orifice: 'Orifice plates',
 		connection: 'Pipe connections',
 		port: 'Ports',
 		boundary: 'Reservoirs and reference nodes',

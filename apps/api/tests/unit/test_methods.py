@@ -157,9 +157,8 @@ def test_method_1_3_0_adds_the_equipment_element() -> None:
     """GOALS §4.3, proposal equipment-pressure-drop.md decision 17 and §3.5: the equipment
     element is method 1.3.0, after 1.2.0 (deployed), with one changelog line that says projects
     without equipment are unchanged."""
-    assert METHOD_VERSION == "1.3.0"
-    assert [e["version"] for e in METHOD_CHANGELOG] == ["1.0.0", "1.1.0", "1.2.0", "1.3.0"]
-    entry = METHOD_CHANGELOG[-1]
+    assert [e["version"] for e in METHOD_CHANGELOG][:4] == ["1.0.0", "1.1.0", "1.2.0", "1.3.0"]
+    [entry] = [e for e in METHOD_CHANGELOG if e["version"] == "1.3.0"]
     assert entry["date"] == "2026-10-26"
     assert entry["changes"] == [
         "Adds the equipment element: a loss between two ports from a datasheet pressure drop at a "
@@ -167,6 +166,32 @@ def test_method_1_3_0_adds_the_equipment_element() -> None:
         "point on water, converted as for valves), at constant K (scaled with the square of the "
         "flow and with density). Flows, heads, pressures, statuses, traces, messages and system "
         "curves of projects without equipment are unchanged (corpus comparison)."
+    ]
+
+
+def test_method_1_4_0_adds_the_orifice_plate() -> None:
+    """GOALS §4.3, proposal orifice-plate.md decision 22 and §3.9: the orifice plate is method
+    1.4.0, after 1.3.0 (deployed), with one changelog line that says projects without orifices
+    are unchanged."""
+    assert METHOD_VERSION == "1.4.0"
+    assert [e["version"] for e in METHOD_CHANGELOG] == [
+        "1.0.0",
+        "1.1.0",
+        "1.2.0",
+        "1.3.0",
+        "1.4.0",
+    ]
+    entry = METHOD_CHANGELOG[-1]
+    assert entry["date"] == "2026-10-28"
+    assert entry["changes"] == [
+        "Adds the orifice plate: ISO 5167-2's permanent pressure loss from the bore and the "
+        "Reader-Harris/Gallagher discharge coefficient at D and D/2 tappings for every plate "
+        "(held below ISO's lowest Reynolds number, flagged), or an entered coefficient at the "
+        "plate's taps moved to D and D/2 tappings by ISO's ratio of the two tap sets' "
+        "coefficients, with the differential pressure at a meter's taps and a flashing check at "
+        "the vena contracta; a plate whose coefficient at D and D/2 tappings could exceed 1 is "
+        "refused. Flows, heads, pressures, statuses, traces, messages and system curves of "
+        "projects without orifices are unchanged (corpus comparison)."
     ]
 
 

@@ -1,4 +1,4 @@
-"""Check the station finder on random networks (CLAUDE.md D20; proposal pump-groups.md §14).
+"""Check the station finder on random networks (CLAUDE.md D21; proposal pump-groups.md §14).
 
     uv run python -m tests.differential.pump_group_random [--seeds N] [--start S]
 

@@ -10,7 +10,7 @@ import type {
 import { halfUlp, resultsView, solveConverged } from './support';
 
 /**
- * The Pumps together card (CLAUDE.md D20, proposal pump-groups.md §6), against the real app and
+ * The Pumps together card (CLAUDE.md D21, proposal pump-groups.md §6), against the real app and
  * API, on desktop and on a phone: two pumps in parallel between Crane tees, two in series (US
  * display units) and two pumps the API refuses as a station (a tank on the discharge header).
  * The projects are the shared fixture's (apps/api/tests/fixtures/pump_groups_input.py); every

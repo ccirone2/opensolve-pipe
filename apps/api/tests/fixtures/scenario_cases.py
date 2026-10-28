@@ -68,9 +68,10 @@ RATED_POINT = {"kind": "point", "pressureLoss": 5.0e4, "flow": 0.015, "density":
 
 
 def base_project() -> dict[str, Any]:
-    """Every component type (equipment rated by a point and by a Kv), with statuses, speeds and
-    resistances left unset (defaults), a connection of two pipes (the first a library pipe with
-    a bore override) and water."""
+    """Every component type (equipment rated by a point and by a Kv; an orifice plate with an
+    entered C at flange taps and one on ISO 5167-2's C), with statuses, speeds and resistances
+    left unset (defaults), a connection of two pipes (the first a library pipe with a bore
+    override) and water."""
     valve = ("inlet", "outlet")
     comps = [
         reservoir("R1", level=3.0),
@@ -101,6 +102,10 @@ def base_project() -> dict[str, Any]:
         ),
         _component("equipment", "E1", valve, rating=RATED_POINT),
         _component("equipment", "E2", valve, rating={"kind": "Kv", "value": 60.0}),
+        _component(
+            "orifice", "O1", valve, boreDiameter=0.05, dischargeCoefficient=0.6, taps="flange"
+        ),
+        _component("orifice", "O2", valve, boreDiameter=0.05),
     ]
     library = {
         "materialId": "carbon_steel",
@@ -182,6 +187,8 @@ APPLIED: list[tuple[str, list[dict[str, Any]]]] = [
             comp("E1", "rating.flow", 0.012),
             comp("E1", "rating.density", 1043.47),
             comp("E2", "rating.value", 72.0),
+            comp("O1", "boreDiameter", 0.06),
+            comp("O2", "dischargeCoefficient", 0.62),
             pipe("L1", 0, "spec", SPEC),
             pipe("L1", 1, "length", 33.0),
             proj("fluid.temperature", 278.15),
@@ -197,6 +204,10 @@ APPLIED: list[tuple[str, list[dict[str, Any]]]] = [
                 {"kind": "point", "pressureLoss": 3.0e4, "flow": 0.01, "density": 1043.47},
             ),
         ],
+    ),
+    (
+        "an orifice plate's entered C set back to ISO 5167-2's (null)",
+        [comp("O1", "dischargeCoefficient", None)],
     ),
     (
         "a whole fluid",
@@ -241,6 +252,8 @@ APPLIED: list[tuple[str, list[dict[str, Any]]]] = [
             comp("E1", "rating.value", 50.0),
             comp("E2", "rating.pressureLoss", 1.0e4),
             comp("E1", "status", "off"),
+            comp("R1", "dischargeCoefficient", 0.6),
+            comp("O1", "status", "off"),
             comp("R1", "liquidLevel", 4.0),
         ],
     ),
@@ -288,6 +301,14 @@ INVALID: list[tuple[str, list[dict[str, Any]]]] = [
         [
             comp("E1", "rating", {**RATED_POINT, "density": 0.0}),
             comp("E2", "rating.value", 2.0e7),
+        ],
+    ),
+    (
+        "orifice values their bounds reject",
+        [
+            comp("O1", "dischargeCoefficient", 1.5),
+            comp("O2", "boreDiameter", 0.0),
+            comp("O1", "boreDiameter", 0.06),
         ],
     ),
 ]

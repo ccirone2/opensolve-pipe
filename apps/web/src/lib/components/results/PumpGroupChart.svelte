@@ -1,5 +1,5 @@
 <!--
-	Pumps together (CLAUDE.md D20, proposal pump-groups.md §6): a card under the pump chart, shown
+	Pumps together (CLAUDE.md D21, proposal pump-groups.md §6): a card under the pump chart, shown
 	when two or more pumps have results; a disclosure, closed by default. Its members are chosen
 	with checkboxes (page state, at most six), defaulting to the group suggested for the pump
 	viewed, with the other suggested groups one button away. Opening it with two members or more

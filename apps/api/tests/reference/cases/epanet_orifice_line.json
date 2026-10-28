@@ -1,0 +1,172 @@
+{
+  "name": "epanet_orifice_line",
+  "description": "A flange-tapped orifice plate of beta 0.5 between two reservoirs, as an EPANET GPV whose head-loss curve tabulates the plate's law: verifies ISO 5167-2's permanent loss with its Reynolds-number dependence and the line's flow and heads against EPANET 2.2.",
+  "source": "WNTR 1.5.0 EpanetSimulator (EPANET 2.2.0); see tests/reference/generate_epanet_cases.py. D-W headloss, GPM INP units, accuracy 1e-5, headerror 1e-9 ft and flowchange 1e-12 gpm (EPANET reads both in the INP units, input1.c:595-596; WNTR writes them unconverted); viscosity VISCOS = 1.1e-5 ft2/s = 1.02193344e-6 m2/s (the project's custom fluid has the same nu; its density, 1000 kg/m3, does not affect the comparison because friction depends only on nu and a surface-pressure head p/(rho g) is converted with the same rho and g on both sides); solver run in 'swamee_jain' mode. Known EPANET biases, all far inside the 0.5% criterion: EPANET's head-loss coefficients use g = 32.2 ft/s2 = 9.81456 m/s2 against our 9.80665 (0.08% in head loss), its minor-loss constant is 0.02517 against the exact 1/(2g(pi/4)^2) = 0.0251730 in US units (0.012%), its GPM flow-unit constant GPMperCFS = 448.831 differs from the exact ft3/(gal/60) by -3.8e-07 (relative, in flow), and its results are float32 (about 1e-7 relative). Orifice plates: EPANET GPV between junctions at its ports' elevations, diameter of the inlet pipe, minor loss 0, whose HEADLOSS curve tabulates the plate's own law (element_laws.OrificeLaw) at 201 evenly spaced flows from 0 to the flow at which the plate alone would take the spread of the fixed heads (network_check.gpv_span), written by WNTR in gpm and ft with six decimals (checked against network_check.gpv_table); EPANET interpolates it linearly for either flow direction, so it solves the plate's Reynolds-number dependence itself, without its g or minor-loss constant. Expected orifice results from EPANET's flow and heads (derivations_orifice.orifice_result).",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-epanet-orifice-line",
+    "metadata": {
+      "name": "Orifice plate on a line (EPANET reference)",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "swamee_jain",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Water at EPANET's default viscosity",
+      "density": 1000.0,
+      "dynamicViscosity": 0.00102193344
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 10.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "OR1",
+        "name": "Orifice OR1",
+        "elevation": 3.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "orifice",
+        "boreDiameter": 0.05115,
+        "taps": "flange"
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 1.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "OR1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 60.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "OR1",
+        "fromPortId": "outlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 40.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 1000.0,
+      "dynamicViscosity": 0.00102193344
+    },
+    "flows": {
+      "L1": 0.017403271049261093,
+      "L2": 0.017403271049261093
+    },
+    "egl": {
+      "R1:port_1": 12.0,
+      "OR1:inlet": 9.520805358886719,
+      "OR1:outlet": 2.652796745300293,
+      "R2:port_1": 1.0
+    },
+    "pressures": {
+      "OR1:inlet": 61705.700481707994,
+      "OR1:outlet": -5646.456188719325
+    },
+    "orifices": {
+      "OR1": {
+        "flow": 0.017403271049261093,
+        "headLoss": 6.868008613586426,
+        "pressureLoss": 67352.15667042731,
+        "pressureDrop": 67352.15667042731,
+        "differentialPressure": 91922.44431142979,
+        "venaContractaPressure": -30220.351278767783,
+        "beta": 0.5,
+        "pipeDiameter": 0.1023,
+        "boreDiameter": 0.05115,
+        "reynoldsNumber": 211954.5571703616,
+        "dischargeCoefficient": 0.6047850726923238,
+        "coefficientSource": "iso_5167_2",
+        "coefficientReynoldsNumber": 211954.5571703616,
+        "tapCoefficientRatio": null,
+        "lossCoefficient": 30.04692479341335,
+        "taps": "flange",
+        "meterDischargeCoefficient": 0.6047969398154461
+      }
+    }
+  }
+}

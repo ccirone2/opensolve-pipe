@@ -354,6 +354,61 @@ def test_an_equipment_result_is_an_element_with_its_quantities() -> None:
     assert got == "round-off"
 
 
+def test_an_orifice_result_is_an_element_with_its_quantities() -> None:
+    """An orifice plate's result (proposal orifice-plate.md §2.2, §7.4) takes the tolerance of
+    its quantity: its pressure loss, differential pressure (the reading at its taps) and
+    vena-contracta pressure those of a pressure, ρg·10⁻⁶ m, not 10⁻⁶ relative; its flow counts in
+    the largest flow, and its other numbers (β, Re, C, K) are round-off where it carries a
+    round-off flow."""
+    item = {
+        "flow": 0.05,
+        "headLoss": 3.0,
+        "pressureLoss": 2.9e4,
+        "pressureDrop": 2.8e4,
+        "differentialPressure": 4.1e4,
+        "venaContractaPressure": -1.5e4,
+        "beta": 0.5,
+        "reynoldsNumber": 6.0e5,
+        "dischargeCoefficient": 0.6047,
+        "lossCoefficient": 30.05,
+    }
+    a = put(solved(), "orificeResults", {"OR1": item})
+    for field, quantity, tol in (
+        ("flow", "flow", FLOW_TOL),
+        ("headLoss", "head", 1.0e-6),
+        ("pressureLoss", "pressure", PRESSURE_TOL),
+        ("pressureDrop", "pressure", PRESSURE_TOL),
+        ("differentialPressure", "pressure", PRESSURE_TOL),
+        ("venaContractaPressure", "pressure", PRESSURE_TOL),
+        ("dischargeCoefficient", "other", 1.0e-6 * 0.6047),
+        ("lossCoefficient", "other", 1.0e-6 * 30.05),
+    ):
+        path = f"orificeResults.OR1.{field}"
+        for multiple, kind in ((INSIDE, "in"), (OUTSIDE, "out")):
+            ((got, *_, ratio, judged_as),) = judged(
+                a, put(a, path, at(a, path) + multiple * tol), compare.DEFAULT_SETTINGS
+            )
+            assert (got, judged_as) == (kind, quantity), field
+            assert ratio == pytest.approx(multiple, rel=1e-4), field
+    # the largest flow: OR1 carrying 0.2 m³/s sets a flow's tolerance
+    big = put(a, "orificeResults.OR1.flow", 0.2)
+    ((got, *_),) = judged(
+        big, put(big, "linkResults.C2.flow", 0.05 + 0.99e-8 * 0.2), compare.DEFAULT_SETTINGS
+    )
+    assert got == "in"
+    # a round-off flow through OR1, and a flag on OR1: its other numbers are excluded
+    tiny = put(a, "orificeResults.OR1.flow", 1.0e-12)
+    ((got, path, *_),) = judged(
+        tiny, put(tiny, "orificeResults.OR1.reynoldsNumber", 7.0e5), compare.DEFAULT_SETTINGS
+    )
+    assert (got, path) == ("round-off", "/orificeResults/OR1/reynoldsNumber")
+    flagged = put(tiny, "flags.0.componentId", "OR1")
+    ((got, *_),) = judged(
+        flagged, put(flagged, "flags.0.details.step", 0.5), compare.DEFAULT_SETTINGS
+    )
+    assert got == "round-off"
+
+
 def test_a_flag_detail_index_compares_exactly_on_a_round_off_element(tmp_path: Path) -> None:
     """``Flag.details`` holds floats, so the index of the pipe or fitting a flag names is a float
     in the dumps (``segmentIndex`` 0.0); it compares exactly, as an integer does, also where its

@@ -112,7 +112,7 @@ async def pump_group_curve_endpoint(
     request: PumpGroupCurveRequest, http: Request
 ) -> PumpGroupCurveResponse:
     """The station holding a group of pumps, its duty in the case and its group curve (CLAUDE.md
-    D20): the station solved alone between its inlet S and outlet D held a rise apart, every
+    D21): the station solved alone between its inlet S and outlet D held a rise apart, every
     element inside on its own law and rules, from the duty's rise outward.
 
     Checks in order: the request (400), the scenario (404, then 400 for its values), the case's

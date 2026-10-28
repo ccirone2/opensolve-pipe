@@ -113,7 +113,8 @@ export const INLINE_KINDS: readonly ComponentKind[] = [
 	'fcv',
 	'tee',
 	'wye',
-	'equipment'
+	'equipment',
+	'orifice'
 ];
 
 export class Workspace {
@@ -151,7 +152,7 @@ export class Workspace {
 	/**
 	 * The pumps of the Pumps together card by slot (null in a slot: free; a member keeps its slot,
 	 * so its colour, while it stays ticked), or null: the group suggested for the pump viewed (CLAUDE.md
-	 * D20). Page state: not in the project or the link, not an undo step. The pumps ticked carry
+	 * D21). Page state: not in the project or the link, not an undo step. The pumps ticked carry
 	 * across cases (scenarios never change topology), but the API's answer can differ by case: an
 	 * active PRV or PSV inside, a per-case status, makes it refuse the station. Its ids are
 	 * reserved (reservedIds), so a pump deleted and a new one added never takes a member's place.
@@ -717,7 +718,8 @@ export class Workspace {
 	/**
 	 * Insert a component into a connection of the current component and show it: in the
 	 * connection the walk arrived by it goes before the current component, in any other after.
-	 * `values` are what the user entered for a kind with no default (an equipment item's rating).
+	 * `values` are what the user entered for a kind with no default (an equipment item's rating, an
+	 * orifice plate's bore).
 	 */
 	insert(connectionId: string, kind: ComponentKind, values: EnteredValues = {}): string | null {
 		const connection = this.project.connections.find((c) => c.id === connectionId);

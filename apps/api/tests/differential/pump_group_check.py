@@ -1,4 +1,4 @@
-"""Check the pump group curve over the corpus (CLAUDE.md D20; proposal pump-groups.md §9.1).
+"""Check the pump group curve over the corpus (CLAUDE.md D21; proposal pump-groups.md §9.1).
 
     uv run python -m tests.differential.pump_group_check [--workers N] [--only PREFIX]
                                                          [--every K] [--out FILE]
@@ -153,6 +153,7 @@ from opensolve_pipe.models.components import (
     Equipment,
     IdealReferenceNode,
     IsolationValve,
+    Orifice,
     Pump,
     Reservoir,
     TeeBranch,
@@ -212,7 +213,7 @@ PRESSURE_CONTROL_INSIDE refuse a station that exists."""
 REVERSAL = frozenset({"MEMBER_REVERSED", "MEMBERS_OPPOSED"})
 """Members facing D -> S: a minority against the rest, or as many each way (a tie)."""
 PROFILES = ("ref", "unit", "ladder", "wye", "fuzz", "fuzzfc", "fuzzaf")
-TWO_PORT = (Pump, IsolationValve, CheckValve, ControlValve, Equipment)
+TWO_PORT = (Pump, IsolationValve, CheckValve, ControlValve, Equipment, Orifice)
 """Components with two ports and one link between them, first port in (chains, §4)."""
 JUNCTION = (TeeBranch, WyeBranch, Reservoir, IdealReferenceNode)
 """Components where chains meet (§4: tees and wyes, and a reservoir pumps draw from)."""

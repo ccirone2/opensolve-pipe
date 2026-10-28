@@ -1,5 +1,5 @@
 /**
- * Group curves in the store (CLAUDE.md D20, proposal pump-groups.md §6.1): fetched on demand for
+ * Group curves in the store (CLAUDE.md D21, proposal pump-groups.md §6.1): fetched on demand for
  * the project exactly as solved, per case and set of pumps (in any order), cached with that
  * solve and dropped by the next; on the system curves' queue (one request at a time, after a
  * Solve all run and a goal seek); cancelled by a solve, a goal seek or the user; a refusal
@@ -87,7 +87,7 @@ function setup(solver: Solver, project: Project = parallel.project) {
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
-describe('group curves (D20: on demand, per solve and set of pumps)', () => {
+describe('group curves (D21: on demand, per solve and set of pumps)', () => {
 	it('computes one for the project exactly as solved, keyed by the pumps in any order', async () => {
 		const { solver, calls, answers } = groupSolver();
 		const store = setup(solver);

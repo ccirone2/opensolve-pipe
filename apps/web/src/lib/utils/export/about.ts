@@ -204,13 +204,36 @@ function unitRows(ctx: ExportContext, equipment: boolean): AboutRow[] {
 	return rows;
 }
 
-/** The Numbers row; `equipment`: the ≈ 0 rule names equipment's pressure differences too. */
-function numbersText(equipment: boolean): string {
-	const pressures = equipment
-		? 'valve and equipment pressure drops and equipment pressure losses'
-		: 'valve pressure drops';
+/** "a", "a and b", "a, b and c". */
+function andList(items: readonly string[]): string {
+	return items.length < 2
+		? (items[0] ?? '')
+		: `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+/**
+ * The Numbers row; `equipment`, `orifices`: the ≈ 0 rule names equipment's and orifice plates'
+ * pressure differences too (a file with neither is as before).
+ */
+function numbersText(equipment: boolean, orifices = false): string {
+	const drops = [
+		'valve',
+		...(equipment ? ['equipment'] : []),
+		...(orifices ? ['orifice plate'] : [])
+	];
+	const losses = [
+		...(equipment ? ['equipment pressure losses'] : []),
+		...(orifices ? ['orifice plate permanent losses'] : [])
+	];
+	const pressures = andList([`${andList(drops)} pressure drops`, ...losses]);
 	return `Full precision: each number is the value the calculation server returned, converted to these units, not rounded. The app shows 4 significant figures, and heads, elevations and lengths to at least 0.01 m (or its equivalent); it shows head differences below 1×10⁻⁷ m, ${pressures} below ρg·10⁻⁷ m and branch K below 1×10⁻⁴ as ≈ 0 (round-off). The file gives them as computed. Spreadsheets display and re-save at most 15 significant digits.`;
 }
+
+/** The orifice plates' sign row, only in a file with an Orifice plates sheet. */
+const ORIFICE_SIGN: [string, string] = [
+	'Sign: orifice plate flow',
+	"+ inlet → outlet; the permanent pressure loss, the differential pressure at the taps and the head loss are signed like it; the static pressure drop, inlet minus outlet, also holds the ports' elevation and velocity terms, so its sign need not follow the flow."
+];
 
 /** The equipment sign row, only in a file with an Equipment sheet. */
 const EQUIPMENT_SIGN: [string, string] = [
@@ -574,11 +597,14 @@ export function aboutRows(
 	}
 	// Lines about equipment only with an Equipment sheet: a file without one is as before.
 	const equipment = sheets.some((sheet) => sheet.file === 'equipment.csv');
+	// And about orifice plates only with an Orifice plates sheet.
+	const orifices = sheets.some((sheet) => sheet.file === 'orifices.csv');
 	rows.push(...unitRows(ctx, equipment));
-	rows.push(['Export', 'Numbers', numbersText(equipment)]);
+	rows.push(['Export', 'Numbers', numbersText(equipment, orifices)]);
 	for (const [item, value] of SIGNS) {
 		rows.push(['Export', item, value]);
 		if (equipment && item === 'Sign: valve flow') rows.push(['Export', ...EQUIPMENT_SIGN]);
+		if (orifices && item === 'Sign: valve flow') rows.push(['Export', ...ORIFICE_SIGN]);
 	}
 	// Design checks (D19), only in a file that has them.
 	if (sheets.some((sheet) => sheet.file === 'design-checks.csv')) {

@@ -1,0 +1,352 @@
+{
+  "name": "orifice_min_flow_bypass",
+  "description": "A pump feeding a process line, with a minimum-flow bypass through a restriction orifice back to its suction reservoir: verifies the pump's operating point with the bypass, the split between the process and the bypass, and the plate's loss at a high head.",
+  "source": "closed-form: tests/reference/derivations_orifice.py::orifice_min_flow_bypass (orifice loss on the EGL h = K(C_L) v|v|/2g, K = (sqrt(1 - b^4 (1 - C^2))/(C b^2) - 1)^2 (ISO 5167-2 pressure-loss relation, cancellation-free form), C_L = ISO 5167-2:2003 eq. (4) at D and D/2 tappings at max(Re_D, Re_lo), transcribed in element_laws.rhg_terms; pump curve PCHIP; Darcy-Weisbach + Colebrook; brentq on T1's EGL (pump side against process + bypass flows); static p = rho g (EGL - z - v^2/2g), v in the connected pipe (D7))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-orifice-min-flow-bypass",
+    "metadata": {
+      "name": "Restriction orifice in a minimum-flow bypass",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "port_2",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "PU1",
+        "name": "Pump PU1",
+        "elevation": 0.5,
+        "ports": [
+          {
+            "id": "suction",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "discharge",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "pump",
+        "curveId": "PC-A",
+        "speed": 1.0,
+        "status": "on"
+      },
+      {
+        "id": "T1",
+        "name": "Tee T1",
+        "elevation": 1.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 18.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "RO",
+        "name": "Orifice RO",
+        "elevation": 1.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "orifice",
+        "boreDiameter": 0.015
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "PU1",
+        "toPortId": "suction",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1541,
+              "length": 8.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "PU1",
+        "fromPortId": "discharge",
+        "toComponentId": "T1",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 5.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L3",
+        "fromComponentId": "T1",
+        "fromPortId": "run_outlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 50.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LB1",
+        "fromComponentId": "T1",
+        "fromPortId": "branch",
+        "toComponentId": "RO",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 10.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LB2",
+        "fromComponentId": "RO",
+        "fromPortId": "outlet",
+        "toComponentId": "R1",
+        "toPortId": "port_2",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 5.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": [
+      {
+        "id": "PC-A",
+        "name": "Curve PC-A",
+        "points": [
+          {
+            "flow": 0.0,
+            "head": 45.0
+          },
+          {
+            "flow": 0.01,
+            "head": 44.0
+          },
+          {
+            "flow": 0.02,
+            "head": 41.0
+          },
+          {
+            "flow": 0.03,
+            "head": 35.5
+          },
+          {
+            "flow": 0.04,
+            "head": 27.0
+          }
+        ],
+        "npshrCurve": [
+          {
+            "flow": 0.005,
+            "npshr": 1.6
+          },
+          {
+            "flow": 0.015,
+            "npshr": 2.0
+          },
+          {
+            "flow": 0.025,
+            "npshr": 2.7
+          },
+          {
+            "flow": 0.035,
+            "npshr": 3.8
+          },
+          {
+            "flow": 0.045,
+            "npshr": 5.2
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.03920447916486879,
+      "L2": 0.03920447916486879,
+      "L3": 0.03666103258417367,
+      "LB1": 0.002543446580695119,
+      "LB2": 0.002543446580695119
+    },
+    "egl": {
+      "R1:port_1": 2.0,
+      "R1:port_2": 2.0,
+      "PU1:suction": 1.803510659571637,
+      "PU1:discharge": 29.591411042763777,
+      "T1:run_inlet": 28.610467751053527,
+      "T1:run_outlet": 28.610467751053527,
+      "T1:branch": 28.610467751053527,
+      "RO:inlet": 28.30275929906668,
+      "RO:outlet": 2.153854225993423,
+      "R2:port_1": 20.0
+    },
+    "pressures": {
+      "RO:inlet": 266524.2506920412,
+      "RO:outlet": 10603.95707705705,
+      "PU1:suction": 10552.643686385614,
+      "PU1:discharge": 273366.25681354804,
+      "T1:run_inlet": 258872.21046696103,
+      "T1:run_outlet": 260297.44146817634,
+      "T1:branch": 269535.8046045366
+    },
+    "pumps": {
+      "PU1": {
+        "status": "running",
+        "operatingFlow": 0.03920447916486879,
+        "operatingHead": 27.787900383192156
+      }
+    },
+    "flags": [
+      {
+        "code": "NPSH_NOT_CHECKED",
+        "componentId": "PU1"
+      }
+    ],
+    "orifices": {
+      "RO": {
+        "flow": 0.002543446580695119,
+        "headLoss": 26.148905073073255,
+        "pressureLoss": 255920.29361498408,
+        "pressureDrop": 255920.29361498414,
+        "differentialPressure": null,
+        "venaContractaPressure": -15951.070921805338,
+        "beta": 0.2857142857142857,
+        "pipeDiameter": 0.0525,
+        "boreDiameter": 0.015,
+        "reynoldsNumber": 61560.76062722925,
+        "dischargeCoefficient": 0.6029181387740221,
+        "coefficientSource": "iso_5167_2",
+        "coefficientReynoldsNumber": 61560.76062722925,
+        "tapCoefficientRatio": null,
+        "lossCoefficient": 371.5146248812202,
+        "taps": null,
+        "meterDischargeCoefficient": null
+      }
+    }
+  }
+}

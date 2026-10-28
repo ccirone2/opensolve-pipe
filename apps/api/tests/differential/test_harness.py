@@ -4,17 +4,18 @@ vfd-pump-modes.md §4.5 at its tolerance edges, the closed-form implied speed, t
 generator profile, the EPANET substitutes, the control search's split of distinct valid states
 into multiple states and alternatives at rest, the networks without a steady state that
 assigned flows make (``checks.assigned_flow_expectations``), the 'assigned_flow' generator
-profile and its EPANET demands, ``compare --ignore``, ``--ignore-null`` and ``--ignore-empty``,
-and the check of
+profile and its EPANET demands, ``compare --ignore``, ``--ignore-null`` and ``--ignore-empty``
+(with the orifice plate's proof command, proposal orifice-plate.md §3.9), and the check of
 pumps and valves without a result (``checks.missing_result_problems``: a result deleted from a
 solve where flow runs, in a floating section or from a dead-headed pump is reported, and the
 results the rule leaves out are not). Fast; no EPANET run (the WNTR model build is skipped where
 WNTR is not installed).
 """
 
+import copy
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import pytest
 
@@ -571,6 +572,53 @@ def test_compare_ignore_empty(tmp_path: Path, capsys: pytest.CaptureFixture[str]
         compare.main([str(a), str(b), "--ignore-empty", "r.*.c"])
     assert stop.value.code == 0
     assert "ignored r.*.c (empty or absent): 2 values in 1 projects" in capsys.readouterr().out
+
+
+def test_compare_the_orifice_proof_command(tmp_path: Path) -> None:
+    """The corpus comparison of the orifice plate (proposal orifice-plate.md §3.9): ``compare A B
+    --ignore-empty orificeResults --ignore methodVersion --ignore trace.methods.methodVersion``
+    leaves out the new empty map and the version, in both modes, while an orifice result the old
+    dump lacks, a changed value or an equipment map left empty on one side only is a difference;
+    each ignore's count is printed."""
+    a, b = tmp_path / "a", tmp_path / "b"
+    methods = {"methodVersion": "1.3.0", "sections": []}
+    old: dict[str, Any] = {
+        "methodVersion": "1.3.0",
+        "equipmentResults": {},
+        "trace": {"methods": methods},
+    }
+    new = copy.deepcopy(old)
+    new["methodVersion"] = new["trace"]["methods"]["methodVersion"] = "1.4.0"
+    new["orificeResults"] = {}
+    write(a, "p", old)
+    write(b, "p", new)
+    ignore = ["methodVersion", "trace.methods.methodVersion"]
+    for tolerances in (None, compare.DEFAULT_SETTINGS):
+        _, diff = compare.compare_dirs(a, b, ignore, tolerances=tolerances)
+        assert diff == 1  # the new map shows without --ignore-empty
+        lines, diff = compare.compare_dirs(
+            a, b, ignore, tolerances=tolerances, ignore_empty=["orificeResults"]
+        )
+        assert diff == 0
+        assert "ignored orificeResults (empty or absent): 1 values in 1 projects" in lines
+        assert "ignored methodVersion: 1 values in 1 projects" in lines
+        assert "ignored trace.methods.methodVersion: 1 values in 1 projects" in lines
+    item = {"flow": 0.0174, "headLoss": 6.886, "pressureLoss": 67393.3, "beta": 0.5}
+    write(b, "p", {**new, "orificeResults": {"OR1": item}})
+    lines, diff = compare.compare_dirs(a, b, ignore, ignore_empty=["orificeResults"])
+    assert diff == 1
+    assert "ignored orificeResults (empty or absent): 0 values in 0 projects" in lines
+    write(a, "p", {**old, "orificeResults": {"OR1": item}})
+    write(b, "p", {**new, "orificeResults": {"OR1": {**item, "pressureLoss": 67393.4}}})
+    _, diff = compare.compare_dirs(a, b, ignore, ignore_empty=["orificeResults"])
+    assert diff == 1
+    write(b, "p", {**new, "orificeResults": {"OR1": item}, "equipmentResults": []})
+    _, diff = compare.compare_dirs(a, b, ignore, ignore_empty=["orificeResults"])
+    assert diff == 1  # each path is left out only where it is named
+    _, diff = compare.compare_dirs(
+        a, b, ignore, ignore_empty=["orificeResults", "equipmentResults"]
+    )
+    assert diff == 0
 
 
 # --------------------------------------------------------------------------- missing results

@@ -11,8 +11,9 @@
  * that piping.
  *
  * Values the server states in its message (a pipe's roughness and inner diameter, a valve's
- * resistance, an equipment item's rating, a controlled pump curve's flow interval or setpoint
- * bound, a pipe library's schedules and sizes) are taken from the message, which states what the
+ * resistance, an equipment item's rating, an orifice plate's bore, pipe bore, β and the bound its
+ * discharge coefficient breaks, a controlled pump curve's flow interval or setpoint bound, a pipe
+ * library's schedules and sizes) are taken from the message, which states what the
  * server solved, and shown in the display unit; pipes are numbered from 1, as the message and the piping editor
  * number them. Values that the message does not state are taken from the project only when the
  * error is for the project as it is now (`current`).
@@ -324,6 +325,8 @@ function tell(issue: TopologyIssue, links: IssueLink[], context: Context): Issue
 				links
 			};
 		}
+		case 'ORIFICE_OUT_OF_RANGE':
+			return orificeIssue(issue, links, component, only, units);
 		case 'VALVE_RESISTANCE_OUT_OF_RANGE': {
 			const match = VALVE_RESISTANCE.exec(issue.message);
 			if (!match || match[1] !== only || !component) return null;
@@ -339,6 +342,65 @@ function tell(issue: TopologyIssue, links: IssueLink[], context: Context): Issue
 		}
 	}
 	return null;
+}
+
+/**
+ * An orifice plate the solver cannot represent (ORIFICE_OUT_OF_RANGE, the builder's
+ * _unrepresentable_orifices, proposal orifice-plate.md decision 17), told with its name and the
+ * message's bore, pipe bore, β and the bound its discharge coefficient breaks, in display units;
+ * null (the server's message) when the message is not in a form expected.
+ */
+function orificeIssue(
+	issue: TopologyIssue,
+	links: IssueLink[],
+	component: Component | undefined,
+	only: string | undefined,
+	units: UnitPreferences
+): IssueView | null {
+	const head = ORIFICE_HEAD.exec(issue.message);
+	if (!head || head[1] !== only || !component) return null;
+	const [, , bore = '', pipe = '', beta = '', rest = ''] = head;
+	const d = formatValue(Number(bore), 'diameter', units);
+	const D = formatValue(Number(pipe), 'diameter', units);
+	const b = formatNumber(Number(beta), 6);
+	const name = component.name;
+	let text: string | null = null;
+	if (ORIFICE_BETA.test(rest)) {
+		text =
+			`${name}'s bore (${d}) is not smaller than its inlet pipe's inner diameter (${D}): an ` +
+			'orifice plate needs β = d ÷ D below 1. Use a smaller bore.';
+	} else {
+		const iso = ORIFICE_ISO.exec(rest);
+		const moved = ORIFICE_MOVED.exec(rest);
+		const unbounded = ORIFICE_UNBOUNDED.test(rest);
+		const loss = ORIFICE_LOSS.exec(rest);
+		if (iso) {
+			const [, where = '', coefficient = ''] = iso;
+			text =
+				`${name}'s bore (${d}) is so close to its inlet pipe's inner diameter (${D}, β = ${b}) ` +
+				`that ISO 5167-2's discharge coefficient at ${where} could exceed 1 (up to ` +
+				`${formatNumber(Number(coefficient), 6)}): a jet larger than the bore, which is ` +
+				'physically impossible. Use a smaller bore, or enter a discharge coefficient.';
+		} else if (moved) {
+			const [, entered = '', taps = '', ratio = '', coefficient = ''] = moved;
+			text =
+				`${name}: its entered discharge coefficient ${formatNumber(Number(entered), 6)} at its ` +
+				`${taps}, moved to D and D/2 tappings by ISO 5167-2's ratio of the two tap sets' ` +
+				`coefficients (up to ${formatNumber(Number(ratio), 6)} at a bore of ${d} in an inlet ` +
+				`pipe of ${D}), could reach ${formatNumber(Number(coefficient), 6)}, above 1: a jet ` +
+				'larger than the bore, which is physically impossible. Check the entered coefficient: ' +
+				"ISO 5167-2's C at the plate's taps, not the flow coefficient C ÷ √(1 − β⁴).";
+		} else if (unbounded || loss) {
+			const low = loss ? ` down to ${formatNumber(Number(loss[1]), 6)}` : '';
+			text =
+				`${name}: a bore of ${d} in an inlet pipe of inner diameter ${D} (β = ${b}) gives ` +
+				(unbounded
+					? 'an ISO 5167-2 discharge coefficient that cannot be bounded'
+					: `a loss coefficient, with a discharge coefficient${low}, that is not a finite positive floating-point number`) +
+				', so the solver cannot represent this plate. Check its bore and discharge coefficient.';
+		}
+	}
+	return text === null ? null : { text, links };
 }
 
 /** An issue about one pipe of a piping ("connection 'L1' pipe 2: ..."), told with its names. */
@@ -498,6 +560,34 @@ const EQUIPMENT_RATING = new RegExp(
 		'gives a loss coefficient, .*, that is not a finite positive floating-point number; the ' +
 		'solver cannot represent this element$',
 	's'
+);
+/**
+ * An orifice plate the solver cannot represent (the builder's _orifice_issue_text): its bore and
+ * its inlet pipe's inner diameter, m (Python's `:g`), β (`:.6g`), then the rule it breaks.
+ */
+const ORIFICE_HEAD = new RegExp(
+	`^orifice '${ID}': a bore diameter of ${NUM} m in an inlet pipe of inner diameter ${NUM} m ` +
+		`\\(β = d/D = ${NUM}\\): (.*)$`,
+	's'
+);
+const ORIFICE_BETA =
+	/^the bore is not smaller than the pipe; an orifice plate needs β < 1, so the solver cannot represent this plate$/;
+const ORIFICE_ISO = new RegExp(
+	`^ISO 5167-2's discharge coefficient \\(Reader-Harris/Gallagher\\) at (corner tappings|flange tappings|D and D/2 tappings) ` +
+		`can reach ${NUM} at some flow, above 1, .*$`,
+	's'
+);
+const ORIFICE_MOVED = new RegExp(
+	`^its entered discharge coefficient ${NUM} at its (corner tappings|flange tappings), moved to D and ` +
+		`D/2 tappings by ISO 5167-2's ratio of the two tap sets' coefficients \\(up to ${NUM} at this ` +
+		`plate\\), can reach ${NUM} at some flow, above 1, .*$`,
+	's'
+);
+const ORIFICE_UNBOUNDED =
+	/^ISO 5167-2's discharge coefficient cannot be bounded at this plate; the solver cannot represent this plate$/;
+const ORIFICE_LOSS = new RegExp(
+	`^with a discharge coefficient down to ${NUM} it gives a loss coefficient, K/\\(2 g A²\\), that is ` +
+		'not a finite positive floating-point number; the solver cannot represent this plate$'
 );
 /** "connection 'L1' pipe 2: <the pipe's problem>" (pipes numbered from 1). */
 const PIPE_PREFIX = new RegExp(`^connection '${ID}' pipe (\\d+): (.*)$`, 's');

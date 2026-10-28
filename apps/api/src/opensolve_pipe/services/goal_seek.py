@@ -35,6 +35,7 @@ from ..models.components import (
     BaseComponent,
     ControlValve,
     Equipment,
+    Orifice,
     Pump,
     RatedPoint,
 )
@@ -100,7 +101,7 @@ from .scenarios import (
 )
 from .solver import TopologyError, solve_project
 from .solver.budget import SolveDeadlineError, check_budget, current_budget
-from .solver.builder import build_network
+from .solver.builder import build_network, orifice_refusals
 from .solver.labels import pipe_name
 from .solver.methods import BRENT
 from .solver.version import METHOD_VERSION
@@ -1434,6 +1435,7 @@ _ELEMENT_NEEDED: dict[str, str] = {
     "pump": "a pump",
     "valve": "a valve",
     "equipment": "an equipment item",
+    "orifice": "an orifice plate",
     "boundary": "a reservoir or reference node",
 }
 _TOLERANCE_UNITS = {"pressure": "Pa", "head": "m", "flow": "m³/s", "velocity": "m/s"}
@@ -1605,11 +1607,19 @@ _DEFAULTS = {
         "ideal: no loss when fully open",
     ),
     "crane": ("the Crane TP-410 default for this valve type", "the Crane TP-410 default"),
+    "iso_5167_2": (
+        "ISO 5167-2's Reader-Harris/Gallagher coefficient at the solved flow, the orifice "
+        "plate's default",
+        "ISO 5167-2's Reader-Harris/Gallagher coefficient",
+    ),
 }
-"""A valve's resistance when it has none: in the methods text, and in its element note."""
+"""A valve's resistance, or an orifice plate's discharge coefficient, when it has none: in the
+methods text, and in its element note."""
 
 
 def _default_text(component: BaseComponent) -> str:
+    if isinstance(component, Orifice):
+        return _DEFAULTS["iso_5167_2"][0]
     return _DEFAULTS["control" if isinstance(component, ControlValve) else "crane"][0]
 
 
@@ -1712,7 +1722,15 @@ def _resolve_variable(
         assert isinstance(target, BaseComponent)
         label = f"{name} of {COMPONENT_NAMES[type(target)]} {target.id}"
     else:
-        case_number = float(raw)
+        if raw is None:
+            # An orifice plate on ISO 5167-2's C (its default) holds no number: the search
+            # starts in the middle of the bounds, as for a resistance on its default (proposal
+            # orifice-plate.md §5.2).
+            assert isinstance(target, Orifice)
+            case_number = None
+            default_text = _default_text(target)
+        else:
+            case_number = float(raw)
         name = override_label(entry, target)
         if isinstance(variable, ComponentVariable):
             assert isinstance(target, BaseComponent)
@@ -1842,6 +1860,18 @@ def _resolve_goal(
                 )
             )
             return None
+        if "taps" in spec.needs and isinstance(component, Orifice) and component.taps is None:
+            # The taps cannot be overridden, so the case's are the base's (proposal
+            # orifice-plate.md §5.2).
+            problems.append(
+                _issue(
+                    "GOAL_NOT_APPLICABLE",
+                    f"{where}: the orifice has no pressure taps; set its taps to read a "
+                    "differential pressure",
+                    ("component", eid),
+                )
+            )
+            return None
         if "npshrCurve" in spec.needs and isinstance(component, Pump):
             curve = next((c for c in case.pump_library if c.id == component.curve_id), None)
             if curve is not None and curve.npshr_curve is None:
@@ -1878,10 +1908,63 @@ def _resolve_goal(
     return _Goal(j, goal, spec, label, tolerance, source, name)
 
 
-def _check_bounds(dump: Mapping[str, Any], variables: Sequence[_Var]) -> None:
+ORIFICE_FIELDS = frozenset({"boreDiameter", "dischargeCoefficient"})
+"""An orifice plate's values whose bounds also meet a topology rule (proposal orifice-plate.md
+decision 21): β < 1 and decision 17's coefficient bounds depend on the inlet pipe."""
+
+_ORIFICE_BOUND_TEXTS: dict[str, str] = {
+    "beta": "the orifice's bore is not smaller than its inlet pipe's inner diameter",
+    "iso_coefficient": "ISO 5167-2's discharge coefficient at this {what} could exceed 1",
+    "moved_coefficient": (
+        "the orifice's discharge coefficient, moved from its taps to D and D/2 tappings, could "
+        "exceed 1 at this {what}"
+    ),
+    "coefficient": (
+        "the orifice's loss coefficient is not a finite positive floating-point number at this "
+        "{what}"
+    ),
+}
+"""Decision 17's rules at a bound, located by index: no id or value (D10, SDD §5.1.2)."""
+
+
+def _orifice_bound_issues(
+    trial: Project, fluid: FluidProperties, var: _Var, side: str
+) -> list[TopologyIssue]:
+    """Decision 21: the network built at one bound of an orifice plate's bore or discharge
+    coefficient (the other values as the case holds them); decision 17's issue for this plate
+    there, as an input problem located by index that quotes no value. The case's own 422 keeps
+    the builder's quoting text."""
+    try:
+        build_network(trial, fluid)
+    except TopologyError as exc:
+        element = _element_of(var.request)
+        eid = var.element_id
+        what = "bore" if var.request.field == "boreDiameter" else "discharge coefficient"
+        refused = orifice_refusals(trial)
+        found: list[TopologyIssue] = []
+        for problem in exc.issues:
+            if problem.code == "ORIFICE_OUT_OF_RANGE" and eid in problem.component_ids:
+                text = _ORIFICE_BOUND_TEXTS[refused[eid][2].rule].format(what=what)
+            else:  # the case builds, and only this value changed: not expected
+                text = f"the project does not build at this bound ({problem.code})"
+            found.append(
+                _issue(problem.code, f"body.variables.{var.index}.{side}: {text}", element)
+            )
+        return found
+    return []
+
+
+def _check_bounds(
+    dump: Mapping[str, Any], variables: Sequence[_Var], fluid: FluidProperties
+) -> None:
     """§4.2 step 7: each bound written into the case (the other values as the case holds them)
     and validated; every model rule on these values bounds one value, so the 2n checks prove
-    that every trial in the box validates. No solve runs."""
+    that every trial in the box validates. No solve runs. At each bound of an orifice plate's
+    bore or discharge coefficient the network is also built (proposal orifice-plate.md decision
+    21): decision 17's test is monotone in that value alone, so for one such variable the two
+    builds prove that every trial builds; with a bore and a coefficient varied together, or a
+    bore on an entered coefficient moved from corner or flange taps, a trial they do not cover
+    can still be refused, and is then an unusable trial."""
     issues: list[TopologyIssue] = []
     for var in variables:
         element = _element_of(var.request)
@@ -1889,7 +1972,7 @@ def _check_bounds(dump: Mapping[str, Any], variables: Sequence[_Var]) -> None:
             data = copy.deepcopy(dict(dump))
             var.write(data, bound)
             try:
-                Project.model_validate(data)
+                trial = Project.model_validate(data)
             except ValidationError as exc:
                 seen: set[str] = set()
                 for error in exc.errors():
@@ -1897,6 +1980,10 @@ def _check_bounds(dump: Mapping[str, Any], variables: Sequence[_Var]) -> None:
                     if message not in seen:
                         seen.add(message)
                         issues.append(_issue(str(error["type"]), message, element))
+                continue
+            request = var.request
+            if isinstance(request, ComponentVariable) and request.field in ORIFICE_FIELDS:
+                issues.extend(_orifice_bound_issues(trial, fluid, var, side))
     if issues:
         raise GoalSeekInputError(issues)
 
@@ -1977,6 +2064,20 @@ def goal_value(state: SolvedState, goal: Goal, name: str) -> tuple[float | None,
             value = item.pressure_loss
         else:
             value = item.pressure_drop
+    elif q.startswith("orifice_"):
+        plate = state.orifice_results.get(eid)
+        if plate is None:
+            return None, f"{name} has no result (it lies in a closed-off section)"
+        if q == "orifice_flow":
+            value = plate.flow
+        elif q == "orifice_pressure_loss":
+            value = plate.pressure_loss
+        elif q == "orifice_differential_pressure":
+            if plate.differential_pressure is None:
+                return None, f"{name} has no pressure taps, so no differential pressure"
+            value = plate.differential_pressure
+        else:
+            value = plate.pressure_drop
     else:
         boundary = state.boundary_results.get(eid)
         if boundary is None:
@@ -2044,7 +2145,9 @@ def _case_value_text(var: _Var) -> str:
             return f"{value.get('kind')} {number:.6g}"
         short = next(short for long, short in _DEFAULTS.values() if long == var.default_text)
         return f": none, {short}"
-    assert var.case_number is not None
+    if var.case_number is None:  # an orifice plate's discharge coefficient on its default
+        short = next(short for long, short in _DEFAULTS.values() if long == var.default_text)
+        return f": none, {short}"
     return _num(var.case_number, var.unit)
 
 
@@ -2136,7 +2239,9 @@ def _variable_item(var: _Var, axis: Axis, value: float | None) -> str:
         source = f"the case's value {_variable_value_text(var, axis.case)}, clipped into the bounds"
     else:
         held = var.default_text or _case_value_text(var)
-        source = f"the middle of the bounds: the case's resistance is {held}"
+        resistance = isinstance(request, ComponentVariable) and request.coefficient is not None
+        what = "resistance" if resistance else var.name
+        source = f"the middle of the bounds: the case's {what} is {held}"
     if value is None:
         found = "found: none (no evaluation was usable)"
     else:
@@ -2358,7 +2463,7 @@ def prepare(request: GoalSeekRequest) -> Prepared:
         raise
     dump: dict[str, Any] = case.model_dump(mode="json", exclude_unset=True)
     dump.pop("scenarios", None)
-    _check_bounds(dump, variables)
+    _check_bounds(dump, variables, fluid)
     return Prepared(applied, case, fluid, dump, variables, goals)
 
 

@@ -17,12 +17,18 @@ import pytest
 
 from tests.differential.corpus import items, load
 from tests.differential.goal_seek_check import (
+    ORIFICE_BETA_MAX,
+    ORIFICE_MOVED_C_MAX,
     Api,
     Case,
     Draw,
     _strip_times,
+    candidates,
     check_all,
+    draw_bounds,
     first_difference,
+    goal_candidates,
+    goal_value,
     schema_errors,
     select,
     summarize,
@@ -477,3 +483,118 @@ def test_a_rating_value_of_another_kind_than_the_base_has_no_base_value() -> Non
     draw.violations, draw.jump_sides = [], []
     draw.check(response)
     assert any(v.startswith("(g) variable 0: baseValue") for v in draw.violations), draw.violations
+
+
+# --------------------------------------------------------------------------- orifice plates
+
+
+def test_the_draws_know_an_orifice_plates_values_and_goals() -> None:
+    """The check learns the orifice plate (proposal orifice-plate.md §7.4): its bore and C are
+    variables, its four goals are drawn where its result has them (the reading only with taps),
+    the bore is drawn at most ORIFICE_BETA_MAX × its inlet pipe's bore and an entered C at
+    corner or flange taps below ORIFICE_MOVED_C_MAX / r, and a C on ISO 5167-2's (no number
+    held) is centred on the C solved at the taps."""
+    api = Api()
+    meter = Case(api, "ref_orifice_line", dict(items())["ref_orifice_line"], scenario=False)
+    assert meter.state is not None
+    (plate,) = meter.state["orificeResults"].values()
+    assert plate["taps"] == "flange"
+    found = candidates(api, meter.case)
+    assert [v["componentId"] for v in found["boreDiameter"]] == ["OR1"]
+    assert [v["componentId"] for v in found["dischargeCoefficient"]] == ["OR1"]
+    goals = goal_candidates(api, meter.case, meter.state)
+    quantities = ("flow", "pressure_loss", "differential_pressure", "pressure_drop")
+    for q in quantities:
+        assert [g["elementId"] for g in goals[f"orifice_{q}"]] == ["OR1"], q
+    assert goal_value(meter.state, goals["orifice_differential_pressure"][0]) == pytest.approx(
+        91977.61225,
+        rel=1e-9,  # proposal §7.1 C1
+    )
+    rng = random.Random("orifice")
+    d_pipe = plate["pipeDiameter"]
+    bore = {"kind": "component", "componentId": "OR1", "field": "boreDiameter"}
+    coefficient = {"kind": "component", "componentId": "OR1", "field": "dischargeCoefficient"}
+    ratio = plate["dischargeCoefficient"] / plate["meterDischargeCoefficient"]
+    bores = centred = 0
+    for _ in range(200):  # None: a draw whose interval lies beyond the largest bound
+        drawn = draw_bounds(api, rng, meter.case, meter.state, bore)
+        if drawn is not None:
+            assert 0.0 < drawn["lower"] < drawn["upper"] <= ORIFICE_BETA_MAX * d_pipe
+            bores += 1
+        drawn = draw_bounds(api, rng, meter.case, meter.state, coefficient)
+        if drawn is not None:
+            assert 0.0 < drawn["lower"] < drawn["upper"] <= ORIFICE_MOVED_C_MAX / ratio
+            centred += drawn["lower"] <= plate["meterDischargeCoefficient"] <= drawn["upper"]
+    assert bores >= 150
+    assert centred >= 150  # about nine draws in ten hold the centre
+    # a restriction orifice: no taps, so no reading to aim at, and an entered C up to 1
+    plain = Case(api, "ref_orifice_entered_c", dict(items())["ref_orifice_entered_c"], False)
+    assert plain.state is not None
+    goals = goal_candidates(api, plain.case, plain.state)
+    assert goals["orifice_differential_pressure"] == []
+    assert [g["elementId"] for g in goals["orifice_flow"]] == ["OR1"]
+
+
+ORIFICE_DRAWS = [
+    # G33 (proposal §7.3): the bore for a flow of 15 L/s on C1, met near d* = 46.764 mm.
+    (
+        "ref_orifice_line",
+        {"field": "boreDiameter", "lower": 0.02, "upper": 0.07},
+        {"quantity": "orifice_flow", "target": 0.015},
+        "case",
+    ),
+    # ISO 5167-2's C held as no number: the search starts in the middle of the bounds; the C
+    # found is the C at the plate's flange taps (decision 13's move).
+    (
+        "ref_orifice_line",
+        {"field": "dischargeCoefficient", "lower": 0.45, "upper": 0.9},
+        {"quantity": "orifice_differential_pressure", "target": 8.0e4},
+        "middle",
+    ),
+    # the permanent loss and the static drop, on a plate whose outlet pipe is larger (C11)
+    (
+        "ref_orifice_outlet_bore_differs",
+        {"field": "boreDiameter", "lower": 0.03, "upper": 0.07},
+        {"quantity": "orifice_pressure_drop", "target": 7.0e4},
+        "case",
+    ),
+    (
+        "ref_orifice_entered_c",
+        {"field": "dischargeCoefficient", "lower": 0.4, "upper": 0.8},
+        {"quantity": "orifice_pressure_loss", "target": 6.0e4},
+        "case",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "variable", "goal", "start"),
+    ORIFICE_DRAWS,
+    ids=[f"{d[0]}-{d[1]['field']}-{d[2]['quantity']}" for d in ORIFICE_DRAWS],
+)
+def test_the_checks_over_an_orifice_plate(
+    name: str, variable: dict[str, Any], goal: dict[str, Any], start: str
+) -> None:
+    """Each orifice variable and goal goes through every check, met; a C on ISO 5167-2's
+    starts in the middle of its bounds (proposal orifice-plate.md §5.2), and a response that
+    says otherwise is a violation (g)."""
+    api = Api()
+    case = Case(api, name, dict(items())[name], scenario=False)
+    assert case.state is not None
+    drawn = {
+        "variables": [{"kind": "component", "componentId": "OR1", **variable}],
+        "goals": [{**goal, "elementId": "OR1"}],
+        "kind": "interior",
+    }
+    draw = Draw(
+        api, random.Random(name), case.base, case.project, case.case, case.state, None, drawn
+    )
+    record = draw.run()
+    assert not draw.violations, draw.violations
+    assert record["stop"] == "met", record
+    response = copy.deepcopy(draw.responses[0])
+    assert response["result"]["variables"][0]["startSource"] == start
+    response["result"]["variables"][0]["startSource"] = "clipped"
+    draw.violations, draw.jump_sides = [], []
+    draw.check(response)
+    assert any(v.startswith("(g) variable 0: start") for v in draw.violations), draw.violations

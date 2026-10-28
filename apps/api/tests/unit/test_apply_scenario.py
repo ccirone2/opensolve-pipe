@@ -73,6 +73,19 @@ def _equipment(cid: str, rating: dict[str, Any]) -> dict[str, Any]:
 POINT = {"kind": "point", "pressureLoss": 5.0e4, "flow": 0.015, "density": 999.102621}
 """A rated point (test input): 50 kPa at 15 L/s on water at 15 °C."""
 
+
+def _orifice(cid: str, **fields: Any) -> dict[str, Any]:
+    return {
+        "type": "orifice",
+        "id": cid,
+        "name": cid,
+        "elevation": 0.0,
+        "ports": _ports("inlet", "outlet"),
+        "boreDiameter": 0.05,
+        **fields,
+    }
+
+
 CURVE = {
     "id": "C1",
     "name": "curve",
@@ -114,6 +127,8 @@ def base_json(fluid: dict[str, Any] | None = None) -> dict[str, Any]:
         _equipment("E1", POINT),
         _equipment("E2", {"kind": "Kv", "value": 60.0}),
         _equipment("E3", {"kind": "Cv", "value": 90.0}),
+        _orifice("O1", dischargeCoefficient=0.6, taps="flange"),
+        _orifice("O2"),
     ]
     conns = [
         connection(
@@ -172,6 +187,8 @@ VALID = {
     "Equipment.rating.flow": comp("E1", "rating.flow", 0.012),
     "Equipment.rating.density": comp("E1", "rating.density", 1043.47),
     "Equipment.rating.value": comp("E2", "rating.value", 72.0),
+    "Orifice.boreDiameter": comp("O1", "boreDiameter", 0.06),
+    "Orifice.dischargeCoefficient": comp("O2", "dischargeCoefficient", 0.62),
     "PipeDefinition.spec": pipe(
         "L1", 0, "spec", {"materialId": "stainless_steel", "schedule": "40S", "nominalSize": 0.1524}
     ),

@@ -65,6 +65,10 @@ EXPECTED: dict[str, dict[str, tuple[str, list[str], str]]] = {
         "rating.density": ("RatedPoint", ["rating", "density"], "linear"),
         "rating.value": ("RatedFlowCoefficient", ["rating", "value"], "log"),
     },
+    "Orifice": {
+        "boreDiameter": ("Orifice", ["boreDiameter"], "log"),
+        "dischargeCoefficient": ("Orifice", ["dischargeCoefficient"], "linear"),
+    },
     "PipeDefinition": {"length": ("PipeDefinition", ["length"], "log")},
     "Project": {"fluid.temperature": ("BuiltinFluid", ["fluid", "temperature"], "linear")},
 }
@@ -189,6 +193,11 @@ BASES: dict[str, tuple[str, tuple[str, ...], dict[str, Any]]] = {
             "ports": ["inlet", "outlet"],
         },
     ),
+    "Orifice": (
+        "Orifice",
+        ("boreDiameter", "dischargeCoefficient"),
+        {"type": "orifice", "boreDiameter": 0.05, "taps": "flange", "ports": ["inlet", "outlet"]},
+    ),
 }
 """A valid instance of each component type with two or more variables, one per set of
 variables an element can hold at once (an equipment item's rated point holds three values, its
@@ -205,6 +214,8 @@ GRIDS: dict[tuple[str, str], list[Any]] = {
     ("Equipment", "rating.flow"): [-1.0, 0.0, 1e-6, 0.015, 100.0, 101.0],
     ("Equipment", "rating.density"): [-1.0, 0.0, 1.0, 999.1, 3.0e4, 3.0e4 + 1],
     ("Equipment", "rating.value"): [-1.0, 0.0, 1e-3, 60.0, 1.0e7, 1.1e7],
+    ("Orifice", "boreDiameter"): [-1.0, 0.0, 1e-6, 0.05, 10.0, 11.0],
+    ("Orifice", "dischargeCoefficient"): [-0.1, 0.0, 1e-6, 0.6, 1.0, 1.1],
 }
 """Values on both sides of each field's bounds and rules (test input)."""
 
@@ -333,6 +344,10 @@ def test_x_goal_quantities_states_the_quantities_and_their_tolerances() -> None:
         "equipment_flow": ["Equipment"],
         "equipment_pressure_loss": ["Equipment"],
         "equipment_pressure_drop": ["Equipment"],
+        "orifice_flow": ["Orifice"],
+        "orifice_pressure_loss": ["Orifice"],
+        "orifice_differential_pressure": ["Orifice"],
+        "orifice_pressure_drop": ["Orifice"],
         "boundary_outflow": ["Reservoir", "IdealReferenceNode"],
     }
     pressures = (
@@ -340,12 +355,18 @@ def test_x_goal_quantities_states_the_quantities_and_their_tolerances() -> None:
         "valve_pressure_drop",
         "equipment_pressure_loss",
         "equipment_pressure_drop",
+        "orifice_pressure_loss",
+        "orifice_differential_pressure",
+        "orifice_pressure_drop",
     )
     units = {
         "port_pressure": "Pa(g)",
         "valve_pressure_drop": "Pa (difference)",
         "equipment_pressure_loss": "Pa (difference)",
         "equipment_pressure_drop": "Pa (difference)",
+        "orifice_pressure_loss": "Pa (difference)",
+        "orifice_differential_pressure": "Pa (difference)",
+        "orifice_pressure_drop": "Pa (difference)",
         "link_velocity": "m/s",
         "link_head_loss": "m",
         "pump_head": "m",
@@ -363,6 +384,7 @@ def test_x_goal_quantities_states_the_quantities_and_their_tolerances() -> None:
         needs = {
             "pump_npsh_available": ["vaporPressure"],
             "pump_npsh_margin": ["vaporPressure", "npshrCurve"],
+            "orifice_differential_pressure": ["taps"],
         }
         assert item["needs"] == needs.get(quantity, [])
         ((kind, floor),) = item["floor"].items()

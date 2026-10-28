@@ -72,13 +72,22 @@ OUT_OF_BOUNDS: dict[str, Any] = {
     "rating.flow": 0.0,
     "rating.density": -1.0,
     "rating.value": 2.0e7,
+    "boreDiameter": 11.0,
+    "dischargeCoefficient": 1.5,
     "length": 0.0,
     "spec": {"materialId": "custom"},
     "fluid": {"kind": "custom"},
     "fluid.temperature": 2000.0,
 }
 """A value outside each field's bounds (or its model's rules); an equipment item's whole rating
-of an unknown kind (proposal equipment-pressure-drop.md §2.1, decision 22)."""
+of an unknown kind (proposal equipment-pressure-drop.md §2.1, decision 22); an orifice plate's
+bore above 10 m and C above 1 (proposal orifice-plate.md §2.1, §7.4), or below their lower
+bounds (``BELOW_BOUNDS``)."""
+
+BELOW_BOUNDS: dict[str, Any] = {"boreDiameter": 0.0, "dischargeCoefficient": 0.0}
+"""An orifice plate's bore and C at their exclusive lower bound of 0, drawn in place of
+``OUT_OF_BOUNDS`` half the time (a draw only where an orifice value was chosen, so the other
+projects' scenarios are unchanged)."""
 
 
 def draw(name: str, base: dict[str, Any]) -> list[dict[str, Any]]:
@@ -90,6 +99,8 @@ def draw(name: str, base: dict[str, Any]) -> list[dict[str, Any]]:
         if applicable:
             chosen = rng.choice(applicable)
             chosen["value"] = copy.deepcopy(OUT_OF_BOUNDS[chosen["field"]])
+            if chosen["field"] in BELOW_BOUNDS and rng.random() < 0.5:
+                chosen["value"] = BELOW_BOUNDS[chosen["field"]]
     return overrides
 
 

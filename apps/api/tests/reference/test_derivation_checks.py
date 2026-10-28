@@ -16,10 +16,17 @@
   water density against fluids' documented value; the Crane tee functions against their
   docstring examples (Crane TP-410 Examples 7-35, 7-36).
 - EPANET cases: residuals vanish under EPANET's constants (g = 32.2 ft/s², minor-loss constant
-  0.02517, its friction code) to float32 precision, and our model's answer stays well inside the
-  0.5 % criterion of EPANET's.
+  0.02517, its friction code; an orifice plate's GPV curve) to float32 precision, and our model's
+  answer stays well inside the 0.5 % criterion of EPANET's.
+- Orifice plates (docs/proposals/orifice-plate.md): the suite's transcription of ISO 5167-2 eq.
+  (4) against fluids and its docstring examples, K against the pressure-loss relation, Borda–
+  Carnot and Skelton's ratio, the cancellation-free K, the hold; each case's results, flags and
+  coefficients from their definitions; the meter's reading read back by fluids' meter solver;
+  C held at another Re missing C7 and E3 beyond D6; the move of an entered C in C12; and the
+  proposal's measured values.
 """
 
+import itertools
 import math
 from pathlib import Path
 from typing import Any
@@ -34,6 +41,8 @@ from scipy.optimize import brentq
 from opensolve_pipe.models.components import (
     ControlValve,
     FlowCoefficient,
+    Orifice,
+    OrificeTaps,
     Pump,
     PumpControl,
     TeeBranch,
@@ -42,9 +51,10 @@ from opensolve_pipe.models.components import (
 from opensolve_pipe.models.project import Project
 from tests.reference import derivations as dv
 from tests.reference import derivations_branches as dvb
+from tests.reference import derivations_orifice as do
 from tests.reference import element_laws as el
 from tests.reference import network_check as nc
-from tests.reference.case_format import case_files, case_path, read_case
+from tests.reference.case_format import case_files, case_path, custom_fluid, read_case
 
 FLOAT32_REL = 2.0**-23
 CASES = case_files()
@@ -359,9 +369,16 @@ def _has_assigned_flows(path: Path) -> bool:
     return any(c["type"] == "assigned_flow" for c in read_case(path)["project"]["components"])
 
 
+def _has_orifices(path: Path) -> bool:
+    return any(c["type"] == "orifice" for c in read_case(path)["project"]["components"])
+
+
 def _heads_pinned(path: Path) -> bool:
-    """No pump, valve or assigned flow: every head lies between reservoirs' fixed heads."""
-    return not (_has_components(path) or _has_assigned_flows(path))
+    """No pump, valve, assigned flow or orifice plate: every head lies between reservoirs'
+    fixed heads, and every element carries EPANET's g bias alike. An orifice plate is an EPANET
+    GPV, a head-loss curve of the plate's own law that carries no g bias while the pipes beside
+    it do, so the heads between the reservoirs move by more (measured: up to 1.6 mm)."""
+    return not (_has_components(path) or _has_assigned_flows(path) or _has_orifices(path))
 
 
 EPANET_CASES = [p for p in CASES if p.stem.startswith("epanet")]
@@ -395,11 +412,13 @@ def test_epanet_case_agrees_with_our_model_inside_the_criterion(path: Path) -> N
 def test_epanet_component_case_agrees_with_our_model_inside_half_the_criterion(
     path: Path,
 ) -> None:
-    """Pump, control-valve and demand networks: heads next to a pump or a fixed-flow valve, or
-    along a path whose flow an assigned demand fixes, are not pinned by reservoirs, so EPANET's
-    g = 32.2 ft/s² (0.08 % in every head loss) moves them by a few mm (measured: up to 1.9 mm
-    at the pump, 6.9 mm at the FCV, 7.1 mm at a demand of the gravity network and 16.4 mm at
-    the far demand of the pumped one, 0.08 % of the 20 m lost on its way). Our model still lands
+    """Pump, control-valve, demand and orifice networks: heads next to a pump or a fixed-flow
+    valve, or along a path whose flow an assigned demand fixes, are not pinned by reservoirs, so
+    EPANET's g = 32.2 ft/s² (0.08 % in every head loss) moves them by a few mm (measured: up to
+    1.9 mm at the pump, 6.9 mm at the FCV, 7.1 mm at a demand of the gravity network and 16.4 mm
+    at the far demand of the pumped one, 0.08 % of the 20 m lost on its way); an orifice plate's
+    GPV curve carries no g bias, so the pipes' bias is not balanced across it (measured: flows
+    within 3.2e-4, heads within 1.6 mm, in the loop's legs). Our model still lands
     inside half of the D6 criterion: flows within 0.25 %, every EGL and every connection's
     EGL drop within max(0.25 %, 5 mm). Solving with EPANET's constants instead reproduces EPANET
     to float32 precision (test_energy_equations_close)."""
@@ -1054,3 +1073,467 @@ def test_equipment_derivations_reproduce_the_proposal(name: str) -> None:
     group, key, value = PROPOSAL_VALUES[name]
     got = read_case(case_path(name))["expected"][group][key]
     assert got == pytest.approx(value, rel=2.0e-7), (name, got, value)
+
+
+# --- Orifice plates (docs/proposals/orifice-plate.md) ---------------------------------------------
+
+
+def _plates(project: Project) -> list[Orifice]:
+    return [c for c in project.components if isinstance(c, Orifice)]
+
+
+ORIFICE_CASES = [p for p in CASES if _has_orifices(p)]
+ORIFICE_TAPS: tuple[OrificeTaps, ...] = ("corner", "flange", "d_and_d_2")
+FLUIDS_TAPS = {"corner": "corner", "flange": "flange", "d_and_d_2": "D"}
+"""The fluids ``taps`` argument of each tap set."""
+
+
+def test_orifice_cases_exist() -> None:
+    """§7.1's twelve closed-form cases and §7.2's three EPANET cases."""
+    assert len(ORIFICE_CASES) == 15
+    assert len([p for p in ORIFICE_CASES if p.stem.startswith("epanet")]) == 3
+
+
+@pytest.mark.parametrize("taps", ORIFICE_TAPS)
+def test_rhg_transcription_equals_fluids(taps: OrificeTaps) -> None:
+    """``element_laws.rhg_terms`` (ISO 5167-2:2003 eq. (4), transcribed from the fluids
+    docstring) against fluids.flow_meter.C_Reader_Harris_Gallagher, the one implementation
+    (D8/D9), at Re_D ≥ 5000 where fluids' two terms that are not ISO's never act, over D 20 mm
+    to 1 m (the small-pipe term below 71.12 mm included) and β 0.1-0.75 (the proposal measured
+    4.4e-16)."""
+    import fluids.flow_meter
+
+    mu, rho = 1.0e-3, 998.0
+    for d_pipe in (0.0204, 0.0409, 0.0525, 0.0711, 0.1023, 0.3, 1.0):
+        for beta in (0.1, 0.25, 0.4, 0.5, 0.56, 0.6, 0.7, 0.75):
+            d = beta * d_pipe
+            for re in (5000.0, 1.2e4, 1.0e5, 1.0e6, 1.0e8):
+                m = math.pi * d_pipe * mu / 4.0 * re
+                theirs = fluids.flow_meter.C_Reader_Harris_Gallagher(
+                    d_pipe, d, rho, mu, m, FLUIDS_TAPS[taps]
+                )
+                assert el.orifice_c(d_pipe, d, re, taps) == pytest.approx(theirs, rel=1.0e-13)
+
+
+def test_orifice_functions_reproduce_the_fluids_docstring_examples() -> None:
+    """fluids 1.3.1's docstring examples of C_Reader_Harris_Gallagher, discharge_coefficient_to_K,
+    K_to_discharge_coefficient and dP_orifice, through the suite's transcription."""
+    rho, mu, m, d_pipe, d = 1.165, 1.85e-5, 0.12, 0.07391, 0.0222
+    re = 4.0 * m / (math.pi * d_pipe * mu)
+    assert rho > 0.0
+    assert el.orifice_c(d_pipe, d, re, "flange") == pytest.approx(0.5990326277163659, rel=1e-13)
+    assert el.orifice_k(0.07366, 0.05, 0.61512) == pytest.approx(5.2314291729754, rel=1.0e-12)
+    assert el.orifice_c_from_k(0.07366, 0.05, 5.2314291729754) == pytest.approx(
+        0.6151200000000001, rel=1.0e-12
+    )
+    # dP_orifice: the permanent loss K ρv²/2 at the flow eq. (1) gives for P1 − P2 = 17 kPa.
+    beta = 0.05 / 0.07366
+    c = 0.61512
+    loss = el.orifice_k(0.07366, 0.05, c) * c * c * beta**4 / (1.0 - beta**4) * 17000.0
+    assert loss == pytest.approx(9069.474705745388, rel=1.0e-12)
+
+
+@pytest.mark.parametrize("c", [0.3, 0.5, 0.6, 0.8, 1.0])
+def test_orifice_k_is_the_pressure_loss_relation(c: float) -> None:
+    """K ρv²/2 = ISO 5167-2's pressure-loss relation [S − Cβ²]/[S + Cβ²] Δp, Δp from eq. (1)
+    (fluids.flow_meter.dP_orifice); the cancellation-free K equals fluids'
+    discharge_coefficient_to_K for β 0.02-0.97; the C ↔ K round trip (``orifice_c_from_k``,
+    fluids' K_to_discharge_coefficient)."""
+    import fluids.flow_meter as fm
+
+    d_pipe = 0.1023
+    for beta in np.linspace(0.02, 0.97, 96):
+        d = float(beta) * d_pipe
+        k = el.orifice_k(d_pipe, d, c)
+        assert k == pytest.approx(fm.discharge_coefficient_to_K(d_pipe, d, c), rel=1.0e-12)
+        assert el.orifice_c_from_k(d_pipe, d, k) == pytest.approx(c, rel=1.0e-12)
+        assert fm.K_to_discharge_coefficient(d_pipe, d, k) == pytest.approx(c, rel=1.0e-12)
+        b4 = (d / d_pipe) ** 4
+        dp = 1.0e5  # Pa between the taps; eq. (1) gives ρv²/2 = Δp C²β⁴/(1 − β⁴)
+        dynamic = dp * c * c * b4 / (1.0 - b4)
+        loss = fm.dP_orifice(d_pipe, d, 2.0e5, 2.0e5 - dp, c)
+        assert k * dynamic == pytest.approx(loss, rel=1.0e-11)
+
+
+def test_orifice_k_at_c_one_is_borda_carnot() -> None:
+    """At C = 1 (μ = 1, a jet the size of the bore) the relation is Borda–Carnot's sudden
+    expansion from the bore, (1/β² − 1)² on the pipe's velocity, which is fluids'
+    diffuser_sharp (on the bore's velocity) times (D/d)⁴ (decision 17)."""
+    d_pipe = 0.1023
+    for beta in (0.1, 0.3, 0.5, 0.7, 0.9):
+        d = beta * d_pipe
+        k = el.orifice_k(d_pipe, d, 1.0)
+        assert k == pytest.approx(el.borda_carnot_k(d_pipe, d), rel=1.0e-12)
+        sharp = fluids.fittings.diffuser_sharp(Di1=d, Di2=d_pipe) * (d_pipe / d) ** 4
+        assert k == pytest.approx(sharp, rel=1.0e-12)
+
+
+def test_orifice_pressure_loss_ratio_of_skelton() -> None:
+    """Skelton et al. (28th NSFMW 2010): at β 0.4 and C 0.602 the pressure-loss ratio
+    Δϖ/Δp = K C² β⁴/(1 − β⁴) is 0.823 (fluids gives 0.82296)."""
+    ratio = el.orifice_k(1.0, 0.4, 0.602) * 0.602**2 * 0.4**4 / (1.0 - 0.4**4)
+    assert ratio == pytest.approx(0.82296, abs=5.0e-6)
+    assert round(ratio, 3) == 0.823
+
+
+def test_orifice_k_has_no_cancellation_as_beta_tends_to_one() -> None:
+    """K = u², u = (1 − β⁴)/(Cβ²(S + Cβ²)), 1 − β⁴ from (D − d)/D, stays positive and strictly
+    decreasing in β down to 1 − β = 10⁻¹² and tends to its β → 1 limit ((1 − β⁴)/(2C²))² (S →
+    C, so S + Cβ² → 2C) within 20(1 − β), relative (proposal decision 8, R5). fluids'
+    subtractive form S/(Cβ²) − 1 keeps only about ε/(1 − β) of relative accuracy there (5e-5 at
+    1 − β = 10⁻¹², C 0.6, measured), which this form does not lose."""
+    d_pipe = 0.1023
+    for c in (0.3, 0.6, 1.0):
+        previous = math.inf
+        for k in range(3, 13):
+            d = d_pipe * (1.0 - 10.0**-k)
+            value = el.orifice_k(d_pipe, d, c)
+            assert 0.0 < value < previous
+            limit = (el.one_minus_beta4(d_pipe, d) / (2.0 * c * c)) ** 2
+            assert value == pytest.approx(limit, rel=20.0 * 10.0**-k)
+            previous = value
+
+
+def test_orifice_hold_and_re_lo() -> None:
+    """Re_lo = max(5000, 16000β²) (corner, D and D/2) and max(5000, 170000β²D) (flange), made
+    continuous at β 0.56 (decision 7: 5017.6 there); below it C is held, so K is constant there
+    and continuous at Re_lo; the held K strictly decreases in β across 0.56 (R4)."""
+    assert el.orifice_re_lo("d_and_d_2", 0.56, 0.1) == pytest.approx(5017.6, rel=1e-12)
+    assert el.orifice_re_lo("corner", 0.5, 0.1) == 5000.0
+    flange = el.orifice_re_lo("flange", 0.75, 0.3)
+    assert flange == pytest.approx(170000 * 0.5625 * 0.3, rel=1e-15)
+    law = el.OrificeLaw(0.1023, 0.05115, 998.0, 1.0e-3)
+    q_lo = law.re_lo_loss * math.pi * 0.1023 * 1.0e-3 / (4.0 * 998.0)
+    assert law.k(1.0e-9) == law.k(0.5 * q_lo)
+    assert law.k(q_lo * (1.0 + 1.0e-9)) == pytest.approx(law.k(0.5 * q_lo), rel=1.0e-8)
+    held = [
+        el.OrificeLaw(0.1023, float(b) * 0.1023, 998.0, 1.0e-3).k(1.0e-9)
+        for b in np.linspace(0.5585, 0.5615, 3001)
+    ]
+    assert all(b < a for a, b in itertools.pairwise(held))
+
+
+def test_orifice_head_increases_with_flow() -> None:
+    """h(Q) strictly increases on every case's plates (over 10⁻⁷ to 10 times the case's flow),
+    so each brentq root is the case's only flow (proposal §3.1)."""
+    for path in ORIFICE_CASES:
+        case, project = _load(path)
+        rho, mu, _ = nc.fluid_state(project)
+        for o in _plates(project):
+            law = el.orifice_law(o, nc.port_diameter(project, f"{o.id}:inlet"), rho, mu)
+            q = abs(case["expected"]["orifices"][o.id]["flow"])
+            heads = [law.head(float(x)) for x in np.geomspace(1.0e-7 * q, 10.0 * q, 400)]
+            assert all(b > a for a, b in itertools.pairwise(heads)), (path.stem, o.id)
+
+
+@pytest.mark.parametrize("path", ORIFICE_CASES, ids=lambda p: p.stem)
+def test_orifice_results_follow_their_definitions(path: Path) -> None:
+    """Each expected orifice result (proposal §2.2) from the case's own expected flows, EGLs and
+    pressures and the plate's inputs: the flow into the inlet port, EGL_in − EGL_out, ρg times
+    it, the static drop p_in − p_out equal to the §3.7 identity, β = d/D on the inlet pipe's
+    bore, Re_D = 4ρ|Q|/(πDμ), K = K(C_L), the reading (1 − β⁴)/(C_M²β⁴) ρv|v|/2, and the vena
+    contracta pressure of decision 15 from the expected port pressures; the echoed inputs."""
+    case, project = _load(path)
+    expected = case["expected"]
+    rho, mu, _ = nc.fluid_state(project)
+    plates = _plates(project)
+    assert set(expected["orifices"]) == {o.id for o in plates}
+    for o in plates:
+        want = expected["orifices"][o.id]
+        key_in, key_out = f"{o.id}:inlet", f"{o.id}:outlet"
+        q = nc.port_inflow(project, key_in, expected["flows"])
+        d_pipe = nc.port_diameter(project, key_in)
+        assert want["flow"] == q
+        assert want["pipeDiameter"] == d_pipe
+        assert want["boreDiameter"] == o.bore_diameter
+        assert want["taps"] == o.taps
+        assert want["beta"] == pytest.approx(o.bore_diameter / d_pipe, rel=1.0e-15)
+        h = expected["egl"][key_in] - expected["egl"][key_out]
+        assert want["headLoss"] == pytest.approx(h, rel=1.0e-15)
+        assert want["pressureLoss"] == pytest.approx(rho * dv.G * h, rel=1.0e-15)
+        p_in, p_out = expected["pressures"][key_in], expected["pressures"][key_out]
+        assert want["pressureDrop"] == pytest.approx(p_in - p_out, rel=1.0e-12, abs=1.0e-9)
+        v_in = nc.end_velocity(project, key_in, expected["flows"])
+        v_out = nc.end_velocity(project, key_out, expected["flows"])
+        z_in, z_out = nc.port_elevation(project, key_in), nc.port_elevation(project, key_out)
+        identity = rho * dv.G * h + rho * dv.G * (z_out - z_in) + rho * (v_out**2 - v_in**2) / 2.0
+        assert want["pressureDrop"] == pytest.approx(identity, rel=1.0e-12, abs=1.0e-9)
+        re = 4.0 * rho * abs(q) / (math.pi * d_pipe * mu)
+        assert want["reynoldsNumber"] == pytest.approx(re, rel=1.0e-14)
+        c_l = want["dischargeCoefficient"]
+        k = el.orifice_k(d_pipe, o.bore_diameter, c_l)
+        assert want["lossCoefficient"] == pytest.approx(k, rel=1.0e-14)
+        b4 = (o.bore_diameter / d_pipe) ** 4
+        c_m = want["meterDischargeCoefficient"]
+        if o.taps is None:
+            assert c_m is None
+            assert want["differentialPressure"] is None
+        else:
+            reading = (1.0 - b4) / (c_m * c_m * b4) * rho * v_in * abs(v_in) / 2.0
+            assert want["differentialPressure"] == pytest.approx(reading, rel=1.0e-12)
+        up, down = ("inlet", "outlet") if q > 0.0 else ("outlet", "inlet")
+        z = {"inlet": z_in, "outlet": z_out}
+        jet = (1.0 - b4) / (c_l * c_l * b4) * rho * v_in**2 / 2.0
+        vc = expected["pressures"][f"{o.id}:{up}"] + rho * dv.G * (z[up] - z[down]) - jet
+        assert want["venaContractaPressure"] == pytest.approx(vc, rel=1.0e-12, abs=1.0e-7)
+
+
+@pytest.mark.parametrize("path", ORIFICE_CASES, ids=lambda p: p.stem)
+def test_orifice_coefficients_are_iso_5167_2s(path: Path) -> None:
+    """C_L and C_M from their definitions (decisions 5, 7, 13, 14), written here once more from
+    the inputs: ISO's C at D and D/2 at max(Re_D, max(5000, 16000β²)), or the entered C moved by
+    eq. (4)'s ratio from corner or flange taps; C_M ISO's at the plate's taps held at their own
+    Re_lo, or the entered C; with the source, the Re of eq. (4) and the ratio."""
+    case, project = _load(path)
+    expected = case["expected"]
+    for o in _plates(project):
+        want = expected["orifices"][o.id]
+        d_pipe, d = want["pipeDiameter"], o.bore_diameter
+        beta = d / d_pipe
+        re = want["reynoldsNumber"]
+        re_l = max(re, 5000.0, 16000.0 * beta * beta)
+        iso_dd2 = el.orifice_c(d_pipe, d, re_l, "d_and_d_2")
+        entered, taps = o.discharge_coefficient, o.taps
+        if entered is None:
+            assert want["coefficientSource"] == "iso_5167_2"
+            assert want["dischargeCoefficient"] == pytest.approx(iso_dd2, rel=1.0e-14)
+            assert want["coefficientReynoldsNumber"] == pytest.approx(re_l, rel=1.0e-15)
+            assert want["tapCoefficientRatio"] is None
+            if taps is None:
+                assert want["meterDischargeCoefficient"] is None
+            else:
+                own = 170000.0 * beta * beta * d_pipe if taps == "flange" else 16000.0 * beta**2
+                c_m = el.orifice_c(d_pipe, d, max(re, 5000.0, own), taps)
+                assert want["meterDischargeCoefficient"] == pytest.approx(c_m, rel=1.0e-14)
+        else:
+            assert want["coefficientSource"] == "entered"
+            assert want["meterDischargeCoefficient"] == (None if taps is None else entered)
+            if taps in ("corner", "flange"):
+                assert taps is not None
+                r = iso_dd2 / el.orifice_c(d_pipe, d, re_l, taps)
+                assert want["tapCoefficientRatio"] == pytest.approx(r, rel=1.0e-14)
+                assert want["dischargeCoefficient"] == pytest.approx(entered * r, rel=1.0e-14)
+                assert want["coefficientReynoldsNumber"] == pytest.approx(re_l, rel=1.0e-15)
+            else:
+                assert want["dischargeCoefficient"] == entered
+                assert want["tapCoefficientRatio"] is None
+                assert want["coefficientReynoldsNumber"] is None
+
+
+@pytest.mark.parametrize("path", ORIFICE_CASES, ids=lambda p: p.stem)
+def test_orifice_flags_follow_their_inequalities(path: Path) -> None:
+    """The expected CORRELATION_OUT_OF_RANGE limits of each plate are exactly the inequalities
+    §3.5 lists that its case breaks, and BELOW_VAPOR_PRESSURE on the plate exactly when its
+    vena contracta's absolute pressure is below the vapor pressure (0 Pa without one)."""
+    case, project = _load(path)
+    expected = case["expected"]
+    _, _, p_vap = nc.fluid_state(project)
+    p_atm = dv.standard_atmosphere_pressure(project.settings.site_elevation)
+    flags = expected.get("flags", [])
+    for o in _plates(project):
+        want = expected["orifices"][o.id]
+        d_pipe, d, re = want["pipeDiameter"], o.bore_diameter, want["reynoldsNumber"]
+        beta = d / d_pipe
+        eq4 = o.discharge_coefficient is None or o.taps in ("corner", "flange")
+        limits = set()
+        if eq4 and d < 0.0125:
+            limits.add("boreDiameter")
+        if eq4 and not 0.05 <= d_pipe <= 1.0:
+            limits.add("pipeDiameter")
+        if eq4 and not 0.1 <= beta <= 0.75:
+            limits.add("beta")
+        lows = [max(5000.0, 16000.0 * beta * beta)]
+        if o.discharge_coefficient is None and o.taps is not None:
+            lows.append(el.orifice_re_lo(o.taps, beta, d_pipe))
+        if eq4 and any(re < low for low in lows):
+            limits.add("reynoldsNumber")
+        if nc.port_diameter(project, f"{o.id}:outlet") != d_pipe:
+            limits.add("outletDiameter")
+        if o.discharge_coefficient is not None and re < 2000.0:
+            limits.add("laminar")
+        if want["flow"] < 0.0:
+            limits.add("reverseFlow")
+        flagged = {
+            f["limit"]
+            for f in flags
+            if f["code"] == "CORRELATION_OUT_OF_RANGE" and f.get("componentId") == o.id
+        }
+        assert flagged == limits, (o.id, flagged, limits)
+        threshold = 0.0 if p_vap is None else p_vap
+        flashing = want["venaContractaPressure"] + p_atm < threshold
+        vena = {
+            "code": "BELOW_VAPOR_PRESSURE",
+            "componentId": o.id,
+            "detail": "venaContractaAbsolutePressure",
+        }
+        assert (vena in flags) == flashing, o.id
+
+
+def test_orifice_flag_cases_cover_the_limits() -> None:
+    """The cases flag each kind §7.1 names (d, D, Re, the outlet bore, reverse flow, flashing at
+    the vena contracta), and C1 flags nothing."""
+    found = {
+        f.get("limit") or f["code"]
+        for p in ORIFICE_CASES
+        for f in read_case(p)["expected"].get("flags", [])
+    }
+    assert {
+        "boreDiameter",
+        "pipeDiameter",
+        "reynoldsNumber",
+        "outletDiameter",
+        "reverseFlow",
+        "BELOW_VAPOR_PRESSURE",
+    } <= found
+    assert read_case(case_path("orifice_line"))["expected"].get("flags", []) == []
+
+
+def test_orifice_line_flow_does_not_depend_on_the_taps() -> None:
+    """One loss per plate (decision 5, owner's answer Q3): C1 with no taps, corner taps or D and
+    D/2 taps has the same flow bit for bit; only the reading changes (proposal §7.1: 91,778.82
+    Pa at corner and 91,981.18 Pa at D and D/2 tappings, 91,977.61225 Pa at flange)."""
+    fluid = do.liquid_a()
+    rho, mu, _ = dv.fluid_state(fluid)
+    base = do.line_series()
+    q = base.flow(rho, mu, "colebrook")
+    readings: dict[OrificeTaps | None, float | None] = {}
+    for taps in (None, "corner", "d_and_d_2", "flange"):
+        series = do.with_taps(base, taps)
+        assert series.flow(rho, mu, "colebrook") == q
+        readings[taps] = series.law(rho, mu).differential(q)
+    assert readings[None] is None
+    assert readings["corner"] == pytest.approx(91778.82, abs=0.005)
+    assert readings["d_and_d_2"] == pytest.approx(91981.18, abs=0.005)
+    assert readings["flange"] == pytest.approx(91977.61225, abs=1.0e-5)
+
+
+def test_orifice_meter_reading_reads_back_the_flow() -> None:
+    """C2's reading at Q* = 12 L/s, put into fluids' differential_pressure_meter_solver (ISO
+    5167 orifice, flange taps, ε = 1), gives back the mass flow ρQ* (proposal: −1.1e-16)."""
+    import fluids.flow_meter as fm
+
+    case, project = _load(case_path("orifice_meter_readback"))
+    want = case["expected"]["orifices"]["OR1"]
+    rho, mu, _ = nc.fluid_state(project)
+    m = fm.differential_pressure_meter_solver(
+        D=want["pipeDiameter"],
+        rho=rho,
+        mu=mu,
+        D2=want["boreDiameter"],
+        P1=2.0e5,
+        P2=2.0e5 - want["differentialPressure"],
+        meter_type="ISO 5167 orifice",
+        taps="flange",
+        epsilon_specified=1.0,
+    )
+    assert want["flow"] == do.METER_FLOW
+    assert m == pytest.approx(rho * do.METER_FLOW, rel=1.0e-9)
+
+
+@pytest.mark.parametrize(
+    ("re", "move"), [(1.0e5, -1.216e-2), (1.0e6, -1.650e-2), (1.0e8, -1.907e-2)]
+)
+def test_a_c_held_at_another_reynolds_number_misses_c7_beyond_d6(re: float, move: float) -> None:
+    """C7 (Re_D ≈ 12,400): ISO's C held at Re 10⁵, 10⁶ or 10⁸ moves the flow by −1.216, −1.650
+    or −1.907 % (proposal §7.1), beyond D6's 0.5 %: the case tells a wrong Re dependence apart."""
+    name, rho, mu = do.LIGHT_OIL
+    q = read_case(case_path("orifice_reynolds_dependence"))["expected"]["flows"]["L1"]
+    held = do.held_c_flow(do.re_dependence_series(), custom_fluid(name, rho, mu), re)
+    assert held / q - 1.0 == pytest.approx(move, abs=5.0e-6)
+    assert abs(held / q - 1.0) > 0.005
+
+
+def test_c12_entered_c_moved_and_on_iso_c() -> None:
+    """C12: 0.6 used for the loss as entered would move the flow by −2.519 %, beyond D6 (the
+    move matters); on ISO's C the same network passes 0.02134831923356 m³/s with C_L
+    0.6134828942 and C_M 0.6008290351755132 (proposal §7.1), and an entered C equal to that
+    C_M gives ISO's flow (the calibration identity in closed form, decision 13)."""
+    rho, mu, _ = dv.fluid_state(do.liquid_a())
+    q = read_case(case_path("orifice_entered_c_at_taps"))["expected"]["flows"]["L1"]
+    as_entered = do.with_taps(do.corner_series(), None)
+    assert as_entered.flow(rho, mu, "colebrook") / q - 1.0 == pytest.approx(-2.519e-2, abs=5e-6)
+    iso = do.corner_series(entered=None)
+    q_iso = iso.flow(rho, mu, "colebrook")
+    assert q_iso == pytest.approx(0.02134831923356, rel=1.0e-11)
+    law = iso.law(rho, mu)
+    assert law.c_loss(q_iso) == pytest.approx(0.6134828942, rel=1.0e-9)
+    c_m = law.c_meter(q_iso)
+    assert c_m == pytest.approx(0.6008290351755132, rel=1.0e-12)
+    calibrated = do.corner_series(entered=c_m)
+    assert calibrated.flow(rho, mu, "colebrook") == pytest.approx(q_iso, rel=1.0e-13)
+
+
+def test_epanet_orifice_cases_agree_with_the_closed_form() -> None:
+    """EPANET's GPV runs (proposal §7.2) against the closed form of the same networks in EPANET
+    water with the suite's Swamee–Jain (the proposal's references: Q 0.01740061988423;
+    Q_A 0.01016327504258, Q_B 0.01332101666158; Q 5.966495101066e-4): within 3.5e-4 in flow
+    (EPANET's g in the pipes, the interpolated curve); on E3, a C held at Re 10⁸ would miss by
+    9.2e-3, beyond D6, so EPANET tells the Reynolds-number dependence apart there. The closed
+    forms differ from the proposal's prints by up to 2.1e-7 (Q_B): the suite's Swamee–Jain is
+    fluids' (6.97/Re)^0.9 form, the proposal's EPANET's 5.74/Re^0.9 (CLAUDE.md D7), as for the
+    equipment loop (``PROPOSAL_VALUES``)."""
+    fluid = do.epanet_water()
+    rho, mu, _ = dv.fluid_state(fluid)
+    e1 = read_case(case_path("epanet_orifice_line"))["expected"]["flows"]["L1"]
+    q1 = do.line_series().flow(rho, mu, "swamee_jain")
+    assert q1 == pytest.approx(0.01740061988423, rel=5.0e-7)
+    assert abs(e1 / q1 - 1.0) < 3.5e-4
+    _, loop = _load(case_path("epanet_orifice_balancing"))
+    sol = do.solve_loop(loop, "swamee_jain")
+    flows = read_case(case_path("epanet_orifice_balancing"))["expected"]["flows"]
+    assert sol.q_a == pytest.approx(0.01016327504258, rel=5.0e-7)
+    assert sol.q_b == pytest.approx(0.01332101666158, rel=5.0e-7)
+    assert abs(flows["LA1"] / sol.q_a - 1.0) < 3.5e-4
+    assert abs(flows["LB1"] / sol.q_b - 1.0) < 3.5e-4
+    _, low = _load(case_path("epanet_orifice_low_re"))
+    e3 = read_case(case_path("epanet_orifice_low_re"))["expected"]["flows"]["L1"]
+    [plate] = _plates(low)
+    series = do.Series(0.0, 1.2, 0.0, 0.0, *do.LOW_RE_LINES, plate)
+    q3 = series.flow(rho, mu, "swamee_jain")
+    assert q3 == pytest.approx(5.966495101066e-4, rel=5.0e-7)
+    assert abs(e3 / q3 - 1.0) < 3.0e-5
+    held = do.held_c_flow(series, fluid, 1.0e8)
+    assert held / q3 - 1.0 == pytest.approx(-9.2e-3, abs=1.0e-4)
+    assert abs(held / e3 - 1.0) > 0.005
+
+
+ORIFICE_PROPOSAL_VALUES: dict[str, list[tuple[str, str, float]]] = {
+    "orifice_line": [
+        ("flows", "L1", 0.01742501098029),
+        ("orifices.OR1", "pressureLoss", 67393.32279),
+        ("orifices.OR1", "venaContractaPressure", -30298.95924),
+    ],
+    "orifice_meter_readback": [("orifices.OR1", "differentialPressure", 43531.76776)],
+    "orifice_entered_c": [("flows", "L1", 0.01732389858578)],
+    "orifice_reverse_flow": [("orifices.OR1", "venaContractaPressure", -22246.14305)],
+    "orifice_outside_iso_geometry": [("orifices.OR1", "differentialPressure", 306609.9411)],
+    "orifice_low_reynolds": [("flows", "L1", 0.005451562364008)],
+    "orifice_reynolds_dependence": [("flows", "L1", 0.01373313452249)],
+    "orifice_balancing_loop": [
+        ("flows", "LA1", 0.01017566844332),
+        ("egl", "T2:run_inlet", 2.747714002),
+    ],
+    "orifice_min_flow_bypass": [
+        ("egl", "T1:branch", 28.61046775),
+        ("flows", "LB1", 0.002543446580695),
+    ],
+    "orifice_vena_contracta_flashing": [("orifices.RO", "pressureLoss", 1798635.117)],
+    "orifice_outlet_bore_differs": [("orifices.OR1", "pressureDrop", 75558.76276)],
+    "orifice_entered_c_at_taps": [
+        ("flows", "L1", 0.02131227740861),
+        ("orifices.OR1", "tapCoefficientRatio", 1.021059944023),
+    ],
+}
+"""Values of each case as the proposal's §7.1 table prints them, measured by its designers with
+the plate emulated in the real solver as a gate valve of K = K(Q*): an independent route to each
+derivation (the prints have 10-13 significant digits)."""
+
+
+@pytest.mark.parametrize("name", sorted(ORIFICE_PROPOSAL_VALUES))
+def test_orifice_derivations_reproduce_the_proposal(name: str) -> None:
+    expected = read_case(case_path(name))["expected"]
+    for group, key, value in ORIFICE_PROPOSAL_VALUES[name]:
+        where: Any = expected
+        for part in group.split("."):
+            where = where[part]
+        assert where[key] == pytest.approx(value, rel=1.0e-9), (name, group, key)

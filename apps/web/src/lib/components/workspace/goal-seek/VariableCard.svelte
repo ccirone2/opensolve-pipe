@@ -48,12 +48,19 @@
 		if (variable.target.kind !== 'component' || !response?.solvedState.converged) return null;
 		return response.solvedState.valveResults[variable.target.componentId]?.kOpen ?? null;
 	});
+	/** The case's last converged solve's result of an orifice plate, for one on ISO's C. */
+	const orifice = $derived.by(() => {
+		const response = ws.store.results.response;
+		if (variable.target.kind !== 'component' || !response?.solvedState.converged) return null;
+		return response.solvedState.orificeResults?.[variable.target.componentId] ?? null;
+	});
 	const now = $derived(
 		lapse
 			? ''
 			: nowText(ws.project, variable, {
 					prefs: ws.displayUnits,
 					kOpen,
+					orifice,
 					scenario: ws.activeScenario
 				})
 	);

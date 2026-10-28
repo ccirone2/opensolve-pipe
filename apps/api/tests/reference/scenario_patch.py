@@ -19,6 +19,10 @@ its values: ``rating.pressureLoss``, ``rating.flow`` and ``rating.density``, hel
 and ``rating.value``, held by a Cv or Kv. A value the base element's rating kind does not hold is
 not applicable, as a flow setpoint on a fixed-speed pump is.
 
+An orifice plate (docs/proposals/orifice-plate.md §5.1, decision 20) takes its ``boreDiameter``
+(m) and its ``dischargeCoefficient`` (dimensionless: a number, or null for ISO 5167-2's C, the
+default); its taps are installation and not overridable.
+
 ``by_hand`` edits the project's JSON the way a user would edit it by hand. It finds each target
 with the model types (``opensolve_pipe.models``) and writes the raw value in place: a ``spec``
 first removes the pipe's five spec keys. Then it drops ``scenarios``. An override whose target is
@@ -44,6 +48,7 @@ from opensolve_pipe.models.components import (
     Equipment,
     IdealReferenceNode,
     IsolationValve,
+    Orifice,
     Plug,
     Pump,
     Reservoir,
@@ -73,12 +78,14 @@ COMPONENT_FIELDS: dict[type[BaseModel], dict[str, str | None]] = {
         "rating.density": "kg/m³",
         "rating.value": "",
     },
+    Orifice: {"boreDiameter": "m", "dischargeCoefficient": ""},
 }
 """The allow-list for components (proposal §2.2): field -> the unit its record states ('' for
 none). None means the design leaves the unit open and it is not checked: a resistance is K, Cv or
 Kv as entered, and a control valve's setpoint unit depends on its type (``SETPOINT_UNITS``). An
 equipment item's rated pressure drop is a difference, "Pa (difference)" (never a bare "Pa",
-SDD §4.10); its whole rating and its Cv or Kv have none (proposal §5.1)."""
+SDD §4.10); its whole rating and its Cv or Kv have none (proposal §5.1). An orifice plate's bore
+is in m and its discharge coefficient has none (orifice-plate.md §5.1)."""
 RATING_PARTS: dict[str, tuple[str, ...]] = {
     "rating.pressureLoss": ("point",),
     "rating.flow": ("point",),
@@ -104,6 +111,8 @@ COMPONENT_FIELD_NAMES = (
     "rating.flow",
     "rating.density",
     "rating.value",
+    "boreDiameter",
+    "dischargeCoefficient",
 )
 """Every field a component override may name. A field its target's type lacks is not applicable."""
 SPEC_KEYS = ("materialId", "schedule", "nominalSize", "innerDiameter", "roughness")

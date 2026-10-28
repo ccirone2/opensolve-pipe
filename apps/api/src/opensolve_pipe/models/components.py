@@ -1,4 +1,4 @@
-"""Components: the nodes of the port graph (SDD §4.2-4.9, §4.11, §4.14), v1 scope."""
+"""Components: the nodes of the port graph (SDD §4.2-4.9, §4.11, §4.14, §4.15), v1 scope."""
 
 from typing import Annotated, Any, ClassVar, Literal, Self
 
@@ -431,6 +431,56 @@ class Equipment(BaseComponent):
     )
 
 
+ORIFICE_BORE_MAX = 10.0
+"""m: the upper bound of an orifice plate's bore, the pipe inner-diameter bound
+(``piping.PipeDefinition.inner_diameter``; proposal orifice-plate.md decision 2)."""
+
+OrificeTaps = Literal["corner", "flange", "d_and_d_2"]
+"""ISO 5167-2's pressure-tap sets: corner tappings, flange tappings, or D and D/2 tappings."""
+
+
+class Orifice(BaseComponent):
+    """A square-edged concentric orifice plate (SDD §4.15): a restriction orifice, or a flow
+    meter with pressure taps. Its loss is ISO 5167-2's permanent pressure loss; it has no status:
+    valves isolate it (proposal orifice-plate.md decisions 1-2)."""
+
+    PORT_IDS = ("inlet", "outlet")
+    PORT_ROLES: ClassVar[dict[str, PortRole]] = {"inlet": "inlet", "outlet": "outlet"}
+
+    type: Literal["orifice"]
+    bore_diameter: float = Field(
+        gt=0,
+        le=ORIFICE_BORE_MAX,
+        description=(
+            "The diameter of the plate's hole, ISO 5167-2's d, m, at the flowing temperature. It "
+            "must be smaller than the inlet pipe's inner diameter (a topology issue otherwise)"
+        ),
+    )
+    discharge_coefficient: float | None = Field(
+        default=None,
+        gt=0,
+        le=1.0,
+        description=(
+            "Absent: ISO 5167-2's Reader-Harris/Gallagher C at the solved flow (the default). A "
+            "number: ISO 5167-2's discharge coefficient C of eq. (1), q_m = C/√(1 - β⁴)·ε·(π/4)"
+            "d²·√(2Δpρ), with Δp between the plate's taps (between D and D/2 tappings for a "
+            "plate without taps), from a calibration or datasheet, held at every flow. Not the "
+            "flow coefficient α = C/√(1 - β⁴): convert it, C = α·√(1 - β⁴). The reading uses it "
+            "as entered; the loss uses it moved to D and D/2 tappings by ISO 5167-2's ratio of "
+            "the two tap sets' C"
+        ),
+    )
+    taps: OrificeTaps | None = Field(
+        default=None,
+        description=(
+            "Where a meter's pressure taps are (corner, flange, or D and D/2 tappings); the "
+            "differential pressure is reported at them, and an entered C is the C at them. "
+            "Absent: a plate without taps (a restriction orifice), with no reading. The plate's "
+            "loss uses the C at D and D/2 tappings whatever its taps"
+        ),
+    )
+
+
 _VALVE_FAMILY = {
     "gate": "isolation",
     "ball": "isolation",
@@ -474,7 +524,8 @@ Component = Annotated[
     | Annotated[IsolationValve, Tag("valve:isolation")]
     | Annotated[CheckValve, Tag("valve:check")]
     | Annotated[ControlValve, Tag("valve:control")]
-    | Annotated[Equipment, Tag("equipment")],
+    | Annotated[Equipment, Tag("equipment")]
+    | Annotated[Orifice, Tag("orifice")],
     Discriminator(
         _component_tag,
         custom_error_type="invalid_component",

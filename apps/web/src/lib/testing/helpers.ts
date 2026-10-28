@@ -1,7 +1,7 @@
 /**
  * Shared helpers for unit tests. Not used by the app.
  */
-import type { Component, EquipmentRating, PipeConnection, Project } from '../api/types';
+import type { Component, EquipmentRating, Orifice, PipeConnection, Project } from '../api/types';
 import { createEmptyProject, type ComponentKind, type EnteredValues } from '../utils/factory';
 
 /** Freeze an object graph, so a test fails if code under test modifies its input. */
@@ -114,14 +114,16 @@ export function assignedFlowProject(flow: number): Project {
 
 /**
  * The values a user enters for a kind that has no default for them, where it is added (factory.ts
- * ENTRY_KINDS): made-up test inputs, 0.004 m³/s for an assigned-flow node's flow and, for an
- * equipment item, a rated point of 50 kPa at 15 L/s on a fluid of 999.1 kg/m³. Empty for others.
+ * ENTRY_KINDS): made-up test inputs, 0.004 m³/s for an assigned-flow node's flow, for an equipment
+ * item a rated point of 50 kPa at 15 L/s on a fluid of 999.1 kg/m³, and a 50 mm bore for an
+ * orifice plate. Empty for others.
  */
 export function enteredFor(kind: ComponentKind): EnteredValues {
 	if (kind === 'assigned_flow') return { flow: 0.004 };
 	if (kind === 'equipment') {
 		return { rating: { kind: 'point', pressureLoss: 50000, flow: 0.015, density: 999.1 } };
 	}
+	if (kind === 'orifice') return { boreDiameter: 0.05 };
 	return {};
 }
 
@@ -160,6 +162,43 @@ export function equipmentProject(
 			reservoir('R2', 'Return tank', 0)
 		],
 		[link('L1', ['R1', 'port_1'], ['E1', 'inlet']), link('L2', ['E1', 'outlet'], ['R2', 'port_1'])]
+	);
+}
+
+/**
+ * Reservoir R1 (5 m level) → L1 → orifice plate O1 "Bypass orifice" → L2 → reservoir R2 (0 m), all
+ * at 0 m, with 10 m NPS 4 schedule 40 carbon steel pipes. Made-up test inputs: a 50 mm bore,
+ * ISO 5167-2's C and no taps unless `plate` says otherwise.
+ */
+export function orificeProject(plate: Partial<Orifice> = {}): Project {
+	const port = { id: 'port_1', nominalSize: 0.1016, direction: 'bidirectional' } as const;
+	const reservoir = (id: string, name: string, liquidLevel: number): Component => ({
+		id,
+		name,
+		elevation: 0,
+		type: 'reservoir',
+		liquidLevel,
+		surfacePressure: 0,
+		ports: [{ ...port }]
+	});
+	return projectWith(
+		[
+			reservoir('R1', 'Supply tank', 5),
+			{
+				id: 'O1',
+				name: 'Bypass orifice',
+				elevation: 0,
+				type: 'orifice',
+				boreDiameter: 0.05,
+				ports: [
+					{ id: 'inlet', nominalSize: 0.1016, direction: 'inlet' },
+					{ id: 'outlet', nominalSize: 0.1016, direction: 'outlet' }
+				],
+				...plate
+			},
+			reservoir('R2', 'Return tank', 0)
+		],
+		[link('L1', ['R1', 'port_1'], ['O1', 'inlet']), link('L2', ['O1', 'outlet'], ['R2', 'port_1'])]
 	);
 }
 

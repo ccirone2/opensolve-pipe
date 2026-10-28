@@ -42,6 +42,7 @@ from .components import (
     FlowCoefficient,
     IdealReferenceNode,
     IsolationValve,
+    Orifice,
     Pump,
     Reservoir,
 )
@@ -72,6 +73,8 @@ VariableComponentField = Literal[
     "rating.flow",
     "rating.density",
     "rating.value",
+    "boreDiameter",
+    "dischargeCoefficient",
 ]
 """The numeric overridable values of components (x-goal-variables gives each type's)."""
 VariablePipeField = Literal["length"]
@@ -102,11 +105,19 @@ class Variable:
 
 
 LOG_FIELDS = frozenset(
-    {"length", "resistance", "rating.pressureLoss", "rating.flow", "rating.value"}
+    {
+        "length",
+        "resistance",
+        "rating.pressureLoss",
+        "rating.flow",
+        "rating.value",
+        "boreDiameter",
+    }
 )
 """Values searched in log x: each is > 0 by its field bounds, and spans decades (a K from 0.01
 to 10⁵), proposal §1.2 decision 6; an equipment item's rated pressure drop, rated flow and Cv or
-Kv likewise (equipment-pressure-drop.md decision 15; its rated density is linear)."""
+Kv likewise (equipment-pressure-drop.md decision 15; its rated density is linear), and an orifice
+plate's bore (orifice-plate.md decision 21; its discharge coefficient, in (0, 1], is linear)."""
 
 _NUMBER_IN: dict[type[BaseModel], tuple[str, ...]] = {FlowCoefficient: ("value",)}
 """Values that are a model holding one number: the attributes to it."""
@@ -304,10 +315,14 @@ GoalQuantity = Literal[
     "equipment_flow",
     "equipment_pressure_loss",
     "equipment_pressure_drop",
+    "orifice_flow",
+    "orifice_pressure_loss",
+    "orifice_differential_pressure",
+    "orifice_pressure_drop",
     "boundary_outflow",
 ]
 Category = Literal["pressure", "head", "flow", "velocity"]
-ElementKind = Literal["port", "connection", "pump", "valve", "equipment", "boundary"]
+ElementKind = Literal["port", "connection", "pump", "valve", "equipment", "orifice", "boundary"]
 
 RELATIVE_TOLERANCE = 0.005
 """The default tolerance's relative part, D6's 0.5 %."""
@@ -355,7 +370,8 @@ class QuantitySpec:
     label: str
     """'{element}' is the element ('pump P1'), '{port}' the port id."""
     needs: tuple[str, ...] = ()
-    """What the case must have: 'vaporPressure' (the fluid's), 'npshrCurve' (the pump's)."""
+    """What the case must have: 'vaporPressure' (the fluid's), 'npshrCurve' (the pump's), 'taps'
+    (the orifice plate's: a reading needs pressure taps)."""
 
 
 GOAL_QUANTITIES: dict[str, QuantitySpec] = {
@@ -411,6 +427,29 @@ GOAL_QUANTITIES: dict[str, QuantitySpec] = {
         "pressure",
         "equipment",
         (Equipment,),
+        "static pressure drop across {element}",
+    ),
+    "orifice_flow": QuantitySpec("m³/s", "flow", "orifice", (Orifice,), "flow through {element}"),
+    "orifice_pressure_loss": QuantitySpec(
+        "Pa (difference)",
+        "pressure",
+        "orifice",
+        (Orifice,),
+        "permanent pressure loss across {element}",
+    ),
+    "orifice_differential_pressure": QuantitySpec(
+        "Pa (difference)",
+        "pressure",
+        "orifice",
+        (Orifice,),
+        "differential pressure at the taps of {element}",
+        ("taps",),
+    ),
+    "orifice_pressure_drop": QuantitySpec(
+        "Pa (difference)",
+        "pressure",
+        "orifice",
+        (Orifice,),
         "static pressure drop across {element}",
     ),
     "boundary_outflow": QuantitySpec(
@@ -640,18 +679,23 @@ class VariableResult(OutputModel):
         description=(
             "case: the case's value; clipped: the case's value lies outside the bounds, and the "
             "nearer bound is used; middle: the case holds no value of this coefficient (a "
-            "resistance on its default, or of another kind), and the middle of the bounds on "
-            "the variable's scale is used"
+            "resistance on its default, or of another kind; an orifice plate's discharge "
+            "coefficient on ISO 5167-2's default), and the middle of the bounds on the "
+            "variable's scale is used"
         )
     )
     case_value: JsonValue = Field(
-        description="The case's value of the field, SI (a resistance: its FlowCoefficient or null)"
+        description=(
+            "The case's value of the field, SI (a resistance: its FlowCoefficient or null; an "
+            "orifice plate's discharge coefficient: null on ISO 5167-2's default)"
+        )
     )
     base_value: JsonValue = Field(
         description=(
             "The base project's value (equal to caseValue for a base run); null where the base "
             "holds no value of this variable (an equipment item the base rates by another kind: "
-            "a point, or the other of Cv and Kv)"
+            "a point, or the other of Cv and Kv; an orifice plate's discharge coefficient on "
+            "ISO 5167-2's default)"
         )
     )
     value: float | None = Field(description="At the reported evaluation (null: none usable)")

@@ -25,7 +25,24 @@ holding between (its flag's details) against the derived pair, to SPLIT_TOLERANC
 item (docs/proposals/equipment-pressure-drop.md §2.2) has its ``equipmentResults`` entry: flow
 and flow ratio (0.5 % or the flow floor; the ratio null exactly when the rating is a Cv or Kv),
 head loss (0.5 % or 0.01 m), pressure loss and static pressure drop (0.5 % or ρ·g·0.01 m), and
-the rating it echoes equal to the project's (no scenario here).
+the rating it echoes equal to the project's (no scenario here). An orifice plate
+(docs/proposals/orifice-plate.md §2.2) has its ``orificeResults`` entry, every field expected:
+flows within D6 (the flow floor), head loss within D6 (0.01 m), pressures within D6 (ρ·g·0.01 m),
+the dimensionless and diameter fields within 0.5 % (D6's relative part), the null fields null and
+the text fields equal. A flag may name the ``limit`` (or a ``detail`` key) its details must hold,
+as an orifice's CORRELATION_OUT_OF_RANGE (one per inequality broken) and its vena-contracta
+BELOW_VAPOR_PRESSURE do (§3.5, decision 15).
+
+Independent checks that D6 cannot replace (orifice-plate.md §7.4), at the solver's own reported
+state: the reported Reynolds number is 4ρ|Q|/(πDμ) at the reported flow, C_L is
+``element_laws``' own transcription of ISO 5167-2 eq. (4) at max(Re_D, Re_lo) (times the move's
+ratio for an entered C at corner or flange taps, or the entered C), the meter's C likewise, all to
+1e-12 relative; K is K(C_L); the head loss is K v|v|/2g within the energy stop tolerance (10⁻⁷ m +
+4ε·max(|H_in|, |H_out|, |h|), CLAUDE.md D7); the reading is ISO eq. (1) at the reported flow and
+the vena contracta pressure decision 15's, at the reported port pressures. On a line where the
+plate dominates, a C(Re) with the wrong dependence moves the flow by less than D6 at high Re but
+not at the low Re of orifice_reynolds_dependence (test_derivation_checks), and these checks catch
+it at any Re.
 """
 
 from collections import defaultdict
@@ -34,9 +51,10 @@ from typing import Any
 
 import pytest
 
-from opensolve_pipe.models.components import AssignedFlow, Equipment, Pump
+from opensolve_pipe.models.components import AssignedFlow, Equipment, Orifice, Pump
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.results import SolvedState
+from tests.reference import element_laws as el
 from tests.reference.case_format import case_files, read_case
 from tests.reference.derivations import G
 from tests.reference.element_laws import pump_head
@@ -83,26 +101,43 @@ def _head_loss_failures(
     return failures
 
 
+def _details_match(flag: Any, want: dict[str, str]) -> bool:
+    """An expected ``limit`` must be the flag's details.limit, an expected ``detail`` a key of
+    its details (orifice-plate.md §3.5, decision 15)."""
+    details = flag.details or {}
+    return ("limit" not in want or details.get("limit") == want["limit"]) and (
+        "detail" not in want or want["detail"] in details
+    )
+
+
 def _check_flags(result: SolvedState, expected: list[dict[str, str]]) -> list[str]:
     """Every expected flag must be present (design §12), matched on code and on componentId /
-    connectionId when given. Warning and invalid flags are exhaustive: each one the solver
-    raises must be expected with exactly its code, componentId and connectionId (absent = the
-    flag names none). Info flags (states worth knowing) may appear unlisted."""
+    connectionId when given (and on its ``limit`` or ``detail`` when given). Warning and invalid
+    flags are exhaustive: each one the solver raises must be expected with exactly its code,
+    componentId and connectionId (absent = the flag names none), and the limit or detail of such
+    an entry when it names one. Info flags (states worth knowing) may appear unlisted."""
     problems = []
     for want in expected:
         if not any(
             flag.code == want["code"]
             and want.get("componentId") in (None, flag.component_id)
             and want.get("connectionId") in (None, flag.connection_id)
+            and _details_match(flag, want)
             for flag in result.flags
         ):
             problems.append(f"missing flag {want}")
-    listed = {(w["code"], w.get("componentId"), w.get("connectionId")) for w in expected}
     for flag in result.flags:
         if flag.severity == "info":
             continue
-        if (flag.code, flag.component_id, flag.connection_id) not in listed:
-            problems.append(f"unexpected {flag.severity} flag {flag.code}: {flag.message}")
+        if not any(
+            (flag.code, flag.component_id, flag.connection_id)
+            == (w["code"], w.get("componentId"), w.get("connectionId"))
+            and _details_match(flag, w)
+            for w in expected
+        ):
+            problems.append(
+                f"unexpected {flag.severity} flag {flag.code} {flag.details}: {flag.message}"
+            )
     return problems
 
 
@@ -237,6 +272,149 @@ def _equipment_failures(
     return failures
 
 
+ORIFICE_FIELDS = {
+    "flow": ("flow", "flow"),
+    "headLoss": ("head_loss", "head"),
+    "pressureLoss": ("pressure_loss", "pressure"),
+    "pressureDrop": ("pressure_drop", "pressure"),
+    "differentialPressure": ("differential_pressure", "pressure"),
+    "venaContractaPressure": ("vena_contracta_pressure", "pressure"),
+    "beta": ("beta", "relative"),
+    "pipeDiameter": ("pipe_diameter", "relative"),
+    "boreDiameter": ("bore_diameter", "relative"),
+    "reynoldsNumber": ("reynolds_number", "relative"),
+    "dischargeCoefficient": ("discharge_coefficient", "relative"),
+    "coefficientSource": ("coefficient_source", "text"),
+    "coefficientReynoldsNumber": ("coefficient_reynolds_number", "relative"),
+    "tapCoefficientRatio": ("tap_coefficient_ratio", "relative"),
+    "lossCoefficient": ("loss_coefficient", "relative"),
+    "taps": ("taps", "text"),
+    "meterDischargeCoefficient": ("meter_discharge_coefficient", "relative"),
+}
+"""Expected key -> (OrificeResult attribute, how it is compared): D6's floors for flows, heads
+and pressures, D6's 0.5 % alone for the dimensionless and diameter fields, text exactly."""
+COEFFICIENT_RELATIVE = 1.0e-12
+"""The independent checks at the solver's own state (module docstring): far above round-off
+(~1e-15), far below any difference a wrong correlation makes."""
+ENERGY_STOP_ABSOLUTE = 1.0e-7
+"""m: the energy stop test's absolute part (CLAUDE.md D7, METHOD_VERSION 1.2.0)."""
+ENERGY_STOP_ROUND_OFF = 4.0 * 2.0**-52
+"""4ε, the energy stop test's round-off allowance (CLAUDE.md D7)."""
+
+
+def _orifice_failures(
+    project: Project, result: SolvedState, expected: dict[str, Any], density: float
+) -> list[str]:
+    """Every expected orifice result (orifice-plate.md §2.2) within D6, every plate of the
+    project expected, and the independent checks of the module docstring."""
+    floors = {
+        "flow": FLOW_FLOOR,
+        "head": HEAD_FLOOR,
+        "pressure": density * G * HEAD_FLOOR,
+        "relative": 0.0,
+    }
+    wanted = expected.get("orifices", {})
+    failures = [
+        f"orifice {c.id} has no expected result"
+        for c in project.components
+        if isinstance(c, Orifice) and c.id not in wanted
+    ]
+    for oid, want in wanted.items():
+        got = result.orifice_results.get(oid)
+        if got is None:
+            failures.append(f"no orifice result for {oid}")
+            continue
+        for key, (attr, kind) in ORIFICE_FIELDS.items():
+            value = getattr(got, attr)
+            if kind == "text" or want[key] is None or value is None:
+                if value != want[key]:
+                    failures.append(f"orifice {oid} {key}: got {value!r}, expected {want[key]!r}")
+            elif not _within(value, want[key], floors[kind]):
+                failures.append(f"orifice {oid} {key}: got {value!r}, expected {want[key]!r}")
+        component = next(c for c in project.components if c.id == oid)
+        assert isinstance(component, Orifice)
+        failures += _orifice_own_state(project, result, component)
+    return failures
+
+
+def _end_bore(project: Project, key: str) -> float:
+    """The inner diameter of the end segment of the pipe on a port (the reference cases' pipes
+    are custom pipes)."""
+    for c in project.connections:
+        if f"{c.to_component_id}:{c.to_port_id}" == key:
+            end = c.piping.pipes[-1]
+        elif f"{c.from_component_id}:{c.from_port_id}" == key:
+            end = c.piping.pipes[0]
+        else:
+            continue
+        assert end.inner_diameter is not None, "the orifice cases use custom pipes"
+        return end.inner_diameter
+    raise KeyError(key)
+
+
+def _relative_miss(
+    got: float | None, want: float | None, rel: float = COEFFICIENT_RELATIVE
+) -> bool:
+    if got is None or want is None:
+        return got is not want
+    return abs(got - want) > rel * abs(want)
+
+
+def _orifice_own_state(project: Project, result: SolvedState, component: Orifice) -> list[str]:
+    """The checks at the solver's own reported state (module docstring)."""
+    oid = component.id
+    got = result.orifice_results[oid]
+    d_pipe = _end_bore(project, f"{oid}:inlet")
+    rho, mu = result.fluid.density, result.fluid.dynamic_viscosity
+    law = el.orifice_law(component, d_pipe, rho, mu)
+    q = got.flow
+    failures = []
+
+    def check(label: str, value: float | None, want: float | None) -> None:
+        if _relative_miss(value, want):
+            failures.append(f"orifice {oid} at its own flow: {label} {value!r}, expected {want!r}")
+
+    check("pipeDiameter", got.pipe_diameter, d_pipe)
+    check("reynoldsNumber", got.reynolds_number, law.reynolds(q))
+    check("dischargeCoefficient (C_L)", got.discharge_coefficient, law.c_loss(q))
+    check("meterDischargeCoefficient (C_M)", got.meter_discharge_coefficient, law.c_meter(q))
+    check("tapCoefficientRatio", got.tap_coefficient_ratio, law.ratio(q))
+    check("coefficientReynoldsNumber", got.coefficient_reynolds_number, law.coefficient_reynolds(q))
+    check(
+        "lossCoefficient K(C_L)",
+        got.loss_coefficient,
+        el.orifice_k(d_pipe, component.bore_diameter, got.discharge_coefficient),
+    )
+    check("differentialPressure (eq. 1)", got.differential_pressure, law.differential(q))
+    nodes = result.node_results
+    h_in, h_out = nodes[f"{oid}:inlet"].egl, nodes[f"{oid}:outlet"].egl
+    v = law.velocity(q)
+    h_law = got.loss_coefficient * v * abs(v) / (2.0 * G)
+    stop = ENERGY_STOP_ABSOLUTE + ENERGY_STOP_ROUND_OFF * max(abs(h_in), abs(h_out), abs(h_law))
+    if abs(got.head_loss - h_law) > stop:
+        failures.append(
+            f"orifice {oid}: head loss {got.head_loss!r} is not K v|v|/2g = {h_law!r} within "
+            f"the energy stop tolerance {stop:.3g} m"
+        )
+    if abs(got.head_loss - (h_in - h_out)) > ENERGY_STOP_ROUND_OFF * max(abs(h_in), abs(h_out)):
+        failures.append(f"orifice {oid}: head loss {got.head_loss!r} is not EGL_in - EGL_out")
+    if q != 0.0 and got.vena_contracta_pressure is not None:
+        up, down = ("inlet", "outlet") if q > 0.0 else ("outlet", "inlet")
+        p_up = nodes[f"{oid}:{up}"].pressure
+        z = {
+            p.id: component.elevation if p.elevation is None else p.elevation
+            for p in component.ports
+        }
+        want_vc = p_up + rho * G * (z[up] - z[down]) - law.vena_contracta_drop(q)
+        scale = max(abs(p_up), law.vena_contracta_drop(q), 1.0)
+        if abs(got.vena_contracta_pressure - want_vc) > 1.0e-12 * scale:
+            failures.append(
+                f"orifice {oid}: vena contracta {got.vena_contracta_pressure!r}, decision 15 at "
+                f"its own state gives {want_vc!r}"
+            )
+    return failures
+
+
 def _step_hold_failures(result: SolvedState, expected: dict[str, Any]) -> list[str]:
     """The step and the two splits of every expected step hold, from the solver's
     CORRELATION_OUT_OF_RANGE flag on that branch (details step, splitA, splitB)."""
@@ -323,6 +501,7 @@ def test_reference_case(case_path: Path) -> None:
         + _component_failures(project, result, expected)
         + _step_hold_failures(result, expected)
         + _equipment_failures(project, result, expected, fluid["density"])
+        + _orifice_failures(project, result, expected, fluid["density"])
     )
     assert not failures, "\n".join(failures)
 
@@ -341,3 +520,45 @@ def test_reference_case(case_path: Path) -> None:
     # The solver's own continuity report must agree (design §4 convergence criterion).
     residual = result.convergence.max_continuity_residual.value
     assert abs(residual) <= MASS_BALANCE_RELATIVE * q_max + 1.0e-14
+
+
+CALIBRATION_RELATIVE = 1.0e-10
+"""The calibration identity's agreement (orifice-plate.md §7.4): two solves of one network
+whose plates have the same law, so their states agree to the solver's convergence, far below
+the 2.5 % the identity tells apart."""
+
+
+def test_a_calibration_equal_to_iso_c_at_the_taps_gives_iso_answer() -> None:
+    """The calibration identity (decision 13): C12's network on ISO's C, then with an entered C
+    equal to the reported meterDischargeCoefficient (ISO's C at the corner taps, the full
+    double). The move to D and D/2 tappings makes the two plates one law, so the flow, K and
+    reading agree to CALIBRATION_RELATIVE; an entered C used for the loss as entered would move
+    the flow by −2.5 % (test_derivation_checks), and a wrong move by more than this allows."""
+    from opensolve_pipe.services.solver import solve_project
+    from tests.reference import derivations_orifice as do
+
+    iso = do.corner_series(entered=None).project(
+        "ref-calibration", "ISO", do.liquid_a(), "colebrook"
+    )
+    first = solve_project(iso)
+    assert first.converged, first.convergence.message
+    plate = first.orifice_results["OR1"]
+    assert plate.coefficient_source == "iso_5167_2"
+    assert plate.meter_discharge_coefficient is not None
+    entered = do.corner_series(entered=plate.meter_discharge_coefficient).project(
+        "ref-calibration", "Calibrated", do.liquid_a(), "colebrook"
+    )
+    second = solve_project(entered)
+    assert second.converged, second.convergence.message
+    moved = second.orifice_results["OR1"]
+    assert moved.coefficient_source == "entered"
+    assert moved.tap_coefficient_ratio is not None
+    for label, a, b in (
+        ("flow", moved.flow, plate.flow),
+        ("lossCoefficient", moved.loss_coefficient, plate.loss_coefficient),
+        ("dischargeCoefficient", moved.discharge_coefficient, plate.discharge_coefficient),
+        ("differentialPressure", moved.differential_pressure, plate.differential_pressure),
+    ):
+        assert a is not None
+        assert b is not None
+        assert abs(a - b) <= CALIBRATION_RELATIVE * abs(b), (label, a, b)

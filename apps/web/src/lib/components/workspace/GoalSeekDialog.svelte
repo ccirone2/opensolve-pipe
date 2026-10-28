@@ -30,6 +30,8 @@
 		type VariableDraft
 	} from '$lib/utils/goal-seek';
 	import { goalSeekLimits } from '$lib/utils/model-rules';
+	import { componentById } from '$lib/utils/graph';
+	import { inletBore } from '$lib/utils/orifice';
 	import GoalCard from './goal-seek/GoalCard.svelte';
 	import GoalSeekResult from './goal-seek/GoalSeekResult.svelte';
 	import NewGoalForm from './goal-seek/NewGoalForm.svelte';
@@ -164,11 +166,32 @@
 		return response.solvedState.valveResults[choice.target.componentId]?.kOpen ?? null;
 	}
 
+	/** The case's last converged solve's result of an orifice plate (its default bounds). */
+	function orificeOf(choice: VariableChoice) {
+		const response = store.results.response;
+		if (choice.target.kind !== 'component' || !response?.solvedState.converged) return null;
+		return response.solvedState.orificeResults?.[choice.target.componentId] ?? null;
+	}
+
+	/** An orifice plate's D: the last converged solve's, else as its form resolves it. */
+	function pipeDiameterOf(choice: VariableChoice): number | null {
+		if (choice.target.kind !== 'component') return null;
+		const solved = orificeOf(choice)?.pipeDiameter;
+		if (solved !== undefined) return solved;
+		const inlet = inletBore(ws.project, choice.target.componentId, ws.library);
+		return inlet.state === 'known' ? inlet.diameter : null;
+	}
+
 	async function addVariable(choice: VariableChoice) {
 		const fluid = ws.project.fluid;
 		const info = fluid.kind === 'builtin' ? ws.library.fluid(fluid.fluidId) : undefined;
+		const target = choice.target;
+		const plate =
+			target.kind === 'component' &&
+			componentById(ws.project, target.componentId)?.type === 'orifice';
 		const variable = newVariable(ws.project, choice, {
 			kOpen: kOpenOf(choice),
+			...(plate ? { pipeDiameter: pipeDiameterOf(choice), orifice: orificeOf(choice) } : {}),
 			...(info ? { fluid: info } : {})
 		});
 		setVariables([...setup.variables, variable]);

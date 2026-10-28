@@ -11,6 +11,12 @@
  * messages (the segmentIndex and fittingIndex details are 0-based indexes). A pipe's flag
  * (TRANSITIONAL_FLOW, CORRELATION_OUT_OF_RANGE) is numbered from its segmentIndex, so a copy with
  * the pipe's index as it is now (Build's strip, utils/results.ts) names that pipe.
+ *
+ * An orifice plate's validity flags (CORRELATION_OUT_OF_RANGE on the component, proposal
+ * orifice-plate.md §3.5) are told from `details.limit` and their SI numbers; the flashing check at
+ * its vena contracta (BELOW_VAPOR_PRESSURE) from `details.venaContractaAbsolutePressure`. Its
+ * Reynolds-number flag, whose numbers have no unit and whose consequence differs between ISO's and
+ * an entered coefficient, keeps the API's words (names for ids).
  */
 import type { Flag, Project, UnitPreferences } from '../api/types';
 import { componentById, connectionById } from './graph';
@@ -95,6 +101,55 @@ function reason(message: string): string {
 	return match?.[1] ?? message;
 }
 
+/** The end of an orifice plate's ISO-range flags: what being outside the range means. */
+const OUTSIDE_ISO =
+	"ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher) is used outside its validated range.";
+
+/**
+ * An orifice plate's validity flag told from its `details.limit` and SI numbers (proposal
+ * orifice-plate.md §3.5), or null to keep the API's words: its Reynolds-number flag, a flag of
+ * another element, or details not in the form expected.
+ */
+function orificeText(flag: Flag, f: Formatter): string | null {
+	const limit = flag.details.limit;
+	if (typeof limit !== 'string' || !flag.componentId) return null;
+	const n = (key: string) => number(flag, key);
+	const value = n('value');
+	const lower = n('lower');
+	const upper = n('upper');
+	const range = (what: string, shown: (v: number) => string): string | null => {
+		if (value === null) return null;
+		if (lower !== null)
+			return `${what} (${shown(value)}) is below ISO 5167-2's smallest, ${shown(lower)}: ${OUTSIDE_ISO}`;
+		if (upper !== null)
+			return `${what} (${shown(value)}) is above ISO 5167-2's largest, ${shown(upper)}: ${OUTSIDE_ISO}`;
+		return null;
+	};
+	switch (limit) {
+		case 'boreDiameter':
+			return range('Its bore diameter', (v) => f.value(v, 'diameter'));
+		case 'pipeDiameter':
+			return range("Its inlet pipe's inner diameter", (v) => f.value(v, 'diameter'));
+		case 'beta':
+			return range('Its diameter ratio β = d ÷ D', (v) => f.plain(v));
+		case 'outletDiameter': {
+			const inlet = n('inlet');
+			if (value === null || inlet === null) return null;
+			return `Its outlet pipe's inner diameter (${f.value(value, 'diameter')}) differs from its inlet pipe's (${f.value(inlet, 'diameter')}): ISO 5167-2's pressure-loss relation assumes the jet recovers in a pipe of the inlet's bore, about 6 D downstream, so the loss is less certain.`;
+		}
+		case 'laminar':
+			if (value === null || upper === null) return null;
+			return `Its entered discharge coefficient is held at every flow, a square law for turbulent flow, but the flow in its inlet pipe is laminar (Re = ${f.plain(value)}, below ${f.plain(upper)}): the loss is likely underestimated.`;
+		case 'reverseFlow': {
+			const q = n('flow');
+			if (q === null) return null;
+			return `The flow runs from outlet to inlet (${f.value(q, 'flow')}): ISO 5167-2's coefficient is for flow onto the plate's upstream face, and the loss is taken as for forward flow at the same flow rate.`;
+		}
+		default:
+			return null;
+	}
+}
+
 /** Display text of a flag (see the module comment). */
 export function flagText(flag: Flag, context: FlagTextContext): string {
 	const f = new Formatter(context.prefs);
@@ -120,6 +175,10 @@ export function flagText(flag: Flag, context: FlagTextContext): string {
 			const surface = value('surfaceAbsolutePressure', 'pressure', { absolute: true });
 			if (surface)
 				return `The liquid surface is at ${surface}, below ${bound}: the liquid would boil.`;
+			// An orifice plate's jet (decision 15): at the vena contracta, not at a port.
+			const jet = value('venaContractaAbsolutePressure', 'pressure', { absolute: true });
+			if (jet)
+				return `The absolute pressure at its vena contracta is ${jet}, below ${bound}: the liquid would flash there, and a flashing jet chokes the flow, so the flow solved is too high.`;
 			const p = value('absolutePressure', 'pressure', { absolute: true });
 			if (!p) return fallback();
 			// An assigned-flow node (SDD §4.11) has one port, and its flow is fixed whatever the
@@ -176,7 +235,7 @@ export function flagText(flag: Flag, context: FlagTextContext): string {
 				const name = type ? (context.fittingName ?? fittingFallbackName)(type) : 'Fitting';
 				return `${name} (fitting ${fitting + 1}): ${messageText({ ...flag, message: reason(flag.message) }, context)}`;
 			}
-			return fallback();
+			return orificeText(flag, f) ?? fallback();
 		}
 		case 'CHECK_VALVE_CLOSED': {
 			const dh = value('headDifference', 'head');

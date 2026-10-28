@@ -1,10 +1,10 @@
 """Methods and assumptions of a solve (design §13, GOALS §4.2): ``MethodsSummary``.
 
 One summary per solve, written to be pasted into a deliverable: sections for the network
-solution, friction, minor losses, branches, pumps, valves, equipment (only in a project that has
-some), fluid properties, atmosphere and NPSH, and conventions; the global assumptions; and the
-software versions, with the calculation-method version. Every number in it is a constant the
-solver uses or a value of this solve.
+solution, friction, minor losses, branches, pumps, valves, equipment and orifice plates (each only
+in a project that has some), fluid properties, atmosphere and NPSH, and conventions; the global
+assumptions; and the software versions, with the calculation-method version. Every number in it
+is a constant the solver uses or a value of this solve.
 """
 
 import CoolProp
@@ -33,6 +33,17 @@ from .gga import (
     ENERGY_TOL,
     JACOBIAN_FLOOR_RELATIVE,
     ZERO_FLOW_RTOL,
+)
+from .orifice import (
+    BETA_RANGE,
+    BORE_MIN,
+    ISO_5167_2,
+    PIPE_RANGE,
+    RE_LO_BETA,
+    RE_LO_FLANGE,
+    RE_LO_MIN,
+    READER_HARRIS_2019,
+    WANDA,
 )
 from .status import HTOL, K_TOL, MAX_OUTER_ITERATIONS, OFFSET_TOL, QTOL, OuterLoopResult
 from .system_curve import DEFAULT_RANGE_FACTOR
@@ -176,6 +187,98 @@ def equipment_section(built: BuiltNetwork) -> MethodsSection | None:
     return MethodsSection(title="Equipment", items=items, references=[ISA_75, DARBY])
 
 
+ORIFICE_ASSUMPTION = (
+    "Orifice plates meet ISO 5167-2 in geometry and installation; their loss is ISO 5167-2's "
+    "permanent pressure loss with the discharge coefficient at D and D/2 tappings (or an entered "
+    "one), for a single-phase liquid."
+)
+"""The assumption a project with orifice plates adds (proposal orifice-plate.md §4.2)."""
+
+
+def orifice_section(built: BuiltNetwork) -> MethodsSection | None:
+    """The "Orifices" section, only for a project with orifice plates (proposal orifice-plate.md
+    §4.2); its entered-coefficient items only when a plate has one."""
+    if not built.orifices:
+        return None
+    entered = any(d.law.entered is not None for d in built.orifices.values())
+    beta_low, beta_high = BETA_RANGE
+    pipe_low, pipe_high = PIPE_RANGE
+    items = [
+        "Orifice plates (square-edged, concentric; a restriction orifice, or a flow meter with "
+        "pressure taps): the loss of total head from the inlet to the outlet is h = EGL_in − "
+        "EGL_out = K v|v|/(2g), with v = Q/A in the inlet pipe of inner diameter D (its end "
+        "segment at the inlet port), β = d/D, and K = (S/(C β²) − 1)², S = √(1 − β⁴(1 − C²)): ISO "
+        "5167-2's pressure-loss relation Δϖ = (S − C β²)/(S + C β²) × Δp over ρ v²/2 "
+        "(fluids.flow_meter.discharge_coefficient_to_K, computed without its cancellation as "
+        "β → 1). Δϖ = ρ g h is the permanent pressure loss, the part not recovered about 6 D "
+        "downstream; the outlet port's pressure is the recovered one.",
+        "The discharge coefficient C that sets the loss is the one at D and D/2 tappings for every "
+        "plate, whatever its own taps: ISO 5167-2:2003 eq. (4), the Reader-Harris/Gallagher "
+        "equation (fluids.flow_meter.C_Reader_Harris_Gallagher), at Re_D = 4ρ|Q|/(πDμ) in the "
+        "inlet pipe. One plate has one permanent loss; the loss relation's theory (Reader-Harris "
+        "et al. 2019) takes C with tappings 1D upstream, and of ISO's tap sets only D and D/2 "
+        "has L1 = 1 (Deltares WANDA makes the same choice). Named departures: ISO's relation read "
+        "with a meter's own C at corner or flange tappings would give a K up to 5.95 % higher at "
+        "β 0.75 (a flow up to 2.6 % lower where the plate dominates, within 0.6 % up to β 0.6); "
+        "Reader-Harris et al.'s own C, with the downstream pressure at 0.125 D, gives a K 0.06 to "
+        "1.2 % lower (a flow up to 0.56 % higher).",
+        f"Below ISO 5167-2's lowest Reynolds number Re_lo, C is held at its value there and "
+        f"flagged (WANDA's practice; eq. (4) as written exceeds 1 at very low Re): Re_lo = "
+        f"max({RE_LO_MIN:g}, {RE_LO_BETA:g} β²) at corner and D and D/2 tappings and "
+        f"max({RE_LO_MIN:g}, {RE_LO_FLANGE:g} β² D) at flange tappings (D in m). The first is "
+        "ISO's limit (5000 for β ≤ 0.56, 16000 β² above) made continuous at β 0.56, stricter by "
+        "at most 17.6 for 0.559 < β < 0.56, so that the held loss decreases with β. So fluids is "
+        "never evaluated below Re 5000, where it adds terms that are not in ISO 5167-2.",
+        "A plate whose coefficient at D and D/2 tappings (or at its corner or flange tappings, "
+        "wherever eq. (4) is used) could exceed 1 at some flow is refused (ORIFICE_OUT_OF_RANGE): "
+        "C ≤ 1 is a jet no larger than the bore, and above it K falls below the sudden expansion "
+        "from the bore (Borda-Carnot), which is physically impossible. The bound takes each "
+        "Reynolds-number-dependent term of eq. (4) at whichever end of [Re_lo, ∞) makes it safe; "
+        "for ISO's C it refuses β from about 0.970. A plate whose loss coefficient K/(2 g A²) at "
+        "its smallest C is not a finite positive floating-point number is refused too.",
+        "A meter's reading, the differential pressure between its taps, is ISO 5167-2 eq. (1) "
+        "solved for Δp with ε = 1: Δp = (1 − β⁴)/(C_M² β⁴) · ρ v|v|/2, with C_M ISO's C at its "
+        "own taps (held at their own Re_lo) or the entered C; it does not act on the network. A "
+        "plate without taps (a restriction orifice) has no reading.",
+        "The static pressure at the vena contracta, p_vc = p_up + ρ g (z_up − z_down) − "
+        "(1 − β⁴)/(C² β⁴) · ρ v²/2 (up: the port the flow enters; down: the port it leaves by, at "
+        "whose elevation it is taken, as in WANDA), is checked against the vapor pressure and "
+        "flagged where the liquid would flash (BELOW_VAPOR_PRESSURE): a flashing jet chokes the "
+        "flow, so the flow solved is then too high. None at zero flow or where the pressure "
+        "level is undetermined; incipient cavitation is not checked.",
+        f"Flagged (CORRELATION_OUT_OF_RANGE), wherever eq. (4) is used: a bore below "
+        f"{BORE_MIN * 1000:g} mm, an inlet pipe outside {pipe_low * 1000:g} mm to "
+        f"{pipe_high * 1000:g} mm, β outside {beta_low:g} to {beta_high:g} (ISO 5167-2's limits, "
+        "from fluids' documentation); and for every plate, an outlet pipe of another bore than "
+        "the inlet's (the relation assumes the jet recovers in the same bore) and reverse flow "
+        "(the loss taken as for forward flow at the same flow rate: ISO's C is for flow onto the "
+        "plate's upstream face). The plate and its installation (edge, thickness, straight "
+        "lengths, roughness) are assumed to meet ISO 5167-2 and are not checked.",
+        "At zero flow the law's slope is 0: Newton's Jacobian uses at least "
+        f"{JACOBIAN_FLOOR_RELATIVE:g} x the slopes of the pipes at the plate's ports there, as "
+        "for every link that is not a pipe; the law itself is exact. Elsewhere the slope is exact, "
+        "with the derivative of eq. (4) in the Reynolds number.",
+        "ε = 1: the expansibility factor of a liquid.",
+    ]
+    if entered:
+        items += [
+            "An entered discharge coefficient is ISO 5167-2 eq. (1)'s C at the plate's taps (at D "
+            "and D/2 tappings for a plate without taps), from a calibration or datasheet, held at "
+            "every flow; it is not the flow coefficient α = C/√(1 − β⁴). The reading uses it as "
+            "entered. The loss uses it as entered without taps or at D and D/2 tappings, and from "
+            "corner or flange tappings moved to D and D/2 tappings by ISO's ratio of the two tap "
+            "sets' C at the same Reynolds number, r = C_ISO(D and D/2)/C_ISO(taps) (held below "
+            "Re_lo), so that one plate has one loss and a calibration equal to ISO's C gives "
+            "ISO's answer.",
+            f"Laminar flow (Re_D < {RE_LAMINAR_MAX:g}) in the inlet pipe of a plate with an "
+            "entered coefficient is flagged, as for a valve's Cv or Kv: a held C is the square law "
+            "of turbulent flow, and the loss is then likely underestimated.",
+        ]
+    return MethodsSection(
+        title="Orifices", items=items, references=[ISO_5167_2, READER_HARRIS_2019, WANDA, RENNELS]
+    )
+
+
 def libraries() -> dict[str, str]:
     """Versions of the software that produced the results."""
     return {
@@ -295,6 +398,7 @@ def methods_summary(
             "that reaches only assigned-flow nodes has no point with a head."
         )
     equipment = equipment_section(built)
+    orifices = orifice_section(built)
     if outer is not None:
         iteration_items.append(
             f"This solve: {outer.inner_iterations} Newton iterations in "
@@ -506,6 +610,7 @@ def methods_summary(
                 references=[EPANET_STATUS, ISA_75, CRANE],
             ),
             *([equipment] if equipment is not None else []),
+            *([orifices] if orifices is not None else []),
             MethodsSection(
                 title="Fluid properties",
                 items=[
@@ -584,6 +689,7 @@ def methods_summary(
             "Fittings and valves without a user K use the cited correlation for the type at "
             "the connected pipe's inner diameter.",
             *([EQUIPMENT_ASSUMPTION] if equipment is not None else []),
+            *([ORIFICE_ASSUMPTION] if orifices is not None else []),
         ],
         libraries=libraries(),
     )

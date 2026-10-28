@@ -1,0 +1,171 @@
+{
+  "name": "epanet_orifice_low_re",
+  "description": "A beta 0.3 restriction orifice at a Reynolds number near 14,000, as an EPANET GPV: verifies the Reynolds-number dependence of ISO 5167-2's coefficient, which moves the flow beyond D6 here, against EPANET 2.2.",
+  "source": "WNTR 1.5.0 EpanetSimulator (EPANET 2.2.0); see tests/reference/generate_epanet_cases.py. D-W headloss, GPM INP units, accuracy 1e-5, headerror 1e-9 ft and flowchange 1e-12 gpm (EPANET reads both in the INP units, input1.c:595-596; WNTR writes them unconverted); viscosity VISCOS = 1.1e-5 ft2/s = 1.02193344e-6 m2/s (the project's custom fluid has the same nu; its density, 1000 kg/m3, does not affect the comparison because friction depends only on nu and a surface-pressure head p/(rho g) is converted with the same rho and g on both sides); solver run in 'swamee_jain' mode. Known EPANET biases, all far inside the 0.5% criterion: EPANET's head-loss coefficients use g = 32.2 ft/s2 = 9.81456 m/s2 against our 9.80665 (0.08% in head loss), its minor-loss constant is 0.02517 against the exact 1/(2g(pi/4)^2) = 0.0251730 in US units (0.012%), its GPM flow-unit constant GPMperCFS = 448.831 differs from the exact ft3/(gal/60) by -3.8e-07 (relative, in flow), and its results are float32 (about 1e-7 relative). Orifice plates: EPANET GPV between junctions at its ports' elevations, diameter of the inlet pipe, minor loss 0, whose HEADLOSS curve tabulates the plate's own law (element_laws.OrificeLaw) at 201 evenly spaced flows from 0 to the flow at which the plate alone would take the spread of the fixed heads (network_check.gpv_span), written by WNTR in gpm and ft with six decimals (checked against network_check.gpv_table); EPANET interpolates it linearly for either flow direction, so it solves the plate's Reynolds-number dependence itself, without its g or minor-loss constant. Expected orifice results from EPANET's flow and heads (derivations_orifice.orifice_result).",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-epanet-orifice-low-re",
+    "metadata": {
+      "name": "Orifice plate at a low Reynolds number (EPANET reference)",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "swamee_jain",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Water at EPANET's default viscosity",
+      "density": 1000.0,
+      "dynamicViscosity": 0.00102193344
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 1.2,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "OR1",
+        "name": "Orifice OR1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "orifice",
+        "boreDiameter": 0.01575
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 0.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "OR1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 10.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "OR1",
+        "fromPortId": "outlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 10.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 1000.0,
+      "dynamicViscosity": 0.00102193344
+    },
+    "flows": {
+      "L1": 0.000596656696870923,
+      "L2": 0.000596656696870923
+    },
+    "egl": {
+      "R1:port_1": 1.2000000476837158,
+      "OR1:inlet": 1.1779460906982422,
+      "OR1:outlet": 0.022053852677345276,
+      "R2:port_1": 0.0
+    },
+    "pressures": {
+      "OR1:inlet": 11513.720910548369,
+      "OR1:outlet": 178.2902945607402
+    },
+    "orifices": {
+      "OR1": {
+        "flow": 0.000596656696870923,
+        "headLoss": 1.155892238020897,
+        "pressureLoss": 11335.430615987629,
+        "pressureDrop": 11335.430615987629,
+        "differentialPressure": null,
+        "venaContractaPressure": -1133.993085127615,
+        "beta": 0.3,
+        "pipeDiameter": 0.0525,
+        "boreDiameter": 0.01575,
+        "reynoldsNumber": 14159.65670657936,
+        "dischargeCoefficient": 0.6064380617927504,
+        "coefficientSource": "iso_5167_2",
+        "coefficientReynoldsNumber": 14159.65670657936,
+        "tapCoefficientRatio": null,
+        "lossCoefficient": 298.42383234786286,
+        "taps": null,
+        "meterDischargeCoefficient": null
+      }
+    }
+  }
+}

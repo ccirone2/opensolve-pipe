@@ -27,6 +27,7 @@ import type {
 	GoalSeekRequest,
 	GoalSeekResponse,
 	GoalVariable,
+	OrificeResult,
 	Override,
 	Project,
 	RatedFlowCoefficient,
@@ -159,7 +160,8 @@ export function calculatingReason(
 // ---------------------------------------------------------------------------------------------
 
 /** The goal picker's groups, in their order (Compare's element kinds). */
-export type GoalGroup = 'port' | 'connection' | 'pump' | 'valve' | 'equipment' | 'boundary';
+export type GoalGroup =
+	'port' | 'connection' | 'pump' | 'valve' | 'equipment' | 'orifice' | 'boundary';
 
 export const GOAL_GROUPS: readonly GoalGroup[] = [
 	'port',
@@ -167,6 +169,7 @@ export const GOAL_GROUPS: readonly GoalGroup[] = [
 	'pump',
 	'valve',
 	'equipment',
+	'orifice',
 	'boundary'
 ];
 
@@ -176,6 +179,7 @@ export const GOAL_GROUP_LABELS: Readonly<Record<GoalGroup, string>> = {
 	pump: 'Pumps',
 	valve: 'Valves',
 	equipment: 'Equipment',
+	orifice: 'Orifice plates',
 	boundary: 'Reservoirs and reference nodes'
 };
 
@@ -198,6 +202,10 @@ export const GOAL_QUANTITIES: Readonly<Record<GoalQuantity, Quantity>> = {
 	equipment_flow: 'equipmentFlow',
 	equipment_pressure_loss: 'equipmentPressureLoss',
 	equipment_pressure_drop: 'equipmentPressureDrop',
+	orifice_flow: 'orificeFlow',
+	orifice_pressure_loss: 'orificePressureLoss',
+	orifice_differential_pressure: 'orificeDifferentialPressure',
+	orifice_pressure_drop: 'orificePressureDrop',
 	boundary_outflow: 'boundaryOutflow'
 };
 
@@ -318,7 +326,7 @@ export function goalElements(project: Project): GoalElement[] {
 			});
 		}
 	}
-	for (const group of ['pump', 'valve', 'equipment', 'boundary'] as const) {
+	for (const group of ['pump', 'valve', 'equipment', 'orifice', 'boundary'] as const) {
 		const targets = groupTargets(group);
 		for (const c of project.components) {
 			if (!targets.has(componentSchemaName(c) ?? '')) continue;
@@ -353,6 +361,12 @@ const NEED_CHECKS: Readonly<
 		if (pump?.type !== 'pump') return null;
 		const curve = project.pumpLibrary.find((c) => c.id === pump.curveId);
 		return curve && !curve.npshrCurve ? "the pump's curve has no NPSHr" : null;
+	},
+	// A meter's reading is at its taps: a plate without taps (a restriction orifice) has none.
+	taps: (project, id) => {
+		const plate = componentById(project, id);
+		if (plate?.type !== 'orifice') return null;
+		return plate.taps ? null : 'the orifice plate has no pressure taps, so it has no reading';
 	}
 };
 
@@ -407,6 +421,14 @@ export function goalHint(
 		case 'equipment_pressure_loss':
 			return 'The rating scaled to the flow and density (ρg × head loss).';
 		case 'equipment_pressure_drop':
+			return 'Static pressure, inlet minus outlet.';
+		case 'orifice_flow':
+			return 'Positive from inlet to outlet.';
+		case 'orifice_pressure_loss':
+			return "ISO 5167-2's permanent loss, ρg × head loss.";
+		case 'orifice_differential_pressure':
+			return "Between the plate's taps: what a flow meter reads.";
+		case 'orifice_pressure_drop':
 			return 'Static pressure, inlet minus outlet.';
 		case 'boundary_outflow':
 			return 'Positive into the network.';
@@ -477,6 +499,7 @@ export type VariableGroup =
 	| 'controlValve'
 	| 'resistance'
 	| 'equipment'
+	| 'orifice'
 	| 'reservoir'
 	| 'referenceNode'
 	| 'assignedFlow'
@@ -488,6 +511,7 @@ export const VARIABLE_GROUPS: readonly VariableGroup[] = [
 	'controlValve',
 	'resistance',
 	'equipment',
+	'orifice',
 	'reservoir',
 	'referenceNode',
 	'assignedFlow',
@@ -500,6 +524,7 @@ export const VARIABLE_GROUP_LABELS: Readonly<Record<VariableGroup, string>> = {
 	controlValve: 'Control valves',
 	resistance: 'Valves (resistance)',
 	equipment: 'Equipment',
+	orifice: 'Orifice plates',
 	reservoir: 'Reservoirs',
 	referenceNode: 'Reference nodes',
 	assignedFlow: 'Assigned-flow nodes',
@@ -621,6 +646,11 @@ export function variableSpec(
 			const kind = ratingKindOf(project, variable);
 			return { category: 'dimensionless', options: {}, ...(kind ? { prefix: `${kind} ` } : {}) };
 		}
+		case 'boreDiameter':
+			return { category: 'diameter', options: {} };
+		case 'dischargeCoefficient':
+			// ISO 5167-2's C at the plate's taps, as entered: a pure number.
+			return { category: 'dimensionless', options: {} };
 		default:
 			return { category: 'dimensionless', options: {} };
 	}
@@ -705,6 +735,8 @@ function variableGroup(component: Component, field: string): VariableGroup {
 			return 'referenceNode';
 		case 'equipment':
 			return 'equipment';
+		case 'orifice':
+			return 'orifice';
 		default:
 			return 'assignedFlow';
 	}
@@ -723,7 +755,9 @@ const FIELD_ORDER = [
 	'rating.pressureLoss',
 	'rating.flow',
 	'rating.density',
-	'rating.value'
+	'rating.value',
+	'boreDiameter',
+	'dischargeCoefficient'
 ];
 
 function fieldRank(field: string): number {
@@ -813,13 +847,40 @@ export function valueAndWholes(field: string): string[] {
 	return path.map((_, i) => path.slice(0, path.length - i).join('.'));
 }
 
-/** What "Now" needs beyond the case: the display units, the last solve's K, the scenario shown. */
+/**
+ * What "Now" needs beyond the case: the display units, the last solve's K, the last solve's
+ * result of an orifice plate, the scenario shown.
+ */
 export interface NowContext {
 	prefs: UnitPreferences;
 	/** The case's last converged solve's fully open K of the valve (a resistance on its default). */
 	kOpen?: number | null;
+	/** The case's last converged solve's result of the orifice plate (a C on ISO 5167-2's). */
+	orifice?: OrificeResult | null;
 	/** The scenario shown, whose own value a variable may be ("set by Winter"). */
 	scenario?: Scenario | undefined;
+}
+
+/**
+ * An orifice plate's discharge coefficient at its taps in a solve (the value its
+ * `dischargeCoefficient` variable varies, decision 13): the meter's C with taps, else the C that
+ * sets the loss, which is the C at D and D/2 tappings that a plate without taps is defined by.
+ */
+export function orificeTapCoefficient(result: OrificeResult | null | undefined): number | null {
+	if (!result) return null;
+	return result.meterDischargeCoefficient ?? (result.taps ? null : result.dischargeCoefficient);
+}
+
+/**
+ * The ratio r̂ of the C that sets the loss to the C at the plate's taps in a solve: the move of an
+ * entered C from corner or flange taps (tapCoefficientRatio), or on ISO 5167-2's C at those taps
+ * the ratio of its two coefficients; null at D and D/2 taps or without taps (r = 1) or with none.
+ */
+function orificeTapRatio(result: OrificeResult | null | undefined): number | null {
+	if (!result || (result.taps !== 'corner' && result.taps !== 'flange')) return null;
+	if (result.tapCoefficientRatio !== null) return result.tapCoefficientRatio;
+	const meter = result.meterDischargeCoefficient;
+	return meter !== null && meter > 0 ? result.dischargeCoefficient / meter : null;
 }
 
 const CONTROL_VALVES = new Set(['prv', 'psv', 'fcv']);
@@ -837,7 +898,15 @@ export function nowText(project: Project, variable: VariableDraft, context: NowC
 	const value = variableValue(project, variable);
 	let text: string;
 	let start = '';
-	if (variable.field === 'resistance' && value === null) {
+	if (variable.field === 'dischargeCoefficient' && value === null) {
+		// No entered C: ISO 5167-2's, the default (decision 21's start rule, as a resistance's).
+		const c = orificeTapCoefficient(context.orifice);
+		text =
+			c !== null
+				? `ISO 5167-2's discharge coefficient, the default (${formatValue(c, 'dimensionless', context.prefs, 4)} at the plate's taps in the last solve)`
+				: "ISO 5167-2's discharge coefficient, the default";
+		start = '; the search starts at the middle of the bounds';
+	} else if (variable.field === 'resistance' && value === null) {
 		if (held && typeof held === 'object') {
 			const other = held as { kind?: string; value?: number };
 			text = `${other.kind} ${formatValue(other.value ?? null, 'dimensionless', context.prefs, 6)}`;
@@ -972,10 +1041,20 @@ function clip(value: number, bounds: Bounds): number {
 	return x;
 }
 
-/** What the default bounds need beyond the case: the last solve's K and the fluid's ranges. */
+/**
+ * What the default bounds need beyond the case: the last solve's K, an orifice plate's pipe bore
+ * and last result, and the fluid's ranges.
+ */
 export interface DefaultBoundsContext {
 	/** The case's last converged solve's fully open K of the valve (a resistance on its default). */
 	kOpen?: number | null;
+	/**
+	 * An orifice plate's D, its inlet pipe's inner diameter: the last converged solve's
+	 * (OrificeResult.pipeDiameter), else as the form resolves it (utils/orifice.ts); absent: unknown.
+	 */
+	pipeDiameter?: number | null;
+	/** The case's last converged solve's result of the orifice plate (absent: none). */
+	orifice?: OrificeResult | null;
 	/** The API's information on the case's built-in fluid (absent: not loaded). */
 	fluid?: FluidInfo;
 }
@@ -1085,6 +1164,26 @@ export function defaultBounds(
 		case 'rating.density': {
 			const v = now ?? 1;
 			[lower, upper] = [v / 2, 2 * v];
+			break;
+		}
+		case 'boreDiameter': {
+			// Designers' default (orifice-plate.md §6 W6): ISO 5167-2's β range, 0.1 D to 0.75 D,
+			// widened to hold the case's bore. Without D, half the bore to the bore: a valid plate's
+			// bore is below D, so the default never reaches it (the user can raise it).
+			const d = now ?? 0;
+			const D = context.pipeDiameter;
+			[lower, upper] =
+				typeof D === 'number' && D > 0 ? [Math.min(0.1 * D, d), Math.max(0.75 * D, d)] : [d / 2, d];
+			break;
+		}
+		case 'dischargeCoefficient': {
+			// Half to twice the case's entered C, or the last solve's C at the plate's taps, at most
+			// 1; with corner or flange taps at most 0.99 ÷ r̂ too, so the C moved to D and D/2
+			// tappings stays below 1 (decision 17 (c)). With neither value, 0.5 to 1.
+			const v = now ?? orificeTapCoefficient(context.orifice);
+			[lower, upper] = v !== null && v > 0 ? [v / 2, Math.min(2 * v, 1)] : [0.5, 1];
+			const ratio = orificeTapRatio(context.orifice);
+			if (ratio !== null && ratio > 0) upper = Math.min(upper, 0.99 / ratio);
 			break;
 		}
 		default:

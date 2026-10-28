@@ -1,7 +1,7 @@
 <!--
 	Values the user enters where a component is added, for a kind that has no default for them
 	(factory.ts ENTRY_KINDS, missingEntries): an assigned-flow node's flow, an equipment item's
-	rating. Nothing for other kinds. `values` holds what is entered (SI); `errors` say what is
+	rating, an orifice plate's bore. Nothing for other kinds. `values` holds what is entered (SI); `errors` say what is
 	still missing when the owner tries to add, each at its field, and each goes as soon as the
 	user types that value. The Add button can sit below these fields, and a field stores what was
 	typed when it loses focus, on the press of that button: nothing here changes size then (the
@@ -14,6 +14,7 @@
 	import type { ComponentKind, EnteredValues, MissingEntry, RatingDraft } from '$lib/utils/factory';
 	import AssignedFlowFields from './AssignedFlowFields.svelte';
 	import EquipmentRatingFields from './EquipmentRatingFields.svelte';
+	import OrificeFields from './OrificeFields.svelte';
 
 	interface Props {
 		kind: ComponentKind;
@@ -58,6 +59,17 @@
 		onvalue={(field, v) => {
 			values = { ...values, rating: { ...draft, [field]: v } };
 			drop(`rating.${field}`);
+		}}
+	/>
+{:else if kind === 'orifice'}
+	<OrificeFields
+		boreDiameter={values.boreDiameter ?? null}
+		{units}
+		error={errors.find((e) => e.field === 'boreDiameter')?.message ?? null}
+		oninput={() => drop('boreDiameter')}
+		onchange={(boreDiameter) => {
+			values = { ...values, boreDiameter };
+			drop('boreDiameter');
 		}}
 	/>
 {/if}

@@ -1,6 +1,6 @@
 # Project library: design proposal
 
-**Status: proposed** (2026-10-28), for the owner's decision. Nothing here is built. It was written against `f0a1f2f` (the condenser water example; `main` at `b7f09eb`) by one designer: the claims about the code were read in it, and every number in §1.2 and §7 was measured by the prototype in Appendix A. §10 lists the product questions; where the owner does not answer one, the recommended default stands, and every web choice is a designer's default, reversible under D14.
+**Status: approved** (2026-10-28): the owner accepted every recommendation of §10 ("Go with your recommendations and build it"); this is the design the build follows, CLAUDE.md D21 once built. It was written against `f0a1f2f` (the condenser water example; `main` at `b7f09eb`) by one designer: the claims about the code were read in it, and every number in §1.2 and §7 was measured by the prototype in Appendix A. §10 lists the product questions; where the owner does not answer one, the recommended default stands, and every web choice is a designer's default, reversible under D14.
 
 **The owner's request (2026-10-28):** "This has identified a real gap for piping and valves larger than the libraries provide. Make an informed suggestion on how to include customized elements and pipes definitions." The gap showed while building the condenser water example (90,000 gpm): steel pipe stops at NPS 48 in the cited library, Crane's butterfly valve table at NPS 24, and the example had to be laid out around both limits (pumps and chillers alternating along an NPS 42 header, every butterfly valve NPS 24 at most).
 
@@ -117,7 +117,7 @@ class ResistanceSpec(CamelModel):
 ### 2.4 Versions
 
 - `schemaVersion` stays 1 (additive, D14).
-- `METHOD_VERSION` 1.4.0 for the K-at-a-stated-bore conversion, which is a new calculation; its changelog line says that projects without a project library are unchanged in every value, trace and message (§7.3). §10 Q5.
+- `METHOD_VERSION` 1.5.0 for the K-at-a-stated-bore conversion (`main` took 1.4.0 for the orifice plate, D20, after this proposal was written), which is a new calculation; its changelog line says that projects without a project library are unchanged in every value, trace and message (§7.3). §10 Q5.
 
 ---
 
@@ -236,7 +236,7 @@ Unit tests for the edits (apply to many, delete refused while used, a Cv↔Kv en
 - **API services:** `services/library_refs.py` (new), the three routers that solve, `services/goal_seek.py` (§5.2), `services/solver/{library,valves,fittings,builder,trace,methods,version}.py` (labels, topology issues, the methods section, `METHOD_VERSION`).
 - **API tests:** §7.1–§7.3; `test_released_links.py` unchanged (no stored link uses a library).
 - **Web:** `workspace/ProjectLibrary.svelte` (new); `panel/{PipeSegmentForm,ResistanceField,FittingsEditor}.svelte`; `panel/forms/{IsolationValve,CheckValve,ControlValve}Form.svelte`; `utils/{edit,factory,piping,scenarios,validate,results,goal-seek,issue-text,flag-text}.ts`; `utils/export/tables.ts`; `state/library.svelte.ts`; the generated `api/openapi.json` and `schema.d.ts`.
-- **Specs:** PRD §3.1 (pipe and valve data entry), SDD §4.3 and a new §4.15, TSD §4 (line 392's custom-pipe text) and §12, and a D19 in CLAUDE.md once decided.
+- **Specs:** PRD §3.1 (pipe and valve data entry), SDD §4.3 and a new §4.17, TSD §4 (line 392's custom-pipe text) and §12, and D21 in CLAUDE.md (D19 and D20 were taken by design checks and the orifice plate).
 - **The condenser water example**, after the feature: NPS 60 STD headers from a spec, and NPS 30 cell valves with an illustrative datasheet Cv (labelled as such), so it no longer has to be laid out around the library's limits.
 
 ---
@@ -270,11 +270,16 @@ Import an entry list from another project's link, or from a file. The link forma
 
 ## 10. Questions for the owner
 
+**The owner's answers (2026-10-28):** "Go with your recommendations and build it": Q1 references; Q2 `source` required, 1–300 characters; Q3 no growth of the cited library in this slice; Q4 entries as scenario targets in the next slice, not this one; Q5 a new `METHOD_VERSION`, 1.5.0 (D20 took 1.4.0 meanwhile); Q6 the condenser water example rebuilt on the library.
+
+**Since this was written,** `main` gained the design checks (D19) and the orifice plate (D20). Neither changes this design: design checks read solved results, and the orifice plate takes no K, Cv or Kv (D20, owner), so it does not refer to resistance entries.
+
+
 1. **References or templates?** References (an edit reaches every user, §1.3 decision 1) or templates (entries copy their values onto the element, §1.4). *Recommended: references.*
 2. **Is the `source` required?** Required makes every result traceable, at the cost of a moment's typing on a quick what-if. *Recommended: required, 1–300 characters.*
 3. **Grow the cited library now?** Large steel from ASME B36.10M (§9.1), and HDPE on Farshad's plastic surface. *Recommended: not in this slice; the project library covers both, and each addition needs someone to verify the source.*
 4. **Entries as scenario targets** ("headers at NPS 54" as one change)? *Recommended: the next slice, after this one is in use.*
-5. **`METHOD_VERSION` 1.4.0** for the K-at-a-stated-bore conversion, with a changelog line that projects without a library are unchanged? *Recommended: yes, as D18 did for equipment.*
+5. **`METHOD_VERSION` 1.5.0** (1.4.0 when asked; D20 has since taken it) for the K-at-a-stated-bore conversion, with a changelog line that projects without a library are unchanged? *Recommended: yes, as D18 did for equipment.*
 6. **Update the condenser water example** to use the library once built (§8)? *Recommended: yes.*
 
 ---

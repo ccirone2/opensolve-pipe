@@ -1300,7 +1300,9 @@ def methods_section(
             "the pumps), or the duty's rise if higher. The duty's rise is solved first, from "
             "the case's solve; then the rises above and below it, each from the converged "
             "point next to it toward the duty, so the curve is the branch through the duty; a "
-            "point that does not converge from there is solved again from the initial state."
+            "point that does not converge from there is solved again from the initial state. "
+            "Where a station has several steady states at a rise (CLAUDE.md D13), a point is "
+            "the one its solve reaches from there."
         )
     if check is not None:
         items.append(f"Duty check: {check.message}.")

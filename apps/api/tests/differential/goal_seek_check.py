@@ -25,8 +25,11 @@ For every corpus project (``corpus.items()``) and n = 1 to 4, a request is drawn
    held: a middle start) is centred on the C the case solved at the plate's taps; its bore stays
    at most ``ORIFICE_BETA_MAX`` × its inlet pipe's bore and an entered C at corner or flange
    taps at most ``ORIFICE_MOVED_C_MAX`` / r (the case's ratio of the C at D and D/2 tappings to
-   the C at its taps), so that no bound is one the API refuses (proposal orifice-plate.md
-   decisions 17 and 21; a bound it refuses is tested in tests/reference/test_goal_seek.py).
+   the C at its taps), so that a bound the API refuses is not drawn (proposal orifice-plate.md
+   decisions 17 and 21; a bound it refuses is tested in tests/reference/test_goal_seek.py). The
+   caps are not decision 17 (c) itself: r can be below its r_max (``ORIFICE_MOVED_C_MAX``), and a
+   bore drawn under an entered C at those taps is not capped by r_max, so a draw could reach the
+   bounds 400, counted as a violation; none on the corpus did.
 2. Goals: among the case's results that have values, a quantity uniformly, then an element
    (an orifice plate's differential pressure only with taps: null without).
 3. Targets: the goal values at a seeded point of the bounds, solved through ``/solve`` with the
@@ -164,7 +167,9 @@ taps)."""
 ORIFICE_MOVED_C_MAX = 0.98
 """An entered C at corner or flange taps is drawn at most this over the case's ratio r of the C
 at D and D/2 tappings to the C at its taps: decision 17 (c) refuses C·r_max > 1, and r_max
-exceeds r by at most 0.66 % over ISO 5167-2's range (proposal orifice-plate.md §7.7 R8)."""
+exceeds r by at most 0.66 % over ISO 5167-2's range (proposal orifice-plate.md §7.7 R8). Below a
+tap set's Re_lo, where each C is held at its own, r can be lower (C_L/C_M 0.9795 against r_max
+1.0018 for flange taps on 52.5 mm at β 0.7, the web review's case), and the cap may not hold."""
 ORIFICE_C_CENTRE = 0.6
 """A discharge coefficient's centre where the case gives none (a test input: an orifice plate
 without a result, whose C was not solved; ISO 5167-2's C is about 0.6)."""

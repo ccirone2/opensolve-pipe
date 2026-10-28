@@ -3799,7 +3799,7 @@
       },
       "Orifice": {
         "additionalProperties": false,
-        "description": "A square-edged concentric orifice plate (SDD §4.15): a restriction orifice, or a flow\nmeter with pressure taps. Its loss is ISO 5167-2's permanent pressure loss; it has no status:\nvalves isolate it (proposal orifice-plate.md decisions 1-2).",
+        "description": "A square-edged concentric orifice plate (SDD §4.16): a restriction orifice, or a flow\nmeter with pressure taps. Its loss is ISO 5167-2's permanent pressure loss; it has no status:\nvalves isolate it (proposal orifice-plate.md decisions 1-2).",
         "properties": {
           "boreDiameter": {
             "description": "The diameter of the plate's hole, ISO 5167-2's d, m, at the flowing temperature. It must be smaller than the inlet pipe's inner diameter (a topology issue otherwise)",
@@ -3896,7 +3896,7 @@
       },
       "OrificeResult": {
         "additionalProperties": false,
-        "description": "An orifice plate (SDD §4.15): ISO 5167-2's permanent pressure loss at the solved flow, a\nmeter's reading at its taps, and the coefficients and inputs the solve used (proposal\norifice-plate.md §2.2).",
+        "description": "An orifice plate (SDD §4.16): ISO 5167-2's permanent pressure loss at the solved flow, a\nmeter's reading at its taps, and the coefficients and inputs the solve used (proposal\norifice-plate.md §2.2).",
         "properties": {
           "beta": {
             "description": "β = boreDiameter / pipeDiameter",

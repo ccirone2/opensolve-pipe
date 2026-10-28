@@ -473,6 +473,7 @@ def test_decision_17s_bounds_at_their_edges() -> None:
         assert found is not None
         assert found.rule == "iso_coefficient"
         assert found.where == "D and D/2 tappings"
+        assert found.basis == "loss"
         assert found.coefficient is not None
         assert found.coefficient > 1.0
     # An entered C without a move uses no eq. (4): only K's representability bounds it.
@@ -552,7 +553,7 @@ def test_a_plate_the_law_cannot_represent_is_a_topology_issue_listed_last() -> N
     assert iso.startswith(
         "orifice 'O2': a bore diameter of 0.0995 m in an inlet pipe of inner diameter 0.1023 m "
         "(β = d/D = 0.97263): ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher) at D "
-        "and D/2 tappings can reach "
+        "and D/2 tappings, which sets the plate's loss, can reach "
     )
     assert "above 1" in iso
     moved = _issues(line(plate(bore=0.75 * D, taps="corner", c=0.99)))
@@ -560,6 +561,108 @@ def test_a_plate_the_law_cannot_represent_is_a_topology_issue_listed_last() -> N
     assert "its entered discharge coefficient 0.99 at its corner tappings" in moved[0].message
     tiny = _issues(line(plate(bore=1.0e-100)))
     assert "is not a finite positive floating-point number" in tiny[0].message
+
+
+SMALL = 0.0266
+"""m: a small pipe's inner diameter (test input), where eq. (4) at flange tappings exceeds 1 at a
+lower β than at D and D/2 tappings."""
+
+
+def _refused(element: dict[str, Any], **kw: Any) -> str:
+    [found] = _issues(line(element, **kw))
+    assert found.code == "ORIFICE_OUT_OF_RANGE"
+    return str(found.message)
+
+
+def _solves(element: dict[str, Any], **kw: Any) -> None:
+    assert solve_project(line(element, **kw)).converged
+
+
+def test_each_refusal_says_what_its_coefficient_is_for_with_a_remedy_that_works() -> None:
+    """Decision 17 (b), by what eq. (4) at the tap set named is used for: only the loss's C at D
+    and D/2 tappings bounds the jet (Borda-Carnot); ISO's C at a meter's flange taps gives only
+    its reading, and in the move of an entered C both of the ratio's coefficients count. Each
+    text's remedy is checked to work, and an entered C is offered only where it is used as
+    entered (no taps, or D and D/2 taps)."""
+    head = (
+        "orifice 'O1': a bore diameter of 0.0995 m in an inlet pipe of inner diameter 0.1023 m "
+        "(β = d/D = 0.97263): ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher) at D "
+        "and D/2 tappings, which sets the plate's loss, can reach "
+    )
+    borda = (
+        "at some flow, above 1, which would make the jet larger than the bore and the loss "
+        "smaller than the sudden expansion from the bore (Borda-Carnot), physically impossible; "
+    )
+    for taps in (None, "d_and_d_2"):
+        text = _refused(plate(bore=0.0995, taps=taps))
+        assert text.startswith(head)
+        assert text.endswith(
+            borda + "use a smaller bore, or enter a discharge coefficient (ISO 5167-2's C at D "
+            "and D/2 tappings, used as entered)"
+        )
+        _solves(plate(bore=0.0995, taps=taps, c=0.6))
+    for taps in ("corner", "flange"):
+        text = _refused(plate(bore=0.0995, taps=taps))
+        assert text.startswith(head)
+        assert text.endswith(
+            borda + f"use a smaller bore (an entered discharge coefficient at its {taps} "
+            "tappings would be moved to D and D/2 tappings by ISO 5167-2's ratio, which uses "
+            "this coefficient, and refused the same way)"
+        )
+        moved = refusal(D, 0.0995, 0.6, taps, g)  # type: ignore[arg-type]
+        assert moved is not None
+        assert (moved.rule, moved.where, moved.basis) == (
+            "iso_coefficient",
+            "D and D/2 tappings",
+            "move",
+        )
+        assert moved.coefficient == refusal(D, 0.0995, None, taps, g).coefficient  # type: ignore[union-attr,arg-type]
+        _solves(plate(bore=0.05115, taps=taps))
+    # Flange taps on a small pipe: ISO's C at the taps, which only reads, exceeds 1 first.
+    small = {"d_in": SMALL, "d_out": SMALL}
+    bore = 0.96 * SMALL
+    found = refusal(SMALL, bore, None, "flange", g)
+    assert found is not None
+    assert (found.rule, found.where, found.basis) == (
+        "iso_coefficient",
+        "flange tappings",
+        "reading",
+    )
+    assert refusal(SMALL, bore, None, "d_and_d_2", g) is None
+    text = _refused(plate(bore=bore, taps="flange"), **small)
+    assert text.startswith(
+        f"orifice 'O1': a bore diameter of {bore:g} m in an inlet pipe of inner diameter "
+        f"{SMALL:g} m (β = d/D = 0.96): ISO 5167-2's discharge coefficient "
+        "(Reader-Harris/Gallagher) at flange tappings, which gives only"
+    )
+    assert (
+        "at flange tappings, which gives only the meter's reading, can reach "
+        f"{found.coefficient:.6g} at some flow, above 1: the correlation is extrapolated far "
+        "beyond ISO 5167-2's range, so the reading at these taps has no basis (the plate's loss "
+        "uses the coefficient at D and D/2 tappings, which stays at or below 1); use a smaller "
+        "bore, D and D/2 taps, or no taps (a restriction orifice, with no reading)"
+    ) in text
+    for words in ("Borda", "jet", "physically impossible", "enter a discharge coefficient"):
+        assert words not in text
+    _solves(plate(bore=bore, taps="d_and_d_2"), **small)
+    _solves(plate(bore=bore), **small)
+    # The same plate with an entered C at its flange taps: a coefficient of the move's ratio.
+    found = refusal(SMALL, bore, 0.6, "flange", g)
+    assert found is not None
+    assert (found.rule, found.where, found.basis) == ("iso_coefficient", "flange tappings", "move")
+    text = _refused(plate(bore=bore, taps="flange", c=0.6), **small)
+    assert (
+        "ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher) at flange tappings, one of "
+        "the two in the ratio that moves its entered discharge coefficient 0.6 from its flange "
+        f"tappings to D and D/2 tappings, can reach {found.coefficient:.6g} at some flow, above "
+        "1: the correlation is extrapolated far beyond ISO 5167-2's range, so the move has no "
+        "basis at this plate; use a smaller bore, or give the discharge coefficient at D and D/2 "
+        "tappings (with D and D/2 taps, or no taps), where it is used as entered"
+    ) in text
+    for words in ("Borda", "jet", "physically impossible", "enter a discharge coefficient"):
+        assert words not in text
+    _solves(plate(bore=bore, taps="d_and_d_2", c=0.6), **small)
+    _solves(plate(bore=bore, c=0.6), **small)
 
 
 # --------------------------------------------------------------------------- the builder
@@ -812,6 +915,102 @@ def test_a_closed_off_plate_has_no_result() -> None:
     )
 
 
+def test_the_input_flags_hold_where_the_plate_has_no_result() -> None:
+    """As built (proposal §12 item 2): ISO's geometric limits and the outlet bore are known
+    before solving, so the builder flags them, on a plate closed off between two isolated gates
+    (no result) and in a solve that does not converge (an assigned demand cut off behind an
+    isolated gate, D12: no results at all). A 10 mm bore on 102.3 mm (d < 12.5 mm, β 0.0978 <
+    0.1) into a 154.1 mm outlet pipe."""
+    wide = 0.1541
+    want = {
+        "boreDiameter": {"limit": "boreDiameter", "value": 0.01, "lower": 0.0125},
+        "beta": {"limit": "beta", "value": 0.01 / D, "lower": 0.1},
+        "outletDiameter": {"limit": "outletDiameter", "value": wide, "inlet": D},
+    }
+    comps = [
+        reservoir("R1", level=12.0),
+        gate("V1", 0.2, status="isolated"),
+        plate(bore=0.01),
+        gate("V2", 0.2, status="isolated"),
+        reservoir("R2", level=1.0),
+    ]
+    conns = [
+        connection("L1", ("R1", "port_1"), ("V1", "inlet"), diameter=D),
+        connection("L2", ("V1", "outlet"), ("O1", "inlet"), diameter=D),
+        connection("L3", ("O1", "outlet"), ("V2", "inlet"), diameter=wide),
+        connection("L4", ("V2", "outlet"), ("R2", "port_1"), diameter=wide),
+    ]
+    closed = solve_project(make_project(comps, conns))
+    assert closed.converged
+    comps = [reservoir("R1", level=12.0), gate("V1", 0.2, status="isolated"), plate(bore=0.01)]
+    comps.append(assigned_flow("D1", 0.01, elevation=3.0))
+    conns = [
+        connection("L1", ("R1", "port_1"), ("V1", "inlet"), diameter=D),
+        connection("L2", ("V1", "outlet"), ("O1", "inlet"), diameter=D),
+        connection("L3", ("O1", "outlet"), ("D1", "port_1"), diameter=wide),
+    ]
+    unsolved = solve_project(make_project(comps, conns))
+    assert not unsolved.converged
+    for state in (closed, unsolved):
+        assert state.orifice_results == {}
+        found = {f.details["limit"]: f.details for f in _flags(state, "CORRELATION_OUT_OF_RANGE")}
+        assert found == want
+
+
+def test_a_moved_coefficient_below_its_taps_reynolds_number_is_flagged() -> None:
+    """As built (proposal §12 item 1): an entered C at flange taps is moved by ISO's ratio, whose
+    denominator is eq. (4) at the flange tappings at C_L's Re_eff; below the flange tappings' own
+    lowest Re, 170000 β² D (above 16000 β² on a pipe over 94 mm), that coefficient is used outside
+    its range, so the plate is flagged with both limits. A β 0.7 plate on a 0.3 m line in a light
+    oil (870 kg/m³, 12 mPa·s) at Re_D between 16000 β² = 7840 and 170000 β² D = 24990."""
+    beta, d_pipe = 0.7, 0.3
+    oil = custom_fluid(870.0, 0.012)
+    state = solve_project(
+        line(
+            plate(bore=beta * d_pipe, taps="flange", c=0.6, elevation=0.0),
+            z1=0.0,
+            level1=1.12,
+            z2=0.0,
+            level2=1.0,
+            d_in=d_pipe,
+            d_out=d_pipe,
+            lengths=(10.0, 10.0),
+            fluid=oil,
+        )
+    )
+    assert state.converged
+    r = state.orifice_results["O1"]
+    low, meter_low = 16000.0 * beta**2, 170000.0 * beta**2 * d_pipe
+    assert low * 1.01 < r.reynolds_number < meter_low * 0.99
+    assert r.coefficient_reynolds_number == r.reynolds_number  # C_L itself is not held
+    [flag] = _flags(state, "CORRELATION_OUT_OF_RANGE")
+    assert flag.details == {
+        "limit": "reynoldsNumber",
+        "value": r.reynolds_number,
+        "lower": pytest.approx(low, rel=1e-15),
+        "meterLower": pytest.approx(meter_low, rel=1e-15),
+    }
+    assert "below its lowest at the plate's flange tappings" in flag.message
+    assert "in the move of the entered coefficient to D and D/2 tappings, is used" in flag.message
+    assert "D and D/2 tappings (" not in flag.message.split("below its lowest")[0]
+    # The same plate on ISO's C: both of its coefficients clear their own limits but C_M's.
+    iso = solve_project(
+        line(
+            plate(bore=beta * d_pipe, taps="flange", elevation=0.0),
+            z1=0.0,
+            level1=1.12,
+            z2=0.0,
+            level2=1.0,
+            d_in=d_pipe,
+            d_out=d_pipe,
+            lengths=(10.0, 10.0),
+            fluid=oil,
+        )
+    )
+    [flag] = _flags(iso, "CORRELATION_OUT_OF_RANGE")
+    assert "the meter's discharge coefficient is held at its value there" in flag.message
+
+
 def test_a_plate_in_a_floating_pump_loop_has_its_flow_but_no_vena_contracta_pressure() -> None:
     """§2.2: flow, head differences, the reading, K and C; no p_vc and no flashing check where
     the pressure level is undetermined."""
@@ -1037,6 +1236,60 @@ def test_the_trace_labels_isos_coefficient_and_no_taps_as_defaults() -> None:
     assert not any(n.startswith("Entered C") for n in trace.notes)
 
 
+def test_the_trace_names_only_the_hold_and_alternative_the_plate_has() -> None:
+    """§4.1: WANDA is cited for the hold only where eq. (4) is used (an entered C without a move
+    has no Re_lo, no Re_eff and no hold); the tap-position note says its C and K are shown above
+    only where they are (a solved flow); the Borda-Carnot bound, (1/β² − 1)², is K at C = 1
+    (fluids' diffuser_sharp on the bore's velocity times (D/d)⁴), cited to Rennels and Hudson,
+    and K stays above it."""
+    hold = "Hold below the lowest Reynolds number; vena contracta elevation"
+    borda = "Borda-Carnot loss coefficient (1/β² − 1)² (K at C = 1; K stays at or above it)"
+    shown = "The alternative's C and K at this plate are shown above, not used."
+    entered = solve_project(line(plate(bore=0.06, c=0.61)))
+    trace = entered.trace.elements["O1"]
+    names = {c.name: c.citation for c in trace.correlations}
+    assert hold not in names
+    assert "Vena contracta elevation" in names
+    assert not any("Re_lo" in v.name or "Re_eff" in v.name for v in trace.intermediates)
+    assert not any(
+        n.startswith("Reader-Harris et al. 2019 take the downstream") for n in trace.notes
+    )
+    iso = solve_project(line(plate(taps="corner")))
+    trace = iso.trace.elements["O1"]
+    names = {c.name: c.citation for c in trace.correlations}
+    assert names[hold].startswith("Deltares. WANDA documentation")
+    [rennels] = [v for k, v in names.items() if k.startswith("Borda-Carnot sudden expansion")]
+    assert rennels.startswith("Rennels, D. C., and H. M. Hudson. Pipe Flow")
+    note = next(n for n in trace.notes if n.startswith("Reader-Harris et al. 2019 take the"))
+    assert note.endswith(shown)
+    values = _values(iso)
+    assert "C at L1 = 1, L2' = 0.125 (Reader-Harris et al. 2019; not used)" in values
+    d = 0.05115
+    assert values[borda] == pytest.approx(diffuser_sharp(Di1=d, Di2=D) * (D / d) ** 4, rel=1e-13)
+    assert values["Loss coefficient K (on the inlet pipe's velocity)"] > values[borda]
+    # Closed off between two isolated gates: no flow, so no alternative shown.
+    comps = [
+        reservoir("R1", level=12.0),
+        gate("V1", 0.2, status="isolated"),
+        plate(taps="corner"),
+        gate("V2", 0.2, status="isolated"),
+        reservoir("R2", level=1.0),
+    ]
+    conns = [
+        connection("L1", ("R1", "port_1"), ("V1", "inlet"), diameter=D),
+        connection("L2", ("V1", "outlet"), ("O1", "inlet"), diameter=D),
+        connection("L3", ("O1", "outlet"), ("V2", "inlet"), diameter=D),
+        connection("L4", ("V2", "outlet"), ("R2", "port_1"), diameter=D),
+    ]
+    closed = solve_project(make_project(comps, conns))
+    assert closed.orifice_results == {}
+    trace = closed.trace.elements["O1"]
+    note = next(n for n in trace.notes if n.startswith("Reader-Harris et al. 2019 take the"))
+    assert "shown above" not in note
+    assert not any(v.name.startswith("C at L1 = 1, L2' = 0.125") for v in trace.intermediates)
+    assert any(v.name == borda for v in trace.intermediates)
+
+
 def test_the_trace_of_an_entered_coefficient_at_corner_taps() -> None:
     """§4.1: the entered C is user data with its definition; the move's ratio and the K the C as
     entered would give (not used); the reading at the taps."""
@@ -1069,6 +1322,112 @@ def test_the_trace_of_an_entered_coefficient_at_corner_taps() -> None:
         n.startswith("Entered C: the reading uses it as entered; the loss uses it moved")
         for n in notes
     )
+
+
+_FLUIDS_TAPS = {"corner": "corner", "flange": "flange", "d_and_d_2": "D and D/2"}
+
+
+def _iso_low(d_pipe: float, beta: float, taps: str) -> float:
+    """ISO 5167-2's lowest Re_D at a tap set (fluids' docstring), continuous at β 0.56."""
+    low = 170000.0 * beta * beta * d_pipe if taps == "flange" else 16000.0 * beta * beta
+    return max(5000.0, low)
+
+
+def _fluids_c(d_pipe: float, beta: float, re: float, taps: str) -> float:
+    """fluids' C at a tap set at max(Re_D, its lowest Re)."""
+    m = 0.25 * math.pi * d_pipe * MU * max(re, _iso_low(d_pipe, beta, taps))
+    return float(C_Reader_Harris_Gallagher(d_pipe, beta * d_pipe, RHO, MU, m, _FLUIDS_TAPS[taps]))
+
+
+def _fluids_k(d_pipe: float, beta: float, c: float) -> float:
+    return float(discharge_coefficient_to_K(d_pipe, beta * d_pipe, c))
+
+
+def _l2p_c(d_pipe: float, beta: float, re: float) -> float:
+    """Reader-Harris et al.'s C at L1 = 1, L2' = 0.125: fluids' C at D and D/2 tappings (L1 = 1,
+    L2' = 0.47) with eq. (4)'s downstream term, −0.031 (M2' − 0.8 M2'^1.1) β^1.3 with
+    M2' = 2 L2'/(1 − β), taken at L2' = 0.125 instead (the only term L2' enters)."""
+
+    def downstream(l2: float) -> float:
+        m2 = 2.0 * l2 / (1.0 - beta)
+        return -0.031 * (m2 - 0.8 * m2**1.1) * beta**1.3
+
+    return _fluids_c(d_pipe, beta, re, "d_and_d_2") - downstream(0.47) + downstream(0.125)
+
+
+def test_the_named_departures_are_stated_at_their_largest_over_isos_range() -> None:
+    """§1.1's departures, as the methods summary and the trace state them: the largest over ISO
+    5167-2's range (D 50 mm to 1 m, β 0.1 to 0.75, Re_D from each tap set's Re_lo up), from
+    fluids' C and K directly. The K ratio grows with Re_D, so its largest is approached at the
+    top of the range, at β 0.75 (flange taps on a 1 m pipe); a flow at a fixed
+    head across the plate alone scales as K^(-1/2). Re 10³⁰ stands in for the limit."""
+
+    def pct(x: float, places: int = 2) -> str:
+        return f"{100.0 * x:.{places}f} %"
+
+    grid = [
+        (d_pipe, float(beta), re)
+        for d_pipe in (0.05, 0.0711, 0.1023, 0.3, 1.0)
+        for beta in np.linspace(0.1, 0.75, 27)
+        for re in (5000.0, 1.0e5, 1.0e6, 1.0e8, 1.0e12)
+    ]
+    stated = {
+        "corner": (0.0614, 0.0294, 0.0064, 0.0032),
+        "flange": (0.0634, 0.0303, 0.0084, 0.0042),
+    }
+    for taps, (k_top, q_top, k_06, q_06) in stated.items():
+
+        def ratio(d_pipe: float, beta: float, re: float, taps: str = taps) -> float:
+            k_own = _fluids_k(d_pipe, beta, _fluids_c(d_pipe, beta, re, taps))
+            return k_own / _fluids_k(d_pipe, beta, _fluids_c(d_pipe, beta, re, "d_and_d_2"))
+
+        top = ratio(1.0, 0.75, 1.0e30)
+        assert round(top - 1.0, 4) == k_top
+        assert round(1.0 - top**-0.5, 4) == q_top
+        inside = [
+            (d, b, re)
+            for d, b, re in grid
+            if re >= max(_iso_low(d, b, taps), _iso_low(d, b, "d_and_d_2"))
+        ]
+        assert max(ratio(*point) for point in inside) <= top
+        top_06 = max(ratio(d, b, re) for d, b, re in inside if b <= 0.6 + 1e-12)
+        best_06 = max(ratio(d_pipe, 0.6, 1.0e30) for d_pipe in np.geomspace(0.05, 1.0, 61))
+        assert top_06 <= best_06
+        assert round(best_06 - 1.0, 4) == k_06
+        assert round(1.0 - best_06**-0.5, 4) == q_06
+
+    def lower(d_pipe: float, beta: float, re: float) -> float:
+        c_dd = _fluids_c(d_pipe, beta, re, "d_and_d_2")
+        return 1.0 - _fluids_k(d_pipe, beta, _l2p_c(d_pipe, beta, re)) / _fluids_k(
+            d_pipe, beta, c_dd
+        )
+
+    values = [lower(d, b, re) for d, b, re in grid if re >= _iso_low(d, b, "d_and_d_2")]
+    best = max(lower(0.1023, float(b), 1.0e30) for b in np.linspace(0.7, 0.75, 501))
+    assert min(values) == pytest.approx(0.00063, abs=5e-6)  # at β 0.1, Re 5000
+    assert max(values) <= best
+    assert round(best, 4) == 0.0124
+    assert round((1.0 - best) ** -0.5 - 1.0, 4) == 0.0063
+
+    section = next(
+        s for s in methods_summary(_built(line(plate())), "atm").sections if s.title == "Orifices"
+    )
+    text = " ".join(section.items)
+    state = solve_project(line(plate(taps="corner")))
+    notes = " ".join(state.trace.elements["O1"].notes)
+    for words in (
+        f"a K up to {pct(0.0614)} higher at corner tappings and {pct(0.0634)} at flange tappings",
+        f"a flow up to {pct(0.0294)} and {pct(0.0303)} lower where the plate takes the whole head",
+        f"a K up to {pct(0.0064)} and {pct(0.0084)} higher",
+        f"a flow up to {pct(0.0032)} and {pct(0.0042)} lower",
+        f"K {pct(0.00063, 3)[:-2]} to {pct(0.0124)} lower",
+        f"a flow up to {pct(0.0063)} higher",
+    ):
+        assert words in text, words
+        assert words in notes, words
+    for stale in ("5.95 %", "2.6 %", "0.56 %", "0.06 to 1.2 %"):
+        assert stale not in text
+        assert stale not in notes
 
 
 def test_the_methods_summary_has_an_orifices_section_only_with_a_plate() -> None:
@@ -1251,8 +1610,8 @@ def test_a_reading_goal_needs_taps() -> None:
         (
             plate(),
             _bore(0.02, 0.0995),
-            "body.variables.0.upper: ISO 5167-2's discharge coefficient at this bore could "
-            "exceed 1",
+            "body.variables.0.upper: ISO 5167-2's discharge coefficient at D and D/2 tappings, "
+            "which sets the orifice's loss, could exceed 1 at this bore",
         ),
         (
             plate(bore=0.75 * D, taps="corner", c=0.6),
@@ -1291,6 +1650,39 @@ def test_a_bound_the_solve_would_refuse_is_a_400_without_values(
     for value in (variable["lower"], variable["upper"]):
         assert f"{value:g}" not in issue.message
     assert "O1" not in issue.message
+
+
+@pytest.mark.parametrize(
+    ("c", "text"),
+    [
+        (
+            None,
+            "body.variables.0.upper: ISO 5167-2's discharge coefficient at the orifice's taps, "
+            "which gives its reading, could exceed 1 at this bore",
+        ),
+        (
+            0.6,
+            "body.variables.0.upper: ISO 5167-2's discharge coefficient in the ratio that moves "
+            "the orifice's entered coefficient to D and D/2 tappings could exceed 1 at this bore",
+        ),
+    ],
+)
+def test_a_bound_refused_at_a_meters_taps_says_what_the_coefficient_is_for(
+    c: float | None, text: str
+) -> None:
+    """Decision 21 with decision 17 (b) at a flange-tapped meter on a small pipe: ISO's C at the
+    taps, which gives only the reading, or a coefficient of an entered C's move, located by
+    index with no id or value."""
+    project = line_dict(plate(taps="flange", bore=0.01, c=c), d_in=SMALL, d_out=SMALL)
+    request = _request(project, [_bore(0.01, 0.96 * SMALL)], [_goal("orifice_flow", 0.001)])
+    with pytest.raises(gs.GoalSeekInputError) as caught:
+        gs.prepare(request)
+    [issue] = caught.value.issues
+    assert (issue.code, issue.message, issue.component_ids) == (
+        "ORIFICE_OUT_OF_RANGE",
+        text,
+        ["O1"],
+    )
 
 
 def test_a_bore_is_sized_for_a_flow() -> None:

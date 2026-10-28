@@ -1814,7 +1814,7 @@ export interface components {
         };
         /**
          * Orifice
-         * @description A square-edged concentric orifice plate (SDD §4.15): a restriction orifice, or a flow
+         * @description A square-edged concentric orifice plate (SDD §4.16): a restriction orifice, or a flow
          *     meter with pressure taps. Its loss is ISO 5167-2's permanent pressure loss; it has no status:
          *     valves isolate it (proposal orifice-plate.md decisions 1-2).
          */
@@ -1856,7 +1856,7 @@ export interface components {
         };
         /**
          * OrificeResult
-         * @description An orifice plate (SDD §4.15): ISO 5167-2's permanent pressure loss at the solved flow, a
+         * @description An orifice plate (SDD §4.16): ISO 5167-2's permanent pressure loss at the solved flow, a
          *     meter's reading at its taps, and the coefficients and inputs the solve used (proposal
          *     orifice-plate.md §2.2).
          */

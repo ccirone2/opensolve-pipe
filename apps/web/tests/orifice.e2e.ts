@@ -43,14 +43,17 @@ import {
  * C_L 0.619924, 13.4147 L/s, 42.1685 kPa, reading 57.1409 kPa; the bore for 12 L/s near
  * 48.0331 mm (β 0.46972). Displayed numbers are checked against the solve's own response.
  *
- * β is shown to 4 decimals: 0.05 ÷ 0.1022604 = 0.488948, "0.4889" (the proposal's W3 example,
+ * β is shown to 4 decimals: 0.05 ÷ 0.10226 = 0.4889497, "0.4889" (the proposal's W3 example,
  * "0.4890", rounds 0.48895 a second time).
  */
 
 const ITEM = 'Orifice O1';
 const REQUIRED = 'Enter the orifice bore: it has no default.';
-/** NPS 4 schedule 40's inner diameter in the API's pipe library (ASME B36.10M, via fluids), m. */
-const D = 0.1022604;
+/**
+ * NPS 4 schedule 40's inner diameter in the API's pipe library (data/pipe_materials.json: ASME
+ * B36.10M's metric OD 114.3 mm and wall 6.02 mm, via fluids), m.
+ */
+const D = 0.10226;
 /** D6: a flow, head or pressure within 0.5 % of its reference. */
 const within = (value: number, reference: number) =>
 	expect(Math.abs(value - reference)).toBeLessThanOrEqual(0.005 * Math.abs(reference));
@@ -421,7 +424,7 @@ test('goal seek: the bore for a flow, in the default bounds, applied as a new sc
 	await variableForm.getByRole('button', { name: 'Add variable' }).click();
 	const variable = d.getByRole('group', { name: new RegExp(`${ITEM} · Bore diameter$`) });
 	// ISO 5167-2's β range on the last solve's pipe bore, 0.1 D to 0.75 D (6 digits).
-	await expect(variable.getByText('Defaults: 10.226 mm to 76.6953 mm.')).toBeVisible();
+	await expect(variable.getByText('Defaults: 10.226 mm to 76.695 mm.')).toBeVisible();
 	await expect(variable.getByText('Now 50 mm')).toBeVisible();
 
 	const answer = page.waitForResponse(

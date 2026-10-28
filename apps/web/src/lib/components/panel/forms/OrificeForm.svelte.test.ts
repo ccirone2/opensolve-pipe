@@ -169,8 +169,9 @@ describe('OrificeForm', () => {
 		const line =
 			'β = d ÷ D = 0.4889, with D = 102.3 mm, the inner diameter of the inlet pipe (NPS 4, Sch 40)';
 		expect(await screen.findByText(line)).toBeInTheDocument();
-		// Read-only, and part of the bore's description.
-		expect(screen.getByText(line).tagName).toBe('OUTPUT');
+		// Read-only (the text of an <output>, in a span the description points at: HTML-AAM names an
+		// <output> from its labels, never its text), and part of the bore's description.
+		expect(screen.getByText(line).parentElement?.tagName).toBe('OUTPUT');
 		expect(bore).toHaveAccessibleDescription(
 			new RegExp(line.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
 		);
@@ -178,7 +179,8 @@ describe('OrificeForm', () => {
 		const warning = screen.getByText(
 			"β ≥ 1: the bore is not smaller than the inlet pipe's (102.3 mm); the solve refuses it."
 		);
-		expect(warning).toHaveClass('text-amber-800');
+		expect(warning.parentElement?.tagName).toBe('OUTPUT');
+		expect(warning.parentElement).toHaveClass('text-amber-800');
 		// Stored all the same: the solve's topology check refuses it, with the reason.
 		expect(plateOf(ws.project)?.boreDiameter).toBe(0.11);
 	});

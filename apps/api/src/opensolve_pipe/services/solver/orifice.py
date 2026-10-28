@@ -113,6 +113,11 @@ LOSS_RELATION = "ISO 5167-2 pressure-loss relation (fluids.flow_meter.discharge_
 FLOW_EQUATION = "ISO 5167-2 eq. (1), ε = 1 (a liquid)"
 
 Rule = Literal["beta", "iso_coefficient", "moved_coefficient", "coefficient"]
+Basis = Literal["loss", "reading", "move"]
+"""What eq. (4) at the tap set an ``iso_coefficient`` refusal names is used for (decision 17
+(b)): loss, ISO's C_L at D and D/2 tappings, which sets the plate's loss; reading, ISO's C_M at
+the plate's corner or flange taps, which gives only the meter's reading; move, a C of the ratio
+that moves an entered C from corner or flange taps to D and D/2 tappings (decision 13)."""
 
 
 def tap_lengths(taps: str, d_pipe: float) -> tuple[float, float]:
@@ -463,6 +468,11 @@ class Refusal:
     """iso_coefficient: the tap set where eq. (4) can exceed 1."""
     ratio: float | None = None
     """moved_coefficient: r_max, the bound of the move's ratio."""
+    basis: Basis | None = None
+    """iso_coefficient: what eq. (4) at ``where`` is used for (``Basis``). Only at D and D/2
+    tappings for the loss does C ≤ 1 bound the jet (μ ≤ 1, Borda-Carnot); at a meter's taps and
+    in the move's ratio, C above 1 is eq. (4) extrapolated far beyond ISO's range (its largest C
+    there is below 0.7), on which the reading or the move would rest."""
 
 
 def c_range(d_pipe: float, d_bore: float, taps: str, re_from: float) -> tuple[float, float]:
@@ -515,14 +525,18 @@ def refusal(
         if entered is None or moved:
             # (b): eq. (4) wherever it is used: at D and D/2 tappings, and at the plate's corner
             # or flange taps (ISO's C_M from their own Re_lo; the move's ratio from C_L's).
-            checks = [(LOSS_TAPS, loss_re_lo)]
+            basis: Basis = "move" if moved else "loss"
+            checks: list[tuple[str, float, Basis]] = [(LOSS_TAPS, loss_re_lo, basis)]
             if taps in ("corner", "flange"):
                 assert taps is not None
-                checks.append((taps, re_lo(beta, d_pipe, taps) if not moved else loss_re_lo))
-            for where, re_from in checks:
+                if moved:
+                    checks.append((taps, loss_re_lo, "move"))
+                else:
+                    checks.append((taps, re_lo(beta, d_pipe, taps), "reading"))
+            for where, re_from, used in checks:
                 largest = c_range(d_pipe, d_bore, where, re_from)[1]
                 if not largest <= 1.0:
-                    return Refusal("iso_coefficient", beta, largest, TAP_NAMES[where])
+                    return Refusal("iso_coefficient", beta, largest, TAP_NAMES[where], basis=used)
         if moved:
             assert entered is not None
             assert taps is not None

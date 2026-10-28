@@ -50,6 +50,8 @@ import {
 } from './compare';
 import { componentById, connectionById } from './graph';
 import { markProjectCopy } from './identity';
+import type { InletBore } from './orifice';
+import { movedRatioBound, RATIO_BOUND_ANY } from './orifice-bound';
 import { portLabel, PUMP_CONTROL_STATE_LABELS } from './labels';
 import {
 	componentGoalFields,
@@ -855,7 +857,10 @@ export interface NowContext {
 	prefs: UnitPreferences;
 	/** The case's last converged solve's fully open K of the valve (a resistance on its default). */
 	kOpen?: number | null;
-	/** The case's last converged solve's result of the orifice plate (a C on ISO 5167-2's). */
+	/**
+	 * The orifice plate's result in the case's last converged solve, if it is not out of date
+	 * (currentOrificeResult): its C, for a C on ISO 5167-2's.
+	 */
 	orifice?: OrificeResult | null;
 	/** The scenario shown, whose own value a variable may be ("set by Winter"). */
 	scenario?: Scenario | undefined;
@@ -872,15 +877,31 @@ export function orificeTapCoefficient(result: OrificeResult | null | undefined):
 }
 
 /**
- * The ratio r̂ of the C that sets the loss to the C at the plate's taps in a solve: the move of an
- * entered C from corner or flange taps (tapCoefficientRatio), or on ISO 5167-2's C at those taps
- * the ratio of its two coefficients; null at D and D/2 taps or without taps (r = 1) or with none.
+ * The orifice plate's result in the case's last solve, when that solve converged and the case has
+ * not changed since in a way that can change it (`stale`, the store's conservative key): what
+ * goal seek's defaults and "Now" read. An out-of-date solve's D or C may belong to another pipe
+ * or plate (§6 W6), so it is never read.
  */
-function orificeTapRatio(result: OrificeResult | null | undefined): number | null {
-	if (!result || (result.taps !== 'corner' && result.taps !== 'flange')) return null;
-	if (result.tapCoefficientRatio !== null) return result.tapCoefficientRatio;
-	const meter = result.meterDischargeCoefficient;
-	return meter !== null && meter > 0 ? result.dischargeCoefficient / meter : null;
+export function currentOrificeResult(
+	results: { response: SolveResponse | null; stale: boolean },
+	componentId: string
+): OrificeResult | null {
+	const solved = results.response?.solvedState;
+	if (results.stale || !solved?.converged) return null;
+	return solved.orificeResults?.[componentId] ?? null;
+}
+
+/**
+ * An orifice plate's D for goal seek's defaults: the inlet pipe's inner diameter as the case is
+ * now (utils/orifice.ts inletBore, as the form's β line), else the current solve's (the same pipe,
+ * for a library pipe before the library loads); null when neither knows it.
+ */
+export function orificePipeDiameter(
+	inlet: InletBore,
+	current: OrificeResult | null
+): number | null {
+	if (inlet.state === 'known') return inlet.diameter;
+	return current?.pipeDiameter ?? null;
 }
 
 const CONTROL_VALVES = new Set(['prv', 'psv', 'fcv']);
@@ -900,10 +921,12 @@ export function nowText(project: Project, variable: VariableDraft, context: NowC
 	let start = '';
 	if (variable.field === 'dischargeCoefficient' && value === null) {
 		// No entered C: ISO 5167-2's, the default (decision 21's start rule, as a resistance's).
+		// The C at the plate's taps, or at D and D/2 tappings for a plate without taps (decision 13).
 		const c = orificeTapCoefficient(context.orifice);
+		const where = context.orifice?.taps ? "the plate's taps" : 'D and D/2 tappings';
 		text =
 			c !== null
-				? `ISO 5167-2's discharge coefficient, the default (${formatValue(c, 'dimensionless', context.prefs, 4)} at the plate's taps in the last solve)`
+				? `ISO 5167-2's discharge coefficient, the default (${formatValue(c, 'dimensionless', context.prefs, 4)} at ${where} in the last solve)`
 				: "ISO 5167-2's discharge coefficient, the default";
 		start = '; the search starts at the middle of the bounds';
 	} else if (variable.field === 'resistance' && value === null) {
@@ -1049,17 +1072,79 @@ export interface DefaultBoundsContext {
 	/** The case's last converged solve's fully open K of the valve (a resistance on its default). */
 	kOpen?: number | null;
 	/**
-	 * An orifice plate's D, its inlet pipe's inner diameter: the last converged solve's
-	 * (OrificeResult.pipeDiameter), else as the form resolves it (utils/orifice.ts); absent: unknown.
+	 * An orifice plate's D, its inlet pipe's inner diameter (orificePipeDiameter: as the case is
+	 * now, else the current solve's); absent or null: unknown.
 	 */
 	pipeDiameter?: number | null;
-	/** The case's last converged solve's result of the orifice plate (absent: none). */
+	/**
+	 * The orifice plate's result in the case's last converged solve, if it is not out of date
+	 * (currentOrificeResult; absent: none).
+	 */
 	orifice?: OrificeResult | null;
 	/** The API's information on the case's built-in fluid (absent: not loaded). */
 	fluid?: FluidInfo;
 }
 
 const BAR = 1e5;
+
+/**
+ * The most an entered C at corner or flange taps may reach in a default box once moved to D and
+ * D/2 tappings, C · r_max (decision 17 (c) refuses above 1): 0.99, the designers' margin (§6 W6),
+ * or the case's own where that is more. The case's own value is always in the box (the case
+ * builds, or its own topology issue comes first).
+ */
+const MOVED_LIMIT = 0.99;
+
+/**
+ * The most C · r_max may reach at a bound other than the case's own: 1 − 10⁻⁹, room for the
+ * difference between the web's r_max and the API's (below 10⁻¹² relative, orifice-bound.test.ts),
+ * which decides at exactly 1.
+ */
+const ROUND_OFF_LIMIT = 1 - 1e-9;
+
+/** An orifice plate with corner or flange taps, whose entered C is moved (decision 13); else null. */
+function movedTaps(component: Component | undefined): 'corner' | 'flange' | null {
+	if (component?.type !== 'orifice') return null;
+	return component.taps === 'corner' || component.taps === 'flange' ? component.taps : null;
+}
+
+/**
+ * The largest C a default box may hold for an orifice plate with corner or flange taps: C · r_max
+ * at most 0.99 at its D, d and taps, or the case's entered C where that is more; without D, the
+ * case's entered C (the case builds, or its own topology issue comes first), or on ISO 5167-2's C
+ * 0.99 ÷ RATIO_BOUND_ANY, the bound for any plate the API builds. Null for other plates (no move:
+ * C ≤ 1 is the field's own bound).
+ */
+function movedCoefficientCap(
+	component: Component | undefined,
+	pipe: number | null | undefined,
+	entered: number | null
+): number | null {
+	const taps = movedTaps(component);
+	if (!taps || component?.type !== 'orifice') return null;
+	const own = entered !== null && entered > 0 ? entered : null;
+	const ratio =
+		typeof pipe === 'number' ? movedRatioBound(pipe, component.boreDiameter, taps) : null;
+	if (ratio !== null) return Math.max(MOVED_LIMIT / ratio, own ?? 0);
+	return own ?? MOVED_LIMIT / RATIO_BOUND_ANY;
+}
+
+/**
+ * `bound` if `ok` holds there, else the bound nearest it, between it and `start` (the case's own
+ * value, which builds), where `ok` holds, by bisection (60 halvings); `start` when none does.
+ * The API checks a box at its bounds only (decision 21), so a bound where `ok` holds suffices.
+ */
+function towardStart(ok: (value: number) => boolean, start: number, bound: number): number {
+	if (bound === start || ok(bound)) return bound;
+	let good = start;
+	let bad = bound;
+	for (let i = 0; i < 60; i++) {
+		const mid = (good + bad) / 2;
+		if (ok(mid)) good = mid;
+		else bad = mid;
+	}
+	return good;
+}
 
 /**
  * The fluid's temperature range for a glycol at its concentration: the freezing point there (the
@@ -1172,18 +1257,39 @@ export function defaultBounds(
 			// bore is below D, so the default never reaches it (the user can raise it).
 			const d = now ?? 0;
 			const D = context.pipeDiameter;
-			[lower, upper] =
-				typeof D === 'number' && D > 0 ? [Math.min(0.1 * D, d), Math.max(0.75 * D, d)] : [d / 2, d];
+			const known = typeof D === 'number' && D > 0;
+			[lower, upper] = known ? [Math.min(0.1 * D, d), Math.max(0.75 * D, d)] : [d / 2, d];
+			// An entered C at corner or flange taps is moved to D and D/2 tappings by r, whose bound
+			// r_max depends on the bore: each bound keeps C · r_max at most 0.99, or at most the
+			// case's own where that is more (decision 17 (c)), moved toward the case's bore where it
+			// would not, or to the case's bore itself (which builds).
+			const taps = movedTaps(component);
+			const c = component?.type === 'orifice' ? component.dischargeCoefficient : null;
+			if (known && taps && typeof c === 'number' && c > 0) {
+				const moved = (bore: number) => {
+					const ratio = movedRatioBound(D, bore, taps);
+					return ratio === null ? Infinity : c * ratio;
+				};
+				const own = moved(d);
+				const limit = Math.max(MOVED_LIMIT, Math.min(own, ROUND_OFF_LIMIT));
+				const ok = (bore: number) => moved(bore) <= limit;
+				[lower, upper] = [towardStart(ok, d, lower), towardStart(ok, d, upper)];
+			}
 			break;
 		}
 		case 'dischargeCoefficient': {
-			// Half to twice the case's entered C, or the last solve's C at the plate's taps, at most
-			// 1; with corner or flange taps at most 0.99 ÷ r̂ too, so the C moved to D and D/2
-			// tappings stays below 1 (decision 17 (c)). With neither value, 0.5 to 1.
+			// Half to twice the case's entered C, or the current solve's C at the plate's taps, at
+			// most 1; with neither value, 0.5 to 1. At corner or flange taps every C of the box,
+			// moved to D and D/2 tappings, stays at most 0.99 (decision 17 (c), movedCoefficientCap),
+			// before any solve and whatever state the last one held its C in.
 			const v = now ?? orificeTapCoefficient(context.orifice);
 			[lower, upper] = v !== null && v > 0 ? [v / 2, Math.min(2 * v, 1)] : [0.5, 1];
-			const ratio = orificeTapRatio(context.orifice);
-			if (ratio !== null && ratio > 0) upper = Math.min(upper, 0.99 / ratio);
+			const cap = movedCoefficientCap(component, context.pipeDiameter, now);
+			if (cap !== null) {
+				upper = Math.min(upper, cap);
+				// Half the cap when it falls to the lower bound (0.5, without a C): From below To.
+				if (lower >= upper) lower = upper / 2;
+			}
 			break;
 		}
 		default:

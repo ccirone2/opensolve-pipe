@@ -18,9 +18,11 @@
 	import { finishedGoalSeek } from '$lib/state/project.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import {
+		currentOrificeResult,
 		GOAL_SEEK_BUDGET_S,
 		goalKey,
 		newVariable,
+		orificePipeDiameter,
 		rowIssues,
 		runProblems,
 		variableKey,
@@ -166,20 +168,17 @@
 		return response.solvedState.valveResults[choice.target.componentId]?.kOpen ?? null;
 	}
 
-	/** The case's last converged solve's result of an orifice plate (its default bounds). */
+	/** An orifice plate's result in the case's last converged solve, unless out of date. */
 	function orificeOf(choice: VariableChoice) {
-		const response = store.results.response;
-		if (choice.target.kind !== 'component' || !response?.solvedState.converged) return null;
-		return response.solvedState.orificeResults?.[choice.target.componentId] ?? null;
+		if (choice.target.kind !== 'component') return null;
+		return currentOrificeResult(store.results, choice.target.componentId);
 	}
 
-	/** An orifice plate's D: the last converged solve's, else as its form resolves it. */
+	/** An orifice plate's D: as its form resolves it for the case now, else the current solve's. */
 	function pipeDiameterOf(choice: VariableChoice): number | null {
 		if (choice.target.kind !== 'component') return null;
-		const solved = orificeOf(choice)?.pipeDiameter;
-		if (solved !== undefined) return solved;
 		const inlet = inletBore(ws.project, choice.target.componentId, ws.library);
-		return inlet.state === 'known' ? inlet.diameter : null;
+		return orificePipeDiameter(inlet, orificeOf(choice));
 	}
 
 	async function addVariable(choice: VariableChoice) {

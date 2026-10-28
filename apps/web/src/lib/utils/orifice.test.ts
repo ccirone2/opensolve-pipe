@@ -12,14 +12,16 @@ import { describe, expect, it } from 'vitest';
 import type {
 	Component,
 	Flag,
+	OrificeTaps,
 	Override,
 	PipeDefinition,
 	Project,
 	TopologyIssue
 } from '../api/types';
 import { deepFreeze, enteredFor, orificeProject } from '../testing/helpers';
+import { API_R_MAX } from '../testing/orifice-r-max';
 import { TEST_LIBRARY } from '../testing/library';
-import { flag, orificeResult, orificeSolved } from '../testing/results';
+import { flag, orificeResult, orificeSolved, response } from '../testing/results';
 import {
 	compareCells,
 	compareElementKind,
@@ -33,6 +35,7 @@ import { changeCategory } from './export/tables';
 import { COMPONENT_KINDS, componentKind, createComponent } from './factory';
 import { flagText } from './flag-text';
 import {
+	currentOrificeResult,
 	defaultBounds,
 	goalChoices,
 	goalElements,
@@ -42,12 +45,15 @@ import {
 	goalValue,
 	newVariable,
 	nowText,
+	orificePipeDiameter,
 	variableChoices,
-	variableSpec
+	variableSpec,
+	type DefaultBoundsContext
 } from './goal-seek';
 import { topologyIssueViews } from './issue-text';
 import { GOAL_QUANTITY_RULES, GOAL_VARIABLE_FIELDS, OVERRIDE_FIELDS } from './model-rules';
 import { betaLine, inletBore, pipeAtPort, type PipeSizes } from './orifice';
+import { movedRatioBound, RATIO_BOUND_ANY } from './orifice-bound';
 import { sameSize } from './labels';
 import {
 	availableViews,
@@ -548,10 +554,10 @@ describe('goal seek: orifice goals and variables (§5.2, §6 W6)', () => {
 		}
 	});
 
-	it("defaults the C to half and twice the case's or the last solve's C at the taps, below 0.99 ÷ r̂", () => {
-		const bounds = (project: Project, orifice?: ReturnType<typeof orificeResult> | null) =>
-			defaultBounds(project, { target: O1, field: 'dischargeCoefficient' }, { orifice });
-		// An entered C: half to twice, at most 1.
+	it("defaults the C to half and twice the case's or the current solve's C at the taps, at most 1", () => {
+		const bounds = (project: Project, context: DefaultBoundsContext = {}) =>
+			defaultBounds(project, { target: O1, field: 'dischargeCoefficient' }, context);
+		// An entered C without taps or at D and D/2 taps (no move): half to twice, at most 1.
 		expect(bounds(orificeProject({ dischargeCoefficient: 0.4 }))).toEqual({
 			lower: 0.2,
 			upper: 0.8
@@ -560,26 +566,25 @@ describe('goal seek: orifice goals and variables (§5.2, §6 W6)', () => {
 			lower: 0.31,
 			upper: 1
 		});
-		// ISO's C: the last solve's C at the plate's taps (the C at D and D/2 without taps).
-		expect(bounds(orificeProject(), orificeResult())).toEqual({ lower: 0.6047 / 2, upper: 1 });
+		expect(
+			bounds(orificeProject({ taps: 'd_and_d_2', dischargeCoefficient: 0.62 }), {
+				pipeDiameter: D4
+			})
+		).toEqual({ lower: 0.31, upper: 1 });
+		// ISO's C: the current solve's C at the plate's taps (the C at D and D/2 without taps).
+		expect(bounds(orificeProject(), { orifice: orificeResult() })).toEqual({
+			lower: 0.6047 / 2,
+			upper: 1
+		});
 		const meter = orificeResult({
 			taps: 'flange',
 			meterDischargeCoefficient: 0.6005,
 			dischargeCoefficient: 0.6131
 		});
-		const flange = bounds(orificeProject({ taps: 'flange' }), meter);
-		expect(flange).toEqual({ lower: 0.6005 / 2, upper: 0.99 / (0.6131 / 0.6005) });
-		// An entered C moved from corner taps: its ratio r̂.
-		const moved = orificeResult({
-			taps: 'corner',
-			coefficientSource: 'entered',
-			meterDischargeCoefficient: 0.6,
-			dischargeCoefficient: 0.6126,
-			tapCoefficientRatio: 1.021
-		});
-		const corner = bounds(orificeProject({ taps: 'corner', dischargeCoefficient: 0.6 }), moved);
-		expect(corner).toEqual({ lower: 0.3, upper: 0.99 / 1.021 });
-		expect(corner.upper * 1.021).toBeLessThanOrEqual(0.99);
+		// β 0.4889 on D 102.26 mm with flange taps: the API's r_max is 1.0 there, so 0.99 caps it.
+		expect(
+			bounds(orificeProject({ taps: 'flange' }), { orifice: meter, pipeDiameter: D4 })
+		).toEqual({ lower: 0.6005 / 2, upper: 0.99 });
 		// Neither a C nor a solve: 0.5 to 1.
 		expect(bounds(orificeProject())).toEqual({ lower: 0.5, upper: 1 });
 		for (const v of [
@@ -590,13 +595,151 @@ describe('goal seek: orifice goals and variables (§5.2, §6 W6)', () => {
 		}
 	});
 
+	// decision 17 (c): an entered C at corner or flange taps is refused where C · r_max > 1. The
+	// r_max values are the API's (orifice-bound.test.ts says how they were printed).
+	const cBounds = (project: Project, context: DefaultBoundsContext = {}) =>
+		defaultBounds(project, { target: O1, field: 'dischargeCoefficient' }, context);
+
+	it('keeps every C of the box, moved from corner or flange taps, at C · r_max ≤ 0.99 before any solve', () => {
+		// [taps, D, d, the API's r_max]: the plate at β 0.5865 the review posted (the API refuses
+		// C 1 there), and the grid of testing/orifice-r-max.ts (D 52.5 mm to 1 m, β 0.1 to 0.95).
+		const plates: [OrificeTaps, number, number, number][] = [
+			['corner', 0.1023, 0.06, 1.001867465564057],
+			['flange', 0.1023, 0.06, 1.001339471960576],
+			...API_R_MAX.map(
+				([taps, D, beta, r]) => [taps, D, beta * D, r] as [OrificeTaps, number, number, number]
+			)
+		];
+		for (const [taps, D, d, rApi] of plates) {
+			for (const entered of [undefined, 0.6, 0.62, 0.9]) {
+				const project = orificeProject({
+					boreDiameter: d,
+					taps,
+					...(entered !== undefined ? { dischargeCoefficient: entered } : {})
+				});
+				const { lower, upper } = cBounds(project, { pipeDiameter: D });
+				const where = `${taps} ${D} ${d} ${entered}`;
+				expect(lower, where).toBeGreaterThan(0);
+				expect(lower, where).toBeLessThan(upper);
+				// At most 0.99 moved, or the case's own entered C where that is more (it builds).
+				const limit = Math.max(0.99, (entered ?? 0) * rApi);
+				expect(upper * rApi, where).toBeLessThanOrEqual(limit * (1 + 1e-12));
+				if (entered !== undefined) expect(upper, where).toBeGreaterThanOrEqual(entered);
+			}
+		}
+		// The review's plate on ISO's C: the box no longer reaches 1, which the API refuses.
+		const plate = orificeProject({ boreDiameter: 0.06, taps: 'corner' });
+		const box = cBounds(plate, { pipeDiameter: 0.1023 });
+		expect(box.lower).toBe(0.5);
+		expect(Math.abs(box.upper * 1.001867465564057 - 0.99)).toBeLessThan(1e-12);
+	});
+
+	it("caps the C at r_max, not at a held solve's C_L ÷ C_M (the review's 52.5 mm flange plate)", () => {
+		// ISO's C held below Re_lo: C_L 0.648823 at D and D/2 (Re_lo 7840), C_M 0.662372 at the
+		// flange taps (Re_lo 5000), so C_L ÷ C_M is 0.9795, below 1, while the API's r_max is
+		// 1.0018332423865999 and the largest C it accepts there 0.9981701122412023 (bisected with
+		// its refusal). The values are the review's solve (oil, 900 kg/m³, 0.02 Pa·s).
+		const D = 0.0525;
+		const held = orificeResult({
+			taps: 'flange',
+			pipeDiameter: D,
+			boreDiameter: 0.7 * D,
+			beta: 0.7,
+			reynoldsNumber: 4152,
+			coefficientReynoldsNumber: 7840,
+			dischargeCoefficient: 0.648823,
+			meterDischargeCoefficient: 0.662372
+		});
+		const project = orificeProject({ boreDiameter: 0.7 * D, taps: 'flange' });
+		const { lower, upper } = cBounds(project, { pipeDiameter: D, orifice: held });
+		expect(lower).toBe(0.662372 / 2);
+		expect(upper * 1.0018332423865999).toBeLessThanOrEqual(0.99 * (1 + 1e-12));
+		expect(upper).toBeLessThan(0.9981701122412023);
+	});
+
+	it("without D: the case's entered C, or on ISO's C the bound for any plate (RATIO_BOUND_ANY)", () => {
+		for (const taps of ['corner', 'flange'] as const) {
+			expect(cBounds(orificeProject({ taps, dischargeCoefficient: 0.6 }))).toEqual({
+				lower: 0.3,
+				upper: 0.6
+			});
+			const any = 0.99 / RATIO_BOUND_ANY;
+			expect(cBounds(orificeProject({ taps }))).toEqual({ lower: any / 2, upper: any });
+		}
+		// Without taps or at D and D/2 taps nothing is moved: no cap.
+		expect(cBounds(orificeProject({ taps: 'd_and_d_2' }))).toEqual({ lower: 0.5, upper: 1 });
+	});
+
+	it('moves a bore bound toward the case where an entered C there would exceed C · r_max ≤ 0.99', () => {
+		const bore = (project: Project, pipeDiameter: number | null = D4) =>
+			defaultBounds(project, { target: O1, field: 'boreDiameter' }, { pipeDiameter });
+		// Entered C 0.98 at corner taps, β 0.4889: the case builds (r_max 1 there, API), but at
+		// 0.75 D, 0.98 × 1.021894367245884 (the API's r_max) is above 1, a bounds 400.
+		expect(0.98 * 1.021894367245884).toBeGreaterThan(1);
+		const moved = bore(orificeProject({ taps: 'corner', dischargeCoefficient: 0.98 }));
+		expect(moved.lower).toBe(0.1 * D4);
+		expect(moved.upper).toBeLessThan(0.75 * D4);
+		expect(moved.upper).toBeGreaterThan(0.05);
+		expect(0.98 * movedRatioBound(D4, moved.upper, 'corner')!).toBeLessThanOrEqual(0.99);
+		// A C whose move stays below 0.99 everywhere keeps ISO's β range; so does ISO's C.
+		for (const plate of [
+			{ taps: 'corner' as const, dischargeCoefficient: 0.6 },
+			{ taps: 'flange' as const, dischargeCoefficient: 0.98 },
+			{ taps: 'corner' as const }
+		]) {
+			expect(bore(orificeProject(plate)), JSON.stringify(plate)).toEqual({
+				lower: 0.1 * D4,
+				upper: 0.75 * D4
+			});
+		}
+		// Without D, half the bore to the bore, as before.
+		expect(bore(orificeProject({ taps: 'corner', dischargeCoefficient: 0.98 }), null)).toEqual({
+			lower: 0.025,
+			upper: 0.05
+		});
+	});
+
+	it('reads only a current solve, and D from the case as it is now (§6 W6)', () => {
+		const solved = orificeSolved({ pipeDiameter: 0.1023 });
+		const reply = (converged = true) => ({
+			...response(solved),
+			solvedState: { ...solved, converged }
+		});
+		expect(currentOrificeResult({ response: reply(), stale: false }, 'O1')).toEqual(
+			solved.orificeResults!.O1
+		);
+		expect(currentOrificeResult({ response: reply(), stale: true }, 'O1')).toBeNull();
+		expect(currentOrificeResult({ response: reply(false), stale: false }, 'O1')).toBeNull();
+		expect(currentOrificeResult({ response: null, stale: false }, 'O1')).toBeNull();
+		expect(currentOrificeResult({ response: reply(), stale: false }, 'O2')).toBeNull();
+		const result = solved.orificeResults!.O1!;
+		// The inlet pipe as the case is now wins over the solve's; the solve's when the library is
+		// not loaded; neither: unknown.
+		const now = inletBore(withInletPipes([nps(3)]), 'O1', library());
+		expect(orificePipeDiameter(now, result)).toBe(0.07792);
+		const loading = inletBore(orificeProject(), 'O1', library('loading'));
+		expect(orificePipeDiameter(loading, result)).toBe(0.1023);
+		expect(orificePipeDiameter(loading, null)).toBeNull();
+		expect(orificePipeDiameter({ state: 'unconnected' }, null)).toBeNull();
+	});
+
 	it("says that a C on ISO 5167-2's starts at the middle of the bounds", () => {
 		const variable = newVariable(orificeProject(), { target: O1, field: 'dischargeCoefficient' });
 		expect(nowText(orificeProject(), variable, { prefs: SI_UNITS })).toBe(
 			"Now ISO 5167-2's discharge coefficient, the default; the search starts at the middle of the bounds"
 		);
+		// A plate without taps: its C is at D and D/2 tappings (decision 13).
 		expect(nowText(orificeProject(), variable, { prefs: SI_UNITS, orifice: orificeResult() })).toBe(
-			"Now ISO 5167-2's discharge coefficient, the default (0.6047 at the plate's taps in the last solve); the search starts at the middle of the bounds"
+			"Now ISO 5167-2's discharge coefficient, the default (0.6047 at D and D/2 tappings in the last solve); the search starts at the middle of the bounds"
+		);
+		const flange = orificeProject({ taps: 'flange' });
+		expect(
+			nowText(flange, newVariable(flange, { target: O1, field: 'dischargeCoefficient' }), {
+				prefs: SI_UNITS,
+				orifice: orificeResult({ taps: 'flange', meterDischargeCoefficient: 0.6005 })
+			})
+		).toBe(
+			"Now ISO 5167-2's discharge coefficient, the default (0.6005 at the plate's taps in the last solve); the search starts at the middle of the bounds"
 		);
 		const entered = orificeProject({ dischargeCoefficient: 0.62 });
 		expect(
@@ -710,6 +853,30 @@ describe('flags in display units (§3.5, §4.3)', () => {
 		);
 	});
 
+	it('tells a value just past its limit from the limit, with as many digits as that takes', () => {
+		// The API's details for bores 0.0767 m (β 0.7500489) and 0.0124999 m on NPS 4 Sch 40.
+		const beta = range({ limit: 'beta', value: 0.7500488949735967, upper: 0.75 });
+		expect(text(beta)).toBe(
+			`Its diameter ratio β = d ÷ D (0.75005) is above ISO 5167-2's largest, 0.75: ${OUTSIDE}`
+		);
+		const bore = range({ limit: 'boreDiameter', value: 0.0124999, lower: 0.0125 });
+		expect(text(bore)).toBe(
+			`Its bore diameter (12.4999 mm) is below ISO 5167-2's smallest, 12.5 mm: ${OUTSIDE}`
+		);
+		// 0.0124999 m = 0.4921220… in and 0.0125 m = 0.4921259… in: five figures tell them apart.
+		const sig5 = (v: number) => String(Number(v.toPrecision(5)));
+		expect(text(bore, IMPERIAL_UNITS)).toBe(
+			`Its bore diameter (${sig5(0.0124999 / IN)} in) is below ISO 5167-2's smallest, ${sig5(0.0125 / IN)} in: ${OUTSIDE}`
+		);
+		expect(sig5(0.0124999 / IN)).not.toBe(sig5(0.0125 / IN));
+		expect(text(range({ limit: 'laminar', value: 1999.97, upper: 2000 }))).toContain(
+			'(Re = 1999.97, below 2000)'
+		);
+		expect(text(range({ limit: 'outletDiameter', value: 0.10226, inlet: 0.102261 }))).toContain(
+			"(102.26 mm) differs from its inlet pipe's (102.261 mm)"
+		);
+	});
+
 	it('tells the outlet bore, laminar flow with an entered C and reverse flow', () => {
 		expect(text(range({ limit: 'outletDiameter', value: 0.15405, inlet: D4 }))).toBe(
 			"Its outlet pipe's inner diameter (154 mm) differs from its inlet pipe's (102.3 mm): ISO 5167-2's pressure-loss relation assumes the jet recovers in a pipe of the inlet's bore, about 6 D downstream, so the loss is less certain."
@@ -786,11 +953,48 @@ describe('a plate the solver cannot represent (ORIFICE_OUT_OF_RANGE, §4.3)', ()
 		);
 	});
 
-	it("tells ISO's C that could exceed 1, and a moved entered C, quoting the server's numbers", () => {
-		const iso = `${head('0.0995', '0.97301')}: ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher) at D and D/2 tappings can reach 1.05827 at some flow, above 1, which would make the jet larger than the bore and the loss smaller than the sudden expansion from the bore (Borda-Carnot), physically impossible; use a smaller bore, or enter a discharge coefficient`;
-		expect(view(iso).text).toBe(
-			"Bypass orifice's bore (99.5 mm) is so close to its inlet pipe's inner diameter (102.3 mm, β = 0.97301) that ISO 5167-2's discharge coefficient at D and D/2 tappings could exceed 1 (up to 1.05827): a jet larger than the bore, which is physically impossible. Use a smaller bore, or enter a discharge coefficient."
+	it("tells ISO's C that could exceed 1 by what it is used for, with the server's remedy", () => {
+		// The API's texts (builder._orifice_iso_tail), printed by the real builder for these plates:
+		// O1 on NPS 4 Sch 40 without taps and with corner taps (the loss), and on a 26.6 mm pipe
+		// with flange taps (only the reading) and with an entered C there (the move).
+		const loss = `${head('0.0995', '0.97301')}: ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher) at D and D/2 tappings, which sets the plate's loss, can reach 1.05827 at some flow, above 1, which would make the jet larger than the bore and the loss smaller than the sudden expansion from the bore (Borda-Carnot), physically impossible; use a smaller bore, or enter a discharge coefficient (ISO 5167-2's C at D and D/2 tappings, used as entered)`;
+		expect(view(loss)).toEqual({
+			text: "Bypass orifice's bore (99.5 mm) is so close to its inlet pipe's inner diameter (102.3 mm, β = 0.97301) that ISO 5167-2's discharge coefficient at D and D/2 tappings, which sets the plate's loss, could exceed 1 (up to 1.05827): a jet larger than the bore, which is physically impossible. Use a smaller bore, or enter a discharge coefficient (ISO 5167-2's C at D and D/2 tappings, used as entered).",
+			links: [{ componentId: 'O1' }],
+			detail: loss
+		});
+		const corner = `${head('0.0995', '0.97301')}: ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher) at D and D/2 tappings, which sets the plate's loss, can reach 1.05827 at some flow, above 1, which would make the jet larger than the bore and the loss smaller than the sudden expansion from the bore (Borda-Carnot), physically impossible; use a smaller bore (an entered discharge coefficient at its corner tappings would be moved to D and D/2 tappings by ISO 5167-2's ratio, which uses this coefficient, and refused the same way)`;
+		expect(view(corner).text).toBe(
+			"Bypass orifice's bore (99.5 mm) is so close to its inlet pipe's inner diameter (102.3 mm, β = 0.97301) that ISO 5167-2's discharge coefficient at D and D/2 tappings, which sets the plate's loss, could exceed 1 (up to 1.05827): a jet larger than the bore, which is physically impossible. Use a smaller bore: an entered discharge coefficient at its corner tappings would be moved to D and D/2 tappings by ISO 5167-2's ratio, which uses this coefficient, and refused the same way."
 		);
+		const small = (rest: string) =>
+			`orifice 'O1': a bore diameter of 0.025536 m in an inlet pipe of inner diameter 0.0266 m (β = d/D = 0.96): ${rest}`;
+		const reading = small(
+			"ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher) at flange tappings, which gives only the meter's reading, can reach 1.127 at some flow, above 1: the correlation is extrapolated far beyond ISO 5167-2's range, so the reading at these taps has no basis (the plate's loss uses the coefficient at D and D/2 tappings, which stays at or below 1); use a smaller bore, D and D/2 taps, or no taps (a restriction orifice, with no reading)"
+		);
+		expect(view(reading).text).toBe(
+			"Bypass orifice's bore (25.54 mm) is so close to its inlet pipe's inner diameter (26.6 mm, β = 0.96) that ISO 5167-2's discharge coefficient at flange tappings, which gives only the meter's reading, could exceed 1 (up to 1.127): the correlation would be extrapolated far beyond ISO 5167-2's range, so the reading at these taps has no basis (the plate's loss uses the coefficient at D and D/2 tappings, which stays at or below 1). Use a smaller bore, D and D/2 taps, or no taps (a restriction orifice, with no reading)."
+		);
+		const move = small(
+			"ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher) at flange tappings, one of the two in the ratio that moves its entered discharge coefficient 0.6 from its flange tappings to D and D/2 tappings, can reach 1.04146 at some flow, above 1: the correlation is extrapolated far beyond ISO 5167-2's range, so the move has no basis at this plate; use a smaller bore, or give the discharge coefficient at D and D/2 tappings (with D and D/2 taps, or no taps), where it is used as entered"
+		);
+		expect(view(move).text).toBe(
+			"Bypass orifice's bore (25.54 mm) is so close to its inlet pipe's inner diameter (26.6 mm, β = 0.96) that ISO 5167-2's discharge coefficient at flange tappings, one of the two in the ratio that moves its entered discharge coefficient 0.6 from its flange tappings to D and D/2 tappings, could exceed 1 (up to 1.04146): the correlation would be extrapolated far beyond ISO 5167-2's range, so the move has no basis at this plate. Use a smaller bore, or give the discharge coefficient at D and D/2 tappings (with D and D/2 taps, or no taps), where it is used as entered."
+		);
+		// Only the loss is told as a jet larger than the bore; a reason or remedy in another form,
+		// or the earlier form without what the coefficient is used for, keeps the server's words.
+		for (const text of [view(reading).text, view(move).text]) {
+			for (const words of ['jet', 'physically impossible', 'enter a discharge coefficient']) {
+				expect(text).not.toContain(words);
+			}
+		}
+		for (const other of [
+			loss.replace(', used as entered)', ')'),
+			reading.replace('which gives only', 'which sets the plate'),
+			`${head('0.0995', '0.97301')}: ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher) at D and D/2 tappings can reach 1.05827 at some flow, above 1, which would make the jet larger than the bore and the loss smaller than the sudden expansion from the bore (Borda-Carnot), physically impossible; use a smaller bore, or enter a discharge coefficient`
+		]) {
+			expect(view(other).text).toBe(other);
+		}
 		const moved = `${head('0.0767', '0.750049')}: its entered discharge coefficient 0.99 at its corner tappings, moved to D and D/2 tappings by ISO 5167-2's ratio of the two tap sets' coefficients (up to 1.02191 at this plate), can reach 1.01169 at some flow, above 1, which would make the jet larger than the bore, physically impossible; check the entered coefficient (ISO 5167-2's C at the plate's taps, not the flow coefficient C/√(1 - β⁴))`;
 		expect(view(moved).text).toBe(
 			"Bypass orifice: its entered discharge coefficient 0.99 at its corner tappings, moved to D and D/2 tappings by ISO 5167-2's ratio of the two tap sets' coefficients (up to 1.02191 at a bore of 76.7 mm in an inlet pipe of 102.3 mm), could reach 1.01169, above 1: a jet larger than the bore, which is physically impossible. Check the entered coefficient: ISO 5167-2's C at the plate's taps, not the flow coefficient C ÷ √(1 − β⁴)."

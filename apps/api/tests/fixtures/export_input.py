@@ -27,8 +27,9 @@ so the fixture does not change from one run to the next.
   (a second plate), the other sets a negative assigned flow (a supply), a pipe's length and the
   meter's discharge coefficient (a calibration at its taps, moved to D and D/2 tappings for the
   loss); names hold ``_x0041_x0042_`` (two escapes that share an underscore) and a CR, a
-  formula (``=HYPERLINK(...)``) and a leading ``-``. Exported as All cases, SI base units: the
-  committed workbook.
+  formula (``=HYPERLINK(...)``) and a leading ``-``. Its Compare rows include the four orifice
+  quantities on the meter (proposal orifice-plate.md §5.3). Exported as All cases, SI base
+  units: the committed workbook.
 - ``tee-fallback``: ``tests/reference/cases/tee_crane_bullhead_fallback.json``, a tee on the Darby
   3-K fallback (TEE_PATTERN_FALLBACK), in US display units: its K values are on the combined-flow
   velocity (export.md decision 29).
@@ -502,6 +503,11 @@ def scenarios(client: TestClient, library: dict[str, Any]) -> dict[str, Any]:
         {"quantity": "equipmentFlow", "elementId": "E1"},
         {"quantity": "equipmentPressureLoss", "elementId": "E1"},
         {"quantity": "equipmentPressureDrop", "elementId": "E2"},
+        # proposal orifice-plate.md §5.3: Compare's four orifice quantities, on the flow meter
+        {"quantity": "orificeFlow", "elementId": "O1"},
+        {"quantity": "orificePressureLoss", "elementId": "O1"},
+        {"quantity": "orificeDifferentialPressure", "elementId": "O1"},
+        {"quantity": "orificePressureDrop", "elementId": "O1"},
         {"quantity": "lowestPressure"},
         {"quantity": "highestVelocity"},
     ]

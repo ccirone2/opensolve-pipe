@@ -690,13 +690,7 @@ def _orifice_issue_text(comp: Orifice, d_pipe: float, why: Refusal) -> str:
             "solver cannot represent this plate"
         )
     if why.rule == "iso_coefficient":
-        return (
-            f"{head}: ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher) at "
-            f"{why.where} can reach {why.coefficient:.6g} at some flow, above 1, which would "
-            "make the jet larger than the bore and the loss smaller than the sudden expansion "
-            "from the bore (Borda-Carnot), physically impossible; use a smaller bore, or enter a "
-            "discharge coefficient"
-        )
+        return f"{head}: {_orifice_iso_tail(comp, why)}"
     if why.rule == "moved_coefficient":
         taps = TAP_NAMES[comp.taps or "d_and_d_2"]
         return (
@@ -716,6 +710,52 @@ def _orifice_issue_text(comp: Orifice, d_pipe: float, why: Refusal) -> str:
         f"{head}: with a discharge coefficient down to {why.coefficient:.6g} it gives a loss "
         "coefficient, K/(2 g A²), that is not a finite positive floating-point number; the "
         "solver cannot represent this plate"
+    )
+
+
+def _orifice_iso_tail(comp: Orifice, why: Refusal) -> str:
+    """Decision 17 (b)'s text by what eq. (4) at ``why.where`` is used for (``Refusal.basis``),
+    with a remedy that works for this plate: only the loss's C bounds the jet (Borda-Carnot), and
+    an entered C is offered only where it would be used as entered, without taps or at D and D/2
+    taps (an entered C at corner or flange taps is moved by eq. (4) and refused the same way)."""
+    iso = (
+        f"ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher) at {why.where}"
+        if why.where is not None
+        else "ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher)"
+    )
+    reach = f"can reach {why.coefficient:.6g} at some flow, above 1"
+    taps = TAP_NAMES[comp.taps] if comp.taps is not None else None
+    if why.basis == "reading":
+        return (
+            f"{iso}, which gives only the meter's reading, {reach}: the correlation is "
+            "extrapolated far beyond ISO 5167-2's range, so the reading at these taps has no "
+            "basis (the plate's loss uses the coefficient at D and D/2 tappings, which stays at "
+            "or below 1); use a smaller bore, D and D/2 taps, or no taps (a restriction orifice, "
+            "with no reading)"
+        )
+    if why.basis == "move":
+        return (
+            f"{iso}, one of the two in the ratio that moves its entered discharge coefficient "
+            f"{comp.discharge_coefficient:g} from its {taps} to D and D/2 tappings, {reach}: the "
+            "correlation is extrapolated far beyond ISO 5167-2's range, so the move has no basis "
+            "at this plate; use a smaller bore, or give the discharge coefficient at D and D/2 "
+            "tappings (with D and D/2 taps, or no taps), where it is used as entered"
+        )
+    if comp.taps in ("corner", "flange"):
+        remedy = (
+            f"use a smaller bore (an entered discharge coefficient at its {taps} would be moved "
+            "to D and D/2 tappings by ISO 5167-2's ratio, which uses this coefficient, and "
+            "refused the same way)"
+        )
+    else:
+        remedy = (
+            "use a smaller bore, or enter a discharge coefficient (ISO 5167-2's C at D and D/2 "
+            "tappings, used as entered)"
+        )
+    return (
+        f"{iso}, which sets the plate's loss, {reach}, which would make the jet larger than the "
+        "bore and the loss smaller than the sudden expansion from the bore (Borda-Carnot), "
+        f"physically impossible; {remedy}"
     )
 
 

@@ -319,7 +319,7 @@ class EquipmentResult(OutputModel):
 
 
 class OrificeResult(OutputModel):
-    """An orifice plate (SDD §4.15): ISO 5167-2's permanent pressure loss at the solved flow, a
+    """An orifice plate (SDD §4.16): ISO 5167-2's permanent pressure loss at the solved flow, a
     meter's reading at its taps, and the coefficients and inputs the solve used (proposal
     orifice-plate.md §2.2)."""
 

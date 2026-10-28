@@ -84,10 +84,11 @@
 				c.boreDiameter = v;
 			})}
 	/>
+	<!-- The id is on the span: HTML-AAM names an <output> from its labels or title, never its
+	     text, so a description that pointed at the <output> itself would be empty in a browser. -->
 	<output
-		id="{id}-beta"
 		class={['block text-sm', beta.warning ? 'text-amber-800' : 'text-slate-700']}
-		aria-live="polite">{beta.text}</output
+		aria-live="polite"><span id="{id}-beta">{beta.text}</span></output
 	>
 </div>
 

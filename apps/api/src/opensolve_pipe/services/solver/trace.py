@@ -112,6 +112,7 @@ from .methods import (
     FRITSCH_BUTLAND,
     FRITSCH_CARLSON,
     ISA_75,
+    RENNELS,
     SPEED_CONTROL_DECISION,
     SWAMEE_JAIN,
     USSA_1976,
@@ -2092,16 +2093,20 @@ ORIFICE_LOSS_NOTE = (
     "relation's theory (Reader-Harris et al. 2019) takes C with tappings 1D upstream and between "
     "the plate and the vena contracta downstream; of ISO 5167-2's tap sets only D and D/2 has "
     "L1 = 1, and Deltares WANDA uses it for its whole element. This departs from ISO's relation "
-    "read literally with a meter's own C, which at corner or flange tappings gives a K up to "
-    "5.95 % higher at β 0.75 (a flow up to 2.6 % lower on a line the plate dominates; within "
-    "0.6 % up to β 0.6)."
+    "read literally with a meter's own C, which over ISO 5167-2's range (D 50 mm to 1 m, β 0.1 "
+    "to 0.75, Re_D from Re_lo up) gives a K up to 6.14 % higher at corner tappings and 6.34 % at "
+    "flange tappings, both at β 0.75 as Re_D grows (flange on a 1 m pipe): a flow up to 2.94 % "
+    "and 3.03 % lower where the plate takes the whole head; up to β 0.6, a K up to 0.64 % and "
+    "0.84 % higher (a flow up to 0.32 % and 0.42 % lower)."
 )
 ORIFICE_TAP_POSITION_NOTE = (
     "Reader-Harris et al. 2019 take the downstream pressure at 0.125 D (L1 = 1, L2' = 0.125) for "
-    "that C; at ISO's diameter ratios 0.1 to 0.75 their C gives a K 0.06 to 1.2 % lower than D "
-    "and D/2's (a flow up to 0.56 % higher on a line the plate dominates). D and D/2 is kept: an "
-    "ISO tap set, with ISO's own Reynolds number limits. The alternative is shown above, not used."
+    "that C; over ISO 5167-2's range their C gives a K 0.063 to 1.24 % lower than D and D/2's (a "
+    "flow up to 0.63 % higher where the plate takes the whole head). D and D/2 is kept: an ISO "
+    "tap set, with ISO's own Reynolds number limits."
 )
+ORIFICE_TAP_POSITION_SHOWN = "The alternative's C and K at this plate are shown above, not used."
+"""Appended to ORIFICE_TAP_POSITION_NOTE only where the trace shows them (a solved flow)."""
 ORIFICE_ASSUMPTION_NOTE = (
     "The plate and its installation are assumed to meet ISO 5167-2 (a square-edged concentric "
     "plate, its edge and thickness, straight lengths, pipe roughness): they are not checked, nor "
@@ -2137,6 +2142,12 @@ HOLD_EQUATION = (
     f"max({RE_LO_MIN:g}, {RE_LO_BETA:g} β²) at corner and D and D/2 tappings (ISO's 5000 for "
     "β ≤ 0.56 and 16000 β² above, made continuous at β 0.56) and max(5000, 170000 β² D) at "
     "flange tappings (D in m)"
+)
+BORDA_CARNOT_EQUATION = (
+    "K(C = 1) = (1/β² − 1)² = ((1 − β)(1 + β)/β²)²: at S = 1 the relation is Borda-Carnot's "
+    "sudden expansion from the bore (μ = 1); K decreases in C, so with C_L ≤ 1 (μ ≤ 1, a jet no "
+    "larger than the bore) K stays at or above it, and a plate whose C_L could exceed 1 is refused "
+    "(proposal orifice-plate.md decision 17)"
 )
 K_EQUATION = (
     "K = u², u = (1 − β⁴)/(C_L β² (S + C_L β²)), S = √(1 − β⁴(1 − C_L²)), 1 − β⁴ = "
@@ -2231,6 +2242,7 @@ def _orifice_trace(ctx: TraceInputs, data: OrificeData) -> ElementTrace:
     else:
         t.equation("C_L = eq. (4) at D and D/2 tappings at Re_eff")
     t.equation(K_EQUATION)
+    t.equation(BORDA_CARNOT_EQUATION)
     t.equation("EGL_in − EGL_out = h = K v|v|/(2g); Δϖ = ρ g h: the permanent pressure loss")
     if taps is not None:
         meter = (
@@ -2260,7 +2272,17 @@ def _orifice_trace(ctx: TraceInputs, data: OrificeData) -> ElementTrace:
     if taps is not None:
         t.correlation(FLOW_EQUATION, ISO_5167_2)
     t.correlation("Loss coefficient at D and D/2 tappings for every plate", READER_HARRIS_2019)
-    t.correlation("Hold below the lowest Reynolds number; vena contracta elevation", WANDA)
+    t.correlation(
+        "Borda-Carnot sudden expansion from the bore: the loss coefficient's lower bound, K at "
+        "C = 1",
+        RENNELS,
+    )
+    t.correlation(
+        "Hold below the lowest Reynolds number; vena contracta elevation"
+        if law.uses_rhg
+        else "Vena contracta elevation",
+        WANDA,
+    )
     t.data("Bore diameter d", "user data")
     inlet_conn = ctx.built.port_connection[data.inlet][0]
     t.data("Pipe diameter D", f"inner diameter of connection '{inlet_conn}' at the inlet port")
@@ -2276,6 +2298,11 @@ def _orifice_trace(ctx: TraceInputs, data: OrificeData) -> ElementTrace:
     one_minus_beta = (d_pipe - d_bore) / d_pipe
     t.value("Diameter ratio β = d/D", law.beta, NO_UNIT)
     t.value("1 − β = (D − d)/D", one_minus_beta, NO_UNIT)
+    t.value(
+        "Borda-Carnot loss coefficient (1/β² − 1)² (K at C = 1; K stays at or above it)",
+        (one_minus_beta * (1.0 + law.beta) / (law.beta * law.beta)) ** 2,
+        NO_UNIT,
+    )
     t.value("Inlet pipe area A = π D²/4", law.area, M2)
     if law.uses_rhg:
         t.value("Re_lo at D and D/2 tappings", law.re_lo, NO_UNIT)
@@ -2368,7 +2395,12 @@ def _orifice_trace(ctx: TraceInputs, data: OrificeData) -> ElementTrace:
         t.value("Static pressure drop Δp_static = p_in − p_out", result.pressure_drop, PA_D)
     t.note(ORIFICE_LOSS_NOTE)
     if law.uses_rhg:
-        t.note(ORIFICE_TAP_POSITION_NOTE)
+        shown = result is not None and law.state(result.flow).loss_terms is not None
+        t.note(
+            f"{ORIFICE_TAP_POSITION_NOTE} {ORIFICE_TAP_POSITION_SHOWN}"
+            if shown
+            else ORIFICE_TAP_POSITION_NOTE
+        )
     t.note(ORIFICE_ASSUMPTION_NOTE)
     t.note(ORIFICE_RECOVERY_NOTE)
     if entered is not None:

@@ -3,9 +3,9 @@
  * shown only when the solve has plates, with its table and note; the key values beside the plate
  * in Build (no reading without taps); the trace's Add to comparison and Use in goal seek; Choose
  * results' Orifice plates group; and the goal-seek pickers' groups, with the bore's default
- * bounds from the last solve's pipe bore and a C on ISO 5167-2's that starts at the middle of the
- * bounds. The solve results are made-up test inputs (testing/results.ts); the API is replaced by
- * fakes.
+ * bounds from the inlet pipe as it is now (else the current solve's pipe bore, never an
+ * out-of-date one's) and a C on ISO 5167-2's that starts at the middle of the bounds. The solve
+ * results are made-up test inputs (testing/results.ts); the API is replaced by fakes.
  */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
@@ -13,6 +13,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Project, SolvedState } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import { orificeProject } from '$lib/testing/helpers';
+import { TEST_LIBRARY } from '$lib/testing/library';
+import { INCH } from '$lib/utils/units';
 import { orificeSolved, response } from '$lib/testing/results';
 import { testWorkspace } from '$lib/testing/workspace';
 import { withScenarios } from '$lib/utils/scenarios';
@@ -203,7 +205,8 @@ describe('orifice plate results', () => {
 		expect(option.closest('optgroup')).toHaveAttribute('label', 'Orifice plates');
 		await fireEvent.change(target, { target: { value: (option as HTMLOptionElement).value } });
 		await waitFor(() => expect(radios(vform)).toEqual(['Bore diameter', 'Discharge coefficient']));
-		// The bore: ISO 5167-2's β range on the last solve's pipe bore (0.1023 m, made up).
+		// The bore: ISO 5167-2's β range on the current solve's pipe bore (0.1023 m, made up): the
+		// pipe library is not loaded here, so the form cannot resolve D.
 		await fireEvent.click(within(vform).getByRole('radio', { name: 'Bore diameter' }));
 		await fireEvent.click(within(vform).getByRole('button', { name: 'Add variable' }));
 		const card = within(
@@ -229,10 +232,57 @@ describe('orifice plate results', () => {
 		);
 		expect(
 			c.getByText(
-				"Now ISO 5167-2's discharge coefficient, the default (0.6047 at the plate's taps in the last solve); the search starts at the middle of the bounds"
+				"Now ISO 5167-2's discharge coefficient, the default (0.6047 at D and D/2 tappings in the last solve); the search starts at the middle of the bounds"
 			)
 		).toBeInTheDocument();
 		expect(c.getByRole('textbox', { name: /^From/ })).toHaveValue('0.30235');
+		expect(c.getByRole('textbox', { name: /^To/ })).toHaveValue('1');
+	});
+
+	it("goal seek's defaults follow the inlet pipe as it is now, never an out-of-date solve", async () => {
+		// The solve's pipe bore is 0.1023 m (made up); the inlet pipe then becomes NPS 3 Sch 40,
+		// TEST_LIBRARY's 77.92 mm, so the solve is out of date.
+		const solve = vi.fn(() => Promise.resolve(response(orificeSolved())));
+		const ws = testWorkspace(orificeProject(), {
+			solver: { solve },
+			library: { getLibrary: () => Promise.resolve(TEST_LIBRARY) }
+		});
+		render(WorkspaceView, { workspace: ws });
+		await ws.solve();
+		await waitFor(() => expect(ws.library.libraryStatus).toBe('ready'));
+		ws.editConnection('L1', 'NPS 3', (c) => ({
+			...c,
+			piping: { ...c.piping, pipes: [{ ...c.piping.pipes[0]!, nominalSize: 3 * INCH }] }
+		}));
+		await tick();
+		expect(ws.store.results.stale).toBe(true);
+		ws.openGoalSeek();
+		const dialog = within(await screen.findByRole('dialog', { name: 'Goal seek' }));
+		const add = async (field: string) => {
+			await fireEvent.click(dialog.getByRole('button', { name: 'Add variable' }));
+			const form = dialog.getByRole('group', { name: 'New variable' });
+			const target = within(form).getByRole('combobox', { name: 'Element' });
+			const option = within(target).getByRole('option', { name: 'Bypass orifice' });
+			await fireEvent.change(target, { target: { value: (option as HTMLOptionElement).value } });
+			await waitFor(() => within(form).getByRole('radio', { name: field }));
+			await fireEvent.click(within(form).getByRole('radio', { name: field }));
+			await fireEvent.click(within(form).getByRole('button', { name: 'Add variable' }));
+			return within(
+				await dialog.findByRole('group', { name: new RegExp(`Bypass orifice · ${field}$`) })
+			);
+		};
+		// ISO's β range on the current D, 0.1 × 77.92 mm to 0.75 × 77.92 mm.
+		const bore = await add('Bore diameter');
+		expect(bore.getByRole('textbox', { name: /^From/ })).toHaveValue('7.792');
+		expect(bore.getByRole('textbox', { name: /^To/ })).toHaveValue('58.44');
+		// The out-of-date solve's C is not read: "Now" has no number and the box is 0.5 to 1.
+		const c = await add('Discharge coefficient');
+		expect(
+			c.getByText(
+				"Now ISO 5167-2's discharge coefficient, the default; the search starts at the middle of the bounds"
+			)
+		).toBeInTheDocument();
+		expect(c.getByRole('textbox', { name: /^From/ })).toHaveValue('0.5');
 		expect(c.getByRole('textbox', { name: /^To/ })).toHaveValue('1');
 	});
 });

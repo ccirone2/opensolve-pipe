@@ -1,4 +1,4 @@
-"""Components: the nodes of the port graph (SDD §4.2-4.9, §4.11, §4.14, §4.15), v1 scope."""
+"""Components: the nodes of the port graph (SDD §4.2-4.9, §4.11, §4.14, §4.16), v1 scope."""
 
 from typing import Annotated, Any, ClassVar, Literal, Self
 
@@ -440,7 +440,7 @@ OrificeTaps = Literal["corner", "flange", "d_and_d_2"]
 
 
 class Orifice(BaseComponent):
-    """A square-edged concentric orifice plate (SDD §4.15): a restriction orifice, or a flow
+    """A square-edged concentric orifice plate (SDD §4.16): a restriction orifice, or a flow
     meter with pressure taps. Its loss is ISO 5167-2's permanent pressure loss; it has no status:
     valves isolate it (proposal orifice-plate.md decisions 1-2)."""
 

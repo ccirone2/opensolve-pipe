@@ -1089,8 +1089,10 @@ FLUIDS_TAPS = {"corner": "corner", "flange": "flange", "d_and_d_2": "D"}
 
 
 def test_orifice_cases_exist() -> None:
-    """§7.1's twelve closed-form cases and §7.2's three EPANET cases."""
-    assert len(ORIFICE_CASES) == 15
+    """§7.1's twelve closed-form cases, the two added in review (C13 a moved entered C below its
+    flange taps' Reynolds number, C14 reverse flow with the ports at different elevations) and
+    §7.2's three EPANET cases."""
+    assert len(ORIFICE_CASES) == 17
     assert len([p for p in ORIFICE_CASES if p.stem.startswith("epanet")]) == 3
 
 
@@ -1343,7 +1345,7 @@ def test_orifice_flags_follow_their_inequalities(path: Path) -> None:
         if eq4 and not 0.1 <= beta <= 0.75:
             limits.add("beta")
         lows = [max(5000.0, 16000.0 * beta * beta)]
-        if o.discharge_coefficient is None and o.taps is not None:
+        if eq4 and o.taps is not None:  # ISO's C_M, or a moved entered C's denominator
             lows.append(el.orifice_re_lo(o.taps, beta, d_pipe))
         if eq4 and any(re < low for low in lows):
             limits.add("reynoldsNumber")

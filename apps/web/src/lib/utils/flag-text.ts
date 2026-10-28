@@ -22,7 +22,7 @@ import type { Flag, Project, UnitPreferences } from '../api/types';
 import { componentById, connectionById } from './graph';
 import { fittingFallbackName, portLabel } from './labels';
 import { connectionName, Formatter, pipeLabel, siText } from './results';
-import type { LabelOptions, UnitCategory } from './units';
+import { digitsApart, formatValue, type LabelOptions, type UnitCategory } from './units';
 
 export interface FlagTextContext {
 	project: Project;
@@ -108,7 +108,9 @@ const OUTSIDE_ISO =
 /**
  * An orifice plate's validity flag told from its `details.limit` and SI numbers (proposal
  * orifice-plate.md §3.5), or null to keep the API's words: its Reynolds-number flag, a flag of
- * another element, or details not in the form expected.
+ * another element, or details not in the form expected. A value and the limit or value it is
+ * compared with are shown with as many digits as tell them apart (units.ts digitsApart, as
+ * design checks do), so a value just past a limit never reads as the limit.
  */
 function orificeText(flag: Flag, f: Formatter): string | null {
 	const limit = flag.details.limit;
@@ -117,29 +119,42 @@ function orificeText(flag: Flag, f: Formatter): string | null {
 	const value = n('value');
 	const lower = n('lower');
 	const upper = n('upper');
-	const range = (what: string, shown: (v: number) => string): string | null => {
+	/** The value and the other number in `category`'s display unit, told apart. */
+	const apart = (v: number, other: number, category: UnitCategory): [string, string] => {
+		const show = (si: number, sig: number) => formatValue(si, category, f.prefs, sig);
+		const sig = digitsApart(v, [other], show);
+		return [show(v, sig), show(other, sig)];
+	};
+	const range = (what: string, category: UnitCategory): string | null => {
 		if (value === null) return null;
-		if (lower !== null)
-			return `${what} (${shown(value)}) is below ISO 5167-2's smallest, ${shown(lower)}: ${OUTSIDE_ISO}`;
-		if (upper !== null)
-			return `${what} (${shown(value)}) is above ISO 5167-2's largest, ${shown(upper)}: ${OUTSIDE_ISO}`;
+		if (lower !== null) {
+			const [v, l] = apart(value, lower, category);
+			return `${what} (${v}) is below ISO 5167-2's smallest, ${l}: ${OUTSIDE_ISO}`;
+		}
+		if (upper !== null) {
+			const [v, u] = apart(value, upper, category);
+			return `${what} (${v}) is above ISO 5167-2's largest, ${u}: ${OUTSIDE_ISO}`;
+		}
 		return null;
 	};
 	switch (limit) {
 		case 'boreDiameter':
-			return range('Its bore diameter', (v) => f.value(v, 'diameter'));
+			return range('Its bore diameter', 'diameter');
 		case 'pipeDiameter':
-			return range("Its inlet pipe's inner diameter", (v) => f.value(v, 'diameter'));
+			return range("Its inlet pipe's inner diameter", 'diameter');
 		case 'beta':
-			return range('Its diameter ratio β = d ÷ D', (v) => f.plain(v));
+			return range('Its diameter ratio β = d ÷ D', 'dimensionless');
 		case 'outletDiameter': {
 			const inlet = n('inlet');
 			if (value === null || inlet === null) return null;
-			return `Its outlet pipe's inner diameter (${f.value(value, 'diameter')}) differs from its inlet pipe's (${f.value(inlet, 'diameter')}): ISO 5167-2's pressure-loss relation assumes the jet recovers in a pipe of the inlet's bore, about 6 D downstream, so the loss is less certain.`;
+			const [outlet, inletText] = apart(value, inlet, 'diameter');
+			return `Its outlet pipe's inner diameter (${outlet}) differs from its inlet pipe's (${inletText}): ISO 5167-2's pressure-loss relation assumes the jet recovers in a pipe of the inlet's bore, about 6 D downstream, so the loss is less certain.`;
 		}
-		case 'laminar':
+		case 'laminar': {
 			if (value === null || upper === null) return null;
-			return `Its entered discharge coefficient is held at every flow, a square law for turbulent flow, but the flow in its inlet pipe is laminar (Re = ${f.plain(value)}, below ${f.plain(upper)}): the loss is likely underestimated.`;
+			const [re, top] = apart(value, upper, 'dimensionless');
+			return `Its entered discharge coefficient is held at every flow, a square law for turbulent flow, but the flow in its inlet pipe is laminar (Re = ${re}, below ${top}): the loss is likely underestimated.`;
+		}
 		case 'reverseFlow': {
 			const q = n('flow');
 			if (q === null) return null;

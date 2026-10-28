@@ -1914,7 +1914,18 @@ decision 21): β < 1 and decision 17's coefficient bounds depend on the inlet pi
 
 _ORIFICE_BOUND_TEXTS: dict[str, str] = {
     "beta": "the orifice's bore is not smaller than its inlet pipe's inner diameter",
-    "iso_coefficient": "ISO 5167-2's discharge coefficient at this {what} could exceed 1",
+    "loss": (
+        "ISO 5167-2's discharge coefficient at D and D/2 tappings, which sets the orifice's loss, "
+        "could exceed 1 at this {what}"
+    ),
+    "reading": (
+        "ISO 5167-2's discharge coefficient at the orifice's taps, which gives its reading, could "
+        "exceed 1 at this {what}"
+    ),
+    "move": (
+        "ISO 5167-2's discharge coefficient in the ratio that moves the orifice's entered "
+        "coefficient to D and D/2 tappings could exceed 1 at this {what}"
+    ),
     "moved_coefficient": (
         "the orifice's discharge coefficient, moved from its taps to D and D/2 tappings, could "
         "exceed 1 at this {what}"
@@ -1924,7 +1935,8 @@ _ORIFICE_BOUND_TEXTS: dict[str, str] = {
         "{what}"
     ),
 }
-"""Decision 17's rules at a bound, located by index: no id or value (D10, SDD §5.1.2)."""
+"""Decision 17's rules at a bound, located by index: no id or value (D10, SDD §5.1.2); rule (b)
+by what eq. (4) is used for there (``orifice.Refusal.basis``)."""
 
 
 def _orifice_bound_issues(
@@ -1944,7 +1956,9 @@ def _orifice_bound_issues(
         found: list[TopologyIssue] = []
         for problem in exc.issues:
             if problem.code == "ORIFICE_OUT_OF_RANGE" and eid in problem.component_ids:
-                text = _ORIFICE_BOUND_TEXTS[refused[eid][2].rule].format(what=what)
+                why = refused[eid][2]
+                key = why.basis if why.rule == "iso_coefficient" and why.basis else why.rule
+                text = _ORIFICE_BOUND_TEXTS[key].format(what=what)
             else:  # the case builds, and only this value changed: not expected
                 text = f"the project does not build at this bound ({problem.code})"
             found.append(

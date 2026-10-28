@@ -6291,6 +6291,24 @@
 									"type": "equipment"
 								},
 								{
+									"boreDiameter": 0.025,
+									"elevation": 0.0,
+									"id": "O1",
+									"name": "Cooler flow meter",
+									"ports": [
+										{
+											"id": "inlet",
+											"nominalSize": 0.0508
+										},
+										{
+											"id": "outlet",
+											"nominalSize": 0.0508
+										}
+									],
+									"taps": "flange",
+									"type": "orifice"
+								},
+								{
 									"elevation": 0.0,
 									"id": "R2",
 									"liquidLevel": 5.0,
@@ -6466,6 +6484,24 @@
 											}
 										]
 									},
+									"toComponentId": "O1",
+									"toPortId": "inlet"
+								},
+								{
+									"fromComponentId": "O1",
+									"fromPortId": "outlet",
+									"id": "L8",
+									"piping": {
+										"fittings": [],
+										"pipes": [
+											{
+												"innerDiameter": 0.0627,
+												"length": 3.0,
+												"materialId": "custom",
+												"roughness": 4.5e-5
+											}
+										]
+									},
 									"toComponentId": "E2",
 									"toPortId": "inlet"
 								},
@@ -6496,7 +6532,7 @@
 							"id": "fixture-export-scenarios",
 							"metadata": {
 								"created": "2026-10-25T00:00:00Z",
-								"description": "Export fixture: a tee, a PRV, a demand, a strainer and a cooler, with two scenarios.",
+								"description": "Export fixture: a tee, a PRV, a demand, a strainer, a flow meter and a cooler, with two scenarios.",
 								"modified": "2026-10-25T00:00:00Z",
 								"name": "Plant water header"
 							},
@@ -6504,7 +6540,7 @@
 							"pumpLibrary": [],
 							"scenarios": [
 								{
-									"description": "The PRV with a Cv 120 trim, a higher low tank and a dirty strainer.",
+									"description": "The PRV with a Cv 120 trim, a higher low tank, a dirty strainer and a larger meter bore.",
 									"id": "S1",
 									"name": "Cv valve",
 									"overrides": [
@@ -6528,6 +6564,12 @@
 											"field": "rating.pressureLoss",
 											"kind": "component",
 											"value": 40000.0
+										},
+										{
+											"componentId": "O1",
+											"field": "boreDiameter",
+											"kind": "component",
+											"value": 0.03
 										}
 									]
 								},
@@ -6547,6 +6589,12 @@
 											"kind": "pipe",
 											"pipeIndex": 0,
 											"value": 25.0
+										},
+										{
+											"componentId": "O1",
+											"field": "dischargeCoefficient",
+											"kind": "component",
+											"value": 0.62
 										}
 									]
 								}
@@ -6590,10 +6638,10 @@
 									},
 									"R1": {
 										"egl": 30.0,
-										"outflow": 0.015806732397575095,
+										"outflow": 0.01410844631077365,
 										"portOutflows": {
 											"port_1": 0.010547862785118269,
-											"port_2": 0.005258869612456826
+											"port_2": 0.0035605835256553803
 										},
 										"type": "reservoir"
 									},
@@ -6607,9 +6655,9 @@
 									},
 									"R3": {
 										"egl": 20.430953885671954,
-										"outflow": -0.005258869612456841,
+										"outflow": -0.003560583525655402,
 										"portOutflows": {
-											"port_1": -0.005258869612456841
+											"port_1": -0.003560583525655402
 										},
 										"type": "reference_node"
 									}
@@ -6669,18 +6717,32 @@
 										}
 									},
 									"E2": {
-										"flow": 0.00525886961245683,
+										"flow": 0.003560583525655447,
 										"flowRatio": null,
-										"headLoss": 1.0159488759517394,
-										"pressureDrop": 14839.726861846255,
-										"pressureLoss": 9945.192785778008,
+										"headLoss": 0.4657248420527331,
+										"pressureDrop": 10431.073434907797,
+										"pressureLoss": 4559.0122189971935,
 										"rating": {
 											"kind": "Kv",
 											"value": 60.0
 										}
 									}
 								},
-								"flags": [],
+								"flags": [
+									{
+										"code": "CORRELATION_OUT_OF_RANGE",
+										"componentId": "O1",
+										"connectionId": null,
+										"details": {
+											"inlet": 0.05,
+											"limit": "outletDiameter",
+											"value": 0.0627
+										},
+										"message": "orifice 'O1': its outlet pipe diameter 0.0627 m differs from its inlet pipe diameter 0.05 m; ISO 5167-2's pressure-loss relation assumes the jet recovers in a pipe of the inlet's bore, about 6 D downstream, so the loss is less certain",
+										"portId": null,
+										"severity": "warning"
+									}
+								],
 								"fluid": {
 									"concentration": null,
 									"density": 998.2071504679437,
@@ -6853,26 +6915,26 @@
 									"L5": {
 										"fittings": [],
 										"fittingsHeadLoss": 0.0,
-										"flow": 0.005258869612456826,
+										"flow": 0.0035605835256553803,
 										"flowRegime": "turbulent",
-										"frictionFactor": 0.02125966267712688,
-										"frictionHeadLoss": 7.775542943978457,
-										"headLoss": 7.775542943978458,
-										"reynoldsNumber": 133462.89787255973,
+										"frictionFactor": 0.022061778918979244,
+										"frictionHeadLoss": 3.6988986608796743,
+										"headLoss": 3.698898660879671,
+										"reynoldsNumber": 90362.72630255557,
 										"segments": [
 											{
 												"flowRegime": "turbulent",
-												"frictionFactor": 0.02125966267712688,
-												"headLoss": 7.775542943978457,
+												"frictionFactor": 0.022061778918979244,
+												"headLoss": 3.6988986608796743,
 												"index": 0,
 												"innerDiameter": 0.05,
 												"length": 50.0,
-												"reynoldsNumber": 133462.89787255973,
+												"reynoldsNumber": 90362.72630255557,
 												"roughness": 4.5e-5,
-												"velocity": 2.6783203004744442
+												"velocity": 1.8133902988787907
 											}
 										],
-										"velocity": 2.6783203004744442
+										"velocity": 1.8133902988787907
 									},
 									"L6": {
 										"fittings": [],
@@ -6901,26 +6963,50 @@
 									"L7": {
 										"fittings": [],
 										"fittingsHeadLoss": 0.0,
-										"flow": 0.005258869612456841,
+										"flow": 0.003560583525655402,
 										"flowRegime": "turbulent",
-										"frictionFactor": 0.021259662677126874,
-										"frictionHeadLoss": 0.7775542943978498,
-										"headLoss": 0.7775542943978486,
-										"reynoldsNumber": 133462.8978725601,
+										"frictionFactor": 0.022061778918979216,
+										"frictionHeadLoss": 0.3698898660879715,
+										"headLoss": 0.3698898660879699,
+										"reynoldsNumber": 90362.72630255613,
 										"segments": [
 											{
 												"flowRegime": "turbulent",
-												"frictionFactor": 0.021259662677126874,
-												"headLoss": 0.7775542943978498,
+												"frictionFactor": 0.022061778918979216,
+												"headLoss": 0.3698898660879715,
 												"index": 0,
 												"innerDiameter": 0.05,
 												"length": 5.0,
-												"reynoldsNumber": 133462.8978725601,
+												"reynoldsNumber": 90362.72630255613,
 												"roughness": 4.5e-5,
-												"velocity": 2.6783203004744514
+												"velocity": 1.8133902988788018
 											}
 										],
-										"velocity": 2.6783203004744514
+										"velocity": 1.8133902988788018
+									},
+									"L8": {
+										"fittings": [],
+										"fittingsHeadLoss": 0.0,
+										"flow": 0.0035605835256554566,
+										"flowRegime": "turbulent",
+										"frictionFactor": 0.022039889776361586,
+										"frictionHeadLoss": 0.07149981053862221,
+										"headLoss": 0.0714998105386222,
+										"reynoldsNumber": 72059.59035291667,
+										"segments": [
+											{
+												"flowRegime": "turbulent",
+												"frictionFactor": 0.022039889776361586,
+												"headLoss": 0.07149981053862221,
+												"index": 0,
+												"innerDiameter": 0.0627,
+												"length": 3.0,
+												"reynoldsNumber": 72059.59035291667,
+												"roughness": 4.5e-5,
+												"velocity": 1.1531776458101726
+											}
+										],
+										"velocity": 1.1531776458101726
 									}
 								},
 								"methodVersion": "1.4.0",
@@ -6962,28 +7048,52 @@
 										"velocity": 0.9190148694890695
 									},
 									"E2:inlet": {
-										"absolutePressure": 313868.1850689086,
+										"absolutePressure": 307407.90177408414,
 										"componentId": "E2",
-										"dynamicPressure": 3580.269402880076,
-										"egl": 22.224457056021542,
+										"dynamicPressure": 663.7172589965604,
+										"egl": 21.266568593812657,
 										"elevation": 0.0,
-										"hgl": 21.858715460678916,
+										"hgl": 21.19876671025424,
 										"portId": "inlet",
-										"pressure": 213976.45536274483,
-										"totalPressure": 217556.7247656249,
-										"velocity": 2.6783203004744442
+										"pressure": 207516.1720679204,
+										"totalPressure": 208179.88932691695,
+										"velocity": 1.1531776458101726
 									},
 									"E2:outlet": {
-										"absolutePressure": 299028.45820706233,
+										"absolutePressure": 296976.82833917637,
 										"componentId": "E2",
-										"dynamicPressure": 3580.269402880095,
-										"egl": 21.208508180069803,
+										"dynamicPressure": 1641.2443988389477,
+										"egl": 20.800843751759924,
 										"elevation": 0.5,
-										"hgl": 20.842766584727176,
+										"hgl": 20.633182808620944,
 										"portId": "outlet",
-										"pressure": 199136.72850089858,
-										"totalPressure": 202716.99790377868,
-										"velocity": 2.6783203004744514
+										"pressure": 197085.0986330126,
+										"totalPressure": 198726.34303185155,
+										"velocity": 1.8133902988788018
+									},
+									"O1:inlet": {
+										"absolutePressure": 355713.75879222126,
+										"componentId": "O1",
+										"dynamicPressure": 1641.2443988389277,
+										"egl": 26.30110133912033,
+										"elevation": 0.0,
+										"hgl": 26.133440395981353,
+										"portId": "inlet",
+										"pressure": 255822.0290860575,
+										"totalPressure": 257463.27348489643,
+										"velocity": 1.8133902988787907
+									},
+									"O1:outlet": {
+										"absolutePressure": 308107.81829231157,
+										"componentId": "O1",
+										"dynamicPressure": 663.7172589965604,
+										"egl": 21.33806840435128,
+										"elevation": 0.0,
+										"hgl": 21.270266520792863,
+										"portId": "outlet",
+										"pressure": 208216.08858614782,
+										"totalPressure": 208879.80584514438,
+										"velocity": 1.1531776458101726
 									},
 									"PRV1:inlet": {
 										"absolutePressure": 365584.2615247215,
@@ -7094,7 +7204,27 @@
 										"velocity": 1.5828371225146132
 									}
 								},
-								"orificeResults": {},
+								"orificeResults": {
+									"O1": {
+										"beta": 0.5,
+										"boreDiameter": 0.025,
+										"coefficientReynoldsNumber": 90362.72630255551,
+										"coefficientSource": "iso_5167_2",
+										"differentialPressure": 66508.82509380243,
+										"dischargeCoefficient": 0.6087078161703318,
+										"flow": 0.003560583525655378,
+										"headLoss": 4.96303293476905,
+										"lossCoefficient": 29.60160453502337,
+										"meterDischargeCoefficient": 0.6084047836094274,
+										"pipeDiameter": 0.05,
+										"pressureDrop": 47605.94049990969,
+										"pressureLoss": 48583.46763975206,
+										"reynoldsNumber": 90362.72630255551,
+										"tapCoefficientRatio": null,
+										"taps": "flange",
+										"venaContractaPressure": 189379.40758729912
+									}
+								},
 								"pumpResults": {},
 								"timestamp": "2026-10-25T12:30:00Z",
 								"trace": {
@@ -7523,7 +7653,7 @@
 													"name": "Inlet pipe inner diameter (its end segment at the port)",
 													"source": "user",
 													"unit": "m",
-													"value": 0.05
+													"value": 0.0627
 												},
 												{
 													"name": "Outlet pipe inner diameter (its end segment at the port)",
@@ -7591,47 +7721,47 @@
 												{
 													"name": "Flow Q (inlet → outlet)",
 													"unit": "m³/s",
-													"value": 0.00525886961245683
+													"value": 0.003560583525655447
 												},
 												{
 													"name": "Inlet pipe velocity v_in = Q/A_in",
 													"unit": "m/s",
-													"value": 2.6783203004744465
+													"value": 1.1531776458101695
 												},
 												{
 													"name": "Outlet pipe velocity v_out = Q/A_out",
 													"unit": "m/s",
-													"value": 2.6783203004744465
+													"value": 1.8133902988788246
 												},
 												{
 													"name": "Inlet pipe Reynolds number Re_in",
 													"unit": "",
-													"value": 133462.8978725598
+													"value": 72059.59035291648
 												},
 												{
 													"name": "Outlet pipe Reynolds number Re_out",
 													"unit": "",
-													"value": 133462.8978725598
+													"value": 90362.72630255726
 												},
 												{
 													"name": "EGL at the inlet EGL_in",
 													"unit": "m",
-													"value": 22.224457056021542
+													"value": 21.266568593812657
 												},
 												{
 													"name": "EGL at the outlet EGL_out",
 													"unit": "m",
-													"value": 21.208508180069803
+													"value": 20.800843751759924
 												},
 												{
 													"name": "Head loss h = EGL_in − EGL_out (solved)",
 													"unit": "m",
-													"value": 1.0159488759517394
+													"value": 0.4657248420527331
 												},
 												{
 													"name": "Head loss by the law c Q|Q|",
 													"unit": "m",
-													"value": 1.0159488759517392
+													"value": 0.4657248420527332
 												},
 												{
 													"name": "Density ratio ρ/ρ_w",
@@ -7641,17 +7771,17 @@
 												{
 													"name": "Pressure loss ρ g h",
 													"unit": "Pa (difference)",
-													"value": 9945.192785778008
+													"value": 4559.0122189971935
 												},
 												{
 													"name": "Inlet static pressure p_in",
 													"unit": "Pa(g)",
-													"value": 213976.45536274483
+													"value": 207516.1720679204
 												},
 												{
 													"name": "Outlet static pressure p_out",
 													"unit": "Pa(g)",
-													"value": 199136.72850089858
+													"value": 197085.0986330126
 												},
 												{
 													"name": "Elevation term ρ g (z_out − z_in)",
@@ -7661,12 +7791,12 @@
 												{
 													"name": "Velocity-head term ρ (v_out² − v_in²)/2",
 													"unit": "Pa (difference)",
-													"value": 0.0
+													"value": 977.5271398424326
 												},
 												{
 													"name": "Static pressure drop Δp_static = p_in − p_out",
 													"unit": "Pa (difference)",
-													"value": 14839.726861846255
+													"value": 10431.073434907797
 												}
 											],
 											"notes": [
@@ -8725,7 +8855,7 @@
 													"name": "To port",
 													"source": "user",
 													"unit": "",
-													"value": "E2:inlet"
+													"value": "O1:inlet"
 												},
 												{
 													"name": "Friction method",
@@ -8792,7 +8922,7 @@
 												{
 													"name": "Flow Q",
 													"unit": "m³/s",
-													"value": 0.005258869612456826
+													"value": 0.0035605835256553803
 												},
 												{
 													"name": "Pipe 1 area A",
@@ -8802,12 +8932,12 @@
 												{
 													"name": "Pipe 1 velocity v",
 													"unit": "m/s",
-													"value": 2.6783203004744442
+													"value": 1.8133902988787907
 												},
 												{
 													"name": "Pipe 1 Reynolds number Re",
 													"unit": "",
-													"value": 133462.89787255973
+													"value": 90362.72630255557
 												},
 												{
 													"name": "Pipe 1 relative roughness ε/D",
@@ -8817,17 +8947,17 @@
 												{
 													"name": "Pipe 1 friction factor f",
 													"unit": "",
-													"value": 0.02125966267712688
+													"value": 0.022061778918979244
 												},
 												{
 													"name": "Pipe 1 friction head loss h_f",
 													"unit": "m",
-													"value": 7.775542943978457
+													"value": 3.6988986608796743
 												},
 												{
 													"name": "Friction head loss Σh_f",
 													"unit": "m",
-													"value": 7.775542943978457
+													"value": 3.6988986608796743
 												},
 												{
 													"name": "Fittings head loss Σh_j",
@@ -8837,7 +8967,7 @@
 												{
 													"name": "Head loss Δh = EGL_from − EGL_to",
 													"unit": "m",
-													"value": 7.775542943978458
+													"value": 3.698898660879671
 												},
 												{
 													"name": "EGL at the from port",
@@ -8847,11 +8977,11 @@
 												{
 													"name": "EGL at the to port",
 													"unit": "m",
-													"value": 22.224457056021542
+													"value": 26.30110133912033
 												}
 											],
 											"notes": [
-												"Pipe 1: turbulent, Re = 133463 ≥ 4000: Colebrook; ε/D = 0.0009 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
+												"Pipe 1: turbulent, Re = 90362.7 ≥ 4000: Colebrook; ε/D = 0.0009 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
 											]
 										},
 										"L6": {
@@ -9166,7 +9296,7 @@
 												{
 													"name": "Flow Q",
 													"unit": "m³/s",
-													"value": 0.005258869612456841
+													"value": 0.003560583525655402
 												},
 												{
 													"name": "Pipe 1 area A",
@@ -9176,12 +9306,12 @@
 												{
 													"name": "Pipe 1 velocity v",
 													"unit": "m/s",
-													"value": 2.6783203004744514
+													"value": 1.8133902988788018
 												},
 												{
 													"name": "Pipe 1 Reynolds number Re",
 													"unit": "",
-													"value": 133462.8978725601
+													"value": 90362.72630255613
 												},
 												{
 													"name": "Pipe 1 relative roughness ε/D",
@@ -9191,17 +9321,17 @@
 												{
 													"name": "Pipe 1 friction factor f",
 													"unit": "",
-													"value": 0.021259662677126874
+													"value": 0.022061778918979216
 												},
 												{
 													"name": "Pipe 1 friction head loss h_f",
 													"unit": "m",
-													"value": 0.7775542943978498
+													"value": 0.3698898660879715
 												},
 												{
 													"name": "Friction head loss Σh_f",
 													"unit": "m",
-													"value": 0.7775542943978498
+													"value": 0.3698898660879715
 												},
 												{
 													"name": "Fittings head loss Σh_j",
@@ -9211,12 +9341,12 @@
 												{
 													"name": "Head loss Δh = EGL_from − EGL_to",
 													"unit": "m",
-													"value": 0.7775542943978486
+													"value": 0.3698898660879699
 												},
 												{
 													"name": "EGL at the from port",
 													"unit": "m",
-													"value": 21.208508180069803
+													"value": 20.800843751759924
 												},
 												{
 													"name": "EGL at the to port",
@@ -9225,7 +9355,619 @@
 												}
 											],
 											"notes": [
-												"Pipe 1: turbulent, Re = 133463 ≥ 4000: Colebrook; ε/D = 0.0009 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
+												"Pipe 1: turbulent, Re = 90362.7 ≥ 4000: Colebrook; ε/D = 0.0009 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
+											]
+										},
+										"L8": {
+											"correlations": [
+												{
+													"citation": "Colebrook, C. F. J. ICE 11(4), 1939, 133-156, doi:10.1680/ijoti.1939.13150. Clamond, D. Ind. Eng. Chem. Res. 48(7), 2009, 3665-3671, doi:10.1021/ie801626g.",
+													"name": "Colebrook equation, exact solution fluids.friction.Clamond(Re, ε/D)"
+												}
+											],
+											"dataSources": [
+												{
+													"citation": "fluids.constants.g: the standard acceleration of gravity, 9.80665 m/s² (a defined value, 3rd CGPM, 1901)",
+													"name": "Gravitational acceleration g"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Fluid density (Water)"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: M. L. Huber et al., 'New International Formulation for the Viscosity of H2O', J. Phys. Chem. Ref. Data 38 (2009) 101-125, doi:10.1063/1.3088050",
+													"name": "Fluid dynamic viscosity (Water)"
+												},
+												{
+													"citation": "user value",
+													"name": "Pipe 1 inner diameter"
+												},
+												{
+													"citation": "user value",
+													"name": "Pipe 1 roughness"
+												}
+											],
+											"elementId": "L8",
+											"elementType": "pipe_connection",
+											"equations": [
+												"A = π D²/4 and v = Q/A (Q: flow from → to; D: segment inner diameter)",
+												"Re = |v| D/ν (ν = μ/ρ: kinematic viscosity)",
+												"h_f = f (L/D) v|v|/(2g) per segment (Darcy–Weisbach; f: Darcy friction factor, L: segment length)",
+												"1/√f = −2 log10(ε/(3.7 D) + 2.51/(Re √f)) for Re ≥ 4000 (Colebrook; ε: absolute roughness), solved exactly",
+												"Δh = EGL_from − EGL_to = Σ h_f + Σ h_j"
+											],
+											"inputs": [
+												{
+													"name": "From port",
+													"source": "user",
+													"unit": "",
+													"value": "O1:outlet"
+												},
+												{
+													"name": "To port",
+													"source": "user",
+													"unit": "",
+													"value": "E2:inlet"
+												},
+												{
+													"name": "Friction method",
+													"source": "default",
+													"unit": "",
+													"value": "colebrook"
+												},
+												{
+													"name": "Gravitational acceleration g",
+													"source": "library",
+													"unit": "m/s²",
+													"value": 9.80665
+												},
+												{
+													"name": "Fluid temperature T",
+													"source": "user",
+													"unit": "K",
+													"value": 293.15
+												},
+												{
+													"name": "Fluid density ρ",
+													"source": "library",
+													"unit": "kg/m³",
+													"value": 998.2071504679437
+												},
+												{
+													"name": "Fluid dynamic viscosity μ",
+													"source": "library",
+													"unit": "Pa·s",
+													"value": 0.001001596143120583
+												},
+												{
+													"name": "Kinematic viscosity ν = μ/ρ",
+													"source": "computed",
+													"unit": "m²/s",
+													"value": 1.003395079519367e-6
+												},
+												{
+													"name": "Pipe 1 material",
+													"source": "user",
+													"unit": "",
+													"value": "custom"
+												},
+												{
+													"name": "Pipe 1 length L",
+													"source": "user",
+													"unit": "m",
+													"value": 3.0
+												},
+												{
+													"name": "Pipe 1 inner diameter D",
+													"source": "user",
+													"unit": "m",
+													"value": 0.0627
+												},
+												{
+													"name": "Pipe 1 roughness ε",
+													"source": "user",
+													"unit": "m",
+													"value": 4.5e-5
+												}
+											],
+											"intermediates": [
+												{
+													"name": "Flow Q",
+													"unit": "m³/s",
+													"value": 0.0035605835256554566
+												},
+												{
+													"name": "Pipe 1 area A",
+													"unit": "m²",
+													"value": 0.003087627945782755
+												},
+												{
+													"name": "Pipe 1 velocity v",
+													"unit": "m/s",
+													"value": 1.1531776458101726
+												},
+												{
+													"name": "Pipe 1 Reynolds number Re",
+													"unit": "",
+													"value": 72059.59035291667
+												},
+												{
+													"name": "Pipe 1 relative roughness ε/D",
+													"unit": "",
+													"value": 0.0007177033492822966
+												},
+												{
+													"name": "Pipe 1 friction factor f",
+													"unit": "",
+													"value": 0.022039889776361586
+												},
+												{
+													"name": "Pipe 1 friction head loss h_f",
+													"unit": "m",
+													"value": 0.07149981053862221
+												},
+												{
+													"name": "Friction head loss Σh_f",
+													"unit": "m",
+													"value": 0.07149981053862221
+												},
+												{
+													"name": "Fittings head loss Σh_j",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Head loss Δh = EGL_from − EGL_to",
+													"unit": "m",
+													"value": 0.0714998105386222
+												},
+												{
+													"name": "EGL at the from port",
+													"unit": "m",
+													"value": 21.33806840435128
+												},
+												{
+													"name": "EGL at the to port",
+													"unit": "m",
+													"value": 21.266568593812657
+												}
+											],
+											"notes": [
+												"Pipe 1: turbulent, Re = 72059.6 ≥ 4000: Colebrook; ε/D = 0.0007177 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
+											]
+										},
+										"O1": {
+											"correlations": [
+												{
+													"citation": "U.S. Standard Atmosphere, 1976. NOAA, NASA, USAF, Washington, DC, 1976.",
+													"name": "US Standard Atmosphere 1976 (fluids.atmosphere.ATMOSPHERE_1976)"
+												},
+												{
+													"citation": "ISO 5167-2:2003, Measurement of fluid flow by means of pressure differential devices inserted in circular cross-section conduits running full, Part 2: Orifice plates; eq. (1), eq. (4) (the Reader-Harris/Gallagher (1998) equation) and the pressure-loss relation, as fluids 1.3.1 implements them (fluids.flow_meter), with its limits from fluids' docstrings (also citing ASME MFC-3M-2004). The 2022 edition does not change eq. (4) or its limits (Reader-Harris, M. J. ISO 5167: Past and Present. Global Flow Measurement Workshop, 2022).",
+													"name": "ISO 5167-2:2003 Reader-Harris/Gallagher equation (fluids.flow_meter.C_Reader_Harris_Gallagher)"
+												},
+												{
+													"citation": "ISO 5167-2:2003, Measurement of fluid flow by means of pressure differential devices inserted in circular cross-section conduits running full, Part 2: Orifice plates; eq. (1), eq. (4) (the Reader-Harris/Gallagher (1998) equation) and the pressure-loss relation, as fluids 1.3.1 implements them (fluids.flow_meter), with its limits from fluids' docstrings (also citing ASME MFC-3M-2004). The 2022 edition does not change eq. (4) or its limits (Reader-Harris, M. J. ISO 5167: Past and Present. Global Flow Measurement Workshop, 2022).",
+													"name": "ISO 5167-2 pressure-loss relation (fluids.flow_meter.discharge_coefficient_to_K)"
+												},
+												{
+													"citation": "ISO 5167-2:2003, Measurement of fluid flow by means of pressure differential devices inserted in circular cross-section conduits running full, Part 2: Orifice plates; eq. (1), eq. (4) (the Reader-Harris/Gallagher (1998) equation) and the pressure-loss relation, as fluids 1.3.1 implements them (fluids.flow_meter), with its limits from fluids' docstrings (also citing ASME MFC-3M-2004). The 2022 edition does not change eq. (4) or its limits (Reader-Harris, M. J. ISO 5167: Past and Present. Global Flow Measurement Workshop, 2022).",
+													"name": "ISO 5167-2 eq. (1), ε = 1 (a liquid)"
+												},
+												{
+													"citation": "Reader-Harris, M. J., J. Barnett and K. Mistry. Orifice plate pressure loss ratio: theoretical work in compressible flow and experimental work in CO2. FLOMEKO 2019, Lisbon (the loss relation's momentum theory, C taken with tappings 1D upstream and between the plate and the vena contracta downstream, and pressures moved between tap positions with the Reader-Harris/Gallagher (1998) equation).",
+													"name": "Loss coefficient at D and D/2 tappings for every plate"
+												},
+												{
+													"citation": "Rennels, D. C., and H. M. Hudson. Pipe Flow: A Practical and Comprehensive Guide. Wiley, 2012.",
+													"name": "Borda-Carnot sudden expansion from the bore: the loss coefficient's lower bound, K at C = 1"
+												},
+												{
+													"citation": "Deltares. WANDA documentation, ORIFICE component (an orifice plate complying with ISO 5167-2:2003): the loss H1 − H2 for D and D/2 tappings, the Reynolds number held at the standard's minimum, symmetric reverse flow, and the vena-contracta pressure at the downstream side's elevation.",
+													"name": "Hold below the lowest Reynolds number; vena contracta elevation"
+												}
+											],
+											"dataSources": [
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Fluid density (Water)"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: M. L. Huber et al., 'New International Formulation for the Viscosity of H2O', J. Phys. Chem. Ref. Data 38 (2009) 101-125, doi:10.1063/1.3088050",
+													"name": "Fluid dynamic viscosity (Water)"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), saturation pressure at 293.15 K: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Vapor pressure (Water)"
+												},
+												{
+													"citation": "fluids.constants.g: the standard acceleration of gravity, 9.80665 m/s² (a defined value, 3rd CGPM, 1901)",
+													"name": "Gravitational acceleration g"
+												},
+												{
+													"citation": "US Standard Atmosphere 1976 at the site elevation 120 m (fluids.atmosphere.ATMOSPHERE_1976)",
+													"name": "Atmospheric pressure p_atm"
+												},
+												{
+													"citation": "user data",
+													"name": "Bore diameter d"
+												},
+												{
+													"citation": "inner diameter of connection 'L5' at the inlet port",
+													"name": "Pipe diameter D"
+												},
+												{
+													"citation": "ISO 5167-2:2003 eq. (4) via fluids 1.3.1 (the cited default)",
+													"name": "Discharge coefficient"
+												}
+											],
+											"elementId": "O1",
+											"elementType": "orifice",
+											"equations": [
+												"β = d/D, 1 − β = (D − d)/D, A = π D²/4, v = Q/A (Q: flow inlet → outlet), and Re_D = 4 ρ |Q|/(π D μ) in the inlet pipe",
+												"C = 0.5961 + 0.0261 β² − 0.216 β⁸ + 0.000521 (10⁶ β/Re)^0.7 + (0.0188 + 0.0063 A) β^3.5 (10⁶/Re)^0.3 + (0.043 + 0.080 e^(−10 L1) − 0.123 e^(−7 L1))(1 − 0.11 A) β⁴/(1 − β⁴) − 0.031 (M2' − 0.8 M2'^1.1) β^1.3, A = (19000 β/Re)^0.8, M2' = 2 L2'/(1 − β); plus 0.011 (0.75 − β)(2.8 − D/0.0254) where D < 0.07112 m (D in m): ISO 5167-2:2003 eq. (4), the Reader-Harris/Gallagher equation",
+												"Tap lengths: D and D/2 tappings L1 = 1, L2' = 0.47; corner tappings L1 = L2' = 0; flange tappings L1 = L2' = 0.0254/D (D in m)",
+												"Re_eff = max(Re_D, Re_lo): C is held below ISO 5167-2's lowest Reynolds number, Re_lo = max(5000, 16000 β²) at corner and D and D/2 tappings (ISO's 5000 for β ≤ 0.56 and 16000 β² above, made continuous at β 0.56) and max(5000, 170000 β² D) at flange tappings (D in m)",
+												"C_L = eq. (4) at D and D/2 tappings at Re_eff",
+												"K = u², u = (1 − β⁴)/(C_L β² (S + C_L β²)), S = √(1 − β⁴(1 − C_L²)), 1 − β⁴ = (1 − β)(1 + β)(1 + β²): ISO 5167-2's pressure-loss relation over ρ v²/2, (S/(C_L β²) − 1)², written without its cancellation as β → 1",
+												"K(C = 1) = (1/β² − 1)² = ((1 − β)(1 + β)/β²)²: at S = 1 the relation is Borda-Carnot's sudden expansion from the bore (μ = 1); K decreases in C, so with C_L ≤ 1 (μ ≤ 1, a jet no larger than the bore) K stays at or above it, and a plate whose C_L could exceed 1 is refused (proposal orifice-plate.md decision 17)",
+												"EGL_in − EGL_out = h = K v|v|/(2g); Δϖ = ρ g h: the permanent pressure loss",
+												"Δp = (1 − β⁴)/(C_M² β⁴) · ρ v|v|/2: the reading between the taps, ISO 5167-2 eq. (1) solved for Δp with ε = 1; C_M is ISO's C at the plate's flange tappings at max(Re_D, its Re_lo)",
+												"p_vc = p_up + ρ g (z_up − z_down) − (1 − β⁴)/(C_L² β⁴) · ρ v²/2: the static pressure at the vena contracta (up: the port the flow enters; down: the port it leaves by)",
+												"p_in = ρ g (EGL_in − z_in − v_in²/(2g)), p_out = ρ g (EGL_out − z_out − v_out²/(2g)): static gauge pressures at the ports, v in the pipe connected there",
+												"Δp_static = p_in − p_out = ρ g h + ρ g (z_out − z_in) + ρ (v_out² − v_in²)/2: the static pressure drop"
+											],
+											"inputs": [
+												{
+													"name": "Bore diameter d (at the flowing temperature)",
+													"source": "user",
+													"unit": "m",
+													"value": 0.025
+												},
+												{
+													"name": "Discharge coefficient C",
+													"source": "default",
+													"unit": "",
+													"value": "ISO 5167-2 (Reader-Harris/Gallagher) at the solved flow"
+												},
+												{
+													"name": "Pressure taps",
+													"source": "user",
+													"unit": "",
+													"value": "flange tappings"
+												},
+												{
+													"name": "Pipe diameter D (inner diameter of the inlet pipe's end segment at the inlet port)",
+													"source": "user",
+													"unit": "m",
+													"value": 0.05
+												},
+												{
+													"name": "Outlet pipe inner diameter (its end segment at the outlet port)",
+													"source": "user",
+													"unit": "m",
+													"value": 0.0627
+												},
+												{
+													"name": "Inlet port elevation z_in",
+													"source": "default",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Outlet port elevation z_out",
+													"source": "default",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Fluid temperature T",
+													"source": "user",
+													"unit": "K",
+													"value": 293.15
+												},
+												{
+													"name": "Fluid density ρ",
+													"source": "library",
+													"unit": "kg/m³",
+													"value": 998.2071504679437
+												},
+												{
+													"name": "Fluid dynamic viscosity μ",
+													"source": "library",
+													"unit": "Pa·s",
+													"value": 0.001001596143120583
+												},
+												{
+													"name": "Kinematic viscosity ν = μ/ρ",
+													"source": "computed",
+													"unit": "m²/s",
+													"value": 1.003395079519367e-6
+												},
+												{
+													"name": "Vapor pressure p_vap",
+													"source": "library",
+													"unit": "Pa(a)",
+													"value": 2339.3181834056754
+												},
+												{
+													"name": "Gravitational acceleration g",
+													"source": "library",
+													"unit": "m/s²",
+													"value": 9.80665
+												},
+												{
+													"name": "Site elevation above sea level",
+													"source": "user",
+													"unit": "m",
+													"value": 120.0
+												},
+												{
+													"name": "Atmospheric pressure p_atm",
+													"source": "library",
+													"unit": "Pa(a)",
+													"value": 99891.72970616377
+												}
+											],
+											"intermediates": [
+												{
+													"name": "Diameter ratio β = d/D",
+													"unit": "",
+													"value": 0.5
+												},
+												{
+													"name": "1 − β = (D − d)/D",
+													"unit": "",
+													"value": 0.5
+												},
+												{
+													"name": "Borda-Carnot loss coefficient (1/β² − 1)² (K at C = 1; K stays at or above it)",
+													"unit": "",
+													"value": 9.0
+												},
+												{
+													"name": "Inlet pipe area A = π D²/4",
+													"unit": "m²",
+													"value": 0.001963495408493621
+												},
+												{
+													"name": "Re_lo at D and D/2 tappings",
+													"unit": "",
+													"value": 5000.0
+												},
+												{
+													"name": "Re_lo at flange tappings",
+													"unit": "",
+													"value": 5000.0
+												},
+												{
+													"name": "Flow Q (inlet → outlet)",
+													"unit": "m³/s",
+													"value": 0.003560583525655378
+												},
+												{
+													"name": "Velocity v = Q/A (inlet pipe)",
+													"unit": "m/s",
+													"value": 1.8133902988787896
+												},
+												{
+													"name": "Reynolds number Re_D = 4 ρ |Q|/(π D μ)",
+													"unit": "",
+													"value": 90362.72630255551
+												},
+												{
+													"name": "Re_eff = max(Re_D, Re_lo), D and D/2 tappings",
+													"unit": "",
+													"value": 90362.72630255551
+												},
+												{
+													"name": "A = (19000 β/Re)^0.8 at Re 90362.7263 (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.16496333345157635
+												},
+												{
+													"name": "0.5961 + 0.0261 β² − 0.216 β⁸ (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.6017812499999999
+												},
+												{
+													"name": "0.000521 (10⁶ β/Re)^0.7 (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.001725536691792292
+												},
+												{
+													"name": "(0.0188 + 0.0063 A) β^3.5 (10⁶/Re)^0.3 (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.003606815136818954
+												},
+												{
+													"name": "Upstream tap term (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.0028075442211902423
+												},
+												{
+													"name": "Downstream tap term (D and D/2 tappings)",
+													"unit": "",
+													"value": -0.0034999440526980023
+												},
+												{
+													"name": "Small-pipe term 0.011 (0.75 − β)(2.8 − D/0.0254) (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.002286614173228345
+												},
+												{
+													"name": "eq. (4), the sum of its terms (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.6087078161703318
+												},
+												{
+													"name": "A = (19000 β/Re)^0.8 at Re 90362.7263 (flange tappings)",
+													"unit": "",
+													"value": 0.16496333345157635
+												},
+												{
+													"name": "0.5961 + 0.0261 β² − 0.216 β⁸ (flange tappings)",
+													"unit": "",
+													"value": 0.6017812499999999
+												},
+												{
+													"name": "0.000521 (10⁶ β/Re)^0.7 (flange tappings)",
+													"unit": "",
+													"value": 0.001725536691792292
+												},
+												{
+													"name": "(0.0188 + 0.0063 A) β^3.5 (10⁶/Re)^0.3 (flange tappings)",
+													"unit": "",
+													"value": 0.003606815136818954
+												},
+												{
+													"name": "Upstream tap term (flange tappings)",
+													"unit": "",
+													"value": 0.0026173346694122806
+												},
+												{
+													"name": "Downstream tap term (flange tappings)",
+													"unit": "",
+													"value": -0.0036127670618244737
+												},
+												{
+													"name": "Small-pipe term 0.011 (0.75 − β)(2.8 − D/0.0254) (flange tappings)",
+													"unit": "",
+													"value": 0.002286614173228345
+												},
+												{
+													"name": "eq. (4), the sum of its terms (flange tappings)",
+													"unit": "",
+													"value": 0.6084047836094274
+												},
+												{
+													"name": "Re_eff of C_M = max(Re_D, Re_lo), flange tappings",
+													"unit": "",
+													"value": 90362.72630255551
+												},
+												{
+													"name": "Discharge coefficient C_L (sets the loss, at D and D/2 tappings)",
+													"unit": "",
+													"value": 0.6087078161703318
+												},
+												{
+													"name": "Meter discharge coefficient C_M (the reading's)",
+													"unit": "",
+													"value": 0.6084047836094274
+												},
+												{
+													"name": "Jet area ratio μ = C_L/√(1 − β⁴(1 − C_L²)) (≤ 1)",
+													"unit": "",
+													"value": 0.6210470682872984
+												},
+												{
+													"name": "Loss coefficient K (on the inlet pipe's velocity)",
+													"unit": "",
+													"value": 29.60160453502337
+												},
+												{
+													"name": "K with the meter's own C_M (ISO's relation read literally; not used)",
+													"unit": "",
+													"value": 29.635680633299927
+												},
+												{
+													"name": "C at L1 = 1, L2' = 0.125 (Reader-Harris et al. 2019; not used)",
+													"unit": "",
+													"value": 0.6106115255074512
+												},
+												{
+													"name": "K at that C (not used)",
+													"unit": "",
+													"value": 29.38876018263441
+												},
+												{
+													"name": "Pressure-loss ratio Δϖ/Δp at C_L, (S − C_L β²)/(S + C_L β²)",
+													"unit": "",
+													"value": 0.7312093734992068
+												},
+												{
+													"name": "EGL at the inlet EGL_in",
+													"unit": "m",
+													"value": 26.30110133912033
+												},
+												{
+													"name": "EGL at the outlet EGL_out",
+													"unit": "m",
+													"value": 21.33806840435128
+												},
+												{
+													"name": "Head loss h = EGL_in − EGL_out (solved)",
+													"unit": "m",
+													"value": 4.96303293476905
+												},
+												{
+													"name": "Head loss by the law K v|v|/(2g)",
+													"unit": "m",
+													"value": 4.96303293476905
+												},
+												{
+													"name": "Permanent pressure loss Δϖ = ρ g h",
+													"unit": "Pa (difference)",
+													"value": 48583.46763975206
+												},
+												{
+													"name": "Differential pressure Δp at the taps (the reading)",
+													"unit": "Pa (difference)",
+													"value": 66508.82509380243
+												},
+												{
+													"name": "Vena contracta drop (1 − β⁴)/(C_L² β⁴) ρ v²/2",
+													"unit": "Pa (difference)",
+													"value": 66442.62149875838
+												},
+												{
+													"name": "Vena contracta static pressure p_vc",
+													"unit": "Pa(g)",
+													"value": 189379.40758729912
+												},
+												{
+													"name": "Vena contracta absolute pressure p_vc + p_atm",
+													"unit": "Pa(a)",
+													"value": 289271.1372934629
+												},
+												{
+													"name": "Outlet pipe velocity v_out = Q/A_out",
+													"unit": "m/s",
+													"value": 1.1531776458101473
+												},
+												{
+													"name": "Inlet static pressure p_in",
+													"unit": "Pa(g)",
+													"value": 255822.0290860575
+												},
+												{
+													"name": "Outlet static pressure p_out",
+													"unit": "Pa(g)",
+													"value": 208216.08858614782
+												},
+												{
+													"name": "Elevation term ρ g (z_out − z_in)",
+													"unit": "Pa (difference)",
+													"value": 0.0
+												},
+												{
+													"name": "Velocity-head term ρ (v_out² − v_in²)/2",
+													"unit": "Pa (difference)",
+													"value": -977.5271398423945
+												},
+												{
+													"name": "Static pressure drop Δp_static = p_in − p_out",
+													"unit": "Pa (difference)",
+													"value": 47605.94049990969
+												}
+											],
+											"notes": [
+												"One loss per plate: the loss uses the discharge coefficient at D and D/2 tappings whatever the plate's own taps (proposal orifice-plate.md decision 5), since one plate has one permanent loss, which cannot depend on where a meter's taps were drilled. The pressure-loss relation's theory (Reader-Harris et al. 2019) takes C with tappings 1D upstream and between the plate and the vena contracta downstream; of ISO 5167-2's tap sets only D and D/2 has L1 = 1, and Deltares WANDA uses it for its whole element. This departs from ISO's relation read literally with a meter's own C, which over ISO 5167-2's range (D 50 mm to 1 m, β 0.1 to 0.75, Re_D from Re_lo up) gives a K up to 6.14 % higher at corner tappings and 6.34 % at flange tappings, both at β 0.75 as Re_D grows (flange on a 1 m pipe): a flow up to 2.94 % and 3.03 % lower where the plate takes the whole head; up to β 0.6, a K up to 0.64 % and 0.84 % higher (a flow up to 0.32 % and 0.42 % lower).",
+												"Reader-Harris et al. 2019 take the downstream pressure at 0.125 D (L1 = 1, L2' = 0.125) for that C; over ISO 5167-2's range their C gives a K 0.063 to 1.24 % lower than D and D/2's (a flow up to 0.63 % higher where the plate takes the whole head). D and D/2 is kept: an ISO tap set, with ISO's own Reynolds number limits. The alternative's C and K at this plate are shown above, not used.",
+												"The plate and its installation are assumed to meet ISO 5167-2 (a square-edged concentric plate, its edge and thickness, straight lengths, pipe roughness): they are not checked, nor are fluids' 250 kPa differential-pressure and 6 micrometre roughness limits. d and D are taken at flowing conditions (thermal expansion is not modelled). ε = 1: the expansibility factor of a liquid.",
+												"The outlet port's pressure is the recovered one: ISO 5167-2's permanent loss is the part of the pressure difference across the plate not recovered about 6 D downstream (fluids; Reader-Harris et al. 2019's momentum balance), in a pipe of the inlet's bore.",
+												"The vena contracta is taken at the elevation of the port the flow leaves by (Deltares WANDA): p_vc = p_up + ρ g (z_up − z_down) − (1 − β⁴)/(C_L² β⁴) ρ v²/2, with p_up the static pressure of the port the flow enters. At zero flow there is no jet: no p_vc, nothing checked. Flashing there is flagged (BELOW_VAPOR_PRESSURE); incipient cavitation is not checked.",
+												"Flag CORRELATION_OUT_OF_RANGE (warning): orifice 'O1': its outlet pipe diameter 0.0627 m differs from its inlet pipe diameter 0.05 m; ISO 5167-2's pressure-loss relation assumes the jet recovers in a pipe of the inlet's bore, about 6 D downstream, so the loss is less certain"
 											]
 										},
 										"PRV1": {
@@ -9562,7 +10304,7 @@
 												{
 													"name": "Net outflow Q_out",
 													"unit": "m³/s",
-													"value": 0.015806732397575095
+													"value": 0.01410844631077365
 												},
 												{
 													"name": "Port port_1 outflow",
@@ -9572,7 +10314,7 @@
 												{
 													"name": "Port port_2 outflow",
 													"unit": "m³/s",
-													"value": 0.005258869612456826
+													"value": 0.0035605835256553803
 												},
 												{
 													"name": "Port port_1 static pressure p",
@@ -9801,7 +10543,7 @@
 												{
 													"name": "Net outflow Q_out",
 													"unit": "m³/s",
-													"value": -0.005258869612456841
+													"value": -0.003560583525655402
 												},
 												{
 													"name": "Port port_1 static pressure p",
@@ -10054,7 +10796,8 @@
 											"Check valves: a disc that opens fully above the cracking pressure and closes on reverse flow (no partial opening).",
 											"Control valves without an entered resistance are ideal: no loss when fully open.",
 											"Fittings and valves without a user K use the cited correlation for the type at the connected pipe's inner diameter.",
-											"Equipment losses scale with the square of the flow and with density from one rated point, a Cv or a Kv (constant K); viscosity is not corrected."
+											"Equipment losses scale with the square of the flow and with density from one rated point, a Cv or a Kv (constant K); viscosity is not corrected.",
+											"Orifice plates meet ISO 5167-2 in geometry and installation; their loss is ISO 5167-2's permanent pressure loss with the discharge coefficient at D and D/2 tappings (or an entered one), for a single-phase liquid."
 										],
 										"libraries": {
 											"CoolProp": "8.0.0",
@@ -10176,6 +10919,26 @@
 													"Silverberg, P., and R. Darby. Correlate pressure drops through fittings. Chem. Eng. 106(7), 1999, 101."
 												],
 												"title": "Equipment"
+											},
+											{
+												"items": [
+													"Orifice plates (square-edged, concentric; a restriction orifice, or a flow meter with pressure taps): the loss of total head from the inlet to the outlet is h = EGL_in − EGL_out = K v|v|/(2g), with v = Q/A in the inlet pipe of inner diameter D (its end segment at the inlet port), β = d/D, and K = (S/(C β²) − 1)², S = √(1 − β⁴(1 − C²)): ISO 5167-2's pressure-loss relation Δϖ = (S − C β²)/(S + C β²) × Δp over ρ v²/2 (fluids.flow_meter.discharge_coefficient_to_K, computed without its cancellation as β → 1). Δϖ = ρ g h is the permanent pressure loss, the part not recovered about 6 D downstream; the outlet port's pressure is the recovered one.",
+													"The discharge coefficient C that sets the loss is the one at D and D/2 tappings for every plate, whatever its own taps: ISO 5167-2:2003 eq. (4), the Reader-Harris/Gallagher equation (fluids.flow_meter.C_Reader_Harris_Gallagher), at Re_D = 4ρ|Q|/(πDμ) in the inlet pipe. One plate has one permanent loss; the loss relation's theory (Reader-Harris et al. 2019) takes C with tappings 1D upstream, and of ISO's tap sets only D and D/2 has L1 = 1 (Deltares WANDA makes the same choice). Named departures, each at its largest over ISO 5167-2's range (D 50 mm to 1 m, β 0.1 to 0.75, Re_D from Re_lo up): ISO's relation read with a meter's own C would give a K up to 6.14 % higher at corner tappings and 6.34 % at flange tappings (at β 0.75 as Re_D grows, flange on a 1 m pipe), a flow up to 2.94 % and 3.03 % lower where the plate takes the whole head (up to β 0.6: a K up to 0.64 % and 0.84 % higher, a flow up to 0.32 % and 0.42 % lower); Reader-Harris et al.'s own C, with the downstream pressure at 0.125 D, gives a K 0.063 to 1.24 % lower (a flow up to 0.63 % higher).",
+													"Below ISO 5167-2's lowest Reynolds number Re_lo, C is held at its value there and flagged (WANDA's practice; eq. (4) as written exceeds 1 at very low Re): Re_lo = max(5000, 16000 β²) at corner and D and D/2 tappings and max(5000, 170000 β² D) at flange tappings (D in m). The first is ISO's limit (5000 for β ≤ 0.56, 16000 β² above) made continuous at β 0.56, stricter by at most 17.6 for 0.559 < β < 0.56, so that the held loss decreases with β. So fluids is never evaluated below Re 5000, where it adds terms that are not in ISO 5167-2.",
+													"A plate whose coefficient that sets the loss, at D and D/2 tappings (ISO's C there, or an entered C moved there from corner or flange taps), could exceed 1 at some flow is refused (ORIFICE_OUT_OF_RANGE): C ≤ 1 is a jet no larger than the bore, and above it K falls below the sudden expansion from the bore (Borda-Carnot), which is physically impossible. So is a plate whose ISO coefficient could exceed 1 where eq. (4) serves only the reading or the move: at its corner or flange tappings for ISO's meter reading, or at either tap set in the ratio that moves an entered C. Eq. (4) is then extrapolated far beyond ISO's range (its largest C there is below 0.7), and the reading or the move would rest on it. Each bound takes each Reynolds-number-dependent term of eq. (4) at whichever end of [Re_lo, ∞) makes it safe. For ISO's C it refuses β from about 0.970 (0.97025 from D 71.12 mm, at most 0.9706 on smaller pipes), and with flange taps on a pipe below about 55 mm, where ISO's C at the flange tappings is the bound, from a lower β (0.969 at D 52.5 mm, 0.963 at 40.9 mm, 0.930 at 15.8 mm, lower still on smaller pipes). A plate whose loss coefficient K/(2 g A²) at its smallest C is not a finite positive floating-point number is refused too.",
+													"A meter's reading, the differential pressure between its taps, is ISO 5167-2 eq. (1) solved for Δp with ε = 1: Δp = (1 − β⁴)/(C_M² β⁴) · ρ v|v|/2, with C_M ISO's C at its own taps (held at their own Re_lo) or the entered C; it does not act on the network. A plate without taps (a restriction orifice) has no reading.",
+													"The static pressure at the vena contracta, p_vc = p_up + ρ g (z_up − z_down) − (1 − β⁴)/(C² β⁴) · ρ v²/2 (up: the port the flow enters; down: the port it leaves by, at whose elevation it is taken, as in WANDA), is checked against the vapor pressure and flagged where the liquid would flash (BELOW_VAPOR_PRESSURE): a flashing jet chokes the flow, so the flow solved is then too high. None at zero flow or where the pressure level is undetermined; incipient cavitation is not checked.",
+													"Flagged (CORRELATION_OUT_OF_RANGE), wherever eq. (4) is used: a bore below 12.5 mm, an inlet pipe outside 50 mm to 1000 mm, β outside 0.1 to 0.75 (ISO 5167-2's limits, from fluids' documentation); and for every plate, an outlet pipe of another bore than the inlet's (the relation assumes the jet recovers in the same bore) and reverse flow (the loss taken as for forward flow at the same flow rate: ISO's C is for flow onto the plate's upstream face). The plate and its installation (edge, thickness, straight lengths, roughness) are assumed to meet ISO 5167-2 and are not checked.",
+													"At zero flow the law's slope is 0: Newton's Jacobian uses at least 1e-06 x the slopes of the pipes at the plate's ports there, as for every link that is not a pipe; the law itself is exact. Elsewhere the slope is exact, with the derivative of eq. (4) in the Reynolds number.",
+													"ε = 1: the expansibility factor of a liquid."
+												],
+												"references": [
+													"ISO 5167-2:2003, Measurement of fluid flow by means of pressure differential devices inserted in circular cross-section conduits running full, Part 2: Orifice plates; eq. (1), eq. (4) (the Reader-Harris/Gallagher (1998) equation) and the pressure-loss relation, as fluids 1.3.1 implements them (fluids.flow_meter), with its limits from fluids' docstrings (also citing ASME MFC-3M-2004). The 2022 edition does not change eq. (4) or its limits (Reader-Harris, M. J. ISO 5167: Past and Present. Global Flow Measurement Workshop, 2022).",
+													"Reader-Harris, M. J., J. Barnett and K. Mistry. Orifice plate pressure loss ratio: theoretical work in compressible flow and experimental work in CO2. FLOMEKO 2019, Lisbon (the loss relation's momentum theory, C taken with tappings 1D upstream and between the plate and the vena contracta downstream, and pressures moved between tap positions with the Reader-Harris/Gallagher (1998) equation).",
+													"Deltares. WANDA documentation, ORIFICE component (an orifice plate complying with ISO 5167-2:2003): the loss H1 − H2 for D and D/2 tappings, the Reynolds number held at the standard's minimum, symmetric reverse flow, and the vena-contracta pressure at the downstream side's elevation.",
+													"Rennels, D. C., and H. M. Hudson. Pipe Flow: A Practical and Comprehensive Guide. Wiley, 2012."
+												],
+												"title": "Orifices"
 											},
 											{
 												"items": [
@@ -10333,6 +11096,24 @@
 										"value": 60.0
 									},
 									"type": "equipment"
+								},
+								{
+									"boreDiameter": 0.025,
+									"elevation": 0.0,
+									"id": "O1",
+									"name": "Cooler flow meter",
+									"ports": [
+										{
+											"id": "inlet",
+											"nominalSize": 0.0508
+										},
+										{
+											"id": "outlet",
+											"nominalSize": 0.0508
+										}
+									],
+									"taps": "flange",
+									"type": "orifice"
 								},
 								{
 									"elevation": 0.0,
@@ -10510,6 +11291,24 @@
 											}
 										]
 									},
+									"toComponentId": "O1",
+									"toPortId": "inlet"
+								},
+								{
+									"fromComponentId": "O1",
+									"fromPortId": "outlet",
+									"id": "L8",
+									"piping": {
+										"fittings": [],
+										"pipes": [
+											{
+												"innerDiameter": 0.0627,
+												"length": 3.0,
+												"materialId": "custom",
+												"roughness": 4.5e-5
+											}
+										]
+									},
 									"toComponentId": "E2",
 									"toPortId": "inlet"
 								},
@@ -10540,7 +11339,7 @@
 							"id": "fixture-export-scenarios",
 							"metadata": {
 								"created": "2026-10-25T00:00:00Z",
-								"description": "Export fixture: a tee, a PRV, a demand, a strainer and a cooler, with two scenarios.",
+								"description": "Export fixture: a tee, a PRV, a demand, a strainer, a flow meter and a cooler, with two scenarios.",
 								"modified": "2026-10-25T00:00:00Z",
 								"name": "Plant water header"
 							},
@@ -10548,7 +11347,7 @@
 							"pumpLibrary": [],
 							"scenarios": [
 								{
-									"description": "The PRV with a Cv 120 trim, a higher low tank and a dirty strainer.",
+									"description": "The PRV with a Cv 120 trim, a higher low tank, a dirty strainer and a larger meter bore.",
 									"id": "S1",
 									"name": "Cv valve",
 									"overrides": [
@@ -10572,6 +11371,12 @@
 											"field": "rating.pressureLoss",
 											"kind": "component",
 											"value": 40000.0
+										},
+										{
+											"componentId": "O1",
+											"field": "boreDiameter",
+											"kind": "component",
+											"value": 0.03
 										}
 									]
 								},
@@ -10591,6 +11396,12 @@
 											"kind": "pipe",
 											"pipeIndex": 0,
 											"value": 25.0
+										},
+										{
+											"componentId": "O1",
+											"field": "dischargeCoefficient",
+											"kind": "component",
+											"value": 0.62
 										}
 									]
 								}
@@ -10729,6 +11540,24 @@
 										"value": 60.0
 									},
 									"type": "equipment"
+								},
+								{
+									"boreDiameter": 0.03,
+									"elevation": 0.0,
+									"id": "O1",
+									"name": "Cooler flow meter",
+									"ports": [
+										{
+											"id": "inlet",
+											"nominalSize": 0.0508
+										},
+										{
+											"id": "outlet",
+											"nominalSize": 0.0508
+										}
+									],
+									"taps": "flange",
+									"type": "orifice"
 								},
 								{
 									"elevation": 0.0,
@@ -10906,6 +11735,24 @@
 											}
 										]
 									},
+									"toComponentId": "O1",
+									"toPortId": "inlet"
+								},
+								{
+									"fromComponentId": "O1",
+									"fromPortId": "outlet",
+									"id": "L8",
+									"piping": {
+										"fittings": [],
+										"pipes": [
+											{
+												"innerDiameter": 0.0627,
+												"length": 3.0,
+												"materialId": "custom",
+												"roughness": 4.5e-5
+											}
+										]
+									},
 									"toComponentId": "E2",
 									"toPortId": "inlet"
 								},
@@ -10936,7 +11783,7 @@
 							"id": "fixture-export-scenarios",
 							"metadata": {
 								"created": "2026-10-25T00:00:00Z",
-								"description": "Export fixture: a tee, a PRV, a demand, a strainer and a cooler, with two scenarios.",
+								"description": "Export fixture: a tee, a PRV, a demand, a strainer, a flow meter and a cooler, with two scenarios.",
 								"modified": "2026-10-25T00:00:00Z",
 								"name": "Plant water header"
 							},
@@ -10968,7 +11815,7 @@
 						"response": {
 							"computeTime": 0.125,
 							"scenario": {
-								"description": "The PRV with a Cv 120 trim, a higher low tank and a dirty strainer.",
+								"description": "The PRV with a Cv 120 trim, a higher low tank, a dirty strainer and a larger meter bore.",
 								"id": "S1",
 								"name": "Cv valve",
 								"overrides": [
@@ -11019,6 +11866,20 @@
 										"state": "applied",
 										"unit": "Pa (difference)",
 										"value": 40000.0
+									},
+									{
+										"baseValue": 0.025,
+										"index": 3,
+										"message": "",
+										"override": {
+											"componentId": "O1",
+											"field": "boreDiameter",
+											"kind": "component",
+											"value": 0.03
+										},
+										"state": "applied",
+										"unit": "m",
+										"value": 0.03
 									}
 								]
 							},
@@ -11035,10 +11896,10 @@
 									},
 									"R1": {
 										"egl": 30.0,
-										"outflow": 0.015231605398186372,
+										"outflow": 0.014326675019938949,
 										"portOutflows": {
 											"port_1": 0.009972735785729546,
-											"port_2": 0.005258869612456826
+											"port_2": 0.004353939234209403
 										},
 										"type": "reservoir"
 									},
@@ -11052,9 +11913,9 @@
 									},
 									"R3": {
 										"egl": 20.430953885671954,
-										"outflow": -0.005258869612456841,
+										"outflow": -0.004353939234209456,
 										"portOutflows": {
-											"port_1": -0.005258869612456841
+											"port_1": -0.004353939234209456
 										},
 										"type": "reference_node"
 									}
@@ -11114,18 +11975,32 @@
 										}
 									},
 									"E2": {
-										"flow": 0.00525886961245683,
+										"flow": 0.0043539392342094585,
 										"flowRatio": null,
-										"headLoss": 1.0159488759517394,
-										"pressureDrop": 14839.726861846255,
-										"pressureLoss": 9945.192785778008,
+										"headLoss": 0.6963887954844985,
+										"pressureDrop": 13173.207720061444,
+										"pressureLoss": 6816.997379381975,
 										"rating": {
 											"kind": "Kv",
 											"value": 60.0
 										}
 									}
 								},
-								"flags": [],
+								"flags": [
+									{
+										"code": "CORRELATION_OUT_OF_RANGE",
+										"componentId": "O1",
+										"connectionId": null,
+										"details": {
+											"inlet": 0.05,
+											"limit": "outletDiameter",
+											"value": 0.0627
+										},
+										"message": "orifice 'O1': its outlet pipe diameter 0.0627 m differs from its inlet pipe diameter 0.05 m; ISO 5167-2's pressure-loss relation assumes the jet recovers in a pipe of the inlet's bore, about 6 D downstream, so the loss is less certain",
+										"portId": null,
+										"severity": "warning"
+									}
+								],
 								"fluid": {
 									"concentration": null,
 									"density": 998.2071504679437,
@@ -11298,26 +12173,26 @@
 									"L5": {
 										"fittings": [],
 										"fittingsHeadLoss": 0.0,
-										"flow": 0.005258869612456826,
+										"flow": 0.004353939234209403,
 										"flowRegime": "turbulent",
-										"frictionFactor": 0.02125966267712688,
-										"frictionHeadLoss": 7.775542943978457,
-										"headLoss": 7.775542943978458,
-										"reynoldsNumber": 133462.89787255973,
+										"frictionFactor": 0.02162103094360723,
+										"frictionHeadLoss": 5.420391730542476,
+										"headLoss": 5.420391730542473,
+										"reynoldsNumber": 110497.0060452114,
 										"segments": [
 											{
 												"flowRegime": "turbulent",
-												"frictionFactor": 0.02125966267712688,
-												"headLoss": 7.775542943978457,
+												"frictionFactor": 0.02162103094360723,
+												"headLoss": 5.420391730542476,
 												"index": 0,
 												"innerDiameter": 0.05,
 												"length": 50.0,
-												"reynoldsNumber": 133462.89787255973,
+												"reynoldsNumber": 110497.0060452114,
 												"roughness": 4.5e-5,
-												"velocity": 2.6783203004744442
+												"velocity": 2.2174430433477372
 											}
 										],
-										"velocity": 2.6783203004744442
+										"velocity": 2.2174430433477372
 									},
 									"L6": {
 										"fittings": [],
@@ -11346,26 +12221,50 @@
 									"L7": {
 										"fittings": [],
 										"fittingsHeadLoss": 0.0,
-										"flow": 0.005258869612456841,
+										"flow": 0.004353939234209456,
 										"flowRegime": "turbulent",
-										"frictionFactor": 0.021259662677126874,
-										"frictionHeadLoss": 0.7775542943978498,
-										"headLoss": 0.7775542943978486,
-										"reynoldsNumber": 133462.8978725601,
+										"frictionFactor": 0.021621030943607202,
+										"frictionHeadLoss": 0.5420391730542601,
+										"headLoss": 0.5420391730542597,
+										"reynoldsNumber": 110497.00604521275,
 										"segments": [
 											{
 												"flowRegime": "turbulent",
-												"frictionFactor": 0.021259662677126874,
-												"headLoss": 0.7775542943978498,
+												"frictionFactor": 0.021621030943607202,
+												"headLoss": 0.5420391730542601,
 												"index": 0,
 												"innerDiameter": 0.05,
 												"length": 5.0,
-												"reynoldsNumber": 133462.8978725601,
+												"reynoldsNumber": 110497.00604521275,
 												"roughness": 4.5e-5,
-												"velocity": 2.6783203004744514
+												"velocity": 2.217443043347764
 											}
 										],
-										"velocity": 2.6783203004744514
+										"velocity": 2.217443043347764
+									},
+									"L8": {
+										"fittings": [],
+										"fittingsHeadLoss": 0.0,
+										"flow": 0.0043539392342093735,
+										"flowRegime": "turbulent",
+										"frictionFactor": 0.02148902917758347,
+										"frictionHeadLoss": 0.10424005675851332,
+										"headLoss": 0.10424005675851333,
+										"reynoldsNumber": 88115.63480479318,
+										"segments": [
+											{
+												"flowRegime": "turbulent",
+												"frictionFactor": 0.02148902917758347,
+												"headLoss": 0.10424005675851332,
+												"index": 0,
+												"innerDiameter": 0.0627,
+												"length": 3.0,
+												"reynoldsNumber": 88115.63480479318,
+												"roughness": 4.5e-5,
+												"velocity": 1.4101243124697758
+											}
+										],
+										"velocity": 1.4101243124697758
 									}
 								},
 								"methodVersion": "1.4.0",
@@ -11407,28 +12306,52 @@
 										"velocity": 0.848988389235083
 									},
 									"E2:inlet": {
-										"absolutePressure": 313868.1850689086,
+										"absolutePressure": 311022.3426997353,
 										"componentId": "E2",
-										"dynamicPressure": 3580.269402880076,
-										"egl": 22.224457056021542,
+										"dynamicPressure": 992.4427919662752,
+										"egl": 21.669381854210712,
 										"elevation": 0.0,
-										"hgl": 21.858715460678916,
+										"hgl": 21.56799908962656,
 										"portId": "inlet",
-										"pressure": 213976.45536274483,
-										"totalPressure": 217556.7247656249,
-										"velocity": 2.6783203004744442
+										"pressure": 211130.61299357153,
+										"totalPressure": 212123.0557855378,
+										"velocity": 1.4101243124697758
 									},
 									"E2:outlet": {
-										"absolutePressure": 299028.45820706233,
+										"absolutePressure": 297849.13497967384,
 										"componentId": "E2",
-										"dynamicPressure": 3580.269402880095,
-										"egl": 21.208508180069803,
+										"dynamicPressure": 2454.119056577507,
+										"egl": 20.972993058726214,
 										"elevation": 0.5,
-										"hgl": 20.842766584727176,
+										"hgl": 20.722293092351794,
 										"portId": "outlet",
-										"pressure": 199136.72850089858,
-										"totalPressure": 202716.99790377868,
-										"velocity": 2.6783203004744514
+										"pressure": 197957.40527351008,
+										"totalPressure": 200411.5243300876,
+										"velocity": 2.217443043347764
+									},
+									"O1:inlet": {
+										"absolutePressure": 338049.071152123,
+										"componentId": "O1",
+										"dynamicPressure": 2454.119056577448,
+										"egl": 24.579608269457527,
+										"elevation": 0.0,
+										"hgl": 24.328908303083114,
+										"portId": "inlet",
+										"pressure": 238157.3414459592,
+										"totalPressure": 240611.46050253665,
+										"velocity": 2.2174430433477372
+									},
+									"O1:outlet": {
+										"absolutePressure": 312042.75571952696,
+										"componentId": "O1",
+										"dynamicPressure": 992.4427919662752,
+										"egl": 21.773621910969226,
+										"elevation": 0.0,
+										"hgl": 21.672239146385074,
+										"portId": "outlet",
+										"pressure": 212151.0260133632,
+										"totalPressure": 213143.4688053295,
+										"velocity": 1.4101243124697758
 									},
 									"PRV1:inlet": {
 										"absolutePressure": 359362.237873673,
@@ -11539,7 +12462,27 @@
 										"velocity": 1.4622291582856208
 									}
 								},
-								"orificeResults": {},
+								"orificeResults": {
+									"O1": {
+										"beta": 0.6,
+										"boreDiameter": 0.03,
+										"coefficientReynoldsNumber": 110497.00604521156,
+										"coefficientSource": "iso_5167_2",
+										"differentialPressure": 43966.02739203199,
+										"dischargeCoefficient": 0.6128137657058677,
+										"flow": 0.004353939234209409,
+										"headLoss": 2.805986358488301,
+										"lossCoefficient": 11.19260763799878,
+										"meterDischargeCoefficient": 0.6122744561848352,
+										"pipeDiameter": 0.05,
+										"pressureDrop": 26006.31543259599,
+										"pressureLoss": 27467.991697207188,
+										"reynoldsNumber": 110497.00604521156,
+										"tapCoefficientRatio": null,
+										"taps": "flange",
+										"venaContractaPressure": 194268.66500419556
+									}
+								},
 								"pumpResults": {},
 								"timestamp": "2026-10-25T12:30:00Z",
 								"trace": {
@@ -11969,7 +12912,7 @@
 													"name": "Inlet pipe inner diameter (its end segment at the port)",
 													"source": "user",
 													"unit": "m",
-													"value": 0.05
+													"value": 0.0627
 												},
 												{
 													"name": "Outlet pipe inner diameter (its end segment at the port)",
@@ -12037,47 +12980,47 @@
 												{
 													"name": "Flow Q (inlet → outlet)",
 													"unit": "m³/s",
-													"value": 0.00525886961245683
+													"value": 0.0043539392342094585
 												},
 												{
 													"name": "Inlet pipe velocity v_in = Q/A_in",
 													"unit": "m/s",
-													"value": 2.6783203004744465
+													"value": 1.4101243124698033
 												},
 												{
 													"name": "Outlet pipe velocity v_out = Q/A_out",
 													"unit": "m/s",
-													"value": 2.6783203004744465
+													"value": 2.217443043347765
 												},
 												{
 													"name": "Inlet pipe Reynolds number Re_in",
 													"unit": "",
-													"value": 133462.8978725598
+													"value": 88115.6348047949
 												},
 												{
 													"name": "Outlet pipe Reynolds number Re_out",
 													"unit": "",
-													"value": 133462.8978725598
+													"value": 110497.00604521282
 												},
 												{
 													"name": "EGL at the inlet EGL_in",
 													"unit": "m",
-													"value": 22.224457056021542
+													"value": 21.669381854210712
 												},
 												{
 													"name": "EGL at the outlet EGL_out",
 													"unit": "m",
-													"value": 21.208508180069803
+													"value": 20.972993058726214
 												},
 												{
 													"name": "Head loss h = EGL_in − EGL_out (solved)",
 													"unit": "m",
-													"value": 1.0159488759517394
+													"value": 0.6963887954844985
 												},
 												{
 													"name": "Head loss by the law c Q|Q|",
 													"unit": "m",
-													"value": 1.0159488759517392
+													"value": 0.6963887954844984
 												},
 												{
 													"name": "Density ratio ρ/ρ_w",
@@ -12087,17 +13030,17 @@
 												{
 													"name": "Pressure loss ρ g h",
 													"unit": "Pa (difference)",
-													"value": 9945.192785778008
+													"value": 6816.997379381975
 												},
 												{
 													"name": "Inlet static pressure p_in",
 													"unit": "Pa(g)",
-													"value": 213976.45536274483
+													"value": 211130.61299357153
 												},
 												{
 													"name": "Outlet static pressure p_out",
 													"unit": "Pa(g)",
-													"value": 199136.72850089858
+													"value": 197957.40527351008
 												},
 												{
 													"name": "Elevation term ρ g (z_out − z_in)",
@@ -12107,12 +13050,12 @@
 												{
 													"name": "Velocity-head term ρ (v_out² − v_in²)/2",
 													"unit": "Pa (difference)",
-													"value": 0.0
+													"value": 1461.6762646111956
 												},
 												{
 													"name": "Static pressure drop Δp_static = p_in − p_out",
 													"unit": "Pa (difference)",
-													"value": 14839.726861846255
+													"value": 13173.207720061444
 												}
 											],
 											"notes": [
@@ -13171,7 +14114,7 @@
 													"name": "To port",
 													"source": "user",
 													"unit": "",
-													"value": "E2:inlet"
+													"value": "O1:inlet"
 												},
 												{
 													"name": "Friction method",
@@ -13238,7 +14181,7 @@
 												{
 													"name": "Flow Q",
 													"unit": "m³/s",
-													"value": 0.005258869612456826
+													"value": 0.004353939234209403
 												},
 												{
 													"name": "Pipe 1 area A",
@@ -13248,12 +14191,12 @@
 												{
 													"name": "Pipe 1 velocity v",
 													"unit": "m/s",
-													"value": 2.6783203004744442
+													"value": 2.2174430433477372
 												},
 												{
 													"name": "Pipe 1 Reynolds number Re",
 													"unit": "",
-													"value": 133462.89787255973
+													"value": 110497.0060452114
 												},
 												{
 													"name": "Pipe 1 relative roughness ε/D",
@@ -13263,17 +14206,17 @@
 												{
 													"name": "Pipe 1 friction factor f",
 													"unit": "",
-													"value": 0.02125966267712688
+													"value": 0.02162103094360723
 												},
 												{
 													"name": "Pipe 1 friction head loss h_f",
 													"unit": "m",
-													"value": 7.775542943978457
+													"value": 5.420391730542476
 												},
 												{
 													"name": "Friction head loss Σh_f",
 													"unit": "m",
-													"value": 7.775542943978457
+													"value": 5.420391730542476
 												},
 												{
 													"name": "Fittings head loss Σh_j",
@@ -13283,7 +14226,7 @@
 												{
 													"name": "Head loss Δh = EGL_from − EGL_to",
 													"unit": "m",
-													"value": 7.775542943978458
+													"value": 5.420391730542473
 												},
 												{
 													"name": "EGL at the from port",
@@ -13293,11 +14236,11 @@
 												{
 													"name": "EGL at the to port",
 													"unit": "m",
-													"value": 22.224457056021542
+													"value": 24.579608269457527
 												}
 											],
 											"notes": [
-												"Pipe 1: turbulent, Re = 133463 ≥ 4000: Colebrook; ε/D = 0.0009 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
+												"Pipe 1: turbulent, Re = 110497 ≥ 4000: Colebrook; ε/D = 0.0009 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
 											]
 										},
 										"L6": {
@@ -13612,7 +14555,7 @@
 												{
 													"name": "Flow Q",
 													"unit": "m³/s",
-													"value": 0.005258869612456841
+													"value": 0.004353939234209456
 												},
 												{
 													"name": "Pipe 1 area A",
@@ -13622,12 +14565,12 @@
 												{
 													"name": "Pipe 1 velocity v",
 													"unit": "m/s",
-													"value": 2.6783203004744514
+													"value": 2.217443043347764
 												},
 												{
 													"name": "Pipe 1 Reynolds number Re",
 													"unit": "",
-													"value": 133462.8978725601
+													"value": 110497.00604521275
 												},
 												{
 													"name": "Pipe 1 relative roughness ε/D",
@@ -13637,17 +14580,17 @@
 												{
 													"name": "Pipe 1 friction factor f",
 													"unit": "",
-													"value": 0.021259662677126874
+													"value": 0.021621030943607202
 												},
 												{
 													"name": "Pipe 1 friction head loss h_f",
 													"unit": "m",
-													"value": 0.7775542943978498
+													"value": 0.5420391730542601
 												},
 												{
 													"name": "Friction head loss Σh_f",
 													"unit": "m",
-													"value": 0.7775542943978498
+													"value": 0.5420391730542601
 												},
 												{
 													"name": "Fittings head loss Σh_j",
@@ -13657,12 +14600,12 @@
 												{
 													"name": "Head loss Δh = EGL_from − EGL_to",
 													"unit": "m",
-													"value": 0.7775542943978486
+													"value": 0.5420391730542597
 												},
 												{
 													"name": "EGL at the from port",
 													"unit": "m",
-													"value": 21.208508180069803
+													"value": 20.972993058726214
 												},
 												{
 													"name": "EGL at the to port",
@@ -13671,7 +14614,620 @@
 												}
 											],
 											"notes": [
-												"Pipe 1: turbulent, Re = 133463 ≥ 4000: Colebrook; ε/D = 0.0009 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
+												"Pipe 1: turbulent, Re = 110497 ≥ 4000: Colebrook; ε/D = 0.0009 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
+											]
+										},
+										"L8": {
+											"correlations": [
+												{
+													"citation": "Colebrook, C. F. J. ICE 11(4), 1939, 133-156, doi:10.1680/ijoti.1939.13150. Clamond, D. Ind. Eng. Chem. Res. 48(7), 2009, 3665-3671, doi:10.1021/ie801626g.",
+													"name": "Colebrook equation, exact solution fluids.friction.Clamond(Re, ε/D)"
+												}
+											],
+											"dataSources": [
+												{
+													"citation": "fluids.constants.g: the standard acceleration of gravity, 9.80665 m/s² (a defined value, 3rd CGPM, 1901)",
+													"name": "Gravitational acceleration g"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Fluid density (Water)"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: M. L. Huber et al., 'New International Formulation for the Viscosity of H2O', J. Phys. Chem. Ref. Data 38 (2009) 101-125, doi:10.1063/1.3088050",
+													"name": "Fluid dynamic viscosity (Water)"
+												},
+												{
+													"citation": "user value",
+													"name": "Pipe 1 inner diameter"
+												},
+												{
+													"citation": "user value",
+													"name": "Pipe 1 roughness"
+												}
+											],
+											"elementId": "L8",
+											"elementType": "pipe_connection",
+											"equations": [
+												"A = π D²/4 and v = Q/A (Q: flow from → to; D: segment inner diameter)",
+												"Re = |v| D/ν (ν = μ/ρ: kinematic viscosity)",
+												"h_f = f (L/D) v|v|/(2g) per segment (Darcy–Weisbach; f: Darcy friction factor, L: segment length)",
+												"1/√f = −2 log10(ε/(3.7 D) + 2.51/(Re √f)) for Re ≥ 4000 (Colebrook; ε: absolute roughness), solved exactly",
+												"Δh = EGL_from − EGL_to = Σ h_f + Σ h_j"
+											],
+											"inputs": [
+												{
+													"name": "From port",
+													"source": "user",
+													"unit": "",
+													"value": "O1:outlet"
+												},
+												{
+													"name": "To port",
+													"source": "user",
+													"unit": "",
+													"value": "E2:inlet"
+												},
+												{
+													"name": "Friction method",
+													"source": "default",
+													"unit": "",
+													"value": "colebrook"
+												},
+												{
+													"name": "Gravitational acceleration g",
+													"source": "library",
+													"unit": "m/s²",
+													"value": 9.80665
+												},
+												{
+													"name": "Fluid temperature T",
+													"source": "user",
+													"unit": "K",
+													"value": 293.15
+												},
+												{
+													"name": "Fluid density ρ",
+													"source": "library",
+													"unit": "kg/m³",
+													"value": 998.2071504679437
+												},
+												{
+													"name": "Fluid dynamic viscosity μ",
+													"source": "library",
+													"unit": "Pa·s",
+													"value": 0.001001596143120583
+												},
+												{
+													"name": "Kinematic viscosity ν = μ/ρ",
+													"source": "computed",
+													"unit": "m²/s",
+													"value": 1.003395079519367e-6
+												},
+												{
+													"name": "Pipe 1 material",
+													"source": "user",
+													"unit": "",
+													"value": "custom"
+												},
+												{
+													"name": "Pipe 1 length L",
+													"source": "user",
+													"unit": "m",
+													"value": 3.0
+												},
+												{
+													"name": "Pipe 1 inner diameter D",
+													"source": "user",
+													"unit": "m",
+													"value": 0.0627
+												},
+												{
+													"name": "Pipe 1 roughness ε",
+													"source": "user",
+													"unit": "m",
+													"value": 4.5e-5
+												}
+											],
+											"intermediates": [
+												{
+													"name": "Flow Q",
+													"unit": "m³/s",
+													"value": 0.0043539392342093735
+												},
+												{
+													"name": "Pipe 1 area A",
+													"unit": "m²",
+													"value": 0.003087627945782755
+												},
+												{
+													"name": "Pipe 1 velocity v",
+													"unit": "m/s",
+													"value": 1.4101243124697758
+												},
+												{
+													"name": "Pipe 1 Reynolds number Re",
+													"unit": "",
+													"value": 88115.63480479318
+												},
+												{
+													"name": "Pipe 1 relative roughness ε/D",
+													"unit": "",
+													"value": 0.0007177033492822966
+												},
+												{
+													"name": "Pipe 1 friction factor f",
+													"unit": "",
+													"value": 0.02148902917758347
+												},
+												{
+													"name": "Pipe 1 friction head loss h_f",
+													"unit": "m",
+													"value": 0.10424005675851332
+												},
+												{
+													"name": "Friction head loss Σh_f",
+													"unit": "m",
+													"value": 0.10424005675851332
+												},
+												{
+													"name": "Fittings head loss Σh_j",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Head loss Δh = EGL_from − EGL_to",
+													"unit": "m",
+													"value": 0.10424005675851333
+												},
+												{
+													"name": "EGL at the from port",
+													"unit": "m",
+													"value": 21.773621910969226
+												},
+												{
+													"name": "EGL at the to port",
+													"unit": "m",
+													"value": 21.669381854210712
+												}
+											],
+											"notes": [
+												"Pipe 1: turbulent, Re = 88115.6 ≥ 4000: Colebrook; ε/D = 0.0007177 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
+											]
+										},
+										"O1": {
+											"correlations": [
+												{
+													"citation": "U.S. Standard Atmosphere, 1976. NOAA, NASA, USAF, Washington, DC, 1976.",
+													"name": "US Standard Atmosphere 1976 (fluids.atmosphere.ATMOSPHERE_1976)"
+												},
+												{
+													"citation": "ISO 5167-2:2003, Measurement of fluid flow by means of pressure differential devices inserted in circular cross-section conduits running full, Part 2: Orifice plates; eq. (1), eq. (4) (the Reader-Harris/Gallagher (1998) equation) and the pressure-loss relation, as fluids 1.3.1 implements them (fluids.flow_meter), with its limits from fluids' docstrings (also citing ASME MFC-3M-2004). The 2022 edition does not change eq. (4) or its limits (Reader-Harris, M. J. ISO 5167: Past and Present. Global Flow Measurement Workshop, 2022).",
+													"name": "ISO 5167-2:2003 Reader-Harris/Gallagher equation (fluids.flow_meter.C_Reader_Harris_Gallagher)"
+												},
+												{
+													"citation": "ISO 5167-2:2003, Measurement of fluid flow by means of pressure differential devices inserted in circular cross-section conduits running full, Part 2: Orifice plates; eq. (1), eq. (4) (the Reader-Harris/Gallagher (1998) equation) and the pressure-loss relation, as fluids 1.3.1 implements them (fluids.flow_meter), with its limits from fluids' docstrings (also citing ASME MFC-3M-2004). The 2022 edition does not change eq. (4) or its limits (Reader-Harris, M. J. ISO 5167: Past and Present. Global Flow Measurement Workshop, 2022).",
+													"name": "ISO 5167-2 pressure-loss relation (fluids.flow_meter.discharge_coefficient_to_K)"
+												},
+												{
+													"citation": "ISO 5167-2:2003, Measurement of fluid flow by means of pressure differential devices inserted in circular cross-section conduits running full, Part 2: Orifice plates; eq. (1), eq. (4) (the Reader-Harris/Gallagher (1998) equation) and the pressure-loss relation, as fluids 1.3.1 implements them (fluids.flow_meter), with its limits from fluids' docstrings (also citing ASME MFC-3M-2004). The 2022 edition does not change eq. (4) or its limits (Reader-Harris, M. J. ISO 5167: Past and Present. Global Flow Measurement Workshop, 2022).",
+													"name": "ISO 5167-2 eq. (1), ε = 1 (a liquid)"
+												},
+												{
+													"citation": "Reader-Harris, M. J., J. Barnett and K. Mistry. Orifice plate pressure loss ratio: theoretical work in compressible flow and experimental work in CO2. FLOMEKO 2019, Lisbon (the loss relation's momentum theory, C taken with tappings 1D upstream and between the plate and the vena contracta downstream, and pressures moved between tap positions with the Reader-Harris/Gallagher (1998) equation).",
+													"name": "Loss coefficient at D and D/2 tappings for every plate"
+												},
+												{
+													"citation": "Rennels, D. C., and H. M. Hudson. Pipe Flow: A Practical and Comprehensive Guide. Wiley, 2012.",
+													"name": "Borda-Carnot sudden expansion from the bore: the loss coefficient's lower bound, K at C = 1"
+												},
+												{
+													"citation": "Deltares. WANDA documentation, ORIFICE component (an orifice plate complying with ISO 5167-2:2003): the loss H1 − H2 for D and D/2 tappings, the Reynolds number held at the standard's minimum, symmetric reverse flow, and the vena-contracta pressure at the downstream side's elevation.",
+													"name": "Hold below the lowest Reynolds number; vena contracta elevation"
+												}
+											],
+											"dataSources": [
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Fluid density (Water)"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: M. L. Huber et al., 'New International Formulation for the Viscosity of H2O', J. Phys. Chem. Ref. Data 38 (2009) 101-125, doi:10.1063/1.3088050",
+													"name": "Fluid dynamic viscosity (Water)"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), saturation pressure at 293.15 K: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Vapor pressure (Water)"
+												},
+												{
+													"citation": "fluids.constants.g: the standard acceleration of gravity, 9.80665 m/s² (a defined value, 3rd CGPM, 1901)",
+													"name": "Gravitational acceleration g"
+												},
+												{
+													"citation": "US Standard Atmosphere 1976 at the site elevation 120 m (fluids.atmosphere.ATMOSPHERE_1976)",
+													"name": "Atmospheric pressure p_atm"
+												},
+												{
+													"citation": "user data",
+													"name": "Bore diameter d"
+												},
+												{
+													"citation": "inner diameter of connection 'L5' at the inlet port",
+													"name": "Pipe diameter D"
+												},
+												{
+													"citation": "ISO 5167-2:2003 eq. (4) via fluids 1.3.1 (the cited default)",
+													"name": "Discharge coefficient"
+												}
+											],
+											"elementId": "O1",
+											"elementType": "orifice",
+											"equations": [
+												"β = d/D, 1 − β = (D − d)/D, A = π D²/4, v = Q/A (Q: flow inlet → outlet), and Re_D = 4 ρ |Q|/(π D μ) in the inlet pipe",
+												"C = 0.5961 + 0.0261 β² − 0.216 β⁸ + 0.000521 (10⁶ β/Re)^0.7 + (0.0188 + 0.0063 A) β^3.5 (10⁶/Re)^0.3 + (0.043 + 0.080 e^(−10 L1) − 0.123 e^(−7 L1))(1 − 0.11 A) β⁴/(1 − β⁴) − 0.031 (M2' − 0.8 M2'^1.1) β^1.3, A = (19000 β/Re)^0.8, M2' = 2 L2'/(1 − β); plus 0.011 (0.75 − β)(2.8 − D/0.0254) where D < 0.07112 m (D in m): ISO 5167-2:2003 eq. (4), the Reader-Harris/Gallagher equation",
+												"Tap lengths: D and D/2 tappings L1 = 1, L2' = 0.47; corner tappings L1 = L2' = 0; flange tappings L1 = L2' = 0.0254/D (D in m)",
+												"Re_eff = max(Re_D, Re_lo): C is held below ISO 5167-2's lowest Reynolds number, Re_lo = max(5000, 16000 β²) at corner and D and D/2 tappings (ISO's 5000 for β ≤ 0.56 and 16000 β² above, made continuous at β 0.56) and max(5000, 170000 β² D) at flange tappings (D in m)",
+												"C_L = eq. (4) at D and D/2 tappings at Re_eff",
+												"K = u², u = (1 − β⁴)/(C_L β² (S + C_L β²)), S = √(1 − β⁴(1 − C_L²)), 1 − β⁴ = (1 − β)(1 + β)(1 + β²): ISO 5167-2's pressure-loss relation over ρ v²/2, (S/(C_L β²) − 1)², written without its cancellation as β → 1",
+												"K(C = 1) = (1/β² − 1)² = ((1 − β)(1 + β)/β²)²: at S = 1 the relation is Borda-Carnot's sudden expansion from the bore (μ = 1); K decreases in C, so with C_L ≤ 1 (μ ≤ 1, a jet no larger than the bore) K stays at or above it, and a plate whose C_L could exceed 1 is refused (proposal orifice-plate.md decision 17)",
+												"EGL_in − EGL_out = h = K v|v|/(2g); Δϖ = ρ g h: the permanent pressure loss",
+												"Δp = (1 − β⁴)/(C_M² β⁴) · ρ v|v|/2: the reading between the taps, ISO 5167-2 eq. (1) solved for Δp with ε = 1; C_M is ISO's C at the plate's flange tappings at max(Re_D, its Re_lo)",
+												"p_vc = p_up + ρ g (z_up − z_down) − (1 − β⁴)/(C_L² β⁴) · ρ v²/2: the static pressure at the vena contracta (up: the port the flow enters; down: the port it leaves by)",
+												"p_in = ρ g (EGL_in − z_in − v_in²/(2g)), p_out = ρ g (EGL_out − z_out − v_out²/(2g)): static gauge pressures at the ports, v in the pipe connected there",
+												"Δp_static = p_in − p_out = ρ g h + ρ g (z_out − z_in) + ρ (v_out² − v_in²)/2: the static pressure drop"
+											],
+											"inputs": [
+												{
+													"name": "Bore diameter d (at the flowing temperature)",
+													"source": "user",
+													"unit": "m",
+													"value": 0.03
+												},
+												{
+													"name": "Discharge coefficient C",
+													"source": "default",
+													"unit": "",
+													"value": "ISO 5167-2 (Reader-Harris/Gallagher) at the solved flow"
+												},
+												{
+													"name": "Pressure taps",
+													"source": "user",
+													"unit": "",
+													"value": "flange tappings"
+												},
+												{
+													"name": "Pipe diameter D (inner diameter of the inlet pipe's end segment at the inlet port)",
+													"source": "user",
+													"unit": "m",
+													"value": 0.05
+												},
+												{
+													"name": "Outlet pipe inner diameter (its end segment at the outlet port)",
+													"source": "user",
+													"unit": "m",
+													"value": 0.0627
+												},
+												{
+													"name": "Inlet port elevation z_in",
+													"source": "default",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Outlet port elevation z_out",
+													"source": "default",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Fluid temperature T",
+													"source": "user",
+													"unit": "K",
+													"value": 293.15
+												},
+												{
+													"name": "Fluid density ρ",
+													"source": "library",
+													"unit": "kg/m³",
+													"value": 998.2071504679437
+												},
+												{
+													"name": "Fluid dynamic viscosity μ",
+													"source": "library",
+													"unit": "Pa·s",
+													"value": 0.001001596143120583
+												},
+												{
+													"name": "Kinematic viscosity ν = μ/ρ",
+													"source": "computed",
+													"unit": "m²/s",
+													"value": 1.003395079519367e-6
+												},
+												{
+													"name": "Vapor pressure p_vap",
+													"source": "library",
+													"unit": "Pa(a)",
+													"value": 2339.3181834056754
+												},
+												{
+													"name": "Gravitational acceleration g",
+													"source": "library",
+													"unit": "m/s²",
+													"value": 9.80665
+												},
+												{
+													"name": "Site elevation above sea level",
+													"source": "user",
+													"unit": "m",
+													"value": 120.0
+												},
+												{
+													"name": "Atmospheric pressure p_atm",
+													"source": "library",
+													"unit": "Pa(a)",
+													"value": 99891.72970616377
+												}
+											],
+											"intermediates": [
+												{
+													"name": "Diameter ratio β = d/D",
+													"unit": "",
+													"value": 0.6
+												},
+												{
+													"name": "1 − β = (D − d)/D",
+													"unit": "",
+													"value": 0.4000000000000001
+												},
+												{
+													"name": "Borda-Carnot loss coefficient (1/β² − 1)² (K at C = 1; K stays at or above it)",
+													"unit": "",
+													"value": 3.160493827160495
+												},
+												{
+													"name": "Inlet pipe area A = π D²/4",
+													"unit": "m²",
+													"value": 0.001963495408493621
+												},
+												{
+													"name": "Re_lo at D and D/2 tappings",
+													"unit": "",
+													"value": 5760.0
+												},
+												{
+													"name": "Re_lo at flange tappings",
+													"unit": "",
+													"value": 5000.0
+												},
+												{
+													"name": "Flow Q (inlet → outlet)",
+													"unit": "m³/s",
+													"value": 0.004353939234209409
+												},
+												{
+													"name": "Velocity v = Q/A (inlet pipe)",
+													"unit": "m/s",
+													"value": 2.2174430433477403
+												},
+												{
+													"name": "Reynolds number Re_D = 4 ρ |Q|/(π D μ)",
+													"unit": "",
+													"value": 110497.00604521156
+												},
+												{
+													"name": "Re_eff = max(Re_D, Re_lo), D and D/2 tappings",
+													"unit": "",
+													"value": 110497.00604521156
+												},
+												{
+													"name": "A = (19000 β/Re)^0.8 at Re 110497.006 (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.16249629841417898
+												},
+												{
+													"name": "0.5961 + 0.0261 β² − 0.216 β⁸ (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.60186802944
+												},
+												{
+													"name": "0.000521 (10⁶ β/Re)^0.7 (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.0017029356645283425
+												},
+												{
+													"name": "(0.0188 + 0.0063 A) β^3.5 (10⁶/Re)^0.3 (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.0064225800260194615
+												},
+												{
+													"name": "Upstream tap term (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.006272259261512379
+												},
+												{
+													"name": "Downstream tap term (D and D/2 tappings)",
+													"unit": "",
+													"value": -0.004824007190129663
+												},
+												{
+													"name": "Small-pipe term 0.011 (0.75 − β)(2.8 − D/0.0254) (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.0013719685039370072
+												},
+												{
+													"name": "eq. (4), the sum of its terms (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.6128137657058677
+												},
+												{
+													"name": "A = (19000 β/Re)^0.8 at Re 110497.006 (flange tappings)",
+													"unit": "",
+													"value": 0.16249629841417898
+												},
+												{
+													"name": "0.5961 + 0.0261 β² − 0.216 β⁸ (flange tappings)",
+													"unit": "",
+													"value": 0.60186802944
+												},
+												{
+													"name": "0.000521 (10⁶ β/Re)^0.7 (flange tappings)",
+													"unit": "",
+													"value": 0.0017029356645283425
+												},
+												{
+													"name": "(0.0188 + 0.0063 A) β^3.5 (10⁶/Re)^0.3 (flange tappings)",
+													"unit": "",
+													"value": 0.0064225800260194615
+												},
+												{
+													"name": "Upstream tap term (flange tappings)",
+													"unit": "",
+													"value": 0.00584731720226971
+												},
+												{
+													"name": "Downstream tap term (flange tappings)",
+													"unit": "",
+													"value": -0.00493837465191937
+												},
+												{
+													"name": "Small-pipe term 0.011 (0.75 − β)(2.8 − D/0.0254) (flange tappings)",
+													"unit": "",
+													"value": 0.0013719685039370072
+												},
+												{
+													"name": "eq. (4), the sum of its terms (flange tappings)",
+													"unit": "",
+													"value": 0.6122744561848352
+												},
+												{
+													"name": "Re_eff of C_M = max(Re_D, Re_lo), flange tappings",
+													"unit": "",
+													"value": 110497.00604521156
+												},
+												{
+													"name": "Discharge coefficient C_L (sets the loss, at D and D/2 tappings)",
+													"unit": "",
+													"value": 0.6128137657058677
+												},
+												{
+													"name": "Meter discharge coefficient C_M (the reading's)",
+													"unit": "",
+													"value": 0.6122744561848352
+												},
+												{
+													"name": "Jet area ratio μ = C_L/√(1 − β⁴(1 − C_L²)) (≤ 1)",
+													"unit": "",
+													"value": 0.6392256584975328
+												},
+												{
+													"name": "Loss coefficient K (on the inlet pipe's velocity)",
+													"unit": "",
+													"value": 11.19260763799878
+												},
+												{
+													"name": "K with the meter's own C_M (ISO's relation read literally; not used)",
+													"unit": "",
+													"value": 11.216876336416862
+												},
+												{
+													"name": "C at L1 = 1, L2' = 0.125 (Reader-Harris et al. 2019; not used)",
+													"unit": "",
+													"value": 0.6152767929769541
+												},
+												{
+													"name": "K at that C (not used)",
+													"unit": "",
+													"value": 11.082658669523132
+												},
+												{
+													"name": "Pressure-loss ratio Δϖ/Δp at C_L, (S − C_L β²)/(S + C_L β²)",
+													"unit": "",
+													"value": 0.625856004877585
+												},
+												{
+													"name": "EGL at the inlet EGL_in",
+													"unit": "m",
+													"value": 24.579608269457527
+												},
+												{
+													"name": "EGL at the outlet EGL_out",
+													"unit": "m",
+													"value": 21.773621910969226
+												},
+												{
+													"name": "Head loss h = EGL_in − EGL_out (solved)",
+													"unit": "m",
+													"value": 2.805986358488301
+												},
+												{
+													"name": "Head loss by the law K v|v|/(2g)",
+													"unit": "m",
+													"value": 2.8059863584883002
+												},
+												{
+													"name": "Permanent pressure loss Δϖ = ρ g h",
+													"unit": "Pa (difference)",
+													"value": 27467.991697207188
+												},
+												{
+													"name": "Differential pressure Δp at the taps (the reading)",
+													"unit": "Pa (difference)",
+													"value": 43966.02739203199
+												},
+												{
+													"name": "Vena contracta drop (1 − β⁴)/(C_L² β⁴) ρ v²/2",
+													"unit": "Pa (difference)",
+													"value": 43888.676441763644
+												},
+												{
+													"name": "Vena contracta static pressure p_vc",
+													"unit": "Pa(g)",
+													"value": 194268.66500419556
+												},
+												{
+													"name": "Vena contracta absolute pressure p_vc + p_atm",
+													"unit": "Pa(a)",
+													"value": 294160.39471035934
+												},
+												{
+													"name": "Outlet pipe velocity v_out = Q/A_out",
+													"unit": "m/s",
+													"value": 1.4101243124697873
+												},
+												{
+													"name": "Inlet static pressure p_in",
+													"unit": "Pa(g)",
+													"value": 238157.3414459592
+												},
+												{
+													"name": "Outlet static pressure p_out",
+													"unit": "Pa(g)",
+													"value": 212151.0260133632
+												},
+												{
+													"name": "Elevation term ρ g (z_out − z_in)",
+													"unit": "Pa (difference)",
+													"value": 0.0
+												},
+												{
+													"name": "Velocity-head term ρ (v_out² − v_in²)/2",
+													"unit": "Pa (difference)",
+													"value": -1461.676264611163
+												},
+												{
+													"name": "Static pressure drop Δp_static = p_in − p_out",
+													"unit": "Pa (difference)",
+													"value": 26006.31543259599
+												}
+											],
+											"notes": [
+												"Scenario 'Cv valve' (id S1) overrides the base project here: bore diameter 0.03 m (base: 0.025 m). The inputs below are the scenario's values.",
+												"One loss per plate: the loss uses the discharge coefficient at D and D/2 tappings whatever the plate's own taps (proposal orifice-plate.md decision 5), since one plate has one permanent loss, which cannot depend on where a meter's taps were drilled. The pressure-loss relation's theory (Reader-Harris et al. 2019) takes C with tappings 1D upstream and between the plate and the vena contracta downstream; of ISO 5167-2's tap sets only D and D/2 has L1 = 1, and Deltares WANDA uses it for its whole element. This departs from ISO's relation read literally with a meter's own C, which over ISO 5167-2's range (D 50 mm to 1 m, β 0.1 to 0.75, Re_D from Re_lo up) gives a K up to 6.14 % higher at corner tappings and 6.34 % at flange tappings, both at β 0.75 as Re_D grows (flange on a 1 m pipe): a flow up to 2.94 % and 3.03 % lower where the plate takes the whole head; up to β 0.6, a K up to 0.64 % and 0.84 % higher (a flow up to 0.32 % and 0.42 % lower).",
+												"Reader-Harris et al. 2019 take the downstream pressure at 0.125 D (L1 = 1, L2' = 0.125) for that C; over ISO 5167-2's range their C gives a K 0.063 to 1.24 % lower than D and D/2's (a flow up to 0.63 % higher where the plate takes the whole head). D and D/2 is kept: an ISO tap set, with ISO's own Reynolds number limits. The alternative's C and K at this plate are shown above, not used.",
+												"The plate and its installation are assumed to meet ISO 5167-2 (a square-edged concentric plate, its edge and thickness, straight lengths, pipe roughness): they are not checked, nor are fluids' 250 kPa differential-pressure and 6 micrometre roughness limits. d and D are taken at flowing conditions (thermal expansion is not modelled). ε = 1: the expansibility factor of a liquid.",
+												"The outlet port's pressure is the recovered one: ISO 5167-2's permanent loss is the part of the pressure difference across the plate not recovered about 6 D downstream (fluids; Reader-Harris et al. 2019's momentum balance), in a pipe of the inlet's bore.",
+												"The vena contracta is taken at the elevation of the port the flow leaves by (Deltares WANDA): p_vc = p_up + ρ g (z_up − z_down) − (1 − β⁴)/(C_L² β⁴) ρ v²/2, with p_up the static pressure of the port the flow enters. At zero flow there is no jet: no p_vc, nothing checked. Flashing there is flagged (BELOW_VAPOR_PRESSURE); incipient cavitation is not checked.",
+												"Flag CORRELATION_OUT_OF_RANGE (warning): orifice 'O1': its outlet pipe diameter 0.0627 m differs from its inlet pipe diameter 0.05 m; ISO 5167-2's pressure-loss relation assumes the jet recovers in a pipe of the inlet's bore, about 6 D downstream, so the loss is less certain"
 											]
 										},
 										"PRV1": {
@@ -14013,7 +15569,7 @@
 												{
 													"name": "Net outflow Q_out",
 													"unit": "m³/s",
-													"value": 0.015231605398186372
+													"value": 0.014326675019938949
 												},
 												{
 													"name": "Port port_1 outflow",
@@ -14023,7 +15579,7 @@
 												{
 													"name": "Port port_2 outflow",
 													"unit": "m³/s",
-													"value": 0.005258869612456826
+													"value": 0.004353939234209403
 												},
 												{
 													"name": "Port port_1 static pressure p",
@@ -14253,7 +15809,7 @@
 												{
 													"name": "Net outflow Q_out",
 													"unit": "m³/s",
-													"value": -0.005258869612456841
+													"value": -0.004353939234209456
 												},
 												{
 													"name": "Port port_1 static pressure p",
@@ -14506,7 +16062,8 @@
 											"Check valves: a disc that opens fully above the cracking pressure and closes on reverse flow (no partial opening).",
 											"Control valves without an entered resistance are ideal: no loss when fully open.",
 											"Fittings and valves without a user K use the cited correlation for the type at the connected pipe's inner diameter.",
-											"Equipment losses scale with the square of the flow and with density from one rated point, a Cv or a Kv (constant K); viscosity is not corrected."
+											"Equipment losses scale with the square of the flow and with density from one rated point, a Cv or a Kv (constant K); viscosity is not corrected.",
+											"Orifice plates meet ISO 5167-2 in geometry and installation; their loss is ISO 5167-2's permanent pressure loss with the discharge coefficient at D and D/2 tappings (or an entered one), for a single-phase liquid."
 										],
 										"libraries": {
 											"CoolProp": "8.0.0",
@@ -14519,11 +16076,12 @@
 										"sections": [
 											{
 												"items": [
-													"Scenario 'Cv valve' (id S1) of this project: 3 of its 3 override(s) of base values were applied to the base project before the network was built, so every result, trace and section below is of the project with those values. Every other value is the base project's; a scenario changes values only, never the components or connections.",
-													"Description: The PRV with a Cv 120 trim, a higher low tank and a dirty strainer.",
+													"Scenario 'Cv valve' (id S1) of this project: 4 of its 4 override(s) of base values were applied to the base project before the network was built, so every result, trace and section below is of the project with those values. Every other value is the base project's; a scenario changes values only, never the components or connections.",
+													"Description: The PRV with a Cv 120 trim, a higher low tank, a dirty strainer and a larger meter bore.",
 													"Component PRV1 (control valve): resistance Cv 120 (base: none (the default)).",
 													"Component R2 (reservoir): liquid level 6 m (base: 5 m).",
-													"Component E1 (equipment): rated pressure drop 40000 Pa (base: 20000 Pa)."
+													"Component E1 (equipment): rated pressure drop 40000 Pa (base: 20000 Pa).",
+													"Component O1 (orifice): bore diameter 0.03 m (base: 0.025 m)."
 												],
 												"references": [
 													"OpenSolve Pipe design decision D15 (CLAUDE.md), from docs/proposals/scenario-manager.md."
@@ -14641,6 +16199,26 @@
 													"Silverberg, P., and R. Darby. Correlate pressure drops through fittings. Chem. Eng. 106(7), 1999, 101."
 												],
 												"title": "Equipment"
+											},
+											{
+												"items": [
+													"Orifice plates (square-edged, concentric; a restriction orifice, or a flow meter with pressure taps): the loss of total head from the inlet to the outlet is h = EGL_in − EGL_out = K v|v|/(2g), with v = Q/A in the inlet pipe of inner diameter D (its end segment at the inlet port), β = d/D, and K = (S/(C β²) − 1)², S = √(1 − β⁴(1 − C²)): ISO 5167-2's pressure-loss relation Δϖ = (S − C β²)/(S + C β²) × Δp over ρ v²/2 (fluids.flow_meter.discharge_coefficient_to_K, computed without its cancellation as β → 1). Δϖ = ρ g h is the permanent pressure loss, the part not recovered about 6 D downstream; the outlet port's pressure is the recovered one.",
+													"The discharge coefficient C that sets the loss is the one at D and D/2 tappings for every plate, whatever its own taps: ISO 5167-2:2003 eq. (4), the Reader-Harris/Gallagher equation (fluids.flow_meter.C_Reader_Harris_Gallagher), at Re_D = 4ρ|Q|/(πDμ) in the inlet pipe. One plate has one permanent loss; the loss relation's theory (Reader-Harris et al. 2019) takes C with tappings 1D upstream, and of ISO's tap sets only D and D/2 has L1 = 1 (Deltares WANDA makes the same choice). Named departures, each at its largest over ISO 5167-2's range (D 50 mm to 1 m, β 0.1 to 0.75, Re_D from Re_lo up): ISO's relation read with a meter's own C would give a K up to 6.14 % higher at corner tappings and 6.34 % at flange tappings (at β 0.75 as Re_D grows, flange on a 1 m pipe), a flow up to 2.94 % and 3.03 % lower where the plate takes the whole head (up to β 0.6: a K up to 0.64 % and 0.84 % higher, a flow up to 0.32 % and 0.42 % lower); Reader-Harris et al.'s own C, with the downstream pressure at 0.125 D, gives a K 0.063 to 1.24 % lower (a flow up to 0.63 % higher).",
+													"Below ISO 5167-2's lowest Reynolds number Re_lo, C is held at its value there and flagged (WANDA's practice; eq. (4) as written exceeds 1 at very low Re): Re_lo = max(5000, 16000 β²) at corner and D and D/2 tappings and max(5000, 170000 β² D) at flange tappings (D in m). The first is ISO's limit (5000 for β ≤ 0.56, 16000 β² above) made continuous at β 0.56, stricter by at most 17.6 for 0.559 < β < 0.56, so that the held loss decreases with β. So fluids is never evaluated below Re 5000, where it adds terms that are not in ISO 5167-2.",
+													"A plate whose coefficient that sets the loss, at D and D/2 tappings (ISO's C there, or an entered C moved there from corner or flange taps), could exceed 1 at some flow is refused (ORIFICE_OUT_OF_RANGE): C ≤ 1 is a jet no larger than the bore, and above it K falls below the sudden expansion from the bore (Borda-Carnot), which is physically impossible. So is a plate whose ISO coefficient could exceed 1 where eq. (4) serves only the reading or the move: at its corner or flange tappings for ISO's meter reading, or at either tap set in the ratio that moves an entered C. Eq. (4) is then extrapolated far beyond ISO's range (its largest C there is below 0.7), and the reading or the move would rest on it. Each bound takes each Reynolds-number-dependent term of eq. (4) at whichever end of [Re_lo, ∞) makes it safe. For ISO's C it refuses β from about 0.970 (0.97025 from D 71.12 mm, at most 0.9706 on smaller pipes), and with flange taps on a pipe below about 55 mm, where ISO's C at the flange tappings is the bound, from a lower β (0.969 at D 52.5 mm, 0.963 at 40.9 mm, 0.930 at 15.8 mm, lower still on smaller pipes). A plate whose loss coefficient K/(2 g A²) at its smallest C is not a finite positive floating-point number is refused too.",
+													"A meter's reading, the differential pressure between its taps, is ISO 5167-2 eq. (1) solved for Δp with ε = 1: Δp = (1 − β⁴)/(C_M² β⁴) · ρ v|v|/2, with C_M ISO's C at its own taps (held at their own Re_lo) or the entered C; it does not act on the network. A plate without taps (a restriction orifice) has no reading.",
+													"The static pressure at the vena contracta, p_vc = p_up + ρ g (z_up − z_down) − (1 − β⁴)/(C² β⁴) · ρ v²/2 (up: the port the flow enters; down: the port it leaves by, at whose elevation it is taken, as in WANDA), is checked against the vapor pressure and flagged where the liquid would flash (BELOW_VAPOR_PRESSURE): a flashing jet chokes the flow, so the flow solved is then too high. None at zero flow or where the pressure level is undetermined; incipient cavitation is not checked.",
+													"Flagged (CORRELATION_OUT_OF_RANGE), wherever eq. (4) is used: a bore below 12.5 mm, an inlet pipe outside 50 mm to 1000 mm, β outside 0.1 to 0.75 (ISO 5167-2's limits, from fluids' documentation); and for every plate, an outlet pipe of another bore than the inlet's (the relation assumes the jet recovers in the same bore) and reverse flow (the loss taken as for forward flow at the same flow rate: ISO's C is for flow onto the plate's upstream face). The plate and its installation (edge, thickness, straight lengths, roughness) are assumed to meet ISO 5167-2 and are not checked.",
+													"At zero flow the law's slope is 0: Newton's Jacobian uses at least 1e-06 x the slopes of the pipes at the plate's ports there, as for every link that is not a pipe; the law itself is exact. Elsewhere the slope is exact, with the derivative of eq. (4) in the Reynolds number.",
+													"ε = 1: the expansibility factor of a liquid."
+												],
+												"references": [
+													"ISO 5167-2:2003, Measurement of fluid flow by means of pressure differential devices inserted in circular cross-section conduits running full, Part 2: Orifice plates; eq. (1), eq. (4) (the Reader-Harris/Gallagher (1998) equation) and the pressure-loss relation, as fluids 1.3.1 implements them (fluids.flow_meter), with its limits from fluids' docstrings (also citing ASME MFC-3M-2004). The 2022 edition does not change eq. (4) or its limits (Reader-Harris, M. J. ISO 5167: Past and Present. Global Flow Measurement Workshop, 2022).",
+													"Reader-Harris, M. J., J. Barnett and K. Mistry. Orifice plate pressure loss ratio: theoretical work in compressible flow and experimental work in CO2. FLOMEKO 2019, Lisbon (the loss relation's momentum theory, C taken with tappings 1D upstream and between the plate and the vena contracta downstream, and pressures moved between tap positions with the Reader-Harris/Gallagher (1998) equation).",
+													"Deltares. WANDA documentation, ORIFICE component (an orifice plate complying with ISO 5167-2:2003): the loss H1 − H2 for D and D/2 tappings, the Reynolds number held at the standard's minimum, symmetric reverse flow, and the vena-contracta pressure at the downstream side's elevation.",
+													"Rennels, D. C., and H. M. Hudson. Pipe Flow: A Practical and Comprehensive Guide. Wiley, 2012."
+												],
+												"title": "Orifices"
 											},
 											{
 												"items": [
@@ -14798,6 +16376,24 @@
 										"value": 60.0
 									},
 									"type": "equipment"
+								},
+								{
+									"boreDiameter": 0.025,
+									"elevation": 0.0,
+									"id": "O1",
+									"name": "Cooler flow meter",
+									"ports": [
+										{
+											"id": "inlet",
+											"nominalSize": 0.0508
+										},
+										{
+											"id": "outlet",
+											"nominalSize": 0.0508
+										}
+									],
+									"taps": "flange",
+									"type": "orifice"
 								},
 								{
 									"elevation": 0.0,
@@ -14975,6 +16571,24 @@
 											}
 										]
 									},
+									"toComponentId": "O1",
+									"toPortId": "inlet"
+								},
+								{
+									"fromComponentId": "O1",
+									"fromPortId": "outlet",
+									"id": "L8",
+									"piping": {
+										"fittings": [],
+										"pipes": [
+											{
+												"innerDiameter": 0.0627,
+												"length": 3.0,
+												"materialId": "custom",
+												"roughness": 4.5e-5
+											}
+										]
+									},
 									"toComponentId": "E2",
 									"toPortId": "inlet"
 								},
@@ -15005,7 +16619,7 @@
 							"id": "fixture-export-scenarios",
 							"metadata": {
 								"created": "2026-10-25T00:00:00Z",
-								"description": "Export fixture: a tee, a PRV, a demand, a strainer and a cooler, with two scenarios.",
+								"description": "Export fixture: a tee, a PRV, a demand, a strainer, a flow meter and a cooler, with two scenarios.",
 								"modified": "2026-10-25T00:00:00Z",
 								"name": "Plant water header"
 							},
@@ -15013,7 +16627,7 @@
 							"pumpLibrary": [],
 							"scenarios": [
 								{
-									"description": "The PRV with a Cv 120 trim, a higher low tank and a dirty strainer.",
+									"description": "The PRV with a Cv 120 trim, a higher low tank, a dirty strainer and a larger meter bore.",
 									"id": "S1",
 									"name": "Cv valve",
 									"overrides": [
@@ -15037,6 +16651,12 @@
 											"field": "rating.pressureLoss",
 											"kind": "component",
 											"value": 40000.0
+										},
+										{
+											"componentId": "O1",
+											"field": "boreDiameter",
+											"kind": "component",
+											"value": 0.03
 										}
 									]
 								},
@@ -15056,6 +16676,12 @@
 											"kind": "pipe",
 											"pipeIndex": 0,
 											"value": 25.0
+										},
+										{
+											"componentId": "O1",
+											"field": "dischargeCoefficient",
+											"kind": "component",
+											"value": 0.62
 										}
 									]
 								}
@@ -15190,6 +16816,25 @@
 										"value": 60.0
 									},
 									"type": "equipment"
+								},
+								{
+									"boreDiameter": 0.025,
+									"dischargeCoefficient": 0.62,
+									"elevation": 0.0,
+									"id": "O1",
+									"name": "Cooler flow meter",
+									"ports": [
+										{
+											"id": "inlet",
+											"nominalSize": 0.0508
+										},
+										{
+											"id": "outlet",
+											"nominalSize": 0.0508
+										}
+									],
+									"taps": "flange",
+									"type": "orifice"
 								},
 								{
 									"elevation": 0.0,
@@ -15367,6 +17012,24 @@
 											}
 										]
 									},
+									"toComponentId": "O1",
+									"toPortId": "inlet"
+								},
+								{
+									"fromComponentId": "O1",
+									"fromPortId": "outlet",
+									"id": "L8",
+									"piping": {
+										"fittings": [],
+										"pipes": [
+											{
+												"innerDiameter": 0.0627,
+												"length": 3.0,
+												"materialId": "custom",
+												"roughness": 4.5e-5
+											}
+										]
+									},
 									"toComponentId": "E2",
 									"toPortId": "inlet"
 								},
@@ -15397,7 +17060,7 @@
 							"id": "fixture-export-scenarios",
 							"metadata": {
 								"created": "2026-10-25T00:00:00Z",
-								"description": "Export fixture: a tee, a PRV, a demand, a strainer and a cooler, with two scenarios.",
+								"description": "Export fixture: a tee, a PRV, a demand, a strainer, a flow meter and a cooler, with two scenarios.",
 								"modified": "2026-10-25T00:00:00Z",
 								"name": "Plant water header"
 							},
@@ -15461,6 +17124,20 @@
 										"state": "applied",
 										"unit": "m",
 										"value": 25.0
+									},
+									{
+										"baseValue": null,
+										"index": 2,
+										"message": "",
+										"override": {
+											"componentId": "O1",
+											"field": "dischargeCoefficient",
+											"kind": "component",
+											"value": 0.62
+										},
+										"state": "applied",
+										"unit": "",
+										"value": 0.62
 									}
 								]
 							},
@@ -15477,10 +17154,10 @@
 									},
 									"R1": {
 										"egl": 30.0,
-										"outflow": 0.010806732397575049,
+										"outflow": 0.00914954594808877,
 										"portOutflows": {
 											"port_1": 0.005547862785118223,
-											"port_2": 0.005258869612456826
+											"port_2": 0.003601683162970546
 										},
 										"type": "reservoir"
 									},
@@ -15494,9 +17171,9 @@
 									},
 									"R3": {
 										"egl": 20.430953885671954,
-										"outflow": -0.005258869612456841,
+										"outflow": -0.0036016831629705672,
 										"portOutflows": {
-											"port_1": -0.005258869612456841
+											"port_1": -0.0036016831629705672
 										},
 										"type": "reference_node"
 									}
@@ -15556,18 +17233,32 @@
 										}
 									},
 									"E2": {
-										"flow": 0.00525886961245683,
+										"flow": 0.0036016831629705677,
 										"flowRatio": null,
-										"headLoss": 1.0159488759517394,
-										"pressureDrop": 14839.726861846255,
-										"pressureLoss": 9945.192785778008,
+										"headLoss": 0.4765385721422888,
+										"pressureDrop": 10559.62711478633,
+										"pressureLoss": 4664.868559822662,
 										"rating": {
 											"kind": "Kv",
 											"value": 60.0
 										}
 									}
 								},
-								"flags": [],
+								"flags": [
+									{
+										"code": "CORRELATION_OUT_OF_RANGE",
+										"componentId": "O1",
+										"connectionId": null,
+										"details": {
+											"inlet": 0.05,
+											"limit": "outletDiameter",
+											"value": 0.0627
+										},
+										"message": "orifice 'O1': its outlet pipe diameter 0.0627 m differs from its inlet pipe diameter 0.05 m; ISO 5167-2's pressure-loss relation assumes the jet recovers in a pipe of the inlet's bore, about 6 D downstream, so the loss is less certain",
+										"portId": null,
+										"severity": "warning"
+									}
+								],
 								"fluid": {
 									"concentration": null,
 									"density": 998.2071504679437,
@@ -15740,26 +17431,26 @@
 									"L5": {
 										"fittings": [],
 										"fittingsHeadLoss": 0.0,
-										"flow": 0.005258869612456826,
+										"flow": 0.003601683162970546,
 										"flowRegime": "turbulent",
-										"frictionFactor": 0.02125966267712688,
-										"frictionHeadLoss": 7.775542943978457,
-										"headLoss": 7.775542943978458,
-										"reynoldsNumber": 133462.89787255973,
+										"frictionFactor": 0.02203499223785364,
+										"frictionHeadLoss": 3.780188545749502,
+										"headLoss": 3.7801885457495032,
+										"reynoldsNumber": 91405.77872671153,
 										"segments": [
 											{
 												"flowRegime": "turbulent",
-												"frictionFactor": 0.02125966267712688,
-												"headLoss": 7.775542943978457,
+												"frictionFactor": 0.02203499223785364,
+												"headLoss": 3.780188545749502,
 												"index": 0,
 												"innerDiameter": 0.05,
 												"length": 50.0,
-												"reynoldsNumber": 133462.89787255973,
+												"reynoldsNumber": 91405.77872671153,
 												"roughness": 4.5e-5,
-												"velocity": 2.6783203004744442
+												"velocity": 1.8343221722803673
 											}
 										],
-										"velocity": 2.6783203004744442
+										"velocity": 1.8343221722803673
 									},
 									"L6": {
 										"fittings": [],
@@ -15788,26 +17479,50 @@
 									"L7": {
 										"fittings": [],
 										"fittingsHeadLoss": 0.0,
-										"flow": 0.005258869612456841,
+										"flow": 0.0036016831629705672,
 										"flowRegime": "turbulent",
-										"frictionFactor": 0.021259662677126874,
-										"frictionHeadLoss": 0.7775542943978498,
-										"headLoss": 0.7775542943978486,
-										"reynoldsNumber": 133462.8978725601,
+										"frictionFactor": 0.022034992237853622,
+										"frictionHeadLoss": 0.3780188545749544,
+										"headLoss": 0.3780188545749539,
+										"reynoldsNumber": 91405.77872671207,
 										"segments": [
 											{
 												"flowRegime": "turbulent",
-												"frictionFactor": 0.021259662677126874,
-												"headLoss": 0.7775542943978498,
+												"frictionFactor": 0.022034992237853622,
+												"headLoss": 0.3780188545749544,
 												"index": 0,
 												"innerDiameter": 0.05,
 												"length": 5.0,
-												"reynoldsNumber": 133462.8978725601,
+												"reynoldsNumber": 91405.77872671207,
 												"roughness": 4.5e-5,
-												"velocity": 2.6783203004744514
+												"velocity": 1.8343221722803782
 											}
 										],
-										"velocity": 2.6783203004744514
+										"velocity": 1.8343221722803782
+									},
+									"L8": {
+										"fittings": [],
+										"fittingsHeadLoss": 0.0,
+										"flow": 0.00360168316297058,
+										"flowRegime": "turbulent",
+										"frictionFactor": 0.022006645616688626,
+										"frictionHeadLoss": 0.07304962279903648,
+										"headLoss": 0.07304962279903648,
+										"reynoldsNumber": 72891.37059546442,
+										"segments": [
+											{
+												"flowRegime": "turbulent",
+												"frictionFactor": 0.022006645616688626,
+												"headLoss": 0.07304962279903648,
+												"index": 0,
+												"innerDiameter": 0.0627,
+												"length": 3.0,
+												"reynoldsNumber": 72891.37059546442,
+												"roughness": 4.5e-5,
+												"velocity": 1.1664887176221956
+											}
+										],
+										"velocity": 1.1664887176221956
 									}
 								},
 								"methodVersion": "1.4.0",
@@ -15849,28 +17564,52 @@
 										"velocity": 0.9190148694890695
 									},
 									"E2:inlet": {
-										"absolutePressure": 313868.1850689086,
+										"absolutePressure": 307577.92239357246,
 										"componentId": "E2",
-										"dynamicPressure": 3580.269402880076,
-										"egl": 22.224457056021542,
+										"dynamicPressure": 679.1282026407398,
+										"egl": 21.285511312389197,
 										"elevation": 0.0,
-										"hgl": 21.858715460678916,
+										"hgl": 21.216135127436136,
 										"portId": "inlet",
-										"pressure": 213976.45536274483,
-										"totalPressure": 217556.7247656249,
-										"velocity": 2.6783203004744442
+										"pressure": 207686.1926874087,
+										"totalPressure": 208365.32089004945,
+										"velocity": 1.1664887176221956
 									},
 									"E2:outlet": {
-										"absolutePressure": 299028.45820706233,
+										"absolutePressure": 297018.29527878616,
 										"componentId": "E2",
-										"dynamicPressure": 3580.269402880095,
-										"egl": 21.208508180069803,
+										"dynamicPressure": 1679.3526815361577,
+										"egl": 20.808972740246908,
 										"elevation": 0.5,
-										"hgl": 20.842766584727176,
+										"hgl": 20.637418854275683,
 										"portId": "outlet",
-										"pressure": 199136.72850089858,
-										"totalPressure": 202716.99790377868,
-										"velocity": 2.6783203004744514
+										"pressure": 197126.56557262238,
+										"totalPressure": 198805.91825415855,
+										"velocity": 1.8343221722803782
+									},
+									"O1:inlet": {
+										"absolutePressure": 354879.898286454,
+										"componentId": "O1",
+										"dynamicPressure": 1679.3526815361377,
+										"egl": 26.219811454250497,
+										"elevation": 0.0,
+										"hgl": 26.048257568279276,
+										"portId": "inlet",
+										"pressure": 254988.1685802902,
+										"totalPressure": 256667.52126182633,
+										"velocity": 1.8343221722803673
+									},
+									"O1:outlet": {
+										"absolutePressure": 308293.0101296401,
+										"componentId": "O1",
+										"dynamicPressure": 679.1282026407398,
+										"egl": 21.358560935188233,
+										"elevation": 0.0,
+										"hgl": 21.289184750235172,
+										"portId": "outlet",
+										"pressure": 208401.28042347633,
+										"totalPressure": 209080.40862611707,
+										"velocity": 1.1664887176221956
 									},
 									"PRV1:inlet": {
 										"absolutePressure": 374148.5532291891,
@@ -15981,7 +17720,27 @@
 										"velocity": 1.582837122514598
 									}
 								},
-								"orificeResults": {},
+								"orificeResults": {
+									"O1": {
+										"beta": 0.5,
+										"boreDiameter": 0.025,
+										"coefficientReynoldsNumber": 91405.7787267116,
+										"coefficientSource": "entered",
+										"differentialPressure": 65531.45219313762,
+										"dischargeCoefficient": 0.6203088545660733,
+										"flow": 0.0036016831629705486,
+										"headLoss": 4.8612505190622635,
+										"lossCoefficient": 28.33658061163202,
+										"meterDischargeCoefficient": 0.62,
+										"pipeDiameter": 0.05,
+										"pressureDrop": 46586.88815681386,
+										"pressureLoss": 47587.11263570924,
+										"reynoldsNumber": 91405.7787267116,
+										"tapCoefficientRatio": 1.0004981525259247,
+										"taps": "flange",
+										"venaContractaPressure": 189521.95695035416
+									}
+								},
 								"pumpResults": {},
 								"timestamp": "2026-10-25T12:30:00Z",
 								"trace": {
@@ -16411,7 +18170,7 @@
 													"name": "Inlet pipe inner diameter (its end segment at the port)",
 													"source": "user",
 													"unit": "m",
-													"value": 0.05
+													"value": 0.0627
 												},
 												{
 													"name": "Outlet pipe inner diameter (its end segment at the port)",
@@ -16479,47 +18238,47 @@
 												{
 													"name": "Flow Q (inlet → outlet)",
 													"unit": "m³/s",
-													"value": 0.00525886961245683
+													"value": 0.0036016831629705677
 												},
 												{
 													"name": "Inlet pipe velocity v_in = Q/A_in",
 													"unit": "m/s",
-													"value": 2.6783203004744465
+													"value": 1.1664887176221916
 												},
 												{
 													"name": "Outlet pipe velocity v_out = Q/A_out",
 													"unit": "m/s",
-													"value": 2.6783203004744465
+													"value": 1.8343221722803784
 												},
 												{
 													"name": "Inlet pipe Reynolds number Re_in",
 													"unit": "",
-													"value": 133462.8978725598
+													"value": 72891.37059546418
 												},
 												{
 													"name": "Outlet pipe Reynolds number Re_out",
 													"unit": "",
-													"value": 133462.8978725598
+													"value": 91405.77872671209
 												},
 												{
 													"name": "EGL at the inlet EGL_in",
 													"unit": "m",
-													"value": 22.224457056021542
+													"value": 21.285511312389197
 												},
 												{
 													"name": "EGL at the outlet EGL_out",
 													"unit": "m",
-													"value": 21.208508180069803
+													"value": 20.808972740246908
 												},
 												{
 													"name": "Head loss h = EGL_in − EGL_out (solved)",
 													"unit": "m",
-													"value": 1.0159488759517394
+													"value": 0.4765385721422888
 												},
 												{
 													"name": "Head loss by the law c Q|Q|",
 													"unit": "m",
-													"value": 1.0159488759517392
+													"value": 0.4765385721422888
 												},
 												{
 													"name": "Density ratio ρ/ρ_w",
@@ -16529,17 +18288,17 @@
 												{
 													"name": "Pressure loss ρ g h",
 													"unit": "Pa (difference)",
-													"value": 9945.192785778008
+													"value": 4664.868559822662
 												},
 												{
 													"name": "Inlet static pressure p_in",
 													"unit": "Pa(g)",
-													"value": 213976.45536274483
+													"value": 207686.1926874087
 												},
 												{
 													"name": "Outlet static pressure p_out",
 													"unit": "Pa(g)",
-													"value": 199136.72850089858
+													"value": 197126.56557262238
 												},
 												{
 													"name": "Elevation term ρ g (z_out − z_in)",
@@ -16549,12 +18308,12 @@
 												{
 													"name": "Velocity-head term ρ (v_out² − v_in²)/2",
 													"unit": "Pa (difference)",
-													"value": 0.0
+													"value": 1000.2244788954229
 												},
 												{
 													"name": "Static pressure drop Δp_static = p_in − p_out",
 													"unit": "Pa (difference)",
-													"value": 14839.726861846255
+													"value": 10559.62711478633
 												}
 											],
 											"notes": [
@@ -17614,7 +19373,7 @@
 													"name": "To port",
 													"source": "user",
 													"unit": "",
-													"value": "E2:inlet"
+													"value": "O1:inlet"
 												},
 												{
 													"name": "Friction method",
@@ -17681,7 +19440,7 @@
 												{
 													"name": "Flow Q",
 													"unit": "m³/s",
-													"value": 0.005258869612456826
+													"value": 0.003601683162970546
 												},
 												{
 													"name": "Pipe 1 area A",
@@ -17691,12 +19450,12 @@
 												{
 													"name": "Pipe 1 velocity v",
 													"unit": "m/s",
-													"value": 2.6783203004744442
+													"value": 1.8343221722803673
 												},
 												{
 													"name": "Pipe 1 Reynolds number Re",
 													"unit": "",
-													"value": 133462.89787255973
+													"value": 91405.77872671153
 												},
 												{
 													"name": "Pipe 1 relative roughness ε/D",
@@ -17706,17 +19465,17 @@
 												{
 													"name": "Pipe 1 friction factor f",
 													"unit": "",
-													"value": 0.02125966267712688
+													"value": 0.02203499223785364
 												},
 												{
 													"name": "Pipe 1 friction head loss h_f",
 													"unit": "m",
-													"value": 7.775542943978457
+													"value": 3.780188545749502
 												},
 												{
 													"name": "Friction head loss Σh_f",
 													"unit": "m",
-													"value": 7.775542943978457
+													"value": 3.780188545749502
 												},
 												{
 													"name": "Fittings head loss Σh_j",
@@ -17726,7 +19485,7 @@
 												{
 													"name": "Head loss Δh = EGL_from − EGL_to",
 													"unit": "m",
-													"value": 7.775542943978458
+													"value": 3.7801885457495032
 												},
 												{
 													"name": "EGL at the from port",
@@ -17736,11 +19495,11 @@
 												{
 													"name": "EGL at the to port",
 													"unit": "m",
-													"value": 22.224457056021542
+													"value": 26.219811454250497
 												}
 											],
 											"notes": [
-												"Pipe 1: turbulent, Re = 133463 ≥ 4000: Colebrook; ε/D = 0.0009 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
+												"Pipe 1: turbulent, Re = 91405.8 ≥ 4000: Colebrook; ε/D = 0.0009 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
 											]
 										},
 										"L6": {
@@ -18055,7 +19814,7 @@
 												{
 													"name": "Flow Q",
 													"unit": "m³/s",
-													"value": 0.005258869612456841
+													"value": 0.0036016831629705672
 												},
 												{
 													"name": "Pipe 1 area A",
@@ -18065,12 +19824,12 @@
 												{
 													"name": "Pipe 1 velocity v",
 													"unit": "m/s",
-													"value": 2.6783203004744514
+													"value": 1.8343221722803782
 												},
 												{
 													"name": "Pipe 1 Reynolds number Re",
 													"unit": "",
-													"value": 133462.8978725601
+													"value": 91405.77872671207
 												},
 												{
 													"name": "Pipe 1 relative roughness ε/D",
@@ -18080,17 +19839,17 @@
 												{
 													"name": "Pipe 1 friction factor f",
 													"unit": "",
-													"value": 0.021259662677126874
+													"value": 0.022034992237853622
 												},
 												{
 													"name": "Pipe 1 friction head loss h_f",
 													"unit": "m",
-													"value": 0.7775542943978498
+													"value": 0.3780188545749544
 												},
 												{
 													"name": "Friction head loss Σh_f",
 													"unit": "m",
-													"value": 0.7775542943978498
+													"value": 0.3780188545749544
 												},
 												{
 													"name": "Fittings head loss Σh_j",
@@ -18100,12 +19859,12 @@
 												{
 													"name": "Head loss Δh = EGL_from − EGL_to",
 													"unit": "m",
-													"value": 0.7775542943978486
+													"value": 0.3780188545749539
 												},
 												{
 													"name": "EGL at the from port",
 													"unit": "m",
-													"value": 21.208508180069803
+													"value": 20.808972740246908
 												},
 												{
 													"name": "EGL at the to port",
@@ -18114,7 +19873,621 @@
 												}
 											],
 											"notes": [
-												"Pipe 1: turbulent, Re = 133463 ≥ 4000: Colebrook; ε/D = 0.0009 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
+												"Pipe 1: turbulent, Re = 91405.8 ≥ 4000: Colebrook; ε/D = 0.0009 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
+											]
+										},
+										"L8": {
+											"correlations": [
+												{
+													"citation": "Colebrook, C. F. J. ICE 11(4), 1939, 133-156, doi:10.1680/ijoti.1939.13150. Clamond, D. Ind. Eng. Chem. Res. 48(7), 2009, 3665-3671, doi:10.1021/ie801626g.",
+													"name": "Colebrook equation, exact solution fluids.friction.Clamond(Re, ε/D)"
+												}
+											],
+											"dataSources": [
+												{
+													"citation": "fluids.constants.g: the standard acceleration of gravity, 9.80665 m/s² (a defined value, 3rd CGPM, 1901)",
+													"name": "Gravitational acceleration g"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Fluid density (Water)"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: M. L. Huber et al., 'New International Formulation for the Viscosity of H2O', J. Phys. Chem. Ref. Data 38 (2009) 101-125, doi:10.1063/1.3088050",
+													"name": "Fluid dynamic viscosity (Water)"
+												},
+												{
+													"citation": "user value",
+													"name": "Pipe 1 inner diameter"
+												},
+												{
+													"citation": "user value",
+													"name": "Pipe 1 roughness"
+												}
+											],
+											"elementId": "L8",
+											"elementType": "pipe_connection",
+											"equations": [
+												"A = π D²/4 and v = Q/A (Q: flow from → to; D: segment inner diameter)",
+												"Re = |v| D/ν (ν = μ/ρ: kinematic viscosity)",
+												"h_f = f (L/D) v|v|/(2g) per segment (Darcy–Weisbach; f: Darcy friction factor, L: segment length)",
+												"1/√f = −2 log10(ε/(3.7 D) + 2.51/(Re √f)) for Re ≥ 4000 (Colebrook; ε: absolute roughness), solved exactly",
+												"Δh = EGL_from − EGL_to = Σ h_f + Σ h_j"
+											],
+											"inputs": [
+												{
+													"name": "From port",
+													"source": "user",
+													"unit": "",
+													"value": "O1:outlet"
+												},
+												{
+													"name": "To port",
+													"source": "user",
+													"unit": "",
+													"value": "E2:inlet"
+												},
+												{
+													"name": "Friction method",
+													"source": "default",
+													"unit": "",
+													"value": "colebrook"
+												},
+												{
+													"name": "Gravitational acceleration g",
+													"source": "library",
+													"unit": "m/s²",
+													"value": 9.80665
+												},
+												{
+													"name": "Fluid temperature T",
+													"source": "user",
+													"unit": "K",
+													"value": 293.15
+												},
+												{
+													"name": "Fluid density ρ",
+													"source": "library",
+													"unit": "kg/m³",
+													"value": 998.2071504679437
+												},
+												{
+													"name": "Fluid dynamic viscosity μ",
+													"source": "library",
+													"unit": "Pa·s",
+													"value": 0.001001596143120583
+												},
+												{
+													"name": "Kinematic viscosity ν = μ/ρ",
+													"source": "computed",
+													"unit": "m²/s",
+													"value": 1.003395079519367e-6
+												},
+												{
+													"name": "Pipe 1 material",
+													"source": "user",
+													"unit": "",
+													"value": "custom"
+												},
+												{
+													"name": "Pipe 1 length L",
+													"source": "user",
+													"unit": "m",
+													"value": 3.0
+												},
+												{
+													"name": "Pipe 1 inner diameter D",
+													"source": "user",
+													"unit": "m",
+													"value": 0.0627
+												},
+												{
+													"name": "Pipe 1 roughness ε",
+													"source": "user",
+													"unit": "m",
+													"value": 4.5e-5
+												}
+											],
+											"intermediates": [
+												{
+													"name": "Flow Q",
+													"unit": "m³/s",
+													"value": 0.00360168316297058
+												},
+												{
+													"name": "Pipe 1 area A",
+													"unit": "m²",
+													"value": 0.003087627945782755
+												},
+												{
+													"name": "Pipe 1 velocity v",
+													"unit": "m/s",
+													"value": 1.1664887176221956
+												},
+												{
+													"name": "Pipe 1 Reynolds number Re",
+													"unit": "",
+													"value": 72891.37059546442
+												},
+												{
+													"name": "Pipe 1 relative roughness ε/D",
+													"unit": "",
+													"value": 0.0007177033492822966
+												},
+												{
+													"name": "Pipe 1 friction factor f",
+													"unit": "",
+													"value": 0.022006645616688626
+												},
+												{
+													"name": "Pipe 1 friction head loss h_f",
+													"unit": "m",
+													"value": 0.07304962279903648
+												},
+												{
+													"name": "Friction head loss Σh_f",
+													"unit": "m",
+													"value": 0.07304962279903648
+												},
+												{
+													"name": "Fittings head loss Σh_j",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Head loss Δh = EGL_from − EGL_to",
+													"unit": "m",
+													"value": 0.07304962279903648
+												},
+												{
+													"name": "EGL at the from port",
+													"unit": "m",
+													"value": 21.358560935188233
+												},
+												{
+													"name": "EGL at the to port",
+													"unit": "m",
+													"value": 21.285511312389197
+												}
+											],
+											"notes": [
+												"Pipe 1: turbulent, Re = 72891.4 ≥ 4000: Colebrook; ε/D = 0.0007177 ≤ 0.05, within the range documented for the Colebrook equation's explicit approximations."
+											]
+										},
+										"O1": {
+											"correlations": [
+												{
+													"citation": "U.S. Standard Atmosphere, 1976. NOAA, NASA, USAF, Washington, DC, 1976.",
+													"name": "US Standard Atmosphere 1976 (fluids.atmosphere.ATMOSPHERE_1976)"
+												},
+												{
+													"citation": "ISO 5167-2:2003, Measurement of fluid flow by means of pressure differential devices inserted in circular cross-section conduits running full, Part 2: Orifice plates; eq. (1), eq. (4) (the Reader-Harris/Gallagher (1998) equation) and the pressure-loss relation, as fluids 1.3.1 implements them (fluids.flow_meter), with its limits from fluids' docstrings (also citing ASME MFC-3M-2004). The 2022 edition does not change eq. (4) or its limits (Reader-Harris, M. J. ISO 5167: Past and Present. Global Flow Measurement Workshop, 2022).",
+													"name": "ISO 5167-2:2003 Reader-Harris/Gallagher equation (fluids.flow_meter.C_Reader_Harris_Gallagher)"
+												},
+												{
+													"citation": "ISO 5167-2:2003, Measurement of fluid flow by means of pressure differential devices inserted in circular cross-section conduits running full, Part 2: Orifice plates; eq. (1), eq. (4) (the Reader-Harris/Gallagher (1998) equation) and the pressure-loss relation, as fluids 1.3.1 implements them (fluids.flow_meter), with its limits from fluids' docstrings (also citing ASME MFC-3M-2004). The 2022 edition does not change eq. (4) or its limits (Reader-Harris, M. J. ISO 5167: Past and Present. Global Flow Measurement Workshop, 2022).",
+													"name": "ISO 5167-2 pressure-loss relation (fluids.flow_meter.discharge_coefficient_to_K)"
+												},
+												{
+													"citation": "ISO 5167-2:2003, Measurement of fluid flow by means of pressure differential devices inserted in circular cross-section conduits running full, Part 2: Orifice plates; eq. (1), eq. (4) (the Reader-Harris/Gallagher (1998) equation) and the pressure-loss relation, as fluids 1.3.1 implements them (fluids.flow_meter), with its limits from fluids' docstrings (also citing ASME MFC-3M-2004). The 2022 edition does not change eq. (4) or its limits (Reader-Harris, M. J. ISO 5167: Past and Present. Global Flow Measurement Workshop, 2022).",
+													"name": "ISO 5167-2 eq. (1), ε = 1 (a liquid)"
+												},
+												{
+													"citation": "Reader-Harris, M. J., J. Barnett and K. Mistry. Orifice plate pressure loss ratio: theoretical work in compressible flow and experimental work in CO2. FLOMEKO 2019, Lisbon (the loss relation's momentum theory, C taken with tappings 1D upstream and between the plate and the vena contracta downstream, and pressures moved between tap positions with the Reader-Harris/Gallagher (1998) equation).",
+													"name": "Loss coefficient at D and D/2 tappings for every plate"
+												},
+												{
+													"citation": "Rennels, D. C., and H. M. Hudson. Pipe Flow: A Practical and Comprehensive Guide. Wiley, 2012.",
+													"name": "Borda-Carnot sudden expansion from the bore: the loss coefficient's lower bound, K at C = 1"
+												},
+												{
+													"citation": "Deltares. WANDA documentation, ORIFICE component (an orifice plate complying with ISO 5167-2:2003): the loss H1 − H2 for D and D/2 tappings, the Reynolds number held at the standard's minimum, symmetric reverse flow, and the vena-contracta pressure at the downstream side's elevation.",
+													"name": "Hold below the lowest Reynolds number; vena contracta elevation"
+												}
+											],
+											"dataSources": [
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Fluid density (Water)"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), liquid at 293.15 K, 101325 Pa: M. L. Huber et al., 'New International Formulation for the Viscosity of H2O', J. Phys. Chem. Ref. Data 38 (2009) 101-125, doi:10.1063/1.3088050",
+													"name": "Fluid dynamic viscosity (Water)"
+												},
+												{
+													"citation": "library: CoolProp 8.0.0 'Water' (HEOS), saturation pressure at 293.15 K: IAPWS-95: W. Wagner and A. Pruß, 'The IAPWS Formulation 1995 for the Thermodynamic Properties of Ordinary Water Substance for General and Scientific Use', J. Phys. Chem. Ref. Data 31 (2002) 387-535, doi:10.1063/1.1461829",
+													"name": "Vapor pressure (Water)"
+												},
+												{
+													"citation": "fluids.constants.g: the standard acceleration of gravity, 9.80665 m/s² (a defined value, 3rd CGPM, 1901)",
+													"name": "Gravitational acceleration g"
+												},
+												{
+													"citation": "US Standard Atmosphere 1976 at the site elevation 120 m (fluids.atmosphere.ATMOSPHERE_1976)",
+													"name": "Atmospheric pressure p_atm"
+												},
+												{
+													"citation": "user data",
+													"name": "Bore diameter d"
+												},
+												{
+													"citation": "inner diameter of connection 'L5' at the inlet port",
+													"name": "Pipe diameter D"
+												},
+												{
+													"citation": "user data (a calibration or datasheet), as entered",
+													"name": "Discharge coefficient"
+												}
+											],
+											"elementId": "O1",
+											"elementType": "orifice",
+											"equations": [
+												"β = d/D, 1 − β = (D − d)/D, A = π D²/4, v = Q/A (Q: flow inlet → outlet), and Re_D = 4 ρ |Q|/(π D μ) in the inlet pipe",
+												"C = 0.5961 + 0.0261 β² − 0.216 β⁸ + 0.000521 (10⁶ β/Re)^0.7 + (0.0188 + 0.0063 A) β^3.5 (10⁶/Re)^0.3 + (0.043 + 0.080 e^(−10 L1) − 0.123 e^(−7 L1))(1 − 0.11 A) β⁴/(1 − β⁴) − 0.031 (M2' − 0.8 M2'^1.1) β^1.3, A = (19000 β/Re)^0.8, M2' = 2 L2'/(1 − β); plus 0.011 (0.75 − β)(2.8 − D/0.0254) where D < 0.07112 m (D in m): ISO 5167-2:2003 eq. (4), the Reader-Harris/Gallagher equation",
+												"Tap lengths: D and D/2 tappings L1 = 1, L2' = 0.47; corner tappings L1 = L2' = 0; flange tappings L1 = L2' = 0.0254/D (D in m)",
+												"Re_eff = max(Re_D, Re_lo): C is held below ISO 5167-2's lowest Reynolds number, Re_lo = max(5000, 16000 β²) at corner and D and D/2 tappings (ISO's 5000 for β ≤ 0.56 and 16000 β² above, made continuous at β 0.56) and max(5000, 170000 β² D) at flange tappings (D in m)",
+												"C_L = C_e · r, r = C_ISO(D and D/2 tappings, Re_eff)/C_ISO(flange tappings, Re_eff): the entered C moved from the plate's taps to D and D/2 tappings by ISO 5167-2's ratio of the two tap sets' C (the square root of ISO's ratio of their differential pressures at one flow)",
+												"K = u², u = (1 − β⁴)/(C_L β² (S + C_L β²)), S = √(1 − β⁴(1 − C_L²)), 1 − β⁴ = (1 − β)(1 + β)(1 + β²): ISO 5167-2's pressure-loss relation over ρ v²/2, (S/(C_L β²) − 1)², written without its cancellation as β → 1",
+												"K(C = 1) = (1/β² − 1)² = ((1 − β)(1 + β)/β²)²: at S = 1 the relation is Borda-Carnot's sudden expansion from the bore (μ = 1); K decreases in C, so with C_L ≤ 1 (μ ≤ 1, a jet no larger than the bore) K stays at or above it, and a plate whose C_L could exceed 1 is refused (proposal orifice-plate.md decision 17)",
+												"EGL_in − EGL_out = h = K v|v|/(2g); Δϖ = ρ g h: the permanent pressure loss",
+												"Δp = (1 − β⁴)/(C_M² β⁴) · ρ v|v|/2: the reading between the taps, ISO 5167-2 eq. (1) solved for Δp with ε = 1; C_M is the entered C as entered",
+												"p_vc = p_up + ρ g (z_up − z_down) − (1 − β⁴)/(C_L² β⁴) · ρ v²/2: the static pressure at the vena contracta (up: the port the flow enters; down: the port it leaves by)",
+												"p_in = ρ g (EGL_in − z_in − v_in²/(2g)), p_out = ρ g (EGL_out − z_out − v_out²/(2g)): static gauge pressures at the ports, v in the pipe connected there",
+												"Δp_static = p_in − p_out = ρ g h + ρ g (z_out − z_in) + ρ (v_out² − v_in²)/2: the static pressure drop"
+											],
+											"inputs": [
+												{
+													"name": "Bore diameter d (at the flowing temperature)",
+													"source": "user",
+													"unit": "m",
+													"value": 0.025
+												},
+												{
+													"name": "Discharge coefficient C (entered: ISO 5167-2 eq. (1)'s C at the plate's taps, at D and D/2 tappings for a plate without taps; not the flow coefficient α = C/√(1 − β⁴))",
+													"source": "user",
+													"unit": "",
+													"value": 0.62
+												},
+												{
+													"name": "Pressure taps",
+													"source": "user",
+													"unit": "",
+													"value": "flange tappings"
+												},
+												{
+													"name": "Pipe diameter D (inner diameter of the inlet pipe's end segment at the inlet port)",
+													"source": "user",
+													"unit": "m",
+													"value": 0.05
+												},
+												{
+													"name": "Outlet pipe inner diameter (its end segment at the outlet port)",
+													"source": "user",
+													"unit": "m",
+													"value": 0.0627
+												},
+												{
+													"name": "Inlet port elevation z_in",
+													"source": "default",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Outlet port elevation z_out",
+													"source": "default",
+													"unit": "m",
+													"value": 0.0
+												},
+												{
+													"name": "Fluid temperature T",
+													"source": "user",
+													"unit": "K",
+													"value": 293.15
+												},
+												{
+													"name": "Fluid density ρ",
+													"source": "library",
+													"unit": "kg/m³",
+													"value": 998.2071504679437
+												},
+												{
+													"name": "Fluid dynamic viscosity μ",
+													"source": "library",
+													"unit": "Pa·s",
+													"value": 0.001001596143120583
+												},
+												{
+													"name": "Kinematic viscosity ν = μ/ρ",
+													"source": "computed",
+													"unit": "m²/s",
+													"value": 1.003395079519367e-6
+												},
+												{
+													"name": "Vapor pressure p_vap",
+													"source": "library",
+													"unit": "Pa(a)",
+													"value": 2339.3181834056754
+												},
+												{
+													"name": "Gravitational acceleration g",
+													"source": "library",
+													"unit": "m/s²",
+													"value": 9.80665
+												},
+												{
+													"name": "Site elevation above sea level",
+													"source": "user",
+													"unit": "m",
+													"value": 120.0
+												},
+												{
+													"name": "Atmospheric pressure p_atm",
+													"source": "library",
+													"unit": "Pa(a)",
+													"value": 99891.72970616377
+												}
+											],
+											"intermediates": [
+												{
+													"name": "Diameter ratio β = d/D",
+													"unit": "",
+													"value": 0.5
+												},
+												{
+													"name": "1 − β = (D − d)/D",
+													"unit": "",
+													"value": 0.5
+												},
+												{
+													"name": "Borda-Carnot loss coefficient (1/β² − 1)² (K at C = 1; K stays at or above it)",
+													"unit": "",
+													"value": 9.0
+												},
+												{
+													"name": "Inlet pipe area A = π D²/4",
+													"unit": "m²",
+													"value": 0.001963495408493621
+												},
+												{
+													"name": "Re_lo at D and D/2 tappings",
+													"unit": "",
+													"value": 5000.0
+												},
+												{
+													"name": "Re_lo at flange tappings",
+													"unit": "",
+													"value": 5000.0
+												},
+												{
+													"name": "Flow Q (inlet → outlet)",
+													"unit": "m³/s",
+													"value": 0.0036016831629705486
+												},
+												{
+													"name": "Velocity v = Q/A (inlet pipe)",
+													"unit": "m/s",
+													"value": 1.8343221722803686
+												},
+												{
+													"name": "Reynolds number Re_D = 4 ρ |Q|/(π D μ)",
+													"unit": "",
+													"value": 91405.7787267116
+												},
+												{
+													"name": "Re_eff = max(Re_D, Re_lo), D and D/2 tappings",
+													"unit": "",
+													"value": 91405.7787267116
+												},
+												{
+													"name": "A = (19000 β/Re)^0.8 at Re 91405.77873 (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.16345565936838627
+												},
+												{
+													"name": "0.5961 + 0.0261 β² − 0.216 β⁸ (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.6017812499999999
+												},
+												{
+													"name": "0.000521 (10⁶ β/Re)^0.7 (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.0017117296335791361
+												},
+												{
+													"name": "(0.0188 + 0.0063 A) β^3.5 (10⁶/Re)^0.3 (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.0035926971593282938
+												},
+												{
+													"name": "Upstream tap term (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.002808018441152442
+												},
+												{
+													"name": "Downstream tap term (D and D/2 tappings)",
+													"unit": "",
+													"value": -0.0034999440526980023
+												},
+												{
+													"name": "Small-pipe term 0.011 (0.75 − β)(2.8 − D/0.0254) (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.002286614173228345
+												},
+												{
+													"name": "eq. (4), the sum of its terms (D and D/2 tappings)",
+													"unit": "",
+													"value": 0.6086803653545901
+												},
+												{
+													"name": "A = (19000 β/Re)^0.8 at Re 91405.77873 (flange tappings)",
+													"unit": "",
+													"value": 0.16345565936838627
+												},
+												{
+													"name": "0.5961 + 0.0261 β² − 0.216 β⁸ (flange tappings)",
+													"unit": "",
+													"value": 0.6017812499999999
+												},
+												{
+													"name": "0.000521 (10⁶ β/Re)^0.7 (flange tappings)",
+													"unit": "",
+													"value": 0.0017117296335791361
+												},
+												{
+													"name": "(0.0188 + 0.0063 A) β^3.5 (10⁶/Re)^0.3 (flange tappings)",
+													"unit": "",
+													"value": 0.0035926971593282938
+												},
+												{
+													"name": "Upstream tap term (flange tappings)",
+													"unit": "",
+													"value": 0.002617776761237095
+												},
+												{
+													"name": "Downstream tap term (flange tappings)",
+													"unit": "",
+													"value": -0.0036127670618244737
+												},
+												{
+													"name": "Small-pipe term 0.011 (0.75 − β)(2.8 − D/0.0254) (flange tappings)",
+													"unit": "",
+													"value": 0.002286614173228345
+												},
+												{
+													"name": "eq. (4), the sum of its terms (flange tappings)",
+													"unit": "",
+													"value": 0.6083773006655484
+												},
+												{
+													"name": "Move ratio r = C_ISO(D and D/2)/C_ISO(taps)",
+													"unit": "",
+													"value": 1.0004981525259247
+												},
+												{
+													"name": "Discharge coefficient C_L (sets the loss, at D and D/2 tappings)",
+													"unit": "",
+													"value": 0.6203088545660733
+												},
+												{
+													"name": "Meter discharge coefficient C_M (the reading's)",
+													"unit": "",
+													"value": 0.62
+												},
+												{
+													"name": "Jet area ratio μ = C_L/√(1 − β⁴(1 − C_L²)) (≤ 1)",
+													"unit": "",
+													"value": 0.632589943210009
+												},
+												{
+													"name": "Loss coefficient K (on the inlet pipe's velocity)",
+													"unit": "",
+													"value": 28.33658061163202
+												},
+												{
+													"name": "K with the entered C as entered (not moved; not used)",
+													"unit": "",
+													"value": 28.36928692625718
+												},
+												{
+													"name": "C at L1 = 1, L2' = 0.125 (Reader-Harris et al. 2019; not used)",
+													"unit": "",
+													"value": 0.6222489331780183
+												},
+												{
+													"name": "K at that C (not used)",
+													"unit": "",
+													"value": 28.132315259164063
+												},
+												{
+													"name": "Pressure-loss ratio Δϖ/Δp at C_L, (S − C_L β²)/(S + C_L β²)",
+													"unit": "",
+													"value": 0.726895774948872
+												},
+												{
+													"name": "EGL at the inlet EGL_in",
+													"unit": "m",
+													"value": 26.219811454250497
+												},
+												{
+													"name": "EGL at the outlet EGL_out",
+													"unit": "m",
+													"value": 21.358560935188233
+												},
+												{
+													"name": "Head loss h = EGL_in − EGL_out (solved)",
+													"unit": "m",
+													"value": 4.8612505190622635
+												},
+												{
+													"name": "Head loss by the law K v|v|/(2g)",
+													"unit": "m",
+													"value": 4.8612505190622635
+												},
+												{
+													"name": "Permanent pressure loss Δϖ = ρ g h",
+													"unit": "Pa (difference)",
+													"value": 47587.11263570924
+												},
+												{
+													"name": "Differential pressure Δp at the taps (the reading)",
+													"unit": "Pa (difference)",
+													"value": 65531.45219313762
+												},
+												{
+													"name": "Vena contracta drop (1 − β⁴)/(C_L² β⁴) ρ v²/2",
+													"unit": "Pa (difference)",
+													"value": 65466.21162993604
+												},
+												{
+													"name": "Vena contracta static pressure p_vc",
+													"unit": "Pa(g)",
+													"value": 189521.95695035416
+												},
+												{
+													"name": "Vena contracta absolute pressure p_vc + p_atm",
+													"unit": "Pa(a)",
+													"value": 289413.6866565179
+												},
+												{
+													"name": "Outlet pipe velocity v_out = Q/A_out",
+													"unit": "m/s",
+													"value": 1.1664887176221854
+												},
+												{
+													"name": "Inlet static pressure p_in",
+													"unit": "Pa(g)",
+													"value": 254988.1685802902
+												},
+												{
+													"name": "Outlet static pressure p_out",
+													"unit": "Pa(g)",
+													"value": 208401.28042347633
+												},
+												{
+													"name": "Elevation term ρ g (z_out − z_in)",
+													"unit": "Pa (difference)",
+													"value": 0.0
+												},
+												{
+													"name": "Velocity-head term ρ (v_out² − v_in²)/2",
+													"unit": "Pa (difference)",
+													"value": -1000.2244788954124
+												},
+												{
+													"name": "Static pressure drop Δp_static = p_in − p_out",
+													"unit": "Pa (difference)",
+													"value": 46586.88815681386
+												}
+											],
+											"notes": [
+												"Scenario 'Supply at AF1' (id S2) overrides the base project here: discharge coefficient 0.62 (base: ISO 5167-2's (the default)). The inputs below are the scenario's values.",
+												"One loss per plate: the loss uses the discharge coefficient at D and D/2 tappings whatever the plate's own taps (proposal orifice-plate.md decision 5), since one plate has one permanent loss, which cannot depend on where a meter's taps were drilled. The pressure-loss relation's theory (Reader-Harris et al. 2019) takes C with tappings 1D upstream and between the plate and the vena contracta downstream; of ISO 5167-2's tap sets only D and D/2 has L1 = 1, and Deltares WANDA uses it for its whole element. This departs from ISO's relation read literally with a meter's own C, which over ISO 5167-2's range (D 50 mm to 1 m, β 0.1 to 0.75, Re_D from Re_lo up) gives a K up to 6.14 % higher at corner tappings and 6.34 % at flange tappings, both at β 0.75 as Re_D grows (flange on a 1 m pipe): a flow up to 2.94 % and 3.03 % lower where the plate takes the whole head; up to β 0.6, a K up to 0.64 % and 0.84 % higher (a flow up to 0.32 % and 0.42 % lower).",
+												"Reader-Harris et al. 2019 take the downstream pressure at 0.125 D (L1 = 1, L2' = 0.125) for that C; over ISO 5167-2's range their C gives a K 0.063 to 1.24 % lower than D and D/2's (a flow up to 0.63 % higher where the plate takes the whole head). D and D/2 is kept: an ISO tap set, with ISO's own Reynolds number limits. The alternative's C and K at this plate are shown above, not used.",
+												"The plate and its installation are assumed to meet ISO 5167-2 (a square-edged concentric plate, its edge and thickness, straight lengths, pipe roughness): they are not checked, nor are fluids' 250 kPa differential-pressure and 6 micrometre roughness limits. d and D are taken at flowing conditions (thermal expansion is not modelled). ε = 1: the expansibility factor of a liquid.",
+												"The outlet port's pressure is the recovered one: ISO 5167-2's permanent loss is the part of the pressure difference across the plate not recovered about 6 D downstream (fluids; Reader-Harris et al. 2019's momentum balance), in a pipe of the inlet's bore.",
+												"Entered C: the reading uses it as entered; the loss uses it moved by r from its flange tappings to D and D/2 tappings, so that one plate has one loss (proposal orifice-plate.md decision 13). An entered C is held at every flow: the square law of turbulent flow.",
+												"The vena contracta is taken at the elevation of the port the flow leaves by (Deltares WANDA): p_vc = p_up + ρ g (z_up − z_down) − (1 − β⁴)/(C_L² β⁴) ρ v²/2, with p_up the static pressure of the port the flow enters. At zero flow there is no jet: no p_vc, nothing checked. Flashing there is flagged (BELOW_VAPOR_PRESSURE); incipient cavitation is not checked.",
+												"Flag CORRELATION_OUT_OF_RANGE (warning): orifice 'O1': its outlet pipe diameter 0.0627 m differs from its inlet pipe diameter 0.05 m; ISO 5167-2's pressure-loss relation assumes the jet recovers in a pipe of the inlet's bore, about 6 D downstream, so the loss is less certain"
 											]
 										},
 										"PRV1": {
@@ -18451,7 +20824,7 @@
 												{
 													"name": "Net outflow Q_out",
 													"unit": "m³/s",
-													"value": 0.010806732397575049
+													"value": 0.00914954594808877
 												},
 												{
 													"name": "Port port_1 outflow",
@@ -18461,7 +20834,7 @@
 												{
 													"name": "Port port_2 outflow",
 													"unit": "m³/s",
-													"value": 0.005258869612456826
+													"value": 0.003601683162970546
 												},
 												{
 													"name": "Port port_1 static pressure p",
@@ -18690,7 +21063,7 @@
 												{
 													"name": "Net outflow Q_out",
 													"unit": "m³/s",
-													"value": -0.005258869612456841
+													"value": -0.0036016831629705672
 												},
 												{
 													"name": "Port port_1 static pressure p",
@@ -18943,7 +21316,8 @@
 											"Check valves: a disc that opens fully above the cracking pressure and closes on reverse flow (no partial opening).",
 											"Control valves without an entered resistance are ideal: no loss when fully open.",
 											"Fittings and valves without a user K use the cited correlation for the type at the connected pipe's inner diameter.",
-											"Equipment losses scale with the square of the flow and with density from one rated point, a Cv or a Kv (constant K); viscosity is not corrected."
+											"Equipment losses scale with the square of the flow and with density from one rated point, a Cv or a Kv (constant K); viscosity is not corrected.",
+											"Orifice plates meet ISO 5167-2 in geometry and installation; their loss is ISO 5167-2's permanent pressure loss with the discharge coefficient at D and D/2 tappings (or an entered one), for a single-phase liquid."
 										],
 										"libraries": {
 											"CoolProp": "8.0.0",
@@ -18956,9 +21330,10 @@
 										"sections": [
 											{
 												"items": [
-													"Scenario 'Supply at AF1' (id S2) of this project: 2 of its 2 override(s) of base values were applied to the base project before the network was built, so every result, trace and section below is of the project with those values. Every other value is the base project's; a scenario changes values only, never the components or connections.",
+													"Scenario 'Supply at AF1' (id S2) of this project: 3 of its 3 override(s) of base values were applied to the base project before the network was built, so every result, trace and section below is of the project with those values. Every other value is the base project's; a scenario changes values only, never the components or connections.",
 													"Component AF1 (assigned-flow node): assigned flow -0.002 m³/s (base: 0.003 m³/s).",
-													"Connection L4, pipe 1: length 25 m (base: 15 m)."
+													"Connection L4, pipe 1: length 25 m (base: 15 m).",
+													"Component O1 (orifice): discharge coefficient 0.62 (base: ISO 5167-2's (the default))."
 												],
 												"references": [
 													"OpenSolve Pipe design decision D15 (CLAUDE.md), from docs/proposals/scenario-manager.md."
@@ -19076,6 +21451,28 @@
 													"Silverberg, P., and R. Darby. Correlate pressure drops through fittings. Chem. Eng. 106(7), 1999, 101."
 												],
 												"title": "Equipment"
+											},
+											{
+												"items": [
+													"Orifice plates (square-edged, concentric; a restriction orifice, or a flow meter with pressure taps): the loss of total head from the inlet to the outlet is h = EGL_in − EGL_out = K v|v|/(2g), with v = Q/A in the inlet pipe of inner diameter D (its end segment at the inlet port), β = d/D, and K = (S/(C β²) − 1)², S = √(1 − β⁴(1 − C²)): ISO 5167-2's pressure-loss relation Δϖ = (S − C β²)/(S + C β²) × Δp over ρ v²/2 (fluids.flow_meter.discharge_coefficient_to_K, computed without its cancellation as β → 1). Δϖ = ρ g h is the permanent pressure loss, the part not recovered about 6 D downstream; the outlet port's pressure is the recovered one.",
+													"The discharge coefficient C that sets the loss is the one at D and D/2 tappings for every plate, whatever its own taps: ISO 5167-2:2003 eq. (4), the Reader-Harris/Gallagher equation (fluids.flow_meter.C_Reader_Harris_Gallagher), at Re_D = 4ρ|Q|/(πDμ) in the inlet pipe. One plate has one permanent loss; the loss relation's theory (Reader-Harris et al. 2019) takes C with tappings 1D upstream, and of ISO's tap sets only D and D/2 has L1 = 1 (Deltares WANDA makes the same choice). Named departures, each at its largest over ISO 5167-2's range (D 50 mm to 1 m, β 0.1 to 0.75, Re_D from Re_lo up): ISO's relation read with a meter's own C would give a K up to 6.14 % higher at corner tappings and 6.34 % at flange tappings (at β 0.75 as Re_D grows, flange on a 1 m pipe), a flow up to 2.94 % and 3.03 % lower where the plate takes the whole head (up to β 0.6: a K up to 0.64 % and 0.84 % higher, a flow up to 0.32 % and 0.42 % lower); Reader-Harris et al.'s own C, with the downstream pressure at 0.125 D, gives a K 0.063 to 1.24 % lower (a flow up to 0.63 % higher).",
+													"Below ISO 5167-2's lowest Reynolds number Re_lo, C is held at its value there and flagged (WANDA's practice; eq. (4) as written exceeds 1 at very low Re): Re_lo = max(5000, 16000 β²) at corner and D and D/2 tappings and max(5000, 170000 β² D) at flange tappings (D in m). The first is ISO's limit (5000 for β ≤ 0.56, 16000 β² above) made continuous at β 0.56, stricter by at most 17.6 for 0.559 < β < 0.56, so that the held loss decreases with β. So fluids is never evaluated below Re 5000, where it adds terms that are not in ISO 5167-2.",
+													"A plate whose coefficient that sets the loss, at D and D/2 tappings (ISO's C there, or an entered C moved there from corner or flange taps), could exceed 1 at some flow is refused (ORIFICE_OUT_OF_RANGE): C ≤ 1 is a jet no larger than the bore, and above it K falls below the sudden expansion from the bore (Borda-Carnot), which is physically impossible. So is a plate whose ISO coefficient could exceed 1 where eq. (4) serves only the reading or the move: at its corner or flange tappings for ISO's meter reading, or at either tap set in the ratio that moves an entered C. Eq. (4) is then extrapolated far beyond ISO's range (its largest C there is below 0.7), and the reading or the move would rest on it. Each bound takes each Reynolds-number-dependent term of eq. (4) at whichever end of [Re_lo, ∞) makes it safe. For ISO's C it refuses β from about 0.970 (0.97025 from D 71.12 mm, at most 0.9706 on smaller pipes), and with flange taps on a pipe below about 55 mm, where ISO's C at the flange tappings is the bound, from a lower β (0.969 at D 52.5 mm, 0.963 at 40.9 mm, 0.930 at 15.8 mm, lower still on smaller pipes). A plate whose loss coefficient K/(2 g A²) at its smallest C is not a finite positive floating-point number is refused too.",
+													"A meter's reading, the differential pressure between its taps, is ISO 5167-2 eq. (1) solved for Δp with ε = 1: Δp = (1 − β⁴)/(C_M² β⁴) · ρ v|v|/2, with C_M ISO's C at its own taps (held at their own Re_lo) or the entered C; it does not act on the network. A plate without taps (a restriction orifice) has no reading.",
+													"The static pressure at the vena contracta, p_vc = p_up + ρ g (z_up − z_down) − (1 − β⁴)/(C² β⁴) · ρ v²/2 (up: the port the flow enters; down: the port it leaves by, at whose elevation it is taken, as in WANDA), is checked against the vapor pressure and flagged where the liquid would flash (BELOW_VAPOR_PRESSURE): a flashing jet chokes the flow, so the flow solved is then too high. None at zero flow or where the pressure level is undetermined; incipient cavitation is not checked.",
+													"Flagged (CORRELATION_OUT_OF_RANGE), wherever eq. (4) is used: a bore below 12.5 mm, an inlet pipe outside 50 mm to 1000 mm, β outside 0.1 to 0.75 (ISO 5167-2's limits, from fluids' documentation); and for every plate, an outlet pipe of another bore than the inlet's (the relation assumes the jet recovers in the same bore) and reverse flow (the loss taken as for forward flow at the same flow rate: ISO's C is for flow onto the plate's upstream face). The plate and its installation (edge, thickness, straight lengths, roughness) are assumed to meet ISO 5167-2 and are not checked.",
+													"At zero flow the law's slope is 0: Newton's Jacobian uses at least 1e-06 x the slopes of the pipes at the plate's ports there, as for every link that is not a pipe; the law itself is exact. Elsewhere the slope is exact, with the derivative of eq. (4) in the Reynolds number.",
+													"ε = 1: the expansibility factor of a liquid.",
+													"An entered discharge coefficient is ISO 5167-2 eq. (1)'s C at the plate's taps (at D and D/2 tappings for a plate without taps), from a calibration or datasheet, held at every flow; it is not the flow coefficient α = C/√(1 − β⁴). The reading uses it as entered. The loss uses it as entered without taps or at D and D/2 tappings, and from corner or flange tappings moved to D and D/2 tappings by ISO's ratio of the two tap sets' C at the same Reynolds number, r = C_ISO(D and D/2)/C_ISO(taps) (held below Re_lo), so that one plate has one loss and a calibration equal to ISO's C gives ISO's answer.",
+													"Laminar flow (Re_D < 2000) in the inlet pipe of a plate with an entered coefficient is flagged, as for a valve's Cv or Kv: a held C is the square law of turbulent flow, and the loss is then likely underestimated."
+												],
+												"references": [
+													"ISO 5167-2:2003, Measurement of fluid flow by means of pressure differential devices inserted in circular cross-section conduits running full, Part 2: Orifice plates; eq. (1), eq. (4) (the Reader-Harris/Gallagher (1998) equation) and the pressure-loss relation, as fluids 1.3.1 implements them (fluids.flow_meter), with its limits from fluids' docstrings (also citing ASME MFC-3M-2004). The 2022 edition does not change eq. (4) or its limits (Reader-Harris, M. J. ISO 5167: Past and Present. Global Flow Measurement Workshop, 2022).",
+													"Reader-Harris, M. J., J. Barnett and K. Mistry. Orifice plate pressure loss ratio: theoretical work in compressible flow and experimental work in CO2. FLOMEKO 2019, Lisbon (the loss relation's momentum theory, C taken with tappings 1D upstream and between the plate and the vena contracta downstream, and pressures moved between tap positions with the Reader-Harris/Gallagher (1998) equation).",
+													"Deltares. WANDA documentation, ORIFICE component (an orifice plate complying with ISO 5167-2:2003): the loss H1 − H2 for D and D/2 tappings, the Reynolds number held at the standard's minimum, symmetric reverse flow, and the vena-contracta pressure at the downstream side's elevation.",
+													"Rennels, D. C., and H. M. Hudson. Pipe Flow: A Practical and Comprehensive Guide. Wiley, 2012."
+												],
+												"title": "Orifices"
 											},
 											{
 												"items": [
@@ -19233,6 +21630,24 @@
 										"value": 60.0
 									},
 									"type": "equipment"
+								},
+								{
+									"boreDiameter": 0.025,
+									"elevation": 0.0,
+									"id": "O1",
+									"name": "Cooler flow meter",
+									"ports": [
+										{
+											"id": "inlet",
+											"nominalSize": 0.0508
+										},
+										{
+											"id": "outlet",
+											"nominalSize": 0.0508
+										}
+									],
+									"taps": "flange",
+									"type": "orifice"
 								},
 								{
 									"elevation": 0.0,
@@ -19410,6 +21825,24 @@
 											}
 										]
 									},
+									"toComponentId": "O1",
+									"toPortId": "inlet"
+								},
+								{
+									"fromComponentId": "O1",
+									"fromPortId": "outlet",
+									"id": "L8",
+									"piping": {
+										"fittings": [],
+										"pipes": [
+											{
+												"innerDiameter": 0.0627,
+												"length": 3.0,
+												"materialId": "custom",
+												"roughness": 4.5e-5
+											}
+										]
+									},
 									"toComponentId": "E2",
 									"toPortId": "inlet"
 								},
@@ -19440,7 +21873,7 @@
 							"id": "fixture-export-scenarios",
 							"metadata": {
 								"created": "2026-10-25T00:00:00Z",
-								"description": "Export fixture: a tee, a PRV, a demand, a strainer and a cooler, with two scenarios.",
+								"description": "Export fixture: a tee, a PRV, a demand, a strainer, a flow meter and a cooler, with two scenarios.",
 								"modified": "2026-10-25T00:00:00Z",
 								"name": "Plant water header"
 							},
@@ -19448,7 +21881,7 @@
 							"pumpLibrary": [],
 							"scenarios": [
 								{
-									"description": "The PRV with a Cv 120 trim, a higher low tank and a dirty strainer.",
+									"description": "The PRV with a Cv 120 trim, a higher low tank, a dirty strainer and a larger meter bore.",
 									"id": "S1",
 									"name": "Cv valve",
 									"overrides": [
@@ -19472,6 +21905,12 @@
 											"field": "rating.pressureLoss",
 											"kind": "component",
 											"value": 40000.0
+										},
+										{
+											"componentId": "O1",
+											"field": "boreDiameter",
+											"kind": "component",
+											"value": 0.03
 										}
 									]
 								},
@@ -19491,6 +21930,12 @@
 											"kind": "pipe",
 											"pipeIndex": 0,
 											"value": 25.0
+										},
+										{
+											"componentId": "O1",
+											"field": "dischargeCoefficient",
+											"kind": "component",
+											"value": 0.62
 										}
 									]
 								}
@@ -19561,6 +22006,22 @@
 					{
 						"elementId": "E2",
 						"quantity": "equipmentPressureDrop"
+					},
+					{
+						"elementId": "O1",
+						"quantity": "orificeFlow"
+					},
+					{
+						"elementId": "O1",
+						"quantity": "orificePressureLoss"
+					},
+					{
+						"elementId": "O1",
+						"quantity": "orificeDifferentialPressure"
+					},
+					{
+						"elementId": "O1",
+						"quantity": "orificePressureDrop"
 					},
 					{
 						"quantity": "lowestPressure"
@@ -19870,6 +22331,24 @@
 							"type": "equipment"
 						},
 						{
+							"boreDiameter": 0.025,
+							"elevation": 0.0,
+							"id": "O1",
+							"name": "Cooler flow meter",
+							"ports": [
+								{
+									"id": "inlet",
+									"nominalSize": 0.0508
+								},
+								{
+									"id": "outlet",
+									"nominalSize": 0.0508
+								}
+							],
+							"taps": "flange",
+							"type": "orifice"
+						},
+						{
 							"elevation": 0.0,
 							"id": "R2",
 							"liquidLevel": 5.0,
@@ -20045,6 +22524,24 @@
 									}
 								]
 							},
+							"toComponentId": "O1",
+							"toPortId": "inlet"
+						},
+						{
+							"fromComponentId": "O1",
+							"fromPortId": "outlet",
+							"id": "L8",
+							"piping": {
+								"fittings": [],
+								"pipes": [
+									{
+										"innerDiameter": 0.0627,
+										"length": 3.0,
+										"materialId": "custom",
+										"roughness": 4.5e-5
+									}
+								]
+							},
 							"toComponentId": "E2",
 							"toPortId": "inlet"
 						},
@@ -20075,7 +22572,7 @@
 					"id": "fixture-export-scenarios",
 					"metadata": {
 						"created": "2026-10-25T00:00:00Z",
-						"description": "Export fixture: a tee, a PRV, a demand, a strainer and a cooler, with two scenarios.",
+						"description": "Export fixture: a tee, a PRV, a demand, a strainer, a flow meter and a cooler, with two scenarios.",
 						"modified": "2026-10-25T00:00:00Z",
 						"name": "Plant water header"
 					},
@@ -20083,7 +22580,7 @@
 					"pumpLibrary": [],
 					"scenarios": [
 						{
-							"description": "The PRV with a Cv 120 trim, a higher low tank and a dirty strainer.",
+							"description": "The PRV with a Cv 120 trim, a higher low tank, a dirty strainer and a larger meter bore.",
 							"id": "S1",
 							"name": "Cv valve",
 							"overrides": [
@@ -20107,6 +22604,12 @@
 									"field": "rating.pressureLoss",
 									"kind": "component",
 									"value": 40000.0
+								},
+								{
+									"componentId": "O1",
+									"field": "boreDiameter",
+									"kind": "component",
+									"value": 0.03
 								}
 							]
 						},
@@ -20126,6 +22629,12 @@
 									"kind": "pipe",
 									"pipeIndex": 0,
 									"value": 25.0
+								},
+								{
+									"componentId": "O1",
+									"field": "dischargeCoefficient",
+									"kind": "component",
+									"value": 0.62
 								}
 							]
 						}

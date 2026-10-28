@@ -375,12 +375,38 @@ function orificeIssue(
 		const unbounded = ORIFICE_UNBOUNDED.test(rest);
 		const loss = ORIFICE_LOSS.exec(rest);
 		if (iso) {
-			const [, where = '', coefficient = ''] = iso;
-			text =
+			const [, where = '', use = '', entered = '', from = '', coefficient = '', tail = ''] = iso;
+			const start =
 				`${name}'s bore (${d}) is so close to its inlet pipe's inner diameter (${D}, β = ${b}) ` +
-				`that ISO 5167-2's discharge coefficient at ${where} could exceed 1 (up to ` +
-				`${formatNumber(Number(coefficient), 6)}): a jet larger than the bore, which is ` +
-				'physically impossible. Use a smaller bore, or enter a discharge coefficient.';
+				`that ISO 5167-2's discharge coefficient at ${where}`;
+			const up = `could exceed 1 (up to ${formatNumber(Number(coefficient), 6)})`;
+			const lossTail = ORIFICE_ISO_LOSS.exec(tail);
+			if (use === "which sets the plate's loss" && lossTail) {
+				const taps = lossTail[1];
+				text =
+					`${start}, which sets the plate's loss, ${up}: a jet larger than the bore, which is ` +
+					'physically impossible. ' +
+					(taps === undefined
+						? "Use a smaller bore, or enter a discharge coefficient (ISO 5167-2's C at D and D/2 " +
+							'tappings, used as entered).'
+						: `Use a smaller bore: an entered discharge coefficient at its ${taps} would be moved ` +
+							"to D and D/2 tappings by ISO 5167-2's ratio, which uses this coefficient, and " +
+							'refused the same way.');
+			} else if (use === "which gives only the meter's reading" && ORIFICE_ISO_READING.test(tail)) {
+				text =
+					`${start}, which gives only the meter's reading, ${up}: the correlation would be ` +
+					"extrapolated far beyond ISO 5167-2's range, so the reading at these taps has no " +
+					"basis (the plate's loss uses the coefficient at D and D/2 tappings, which stays at or " +
+					'below 1). Use a smaller bore, D and D/2 taps, or no taps (a restriction orifice, with ' +
+					'no reading).';
+			} else if (entered !== '' && ORIFICE_ISO_MOVE.test(tail)) {
+				text =
+					`${start}, one of the two in the ratio that moves its entered discharge coefficient ` +
+					`${formatNumber(Number(entered), 6)} from its ${from} to D and D/2 tappings, ${up}: ` +
+					"the correlation would be extrapolated far beyond ISO 5167-2's range, so the move has " +
+					'no basis at this plate. Use a smaller bore, or give the discharge coefficient at D and ' +
+					'D/2 tappings (with D and D/2 taps, or no taps), where it is used as entered.';
+			}
 		} else if (moved) {
 			const [, entered = '', taps = '', ratio = '', coefficient = ''] = moved;
 			text =
@@ -572,11 +598,32 @@ const ORIFICE_HEAD = new RegExp(
 );
 const ORIFICE_BETA =
 	/^the bore is not smaller than the pipe; an orifice plate needs β < 1, so the solver cannot represent this plate$/;
+/**
+ * Decision 17 (b) (the builder's _orifice_iso_tail): the tap set where eq. (4) can exceed 1, what
+ * eq. (4) is used for there (the loss, only a meter's reading, or a coefficient of an entered C's
+ * move, `orifice.Refusal.basis`), the largest C, then the server's reason and remedy (`tail`).
+ */
 const ORIFICE_ISO = new RegExp(
-	`^ISO 5167-2's discharge coefficient \\(Reader-Harris/Gallagher\\) at (corner tappings|flange tappings|D and D/2 tappings) ` +
-		`can reach ${NUM} at some flow, above 1, .*$`,
+	`^ISO 5167-2's discharge coefficient \\(Reader-Harris/Gallagher\\) at (corner tappings|flange tappings|D and D/2 tappings), ` +
+		`(which sets the plate's loss|which gives only the meter's reading|one of the two in the ratio that moves its ` +
+		`entered discharge coefficient ${NUM} from its (corner tappings|flange tappings) to D and D/2 tappings), ` +
+		`can reach ${NUM} at some flow, above 1(.*)$`,
 	's'
 );
+/** The loss's reason and its remedy for a plate without taps or with D and D/2 taps, or (group
+ * 1) the tap set of a meter's corner or flange taps, where an entered C would be moved. */
+const ORIFICE_ISO_LOSS = new RegExp(
+	'^, which would make the jet larger than the bore and the loss smaller than the sudden ' +
+		'expansion from the bore \\(Borda-Carnot\\), physically impossible; use a smaller bore' +
+		"(?:, or enter a discharge coefficient \\(ISO 5167-2's C at D and D/2 tappings, used as " +
+		'entered\\)| \\(an entered discharge coefficient at its (corner tappings|flange tappings) ' +
+		"would be moved to D and D/2 tappings by ISO 5167-2's ratio, which uses this coefficient, " +
+		'and refused the same way\\))$'
+);
+const ORIFICE_ISO_READING =
+	/^: the correlation is extrapolated far beyond ISO 5167-2's range, so the reading at these taps has no basis \(the plate's loss uses the coefficient at D and D\/2 tappings, which stays at or below 1\); use a smaller bore, D and D\/2 taps, or no taps \(a restriction orifice, with no reading\)$/;
+const ORIFICE_ISO_MOVE =
+	/^: the correlation is extrapolated far beyond ISO 5167-2's range, so the move has no basis at this plate; use a smaller bore, or give the discharge coefficient at D and D\/2 tappings \(with D and D\/2 taps, or no taps\), where it is used as entered$/;
 const ORIFICE_MOVED = new RegExp(
 	`^its entered discharge coefficient ${NUM} at its (corner tappings|flange tappings), moved to D and ` +
 		`D/2 tappings by ISO 5167-2's ratio of the two tap sets' coefficients \\(up to ${NUM} at this ` +

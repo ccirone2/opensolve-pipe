@@ -259,8 +259,10 @@ def orifice_flags(
 
     - boreDiameter, pipeDiameter, beta: eq. (4) used and d < 12.5 mm, D outside [50 mm, 1 m],
       β outside [0.1, 0.75] (decision 11);
-    - reynoldsNumber: eq. (4) used and 0 < Re_D < Re_lo of C_L (or the move), or of ISO's C_M at
-      the plate's own taps;
+    - reynoldsNumber: eq. (4) used and 0 < Re_D < Re_lo of C_L (or the move), or below the
+      Re_lo of the plate's own taps wherever eq. (4) is evaluated there: ISO's C_M, or the
+      move's denominator C_ISO(taps) at C_L's Re_eff (proposal §12 item 1: below that tap set's
+      limit the move uses eq. (4) outside its range);
     - outletDiameter: the outlet pipe's end-segment bore differs from D (decision 12);
     - laminar: an entered C and 0 < Re_D < 2000 (decision 13);
     - reverseFlow: the flow runs outlet → inlet (decision 10);
@@ -293,7 +295,7 @@ def orifice_flags(
         if beta < limits["beta_min"] or beta > limits["beta_max"]:
             flag("beta")
         lows = [law.re_lo_loss]
-        if law.entered is None and element.taps is not None:
+        if element.taps is not None:  # ISO's C_M, or a moved entered C's denominator
             lows.append(el.orifice_re_lo(element.taps, beta, d_pipe))
         for low in lows:
             _clear(re, low, FLOW_CLEARANCE, "Re_D")
@@ -1174,6 +1176,105 @@ def orifice_entered_c_at_taps() -> ReferenceCase:
     )
 
 
+# --- C13: a moved entered C below its taps' Reynolds number ---------------------------------------
+
+FLANGE_LOW_RE_LINES = (Line(0.3, 10.0), Line(0.3, 10.0))
+FLANGE_LOW_RE_BORE = 0.21
+"""m: β 0.7 on a 0.3 m line (test inputs). On D > 94 mm the flange tappings' lowest Re,
+170000 β² D, lies above D and D/2's, 16000 β²: 24,990 against 7,840 here."""
+FLANGE_LOW_RE_PORTS = (0.2, 0.9)
+"""m: the plate's inlet and outlet port elevations, around its 0.5 m (test inputs)."""
+
+
+def flange_low_re_series() -> Series:
+    """C13's network: R1 (z 0, level 1.12 m) → 0.3 m × 10 m → OR1 (z 0.5 m, its inlet port at
+    0.2 m and its outlet port at 0.9 m, d 0.21 m, flange taps, entered C 0.6) → 0.3 m × 10 m →
+    R2 (z 0, level 1 m)."""
+    inlet_z, outlet_z = FLANGE_LOW_RE_PORTS
+    element = orifice(
+        "OR1",
+        0.5,
+        FLANGE_LOW_RE_BORE,
+        discharge_coefficient=ENTERED_C,
+        taps="flange",
+        inlet_elevation=inlet_z,
+        outlet_elevation=outlet_z,
+    )
+    return Series(0.0, 1.12, 0.0, 1.0, *FLANGE_LOW_RE_LINES, element)
+
+
+def orifice_entered_c_flange_low_re() -> ReferenceCase:
+    """C13: an entered C = 0.6 at flange taps on a β 0.7 plate in a light oil (870 kg/m³,
+    12 mPa·s) at Re_D ≈ 13,000, above D and D/2's Re_lo (7,840: C_L = C_e r(Re_D), not held) but
+    below the flange tappings' (24,990): the move's denominator C_ISO(flange, Re_D) is eq. (4)
+    below its tap set's limit, so the plate is flagged (limit reynoldsNumber; proposal §12 item
+    1). The ports sit 0.7 m apart in elevation, so p_vc takes ρg(z_up − z_down) with the flow
+    forward (up = the inlet port) and the static drop its ρg(z_out − z_in) term (decisions 15,
+    16)."""
+    name, rho, mu = LIGHT_OIL
+    series = flange_low_re_series()
+    case = series_case(
+        name="orifice_entered_c_flange_low_re",
+        title="Calibrated flange-tapped meter below its taps' Reynolds number",
+        description=(
+            "A flange-tapped orifice meter of beta 0.7 with a calibrated discharge coefficient "
+            "of 0.6 in a light oil on a 0.3 m line, at a Reynolds number between ISO 5167-2's "
+            "lowest at D and D/2 tappings and at flange tappings: verifies the move of the "
+            "entered C at that Reynolds number, the Reynolds-number flag of the move, and the "
+            "elevation terms of the vena contracta and static pressures with the ports at "
+            "different elevations."
+        ),
+        method_text=MOVED_LAW + "; " + READING + " at C_M = C_e; " + VENA + " (up = the inlet "
+        "port); Darcy-Weisbach + Colebrook lines; brentq; " + STATIC,
+        series=series,
+        fluid=custom_fluid(name, rho, mu),
+    )
+    law = series.law(rho, mu)
+    q = case.expected.flows["L1"]
+    re = law.reynolds(q)
+    beta = law.beta
+    flange_low = el.orifice_re_lo("flange", beta, law.d_pipe)
+    if not law.re_lo_loss * (1.0 + FLOW_CLEARANCE) < re < flange_low * (1.0 - FLOW_CLEARANCE):
+        raise ValueError("C13's Re_D must lie between the two tap sets' lowest Reynolds numbers")
+    return case
+
+
+# --- C14: reverse flow with the ports at different elevations -----------------------------------
+
+REVERSE_PORTS = (2.4, 3.7)
+"""m: C14's inlet and outlet port elevations, around OR1's 3 m (test inputs)."""
+
+
+def orifice_reverse_flow_port_elevations() -> ReferenceCase:
+    """C14: C4 (C1 with the heads swapped) with OR1's inlet port at 2.4 m and its outlet port at
+    3.7 m: the flow enters by the outlet port, so p_vc = p_out + ρg(z_out − z_in) − (1 − β⁴)/
+    (C_L² β⁴) ρv²/2 at the inlet port's elevation (decision 15, WANDA's downstream side), and
+    the static drop holds ρg(z_out − z_in) (§3.7); the EGLs and the flow are C4's (D7)."""
+    inlet_z, outlet_z = REVERSE_PORTS
+    element = orifice(
+        "OR1",
+        LINE_Z,
+        LINE_BORE,
+        taps="flange",
+        inlet_elevation=inlet_z,
+        outlet_elevation=outlet_z,
+    )
+    return series_case(
+        name="orifice_reverse_flow_port_elevations",
+        title="Orifice plate in reverse flow, ports at different elevations",
+        description=(
+            "The reverse-flow orifice line with the plate's outlet port 1.3 m above its inlet "
+            "port: verifies that the vena contracta pressure is taken from the port the flow "
+            "enters to the elevation of the port it leaves by, and the elevation term of the "
+            "static pressure drop."
+        ),
+        method_text=LAW + " (odd in Q); " + READING + "; " + VENA + " (up = the outlet port, "
+        "down = the inlet port); Darcy-Weisbach + Colebrook lines; brentq; " + STATIC,
+        series=line_series(element, reverse=True),
+        fluid=liquid_a(),
+    )
+
+
 # --- EPANET networks (generate_epanet_cases, proposal §7.2) --------------------------------------
 
 LOW_RE_LINES = (Line(0.0525, 10.0), Line(0.0525, 10.0))
@@ -1222,8 +1323,11 @@ CASES: tuple[Callable[[], ReferenceCase], ...] = (
     orifice_vena_contracta_flashing,
     orifice_outlet_bore_differs,
     orifice_entered_c_at_taps,
+    orifice_entered_c_flange_low_re,
+    orifice_reverse_flow_port_elevations,
 )
-"""Proposal §7.1's table, C1-C12."""
+"""Proposal §7.1's table, C1-C12, and C13-C14 (added in review: the Reynolds flag of a move
+from flange taps, proposal §12 item 1, and unequal port elevations in reverse flow)."""
 
 
 def with_taps(series: Series, taps: OrificeTaps | None) -> Series:

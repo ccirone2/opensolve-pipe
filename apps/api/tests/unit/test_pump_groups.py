@@ -1120,3 +1120,32 @@ def test_flow_bounds_belong_to_the_system_curve() -> None:
         client.post(URL, json={**system, "project": group["project"], "numPoints": 5}).status_code
         == 200
     )
+
+
+def test_a_station_delivering_to_an_assigned_flow_only_has_no_rise() -> None:
+    """The outlet's side holds only an assigned flow, which no fixed head reaches: no steady state
+    carries another flow, and at the demand's the rise is undetermined. Every point says so,
+    naming the demand (the first build raised KeyError here: the outer loop's report on the
+    disconnected part looked up the tee held closed inside the station)."""
+    data = _parallel()
+    r2 = _component(data, "R2")
+    r2.clear()
+    r2.update(
+        id="R2",
+        name="R2",
+        elevation=20.0,
+        type="assigned_flow",
+        flow=0.05,
+        ports=_ports("port_1"),
+    )
+    for conn in data["connections"]:
+        for end in ("from", "to"):
+            if conn[f"{end}ComponentId"] == "R2":
+                conn[f"{end}PortId"] = "port_1"
+    sc = group_system_curve(Project.model_validate(data), ["PA", "PB"], num_points=5)
+    assert sc.duty is not None
+    assert sc.system_points
+    assert all(p.head is None and p.reason == "not_converged" for p in sc.system_points)
+    assert all("assigned-flow node" in p.message and "'R2'" in p.message for p in sc.system_points)
+    assert sc.system_duty_check is not None
+    assert not sc.system_duty_check.agrees

@@ -2570,6 +2570,8 @@ def _disconnected_report(
     for link, state in zip(net.links, states, strict=True):
         if (link.start in cut_off) == (link.end in cut_off):
             continue
+        if link.index in built.held_closed:
+            continue  # inside a pump station whose rest is solved: no element's to re-open
         if state.mode is not LinkMode.CLOSED and link.index not in starved:
             continue
         control = by_link.get(link.index)

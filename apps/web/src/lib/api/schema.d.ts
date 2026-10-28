@@ -2613,7 +2613,7 @@ export interface components {
             head: number;
             /**
              * Inletegl
-             * @description EGL(S), m: the level the group curve holds S at
+             * @description EGL(S), m: the level the group curve holds S at; an arbitrary level when the station lies in a part of the network that no reservoir or reference node reaches (UNDETERMINED_PRESSURE: its rise and the curve are exact all the same)
              */
             inletEgl: number;
             /**

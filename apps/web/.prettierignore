@@ -6,3 +6,4 @@ src/lib/api/schema.d.ts
 src/lib/api/openapi.json
 src/lib/utils/__fixtures__/scenario-cases.json
 src/lib/utils/__fixtures__/goal-seek-cases.json
+src/lib/utils/__fixtures__/pump-groups-input.json

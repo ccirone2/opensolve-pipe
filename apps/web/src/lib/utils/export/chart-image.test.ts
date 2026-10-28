@@ -272,3 +272,71 @@ describe('downloading the image', () => {
 		]);
 	});
 });
+
+describe('an image of the Pumps together card (CLAUDE.md D20)', () => {
+	const FakeChart = {} as unknown as typeof Chart;
+	const now = new Date(Date.UTC(2026, 9, 28, 9, 32, 5));
+
+	it('takes its title as a parameter, the case after it', () => {
+		expect(chartImageCaption(input({ title: 'Pumps together: PA, PB (parallel)' })).title).toBe(
+			'Pumps together: PA, PB (parallel)'
+		);
+		expect(
+			chartImageCaption(input({ title: 'Pumps together: PA, PB (parallel)', caseName: 'Winter' }))
+				.title
+		).toBe('Pumps together: PA, PB (parallel), Winter');
+	});
+
+	it('draws the group configuration with the figure’s lines and names the file after the pumps', async () => {
+		const notices: { kind: string; text: string }[] = [];
+		const drawn: ChartImageCaption[] = [];
+		const saved: string[] = [];
+		const config = pumpChartConfig(pumpChartData(pumpResult(), SI_UNITS), [], {
+			speedText: '100 % speed',
+			legendLabels: () => [],
+			format: String,
+			forImage: true
+		});
+		await downloadChartImage(
+			FakeChart,
+			{
+				config,
+				title: 'Pumps together: PA, PB (parallel)',
+				lines: ['Made-up first note.', 'Made-up second note.'],
+				content: 'Pumps together PA, PB',
+				disclaimer: DISCLAIMER,
+				source: {
+					projectName: 'Booster station',
+					timestamp: '2026-10-28T09:30:00Z',
+					methodVersion: '1.3.0',
+					stale: true,
+					unavailable: '',
+					origin: 'https://opensolve-pipe.app',
+					notify: (kind, text) => void notices.push({ kind, text })
+				}
+			},
+			{
+				now,
+				render: async (_chart, _config, caption) => {
+					drawn.push(caption);
+					return new Blob(['x']);
+				},
+				save: (_blob, name) => void saved.push(name)
+			}
+		);
+		expect(drawn[0]!.title).toBe('Pumps together: PA, PB (parallel)');
+		expect(drawn[0]!.warning).toBe(
+			'Out of date: the project had changed after this solve when this image was made.'
+		);
+		expect(drawn[0]!.footer).toEqual([
+			'Made-up first note.',
+			'Made-up second note.',
+			DISCLAIMER,
+			'OpenSolve Pipe · https://opensolve-pipe.app'
+		]);
+		expect(saved[0]).toMatch(
+			/^Booster station - Pumps together PA, PB \d{4}-\d\d-\d\d \d{4}\.png$/
+		);
+		expect(notices[0]!.kind).toBe('info');
+	});
+});

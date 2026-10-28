@@ -6,6 +6,7 @@ import {
 	DEFAULT_API_URL,
 	getLibrary,
 	NetworkError,
+	NotAStationError,
 	NotFoundError,
 	solve,
 	TopologyError,
@@ -557,5 +558,85 @@ describe('goal seek (proposal goal-seek.md §6.15)', () => {
 		const error = await rejection(api.solve(project, {}, { scenarioId: 'S9' }));
 		expect(error).toBeInstanceOf(ValidationError);
 		expect((error as ValidationError).status).toBe(404);
+	});
+});
+
+describe('group curves (CLAUDE.md D20)', () => {
+	it('requests the group curve of the pumps, the scenario in the body only', async () => {
+		const { api, fetch } = client([json({}), json({})]);
+		await api.groupCurve(project, ['PA', 'PB']);
+		await api.groupCurve(project, ['PA', 'PB'], { scenarioId: 'S1', headMin: 0, headMax: 40 });
+		expect(fetch.mock.calls.map((c) => c[0])).toEqual([
+			`${BASE}/api/v1/pump-group-curve`,
+			`${BASE}/api/v1/pump-group-curve`
+		]);
+		expect(fetch.mock.calls[0]![1]!.method).toBe('POST');
+		expect(JSON.parse(fetch.mock.calls[0]![1]!.body as string)).toEqual({
+			project,
+			pumpIds: ['PA', 'PB'],
+			curve: 'group',
+			numPoints: 41
+		});
+		expect(JSON.parse(fetch.mock.calls[1]![1]!.body as string)).toEqual({
+			project,
+			pumpIds: ['PA', 'PB'],
+			curve: 'group',
+			numPoints: 41,
+			headMin: 0,
+			headMax: 40,
+			scenarioId: 'S1'
+		});
+	});
+
+	it('keeps every reason the pumps are not a station (422 NOT_A_STATION)', async () => {
+		const issues = [
+			{
+				code: 'FIXED_HEAD_INSIDE',
+				message: 'the pumps PA and PB meet the fixed heads of reservoir R2 and reservoir R4',
+				componentIds: ['R2', 'R4'],
+				connectionIds: []
+			},
+			{
+				code: 'MEMBER_REVERSED',
+				message: 'the pumps PA and PB face opposite ways',
+				componentIds: ['PA', 'PB'],
+				connectionIds: []
+			}
+		];
+		const { api } = client([
+			json(
+				{
+					success: false,
+					error: 'NOT_A_STATION',
+					message: 'The pumps do not form a station: 2 reason(s).',
+					issues
+				},
+				422
+			)
+		]);
+		const error = await rejection(api.groupCurve(project, ['PA', 'PB']));
+		expect(error).toBeInstanceOf(NotAStationError);
+		expect(error).toBeInstanceOf(ValidationError);
+		expect(error).toMatchObject({
+			status: 422,
+			code: 'NOT_A_STATION',
+			message: 'The pumps do not form a station: 2 reason(s).',
+			issues
+		});
+	});
+
+	it('maps a topology error of the case as for a solve', async () => {
+		const { api } = client([
+			json(
+				{
+					success: false,
+					error: 'TOPOLOGY_ERROR',
+					message: 'No fixed-pressure boundary',
+					issues: []
+				},
+				422
+			)
+		]);
+		expect(await rejection(api.groupCurve(project, ['PA', 'PB']))).toBeInstanceOf(TopologyError);
 	});
 });

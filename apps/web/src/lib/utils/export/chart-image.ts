@@ -41,6 +41,11 @@ export interface ChartImageSource {
 
 export interface ChartImageCaptionInput {
 	pumpName: string;
+	/**
+	 * The caption's title, when the figure gives its own ("Pumps together: PA, PB (parallel)", the
+	 * Pumps together card); default "Pump and system curves: {pump}".
+	 */
+	title?: string;
 	/** The case shown, in a project with scenarios ("Winter", "Base case"). */
 	caseName?: string;
 	projectName: string;
@@ -87,7 +92,9 @@ export function offsetDateTime(iso: string, utcOffsetMinutes: number): string {
 /** The caption of a chart image: pure, so its words are tested without a canvas. */
 export function chartImageCaption(input: ChartImageCaptionInput): ChartImageCaption {
 	return {
-		title: `Pump and system curves: ${input.pumpName}${input.caseName ? `, ${input.caseName}` : ''}`,
+		title:
+			(input.title ?? `Pump and system curves: ${input.pumpName}`) +
+			(input.caseName ? `, ${input.caseName}` : ''),
 		subtitle:
 			`${input.projectName} · solved ${offsetDateTime(input.timestamp, input.utcOffsetMinutes)} · ` +
 			`OpenSolve Pipe calculation methods ${input.methodVersion}`,
@@ -103,6 +110,8 @@ export interface ChartImageNameInput {
 	/** The case shown, in a project with scenarios (null: none, the name leaves it out). */
 	caseName: string | null;
 	pumpName: string;
+	/** What the file holds, when not the pump's chart ("Pumps together PA, PB"). */
+	content?: string;
 	now: Date;
 	utcOffsetMinutes: number;
 }
@@ -112,7 +121,7 @@ export function chartImageFileName(input: ChartImageNameInput): string {
 	return exportFileName({
 		project: input.projectName,
 		case: input.caseName,
-		content: `${input.pumpName} chart`,
+		content: input.content ?? `${input.pumpName} chart`,
 		ext: 'png',
 		now: input.now,
 		utcOffsetMinutes: input.utcOffsetMinutes,
@@ -298,6 +307,26 @@ export interface ChartImageRequest {
 	source: ChartImageSource;
 }
 
+/**
+ * An image of another figure than a pump's chart (the Pumps together card, CLAUDE.md D20): its
+ * caption's title and the footer's lines as the figure gives them.
+ */
+export interface FigureImageRequest {
+	/** The chart's configuration for the image (pump-chart-config.ts pumpGroupConfig, `forImage`). */
+	config: PumpChartConfig;
+	/** "Pumps together: PA, PB (parallel)": the caption's title, before the case. */
+	title: string;
+	/** The figure's notes, in its order (pump-group-chart.ts groupNoteLines). */
+	lines: readonly string[];
+	/** What the file holds ("Pumps together PA, PB"), for its name. */
+	content: string;
+	/** The case shown, in a project with scenarios. */
+	caseName?: string;
+	/** The disclaimer (components/links.ts DISCLAIMER). */
+	disclaimer: string;
+	source: ChartImageSource;
+}
+
 /** What draws and saves the image (replaced in tests: jsdom has no canvas). */
 export interface ChartImageIO {
 	now?: Date;
@@ -312,20 +341,27 @@ export interface ChartImageIO {
  */
 export async function downloadChartImage(
 	Chart: typeof ChartInstance,
-	request: ChartImageRequest,
+	request: ChartImageRequest | FigureImageRequest,
 	{ now = new Date(), render = renderChartImage, save = saveBlob }: ChartImageIO = {}
 ): Promise<void> {
 	const { source } = request;
+	const figure = 'lines' in request ? request : null;
+	const pump = 'lines' in request ? null : request;
 	try {
 		const utcOffsetMinutes = -now.getTimezoneOffset();
+		const notes = figure
+			? [...figure.lines]
+			: imageNoteLines(pump!.notes, pump!.others, pump!.markerSymbols);
+		const pumpName = pump?.pumpName ?? '';
 		const caption = chartImageCaption({
-			pumpName: request.pumpName,
+			pumpName,
+			...(figure ? { title: figure.title } : {}),
 			...(request.caseName ? { caseName: request.caseName } : {}),
 			projectName: source.projectName,
 			timestamp: source.timestamp,
 			methodVersion: source.methodVersion,
 			stale: source.stale,
-			notes: imageNoteLines(request.notes, request.others, request.markerSymbols),
+			notes,
 			disclaimer: request.disclaimer,
 			origin: source.origin,
 			utcOffsetMinutes
@@ -334,7 +370,8 @@ export async function downloadChartImage(
 		const fileName = chartImageFileName({
 			projectName: source.projectName,
 			caseName: request.caseName ?? null,
-			pumpName: request.pumpName,
+			pumpName,
+			...(figure ? { content: figure.content } : {}),
 			now,
 			utcOffsetMinutes
 		});

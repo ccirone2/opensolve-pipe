@@ -148,6 +148,15 @@ export class Workspace {
 	goalSeekPrefill = $state.raw<ElementRef | null>(null);
 	/** The goal-seek setup: goals and variables (SI). Page state: not in the project or the link. */
 	goalSeekSetup = $state.raw<GoalSeekSetup>(EMPTY_SETUP);
+	/**
+	 * The pumps of the Pumps together card by slot (null in a slot: free; a member keeps its slot,
+	 * so its colour, while it stays ticked), or null: the group suggested for the pump viewed (CLAUDE.md
+	 * D20). Page state: not in the project or the link, not an undo step; the same in every case
+	 * (scenarios never change topology), so a case switch keeps it.
+	 */
+	pumpGroup = $state.raw<readonly (string | null)[] | null>(null);
+	/** The Pumps together card is open (page state; closed by default). */
+	pumpGroupOpen = $state(false);
 	#noticeId = 0;
 	/** The project of the case shown (the base, or the base with the active scenario's changes). */
 	#caseProject: Project;
@@ -195,7 +204,8 @@ export class Workspace {
 
 	/**
 	 * Forget the page state about the project shown (the trace open, Compare cases and its chosen
-	 * rows, the scenario manager, Settings, the last case announcement), as a reload would: the
+	 * rows, the scenario manager, Settings, the last case announcement, the pump group), as a
+	 * reload would: the
 	 * rows and cards named elements of the project before.
 	 */
 	#resetPage(): void {
@@ -210,6 +220,8 @@ export class Workspace {
 		this.goalSeekOpen = false;
 		this.goalSeekPrefill = null;
 		this.goalSeekSetup = EMPTY_SETUP;
+		this.pumpGroup = null;
+		this.pumpGroupOpen = false;
 	}
 
 	/**

@@ -1,6 +1,6 @@
 # Pressure relief valve: design proposal
 
-**Status: design, not built.** Written on 2026-10-28 against `b7f09eb` (D20 merged) by a design workflow. Three designers worked from their own angles, with prototypes: one on the physics, model and solver (**P**), one on the sources and verification (**V**: citations read, closed-form cases, EPANET runs, a corpus pilot), and one on the web (**W**). A synthesizer (**S**) merged their designs into this one, recomputed the disputed numbers in code (the **S** checks, §7.7) and wrote this document. Two reviewers then checked it against the sources and the code, and a reviser (**R**) verified each finding, revised the design at the root and measured what changed (the **R** checks, §7.7); §11 records every finding, upheld or rejected. §1.3 lists where the designs disagreed and why this design chose as it did. §10 holds the product questions for the owner, each with the default the build uses unless the owner says otherwise.
+**Status: design, not built; the owner answered its questions on 2026-10-28 (§10).** Written on 2026-10-28 against `b7f09eb` (D20 merged) by a design workflow. Three designers worked from their own angles, with prototypes: one on the physics, model and solver (**P**), one on the sources and verification (**V**: citations read, closed-form cases, EPANET runs, a corpus pilot), and one on the web (**W**). A synthesizer (**S**) merged their designs into this one, recomputed the disputed numbers in code (the **S** checks, §7.7) and wrote this document. Two reviewers then checked it against the sources and the code, and a reviser (**R**) verified each finding, revised the design at the root and measured what changed (the **R** checks, §7.7); §11 records every finding, upheld or rejected. §1.3 lists where the designs disagreed and why this design chose as it did. §10 holds the product questions for the owner, each with the default the build uses unless the owner says otherwise.
 
 **The owner's request (2026-10-28):** "Pressure relief valve: a relief valve with a set pressure and a capacity sized by API 520 (fluids' API520_A_l), discharging to atmosphere or to a return. It protects a pump's discharge. A new solver element, verified like D18 and D20 (reference cases, corpus proofs). The steady-state model between set pressure and full lift needs the owner's answers first."
 
@@ -671,7 +671,15 @@ The reference suite green with C1–C16 and E1–E3, G40–G44 and the scenario 
 
 ---
 
-## 10. Owner questions
+## 10. Owner questions and answers
+
+**Owner's answers (2026-10-28).** The owner chose the recommended default for every question; all stay reversible under D14.
+1. **Q1, the band: (a), as recommended.** The lift rises linearly from set to full lift at set plus overpressure, with API 520's equation at that lift; every relieving state short of full lift is flagged (`CORRELATION_OUT_OF_RANGE`, `partial_lift`), the departure from Pentair's Fig. 4-12 is named in the methods and the trace, and the owner accepted that this band ships as an exception to GOALS §5's Verifiable gate and §4.1, recorded in D21. The question put the alternatives' measured consequences; none was chosen.
+2. **Q2, the set: (a), as recommended.** A pressure difference, inlet minus outlet static (a conventional spring-loaded valve); balanced-bellows and pilot valves stay Later.
+3. **Q3, the capacity: (a), as recommended.** Three kinds, never mixed: an API 526 letter or an API 520 effective area, each with Kd 0.65 and ASME's overpressure, labelled preliminary; or a certified actual area with its rated coefficient and optional overpressure. Sizing is goal seek on the effective area, with the covering API 526 letter in the result.
+4. **Q4–Q8: as recommended.** ASME's overpressure (10 % or 3 psi, whichever is greater) as the labelled default only for sets of at least 15 psi, a user overpressure only on a certified capacity, taken on the set difference (Q4); statuses active and locked closed (Q5); discharge to atmosphere as a "Discharge to atmosphere" action at a relief valve's free outlet (Q6); no relief design checks in this slice (Q7); "Pressure relief valve (API 520, liquids)", id prefix `RV`, never abbreviated PRV or PSV (Q8).
+
+The questions as put to the owner follow.
 
 Product choices only. Each has a recommended default, which the build uses unless the owner says otherwise; all stay reversible under D14. The physics choices (the pressure reading of decision 5, the opening reading, the closed start, the refusals, the flags, the exact constant) are decided in this design and stated in every trace.
 

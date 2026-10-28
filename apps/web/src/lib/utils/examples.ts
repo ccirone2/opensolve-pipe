@@ -4,9 +4,20 @@
  * They are illustrative: elevations, pipe lengths and sizes, and pump curves are made-up user
  * inputs chosen to show the tool, not data for a real installation or a real pump. Pipe
  * dimensions and roughness, fitting K values and fluid properties are not set here; the
- * solver takes them from its cited library (carbon steel, schedule 40, by nominal size).
+ * solver takes them from its cited library (carbon steel by schedule and nominal size, Crane
+ * TP-410 K values). The one exception is the condenser water example's project library, which
+ * gives what the cited library lacks (an NPS 60 pipe and an NPS 30 butterfly valve's Cv) as
+ * illustrative inputs, labelled so in their sources.
  */
-import type { Component, Fitting, Override, PipeConnection, Port, Project } from '../api/types';
+import type {
+	Component,
+	Fitting,
+	Override,
+	PipeConnection,
+	PipeDefinition,
+	Port,
+	Project
+} from '../api/types';
 import { createEmptyProject } from './factory';
 import { FOOT, INCH, POUND_FORCE, US_GALLON } from './units';
 
@@ -233,8 +244,25 @@ const GPM = US_GALLON / 60;
 const PSI = POUND_FORCE / (INCH * INCH);
 
 /**
- * A connection of standard-wall (STD, ASME B36.10M) carbon steel pipes in series, ordered from
- * → to, each `[nominal size in inches, length in m]`.
+ * Ids of the condenser water example's project library entries: its NPS 60 pipe spec and its
+ * NPS 30 butterfly valve's Cv (both illustrative inputs, sourced as such).
+ */
+const NPS60_SPEC = 'PS1';
+const BUTTERFLY30_CV = 'RS1';
+
+/**
+ * A pipe of `nps` inches and `length` m: NPS 60 refers to the project library's pipe spec, every
+ * other size is standard-wall (STD, ASME B36.10M) carbon steel from the cited library.
+ */
+function stdPipe(nps: number, length: number): PipeDefinition {
+	return nps === 60
+		? { specId: NPS60_SPEC, length }
+		: { materialId: 'carbon_steel', schedule: 'STD', nominalSize: nps * INCH, length };
+}
+
+/**
+ * A connection of pipes in series (`stdPipe`), ordered from → to, each `[nominal size in inches,
+ * length in m]`.
  */
 function stdLine(
 	id: string,
@@ -249,15 +277,7 @@ function stdLine(
 		fromPortId: from[1],
 		toComponentId: to[0],
 		toPortId: to[1],
-		piping: {
-			pipes: segments.map(([nps, length]) => ({
-				materialId: 'carbon_steel',
-				schedule: 'STD',
-				nominalSize: nps * INCH,
-				length
-			})),
-			fittings
-		}
+		piping: { pipes: segments.map(([nps, length]) => stdPipe(nps, length)), fittings }
 	};
 }
 
@@ -270,38 +290,48 @@ function reducer(pipeIndex = 0): Fitting {
  * (3) Condenser water system of a 90,000 gpm chiller plant (an open circuit).
  *
  * Six 15,000 gpm condenser water pumps each take suction from the cooling tower basin's sump
- * through a gate valve and discharge through a check valve and a butterfly valve into one
- * common supply header. Pumps and chillers alternate along the header, so the water runs one
- * way along its whole length and no segment carries more than two pumps' flow. The header feeds
- * seven water-cooled chiller condensers, four rated 15,000 gpm and three 10,000 gpm (rated by
- * their pressure drop at that flow), each held at its design flow by a flow control valve on its
- * leaving side. A common return header sends the water up two risers to the six cells of the
- * cooling tower, three on each riser's distribution header. Each 15,000 gpm cell has an
- * isolation valve and a nozzle header (rated by its pressure drop), which sprays into the open
- * cell, modelled as a reservoir at atmospheric pressure at the nozzles' elevation; the water
- * falls to the basin the pumps draw from. The tower bypass valve, from the return header to the
- * basin, is closed at design; the winter scenario opens it.
+ * through an NPS 30 butterfly valve and discharge through a check valve and an NPS 24 butterfly
+ * valve into one NPS 60 common supply header: CWP-1 into its upstream end, CWP-2 to CWP-6 through
+ * a tee each. The header then feeds seven water-cooled chiller condensers, CH-1 to CH-6 through a
+ * tee each and CH-7 from its downstream end, so the water runs one way along the whole header,
+ * 90,000 gpm at most (about 3.2 m/s). Four condensers are rated 15,000 gpm and three 10,000 gpm
+ * (each by its pressure drop at that flow), and a flow control valve on each leaving side holds
+ * its design flow. The NPS 60 common return header takes CH-1 at its upstream end and CH-2 to CH-7
+ * through a tee each, passes the tower bypass tee and rises in one NPS 60 riser to the tower's
+ * NPS 60 distribution header, which feeds cells 1 to 5 through a tee each and cell 6 from its end.
+ * Each 15,000 gpm cell has an NPS 30 line with an isolation butterfly valve and a nozzle header
+ * (rated by its pressure drop), which sprays into the open cell, modelled as a reservoir at
+ * atmospheric pressure at the nozzles' elevation; the water falls to the basin the pumps draw from.
+ * The NPS 24 tower bypass valve, from the return header to the basin, is closed at design; the
+ * winter scenario opens it for one pump's 15,000 gpm (about 3.45 m/s).
+ *
+ * The project library holds what the cited library lacks, both illustrative inputs labelled as
+ * such in their sources: the NPS 60 pipe (steel STD stops at NPS 48 in the cited library), a
+ * 59.25 in bore with carbon steel's Farshad roughness at that bore; and the NPS 30 butterfly
+ * valves' Cv (Crane's butterfly valve table stops at NPS 24), Crane's NPS 16–24 K of 25 f_T
+ * extrapolated to the NPS 30 STD bore (K = 0.274) and converted with fluids' K_to_Cv, 48,760,
+ * rounded to 48,800. All twelve NPS 30 butterfly valves, the six cell valves and the six pump
+ * suction valves (inline fittings), refer to that one entry.
  *
  * Datum: the basin floor. Rated drops are on water at 85 °F (995.8 kg/m³, IAPWS-95 at 1 atm),
  * the condenser entering water temperature of AHRI 550/590's standard rating conditions.
- * Butterfly valves are NPS 24 at most, the largest size in Crane's butterfly valve table, so
- * every valve's K is inside its correlation's range; the NPS 30 suction lines have gate valves.
  */
 export function condenserWaterExample(): Project {
 	const project = base(
 		'example-condenser-water',
 		'Chiller plant condenser water system',
-		'A 90,000 gpm condenser water system: six parallel 15,000 gpm pumps into a common header, ' +
-			'seven chiller condensers (4 × 15,000 and 3 × 10,000 gpm) each with a flow control ' +
-			'valve, and a six-cell cooling tower with a nozzle header per cell and a tower bypass ' +
-			'valve, closed at design (the winter scenario opens it). Water at 85 °F.'
+		'A 90,000 gpm condenser water system: six parallel 15,000 gpm pumps into an NPS 60 common ' +
+			'header, seven chiller condensers (4 × 15,000 and 3 × 10,000 gpm) each with a flow ' +
+			'control valve, and a six-cell cooling tower with a nozzle header per cell and a tower ' +
+			'bypass valve, closed at design (the winter scenario opens it). Water at 85 °F. The NPS 60 ' +
+			'pipe and the NPS 30 butterfly valves’ Cv are illustrative project library entries.'
 	);
 	project.fluid = { kind: 'builtin', fluidId: 'water', temperature: ((85 - 32) * 5) / 9 + 273.15 };
 	const RATED_DENSITY = 995.8; // kg/m³, water at 85 °F
 	const BASIN_LEVEL = 0.6; // m of water above the basin floor (the datum)
 	const PLANT = 0.5; // m, pump and chiller nozzle centrelines
 	const RETURN = 5; // m, the overhead return header
-	const DISTRIBUTION = 10; // m, the tower's distribution headers and cell valves
+	const DISTRIBUTION = 10; // m, the tower's distribution header and cell valves
 	const NOZZLES = 11; // m, the cells' nozzle headers
 	const components: Component[] = [];
 	const connections: PipeConnection[] = [];
@@ -311,7 +341,7 @@ export function condenserWaterExample(): Project {
 		segments: [number, number][],
 		fittings: Fitting[] = []
 	) => connections.push(stdLine(`L${connections.length + 1}`, from, to, segments, fittings));
-	const tee = (id: string, name: string, elevation: number, run: number, branch: number) =>
+	const tee = (id: string, name: string, elevation: number, branch: number) =>
 		components.push({
 			type: 'branch',
 			branchType: 'tee',
@@ -320,10 +350,25 @@ export function condenserWaterExample(): Project {
 			elevation,
 			lossModel: 'crane',
 			ports: ports(
-				['run_inlet', run * INCH, 'bidirectional'],
-				['run_outlet', run * INCH, 'bidirectional'],
+				['run_inlet', 60 * INCH, 'bidirectional'],
+				['run_outlet', 60 * INCH, 'bidirectional'],
 				['branch', branch * INCH, 'bidirectional']
 			)
+		});
+	/**
+	 * Tees `ids[k]` named `names[k]` with NPS `branch[k]` branches along a header, joined run to
+	 * run by NPS 60 pipes, `spacing[k - 1]` m from tee k − 1 to tee k.
+	 */
+	const header = (
+		ids: string[],
+		names: string[],
+		elevation: number,
+		branch: number[],
+		spacing: number[]
+	) =>
+		ids.forEach((id, k) => {
+			tee(id, names[k]!, elevation, branch[k]!);
+			if (k > 0) connect([ids[k - 1]!, 'run_outlet'], [id, 'run_inlet'], [[60, spacing[k - 1]!]]);
 		});
 	const reservoir = (id: string, name: string, elevation: number, level: number, sizes: number[]) =>
 		components.push({
@@ -341,7 +386,13 @@ export function condenserWaterExample(): Project {
 		});
 	const twoPort = (nps: number) =>
 		ports(['inlet', nps * INCH, 'inlet'], ['outlet', nps * INCH, 'outlet']);
-	const butterfly = (id: string, name: string, elevation: number, nps: number, open = true) =>
+	const butterfly = (
+		id: string,
+		name: string,
+		elevation: number,
+		nps: number,
+		{ open = true, cv }: { open?: boolean; cv?: string } = {}
+	) =>
 		components.push({
 			type: 'valve',
 			valveType: 'butterfly',
@@ -349,6 +400,7 @@ export function condenserWaterExample(): Project {
 			name,
 			elevation,
 			status: open ? 'active' : 'isolated',
+			...(cv ? { resistance: { kind: 'library' as const, id: cv } } : {}),
 			ports: twoPort(nps)
 		});
 	const ratedDrop = (
@@ -376,29 +428,26 @@ export function condenserWaterExample(): Project {
 		i <= 4 ? { i, gpm: 15_000, nps: 24, psi: 10 } : { i, gpm: 10_000, nps: 20, psi: 8 }
 	);
 
-	// Supply header (NPS 42): CWP-1 at its upstream end, CH-7 at its downstream end, a tee for
-	// each pump and chiller between them.
+	// Supply header (NPS 60): CWP-1 into its upstream end, a tee for each of CWP-2 to CWP-6 and
+	// for each of CH-1 to CH-6, CH-7 from its downstream end.
 	const supply = [
 		'CWP-2',
-		'CH-1',
 		'CWP-3',
-		'CH-2',
 		'CWP-4',
-		'CH-3',
 		'CWP-5',
-		'CH-4',
 		'CWP-6',
-		'CH-5',
-		'CH-6'
+		...[1, 2, 3, 4, 5, 6].map((i) => `CH-${i}`)
 	];
 	const supplyTee = (tag: string) => `H${supply.indexOf(tag) + 1}`;
-	supply.forEach((tag, k) => {
-		const chiller = chillers.find((c) => `CH-${c.i}` === tag);
-		tee(`H${k + 1}`, `Supply header tee at ${tag}`, PLANT, 42, chiller?.nps ?? 24);
-		if (k > 0) connect([`H${k}`, 'run_outlet'], [`H${k + 1}`, 'run_inlet'], [[42, 6]]);
-	});
+	header(
+		supply.map(supplyTee),
+		supply.map((tag) => `Supply header tee at ${tag}`),
+		PLANT,
+		supply.map((tag) => chillers.find((c) => `CH-${c.i}` === tag)?.nps ?? 24),
+		supply.slice(1).map((tag) => (tag.startsWith('CWP') ? 6 : 10))
+	);
 
-	// Pumps: suction line with a gate valve, pump, check valve, butterfly valve.
+	// Pumps: suction line with a butterfly valve, pump, check valve, discharge butterfly valve.
 	for (let i = 1; i <= 6; i++) {
 		components.push({
 			type: 'pump',
@@ -425,7 +474,11 @@ export function condenserWaterExample(): Project {
 			['B1', `port_${i}`],
 			[`P${i}`, 'suction'],
 			[[30, 8]],
-			[fitting('entrance_sharp'), fitting('gate_valve'), fitting('elbow_90_lr')]
+			[
+				fitting('entrance_sharp'),
+				{ ...fitting('butterfly_valve'), resistanceId: BUTTERFLY30_CV },
+				fitting('elbow_90_lr')
+			]
 		);
 		connect([`P${i}`, 'discharge'], [`K${i}`, 'inlet'], [[24, 1]]);
 		connect([`K${i}`, 'outlet'], [`D${i}`, 'inlet'], [[24, 1]]);
@@ -435,7 +488,7 @@ export function condenserWaterExample(): Project {
 				['H1', 'run_inlet'],
 				[
 					[24, 4],
-					[42, 1]
+					[60, 1]
 				],
 				[fitting('elbow_90_lr'), reducer()]
 			);
@@ -449,21 +502,20 @@ export function condenserWaterExample(): Project {
 		}
 	}
 
-	// Return header (NPS 48, overhead): CH-1 at one end and the riser to cells 4–6 at the
-	// other; the riser to cells 1–3 leaves from its middle, the tower bypass near its end.
-	const returns = ['CH-2', 'CH-3', 'CH-4', 'riser A', 'CH-5', 'CH-6', 'CH-7', 'bypass'];
+	// Return header (NPS 60, overhead): CH-1 into its upstream end, a tee for each of CH-2 to
+	// CH-7, then the tower bypass tee, whose run goes on up the riser.
+	const returns = [2, 3, 4, 5, 6, 7].map((i) => `CH-${i}`);
 	const returnTee = (tag: string) => `R${returns.indexOf(tag) + 1}`;
-	returns.forEach((tag, k) => {
-		const chiller = chillers.find((c) => `CH-${c.i}` === tag);
-		const name =
-			tag === 'riser A'
-				? 'Return header tee at the riser to cells 1–3'
-				: tag === 'bypass'
-					? 'Return header tee at the tower bypass'
-					: `Return header tee at ${tag}`;
-		tee(`R${k + 1}`, name, RETURN, 48, chiller?.nps ?? (tag === 'bypass' ? 24 : 48));
-		if (k > 0) connect([`R${k}`, 'run_outlet'], [`R${k + 1}`, 'run_inlet'], [[48, 6]]);
-	});
+	header(
+		[...returns.map(returnTee), 'R7'],
+		[
+			...returns.map((tag) => `Return header tee at ${tag}`),
+			'Return header tee at the tower bypass'
+		],
+		RETURN,
+		[...returns.map((tag) => chillers.find((c) => `CH-${c.i}` === tag)!.nps), 24],
+		[...returns.slice(1).map(() => 10), 6]
+	);
 
 	// Chillers: condenser, then its flow control valve, then up to the return header.
 	for (const { i, gpm, nps, psi } of chillers) {
@@ -480,10 +532,10 @@ export function condenserWaterExample(): Project {
 		});
 		if (i === 7) {
 			connect(
-				[`H${supply.length}`, 'run_outlet'],
+				[supplyTee('CH-6'), 'run_outlet'],
 				['E7', 'inlet'],
 				[
-					[42, 1],
+					[60, 1],
 					[nps, 6]
 				],
 				[reducer(), fitting('elbow_90_lr', 1, 1)]
@@ -503,7 +555,7 @@ export function condenserWaterExample(): Project {
 				['R1', 'run_inlet'],
 				[
 					[nps, 6],
-					[48, 1]
+					[60, 1]
 				],
 				[fitting('elbow_90_lr', 2), reducer()]
 			);
@@ -518,8 +570,8 @@ export function condenserWaterExample(): Project {
 	}
 
 	// Tower bypass, closed at design: from the return header down to the basin.
-	butterfly('BP', 'Tower bypass valve', RETURN, 24, false);
-	connect([returnTee('bypass'), 'branch'], ['BP', 'inlet'], [[24, 2]]);
+	butterfly('BP', 'Tower bypass valve', RETURN, 24, { open: false });
+	connect(['R7', 'branch'], ['BP', 'inlet'], [[24, 2]]);
 	connect(
 		['BP', 'outlet'],
 		['B1', 'port_7'],
@@ -527,53 +579,40 @@ export function condenserWaterExample(): Project {
 		[fitting('elbow_90_lr', 3), fitting('exit')]
 	);
 
-	// Risers to the tower's two distribution headers (NPS 48), then per cell an isolation valve
-	// and the nozzle header, spraying into the open cell.
-	tee('TA1', 'Tower header tee at cell 1', DISTRIBUTION, 48, 24);
-	tee('TA2', 'Tower header tee at cell 2', DISTRIBUTION, 48, 24);
-	tee('TB1', 'Tower header tee at cell 6', DISTRIBUTION, 48, 24);
-	tee('TB2', 'Tower header tee at cell 5', DISTRIBUTION, 48, 24);
-	connect(
-		[returnTee('riser A'), 'branch'],
-		['TA1', 'run_inlet'],
-		[[48, 60]],
-		[fitting('elbow_90_lr', 4)]
+	// The riser to the tower's distribution header (NPS 60), then per cell an isolation valve and
+	// the nozzle header, spraying into the open cell.
+	connect(['R7', 'run_outlet'], ['T1', 'run_inlet'], [[60, 60]], [fitting('elbow_90_lr', 4)]);
+	const cells = [1, 2, 3, 4, 5].map((i) => `T${i}`);
+	header(
+		cells,
+		cells.map((_, k) => `Tower header tee at cell ${k + 1}`),
+		DISTRIBUTION,
+		cells.map(() => 30),
+		cells.slice(1).map(() => 12)
 	);
-	connect(
-		[returnTee('bypass'), 'run_outlet'],
-		['TB1', 'run_inlet'],
-		[[48, 60]],
-		[fitting('elbow_90_lr', 4)]
-	);
-	connect(['TA1', 'run_outlet'], ['TA2', 'run_inlet'], [[48, 12]]);
-	connect(['TB1', 'run_outlet'], ['TB2', 'run_inlet'], [[48, 12]]);
 	const cellFeeds: [string, string][] = [
-		['TA1', 'branch'],
-		['TA2', 'branch'],
-		['TA2', 'run_outlet'],
-		['TB2', 'run_outlet'],
-		['TB2', 'branch'],
-		['TB1', 'branch']
+		...cells.map((t): [string, string] => [t, 'branch']),
+		['T5', 'run_outlet']
 	];
 	cellFeeds.forEach((feed, k) => {
 		const i = k + 1;
-		butterfly(`IV${i}`, `Cell ${i} isolation valve`, DISTRIBUTION, 24);
-		ratedDrop(`N${i}`, `Cell ${i} nozzle header`, NOZZLES, 24, 5, 15_000);
-		reservoir(`A${i}`, `Cell ${i} spray (open to atmosphere)`, NOZZLES, 0, [24]);
+		butterfly(`IV${i}`, `Cell ${i} isolation valve`, DISTRIBUTION, 30, { cv: BUTTERFLY30_CV });
+		ratedDrop(`N${i}`, `Cell ${i} nozzle header`, NOZZLES, 30, 5, 15_000);
+		reservoir(`A${i}`, `Cell ${i} spray (open to atmosphere)`, NOZZLES, 0, [30]);
 		const end = feed[1] === 'run_outlet';
 		connect(
 			feed,
 			[`IV${i}`, 'inlet'],
 			end
 				? [
-						[48, 1],
-						[24, 2]
+						[60, 1],
+						[30, 2]
 					]
-				: [[24, 2]],
+				: [[30, 2]],
 			end ? [reducer()] : []
 		);
-		connect([`IV${i}`, 'outlet'], [`N${i}`, 'inlet'], [[24, 1]]);
-		connect([`N${i}`, 'outlet'], [`A${i}`, 'port_1'], [[24, 0.5]]);
+		connect([`IV${i}`, 'outlet'], [`N${i}`, 'inlet'], [[30, 1]]);
+		connect([`N${i}`, 'outlet'], [`A${i}`, 'port_1'], [[30, 0.5]]);
 	});
 
 	// Winter: one chiller on one pump, every cell isolated and the tower bypassed.
@@ -628,6 +667,33 @@ export function condenserWaterExample(): Project {
 					[15_000, 25],
 					[20_000, 34]
 				].map(([gpm, ft]) => ({ flow: gpm! * GPM, npshr: ft! * FOOT }))
+			}
+		],
+		pipeLibrary: [
+			{
+				id: NPS60_SPEC,
+				name: 'NPS 60 carbon steel, 0.375 in wall (illustrative)',
+				source:
+					'Illustrative example input: a 60 in OD steel pipe with a 0.375 in wall (59.25 in ' +
+					'bore), not taken from a cited table. Roughness: the carbon steel library’s Farshad ' +
+					'& Rieke correlation at this bore.',
+				materialId: 'carbon_steel',
+				innerDiameter: 59.25 * INCH,
+				outerDiameter: 60 * INCH,
+				nominalSize: 60 * INCH
+			}
+		],
+		resistanceLibrary: [
+			{
+				id: BUTTERFLY30_CV,
+				name: 'NPS 30 butterfly valve, open (illustrative)',
+				source:
+					'Illustrative example input, not a manufacturer’s value: Crane TP-410’s centric ' +
+					'butterfly valve K for NPS 16–24, 25 f_T, extrapolated to NPS 30 (fluids 1.3.1 ' +
+					'K_butterfly_valve_Crane at the STD bore 0.74294 m: K = 0.274), converted with ' +
+					'fluids’ K_to_Cv (48,760) and rounded.',
+				kind: 'Cv',
+				value: 48_800
 			}
 		]
 	};

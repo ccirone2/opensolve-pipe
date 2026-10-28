@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import type { Override } from '../api/types';
 import { referentialIssues } from '../testing/helpers';
 import { decodeProject, encodeProject, URL_LENGTH_WARNING, projectUrl } from './encoding';
 import { EXAMPLES, exampleProject } from './examples';
 import { componentKind } from './factory';
 import { defaultStart, isBoundary, reachable } from './graph';
-import { US_GALLON } from './units';
+import { INCH, US_GALLON } from './units';
 import { projectProblems, schemaProblems } from './validate';
 
 describe('examples', () => {
@@ -97,5 +98,159 @@ describe('examples', () => {
 		// to atmosphere.
 		expect(count('reservoir')).toBe(7);
 		expect(plant.connections.length).toBeGreaterThan(plant.components.length - 1);
+	});
+});
+
+describe('the condenser water example on its project library', () => {
+	const plant = exampleProject('condenser-water')!;
+	const byId = new Map(plant.components.map((c) => [c.id, c]));
+	const pipes = plant.connections.flatMap((c) => c.piping.pipes);
+	/** The name of the component at the other end of the connection on `componentId`'s port. */
+	const across = (componentId: string, portId: string) => {
+		const c = plant.connections.find(
+			(c) =>
+				(c.fromComponentId === componentId && c.fromPortId === portId) ||
+				(c.toComponentId === componentId && c.toPortId === portId)
+		)!;
+		return byId.get(c.fromComponentId === componentId ? c.toComponentId : c.fromComponentId)!.name;
+	};
+	/** `count` tees of a header from `first`, run_outlet to run_inlet, with their branches' names. */
+	const header = (first: string, count: number) => {
+		const tees = [{ id: first, branch: across(first, 'branch') }];
+		while (tees.length < count) {
+			const c = plant.connections.find(
+				(c) => c.fromComponentId === tees.at(-1)!.id && c.fromPortId === 'run_outlet'
+			)!;
+			expect([byId.get(c.toComponentId)!.type, c.toPortId]).toEqual(['branch', 'run_inlet']);
+			tees.push({ id: c.toComponentId, branch: across(c.toComponentId, 'branch') });
+		}
+		return tees;
+	};
+
+	it('has one illustrative NPS 60 pipe spec, used for every pipe the cited library lacks', () => {
+		expect(plant.pipeLibrary).toEqual([
+			{
+				id: 'PS1',
+				name: 'NPS 60 carbon steel, 0.375 in wall (illustrative)',
+				source: expect.stringMatching(
+					/^Illustrative example input: a 60 in OD steel pipe with a 0\.375 in wall \(59\.25 in bore\), not taken from a cited table\. Roughness: the carbon steel library’s Farshad & Rieke correlation at this bore\.$/
+				),
+				materialId: 'carbon_steel',
+				innerDiameter: 59.25 * INCH,
+				outerDiameter: 60 * INCH,
+				nominalSize: 60 * INCH
+			}
+		]);
+		// Roughness left blank: the server takes carbon steel's Farshad roughness at that bore.
+		expect(plant.pipeLibrary![0]).not.toHaveProperty('roughness');
+		const spec = pipes.filter((p) => p.specId === 'PS1');
+		expect(spec).toHaveLength(25);
+		expect(spec.every((p) => Object.keys(p).sort().join() === 'length,specId')).toBe(true);
+		// Every other pipe is cited: carbon steel STD up to NPS 48, the library's largest.
+		const cited = pipes.filter((p) => p.specId == null);
+		for (const p of cited) {
+			expect(p).toMatchObject({ materialId: 'carbon_steel', schedule: 'STD' });
+			expect(p.nominalSize! / INCH).toBeLessThanOrEqual(48);
+		}
+	});
+
+	it('gives its NPS 30 butterfly valves one illustrative Cv, derived as its source states', () => {
+		expect(plant.resistanceLibrary).toEqual([
+			{
+				id: 'RS1',
+				name: 'NPS 30 butterfly valve, open (illustrative)',
+				source: expect.stringMatching(
+					/^Illustrative example input, not a manufacturer’s value: Crane TP-410’s centric butterfly valve K for NPS 16–24, 25 f_T, extrapolated to NPS 30 .*K = 0\.274\), converted with fluids’ K_to_Cv \(48,760\) and rounded\.$/
+				),
+				kind: 'Cv',
+				value: 48_800
+			}
+		]);
+		// 25 f_T at the NPS 30 STD bore, D = 0.74294 m: fluids 1.3.1
+		// K_butterfly_valve_Crane(0.74294, style=0) = 25 ft_Crane(D). Then fluids' K_to_Cv
+		// (ISA-75.01.01), Cv = 1.1560992283536566 D² √(1.6×10⁹/K), rounded to 3 significant figures.
+		const D = 0.74294;
+		const K = 0.2740288404204759;
+		const cv = 1.1560992283536566 * D * D * Math.sqrt(1.6e9 / K);
+		expect(Math.round(cv)).toBe(48_760);
+		expect(Number(cv.toPrecision(3))).toBe(plant.resistanceLibrary![0]!.value);
+		// The six cell isolation valves and the six pump suction lines' butterfly valves use it.
+		const cellValves = plant.components.filter((c) => /^Cell \d isolation valve$/.test(c.name));
+		expect(cellValves).toHaveLength(6);
+		for (const v of cellValves) {
+			expect(v).toMatchObject({
+				valveType: 'butterfly',
+				resistance: { kind: 'library', id: 'RS1' },
+				ports: [{ nominalSize: 30 * INCH }, { nominalSize: 30 * INCH }]
+			});
+		}
+		const suction = plant.connections.filter(
+			(c) => c.fromComponentId === 'B1' && c.toPortId === 'suction'
+		);
+		expect(suction).toHaveLength(6);
+		for (const c of suction) {
+			expect(c.piping.pipes.map((p) => p.nominalSize! / INCH)).toEqual([30]);
+			expect(c.piping.fittings.filter((f) => f.resistanceId === 'RS1')).toEqual([
+				{ type: 'butterfly_valve', quantity: 1, pipeIndex: 0, resistanceId: 'RS1' }
+			]);
+		}
+		// Every other butterfly valve takes Crane's default, inside its table (NPS 24 at most).
+		const others = plant.components.filter(
+			(c) => c.type === 'valve' && c.valveType === 'butterfly' && !cellValves.includes(c)
+		);
+		expect(others.map((c) => c.id).sort()).toEqual(['BP', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6']);
+		for (const v of others) {
+			expect(v).not.toHaveProperty('resistance');
+			expect(v.ports.every((p) => p.nominalSize <= 24 * INCH)).toBe(true);
+		}
+		expect(byId.get('BP')).toMatchObject({ name: 'Tower bypass valve', status: 'isolated' });
+	});
+
+	it('runs the water one way along its NPS 60 headers', () => {
+		// Supply: CWP-1 in at the upstream end, then every other pump, then every chiller but the
+		// last, which the downstream end feeds.
+		const supply = header('H1', 11);
+		expect(across('H1', 'run_inlet')).toBe('CWP-1 discharge valve');
+		expect(supply.map((t) => t.branch)).toEqual([
+			...[2, 3, 4, 5, 6].map((i) => `CWP-${i} discharge valve`),
+			...[1, 2, 3, 4, 5, 6].map((i) => `CH-${i} condenser`)
+		]);
+		expect(across(supply.at(-1)!.id, 'run_outlet')).toBe('CH-7 condenser');
+		// Return: CH-1 in at the upstream end, the other chillers, then the tower bypass and the
+		// riser to the tower's distribution header, which feeds cells 1–5 and cell 6 at its end.
+		const ret = header('R1', 7);
+		expect(across('R1', 'run_inlet')).toBe('CH-1 flow control valve');
+		expect(ret.map((t) => t.branch)).toEqual([
+			...[2, 3, 4, 5, 6, 7].map((i) => `CH-${i} flow control valve`),
+			'Tower bypass valve'
+		]);
+		const tower = header('T1', 5);
+		expect(across(ret.at(-1)!.id, 'run_outlet')).toBe('Tower header tee at cell 1');
+		expect(tower.map((t) => t.branch)).toEqual(
+			[1, 2, 3, 4, 5].map((i) => `Cell ${i} isolation valve`)
+		);
+		expect(across(tower.at(-1)!.id, 'run_outlet')).toBe('Cell 6 isolation valve');
+		for (const { id } of [...supply, ...ret, ...tower]) {
+			expect(byId.get(id)).toMatchObject({
+				branchType: 'tee',
+				lossModel: 'crane',
+				ports: [{ nominalSize: 60 * INCH }, { nominalSize: 60 * INCH }, {}]
+			});
+		}
+	});
+
+	it('has a winter scenario that names its own elements', () => {
+		const overrides = plant.scenarios![0]!.overrides!;
+		const status = (o: Override) =>
+			o.kind === 'component' && o.field === 'status' ? [o.componentId, o.value] : [];
+		expect(overrides.map(status)).toEqual([
+			...[2, 3, 4, 5, 6].map((i) => [`P${i}`, 'off']),
+			...[2, 3, 4, 5, 6, 7].map((i) => [`F${i}`, 'failed_closed']),
+			...[1, 2, 3, 4, 5, 6].map((i) => [`IV${i}`, 'isolated']),
+			['BP', 'active']
+		]);
+		for (const o of overrides) {
+			expect(o.kind === 'component' && byId.has(o.componentId)).toBe(true);
+		}
 	});
 });

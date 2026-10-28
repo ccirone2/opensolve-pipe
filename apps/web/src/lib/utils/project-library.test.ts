@@ -580,31 +580,43 @@ describe("the server's mentions of entries", () => {
 });
 
 describe('canonical encoding', () => {
+	/** The project after a spare pipe spec and resistance entry are added and removed again. */
+	const addAndRemove = (project: Project) => {
+		const id = newPipeSpecId(project);
+		const added = setPipeSpec(project, {
+			id,
+			name: 'Spare',
+			source: 'test input',
+			materialId: 'custom',
+			innerDiameter: 0.1,
+			roughness: 1e-5
+		});
+		const entry = newResistanceId(added);
+		const both = setResistanceSpec(added, {
+			id: entry,
+			name: 'Spare',
+			source: 'test input',
+			kind: 'Kv',
+			value: 10
+		});
+		return removePipeSpec(removeResistanceSpec(both, entry), id);
+	};
+
 	it('of a project without a library is the same after an entry is added and removed', () => {
-		for (const example of EXAMPLES) {
+		const plain = EXAMPLES.filter((e) => e.slug !== 'condenser-water');
+		expect(plain.map((e) => e.slug)).toEqual(['pump-transfer', 'gravity-branch']);
+		for (const example of plain) {
 			const project = example.create();
 			expect(project).not.toHaveProperty('pipeLibrary');
 			expect(project).not.toHaveProperty('resistanceLibrary');
-			const encoded = encodeProject(project);
-			const id = newPipeSpecId(project);
-			const added = setPipeSpec(project, {
-				id,
-				name: 'Spare',
-				source: 'test input',
-				materialId: 'custom',
-				innerDiameter: 0.1,
-				roughness: 1e-5
-			});
-			const entry = newResistanceId(added);
-			const both = setResistanceSpec(added, {
-				id: entry,
-				name: 'Spare',
-				source: 'test input',
-				kind: 'Kv',
-				value: 10
-			});
-			const back = removePipeSpec(removeResistanceSpec(both, entry), id);
-			expect(encodeProject(back)).toBe(encoded);
+			expect(encodeProject(addAndRemove(project))).toBe(encodeProject(project));
 		}
+	});
+
+	it('of a project with a library is the same after an entry is added and removed', () => {
+		// The condenser water example is built on its project library (one spec, one entry).
+		const project = EXAMPLES.find((e) => e.slug === 'condenser-water')!.create();
+		expect([project.pipeLibrary?.length, project.resistanceLibrary?.length]).toEqual([1, 1]);
+		expect(encodeProject(addAndRemove(project))).toBe(encodeProject(project));
 	});
 });

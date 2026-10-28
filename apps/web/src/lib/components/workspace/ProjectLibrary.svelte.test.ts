@@ -2,13 +2,15 @@
  * The project library dialog (CLAUDE.md D21; proposal project-library.md §6.1, §7.4): a new
  * entry asks for what has no default at its field, and is added as one undo step; an edit
  * reaches every element that refers to the entry (references, not copies); delete is refused
- * while anything uses the entry, naming the first user; in a scenario the library is read-only.
- * Test inputs (made up): the entries of testing/helpers.ts libraryProject, and a 78 mm bore.
+ * while anything uses the entry, naming the first user, its reason scrolled into view; a list
+ * holds at most 100 entries, and a full list offers no new one, saying why; in a scenario the
+ * library is read-only. Test inputs (made up): the entries of testing/helpers.ts libraryProject,
+ * lists of numbered entries, and a 78 mm bore.
  */
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import { describe, expect, it } from 'vitest';
-import type { IsolationValve, Project } from '$lib/api/types';
+import { describe, expect, it, vi } from 'vitest';
+import type { IsolationValve, PipeSpec, Project, ResistanceSpec } from '$lib/api/types';
 import { libraryProject } from '$lib/testing/helpers';
 import { TEST_LIBRARY as LIBRARY } from '$lib/testing/library';
 import { testWorkspace } from '$lib/testing/workspace';
@@ -39,6 +41,32 @@ async function type(input: HTMLElement, text: string) {
 
 const alerts = (scope: ReturnType<typeof within>) =>
 	scope.queryAllByRole('alert').map((a: HTMLElement) => a.textContent?.trim());
+
+/** n made-up pipe specs, PS1... (custom: a bore and roughness of their own). */
+const manySpecs = (n: number): PipeSpec[] =>
+	Array.from({ length: n }, (_, i) => ({
+		id: `PS${i + 1}`,
+		name: `Spec ${i + 1}`,
+		source: 'Test input: a made-up bore',
+		materialId: 'custom',
+		innerDiameter: 0.05,
+		roughness: 1e-5
+	}));
+
+/** n made-up Cv entries, RS1... */
+const manyEntries = (n: number): ResistanceSpec[] =>
+	Array.from({ length: n }, (_, i) => ({
+		id: `RS${i + 1}`,
+		name: `Entry ${i + 1}`,
+		source: 'Test input: a made-up Cv',
+		kind: 'Cv',
+		value: 100
+	}));
+
+const PIPE_LIMIT =
+	'A project holds at most 100 pipe specs. Delete one that nothing uses to add another.';
+const RESISTANCE_LIMIT =
+	'A project holds at most 100 resistance entries. Delete one that nothing uses to add another.';
 
 describe('ProjectLibrary', () => {
 	it('a new pipe spec asks for its name, bore and source at their fields; Add is one undo step', async () => {
@@ -199,6 +227,101 @@ describe('ProjectLibrary', () => {
 			'Deleted pipe spec Lined 80 mm. Undo brings it back.'
 		);
 		expect(dialog.getByRole('tab', { name: 'Pipe specs (1)' })).toBeInTheDocument();
+	});
+
+	it('a refused delete scrolls its reason into view, the focus staying on Delete', async () => {
+		// On a phone the reason, drawn below Delete, was under the dialog's footer.
+		const scrolled = vi.fn();
+		const original = Element.prototype.scrollIntoView;
+		Element.prototype.scrollIntoView = scrolled;
+		try {
+			setup(libraryProject());
+			const dialog = await openLibrary();
+			const remove = dialog.getByRole('button', { name: 'Delete NPS 4 measured' });
+			remove.focus();
+			await fireEvent.click(remove);
+			const alert = dialog.getByRole('alert');
+			expect(alert).toHaveTextContent(/^Not deleted: Pipe 1 of Upper tank → Gate valve V1/);
+			await vi.waitFor(() => expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' }));
+			expect(scrolled.mock.contexts.at(-1)).toBe(alert);
+			expect(remove).toHaveFocus();
+		} finally {
+			Element.prototype.scrollIntoView = original;
+		}
+	});
+
+	it('a full list offers no new entry and says why; one below the limit takes one more', async () => {
+		const project = libraryProject();
+		project.pipeLibrary = manySpecs(100);
+		project.resistanceLibrary = manyEntries(99);
+		const ws = setup(project);
+		const dialog = await openLibrary();
+		expect(dialog.getByRole('tab', { name: 'Pipe specs (100)' })).toHaveAttribute(
+			'aria-selected',
+			'true'
+		);
+		expect(dialog.getByText(PIPE_LIMIT)).toBeInTheDocument();
+		const newSpec = dialog.getByRole('button', { name: 'New pipe spec' });
+		expect(newSpec).toHaveAttribute('aria-disabled', 'true');
+		expect(newSpec).toHaveAccessibleDescription(PIPE_LIMIT);
+		await fireEvent.click(newSpec);
+		expect(dialog.queryByRole('region', { name: 'New pipe spec' })).toBeNull();
+
+		// 99 entries: one more is added, and the list is then full.
+		await fireEvent.click(dialog.getByRole('tab', { name: 'Resistances (99)' }));
+		expect(dialog.queryByText(/^A project holds at most/)).toBeNull();
+		const newEntry = dialog.getByRole('button', { name: 'New resistance entry' });
+		expect(newEntry).not.toHaveAttribute('aria-disabled', 'true');
+		await fireEvent.click(newEntry);
+		const form = within(dialog.getByRole('region', { name: 'New resistance entry' }));
+		await type(form.getByRole('textbox', { name: 'Name' }), 'Gate, vendor B');
+		await type(form.getByRole('textbox', { name: 'Cv' }), '250');
+		await type(form.getByRole('textbox', { name: 'Source' }), 'Test input');
+		await fireEvent.click(dialog.getByRole('button', { name: 'Add' }));
+		expect(ws.store.project.resistanceLibrary).toHaveLength(100);
+		await tick();
+		expect(dialog.getByRole('tab', { name: 'Resistances (100)' })).toBeInTheDocument();
+		expect(dialog.getByText(RESISTANCE_LIMIT)).toBeInTheDocument();
+		expect(dialog.getByRole('button', { name: 'New resistance entry' })).toHaveAttribute(
+			'aria-disabled',
+			'true'
+		);
+	});
+
+	it("a picker's new entry on a full list opens the list, saying why, not a form", async () => {
+		const project = libraryProject();
+		project.pipeLibrary = manySpecs(100);
+		const ws = setup(project);
+		const use = vi.fn((p: Project) => p);
+		ws.openLibrary({ list: 'pipe', create: true, use: { label: 'pipe 1 of A → B', apply: use } });
+		const dialog = within(await screen.findByRole('dialog', { name: 'Project library' }));
+		expect(dialog.queryByRole('region', { name: 'New pipe spec' })).toBeNull();
+		expect(dialog.getByText(PIPE_LIMIT)).toBeInTheDocument();
+		expect(use).not.toHaveBeenCalled();
+	});
+
+	it("a new entry saved once its list is full says the limit, not the schema's words", async () => {
+		const project = libraryProject();
+		project.pipeLibrary = manySpecs(99);
+		const ws = setup(project);
+		const dialog = await openLibrary();
+		await fireEvent.click(dialog.getByRole('button', { name: 'New pipe spec' }));
+		const form = within(dialog.getByRole('region', { name: 'New pipe spec' }));
+		await type(form.getByRole('textbox', { name: 'Name' }), 'NPS 3 measured');
+		await type(form.getByRole('textbox', { name: 'Inner diameter (mm)' }), '78');
+		await type(form.getByRole('textbox', { name: 'Source' }), 'Test input');
+		// Meanwhile the list fills (another path into the project).
+		const filled = ws.store.update(
+			(p) => ({ ...p, pipeLibrary: manySpecs(100) }),
+			'fill the pipe specs'
+		);
+		expect(filled.ok).toBe(true);
+		await fireEvent.click(dialog.getByRole('button', { name: 'Add' }));
+		const refused = form.getByRole('alert');
+		expect(refused).toHaveTextContent(/^Not saved:/);
+		expect(refused).toHaveTextContent(/A project holds at most 100 pipe specs\.$/);
+		expect(ws.store.project.pipeLibrary).toHaveLength(100);
+		expect(ws.store.undoLabel).toBe('fill the pipe specs');
 	});
 
 	it('is read-only in a scenario, and says so', async () => {

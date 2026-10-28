@@ -589,6 +589,64 @@ def test_a_spec_with_an_unknown_material_is_a_topology_issue_at_each_pipe() -> N
     )
 
 
+FARSHAD_1UM = float(roughness_Farshad(ID="Carbon steel, bare", D=1.0e-6))
+"""m: carbon steel's roughness (Farshad & Rieke 2006) at a 1 µm bore, 39.8 times the bore."""
+
+
+@pytest.mark.parametrize(
+    ("spec", "code", "tail"),
+    [
+        (  # a roughness typed in mm for m: ε/D = 4.5
+            {"materialId": "custom", "innerDiameter": 0.01, "roughness": 0.045},
+            "ROUGHNESS_OUT_OF_RANGE",
+            "roughness 0.045 m is 4.5 times the inner diameter 0.01 m; the Colebrook equation "
+            "has no solution for relative roughness of 3.7 or more",
+        ),
+        (  # a library material's roughness, Farshad's at the spec's bore, not typed by the user
+            {"materialId": "carbon_steel", "innerDiameter": 1.0e-6},
+            "ROUGHNESS_OUT_OF_RANGE",
+            f"roughness {FARSHAD_1UM:g} m is {FARSHAD_1UM / 1.0e-6:.4g} times the inner diameter "
+            "1e-06 m; the Colebrook equation has no solution for relative roughness of 3.7 or more",
+        ),
+        (  # a bore whose resistance underflows
+            {"materialId": "custom", "innerDiameter": 1.0e-100, "roughness": 0.0},
+            "PIPE_SIZE_OUT_OF_RANGE",
+            "an inner diameter of 1e-100 m and a length of 5 m give a pipe resistance that is "
+            "not a finite floating-point number; the solver cannot represent this pipe",
+        ),
+    ],
+)
+def test_a_range_issue_on_a_spec_pipe_names_the_spec(
+    spec: dict[str, Any], code: str, tail: str
+) -> None:
+    """ROUGHNESS_OUT_OF_RANGE and PIPE_SIZE_OUT_OF_RANGE quote a spec's bore and roughness: on a
+    pipe of a spec they name it first, "pipe spec 'PS1': ", as an unknown material does, since
+    the values are changed there and not on the pipe (D10: the id at fault, by id only). The
+    same values typed on a pipe of its own give the message without it, as before the library."""
+    own_pipe = {**{k: v for k, v in spec.items() if k != "materialId"}, "length": 5.0}
+    own_pipe["materialId"] = spec["materialId"]
+    data = project_dict(
+        [reservoir("R1", level=20.0), reservoir("R2", level=10.0)],
+        [_link("L1", ("R1", "port_1"), ("R2", "port_1"), [_spec_pipe("PS1", 5.0), own_pipe])],
+    )
+    data["pipeLibrary"] = [{"id": "PS1", "name": "10 mm tube", "source": "test input", **spec}]
+    client = TestClient(app, client=("198.51.104.5", 50000))
+    response = client.post("/api/v1/solve", json={"project": data})
+    assert response.status_code == 422, response.text
+    found = [
+        (i["code"], i["message"], i["componentIds"], i["connectionIds"])
+        for i in response.json()["issues"]
+    ]
+    assert [(c, comps, conns) for c, _, comps, conns in found] == [
+        (code, [], ["L1"]),
+        (code, [], ["L1"]),
+    ]
+    assert [message for _, message, *_ in found] == [
+        f"connection 'L1' pipe 1: pipe spec 'PS1': {tail}",
+        f"connection 'L1' pipe 2: {tail}",
+    ]
+
+
 def test_an_entry_the_solver_cannot_represent_is_a_topology_issue() -> None:
     """A schema-valid K stated at a bore 10⁻⁹⁰ of the element's overflows (D/d₀)⁴; one stated at
     a bore 10⁹⁰ times larger underflows a valve's K to 0, which no user could type: each is a

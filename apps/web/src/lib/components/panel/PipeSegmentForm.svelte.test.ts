@@ -6,7 +6,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, expect, it } from 'vitest';
-import type { Override, PipeConnection } from '$lib/api/types';
+import type { Override, PipeConnection, PipeSpec } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import { libraryProject } from '$lib/testing/helpers';
 import { TEST_LIBRARY as LIBRARY } from '$lib/testing/library';
@@ -211,6 +211,43 @@ describe('PipeSegmentForm with the project library', () => {
 		await fireEvent.click(dialog.getByRole('button', { name: 'Use for 1 pipe' }));
 		expect(screen.queryByRole('dialog', { name: 'Use a pipe spec' })).toBeNull();
 		expect(ws.store.project.scenarios?.[0]?.overrides).toHaveLength(30);
+	});
+
+	it('a full library offers "New pipe spec…" disabled, saying why, here and in Use a pipe spec for…', async () => {
+		// 100 made-up specs, PS1... (PS1 still the one pipe 1 uses): as many as a project may hold.
+		const project = libraryProject();
+		project.pipeLibrary = Array.from({ length: 100 }, (_, i): PipeSpec => ({
+			id: `PS${i + 1}`,
+			name: `Spec ${i + 1}`,
+			source: 'Test input: a made-up bore',
+			materialId: 'custom',
+			innerDiameter: 0.05,
+			roughness: 1e-5
+		}));
+		setupLibrary(project);
+		const pipe1 = within(screen.getByRole('region', { name: 'Pipe 1 of 2' }));
+		const material = pipe1.getByRole('combobox', { name: 'Material' });
+		expect(
+			pipe1.getByRole('option', { name: 'New pipe spec… (a project holds at most 100)' })
+		).toBeDisabled();
+		expect(pipe1.queryByRole('option', { name: 'New pipe spec…' })).toBeNull();
+		// Chosen all the same (a disabled option can be set from script): nothing opens.
+		await fireEvent.change(material, { target: { value: 'new-spec' } });
+		await tick();
+		expect(screen.queryByRole('dialog', { name: 'Project library' })).toBeNull();
+		expect(material).toHaveValue('spec:PS1');
+
+		await fireEvent.click(pipe1.getByRole('button', { name: /^Use a pipe spec for pipe 1/ }));
+		const dialog = within(await screen.findByRole('dialog', { name: 'Use a pipe spec' }));
+		expect(
+			dialog.getByRole('option', { name: 'New pipe spec… (a project holds at most 100)' })
+		).toBeDisabled();
+		await fireEvent.change(dialog.getByRole('combobox', { name: 'Pipe spec' }), {
+			target: { value: 'new-spec' }
+		});
+		await fireEvent.click(dialog.getByRole('button', { name: 'Define the spec…' }));
+		expect(screen.getByRole('dialog', { name: 'Use a pipe spec' })).toBeInTheDocument();
+		expect(screen.queryByRole('dialog', { name: 'Project library' })).toBeNull();
 	});
 
 	it('in a scenario a spec is a change of the scenario, and no new spec is offered', async () => {

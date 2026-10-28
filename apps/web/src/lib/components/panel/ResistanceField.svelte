@@ -8,8 +8,10 @@
 
 	An entry is shown read-only, with "Edit in the library" (in a scenario "Show in the library":
 	the library is base data, the same in every case). "New entry…" opens the library's new entry
-	form, whose entry is then used here (not offered in a scenario). A reference to an entry the
-	project does not have is kept and said, for the user to choose another (the solve reports it).
+	form, whose entry is then used here (not offered in a scenario; offered disabled, saying so,
+	when the library holds as many entries as a project may: `libraryFull`). A reference to an
+	entry the project does not have is kept and said, for the user to choose another (the solve
+	reports it).
 -->
 <script lang="ts">
 	import type { ResistanceSpec, UnitPreferences, ValveResistance } from '$lib/api/types';
@@ -21,6 +23,7 @@
 	import { COEFFICIENT_HINTS, COEFFICIENT_LABELS } from '$lib/utils/flow-coefficient';
 	import { entryName, entryValueText, isResistanceRef } from '$lib/utils/project-library';
 	import { schemaBounds } from '$lib/utils/schema-bounds';
+	import { newOptionLabel } from '$lib/components/workspace/library/limits';
 
 	type Kind = 'K' | 'Cv' | 'Kv';
 	type Choice = 'default' | Kind | `entry:${string}` | 'new-entry';
@@ -42,6 +45,8 @@
 		onlibrary?: (entryId: string | null) => void;
 		/** The library can be edited (the base case): offers "New entry…" and "Edit in the library". */
 		editLibrary?: boolean;
+		/** The library holds as many entries as a project may: "New entry…" is offered disabled. */
+		libraryFull?: boolean;
 	}
 
 	let {
@@ -52,7 +57,8 @@
 		change = null,
 		entries = [],
 		onlibrary,
-		editLibrary = true
+		editLibrary = true,
+		libraryFull = false
 	}: Props = $props();
 	const noteId = $props.id();
 	/** The group's note, which describes the kind and the number (they show none of their own). */
@@ -99,7 +105,12 @@
 			});
 		}
 		if (onlibrary && editLibrary) {
-			list.push({ value: NEW_ENTRY, label: 'New entry…', group: LIBRARY_GROUP });
+			list.push({
+				value: NEW_ENTRY,
+				label: newOptionLabel('New entry…', libraryFull, 'resistance'),
+				disabled: libraryFull,
+				group: LIBRARY_GROUP
+			});
 		}
 		return list;
 	});
@@ -113,7 +124,7 @@
 	function choose(next: Choice) {
 		if (next === choice) return;
 		if (next === NEW_ENTRY) {
-			onlibrary?.(null);
+			if (!libraryFull) onlibrary?.(null);
 			return;
 		}
 		if (next.startsWith('entry:')) {

@@ -46,7 +46,7 @@ import {
 	type OrderedFields
 } from './model-rules';
 import { CUSTOM_MATERIAL_ID, resolvedPipe, type ResolvedPipe } from './piping';
-import { stringLimits } from './schema-bounds';
+import { itemLimit, stringLimits } from './schema-bounds';
 import { formatValue } from './units';
 
 // ---------------------------------------------------------------------------------------------
@@ -641,6 +641,16 @@ export function withResistanceKind(
 // Edits
 // ---------------------------------------------------------------------------------------------
 
+/** The schema's limit on each list (Project.pipeLibrary and resistanceLibrary maxItems: 100). */
+export const MAX_PIPE_SPECS = itemLimit('Project', 'pipeLibrary');
+export const MAX_RESISTANCE_ENTRIES = itemLimit('Project', 'resistanceLibrary');
+
+/** "A project holds at most 100 pipe specs.": why a full list takes no new entry. */
+export const libraryLimitText = (list: 'pipe' | 'resistance'): string =>
+	list === 'pipe'
+		? `A project holds at most ${MAX_PIPE_SPECS} pipe specs.`
+		: `A project holds at most ${MAX_RESISTANCE_ENTRIES} resistance entries.`;
+
 function sentence(problems: readonly string[]): string {
 	const text = problems.join('; ');
 	return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
@@ -649,7 +659,8 @@ function sentence(problems: readonly string[]): string {
 /**
  * Add a pipe spec to the project library, or replace the one with its id (every pipe that refers
  * to it then takes its new values). A new spec's id must not be in use (usedIds: elements, pump
- * curves and both lists); one that breaks the published rules is refused (pipeSpecRuleProblems).
+ * curves and both lists), and a full list (MAX_PIPE_SPECS) takes no new one, as the API refuses
+ * it; one that breaks the published rules is refused (pipeSpecRuleProblems).
  */
 export function setPipeSpec(project: Project, spec: PipeSpec): Project {
 	const specs = pipeSpecs(project);
@@ -657,6 +668,7 @@ export function setPipeSpec(project: Project, spec: PipeSpec): Project {
 	if (index === -1 && usedIds(project).has(spec.id)) {
 		throw new EditError(`The id "${spec.id}" is already used in this project.`);
 	}
+	if (index === -1 && specs.length >= MAX_PIPE_SPECS) throw new EditError(libraryLimitText('pipe'));
 	const problems = pipeSpecRuleProblems(spec);
 	if (problems.length) throw new EditError(sentence(problems));
 	const next = index === -1 ? [...specs, spec] : specs.map((s, i) => (i === index ? spec : s));
@@ -666,13 +678,16 @@ export function setPipeSpec(project: Project, spec: PipeSpec): Project {
 /**
  * Add a resistance entry to the project library, or replace the one with its id (every valve and
  * fitting that refers to it then takes its new coefficient, a change of kind included). The same
- * id and rule refusals as setPipeSpec.
+ * id, limit and rule refusals as setPipeSpec.
  */
 export function setResistanceSpec(project: Project, entry: ResistanceSpec): Project {
 	const entries = resistanceEntries(project);
 	const index = entries.findIndex((e) => e.id === entry.id);
 	if (index === -1 && usedIds(project).has(entry.id)) {
 		throw new EditError(`The id "${entry.id}" is already used in this project.`);
+	}
+	if (index === -1 && entries.length >= MAX_RESISTANCE_ENTRIES) {
+		throw new EditError(libraryLimitText('resistance'));
 	}
 	const problems = resistanceSpecRuleProblems(entry);
 	if (problems.length) throw new EditError(sentence(problems));

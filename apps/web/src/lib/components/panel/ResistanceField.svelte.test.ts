@@ -9,7 +9,7 @@ import { testWorkspace } from '$lib/testing/workspace';
 import { componentById } from '$lib/utils/graph';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { SI_UNITS } from '$lib/utils/units';
-import type { IsolationValve } from '$lib/api/types';
+import type { IsolationValve, ResistanceSpec } from '$lib/api/types';
 import ResistanceField from './ResistanceField.svelte';
 
 async function type(input: HTMLElement, text: string) {
@@ -123,6 +123,46 @@ describe('ResistanceField with the project library', () => {
 		expect(
 			screen.getByText(/^Resistance entry RS9 is not in the project library/)
 		).toBeInTheDocument();
+	});
+});
+
+describe('a full project library', () => {
+	const FULL = 'New entry… (a project holds at most 100)';
+	/** 100 made-up Cv entries: as many as a project may hold. */
+	const hundred = Array.from({ length: 100 }, (_, i): ResistanceSpec => ({
+		id: `RS${i + 1}`,
+		name: `Entry ${i + 1}`,
+		source: 'Test input: a made-up Cv',
+		kind: 'Cv',
+		value: 100
+	}));
+
+	it('offers "New entry…" disabled, saying why, and never opens the library from it', async () => {
+		const onlibrary = vi.fn();
+		render(ResistanceField, {
+			value: undefined,
+			defaultLabel: 'Crane',
+			units: SI_UNITS,
+			entries: hundred,
+			onlibrary,
+			libraryFull: true,
+			onchange: () => {}
+		});
+		const select = screen.getByRole('combobox', { name: 'Resistance given as' });
+		expect(within(select).getByRole('option', { name: FULL })).toBeDisabled();
+		await fireEvent.change(select, { target: { value: 'new-entry' } });
+		expect(onlibrary).not.toHaveBeenCalled();
+	});
+
+	it("on a valve: the project's full list", () => {
+		const project = pumpTransferExample();
+		project.resistanceLibrary = hundred;
+		const ws = testWorkspace(project);
+		ws.nav.jumpTo('V1');
+		render(WorkspaceView, { workspace: ws });
+		const select = screen.getByRole('combobox', { name: 'Resistance given as' });
+		expect(within(select).getByRole('option', { name: FULL })).toBeDisabled();
+		expect(within(select).queryByRole('option', { name: 'New entry…' })).toBeNull();
 	});
 });
 

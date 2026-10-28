@@ -8,7 +8,8 @@
 	at the bore it is stated at, a Cv or a Kv, with its source; the fitting's resistanceId), shown
 	read-only with "Edit in the library" since an edit there changes every element that uses it.
 	"New entry…" (in the base case) opens the library's new entry form, whose entry the fitting then
-	uses. Choosing "K entered here" shows an empty field until a K is entered; the cited K applies
+	uses (offered disabled, saying so, when the library holds as many entries as a project may).
+	Choosing "K entered here" shows an empty field until a K is entered; the cited K applies
 	meanwhile (a custom fitting is flagged). "K source" names the source of the K the solve uses:
 	the type's cited K, or user data for a K entered here; an entry's source is in its block.
 -->
@@ -45,6 +46,7 @@
 	import { formatValue } from '$lib/utils/units';
 	import { ENTRANCE_TYPES, EXIT_TYPES, FITTING_PARAMETERS } from '$lib/utils/model-rules';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import { libraryFull, newOptionLabel } from '$lib/components/workspace/library/limits';
 
 	let { connection }: { connection: PipeConnection } = $props();
 	const ws = useWorkspace();
@@ -85,6 +87,8 @@
 	 */
 	type KChoice = 'cited' | 'entered' | `entry:${string}` | 'new-entry';
 	const entries = $derived(resistanceEntries(ws.project));
+	/** The library holds as many resistance entries as a project may: no new one. */
+	const entriesFull = $derived(libraryFull(ws.project, 'resistance'));
 	/** Fittings (by index) whose "K entered here" was chosen with no K entered yet. */
 	let entering = $state<number[]>([]);
 
@@ -96,7 +100,7 @@
 
 	function kOptions(fitting: Fitting) {
 		const group = 'From the project library';
-		const options: { value: KChoice; label: string; group?: string }[] = [];
+		const options: { value: KChoice; label: string; group?: string; disabled?: boolean }[] = [];
 		if (!required(fitting.type, 'kOverride')) {
 			options.push({ value: 'cited', label: 'Cited K of this fitting type' });
 		}
@@ -115,7 +119,14 @@
 				group
 			});
 		}
-		if (!ws.inScenario) options.push({ value: 'new-entry', label: 'New entry…', group });
+		if (!ws.inScenario) {
+			options.push({
+				value: 'new-entry',
+				label: newOptionLabel('New entry…', entriesFull, 'resistance'),
+				disabled: entriesFull,
+				group
+			});
+		}
 		return options;
 	}
 
@@ -130,6 +141,7 @@
 		const current = kChoice(fitting, index);
 		if (next === current) return;
 		if (next === 'new-entry') {
+			if (entriesFull) return;
 			const connectionId = connection.id;
 			ws.openLibrary({
 				list: 'resistance',

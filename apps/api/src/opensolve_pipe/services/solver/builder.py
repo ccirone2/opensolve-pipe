@@ -561,6 +561,14 @@ not resolve (an unknown material, spec, schedule or size: a topology issue) is a
 other pipe keeps its number (D10) and a port's end pipe is the connection's own end pipe."""
 
 
+def _spec_prefix(pipe: ResolvedPipe) -> str:
+    """The prefix ``pipe spec 'PS1': `` before an issue on a pipe of a project library spec, whose
+    inner diameter and roughness the issue quotes and where they are changed (D10: the id at
+    fault, by id only, as ``resolve_pipe`` names it for an unknown material); empty for a pipe's
+    own values."""
+    return "" if pipe.spec is None else f"pipe spec '{pipe.spec.id}': "
+
+
 def _resolve_pipes(project: Project) -> tuple[ResolvedPipes, list[TopologyIssue]]:
     resolved: ResolvedPipes = {}
     issues: list[TopologyIssue] = []
@@ -582,8 +590,8 @@ def _resolve_pipes(project: Project) -> tuple[ResolvedPipes, list[TopologyIssue]
                 issues.append(
                     issue(
                         "ROUGHNESS_OUT_OF_RANGE",
-                        f"connection '{conn.id}' {pipe_name(i)}: roughness "
-                        f"{resolved_pipe.roughness:g} m "
+                        f"connection '{conn.id}' {pipe_name(i)}: {_spec_prefix(resolved_pipe)}"
+                        f"roughness {resolved_pipe.roughness:g} m "
                         f"is {ed:.4g} times the inner diameter "
                         f"{resolved_pipe.inner_diameter:g} m; the Colebrook equation has no "
                         f"solution for relative roughness of {COLEBROOK_ED_LIMIT:g} or more",
@@ -618,10 +626,10 @@ def _unrepresentable_pipes(resolved: ResolvedPipes, fluid: FluidProperties) -> l
                 issues.append(
                     issue(
                         "PIPE_SIZE_OUT_OF_RANGE",
-                        f"connection '{conn_id}' {pipe_name(i)}: an inner diameter of {d:g} m "
-                        "and a "
-                        f"length of {length:g} m give a pipe resistance that is not a finite "
-                        "floating-point number; the solver cannot represent this pipe",
+                        f"connection '{conn_id}' {pipe_name(i)}: {_spec_prefix(pipe)}an inner "
+                        f"diameter of {d:g} m and a length of {length:g} m give a pipe "
+                        "resistance that is not a finite floating-point number; the solver "
+                        "cannot represent this pipe",
                         [],
                         [conn_id],
                     )

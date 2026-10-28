@@ -7,7 +7,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
-import type { LibraryResponse, PipeConnection } from '$lib/api/types';
+import type { LibraryResponse, PipeConnection, ResistanceSpec } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import { testWorkspace } from '$lib/testing/workspace';
 import { pumpTransferExample } from '$lib/utils/examples';
@@ -114,8 +114,8 @@ describe('reservoir entrance and exit losses', () => {
  * the fitting's own pipe) and shown read-only. Test inputs: libraryProject's entries.
  */
 describe('a fitting K from the project library', () => {
-	function setup() {
-		const ws = testWorkspace(libraryProject());
+	function setup(project = libraryProject()) {
+		const ws = testWorkspace(project);
 		ws.nav.jumpTo('R1');
 		ws.nav.showConnection('port_1');
 		render(WorkspaceView, { workspace: ws });
@@ -164,6 +164,29 @@ describe('a fitting K from the project library', () => {
 			target: { value: 'cited' }
 		});
 		expect(fittingsOf(ws, 'L1')[0]).toEqual({ type: 'elbow_90_lr', quantity: 2, pipeIndex: 0 });
+	});
+
+	it('a full library offers "New entry…" disabled, saying why', async () => {
+		// 100 made-up Cv entries, RS1... (RS2 still fitting 1's): as many as a project may hold.
+		const project = libraryProject();
+		project.resistanceLibrary = Array.from({ length: 100 }, (_, i): ResistanceSpec => ({
+			id: `RS${i + 1}`,
+			name: `Entry ${i + 1}`,
+			source: 'Test input: a made-up Cv',
+			kind: 'Cv',
+			value: 100
+		}));
+		const ws = setup(project);
+		const choice = screen.getByRole('combobox', { name: 'Fitting 1 loss coefficient' });
+		expect(
+			within(choice).getByRole('option', { name: 'New entry… (a project holds at most 100)' })
+		).toBeDisabled();
+		expect(within(choice).queryByRole('option', { name: 'New entry…' })).toBeNull();
+		// Chosen all the same (a disabled option can be set from script): nothing opens.
+		await fireEvent.change(choice, { target: { value: 'new-entry' } });
+		await tick();
+		expect(screen.queryByRole('dialog', { name: 'Project library' })).toBeNull();
+		expect(fittingsOf(ws, 'L1')[0]?.resistanceId).toBe('RS2');
 	});
 
 	it('a custom fitting has no cited K: an entry or a K entered here', async () => {

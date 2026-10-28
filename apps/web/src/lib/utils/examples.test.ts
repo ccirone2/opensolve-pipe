@@ -247,10 +247,53 @@ describe('the condenser water example on its project library', () => {
 			...[2, 3, 4, 5, 6].map((i) => [`P${i}`, 'off']),
 			...[2, 3, 4, 5, 6, 7].map((i) => [`F${i}`, 'failed_closed']),
 			...[1, 2, 3, 4, 5, 6].map((i) => [`IV${i}`, 'isolated']),
-			['BP', 'active']
+			['BP', 'active'],
+			[]
 		]);
+		expect(overrides.at(-1)).toEqual({
+			kind: 'component',
+			componentId: 'BP',
+			field: 'resistance',
+			value: { kind: 'K', value: 16.5 }
+		});
 		for (const o of overrides) {
 			expect(o.kind === 'component' && byId.has(o.componentId)).toBe(true);
 		}
+	});
+
+	it('holds back pressure on the return in winter, so its riser and tower header stay full', () => {
+		// Hand calculation. In winter only CH-1's flow control valve passes flow and every cell is
+		// isolated, so its setpoint flows through the bypass valve to the basin, and the riser and
+		// tower header are a dead end on the return. The return's EGL is at least the basin's head
+		// plus the bypass valve's own loss, K v²/2g on its inlet pipe's bore (the bypass pipes, the
+		// tee and the exit only add to it), and the dead end holds that EGL with no velocity. Wide
+		// open (Crane's K, 25 f_T: 0.286) the return would hang 7.4 m of water below atmospheric
+		// pressure at the tower header (solved: −72.1 kPa gauge), which no flag reports.
+		const s1 = plant.scenarios![0]!;
+		const throttle = s1.overrides!.find(
+			(o) => o.kind === 'component' && o.componentId === 'BP' && o.field === 'resistance'
+		);
+		expect(throttle?.value).toMatchObject({ kind: 'K' });
+		const K = (throttle!.value as { value: number }).value;
+		const f1 = byId.get('F1')!;
+		const flow = f1.type === 'valve' && 'setpoint' in f1 ? f1.setpoint : NaN;
+		const inlet = plant.connections.find((c) => c.toComponentId === 'BP')!;
+		expect(inlet.piping.pipes).toEqual([
+			{ materialId: 'carbon_steel', schedule: 'STD', nominalSize: 24 * INCH, length: 2 }
+		]);
+		// NPS 24 STD (ASME B36.10M), the API's data/pipe_materials.json from fluids 1.3.1.
+		const bore = 0.59094;
+		const velocity = flow / ((Math.PI / 4) * bore ** 2);
+		const loss = (K * velocity ** 2) / (2 * 9.80665);
+		const basin = byId.get('B1')!;
+		const basinHead = basin.type === 'reservoir' ? basin.elevation + basin.liquidLevel : NaN;
+		const deadEnd = ['T1', 'T2', 'T3', 'T4', 'T5', 'IV1', 'IV2', 'IV3', 'IV4', 'IV5', 'IV6'];
+		const top = Math.max(...deadEnd.map((id) => byId.get(id)!.elevation));
+		expect([basinHead, top]).toEqual([0.6, 10]);
+		expect(velocity).toBeCloseTo(3.4505, 4);
+		expect(loss).toBeCloseTo(10.016, 3);
+		// The valve alone keeps the highest point of the dead end above atmospheric pressure.
+		expect(basinHead + loss - top).toBeGreaterThan(0.5);
+		expect(s1.description).toContain(`throttled (K ${K})`);
 	});
 });

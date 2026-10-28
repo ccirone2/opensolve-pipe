@@ -46,6 +46,15 @@ async function openExample(page: Page): Promise<void> {
 	);
 }
 
+/** Open the chiller plant condenser example (its pipe specs and resistances in use) from home. */
+async function openCondenser(page: Page): Promise<void> {
+	await page.goto('/');
+	await page.getByRole('link', { name: /Chiller plant/ }).click();
+	await expect(page.getByRole('textbox', { name: 'Project name' })).toHaveValue(
+		'Chiller plant condenser water system'
+	);
+}
+
 /** Open the library from the header's Project toolbar. */
 async function openLibrary(page: Page): Promise<Locator> {
 	await page
@@ -336,16 +345,12 @@ test('Cancel takes the focus with the place of Library while a solve runs, and g
 });
 
 test('a refused Use for… says why in its dialog, in view', async ({ page }) => {
-	// The condenser example's winter case holds 18 changes; 24 pipes more pass the limit of 30.
+	// The condenser example's winter case holds 19 changes; 24 pipes more pass the limit of 30.
 	const valve = 'Cell 1 isolation valve';
-	await page.goto('/');
-	await page.getByRole('link', { name: /Chiller plant/ }).click();
-	await expect(page.getByRole('textbox', { name: 'Project name' })).toHaveValue(
-		'Chiller plant condenser water system'
-	);
+	await openCondenser(page);
 	await page
 		.getByRole('combobox', { name: 'Case', exact: true })
-		.selectOption({ label: 'Winter: tower bypassed (18 changes)' });
+		.selectOption({ label: 'Winter: tower bypassed (19 changes)' });
 	await jumpTo(page, valve);
 	const panel = buildPane(page);
 	await panel.getByRole('tab', { name: 'Piping' }).click();
@@ -371,4 +376,33 @@ test('a refused Use for… says why in its dialog, in view', async ({ page }) =>
 	await expect(use).toBeVisible();
 	await use.getByRole('button', { name: 'Cancel' }).click();
 	await expect(use).toBeHidden();
+});
+
+test('a refused Delete in the library says why in view on a phone, the focus on Delete', async ({
+	page
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'mobile', 'narrow-screen check');
+	// The first card's Delete sits at the bottom of the sheet: its refusal, drawn below it, was
+	// cut off under the footer (62 % shown at 390 px, 33 % at 320 px) until scrolled into view.
+	await openCondenser(page);
+	for (const size of [
+		{ width: 390, height: 844 },
+		{ width: 320, height: 640 }
+	]) {
+		await page.setViewportSize(size);
+		const library = await openLibrary(page);
+		for (const tab of [/^Pipe specs/, /^Resistances/]) {
+			await library.getByRole('tab', { name: tab }).click();
+			const remove = library.getByRole('button', { name: /^Delete / }).first();
+			await remove.click();
+			const alert = library.getByRole('alert');
+			await expect(alert).toHaveText(
+				/^\s*Not deleted: .+ uses this (spec|entry)\. An entry can be deleted once nothing uses it\.$/
+			);
+			await expect(alert, `${size.width} px, ${String(tab)}`).toBeInViewport({ ratio: 1 });
+			await expect(remove).toBeFocused();
+		}
+		await library.getByRole('button', { name: 'Done' }).click();
+		await expect(library).toBeHidden();
+	}
 });

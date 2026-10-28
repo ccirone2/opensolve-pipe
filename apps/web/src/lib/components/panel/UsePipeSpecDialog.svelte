@@ -5,10 +5,11 @@
 	the spec already are left as they are), and one press applies it as one undo step: each pipe
 	keeps its length and its identity (scenario changes and the results shown stay on it). In the
 	base case "New pipe spec…" goes on to the library's new spec form, whose spec those pipes then
-	use, in the same undo step. In a scenario each pipe's spec is a change of that scenario. A press
-	that is refused (a scenario's change limit, an invalid project) says why in this dialog, which
-	stays open: the workspace's notice would be behind the modal dialog (inert, and under the sheet
-	on phones), so it is shown here, as the library dialog shows its refusals (proposal §12.23).
+	use, in the same undo step (offered disabled, saying so, when the library holds as many specs as
+	a project may). In a scenario each pipe's spec is a change of that scenario. A press that is
+	refused (a scenario's change limit, an invalid project) says why in this dialog, which stays
+	open: the workspace's notice would be behind the modal dialog (inert, and under the sheet on
+	phones), so it is shown here, as the library dialog shows its refusals (proposal §12.23).
 -->
 <script lang="ts">
 	import type { PipeConnection } from '$lib/api/types';
@@ -24,6 +25,7 @@
 		type PipeSpecScope
 	} from '$lib/utils/project-library';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
+	import { libraryFull, newOptionLabel } from '$lib/components/workspace/library/limits';
 
 	interface Props {
 		connection: PipeConnection;
@@ -37,6 +39,8 @@
 
 	const NEW_SPEC = 'new-spec';
 	const specs = $derived(pipeSpecs(ws.project));
+	/** The library holds as many specs as a project may: no new one. */
+	const specsFull = $derived(libraryFull(ws.project, 'pipe'));
 	const pipe = $derived(connection.piping.pipes[index]);
 	const onSpec = $derived(pipe?.specId != null);
 	let chosen = $state<string>(
@@ -103,7 +107,7 @@
 
 	function apply() {
 		if (chosen === NEW_SPEC) {
-			if (ws.inScenario) return;
+			if (ws.inScenario || specsFull) return;
 			const target = { ...scope };
 			const n = changed;
 			onclose();
@@ -152,7 +156,15 @@
 			value={chosen}
 			options={[
 				...specs.map((s) => ({ value: s.id, label: `${s.name} (${s.id})` })),
-				...(ws.inScenario ? [] : [{ value: NEW_SPEC, label: 'New pipe spec…' }])
+				...(ws.inScenario
+					? []
+					: [
+							{
+								value: NEW_SPEC,
+								label: newOptionLabel('New pipe spec…', specsFull, 'pipe'),
+								disabled: specsFull
+							}
+						])
 			]}
 			shared
 			hint={specs.length

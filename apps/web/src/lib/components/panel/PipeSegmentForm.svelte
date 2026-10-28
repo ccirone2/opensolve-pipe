@@ -5,7 +5,8 @@
 	(CLAUDE.md D21: its values shown read-only, with its source and "Edit in the library", since an
 	edit there changes every pipe that uses it), and its length. The Material list holds the
 	project's specs under "Project specs", and "New pipe spec…" (in the base case: the library is
-	the same in every case) opens the library's new spec form, whose spec this pipe then uses.
+	the same in every case) opens the library's new spec form, whose spec this pipe then uses (when
+	the library holds as many specs as a project may, it is offered disabled, saying so).
 	"Use a pipe spec for…" uses a spec for this pipe, every pipe of its size and material, or every
 	pipe of this connection, as one undo step after a confirmation that states the count. In a
 	scenario the material, schedule, size and the bore and roughness (or a custom pipe's, or the
@@ -48,6 +49,7 @@
 	import { Formatter, solvedPipe } from '$lib/utils/results';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import NominalSizeField from './NominalSizeField.svelte';
+	import { libraryFull, newOptionLabel } from '$lib/components/workspace/library/limits';
 	import UsePipeSpecDialog from './UsePipeSpecDialog.svelte';
 
 	interface Props {
@@ -65,6 +67,8 @@
 	const specId = $derived(pipe.specId ?? null);
 	const libSpec = $derived(specId === null ? undefined : pipeSpecOf(ws.project, specId));
 	const specs = $derived(pipeSpecs(ws.project));
+	/** The library holds as many specs as a project may: no new one. */
+	const specsFull = $derived(libraryFull(ws.project, 'pipe'));
 	const custom = $derived(specId === null && pipe.materialId === CUSTOM_MATERIAL_ID);
 	const material = $derived(specId === null ? lib.material(pipe.materialId) : undefined);
 	const schedule = $derived(lib.schedule(pipe.materialId, pipe.schedule));
@@ -130,7 +134,12 @@
 			});
 		}
 		if (!ws.inScenario)
-			options.push({ value: NEW_SPEC, label: 'New pipe spec…', group: SPECS_GROUP });
+			options.push({
+				value: NEW_SPEC,
+				label: newOptionLabel('New pipe spec…', specsFull, 'pipe'),
+				disabled: specsFull,
+				group: SPECS_GROUP
+			});
 		return options;
 	});
 
@@ -162,6 +171,7 @@
 	function setMaterial(value: string) {
 		if (value === materialValue) return;
 		if (value === NEW_SPEC) {
+			if (specsFull) return;
 			const connectionId = connection.id;
 			const pipeIndex = index;
 			ws.openLibrary({

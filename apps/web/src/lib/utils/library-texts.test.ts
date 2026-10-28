@@ -2,8 +2,8 @@
  * Flags and topology issues about the project library (CLAUDE.md D21): the advice a Crane
  * default's range flag gains (proposal project-library.md §4.3), and the issues the solver raises
  * for references and entries (UNKNOWN_PIPE_SPEC, UNKNOWN_RESISTANCE, VALVE_RESISTANCE_OUT_OF_RANGE,
- * FITTING_RESISTANCE_OUT_OF_RANGE, an unknown material of a spec), told with names from the
- * project. Flags and issues are made-up test inputs shaped like the API's (codes, details and
+ * FITTING_RESISTANCE_OUT_OF_RANGE, an unknown material of a spec, a spec's bore or roughness out
+ * of range), told with names from the project. Flags and issues are made-up test inputs shaped like the API's (codes, details and
  * message wording of apps/api solver/builder.py and results.py).
  */
 import { describe, expect, it } from 'vitest';
@@ -179,6 +179,43 @@ describe('topology issues about the project library', () => {
 		expect(view!.text).toBe(
 			'Piping Upper tank → Gate valve V1, pipe 1: its pipe spec “NPS 4 measured” names a material the pipe library does not have, “carbon_steel”: choose a material from the library for the spec, or make it a custom spec.'
 		);
+	});
+
+	it('name the spec whose bore or roughness is out of range, to be changed in the library', () => {
+		// The API's messages on a pipe of a spec (builder.py: "pipe spec 'PS1': " after the pipe).
+		const [roughness] = views(
+			issue(
+				'ROUGHNESS_OUT_OF_RANGE',
+				"connection 'L1' pipe 1: pipe spec 'PS1': roughness 0.045 m is 4.5 times the inner diameter 0.01 m; the Colebrook equation has no solution for relative roughness of 3.7 or more",
+				[],
+				['L1']
+			)
+		);
+		expect(roughness!.text).toBe(
+			'Piping Upper tank → Gate valve V1, pipe 1: its pipe spec “NPS 4 measured” has a roughness (45 mm) 4.5 times its inner diameter (10 mm), and the Colebrook equation has no solution for a relative roughness (roughness ÷ inner diameter) of 3.7 or more. Give the spec a smaller roughness or a larger inner diameter in the project library.'
+		);
+		expect(roughness!.links[0]).toMatchObject({ componentId: 'R1', portId: 'port_1' });
+		const [size] = views(
+			issue(
+				'PIPE_SIZE_OUT_OF_RANGE',
+				"connection 'L1' pipe 1: pipe spec 'PS1': an inner diameter of 1e-100 m and a length of 5 m give a pipe resistance that is not a finite floating-point number; the solver cannot represent this pipe",
+				[],
+				['L1']
+			)
+		);
+		expect(size!.text).toBe(
+			"Piping Upper tank → Gate valve V1, pipe 1: the inner diameter of its pipe spec “NPS 4 measured”, 1e-97 mm, and its length, 5 m, give a pipe resistance that is not a finite floating-point number, so the solver cannot represent this pipe. Check the spec's inner diameter in the project library, and the pipe's length."
+		);
+		// A spec the project does not have (the message is the server's): named by its id.
+		const [unknown] = views(
+			issue(
+				'ROUGHNESS_OUT_OF_RANGE',
+				"connection 'L1' pipe 1: pipe spec 'PS9': roughness 0.045 m is 4.5 times the inner diameter 0.01 m; the Colebrook equation has no solution for relative roughness of 3.7 or more",
+				[],
+				['L1']
+			)
+		);
+		expect(unknown!.text).toContain('its pipe spec “PS9” has a roughness (45 mm)');
 	});
 
 	it("keep the server's message when it is not in the form expected", () => {

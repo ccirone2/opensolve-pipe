@@ -22,6 +22,8 @@ import {
 	inlineCoefficient,
 	isResistanceRef,
 	libraryMentions,
+	MAX_PIPE_SPECS,
+	MAX_RESISTANCE_ENTRIES,
 	newPipeSpecId,
 	newResistanceId,
 	pipeAsSolved,
@@ -260,6 +262,53 @@ describe('setPipeSpec and setResistanceSpec', () => {
 				referenceDiameter: 0.1
 			})
 		).toThrow('A Cv entry takes no reference diameter (it needs no bore).');
+	});
+
+	it('refuse a new entry on a full list, as the API does, but edit one in place', () => {
+		// 100 made-up entries in each list: the schema's maxItems.
+		const project = deepFreeze({
+			...libraryProject(),
+			pipeLibrary: Array.from({ length: 100 }, (_, i) => ({
+				id: `PS${i + 1}`,
+				name: `Spec ${i + 1}`,
+				source: 'test input',
+				materialId: 'custom',
+				innerDiameter: 0.05,
+				roughness: 1e-5
+			})),
+			resistanceLibrary: Array.from({ length: 100 }, (_, i) => ({
+				id: `RS${i + 1}`,
+				name: `Entry ${i + 1}`,
+				source: 'test input',
+				kind: 'Cv' as const,
+				value: 100
+			}))
+		});
+		expect([MAX_PIPE_SPECS, MAX_RESISTANCE_ENTRIES]).toEqual([100, 100]);
+		expect(() =>
+			setPipeSpec(project, {
+				id: 'PS101',
+				name: 'One more',
+				source: 'test input',
+				materialId: 'custom',
+				innerDiameter: 0.05,
+				roughness: 1e-5
+			})
+		).toThrow(new EditError('A project holds at most 100 pipe specs.'));
+		expect(() =>
+			setResistanceSpec(project, {
+				id: 'RS101',
+				name: 'One more',
+				source: 'test input',
+				kind: 'Cv',
+				value: 100
+			})
+		).toThrow(new EditError('A project holds at most 100 resistance entries.'));
+		const edited = setPipeSpec(project, { ...project.pipeLibrary![99]!, innerDiameter: 0.06 });
+		expect(edited.pipeLibrary).toHaveLength(100);
+		expect(edited.pipeLibrary![99]!.innerDiameter).toBe(0.06);
+		const kv = setResistanceSpec(project, { ...project.resistanceLibrary![0]!, kind: 'Kv' });
+		expect(kv.resistanceLibrary).toHaveLength(100);
 	});
 
 	it('rule problems match the published rules both ways', () => {

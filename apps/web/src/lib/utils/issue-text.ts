@@ -563,13 +563,20 @@ function pipeIssue(issue: TopologyIssue, links: IssueLink[], context: Context): 
 			const match = ROUGHNESS.exec(rest);
 			if (match) {
 				const [, roughness = '', ratio = '', diameter = '', limit = ''] = match;
+				const r = formatValue(Number(roughness), 'diameter', units);
+				const times = `${formatNumber(Number(ratio), 4)} times its inner diameter`;
+				const d = formatValue(Number(diameter), 'diameter', units);
+				// On a pipe of a spec the values are the spec's, changed in the library (D21).
 				text =
-					`${where}: its roughness (${formatValue(Number(roughness), 'diameter', units)}) is ` +
-					`${formatNumber(Number(ratio), 4)} times its inner diameter ` +
-					`(${formatValue(Number(diameter), 'diameter', units)}), and the Colebrook equation has ` +
+					(ofSpec
+						? `${where}: its pipe spec “${spec?.name ?? ofSpec[1]}” has a roughness (${r}) ${times} (${d}), `
+						: `${where}: its roughness (${r}) is ${times} (${d}), `) +
+					`and the Colebrook equation has ` +
 					`no solution for a relative roughness (roughness ÷ inner diameter) of ` +
-					`${formatNumber(Number(limit), 6)} or more. Use a smaller roughness or a larger inner ` +
-					'diameter.';
+					`${formatNumber(Number(limit), 6)} or more. ` +
+					(ofSpec
+						? 'Give the spec a smaller roughness or a larger inner diameter in the project library.'
+						: 'Use a smaller roughness or a larger inner diameter.');
 			}
 			break;
 		}
@@ -577,11 +584,18 @@ function pipeIssue(issue: TopologyIssue, links: IssueLink[], context: Context): 
 			const match = PIPE_SIZE.exec(rest);
 			if (match) {
 				const [, diameter = '', length = ''] = match;
+				const d = formatValue(Number(diameter), 'diameter', units);
+				const l = formatValue(Number(length), 'length', units);
+				// On a pipe of a spec the bore is the spec's (changed in the library), the length the pipe's.
 				text =
-					`${where}: an inner diameter of ${formatValue(Number(diameter), 'diameter', units)} and ` +
-					`a length of ${formatValue(Number(length), 'length', units)} give a pipe resistance ` +
+					(ofSpec
+						? `${where}: the inner diameter of its pipe spec “${spec?.name ?? ofSpec[1]}”, ${d}, and its length, ${l}, give a pipe resistance `
+						: `${where}: an inner diameter of ${d} and a length of ${l} give a pipe resistance `) +
 					'that is not a finite floating-point number, so the solver cannot represent this ' +
-					'pipe. Check its inner diameter and length.';
+					'pipe. ' +
+					(ofSpec
+						? "Check the spec's inner diameter in the project library, and the pipe's length."
+						: 'Check its inner diameter and length.');
 			}
 			break;
 		}
@@ -735,7 +749,8 @@ const ORIFICE_LOSS = new RegExp(
 );
 /** "connection 'L1' pipe 2: <the pipe's problem>" (pipes numbered from 1). */
 const PIPE_PREFIX = new RegExp(`^connection '${ID}' pipe (\\d+): (.*)$`, 's');
-/** A pipe of a project library spec: "pipe spec 'PS1': <its material's problem>" (D21). */
+/** A pipe of a project library spec: "pipe spec 'PS1': <its material's, bore's or roughness's
+ * problem>" (D21: UNKNOWN_PIPE_MATERIAL, ROUGHNESS_OUT_OF_RANGE, PIPE_SIZE_OUT_OF_RANGE). */
 const SPEC_PREFIX = new RegExp(`^pipe spec '${ID}': (.*)$`, 's');
 /** An entry's coefficient as entered (project_library.entered_text): "Cv 60000", "K 0.3 at 0.7366 m". */
 const ENTERED = `(K|Cv|Kv) ${NUM}(?: at ${NUM} m)?`;

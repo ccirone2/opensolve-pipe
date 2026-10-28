@@ -251,6 +251,14 @@ const NPS60_SPEC = 'PS1';
 const BUTTERFLY30_CV = 'RS1';
 
 /**
+ * The condenser water example's tower bypass valve's K in the winter scenario, throttled on its
+ * NPS 24 bore to hold back pressure on the return (an illustrative input, as a modulating bypass
+ * valve's position is): at 15,000 gpm its loss, 10.0 m, exceeds the 9.4 m from the basin's water
+ * up to the tower header.
+ */
+const WINTER_BYPASS_K = 16.5;
+
+/**
  * A pipe of `nps` inches and `length` m: NPS 60 refers to the project library's pipe spec, every
  * other size is standard-wall (STD, ASME B36.10M) carbon steel from the cited library.
  */
@@ -303,7 +311,12 @@ function reducer(pipeIndex = 0): Fitting {
  * (rated by its pressure drop), which sprays into the open cell, modelled as a reservoir at
  * atmospheric pressure at the nozzles' elevation; the water falls to the basin the pumps draw from.
  * The NPS 24 tower bypass valve, from the return header to the basin, is closed at design; the
- * winter scenario opens it for one pump's 15,000 gpm (about 3.45 m/s).
+ * winter scenario opens it for one pump's 15,000 gpm (about 3.45 m/s), throttled to K 16.5 on its
+ * bore (`WINTER_BYPASS_K`, an illustrative input) so that it holds back pressure on the return:
+ * its own loss, 10.0 m, keeps the return above the tower header's 10 m, so the dead-ended riser and
+ * tower header stay full above atmospheric pressure. Wide open (Crane's K 0.286), the tower header
+ * would sit 7.4 m of water below atmospheric pressure, which no flag reports (only pressures below
+ * the vapour pressure are flagged) but which a real riser does not hold: its vents admit air.
  *
  * The project library holds what the cited library lacks, both illustrative inputs labelled as
  * such in their sources: the NPS 60 pipe (steel STD stops at NPS 48 in the cited library), a
@@ -615,18 +628,26 @@ export function condenserWaterExample(): Project {
 		connect([`N${i}`, 'outlet'], [`A${i}`, 'port_1'], [[30, 0.5]]);
 	});
 
-	// Winter: one chiller on one pump, every cell isolated and the tower bypassed.
+	// Winter: one chiller on one pump, every cell isolated and the tower bypassed through the
+	// bypass valve, throttled to hold back pressure on the return (wide open, the dead-ended riser
+	// and tower header would hang below atmospheric pressure).
 	const status = (componentId: string, value: string): Override => ({
 		kind: 'component',
 		componentId,
 		field: 'status',
 		value
 	});
-	const winter = [
+	const winter: Override[] = [
 		...[2, 3, 4, 5, 6].map((i) => status(`P${i}`, 'off')),
 		...[2, 3, 4, 5, 6, 7].map((i) => status(`F${i}`, 'failed_closed')),
 		...cellFeeds.map((_, k) => status(`IV${k + 1}`, 'isolated')),
-		status('BP', 'active')
+		status('BP', 'active'),
+		{
+			kind: 'component',
+			componentId: 'BP',
+			field: 'resistance',
+			value: { kind: 'K', value: WINTER_BYPASS_K }
+		}
 	];
 
 	return {
@@ -639,7 +660,8 @@ export function condenserWaterExample(): Project {
 				name: 'Winter: tower bypassed',
 				description:
 					'CH-1 on CWP-1; the other pumps off, the other chillers’ flow control valves ' +
-					'closed, every cell isolated and the tower bypass valve open.',
+					'closed, every cell isolated and the tower bypass valve open, throttled (K 16.5) ' +
+					'to hold the return header, riser and tower header above atmospheric pressure.',
 				overrides: winter
 			}
 		],

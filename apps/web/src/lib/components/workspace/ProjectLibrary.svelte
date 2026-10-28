@@ -6,7 +6,10 @@
 	units, its source and what uses it. Its form opens in place of the lists, Save and Cancel in
 	the footer; a new entry takes an id from newId (PS1, RS1, ...), never one in use. Every save
 	and delete is one undo step. Delete is refused while anything uses the entry (an element, or a
-	scenario's change), naming the first user, as a pump curve's is.
+	scenario's change), naming the first user, as a pump curve's is; the refusal is scrolled into
+	view (on a phone it would be under the footer), the focus staying on Delete. A list holds at
+	most 100 entries (the schema's limit, library/limits.ts): when it is full, New is unavailable
+	and the list says why, before any form is filled in.
 
 	Opened from the header (its lists), from a picker that can use an entry (an entry's form, or a
 	new entry's form whose entry is then used there in the same undo step: `use`), and from a
@@ -51,6 +54,7 @@
 		type PipeSpecDraft,
 		type ResistanceDraft
 	} from './library/drafts';
+	import { libraryFull, libraryLimitText } from './library/limits';
 	import PipeSpecFields from './library/PipeSpecFields.svelte';
 	import ResistanceEntryFields from './library/ResistanceEntryFields.svelte';
 
@@ -82,6 +86,8 @@
 
 	const initial = untrack(() => ws.libraryFocus);
 	let list = $state<List>(initial?.list ?? 'pipe');
+	/** The list shown holds as many entries as a project may: New is unavailable. */
+	const full = $derived(libraryFull(store.project, list));
 	let form = $state<Form | null>(untrack(() => initialForm(initial)));
 	let errors = $state<FieldErrors>({});
 	/** Problems the API's rules find in a complete draft (or a refused save), under the form. */
@@ -103,6 +109,8 @@
 	function initialForm(focus: LibraryFocus | null): Form | null {
 		if (!focus || ws.inScenario) return null;
 		if (focus.create) {
+			// A full list: shown, saying why, rather than a form that cannot be saved.
+			if (libraryFull(store.project, focus.list)) return null;
 			return focus.list === 'pipe'
 				? {
 						list: 'pipe',
@@ -192,6 +200,10 @@
 	function save() {
 		const current = form;
 		if (!current || readOnly) return;
+		if (current.isNew && libraryFull(store.project, current.list)) {
+			problems = [libraryLimitText(current.list)];
+			return;
+		}
 		const missing =
 			current.list === 'pipe' ? pipeSpecMissing(current.draft) : resistanceMissing(current.draft);
 		if (Object.keys(missing).length) {
@@ -239,6 +251,10 @@
 				[entry.id]: `Not deleted: ${result.problems[0] ?? 'it is in use.'} An entry can be deleted once nothing uses it.`
 			};
 			status = '';
+			// The refusal is drawn below Delete: in view in full (on a phone it would be under the
+			// footer), the focus staying on Delete.
+			await tick();
+			document.getElementById(`${id}-refusal-${entry.id}`)?.scrollIntoView?.({ block: 'nearest' });
 			return;
 		}
 		refusals = {};
@@ -348,7 +364,13 @@
 		</div>
 	{/if}
 	{#if refusals[entry.id]}
-		<p role="alert" class="flex items-start gap-1 text-sm text-red-700">
+		<!-- Its scroll margin: scrolled into view with a gap above the footer, never a sliver under
+			it (a fraction of a pixel at 320 px). -->
+		<p
+			id="{id}-refusal-{entry.id}"
+			role="alert"
+			class="flex scroll-mb-3 items-start gap-1 text-sm text-red-700"
+		>
 			<Icon name="alert" class="mt-0.5 size-4 shrink-0" /><span>{refusals[entry.id]}</span>
 		</p>
 	{/if}
@@ -432,6 +454,11 @@
 				<h3 id="{id}-{list}-heading" tabindex="-1" class="sr-only">
 					{list === 'pipe' ? 'Pipe specs' : 'Resistances'}
 				</h3>
+				{#if full && !readOnly}
+					<p id="{id}-limit" class="text-slate-700">
+						{libraryLimitText(list)} Delete one that nothing uses to add another.
+					</p>
+				{/if}
 				{#if list === 'pipe'}
 					{#if !specs.length}
 						<p class="text-slate-700">
@@ -518,7 +545,11 @@
 					type="button"
 					id="{id}-new"
 					class="btn"
-					onclick={() =>
+					aria-disabled={full}
+					aria-describedby={full ? `${id}-limit` : undefined}
+					title={full ? libraryLimitText(list) : undefined}
+					onclick={() => {
+						if (full) return;
 						openForm(
 							list === 'pipe'
 								? {
@@ -533,7 +564,8 @@
 										isNew: true,
 										fromFocus: false
 									}
-						)}
+						);
+					}}
 				>
 					<Icon name="plus" class="size-4" />
 					{list === 'pipe' ? 'New pipe spec' : 'New resistance entry'}

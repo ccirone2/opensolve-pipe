@@ -505,7 +505,13 @@
 	{#snippet footer()}
 		{#if form}
 			<button type="button" class="btn" onclick={() => closeForm(null)}>Cancel</button>
-			<button type="button" class="btn btn-primary" onclick={save}>{saveLabel}</button>
+			<!-- Wraps: "Save and use for pipe 1 of A → B" is wider than a phone's sheet, whose
+				right-aligned footer would cut its start off (the footer wraps it onto a row of its own). -->
+			<button
+				type="button"
+				class="btn btn-primary py-1.5 text-left wrap-anywhere whitespace-normal"
+				onclick={save}>{saveLabel}</button
+			>
 		{:else}
 			{#if !readOnly}
 				<button

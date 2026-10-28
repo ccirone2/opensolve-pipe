@@ -555,12 +555,18 @@ def validate_topology(project: Project) -> list[TopologyIssue]:
     return issues
 
 
-def _resolve_pipes(project: Project) -> tuple[dict[str, list[ResolvedPipe]], list[TopologyIssue]]:
-    resolved: dict[str, list[ResolvedPipe]] = {}
+ResolvedPipes = dict[str, dict[int, ResolvedPipe]]
+"""Connection id -> its pipes that resolve, by their index in the connection. A pipe that does
+not resolve (an unknown material, spec, schedule or size: a topology issue) is absent, so every
+other pipe keeps its number (D10) and a port's end pipe is the connection's own end pipe."""
+
+
+def _resolve_pipes(project: Project) -> tuple[ResolvedPipes, list[TopologyIssue]]:
+    resolved: ResolvedPipes = {}
     issues: list[TopologyIssue] = []
     specs = pipe_specs(project)
     for conn in project.connections:
-        pipes: list[ResolvedPipe] = []
+        pipes: dict[int, ResolvedPipe] = {}
         for i, pipe in enumerate(conn.piping.pipes):
             if pipe.spec_id is not None and pipe.spec_id not in specs:
                 continue  # UNKNOWN_PIPE_SPEC (validate_topology)
@@ -585,7 +591,7 @@ def _resolve_pipes(project: Project) -> tuple[dict[str, list[ResolvedPipe]], lis
                         [conn.id],
                     )
                 )
-            pipes.append(resolved_pipe)
+            pipes[i] = resolved_pipe
         resolved[conn.id] = pipes
     return resolved, issues
 
@@ -593,16 +599,14 @@ def _resolve_pipes(project: Project) -> tuple[dict[str, list[ResolvedPipe]], lis
 # --------------------------------------------------------------------------- building
 
 
-def _unrepresentable_pipes(
-    resolved: dict[str, list[ResolvedPipe]], fluid: FluidProperties
-) -> list[TopologyIssue]:
+def _unrepresentable_pipes(resolved: ResolvedPipes, fluid: FluidProperties) -> list[TopologyIssue]:
     """Pipes whose loss coefficients are not finite, positive floating-point numbers: the
     laminar r = 32 ν L/(g D² A) and the turbulent L/(2 g D A²) (f = 1). A schema-valid but
     extreme size (an inner diameter of 1e-100 m) underflows D² A to 0, and the solver could
     only fail on it."""
     issues: list[TopologyIssue] = []
     for conn_id, pipes in resolved.items():
-        for i, pipe in enumerate(pipes):
+        for i, pipe in pipes.items():
             d, length = pipe.inner_diameter, pipe.length
             area = 0.25 * math.pi * d * d
             try:
@@ -625,23 +629,23 @@ def _unrepresentable_pipes(
     return issues
 
 
-def _port_end_pipes(
-    project: Project, resolved: dict[str, list[ResolvedPipe]]
-) -> dict[str, ResolvedPipe]:
+def _port_end_pipes(project: Project, resolved: ResolvedPipes) -> dict[str, ResolvedPipe]:
     """Node key -> the resolved pipe at that port's end of its connection (the first connection
-    that names the port; a port connected twice is a topology issue)."""
-    pipes_at: dict[str, ResolvedPipe] = {}
+    that names the port; a port connected twice is a topology issue). A port whose end pipe does
+    not resolve has none: it is left to that pipe's issue, never tested on another pipe."""
+    pipes_at: dict[str, ResolvedPipe | None] = {}
     for conn in project.connections:
-        pipes = resolved.get(conn.id)
-        if pipes:
-            pipes_at.setdefault(node_key(conn.from_component_id, conn.from_port_id), pipes[0])
-            pipes_at.setdefault(node_key(conn.to_component_id, conn.to_port_id), pipes[-1])
-    return pipes_at
+        pipes = resolved.get(conn.id, {})
+        ends = (
+            (node_key(conn.from_component_id, conn.from_port_id), 0),
+            (node_key(conn.to_component_id, conn.to_port_id), len(conn.piping.pipes) - 1),
+        )
+        for key, index in ends:
+            pipes_at.setdefault(key, pipes.get(index))
+    return {key: pipe for key, pipe in pipes_at.items() if pipe is not None}
 
 
-def _unrepresentable_valves(
-    project: Project, resolved: dict[str, list[ResolvedPipe]]
-) -> list[TopologyIssue]:
+def _unrepresentable_valves(project: Project, resolved: ResolvedPipes) -> list[TopologyIssue]:
     """Valves whose loss coefficient is not a finite floating-point number: the K of a Cv or Kv
     on the inlet pipe's inner diameter, and K/(2 g A²). A schema-valid but extreme Cv (below
     about 1e-160) makes the conversion divide by zero or overflow, and the solver could only
@@ -703,9 +707,7 @@ def _unrepresentable_valves(
     return issues
 
 
-def _unrepresentable_fittings(
-    project: Project, resolved: dict[str, list[ResolvedPipe]]
-) -> list[TopologyIssue]:
+def _unrepresentable_fittings(project: Project, resolved: ResolvedPipes) -> list[TopologyIssue]:
     """Fittings whose K from a project library entry (CLAUDE.md D21), on the inner diameter of
     their pipe pipeIndex, or K/(2 g A²), is not a finite floating-point number: a schema-valid
     but extreme entry (a K stated at a bore 10⁸⁰ times smaller, a Cv of 1e-170), on which the
@@ -774,7 +776,7 @@ def _unrepresentable_equipment(project: Project) -> list[TopologyIssue]:
 
 
 def orifice_refusals(
-    project: Project, resolved: dict[str, list[ResolvedPipe]] | None = None
+    project: Project, resolved: ResolvedPipes | None = None
 ) -> dict[str, tuple[Orifice, float, Refusal]]:
     """Orifice plates the law cannot represent (proposal orifice-plate.md decision 17), by id:
     the plate, its inlet pipe's inner diameter D and the first rule it breaks. D is the inner
@@ -883,9 +885,7 @@ def _orifice_iso_tail(comp: Orifice, why: Refusal) -> str:
     )
 
 
-def _unrepresentable_orifices(
-    project: Project, resolved: dict[str, list[ResolvedPipe]]
-) -> list[TopologyIssue]:
+def _unrepresentable_orifices(project: Project, resolved: ResolvedPipes) -> list[TopologyIssue]:
     """ORIFICE_OUT_OF_RANGE (proposal orifice-plate.md decision 17): one issue per plate the law
     cannot represent, naming the first rule it breaks; listed after every other issue."""
     return [
@@ -1024,7 +1024,7 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
     for conn in project.connections:
         a = node_key(conn.from_component_id, conn.from_port_id)
         b = node_key(conn.to_component_id, conn.to_port_id)
-        pipes = resolved[conn.id]
+        pipes = list(resolved[conn.id].values())  # every pipe resolved, in order
         segments = [PipeSegment.from_resolved(p, fluid.kinematic_viscosity, g) for p in pipes]
         diameters = [p.inner_diameter for p in pipes]
         fittings = [

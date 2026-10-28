@@ -31,6 +31,7 @@ import type { FieldChange } from '../components/ui/field-mode';
 import type { CompareRow } from '../utils/compare';
 import { flagText } from '../utils/flag-text';
 import { fittingFallbackName } from '../utils/labels';
+import { pipeNominalSize } from '../utils/piping';
 import {
 	caseProject,
 	changeStates,
@@ -769,10 +770,14 @@ export class Workspace {
 		return branch.id;
 	}
 
-	/** A component inserted in `connection` sits at its upstream end's elevation, sized to its last pipe. */
+	/**
+	 * A component inserted in `connection` sits at its upstream end's elevation, sized to its last
+	 * pipe (a project library spec's nominal size for a pipe of a spec, pipeNominalSize).
+	 */
 	#insertOptions(connection: PipeConnection): { elevation: number; nominalSize?: number } {
 		const from = componentById(this.project, connection.fromComponentId);
-		const size = connection.piping.pipes[connection.piping.pipes.length - 1]?.nominalSize;
+		const pipes = connection.piping.pipes;
+		const size = pipeNominalSize(this.project, pipes[pipes.length - 1]);
 		return { elevation: from?.elevation ?? 0, ...(size ? { nominalSize: size } : {}) };
 	}
 

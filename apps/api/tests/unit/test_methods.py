@@ -212,6 +212,7 @@ def test_method_1_5_0_adds_the_project_library() -> None:
     [line] = entry["changes"]
     assert line.startswith("Adds the project library: ")
     assert "K = K₀ (D/d₀)⁴" in line
+    assert "A fitting on a Cv or Kv entry in laminar flow is flagged" in line
     assert line.endswith(
         "Flows, heads, pressures, statuses, traces, messages and system curves of projects "
         "without a project library are unchanged (corpus comparison)."

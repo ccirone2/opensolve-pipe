@@ -46,6 +46,7 @@ import {
 	requiredPortCount,
 	requiredPortIds
 } from './model-rules';
+import { pipeNominalSize } from './piping';
 
 export class EditError extends Error {
 	constructor(message: string) {
@@ -312,7 +313,7 @@ export function addBranch(
 	const connection = requireConnection(project, connectionId);
 	const from = requireComponent(project, connection.fromComponentId);
 	const size =
-		connection.piping.pipes[connection.piping.pipes.length - 1]?.nominalSize ??
+		pipeNominalSize(project, connection.piping.pipes[connection.piping.pipes.length - 1]) ??
 		portById(from, connection.fromPortId)?.nominalSize;
 	const tee =
 		branch ??

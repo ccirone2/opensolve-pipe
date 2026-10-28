@@ -9,7 +9,8 @@
 	read-only with "Edit in the library" since an edit there changes every element that uses it.
 	"New entry…" (in the base case) opens the library's new entry form, whose entry the fitting then
 	uses. Choosing "K entered here" shows an empty field until a K is entered; the cited K applies
-	meanwhile (a custom fitting is flagged).
+	meanwhile (a custom fitting is flagged). "K source" names the source of the K the solve uses:
+	the type's cited K, or user data for a K entered here; an entry's source is in its block.
 -->
 <script lang="ts">
 	import type { Fitting, PipeConnection } from '$lib/api/types';
@@ -315,7 +316,12 @@
 					{#if reservoirRole(fitting)}
 						<p class="text-xs text-slate-700">{reservoirRole(fitting)}</p>
 					{/if}
-					{#if info}
+					<!-- The source of the K the solve uses: a library entry's is in its block below; a
+						K entered here is user data; else the type's cited K (also while a K is being
+						entered: it applies until then). -->
+					{#if choice === 'entered' && fitting.kOverride != null}
+						<p class="text-xs text-slate-600">K source: the K entered here (user data).</p>
+					{:else if info && !choice.startsWith('entry:')}
 						<p class="text-xs text-slate-600">K source: {info.source}</p>
 					{/if}
 					<div class="grid grid-cols-2 gap-3">

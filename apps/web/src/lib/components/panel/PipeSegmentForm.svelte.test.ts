@@ -6,7 +6,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, expect, it } from 'vitest';
-import type { PipeConnection } from '$lib/api/types';
+import type { Override, PipeConnection } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import { libraryProject } from '$lib/testing/helpers';
 import { TEST_LIBRARY as LIBRARY } from '$lib/testing/library';
@@ -166,6 +166,51 @@ describe('PipeSegmentForm with the project library', () => {
 			nominalSize: 0.1016,
 			length: 7
 		});
+	});
+
+	it('a refused Use for… says why in its dialog, which stays open, and changes nothing', async () => {
+		// 29 changes (of absent elements: kept, never applied); 3 pipes more pass the limit of 30.
+		const project = libraryProject();
+		const l2 = project.connections.find((c) => c.id === 'L2') as PipeConnection;
+		l2.piping.pipes = [
+			{ materialId: 'carbon_steel', schedule: '40', nominalSize: 0.1016, length: 7 },
+			{ materialId: 'carbon_steel', schedule: '40', nominalSize: 0.1016, length: 8 }
+		];
+		const many: Override[] = Array.from({ length: 29 }, (_, i) => ({
+			kind: 'component',
+			componentId: `X${i}`,
+			field: 'status',
+			value: 'off'
+		}));
+		project.scenarios = [{ id: 'S1', name: 'Many', overrides: many }];
+		const { ws } = setupLibrary(project);
+		ws.setCase('S1');
+		await tick();
+		const before = JSON.stringify(ws.store.project);
+		const pipe2 = within(screen.getByRole('region', { name: 'Pipe 2 of 2' }));
+		await fireEvent.click(pipe2.getByRole('button', { name: /^Use a pipe spec for pipe 2/ }));
+		const dialog = within(await screen.findByRole('dialog', { name: 'Use a pipe spec' }));
+		await fireEvent.change(dialog.getByRole('combobox', { name: 'Pipe spec' }), {
+			target: { value: 'PS2' }
+		});
+		expect(dialog.queryByRole('alert')).toBeNull();
+		await fireEvent.click(dialog.getByRole('button', { name: 'Use for 3 pipes' }));
+
+		// The reason is in the dialog, not in the page's notice behind it (inert under the modal).
+		expect(screen.getByRole('dialog', { name: 'Use a pipe spec' })).toBeInTheDocument();
+		expect(dialog.getByRole('alert')).toHaveTextContent(
+			'Could not use pipe spec Lined 80 mm for 3 pipes: A scenario holds at most 30 changes.'
+		);
+		expect(ws.notice).toBeNull();
+		expect(JSON.stringify(ws.store.project)).toBe(before);
+		expect(ws.store.project.scenarios?.[0]?.overrides).toHaveLength(29);
+
+		// A new choice clears it; the press that fits applies, and the dialog closes.
+		await fireEvent.click(dialog.getByRole('radio', { name: /^This pipe/ }));
+		expect(dialog.queryByRole('alert')).toBeNull();
+		await fireEvent.click(dialog.getByRole('button', { name: 'Use for 1 pipe' }));
+		expect(screen.queryByRole('dialog', { name: 'Use a pipe spec' })).toBeNull();
+		expect(ws.store.project.scenarios?.[0]?.overrides).toHaveLength(30);
 	});
 
 	it('in a scenario a spec is a change of the scenario, and no new spec is offered', async () => {

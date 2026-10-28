@@ -5,11 +5,15 @@
 	the spec already are left as they are), and one press applies it as one undo step: each pipe
 	keeps its length and its identity (scenario changes and the results shown stay on it). In the
 	base case "New pipe spec…" goes on to the library's new spec form, whose spec those pipes then
-	use, in the same undo step. In a scenario each pipe's spec is a change of that scenario.
+	use, in the same undo step. In a scenario each pipe's spec is a change of that scenario. A press
+	that is refused (a scenario's change limit, an invalid project) says why in this dialog, which
+	stays open: the workspace's notice would be behind the modal dialog (inert, and under the sheet
+	on phones), so it is shown here, as the library dialog shows its refusals (proposal §12.23).
 -->
 <script lang="ts">
 	import type { PipeConnection } from '$lib/api/types';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
+	import Icon from '$lib/components/ui/Icon.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { componentById } from '$lib/utils/graph';
 	import {
@@ -44,6 +48,8 @@
 		})()
 	);
 	let kind = $state<PipeSpecScope['kind']>('same');
+	/** Why the last press was refused, until the next choice or press. */
+	let refusal = $state('');
 	const scope = $derived<PipeSpecScope>({ kind, connectionId: connection.id, pipeIndex: index });
 	const spec = $derived(chosen === NEW_SPEC ? undefined : pipeSpecOf(ws.project, chosen));
 
@@ -116,6 +122,7 @@
 		const name = spec.name;
 		const specId = spec.id;
 		const n = changed;
+		refusal = '';
 		if (
 			ws.edit(
 				(p) => applyPipeSpec(p, specId, target).project,
@@ -124,6 +131,16 @@
 		) {
 			onclose();
 			ws.notify('info', `${plural(n)} now use “${name}”. Undo reverts all of them.`);
+			return;
+		}
+		// ws.edit reports a refusal as the workspace's notice, behind this modal dialog: it moves
+		// here.
+		const notice = ws.notice;
+		if (notice?.kind === 'error') {
+			refusal = notice.text;
+			ws.dismissNotice();
+		} else {
+			refusal = 'The change was not applied.';
 		}
 	}
 </script>
@@ -141,7 +158,10 @@
 			hint={specs.length
 				? undefined
 				: 'This project has no pipe specs yet: define one in the library, with its source.'}
-			onchange={(v) => (chosen = v)}
+			onchange={(v) => {
+				chosen = v;
+				refusal = '';
+			}}
 		/>
 		<fieldset class="space-y-1">
 			<legend class="label mb-1">For</legend>
@@ -153,7 +173,10 @@
 						name="{id}-scope"
 						value={option.kind}
 						checked={kind === option.kind}
-						onchange={() => (kind = option.kind)}
+						onchange={() => {
+							kind = option.kind;
+							refusal = '';
+						}}
 					/>
 					<span class="min-w-0 break-words">
 						{option.label}
@@ -165,6 +188,15 @@
 		<p id="{id}-summary" class="rounded-md bg-slate-50 p-3 text-slate-800" role="status">
 			{summary}
 		</p>
+		{#if refusal}
+			<p
+				role="alert"
+				class="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 p-3 text-red-900"
+			>
+				<Icon name="alert" class="mt-0.5 size-4 shrink-0" />
+				<span class="min-w-0 break-words">{refusal}</span>
+			</p>
+		{/if}
 	</div>
 	{#snippet footer()}
 		<button type="button" class="btn" onclick={onclose}>Cancel</button>

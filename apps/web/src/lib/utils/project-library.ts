@@ -46,6 +46,7 @@ import {
 	type OrderedFields
 } from './model-rules';
 import { CUSTOM_MATERIAL_ID, resolvedPipe, type ResolvedPipe } from './piping';
+import { stringLimits } from './schema-bounds';
 import { formatValue } from './units';
 
 // ---------------------------------------------------------------------------------------------
@@ -369,10 +370,54 @@ export interface LibraryMention {
 /**
  * How the server names an entry (services/solver/project_library.py spec_label and
  * resistance_label): 'project library pipe spec "NPS 60 STD" (PS1)', 'project library resistance
- * "30 in butterfly valve" (RS1)'. The name is the entry's when solved (it may have been renamed
- * since); the id is what is matched.
+ * "30 in butterfly valve" (RS1)'. The name is quoted as entered, unescaped, so it may itself hold
+ * '" (' ('6" (DN150) gate valve'), and it is the entry's name when solved (it may have been
+ * renamed since): the id is what is matched, and where the name ends is found by mentionEnd.
  */
-const MENTION = /project library (pipe spec|resistance) "(?:[^"]|"(?! \())*" \(([A-Za-z0-9_-]+)\)/g;
+const MENTION_START = /project library (pipe spec|resistance) "/;
+
+/** The longest name an entry of each list may have, in code points (the schema's maxLength). */
+const NAME_LIMIT = {
+	pipe: stringLimits('PipeSpec', 'name').maxLength ?? Infinity,
+	resistance: stringLimits('ResistanceSpec', 'name').maxLength ?? Infinity
+} as const;
+
+/**
+ * Where the name of a mention that starts at `nameAt` ends, and the entry it names: the label of
+ * an entry of `list` as the project has it now, `<name>" (<id>)` (the longest, should two match);
+ * else, for an entry renamed since the solve, the first `" (<id>)` naming an entry of `list`
+ * within the longest name the schema allows and before the next mention. Null when neither is
+ * found (an entry the project no longer has).
+ */
+function mentionEnd(
+	text: string,
+	nameAt: number,
+	list: LibraryMention['list'],
+	project: Project
+): { id: string; end: number } | null {
+	const entries: readonly (PipeSpec | ResistanceSpec)[] =
+		list === 'pipe' ? pipeSpecs(project) : resistanceEntries(project);
+	let found: { id: string; end: number } | null = null;
+	for (const entry of entries) {
+		const label = `${entry.name}" (${entry.id})`;
+		const end = nameAt + label.length;
+		if (text.startsWith(label, nameAt) && (!found || end > found.end)) {
+			found = { id: entry.id, end };
+		}
+	}
+	if (found) return found;
+	const next = new RegExp(MENTION_START.source, 'g');
+	next.lastIndex = nameAt;
+	const limit = next.exec(text)?.index ?? text.length;
+	const ends = /" \(([A-Za-z0-9_-]+)\)/g;
+	ends.lastIndex = nameAt + 1; // a name has at least one character
+	for (let m = ends.exec(text); m && m.index < limit; m = ends.exec(text)) {
+		if (Array.from(text.slice(nameAt, m.index)).length > NAME_LIMIT[list]) break;
+		const id = m[1] ?? '';
+		if (entries.some((entry) => entry.id === id)) return { id, end: m.index + m[0].length };
+	}
+	return null;
+}
 
 /**
  * The entries of `project`'s library that the server's `text` names, in order, for the trace view
@@ -381,11 +426,13 @@ const MENTION = /project library (pipe spec|resistance) "(?:[^"]|"(?! \())*" \((
  */
 export function libraryMentions(text: string, project: Project): LibraryMention[] {
 	const mentions: LibraryMention[] = [];
-	for (const match of text.matchAll(MENTION)) {
-		const list = match[1] === 'pipe spec' ? 'pipe' : 'resistance';
-		const id = match[2] ?? '';
-		const known = list === 'pipe' ? pipeSpecOf(project, id) : resistanceEntryOf(project, id);
-		if (known) mentions.push({ list, id, index: match.index, length: match[0].length });
+	const starts = new RegExp(MENTION_START.source, 'g');
+	for (let start = starts.exec(text); start; start = starts.exec(text)) {
+		const list = start[1] === 'pipe spec' ? 'pipe' : 'resistance';
+		const found = mentionEnd(text, start.index + start[0].length, list, project);
+		if (!found) continue;
+		mentions.push({ list, id: found.id, index: start.index, length: found.end - start.index });
+		starts.lastIndex = found.end;
 	}
 	return mentions;
 }

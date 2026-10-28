@@ -7,6 +7,7 @@
  */
 import type { PipeSpec, ResistanceSpec } from '$lib/api/types';
 import { CUSTOM_MATERIAL_ID } from '$lib/utils/piping';
+import { isBlankText, trimText } from '$lib/utils/validate';
 
 /** A pipe spec being entered: its id and material, and what is entered of the rest. */
 export type PipeSpecDraft = Pick<PipeSpec, 'id' | 'materialId'> &
@@ -24,6 +25,11 @@ const SOURCE =
 	'Enter where the values come from (a standard and its table, a datasheet, a measurement): every result that uses the entry cites it.';
 
 const missingText = (value: string | null | undefined) => !value || !value.trim();
+/**
+ * A source the schema's `\S` refuses: none but the API's white space (Unicode White_Space,
+ * validate.ts isBlankText), which is not JavaScript's `trim()` set (U+FEFF is a character there).
+ */
+const missingSource = (value: string | null | undefined) => isBlankText(value);
 const missingNumber = (value: number | null | undefined) =>
 	value === null || value === undefined || !Number.isFinite(value);
 
@@ -35,7 +41,7 @@ export function pipeSpecMissing(draft: PipeSpecDraft): FieldErrors {
 	if (draft.materialId === CUSTOM_MATERIAL_ID && missingNumber(draft.roughness)) {
 		errors.roughness = 'Enter the roughness: a custom pipe spec has no cited one.';
 	}
-	if (missingText(draft.source)) errors.source = SOURCE;
+	if (missingSource(draft.source)) errors.source = SOURCE;
 	return errors;
 }
 
@@ -48,7 +54,7 @@ export function resistanceMissing(draft: ResistanceDraft): FieldErrors {
 		errors.referenceDiameter =
 			'Enter the bore the K is stated at: a K means nothing without the velocity it is on.';
 	}
-	if (missingText(draft.source)) errors.source = SOURCE;
+	if (missingSource(draft.source)) errors.source = SOURCE;
 	return errors;
 }
 
@@ -57,7 +63,7 @@ export function pipeSpecOf(draft: PipeSpecDraft): PipeSpec {
 	const spec: PipeSpec = {
 		id: draft.id,
 		name: (draft.name ?? '').trim(),
-		source: (draft.source ?? '').trim(),
+		source: trimText(draft.source ?? ''),
 		materialId: draft.materialId,
 		innerDiameter: draft.innerDiameter as number
 	};
@@ -72,7 +78,7 @@ export function resistanceOf(draft: ResistanceDraft): ResistanceSpec {
 	const entry: ResistanceSpec = {
 		id: draft.id,
 		name: (draft.name ?? '').trim(),
-		source: (draft.source ?? '').trim(),
+		source: trimText(draft.source ?? ''),
 		kind: draft.kind,
 		value: draft.value as number
 	};

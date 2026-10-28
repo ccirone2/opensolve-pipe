@@ -46,7 +46,7 @@ from opensolve_pipe.services.solver.library import (
 from opensolve_pipe.services.solver.project_library import entry_k
 from opensolve_pipe.services.solver.valves import valve_resistance
 
-from .helpers import custom_pipe, project_dict, reservoir, tee
+from .helpers import custom_fluid, custom_pipe, project_dict, reservoir, tee
 from .scenario_patch import hand_patched
 
 G = 9.80665
@@ -65,7 +65,7 @@ NPS60_STD_BORE = 59.25 * 0.0254
 """m: ASME B36.10M NPS 60 STD, 60 in OD and 0.375 in wall (proposal §1.2, P2)."""
 
 # Test inputs (proposal: "every rating in Appendix A is a made-up input").
-PIPE_SPECS = [
+PIPE_SPECS: list[dict[str, Any]] = [
     {
         "id": "PS1",
         "name": "Lined 100 mm",
@@ -99,7 +99,7 @@ PIPE_SPECS = [
         "roughness": 1.0e-5,
     },
 ]
-RESISTANCES = [
+RESISTANCES: list[dict[str, Any]] = [
     {
         "id": "RS1",
         "name": "Butterfly valve, open",
@@ -615,6 +615,137 @@ def test_an_entry_the_solver_cannot_represent_is_a_topology_issue() -> None:
     assert [i["code"] for i in response.json()["issues"]] == ["VALVE_RESISTANCE_OUT_OF_RANGE"]
 
 
+def _valve(cid: str, resistance: dict[str, Any]) -> dict[str, Any]:
+    return _component("valve", cid, ("inlet", "outlet"), valveType="gate", resistance=resistance)
+
+
+ORIFICE = _component("orifice", "O1", ("inlet", "outlet"), boreDiameter=0.08)
+"""A plate of 0.08 m bore: β ≥ 1 on a 0.05 m inlet pipe (ORIFICE_OUT_OF_RANGE)."""
+LINED = {**PIPE_SPECS[0], "innerDiameter": 0.15}
+"""PS1 on a 0.15 m bore (O1's β = 0.533 when its inlet pipe is of this spec)."""
+
+
+@pytest.mark.parametrize(
+    ("unresolved", "issue"),
+    [
+        ({"specId": "NOPE", "length": 5.0}, "UNKNOWN_PIPE_SPEC"),
+        ({"specId": "PS9", "length": 5.0}, "UNKNOWN_PIPE_MATERIAL"),
+    ],
+)
+def test_a_pipe_that_does_not_resolve_leaves_the_others_their_numbers_and_ends(
+    unresolved: dict[str, Any], issue: str
+) -> None:
+    """A pipe whose spec is missing, or whose spec's material is unknown, is left out of the
+    other checks without moving the pipes after it: each keeps its number (D10, from 1), and a
+    valve or plate whose own end pipe does not resolve is never tested on another pipe."""
+    unknown = {**PIPE_SPECS[0], "id": "PS9", "materialId": "unobtainium"}
+    unknown.pop("roughness")
+
+    def issues(comps: list[dict[str, Any]], conns: list[dict[str, Any]]) -> list[tuple[str, str]]:
+        data = project_dict(comps, conns)
+        data["pipeLibrary"] = [LINED, unknown]
+        with pytest.raises(TopologyError) as raised:
+            _state(data, include_system_curve=False)
+        return [(i.code, i.message) for i in raised.value.issues]
+
+    ends = (reservoir("R1", level=20.0), reservoir("R2", level=10.0))
+    # The unresolved pipe first: the 1e-100 m pipe after it is pipe 2.
+    found = issues(
+        [*ends],
+        [_link("C1", ("R1", "port_1"), ("R2", "port_1"), [unresolved, custom_pipe(10, 1e-100, 0)])],
+    )
+    assert [code for code, _ in found] == [issue, "PIPE_SIZE_OUT_OF_RANGE"]
+    assert found[0][1].startswith("connection 'C1' pipe 1")
+    assert found[1][1].startswith("connection 'C1' pipe 2: an inner diameter of 1e-100 m")
+    # The unresolved pipe at a valve's inlet: the valve's K is not tested on pipe 1's bore.
+    after = [custom_pipe(10.0, 0.1, 4.5e-5)]
+    found = issues(
+        [*ends, _valve("V1", {"kind": "K", "value": 1.0e7})],
+        [
+            _link("C1", ("R1", "port_1"), ("V1", "inlet"), [custom_pipe(10, 1e-80, 0), unresolved]),
+            _link("C2", ("V1", "outlet"), ("R2", "port_1"), after),
+        ],
+    )
+    assert [code for code, _ in found] == [issue, "PIPE_SIZE_OUT_OF_RANGE"]
+    assert found[0][1].startswith("connection 'C1' pipe 2")
+    assert found[1][1].startswith("connection 'C1' pipe 1: an inner diameter of 1e-80 m")
+    # ... nor a plate's bore on pipe 1's (β = 1.6 there).
+    found = issues(
+        [*ends, ORIFICE],
+        [
+            _link("C1", ("R1", "port_1"), ("O1", "inlet"), [custom_pipe(10, 0.05, 0), unresolved]),
+            _link("C2", ("O1", "outlet"), ("R2", "port_1"), [custom_pipe(10.0, 0.15, 4.5e-5)]),
+        ],
+    )
+    assert [code for code, _ in found] == [issue]
+    # A valve whose own inlet pipe resolves is still tested on it, with the other issues.
+    found = issues(
+        [*ends, _valve("V1", {"kind": "Cv", "value": 1.0e-170})],
+        [
+            _link("C1", ("R1", "port_1"), ("V1", "inlet"), [unresolved, custom_pipe(5, 0.1, 0)]),
+            _link("C2", ("V1", "outlet"), ("R2", "port_1"), after),
+        ],
+    )
+    assert [code for code, _ in found] == [issue, "VALVE_RESISTANCE_OUT_OF_RANGE"]
+    assert "on the inlet pipe's inner diameter of 0.1 m" in found[1][1]
+
+
+# --------------------------------------------------------------------------- flags
+
+
+@pytest.mark.parametrize("kind", ["K", "Cv", "Kv"])
+def test_a_fitting_on_a_cv_or_kv_entry_is_flagged_in_laminar_flow_as_a_valve_is(
+    kind: str,
+) -> None:
+    """A Cv or Kv entry on a fitting is the same turbulent-flow conversion (ISA-75.01.01, without
+    F_R) as on a valve, so in laminar flow it gets the valve's CORRELATION_OUT_OF_RANGE warning,
+    on the connection with the fitting's index; a K entry, as a kOverride, gets none."""
+    entry: dict[str, Any] = {"id": "RS1", "name": "Strainer", "source": "test input"}
+    entry |= {"kind": kind, "value": 200.0}
+    if kind == "K":
+        entry |= {"value": 5.0, "referenceDiameter": 0.1}
+    fittings = [{"type": "custom", "pipeIndex": 0, "resistanceId": "RS1"}]
+    comps = [
+        reservoir("R1", level=10.5),
+        _valve("V1", {"kind": "library", "id": "RS1"}),
+        reservoir("R2", level=10.0),
+    ]
+    conns = [
+        _link("C1", ("R1", "port_1"), ("V1", "inlet"), [custom_pipe(100, 0.1, 4.5e-5)], fittings),
+        _link("C2", ("V1", "outlet"), ("R2", "port_1"), [custom_pipe(100, 0.1, 4.5e-5)]),
+    ]
+    data = project_dict(comps, conns, fluid=custom_fluid(density=900.0, viscosity=0.5))
+    data["resistanceLibrary"] = [entry]
+    state = _state(data, include_system_curve=False)
+    assert state.converged
+    re = state.link_results["C1"].segments[0].reynolds_number
+    assert 0.0 < re < 2000.0
+    flags = [f for f in state.flags if f.code == "CORRELATION_OUT_OF_RANGE"]
+    if kind == "K":
+        assert flags == []
+        return
+    on_valve, on_fitting = (
+        next(f for f in flags if f.component_id == "V1"),
+        next(f for f in flags if f.connection_id == "C1"),
+    )
+    assert len(flags) == 2
+    assert (on_fitting.severity, on_fitting.details) == (
+        "warning",
+        {"fittingIndex": 0, "reynoldsNumber": re},
+    )
+    head = "connection 'C1' fitting 1 (custom): "
+    assert on_fitting.message.startswith(head)
+    assert on_fitting.message.removeprefix(head) == on_valve.message.removeprefix("valve 'V1': ")
+    assert f"its {kind} is converted to K with the turbulent-flow valve equation" in (
+        on_fitting.message
+    )
+    # The same entry in turbulent flow (water): no flag on either.
+    data["fluid"] = WATER
+    turbulent = _state(data, include_system_curve=False)
+    assert turbulent.link_results["C1"].segments[0].reynolds_number > 4000.0
+    assert [f for f in turbulent.flags if f.code == "CORRELATION_OUT_OF_RANGE"] == []
+
+
 # --------------------------------------------------------------------------- traces and methods
 
 
@@ -691,6 +822,10 @@ def test_the_methods_section_lists_the_whole_library() -> None:
     assert items[9].endswith("not used by any element. Source: test input")
     assert items[10].startswith("K = K₀ (D/d₀)⁴: a K₀ stated at bore d₀ moved to the bore D")
     assert items[11].startswith("A Cv or Kv entry is converted to K on each element's")
+    assert items[11].endswith(
+        "without the Reynolds number factor F_R), as one entered on that element; on a valve or "
+        "a fitting in laminar flow (Re < 2000 in its reference pipe) it is flagged."
+    )
     assert len(items) == 12
     assert section.references[0].startswith("OpenSolve Pipe design decision D21")
 
@@ -716,7 +851,7 @@ def _with_scenario(project: dict[str, Any], *overrides: dict[str, Any]) -> dict[
     return data
 
 
-SWITCH = [
+SWITCH: list[dict[str, Any]] = [
     {
         "kind": "pipe",
         "connectionId": "L5",

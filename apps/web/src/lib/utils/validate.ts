@@ -62,11 +62,51 @@ function isRecord(value: unknown): value is JsonObject {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * A published pattern as the API reads it. Pydantic-core checks a `pattern` with Rust's regex
+ * crate, whose `\s` is Unicode White_Space; JavaScript's `\s` is another set (it holds U+FEFF and
+ * not U+0085), so Ajv reading the schema's `\S` (an entry's source) as JavaScript would accept
+ * values the API refuses (400) and refuse values it accepts. `\s` and `\S` become
+ * `\p{White_Space}` and `\P{White_Space}` (read with the `u` flag), in a character class or not;
+ * every other escape the published patterns use reads the same in both (validate-library.test.ts
+ * checks each pattern).
+ */
+export function apiPattern(pattern: string): string {
+	let out = '';
+	for (let i = 0; i < pattern.length; i++) {
+		const c = pattern[i];
+		const next = pattern[i + 1];
+		if (c === '\\' && next !== undefined) {
+			out += next === 's' ? '\\p{White_Space}' : next === 'S' ? '\\P{White_Space}' : c + next;
+			i++;
+		} else out += c;
+	}
+	return out;
+}
+
+/** Ajv's RegExp engine: each pattern read as the API reads it (apiPattern). */
+const apiRegExp = Object.assign((pattern: string) => new RegExp(apiPattern(pattern), 'u'), {
+	code: 'apiRegExp'
+});
+
+/**
+ * Whether `text` has no character the schema's `\S` (an entry's source) counts: none outside
+ * Unicode White_Space, the API's white space (apiPattern). JavaScript's `trim()` is another set.
+ */
+export function isBlankText(text: string | null | undefined): boolean {
+	return !text || !/\P{White_Space}/u.test(text);
+}
+
+/** `text` without the API's white space (Unicode White_Space) at either end (cf. `trim()`). */
+export function trimText(text: string): string {
+	return text.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '');
+}
+
 let ajv: Ajv2020 | undefined;
 
 function getAjv(): Ajv2020 {
 	if (!ajv) {
-		ajv = new Ajv2020({ allErrors: true, strict: true });
+		ajv = new Ajv2020({ allErrors: true, strict: true, code: { regExp: apiRegExp } });
 		// OpenAPI annotation; the oneOf it annotates is what is validated.
 		ajv.addKeyword('discriminator');
 		// The OpenAPI document section that holds the schemas; refs point into it.

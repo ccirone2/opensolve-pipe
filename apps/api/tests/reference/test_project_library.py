@@ -1042,7 +1042,7 @@ INVALID_ENTRIES: list[tuple[str, str, dict[str, Any]]] = [
     (
         "K bore out of bounds",
         "resistanceLibrary",
-        _sentinel_entry("RS1", kind="K", value=0.5, referenceDiameter=12.34567),
+        _sentinel_entry("RS1", kind="K", value=0.5, referenceDiameter=10.1234567),
     ),
     (
         "unknown kind",

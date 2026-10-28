@@ -270,3 +270,105 @@ test('the header keeps its fit with Library, idle and while a solve runs, and a 
 		await page.unroute('**/api/v1/solve');
 	}
 });
+
+test("a picker's Save and use button shows its whole label on a phone", async ({
+	page
+}, testInfo) => {
+	test.skip(testInfo.project.name !== 'mobile', 'narrow-screen check');
+	const library = page.getByRole('dialog', { name: 'Project library' });
+	const save = library.getByRole('button', { name: /^Save and use for / });
+	/** The button lies inside the screen (the sheet clips what is not) and its text inside it. */
+	async function fits(width: number, label: string): Promise<void> {
+		await expect(save).toHaveText(label);
+		const box = (await save.boundingBox())!;
+		expect(box.x).toBeGreaterThanOrEqual(0);
+		expect(box.x + box.width).toBeLessThanOrEqual(width);
+		expect(await save.evaluate((b) => b.scrollWidth <= b.clientWidth)).toBe(true);
+		await library.getByRole('button', { name: 'Cancel' }).click();
+		await expect(library).toBeHidden();
+	}
+	for (const width of [320, 390]) {
+		await page.setViewportSize({ width, height: 700 });
+		await openExample(page);
+		await jumpTo(page, VALVE);
+		const panel = buildPane(page);
+		await panel.getByRole('tab', { name: 'Piping' }).click();
+		await panel
+			.getByRole('group', { name: `Ports of ${VALVE}` })
+			.getByRole('button', { name: /^Outlet/ })
+			.click();
+		// A pipe's Material list and a fitting's loss coefficient: the label names the long
+		// connection ("pipe 1 of A → B"), wider than the screen on one line.
+		await panel
+			.getByRole('combobox', { name: 'Material' })
+			.selectOption({ label: 'New pipe spec…' });
+		await fits(width, `Save and use for pipe 1 of ${OUTLET_PIPING}`);
+		await panel
+			.getByRole('combobox', { name: 'Fitting 1 loss coefficient' })
+			.selectOption({ label: 'New entry…' });
+		await fits(width, `Save and use for fitting 1 of ${OUTLET_PIPING}`);
+	}
+});
+
+test('Cancel takes the focus with the place of Library while a solve runs, and gives it back', async ({
+	page
+}, testInfo) => {
+	// Below 1024 px Cancel takes Library's place while a solve runs.
+	await page.setViewportSize({
+		width: testInfo.project.name === 'mobile' ? 390 : 800,
+		height: 800
+	});
+	await openExample(page);
+	const toolbar = page.getByRole('toolbar', { name: 'Project' });
+	const library = toolbar.getByRole('button', { name: 'Project library' });
+	const cancel = toolbar.getByRole('button', { name: 'Cancel solve' });
+	await page.route('**/api/v1/solve', () => {});
+	// The solve shortcut, with the focus on Library: the focus goes to Cancel, not to the page.
+	await library.focus();
+	await page.keyboard.press('Control+Enter');
+	await expect(library).toBeHidden();
+	await expect(cancel).toBeFocused();
+	// Cancel by keyboard: Library comes back in its place, with the focus.
+	await page.keyboard.press('Enter');
+	await expect(cancel).toHaveCount(0);
+	await expect(library).toBeFocused();
+	await page.unroute('**/api/v1/solve');
+});
+
+test('a refused Use for… says why in its dialog, in view', async ({ page }) => {
+	// The condenser example's winter case holds 18 changes; 24 pipes more pass the limit of 30.
+	const valve = 'Cell 1 isolation valve';
+	await page.goto('/');
+	await page.getByRole('link', { name: /Chiller plant/ }).click();
+	await expect(page.getByRole('textbox', { name: 'Project name' })).toHaveValue(
+		'Chiller plant condenser water system'
+	);
+	await page
+		.getByRole('combobox', { name: 'Case', exact: true })
+		.selectOption({ label: 'Winter: tower bypassed (18 changes)' });
+	await jumpTo(page, valve);
+	const panel = buildPane(page);
+	await panel.getByRole('tab', { name: 'Piping' }).click();
+	await panel
+		.getByRole('group', { name: `Ports of ${valve}` })
+		.getByRole('button', { name: /^Inlet/ })
+		.click();
+	await panel.getByRole('button', { name: /^Use a pipe spec for pipe 1/ }).click();
+	const use = page.getByRole('dialog', { name: 'Use a pipe spec' });
+	await expect(use.getByRole('status')).toContainText(
+		'In Winter: tower bypassed, each is a change of the scenario.'
+	);
+	const press = use.getByRole('button', { name: /^Use for \d+ pipes$/ });
+	const label = (await press.textContent())!.trim();
+	await press.click();
+	const alert = use.getByRole('alert');
+	await expect(alert).toHaveText(
+		new RegExp(
+			`^\\s*Could not use pipe spec .+ for ${label.slice('Use for '.length)}: A scenario holds at most 30 changes\\.$`
+		)
+	);
+	await expect(alert).toBeInViewport({ ratio: 1 });
+	await expect(use).toBeVisible();
+	await use.getByRole('button', { name: 'Cancel' }).click();
+	await expect(use).toBeHidden();
+});

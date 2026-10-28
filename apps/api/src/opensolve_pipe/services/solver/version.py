@@ -154,7 +154,8 @@ METHOD_CHANGELOG: list[MethodChange] = [
             "values it would have with them entered on it: a spec's material, inner diameter and "
             "roughness (a library material without one takes its cited roughness at that inner "
             "diameter), a Cv or Kv converted as one entered there, and a K moved to the element's "
-            "bore by K = K₀ (D/d₀)⁴, the same head loss at a given flow. Traces name each entry "
+            "bore by K = K₀ (D/d₀)⁴, the same head loss at a given flow. A fitting on a Cv or Kv "
+            "entry in laminar flow is flagged, as a valve's Cv or Kv is. Traces name each entry "
             "and its source, and the methods summary lists the library. Flows, heads, pressures, "
             "statuses, traces, messages and system curves of projects without a project library "
             "are unchanged (corpus comparison).",

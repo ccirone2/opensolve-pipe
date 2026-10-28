@@ -144,6 +144,30 @@ describe('ids', () => {
 		expect(newResistanceId(project, ['RS3'])).toBe('RS4');
 	});
 
+	it("of a deleted entry nothing refers to may be given again, as an element's is (§12 item 27)", () => {
+		const project = removePipeSpec(libraryProject(), 'PS2');
+		expect(newPipeSpecId(project)).toBe('PS2');
+		const valve = libraryProject().components.find((c) => c.id === 'V1')!;
+		const withoutValve = {
+			...libraryProject(),
+			components: libraryProject().components.filter((c) => c.id !== 'V1'),
+			connections: []
+		};
+		expect(newId(withoutValve, 'V')).toBe(valve.id);
+		// So an out-of-date mention of the deleted entry links to the entry that took its id.
+		const other = setPipeSpec(project, {
+			id: 'PS2',
+			name: 'Other spec',
+			source: 'test input',
+			materialId: 'custom',
+			innerDiameter: 0.3,
+			roughness: 1e-5
+		});
+		const mentions = libraryMentions('project library pipe spec "Lined 80 mm" (PS2): x', other);
+		expect(mentions.map((m) => [m.list, m.id])).toEqual([['pipe', 'PS2']]);
+		expect(other.pipeLibrary!.find((s) => s.id === 'PS2')?.name).toBe('Other spec');
+	});
+
 	it('of a new entry may not be in use', () => {
 		const project = libraryProject();
 		expect(() =>
@@ -576,6 +600,46 @@ describe("the server's mentions of entries", () => {
 			['resistance', 'RS2', 'project library resistance "Old name" (RS2)']
 		]);
 		expect(libraryMentions('no entry here', project)).toEqual([]);
+	});
+
+	/** The mentions of `text` in `project`: list, id and the text linked. */
+	const linked = (text: string, project: Project) =>
+		libraryMentions(text, project).map((m) => [
+			m.list,
+			m.id,
+			text.slice(m.index, m.index + m.length)
+		]);
+
+	/** The library project with RS1 named `name`. */
+	const rs1Named = (name: string) => {
+		const project = libraryProject();
+		project.resistanceLibrary![0] = { ...project.resistanceLibrary![0]!, name };
+		return project;
+	};
+
+	it('end where the name ends, though it holds an inch mark before a parenthesis', () => {
+		const label = 'project library resistance "6" (DN150) gate valve" (RS1)';
+		const text = `K from ${label}: test input; project library resistance "Elbow (K)" (RS2)`;
+		expect(linked(text, rs1Named('6" (DN150) gate valve'))).toEqual([
+			['resistance', 'RS1', label],
+			['resistance', 'RS2', 'project library resistance "Elbow (K)" (RS2)']
+		]);
+		// A name that holds another entry's id in the label's form still names its own entry.
+		const other = 'project library resistance "Gate 4" (RS2) spare" (RS1)';
+		expect(linked(`${other}: test input`, rs1Named('Gate 4" (RS2) spare'))).toEqual([
+			['resistance', 'RS1', other]
+		]);
+	});
+
+	it('find an entry renamed since the solve by the first id of an entry the project has', () => {
+		const project = libraryProject(); // RS1 is "Gate, open" now
+		const label = 'project library resistance "6" (DN150) gate valve" (RS1)';
+		expect(linked(`${label}: test input`, project)).toEqual([['resistance', 'RS1', label]]);
+		// Never past the next mention, nor past the longest name an entry may have (100).
+		const gone = 'project library resistance "Gone" (RS9): x; project library pipe spec "A" (PS1)';
+		expect(linked(gone, project)).toEqual([['pipe', 'PS1', 'project library pipe spec "A" (PS1)']]);
+		const far = `project library resistance "Gone" (RS9): ${'x'.repeat(100)}" (RS1)`;
+		expect(linked(far, project)).toEqual([]);
 	});
 });
 

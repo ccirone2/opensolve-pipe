@@ -230,6 +230,8 @@ def resolve_fitting(
             correlation_reverse=LIBRARY_K,
             source=provenance(use.entry),
             user_k=True,
+            # No Crane correlation; a Cv or Kv entry in laminar flow is flagged as a valve's
+            # is (``results``: the turbulent-flow conversion without F_R).
             valid_in_laminar_flow=True,
             entry=use,
         )

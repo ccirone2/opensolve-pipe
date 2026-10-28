@@ -282,7 +282,9 @@ def library_section(built: BuiltNetwork) -> MethodsSection | None:
     if kinds & {"Cv", "Kv"}:
         items.append(
             "A Cv or Kv entry is converted to K on each element's reference bore with "
-            "fluids.fittings.Cv_to_K / Kv_to_K (ISA-75.01.01), as one entered on that element."
+            "fluids.fittings.Cv_to_K / Kv_to_K (ISA-75.01.01, turbulent flow, without the "
+            "Reynolds number factor F_R), as one entered on that element; on a valve or a fitting "
+            f"in laminar flow (Re < {RE_LAMINAR_MAX:g} in its reference pipe) it is flagged."
         )
     references = [LIBRARY_DECISION]
     if kinds & {"Cv", "Kv"}:

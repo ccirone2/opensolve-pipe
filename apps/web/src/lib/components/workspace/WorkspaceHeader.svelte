@@ -37,7 +37,9 @@
 	project name about 50 px while a solve runs). Below 1024 px, while a solve or goal seek runs,
 	Cancel takes its place, which keeps the row's fit (320 px upright; the project name's room in
 	the one row from 640 px); below 640 px the two are the same width, so Solve, Share and Settings
-	do not move. When Cancel goes, Library comes back under the pointer, so its click ignores the
+	do not move. Cancel takes Library's focus with its place (a solve started with Ctrl+Enter while
+	Library has the focus), so the focus never falls to the page, and gives it back to Library when
+	it goes. When Cancel goes, Library comes back under the pointer, so its click ignores the
 	second click of a double click (or double tap), as Solve's and Cancel's do: a double click on
 	Cancel does not open the library. The library is also opened from the pickers that use it and
 	from a trace.
@@ -106,11 +108,37 @@
 		if (!repeated(event)) store.cancelSolve();
 	}
 
-	// Before the DOM drops Cancel at the end of a solve: if it has the focus, Solve takes it.
+	let libraryButton: HTMLButtonElement | undefined = $state();
+	/** Cancel took the focus from Library, whose place it took: Library takes it back. */
+	let cancelFromLibrary = false;
+	const shown = (element: HTMLElement) => element.getClientRects().length > 0;
+
 	$effect.pre(() => {
-		if (solving || seeking) return;
+		if (solving || seeking) {
+			// Before the DOM hides Library (below 1024 px) as a calculation starts: if it has the
+			// focus, Cancel, which takes its place, takes the focus, rather than <body>.
+			const library = untrack(() => libraryButton);
+			if (library && document.activeElement === library) {
+				void tick().then(() => {
+					if (shown(library) || !cancelButton) return;
+					cancelButton.focus();
+					cancelFromLibrary = true;
+				});
+			}
+			return;
+		}
+		// Before the DOM drops Cancel at the end of a calculation: if it has the focus, Solve takes
+		// it, or Library when Cancel had taken the focus from it.
 		const cancel = untrack(() => cancelButton);
-		if (cancel && document.activeElement === cancel) void tick().then(() => solveButton?.focus());
+		const back = cancelFromLibrary;
+		cancelFromLibrary = false;
+		if (cancel && document.activeElement === cancel) {
+			void tick().then(() => {
+				const library = libraryButton;
+				if (back && library && shown(library)) library.focus();
+				else solveButton?.focus();
+			});
+		}
 	});
 </script>
 
@@ -183,6 +211,7 @@
 				width, so Solve does not move). A repeated click is ignored, as Solve's and Cancel's:
 				when Cancel goes, Library comes back under the pointer. -->
 			<button
+				bind:this={libraryButton}
 				type="button"
 				class={[
 					'btn btn-quiet btn-icon xl:w-auto xl:px-3',

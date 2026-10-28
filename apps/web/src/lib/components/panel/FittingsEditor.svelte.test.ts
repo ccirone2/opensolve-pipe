@@ -5,13 +5,15 @@
  * offers the fitting.
  */
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
-import type { PipeConnection } from '$lib/api/types';
+import { tick } from 'svelte';
+import { describe, expect, it, vi } from 'vitest';
+import type { LibraryResponse, PipeConnection } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import { testWorkspace } from '$lib/testing/workspace';
 import { pumpTransferExample } from '$lib/utils/examples';
 import { createEmptyProject } from '$lib/utils/factory';
 import { libraryProject } from '$lib/testing/helpers';
+import { TEST_LIBRARY } from '$lib/testing/library';
 
 const fittingsOf = (ws: ReturnType<typeof testWorkspace>, id: string) =>
 	(ws.project.connections.find((c) => c.id === id) as PipeConnection).piping.fittings;
@@ -174,5 +176,61 @@ describe('a fitting K from the project library', () => {
 		expect(
 			within(item).getByText(/^Converted to K at the bore of pipe 2 when solving/)
 		).toBeInTheDocument();
+	});
+});
+
+/**
+ * "K source" names the source of the K the solve uses (CLAUDE.md D21 traceability; the server's
+ * FittingResult.source): the type's cited K, or user data for a K entered here; a fitting on a
+ * library entry shows the entry's own source only, never the type's correlation beside it. Test
+ * inputs: libraryProject's entries and a made-up fitting library.
+ */
+describe("a fitting's K source", () => {
+	const CITED = 'test source: the cited correlation of a long-radius elbow';
+	const LIBRARY: LibraryResponse = {
+		...TEST_LIBRARY,
+		fittings: [
+			{
+				type: 'elbow_90_lr',
+				name: 'Elbow, 90° long radius',
+				correlation: 'test correlation',
+				parameters: [],
+				referenceDiameter: 'pipe',
+				validInLaminarFlow: false,
+				notes: [],
+				source: CITED
+			}
+		]
+	};
+
+	it('is the entry, the K entered here or the cited K, whichever the solve uses', async () => {
+		const ws = testWorkspace(libraryProject(), {
+			library: { getLibrary: () => Promise.resolve(LIBRARY) }
+		});
+		ws.nav.jumpTo('R1');
+		ws.nav.showConnection('port_1');
+		render(WorkspaceView, { workspace: ws });
+		await vi.waitFor(() => expect(ws.library.libraryStatus).toBe('ready'));
+		await tick();
+		const choice = () => screen.getByRole('combobox', { name: 'Fitting 1 loss coefficient' });
+		const item = within(choice().closest('li') as HTMLElement);
+
+		// On entry RS2: the entry's source, not the elbow's correlation.
+		expect(choice()).toHaveValue('entry:RS2');
+		expect(item.getByText('Source: test input')).toBeInTheDocument();
+		expect(item.queryByText(/^K source/)).toBeNull();
+		expect(item.queryByText(new RegExp(CITED))).toBeNull();
+
+		// A K entered here, until one is entered: the cited K applies, and is named.
+		await fireEvent.change(choice(), { target: { value: 'entered' } });
+		expect(item.getByText(`K source: ${CITED}`)).toBeInTheDocument();
+		const k = item.getByRole('textbox', { name: 'K override' });
+		await fireEvent.input(k, { target: { value: '0.5' } });
+		await fireEvent.change(k);
+		expect(item.getByText('K source: the K entered here (user data).')).toBeInTheDocument();
+		expect(item.queryByText(new RegExp(CITED))).toBeNull();
+
+		await fireEvent.change(choice(), { target: { value: 'cited' } });
+		expect(item.getByText(`K source: ${CITED}`)).toBeInTheDocument();
 	});
 });

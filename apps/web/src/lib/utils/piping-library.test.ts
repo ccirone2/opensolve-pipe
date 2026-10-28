@@ -1,7 +1,8 @@
 /**
  * Where the browser resolves a pipe for display (CLAUDE.md D21): an orifice plate's D from an
- * inlet pipe of a project library spec, a spec pipe given its own material, and the store's
- * staleness fingerprint, which holds the library (and is unchanged for a project without one).
+ * inlet pipe of a project library spec, a spec pipe given its own material, the store's
+ * staleness fingerprint, which holds the library (and is unchanged for a project without one),
+ * and the port size of a component inserted where a spec pipe ends (the spec's nominal size).
  * Made-up test inputs.
  */
 import { describe, expect, it } from 'vitest';
@@ -11,7 +12,8 @@ import { libraryProject } from '../testing/helpers';
 import { TEST_LIBRARY } from '../testing/library';
 import { pumpTransferExample } from './examples';
 import { betaLine, inletBore, type PipeSizes } from './orifice';
-import { CUSTOM_MATERIAL_ID, withMaterial } from './piping';
+import { addBranch } from './edit';
+import { CUSTOM_MATERIAL_ID, pipeNominalSize, withMaterial } from './piping';
 import { resolvePipe, setPipeSpec } from './project-library';
 import { SI_UNITS } from './units';
 
@@ -100,5 +102,52 @@ describe('the staleness fingerprint', () => {
 		const before = hydraulicFingerprint(project);
 		const edited = setPipeSpec(project, { ...project.pipeLibrary![0]!, innerDiameter: 0.11 });
 		expect(hydraulicFingerprint(edited)).not.toBe(before);
+	});
+});
+
+describe('a component inserted where a spec pipe ends', () => {
+	/** The library project with L2 (V1 outlet, NPS 4 → R2) on a new NPS 6 spec, PS3. */
+	function onNps6Spec(): Project {
+		const project = libraryProject();
+		project.pipeLibrary = [
+			...project.pipeLibrary!,
+			{
+				id: 'PS3',
+				name: 'NPS 6 measured',
+				source: 'test input',
+				materialId: 'carbon_steel',
+				innerDiameter: 0.154,
+				nominalSize: 0.1524
+			}
+		];
+		project.connections[1]!.piping = { pipes: [{ specId: 'PS3', length: 5 }], fittings: [] };
+		return project;
+	}
+
+	it("takes the spec's nominal size, the pipe's own otherwise", () => {
+		const project = onNps6Spec();
+		expect(pipeNominalSize(project, { specId: 'PS3', length: 5 })).toBe(0.1524);
+		// A spec without a nominal size (a custom bore), or one the project does not have: none.
+		expect(pipeNominalSize(project, { specId: 'PS2', length: 5 })).toBeUndefined();
+		expect(pipeNominalSize(project, { specId: 'PS9', length: 5 })).toBeUndefined();
+		expect(
+			pipeNominalSize(project, {
+				materialId: 'carbon_steel',
+				schedule: '40',
+				nominalSize: 0.0762,
+				length: 5
+			})
+		).toBe(0.0762);
+		expect(pipeNominalSize(project, undefined)).toBeUndefined();
+	});
+
+	it("sizes a tee added without one to the spec, not to the upstream port's NPS 4", () => {
+		const result = addBranch(onNps6Spec(), 'L2');
+		const tee = result.components.find((c) => c.type === 'branch')!;
+		expect(tee.ports.map((p) => [p.id, p.nominalSize])).toEqual([
+			['run_inlet', 0.1524],
+			['run_outlet', 0.1524],
+			['branch', 0.1524]
+		]);
 	});
 });

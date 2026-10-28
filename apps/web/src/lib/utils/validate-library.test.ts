@@ -22,12 +22,15 @@ import {
 	schemaOrderViolations
 } from './model-rules';
 import {
+	apiPattern,
+	isBlankText,
 	modelRuleIssues,
 	pipeSpecProblems,
 	projectProblems,
 	referenceProblems,
 	resistanceSpecProblems,
-	schemaProblems
+	schemaProblems,
+	trimText
 } from './validate';
 
 const schemas = openapi.components.schemas as unknown as Record<string, Record<string, unknown>>;
@@ -211,5 +214,84 @@ describe('projects with a library', () => {
 		expect(
 			resistanceSpecProblems({ id: 'RS3', name: 'x', source: 's', kind: 'K', value: 2 })
 		).toEqual(['a K entry needs its reference diameter (a K is stated at a bore)']);
+	});
+});
+
+describe("an entry's source, its pattern read as the API reads it", () => {
+	const spec = (source: string) => ({
+		id: 'PS3',
+		name: 'x',
+		source,
+		materialId: 'custom',
+		innerDiameter: 0.1,
+		roughness: 0
+	});
+	const entry = (source: string) => ({ id: 'RS3', name: 'x', source, kind: 'Cv', value: 10 });
+	const refused = ['source: must match pattern "\\S"'];
+	// Measured on the API (pydantic-core's Rust regex, models/project_library.py Source): these
+	// are refused (Unicode White_Space; U+0085 is not JavaScript's \s) ...
+	const blanks = [
+		'\u0085',
+		'\u3000',
+		' ',
+		'\t\n',
+		'\u000b',
+		'\u00a0\u2028',
+		'\u2029\u202f\u205f\u1680'
+	];
+	// ... and these accepted (none is Unicode White_Space; U+FEFF is JavaScript's \s).
+	const accepted = ['\ufeff', '\u001c', '\u200b', '\u180e', 's'];
+
+	it('refuses a source of white space as the API counts it, and only that', () => {
+		for (const source of blanks) {
+			expect(pipeSpecProblems(spec(source)), JSON.stringify(source)).toEqual(refused);
+			expect(resistanceSpecProblems(entry(source)), JSON.stringify(source)).toEqual(refused);
+			expect(isBlankText(source)).toBe(true);
+		}
+		for (const source of accepted) {
+			expect(pipeSpecProblems(spec(source)), JSON.stringify(source)).toEqual([]);
+			expect(resistanceSpecProblems(entry(source)), JSON.stringify(source)).toEqual([]);
+			expect(isBlankText(source)).toBe(false);
+		}
+		expect(isBlankText('')).toBe(true);
+		expect(isBlankText(undefined)).toBe(true);
+		expect(trimText('\u0085 Crane TP-410 \ufeff\u3000')).toBe('Crane TP-410 \ufeff');
+	});
+
+	it("checks a whole project's entries the same way", () => {
+		const nel = libraryProject();
+		nel.resistanceLibrary![0]!.source = '\u0085';
+		expect(schemaProblems(nel)).toEqual([
+			'resistanceLibrary[0] "RS1" › source: must match pattern "\\S"'
+		]);
+		const bom = libraryProject();
+		bom.pipeLibrary![0]!.source = '\ufeff';
+		expect(schemaProblems(bom)).toEqual([]);
+	});
+
+	it('every published pattern reads the same in both engines once \\s and \\S are moved', () => {
+		const patterns = new Set<string>();
+		const walk = (node: unknown) => {
+			if (Array.isArray(node)) node.forEach(walk);
+			else if (node && typeof node === 'object') {
+				for (const [key, value] of Object.entries(node)) {
+					if (key === 'pattern' && typeof value === 'string') patterns.add(value);
+					else walk(value);
+				}
+			}
+		};
+		walk(openapi);
+		expect(patterns.size).toBeGreaterThan(0);
+		for (const pattern of patterns) {
+			// A letter escape other than \s and \S (\d, \w, \b, \p, ...) is read differently by
+			// Rust's regex crate (Unicode classes) and JavaScript: apiPattern must learn it first.
+			const letters = [...pattern.matchAll(/\\(.)/g)].map((m) => m[1]!);
+			expect(
+				letters.filter((c) => /[A-Za-z]/.test(c) && c !== 's' && c !== 'S'),
+				pattern
+			).toEqual([]);
+		}
+		expect(apiPattern('\\S')).toBe('\\P{White_Space}');
+		expect(apiPattern('^[^\\s\\\\]\\.$')).toBe('^[^\\p{White_Space}\\\\]\\.$');
 	});
 });

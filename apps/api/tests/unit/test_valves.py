@@ -16,13 +16,10 @@ from fluids.constants import g
 from opensolve_pipe.models.components import FlowCoefficient
 from opensolve_pipe.services.fluids import fluid_properties
 from opensolve_pipe.services.solver.builder import BuiltNetwork, build_network
+from opensolve_pipe.services.solver.coefficients import k_from_coefficient
 from opensolve_pipe.services.solver.elements import HeadOffsetLaw, ValveLaw
 from opensolve_pipe.services.solver.errors import TopologyError
-from opensolve_pipe.services.solver.valves import (
-    CRANE_DEFAULTS,
-    k_from_coefficient,
-    valve_resistance,
-)
+from opensolve_pipe.services.solver.valves import CRANE_DEFAULTS, valve_resistance
 
 from .helpers import connection, custom_pipe, make_project, reservoir
 

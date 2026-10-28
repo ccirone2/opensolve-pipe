@@ -263,7 +263,9 @@ def test_goal_seek_varies_a_resistance_as_one_coefficient_still() -> None:
     published = goal_variables()
     for cls in (IsolationValve, CheckValve, ControlValve):
         assert GOAL_COMPONENT_FIELDS[cls]["resistance"].schema is FlowCoefficient
-        assert published[cls.__name__]["resistance"] == {
+        fields = published[cls.__name__]
+        assert isinstance(fields, dict)
+        assert fields["resistance"] == {
             "schema": "FlowCoefficient",
             "path": ["resistance", "value"],
             "scale": "log",

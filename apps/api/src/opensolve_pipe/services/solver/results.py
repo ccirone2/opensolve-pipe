@@ -486,6 +486,9 @@ class _Mapper:
                 )
             )
             re = states[seg_index].reynolds
+            # A Cv or Kv from the project library (CLAUDE.md D21) is converted as on a valve,
+            # and flagged in laminar flow as a valve's is; a K entry, as a kOverride, is not.
+            coefficient = fit.entry.entry.kind if fit.entry is not None else None
             if not fit.valid_in_laminar_flow and 0 < re < RE_LAMINAR_MAX:
                 self.flags.append(
                     make_flag(
@@ -494,6 +497,20 @@ class _Mapper:
                         f"connection '{conn.id}' {fitting_name(fit.index)} ({fit.type}): its K "
                         f"correlation is for turbulent flow but the flow is laminar "
                         f"(Re = {re:.0f}); the loss is likely underestimated",
+                        connection_id=conn.id,
+                        details={"fittingIndex": fit.index, "reynoldsNumber": re},
+                    )
+                )
+            elif coefficient in ("Cv", "Kv") and 0 < re < RE_LAMINAR_MAX:
+                self.flags.append(
+                    make_flag(
+                        "CORRELATION_OUT_OF_RANGE",
+                        "warning",
+                        f"connection '{conn.id}' {fitting_name(fit.index)} ({fit.type}): its "
+                        f"{coefficient} is converted to K with the turbulent-flow valve equation "
+                        f"(ISA-75.01.01) but the flow is laminar (Re = {re:.0f}); the Reynolds "
+                        "number factor F_R that corrects it is not applied, so the loss is likely "
+                        "underestimated",
                         connection_id=conn.id,
                         details={"fittingIndex": fit.index, "reynoldsNumber": re},
                     )

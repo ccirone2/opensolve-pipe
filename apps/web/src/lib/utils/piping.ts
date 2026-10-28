@@ -12,7 +12,8 @@ import type {
 	PipeMaterial,
 	PipeSchedule,
 	PipeSize,
-	PipingSegment
+	PipingSegment,
+	Project
 } from '../api/types';
 import { DEFAULT_PIPE_LENGTH } from './factory';
 import { markCopy } from './identity';
@@ -20,6 +21,23 @@ import { sameSize } from './labels';
 import { REDUCER_TYPES } from './model-rules';
 
 export const CUSTOM_MATERIAL_ID = 'custom';
+
+/**
+ * The nominal size the web sizes ports by for `pipe` (a component inserted in its connection):
+ * for a pipe of a project library spec, the spec's (CLAUDE.md D21: for display and the web's port
+ * sizes only; none when the spec gives none or the project does not have it); else its own.
+ */
+export function pipeNominalSize(
+	project: Pick<Project, 'pipeLibrary'>,
+	pipe: PipeDefinition | undefined
+): number | undefined {
+	if (!pipe) return undefined;
+	const size =
+		pipe.specId != null
+			? project.pipeLibrary?.find((spec) => spec.id === pipe.specId)?.nominalSize
+			: pipe.nominalSize;
+	return size ?? undefined;
+}
 
 /** A fitting that sits between two pipes (x-reducer-types, model-rules.ts). */
 export function isReducer(fitting: Pick<Fitting, 'type'>): boolean {

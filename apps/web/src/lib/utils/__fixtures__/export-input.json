@@ -30338,7 +30338,7 @@
 													"Project library resistance \"Basket strainer\" (RS3): Cv 350; used by connection L1 fitting 3 (K 0.642871 on its pipe's 0.0779 m bore). Source: test input, not a real strainer",
 													"Project library resistance \"Spare Kv\" (RS4): Kv 90; not used by any element. Source: test input",
 													"K = K₀ (D/d₀)⁴: a K₀ stated at bore d₀ moved to the bore D it is used on, the same head loss K₀ (Q/A₀)²/(2g) at a given flow (A₀ = π d₀²/4), D being the element's reference bore (a valve's inlet pipe, a fitting's pipe pipeIndex); exactly K₀ where D = d₀.",
-													"A Cv or Kv entry is converted to K on each element's reference bore with fluids.fittings.Cv_to_K / Kv_to_K (ISA-75.01.01), as one entered on that element."
+													"A Cv or Kv entry is converted to K on each element's reference bore with fluids.fittings.Cv_to_K / Kv_to_K (ISA-75.01.01, turbulent flow, without the Reynolds number factor F_R), as one entered on that element; on a valve or a fitting in laminar flow (Re < 2000 in its reference pipe) it is flagged."
 												],
 												"references": [
 													"OpenSolve Pipe design decision D21 (CLAUDE.md), from docs/proposals/project-library.md.",
@@ -32442,7 +32442,7 @@
 													"Project library resistance \"Basket strainer\" (RS3): Cv 350; used by connection L1 fitting 3 (K 0.642871 on its pipe's 0.0779 m bore), valve V1 (K 0.642871 on its inlet pipe's 0.0779 m bore). Source: test input, not a real strainer",
 													"Project library resistance \"Spare Kv\" (RS4): Kv 90; not used by any element. Source: test input",
 													"K = K₀ (D/d₀)⁴: a K₀ stated at bore d₀ moved to the bore D it is used on, the same head loss K₀ (Q/A₀)²/(2g) at a given flow (A₀ = π d₀²/4), D being the element's reference bore (a valve's inlet pipe, a fitting's pipe pipeIndex); exactly K₀ where D = d₀.",
-													"A Cv or Kv entry is converted to K on each element's reference bore with fluids.fittings.Cv_to_K / Kv_to_K (ISA-75.01.01), as one entered on that element."
+													"A Cv or Kv entry is converted to K on each element's reference bore with fluids.fittings.Cv_to_K / Kv_to_K (ISA-75.01.01, turbulent flow, without the Reynolds number factor F_R), as one entered on that element; on a valve or a fitting in laminar flow (Re < 2000 in its reference pipe) it is flagged."
 												],
 												"references": [
 													"OpenSolve Pipe design decision D21 (CLAUDE.md), from docs/proposals/project-library.md.",

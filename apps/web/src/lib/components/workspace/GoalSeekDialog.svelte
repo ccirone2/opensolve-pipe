@@ -190,6 +190,8 @@
 			componentById(ws.project, target.componentId)?.type === 'orifice';
 		const variable = newVariable(ws.project, choice, {
 			kOpen: kOpenOf(choice),
+			kOpenStale: store.results.stale,
+			sizes: ws.library,
 			...(plate ? { pipeDiameter: pipeDiameterOf(choice), orifice: orificeOf(choice) } : {}),
 			...(info ? { fluid: info } : {})
 		});

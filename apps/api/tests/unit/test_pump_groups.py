@@ -542,3 +542,68 @@ def test_a_scenario_s_refusal_names_the_scenario() -> None:
     r = client.post(URL, json={"project": data, "pumpIds": ["PA", "PB"], "scenarioId": "S1"})
     assert r.status_code == 422
     assert r.json()["message"] == "In scenario S1, the pumps do not form a station: 1 reason(s)."
+
+
+# --------------------------------------------------------------------------- loops and levels
+
+
+def test_a_closed_loop_with_one_tank_is_a_station() -> None:
+    """The outside a loop: R1 feeds only a tee T3 that joins T2's outlet back to T1's inlet, so
+    every way to R1 passes T3's branch; the station is still the pumps between T1's run inlet
+    and T2's run outlet (the cut is searched again toward T3's branch)."""
+    data = _parallel()
+    data["components"] = [c for c in data["components"] if c["id"] != "R2"]
+    data["components"].append(_tee("T3"))
+    data["connections"] = [c for c in data["connections"] if c["id"] not in ("L1", "L2")]
+    _pipe(data, "L0", ("R1", "port_1"), ("T3", "branch"))
+    _pipe(data, "L1", ("T3", "run_outlet"), ("T1", "run_inlet"))
+    _pipe(data, "L2", ("T2", "run_outlet"), ("T3", "run_inlet"))
+    st = _station(data, ["PA", "PB"])
+    assert (st.inlet_port.component_id, st.inlet_port.port_id) == ("T1", "run_inlet")
+    assert (st.outlet_port.component_id, st.outlet_port.port_id) == ("T2", "run_outlet")
+    assert st.arrangement == "parallel"
+    gc = group_curve(Project.model_validate(data), ["PA", "PB"], num_points=5)
+    assert gc.duty is not None
+    assert gc.duty.flow > 0.0
+    assert gc.duty_check is not None
+    assert gc.duty_check.agrees
+
+
+def test_pumps_in_loops_of_their_own_are_no_station() -> None:
+    """Each pump circulates round its own tee (TA, TB), and only TA's and TB's run inlets lead
+    on, to T0 and the reservoir: the two places are found, but no way between them passes a
+    pump, so the flow passes around them."""
+    data = _parallel()
+    data["components"] = [c for c in data["components"] if c["id"] not in ("T1", "T2", "R2")] + [
+        _tee("T0"),
+        _tee("TA"),
+        _tee("TB"),
+    ]
+    data["connections"] = []
+    _pipe(data, "C0", ("R1", "port_1"), ("T0", "branch"))
+    _pipe(data, "C1", ("T0", "run_outlet"), ("TA", "run_inlet"))
+    _pipe(data, "C2", ("TA", "run_outlet"), ("PA", "suction"))
+    _pipe(data, "C3", ("PA", "discharge"), ("TA", "branch"))
+    _pipe(data, "C4", ("TB", "run_inlet"), ("T0", "run_inlet"))
+    _pipe(data, "C5", ("TB", "run_outlet"), ("PB", "suction"))
+    _pipe(data, "C6", ("PB", "discharge"), ("TB", "branch"))
+    with pytest.raises(NotAStationError) as info:
+        _station(data, ["PA", "PB"])
+    [only] = info.value.issues
+    assert only.code == "NO_SEPARATING_PORTS"
+    assert only.component_ids == ["TA", "TB"]
+    assert "lie on no way between the two places" in only.message
+    assert "TA (run_inlet) and TB (run_inlet)" in only.message
+
+
+def test_a_rise_into_a_floating_section_has_no_duty() -> None:
+    """fuzz_2168: S (PU2's suction) has a level, D (T0's branch) lies in a section no reservoir
+    reaches (UNDETERMINED_PRESSURE): the rise between them is not determined."""
+    from tests.differential.corpus import items, load
+
+    project = load(dict(items())["fuzz_2168"])
+    gc = group_curve(project, ["PU1", "PU2"], num_points=5)
+    assert gc.converged
+    assert gc.duty is None
+    assert gc.points == []
+    assert "UNDETERMINED_PRESSURE" in gc.message

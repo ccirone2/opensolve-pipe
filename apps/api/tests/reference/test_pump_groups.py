@@ -848,6 +848,23 @@ def test_pg7_a_station_of_one_pump(api: Api, case: Callable[[], Any], pump_id: s
     assert flow_ok(duty["flow"], float(exp.pumps[pump_id]["operatingFlow"]))
 
 
+def test_pg7_a_pump_on_a_loop_is_a_station_of_one_pump(api: Api) -> None:
+    """A pump circulating round a loop whose only way to the reservoir is a tee's branch: the
+    loop is the pump's outside, joining its two ports through the tee, so the pump between its
+    own ports is a station, and its group curve is the inverse of s²H₀(Q/s) at every rise."""
+    project = dg.pump_on_a_loop_project()
+    response = api.group(project, ["PA"], numPoints=9)
+    station_of(response, ("PA", "suction"), ("PA", "discharge"), "parallel", ["PA"], ["PA"], [])
+    curve, speed, _, _ = dg.pump_of(project, "PA")
+    failures = []
+    for point in response["points"]:
+        q = dg.pump_flow_at_head(curve, speed, point["head"])
+        if not flow_ok(point["flow"], q):
+            failures.append(f"rise {point['head']:.6g}: {point['flow']!r} vs {q!r}")
+    assert not failures, "\n".join(failures)
+    assert response["dutyCheck"]["agrees"]
+
+
 # --------------------------------------------------------------------------- PG8
 
 
@@ -951,10 +968,10 @@ NOT_A_STATION: list[tuple[str, Callable[[], Project], list[str], str, set[str] |
     ),
     (
         "one_place",
-        dg.one_place_project,
+        dg.dead_end_project,
         ["PA"],
         "NO_SEPARATING_PORTS",
-        {"T1"},
+        {"PA"},
     ),
     (
         "three_places",

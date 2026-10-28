@@ -355,6 +355,7 @@ def _cut(
     *,
     sinks: set[int],
     plain_pumps: Iterable[str] = (),
+    open_vertex: int | None = None,
 ) -> _Cut:
     member_links = {built.pumps[m].link_index for m in members}
     free_pumps = {built.pumps[p].link_index for p in plain_pumps}
@@ -369,7 +370,41 @@ def _cut(
         for m in members
         for key in (built.pumps[m].suction, built.pumps[m].discharge)
     ]
-    return _min_cut(len(graph.rep), edges, sources, sinks, graph.centres)
+    unbounded = graph.centres if open_vertex is None else graph.centres | {open_vertex}
+    return _min_cut(len(graph.rep), edges, sources, sinks, unbounded)
+
+
+def _ends(built: BuiltNetwork, graph: _Graph, members: Sequence[str]) -> set[int]:
+    """The vertices of the members' own ports."""
+    index = built.network.node_index
+    return {
+        graph.rep[index[key]]
+        for m in members
+        for key in (built.pumps[m].suction, built.pumps[m].discharge)
+    }
+
+
+def _station_cut(
+    built: BuiltNetwork,
+    graph: _Graph,
+    members: Sequence[str],
+    *,
+    sinks: set[int],
+    plain_pumps: Iterable[str] = (),
+) -> tuple[_Cut, _Cut]:
+    """(the cut, the first cut). The first is the minimum cut toward the barriers. When it is one
+    vertex c that is not a member's own port, the outside closes a loop through c (a closed
+    circuit whose only fixed head is a tank beyond c, a pump circulating around a loop): every
+    way from the members to a barrier passes c, but the station may meet the loop at two places
+    nearer the members. So the cut is searched again toward c alone (c a sink that passes any
+    flow), until it has two places or more, or is a member's own port: then the members meet
+    the rest at that one place, a dead end that no flow passes through."""
+    first = cut = _cut(built, graph, members, sinks=sinks, plain_pumps=plain_pumps)
+    ends = _ends(built, graph, members)
+    while cut.value == 1 and cut.cut[0] not in ends:
+        (c,) = cut.cut
+        cut = _cut(built, graph, members, sinks={c}, plain_pumps=plain_pumps, open_vertex=c)
+    return cut, first
 
 
 def _chain_end(built: BuiltNetwork, key: str) -> str | None:
@@ -416,7 +451,7 @@ def _why_not(
     meet = "meets" if len(members) == 1 else "meet"
 
     def explains(lifted: set[int], pumps: Sequence[str] = ()) -> _Cut | None:
-        again = _cut(built, graph, members, sinks=sinks - lifted, plain_pumps=pumps)
+        again, _ = _station_cut(built, graph, members, sinks=sinks - lifted, plain_pumps=pumps)
         if again.value == 2 and _shape(built, graph, members, again).sound:
             return again
         return None
@@ -666,17 +701,50 @@ def _shape(built: BuiltNetwork, graph: _Graph, members: Sequence[str], cut: _Cut
     )
 
 
+def _on_a_way(built: BuiltNetwork, graph: _Graph, shape: _Shape, member: str) -> bool:
+    """Whether the member's link lies on a simple path from S to D through the station: exactly
+    when two vertex-disjoint paths, without that link, join its two ends to S and to D (one
+    each; Menger again, a flow of 2 from its ends to {S, D} inside the station)."""
+    data = built.pumps[member]
+    index = built.network.node_index
+    ends = [graph.rep[index[data.suction]], graph.rep[index[data.discharge]]]
+    edges = [
+        (u, v) for u, v, link in graph.edges if link in shape.interior and link != data.link_index
+    ]
+    flow = _min_cut(len(graph.rep), edges, ends, [shape.inlet, shape.outlet], graph.centres)
+    return flow.value >= 2
+
+
 def find_station(project: Project, built: BuiltNetwork, members: Sequence[str]) -> Station:
     """The station holding ``members`` (module docstring), or ``NotAStationError`` with every
     reason. ``members`` in component order; topology only (no solve), so the same in every
     case."""
     graph = _graph(built)
     sinks, _ = _barriers(built, graph, members)
-    base = _cut(built, graph, members, sinks=sinks)
+    base, first = _station_cut(built, graph, members, sinks=sinks)
     if base.value != 2:
-        raise NotAStationError(_why_not(built, graph, members, base))
+        raise NotAStationError(_why_not(built, graph, members, base if base.value != 1 else first))
     shape = _shape(built, graph, members, base)
     a, b, interior = shape.inlet, shape.outlet, shape.interior
+    if not shape.oriented and not any(_on_a_way(built, graph, shape, m) for m in members):
+        # Two places, but the members sit in loops or dead ends of their own inside, off every
+        # way between them: the flow passes around the members (a way through a member orients
+        # the station, so only an unoriented one is tested).
+        places = f"{_place_words(built, graph, a)} and {_place_words(built, graph, b)}"
+        one = len(members) == 1
+        lie, they, them = ("lies", "it meets", "it") if one else ("lie", "they meet", "them")
+        raise NotAStationError(
+            [
+                issue(
+                    "NO_SEPARATING_PORTS",
+                    f"{_who(members)} {lie} on no way between the two places where {they} the "
+                    f"rest of the network, {places}: each sits in a loop or dead end of its "
+                    f"own, so no flow passes through {them}; a station's pumps lie between its "
+                    "inlet and outlet",
+                    sorted({_place(built, graph, v)[0] for v in (a, b)}),
+                )
+            ]
+        )
     issues: list[TopologyIssue] = []
     if shape.tie:
         named = list(_component_order(project, shape.forward + shape.against))
@@ -1126,6 +1194,20 @@ def group_curve(
             True,
             "the station's inlet or outlet has no head in this case (closed off), so the "
             "station has no duty and no curve",
+            None,
+            None,
+            [],
+            None,
+            methods_section(built, station, None, None, None),
+        )
+    floating = {v: i for i, nodes in enumerate(outer.gga.floating_sections) for v in nodes}
+    if floating.get(station.inlet[0]) != floating.get(station.outlet[0]):
+        return GroupCurve(
+            station,
+            True,
+            "the station's inlet or outlet lies in a part of the network that no reservoir or "
+            "reference node reaches (UNDETERMINED_PRESSURE), and the other does not, so the rise "
+            "between them is not determined: the station has no duty and no curve",
             None,
             None,
             [],

@@ -160,7 +160,13 @@ class PumpGroupDuty(OutputModel):
 
     flow: float = Field(description="Q_st, m³/s: the net flow from S into the station")
     head: float = Field(description="ΔH_st = EGL(D) - EGL(S), m: the station's rise")
-    inlet_egl: float = Field(description="EGL(S), m: the level the group curve holds S at")
+    inlet_egl: float = Field(
+        description=(
+            "EGL(S), m: the level the group curve holds S at; an arbitrary level when the "
+            "station lies in a part of the network that no reservoir or reference node reaches "
+            "(UNDETERMINED_PRESSURE: its rise and the curve are exact all the same)"
+        )
+    )
     members: list[PumpGroupDutyMember] = Field(description="In member order")
     interstage_head_loss: float | None = Field(
         description=(

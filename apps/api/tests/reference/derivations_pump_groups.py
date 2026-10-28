@@ -83,6 +83,7 @@ from tests.reference.case_format import (
     flow_control,
     ideal_tee,
     make_project,
+    plug,
     pump,
     pump_curve,
     reservoir,
@@ -981,10 +982,11 @@ def pressure_control_leg_project(
     return parallel.model_copy(update={"components": components, "connections": connections})
 
 
-def one_place_project() -> Project:
+def pump_on_a_loop_project() -> Project:
     """A pump circulating round a loop through a tee's run, the tee's branch the only way to the
-    rest: R1 → L1 → T1:branch; T1:run_outlet → LA1 → PA → LA2 → T1:run_inlet. Whatever holds
-    PA meets the rest at one place (T1:branch, or R1 whole), and a tee centre is never S or D."""
+    rest: R1 → L1 → T1:branch; T1:run_outlet → LA1 → PA → LA2 → T1:run_inlet. The smallest
+    part holding PA that meets the rest at two places is PA itself, between its own ports: the
+    loop is its outside (it joins S to D through T1), so PA is a station of one pump."""
     curve = curve_a()
     components: list[Component] = [
         reservoir("R1", 0.0, 3.0),
@@ -999,6 +1001,29 @@ def one_place_project() -> Project:
     return make_project(
         "ref-pump-group-one-place",
         "A pump on a loop",
+        fluid(),
+        components,
+        connections,
+        pump_library=[curve],
+    )
+
+
+def dead_end_project() -> Project:
+    """A pump delivering into a plug: R1 → L1 → PA → LA2 → P1 (a plug). PA meets the rest at one
+    place only, its own suction: no flow passes through it."""
+    curve = curve_a()
+    components: list[Component] = [
+        reservoir("R1", 0.0, 3.0),
+        pump("PA", 0.0, curve.id),
+        plug("P1", 0.0, 0.1016),
+    ]
+    connections = [
+        PLAIN_IN.connect("L1", "R1:port_1", "PA:suction"),
+        Line(0.1023, 50.0).connect("LA2", "PA:discharge", "P1:port_1"),
+    ]
+    return make_project(
+        "ref-pump-group-dead-end",
+        "A pump into a plug",
         fluid(),
         components,
         connections,

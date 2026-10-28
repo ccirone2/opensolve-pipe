@@ -73,7 +73,7 @@ from ...models.components import ControlValve, Pump
 from ...models.project import Project
 from ..fluids import fluid_properties
 from .budget import SolveDeadlineError
-from .builder import BuiltNetwork, PumpData, build_network
+from .builder import BuiltNetwork, build_network
 from .gga import CONTINUITY_ATOL, CONTINUITY_RTOL, solve_gga
 from .network import LinkMode, LinkState
 from .npsh import atmospheric_pressure, npsh_available
@@ -169,6 +169,60 @@ def find_pump(project: Project, pump_id: str) -> Pump:
     raise PumpNotFoundError(f"no pump with id '{pump_id}' in the project")
 
 
+@dataclass(frozen=True)
+class Words:
+    """How a system curve's messages name what its flow is forced through (``Forced``)."""
+
+    noun: str
+    inlet: str
+    """The side the forced flow is drawn from."""
+    outlet: str
+    """The side it is delivered to."""
+    head: str
+    """What the curve's value is called: EGL(outlet) − EGL(inlet)."""
+
+
+PUMP_WORDS = Words("pump", "suction", "discharge", "head")
+STATION_WORDS = Words("station", "inlet", "outlet", "rise")
+
+
+@dataclass(frozen=True)
+class Forced:
+    """What a system curve forces its flow through: a pump's own link, replaced by the fixed
+    flow (design §13), or a pump station's virtual link from its inlet S to its outlet D in a
+    copy of the network that holds every link inside the station closed
+    (``BuiltNetwork.held_closed``; ``services.pump_groups.system_network``, CLAUDE.md D21). The
+    status rules never govern it: a forced pump is fixed (``status.initial_controls``), and the
+    virtual link is no element's."""
+
+    link_index: int
+    suction: str
+    """The node key the forced flow is drawn from: the pump's suction, the station's inlet."""
+    discharge: str
+    """The node key it is delivered to: the pump's discharge, the station's outlet."""
+    pump_id: str | None = None
+    """The pump replaced; None for a station's virtual link."""
+    words: Words = PUMP_WORDS
+
+    def pumps(self, q: float) -> dict[str, float] | None:
+        """``run_outer_loop``'s ``forced_flows`` for a forced flow q."""
+        return {self.pump_id: q} if self.pump_id is not None else None
+
+    def links(self, q: float) -> dict[int, float] | None:
+        """``run_outer_loop``'s ``forced_links`` for a forced flow q."""
+        return None if self.pump_id is not None else {self.link_index: q}
+
+
+def pump_forced(built: BuiltNetwork, pump_id: str) -> Forced:
+    """A pump's own link as the forced element (D10)."""
+    data = built.pumps[pump_id]
+    return Forced(data.link_index, data.suction, data.discharge, pump_id)
+
+
+def _forced(built: BuiltNetwork, element: "str | Forced") -> Forced:
+    return pump_forced(built, element) if isinstance(element, str) else element
+
+
 def default_flow_max(built: BuiltNetwork, pump_id: str) -> float:
     """1.2 × the curve's largest flow × the speed ratio (a speed-controlled pump's maximum
     speed), m³/s (module docstring)."""
@@ -181,30 +235,34 @@ def curve_flows(flow_min: float, flow_max: float, count: int) -> list[float]:
     return [float(q) for q in np.linspace(flow_min, flow_max, count)]
 
 
-def has_way_through(built: BuiltNetwork, pump_id: str) -> bool:
+def has_way_through(built: BuiltNetwork, element: "str | Forced") -> bool:
     """Whether a forced flow through the pump can pass for some statuses: both of its sides
     reach a reservoir or reference node, or each other, through the network's links other than
     the pump's own, leaving out those that a status set by the user closes (a pump 'off', a
     valve 'isolated', 'locked_closed' or 'failed_closed'). Every other element can open. An
     assigned-flow node is no way through: it fixes a flow, not a pressure (TSD §4.8), so a side
     that reaches only such nodes has no head at the one flow they could take, and no steady
-    state at any other."""
+    state at any other. For a pump station (``Forced``), the links inside it are held closed
+    (``BuiltNetwork.held_closed``) and never open, and its sides are its inlet's and outlet's."""
     net = built.network
-    pump_link = built.pumps[pump_id].link_index
-    blocked = {
-        control.link
-        for control in initial_controls(built, {pump_id: 0.0}).values()
-        if control.fixed and control.status is Status.CLOSED
-    } | {pump_link}
+    forced = _forced(built, element)
+    blocked = (
+        {
+            control.link
+            for control in initial_controls(built, forced.pumps(0.0)).values()
+            if control.fixed and control.status is Status.CLOSED
+        }
+        | {forced.link_index}
+        | built.held_closed
+    )
     links = [link for link in net.links if link.index not in blocked]
     n = len(net.nodes)
     start = np.array([link.start for link in links], dtype=np.int64)
     end = np.array([link.end for link in links], dtype=np.int64)
     graph = coo_matrix((np.ones(len(links)), (start, end)), shape=(n, n))
     labels = connected_components(graph, directed=False)[1]
-    data = built.pumps[pump_id]
-    suction = int(labels[net.node_index[data.suction]])
-    discharge = int(labels[net.node_index[data.discharge]])
+    suction = int(labels[net.node_index[forced.suction]])
+    discharge = int(labels[net.node_index[forced.discharge]])
     fixed = {int(labels[node.index]) for node in net.nodes if node.fixed_head is not None}
     return suction == discharge or (suction in fixed and discharge in fixed)
 
@@ -230,7 +288,7 @@ class FlowLimit:
     (``flow_limit``); None otherwise."""
 
 
-def flow_limit(built: BuiltNetwork, pump_id: str) -> FlowLimit:
+def flow_limit(built: BuiltNetwork, element: "str | Forced") -> FlowLimit:
     """An upper bound on the forced flow through the pump in any steady state the status rules
     allow, by the max-flow min-cut theorem (Ford, L. R., and D. R. Fulkerson, "Maximal flow
     through a network", Canadian Journal of Mathematics 8, 1956, 399-404): the flow from the
@@ -263,10 +321,14 @@ def flow_limit(built: BuiltNetwork, pump_id: str) -> FlowLimit:
     limited element across it; the larger is the floor. A demand on the discharge's side that a
     one-way element keeps every fixed head from feeding, or a supply on the suction's side that
     one keeps from draining, passes only through the pump. Without assigned flows no floor is
-    above zero, and none is computed."""
+    above zero, and none is computed.
+
+    For a pump station (``Forced``, CLAUDE.md D21) the station's outlet D and inlet S take the
+    discharge's and suction's places, and the links inside it, held closed
+    (``BuiltNetwork.held_closed``), pass nothing."""
     net = built.network
-    data = built.pumps[pump_id]
-    controls = {c.link: c for c in initial_controls(built, {pump_id: 0.0}).values()}
+    forced = _forced(built, element)
+    controls = {c.link: c for c in initial_controls(built, forced.pumps(0.0)).values()}
     hub = len(net.nodes)  # every reservoir and reference node
     ahead: list[list[int]] = [[] for _ in range(hub + 1)]
     behind: list[list[int]] = [[] for _ in range(hub + 1)]
@@ -281,9 +343,11 @@ def flow_limit(built: BuiltNetwork, pump_id: str) -> FlowLimit:
             unlimited(node.index, hub)
             unlimited(hub, node.index)
     for link in net.links:
+        if link.index in built.held_closed:
+            continue  # inside a pump station: held closed, passes nothing
         control = controls.get(link.index)
         a, b = link.start, link.end  # inlet -> outlet, suction -> discharge
-        if link.index == data.link_index or (control is not None and control.fixed):
+        if link.index == forced.link_index or (control is not None and control.fixed):
             if control is not None and control.status is Status.OPEN and control.kind != "pump":
                 unlimited(a, b)
                 unlimited(b, a)
@@ -309,7 +373,7 @@ def flow_limit(built: BuiltNetwork, pump_id: str) -> FlowLimit:
                     queue.append(v)
         return seen
 
-    suction, discharge = net.node_index[data.suction], net.node_index[data.discharge]
+    suction, discharge = net.node_index[forced.suction], net.node_index[forced.discharge]
     demands = {node.index: node.demand for node in net.nodes if node.demand != 0.0}
     total = math.fsum(demands.values())
     floor: FlowLimit | None = None
@@ -396,7 +460,7 @@ def _at_limit(q: float, limit: FlowLimit) -> bool:
     return 0.0 < limit.flow < math.inf and abs(q - limit.flow) <= _margin(q, limit)
 
 
-def _beyond_message(limit: FlowLimit) -> tuple[str, PointReason]:
+def _beyond_message(limit: FlowLimit, w: Words = PUMP_WORDS) -> tuple[str, PointReason]:
     """Why no steady state carries a flow beyond the limit (``flow_limit``), in words and as
     data."""
     controls = [c for c, _ in limit.elements]
@@ -415,26 +479,26 @@ def _beyond_message(limit: FlowLimit) -> tuple[str, PointReason]:
     if limit.assigned:
         if limit.flow < 0.0:  # the assigned flows need more than the cut passes
             ending = (
-                f"the pump would have to pass {-limit.flow:.6g} m³/s in reverse: no forced flow "
-                "from its suction to its discharge, zero included, has a steady state"
+                f"the {w.noun} would have to pass {-limit.flow:.6g} m³/s in reverse: no forced "
+                f"flow from its {w.inlet} to its {w.outlet}, zero included, has a steady state"
             )
         else:
-            ending = f"the pump can pass {amount}"
+            ending = f"the {w.noun} can pass {amount}"
         return (
-            "no steady state carries this flow: every way from the pump's discharge back to its "
-            "suction, through the network or a reservoir or reference node, passes "
+            f"no steady state carries this flow: every way from the {w.noun}'s {w.outlet} back "
+            f"to its {w.inlet}, through the network or a reservoir or reference node, passes "
             f"{_names(controls)}, {which} {passed} that way ({rules}), and with the "
             f"flows of assigned-flow node(s) {_quoted(limit.assigned)}, which take or supply "
             f"their flows whatever the pressure, {ending}"
         ), reason
     return (
-        "no steady state carries this flow: every way from the pump's discharge back to its "
-        f"suction, through the network or a reservoir or reference node, passes "
+        f"no steady state carries this flow: every way from the {w.noun}'s {w.outlet} back to "
+        f"its {w.inlet}, through the network or a reservoir or reference node, passes "
         f"{_names(controls)}, {which} {amount} that way ({rules})"
     ), reason
 
 
-def _below_message(floor: FlowLimit) -> tuple[str, PointReason]:
+def _below_message(floor: FlowLimit, w: Words = PUMP_WORDS) -> tuple[str, PointReason]:
     """Why no steady state carries a flow below the floor (``flow_limit``), in words and as
     data."""
     controls = [c for c, _ in floor.elements]
@@ -450,11 +514,11 @@ def _below_message(floor: FlowLimit) -> tuple[str, PointReason]:
         passed_flow=passed_flow,
     )
     return (
-        "no steady state carries this flow: every way from the pump's suction to its discharge, "
-        "through the network or a reservoir or reference node, passes "
+        f"no steady state carries this flow: every way from the {w.noun}'s {w.inlet} to its "
+        f"{w.outlet}, through the network or a reservoir or reference node, passes "
         f"{_names(controls)}, {which} {passed} that way ({rules}), and with the flows "
         f"of assigned-flow node(s) {_quoted(floor.assigned)}, which take or supply their flows "
-        f"whatever the pressure, the pump must pass at least {floor.flow:.6g} m³/s"
+        f"whatever the pressure, the {w.noun} must pass at least {floor.flow:.6g} m³/s"
     ), reason
 
 
@@ -473,14 +537,14 @@ def _names(controls: list[Control]) -> str:
     return ", ".join(named[:-1]) + (" and " if len(named) > 1 else "") + named[-1]
 
 
-def _closing(built: BuiltNetwork, outer: OuterLoopResult, data: PumpData) -> list[Control]:
+def _closing(built: BuiltNetwork, outer: OuterLoopResult, forced: Forced) -> list[Control]:
     """The elements the status rules closed (not a status set by the user) with a port in the
     closed-off or floating section of either side of the pump, in id order."""
     net = built.network
     section, _ = closed_off_sections(built, outer.gga, outer.states)
     sides = {
         section[v]
-        for v in (net.node_index[data.suction], net.node_index[data.discharge])
+        for v in (net.node_index[forced.suction], net.node_index[forced.discharge])
         if v in section
     }
     return [
@@ -488,7 +552,7 @@ def _closing(built: BuiltNetwork, outer: OuterLoopResult, data: PumpData) -> lis
         for _, control in sorted(outer.controls.items())
         if not control.fixed
         and control.status is Status.CLOSED
-        and control.link != data.link_index
+        and control.link != forced.link_index
         and (
             section.get(net.links[control.link].start) in sides
             or section.get(net.links[control.link].end) in sides
@@ -513,7 +577,7 @@ def _fcv_at_setpoint(built: BuiltNetwork, outer: OuterLoopResult, control: Contr
 def _switch_message(
     built: BuiltNetwork,
     outer: OuterLoopResult,
-    data: PumpData,
+    forced: Forced,
     control: Control,
     what: str,
     head: float,
@@ -529,25 +593,26 @@ def _switch_message(
     trial = list(outer.states)
     trial[control.link] = active_state(built, built.valves[control.component_id])
     check = solve_gga(built.network, trial, tolerance=1.0, max_iterations=0)
-    if not {control.link, data.link_index} <= set(check.undetermined_links):
+    if not {control.link, forced.link_index} <= set(check.undetermined_links):
         return None
-    side = _head_side(built, trial, data, control)
+    side = _head_side(built, trial, forced, control)
     reason = PointReason(
         "valve_at_switch",
         (control.component_id,),
         open_head=head,
         open_head_bound="lower" if side == "above" else "upper",
     )
+    w = forced.words
     return (
-        f"the head across the pump is undetermined: at this flow {what}, so the valve "
-        "could also hold it throttled, with any head across the pump at or "
+        f"the {w.head} across the {w.noun} is undetermined: at this flow {what}, so the valve "
+        f"could also hold it throttled, with any {w.head} across the {w.noun} at or "
         f"{side} {head:.6g} m (with the valve fully open), "
-        "and no reservoir or reference node fixes the pressure between the valve and the pump"
+        f"and no reservoir or reference node fixes the pressure between the valve and the {w.noun}"
     ), reason
 
 
 def _head_side(
-    built: BuiltNetwork, trial: Sequence[LinkState], data: PumpData, control: Control
+    built: BuiltNetwork, trial: Sequence[LinkState], forced: Forced, control: Control
 ) -> Literal["below", "above"]:
     """'below' when the valve delivers into the part of the network the pump's discharge is in,
     or draws from the suction's (the parts joined by NORMAL links in ``trial``), else 'above'
@@ -563,13 +628,13 @@ def _head_side(
     labels = connected_components(graph, directed=False)[1]
     link = net.links[control.link]  # inlet -> outlet
     inlet, outlet = int(labels[link.start]), int(labels[link.end])
-    discharge = int(labels[net.node_index[data.discharge]])
-    suction = int(labels[net.node_index[data.suction]])
+    discharge = int(labels[net.node_index[forced.discharge]])
+    suction = int(labels[net.node_index[forced.suction]])
     return "below" if outlet == discharge or inlet == suction else "above"
 
 
 def _at_switch(
-    built: BuiltNetwork, outer: OuterLoopResult, data: PumpData, q: float, head: float
+    built: BuiltNetwork, outer: OuterLoopResult, forced: Forced, q: float, head: float
 ) -> tuple[str, PointReason] | None:
     """Why a converged point's head is undetermined, in words and as data, if a control valve in
     series sits at its switch (module docstring), else None. An open FCV whose flow is its setpoint
@@ -597,7 +662,7 @@ def _at_switch(
             where = "outlet" if control.kind == "prv" else "inlet"
             what = f"{KIND_NAMES[control.kind]} '{cid}' has its {where} at its setting"
         if edge:
-            switch = _switch_message(built, outer, data, control, what, head)
+            switch = _switch_message(built, outer, forced, control, what, head)
             if switch is not None:
                 return switch
     return None
@@ -628,16 +693,16 @@ class _Solved:
     section, not closed off); None otherwise."""
 
 
-def _read(built: BuiltNetwork, data: PumpData, q: float, outer: OuterLoopResult) -> _Solved:
-    """The head of the point at flow q from one solve with the pump replaced by q, or why it
-    has none (module docstring)."""
+def _read(built: BuiltNetwork, forced: Forced, q: float, outer: OuterLoopResult) -> _Solved:
+    """The head of the point at flow q from one solve with the forced element carrying q, or
+    why it has none (module docstring)."""
     net = built.network
-    suction, discharge = net.node_index[data.suction], net.node_index[data.discharge]
+    suction, discharge = net.node_index[forced.suction], net.node_index[forced.discharge]
     if not outer.converged:
         reason = PointReason("not_converged", tuple(outer.oscillating_components))
         return _Solved(None, "not_converged", outer.message, reason=reason)
     gga = outer.gga
-    starved = data.link_index in gga.starved_links
+    starved = forced.link_index in gga.starved_links
     floating = {v: i for i, nodes in enumerate(gga.floating_sections) for v in nodes}
     free_level = floating.get(suction) != floating.get(discharge)
     head = float(gga.heads[discharge] - gga.heads[suction])
@@ -646,13 +711,13 @@ def _read(built: BuiltNetwork, data: PumpData, q: float, outer: OuterLoopResult)
         if suction in section and section[suction] == section.get(discharge):
             head = shift[discharge] - shift[suction]
     if not starved and not free_level and math.isfinite(head):
-        switch = _at_switch(built, outer, data, q, head)
+        switch = _at_switch(built, outer, forced, q, head)
         if switch is None:
             h_s = float(gga.heads[suction])
             level = math.isfinite(h_s) and suction not in floating
             return _Solved(head, "head", suction_egl=h_s if level else None)
         return _Solved(None, "switch", switch[0], reason=switch[1])
-    closing = tuple(_closing(built, outer, data))
+    closing = tuple(_closing(built, outer, forced))
     if starved:
         return _Solved(None, "starved", closing=closing)
     return _Solved(None, "free_level" if math.isfinite(head) else "closed_off", closing=closing)
@@ -660,7 +725,7 @@ def _read(built: BuiltNetwork, data: PumpData, q: float, outer: OuterLoopResult)
 
 def _held_open_switch(
     built: BuiltNetwork,
-    data: PumpData,
+    forced: Forced,
     q: float,
     limit: FlowLimit,
     *,
@@ -685,16 +750,17 @@ def _held_open_switch(
             built,
             tolerance=tolerance,
             max_iterations=max_iterations,
-            forced_flows={data.component.id: q},
+            forced_flows=forced.pumps(q),
             held_open=(control.component_id,),
+            forced_links=forced.links(q),
         )
-        read = _read(built, data, q, held)
+        read = _read(built, forced, q, held)
         if read.kind == "switch":
             return read
         if read.head is None or not _fcv_at_setpoint(built, held, control):
             continue
         what = f"FCV '{control.component_id}' passes exactly its setpoint flow"
-        switch = _switch_message(built, held, data, control, what, read.head)
+        switch = _switch_message(built, held, forced, control, what, read.head)
         if switch is not None:
             return _Solved(None, "switch", switch[0], reason=switch[1])
     return None
@@ -706,6 +772,7 @@ def _message(
     way_through: bool,
     warm: SystemCurveStart | None,
     opened: bool,
+    w: Words = PUMP_WORDS,
 ) -> tuple[str, PointReason]:
     """Why a point has no head, in words and as data (module docstring). ``warm``: the solution
     the point was first solved from, if any (it was always solved from the initial state too,
@@ -718,11 +785,11 @@ def _message(
         return f"not converged: {solved.detail}", solved.reason
     if not way_through:
         return (
-            "the flow has no way through: a side of the pump reaches no reservoir or reference "
-            "node, nor the pump's other side, through elements that can open (every element "
-            "but those closed by a status the user set)"
+            f"the flow has no way through: a side of the {w.noun} reaches no reservoir or "
+            f"reference node, nor the {w.noun}'s other side, through elements that can open "
+            "(every element but those closed by a status the user set)"
         ) + (
-            "; at zero flow the head across the pump is undetermined"
+            f"; at zero flow the {w.head} across the {w.noun} is undetermined"
             if q == 0.0
             else ", so no steady state carries it"
         ), PointReason("no_way_through")
@@ -732,14 +799,14 @@ def _message(
         if closing:
             kinds = [kind for kind in RULES if any(c.kind == kind for c in closing)]
             what = (
-                f"the status rules close {_names(closing)}, which leaves a side of the pump "
+                f"the status rules close {_names(closing)}, which leaves a side of the {w.noun} "
                 "with no way to a reservoir or reference node ("
                 + "; ".join(RULES[kind] for kind in kinds)
                 + ")"
             )
         else:
             what = (
-                "the status rules leave a side of the pump with no way to a reservoir or "
+                f"the status rules leave a side of the {w.noun} with no way to a reservoir or "
                 "reference node"
             )
         starts: list[SystemCurveStart] = [warm] if warm else []
@@ -756,25 +823,25 @@ def _message(
     if solved.kind == "free_level":
         by = f", closed off by {_names(closing)}," if closing else ""
         return (
-            f"the head across the pump is undetermined: a side of the pump{by} is in a part of "
-            "the network that carries flow but reaches no reservoir or reference node, so "
-            "nothing fixes its pressure level"
+            f"the {w.head} across the {w.noun} is undetermined: a side of the {w.noun}{by} is in "
+            "a part of the network that carries flow but reaches no reservoir or reference "
+            "node, so nothing fixes its pressure level"
         ), PointReason("free_level", named)
     where = " at zero flow" if q == 0.0 else ""
     by = (
-        f"{_names(closing)} {verb} off a side of the pump"
+        f"{_names(closing)} {verb} off a side of the {w.noun}"
         if closing
-        else "a side of the pump is closed off"
+        else f"a side of the {w.noun} is closed off"
     )
     return (
-        f"the head across the pump is undetermined{where}: {by}, and no reservoir or reference "
-        "node fixes the pressure in the part closed off"
+        f"the {w.head} across the {w.noun} is undetermined{where}: {by}, and no reservoir or "
+        "reference node fixes the pressure in the part closed off"
     ), PointReason("closed_off", named)
 
 
 def system_curve_points(
     built: BuiltNetwork,
-    pump_id: str,
+    element: "str | Forced",
     flows: Sequence[float],
     *,
     tolerance: float,
@@ -782,7 +849,8 @@ def system_curve_points(
     warm: OuterLoopResult | None = None,
     p_atm: float | None = None,
 ) -> list[SystemCurvePointResult]:
-    """Solve the network with pump ``pump_id`` replaced by each fixed flow (module docstring).
+    """Solve the network with pump ``element`` (an id) replaced by each fixed flow (module
+    docstring), or with a pump station's virtual link carrying it (``Forced``, CLAUDE.md D21).
 
     Each point starts from the last converged point (or from ``warm``, a converged solve of
     the same network, for the first): its flows, statuses and branch losses (continuation
@@ -800,9 +868,9 @@ def system_curve_points(
     applies its own branch laws to the network, so one built network serves every point.
     With ``p_atm`` (Pa absolute) and the fluid's vapor pressure, a point with a head also gets
     the NPSHa at the pump's suction (``npsh.npsh_available``, as the solve's)."""
-    data = built.pumps[pump_id]
+    forced = _forced(built, element)
     p_vap = built.fluid.vapor_pressure
-    suction_z = built.network.nodes[built.network.node_index[data.suction]].elevation
+    suction_z = built.network.nodes[built.network.node_index[forced.suction]].elevation
 
     def npsha(solved: _Solved) -> float | None:
         if p_atm is None or p_vap is None or solved.suction_egl is None:
@@ -811,8 +879,8 @@ def system_curve_points(
             solved.suction_egl, suction_z, p_atm, p_vap, built.fluid.density, built.g
         )
 
-    way_through = has_way_through(built, pump_id)
-    limit = flow_limit(built, pump_id) if way_through else FlowLimit(math.inf, (), 0)
+    way_through = has_way_through(built, forced)
+    limit = flow_limit(built, forced) if way_through else FlowLimit(math.inf, (), 0)
     can_open = any(
         isinstance(v.component, ControlValve) and v.component.status == "active"
         for v in built.valves.values()
@@ -820,7 +888,7 @@ def system_curve_points(
     points: list[SystemCurvePointResult] = []
     previous = warm
     for i, q in enumerate(flows):
-        forced = {pump_id: float(q)}
+        pumps, links = forced.pumps(float(q)), forced.links(float(q))
         warm_start: SystemCurveStart | None = (
             None if previous is None else "solve" if previous is warm else "previous_point"
         )
@@ -832,23 +900,32 @@ def system_curve_points(
                 built,
                 tolerance=tolerance,
                 max_iterations=max_iterations,
-                forced_flows=forced,
+                forced_flows=pumps,
                 warm=previous,
+                forced_links=links,
             )
             cold = warm_start is None
             if not outer.converged and not cold:
                 outer = run_outer_loop(
-                    built, tolerance=tolerance, max_iterations=max_iterations, forced_flows=forced
+                    built,
+                    tolerance=tolerance,
+                    max_iterations=max_iterations,
+                    forced_flows=pumps,
+                    forced_links=links,
                 )
                 cold = True
-            solved = _read(built, data, q, outer)
+            solved = _read(built, forced, q, outer)
             found = ("head", "switch")  # a head, or the finding that it is undetermined
             retry = way_through and not beyond and solved.kind not in found
             if retry and not cold:
                 again = run_outer_loop(
-                    built, tolerance=tolerance, max_iterations=max_iterations, forced_flows=forced
+                    built,
+                    tolerance=tolerance,
+                    max_iterations=max_iterations,
+                    forced_flows=pumps,
+                    forced_links=links,
                 )
-                read = _read(built, data, q, again)
+                read = _read(built, forced, q, again)
                 if read.kind in found:
                     outer, solved, retry = again, read, False
             if retry and can_open:
@@ -856,18 +933,19 @@ def system_curve_points(
                     built,
                     tolerance=tolerance,
                     max_iterations=max_iterations,
-                    forced_flows=forced,
+                    forced_flows=pumps,
                     open_valves=True,
+                    forced_links=links,
                 )
                 opened = True
-                read = _read(built, data, q, start_open)
+                read = _read(built, forced, q, start_open)
                 if read.kind in found:
                     outer, solved, retry = start_open, read, False
             at = next((b for b in (limit, limit.floor) if b and _at_limit(float(q), b)), None)
             if retry and at is not None:
                 switch = _held_open_switch(
                     built,
-                    data,
+                    forced,
                     float(q),
                     at,
                     tolerance=tolerance,
@@ -892,12 +970,13 @@ def system_curve_points(
                 )
             )
         else:
+            words = forced.words
             message, reason = (
-                _message(q, solved, way_through, warm_start, opened)
+                _message(q, solved, way_through, warm_start, opened, words)
                 if not beyond or solved.kind == "switch"
-                else _below_message(limit.floor)
+                else _below_message(limit.floor, words)
                 if below and limit.floor is not None
-                else _beyond_message(limit)
+                else _beyond_message(limit, words)
             )
             points.append(SystemCurvePointResult(float(q), None, False, message, reason))
     return points

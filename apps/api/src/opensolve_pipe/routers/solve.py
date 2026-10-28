@@ -111,16 +111,20 @@ async def system_curve_endpoint(request: SystemCurveRequest, http: Request) -> S
 async def pump_group_curve_endpoint(
     request: PumpGroupCurveRequest, http: Request
 ) -> PumpGroupCurveResponse:
-    """The station holding a group of pumps, its duty in the case and its group curve (CLAUDE.md
-    D21): the station solved alone between its inlet S and outlet D held a rise apart, every
-    element inside on its own law and rules, from the duty's rise outward.
+    """The station holding a group of pumps, its duty in the case, and its group curve or its
+    group system curve (CLAUDE.md D21). curve 'group': the station solved alone between its
+    inlet S and outlet D held a rise apart, every element inside on its own law and rules, from
+    the duty's rise outward. curve 'system': the rest of the network with the station's flow
+    forced from S to D, every element inside held closed (each pump's system curve with the
+    whole station in place of one pump).
 
     Checks in order: the request (400), the scenario (404, then 400 for its values), the case's
     fluid (400), pump ids that name no pump (404, all listed), the case's topology (422), whether
-    the pumps form a station (422 NOT_A_STATION, every reason listed), the head range (400).
-    A case whose solve does not converge is 200 with converged = false and no points."""
-    # PumpGroupNotFoundError, NotAStationError, HeadRangeError and the errors /system-curve
-    # raises are mapped in main.py.
+    the pumps form a station (422 NOT_A_STATION, every reason listed; an active PRV or PSV inside
+    refuses curve 'group' only), the head range (400), then for curve 'system' the flow range
+    (400). A case whose solve does not converge is 200 with converged = false and no points."""
+    # PumpGroupNotFoundError, NotAStationError, HeadRangeError, FlowRangeError and the errors
+    # /system-curve raises are mapped in main.py.
     curve, scenario = (
         await run_solve(
             http,
@@ -129,8 +133,11 @@ async def pump_group_curve_endpoint(
             request.project,
             request.pump_ids,
             request.scenario_id,
+            curve=request.curve,
             head_min=request.head_min,
             head_max=request.head_max,
+            flow_min=request.flow_min,
+            flow_max=request.flow_max,
             num_points=request.num_points,
         )
     )[0]
@@ -142,6 +149,9 @@ async def pump_group_curve_endpoint(
         duty_check=curve.duty_check,
         points=curve.points,
         head_range=curve.head_range,
+        system_duty_check=curve.system_duty_check,
+        system_points=curve.system_points,
+        flow_range=curve.flow_range,
         methods=curve.methods,
         method_version=METHOD_VERSION,
         scenario=scenario,

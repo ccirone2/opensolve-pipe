@@ -42,6 +42,19 @@ first, from the case's solve; then the rises outward, each from its converged ne
 the duty, so the curve is the branch through the duty (a point that does not converge from
 there is solved again from the initial state). The duty check compares that first point with
 the duty (D13: another steady state at the same rise is possible).
+
+**Group system curve** (slice 4b). The rest of the network with the station's flow Q forced from
+S to D: a copy of the network in which every link inside the station is held closed and one
+virtual link from S to D carries Q (a fixed flow, a demand at S and a supply at D,
+``system_network``), every element outside on its own law and status rules. Its value at Q is
+the rise EGL(D) − EGL(S) the rest needs: each pump's system curve (``system_curve``, design §13)
+with the whole station in place of one pump, by the same code (``system_curve.Forced``), so for
+a station of one pump between its own suction and discharge it is that pump's system curve. It
+depends neither on the members' statuses nor on how they share the flow, and an active PRV or
+PSV inside does not matter to it (held closed with everything inside). The flows are solved as
+the system curve's are, from the network's initial state in flow order, each from the last
+converged point, with its retries and reasons; the duty's flow is solved first, from the case's
+solve, and the system duty check compares its rise with the duty's.
 """
 
 import dataclasses
@@ -61,11 +74,13 @@ from ..models.components import (
     Pump,
     Reservoir,
 )
+from ..models.fluids import FluidProperties
 from ..models.project import Project
 from ..models.pump_groups import (
     Arrangement,
     ControlState,
     DutyCheckMember,
+    FlowRange,
     GroupMemberPoint,
     HeadRange,
     PumpGroupCurvePoint,
@@ -73,6 +88,8 @@ from ..models.pump_groups import (
     PumpGroupDutyCheck,
     PumpGroupDutyMember,
     PumpGroupStation,
+    PumpGroupSystemDutyCheck,
+    PumpGroupSystemPoint,
     PumpStatus,
     StationPort,
 )
@@ -84,16 +101,28 @@ from .solver.budget import SolveDeadlineError, check_budget
 from .solver.builder import BuiltNetwork, PumpData, build_network
 from .solver.errors import TopologyError, issue
 from .solver.gga import FloatArray
+from .solver.network import LinkKind, SolverLink
 from .solver.npsh import atmospheric_pressure
 from .solver.pumps import operating_speed
 from .solver.results import CONTROL_STATES, RUNNING, build_solved_state
 from .solver.status import Control, OuterLoopResult, Status, run_outer_loop
+from .solver.system_curve import (
+    DEFAULT_RANGE_FACTOR,
+    STATION_WORDS,
+    FlowRangeError,
+    Forced,
+    SystemCurvePointResult,
+    curve_flows,
+    system_curve_points,
+)
 from .solver.version import METHOD_VERSION
 
 DUTY_RTOL = 0.005
 """The duty check's relative tolerance on flows (D6's 0.5 %)."""
 DUTY_FLOW_FLOOR = 1.0e-6
 """m³/s: the duty check's absolute floor on flows (D16's flow floor)."""
+DUTY_HEAD_FLOOR = 0.01
+"""m: the system duty check's absolute floor on the rise (D6's head floor)."""
 CUT_LIMIT = 9
 """Augmenting paths searched at most: a group that meets the rest at this many places or more
 is reported as meeting it at 'this many or more'."""
@@ -561,7 +590,13 @@ def _lift_candidates(graph: _Graph, first: _Cut) -> set[int]:
 
 
 def _why_not(
-    built: BuiltNetwork, graph: _Graph, members: Sequence[str], base: _Cut, first: _Cut
+    built: BuiltNetwork,
+    graph: _Graph,
+    members: Sequence[str],
+    base: _Cut,
+    first: _Cut,
+    *,
+    pressure_controls: bool = True,
 ) -> list[TopologyIssue]:
     """The reasons the members form no station (module docstring). With three places or more,
     the cut is searched again with one kind of barrier lifted at a time, and a search that then
@@ -626,8 +661,12 @@ def _why_not(
                     )
                 )
             if found:
-                return found + _pressure_controls(
-                    built, members, _shape(built, graph, members, again).interior
+                return found + (
+                    _pressure_controls(
+                        built, members, _shape(built, graph, members, again).interior
+                    )
+                    if pressure_controls
+                    else []
                 )
         # Members on different reservoirs or reference nodes, each through its own chain.
         for side in ("suction", "discharge"):
@@ -679,7 +718,11 @@ def _why_not(
                     "inlet and outlet, and holds no reservoir or reference node between them",
                     ids,
                 ),
-                *_pressure_controls(built, members, frozenset.intersection(*interiors)),
+                *(
+                    _pressure_controls(built, members, frozenset.intersection(*interiors))
+                    if pressure_controls
+                    else []
+                ),
             ]
     complete = base.value < CUT_LIMIT  # else the search stopped before the cut was found
     places = [_place_words(built, graph, v) for v in base.cut] if complete else []
@@ -892,17 +935,32 @@ def _pressure_controls(
     return issues
 
 
-def find_station(project: Project, built: BuiltNetwork, members: Sequence[str]) -> Station:
+def find_station(
+    project: Project,
+    built: BuiltNetwork,
+    members: Sequence[str],
+    *,
+    pressure_controls: bool = True,
+) -> Station:
     """The station holding ``members`` (module docstring), or ``NotAStationError`` with every
     reason. ``members`` in component order; no solve. Its extent is topology only, so the same in
     every case, but PRESSURE_CONTROL_INSIDE reads the case's valve statuses (a scenario can set a
-    PRV or PSV active or not), so a case can refuse a station another accepts."""
+    PRV or PSV active or not), so a case can refuse a station another accepts.
+    ``pressure_controls``: whether an active PRV or PSV inside refuses the station (the group
+    curve's rule; the group system curve holds it closed with everything inside)."""
     graph = _graph(built)
     sinks, _ = _barriers(built, graph, members)
     base, first = _station_cut(built, graph, members, sinks=sinks)
     if base.value != 2:
         raise NotAStationError(
-            _why_not(built, graph, members, base if base.value != 1 else first, first)
+            _why_not(
+                built,
+                graph,
+                members,
+                base if base.value != 1 else first,
+                first,
+                pressure_controls=pressure_controls,
+            )
         )
     shape = _shape(built, graph, members, base)
     a, b, interior = shape.inlet, shape.outlet, shape.interior
@@ -950,7 +1008,8 @@ def find_station(project: Project, built: BuiltNetwork, members: Sequence[str]) 
                 against,
             )
         )
-    issues += _pressure_controls(built, members, interior)
+    if pressure_controls:
+        issues += _pressure_controls(built, members, interior)
     if issues:
         raise NotAStationError(issues)
     pa, pb, edges = shape.inlet_part, shape.outlet_part, shape.edges
@@ -1050,6 +1109,59 @@ def station_network(built: BuiltNetwork, station: Station) -> BuiltNetwork:
         branch_legs=legs,
         held_closed=frozenset(range(len(built.network.links))) - inside,
     )
+
+
+class _ForcedOnly:
+    """The virtual link's law: never evaluated, since the link carries a fixed flow in every
+    solve (``Forced.links``), and a FIXED_FLOW link carries no energy equation (``gga``)."""
+
+    def evaluate(self, flow: float) -> tuple[float, float]:
+        raise AssertionError("a pump station's virtual link carries a fixed flow; it has no law")
+
+
+def system_network(built: BuiltNetwork, station: Station) -> tuple[BuiltNetwork, Forced]:
+    """A copy of ``built`` for the group system curve (module docstring), and its forced
+    element: one virtual link from S to D appended (the station's flow, forced in every solve),
+    every link inside the station held closed, and only the pumps, valves, equipment and
+    branches outside it under the status and branch rules. Every other index stays, so the
+    case's solve warm-starts it (``_padded``). ``built`` itself is not changed (its links, whose
+    branch laws the solves set, are shared: give it a network of its own)."""
+    net = built.network
+    s, d = station.inlet[0], station.outlet[0]
+    virtual = SolverLink(
+        index=len(net.links),
+        key=f"station of {', '.join(station.members)}",
+        kind=LinkKind.PUMP,
+        start=s,
+        end=d,
+        law=_ForcedOnly(),
+    )
+    network = dataclasses.replace(net, links=[*net.links, virtual], flags=[])
+    inside = station.interior_links
+    legs = {
+        bid: legs
+        for bid, legs in built.branch_legs.items()
+        if not any(leg in inside for leg in legs.values())
+    }
+    view = dataclasses.replace(
+        built,
+        network=network,
+        pumps={k: v for k, v in built.pumps.items() if v.link_index not in inside},
+        valves={k: v for k, v in built.valves.items() if v.link_index not in inside},
+        equipment={k: v for k, v in built.equipment.items() if v.link_index not in inside},
+        branches={k: v for k, v in built.branches.items() if k in legs},
+        branch_legs=legs,
+        held_closed=inside,
+    )
+    forced = Forced(virtual.index, net.nodes[s].key, net.nodes[d].key, None, STATION_WORDS)
+    return view, forced
+
+
+def _padded(outer: OuterLoopResult, flow: float) -> OuterLoopResult:
+    """The case's solve as a warm start for ``system_network``'s copy: its flows with the
+    virtual link's appended."""
+    gga = dataclasses.replace(outer.gga, flows=np.append(outer.gga.flows, flow))
+    return dataclasses.replace(outer, gga=gga)
 
 
 def _hold(built: BuiltNetwork, station: Station, inlet_egl: float, rise: float) -> None:
@@ -1208,6 +1320,9 @@ def default_head_max(built: BuiltNetwork, station: Station) -> float:
 
 @dataclass(frozen=True)
 class GroupCurve:
+    """A response's content: the group curve's fields (curve 'group') or the group system
+    curve's (curve 'system'), the others empty."""
+
     station: Station
     converged: bool
     message: str
@@ -1216,6 +1331,9 @@ class GroupCurve:
     points: list[PumpGroupCurvePoint]
     head_range: HeadRange | None
     methods: MethodsSection
+    system_duty_check: PumpGroupSystemDutyCheck | None = None
+    system_points: list[PumpGroupSystemPoint] = dataclasses.field(default_factory=list)
+    flow_range: FlowRange | None = None
 
 
 def _close(value: float, ref: float) -> bool:
@@ -1321,6 +1439,42 @@ def _duty_check(duty: PumpGroupDuty, point: _Point) -> PumpGroupDutyCheck:
     return PumpGroupDutyCheck(agrees=agrees, flow=point.flow, members=members, message=message)
 
 
+def _system_duty_check(
+    duty: PumpGroupDuty, point: SystemCurvePointResult
+) -> PumpGroupSystemDutyCheck:
+    """The group system curve at the duty's flow against the duty's rise (D6's tolerance)."""
+    forced = f"with the station's flow {duty.flow:.6g} m³/s forced from S to D"
+    if point.head is None:
+        outcome = (
+            f"was not solved ({point.message})"
+            if point.reason is not None and point.reason.code == "not_computed"
+            else f"has no rise ({point.message})"
+        )
+        return PumpGroupSystemDutyCheck(
+            agrees=False,
+            head=None,
+            message=(
+                f"the rest of the network {forced} {outcome}, so the group system curve is not "
+                "shown to pass through the duty"
+            ),
+        )
+    agrees = abs(point.head - duty.head) <= max(DUTY_RTOL * abs(duty.head), DUTY_HEAD_FLOOR)
+    if agrees:
+        message = (
+            f"the rest of the network {forced} needs a rise of {point.head:.6g} m (the solve: "
+            f"{duty.head:.6g} m), within 0.5 % or 0.01 m: the group system curve passes through "
+            "the duty"
+        )
+    else:
+        message = (
+            f"the rest of the network {forced} needs a rise of {point.head:.6g} m against the "
+            f"solve's {duty.head:.6g} m (more than 0.5 % or 0.01 m apart): the rest of the "
+            "network has more than one steady state at this flow (CLAUDE.md D13); the group "
+            "system curve is the one its solve reaches"
+        )
+    return PumpGroupSystemDutyCheck(agrees=agrees, head=point.head, message=message)
+
+
 def _point_model(point: _Point, is_duty: bool) -> PumpGroupCurvePoint:
     return PumpGroupCurvePoint(
         head=point.rise,
@@ -1334,70 +1488,103 @@ def _point_model(point: _Point, is_duty: bool) -> PumpGroupCurvePoint:
     )
 
 
-def group_curve(
-    project: Project,
-    pump_ids: Sequence[str],
-    *,
-    head_min: float | None = None,
-    head_max: float | None = None,
-    num_points: int = 41,
-) -> GroupCurve:
-    """The station holding ``pump_ids``, its duty and its group curve (module docstring).
-    Raises, in order: ``FluidError``, ``PumpGroupNotFoundError``, ``TopologyError``,
-    ``NotAStationError``, then ``HeadRangeError``; ``SolveDeadlineError`` when the case's own
-    solve runs out of time (points past the budget are not computed instead)."""
+def _system_point_model(p: SystemCurvePointResult, is_duty: bool) -> PumpGroupSystemPoint:
+    """A point with its reason as data, as /system-curve's (``routers.solve._point``)."""
+    r = p.reason
+    return PumpGroupSystemPoint(
+        flow=p.flow,
+        head=p.head,
+        converged=p.converged,
+        is_duty=is_duty,
+        message=p.message,
+        reason=None if r is None else r.code,
+        component_ids=[] if r is None else list(r.component_ids),
+        assigned_flow_node_ids=[] if r is None else list(r.assigned_flow_node_ids),
+        limit_flow=None if r is None else r.limit_flow,
+        passed_flow=None if r is None else r.passed_flow,
+        open_head=None if r is None else r.open_head,
+        open_head_bound=None if r is None else r.open_head_bound,
+        starts_tried=[] if r is None else list(r.starts_tried),
+    )
+
+
+@dataclass(frozen=True)
+class _Case:
+    """A request's case solved, with the station and, when it has one, its duty."""
+
+    fluid: FluidProperties
+    built: BuiltNetwork
+    station: Station
+    outer: OuterLoopResult
+    duty: PumpGroupDuty | None
+    message: str
+    """Why there is no duty ('' when there is one)."""
+    tolerance: float
+    max_iterations: int
+
+
+def _case(project: Project, pump_ids: Sequence[str], *, pressure_controls: bool) -> _Case:
+    """The case's solve, the station (oriented by the duty's flow when the members do not tell
+    S from D) and its duty. Raises, in order: ``FluidError``, ``PumpGroupNotFoundError``,
+    ``TopologyError``, ``NotAStationError``; ``SolveDeadlineError`` when the case's own solve
+    runs out of time."""
     fluid = fluid_properties(project.fluid)
     members = check_members(project, pump_ids)
     built = build_network(project, fluid)
-    station = find_station(project, built, members)
+    station = find_station(project, built, members, pressure_controls=pressure_controls)
     options = project.settings.solver_options
     tol, iters = options.tolerance, options.max_iterations
     outer = run_outer_loop(built, tolerance=tol, max_iterations=iters)
-    p_atm, p_atm_source = atmospheric_pressure(project)
+
+    def without(message: str) -> _Case:
+        return _Case(fluid, built, station, outer, None, message, tol, iters)
+
     if not outer.converged:
-        return GroupCurve(
-            station,
-            False,
-            f"the case's solve did not converge, so the station has no duty and no curve: "
-            f"{outer.message}",
-            None,
-            None,
-            [],
-            None,
-            methods_section(built, station, None, None, None),
+        return without(
+            "the case's solve did not converge, so the station has no duty and no curve: "
+            f"{outer.message}"
         )
+    p_atm, p_atm_source = atmospheric_pressure(project)
     state = build_solved_state(built, outer, p_atm, p_atm_source)
     heads = outer.gga.heads
     ends = (_head_at(station.inlet, heads), _head_at(station.outlet, heads))
     if not all(math.isfinite(h) for h in ends):
-        return GroupCurve(
-            station,
-            True,
+        return without(
             "the station's inlet or outlet has no head in this case (closed off), so the "
-            "station has no duty and no curve",
-            None,
-            None,
-            [],
-            None,
-            methods_section(built, station, None, None, None),
+            "station has no duty and no curve"
         )
     floating = {v: i for i, nodes in enumerate(outer.gga.floating_sections) for v in nodes}
     if floating.get(station.inlet[0]) != floating.get(station.outlet[0]):
-        return GroupCurve(
-            station,
-            True,
-            _floating_words(built, station, floating),
-            None,
-            None,
-            [],
-            None,
-            methods_section(built, station, None, None, None),
-        )
+        return without(_floating_words(built, station, floating))
     if not station.oriented and station_flow(built, station, outer.gga.flows) < 0.0:
         station = station.swapped()
     duty = _duty(built, station, outer, state.pump_results)
+    return _Case(fluid, built, station, outer, duty, "", tol, iters)
+
+
+def _no_duty(case: _Case, curve: Literal["group", "system"]) -> GroupCurve:
+    return GroupCurve(
+        case.station,
+        case.outer.converged,
+        case.message,
+        None,
+        None,
+        [],
+        None,
+        methods_section(case.built, case.station, None, None, None, curve=curve),
+    )
+
+
+def _head_range(
+    case: _Case, duty: PumpGroupDuty, head_min: float | None, head_max: float | None
+) -> tuple[float, float]:
+    """The group curve's rises (``HeadRangeError`` when empty)."""
     low = head_min if head_min is not None else min(0.0, duty.head)
-    high = head_max if head_max is not None else max(default_head_max(built, station), duty.head)
+    high = (
+        head_max
+        if head_max is not None
+        else max(default_head_max(case.built, case.station), duty.head)
+    )
     if not high > low:
         if head_min is None and head_max is None:
             high = low + DEGENERATE_SPAN
@@ -1407,9 +1594,17 @@ def group_curve(
                 "station can hold with flow, or the duty's rise if higher) must be above "
                 "headMin (given, or by default the lower of 0 and the duty's rise)"
             )
-    rises, within = _rises(low, high, num_points, duty.head)
+    return low, high
+
+
+def _group_points(
+    project: Project, case: _Case, duty: PumpGroupDuty, rises: Sequence[float], within: bool
+) -> tuple[dict[float, _Point], _Point]:
+    """The group curve at ``rises`` and the duty's rise (its check point): the duty's rise first,
+    from the case's solve, then the rises above and below it outward (module docstring)."""
+    station, tol, iters = case.station, case.tolerance, case.max_iterations
     # The group curve's own network: its branch laws are set by its solves.
-    alone = station_network(build_network(project, fluid), station)
+    alone = station_network(build_network(project, case.fluid), station)
     solved: dict[float, _Point] = {}
     check: _Point | None = None
     order: list[list[float]] = [
@@ -1418,7 +1613,13 @@ def group_curve(
     ]
     try:
         check = _solve_point(
-            alone, station, duty.inlet_egl, duty.head, outer, tolerance=tol, max_iterations=iters
+            alone,
+            station,
+            duty.inlet_egl,
+            duty.head,
+            case.outer,
+            tolerance=tol,
+            max_iterations=iters,
         )
         if within:
             solved[duty.head] = check
@@ -1439,11 +1640,33 @@ def group_curve(
                 )
         if check is None:
             check = _Point(duty.head, None, reason="not_computed", message=f"not computed: {exc}")
+    return solved, check
+
+
+def group_curve(
+    project: Project,
+    pump_ids: Sequence[str],
+    *,
+    head_min: float | None = None,
+    head_max: float | None = None,
+    num_points: int = 41,
+) -> GroupCurve:
+    """The station holding ``pump_ids``, its duty and its group curve (module docstring).
+    Raises, in order: ``FluidError``, ``PumpGroupNotFoundError``, ``TopologyError``,
+    ``NotAStationError``, then ``HeadRangeError``; ``SolveDeadlineError`` when the case's own
+    solve runs out of time (points past the budget are not computed instead)."""
+    case = _case(project, pump_ids, pressure_controls=True)
+    duty = case.duty
+    if duty is None:
+        return _no_duty(case, "group")
+    low, high = _head_range(case, duty, head_min, head_max)
+    rises, within = _rises(low, high, num_points, duty.head)
+    solved, check = _group_points(project, case, duty, rises, within)
     points = [_point_model(solved[r], within and r == duty.head) for r in rises]
     duty_check = _duty_check(duty, check)
     head_range = HeadRange(min=low, max=high, unit="m")
     return GroupCurve(
-        station,
+        case.station,
         True,
         "",
         duty,
@@ -1451,8 +1674,125 @@ def group_curve(
         points,
         head_range,
         methods_section(
-            built, station, duty, duty_check, (head_range, num_points, len(rises) > num_points)
+            case.built,
+            case.station,
+            duty,
+            duty_check,
+            (head_range, num_points, len(rises) > num_points),
         ),
+    )
+
+
+def _members_flow_max(built: BuiltNetwork, station: Station) -> float:
+    """The sum over the members of their curves' largest flows × their speeds, m³/s (each pump's
+    system curve's default range, before its factor)."""
+    return math.fsum(
+        built.pumps[m].curve.flow_range[1] * built.pumps[m].component.speed for m in station.members
+    )
+
+
+def _default_flow_max(
+    project: Project,
+    case: _Case,
+    duty: PumpGroupDuty,
+    head_min: float | None,
+    head_max: float | None,
+    num_points: int,
+) -> tuple[float, str]:
+    """1.2 × the largest of the duty's flow and the group curve's flows (on its rises), or 1.2 ×
+    the members' curves' largest flows × speeds, added, where none of those is above the duty
+    check's flow floor (every member off: round-off only) or the group curve is not defined (an
+    active PRV or PSV inside); and what it was taken from, in words."""
+    pressure = _pressure_controls(case.built, case.station.members, case.station.interior_links)
+    largest = duty.flow
+    if not pressure:
+        low, high = _head_range(case, duty, head_min, head_max)
+        rises, within = _rises(low, high, num_points, duty.head)
+        solved, _ = _group_points(project, case, duty, rises, within)
+        flows = [p.flow for p in solved.values() if p.flow is not None]
+        largest = max([largest, *flows])
+    if largest > DUTY_FLOW_FLOOR:
+        what = "the duty's flow and the group curve's flows" if not pressure else "the duty's flow"
+        return DEFAULT_RANGE_FACTOR * largest, what
+    return (
+        DEFAULT_RANGE_FACTOR * _members_flow_max(case.built, case.station),
+        "the pumps' curves' largest flows × their speeds, added",
+    )
+
+
+def group_system_curve(
+    project: Project,
+    pump_ids: Sequence[str],
+    *,
+    flow_min: float | None = None,
+    flow_max: float | None = None,
+    head_min: float | None = None,
+    head_max: float | None = None,
+    num_points: int = 41,
+) -> GroupCurve:
+    """The station holding ``pump_ids``, its duty and its group system curve (module docstring).
+    Raises, in order: ``FluidError``, ``PumpGroupNotFoundError``, ``TopologyError``,
+    ``NotAStationError`` (an active PRV or PSV inside is allowed), then ``HeadRangeError`` (the
+    group curve that sets the default flowMax) and ``FlowRangeError``; ``SolveDeadlineError``
+    when the case's own solve runs out of time (points past the budget are not computed)."""
+    case = _case(project, pump_ids, pressure_controls=False)
+    duty = case.duty
+    if duty is None:
+        return _no_duty(case, "system")
+    station, tol, iters = case.station, case.tolerance, case.max_iterations
+    low = flow_min if flow_min is not None else 0.0
+    if flow_max is not None:
+        high, source = flow_max, "given"
+    else:
+        high, source = _default_flow_max(project, case, duty, head_min, head_max, num_points)
+    if not high > low:
+        raise FlowRangeError(
+            "the flow range is empty: flowMax (given, or by default 1.2 x the largest of the "
+            "duty's flow and the group curve's flows) must be above flowMin (given, or 0)"
+        )
+    flows = curve_flows(low, high, num_points)
+    # The group system curve's own network: its branch laws are set by its solves.
+    view, forced = system_network(build_network(project, case.fluid), station)
+    [at_duty] = system_curve_points(
+        view,
+        forced,
+        [duty.flow],
+        tolerance=tol,
+        max_iterations=iters,
+        warm=_padded(case.outer, duty.flow),
+    )
+    grid = system_curve_points(view, forced, flows, tolerance=tol, max_iterations=iters)
+    within = low <= duty.flow <= high
+    added = within and duty.flow not in flows
+    points = [
+        _system_point_model(at_duty if within and q == duty.flow else p, within and q == duty.flow)
+        for q, p in zip(flows, grid, strict=True)
+    ]
+    if added:
+        points.append(_system_point_model(at_duty, True))
+        points.sort(key=lambda p: p.flow)
+    check = _system_duty_check(duty, at_duty)
+    flow_range = FlowRange(min=low, max=high, unit="m³/s")
+    return GroupCurve(
+        station,
+        True,
+        "",
+        duty,
+        None,
+        [],
+        None,
+        methods_section(
+            case.built,
+            station,
+            duty,
+            None,
+            None,
+            curve="system",
+            system=(flow_range, num_points, added, source, check),
+        ),
+        system_duty_check=check,
+        system_points=points,
+        flow_range=flow_range,
     )
 
 
@@ -1461,34 +1801,45 @@ def group_curve_case(
     pump_ids: Sequence[str],
     scenario_id: str | None,
     *,
+    curve: Literal["group", "system"] = "group",
     head_min: float | None = None,
     head_max: float | None = None,
+    flow_min: float | None = None,
+    flow_max: float | None = None,
     num_points: int = 41,
 ) -> tuple[GroupCurve, ScenarioResult | None]:
-    """The group curve in the base project or one of its scenarios. Checks in order: the
-    scenario (404), its values (400), then as ``group_curve`` does for the effective project,
-    naming the scenario by id in topology, fluid and station errors."""
-    if scenario_id is None:
-        curve = group_curve(
-            project, pump_ids, head_min=head_min, head_max=head_max, num_points=num_points
+    """The group curve or the group system curve, in the base project or one of its scenarios.
+    Checks in order: the scenario (404), its values (400), then as ``group_curve`` or
+    ``group_system_curve`` does for the effective project, naming the scenario by id in
+    topology, fluid and station errors."""
+
+    def run(effective: Project) -> GroupCurve:
+        if curve == "system":
+            return group_system_curve(
+                effective,
+                pump_ids,
+                flow_min=flow_min,
+                flow_max=flow_max,
+                head_min=head_min,
+                head_max=head_max,
+                num_points=num_points,
+            )
+        return group_curve(
+            effective, pump_ids, head_min=head_min, head_max=head_max, num_points=num_points
         )
-        return curve, None
+
+    if scenario_id is None:
+        return run(project), None
     applied = apply_scenario(project, scenario_id)
     try:
-        curve = group_curve(
-            applied.project,
-            pump_ids,
-            head_min=head_min,
-            head_max=head_max,
-            num_points=num_points,
-        )
+        result = run(applied.project)
     except TopologyError as exc:
         raise ScenarioTopologyError(exc.issues, applied.scenario.id) from exc
     except FluidError as exc:
         raise ScenarioFluidError(applied.scenario.id, exc) from exc
     except NotAStationError as exc:
         raise NotAStationError(exc.issues, applied.scenario.id) from exc
-    return curve, applied.result()
+    return result, applied.result()
 
 
 # --------------------------------------------------------------------------- methods
@@ -1522,15 +1873,52 @@ def _port_words(built: BuiltNetwork, port: StationPort) -> str:
     return f"{port.component_id} ({port.port_id})"
 
 
+_GROUP_DEFINITION = (
+    "Group curve Q_group(ΔH): the station solved alone, every element outside it held "
+    "closed and every assigned flow set aside, with S held at the duty's EGL(S) and D at "
+    "EGL(S) + ΔH; every element inside follows its own law and status rules as in a solve "
+    "(pumps on their curves at their speeds, a speed-controlled pump regulating, a pump "
+    "that is off closed, a pump closed by its rule above its shutoff head, check valves "
+    "and FCVs by their rules, branch K by the flow split). S and D separate the station "
+    "from the rest, so the rest sees only the flow through them: where the station has one "
+    "steady state at a rise, its curve crosses the group's system curve at the duty. Every "
+    "law inside depends on head differences and flows only, so the curve does not depend "
+    "on the level held at S; an active PRV or PSV, whose setpoint is a pressure, is not "
+    "allowed inside. Away from the duty the absolute pressures inside are not physical, so "
+    "no NPSHa and no pressure flags are given along the curve."
+)
+
+_SYSTEM_DEFINITION = (
+    "Group system curve H_sys(Q): the rest of the network with the station's flow Q forced "
+    "from S to D: every element inside the station held closed and one virtual link from S to "
+    "D carrying Q (a fixed flow: a demand at S, a supply at D), every element outside on its "
+    "own law and status rules as in a solve (other pumps running, a speed-controlled pump "
+    "regulating, valves by their rules, branch K by the flow split). Its value is "
+    "EGL(D) − EGL(S), the rise the rest of the network needs at Q: each pump's system curve "
+    "with the whole station in place of one pump, by the same code, so for a station of one "
+    "pump between its own suction and discharge it is that pump's system curve. S and D "
+    "separate the station from the rest, so the curve depends neither on the pumps' statuses "
+    "nor on how they share the flow, and an active PRV or PSV inside the station does not "
+    "matter to it; where the rest has one steady state at a flow, it crosses the group curve "
+    "at the duty. No NPSHa is given along it: the pumps' suctions are inside, held closed."
+)
+
+
 def methods_section(
     built: BuiltNetwork,
     station: Station,
     duty: PumpGroupDuty | None,
     check: PumpGroupDutyCheck | None,
     grid: tuple[HeadRange, int, bool] | None,
+    *,
+    curve: Literal["group", "system"] = "group",
+    system: tuple[FlowRange, int, bool, str, PumpGroupSystemDutyCheck] | None = None,
 ) -> MethodsSection:
-    """The "Pump group" methods section of a group-curve response (CLAUDE.md D21). ``grid``:
-    the range, the number of evenly spaced rises and whether the duty's rise was added."""
+    """The "Pump group" methods section of a response (CLAUDE.md D21). ``grid``: the group
+    curve's range, its number of evenly spaced rises and whether the duty's rise was added;
+    ``system``: the group system curve's range, its number of evenly spaced flows, whether the
+    duty's flow was added, what the default flowMax was taken from ('given' when it was given),
+    and its duty check."""
     members = _quoted_list(list(station.members))
     s, d = _port_words(built, station.inlet_port), _port_words(built, station.outlet_port)
     arrangement = {
@@ -1563,18 +1951,7 @@ def methods_section(
         "legs, tee paths, and header pipes it shares with others); in series ΣH_i − ΔH_st is "
         "the loss of the piping between the pumps. Shares: Q_i/Q_st in parallel, H_i/ΣH_i in "
         "series.",
-        "Group curve Q_group(ΔH): the station solved alone, every element outside it held "
-        "closed and every assigned flow set aside, with S held at the duty's EGL(S) and D at "
-        "EGL(S) + ΔH; every element inside follows its own law and status rules as in a solve "
-        "(pumps on their curves at their speeds, a speed-controlled pump regulating, a pump "
-        "that is off closed, a pump closed by its rule above its shutoff head, check valves "
-        "and FCVs by their rules, branch K by the flow split). S and D separate the station "
-        "from the rest, so the rest sees only the flow through them: where the station has one "
-        "steady state at a rise, its curve crosses the group's system curve at the duty. Every "
-        "law inside depends on head differences and flows only, so the curve does not depend "
-        "on the level held at S; an active PRV or PSV, whose setpoint is a pressure, is not "
-        "allowed inside. Away from the duty the absolute pressures inside are not physical, so "
-        "no NPSHa and no pressure flags are given along the curve.",
+        _GROUP_DEFINITION if curve == "group" else _SYSTEM_DEFINITION,
         "A pump that is stopped is closed both ways: a stopped pump passing flow (a rotating "
         "throttle) is not modelled, so in series it blocks the line.",
     ]
@@ -1605,6 +1982,34 @@ def methods_section(
         )
     if check is not None:
         items.append(f"Duty check: {check.message}.")
+    if system is not None and duty is not None:
+        flow_range, count, added, source, system_check = system
+        where = (
+            "plus the duty's flow"
+            if added
+            else "the duty's flow among them"
+            if flow_range.min <= duty.flow <= flow_range.max
+            else f"the duty's flow {duty.flow:.6g} m³/s lying outside them (solved for the check)"
+        )
+        top = (
+            "flowMax as given"
+            if source == "given"
+            else f"flowMax by default 1.2 × the largest of {source}"
+        )
+        items.append(
+            f"Points: {count} flows from {flow_range.min:.6g} to {flow_range.max:.6g} m³/s, "
+            f"{where}; flowMin 0 by default, {top}. The duty's flow is solved first, from the "
+            "case's solve; then the flows are solved as each pump's system curve is: in flow "
+            "order from the network's initial state, each from the last converged point, a "
+            "point that does not converge solved again from the initial state, and one without "
+            "a rise solved again from it with the control valves open. A flow beyond what every "
+            "way from D back to S can pass (a cut of FCVs at their setpoints and one-way "
+            "elements against the flow, with the assigned flows), or below the least flow the "
+            "assigned flows need through the station, has no steady state and is not solved "
+            "again (Ford and Fulkerson's max-flow min-cut theorem, Gale's condition). A point "
+            "without a rise says why, as each pump's system curve does."
+        )
+        items.append(f"System duty check: {system_check.message}.")
     items.append(
         "No standard defines a pump group's curves, and tools differ: Fathom holds a split "
         "(equal, or the solved one), WaterCAD reads the losses along a representative pump, "
@@ -1613,14 +2018,30 @@ def methods_section(
         "capacities added at equal head) carried out by solves, which also count the station's "
         "header fittings and pipes. The catalogue composite curve (flows added at equal flange "
         "head) is not drawn: it does not meet the system at the duty."
+        if curve == "group"
+        else "No standard defines a pump group's system curve, and tools differ: Fathom holds a "
+        "split (equal, or the solved one), WaterCAD takes the losses along a representative "
+        "pump, Pipe Flow Expert swaps in one equivalent pump. This one needs no split: at S and "
+        "D the rest of the network sees only the station's flow."
     )
     items.append(
         f"Method version {METHOD_VERSION}: every point is a solve by its laws and rules; the "
-        "station and the group curve are defined here, not in the solve."
+        f"station and the {'group curve' if curve == 'group' else 'group system curve'} are "
+        "defined here, not in the solve."
     )
     references = [
         "Ford, L. R., and D. R. Fulkerson, Flows in Networks, Princeton University Press, 1962 "
         "(augmenting paths; Menger's theorem on vertex cuts).",
+        *(
+            [
+                'Ford, L. R., and D. R. Fulkerson, "Maximal flow through a network", Canadian '
+                "Journal of Mathematics 8, 1956, 399-404 (max-flow min-cut).",
+                'Gale, D., "A theorem on flows in networks", Pacific Journal of Mathematics '
+                "7(2), 1957, 1073-1082 (fixed supplies and demands).",
+            ]
+            if curve == "system"
+            else []
+        ),
         'Keiser, B., "Know Your Pump & System Curves – Part 3", Datacor (Fathom), 2021: the '
         "composite curve does not cross the system curve at each pump's flow.",
         'KSB, Centrifugal Pump Lexicon, "Parallel operation" and "Series operation".',
@@ -1637,5 +2058,7 @@ __all__ = [
     "find_station",
     "group_curve",
     "group_curve_case",
+    "group_system_curve",
     "station_network",
+    "system_network",
 ]

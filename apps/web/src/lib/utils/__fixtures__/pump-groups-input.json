@@ -46,6 +46,7 @@
             ],
             "message": "at the duty's rise 27.3816 m the station solved alone passes 0.0551481 m³/s (the solve: 0.0551481 m³/s), and every pump its solved flow, each within 0.5 % or 1e-6 m³/s: the group curve passes through the duty"
           },
+          "flowRange": null,
           "headRange": {
             "max": 45.0,
             "min": 0.0,
@@ -1318,7 +1319,9 @@
               "componentId": "T2",
               "portId": "run_outlet"
             }
-          }
+          },
+          "systemDutyCheck": null,
+          "systemPoints": []
         },
         "status": 200
       },
@@ -3835,6 +3838,7 @@
             ],
             "message": "at the duty's rise 26.968 m the station solved alone passes 0.0537207 m³/s (the solve: 0.0537207 m³/s), and every pump its solved flow, each within 0.5 % or 1e-6 m³/s: the group curve passes through the duty"
           },
+          "flowRange": null,
           "headRange": {
             "max": 45.0,
             "min": 0.0,
@@ -5107,7 +5111,9 @@
               "componentId": "T2",
               "portId": "run_outlet"
             }
-          }
+          },
+          "systemDutyCheck": null,
+          "systemPoints": []
         },
         "status": 200
       },
@@ -7655,6 +7661,7 @@
             ],
             "message": "at the duty's rise 24.7916 m the station solved alone passes 0.099463 m³/s (the solve: 0.099463 m³/s), and every pump its solved flow, each within 0.5 % or 1e-6 m³/s: the group curve passes through the duty"
           },
+          "flowRange": null,
           "headRange": {
             "max": 45.0,
             "min": 0.0,
@@ -9319,7 +9326,9 @@
               "componentId": "TD1",
               "portId": "run_outlet"
             }
-          }
+          },
+          "systemDutyCheck": null,
+          "systemPoints": []
         },
         "status": 200
       },
@@ -13111,6 +13120,7 @@
             ],
             "message": "at the duty's rise 53.8075 m the station solved alone passes 0.0248236 m³/s (the solve: 0.0248236 m³/s), and every pump its solved flow, each within 0.5 % or 1e-6 m³/s: the group curve passes through the duty"
           },
+          "flowRange": null,
           "headRange": {
             "max": 69.3,
             "min": 0.0,
@@ -14378,7 +14388,9 @@
               "componentId": "PB",
               "portId": "discharge"
             }
-          }
+          },
+          "systemDutyCheck": null,
+          "systemPoints": []
         },
         "status": 200
       },
@@ -16303,6 +16315,7 @@
             ],
             "message": "at the duty's rise 23.684 m the station solved alone passes 0.0407524 m³/s (the solve: 0.0407524 m³/s), and every pump its solved flow, each within 0.5 % or 1e-6 m³/s: the group curve passes through the duty"
           },
+          "flowRange": null,
           "headRange": {
             "max": 45.0,
             "min": 0.0,
@@ -17575,7 +17588,9 @@
               "componentId": "T2",
               "portId": "run_outlet"
             }
-          }
+          },
+          "systemDutyCheck": null,
+          "systemPoints": []
         },
         "status": 200
       },
@@ -20102,6 +20117,7 @@
             ],
             "message": "at the duty's rise 23.684 m the station solved alone passes 0.0407524 m³/s (the solve: 0.0407524 m³/s), and every pump its solved flow, each within 0.5 % or 1e-6 m³/s: the group curve passes through the duty"
           },
+          "flowRange": null,
           "headRange": {
             "max": 45.0,
             "min": 0.0,
@@ -21374,7 +21390,9 @@
               "componentId": "T2",
               "portId": "run_outlet"
             }
-          }
+          },
+          "systemDutyCheck": null,
+          "systemPoints": []
         },
         "status": 200
       },
@@ -23888,6 +23906,7 @@
             ],
             "message": "at the duty's rise 53.0014 m the station solved alone passes 0.024 m³/s (the solve: 0.024 m³/s), and every pump its solved flow, each within 0.5 % or 1e-6 m³/s: the group curve passes through the duty"
           },
+          "flowRange": null,
           "headRange": {
             "max": 69.3,
             "min": 0.0,
@@ -25155,7 +25174,9 @@
               "componentId": "PB",
               "portId": "discharge"
             }
-          }
+          },
+          "systemDutyCheck": null,
+          "systemPoints": []
         },
         "status": 200
       },
@@ -39156,6 +39177,7 @@
           "converged": true,
           "duty": null,
           "dutyCheck": null,
+          "flowRange": null,
           "headRange": null,
           "message": "the station's outlet T0 (branch) lies in a part of the network that no reservoir or reference node reaches (UNDETERMINED_PRESSURE), and its inlet does not, so the rise between them is not determined: the station has no duty and no curve",
           "methodVersion": "1.4.0",
@@ -39205,7 +39227,9 @@
               "componentId": "T0",
               "portId": "branch"
             }
-          }
+          },
+          "systemDutyCheck": null,
+          "systemPoints": []
         },
         "status": 200
       },

@@ -11,12 +11,18 @@
  * messages (the segmentIndex and fittingIndex details are 0-based indexes). A pipe's flag
  * (TRANSITIONAL_FLOW, CORRELATION_OUT_OF_RANGE) is numbered from its segmentIndex, so a copy with
  * the pipe's index as it is now (Build's strip, utils/results.ts) names that pipe.
+ *
+ * An orifice plate's validity flags (CORRELATION_OUT_OF_RANGE on the component, proposal
+ * orifice-plate.md §3.5) are told from `details.limit` and their SI numbers; the flashing check at
+ * its vena contracta (BELOW_VAPOR_PRESSURE) from `details.venaContractaAbsolutePressure`. Its
+ * Reynolds-number flag, whose numbers have no unit and whose consequence differs between ISO's and
+ * an entered coefficient, keeps the API's words (names for ids).
  */
 import type { Flag, Project, UnitPreferences } from '../api/types';
 import { componentById, connectionById } from './graph';
 import { fittingFallbackName, portLabel } from './labels';
 import { connectionName, Formatter, pipeLabel, siText } from './results';
-import type { LabelOptions, UnitCategory } from './units';
+import { digitsApart, formatValue, type LabelOptions, type UnitCategory } from './units';
 
 export interface FlagTextContext {
 	project: Project;
@@ -95,6 +101,70 @@ function reason(message: string): string {
 	return match?.[1] ?? message;
 }
 
+/** The end of an orifice plate's ISO-range flags: what being outside the range means. */
+const OUTSIDE_ISO =
+	"ISO 5167-2's discharge coefficient (Reader-Harris/Gallagher) is used outside its validated range.";
+
+/**
+ * An orifice plate's validity flag told from its `details.limit` and SI numbers (proposal
+ * orifice-plate.md §3.5), or null to keep the API's words: its Reynolds-number flag, a flag of
+ * another element, or details not in the form expected. A value and the limit or value it is
+ * compared with are shown with as many digits as tell them apart (units.ts digitsApart, as
+ * design checks do), so a value just past a limit never reads as the limit.
+ */
+function orificeText(flag: Flag, f: Formatter): string | null {
+	const limit = flag.details.limit;
+	if (typeof limit !== 'string' || !flag.componentId) return null;
+	const n = (key: string) => number(flag, key);
+	const value = n('value');
+	const lower = n('lower');
+	const upper = n('upper');
+	/** The value and the other number in `category`'s display unit, told apart. */
+	const apart = (v: number, other: number, category: UnitCategory): [string, string] => {
+		const show = (si: number, sig: number) => formatValue(si, category, f.prefs, sig);
+		const sig = digitsApart(v, [other], show);
+		return [show(v, sig), show(other, sig)];
+	};
+	const range = (what: string, category: UnitCategory): string | null => {
+		if (value === null) return null;
+		if (lower !== null) {
+			const [v, l] = apart(value, lower, category);
+			return `${what} (${v}) is below ISO 5167-2's smallest, ${l}: ${OUTSIDE_ISO}`;
+		}
+		if (upper !== null) {
+			const [v, u] = apart(value, upper, category);
+			return `${what} (${v}) is above ISO 5167-2's largest, ${u}: ${OUTSIDE_ISO}`;
+		}
+		return null;
+	};
+	switch (limit) {
+		case 'boreDiameter':
+			return range('Its bore diameter', 'diameter');
+		case 'pipeDiameter':
+			return range("Its inlet pipe's inner diameter", 'diameter');
+		case 'beta':
+			return range('Its diameter ratio β = d ÷ D', 'dimensionless');
+		case 'outletDiameter': {
+			const inlet = n('inlet');
+			if (value === null || inlet === null) return null;
+			const [outlet, inletText] = apart(value, inlet, 'diameter');
+			return `Its outlet pipe's inner diameter (${outlet}) differs from its inlet pipe's (${inletText}): ISO 5167-2's pressure-loss relation assumes the jet recovers in a pipe of the inlet's bore, about 6 D downstream, so the loss is less certain.`;
+		}
+		case 'laminar': {
+			if (value === null || upper === null) return null;
+			const [re, top] = apart(value, upper, 'dimensionless');
+			return `Its entered discharge coefficient is held at every flow, a square law for turbulent flow, but the flow in its inlet pipe is laminar (Re = ${re}, below ${top}): the loss is likely underestimated.`;
+		}
+		case 'reverseFlow': {
+			const q = n('flow');
+			if (q === null) return null;
+			return `The flow runs from outlet to inlet (${f.value(q, 'flow')}): ISO 5167-2's coefficient is for flow onto the plate's upstream face, and the loss is taken as for forward flow at the same flow rate.`;
+		}
+		default:
+			return null;
+	}
+}
+
 /** Display text of a flag (see the module comment). */
 export function flagText(flag: Flag, context: FlagTextContext): string {
 	const f = new Formatter(context.prefs);
@@ -120,6 +190,10 @@ export function flagText(flag: Flag, context: FlagTextContext): string {
 			const surface = value('surfaceAbsolutePressure', 'pressure', { absolute: true });
 			if (surface)
 				return `The liquid surface is at ${surface}, below ${bound}: the liquid would boil.`;
+			// An orifice plate's jet (decision 15): at the vena contracta, not at a port.
+			const jet = value('venaContractaAbsolutePressure', 'pressure', { absolute: true });
+			if (jet)
+				return `The absolute pressure at its vena contracta is ${jet}, below ${bound}: the liquid would flash there, and a flashing jet chokes the flow, so the flow solved is too high.`;
 			const p = value('absolutePressure', 'pressure', { absolute: true });
 			if (!p) return fallback();
 			// An assigned-flow node (SDD §4.11) has one port, and its flow is fixed whatever the
@@ -176,7 +250,7 @@ export function flagText(flag: Flag, context: FlagTextContext): string {
 				const name = type ? (context.fittingName ?? fittingFallbackName)(type) : 'Fitting';
 				return `${name} (fitting ${fitting + 1}): ${messageText({ ...flag, message: reason(flag.message) }, context)}`;
 			}
-			return fallback();
+			return orificeText(flag, f) ?? fallback();
 		}
 		case 'CHECK_VALVE_CLOSED': {
 			const dh = value('headDifference', 'head');

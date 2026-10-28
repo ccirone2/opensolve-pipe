@@ -17,7 +17,14 @@
 	import { caseResponse } from '$lib/utils/compare';
 	import type { ChartImageSource } from '$lib/utils/export/chart-image';
 	import { calculatingReason } from '$lib/utils/goal-seek';
-	import { MAX_CHART_CASES, ratedCurveRange, type OtherCaseInput } from '$lib/utils/pump-chart';
+	import { settingsSourceLabel } from '$lib/utils/design-checks';
+	import { componentById } from '$lib/utils/graph';
+	import {
+		MAX_CHART_CASES,
+		ratedCurveRange,
+		type OtherCaseInput,
+		type PumpChecksInput
+	} from '$lib/utils/pump-chart';
 	import { markChanged, pumpTable, type TableSort } from '$lib/utils/results';
 	import PumpChart from './PumpChart.svelte';
 	import ResultsTable from './ResultsTable.svelte';
@@ -82,6 +89,32 @@
 			? ratedCurveRange(ws.store.solvedProject, viewed.key)
 			: null
 	);
+
+	/**
+	 * The design checks as solved (D19), whose limits the chart shows: the project's checks and the
+	 * viewed pump's curve (manufacturer data). Neither is a scenario value, so the base sent is the
+	 * case's.
+	 */
+	const checks = $derived.by((): PumpChecksInput | null => {
+		const project = response ? ws.store.solvedProject : null;
+		const settings = project?.settings.designChecks;
+		if (!project || !settings || !viewed) return null;
+		const pump = componentById(project, viewed.key);
+		const curve =
+			pump?.type === 'pump'
+				? (project.pumpLibrary.find((c) => c.id === pump.curveId) ?? null)
+				: null;
+		return {
+			checks: settings,
+			curve,
+			sources: {
+				npshMargin: settings.npshMargin ? settingsSourceLabel(settings.npshMargin.source) : null,
+				operatingRegion: settings.operatingRegion
+					? settingsSourceLabel(settings.operatingRegion.source)
+					: null
+			}
+		};
+	});
 
 	/**
 	 * Why a system-curve point has no head is told with the results' names and each element's
@@ -244,6 +277,7 @@
 					prefs={ws.displayUnits}
 					{ratedRange}
 					names={curveNames}
+					{checks}
 					{system}
 					onretry={response
 						? () => ws.store.loadSystemCurve(viewed.key, { retry: true })

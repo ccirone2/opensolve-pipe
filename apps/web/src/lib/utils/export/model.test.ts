@@ -22,6 +22,7 @@ import {
 	boundaryTable,
 	branchTable,
 	equipmentTable,
+	orificeTable,
 	fittingTable,
 	Formatter,
 	HEAD_NOISE,
@@ -224,6 +225,26 @@ const equipmentFields: Field<Equipment>[] = [
 	['Flow coefficient', (e) => (e.rating.kind === 'point' ? null : e.rating.value)]
 ];
 
+type Orifice = SolvedState['orificeResults'][string];
+/** The Orifice plates sheet's number columns (§5.4 of orifice-plate.md). */
+const orificeFields: Field<Orifice>[] = [
+	['Flow (+ inlet → outlet)', (o) => o.flow, 'flow'],
+	['Permanent pressure loss', (o) => o.pressureLoss, 'pressure'],
+	['Differential pressure (taps)', (o) => o.differentialPressure, 'pressure'],
+	['Pressure drop, static', (o) => o.pressureDrop, 'pressure'],
+	['Head loss', (o) => o.headLoss, 'head'],
+	['Vena contracta pressure', (o) => o.venaContractaPressure, 'pressure'],
+	['β', (o) => o.beta],
+	['Reynolds number (inlet pipe)', (o) => o.reynoldsNumber],
+	['Discharge coefficient (loss)', (o) => o.dischargeCoefficient],
+	['C evaluated at Re', (o) => o.coefficientReynoldsNumber],
+	['Tap ratio r', (o) => o.tapCoefficientRatio],
+	['Meter C', (o) => o.meterDischargeCoefficient],
+	['Loss coefficient K', (o) => o.lossCoefficient],
+	['Bore', (o) => o.boreDiameter, 'diameter'],
+	['Pipe bore D', (o) => o.pipeDiameter, 'diameter']
+];
+
 type Branch = SolvedState['branchResults'][string];
 type Boundary = SolvedState['boundaryResults'][string];
 
@@ -314,6 +335,15 @@ describe('number cells are the API values (items 1 and 2)', () => {
 				t,
 				(s, r) => s.equipmentResults[key(t, r, 'Equipment id')]!,
 				equipmentFields
+			);
+		}
+		if (ids.has('orifices')) {
+			const t = readSheet(bundle, 'orifices');
+			checked += checkFields(
+				input,
+				t,
+				(s, r) => s.orificeResults[key(t, r, 'Orifice id')]!,
+				orificeFields
 			);
 		}
 		if (ids.has('branches')) {
@@ -585,6 +615,33 @@ describe('the screen and the file read one field in one category (item 3)', () =
 					);
 				}
 			}
+			if (ids.has('orifices')) {
+				const orifices = readSheet(bundle, 'orifices');
+				const screen = orificeTable(project, solved, prefs);
+				expect(mine(orifices).map((r) => orifices.get(r, 'Orifice id'))).toEqual(
+					screen.rows.map((r) => r.key)
+				);
+				const noise = solved.fluid.density * STANDARD_GRAVITY * HEAD_NOISE;
+				for (const row of screen.rows) {
+					const o = solved.orificeResults[row.key]!;
+					expect(screenText(row.cells.flow)).toBe(f.num(o.flow, 'flow'));
+					expect(screenText(row.cells.pressureLoss)).toBe(
+						valueText(f.diff(o.pressureLoss, 'pressure', noise))
+					);
+					expect(screenText(row.cells.differentialPressure)).toBe(
+						f.num(o.differentialPressure, 'pressure')
+					);
+					expect(screenText(row.cells.venaContractaPressure)).toBe(
+						f.num(o.venaContractaPressure, 'pressure')
+					);
+					expect(screenText(row.cells.pressureDrop)).toBe(
+						valueText(f.diff(o.pressureDrop, 'pressure', noise))
+					);
+					expect(screenText(row.cells.headLoss)).toBe(
+						valueText(f.diff(o.headLoss, 'head', HEAD_NOISE))
+					);
+				}
+			}
 			if (ids.has('branches')) {
 				const branches = readSheet(bundle, 'branches');
 				const screen = branchTable(project, solved, prefs);
@@ -640,7 +697,7 @@ describe('branch K is on the combined-flow velocity (item 13, decision 29)', () 
 		const input = fixtureInput(name, { units });
 		const bundle = exportOf(input);
 		if (!bundle.sheets.some((s) => s.id === 'branch-ports'))
-			return expect(name).toBe('pump-transfer');
+			return expect(['pump-transfer', 'design-checks']).toContain(name);
 		const t = readSheet(bundle, 'branch-ports');
 		const si = units === 'si';
 		const toSi = (v: number, category: UnitCategory) =>
@@ -830,7 +887,11 @@ describe('scenario changes (item 15)', () => {
 
 describe('the fixture itself', () => {
 	it('has the cases the design names', () => {
-		expect(FIXTURE_NAMES).toEqual(['pump-transfer', 'scenarios', 'tee-fallback']);
+		expect(FIXTURE_NAMES).toEqual(['pump-transfer', 'scenarios', 'tee-fallback', 'design-checks']);
+		const checks = fixtureInput('design-checks').cases[0]!.response!.solvedState.designChecks;
+		expect(new Set(checks.map((c) => c.outcome))).toEqual(
+			new Set(['pass', 'fail', 'not_evaluated'])
+		);
 		const tee = fixtureInput('tee-fallback');
 		expect(tee.cases[0]!.response!.solvedState.flags.map((f) => f.code)).toContain(
 			'TEE_PATTERN_FALLBACK'

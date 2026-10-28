@@ -23,10 +23,18 @@
  * (PumpResult.efficiencyCurve, powerCurve, npshrCurve), NPSHa at each system-curve point
  * (SystemCurvePoint.npshAvailable) and the duty's values. Only the readout between samples and
  * the flow where NPSHa falls below NPSHr are read from the drawn lines, and they say so.
+ *
+ * With design checks on (CLAUDE.md D19), the chart draws their limits, never their verdicts (the
+ * Checks view has those): the preferred operating region, the curve's allowable region and
+ * minimum flow (manufacturer data at rated speed, drawn at s × flow, the affinity law the checks
+ * apply), the NPSHa the NPSH margin check requires, max(NPSHr + margin, ratio × NPSHr) along the
+ * NPSHr curve, and the motor's rated power. All from the project as solved.
  */
 import type {
 	CurvePoint,
+	DesignChecks,
 	Project,
+	PumpCurve,
 	PumpResult,
 	SystemCurveResponse,
 	UnitPreferences
@@ -124,6 +132,40 @@ export interface CurveFacts {
 	speedRange: { min: SpeedLine; max: SpeedLine; iso: IsoLine[] } | null;
 }
 
+/** A pump's design checks as solved (D19): the project's checks and the pump's curve. */
+export interface PumpChecksInput {
+	checks: DesignChecks;
+	/** The pump's curve as solved (its manufacturer data); null: not found. */
+	curve: PumpCurve | null;
+	/** "API 610 preset", "your values" …: where each check's limits came from. */
+	sources: { npshMargin: string | null; operatingRegion: string | null };
+}
+
+/** The design checks' limits drawn on the chart (display units; flows at the running speed). */
+export interface CheckOverlays {
+	/** The preferred operating region: fractions of the BEP flow and the flows (null: open end). */
+	preferred: {
+		low: number | null;
+		high: number | null;
+		from: number | null;
+		to: number | null;
+		source: string;
+	} | null;
+	/** The curve's allowable operating region at this speed, and as entered (rated speed). */
+	allowable: { from: number; to: number; ratedFrom: number; ratedTo: number } | null;
+	/** The larger of the curve's minimum flows at this speed, and as entered (rated speed). */
+	minimumFlow: { flow: number; rated: number; name: string } | null;
+	/** The NPSHa the NPSH margin check requires along the NPSHr curve (margin in display units). */
+	npshRequired: {
+		line: ChartPoint[];
+		margin: number | null;
+		ratio: number | null;
+		source: string;
+	} | null;
+	/** The motor's rated power (display unit). */
+	motorRating: number | null;
+}
+
 export interface PumpChartData {
 	flowUnit: string;
 	headUnit: string;
@@ -159,6 +201,8 @@ export interface PumpChartData {
 	/** Data table rows of the system curve: '—' and the reason for a point with no head. */
 	systemRows: SystemRow[];
 	facts: CurveFacts;
+	/** The design checks' limits (D19); null without checks that draw on this pump's chart. */
+	checks: CheckOverlays | null;
 }
 
 /** Flow range (m³/s) of a pump's head-curve points at rated speed, from the project. */
@@ -178,14 +222,15 @@ const RANGE_TOLERANCE = 1e-9;
  * ratedCurveRange(); without it, the sampled curve's own span is taken as the data range.
  * `systemCurve` is the pump's system curve for the same solve, when it has been computed.
  * `names` tells a point's reason with element names and display units; without them, a point
- * without a head keeps the API's sentence.
+ * without a head keeps the API's sentence. `checks` are the design checks as solved (D19).
  */
 export function pumpChartData(
 	result: PumpResult,
 	prefs: UnitPreferences,
 	ratedRange: [number, number] | null = null,
 	systemCurve: SystemCurveResponse | null = null,
-	names: SystemCurveNames | null = null
+	names: SystemCurveNames | null = null,
+	checks: PumpChecksInput | null = null
 ): PumpChartData {
 	const flowUnit = displayUnit('flow', prefs);
 	const headUnit = displayUnit('head', prefs);
@@ -260,6 +305,9 @@ export function pumpChartData(
 	const facts = curveFacts(result, prefs, [...curve, ...extrapolated.flat()]);
 	return {
 		facts,
+		checks: checks
+			? checkOverlays(result, prefs, checks, panels.npsh?.required ?? null, panels.power !== null)
+			: null,
 		flowUnit: unitLabel('flow', flowUnit),
 		headUnit: unitLabel('head', headUnit),
 		powerUnit: unitLabel('power', powerUnit),
@@ -350,6 +398,87 @@ function curveFacts(result: PumpResult, prefs: UnitPreferences, line: ChartPoint
 					}
 				: null
 	};
+}
+
+/**
+ * The design checks' limits in display units (D19): the preferred region from the BEP flow at
+ * this speed; the curve's manufacturer data, at rated speed, drawn at s × flow; the NPSHa the
+ * NPSH margin check requires along the NPSHr line drawn; the motor's rating. Null when none of
+ * them applies to this pump.
+ */
+export function checkOverlays(
+	result: PumpResult,
+	prefs: UnitPreferences,
+	{ checks, curve, sources }: PumpChecksInput,
+	npshr: readonly ChartPoint[] | null,
+	hasPower = true
+): CheckOverlays | null {
+	const flowUnit = displayUnit('flow', prefs);
+	const headUnit = displayUnit('head', prefs);
+	const x = (flow: number) => fromSI(flow, flowUnit);
+	const s = result.speed;
+	const region = checks.operatingRegion;
+	const bep = result.bestEfficiencyPoint;
+	const low = region?.preferredMin ?? null;
+	const high = region?.preferredMax ?? null;
+	const preferred =
+		region && bep && (low !== null || high !== null)
+			? {
+					low,
+					high,
+					from: low === null ? null : x(low * bep.flow),
+					to: high === null ? null : x(high * bep.flow),
+					source: sources.operatingRegion ?? 'your values'
+				}
+			: null;
+	// The manufacturer data are checked with the operating region (proposal design-checks.md §3).
+	const data = region ? curve : null;
+	const aor = data?.allowableOperatingRegion;
+	const minimums = [
+		{ value: data?.minimumContinuousStableFlow, name: 'minimum continuous stable flow' },
+		{ value: data?.minimumThermalFlow, name: 'minimum thermal flow' }
+	].filter((m): m is { value: number; name: string } => m.value !== null && m.value !== undefined);
+	const floor = minimums.length ? minimums.reduce((a, b) => (b.value > a.value ? b : a)) : null;
+	const npsh = checks.npshMargin;
+	const margin = npsh?.minimumMargin ?? null;
+	const ratio = npsh?.minimumRatio ?? null;
+	const npshRequired =
+		npsh && npshr?.length && (margin !== null || ratio !== null)
+			? {
+					line: npshr.map((p) => ({
+						x: p.x,
+						y: Math.max(
+							margin === null ? -Infinity : p.y + fromSI(margin, headUnit),
+							ratio === null ? -Infinity : ratio * p.y
+						)
+					})),
+					margin: margin === null ? null : fromSI(margin, headUnit),
+					ratio,
+					source: sources.npshMargin ?? 'your values'
+				}
+			: null;
+	const rating = data?.motorRatedPower;
+	const overlays: CheckOverlays = {
+		preferred,
+		allowable: aor
+			? {
+					from: x(aor.flowMin * s),
+					to: x(aor.flowMax * s),
+					ratedFrom: x(aor.flowMin),
+					ratedTo: x(aor.flowMax)
+				}
+			: null,
+		minimumFlow: floor
+			? { flow: x(floor.value * s), rated: x(floor.value), name: floor.name }
+			: null,
+		npshRequired,
+		// On the power panel, which needs a shaft-power curve; without one, nothing to draw on.
+		motorRating:
+			rating === null || rating === undefined || !hasPower
+				? null
+				: fromSI(rating, displayUnit('power', prefs))
+	};
+	return Object.values(overlays).some((v) => v !== null) ? overlays : null;
 }
 
 /** The flows a sampled curve spans (its first and last sample), SI. */
@@ -497,16 +626,20 @@ export function chartHeightRem(panels: readonly PanelKey[], phone: boolean): num
 /** localStorage key of the panels the user hid (a per-browser choice, never project data). */
 export const HIDDEN_PANELS_KEY = 'opensolve-pipe:pump-chart-hidden-panels';
 
-/** What a chip shows or hides: a panel below the head, or a speed-controlled pump's speed range. */
-export type ChipKey = Exclude<PanelKey, 'head'> | 'speed';
-const CHIP_KEYS: readonly ChipKey[] = ['efficiency', 'power', 'npsh', 'speed'];
+/**
+ * What a chip shows or hides: a panel below the head, a speed-controlled pump's speed range, or
+ * the design checks' limits (D19).
+ */
+export type ChipKey = Exclude<PanelKey, 'head'> | 'speed' | 'checks';
+const CHIP_KEYS: readonly ChipKey[] = ['efficiency', 'power', 'npsh', 'speed', 'checks'];
 
 /** The chips' names. */
 export const CHIP_LABELS: Readonly<Record<ChipKey, string>> = {
 	efficiency: 'Efficiency',
 	power: 'Shaft power',
 	npsh: 'NPSH',
-	speed: 'Speed range'
+	speed: 'Speed range',
+	checks: 'Design checks'
 };
 
 /** What was hidden before in this browser ([] where storage is refused or holds nothing). */
@@ -712,6 +845,8 @@ export interface ChartNotes {
 	panels: string[];
 	/** The curve facts: best efficiency, shutoff, rising head, speed range (§6, slice 2). */
 	facts: string[];
+	/** The design checks' limits drawn (D19), when shown. */
+	checks: string[];
 }
 
 export interface ChartNotesInput {
@@ -730,6 +865,8 @@ export interface ChartNotesInput {
 	shown?: readonly PanelKey[];
 	/** A speed-controlled pump's speed range is shown. */
 	speedShown?: boolean;
+	/** The design checks' limits are shown. */
+	checksShown?: boolean;
 }
 
 /** The figure's notes, from one function the screen and the image both use. */
@@ -740,7 +877,8 @@ export function chartNotes({
 	othersControlled = false,
 	reasonsIn = 'the data table says',
 	shown = ['head'],
-	speedShown = false
+	speedShown = false,
+	checksShown = false
 }: ChartNotesInput): ChartNotes {
 	const fmt = (v: number) => formatNumber(v, 4);
 	const controlled = !!result.control;
@@ -807,8 +945,83 @@ export function chartNotes({
 		method,
 		extrapolated,
 		panels: panelNotes(data, result, shown),
-		facts: factNotes(data, speedShown)
+		facts: factNotes(data, speedShown),
+		checks: checksShown ? checkNotes(data, shown) : []
 	};
+}
+
+/** Whether any design-check limit is drawn with `shown` panels (the chip on). */
+export function checksDrawn(d: PumpChartData, shown: readonly PanelKey[]): boolean {
+	const c = d.checks;
+	return (
+		!!c &&
+		(!!c.preferred ||
+			!!c.allowable ||
+			!!c.minimumFlow ||
+			(!!c.npshRequired && shown.includes('npsh') && !!d.npsh) ||
+			(c.motorRating !== null && shown.includes('power') && !!d.power))
+	);
+}
+
+/**
+ * The design checks' limits as sentences (screen and image): what each mark is, its values and
+ * where they came from. Design practice, not physics (GOALS §4.6); the verdicts are the Checks
+ * view's.
+ */
+function checkNotes(d: PumpChartData, shown: readonly PanelKey[]): string[] {
+	const c = d.checks;
+	if (!c) return [];
+	const fmt = (v: number) => formatNumber(v, 4);
+	const pct = (v: number) => `${formatNumber(v * 100, 4)} %`;
+	const flow = (v: number) => `${fmt(v)} ${d.flowUnit}`;
+	const notes: string[] = [];
+	const p = c.preferred;
+	if (p) {
+		const fractions =
+			p.low !== null && p.high !== null
+				? `${pct(p.low)} to ${pct(p.high)}`
+				: p.low !== null
+					? `at least ${pct(p.low)}`
+					: `at most ${pct(p.high!)}`;
+		const flows =
+			p.from !== null && p.to !== null
+				? `${fmt(p.from)} to ${flow(p.to)}`
+				: p.from !== null
+					? `from ${flow(p.from)}`
+					: `up to ${flow(p.to!)}`;
+		notes.push(
+			`Shaded blue (POR): the preferred operating region, ${fractions} of the best efficiency flow at this speed (${flows}; ${p.source}).`
+		);
+	}
+	if (c.allowable)
+		notes.push(
+			`Shaded grey (AOR): the allowable operating region from the pump's manufacturer data, ${fmt(c.allowable.from)} to ${flow(c.allowable.to)} at this speed (${fmt(c.allowable.ratedFrom)} to ${flow(c.allowable.ratedTo)} at rated speed, × speed by the affinity laws).`
+		);
+	if (c.minimumFlow)
+		notes.push(
+			`Dash-dot line: the ${c.minimumFlow.name}, ${flow(c.minimumFlow.flow)} at this speed (${flow(c.minimumFlow.rated)} at rated speed), the larger of the curve's minimum flows.`
+		);
+	const n = c.npshRequired;
+	if (n && shown.includes('npsh')) {
+		const terms = [
+			...(n.margin !== null ? [`NPSHr + ${fmt(n.margin)} ${d.headUnit}`] : []),
+			...(n.ratio !== null ? [`${fmt(n.ratio)} × NPSHr`] : [])
+		];
+		notes.push(
+			`Dotted on the NPSH panel: the NPSHa the NPSH margin check requires, ${
+				terms.length > 1 ? `the greater of ${terms.join(' and ')}` : terms[0]
+			} (${n.source}).`
+		);
+	}
+	if (c.motorRating !== null && shown.includes('power') && d.power)
+		notes.push(
+			`Dashed on the power panel: the motor's rated power, ${fmt(c.motorRating)} ${d.powerUnit} (manufacturer data; no service-factor margin).`
+		);
+	if (notes.length)
+		notes.push(
+			'These are the limits of the design checks you turned on, design practice, not physics: Results → Checks says whether the duty meets them.'
+		);
+	return notes;
 }
 
 /** The curve facts as sentences (screen and image). */

@@ -17,9 +17,11 @@ from pydantic import TypeAdapter, ValidationError
 
 from opensolve_pipe.main import app
 from opensolve_pipe.models.components import Component
+from opensolve_pipe.models.design_checks import OperatingRegionCheck, PipeVelocityCheck
 from opensolve_pipe.models.goal_seek import GoalVariable
 from opensolve_pipe.models.piping import Fitting, PipingSegment
 from opensolve_pipe.models.ports import PortDirection
+from opensolve_pipe.models.pumps import AllowableOperatingRegion
 
 SCHEMAS: dict[str, Any] = app.openapi()["components"]["schemas"]
 WEB_OPENAPI = Path(__file__).parents[3] / "web" / "src" / "lib" / "api" / "openapi.json"
@@ -37,6 +39,7 @@ BASE: dict[str, dict[str, Any]] = {
     "CheckValve": {"type": "valve", "valveType": "check"},
     "ControlValve": {"type": "valve", "valveType": "prv", "setpoint": 0.0},
     "Equipment": {"type": "equipment", "rating": {"kind": "Cv", "value": 90.0}},
+    "Orifice": {"type": "orifice", "boreDiameter": 0.05},
 }
 """One valid instance per component schema, without its ports (test inputs)."""
 
@@ -156,7 +159,25 @@ def test_ordered_fields_are_what_the_validators_enforce() -> None:
         "ComponentVariable": bounds,
         "PipeVariable": bounds,
         "ProjectVariable": bounds,
+        # Design checks (CLAUDE.md D19) and the pump curve's allowable operating region.
+        "OperatingRegionCheck": [
+            {"lower": "preferredMin", "upper": "preferredMax", "strict": True}
+        ],
+        "PipeVelocityCheck": [{"lower": "minimum", "upper": "maximum", "strict": True}],
+        "AllowableOperatingRegion": [{"lower": "flowMin", "upper": "flowMax", "strict": True}],
     }
+    user = {"source": {"kind": "user"}}
+    for model, lower, upper, match, extra in (
+        (OperatingRegionCheck, "preferredMin", "preferredMax", "preferredMin must be below", user),
+        (PipeVelocityCheck, "minimum", "maximum", "minimum must be below maximum", user),
+        (AllowableOperatingRegion, "flowMin", "flowMax", "flowMin must be below flowMax", {}),
+    ):
+        model.model_validate({lower: 0.5, upper: 0.8, **extra})
+        model.model_validate({lower: math.nextafter(0.8, -math.inf), upper: 0.8, **extra})
+        for low in (0.8, 0.95):
+            with pytest.raises(ValidationError, match=match):
+                model.model_validate({lower: low, upper: 0.8, **extra})
+    PipeVelocityCheck.model_validate({"maximum": 0.8, **user})  # one alone is free
     variables = {
         "ComponentVariable": {"kind": "component", "componentId": "R1", "field": "liquidLevel"},
         "PipeVariable": {"kind": "pipe", "connectionId": "L1", "pipeIndex": 0, "field": "length"},

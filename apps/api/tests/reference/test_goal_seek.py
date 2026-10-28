@@ -32,6 +32,13 @@ seek. Each case posts ``POST /api/v1/goal-seek`` and checks:
    values found (each naming the scenario's override), and applied alone or together reproduce
    the state; a part the element's rating kind does not hold is not a variable there (400
    VARIABLE_NOT_APPLICABLE), nor is the whole rating.
+6. **Orifice plates** (docs/proposals/orifice-plate.md §5.2, §7.3): G33-G39 are met cases (item
+   2) for each orifice variable (the bore, log; the discharge coefficient, linear) and each
+   orifice goal; G37's case holds ISO's C, so its search starts in the middle of the bounds, and
+   the C found is the C at the plate's corner taps (the move of decision 13); G35's bore is
+   fluids' meter solver's; a reading goal on a plate without taps is 400 GOAL_NOT_APPLICABLE (its
+   ``needs: ['taps']``); a bore bound at or above the inlet pipe's bore is a bounds 400 located
+   by index, the plate in componentIds, neither the bound nor the id in the text (decision 21).
 """
 
 import copy
@@ -158,6 +165,8 @@ def expected_start(case: GoalSeekCase, i: int) -> tuple[float, str]:
         return case.start[i], case.start_source[i] if case.start_source else "case"
     value = case_value(effective_project(case), variable)
     lower, upper = variable["lower"], variable["upper"]
+    if variable["field"] == "dischargeCoefficient" and value is None:
+        return 0.5 * (lower + upper), "middle"  # ISO 5167-2's C: no case value (decision 21)
     if variable["field"] == "resistance":
         if not isinstance(value, dict) or value.get("kind") != variable["coefficient"]:
             return lower * math.sqrt(upper / lower), "middle"
@@ -176,10 +185,12 @@ LOG_SCALE = (
     "rating.pressureLoss",
     "rating.flow",
     "rating.value",
+    "boreDiameter",
 )
 """Fields searched in log x (design §2.1; an equipment item's rated drop, rated flow and Cv or
-Kv by equipment-pressure-drop.md decision 15: each > 0 and spanning decades). An equipment
-item's rated density is linear."""
+Kv by equipment-pressure-drop.md decision 15: each > 0 and spanning decades; an orifice plate's
+bore by orifice-plate.md decision 21). An equipment item's rated density and an orifice plate's
+discharge coefficient are linear."""
 
 
 def scale(variable: dict[str, Any]) -> str:
@@ -883,3 +894,98 @@ def test_a_whole_rating_is_not_a_variable(api: Api) -> None:
     response = api.post(GOAL_SEEK, body)
     assert response.status_code == 400, response.text
     assert response.json()["error"] == "VALIDATION_ERROR"
+
+
+# --------------------------------------------------------------------------- orifice plates
+
+
+def test_g35_bore_is_the_meter_solvers() -> None:
+    """G35's closed-form bore against fluids' differential_pressure_meter_solver (ISO 5167
+    orifice, flange taps, ε = 1) at the demand's mass flow and the 50 kPa reading: the same bore
+    to the solver's own tolerance (proposal §7.3: 49.5345907179 mm, −3.8e-9)."""
+    import fluids.flow_meter as fm
+
+    case = dg.goal_seek_orifice_meter_bore()
+    assert case.inverse is not None
+    law = dg.meter_law(case.inverse[0])
+    d2 = fm.differential_pressure_meter_solver(
+        D=law.d_pipe,
+        rho=law.density,
+        mu=law.viscosity,
+        m=law.density * dg.METER_DEMAND,
+        P1=2.0e5,
+        P2=2.0e5 - dg.METER_TARGET,
+        meter_type="ISO 5167 orifice",
+        taps="flange",
+        epsilon_specified=1.0,
+    )
+    assert d2 == pytest.approx(case.inverse[0], rel=1.0e-7)
+
+
+def test_g37_starts_in_the_middle_and_finds_the_c_at_the_taps() -> None:
+    """G37 (decisions 13 and 21): the case holds ISO's C, so its start is the middle of the
+    bounds; the inverse is the C at the corner taps, C_L*/r with r > 1 here, so C_L* itself
+    (the C at D and D/2 tappings) would miss it by more than 2 %."""
+    case = dg.goal_seek_orifice_c_at_corner_taps()
+    assert case.start_source == ("middle",)
+    assert case.inverse is not None
+    lower, upper = case.variables[0]["lower"], case.variables[0]["upper"]
+    assert case.start == (0.5 * (lower + upper),)
+    assert case_value(case.project, case.variables[0]) is None
+    c_loss, ratio = case.data["cLoss"], case.data["ratio"]
+    assert ratio > 1.0
+    assert case.inverse[0] == pytest.approx(c_loss / ratio, rel=1.0e-15)
+    assert abs(c_loss / case.inverse[0] - 1.0) > 0.02
+
+
+def test_a_reading_goal_on_a_plate_without_taps_does_not_apply(api: Api) -> None:
+    """orifice_differential_pressure needs the plate's taps (``needs: ['taps']``, decision 21):
+    on a restriction orifice it is 400 VALIDATION_ERROR with one GOAL_NOT_APPLICABLE issue at the
+    goal, the plate's id in no message (D16: located by index)."""
+    from tests.reference.case_format import case_path, read_case
+
+    project = read_case(case_path("orifice_entered_c"))["project"]
+    body = {
+        "project": project,
+        "variables": [dg.component_variable("R1", "liquidLevel", 0.0, 5.0)],
+        "goals": [dg.goal("orifice_differential_pressure", "OR1", 50_000.0)],
+    }
+    response = api.post(GOAL_SEEK, body)
+    assert response.status_code == 400, response.text
+    data = response.json()
+    assert data["error"] == "VALIDATION_ERROR", data
+    [issue] = data["issues"]
+    assert issue["code"] == "GOAL_NOT_APPLICABLE", issue
+    assert issue["message"].startswith("body.goals.0"), issue
+    assert "OR1" not in issue["message"], issue
+
+
+SENTINEL_BOUND = 0.1031234567
+"""m: a bore bound above OR1's inlet pipe (102.3 mm), whose digits must not come back."""
+
+
+@pytest.mark.parametrize("bounds", [(0.02, SENTINEL_BOUND), (0.02, 0.1023)], ids=["above", "at"])
+def test_a_bore_bound_at_or_above_the_pipe_is_a_bounds_error(
+    api: Api, bounds: tuple[float, float]
+) -> None:
+    """Decision 21: _check_bounds builds the network at each bound of an orifice's bore; a bound
+    at or above the inlet pipe's inner diameter (β ≥ 1, decision 17 (a)) is 400 VALIDATION_ERROR
+    at body.variables.0.upper, the plate in componentIds, and neither the bound nor the plate's id
+    in the text."""
+    from tests.reference.case_format import case_path, read_case
+
+    project = read_case(case_path("orifice_line"))["project"]
+    body = {
+        "project": project,
+        "variables": [dg.component_variable("OR1", "boreDiameter", *bounds)],
+        "goals": [dg.goal("orifice_flow", "OR1", 0.015)],
+    }
+    response = api.post(GOAL_SEEK, body)
+    assert response.status_code == 400, response.text
+    data = response.json()
+    assert data["error"] == "VALIDATION_ERROR", data
+    [issue] = data["issues"]
+    assert issue["message"].startswith("body.variables.0.upper"), issue
+    assert issue["componentIds"] == ["OR1"], issue
+    for text in ("OR1", "1234567", "0.1023", "102.3"):
+        assert text not in issue["message"], (text, issue)

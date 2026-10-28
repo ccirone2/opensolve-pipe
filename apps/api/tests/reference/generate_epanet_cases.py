@@ -51,7 +51,18 @@ Conversion rules (design §11; facts from research notes coolprop_wntr_epanet.md
   (``element_laws.k_from_flow_coefficient``, the isolation valves' path). The mapping is exact
   for any bore; EPANET evaluates the TCV with its minor-loss constant 0.02517 K/d⁴ (ft) and
   g = 32.2 ft/s², which ``network_check.EPANET_MODEL`` models. A TCV passes flow both ways.
-  FCV setting = our flow setpoint. EPANET's PRV/PSV setting is a pressure head without velocity
+  FCV setting = our flow setpoint.
+- Orifice plate (docs/proposals/orifice-plate.md decision 23, §7.2) → EPANET GPV between two
+  junctions at its ports' elevations, diameter of the inlet pipe's end segment, minor loss 0,
+  whose HEADLOSS curve is the plate's own law (``element_laws.OrificeLaw``, the reference's) at
+  ``element_laws.GPV_POINTS`` evenly spaced flows on [0, Q_span], h(Q_span) the spread of the
+  network's fixed heads (``network_check.gpv_span``: no plate of a network without pumps carries
+  more). EPANET interpolates the curve linearly in either flow direction (hydcoeffs.c gpvcoeff,
+  curvecoeff), so it solves the Re-dependent law itself, which a TCV at one K cannot. WNTR writes
+  the points in gpm and ft with six decimals; the generator checks that the INP file holds
+  exactly ``network_check.gpv_table``'s values, the curve ``network_check.EPANET_MODEL``
+  evaluates.
+- EPANET's PRV/PSV setting is a pressure head without velocity
   head (hset = El + setting, hydstatus.c:74, 79), ours is a static pressure at the port, i.e.
   EGL = z + p_set/(ρg) + v²/(2g) with v in the pipe on that port (design §5.3). The generator
   therefore iterates setting = p_set/(ρg) + v²/(2g), v from the previous EPANET run's flow in that
@@ -82,6 +93,7 @@ the proposal's rules select, and checks that this state holds (``PUMP_CONTROL_RU
 """
 
 import ctypes
+import itertools
 import tempfile
 import warnings
 from collections.abc import Callable, Mapping
@@ -89,6 +101,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import wntr
+import wntr.epanet.util
 from fluids.friction import fmethods
 from scipy.constants import gallon
 from scipy.optimize import brentq
@@ -99,6 +112,7 @@ from opensolve_pipe.models.components import (
     Component,
     ControlValve,
     Equipment,
+    Orifice,
     Pump,
     Reservoir,
     TeeBranch,
@@ -107,8 +121,11 @@ from opensolve_pipe.models.fluids import CustomFluid
 from opensolve_pipe.models.piping import CUSTOM_MATERIAL_ID, PipeConnection
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.pumps import PumpCurve
+from tests.reference import derivations as dv
 from tests.reference import derivations_equipment as de
+from tests.reference import derivations_orifice as do
 from tests.reference import element_laws as el
+from tests.reference import network_check as nc
 from tests.reference.case_format import (
     Expected,
     ReferenceCase,
@@ -199,6 +216,18 @@ def source_text(project: Project | None = None) -> str:
                 "with g = 32.2 ft/s2, 0.99908 of ours (network_check.EPANET_MODEL). Expected "
                 "equipment results from EPANET's flow and heads: loss rho g (H_in - H_out), "
                 "static drop with v in each port's pipe."
+            )
+        if any(isinstance(c, Orifice) for c in project.components):
+            extra += (
+                " Orifice plates: EPANET GPV between junctions at its ports' elevations, "
+                "diameter of the inlet pipe, minor loss 0, whose HEADLOSS curve tabulates the "
+                f"plate's own law (element_laws.OrificeLaw) at {el.GPV_POINTS} evenly spaced "
+                "flows from 0 to the flow at which the plate alone would take the spread of the "
+                "fixed heads (network_check.gpv_span), written by WNTR in gpm and ft with six "
+                "decimals (checked against network_check.gpv_table); EPANET interpolates it "
+                "linearly for either flow direction, so it solves the plate's Reynolds-number "
+                "dependence itself, without its g or minor-loss constant. Expected orifice "
+                "results from EPANET's flow and heads (derivations_orifice.orifice_result)."
             )
         if any(isinstance(c, ControlValve) and c.valve_type == "fcv" for c in project.components):
             extra += (
@@ -606,6 +635,37 @@ def equipment_cv_line_network() -> Project:
     )
 
 
+def orifice_line_network() -> Project:
+    """The closed-form ``orifice_line`` network (derivations_orifice): R1 (H 12 m) → 102.3 mm ×
+    60 m → OR1 (β 0.5, flange taps; z 3 m) → 102.3 mm × 40 m → R2 (H 1 m), in EPANET water."""
+    return do.orifice_line_project(
+        do.epanet_water(),
+        "swamee_jain",
+        "ref-epanet-orifice-line",
+        "Orifice plate on a line (EPANET reference)",
+    )
+
+
+def orifice_balancing_network() -> Project:
+    """The closed-form ``orifice_balancing_loop`` network: ORA (β 0.45) and ORB (β 0.6) on the
+    two legs of a loop between ideal tees, R1 (H 20 m) to R2 (H 2 m), in EPANET water."""
+    return do.loop_project(
+        "ref-epanet-orifice-balancing",
+        "Orifice plates balancing a loop (EPANET reference)",
+        do.epanet_water(),
+        "swamee_jain",
+    )
+
+
+def orifice_low_re_network() -> Project:
+    """R1 (H 1.2 m) → 52.5 mm × 10 m → OR1 (β 0.3, no taps) → 52.5 mm × 10 m → R2 (H 0) in
+    EPANET water: Re_D ≈ 14,000, where a C held at another Reynolds number misses EPANET's flow
+    beyond D6 (proposal §7.2)."""
+    return do.low_re_epanet_project(
+        "ref-epanet-orifice-low-re", "Orifice plate at a low Reynolds number (EPANET reference)"
+    )
+
+
 def assigned_flow_pump_network() -> Project:
     """A pump at speed ratio 0.9 (the pump_network curve, H = 50 − 300 Q) lifting from S1
     (head 5 m) into a loop TA-TB-TC whose only outlets are two assigned demands, D1 (12 L/s at
@@ -708,6 +768,24 @@ EPANET_NETWORKS = {
         "on the inlet bore: verifies a Cv rating (a rated point on water, no pipe diameter) "
         "against EPANET 2.2.",
     ),
+    "epanet_orifice_line": (
+        orifice_line_network,
+        "A flange-tapped orifice plate of beta 0.5 between two reservoirs, as an EPANET GPV whose "
+        "head-loss curve tabulates the plate's law: verifies ISO 5167-2's permanent loss with "
+        "its Reynolds-number dependence and the line's flow and heads against EPANET 2.2.",
+    ),
+    "epanet_orifice_balancing": (
+        orifice_balancing_network,
+        "Two restriction orifices balancing the legs of a loop, as EPANET GPVs: verifies the "
+        "plates in a looped network (the flow split they set and the EGL at every node) against "
+        "EPANET 2.2.",
+    ),
+    "epanet_orifice_low_re": (
+        orifice_low_re_network,
+        "A beta 0.3 restriction orifice at a Reynolds number near 14,000, as an EPANET GPV: "
+        "verifies the Reynolds-number dependence of ISO 5167-2's coefficient, which moves the "
+        "flow beyond D6 here, against EPANET 2.2.",
+    ),
     "epanet_pump_flow_control": (
         pump_flow_control_network,
         "The pump network with its pump flow-controlled at 18 L/s within speeds 0.6 to 0.9: "
@@ -747,7 +825,7 @@ def _node_names(project: Project) -> dict[str, str]:
         ):
             for port in component.ports:
                 names[f"{component.id}:{port.id}"] = component.id
-        elif isinstance(component, Pump | ControlValve | Equipment):
+        elif isinstance(component, Pump | ControlValve | Equipment | Orifice):
             for port in component.ports:
                 names[f"{component.id}:{port.id}"] = f"{component.id}_{port.id}"
         elif isinstance(component, AssignedFlow):
@@ -833,7 +911,7 @@ def project_to_wntr(
             wn.add_reservoir(component.id, base_head=head)
         elif isinstance(component, TeeBranch):
             wn.add_junction(component.id, base_demand=0.0, elevation=component.elevation)
-        elif isinstance(component, Pump | ControlValve | Equipment):
+        elif isinstance(component, Pump | ControlValve | Equipment | Orifice):
             for port in component.ports:
                 z = component.elevation if port.elevation is None else port.elevation
                 junction = f"{component.id}_{port.id}"
@@ -889,6 +967,19 @@ def project_to_wntr(
                 minor_loss=0.0,
                 initial_setting=el.equipment_k(component.rating, d_in),
             )
+        elif isinstance(component, Orifice):
+            _, d_in = _port_pipe(project, f"{component.id}:inlet")
+            curve_name = gpv_curve_name(component)
+            wn.add_curve(curve_name, "HEADLOSS", nc.gpv_points(project, component))
+            wn.add_valve(
+                component.id,
+                nodes[f"{component.id}:inlet"],
+                nodes[f"{component.id}:outlet"],
+                diameter=d_in,
+                valve_type="GPV",
+                minor_loss=0.0,
+                initial_setting=curve_name,
+            )
 
     for connection in project.connections:
         pipes = connection.piping.pipes
@@ -914,6 +1005,33 @@ def project_to_wntr(
     return wn
 
 
+def gpv_curve_name(component: Orifice) -> str:
+    return f"GPV_{component.id}"
+
+
+def check_gpv_curves(project: Project, inp: Path) -> None:
+    """Each plate's HEADLOSS curve in the INP file WNTR wrote equals ``network_check.gpv_table``
+    (the curve network_check.EPANET_MODEL evaluates): the same points, x in gpm and y in ft,
+    after WNTR's six-decimal formatting; and WNTR's gpm is network_check.WNTR_GPM."""
+    if wntr.epanet.util.FlowUnits.GPM.factor != nc.WNTR_GPM:
+        raise RuntimeError("network_check.WNTR_GPM is not WNTR's gpm")
+    lines = inp.read_text().splitlines()
+    for component in project.components:
+        if not isinstance(component, Orifice):
+            continue
+        name = gpv_curve_name(component)
+        written = [
+            (float(fields[1]), float(fields[2]))
+            for fields in (line.split() for line in lines)
+            if len(fields) >= 3 and fields[0] == name
+        ]
+        xs, ys = nc.gpv_table(nc.gpv_points(project, component))
+        if written != list(zip(xs, ys, strict=True)):
+            raise RuntimeError(f"{component.id}: the INP curve is not network_check.gpv_table")
+        if any(b <= a for a, b in itertools.pairwise(xs)):
+            raise RuntimeError(f"{component.id}: the GPV curve's flows must increase")
+
+
 EpanetRun = tuple[dict[str, float], dict[str, float], dict[str, int]]
 """(flow per connection, EPANET head per port key, EPANET status per pump and valve)."""
 
@@ -929,6 +1047,7 @@ def run_epanet(
     with tempfile.TemporaryDirectory() as tmp:
         simulator = wntr.sim.EpanetSimulator(wn)
         results = simulator.run_sim(file_prefix=str(Path(tmp) / "case"), convergence_error=True)
+        check_gpv_curves(project, Path(tmp) / "case.inp")
     flow_table = results.link["flowrate"]
     head_table = results.node["head"]
     status_table = results.link["status"]
@@ -944,7 +1063,7 @@ def run_epanet(
     statuses = {
         c.id: int(status_table.loc[0, c.id])
         for c in project.components
-        if isinstance(c, Pump | ControlValve | Equipment)
+        if isinstance(c, Pump | ControlValve | Equipment | Orifice)
     }
     return flows, heads, statuses
 
@@ -1185,6 +1304,15 @@ def _equipment_ports(project: Project, run: EpanetRun, e: Equipment) -> de.Ports
     return de.ports(q, run[1][f"{e.id}:inlet"], run[1][f"{e.id}:outlet"], d_in, d_out, NU_EPANET)
 
 
+def _orifice_ports(project: Project, run: EpanetRun, o: Orifice) -> do.Ports:
+    """An orifice plate's ports in an EPANET run: its flow (inlet → outlet, from the pipe on its
+    inlet port), EPANET's heads as EGLs, and the pipes' end-segment diameters."""
+    c_in, d_in = _port_pipe(project, f"{o.id}:inlet")
+    _, d_out = _port_pipe(project, f"{o.id}:outlet")
+    q = (1.0 if c_in.to_component_id == o.id else -1.0) * run[0][c_in.id]
+    return do.Ports(q, run[1][f"{o.id}:inlet"], run[1][f"{o.id}:outlet"], d_in, d_out)
+
+
 def build_case(name: str) -> ReferenceCase:
     make, description = EPANET_NETWORKS[name]
     project = make()
@@ -1195,6 +1323,7 @@ def build_case(name: str) -> ReferenceCase:
     pumps: dict[str, dict[str, float | str]] = {}
     valves: dict[str, dict[str, str]] = {}
     equipment: dict[str, dict[str, float | None]] = {}
+    orifices: dict[str, dict[str, float | str | None]] = {}
     pressures: dict[str, float] = {}
     flags: list[dict[str, str]] = []
     for c in project.components:
@@ -1224,6 +1353,16 @@ def build_case(name: str) -> ReferenceCase:
             equipment[c.id] = de.equipment_result(c, at, fluid.density)
             pressures |= de.port_pressures(c, at, fluid.density)
             flags += de.equipment_flags(c, at)
+        elif isinstance(c, Orifice):
+            # The GPV stands for a plate without a status: EPANET must not close it.
+            if VALVE_STATE[statuses[c.id]] == "closed":
+                raise ValueError(f"{name}: {c.id}'s GPV is closed in EPANET")
+            at_o = _orifice_ports(project, (flows, heads, statuses), c)
+            mu = fluid.dynamic_viscosity
+            orifices[c.id] = do.orifice_result(c, at_o, fluid.density, mu)
+            pressures |= do.port_pressures(c, at_o, fluid.density)
+            p_atm = dv.standard_atmosphere_pressure(project.settings.site_elevation)
+            flags += do.orifice_flags(c, at_o, fluid.density, mu, fluid.vapor_pressure, p_atm)
     source = source_text(project)
     if control is not None:
         source += control.method
@@ -1242,6 +1381,7 @@ def build_case(name: str) -> ReferenceCase:
             valves=valves,
             flags=flags + regime_flags(project, flows),
             equipment=equipment,
+            orifices=orifices,
         ),
     )
 

@@ -33,6 +33,12 @@ keeps running: a SciPy PchipInterpolator built from the curve points), never wit
   c from the rating alone) adds to the line's,
       H_sys(Q) = (H_R2 − H_R1) + Σ h_line(Q) + c Q|Q|;
 
+- an orifice plate in the pump's line (docs/proposals/orifice-plate.md §7.1): its loss
+  K(C_L(Re_D)) v|v|/2g on its inlet pipe's velocity (``element_laws.OrificeLaw``, ISO 5167-2's
+  C at D and D/2 tappings evaluated at each point's own Reynolds number, held below Re_lo) adds
+  to the line's, in a water-like liquid and in a viscous oil whose low points are held,
+      H_sys(Q) = (H_R2 − H_R1) + Σ h_line(Q) + h_or(Q);
+
 - a pump whose only way out is an FCV or a PRV in series (TSD §5.6, §12 decided item 8, was
   open item 4; owner's decision 2026-10-23), through the public POST /api/v1/system-curve: every
   flow the valve passes with a determined head has that head (q = 0 included: the valve, below
@@ -56,7 +62,7 @@ from fastapi.testclient import TestClient
 from scipy.optimize import brentq
 
 from opensolve_pipe.models.api import SystemCurvePoint, SystemCurveResponse
-from opensolve_pipe.models.components import ControlValve, Equipment, Pump, Reservoir
+from opensolve_pipe.models.components import ControlValve, Equipment, Orifice, Pump, Reservoir
 from opensolve_pipe.models.piping import PipeConnection
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.pumps import PumpCurve
@@ -73,6 +79,7 @@ from tests.reference.case_format import (
     flow_coefficient,
     flow_control,
     make_project,
+    orifice,
     pump,
     rated_point,
     reservoir,
@@ -258,6 +265,62 @@ def test_equipment_loss_is_in_the_system_curve(
         return static + sum(line.head_loss(q, nu) for line in parts) + c * q * abs(q)
 
     _check(project, "PU1", expected)
+
+
+# --- Orifice plates (docs/proposals/orifice-plate.md §7.1) ---------------------------------------
+
+ORIFICE_BEFORE = Line(0.1023, 60.0, (("gate_valve", 1), ("elbow_90_lr", 3)))
+ORIFICE_AFTER = Line(0.1023, 60.0, (("exit", 1),))
+SYSTEM_CURVE_OIL = ("Viscous oil (custom input)", 900.0, 0.06)
+"""C6's oil (orifice-plate.md §7.1): along the curve Re_D rises from 0 to about 9,000, so the
+points below Re_lo = 5000 have C held (test input)."""
+
+
+def pump_to_orifice_project(fluid: tuple[str, float, float]) -> Project:
+    """R1 (H 3 m) → SUCTION_A → PU1 (curve_a, z 0.5 m) → 102.3 mm × 60 m (gate valve, 3 LR
+    elbows) → OR1 (β 0.5, flange taps, ISO's C; z 1 m) → 102.3 mm × 60 m (exit) → R2 (H 20 m)
+    (test inputs)."""
+    name, rho, mu = fluid
+    curve = dp.curve_a()
+    return make_project(
+        "ref-pump-to-orifice",
+        "Pump into an orifice plate",
+        custom_fluid(name, rho, mu),
+        [
+            reservoir("R1", 0.0, 3.0),
+            pump("PU1", 0.5, curve.id),
+            orifice("OR1", 1.0, 0.05115, taps="flange"),
+            reservoir("R2", 18.0, 2.0),
+        ],
+        [
+            dp.SUCTION_A.connect("L1", "R1:port_1", "PU1:suction"),
+            ORIFICE_BEFORE.connect("L2", "PU1:discharge", "OR1:inlet"),
+            ORIFICE_AFTER.connect("L3", "OR1:outlet", "R2:port_1"),
+        ],
+        pump_library=[curve],
+    )
+
+
+@pytest.mark.parametrize("fluid", [dv.FLUID_A, SYSTEM_CURVE_OIL], ids=["liquid-a", "viscous-oil"])
+def test_orifice_loss_is_in_the_system_curve(fluid: tuple[str, float, float]) -> None:
+    """Pump → orifice plate → reservoir: at every point H_sys(Q) = (H_R2 − H_R1) + Σ h_line(Q) +
+    K(C_L(Re_D(Q))) v|v|/2g, explicitly, with C evaluated at each point's own flow (held at Re_lo
+    below it, decision 7) and ν from the case fluid."""
+    project = pump_to_orifice_project(fluid)
+    rho, mu, _ = dv.fluid_state(project.fluid)
+    nu = mu / rho
+    parts = [_line(project, c) for c in ("L1", "L2", "L3")]
+    plate = next(c for c in project.components if isinstance(c, Orifice))
+    law = el.orifice_law(plate, ORIFICE_BEFORE.d, rho, mu)
+    static = _head(project, "R2") - _head(project, "R1")
+
+    def expected(q: float) -> float:
+        return static + sum(line.head_loss(q, nu) for line in parts) + law.head(q)
+
+    _check(project, "PU1", expected)
+    q_max = 1.2 * max(p.flow for p in dp.curve_a().points)
+    held = law.reynolds(q_max * 10.0 / (POINTS - 1)) < law.re_lo_loss
+    assert held == (fluid == SYSTEM_CURVE_OIL), "the oil's low points, and only its, are held"
 
 
 # --- Flow-controlled pumps (CLAUDE.md D11) -------------------------------------------------------

@@ -10,14 +10,15 @@ the trial builder and the goal readers), so the web's ``utils/goal-seek.ts`` is 
 the API by Vitest:
 
 - ``apply``: a request (``project`` as API JSON with its set fields only, ``scenarioId`` or null,
-  ``variables``) with found ``values`` (SI); each variable's ``override`` and
-  ``replacedOverride`` as ``result.variables`` gives them (an override of a whole value the
-  scenario sets, a whole fluid or a whole equipment rating, built from the case with every value
-  written, as the API builds it from the reported evaluation: proposal
-  equipment-pressure-drop.md §5.2); and ``trial``, the case project the goal seek solves at
-  those values (the same JSON form, without ``scenarios``). Applying the overrides to the case
-  they ran on (written into the base, or upserted into the scenario by target and field) and
-  taking that case's project gives ``trial``.
+  ``variables``) with found ``values`` (SI), among them an orifice plate's bore and its
+  discharge coefficient on ISO 5167-2's (no number held, proposal orifice-plate.md §5.2); each
+  variable's ``override`` and ``replacedOverride`` as ``result.variables`` gives them (an
+  override of a whole value the scenario sets, a whole fluid or a whole equipment rating, built
+  from the case with every value written, as the API builds it from the reported evaluation:
+  proposal equipment-pressure-drop.md §5.2); and ``trial``, the case project the goal seek
+  solves at those values (the same JSON form, without ``scenarios``). Applying the overrides to
+  the case they ran on (written into the base, or upserted into the scenario by target and
+  field) and taking that case's project gives ``trial``.
 - ``goals``: a solved ``state`` (a SolvedState without its ``trace`` and ``timestamp``) and, for
   goals on it
   (``goal`` as a request's), the ``value`` the API reads (SI, null when there is none) and its
@@ -57,12 +58,18 @@ def _ports(*ids: str) -> list[dict[str, Any]]:
 
 RATING = {"kind": "point", "pressureLoss": 30000.0, "flow": 0.02, "density": 999.102621}
 """The equipment item E1's rating (test input): 30 kPa at 20 L/s on water at 15 °C."""
+METER_BORE = 0.06
+"""m: the orifice flow meter O1's bore (test input), β 0.6 in its 0.1 m inlet pipe."""
+RESTRICTION_BORE, RESTRICTION_C = 0.07, 0.62
+"""m and -: the restriction orifice O2's bore and entered C (test inputs)."""
 
 
 def base_project(*, pump: dict[str, Any] | None = None) -> dict[str, Any]:
     """R1 (5 m) -> L1 (two pipes, the second narrower) -> P1 -> L2 -> G1 (gate) -> L3 -> E1
     (equipment rated by a point, its outlet port 1 m up, so that its static pressure drop is not
-    its pressure loss) -> L4 -> R2 (20 m), water with a vapor-pressure override."""
+    its pressure loss) -> L4 -> O1 (an orifice flow meter with flange taps on ISO 5167-2's C, its
+    outlet port 0.5 m up, likewise) -> L5 -> O2 (a restriction orifice: no taps, so no reading,
+    and an entered C) -> L6 -> R2 (20 m), water with a vapor-pressure override."""
     comps = [
         reservoir("R1", level=5.0),
         {
@@ -93,6 +100,27 @@ def base_project(*, pump: dict[str, Any] | None = None) -> dict[str, Any]:
                 {"id": "outlet", "nominalSize": 0.1, "elevation": 1.0},
             ],
         },
+        {
+            "type": "orifice",
+            "id": "O1",
+            "name": "Flow meter",
+            "elevation": 0.0,
+            "boreDiameter": METER_BORE,
+            "taps": "flange",
+            "ports": [
+                {"id": "inlet", "nominalSize": 0.1},
+                {"id": "outlet", "nominalSize": 0.1, "elevation": 0.5},
+            ],
+        },
+        {
+            "type": "orifice",
+            "id": "O2",
+            "name": "Restriction orifice",
+            "elevation": 0.0,
+            "boreDiameter": RESTRICTION_BORE,
+            "dischargeCoefficient": RESTRICTION_C,
+            "ports": _ports("inlet", "outlet"),
+        },
         reservoir("R2", level=20.0),
     ]
     conns = [
@@ -104,7 +132,9 @@ def base_project(*, pump: dict[str, Any] | None = None) -> dict[str, Any]:
         ),
         connection("L2", ("P1", "discharge"), ("G1", "inlet"), length=50.0),
         connection("L3", ("G1", "outlet"), ("E1", "inlet"), length=10.0),
-        connection("L4", ("E1", "outlet"), ("R2", "port_1"), length=5.0),
+        connection("L4", ("E1", "outlet"), ("O1", "inlet"), length=5.0),
+        connection("L5", ("O1", "outlet"), ("O2", "inlet"), length=5.0),
+        connection("L6", ("O2", "outlet"), ("R2", "port_1"), length=5.0),
     ]
     fluid = {**WATER, "overrides": {"vaporPressure": 2339.0}}
     data = project_dict(comps, conns, fluid=fluid, pump_library=[CURVE])
@@ -163,6 +193,8 @@ def _apply_cases() -> list[tuple[str, dict[str, Any], str | None, list[Any], lis
     rated_loss = variable("E1", "rating.pressureLoss", 1.0e3, 1.0e6)
     rated_flow = variable("E1", "rating.flow", 1.0e-3, 0.1)
     rated_density = variable("E1", "rating.density", 500.0, 2000.0)
+    bore = variable("O1", "boreDiameter", 0.03, 0.075)
+    meter_c = variable("O1", "dischargeCoefficient", 0.5, 0.75)
     vendor = {"kind": "point", "pressureLoss": 45000.0, "flow": 0.025, "density": 1043.47}
     winter = _with_scenario(
         base,
@@ -221,6 +253,30 @@ def _apply_cases() -> list[tuple[str, dict[str, Any], str | None, list[Any], lis
             [variable("E1", "rating.value", 10.0, 1000.0)],
             [95.5],
         ),
+        ("base run: an orifice plate's bore", base, None, [bore], [0.0567891234]),
+        (
+            "base run: a discharge coefficient on ISO 5167-2's (no number held)",
+            base,
+            None,
+            [meter_c],
+            [0.6234567891],
+        ),
+        (
+            "base run: an entered discharge coefficient",
+            base,
+            None,
+            [variable("O2", "dischargeCoefficient", 0.5, 0.75)],
+            [0.6512345678],
+        ),
+        (
+            "scenario run: a bore and a coefficient the scenario sets",
+            _with_scenario(
+                base, comp("O1", "boreDiameter", 0.055), comp("O1", "dischargeCoefficient", 0.61)
+            ),
+            "S1",
+            [bore, meter_c],
+            [0.0512345678, 0.6345678912],
+        ),
     ]
 
 
@@ -246,6 +302,11 @@ GOALS = [
     _goal("equipment_flow", "E1"),
     _goal("equipment_pressure_loss", "E1"),
     _goal("equipment_pressure_drop", "E1"),
+    _goal("orifice_flow", "O1"),
+    _goal("orifice_pressure_loss", "O1"),
+    _goal("orifice_differential_pressure", "O1"),
+    _goal("orifice_differential_pressure", "O2"),
+    _goal("orifice_pressure_drop", "O1"),
     _goal("boundary_outflow", "R1"),
     _goal("boundary_outflow", "R2"),
 ]

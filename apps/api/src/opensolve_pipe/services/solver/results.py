@@ -30,6 +30,16 @@ end segment of its inlet or outlet pipe is laminar (the square law is the turbul
 Like a valve, it has no result in a closed-off section or beside a floating one, and one with its
 head differences inside a floating section.
 
+An orifice plate (proposal orifice-plate.md §2.2, §3.4-§3.6): its result gives the flow, the head
+loss EGL_in − EGL_out, ISO 5167-2's permanent pressure loss ρ g × that, the static drop, a meter's
+reading at its taps, the vena-contracta pressure, β, D, d, Re_D, the discharge coefficient that
+sets the loss (with where it came from, the Re it is evaluated at and the move's ratio), K and
+the meter's coefficient. It is flagged CORRELATION_OUT_OF_RANGE for reverse flow, for Re_D below
+ISO 5167-2's lowest where eq. (4) is used (C held there) and for laminar flow with an entered C;
+its vena contracta, at the elevation of the port the flow leaves by, is checked for flashing
+(BELOW_VAPOR_PRESSURE on the component), except at zero flow and in a floating section. Like
+equipment, it has no result in a closed-off section or beside a floating one.
+
 Flashing (design §8, GOALS §4.6): every port node and every reservoir's liquid surface is
 checked against the vapor pressure, in absolute pressure. Without a vapor pressure the bound is
 0 Pa absolute: no liquid exists at or below it, since every liquid's vapor pressure is positive,
@@ -71,6 +81,7 @@ from ...models.results import (
     LinkResult,
     NodeResult,
     NpshrCurvePoint,
+    OrificeResult,
     PowerCurvePoint,
     PumpControlResult,
     PumpResult,
@@ -84,7 +95,16 @@ from ...models.results import (
 )
 from . import curve_facts
 from .branches import DARBY_TEE, flow_pattern
-from .builder import BuiltNetwork, ConnectionData, EquipmentData, PumpData, ValveData, node_key
+from .builder import (
+    BuiltNetwork,
+    ConnectionData,
+    EquipmentData,
+    OrificeData,
+    PumpData,
+    ValveData,
+    node_key,
+    port_elevation,
+)
 from .elements import segment_state
 from .flags import make_flag
 from .friction import RE_LAMINAR_MAX, RE_TURBULENT_MIN, FlowRegime, range_warning
@@ -93,6 +113,7 @@ from .labels import fitting_name, pipe_name
 from .methods import methods_summary
 from .network import LinkMode, LinkState, SolverNetwork
 from .npsh import npsh_available
+from .orifice import TAP_NAMES
 from .pumps import CURVE_SAMPLES, operating_speed
 from .status import HTOL, QTOL, HeldStep, OuterLoopResult, Status
 from .trace import TraceInputs, element_traces
@@ -1094,6 +1115,134 @@ class _Mapper:
             rating=rating,
         )
 
+    def orifice_result(self, data: OrificeData) -> OrificeResult | None:
+        """An orifice plate's result and flags (module docstring; proposal orifice-plate.md
+        §2.2, §3.4-§3.6)."""
+        comp = data.component
+        law = data.law
+        h1, h2 = self.heads_of(data.inlet, data.outlet)
+        if math.isnan(h1) or math.isnan(h2):
+            return None  # closed off, or beside a floating section
+        floating = self.is_floating(data.inlet)
+        q = float(self.flows[data.link_index])
+        st = law.state(q)
+        re = st.reynolds
+        if q < 0.0:  # reported flows within the zero-flow rounding are exactly 0
+            self.flags.append(
+                make_flag(
+                    "CORRELATION_OUT_OF_RANGE",
+                    "warning",
+                    f"orifice '{comp.id}': the flow runs from outlet to inlet; ISO 5167-2's "
+                    "coefficient is for flow onto the plate's upstream face, and the loss is "
+                    "taken as for forward flow at the same flow rate",
+                    component_id=comp.id,
+                    details={"limit": "reverseFlow", "flow": q},
+                )
+            )
+        if law.uses_rhg:
+            below_loss = 0.0 < re < law.re_lo
+            meter_lo = law.meter_re_lo if comp.taps in ("corner", "flange") else None
+            below_meter = meter_lo is not None and 0.0 < re < meter_lo
+            if below_loss or below_meter:
+                parts = []
+                if below_loss:
+                    parts.append(
+                        f"below ISO 5167-2's lowest Reynolds number at D and D/2 tappings "
+                        f"({law.re_lo:.6g}), so the discharge coefficient that sets the loss is "
+                        "held at its value there"
+                    )
+                if below_meter:
+                    assert meter_lo is not None
+                    taps = TAP_NAMES[comp.taps or "d_and_d_2"]
+                    held = (
+                        "the meter's discharge coefficient is held at its value there"
+                        if law.entered is None
+                        else "ISO 5167-2's coefficient there, in the move of the entered "
+                        "coefficient to D and D/2 tappings, is used outside its validated range"
+                    )
+                    parts.append(
+                        f"below its lowest at the plate's {taps} ({meter_lo:.6g}), so {held}"
+                    )
+                details: dict[str, float | str] = {
+                    "limit": "reynoldsNumber",
+                    "value": re,
+                    "lower": law.re_lo,
+                }
+                if meter_lo is not None:
+                    details["meterLower"] = meter_lo
+                self.flags.append(
+                    make_flag(
+                        "CORRELATION_OUT_OF_RANGE",
+                        "warning",
+                        f"orifice '{comp.id}': Re = {re:.0f} in its inlet pipe is "
+                        + "; and ".join(parts)
+                        + " (not extrapolated)",
+                        component_id=comp.id,
+                        details=details,
+                    )
+                )
+        if law.entered is not None and 0.0 < re < RE_LAMINAR_MAX:
+            self.flags.append(
+                make_flag(
+                    "CORRELATION_OUT_OF_RANGE",
+                    "warning",
+                    f"orifice '{comp.id}': its entered discharge coefficient is held at every "
+                    "flow, a square law for turbulent flow, but the flow in its inlet pipe is "
+                    f"laminar (Re = {re:.0f}); the loss is likely underestimated",
+                    component_id=comp.id,
+                    details={"limit": "laminar", "value": re, "upper": RE_LAMINAR_MAX},
+                )
+            )
+        p_vc: float | None = None
+        if q != 0.0 and not floating:
+            # The port the flow enters, and the one it leaves by (the vena contracta's elevation).
+            up, down = ("inlet", "outlet") if q > 0.0 else ("outlet", "inlet")
+            z_up, z_down = port_elevation(comp, up), port_elevation(comp, down)
+            p_up = self.static_pressure(node_key(comp.id, up))
+            p_vc = p_up + self.rho * self.g * (z_up - z_down) - st.vena_drop
+            p_abs = p_vc + self.p_atm
+            p_vap = self.built.fluid.vapor_pressure
+            if _below_vapor_pressure(p_abs, p_vap):
+                bound = (
+                    f"the vapor pressure ({p_vap:.6g} Pa)"
+                    if p_vap is not None
+                    else "0 Pa, below any liquid's vapor pressure (this fluid has none given)"
+                )
+                self.flags.append(
+                    make_flag(
+                        "BELOW_VAPOR_PRESSURE",
+                        "invalid",
+                        f"orifice '{comp.id}': the absolute pressure at its vena contracta "
+                        f"({p_abs:.6g} Pa) is below {bound}; the liquid would flash there, and a "
+                        "flashing jet chokes the flow, so the flow solved is too high",
+                        component_id=comp.id,
+                        details={
+                            "venaContractaAbsolutePressure": p_abs,
+                            "vaporPressure": _vapor_pressure_detail(p_vap),
+                        },
+                    )
+                )
+        head_loss = h1 - h2
+        return OrificeResult(
+            flow=q,
+            head_loss=head_loss,
+            pressure_loss=self.rho * self.g * head_loss,
+            pressure_drop=self.static_pressure(data.inlet) - self.static_pressure(data.outlet),
+            differential_pressure=st.differential,
+            vena_contracta_pressure=p_vc,
+            beta=law.beta,
+            pipe_diameter=law.pipe_diameter,
+            bore_diameter=law.bore_diameter,
+            reynolds_number=re,
+            discharge_coefficient=st.loss_c,
+            coefficient_source="iso_5167_2" if law.entered is None else "entered",
+            coefficient_reynolds_number=st.coefficient_reynolds,
+            tap_coefficient_ratio=st.ratio,
+            loss_coefficient=st.k,
+            taps=comp.taps,
+            meter_discharge_coefficient=st.meter_c,
+        )
+
     def closed_off_valve_flag(self, data: ValveData, inside: bool, floating: bool) -> None:
         """The state flag of an active check or control valve that ends closed with the
         section on one side of it closed off (no head there, so no valve result): the reason
@@ -1296,8 +1445,10 @@ def build_solved_state(
             pump_results={},
             valve_results={},
             equipment_results={},
+            orifice_results={},
             branch_results={},
             boundary_results={},
+            design_checks=[],
             flags=mapper.flags,
             convergence=ConvergenceReport(
                 inner_iterations=outer.inner_iterations,
@@ -1329,6 +1480,9 @@ def build_solved_state(
         for cid, d in built.equipment.items()
         if (er := mapper.equipment_result(d)) is not None
     }
+    orifices = {
+        cid: o for cid, d in built.orifices.items() if (o := mapper.orifice_result(d)) is not None
+    }
     mapper.isolated_flags()
     mapper.floating_flags()
     balance, balance_node = mapper.mass_balance()
@@ -1344,6 +1498,7 @@ def build_solved_state(
             pumps=pumps,
             valves=valves,
             equipment=equipment,
+            orifices=orifices,
             branches=branches,
             boundaries=boundaries,
             flags=mapper.flags,
@@ -1361,8 +1516,10 @@ def build_solved_state(
         pump_results=pumps,
         valve_results=valves,
         equipment_results=equipment,
+        orifice_results=orifices,
         branch_results=branches,
         boundary_results=boundaries,
+        design_checks=[],
         flags=mapper.flags,
         convergence=ConvergenceReport(
             inner_iterations=outer.inner_iterations,

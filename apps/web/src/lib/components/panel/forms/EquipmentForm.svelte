@@ -81,11 +81,11 @@
 	partChange={(field) => ws.componentChange(component.id, `rating.${field}`)}
 />
 <p class="hint sm:col-span-2">
-	A heat exchanger, coil, strainer, filter or other element given by its datasheet: a pressure drop
-	at a rated flow, or a Cv or Kv. The loss scales with the square of the flow and with density: ΔP =
-	ΔP<sub>rated</sub> × (Q ÷ Q<sub>rated</sub>)² × ρ ÷ ρ<sub>rated</sub>; a Cv or Kv is a rating on
-	water. Viscosity is not corrected; the scaling holds where the loss goes as the flow squared, as
-	in turbulent flow. Laminar flow in a connected pipe, and flow from outlet to inlet, are flagged.
-	For a dirty strainer or a fouled exchanger, make a scenario with its own rating: a higher rated
-	pressure drop, or a lower Cv or Kv.
+	A heat exchanger, coil, strainer, filter, restriction orifice or other element given by its
+	datasheet: a pressure drop at a rated flow, or a Cv or Kv. The loss scales with the square of the
+	flow and with density: ΔP = ΔP<sub>rated</sub> × (Q ÷ Q<sub>rated</sub>)² × ρ ÷ ρ<sub>rated</sub>;
+	a Cv or Kv is a rating on water. Viscosity is not corrected; the scaling holds where the loss goes
+	as the flow squared, as in turbulent flow. Laminar flow in a connected pipe, and flow from outlet
+	to inlet, are flagged. For a dirty strainer or a fouled exchanger, make a scenario with its own
+	rating: a higher rated pressure drop, or a lower Cv or Kv.
 </p>

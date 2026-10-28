@@ -67,7 +67,8 @@ const TWO_PORT_KINDS: ComponentKind[] = [
 	'fcv',
 	'tee',
 	'wye',
-	'equipment'
+	'equipment',
+	'orifice'
 ];
 
 /** Schema-valid, port graph consistent (two independent checks) and backend model rules. */
@@ -99,8 +100,9 @@ function readyFor(kind: ComponentKind, project: Project): Project {
 /**
  * A new component of `kind` for a project made by readyFor. A new pump gets a curve id of its
  * own, still to be defined; here, as a user does in the pump form, it is set to use the
- * library's first curve. An assigned-flow node gets the flow, and an equipment item the rating, a
- * user enters where it is added (no default; made-up test inputs, testing/helpers.ts enteredFor).
+ * library's first curve. An assigned-flow node gets the flow, an equipment item the rating and an
+ * orifice plate the bore a user enters where it is added (no default; made-up test inputs,
+ * testing/helpers.ts enteredFor).
  */
 function newComponent(
 	kind: ComponentKind,

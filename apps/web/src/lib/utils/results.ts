@@ -20,6 +20,7 @@ import type {
 	Flag,
 	LinkResult,
 	NodeResult,
+	OrificeResult,
 	PipeConnection,
 	Project,
 	PumpResult,
@@ -1047,6 +1048,65 @@ export function equipmentTable(
 	return { columns, rows };
 }
 
+/**
+ * Where an orifice plate's loss coefficient C came from, in words (proposal orifice-plate.md §5.4):
+ * ISO 5167-2's, held at ISO's lowest Reynolds number when the flow's is below it (flagged), or the
+ * entered C, moved to D and D/2 tappings from corner or flange taps (tapCoefficientRatio given).
+ */
+export function orificeCoefficientSource(result: OrificeResult): string {
+	if (result.coefficientSource === 'entered') {
+		return result.tapCoefficientRatio !== null ? 'Entered, moved to D and D/2' : 'Entered';
+	}
+	const held =
+		result.coefficientReynoldsNumber !== null &&
+		result.coefficientReynoldsNumber > result.reynoldsNumber;
+	return held ? 'ISO 5167-2 (held)' : 'ISO 5167-2';
+}
+
+/**
+ * Orifice plates (proposal orifice-plate.md §6 W4): flow, ISO 5167-2's permanent pressure loss
+ * (ρg × head loss), a meter's differential pressure at its taps ("—" without taps), β, the C that
+ * sets the loss (at D and D/2 tappings) and where it came from, the inlet pipe's Reynolds number,
+ * the static pressure at the vena contracta (gauge; "—" at zero flow and where the pressure level
+ * is undetermined), the static pressure drop, inlet minus outlet, as for valves, and the head
+ * loss. Differences the solver resolves only to its head tolerance read "≈ 0".
+ */
+export function orificeTable(project: Project, solved: SolvedState, prefs: UnitPreferences): Table {
+	const f = new Formatter(prefs);
+	const columns: Column[] = [
+		f.column('flow', 'Flow (+ inlet → outlet)', 'flow'),
+		f.column('pressureLoss', 'Permanent loss', 'pressure'),
+		f.column('differentialPressure', 'Differential pressure (taps)', 'pressure'),
+		f.column('beta', 'β'),
+		f.column('dischargeCoefficient', 'C'),
+		text('coefficientSource', 'C from'),
+		f.column('reynoldsNumber', 'Re (inlet pipe)'),
+		f.column('venaContractaPressure', 'Vena contracta pressure', 'pressure', { gauge: true }),
+		f.column('pressureDrop', 'Pressure drop (static)', 'pressure'),
+		f.column('headLoss', 'Head loss', 'head')
+	];
+	// An older response may have no map at all.
+	const results = solved.orificeResults ?? {};
+	// The head tolerance as a pressure, at the solved fluid's density and standard gravity.
+	const pressureNoise = solved.fluid.density * STANDARD_GRAVITY * HEAD_NOISE;
+	const rows = orderedIds(project, Object.keys(results)).map((id) => {
+		const plate = results[id] as OrificeResult;
+		return componentRow(project, solved.flags, id, {
+			flow: f.num(plate.flow, 'flow'),
+			pressureLoss: f.diff(plate.pressureLoss, 'pressure', pressureNoise),
+			differentialPressure: f.num(plate.differentialPressure, 'pressure'),
+			beta: f.plain(plate.beta),
+			dischargeCoefficient: f.plain(plate.dischargeCoefficient),
+			coefficientSource: orificeCoefficientSource(plate),
+			reynoldsNumber: f.plain(plate.reynoldsNumber),
+			venaContractaPressure: f.num(plate.venaContractaPressure, 'pressure'),
+			pressureDrop: f.diff(plate.pressureDrop, 'pressure', pressureNoise),
+			headLoss: f.diff(plate.headLoss, 'head', HEAD_NOISE)
+		});
+	});
+	return { columns, rows };
+}
+
 /** Labelled values for a per-port map ("Run inlet" → "12.3"), in the order of the component's ports. */
 function perPort(
 	project: Project,
@@ -1254,11 +1314,13 @@ export function markChanged(table: Table, changed: ReadonlySet<string>): Table {
 /** The views of the results pane, in tab order. */
 export type ResultsView =
 	| 'summary'
+	| 'checks'
 	| 'nodes'
 	| 'links'
 	| 'pumps'
 	| 'valves'
 	| 'equipment'
+	| 'orifices'
 	| 'branches'
 	| 'boundaries'
 	| 'assignedFlows'
@@ -1266,11 +1328,13 @@ export type ResultsView =
 
 export const VIEW_LABELS: Readonly<Record<ResultsView, string>> = {
 	summary: 'Summary',
+	checks: 'Checks',
 	nodes: 'Nodes',
 	links: 'Links',
 	pumps: 'Pumps',
 	valves: 'Valves',
 	equipment: 'Equipment',
+	orifices: 'Orifices',
 	branches: 'Branches',
 	boundaries: 'Boundaries',
 	assignedFlows: 'Assigned flows',
@@ -1282,12 +1346,16 @@ export function availableViews(solved: SolvedState): ResultsView[] {
 	const has = (map: Readonly<Record<string, unknown>>) => Object.keys(map).length > 0;
 	const boundaries = Object.values(solved.boundaryResults);
 	const views: ResultsView[] = ['summary'];
+	// The opt-in design checks (D19), when the project has some (an older response has none).
+	if (solved.designChecks?.length) views.push('checks');
 	if (has(solved.nodeResults)) views.push('nodes');
 	if (has(solved.linkResults)) views.push('links');
 	if (has(solved.pumpResults)) views.push('pumps');
 	if (has(solved.valveResults)) views.push('valves');
 	// Equipment only when the solve has some (an older response may have no map at all).
 	if (has(solved.equipmentResults ?? {})) views.push('equipment');
+	// Orifice plates only when the solve has some (an older response may have no map at all).
+	if (has(solved.orificeResults ?? {})) views.push('orifices');
 	if (has(solved.branchResults)) views.push('branches');
 	if (boundaries.some((b) => !isAssignedFlowResult(b))) views.push('boundaries');
 	if (boundaries.some((b) => isAssignedFlowResult(b))) views.push('assignedFlows');
@@ -1313,6 +1381,7 @@ export function rowsForElement(
 					{ title: 'Pump', table: pumpTable(project, solved, prefs) },
 					{ title: 'Valve', table: valveTable(project, solved, prefs) },
 					{ title: 'Equipment', table: equipmentTable(project, solved, prefs) },
+					{ title: 'Orifice plate', table: orificeTable(project, solved, prefs) },
 					{ title: 'Branch', table: branchTable(project, solved, prefs) },
 					{ title: 'Boundary', table: boundaryTable(project, solved, prefs) },
 					{
@@ -1362,6 +1431,8 @@ const SUMMARY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
 	Valve: ['state', 'flow', 'pressureDrop'],
 	// A Cv- or Kv-rated item has no flow ratio ("—"): left out, so it shows flow and pressure loss.
 	Equipment: ['flow', 'flowRatio', 'pressureLoss'],
+	// A plate without taps has no reading ("—"): left out, so it shows flow and permanent loss.
+	'Orifice plate': ['flow', 'pressureLoss', 'differentialPressure'],
 	Branch: ['portFlows'],
 	Boundary: ['outflow'],
 	'Assigned flow': ['pressure'],

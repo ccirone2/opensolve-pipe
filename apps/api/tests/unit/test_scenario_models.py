@@ -181,6 +181,7 @@ def test_the_prd_list_is_overridable() -> None:
         "rating.density",
         "rating.value",
     }
+    assert names["Orifice"] == {"boreDiameter", "dischargeCoefficient"}
     spec = PIPE_FIELDS["spec"]
     assert spec.keys == ("material_id", "schedule", "nominal_size", "inner_diameter", "roughness")
     assert PIPE_FIELDS["length"].path == ("length",)
@@ -237,6 +238,11 @@ def test_x_override_fields_states_exactly_the_allow_list() -> None:
         "rating.flow": {"schema": "RatedPoint", "path": ["rating", "flow"]},
         "rating.density": {"schema": "RatedPoint", "path": ["rating", "density"]},
         "rating.value": {"schema": "RatedFlowCoefficient", "path": ["rating", "value"]},
+    }
+    # An orifice plate's bore and discharge coefficient; not its taps (orifice-plate.md §5.1).
+    assert published["Orifice"] == {
+        "boreDiameter": {"schema": "Orifice", "path": ["boreDiameter"]},
+        "dischargeCoefficient": {"schema": "Orifice", "path": ["dischargeCoefficient"]},
     }
     assert published["PipeDefinition"]["spec"]["keys"] == [
         "materialId",

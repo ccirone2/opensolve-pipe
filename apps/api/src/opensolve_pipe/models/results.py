@@ -9,7 +9,8 @@ from typing import Literal
 from pydantic import Field
 
 from .base import OutputModel
-from .components import EquipmentRating
+from .components import EquipmentRating, OrificeTaps
+from .design_checks import DesignCheckResult
 from .fluids import FluidProperties
 
 FlowRegime = Literal["none", "laminar", "transitional", "turbulent"]
@@ -317,6 +318,89 @@ class EquipmentResult(OutputModel):
     )
 
 
+class OrificeResult(OutputModel):
+    """An orifice plate (SDD §4.16): ISO 5167-2's permanent pressure loss at the solved flow, a
+    meter's reading at its taps, and the coefficients and inputs the solve used (proposal
+    orifice-plate.md §2.2)."""
+
+    flow: float = Field(description="m³/s, positive inlet -> outlet")
+    head_loss: float = Field(description="EGL(inlet) - EGL(outlet), m, from the solved heads")
+    pressure_loss: float = Field(
+        description=(
+            "ρg × headLoss, Pa (a difference): ISO 5167-2's permanent pressure loss, the part of "
+            "the pressure difference across the plate not recovered downstream"
+        )
+    )
+    pressure_drop: float = Field(
+        description=(
+            "Static pressure drop inlet -> outlet, Pa (a difference), as a valve's: what gauges "
+            "at the ports read. It equals pressureLoss + ρg(z_outlet - z_inlet) + "
+            "ρ(v_outlet² - v_inlet²)/2, with the velocities in the connected pipes"
+        )
+    )
+    differential_pressure: float | None = Field(
+        description=(
+            "The meter's reading between the plate's taps, Pa (a difference), signed as the "
+            "flow: ISO 5167-2 eq. (1) solved for Δp with ε = 1, at meterDischargeCoefficient. It "
+            "does not act on the network; null for a plate without taps"
+        )
+    )
+    vena_contracta_pressure: float | None = Field(
+        description=(
+            "Static pressure at the vena contracta, Pa gauge, at the elevation of the port the "
+            "flow leaves by (checked for flashing, BELOW_VAPOR_PRESSURE); null at zero flow and "
+            "where the pressure level is undetermined (UNDETERMINED_PRESSURE)"
+        )
+    )
+    beta: float = Field(description="β = boreDiameter / pipeDiameter")
+    pipe_diameter: float = Field(
+        description="D, m: the inner diameter of the inlet pipe's end segment at the inlet port"
+    )
+    bore_diameter: float = Field(
+        description="d, m: the bore the solve used, after any scenario or goal-seek trial"
+    )
+    reynolds_number: float = Field(
+        description="Re_D = 4ρ|Q|/(πDμ) at the solved flow, in the inlet pipe"
+    )
+    discharge_coefficient: float = Field(
+        description=(
+            "C_L, the discharge coefficient that sets the loss, at D and D/2 tappings for every "
+            "plate: ISO 5167-2's, or the entered C moved there"
+        )
+    )
+    coefficient_source: Literal["iso_5167_2", "entered"] = Field(
+        description=(
+            "Where C came from: iso_5167_2, ISO 5167-2's Reader-Harris/Gallagher equation (the "
+            "default); entered, the plate's dischargeCoefficient"
+        )
+    )
+    coefficient_reynolds_number: float | None = Field(
+        description=(
+            "The Reynolds number at which ISO 5167-2's equation is evaluated for "
+            "dischargeCoefficient (or for the move's ratio): Re_D, or ISO's lowest Reynolds "
+            "number where C is held below it; null for an entered C without a move"
+        )
+    )
+    tap_coefficient_ratio: float | None = Field(
+        description=(
+            "r = C_ISO(D and D/2) / C_ISO(taps) at coefficientReynoldsNumber, the move of an "
+            "entered C from corner or flange taps to D and D/2 tappings; null otherwise"
+        )
+    )
+    loss_coefficient: float = Field(
+        description="K on the inlet pipe's velocity: headLoss = K v|v|/(2g)"
+    )
+    taps: OrificeTaps | None = Field(
+        description="The taps the reading is at, as the plate's input; null without taps"
+    )
+    meter_discharge_coefficient: float | None = Field(
+        description=(
+            "C_M, the discharge coefficient in the reading: ISO 5167-2's at the plate's taps, or "
+            "the entered C as entered; null without taps"
+        )
+    )
+
+
 class BranchResult(OutputModel):
     branch_type: Literal["tee", "wye"]
     loss_model: Literal["crane", "ideal"]
@@ -434,8 +518,20 @@ class SolvedState(OutputModel):
             "converge"
         )
     )
+    orifice_results: dict[str, OrificeResult] = Field(
+        description=(
+            "Keyed by component id; {} when the project has no orifice plate or the solve did "
+            "not converge; a closed-off orifice has no result"
+        )
+    )
     branch_results: dict[str, BranchResult] = Field(description="Keyed by component id")
     boundary_results: dict[str, BoundaryResult] = Field(description="Keyed by component id")
     flags: list[Flag]
+    design_checks: list[DesignCheckResult] = Field(
+        description=(
+            "The project's opt-in design checks, each element checked (D19); empty when none is "
+            "on or the solve did not converge. Not flags: they never change a solved value"
+        )
+    )
     convergence: ConvergenceReport
     trace: Trace

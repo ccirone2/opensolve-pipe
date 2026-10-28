@@ -32,7 +32,13 @@
 		type ElementRef
 	} from '$lib/utils/results';
 	import { formatQuantity, traceName, traceTextValue } from '$lib/utils/trace';
-	import { defaultRows, ELEMENT_QUANTITIES, rowKey, type CompareRow } from '$lib/utils/compare';
+	import {
+		compareElementKind,
+		defaultRows,
+		ELEMENT_QUANTITIES,
+		rowKey,
+		type CompareRow
+	} from '$lib/utils/compare';
 	import { changeFieldLabel, changeValueText } from '$lib/utils/scenarios';
 	import CellValue from './CellValue.svelte';
 	import FlagIcon from './FlagIcon.svelte';
@@ -133,17 +139,9 @@
 		const kind =
 			element.kind === 'connection'
 				? 'connection'
-				: component?.type === 'pump'
-					? 'pump'
-					: component?.type === 'valve'
-						? 'valve'
-						: component?.type === 'equipment'
-							? 'equipment'
-							: component?.type === 'assigned_flow'
-								? 'assigned'
-								: component?.type === 'reservoir' || component?.type === 'reference_node'
-									? 'boundary'
-									: null;
+				: component
+					? compareElementKind(component)
+					: null;
 		const quantities = kind ? ELEMENT_QUANTITIES[kind].slice(0, 2) : [];
 		if (!quantities.length && component?.ports[0]) {
 			quantities.push('portPressure');

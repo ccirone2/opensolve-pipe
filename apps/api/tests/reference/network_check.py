@@ -12,11 +12,16 @@ Pumps and valves are solved in the state the case expects (``expected.pumps`` /
 status rules of design §5 select. Nothing here is used to produce expected values. Supported
 elements: what the reference cases use (custom and carbon-steel schedule 40 pipes, every fitting
 type, reservoirs, ideal reference nodes, ideal and Crane tees and wyes, plugs, assigned-flow
-nodes, pumps, isolation, check and control valves, equipment). An assigned-flow node is a free
-node whose continuity equation has its flow as a demand (SDD §4.11, TSD §4.8). An equipment item
-has no status: it is always 'open', with the law H_in − H_out = K Q|Q|/(2gA²), K =
+nodes, pumps, isolation, check and control valves, equipment, orifice plates). An assigned-flow
+node is a free node whose continuity equation has its flow as a demand (SDD §4.11, TSD §4.8). An
+equipment item has no status: it is always 'open', with the law H_in − H_out = K Q|Q|/(2gA²), K =
 ``element_laws.equipment_k`` on its inlet pipe's bore (proposal equipment-pressure-drop.md §7.4;
-c = K/(2gA²) on every bore in our model; under EPANET's constants this is decision 20's TCV).
+c = K/(2gA²) on every bore in our model; under EPANET's constants this is decision 20's TCV). An
+orifice plate has no status either: always 'open', with the law H_in − H_out = h(Q) of
+``element_laws.OrificeLaw`` on its inlet pipe's bore in the case fluid (proposal orifice-plate.md
+§1.1); under EPANET's constants it is the GPV of decision 23, the same law tabulated at
+``element_laws.GPV_POINTS`` flows on [0, Q_span] as WNTR writes it to the INP file
+(``gpv_table``) and interpolated linearly as EPANET 2.2 does (``epanet_gpv_head``).
 """
 
 import math
@@ -37,6 +42,7 @@ from opensolve_pipe.models.components import (
     Equipment,
     IdealReferenceNode,
     IsolationValve,
+    Orifice,
     Plug,
     Pump,
     Reservoir,
@@ -115,6 +121,8 @@ class Model:
     k_scale: float = 1.0
     fcv_leak: float = 0.0
     """m³/s per m of head across an active FCV (EPANET's 1/CBIG conductance; 0 for ours)."""
+    orifice_table: bool = False
+    """Orifice plates as EPANET GPVs (their law tabulated, ``epanet_gpv_head``), not the law."""
 
 
 def our_model(project: Project) -> Model:
@@ -127,7 +135,42 @@ EPANET_MODEL = Model(
     g=EPANET_G,
     k_scale=EPANET_MINOR_LOSS_SCALE,
     fcv_leak=EPANET_FCV_LEAK,
+    orifice_table=True,
 )
+
+# --- EPANET GPV standing for an orifice plate (proposal orifice-plate.md decision 23) -----------
+WNTR_GPM = 6.30901964e-05
+"""m³/s per US gpm as WNTR converts INP flows (wntr.epanet.util.FlowUnits.GPM.factor; the
+generator checks it is WNTR's own)."""
+WNTR_CURVE_FORMAT = "{:12f}"
+"""How WNTR 1.5 writes a curve point's x and y to the INP file (wntr/epanet/io.py _CURVE_ENTRY:
+'{x:12f} {y:12f}', six decimals); EPANET reads them back as doubles."""
+
+
+def gpv_table(points: Sequence[tuple[float, float]]) -> tuple[list[float], list[float]]:
+    """A HEADLOSS curve of (Q m³/s, h m) points as EPANET holds it: x in gpm (Q/WNTR_GPM) and y in
+    ft (h/0.3048), each rounded to the six decimals WNTR writes."""
+    xs = [float(WNTR_CURVE_FORMAT.format(q / WNTR_GPM)) for q, _ in points]
+    ys = [float(WNTR_CURVE_FORMAT.format(h / 0.3048)) for _, h in points]
+    return xs, ys
+
+
+def epanet_gpv_head(xs: Sequence[float], ys: Sequence[float], q: float) -> float:
+    """EPANET 2.2's GPV head loss at flow q (m³/s, as reported), m: the curve segment that brackets
+    |q| in gpm, extended at either end (hydcoeffs.c curvecoeff: k2 the first point with x >= q,
+    held to [1, n − 1]), h = h0 + r|q| in ft, signed as q (gpvcoeff). EPANET evaluates the curve
+    at its flow in gpm, which WNTR reports in m³/s with the same WNTR_GPM, so the law in the
+    reported flow has no flow-unit bias."""
+    x = abs(q) / WNTR_GPM
+    n = len(xs)
+    k2 = 0
+    while k2 < n and xs[k2] < x:
+        k2 += 1
+    k2 = min(max(k2, 1), n - 1)
+    k1 = k2 - 1
+    r = (ys[k2] - ys[k1]) / (xs[k2] - xs[k1])
+    h0 = ys[k1] - r * xs[k1]
+    return math.copysign((h0 + r * x) * 0.3048, q) if q != 0.0 else 0.0
 
 
 def resolve_pipe(pipe: PipeDefinition) -> tuple[float, float]:
@@ -228,17 +271,19 @@ def connection_head_loss(connection: PipeConnection, q: float, nu: float, model:
 # --- Nodes ---------------------------------------------------------------------------------------
 
 Valve = IsolationValve | CheckValve | ControlValve
-TwoPort = Pump | IsolationValve | CheckValve | ControlValve | Equipment
-TWO_PORTS = (Pump, IsolationValve, CheckValve, ControlValve, Equipment)
+TwoPort = Pump | IsolationValve | CheckValve | ControlValve | Equipment | Orifice
+TWO_PORTS = (Pump, IsolationValve, CheckValve, ControlValve, Equipment, Orifice)
 Branch = TeeBranch | WyeBranch
 
 TWO_PORT_ENDS = {
     "pump": ("suction", "discharge"),
     "valve": ("inlet", "outlet"),
     "equipment": ("inlet", "outlet"),
+    "orifice": ("inlet", "outlet"),
 }
 EQUIPMENT_STATE = "open"
-"""An equipment item has no status (proposal decision 8): its law always applies."""
+"""An equipment item has no status (proposal decision 8): its law always applies; an orifice
+plate likewise (orifice-plate.md decision 1)."""
 
 
 def fluid_state(project: Project) -> tuple[float, float, float | None]:
@@ -344,7 +389,7 @@ def element_states(project: Project, expected: Mapping[str, Any]) -> dict[str, s
             )
         elif isinstance(component, IsolationValve | CheckValve | ControlValve):
             states[component.id] = expected["valves"][component.id]["state"]
-        elif isinstance(component, Equipment):
+        elif isinstance(component, Equipment | Orifice):
             states[component.id] = EQUIPMENT_STATE
     return states
 
@@ -390,7 +435,7 @@ def connects_heads(component: TwoPort, state: str) -> bool:
     do not (design §4)."""
     if isinstance(component, Pump):
         return state in PUMP_HEAD_STATES
-    if isinstance(component, Equipment):
+    if isinstance(component, Equipment | Orifice):
         return True
     if state == "active":
         return isinstance(component, ControlValve) and component.valve_type != "fcv"
@@ -536,9 +581,14 @@ def element_law(
     limit: H(Q) at that speed; active: Q − Q_set, a fixed flow, proposal vfd-pump-modes.md
     §4.2); open valve ΔH − h_c − K Q|Q|/(2gA²); active PRV H_out − h_set; active PSV H_in −
     h_set; active FCV Q − q_set; closed or stopped Q; equipment ΔH − K Q|Q|/(2gA²), K =
-    ``element_laws.equipment_k`` on the inlet pipe's bore (proposal §7.4)."""
+    ``element_laws.equipment_k`` on the inlet pipe's bore (proposal §7.4); orifice plate ΔH −
+    h(Q), its law on the inlet pipe's bore (``orifice_head``)."""
     rho = density(project)
     key_in, key_out = two_port_ends(component)
+    if isinstance(component, Orifice):
+        if state != EQUIPMENT_STATE:
+            raise ValueError(f"{component.id}: an orifice plate has no state {state!r}")
+        return "head", h_in - h_out - orifice_head(project, component, q, model)
     if isinstance(component, Equipment):
         if state != EQUIPMENT_STATE:
             raise ValueError(f"{component.id}: equipment has no state {state!r}")
@@ -684,6 +734,40 @@ def element_residuals(
                             egl[key] - egl[f"{component.id}:{c}"] - losses.offsets[p.id]
                         )
     return out
+
+
+def orifice_plate_law(project: Project, component: Orifice) -> el.OrificeLaw:
+    """The plate's law on its inlet pipe's end-segment bore (decision 3) in the case fluid."""
+    rho, mu, _ = fluid_state(project)
+    d_in = port_diameter(project, two_port_ends(component)[0])
+    return el.orifice_law(component, d_in, rho, mu)
+
+
+def gpv_span(project: Project, component: Orifice) -> float:
+    """The largest flow the GPV curve standing for a plate tabulates: the flow at which the plate
+    alone would take the whole spread of the network's fixed heads, h(Q_span) = max H − min H
+    (``element_laws.orifice_flow_at_head``). In a network without pumps every free EGL lies
+    between the fixed heads, so no plate carries more (proposal decision 23 tabulates the law on
+    [0, 2|Q_ref|]; this span is read from the project alone, so this module and the generator
+    build the same curve)."""
+    if any(isinstance(c, Pump) for c in project.components):
+        raise ValueError("a GPV span from the fixed heads needs a network without pumps")
+    heads = fixed_heads(project).values()
+    return el.orifice_flow_at_head(orifice_plate_law(project, component), max(heads) - min(heads))
+
+
+def gpv_points(project: Project, component: Orifice) -> list[tuple[float, float]]:
+    """The (Q, h) points of the plate's GPV curve, SI, before WNTR's rounding."""
+    return el.gpv_curve(orifice_plate_law(project, component), gpv_span(project, component))
+
+
+def orifice_head(project: Project, component: Orifice, q: float, model: Model) -> float:
+    """H_in − H_out of a plate at flow q: its law (our model, with the model's g), or the GPV
+    standing for it (EPANET's, ``Model.orifice_table``)."""
+    if model.orifice_table:
+        xs, ys = gpv_table(gpv_points(project, component))
+        return epanet_gpv_head(xs, ys, q)
+    return orifice_plate_law(project, component).head(q, model.g)
 
 
 def state_problems(

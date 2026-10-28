@@ -48,6 +48,11 @@ publishes in ``x-override-fields``.
    hold (not applicable) each solve as the hand-edited project; a rating and a part of it in one
    scenario are rejected; bad rating values are a 400 at the override, never echoed; ratings
    whose coefficient cannot be represented fail as the hand-edited project does (422).
+6. **Orifice plates** (docs/proposals/orifice-plate.md §5.1, §7.3): a bore change, an entered
+   C, and a C set back to null (ISO 5167-2's) on a base that enters one each solve as the
+   hand-edited project and move the solution beyond D6, the result echoing the bore and C used;
+   bad values are a 400 at the override, never echoed; a bore the plate's inlet pipe cannot hold
+   (β ≥ 1) fails as the hand-edited project does (422 ORIFICE_OUT_OF_RANGE).
 """
 
 import functools
@@ -73,6 +78,7 @@ from opensolve_pipe.models.components import (
     ControlValve,
     Equipment,
     IsolationValve,
+    Orifice,
     Pump,
     RatedPoint,
 )
@@ -370,6 +376,11 @@ def _factor(rng: random.Random) -> float:
     return rng.uniform(0.4, 0.8) if rng.random() < 0.5 else rng.uniform(1.25, 2.5)
 
 
+def _factor_small(rng: random.Random) -> float:
+    """A factor that moves a discharge coefficient by 10-25 % either way."""
+    return rng.uniform(0.75, 0.9) if rng.random() < 0.5 else rng.uniform(1.1, 1.25)
+
+
 def _draw_rating(rng: random.Random, rating: Any) -> dict[str, Any]:
     """Another datasheet: a rated point (on a fluid of 800-1200 kg/m³), a Cv or a Kv, whose
     coefficient c is the base rating's times a drawn factor (c from the definitions,
@@ -425,6 +436,17 @@ def draw(rng: random.Random, slot: Slot) -> Any:
         part = field.split(".")[1]
         value = m.rating.model_dump(by_alias=True)[part]
         return _clip(value * _factor(rng), 1.0e-9 * value, RATING_BOUNDS[part])
+    if field == "boreDiameter":
+        # A smaller plate: the base's β < 1 holds, and the loss moves beyond D6.
+        return m.bore_diameter * rng.uniform(0.7, 0.92)
+    if field == "dischargeCoefficient":
+        # ISO's C is about 0.6: an entered C at least 8 % from it, or back to ISO's (null); at
+        # most 0.95, so C_e r_max ≤ 1 at corner or flange taps (decision 17 (c), r ≤ 1.0225).
+        if m.discharge_coefficient is None:
+            return rng.uniform(0.45, 0.55) if rng.random() < 0.5 else rng.uniform(0.66, 0.8)
+        if rng.random() < 0.4:
+            return None
+        return min(0.95, m.discharge_coefficient * _factor_small(rng))
     if field == "flow":
         return 0.0 if rng.random() < 0.15 else _clip(m.flow * rng.uniform(0.6, 1.4), -100, 100)
     if field == "length":
@@ -1620,6 +1642,187 @@ def test_unrepresentable_equipment_ratings_fail_as_the_hand_edited_project() -> 
         codes = {i["code"] for i in want.json()["issues"]}
         assert codes == {"EQUIPMENT_RATING_OUT_OF_RANGE"}, want.text
         assert all("E1" in i["componentIds"] for i in want.json()["issues"]), want.text
+        problems += error_problems(scenario["id"], s_index, hand, got, want)
+    assert api.solve(project).status_code == 200
+    assert not problems, "\n".join(problems)
+
+
+# --------------------------------------------------------------------------- 6. orifice plates
+
+ORIFICE_SCENARIOS: list[tuple[str, list[tuple[dict[str, Any], tuple[State, ...], bool]]]] = [
+    (
+        "orifice_line",
+        [
+            (
+                _scenario("S1", "Second plate", [_component("OR1", "boreDiameter", 0.04)]),
+                ("applied",),
+                True,
+            ),
+            (
+                _scenario(
+                    "S2", "Calibrated plate", [_component("OR1", "dischargeCoefficient", 0.66)]
+                ),
+                ("applied",),
+                True,
+            ),
+            (
+                _scenario(
+                    "S3",
+                    "Both, and a rating it does not have",
+                    [
+                        _component("OR1", "boreDiameter", 0.045),
+                        _component("OR1", "dischargeCoefficient", 0.55),
+                        _component("OR1", "rating.flow", 0.02),
+                    ],
+                ),
+                ("applied", "applied", "not_applicable"),
+                True,
+            ),
+        ],
+    ),
+    (
+        "orifice_entered_c",
+        [
+            (
+                _scenario(
+                    "S1", "ISO 5167-2's C", [_component("OR1", "dischargeCoefficient", None)]
+                ),
+                ("applied",),
+                True,
+            ),
+        ],
+    ),
+    (
+        "orifice_entered_c_at_taps",
+        [
+            (
+                _scenario(
+                    "S1", "ISO 5167-2's C", [_component("OR1", "dischargeCoefficient", None)]
+                ),
+                ("applied",),
+                False,
+            ),
+            (
+                _scenario(
+                    "S2", "Another calibration", [_component("OR1", "dischargeCoefficient", 0.5)]
+                ),
+                ("applied",),
+                True,
+            ),
+            (
+                _scenario("S3", "A bore on a reservoir", [_component("R1", "boreDiameter", 0.05)]),
+                ("not_applicable",),
+                False,
+            ),
+        ],
+    ),
+]
+"""Proposal §5.1's use cases (test inputs): a second plate (one bore change), a calibrated plate
+(one C), ISO's C against a vendor's (null on a base that enters one), with the state the design
+gives each override (an orifice field on another type, or another type's field on a plate, is
+not applicable, D15) and whether the solution moves beyond D6. Null on orifice_entered_c moves
+the flow by +0.58 % (its 0.6 against ISO's 0.6048 at D and D/2); on orifice_entered_c_at_taps
+by +0.17 % only (its 0.6 against ISO's 0.6008 at the corner taps, the derivation's numbers), so
+there the test checks the coefficient changed instead."""
+
+
+@pytest.mark.parametrize("name", [n for n, _ in ORIFICE_SCENARIOS])
+def test_orifice_scenarios_solve_as_the_hand_edited_project(name: str) -> None:
+    """Each scenario solves as its hand-edited project (bit for bit, apart from its record and
+    text), with the states the design gives; one marked so moves the solution beyond D6 (the
+    other applied one changes the plate's coefficient), and the plate's result echoes the bore
+    and the source of C used (proposal §2.2)."""
+    scenarios = dict(ORIFICE_SCENARIOS)[name]
+    base = _case(name)
+    project = {**base, "scenarios": [s for s, _, _ in scenarios]}
+    api = Api()
+    base_response = api.solve(base)
+    assert base_response.status_code == 200, base_response.text
+    base_state = base_response.json()["solvedState"]
+    problems = []
+    for s_index, (scenario, states, moves) in enumerate(scenarios):
+        hand = by_hand(project, scenario)
+        assert tuple(o.state for o in hand.outcomes) == states, scenario["id"]
+        got = api.solve(project, scenario["id"])
+        applied = "applied" in states
+        want = api.solve(hand.project) if applied else base_response
+        problems += solve_problems(scenario, s_index, hand, got, want)
+        if got.status_code != 200:
+            problems.append(f"{scenario['id']}: {got.status_code} {got.text[:300]}")
+            continue
+        state = got.json()["solvedState"]
+        if moves and not _moved(base_state, state):
+            problems.append(f"{scenario['id']}: the solution did not move beyond D6")
+        [plate] = [
+            c for c in Project.model_validate(hand.project).components if isinstance(c, Orifice)
+        ]
+        result = state["orificeResults"][plate.id]
+        base_c = base_state["orificeResults"][plate.id]["dischargeCoefficient"]
+        if applied and result["dischargeCoefficient"] == base_c and not moves:
+            problems.append(f"{scenario['id']}: the plate's coefficient did not change")
+        if result["boreDiameter"] != plate.bore_diameter:
+            problems.append(f"{scenario['id']}: boreDiameter {result['boreDiameter']}")
+        source = "iso_5167_2" if plate.discharge_coefficient is None else "entered"
+        if result["coefficientSource"] != source:
+            problems.append(f"{scenario['id']}: coefficientSource {result['coefficientSource']}")
+    assert not problems, "\n".join(problems)
+
+
+ORIFICE_INVALID = [
+    ("a bore of zero", [_component("OR1", "boreDiameter", 0.0)]),
+    ("a bore above 10 m", [_component("OR1", "boreDiameter", 11.1234567)]),
+    ("a discharge coefficient of zero", [_component("OR1", "dischargeCoefficient", 0.0)]),
+    ("a discharge coefficient above 1", [_component("OR1", "dischargeCoefficient", 1.51234567)]),
+    ("a discharge coefficient as text", [_component("OR1", "dischargeCoefficient", SENTINEL)]),
+]
+"""Values the model rejects (proposal §2.1: d in (0, 10] m, C in (0, 1]): each a 400 at the
+override."""
+
+
+def test_invalid_orifice_values_are_400_at_the_override() -> None:
+    """Each invalid value makes its scenario a 400 (VALIDATION_ERROR), its issues at the override
+    with the hand-edited project's error codes and messages, and no submitted value or name
+    echoed; the base solves."""
+    base = _case("orifice_line")
+    scenarios = [
+        _scenario(f"B{i + 1}", f"{label} {SENTINEL}", overrides)
+        for i, (label, overrides) in enumerate(ORIFICE_INVALID)
+    ]
+    project = {**base, "scenarios": scenarios}
+    api = Api()
+    problems = []
+    for s_index, scenario in enumerate(scenarios):
+        sid = scenario["id"]
+        hand = by_hand(project, scenario)
+        with pytest.raises(ValidationError):
+            Project.model_validate(hand.project)
+        got, want = api.solve(project, sid), api.solve(hand.project)
+        assert want.status_code == 400, want.text
+        problems += error_problems(sid, s_index, hand, got, want) + _no_echo(got)
+    assert api.solve(project).status_code == 200
+    assert not problems, "\n".join(problems)
+
+
+def test_an_unrepresentable_orifice_fails_as_the_hand_edited_project() -> None:
+    """A bore inside its bounds but not smaller than the inlet pipe's inner diameter (β ≥ 1,
+    decision 17 (a)) is a topology issue (422 ORIFICE_OUT_OF_RANGE) in a scenario as in the
+    hand-edited project, naming the plate, with the scenario's id in the message; the base still
+    solves."""
+    base = _case("orifice_line")
+    scenarios = [
+        _scenario("U1", "A bore the pipe's size", [_component("OR1", "boreDiameter", 0.1023)]),
+        _scenario("U2", "A bore above the pipe's", [_component("OR1", "boreDiameter", 0.11)]),
+    ]
+    project = {**base, "scenarios": scenarios}
+    api = Api()
+    problems = []
+    for s_index, scenario in enumerate(scenarios):
+        hand = by_hand(project, scenario)
+        got, want = api.solve(project, scenario["id"]), api.solve(hand.project)
+        assert want.status_code == 422, want.text
+        codes = {i["code"] for i in want.json()["issues"]}
+        assert codes == {"ORIFICE_OUT_OF_RANGE"}, want.text
+        assert all("OR1" in i["componentIds"] for i in want.json()["issues"]), want.text
         problems += error_problems(scenario["id"], s_index, hand, got, want)
     assert api.solve(project).status_code == 200
     assert not problems, "\n".join(problems)

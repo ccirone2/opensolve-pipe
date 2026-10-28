@@ -83,6 +83,10 @@ describe('ids', () => {
 		expect(createComponent('assigned_flow', project, { flow: 0.004 }).id).toBe('AF1');
 		expect(createComponent('equipment', project, enteredFor('equipment')).id).toBe('E1');
 		expect(ID_PREFIX.equipment).toBe('E');
+		expect(createComponent('orifice', project, enteredFor('orifice')).id).toBe('O1');
+		expect(ID_PREFIX.orifice).toBe('O');
+		// The prefix is free: no other kind uses it (orifice-plate.md §6 W1).
+		expect(Object.entries(ID_PREFIX).filter(([, p]) => p === 'O')).toEqual([['orifice', 'O']]);
 		for (const kind of [
 			'gate',
 			'ball',
@@ -214,7 +218,7 @@ describe('createComponent', () => {
 			expect(missingEntry(kind, {}), kind).toBeNull();
 			expect(missingEntries(kind, {}), kind).toEqual([]);
 		}
-		expect(ENTRY_KINDS).toEqual(['assigned_flow', 'equipment']);
+		expect(ENTRY_KINDS).toEqual(['assigned_flow', 'equipment', 'orifice']);
 		expect(KIND_LABELS.assigned_flow).toBe('Assigned flow (demand or supply)');
 	});
 
@@ -253,6 +257,33 @@ describe('createComponent', () => {
 			createComponent('equipment', project, { rating: { kind: 'Cv', flow: 0.01 } })
 		).toThrow(MissingEntryError);
 		expect(KIND_LABELS.equipment).toBe('Equipment (rated pressure drop)');
+	});
+
+	it('makes an orifice plate only with the bore the user entered, on ISO 5167-2 and no taps', () => {
+		// Proposal orifice-plate.md decision 2: no source gives a default bore, so none is invented;
+		// ISO 5167-2's C is the cited default (no entered C) and no taps is a restriction orifice.
+		// The bore is a made-up input.
+		const project = createEmptyProject();
+		expect(createComponent('orifice', project, { boreDiameter: 0.0511 })).toEqual({
+			id: 'O1',
+			name: 'Orifice O1',
+			elevation: 0,
+			type: 'orifice',
+			boreDiameter: 0.0511,
+			ports: [
+				{ id: 'inlet', nominalSize: DEFAULT_NOMINAL_SIZE, direction: 'inlet' },
+				{ id: 'outlet', nominalSize: DEFAULT_NOMINAL_SIZE, direction: 'outlet' }
+			]
+		});
+		expect(() => createComponent('orifice', project)).toThrow(MissingEntryError);
+		expect(() => createComponent('orifice', project, { boreDiameter: Number.NaN })).toThrow(
+			MissingEntryError
+		);
+		expect(missingEntries('orifice', {})).toEqual([
+			{ field: 'boreDiameter', message: 'Enter the orifice bore: it has no default.' }
+		]);
+		expect(missingEntry('orifice', { boreDiameter: 0.05 })).toBeNull();
+		expect(KIND_LABELS.orifice).toBe('Orifice plate (ISO 5167-2)');
 	});
 
 	it('names each rating value still to enter, of the kind chosen (a rated point at first)', () => {

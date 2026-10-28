@@ -14,7 +14,7 @@ class MethodChange(TypedDict):
     changes: list[str]
 
 
-METHOD_VERSION = "1.3.0"
+METHOD_VERSION = "1.4.0"
 
 METHOD_CHANGELOG: list[MethodChange] = [
     {
@@ -127,6 +127,20 @@ METHOD_CHANGELOG: list[MethodChange] = [
             "square of the flow and with density). Flows, heads, pressures, statuses, traces, "
             "messages and system curves of projects without equipment are unchanged (corpus "
             "comparison).",
+        ],
+    },
+    {
+        "version": "1.4.0",
+        "date": "2026-10-28",
+        "changes": [
+            "Adds the orifice plate: ISO 5167-2's permanent pressure loss from the bore and the "
+            "Reader-Harris/Gallagher discharge coefficient at D and D/2 tappings for every plate "
+            "(held below ISO's lowest Reynolds number, flagged), or an entered coefficient at the "
+            "plate's taps moved to D and D/2 tappings by ISO's ratio of the two tap sets' "
+            "coefficients, with the differential pressure at a meter's taps and a flashing check "
+            "at the vena contracta; a plate whose coefficient at D and D/2 tappings could exceed "
+            "1 is refused. Flows, heads, pressures, statuses, traces, messages and system curves "
+            "of projects without orifices are unchanged (corpus comparison).",
         ],
     },
 ]

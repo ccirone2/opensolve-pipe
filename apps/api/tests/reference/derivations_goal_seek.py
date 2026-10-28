@@ -30,7 +30,13 @@ boundary without a fitting (D10):
   c = ΔP_ref/(ρ_ref g Q_ref²) from the rating (``element_laws.equipment_coefficient``; a Cv or Kv
   the rated point 1 psi at Cv US gpm or 1 bar at Kv m³/h of the suite's reference water); its
   goals read the flow, the loss ρ g (EGL_in − EGL_out) and the static drop p_in − p_out
-  (``derivations_equipment``).
+  (``derivations_equipment``);
+- orifice plates (docs/proposals/orifice-plate.md §5.2, §7.3): EGL_in − EGL_out = K(C_L) v|v|/2g
+  on the inlet pipe's velocity, C_L ISO 5167-2's at D and D/2 tappings or an entered C (moved by
+  eq. (4)'s ratio from corner or flange taps), ``element_laws.OrificeLaw``; K strictly decreases
+  in β and in C, so each inverse is one brentq on the plate's own law (``derivations_orifice``);
+  its goals read the flow, the loss ρg (EGL_in − EGL_out), the reading at the taps and the static
+  drop p_in − p_out.
 
 The request follows design §2.1-§2.3: a variable ``{kind, componentId | connectionId +
 pipeIndex, field, coefficient?, lower, upper}`` and a goal ``{quantity, elementId, portId?,
@@ -58,6 +64,7 @@ from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.pumps import PumpCurve
 from tests.reference import derivations as dv
 from tests.reference import derivations_equipment as de
+from tests.reference import derivations_orifice as do
 from tests.reference import element_laws as el
 from tests.reference.case_format import (
     FrictionMethod,
@@ -74,6 +81,7 @@ from tests.reference.case_format import (
     ideal_tee,
     isolation_valve,
     make_project,
+    orifice,
     pump,
     pump_curve,
     rated_coefficient,
@@ -111,6 +119,10 @@ Quantity = Literal[
     "equipment_flow",
     "equipment_pressure_loss",
     "equipment_pressure_drop",
+    "orifice_flow",
+    "orifice_pressure_loss",
+    "orifice_differential_pressure",
+    "orifice_pressure_drop",
     "boundary_outflow",
 ]
 Dimension = Literal["pressure", "head", "flow", "velocity"]
@@ -129,9 +141,14 @@ DIMENSION: dict[str, Dimension] = {
     "equipment_flow": "flow",
     "equipment_pressure_loss": "pressure",
     "equipment_pressure_drop": "pressure",
+    "orifice_flow": "flow",
+    "orifice_pressure_loss": "pressure",
+    "orifice_differential_pressure": "pressure",
+    "orifice_pressure_drop": "pressure",
 }
 """What each goal quantity measures (design §2.2's unit column; the equipment goals' units are
-equipment-pressure-drop.md §5.2's: m³/s and Pa (difference))."""
+equipment-pressure-drop.md §5.2's: m³/s and Pa (difference); the orifice goals' orifice-plate.md
+§5.2's, likewise)."""
 
 # --- Tolerances, as design §2.2 and decision 9 state them --------------------------------------
 
@@ -2169,6 +2186,419 @@ def goal_seek_equipment_scenario_parts() -> GoalSeekCase:
     )
 
 
+# --- G33-G39: orifice plates (docs/proposals/orifice-plate.md §5.2, §7.3) ----------------------
+
+
+def _liquid_a_state() -> tuple[float, float]:
+    rho, mu, _ = dv.fluid_state(do.liquid_a())
+    return rho, mu
+
+
+def bore_for_head(template: el.OrificeLaw, q: float, h: float, lower: float, upper: float) -> float:
+    """The bore d whose plate takes h at flow q on the template's pipe and fluid: K(C_L(d))
+    strictly decreases in d at a fixed flow (proposal §3.1, R4), so one brentq in [lower,
+    upper]."""
+
+    def excess(d: float) -> float:
+        return replace(template, d_bore=d).head(q) - h
+
+    return bisect(excess, lower, upper)
+
+
+def bore_bounds(d_pipe: float) -> tuple[float, float]:
+    """[0.1D, 0.75D], ISO 5167-2's β range: the web's default bounds of a bore (proposal §6 W6)."""
+    return 0.1 * d_pipe, 0.75 * d_pipe
+
+
+def _line_head(series: do.Series, q: float, rho: float, mu: float) -> float:
+    """The head the plate takes on a series line at flow q: H₁ − H₂ − h_L1(q) − h_L2(q)."""
+    nu = mu / rho
+    return (
+        series.h1(rho)
+        - series.h2
+        - series.inlet.head_loss(q, nu, "colebrook")
+        - series.outlet.head_loss(q, nu, "colebrook")
+    )
+
+
+ORIFICE_FLOW_TARGET = 0.015
+"""m³/s: G33 and G34's flow through OR1 on the orifice line (test input)."""
+
+
+def goal_seek_orifice_bore_flow() -> GoalSeekCase:
+    """G33: OR1's boreDiameter → its flow 15 L/s on orifice_line (ISO's C, flange taps):
+    h* = H₁ − H₂ − h_lines(Q*), then d* with K(C_L(d*, Re*)) v*²/2g = h* (brentq; Re* fixed by
+    Q* and D). Proposal §7.3: h* 7.90629233124 m, K* 46.5611093191, d* 46.7639723052 mm."""
+    rho, mu = _liquid_a_state()
+    series = do.line_series()
+    q = ORIFICE_FLOW_TARGET
+    h = _line_head(series, q, rho, mu)
+    bounds = bore_bounds(series.inlet.d)
+    bore = bore_for_head(series.law(rho, mu), q, h, *bounds)
+    name = "goal_seek_orifice_bore_flow"
+
+    def forward(x: Sequence[float]) -> list[float]:
+        trial = do.line_series(do.line_orifice(bore=x[0]))
+        return [trial.flow(rho, mu, "colebrook")]
+
+    return GoalSeekCase(
+        name=name,
+        description=(
+            "The bore of an orifice plate on ISO 5167-2's coefficient that passes 15 L/s on "
+            "the orifice line (sizing a restriction orifice)."
+        ),
+        source=_source(
+            name,
+            "h* = H1 - H2 - h_lines(Q*) (Darcy-Weisbach + Colebrook); d* by brentq on "
+            "K(C_L(d, Re*)) v*^2/2g = h*, C_L ISO 5167-2 eq. (4) at D and D/2",
+        ),
+        project=_json(do.orifice_line().project),
+        variables=(component_variable("OR1", "boreDiameter", *bounds),),
+        goals=(goal("orifice_flow", "OR1", q),),
+        forward=forward,
+        inverse=(bore,),
+        checks=("forward",),
+        density=rho,
+        data={"head": h, "k": h * 2.0 * G / dv.velocity(q, series.inlet.d) ** 2},
+    )
+
+
+ENTERED_C_BOUNDS = (0.3, 1.0)
+"""G34: [v/2, min(2v, 1)] about the case's entered C 0.6, the web's default (proposal §6 W6)."""
+
+
+def goal_seek_orifice_entered_c_flow() -> GoalSeekCase:
+    """G34: OR1's dischargeCoefficient → its flow 15 L/s on orifice_entered_c (no taps, so C_L =
+    C): K* as G33's, C* = the C whose K is K* (``element_laws.orifice_c_from_k``, fluids'
+    K_to_discharge_coefficient). Proposal §7.3: C* 0.499134545651."""
+    rho, mu = _liquid_a_state()
+    element = do.line_orifice(taps=None, entered=do.ENTERED_C)
+    series = do.line_series(element)
+    q = ORIFICE_FLOW_TARGET
+    d_pipe = series.inlet.d
+    k = _line_head(series, q, rho, mu) * 2.0 * G / dv.velocity(q, d_pipe) ** 2
+    c = el.orifice_c_from_k(d_pipe, element.bore_diameter, k)
+    name = "goal_seek_orifice_entered_c_flow"
+
+    def forward(x: Sequence[float]) -> list[float]:
+        trial = do.line_series(do.line_orifice(taps=None, entered=x[0]))
+        return [trial.flow(rho, mu, "colebrook")]
+
+    return GoalSeekCase(
+        name=name,
+        description=(
+            "The entered discharge coefficient of a restriction orifice (no taps) that passes "
+            "15 L/s on the orifice line (the C a calibration must show)."
+        ),
+        source=_source(
+            name,
+            "K* = 2g h*/v*^2, h* = H1 - H2 - h_lines(Q*) (Darcy-Weisbach + Colebrook); C* = "
+            "sqrt((1 - b^4)/(b^4 ((1 + sqrt K*)^2 - 1)))",
+        ),
+        project=_json(do.orifice_entered_c().project),
+        variables=(component_variable("OR1", "dischargeCoefficient", *ENTERED_C_BOUNDS),),
+        goals=(goal("orifice_flow", "OR1", q),),
+        forward=forward,
+        inverse=(c,),
+        checks=("forward",),
+        density=rho,
+        data={"k": k},
+    )
+
+
+METER_LINES = (Line(0.1023, 20.0), Line(0.1023, 20.0))
+METER_DEMAND = 0.012
+"""m³/s: G35's assigned demand (D12; test input)."""
+METER_TARGET = 50_000.0
+"""Pa: G35's reading at the flange taps (test input)."""
+METER_START_BORE = 0.06
+"""m: G35's plate as the case holds it (β 0.587; test input)."""
+
+
+def meter_project(bore: float = METER_START_BORE) -> dict[str, Any]:
+    """R1 (z 20 m, level 10 m) → 102.3 mm × 20 m → OR1 (z 0, flange taps, ISO's C) → 102.3 mm ×
+    20 m → D, an assigned demand of 12 L/s at z 0 (D12); liquid A."""
+    project = make_project(
+        "ref-goal-seek-orifice-meter",
+        "Sizing an orifice meter",
+        do.liquid_a(),
+        [
+            reservoir("R1", 20.0, 10.0),
+            orifice("OR1", 0.0, bore, taps="flange"),
+            assigned_flow("D", 0.0, METER_DEMAND),
+        ],
+        [
+            METER_LINES[0].connect("L1", "R1:port_1", "OR1:inlet"),
+            METER_LINES[1].connect("L2", "OR1:outlet", "D:port_1"),
+        ],
+    )
+    return _json(project)
+
+
+def meter_law(bore: float) -> el.OrificeLaw:
+    rho, mu = _liquid_a_state()
+    return el.OrificeLaw(METER_LINES[0].d, bore, rho, mu, None, "flange")
+
+
+def meter_bore() -> float:
+    """d* with the reading (1 − β⁴)/(C_M² β⁴) ρ v|v|/2 = 50 kPa at the demand's 12 L/s, C_M ISO's
+    at the flange taps (brentq: the reading falls as the bore grows)."""
+
+    def excess(d: float) -> float:
+        reading = meter_law(d).differential(METER_DEMAND)
+        assert reading is not None
+        return reading - METER_TARGET
+
+    return bisect(excess, *bore_bounds(METER_LINES[0].d))
+
+
+def goal_seek_orifice_meter_bore() -> GoalSeekCase:
+    """G35: OR1's boreDiameter → its reading 50 kPa at the flange taps, the flow fixed by an
+    assigned demand of 12 L/s (sizing a meter): ISO eq. (1) solved for d at Q = 12 L/s. Proposal
+    §7.3: d* 49.5345909038 mm; fluids' differential_pressure_meter_solver gives the same bore
+    (test_goal_seek)."""
+    rho, _ = _liquid_a_state()
+    bore = meter_bore()
+    name = "goal_seek_orifice_meter_bore"
+
+    def forward(x: Sequence[float]) -> list[float]:
+        reading = meter_law(x[0]).differential(METER_DEMAND)
+        assert reading is not None
+        return [reading]
+
+    return GoalSeekCase(
+        name=name,
+        description=(
+            "The bore of a flange-tapped orifice meter that reads 50 kPa at a design flow of "
+            "12 L/s, the flow fixed by an assigned demand."
+        ),
+        source=_source(
+            name,
+            "dp = (1 - b^4)/(C_M^2 b^4) rho v^2/2 (ISO 5167-2 eq. (1), eps = 1) at Q = 12 L/s, "
+            "C_M ISO 5167-2 eq. (4) at flange taps; d* by brentq",
+        ),
+        project=meter_project(),
+        variables=(component_variable("OR1", "boreDiameter", *bore_bounds(METER_LINES[0].d)),),
+        goals=(goal("orifice_differential_pressure", "OR1", METER_TARGET),),
+        forward=forward,
+        inverse=(bore,),
+        checks=("forward",),
+        density=rho,
+    )
+
+
+BYPASS_TARGET = 0.003
+"""m³/s: G36's bypass flow through RO (test input)."""
+
+
+def bypass_state(q_b: float) -> tuple[float, float]:
+    """(H_T1, h_RO) with a bypass flow q_b on orifice_min_flow_bypass: the pump's flow Q_p from
+    H_R1 − h_L1(Q_p) + H₀(Q_p) − h_L2(Q_p) = H_R2 + h_L3(Q_p − q_b) (brentq, decreasing), then
+    h_RO = H_T1 − H_R1 − h_LB1(q_b) − h_LB2(q_b)."""
+    rho, mu = _liquid_a_state()
+    nu = mu / rho
+
+    def residual(q_p: float) -> float:
+        return do.bypass_pump_side(q_p, nu) - (
+            do.BYPASS_H2 + do.BYPASS_PROCESS.head_loss(q_p - q_b, nu)
+        )
+
+    q_p = bisect(residual, q_b, 0.2)
+    h_t1 = do.bypass_pump_side(q_p, nu)
+    h_ro = (
+        h_t1
+        - do.BYPASS_H1
+        - do.BYPASS_TO_RO.head_loss(q_b, nu)
+        - do.BYPASS_FROM_RO.head_loss(q_b, nu)
+    )
+    return h_t1, h_ro
+
+
+def goal_seek_orifice_bypass_bore() -> GoalSeekCase:
+    """G36: RO's boreDiameter → a bypass flow of 3 L/s on orifice_min_flow_bypass (sizing a
+    pump's minimum-flow orifice): ``bypass_state``, then d* from h_RO* (brentq). Proposal §7.3:
+    EGL T1 28.4660973619 m, h_RO* 25.83728685 m, K* 263.8590807, d* 16.2563444213 mm."""
+    rho, mu = _liquid_a_state()
+    h_t1, h_ro = bypass_state(BYPASS_TARGET)
+    d_pipe = do.BYPASS_TO_RO.d
+    bounds = bore_bounds(d_pipe)
+    template = el.OrificeLaw(d_pipe, do.BYPASS_BORE, rho, mu)
+    bore = bore_for_head(template, BYPASS_TARGET, h_ro, *bounds)
+    name = "goal_seek_orifice_bypass_bore"
+
+    def forward(x: Sequence[float]) -> list[float]:
+        project = do.bypass_project("ref-trial", "trial", bore=x[0])
+        return [do.solve_bypass(project).q_bypass]
+
+    return GoalSeekCase(
+        name=name,
+        description=(
+            "The bore of a pump's minimum-flow restriction orifice that passes 3 L/s back to "
+            "the suction reservoir."
+        ),
+        source=_source(
+            name,
+            "Q_p from the pump side against H_R2 + h_L3(Q_p - Q_b*) (brentq, PCHIP curve); h_RO* "
+            "= H_T1 - H_R1 - h_bypass_lines(Q_b*); d* by brentq on the plate's law",
+        ),
+        project=_json(do.orifice_min_flow_bypass().project),
+        variables=(component_variable("RO", "boreDiameter", *bounds),),
+        goals=(goal("orifice_flow", "RO", BYPASS_TARGET),),
+        forward=forward,
+        inverse=(bore,),
+        checks=("forward",),
+        density=rho,
+        data={"egl": h_t1, "head": h_ro},
+    )
+
+
+CORNER_C_BOUNDS = (0.3, 0.95)
+"""G37: C's bounds, inside decision 17 (c) at the upper bound (0.95 r_max < 1 for r_max about
+1.0225 at β 0.75; test input)."""
+CORNER_FLOW_TARGET = 0.018
+"""m³/s: G37's flow (test input)."""
+
+
+def goal_seek_orifice_c_at_corner_taps() -> GoalSeekCase:
+    """G37: OR1's dischargeCoefficient on C12's network on ISO's C (corner taps) → its flow
+    18 L/s: the case holds no C, so the search starts in the middle of the bounds (0.625, linear,
+    decision 21); the C found is the C at the corner taps, C* = C_L*/r, C_L* the C whose K is
+    K* = 2g h*/v*² and r = C_ISO(D and D/2)/C_ISO(corner) at Re* (decision 13). Proposal §7.3:
+    h* 0.912464598857 m, K* 3.73167645722, C_L* 0.533852485837, r 1.020983626357 at Re
+    223,582.36, C* 0.522880555629 (C_L* itself would be 2.1 % off)."""
+    rho, mu = _liquid_a_state()
+    series = do.corner_series(entered=None)
+    q = CORNER_FLOW_TARGET
+    d_pipe = series.inlet.d
+    h = _line_head(series, q, rho, mu)
+    k = h * 2.0 * G / dv.velocity(q, d_pipe) ** 2
+    c_l = el.orifice_c_from_k(d_pipe, do.CORNER_BORE, k)
+    ratio = replace(series.law(rho, mu), entered=1.0).ratio(q)
+    assert ratio is not None
+    c = c_l / ratio
+    lower, upper = CORNER_C_BOUNDS
+    name = "goal_seek_orifice_c_at_corner_taps"
+
+    def forward(x: Sequence[float]) -> list[float]:
+        return [do.corner_series(entered=x[0]).flow(rho, mu, "colebrook")]
+
+    return GoalSeekCase(
+        name=name,
+        description=(
+            "The discharge coefficient at the corner taps of a beta 0.75 meter on ISO 5167-2's "
+            "coefficient that passes 18 L/s: the search starts in the middle of its bounds, and "
+            "the value found is moved to D and D/2 tappings for the loss."
+        ),
+        source=_source(
+            name,
+            "K* = 2g h*/v*^2, h* = H1 - H2 - h_lines(Q*) (Darcy-Weisbach + Colebrook); C_L* from "
+            "K*; C* = C_L*/r, r = C_ISO(D and D/2)/C_ISO(corner) at Re*, eq. (4)",
+        ),
+        project=_json(
+            series.project(
+                "ref-goal-seek-orifice-corner",
+                "Calibrating a corner-tapped meter",
+                do.liquid_a(),
+                "colebrook",
+            )
+        ),
+        variables=(component_variable("OR1", "dischargeCoefficient", lower, upper),),
+        goals=(goal("orifice_flow", "OR1", q),),
+        forward=forward,
+        inverse=(c,),
+        checks=("forward",),
+        density=rho,
+        start=(0.5 * (lower + upper),),
+        start_source=("middle",),
+        data={"head": h, "k": k, "cLoss": c_l, "ratio": ratio},
+    )
+
+
+ORIFICE_LEVEL_BOUNDS = (0.0, 5.0)
+"""m: R1's level on the orifice line (base 2 m; test input)."""
+WHAT = {"pressureLoss": "permanent pressure loss", "pressureDrop": "static pressure drop"}
+
+
+def _orifice_level_case(
+    quantity: Literal["orifice_pressure_loss", "orifice_pressure_drop"],
+) -> GoalSeekCase:
+    """G38: R1's level → OR1's pressure loss 60 kPa on orifice_line: h* = Δϖ/(ρg), Q* from the
+    plate's law alone (brentq), level* = H₂ + h_L1(Q*) + h* + h_L2(Q*) − z₁ (proposal §7.3:
+    h* 6.13055839466 m, Q* 0.01644422884743, level* 0.814811461525 m).
+    G39: R1's level → OR1's static pressure drop 70 kPa on orifice_outlet_bore_differs (the
+    outlet pipe a size up, ports at one elevation): Q* from ρg h(Q) + ρ(v_out² − v_in²)/2 =
+    70 kPa (brentq), level* = H₂ + loss(Q*) − z₁ (proposal §7.3: Q* 0.01800008371611, level*
+    1.20165988673 m; the loss there 71,928.34287 Pa, so a swapped reader misses by 2.8 %)."""
+    rho, mu = _liquid_a_state()
+    if quantity == "orifice_pressure_loss":
+        series = do.line_series()
+        case = do.orifice_line()
+        target = 60_000.0
+        q = el.orifice_flow_at_head(series.law(rho, mu), target / (rho * G))
+        field_name, other = "pressureLoss", "pressureDrop"
+        name = "goal_seek_orifice_pressure_loss_level"
+    else:
+        series = do.line_series(outlet=do.LINE_OUT_WIDE)
+        case = do.orifice_outlet_bore_differs()
+        target = 70_000.0
+        law = series.law(rho, mu)
+        a_in, a_out = series.inlet.area, series.outlet.area
+
+        def drop(q: float) -> float:
+            return rho * G * law.head(q) + rho * (q * q) * (1.0 / a_out**2 - 1.0 / a_in**2) / 2.0
+
+        q = bisect(lambda x: drop(x) - target, 1.0e-6, 1.0)
+        field_name, other = "pressureDrop", "pressureLoss"
+        name = "goal_seek_orifice_pressure_drop_level"
+    level = series.h2 + series.loss(q, rho, mu, "colebrook") - series.z1
+
+    def state(level1: float) -> dict[str, float | str | None]:
+        trial = replace(series, level1=level1)
+        qx = trial.flow(rho, mu, "colebrook")
+        at = trial.ports(qx, rho, mu, "colebrook")
+        return do.orifice_result(trial.element, at, rho, mu)
+
+    def forward(x: Sequence[float]) -> list[float]:
+        value = state(x[0])[field_name]
+        assert isinstance(value, float)
+        return [value]
+
+    if not ORIFICE_LEVEL_BOUNDS[0] < level < ORIFICE_LEVEL_BOUNDS[1]:
+        raise ValueError(f"{name}: the level {level} is outside its bounds")
+    other_value = state(level)[other]
+    assert isinstance(other_value, float)
+    return GoalSeekCase(
+        name=name,
+        description=(
+            f"R1's level that gives an orifice plate a {WHAT[field_name]} target on the "
+            "orifice line."
+        ),
+        source=_source(
+            name,
+            "Q* from the plate's law (loss) or rho g h(Q) + rho (v_out^2 - v_in^2)/2 (static "
+            "drop), brentq; level* = H2 + h_lines(Q*) + h_or(Q*) - z1, Darcy-Weisbach + Colebrook",
+        ),
+        project=_json(case.project),
+        variables=(component_variable("R1", "liquidLevel", *ORIFICE_LEVEL_BOUNDS),),
+        goals=(goal(quantity, "OR1", target),),
+        forward=forward,
+        inverse=(level,),
+        checks=("level",),
+        density=rho,
+        data={"flow": q, "otherValue": other_value},
+    )
+
+
+def goal_seek_orifice_pressure_loss_level() -> GoalSeekCase:
+    """G38: R1's level → OR1's permanent pressure loss 60 kPa (``_orifice_level_case``)."""
+    return _orifice_level_case("orifice_pressure_loss")
+
+
+def goal_seek_orifice_pressure_drop_level() -> GoalSeekCase:
+    """G39: R1's level → OR1's static pressure drop 70 kPa (``_orifice_level_case``)."""
+    return _orifice_level_case("orifice_pressure_drop")
+
+
 MET_CASES: tuple[Callable[[], GoalSeekCase], ...] = (
     goal_seek_level_turbulent,
     goal_seek_level_laminar,
@@ -2199,11 +2629,19 @@ MET_CASES: tuple[Callable[[], GoalSeekCase], ...] = (
     goal_seek_equipment_pressure_loss_level,
     goal_seek_equipment_cv,
     goal_seek_equipment_kv,
+    goal_seek_orifice_bore_flow,
+    goal_seek_orifice_entered_c_flow,
+    goal_seek_orifice_meter_bore,
+    goal_seek_orifice_bypass_bore,
+    goal_seek_orifice_c_at_corner_taps,
+    goal_seek_orifice_pressure_loss_level,
+    goal_seek_orifice_pressure_drop_level,
 )
 """Cases whose targets the closed form reaches inside the bounds (G1-G14, G17, G19, and
 G20-G24, which give the variables and quantities §7.2 leaves without a case one each: D6, "a new
 variable field or goal quantity ships with a reference case"; G25-G31, the equipment variables
-and goals, equipment-pressure-drop.md §7.3)."""
+and goals, equipment-pressure-drop.md §7.3; G33-G39, the orifice variables and goals,
+orifice-plate.md §7.3)."""
 LABELS = {
     "goal_seek_level_turbulent": "G1",
     "goal_seek_level_laminar": "G2",
@@ -2238,5 +2676,12 @@ LABELS = {
     "goal_seek_equipment_cv": "G30",
     "goal_seek_equipment_kv": "G31",
     "goal_seek_equipment_scenario_parts": "G32",
+    "goal_seek_orifice_bore_flow": "G33",
+    "goal_seek_orifice_entered_c_flow": "G34",
+    "goal_seek_orifice_meter_bore": "G35",
+    "goal_seek_orifice_bypass_bore": "G36",
+    "goal_seek_orifice_c_at_corner_taps": "G37",
+    "goal_seek_orifice_pressure_loss_level": "G38",
+    "goal_seek_orifice_pressure_drop_level": "G39",
 }
 """Design §7.2's numbers (G10b, G20-G24 are this module's additions)."""

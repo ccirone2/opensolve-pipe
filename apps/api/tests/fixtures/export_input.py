@@ -19,16 +19,24 @@ so the fixture does not change from one run to the next.
 - ``pump-transfer``: the "Pump transfer between two tanks" example, its pump's system curve and
   a finished goal seek (the pump's speed for a flow), exported as the case shown, display units.
 - ``scenarios``: a project with two scenarios, a Crane tee, a PRV, a reservoir with two ports, a
-  reference node, an assigned-flow node and two equipment items, a strainer rated by a pressure
-  drop at a flow and a cooler rated by a Kv (proposal equipment-pressure-drop.md §7.6); one
-  scenario changes the PRV's resistance to a Cv, a reservoir's level and the strainer's rated
-  pressure drop (a dirty strainer), the other sets a negative assigned flow (a supply) and a
-  pipe's length; names hold ``_x0041_x0042_`` (two escapes that share an underscore) and a CR, a
-  formula (``=HYPERLINK(...)``) and a leading ``-``. Exported as All cases, SI base units: the
-  committed workbook.
+  reference node, an assigned-flow node, two equipment items, a strainer rated by a pressure
+  drop at a flow and a cooler rated by a Kv (proposal equipment-pressure-drop.md §7.6), and an
+  orifice flow meter with flange taps on ISO 5167-2's C whose outlet pipe is a size up
+  (proposal orifice-plate.md §7.6); one scenario changes the PRV's resistance to a Cv, a
+  reservoir's level, the strainer's rated pressure drop (a dirty strainer) and the meter's bore
+  (a second plate), the other sets a negative assigned flow (a supply), a pipe's length and the
+  meter's discharge coefficient (a calibration at its taps, moved to D and D/2 tappings for the
+  loss); names hold ``_x0041_x0042_`` (two escapes that share an underscore) and a CR, a
+  formula (``=HYPERLINK(...)``) and a leading ``-``. Its Compare rows include the four orifice
+  quantities on the meter (proposal orifice-plate.md §5.3). Exported as All cases, SI base
+  units: the committed workbook.
 - ``tee-fallback``: ``tests/reference/cases/tee_crane_bullhead_fallback.json``, a tee on the Darby
   3-K fallback (TEE_PATTERN_FALLBACK), in US display units: its K values are on the combined-flow
   velocity (export.md decision 29).
+- ``design-checks``: ``pump_system.json`` with every design check on (CLAUDE.md D19): the pump at
+  90 % speed with an efficiency curve and the manufacturer data, but no NPSHr curve, so the
+  results are not met, met and not evaluated; API 610's preferred region, HI 9.6.1-2012's NPSH
+  margin and a 3 m/s maximum velocity; US display units.
 """
 
 import copy
@@ -273,14 +281,17 @@ STRAINER_RATING = {"kind": "point", "pressureLoss": 20000.0, "flow": 0.01, "dens
 """The strainer E1's rating (test input): 20 kPa at 10 L/s on water at 15 °C."""
 COOLER_RATING = {"kind": "Kv", "value": 60.0}
 """The cooler E2's rating (test input): Kv 60."""
+ORIFICE_BORE = 0.025
+"""m: the flow meter O1's bore (test input), β 0.5 in its 50 mm inlet pipe."""
 
 
 def scenario_project() -> dict[str, Any]:
     """R1 (two ports) feeds a Crane tee T1, whose run goes through the strainer E1 and PRV1 to
     R2 and whose branch ends at the demand AF1; R1's second port feeds the reference node R3
-    through the cooler E2. E1's outlet pipe is a size up and E2's outlet port 0.5 m up, so each
-    element's static pressure drop differs from its pressure loss (proposal
-    equipment-pressure-drop.md §3.3)."""
+    through the orifice flow meter O1 and the cooler E2. E1's and O1's outlet pipes are a size
+    up and E2's outlet port 0.5 m up, so each element's static pressure drop differs from its
+    pressure loss (proposal equipment-pressure-drop.md §3.3, orifice-plate.md §3.7), and a
+    column that swapped them would fail."""
     components = [
         {
             "type": "reservoir",
@@ -327,6 +338,15 @@ def scenario_project() -> dict[str, Any]:
                 {"id": "inlet", "nominalSize": 0.0508},
                 {"id": "outlet", "nominalSize": 0.0508, "elevation": 0.5},
             ],
+        },
+        {
+            "type": "orifice",
+            "id": "O1",
+            "name": "Cooler flow meter",
+            "elevation": 0.0,
+            "boreDiameter": ORIFICE_BORE,
+            "taps": "flange",
+            "ports": _ports("inlet", "outlet", size=0.0508),
         },
         {
             "type": "reservoir",
@@ -377,7 +397,8 @@ def scenario_project() -> dict[str, Any]:
             ],
         ),
         _link("L4", ("T1", "branch"), ("AF1", "port_1"), [_custom(15.0, 0.05)]),
-        _link("L5", ("R1", "port_2"), ("E2", "inlet"), [_custom(50.0, 0.05)]),
+        _link("L5", ("R1", "port_2"), ("O1", "inlet"), [_custom(50.0, 0.05)]),
+        _link("L8", ("O1", "outlet"), ("E2", "inlet"), [_custom(3.0, 0.0627)]),
         _link("L7", ("E2", "outlet"), ("R3", "port_1"), [_custom(5.0, 0.05)]),
     ]
     return {
@@ -387,8 +408,8 @@ def scenario_project() -> dict[str, Any]:
         "metadata": {
             "name": "Plant water header",
             "description": (
-                "Export fixture: a tee, a PRV, a demand, a strainer and a cooler, with two "
-                "scenarios."
+                "Export fixture: a tee, a PRV, a demand, a strainer, a flow meter and a cooler, "
+                "with two scenarios."
             ),
             "created": "2026-10-25T00:00:00Z",
             "modified": "2026-10-25T00:00:00Z",
@@ -411,7 +432,8 @@ def scenario_project() -> dict[str, Any]:
                 "id": "S1",
                 "name": "Cv valve",
                 "description": (
-                    "The PRV with a Cv 120 trim, a higher low tank and a dirty strainer."
+                    "The PRV with a Cv 120 trim, a higher low tank, a dirty strainer and a "
+                    "larger meter bore."
                 ),
                 "overrides": [
                     {
@@ -432,6 +454,12 @@ def scenario_project() -> dict[str, Any]:
                         "field": "rating.pressureLoss",
                         "value": 40000.0,
                     },
+                    {
+                        "kind": "component",
+                        "componentId": "O1",
+                        "field": "boreDiameter",
+                        "value": 0.03,
+                    },
                 ],
             },
             {
@@ -445,6 +473,12 @@ def scenario_project() -> dict[str, Any]:
                         "pipeIndex": 0,
                         "field": "length",
                         "value": 25.0,
+                    },
+                    {
+                        "kind": "component",
+                        "componentId": "O1",
+                        "field": "dischargeCoefficient",
+                        "value": 0.62,
                     },
                 ],
             },
@@ -469,6 +503,11 @@ def scenarios(client: TestClient, library: dict[str, Any]) -> dict[str, Any]:
         {"quantity": "equipmentFlow", "elementId": "E1"},
         {"quantity": "equipmentPressureLoss", "elementId": "E1"},
         {"quantity": "equipmentPressureDrop", "elementId": "E2"},
+        # proposal orifice-plate.md §5.3: Compare's four orifice quantities, on the flow meter
+        {"quantity": "orificeFlow", "elementId": "O1"},
+        {"quantity": "orificePressureLoss", "elementId": "O1"},
+        {"quantity": "orificeDifferentialPressure", "elementId": "O1"},
+        {"quantity": "orificePressureDrop", "elementId": "O1"},
         {"quantity": "lowestPressure"},
         {"quantity": "highestVelocity"},
     ]
@@ -499,6 +538,48 @@ def tee_fallback(client: TestClient, library: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def design_checks(client: TestClient, library: dict[str, Any]) -> dict[str, Any]:
+    project = json.loads((TESTS / "fixtures" / "pump_system.json").read_text())
+    project["settings"]["units"] = dict(US_UNITS)
+    project["settings"]["designChecks"] = {
+        "npshMargin": {
+            "minimumRatio": 1.1,
+            "minimumMargin": 1.0,
+            "source": {"kind": "preset", "preset": "hi961_2012_general"},
+        },
+        "operatingRegion": {
+            "preferredMin": 0.7,
+            "preferredMax": 1.2,
+            "source": {"kind": "preset", "preset": "api610_por"},
+        },
+        "pipeVelocity": {"maximum": 3.0, "source": {"kind": "user"}},
+    }
+    [pump] = [c for c in project["components"] if c["type"] == "pump"]
+    pump["speed"] = 0.9
+    project["pumpLibrary"][0].update(
+        {
+            "efficiencyCurve": [
+                {"flow": 0.005, "efficiency": 0.45},
+                {"flow": 0.015, "efficiency": 0.7},
+                {"flow": 0.025, "efficiency": 0.6},
+            ],
+            "allowableOperatingRegion": {"flowMin": 0.006, "flowMax": 0.026},
+            "minimumContinuousStableFlow": 0.004,
+            "minimumThermalFlow": 0.005,
+            "motorRatedPower": 4000.0,
+        }
+    )
+    response = _solve(client, project, None)
+    outcomes = {r["outcome"] for r in response["solvedState"]["designChecks"]}
+    assert outcomes == {"pass", "fail", "not_evaluated"}, outcomes
+    return _input(
+        project,
+        [_case(project, response, None, "Base case")],
+        library,
+        options={"cases": "shown", "format": "xlsx", "units": "display", "link": True},
+    )
+
+
 def generate() -> dict[str, Any]:
     client = _client()
     library = _library(client)
@@ -508,6 +589,7 @@ def generate() -> dict[str, Any]:
             {"name": "pump-transfer", "input": pump_transfer(client, library)},
             {"name": "scenarios", "input": scenarios(client, library)},
             {"name": "tee-fallback", "input": tee_fallback(client, library)},
+            {"name": "design-checks", "input": design_checks(client, library)},
         ],
     }
 

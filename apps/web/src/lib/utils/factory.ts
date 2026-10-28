@@ -15,6 +15,7 @@ import type {
 	EquipmentRating,
 	IdealReferenceNode,
 	IsolationValve,
+	Orifice,
 	PipeConnection,
 	PipeDefinition,
 	PipingSegment,
@@ -43,7 +44,8 @@ export type ComponentKind =
 	| IsolationValve['valveType']
 	| CheckValve['valveType']
 	| ControlValve['valveType']
-	| 'equipment';
+	| 'equipment'
+	| 'orifice';
 
 export const COMPONENT_KINDS: readonly ComponentKind[] = [
 	'reservoir',
@@ -62,7 +64,8 @@ export const COMPONENT_KINDS: readonly ComponentKind[] = [
 	'prv',
 	'psv',
 	'fcv',
-	'equipment'
+	'equipment',
+	'orifice'
 ];
 
 /** The component type each kind creates. */
@@ -84,6 +87,7 @@ export interface ComponentOfKind {
 	psv: ControlValve;
 	fcv: ControlValve;
 	equipment: Equipment;
+	orifice: Orifice;
 }
 
 /** Menu labels. */
@@ -104,7 +108,8 @@ export const KIND_LABELS: Readonly<Record<ComponentKind, string>> = {
 	prv: 'Pressure-reducing valve (PRV)',
 	psv: 'Pressure-sustaining valve (PSV)',
 	fcv: 'Flow-control valve (FCV)',
-	equipment: 'Equipment (rated pressure drop)'
+	equipment: 'Equipment (rated pressure drop)',
+	orifice: 'Orifice plate (ISO 5167-2)'
 };
 
 /** Short names used for default component names ("Gate valve V1"). */
@@ -125,10 +130,11 @@ const KIND_NAMES: Readonly<Record<ComponentKind, string>> = {
 	prv: 'PRV',
 	psv: 'PSV',
 	fcv: 'FCV',
-	equipment: 'Equipment'
+	equipment: 'Equipment',
+	orifice: 'Orifice'
 };
 
-/** Id prefixes: R1, N1, PL1, AF1, T1, Y1, P1, V1, E1; connections L1; pump curves C1. */
+/** Id prefixes: R1, N1, PL1, AF1, T1, Y1, P1, V1, E1, O1; connections L1; pump curves C1. */
 export const ID_PREFIX: Readonly<Record<ComponentKind, string>> = {
 	reservoir: 'R',
 	reference_node: 'N',
@@ -146,7 +152,8 @@ export const ID_PREFIX: Readonly<Record<ComponentKind, string>> = {
 	prv: 'V',
 	psv: 'V',
 	fcv: 'V',
-	equipment: 'E'
+	equipment: 'E',
+	orifice: 'O'
 };
 export const CONNECTION_PREFIX = 'L';
 export const CURVE_PREFIX = 'C';
@@ -239,6 +246,12 @@ export interface ComponentOptions {
 	 */
 	rating?: RatingDraft;
 	/**
+	 * An orifice plate's bore diameter d, m, as the user enters it. Required for that kind, which
+	 * has no default (proposal orifice-plate.md decision 2: no source gives a default bore);
+	 * ignored by the others.
+	 */
+	boreDiameter?: number;
+	/**
 	 * Ids a new id must not take besides usedIds (newId's alsoUsed): those page state names, such
 	 * as a goal-seek setup's elements, so a row never moves to a new element (goal-seek.md §6.15).
 	 */
@@ -246,7 +259,7 @@ export interface ComponentOptions {
 }
 
 /** Values the user enters before a component is added: those its kind has no default for. */
-export type EnteredValues = Pick<ComponentOptions, 'flow' | 'rating'>;
+export type EnteredValues = Pick<ComponentOptions, 'flow' | 'rating' | 'boreDiameter'>;
 
 /** Ids new elements must not take besides usedIds (see ComponentOptions.reserved). */
 export interface NewIdOptions {
@@ -255,10 +268,11 @@ export interface NewIdOptions {
 
 /**
  * Kinds whose values have no default, entered where the component is added (before it exists):
- * an assigned-flow node's flow (D12) and an equipment item's rating (decision 19). Every path
- * that creates a component asks for them first.
+ * an assigned-flow node's flow (D12), an equipment item's rating (decision 19) and an orifice
+ * plate's bore (proposal orifice-plate.md §6 W2). Every path that creates a component asks for
+ * them first.
  */
-export const ENTRY_KINDS: readonly ComponentKind[] = ['assigned_flow', 'equipment'];
+export const ENTRY_KINDS: readonly ComponentKind[] = ['assigned_flow', 'equipment', 'orifice'];
 
 /** How a datasheet gives a rating: a pressure drop at a flow ('point'), a Cv or a Kv. */
 export type RatingKind = EquipmentRating['kind'];
@@ -334,15 +348,24 @@ function ratingEntryMessage(kind: RatingKind, field: RatingField): string {
 	}
 }
 
+/** What to say when an orifice plate's bore is not entered yet: no source gives a default. */
+export const BORE_ENTRY_MESSAGE = 'Enter the orifice bore: it has no default.';
+
 /**
  * Every value a component of `kind` cannot be added without, not yet in `values`, in the form's
  * order (one per empty field): an assigned-flow node's flow; each value of an equipment item's
- * rating, of the kind chosen (a rated point until another is chosen). None for other kinds.
+ * rating, of the kind chosen (a rated point until another is chosen); an orifice plate's bore.
+ * None for other kinds.
  */
 export function missingEntries(kind: ComponentKind, values: EnteredValues): MissingEntry[] {
 	if (kind === 'assigned_flow') {
 		return values.flow === undefined || !Number.isFinite(values.flow)
 			? [{ field: 'flow', message: 'Enter the flow: an assigned-flow node has no default flow.' }]
+			: [];
+	}
+	if (kind === 'orifice') {
+		return values.boreDiameter === undefined || !Number.isFinite(values.boreDiameter)
+			? [{ field: 'boreDiameter', message: BORE_ENTRY_MESSAGE }]
 			: [];
 	}
 	if (kind !== 'equipment') return [];
@@ -363,17 +386,20 @@ export function missingEntry(kind: ComponentKind, values: EnteredValues): string
 	return missingEntries(kind, values)[0]?.message ?? null;
 }
 
+const MISSING_ENTRY_TEXT = {
+	assigned_flow: 'An assigned-flow node needs the flow the user enters: it has no default.',
+	equipment:
+		'An equipment item needs the rating the user enters from its datasheet: it has no default.',
+	orifice: 'An orifice plate needs the bore the user enters: it has no default.'
+} as const;
+
 /**
  * Thrown when a component is created without a value the user enters (it has no default): an
- * assigned-flow node's flow, an equipment item's rating.
+ * assigned-flow node's flow, an equipment item's rating, an orifice plate's bore.
  */
 export class MissingEntryError extends Error {
-	constructor(kind: 'assigned_flow' | 'equipment') {
-		super(
-			kind === 'assigned_flow'
-				? 'An assigned-flow node needs the flow the user enters: it has no default.'
-				: 'An equipment item needs the rating the user enters from its datasheet: it has no default.'
-		);
+	constructor(kind: keyof typeof MISSING_ENTRY_TEXT) {
+		super(MISSING_ENTRY_TEXT[kind]);
 		this.name = 'MissingEntryError';
 	}
 }
@@ -394,7 +420,10 @@ export class MissingEntryError extends Error {
  *   type); check valve cracking pressure 0; control-valve setpoint 0 (for the user to set);
  * - equipment: ports inlet and outlet, the rating given in `options.rating` (required, every value
  *   of its kind: no source gives a default rating, so the user enters it from the datasheet
- *   before the item is added; MissingEntryError otherwise).
+ *   before the item is added; MissingEntryError otherwise);
+ * - orifice plate: ports inlet and outlet, the bore given in `options.boreDiameter` (required: no
+ *   source gives a default bore; MissingEntryError otherwise), ISO 5167-2's discharge coefficient
+ *   (the cited default: no entered C) and no pressure taps (a restriction orifice, no reading).
  */
 export function createComponent<K extends ComponentKind>(
 	kind: K,
@@ -509,6 +538,16 @@ function buildComponent(
 			if (!rating) throw new MissingEntryError('equipment');
 			return { ...base, type: 'equipment', rating, ports: valvePorts(size) };
 		}
+		case 'orifice':
+			if (options.boreDiameter === undefined || !Number.isFinite(options.boreDiameter)) {
+				throw new MissingEntryError('orifice');
+			}
+			return {
+				...base,
+				type: 'orifice',
+				boreDiameter: options.boreDiameter,
+				ports: valvePorts(size)
+			};
 	}
 }
 

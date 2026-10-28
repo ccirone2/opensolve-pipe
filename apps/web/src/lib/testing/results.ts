@@ -15,6 +15,7 @@ import type {
 	LinkResult,
 	MethodsSummary,
 	NodeResult,
+	OrificeResult,
 	PumpResult,
 	SolvedState,
 	SolveResponse,
@@ -284,12 +285,14 @@ export function pumpTransferSolved(values: Partial<SolvedState> = {}): SolvedSta
 			}
 		},
 		equipmentResults: {},
+		orificeResults: {},
 		branchResults: {},
 		boundaryResults: {
 			R1: { type: 'reservoir', egl: 3, outflow: 0.02, portOutflows: { port_1: 0.02 } },
 			R2: { type: 'reservoir', egl: 12, outflow: -0.02, portOutflows: { port_1: -0.02 } }
 		},
 		flags: [],
+		designChecks: [],
 		convergence: {
 			innerIterations: 6,
 			outerIterations: 1,
@@ -418,6 +421,88 @@ export function equipmentSolved(
 			maxEnergyResidual: { value: 1e-12, elementId: 'L2' },
 			oscillatingComponents: [],
 			message: 'converged: 5 Newton iterations in 1 outer iteration(s)'
+		},
+		...values
+	});
+}
+
+/**
+ * A made-up orifice plate result: 0.013 m³/s through a plate of β 0.489 on ISO 5167-2's C, without
+ * taps (no reading).
+ */
+export function orificeResult(values: Partial<OrificeResult> = {}): OrificeResult {
+	return {
+		flow: 0.013,
+		headLoss: 4.3,
+		pressureLoss: 42100,
+		pressureDrop: 42100,
+		differentialPressure: null,
+		venaContractaPressure: -20000,
+		beta: 0.489,
+		pipeDiameter: 0.1023,
+		boreDiameter: 0.05,
+		reynoldsNumber: 160000,
+		dischargeCoefficient: 0.6047,
+		coefficientSource: 'iso_5167_2',
+		coefficientReynoldsNumber: 160000,
+		tapCoefficientRatio: null,
+		lossCoefficient: 30.1,
+		taps: null,
+		meterDischargeCoefficient: null,
+		...values
+	};
+}
+
+/**
+ * A made-up state for testing/helpers.ts orificeProject (R1 → L1 → O1 → L2 → R2): O1 carries
+ * 0.013 m³/s. `plate` replaces fields of O1's result.
+ */
+export function orificeSolved(
+	plate: Partial<OrificeResult> = {},
+	values: Partial<SolvedState> = {}
+): SolvedState {
+	return pumpTransferSolved({
+		nodeResults: {
+			'R1:port_1': node('R1', 'port_1', {
+				pressure: 49000,
+				absolutePressure: 150325,
+				hgl: 5,
+				egl: 5
+			}),
+			'O1:inlet': node('O1', 'inlet', {
+				velocity: 1.58,
+				pressure: 44000,
+				absolutePressure: 145325,
+				hgl: 4.49,
+				egl: 4.62
+			}),
+			'O1:outlet': node('O1', 'outlet', {
+				velocity: 1.58,
+				pressure: 1900,
+				absolutePressure: 103225,
+				hgl: 0.19,
+				egl: 0.32
+			}),
+			'R2:port_1': node('R2', 'port_1', { pressure: 0, absolutePressure: 101325, hgl: 0, egl: 0 })
+		},
+		linkResults: {
+			L1: link({ flow: 0.013, velocity: 1.58 }),
+			L2: link({ flow: 0.013, velocity: 1.58 })
+		},
+		pumpResults: {},
+		valveResults: {},
+		orificeResults: { O1: orificeResult(plate) },
+		boundaryResults: {
+			R1: { type: 'reservoir', egl: 5, outflow: 0.013, portOutflows: { port_1: 0.013 } },
+			R2: { type: 'reservoir', egl: 0, outflow: -0.013, portOutflows: { port_1: -0.013 } }
+		},
+		convergence: {
+			innerIterations: 6,
+			outerIterations: 1,
+			maxContinuityResidual: { value: 0, elementId: 'O1:inlet' },
+			maxEnergyResidual: { value: 1e-12, elementId: 'L2' },
+			oscillatingComponents: [],
+			message: 'converged: 6 Newton iterations in 1 outer iteration(s)'
 		},
 		...values
 	});

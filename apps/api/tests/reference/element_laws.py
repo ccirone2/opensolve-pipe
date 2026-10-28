@@ -22,6 +22,15 @@ every coefficient is a cited library call or a definition written out below.
   point (ΔP_r at Q_r of a fluid of density ρ_r) gives c = ΔP_r/(ρ_r g Q_r²); a Cv or Kv is the
   rated point 1 psi at Cv US gpm, or 1 bar at Kv m³/h, of the reference water below, c =
   ΔP_ref/(ρ_ref g Q_ref²). No pipe diameter enters c; its K on a bore d is 2 g A² c.
+- Orifice plates (docs/proposals/orifice-plate.md §1.1, decisions 2-15): ISO 5167-2:2003's
+  Reader-Harris/Gallagher equation (eq. 4) transcribed term by term below from the equation as
+  the fluids 1.3.1 docstring of ``fluids.flow_meter.C_Reader_Harris_Gallagher`` prints it (with
+  its code's 0.011 in the small-pipe term, proposal §3.2), evaluated at ISO's lowest Reynolds
+  number below it (the hold, decision 7); the permanent loss is K(C_L) v|v|/2g on the inlet
+  pipe's velocity, K the pressure-loss relation over ρv²/2 (the fluids docstring of
+  ``discharge_coefficient_to_K``) written without cancellation; the meter's reading is ISO eq.
+  (1) solved for Δp, ε = 1. Nothing here calls fluids' orifice functions: the self-checks pin
+  the transcription to them.
 """
 
 import math
@@ -34,12 +43,15 @@ import fluids.piping
 from CoolProp.CoolProp import PropsSI
 from scipy.constants import bar, convert_temperature, gallon, hour, minute, psi
 from scipy.interpolate import PchipInterpolator
+from scipy.optimize import brentq
 
 from opensolve_pipe.models.components import (
     CheckValve,
     ControlValve,
     FlowCoefficient,
     IsolationValve,
+    Orifice,
+    OrificeTaps,
     PumpControl,
     RatedFlowCoefficient,
     RatedPoint,
@@ -218,6 +230,301 @@ def equipment_head(rating: EquipmentRating, q: float, g: float = G) -> float:
     """EGL(inlet) − EGL(outlet) = c Q|Q|, m, odd in Q (decision 6: reverse flow takes the same
     law)."""
     return equipment_coefficient(rating, g) * q * abs(q)
+
+
+# --- Orifice plates (proposal orifice-plate.md) -------------------------------------------------
+
+ISO_TAP_LENGTHS_D_AND_D_2 = (1.0, 0.47)
+"""(L1, L2') of D and D/2 tappings, ISO 5167-2 (the fluids docstring: "L1 = 1, L2' = 0.47")."""
+FLANGE_TAP_DISTANCE = 0.0254
+"""m: flange tappings sit 25.4 mm from the plate's faces, L1 = L2' = 0.0254/D (fluids docstring);
+corner tappings have L1 = L2' = 0."""
+SMALL_PIPE_DIAMETER = 0.07112
+"""m: eq. (4)'s small-pipe term applies below D = 71.12 mm (2.8 in), fluids docstring."""
+ISO_RE_MIN = 5000.0
+"""ISO 5167-2's lowest Reynolds number for 0.10 ≤ β ≤ 0.56 (corner, D and D/2 tappings) and its
+floor for flange tappings (fluids docstring, citing ISO 5167-2:2003 and ASME MFC-3M-2004)."""
+ISO_RE_BETA2 = 16000.0
+"""Re_D ≥ 16000 β² for β ≥ 0.56, corner and D and D/2 tappings (fluids docstring)."""
+ISO_RE_FLANGE = 170000.0
+"""Re_D ≥ 170000 β² D (D in m), flange tappings (fluids docstring)."""
+ISO_LIMITS = {
+    "bore_min": 0.0125,
+    "pipe_min": 0.05,
+    "pipe_max": 1.0,
+    "beta_min": 0.1,
+    "beta_max": 0.75,
+}
+"""ISO 5167-2's geometric limits as the fluids docstring lists them (proposal decision 11): d ≥
+12.5 mm, 50 mm ≤ D ≤ 1 m, 0.1 ≤ β ≤ 0.75."""
+
+
+def orifice_tap_lengths(taps: OrificeTaps, d_pipe: float) -> tuple[float, float]:
+    """(L1, L2') of a tap set on a pipe of inner diameter D (ISO 5167-2 via the fluids
+    docstring)."""
+    match taps:
+        case "corner":
+            return 0.0, 0.0
+        case "flange":
+            return FLANGE_TAP_DISTANCE / d_pipe, FLANGE_TAP_DISTANCE / d_pipe
+        case "d_and_d_2":
+            return ISO_TAP_LENGTHS_D_AND_D_2
+
+
+def one_minus_beta4(d_pipe: float, d_bore: float) -> float:
+    """1 − β⁴ = (1 − β)(1 + β)(1 + β²) with 1 − β = (D − d)/D, free of cancellation as β → 1
+    (proposal §1.1)."""
+    beta = d_bore / d_pipe
+    return (d_pipe - d_bore) / d_pipe * (1.0 + beta) * (1.0 + beta * beta)
+
+
+@dataclass(frozen=True)
+class RhgTerms:
+    """The terms of ISO 5167-2:2003 eq. (4) (Reader-Harris/Gallagher), each as written:
+
+    C = C∞ + slope + upstream + downstream + small
+    C∞        = 0.5961 + 0.0261 β² − 0.216 β⁸
+    slope     = 0.000521 (10⁶ β/Re)^0.7 + (0.0188 + 0.0063 A) β^3.5 (10⁶/Re)^0.3
+    upstream  = (0.043 + 0.080 e^(−10 L1) − 0.123 e^(−7 L1)) (1 − 0.11 A) β⁴/(1 − β⁴)
+    downstream = −0.031 (M2' − 0.8 M2'^1.1) β^1.3,   M2' = 2 L2'/(1 − β)
+    small     = 0.011 (0.75 − β)(2.8 − D/0.0254)  for D < 71.12 mm, else 0
+    A         = (19000 β/Re)^0.8
+    """
+
+    c_inf: float
+    slope: float
+    upstream: float
+    downstream: float
+    small: float
+
+    @property
+    def total(self) -> float:
+        return self.c_inf + self.slope + self.upstream + self.downstream + self.small
+
+
+def rhg_terms(d_pipe: float, d_bore: float, re: float, taps: OrificeTaps) -> RhgTerms:
+    """Eq. (4)'s terms at Re_D = re (> 0) for a tap set (``RhgTerms``)."""
+    if not re > 0.0:
+        raise ValueError("eq. (4) needs Re_D > 0")
+    beta = d_bore / d_pipe
+    l1, l2 = orifice_tap_lengths(taps, d_pipe)
+    a = (19000.0 * beta / re) ** 0.8
+    m2 = 2.0 * l2 / ((d_pipe - d_bore) / d_pipe)
+    b4 = beta**4
+    return RhgTerms(
+        c_inf=0.5961 + 0.0261 * beta**2 - 0.216 * beta**8,
+        slope=0.000521 * (1.0e6 * beta / re) ** 0.7
+        + (0.0188 + 0.0063 * a) * beta**3.5 * (1.0e6 / re) ** 0.3,
+        upstream=(0.043 + 0.080 * math.exp(-10.0 * l1) - 0.123 * math.exp(-7.0 * l1))
+        * (1.0 - 0.11 * a)
+        * b4
+        / one_minus_beta4(d_pipe, d_bore),
+        downstream=-0.031 * (m2 - 0.8 * m2**1.1) * beta**1.3,
+        small=(
+            0.011 * (0.75 - beta) * (2.8 - d_pipe / FLANGE_TAP_DISTANCE)
+            if d_pipe < SMALL_PIPE_DIAMETER
+            else 0.0
+        ),
+    )
+
+
+def orifice_c(d_pipe: float, d_bore: float, re: float, taps: OrificeTaps) -> float:
+    """ISO 5167-2's discharge coefficient C (eq. 4) at Re_D = re for a tap set."""
+    return rhg_terms(d_pipe, d_bore, re, taps).total
+
+
+def orifice_re_lo(taps: OrificeTaps, beta: float, d_pipe: float) -> float:
+    """ISO's lowest Reynolds number of eq. (4), made continuous at β 0.56 (proposal decision 7):
+    max(5000, 16000 β²) for corner and D and D/2 tappings, max(5000, 170000 β² D) for flange
+    tappings (D in m)."""
+    if taps == "flange":
+        return max(ISO_RE_MIN, ISO_RE_FLANGE * beta * beta * d_pipe)
+    return max(ISO_RE_MIN, ISO_RE_BETA2 * beta * beta)
+
+
+def orifice_k(d_pipe: float, d_bore: float, c: float) -> float:
+    """K on the inlet pipe's velocity of the pressure-loss relation with discharge coefficient C:
+    K = (S/(Cβ²) − 1)², S = √(1 − β⁴(1 − C²)) (the fluids ``discharge_coefficient_to_K``
+    docstring), written as K = u², u = (1 − β⁴)/(Cβ²(S + Cβ²)) (multiply S/(Cβ²) − 1 by
+    (S + Cβ²)/(S + Cβ²): S² − C²β⁴ = 1 − β⁴), with 1 − β⁴ from ``one_minus_beta4``."""
+    beta = d_bore / d_pipe
+    b2 = beta * beta
+    s = math.sqrt(1.0 - b2 * b2 * (1.0 - c * c))
+    u = one_minus_beta4(d_pipe, d_bore) / (c * b2 * (s + c * b2))
+    return u * u
+
+
+def orifice_c_from_k(d_pipe: float, d_bore: float, k: float) -> float:
+    """The C whose K is k (the inverse of ``orifice_k``): from √K = S/(Cβ²) − 1, S = (1 + √K)Cβ²,
+    S² = 1 − β⁴ + β⁴C² gives C² ((1 + √K)² − 1) β⁴ = 1 − β⁴, C = √((1 − β⁴)/(β⁴((1 + √K)² − 1))),
+    the root fluids' ``K_to_discharge_coefficient`` prints (its (2√K + K) is (1 + √K)² − 1)."""
+    beta = d_bore / d_pipe
+    root = math.sqrt(k)
+    return math.sqrt(one_minus_beta4(d_pipe, d_bore) / (beta**4 * (2.0 * root + k)))
+
+
+def borda_carnot_k(d_pipe: float, d_bore: float) -> float:
+    """K at C = 1 on the inlet velocity: the sudden expansion from the bore, (1/β² − 1)², which
+    the pressure-loss relation gives at μ = 1 (proposal decision 17; Borda–Carnot)."""
+    beta = d_bore / d_pipe
+    return (1.0 / (beta * beta) - 1.0) ** 2
+
+
+CoefficientSource = Literal["iso_5167_2", "entered"]
+
+
+@dataclass(frozen=True)
+class OrificeLaw:
+    """The plate's law at its inlet pipe's bore D and the case fluid (proposal §1.1):
+
+    h(Q) = EGL_in − EGL_out = K(C_L) v|v|/(2g),   v = Q/(πD²/4)
+    Re_D = 4ρ|Q|/(πDμ),  Re_eff = max(Re_D, Re_lo(D and D/2, β))
+    C_L  = C_ISO(D and D/2, Re_eff)                        ISO's C (no entered C)
+         = C_e · C_ISO(D and D/2, Re_eff)/C_ISO(taps, Re_eff)  an entered C, corner or flange
+         = C_e                                             an entered C, no taps or D and D/2
+    C_M  = C_ISO(taps, max(Re_D, Re_lo(taps, β)))  or C_e  (null without taps)
+    Δp   = (1 − β⁴)/(C_M² β⁴) ρ v|v|/2                     the reading (ISO eq. 1, ε = 1)
+    Δp_vc = (1 − β⁴)/(C_L² β⁴) ρ v²/2                     upstream port to the vena contracta
+    """
+
+    d_pipe: float
+    d_bore: float
+    density: float
+    viscosity: float
+    entered: float | None = None
+    taps: OrificeTaps | None = None
+
+    @property
+    def beta(self) -> float:
+        return self.d_bore / self.d_pipe
+
+    @property
+    def area(self) -> float:
+        return area(self.d_pipe)
+
+    def velocity(self, q: float) -> float:
+        return q / self.area
+
+    def reynolds(self, q: float) -> float:
+        return 4.0 * self.density * abs(q) / (math.pi * self.d_pipe * self.viscosity)
+
+    @property
+    def re_lo_loss(self) -> float:
+        return orifice_re_lo("d_and_d_2", self.beta, self.d_pipe)
+
+    @property
+    def moved(self) -> bool:
+        """An entered C at corner or flange taps, moved to D and D/2 tappings (decision 13)."""
+        return self.entered is not None and self.taps in ("corner", "flange")
+
+    @property
+    def uses_eq4(self) -> bool:
+        """Eq. (4) is used: ISO's C, or the move of an entered C (decision 11)."""
+        return self.entered is None or self.moved
+
+    @property
+    def source(self) -> CoefficientSource:
+        return "iso_5167_2" if self.entered is None else "entered"
+
+    def re_eff(self, q: float) -> float:
+        return max(self.reynolds(q), self.re_lo_loss)
+
+    def coefficient_reynolds(self, q: float) -> float | None:
+        """The Re at which eq. (4) is evaluated for C_L or the move; None without eq. (4)."""
+        return self.re_eff(q) if self.uses_eq4 else None
+
+    def ratio(self, q: float) -> float | None:
+        """r = C_ISO(D and D/2, Re_eff)/C_ISO(taps, Re_eff) of a moved C; None otherwise."""
+        if not self.moved:
+            return None
+        assert self.taps is not None
+        re = self.re_eff(q)
+        return orifice_c(self.d_pipe, self.d_bore, re, "d_and_d_2") / orifice_c(
+            self.d_pipe, self.d_bore, re, self.taps
+        )
+
+    def c_loss(self, q: float) -> float:
+        if self.entered is None:
+            return orifice_c(self.d_pipe, self.d_bore, self.re_eff(q), "d_and_d_2")
+        r = self.ratio(q)
+        return self.entered if r is None else self.entered * r
+
+    def c_meter(self, q: float) -> float | None:
+        if self.taps is None:
+            return None
+        if self.entered is not None:
+            return self.entered
+        re = max(self.reynolds(q), orifice_re_lo(self.taps, self.beta, self.d_pipe))
+        return orifice_c(self.d_pipe, self.d_bore, re, self.taps)
+
+    def k(self, q: float) -> float:
+        return orifice_k(self.d_pipe, self.d_bore, self.c_loss(q))
+
+    def head(self, q: float, g: float = G) -> float:
+        """EGL(inlet) − EGL(outlet), m, odd in Q (decision 10: reverse flow takes K(|Q|))."""
+        v = self.velocity(q)
+        return self.k(q) * v * abs(v) / (2.0 * g)
+
+    def differential(self, q: float) -> float | None:
+        """The reading between the plate's taps, Pa, signed as the flow; None without taps."""
+        c_m = self.c_meter(q)
+        if c_m is None:
+            return None
+        v = self.velocity(q)
+        b4 = self.beta**4
+        return (
+            one_minus_beta4(self.d_pipe, self.d_bore)
+            / (c_m * c_m * b4)
+            * (self.density * v * abs(v) / 2.0)
+        )
+
+    def vena_contracta_drop(self, q: float) -> float:
+        """(1 − β⁴)/(C_L² β⁴) ρ v²/2, Pa: the static pressure fall from the port the flow enters
+        to the vena contracta, at one elevation (decision 15)."""
+        c = self.c_loss(q)
+        v = self.velocity(q)
+        b4 = self.beta**4
+        return (
+            one_minus_beta4(self.d_pipe, self.d_bore) / (c * c * b4) * (self.density * v * v / 2.0)
+        )
+
+
+def orifice_law(component: Orifice, d_pipe: float, density: float, viscosity: float) -> OrificeLaw:
+    """The law of an orifice component on its inlet pipe's bore D in the case fluid."""
+    return OrificeLaw(
+        d_pipe,
+        component.bore_diameter,
+        density,
+        viscosity,
+        component.discharge_coefficient,
+        component.taps,
+    )
+
+
+def orifice_flow_at_head(law: OrificeLaw, dh: float, g: float = G) -> float:
+    """The flow Q > 0 whose plate loss is dh > 0 (h(Q) increases strictly, proposal §3.1):
+    brentq on the law alone."""
+    if not dh > 0.0:
+        raise ValueError("the plate's head must be positive")
+    hi = 1.0e-6
+    while law.head(hi, g) < dh:
+        hi *= 2.0
+    root: float = brentq(
+        lambda q: law.head(q, g) - dh, 0.0, hi, xtol=1.0e-18, rtol=1.0e-15, maxiter=500
+    )
+    return root
+
+
+GPV_POINTS = 201
+"""Points of an EPANET GPV head-loss curve standing for a plate (proposal decision 23)."""
+
+
+def gpv_curve(law: OrificeLaw, span: float, g: float = G) -> list[tuple[float, float]]:
+    """(Q, h(Q)) at GPV_POINTS evenly spaced flows on [0, span], SI: the plate's own law
+    tabulated for an EPANET GPV (decision 23); EPANET interpolates it linearly and uses it for
+    either flow direction."""
+    n = GPV_POINTS - 1
+    return [(span * i / n, law.head(span * i / n, g)) for i in range(GPV_POINTS)]
 
 
 ValveType = Literal[

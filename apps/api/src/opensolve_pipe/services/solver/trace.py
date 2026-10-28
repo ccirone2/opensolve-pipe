@@ -43,6 +43,7 @@ from ...models.components import (
     Equipment,
     IdealReferenceNode,
     IsolationValve,
+    Orifice,
     Plug,
     Pump,
     RatedPoint,
@@ -60,6 +61,7 @@ from ...models.results import (
     Flag,
     LinkResult,
     NodeResult,
+    OrificeResult,
     PumpResult,
     Reference,
     TraceInput,
@@ -71,6 +73,7 @@ from .builder import (
     BuiltNetwork,
     ConnectionData,
     EquipmentData,
+    OrificeData,
     PumpData,
     ValveData,
     node_key,
@@ -109,9 +112,27 @@ from .methods import (
     FRITSCH_BUTLAND,
     FRITSCH_CARLSON,
     ISA_75,
+    RENNELS,
     SPEED_CONTROL_DECISION,
     SWAMEE_JAIN,
     USSA_1976,
+)
+from .orifice import (
+    CORRELATION,
+    FLOW_EQUATION,
+    ISO_5167_2,
+    LOSS_RELATION,
+    RE_LO_BETA,
+    RE_LO_MIN,
+    READER_HARRIS_2019,
+    SMALL_PIPE,
+    TAP_NAMES,
+    WANDA,
+    RhgTerms,
+    jet_ratio,
+    k_of_c,
+    rhg_terms_at,
+    s_of_c,
 )
 from .pumps import speed_derivative_factor
 from .status import HTOL, QTOL, OuterLoopResult, Status, active_state, open_loss
@@ -216,6 +237,7 @@ class TraceInputs:
     pumps: dict[str, PumpResult] = field(default_factory=dict)
     valves: dict[str, ValveResult] = field(default_factory=dict)
     equipment: dict[str, EquipmentResult] = field(default_factory=dict)
+    orifices: dict[str, OrificeResult] = field(default_factory=dict)
     branches: dict[str, BranchResult] = field(default_factory=dict)
     boundaries: dict[str, BoundaryResult] = field(default_factory=dict)
     flags: list[Flag] = field(default_factory=list)
@@ -2062,6 +2084,377 @@ def _equipment_trace(ctx: TraceInputs, data: EquipmentData) -> ElementTrace:
     return t.build()
 
 
+# --------------------------------------------------------------------------- orifice plates
+
+ORIFICE_LOSS_NOTE = (
+    "One loss per plate: the loss uses the discharge coefficient at D and D/2 tappings whatever "
+    "the plate's own taps (proposal orifice-plate.md decision 5), since one plate has one "
+    "permanent loss, which cannot depend on where a meter's taps were drilled. The pressure-loss "
+    "relation's theory (Reader-Harris et al. 2019) takes C with tappings 1D upstream and between "
+    "the plate and the vena contracta downstream; of ISO 5167-2's tap sets only D and D/2 has "
+    "L1 = 1, and Deltares WANDA uses it for its whole element. This departs from ISO's relation "
+    "read literally with a meter's own C, which over ISO 5167-2's range (D 50 mm to 1 m, β 0.1 "
+    "to 0.75, Re_D from Re_lo up) gives a K up to 6.14 % higher at corner tappings and 6.34 % at "
+    "flange tappings, both at β 0.75 as Re_D grows (flange on a 1 m pipe): a flow up to 2.94 % "
+    "and 3.03 % lower where the plate takes the whole head; up to β 0.6, a K up to 0.64 % and "
+    "0.84 % higher (a flow up to 0.32 % and 0.42 % lower)."
+)
+ORIFICE_TAP_POSITION_NOTE = (
+    "Reader-Harris et al. 2019 take the downstream pressure at 0.125 D (L1 = 1, L2' = 0.125) for "
+    "that C; over ISO 5167-2's range their C gives a K 0.063 to 1.24 % lower than D and D/2's (a "
+    "flow up to 0.63 % higher where the plate takes the whole head). D and D/2 is kept: an ISO "
+    "tap set, with ISO's own Reynolds number limits."
+)
+ORIFICE_TAP_POSITION_SHOWN = "The alternative's C and K at this plate are shown above, not used."
+"""Appended to ORIFICE_TAP_POSITION_NOTE only where the trace shows them (a solved flow)."""
+ORIFICE_ASSUMPTION_NOTE = (
+    "The plate and its installation are assumed to meet ISO 5167-2 (a square-edged concentric "
+    "plate, its edge and thickness, straight lengths, pipe roughness): they are not checked, nor "
+    "are fluids' 250 kPa differential-pressure and 6 micrometre roughness limits. d and D are "
+    "taken at flowing conditions (thermal expansion is not modelled). ε = 1: the expansibility "
+    "factor of a liquid."
+)
+ORIFICE_RECOVERY_NOTE = (
+    "The outlet port's pressure is the recovered one: ISO 5167-2's permanent loss is the part of "
+    "the pressure difference across the plate not recovered about 6 D downstream (fluids; "
+    "Reader-Harris et al. 2019's momentum balance), in a pipe of the inlet's bore."
+)
+ORIFICE_VENA_NOTE = (
+    "The vena contracta is taken at the elevation of the port the flow leaves by (Deltares "
+    "WANDA): p_vc = p_up + ρ g (z_up − z_down) − (1 − β⁴)/(C_L² β⁴) ρ v²/2, with p_up the static "
+    "pressure of the port the flow enters. At zero flow there is no jet: no p_vc, nothing "
+    "checked. Flashing there is flagged (BELOW_VAPOR_PRESSURE); incipient cavitation is not "
+    "checked."
+)
+RHG_EQUATION = (
+    "C = 0.5961 + 0.0261 β² − 0.216 β⁸ + 0.000521 (10⁶ β/Re)^0.7 + (0.0188 + 0.0063 A) β^3.5 "
+    "(10⁶/Re)^0.3 + (0.043 + 0.080 e^(−10 L1) − 0.123 e^(−7 L1))(1 − 0.11 A) β⁴/(1 − β⁴) "
+    "− 0.031 (M2' − 0.8 M2'^1.1) β^1.3, A = (19000 β/Re)^0.8, M2' = 2 L2'/(1 − β); plus "
+    "0.011 (0.75 − β)(2.8 − D/0.0254) where D < 0.07112 m (D in m): ISO 5167-2:2003 eq. (4), the "
+    "Reader-Harris/Gallagher equation"
+)
+TAP_LENGTHS = (
+    "Tap lengths: D and D/2 tappings L1 = 1, L2' = 0.47; corner tappings L1 = L2' = 0; flange "
+    "tappings L1 = L2' = 0.0254/D (D in m)"
+)
+HOLD_EQUATION = (
+    f"Re_eff = max(Re_D, Re_lo): C is held below ISO 5167-2's lowest Reynolds number, Re_lo = "
+    f"max({RE_LO_MIN:g}, {RE_LO_BETA:g} β²) at corner and D and D/2 tappings (ISO's 5000 for "
+    "β ≤ 0.56 and 16000 β² above, made continuous at β 0.56) and max(5000, 170000 β² D) at "
+    "flange tappings (D in m)"
+)
+BORDA_CARNOT_EQUATION = (
+    "K(C = 1) = (1/β² − 1)² = ((1 − β)(1 + β)/β²)²: at S = 1 the relation is Borda-Carnot's "
+    "sudden expansion from the bore (μ = 1); K decreases in C, so with C_L ≤ 1 (μ ≤ 1, a jet no "
+    "larger than the bore) K stays at or above it, and a plate whose C_L could exceed 1 is refused "
+    "(proposal orifice-plate.md decision 17)"
+)
+K_EQUATION = (
+    "K = u², u = (1 − β⁴)/(C_L β² (S + C_L β²)), S = √(1 − β⁴(1 − C_L²)), 1 − β⁴ = "
+    "(1 − β)(1 + β)(1 + β²): ISO 5167-2's pressure-loss relation over ρ v²/2, (S/(C_L β²) − 1)², "
+    "written without its cancellation as β → 1"
+)
+
+
+def _rhg_values(t: _Trace, terms: RhgTerms, where: str, d_pipe: float) -> None:
+    """eq. (4)'s terms at one tap set, in the trace (§4.1 intermediates)."""
+    t.value(f"A = (19000 β/Re)^0.8 at Re {_num(terms.re)} ({where})", terms.a, NO_UNIT)
+    t.value(f"0.5961 + 0.0261 β² − 0.216 β⁸ ({where})", terms.c_inf, NO_UNIT)
+    t.value(f"0.000521 (10⁶ β/Re)^0.7 ({where})", terms.slope_viscous, NO_UNIT)
+    t.value(f"(0.0188 + 0.0063 A) β^3.5 (10⁶/Re)^0.3 ({where})", terms.slope_a, NO_UNIT)
+    t.value(f"Upstream tap term ({where})", terms.upstream, NO_UNIT)
+    t.value(f"Downstream tap term ({where})", terms.downstream, NO_UNIT)
+    if d_pipe < SMALL_PIPE:
+        t.value(
+            f"Small-pipe term 0.011 (0.75 − β)(2.8 − D/0.0254) ({where})", terms.small_pipe, NO_UNIT
+        )
+    t.value(f"eq. (4), the sum of its terms ({where})", terms.total, NO_UNIT)
+
+
+def _orifice_trace(ctx: TraceInputs, data: OrificeData) -> ElementTrace:
+    """Proposal orifice-plate.md §4.1: the inputs with their sources, eq. (4) term by term, the
+    hold, the move, K, the reading, the vena contracta, the static-drop identity, and the notes
+    that bound the law (the named departures, the assumptions, each flag's inequality)."""
+    comp = data.component
+    law = data.law
+    d_pipe, d_bore = law.pipe_diameter, law.bore_diameter
+    t = _Trace(comp.id, "orifice")
+    t.input("Bore diameter d (at the flowing temperature)", d_bore, M, "user")
+    entered = comp.discharge_coefficient
+    if entered is not None:
+        t.input(
+            "Discharge coefficient C (entered: ISO 5167-2 eq. (1)'s C at the plate's taps, at "
+            "D and D/2 tappings for a plate without taps; not the flow coefficient "
+            "α = C/√(1 − β⁴))",
+            entered,
+            NO_UNIT,
+            "user",
+        )
+    else:
+        t.input(
+            "Discharge coefficient C",
+            "ISO 5167-2 (Reader-Harris/Gallagher) at the solved flow",
+            NO_UNIT,
+            "default",
+        )
+    taps = comp.taps
+    t.input(
+        "Pressure taps",
+        TAP_NAMES[taps] if taps is not None else "none: a plate without taps, no reading",
+        NO_UNIT,
+        _given(comp, "taps"),
+    )
+    t.input(
+        "Pipe diameter D (inner diameter of the inlet pipe's end segment at the inlet port)",
+        d_pipe,
+        M,
+        _port_pipe_source(ctx, data.inlet),
+    )
+    t.input(
+        "Outlet pipe inner diameter (its end segment at the outlet port)",
+        data.outlet_pipe.segment.diameter,
+        M,
+        _port_pipe_source(ctx, data.outlet),
+    )
+    _port_elevation_input(t, comp, "inlet", "Inlet port elevation z_in")
+    _port_elevation_input(t, comp, "outlet", "Outlet port elevation z_out")
+    _fluid(t, ctx, viscosity=True, vapor=True)
+    _gravity(t, ctx)
+    _atmosphere(t, ctx)
+
+    t.equation(
+        "β = d/D, 1 − β = (D − d)/D, A = π D²/4, v = Q/A (Q: flow inlet → outlet), and "
+        "Re_D = 4 ρ |Q|/(π D μ) in the inlet pipe"
+    )
+    if law.uses_rhg:
+        t.equation(RHG_EQUATION)
+        t.equation(TAP_LENGTHS)
+        t.equation(HOLD_EQUATION)
+    if law.moved:
+        t.equation(
+            f"C_L = C_e · r, r = C_ISO(D and D/2 tappings, Re_eff)/C_ISO({TAP_NAMES[taps or '']}, "
+            "Re_eff): the entered C moved from the plate's taps to D and D/2 tappings by ISO "
+            "5167-2's ratio of the two tap sets' C (the square root of ISO's ratio of their "
+            "differential pressures at one flow)"
+        )
+    elif entered is not None:
+        t.equation("C_L = C_e: the entered C, held at every flow")
+    else:
+        t.equation("C_L = eq. (4) at D and D/2 tappings at Re_eff")
+    t.equation(K_EQUATION)
+    t.equation(BORDA_CARNOT_EQUATION)
+    t.equation("EGL_in − EGL_out = h = K v|v|/(2g); Δϖ = ρ g h: the permanent pressure loss")
+    if taps is not None:
+        meter = (
+            "the entered C as entered"
+            if entered is not None
+            else f"ISO's C at the plate's {TAP_NAMES[taps]} at max(Re_D, its Re_lo)"
+        )
+        t.equation(
+            "Δp = (1 − β⁴)/(C_M² β⁴) · ρ v|v|/2: the reading between the taps, ISO 5167-2 eq. "
+            f"(1) solved for Δp with ε = 1; C_M is {meter}"
+        )
+    t.equation(
+        "p_vc = p_up + ρ g (z_up − z_down) − (1 − β⁴)/(C_L² β⁴) · ρ v²/2: the static pressure at "
+        "the vena contracta (up: the port the flow enters; down: the port it leaves by)"
+    )
+    t.equation(
+        "p_in = ρ g (EGL_in − z_in − v_in²/(2g)), p_out = ρ g (EGL_out − z_out − v_out²/(2g)): "
+        "static gauge pressures at the ports, v in the pipe connected there"
+    )
+    t.equation(
+        "Δp_static = p_in − p_out = ρ g h + ρ g (z_out − z_in) + ρ (v_out² − v_in²)/2: the "
+        "static pressure drop"
+    )
+    if law.uses_rhg:
+        t.correlation(CORRELATION, ISO_5167_2)
+    t.correlation(LOSS_RELATION, ISO_5167_2)
+    if taps is not None:
+        t.correlation(FLOW_EQUATION, ISO_5167_2)
+    t.correlation("Loss coefficient at D and D/2 tappings for every plate", READER_HARRIS_2019)
+    t.correlation(
+        "Borda-Carnot sudden expansion from the bore: the loss coefficient's lower bound, K at "
+        "C = 1",
+        RENNELS,
+    )
+    t.correlation(
+        "Hold below the lowest Reynolds number; vena contracta elevation"
+        if law.uses_rhg
+        else "Vena contracta elevation",
+        WANDA,
+    )
+    t.data("Bore diameter d", "user data")
+    inlet_conn = ctx.built.port_connection[data.inlet][0]
+    t.data("Pipe diameter D", f"inner diameter of connection '{inlet_conn}' at the inlet port")
+    t.data(
+        "Discharge coefficient",
+        "user data (a calibration or datasheet), as entered"
+        if entered is not None
+        else "ISO 5167-2:2003 eq. (4) via fluids 1.3.1 (the cited default)",
+    )
+
+    result = ctx.orifices.get(comp.id)
+    rho = ctx.fluid.density
+    one_minus_beta = (d_pipe - d_bore) / d_pipe
+    t.value("Diameter ratio β = d/D", law.beta, NO_UNIT)
+    t.value("1 − β = (D − d)/D", one_minus_beta, NO_UNIT)
+    t.value(
+        "Borda-Carnot loss coefficient (1/β² − 1)² (K at C = 1; K stays at or above it)",
+        (one_minus_beta * (1.0 + law.beta) / (law.beta * law.beta)) ** 2,
+        NO_UNIT,
+    )
+    t.value("Inlet pipe area A = π D²/4", law.area, M2)
+    if law.uses_rhg:
+        t.value("Re_lo at D and D/2 tappings", law.re_lo, NO_UNIT)
+        if law.meter_re_lo is not None and taps in ("corner", "flange"):
+            t.value(f"Re_lo at {TAP_NAMES[taps or '']}", law.meter_re_lo, NO_UNIT)
+    if result is not None:
+        st = law.state(result.flow)
+        q = result.flow
+        t.value("Flow Q (inlet → outlet)", q, M3S)
+        t.value("Velocity v = Q/A (inlet pipe)", q / law.area, MS)
+        t.value("Reynolds number Re_D = 4 ρ |Q|/(π D μ)", st.reynolds, NO_UNIT)
+        if st.coefficient_reynolds is not None:
+            t.value(
+                "Re_eff = max(Re_D, Re_lo), D and D/2 tappings", st.coefficient_reynolds, NO_UNIT
+            )
+        if st.loss_terms is not None:
+            _rhg_values(t, st.loss_terms, "D and D/2 tappings", d_pipe)
+        if st.tap_terms is not None and taps in ("corner", "flange"):
+            _rhg_values(t, st.tap_terms, TAP_NAMES[taps or ""], d_pipe)
+        if st.meter_reynolds is not None and taps in ("corner", "flange"):
+            t.value(
+                f"Re_eff of C_M = max(Re_D, Re_lo), {TAP_NAMES[taps or '']}",
+                st.meter_reynolds,
+                NO_UNIT,
+            )
+        if st.ratio is not None:
+            t.value("Move ratio r = C_ISO(D and D/2)/C_ISO(taps)", st.ratio, NO_UNIT)
+        t.value(
+            "Discharge coefficient C_L (sets the loss, at D and D/2 tappings)", st.loss_c, NO_UNIT
+        )
+        if st.meter_c is not None:
+            t.value("Meter discharge coefficient C_M (the reading's)", st.meter_c, NO_UNIT)
+        t.value(
+            "Jet area ratio μ = C_L/√(1 − β⁴(1 − C_L²)) (≤ 1)",
+            jet_ratio(d_pipe, d_bore, st.loss_c),
+            NO_UNIT,
+        )
+        t.value("Loss coefficient K (on the inlet pipe's velocity)", st.k, NO_UNIT)
+        if entered is None and taps in ("corner", "flange") and st.meter_c is not None:
+            t.value(
+                "K with the meter's own C_M (ISO's relation read literally; not used)",
+                k_of_c(d_pipe, d_bore, st.meter_c),
+                NO_UNIT,
+            )
+        if law.moved and entered is not None:
+            t.value(
+                "K with the entered C as entered (not moved; not used)",
+                k_of_c(d_pipe, d_bore, entered),
+                NO_UNIT,
+            )
+        if st.loss_terms is not None:
+            alternative = rhg_terms_at(d_pipe, d_bore, st.loss_terms.re, 1.0, 0.125)
+            c_alt = st.loss_c * (alternative.total / st.loss_terms.total)
+            t.value(
+                "C at L1 = 1, L2' = 0.125 (Reader-Harris et al. 2019; not used)", c_alt, NO_UNIT
+            )
+            t.value("K at that C (not used)", k_of_c(d_pipe, d_bore, c_alt), NO_UNIT)
+        s = s_of_c(d_pipe, d_bore, st.loss_c)
+        cb2 = st.loss_c * law.beta * law.beta
+        t.value(
+            "Pressure-loss ratio Δϖ/Δp at C_L, (S − C_L β²)/(S + C_L β²)",
+            (s - cb2) / (s + cb2),
+            NO_UNIT,
+        )
+        t.value("EGL at the inlet EGL_in", ctx.egl(data.inlet), M)
+        t.value("EGL at the outlet EGL_out", ctx.egl(data.outlet), M)
+        t.value("Head loss h = EGL_in − EGL_out (solved)", result.head_loss, M)
+        t.value("Head loss by the law K v|v|/(2g)", st.head, M)
+        t.value("Permanent pressure loss Δϖ = ρ g h", result.pressure_loss, PA_D)
+        t.value(
+            "Differential pressure Δp at the taps (the reading)", result.differential_pressure, PA_D
+        )
+        t.value("Vena contracta drop (1 − β⁴)/(C_L² β⁴) ρ v²/2", st.vena_drop, PA_D)
+        if result.vena_contracta_pressure is not None:
+            t.value("Vena contracta static pressure p_vc", result.vena_contracta_pressure, PA_G)
+            t.value(
+                "Vena contracta absolute pressure p_vc + p_atm",
+                result.vena_contracta_pressure + ctx.p_atm,
+                PA_A,
+            )
+        a_out = data.outlet_pipe.segment.area
+        v_in, v_out = q / law.area, q / a_out
+        t.value("Outlet pipe velocity v_out = Q/A_out", v_out, MS)
+        _port_state_values(
+            t, ctx, comp, {"inlet": ("Inlet", "_in"), "outlet": ("Outlet", "_out")}, velocity=False
+        )
+        z_in, z_out = port_elevation(comp, "inlet"), port_elevation(comp, "outlet")
+        t.value("Elevation term ρ g (z_out − z_in)", rho * ctx.g * (z_out - z_in), PA_D)
+        t.value("Velocity-head term ρ (v_out² − v_in²)/2", 0.5 * rho * (v_out**2 - v_in**2), PA_D)
+        t.value("Static pressure drop Δp_static = p_in − p_out", result.pressure_drop, PA_D)
+    t.note(ORIFICE_LOSS_NOTE)
+    if law.uses_rhg:
+        shown = result is not None and law.state(result.flow).loss_terms is not None
+        t.note(
+            f"{ORIFICE_TAP_POSITION_NOTE} {ORIFICE_TAP_POSITION_SHOWN}"
+            if shown
+            else ORIFICE_TAP_POSITION_NOTE
+        )
+    t.note(ORIFICE_ASSUMPTION_NOTE)
+    t.note(ORIFICE_RECOVERY_NOTE)
+    if entered is not None:
+        how = (
+            f"moved by r from its {TAP_NAMES[taps or '']} to D and D/2 tappings"
+            if law.moved
+            else "as entered (a plate without taps, or at D and D/2 tappings)"
+        )
+        t.note(
+            f"Entered C: the reading uses it as entered; the loss uses it {how}, so that one "
+            "plate has one loss (proposal orifice-plate.md decision 13). An entered C is held at "
+            "every flow: the square law of turbulent flow."
+        )
+    t.note(ORIFICE_VENA_NOTE)
+    if law.uses_rhg and RE_LO_BETA * law.beta**2 > RE_LO_MIN and law.beta < 0.56:
+        t.note(
+            f"Re_lo = 16000 β² = {_num(law.re_lo)} at D and D/2 tappings, where ISO 5167-2 writes "
+            "5000 for β < 0.56: its limit made continuous at β 0.56 (stricter by at most 17.6), "
+            "so that the held loss coefficient decreases with β (proposal orifice-plate.md "
+            "decision 7)."
+        )
+    if result is not None:
+        st = law.state(result.flow)
+        q = result.flow
+        if q == 0.0 and law.uses_rhg:
+            t.note(
+                f"No flow: C_L is the held value at Re_lo = {_num(law.re_lo)}, and h = 0 (no jet: "
+                "no vena contracta pressure)."
+            )
+        elif st.held:
+            t.note(
+                f"Re_D = {_num(st.reynolds)} < Re_lo = {_num(law.re_lo)}: C_L is held at its value "
+                "at Re_lo (not extrapolated; eq. (4) as written gives C > 1 at very low Re), and "
+                "it is flagged."
+            )
+        if q < 0.0:
+            t.note(
+                f"Reverse flow: Q = {_num(q)} m³/s < 0, from outlet to inlet. ISO 5167-2's "
+                "coefficient is for flow onto the plate's upstream face: the loss is taken as for "
+                "forward flow at the same flow rate on the inlet pipe's D (a bevelled plate run "
+                "backwards is another device), the reading is signed as the flow and the vena "
+                "contracta is on the inlet side; it is flagged."
+            )
+        if entered is not None and 0.0 < st.reynolds < RE_LAMINAR_MAX:
+            t.note(
+                f"Laminar flow in the inlet pipe: Re_D = {_num(st.reynolds)} < "
+                f"{RE_LAMINAR_MAX:g}. The entered C is held, the turbulent-flow square law, so "
+                "the loss is likely underestimated; it is flagged, as a valve's Cv or Kv is."
+            )
+    _no_values_note(t, ctx, result is None)
+    _flag_notes(t, ctx)
+    return t.build()
+
+
 # --------------------------------------------------------------------------- entry point
 
 
@@ -2084,6 +2477,8 @@ def element_traces(ctx: TraceInputs) -> dict[str, ElementTrace]:
             traces[comp.id] = _pump_trace(ctx, built.pumps[comp.id])
         elif isinstance(comp, Equipment):
             traces[comp.id] = _equipment_trace(ctx, built.equipment[comp.id])
+        elif isinstance(comp, Orifice):
+            traces[comp.id] = _orifice_trace(ctx, built.orifices[comp.id])
         else:
             traces[comp.id] = _valve_trace(ctx, built.valves[comp.id])
     for conn_id, data in built.connections.items():

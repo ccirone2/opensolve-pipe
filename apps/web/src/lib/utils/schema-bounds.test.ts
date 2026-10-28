@@ -40,6 +40,18 @@ describe('schemaBounds', () => {
 		);
 	});
 
+	it("reads an orifice plate's bounds: the bore and the entered C (orifice-plate.md §2.1)", () => {
+		// (0, 10] m, the pipe inner diameter's bound; C in (0, 1], or absent (ISO 5167-2's).
+		expect(schemaBounds('Orifice', 'boreDiameter')).toEqual({ exclusiveMinimum: 0, maximum: 10 });
+		expect(schemaBounds('Orifice', 'boreDiameter')).toEqual(
+			schemaBounds('PipeDefinition', 'innerDiameter')
+		);
+		expect(schemaBounds('Orifice', 'dischargeCoefficient')).toEqual({
+			exclusiveMinimum: 0,
+			maximum: 1
+		});
+	});
+
 	it('gives no bounds for unknown names', () => {
 		expect(schemaBounds('Nope', 'x')).toEqual({});
 		expect(schemaBounds('Reservoir', 'name')).toEqual({});
@@ -69,8 +81,8 @@ describe('schema lookups', () => {
 
 	it('names the schema of every kind of component', () => {
 		const project = createEmptyProject();
-		// An assigned-flow node's flow and an equipment item's rating have no default: made-up
-		// test inputs (enteredFor).
+		// An assigned-flow node's flow, an equipment item's rating and an orifice plate's bore have
+		// no default: made-up test inputs (enteredFor).
 		const schemas = COMPONENT_KINDS.map((k) =>
 			componentSchema(createComponent(k, project, enteredFor(k)))
 		);
@@ -86,7 +98,8 @@ describe('schema lookups', () => {
 				'IsolationValve',
 				'CheckValve',
 				'ControlValve',
-				'Equipment'
+				'Equipment',
+				'Orifice'
 			])
 		);
 		for (const schema of schemas) expect(openapi.components.schemas).toHaveProperty(schema);

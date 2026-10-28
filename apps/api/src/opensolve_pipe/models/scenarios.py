@@ -25,6 +25,7 @@ from .components import (
     Equipment,
     IdealReferenceNode,
     IsolationValve,
+    Orifice,
     Plug,
     Pump,
     PumpControl,
@@ -60,6 +61,8 @@ ComponentField = Literal[
     "rating.flow",
     "rating.density",
     "rating.value",
+    "boreDiameter",
+    "dischargeCoefficient",
 ]
 """Overridable values of components; each component type takes the ones x-override-fields
 lists for it."""
@@ -168,6 +171,15 @@ COMPONENT_FIELDS: dict[type[BaseComponent], dict[str, Overridable]] = {
         ),
         "rating.value": Overridable(
             ("rating", "value"), holder=RatedFlowCoefficient, label=_coefficient_label
+        ),
+    },
+    Orifice: {
+        # A second plate is one bore change, a calibrated plate one C; null sets ISO 5167-2's C
+        # (the default), as a valve's resistance takes null for its default. The taps are
+        # installation, the same in every case (proposal orifice-plate.md decision 20).
+        "boreDiameter": Overridable(("bore_diameter",), unit="m", label="bore diameter"),
+        "dischargeCoefficient": Overridable(
+            ("discharge_coefficient",), label="discharge coefficient"
         ),
     },
 }

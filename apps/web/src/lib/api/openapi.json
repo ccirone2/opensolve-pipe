@@ -59,6 +59,39 @@
         "title": "AboutResponse",
         "type": "object"
       },
+      "AllowableOperatingRegion": {
+        "additionalProperties": false,
+        "description": "The manufacturer's allowable operating region at rated speed (D19).",
+        "properties": {
+          "flowMax": {
+            "description": "m³/s at rated speed",
+            "exclusiveMinimum": 0.0,
+            "maximum": 100.0,
+            "title": "Flowmax",
+            "type": "number"
+          },
+          "flowMin": {
+            "description": "m³/s at rated speed",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Flowmin",
+            "type": "number"
+          }
+        },
+        "required": [
+          "flowMin",
+          "flowMax"
+        ],
+        "title": "AllowableOperatingRegion",
+        "type": "object",
+        "x-ordered-fields": [
+          {
+            "lower": "flowMin",
+            "strict": true,
+            "upper": "flowMax"
+          }
+        ]
+      },
       "AssignedFlow": {
         "additionalProperties": false,
         "description": "Fixed flow out of (demand, positive) or into (supply, negative) the network at its port,\nwhatever the pressure there, which is a result (SDD §4.11). Not a fixed-pressure boundary:\nit never satisfies NO_FIXED_HEAD. A flow of 0 behaves exactly as a plug.",
@@ -465,7 +498,9 @@
               "rating.pressureLoss",
               "rating.flow",
               "rating.density",
-              "rating.value"
+              "rating.value",
+              "boreDiameter",
+              "dischargeCoefficient"
             ],
             "title": "Field",
             "type": "string"
@@ -532,7 +567,9 @@
               "rating.pressureLoss",
               "rating.flow",
               "rating.density",
-              "rating.value"
+              "rating.value",
+              "boreDiameter",
+              "dischargeCoefficient"
             ],
             "title": "Field",
             "type": "string"
@@ -802,6 +839,214 @@
         ],
         "title": "CustomFluid",
         "type": "object"
+      },
+      "DesignCheckLimits": {
+        "additionalProperties": false,
+        "properties": {
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          }
+        },
+        "required": [
+          "min",
+          "max"
+        ],
+        "title": "DesignCheckLimits",
+        "type": "object"
+      },
+      "DesignCheckResult": {
+        "additionalProperties": false,
+        "description": "One check of one element (proposal design-checks.md §4). Not a flag.",
+        "properties": {
+          "check": {
+            "enum": [
+              "npsh_margin",
+              "operating_region",
+              "allowable_region",
+              "minimum_flow",
+              "motor_power",
+              "pipe_velocity"
+            ],
+            "title": "Check",
+            "type": "string"
+          },
+          "componentId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The pump checked",
+            "title": "Componentid"
+          },
+          "connectionId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The connection checked",
+            "title": "Connectionid"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/DesignCheckLimits",
+            "description": "The limits it was checked against, SI"
+          },
+          "message": {
+            "description": "The inequality that set the outcome, or why not evaluated",
+            "title": "Message",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "pass",
+              "fail",
+              "not_evaluated"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "pipeIndex": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "pipe_velocity: the connection's pipe (0-based) whose velocity is the value",
+            "title": "Pipeindex"
+          },
+          "pipesOutside": {
+            "description": "pipe_velocity: the connection's pipes (0-based) outside the limits",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Pipesoutside",
+            "type": "array"
+          },
+          "source": {
+            "description": "'user', or the preset's citation",
+            "title": "Source",
+            "type": "string"
+          },
+          "unit": {
+            "description": "SI unit of value and limits",
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The value checked, SI (null: not evaluated)",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "check",
+          "componentId",
+          "connectionId",
+          "outcome",
+          "value",
+          "pipeIndex",
+          "pipesOutside",
+          "limits",
+          "unit",
+          "source",
+          "message"
+        ],
+        "title": "DesignCheckResult",
+        "type": "object"
+      },
+      "DesignChecks": {
+        "additionalProperties": false,
+        "description": "The design checks a project turns on (each present object is one check). Opt-in, never\na flag: a check's result never changes a solved value (GOALS §4.6).",
+        "properties": {
+          "npshMargin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NpshMarginCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operatingRegion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperatingRegionCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pipeVelocity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PipeVelocityCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "DesignChecks",
+        "type": "object",
+        "x-design-check-presets": [
+          {
+            "check": "operatingRegion",
+            "citation": "API 610 (10th/11th ed.) 5.1.14: \"Pumps shall have a preferred operating region of 70 % to 120 % of best efficiency flowrate of the pump as furnished\", as quoted by Datacor, \"Are you operating your pump off BEP?\" (the standard itself was not read)",
+            "id": "api610_por",
+            "values": {
+              "preferredMax": 1.2,
+              "preferredMin": 0.7
+            }
+          },
+          {
+            "check": "npshMargin",
+            "citation": "ANSI/HI 9.6.1-2012, \"General\" application: NPSH margin ratio 1.1 or 1.0 m, whichever is greater, as reproduced by Michael Smith Engineers, \"NPSH\" (the standard itself was not read; the 2024 edition's tables may differ)",
+            "id": "hi961_2012_general",
+            "values": {
+              "minimumMargin": 1.0,
+              "minimumRatio": 1.1
+            }
+          }
+        ]
       },
       "EfficiencyCurvePoint": {
         "additionalProperties": false,
@@ -1838,6 +2083,10 @@
               "equipment_flow",
               "equipment_pressure_loss",
               "equipment_pressure_drop",
+              "orifice_flow",
+              "orifice_pressure_loss",
+              "orifice_differential_pressure",
+              "orifice_pressure_drop",
               "boundary_outflow"
             ],
             "title": "Quantity",
@@ -2356,6 +2605,72 @@
             ],
             "unit": "m/s"
           },
+          "orifice_differential_pressure": {
+            "floor": {
+              "head": 0.01
+            },
+            "minimum": {
+              "absolute": 0.1,
+              "relative": 1e-06
+            },
+            "needs": [
+              "taps"
+            ],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "Orifice"
+            ],
+            "unit": "Pa (difference)"
+          },
+          "orifice_flow": {
+            "floor": {
+              "flow": 1e-06
+            },
+            "minimum": {
+              "absolute": 1e-09,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "Orifice"
+            ],
+            "unit": "m³/s"
+          },
+          "orifice_pressure_drop": {
+            "floor": {
+              "head": 0.01
+            },
+            "minimum": {
+              "absolute": 0.1,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "Orifice"
+            ],
+            "unit": "Pa (difference)"
+          },
+          "orifice_pressure_loss": {
+            "floor": {
+              "head": 0.01
+            },
+            "minimum": {
+              "absolute": 0.1,
+              "relative": 1e-06
+            },
+            "needs": [],
+            "port": false,
+            "relativeTolerance": 0.005,
+            "targets": [
+              "Orifice"
+            ],
+            "unit": "Pa (difference)"
+          },
           "port_pressure": {
             "floor": {
               "head": 0.01
@@ -2378,7 +2693,8 @@
               "IsolationValve",
               "CheckValve",
               "ControlValve",
-              "Equipment"
+              "Equipment",
+              "Orifice"
             ],
             "unit": "Pa(g)"
           },
@@ -2613,6 +2929,22 @@
               ],
               "scale": "log",
               "schema": "FlowCoefficient"
+            }
+          },
+          "Orifice": {
+            "boreDiameter": {
+              "path": [
+                "boreDiameter"
+              ],
+              "scale": "log",
+              "schema": "Orifice"
+            },
+            "dischargeCoefficient": {
+              "path": [
+                "dischargeCoefficient"
+              ],
+              "scale": "linear",
+              "schema": "Orifice"
             }
           },
           "PipeDefinition": {
@@ -3315,6 +3647,78 @@
         "title": "NodeResult",
         "type": "object"
       },
+      "NpshMarginCheck": {
+        "additionalProperties": false,
+        "description": "NPSHa ≥ max(NPSHr + minimumMargin, minimumRatio × NPSHr), for the limits set.",
+        "properties": {
+          "minimumMargin": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "NPSHa − NPSHr at least this, m",
+            "title": "Minimummargin"
+          },
+          "minimumRatio": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "NPSHa / NPSHr at least this",
+            "title": "Minimumratio"
+          },
+          "source": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UserSource"
+              },
+              {
+                "$ref": "#/components/schemas/NpshPresetSource"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "NpshMarginCheck",
+        "type": "object"
+      },
+      "NpshPresetSource": {
+        "additionalProperties": false,
+        "description": "A preset of the NPSH margin check.",
+        "properties": {
+          "kind": {
+            "const": "preset",
+            "title": "Kind",
+            "type": "string"
+          },
+          "preset": {
+            "const": "hi961_2012_general",
+            "title": "Preset",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "preset"
+        ],
+        "title": "NpshPresetSource",
+        "type": "object"
+      },
       "NpshrCurvePoint": {
         "additionalProperties": false,
         "properties": {
@@ -3334,6 +3738,323 @@
           "npshr"
         ],
         "title": "NpshrCurvePoint",
+        "type": "object"
+      },
+      "OperatingRegionCheck": {
+        "additionalProperties": false,
+        "description": "A running pump's flow within [preferredMin, preferredMax] × its BEP flow; with it, the\ncurve's manufacturer data (allowable region, minimum flows, motor rating) are checked.",
+        "properties": {
+          "preferredMax": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 5.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fraction of the BEP flow",
+            "title": "Preferredmax"
+          },
+          "preferredMin": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 5.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fraction of the BEP flow",
+            "title": "Preferredmin"
+          },
+          "source": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UserSource"
+              },
+              {
+                "$ref": "#/components/schemas/RegionPresetSource"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "OperatingRegionCheck",
+        "type": "object",
+        "x-ordered-fields": [
+          {
+            "lower": "preferredMin",
+            "strict": true,
+            "upper": "preferredMax"
+          }
+        ]
+      },
+      "Orifice": {
+        "additionalProperties": false,
+        "description": "A square-edged concentric orifice plate (SDD §4.16): a restriction orifice, or a flow\nmeter with pressure taps. Its loss is ISO 5167-2's permanent pressure loss; it has no status:\nvalves isolate it (proposal orifice-plate.md decisions 1-2).",
+        "properties": {
+          "boreDiameter": {
+            "description": "The diameter of the plate's hole, ISO 5167-2's d, m, at the flowing temperature. It must be smaller than the inlet pipe's inner diameter (a topology issue otherwise)",
+            "exclusiveMinimum": 0.0,
+            "maximum": 10.0,
+            "title": "Borediameter",
+            "type": "number"
+          },
+          "dischargeCoefficient": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Absent: ISO 5167-2's Reader-Harris/Gallagher C at the solved flow (the default). A number: ISO 5167-2's discharge coefficient C of eq. (1), q_m = C/√(1 - β⁴)·ε·(π/4)d²·√(2Δpρ), with Δp between the plate's taps (between D and D/2 tappings for a plate without taps), from a calibration or datasheet, held at every flow. Not the flow coefficient α = C/√(1 - β⁴): convert it, C = α·√(1 - β⁴). The reading uses it as entered; the loss uses it moved to D and D/2 tappings by ISO 5167-2's ratio of the two tap sets' C",
+            "title": "Dischargecoefficient"
+          },
+          "elevation": {
+            "description": "Elevation above the project datum, m",
+            "maximum": 10000.0,
+            "minimum": -10000.0,
+            "title": "Elevation",
+            "type": "number"
+          },
+          "id": {
+            "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "ports": {
+            "items": {
+              "$ref": "#/components/schemas/Port"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Ports",
+            "type": "array"
+          },
+          "taps": {
+            "anyOf": [
+              {
+                "enum": [
+                  "corner",
+                  "flange",
+                  "d_and_d_2"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where a meter's pressure taps are (corner, flange, or D and D/2 tappings); the differential pressure is reported at them, and an entered C is the C at them. Absent: a plate without taps (a restriction orifice), with no reading. The plate's loss uses the C at D and D/2 tappings whatever its taps",
+            "title": "Taps"
+          },
+          "type": {
+            "const": "orifice",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "elevation",
+          "ports",
+          "type",
+          "boreDiameter"
+        ],
+        "title": "Orifice",
+        "type": "object",
+        "x-port-ids": [
+          "inlet",
+          "outlet"
+        ],
+        "x-port-roles": {
+          "inlet": "inlet",
+          "outlet": "outlet"
+        }
+      },
+      "OrificeResult": {
+        "additionalProperties": false,
+        "description": "An orifice plate (SDD §4.16): ISO 5167-2's permanent pressure loss at the solved flow, a\nmeter's reading at its taps, and the coefficients and inputs the solve used (proposal\norifice-plate.md §2.2).",
+        "properties": {
+          "beta": {
+            "description": "β = boreDiameter / pipeDiameter",
+            "title": "Beta",
+            "type": "number"
+          },
+          "boreDiameter": {
+            "description": "d, m: the bore the solve used, after any scenario or goal-seek trial",
+            "title": "Borediameter",
+            "type": "number"
+          },
+          "coefficientReynoldsNumber": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Reynolds number at which ISO 5167-2's equation is evaluated for dischargeCoefficient (or for the move's ratio): Re_D, or ISO's lowest Reynolds number where C is held below it; null for an entered C without a move",
+            "title": "Coefficientreynoldsnumber"
+          },
+          "coefficientSource": {
+            "description": "Where C came from: iso_5167_2, ISO 5167-2's Reader-Harris/Gallagher equation (the default); entered, the plate's dischargeCoefficient",
+            "enum": [
+              "iso_5167_2",
+              "entered"
+            ],
+            "title": "Coefficientsource",
+            "type": "string"
+          },
+          "differentialPressure": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The meter's reading between the plate's taps, Pa (a difference), signed as the flow: ISO 5167-2 eq. (1) solved for Δp with ε = 1, at meterDischargeCoefficient. It does not act on the network; null for a plate without taps",
+            "title": "Differentialpressure"
+          },
+          "dischargeCoefficient": {
+            "description": "C_L, the discharge coefficient that sets the loss, at D and D/2 tappings for every plate: ISO 5167-2's, or the entered C moved there",
+            "title": "Dischargecoefficient",
+            "type": "number"
+          },
+          "flow": {
+            "description": "m³/s, positive inlet -> outlet",
+            "title": "Flow",
+            "type": "number"
+          },
+          "headLoss": {
+            "description": "EGL(inlet) - EGL(outlet), m, from the solved heads",
+            "title": "Headloss",
+            "type": "number"
+          },
+          "lossCoefficient": {
+            "description": "K on the inlet pipe's velocity: headLoss = K v|v|/(2g)",
+            "title": "Losscoefficient",
+            "type": "number"
+          },
+          "meterDischargeCoefficient": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "C_M, the discharge coefficient in the reading: ISO 5167-2's at the plate's taps, or the entered C as entered; null without taps",
+            "title": "Meterdischargecoefficient"
+          },
+          "pipeDiameter": {
+            "description": "D, m: the inner diameter of the inlet pipe's end segment at the inlet port",
+            "title": "Pipediameter",
+            "type": "number"
+          },
+          "pressureDrop": {
+            "description": "Static pressure drop inlet -> outlet, Pa (a difference), as a valve's: what gauges at the ports read. It equals pressureLoss + ρg(z_outlet - z_inlet) + ρ(v_outlet² - v_inlet²)/2, with the velocities in the connected pipes",
+            "title": "Pressuredrop",
+            "type": "number"
+          },
+          "pressureLoss": {
+            "description": "ρg × headLoss, Pa (a difference): ISO 5167-2's permanent pressure loss, the part of the pressure difference across the plate not recovered downstream",
+            "title": "Pressureloss",
+            "type": "number"
+          },
+          "reynoldsNumber": {
+            "description": "Re_D = 4ρ|Q|/(πDμ) at the solved flow, in the inlet pipe",
+            "title": "Reynoldsnumber",
+            "type": "number"
+          },
+          "tapCoefficientRatio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "r = C_ISO(D and D/2) / C_ISO(taps) at coefficientReynoldsNumber, the move of an entered C from corner or flange taps to D and D/2 tappings; null otherwise",
+            "title": "Tapcoefficientratio"
+          },
+          "taps": {
+            "anyOf": [
+              {
+                "enum": [
+                  "corner",
+                  "flange",
+                  "d_and_d_2"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The taps the reading is at, as the plate's input; null without taps",
+            "title": "Taps"
+          },
+          "venaContractaPressure": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Static pressure at the vena contracta, Pa gauge, at the elevation of the port the flow leaves by (checked for flashing, BELOW_VAPOR_PRESSURE); null at zero flow and where the pressure level is undetermined (UNDETERMINED_PRESSURE)",
+            "title": "Venacontractapressure"
+          }
+        },
+        "required": [
+          "flow",
+          "headLoss",
+          "pressureLoss",
+          "pressureDrop",
+          "differentialPressure",
+          "venaContractaPressure",
+          "beta",
+          "pipeDiameter",
+          "boreDiameter",
+          "reynoldsNumber",
+          "dischargeCoefficient",
+          "coefficientSource",
+          "coefficientReynoldsNumber",
+          "tapCoefficientRatio",
+          "lossCoefficient",
+          "taps",
+          "meterDischargeCoefficient"
+        ],
+        "title": "OrificeResult",
         "type": "object"
       },
       "OverrideResult": {
@@ -3763,6 +4484,56 @@
           }
         ]
       },
+      "PipeVelocityCheck": {
+        "additionalProperties": false,
+        "description": "Every pipe segment's |velocity| within [minimum, maximum], for the limits set.",
+        "properties": {
+          "maximum": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m/s",
+            "title": "Maximum"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m/s",
+            "title": "Minimum"
+          },
+          "source": {
+            "$ref": "#/components/schemas/UserSource",
+            "description": "The user's values: no velocity preset (D19)"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "PipeVelocityCheck",
+        "type": "object",
+        "x-ordered-fields": [
+          {
+            "lower": "minimum",
+            "strict": true,
+            "upper": "maximum"
+          }
+        ]
+      },
       "PipingSegment": {
         "additionalProperties": false,
         "description": "The pipes (in series, from -> to) and inline fittings of one connection.",
@@ -3961,6 +4732,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/Equipment"
+                },
+                {
+                  "$ref": "#/components/schemas/Orifice"
                 }
               ]
             },
@@ -4134,6 +4908,17 @@
             ],
             "description": "Atmospheric pressure override, Pa absolute",
             "title": "Atmosphericpressure"
+          },
+          "designChecks": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DesignChecks"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The opt-in design checks this project turns on (D19); omitted: none"
           },
           "siteElevation": {
             "default": 0.0,
@@ -4410,6 +5195,17 @@
         "additionalProperties": false,
         "description": "Pump performance at rated speed. Curves are fitted with a monotone piecewise cubic.",
         "properties": {
+          "allowableOperatingRegion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AllowableOperatingRegion"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Manufacturer data, at rated speed (design checks, D19)"
+          },
           "efficiencyCurve": {
             "anyOf": [
               {
@@ -4446,6 +5242,34 @@
             ],
             "title": "Manufacturer"
           },
+          "minimumContinuousStableFlow": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Manufacturer data, m³/s at rated speed",
+            "title": "Minimumcontinuousstableflow"
+          },
+          "minimumThermalFlow": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Manufacturer data, m³/s at rated speed",
+            "title": "Minimumthermalflow"
+          },
           "model": {
             "anyOf": [
               {
@@ -4457,6 +5281,20 @@
               }
             ],
             "title": "Model"
+          },
+          "motorRatedPower": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100000000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The driver's rated power, W",
+            "title": "Motorratedpower"
           },
           "name": {
             "maxLength": 100,
@@ -4866,6 +5704,28 @@
         "title": "Reference",
         "type": "object"
       },
+      "RegionPresetSource": {
+        "additionalProperties": false,
+        "description": "A preset of the operating region check.",
+        "properties": {
+          "kind": {
+            "const": "preset",
+            "title": "Kind",
+            "type": "string"
+          },
+          "preset": {
+            "const": "api610_por",
+            "title": "Preset",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "preset"
+        ],
+        "title": "RegionPresetSource",
+        "type": "object"
+      },
       "Reservoir": {
         "additionalProperties": false,
         "description": "Constant-level reservoir: a fixed-head boundary. Every port sees the same head.",
@@ -5121,6 +5981,20 @@
                 "status"
               ],
               "schema": "IsolationValve"
+            }
+          },
+          "Orifice": {
+            "boreDiameter": {
+              "path": [
+                "boreDiameter"
+              ],
+              "schema": "Orifice"
+            },
+            "dischargeCoefficient": {
+              "path": [
+                "dischargeCoefficient"
+              ],
+              "schema": "Orifice"
             }
           },
           "PipeDefinition": {
@@ -5447,6 +6321,14 @@
           "convergence": {
             "$ref": "#/components/schemas/ConvergenceReport"
           },
+          "designChecks": {
+            "description": "The project's opt-in design checks, each element checked (D19); empty when none is on or the solve did not converge. Not flags: they never change a solved value",
+            "items": {
+              "$ref": "#/components/schemas/DesignCheckResult"
+            },
+            "title": "Designchecks",
+            "type": "array"
+          },
           "equipmentResults": {
             "additionalProperties": {
               "$ref": "#/components/schemas/EquipmentResult"
@@ -5485,6 +6367,14 @@
             "title": "Noderesults",
             "type": "object"
           },
+          "orificeResults": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/OrificeResult"
+            },
+            "description": "Keyed by component id; {} when the project has no orifice plate or the solve did not converge; a closed-off orifice has no result",
+            "title": "Orificeresults",
+            "type": "object"
+          },
           "pumpResults": {
             "additionalProperties": {
               "$ref": "#/components/schemas/PumpResult"
@@ -5521,9 +6411,11 @@
           "pumpResults",
           "valveResults",
           "equipmentResults",
+          "orificeResults",
           "branchResults",
           "boundaryResults",
           "flags",
+          "designChecks",
           "convergence",
           "trace"
         ],
@@ -6237,6 +7129,21 @@
         "title": "UnitPreferences",
         "type": "object"
       },
+      "UserSource": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "user",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "UserSource",
+        "type": "object"
+      },
       "ValveResult": {
         "additionalProperties": false,
         "properties": {
@@ -6363,11 +7270,11 @@
           },
           "baseValue": {
             "$ref": "#/components/schemas/JsonValue",
-            "description": "The base project's value (equal to caseValue for a base run); null where the base holds no value of this variable (an equipment item the base rates by another kind: a point, or the other of Cv and Kv)"
+            "description": "The base project's value (equal to caseValue for a base run); null where the base holds no value of this variable (an equipment item the base rates by another kind: a point, or the other of Cv and Kv; an orifice plate's discharge coefficient on ISO 5167-2's default)"
           },
           "caseValue": {
             "$ref": "#/components/schemas/JsonValue",
-            "description": "The case's value of the field, SI (a resistance: its FlowCoefficient or null)"
+            "description": "The case's value of the field, SI (a resistance: its FlowCoefficient or null; an orifice plate's discharge coefficient: null on ISO 5167-2's default)"
           },
           "index": {
             "title": "Index",
@@ -6426,7 +7333,7 @@
             "type": "number"
           },
           "startSource": {
-            "description": "case: the case's value; clipped: the case's value lies outside the bounds, and the nearer bound is used; middle: the case holds no value of this coefficient (a resistance on its default, or of another kind), and the middle of the bounds on the variable's scale is used",
+            "description": "case: the case's value; clipped: the case's value lies outside the bounds, and the nearer bound is used; middle: the case holds no value of this coefficient (a resistance on its default, or of another kind; an orifice plate's discharge coefficient on ISO 5167-2's default), and the middle of the bounds on the variable's scale is used",
             "enum": [
               "case",
               "clipped",

@@ -30,6 +30,9 @@ EPANET_CASE_NAMES = (
     "epanet_equipment_line",
     "epanet_equipment_loop",
     "epanet_equipment_cv_line",
+    "epanet_orifice_line",
+    "epanet_orifice_balancing",
+    "epanet_orifice_low_re",
 )
 DERIVATION_REL = 1.0e-10
 EPANET_REL = 8 * 2.0**-23  # a few float32 ulps

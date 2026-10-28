@@ -4,8 +4,9 @@ fluid cases (``derivations_pumps``, ``derivations_valves``, ``derivations_branch
 (``derivations_status``), the flow-controlled pump cases of CLAUDE.md D11
 (``derivations_pump_control``), the assigned-flow node cases (``derivations_assigned_flow``,
 TSD §4.8), the round-off floor of the energy stop test (``derivations_round_off``,
-METHOD_VERSION 1.2.0) and the equipment cases (``derivations_equipment``, proposal
-equipment-pressure-drop.md §7.1). Each entry is a function named like its case file."""
+METHOD_VERSION 1.2.0), the equipment cases (``derivations_equipment``, proposal
+equipment-pressure-drop.md §7.1) and the orifice-plate cases (``derivations_orifice``, proposal
+orifice-plate.md §7.1). Each entry is a function named like its case file."""
 
 from collections.abc import Callable
 
@@ -15,6 +16,7 @@ from tests.reference import (
     derivations_branches,
     derivations_equipment,
     derivations_fluids,
+    derivations_orifice,
     derivations_pump_control,
     derivations_pumps,
     derivations_round_off,
@@ -36,6 +38,7 @@ CLOSED_FORM_CASES: tuple[Callable[[], ReferenceCase], ...] = derivations.CLOSED_
         + derivations_assigned_flow.CASES
         + derivations_round_off.CASES
         + derivations_equipment.CASES
+        + derivations_orifice.CASES
     )
 )
 """The M3 generators are wrapped so that their sources cite the line fittings they use."""

@@ -37,8 +37,10 @@
 		groupSampleRows,
 		groupSummary,
 		groupTable,
+		dutyCheckState,
 		dutyCheckWords,
 		HELD_SYMBOL,
+		namesProject,
 		slotStyle,
 		STATION_SYMBOL,
 		type GroupMemberInput
@@ -75,6 +77,11 @@
 		prefs: UnitPreferences;
 		/** Names (the labels project). */
 		project: Project;
+		/**
+		 * The project the results belong to (as solved while they are out of date): topology
+		 * (DIFFERENT_BOUNDARIES' side) and the names of elements deleted since. Default: `project`.
+		 */
+		solvedProject?: Project;
 		/** Node results of the solve: the series inlet and discharge pressures. */
 		nodes?: Readonly<Record<string, NodeResult>>;
 		/** Why these results give no values (not converged, a failed or not reached case). */
@@ -101,7 +108,8 @@
 		onretry,
 		oncancel,
 		prefs,
-		project,
+		project: labels,
+		solvedProject,
 		nodes = {},
 		unavailable = null,
 		stale = false,
@@ -161,6 +169,9 @@
 	const others = $derived(suggestions.filter((s) => !sameGroup(s.pumpIds)));
 	const nameOf = (pumpId: string) => pumps.find((p) => p.id === pumpId)?.name ?? pumpId;
 
+	/** Names: current ones, and those as solved of elements deleted since. */
+	const project = $derived(namesProject(labels, solvedProject));
+
 	const response = $derived(groupCurve?.status === 'ready' ? groupCurve.response : null);
 	const shown = $derived(unavailable ? null : response);
 	const data = $derived(groupChartData(members, prefs, shown));
@@ -171,7 +182,10 @@
 		groupCurve?.status === 'refused' && !unavailable
 			? groupCurve.issues.map((issue) => ({
 					issue,
-					words: refusalWords(issue, memberIds, project)
+					words: refusalWords(issue, memberIds, project, {
+						solved: solvedProject ?? labels,
+						boxes: pumps.map((p) => p.id)
+					})
 				}))
 			: []
 	);
@@ -188,7 +202,9 @@
 	const summary = $derived(groupSummary(data, members, shown, project));
 	const legend = $derived(groupLegend(data));
 	const table = $derived(groupTable(members, nodes, shown, prefs, project));
-	const samples = $derived(shown ? groupSampleRows(shown, shown.station.memberIds, prefs) : []);
+	const samples = $derived(
+		shown ? groupSampleRows(shown, shown.station.memberIds, prefs, project) : []
+	);
 	const loading = $derived(groupCurve?.status === 'loading' && !unavailable);
 	const fmt = (v: number) => formatNumber(v, 4);
 
@@ -717,21 +733,17 @@
 						{#if shown?.duty && data.station}
 							<p class="text-sm">
 								<span aria-hidden="true">{STATION_SYMBOL}</span> Group duty (station's flow):
-								<span class="tabular-nums">{fmt(data.station.point.x)} {data.flowUnit}</span> at a
-								rise of
+								<span class="tabular-nums">{fmt(data.station.flow)} {data.flowUnit}</span> at a rise
+								of
 								<span class="tabular-nums">{fmt(data.station.point.y)} {data.headUnit}</span>; {ARRANGEMENT_WORDS[
 									shown.station.arrangement
 								]}.
 								{#if shown.dutyCheck}
-									Duty check: {shown.dutyCheck.agrees
-										? 'the group curve passes through it'
-										: shown.dutyCheck.flow === null
-											? 'not known, its point at the duty’s rise was not solved'
-											: 'the group curve does not pass through it'}; {dutyCheckWords(
-										shown,
-										nameOf,
-										prefs
-									)}.<IssueDetail detail={shown.dutyCheck.message} />
+									Duty check: {dutyCheckState(shown)}{shown.dutyCheck.flow === null
+										? ''
+										: `; ${dutyCheckWords(shown, nameOf, prefs)}`}.<IssueDetail
+										detail={shown.dutyCheck.message}
+									/>
 								{/if}
 							</p>
 						{/if}
@@ -785,7 +797,9 @@
 													>
 												{/each}
 												<td class="px-2 py-1 text-xs text-slate-600"
-													>{sample.duty ? "The duty's rise (the duty check)" : ''}{sample.note}</td
+													>{[sample.duty ? "The duty's rise (the duty check)." : '', sample.note]
+														.filter(Boolean)
+														.join(' ')}</td
 												>
 											</tr>
 										{/each}

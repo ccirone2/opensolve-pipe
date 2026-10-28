@@ -403,32 +403,45 @@ describe('the card', () => {
 		});
 		const response = c.groupCurve.body as PumpGroupCurveResponse;
 		expect(within(samples).getAllByRole('row')).toHaveLength(response.points.length + 1);
-		expect(within(samples).getByText("The duty's rise (the duty check)")).toBeVisible();
+		expect(within(samples).getByText("The duty's rise (the duty check).")).toBeVisible();
 		expect(
 			screen.getByText(/Duty check: the group curve passes through it; at the duty's rise it gives/)
 		).toBeVisible();
 	});
 
-	it('says the duty check is not known when the duty’s point was not solved', async () => {
+	it('says the duty check is not known when the duty’s point was not solved, and why', async () => {
 		const c = named('parallel-ideal');
-		// Made-up: the duty's point not computed, as the API reports it.
-		const response = structuredClone(c.groupCurve.body as PumpGroupCurveResponse);
-		response.dutyCheck = {
-			agrees: false,
-			flow: null,
-			members: response.duty!.members.map((x) => ({ pumpId: x.pumpId, flow: null })),
-			message: 'made-up server words'
-		};
-		Object.assign(
-			response.points.find((p) => p.isDuty)!,
-			{
+		// Made-up: the duty's point without a flow, as the API reports it (not computed, or its
+		// solve did not converge).
+		const unsolved = (reason: 'not_computed' | 'not_converged', message: string) => {
+			const response = structuredClone(c.groupCurve.body as PumpGroupCurveResponse);
+			response.dutyCheck = {
+				agrees: false,
 				flow: null,
-				converged: false,
-				reason: 'not_computed',
-				members: []
-			}
+				members: response.duty!.members.map((x) => ({ pumpId: x.pumpId, flow: null })),
+				message: 'made-up server words'
+			};
+			Object.assign(
+				response.points.find((p) => p.isDuty)!,
+				{
+					flow: null,
+					converged: false,
+					reason,
+					message,
+					members: []
+				}
+			);
+			return response;
+		};
+		const view = render(
+			PumpGroupChart,
+			props(c, {
+				curve: {
+					status: 'ready',
+					response: unsolved('not_computed', "not computed: the request's 45 s budget ran out")
+				}
+			})
 		);
-		render(PumpGroupChart, props(c, { curve: { status: 'ready', response } }));
 		expect(
 			screen.getByText(
 				"The group curve's point at the duty's rise was not computed (the time budget ran out), so whether the curve passes through the Group point is not known."
@@ -436,19 +449,110 @@ describe('the card', () => {
 		).toBeVisible();
 		expect(screen.queryByText(/Several steady states can exist/)).toBeNull();
 		await fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
+		const line = () => screen.getByText(/Group duty \(station's flow\):/);
+		expect(line()).toHaveTextContent(
+			/Duty check: not known, its point at the duty’s rise was not computed \(the time budget ran out\)\.\s*Details/
+		);
+		expect(screen.queryByText(/the group curve does not pass through it/)).toBeNull();
+		// The duty's row: its mark and the point's reason, two sentences.
+		const samples = screen.getByRole('table', {
+			name: "Group curve (station's flow at each rise)"
+		});
 		expect(
-			screen.getByText(
-				/Duty check: not known, its point at the duty’s rise was not solved; the station alone at the duty's rise has no solved flow\./
+			within(samples).getByText(
+				"The duty's rise (the duty check). Not computed: the time budget ran out before this point."
 			)
 		).toBeVisible();
-		expect(screen.queryByText(/the group curve does not pass through it/)).toBeNull();
+
+		await view.rerender(
+			props(c, {
+				curve: {
+					status: 'ready',
+					response: unsolved(
+						'not_converged',
+						'not converged: statuses oscillate between states already solved (components: PB)'
+					)
+				}
+			})
+		);
+		expect(
+			screen.getByText(
+				"The group curve's point at the duty's rise did not converge, so whether the curve passes through the Group point is not known."
+			)
+		).toBeVisible();
+		expect(line()).toHaveTextContent(
+			/Duty check: not known, its point at the duty’s rise did not converge\.\s*Details/
+		);
+		expect(
+			within(samples).getByText(
+				"The duty's rise (the duty check). Its solve did not converge. Statuses oscillate between states already solved (components: PB)."
+			)
+		).toBeVisible();
+	});
+
+	it('tells a dead-headed duty’s noise as 0, saying so, and the check’s tolerance as the API’s', async () => {
+		const c = named('parallel-ideal');
+		// Made-up, as the API answers a station whose inlet is closed: flows of solver noise.
+		const response = structuredClone(c.groupCurve.body as PumpGroupCurveResponse);
+		response.duty!.flow = -2.474e-35;
+		response.dutyCheck = {
+			agrees: true,
+			flow: -5.942e-15,
+			members: response.duty!.members.map((x) => ({ pumpId: x.pumpId, flow: x.flow })),
+			message: 'made-up server words'
+		};
+		render(PumpGroupChart, props(c, { curve: { status: 'ready', response } }));
+		expect(
+			screen.getByText(
+				"At the duty's rise the group curve gives the solve's flows, the station's and every pump's (within 0.5 % or 0.001 L/s): it passes through the Group point."
+			)
+		).toBeVisible();
+		await fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
+		const line = screen.getByText(/Group duty \(station's flow\):/);
+		expect(line).toHaveTextContent(
+			/Group duty \(station's flow\): 0 L\/s at a rise of .*Duty check: the group curve passes through it; at the duty's rise it gives 0 L\/s \(the solve: 0 L\/s\); flows below 0\.001 L\/s, the check's floor, are shown as 0\./
+		);
+	});
+
+	it('asks to tick another pump inside only when it has a box', () => {
+		const c = named('parallel-ideal');
+		const issues: TopologyIssue[] = [
+			{
+				code: 'OTHER_PUMP_INSIDE',
+				message: 'made-up server words',
+				componentIds: ['PC'],
+				connectionIds: []
+			}
+		];
+		// Made-up: a standby pump PC between the tees, closed off by its valves, so no result and
+		// no box.
+		const project = structuredClone(c.project);
+		project.components.push({
+			...project.components.find((x) => x.id === 'PA')!,
+			id: 'PC',
+			name: 'Standby PC'
+		});
+		render(
+			PumpGroupChart,
+			props(c, { project, curve: { status: 'refused', message: 'x', issues } })
+		);
+		expect(screen.queryByRole('checkbox', { name: /Standby PC/ })).toBeNull();
+		const item = within(
+			screen.getByRole('list', { name: 'Why they do not form a station' })
+		).getByRole('listitem');
+		expect(item).toHaveTextContent(
+			'Standby PC lies between the pumps and the rest of the network but has no results in this case (closed off), so it cannot be ticked: a station holds no other pump. Open it to the network and solve again, or choose other pumps.'
+		);
+		expect(item).not.toHaveTextContent(/tick it too/);
 	});
 
 	it('says why a converged case has no group curve: no duty, in the API’s words', () => {
 		const c = named('no-duty');
 		const response = c.groupCurve.body as PumpGroupCurveResponse;
 		render(PumpGroupChart, props(c));
-		expect(screen.getByText(`No group curve for this case: ${response.message}.`)).toBeVisible();
+		expect(
+			screen.getByText(`No group curve for this case: ${response.message.replace(/\.$/, '')}.`)
+		).toBeVisible();
 		expect(screen.queryByText(/Duty check/)).toBeNull();
 	});
 

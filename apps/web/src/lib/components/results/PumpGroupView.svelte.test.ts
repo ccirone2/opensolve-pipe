@@ -302,5 +302,83 @@ describe('the Pumps together card in the Pumps view', () => {
 		expect(ws.edit((p) => ({ ...p, connections: p.connections.map(turned) }), 'turn')).toBe(true);
 		await waitFor(() => expect(results().getAllByText(/out of date/i).length).toBeGreaterThan(0));
 		expect(told()).toMatch(/^Pump PA and Pump PB draw from different/);
+		// Renamed since: the names are the current ones, in the box and the words alike.
+		const rename = (x: Component) =>
+			x.id === 'PA'
+				? { ...x, name: 'Duty pump' }
+				: x.id === 'R1'
+					? { ...x, name: 'Suction tank' }
+					: x;
+		expect(ws.edit((p) => ({ ...p, components: p.components.map(rename) }), 'rename')).toBe(true);
+		await waitFor(() =>
+			expect(told()).toMatch(
+				/^Duty pump and Pump PB draw from different reservoirs or reference nodes, Suction tank and Tank R3,/
+			)
+		);
+		expect(within(card()).getByRole('checkbox', { name: /Duty pump/ })).toBeChecked();
+	});
+
+	it('names elements as the rest of the screen does while results are out of date', async () => {
+		const c = named('parallel-ideal');
+		const { ws, calls } = setup(structuredClone(c.project), c);
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await results().findByRole('heading', { name: 'Converged' });
+		await showPumps();
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		await waitFor(() => expect(calls).toHaveLength(1));
+		await within(card()).findByRole('table', { name: 'The pumps in the group' });
+		// One edit that makes the results out of date (L2 a metre longer), and two renames.
+		const rename = (x: Component) =>
+			x.id === 'PA'
+				? { ...x, name: 'Duty pump' }
+				: x.id === 'T1'
+					? { ...x, name: 'Suction header' }
+					: x;
+		const longer = (x: PipeConnection): PipeConnection =>
+			x.id === 'L2'
+				? {
+						...x,
+						piping: {
+							...x.piping,
+							pipes: x.piping.pipes.map((pipe) => ({ ...pipe, length: pipe.length + 1 }))
+						}
+					}
+				: x;
+		expect(
+			ws.edit(
+				(p) => ({
+					...p,
+					components: p.components.map(rename),
+					connections: p.connections.map(longer)
+				}),
+				'edit'
+			)
+		).toBe(true);
+		await waitFor(() =>
+			expect(within(card()).getByRole('figure', { name: /\(out of date\)$/ })).toBeVisible()
+		);
+		const text = card().textContent!.replace(/\s+/g, ' ');
+		expect(within(card()).getByRole('checkbox', { name: /Duty pump/ })).toBeChecked();
+		expect(text).toContain('The group curve is the rise from Suction header (run inlet) to Tee T2');
+		expect(text).toContain('Rise from Suction header (run inlet) to Tee T2 (run outlet)');
+		expect(text).not.toContain('Tee T1');
+		expect(text).not.toContain('Pump PA');
+	});
+
+	it('keeps the ids of the group shown by default from new pumps', async () => {
+		const c = named('ladder');
+		const { ws, calls } = setup(structuredClone(c.project), c);
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await results().findByRole('heading', { name: 'Converged' });
+		await showPumps();
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		await waitFor(() => expect(calls).toEqual([{ pumpIds: ['P1', 'P2', 'P3'] }]));
+		// No box touched: the group suggested is shown ticked, not the user's.
+		expect(ws.pumpGroup).toBe(null);
+		expect(ws.reservedIds).toEqual(expect.arrayContaining(['P1', 'P2', 'P3']));
+		expect(ws.remove('P3', true)).toBe(true);
+		const added = ws.addStandalone('pump');
+		expect(added).not.toBe(null);
+		expect(added).not.toBe('P3');
 	});
 });

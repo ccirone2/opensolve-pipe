@@ -505,44 +505,80 @@ export function wordsText(words: Words): string {
 	return words.map((w) => (typeof w === 'string' ? w : w.name)).join('');
 }
 
+/** What refusalWords needs besides the issue: where names and topology come from. */
+export interface RefusalContext {
+	/**
+	 * The project the answer belongs to (as solved while results are out of date), for topology
+	 * (DIFFERENT_BOUNDARIES' side) and the names of elements no longer in the names project.
+	 * Default: the names project.
+	 */
+	solved?: Project;
+	/** The pumps the card has a box for (those with results in this case). Default: every pump. */
+	boxes?: readonly string[];
+}
+
 /**
  * Why the pumps `members` do not form a station, for one issue of a NOT_A_STATION answer, told
- * with element names from `project`, the project the answer belongs to (as solved while results
- * are out of date: its topology tells DIFFERENT_BOUNDARIES' side): the issue's code worded by the
- * web, the ids it names linked. An unknown code keeps the server's sentence.
+ * with element names from `project` (the labels project, as the rest of the screen names them;
+ * an element deleted since keeps its name as solved): the issue's code worded by the web, the ids
+ * it names linked. An unknown code keeps the server's sentence.
  */
 export function refusalWords(
 	issue: TopologyIssue,
 	members: readonly string[],
-	project: Project
+	project: Project,
+	{ solved = project, boxes }: RefusalContext = {}
 ): Words {
-	const name = (id: string) => componentById(project, id)?.name ?? id;
+	const name = (id: string) =>
+		componentById(project, id)?.name ?? componentById(solved, id)?.name ?? id;
 	const ids = issue.componentIds;
 	const pumps = list(members, name);
 	const one = ids.length === 1;
 	switch (issue.code) {
-		case 'NO_SEPARATING_PORTS':
+		case 'NO_SEPARATING_PORTS': {
 			// One place, or three or more (two places are a station's, or NO_WAY_THROUGH). The ids are
-			// the places' components, each once: one id is one place or several ports of one
-			// component, two or more are three places or more.
-			return ids.length >= 2
-				? [
-						...pumps,
-						' meet the rest of the network at more than two places, at ',
-						...list(ids, name),
-						': a station meets it at exactly two, its inlet and its outlet, with no other pump, reservoir, reference node or assigned flow between them.'
-					]
-				: one
+			// the places' components, each once (the places' ports are in the server's words only):
+			// one id is one place or several ports of one component, two or more are three places or
+			// more. A member named is a place at its own port: it meets the rest there directly.
+			const own = ids.filter((id) => members.includes(id));
+			const others = ids.filter((id) => !members.includes(id));
+			if (!ids.length) {
+				return [
+					...pumps,
+					' do not meet the rest of the network at exactly two places: a station meets it only at its inlet and its outlet.'
+				];
+			}
+			if (one) {
+				return own.length
 					? [
 							...pumps,
-							' meet the rest of the network only at ',
-							...list(ids, name),
-							': a station meets it at exactly two places, its inlet and its outlet, so that flow passes through it.'
+							' meet the rest of the network only at a port of ',
+							...list(own, name),
+							', so no flow passes through them: a station meets it at exactly two places, its inlet and its outlet.'
 						]
 					: [
 							...pumps,
-							' do not meet the rest of the network at exactly two places: a station meets it only at its inlet and its outlet.'
+							' meet the rest of the network only at ',
+							...list(others, name),
+							': a station meets it at exactly two places, its inlet and its outlet, so that flow passes through it.'
 						];
+			}
+			const atOwn: Words = !own.length
+				? []
+				: own.length === members.length
+					? ['at their own ports']
+					: ['at ports of ', ...list(own, name), own.length === 1 ? ' itself' : ' themselves'];
+			const atOthers: Words = others.length ? ['at places on ', ...list(others, name)] : [];
+			return [
+				...pumps,
+				' meet the rest of the network at more than two places, ',
+				...atOwn,
+				...(atOwn.length && atOthers.length ? [' and '] : []),
+				...atOthers,
+				...(others.length ? [] : [', not between two shared places']),
+				': a station meets it at exactly two, its inlet and its outlet, with no other pump, reservoir, reference node or assigned flow between them.'
+			];
+		}
 		case 'NO_WAY_THROUGH':
 			// Two places, but no way between them passes a member (the ids: the places' components).
 			return [
@@ -569,24 +605,49 @@ export function refusalWords(
 					];
 		case 'ASSIGNED_FLOW_INSIDE':
 			return [
-				'The assigned flow at ',
+				one ? 'The assigned flow at ' : 'The assigned flows at ',
 				...list(ids, name),
-				' enters or leaves the network between the pumps and the rest of it: a station holds no assigned flow between its inlet and its outlet.'
+				one ? ' enters or leaves' : ' enter or leave',
+				' the network between the pumps and the rest of it: a station holds no assigned flow between its inlet and its outlet.'
 			];
-		case 'OTHER_PUMP_INSIDE':
+		case 'OTHER_PUMP_INSIDE': {
+			// "Tick it" only for a pump the card has a box for: one closed off has no results in
+			// this case, so no box.
+			const ticks = ids.filter((id) => !boxes || boxes.includes(id));
+			const closed = ids.filter((id) => boxes && !boxes.includes(id));
+			const single = (group: readonly string[]) => group.length === 1;
 			return [
-				...list(ids, name),
-				one ? ' lies' : ' lie',
-				' between the pumps and the rest of the network but ',
-				one ? 'is' : 'are',
-				' not in the group: tick ',
-				one ? 'it' : 'them',
-				' too, or choose other pumps.'
+				...(ticks.length
+					? [
+							...list(ticks, name),
+							single(ticks) ? ' lies' : ' lie',
+							' between the pumps and the rest of the network but ',
+							single(ticks) ? 'is' : 'are',
+							' not in the group: tick ',
+							single(ticks) ? 'it' : 'them',
+							' too, or choose other pumps.'
+						]
+					: []),
+				...(ticks.length && closed.length ? [' '] : []),
+				...(closed.length
+					? [
+							...list(closed, name),
+							single(closed) ? ' lies' : ' lie',
+							' between the pumps and the rest of the network but ',
+							single(closed) ? 'has' : 'have',
+							' no results in this case (closed off), so ',
+							single(closed) ? 'it' : 'they',
+							' cannot be ticked: a station holds no other pump. Open ',
+							single(closed) ? 'it' : 'them',
+							' to the network and solve again, or choose other pumps.'
+						]
+					: [])
 			];
+		}
 		case 'DIFFERENT_BOUNDARIES':
 			return [
 				...pumps,
-				` ${boundarySide(issue, members, project)} different reservoirs or reference nodes, `,
+				` ${boundarySide(issue, members, solved)} different reservoirs or reference nodes, `,
 				...list(ids, name),
 				', each through its own piping: a station has one inlet and one outlet, so they do not form one, even at equal levels (a scenario can change one).'
 			];

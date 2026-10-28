@@ -240,6 +240,72 @@ describe('group curves (D20: on demand, per solve and set of pumps)', () => {
 		expect(store.groupCurve(newer, ['PA', 'PB'])).toBeUndefined();
 	});
 
+	it('a curve asked for while a solve is in flight waits for it: dropped unsent when the solve answers', async () => {
+		const { solver, calls, answers } = groupSolver();
+		const solves: ReturnType<typeof deferred<SolveResponse>>[] = [];
+		solver.solve = vi.fn((_project, _options, request = {}) => {
+			const answer = deferred<SolveResponse>();
+			request.signal?.addEventListener('abort', () =>
+				answer.reject(new DOMException('The operation was aborted.', 'AbortError'))
+			);
+			solves.push(answer);
+			return answer.promise;
+		});
+		const curves: string[] = [];
+		solver.systemCurve = vi.fn((_project, pumpId: string) => {
+			curves.push(pumpId);
+			return new Promise<SystemCurveResponse>(() => {});
+		});
+		const store = setup(solver);
+		const first = store.solve();
+		solves[0]!.resolve(structuredClone(parallel.solve));
+		await first;
+		const response = store.results.response;
+
+		// Solve again; while it is in flight the card ticks a box, and the chart asks for a curve.
+		const solving = store.solve();
+		expect(store.calculating).toBe('solve');
+		store.loadGroupCurve(['PA', 'PB']);
+		store.loadSystemCurve('PA');
+		await settle();
+		expect(calls).toEqual([]);
+		expect(curves).toEqual([]);
+		solves[1]!.resolve(structuredClone(parallel.solve));
+		await solving;
+		await settle();
+		// The solve replaced the response: neither request was sent, and nothing is filled.
+		expect(calls).toEqual([]);
+		expect(curves).toEqual([]);
+		expect(store.results.response).not.toBe(response);
+		expect(store.groupCurve(store.results.response, ['PA', 'PB'])).toBeUndefined();
+
+		// A solve that fails keeps the response: the curve asked for meanwhile goes after it.
+		const kept = store.results.response;
+		const failing = store.solve();
+		store.loadGroupCurve(['PA', 'PB']);
+		await settle();
+		expect(calls).toEqual([]);
+		solves[2]!.reject(new NetworkError('No connection.', 0));
+		await failing;
+		await settle();
+		expect(store.results.response).toBe(kept);
+		expect(calls).toHaveLength(1);
+		answers[0]!.resolve(curveOf(parallel));
+		await settle();
+		expect(store.groupCurve(kept, ['PA', 'PB'])).toMatchObject({ status: 'ready' });
+
+		// A solve cancelled likewise: the curve waits for it, then goes.
+		const cancelled = store.solve();
+		store.loadSystemCurve('PB');
+		await settle();
+		expect(curves).toEqual([]);
+		expect(store.cancelSolve()).toBe(true);
+		await cancelled;
+		await settle();
+		expect(store.results.response).toBe(kept);
+		expect(curves).toEqual(['PB']);
+	});
+
 	it('a goal seek cancels the curve in flight, and new ones wait for it', async () => {
 		const { solver, calls, answers } = groupSolver({ rejectOnAbort: true });
 		const goal = deferred<ReturnType<typeof goalSeekResponse>>();

@@ -27,6 +27,8 @@ import {
 	GROUP_BLUE,
 	GROUP_INK,
 	GROUP_SLOTS,
+	dutyCheckWords,
+	dutyFlow,
 	groupCaption,
 	groupChartData,
 	groupImageTitle,
@@ -195,11 +197,20 @@ describe('the chart data', () => {
 				x: expect.closeTo(fromSI(response.duty!.flow, 'gpm'), 9),
 				y: expect.closeTo(fromSI(response.duty!.head, 'ft'), 9)
 			},
-			onCurve: true
+			onCurve: true,
+			flow: expect.closeTo(fromSI(response.duty!.flow, 'gpm'), 9)
 		});
 		const disagree = structuredClone(response);
 		disagree.dutyCheck!.agrees = false;
 		expect(groupChartData(membersOf(c), prefsOf(c), disagree).station!.onCurve).toBe(false);
+		// A dead-headed station's flow is solver noise about zero: drawn where it is, told as 0.
+		const noise = structuredClone(response);
+		noise.duty!.flow = -2.0727e-32;
+		const station = groupChartData(membersOf(c), prefsOf(c), noise).station!;
+		expect(station.point.x).toBe(fromSI(-2.0727e-32, 'gpm'));
+		expect(station.flow).toBe(0);
+		expect(dutyFlow(-9.99e-7)).toBe(0);
+		expect(dutyFlow(1e-6)).toBe(1e-6);
 	});
 });
 
@@ -314,7 +325,7 @@ describe('the notes (screen and image)', () => {
 			`Pump curves and points are at each pump's flanges. The group curve is the rise from Tee T1 (run inlet) to Tee T2 (run outlet), solved with every pump on its own law: it lies below the pumps' curves added together by each pump's own losses on its way. At the duty Pump PA loses ${m(pa!.routeHeadLoss!)} and Pump PB ${m(pb!.routeHeadLoss!)}.`
 		);
 		expect(notes.duty).toEqual([
-			"At the duty's rise the group curve gives the solve's flows, the station's and every pump's (within 0.5 %): it passes through the Group point."
+			"At the duty's rise the group curve gives the solve's flows, the station's and every pump's (within 0.5 % or 0.001 L/s): it passes through the Group point."
 		]);
 		expect(notes.axes).toBe(
 			"Each pump's curve and point are drawn against the flow through that pump; the group curve and the Group point against the station's flow, the net flow into the station at its inlet."
@@ -396,6 +407,36 @@ describe('the notes (screen and image)', () => {
 		]);
 	});
 
+	it('a duty check passed on its floor: the tolerance as the API states it, noise told as 0', () => {
+		// The tolerance in display units: 0.5 % or 10⁻⁶ m³/s, whichever is looser.
+		const series = named('series');
+		expect(notesOf(series).duty).toEqual([
+			`At the duty's rise the group curve gives the solve's flows, the station's and every pump's (within 0.5 % or ${f4(fromSI(1e-6, 'gpm'))} gpm): it passes through the Group point.`
+		]);
+		// Made-up, as the API answers a dead-headed station (its inlet closed): the flows are
+		// solver noise about zero, and the check agrees on its floor.
+		const c = named('parallel-ideal');
+		const response = structuredClone(responseOf(c));
+		response.duty!.flow = -2.0727e-32;
+		response.dutyCheck = {
+			agrees: true,
+			flow: 3.3509e-15,
+			members: response.duty!.members.map((x) => ({ pumpId: x.pumpId, flow: x.flow })),
+			message: 'made-up server words'
+		};
+		const name = (id: string) => `Pump ${id}`;
+		expect(dutyCheckWords(response, name, prefsOf(c))).toBe(
+			"at the duty's rise it gives 0 L/s (the solve: 0 L/s); flows below 0.001 L/s, the check's floor, are shown as 0"
+		);
+		// Above the floor, the values as they are, and no word on the floor.
+		expect(dutyCheckWords(responseOf(c), name, prefsOf(c))).not.toMatch(/floor/);
+		const members = membersOf(c);
+		const data = groupChartData(members, prefsOf(c), response);
+		expect(groupSummary(data, members, response, c.project)).toMatch(
+			/; station duty 0 L\/s at a rise of /
+		);
+	});
+
 	it("a duty check with no flow at the duty's rise: not known, never another steady state", () => {
 		const c = named('parallel-ideal');
 		const withReason = (reason: 'not_converged' | 'not_computed' | null) => {
@@ -430,13 +471,12 @@ describe('the notes (screen and image)', () => {
 		expect(response.duty).toBe(null);
 		expect(response.points).toEqual([]);
 		const notes = notesOf(c);
+		// The API's reason (which port, why), as one sentence.
+		expect(response.message).not.toBe('');
 		expect(notes.curve).toEqual({
 			kind: 'no_duty',
-			text: `No group curve for this case: ${response.message}.`
+			text: `No group curve for this case: ${response.message.replace(/\.$/, '')}.`
 		});
-		expect(notes.curve!.text).toMatch(
-			/^No group curve for this case: the station's inlet or outlet lies in a part of the network that no reservoir or reference node reaches .*\.$/
-		);
 		expect(notes.frame).toBe(null);
 		expect(notes.duty).toEqual([]);
 		expect(groupNoteLines(notes)[0]).toBe(notes.curve!.text);
@@ -609,6 +649,21 @@ describe('the data table', () => {
 			reason: 'not_computed',
 			members: []
 		});
+		const unsolved = structuredClone(response);
+		Object.assign(unsolved.points[0]!, {
+			flow: null,
+			converged: false,
+			reason: 'not_converged',
+			message:
+				"not converged: statuses oscillate between states already solved (components: T1, T2); 'PB' changes",
+			members: []
+		});
+		// The outer loop's words once, a sentence each, the id in quotes named.
+		expect(
+			groupSampleRows(unsolved, unsolved.station.memberIds, prefsOf(c), c.project)[0]!.note
+		).toBe(
+			'Its solve did not converge. Statuses oscillate between states already solved (components: T1, T2); “Pump PB” changes.'
+		);
 		expect(groupSampleRows(gap, gap.station.memberIds, prefsOf(c))[0]).toMatchObject({
 			flow: '—',
 			note: 'Not computed: the time budget ran out before this point.',

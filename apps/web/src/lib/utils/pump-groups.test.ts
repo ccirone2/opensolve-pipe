@@ -457,11 +457,25 @@ describe('why the pumps do not form a station, in words', () => {
 		);
 		// NO_SEPARATING_PORTS in each of its forms: three places or more, one place, nowhere (or
 		// too many to list). Two places are a station's, or NO_WAY_THROUGH.
+		// The ids are the places' components, each once, so the words never count places by them.
 		expect(told('NO_SEPARATING_PORTS', ['T1', 'T2', 'R4'])).toBe(
-			'Pump PA and Pump PB meet the rest of the network at more than two places, at Tee T1, Tee T2 and Tank R4: a station meets it at exactly two, its inlet and its outlet, with no other pump, reservoir, reference node or assigned flow between them.'
+			'Pump PA and Pump PB meet the rest of the network at more than two places, at places on Tee T1, Tee T2 and Tank R4: a station meets it at exactly two, its inlet and its outlet, with no other pump, reservoir, reference node or assigned flow between them.'
 		);
 		expect(told('NO_SEPARATING_PORTS', ['T1'])).toBe(
 			'Pump PA and Pump PB meet the rest of the network only at Tee T1: a station meets it at exactly two places, its inlet and its outlet, so that flow passes through it.'
+		);
+		// A member named: a place at its own port, where it meets the rest directly.
+		expect(told('NO_SEPARATING_PORTS', ['PA', 'PB'])).toBe(
+			'Pump PA and Pump PB meet the rest of the network at more than two places, at their own ports, not between two shared places: a station meets it at exactly two, its inlet and its outlet, with no other pump, reservoir, reference node or assigned flow between them.'
+		);
+		expect(told('NO_SEPARATING_PORTS', ['PB', 'T1'])).toBe(
+			'Pump PA and Pump PB meet the rest of the network at more than two places, at ports of Pump PB itself and at places on Tee T1: a station meets it at exactly two, its inlet and its outlet, with no other pump, reservoir, reference node or assigned flow between them.'
+		);
+		expect(told('NO_SEPARATING_PORTS', ['PA', 'PB'], ['PA', 'PB', 'PC'])).toBe(
+			'Pump PA, Pump PB and Pump PC meet the rest of the network at more than two places, at ports of Pump PA and Pump PB themselves, not between two shared places: a station meets it at exactly two, its inlet and its outlet, with no other pump, reservoir, reference node or assigned flow between them.'
+		);
+		expect(told('NO_SEPARATING_PORTS', ['PA'])).toBe(
+			'Pump PA and Pump PB meet the rest of the network only at a port of Pump PA, so no flow passes through them: a station meets it at exactly two places, its inlet and its outlet.'
 		);
 		expect(told('NO_SEPARATING_PORTS', [])).toBe(
 			'Pump PA and Pump PB do not meet the rest of the network at exactly two places: a station meets it only at its inlet and its outlet.'
@@ -476,8 +490,20 @@ describe('why the pumps do not form a station, in words', () => {
 		expect(told('ASSIGNED_FLOW_INSIDE', ['A1'])).toBe(
 			'The assigned flow at Demand A1 enters or leaves the network between the pumps and the rest of it: a station holds no assigned flow between its inlet and its outlet.'
 		);
+		expect(told('ASSIGNED_FLOW_INSIDE', ['A1', 'A2'])).toBe(
+			'The assigned flows at Demand A1 and A2 enter or leave the network between the pumps and the rest of it: a station holds no assigned flow between its inlet and its outlet.'
+		);
 		expect(told('OTHER_PUMP_INSIDE', ['PC'])).toBe(
 			'Pump PC lies between the pumps and the rest of the network but is not in the group: tick it too, or choose other pumps.'
+		);
+		// "Tick it" only for a pump the card has a box for: one closed off has no results.
+		const boxed = (ids: string[], boxes: string[]) =>
+			wordsText(refusalWords(issue('OTHER_PUMP_INSIDE', ids), ['PA', 'PB'], project, { boxes }));
+		expect(boxed(['PC'], ['PA', 'PB'])).toBe(
+			'Pump PC lies between the pumps and the rest of the network but has no results in this case (closed off), so it cannot be ticked: a station holds no other pump. Open it to the network and solve again, or choose other pumps.'
+		);
+		expect(boxed(['PC', 'PD', 'PE'], ['PA', 'PB', 'PC'])).toBe(
+			'Pump PC lies between the pumps and the rest of the network but is not in the group: tick it too, or choose other pumps. PD and PE lie between the pumps and the rest of the network but have no results in this case (closed off), so they cannot be ticked: a station holds no other pump. Open them to the network and solve again, or choose other pumps.'
 		);
 		// A tie, from its own code: every member facing a way is named, here two of three (the
 		// third on no way between the places), so the tie is never inferred from the counts.
@@ -497,6 +523,31 @@ describe('why the pumps do not form a station, in words', () => {
 		expect(told('SOMETHING_NEW', ['PA'])).toBe('server words for SOMETHING_NEW');
 	});
 
+	it('names from the names project, topology from the project as solved', () => {
+		// Made-up: since the solve, PA was renamed and R4 deleted; the refusal still answers the
+		// project as solved.
+		const renamed = projectWith(
+			project.components
+				.filter((c) => c.id !== 'R4')
+				.map((c) => (c.id === 'PA' ? ({ ...c, name: 'Duty pump' } as Component) : c)),
+			project.connections
+		);
+		expect(
+			wordsText(
+				refusalWords(issue('FIXED_HEAD_INSIDE', ['R4']), ['PA', 'PB'], renamed, {
+					solved: project
+				})
+			)
+		).toMatch(/^Tank R4 connects the pumps/);
+		expect(
+			wordsText(
+				refusalWords(issue('MEMBERS_OPPOSED', ['PA', 'PB']), ['PA', 'PB'], renamed, {
+					solved: project
+				})
+			)
+		).toMatch(/^Duty pump and Pump PB face opposite ways/);
+	});
+
 	it('says whether different boundaries are at the suctions or the discharges', () => {
 		const twoTanks = projectWith(
 			[reservoir('R1'), reservoir('R3'), pump('PA'), pump('PB'), tee('T2'), reservoir('R2')],
@@ -513,6 +564,28 @@ describe('why the pumps do not form a station, in words', () => {
 		).toBe(
 			'Pump PA and Pump PB draw from different reservoirs or reference nodes, Tank R1 and Tank R3, each through its own piping: a station has one inlet and one outlet, so they do not form one, even at equal levels (a scenario can change one).'
 		);
+		// Both pumps turned round since the solve, PA renamed: the side is the project's as solved,
+		// the names the current ones.
+		const turned = projectWith(
+			twoTanks.components.map((c) =>
+				c.id === 'PA' ? ({ ...c, name: 'Duty pump' } as Component) : c
+			),
+			twoTanks.connections.map((x) =>
+				x.toComponentId === 'PA' || x.toComponentId === 'PB'
+					? { ...x, toPortId: 'discharge' }
+					: x.fromComponentId === 'PA' || x.fromComponentId === 'PB'
+						? { ...x, fromPortId: 'suction' }
+						: x
+			)
+		);
+		const side = (solved?: Project) =>
+			wordsText(
+				refusalWords(issue('DIFFERENT_BOUNDARIES', ['R1', 'R3']), ['PA', 'PB'], turned, {
+					solved
+				})
+			);
+		expect(side(twoTanks)).toMatch(/^Duty pump and Pump PB draw from different /);
+		expect(side()).toMatch(/^Duty pump and Pump PB deliver to different /);
 	});
 
 	it('words the refusals of the fixture, the API’s own answers', () => {

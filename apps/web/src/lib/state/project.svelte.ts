@@ -449,6 +449,9 @@ export class ProjectStore {
 	#solveRequest: AbortController | null = null;
 	/** The case the solve in flight is for (undefined: none in flight). */
 	#solvingCase = $state.raw<CaseId | undefined>(undefined);
+	/** Resolves when the solve in flight ends or is dropped (curve requests wait for it). */
+	#solveDone: Promise<void> = Promise.resolve();
+	#endSolve: () => void = () => {};
 	/** The Solve all run in progress, to stop it (cancelled or superseded). */
 	#runToken: object | null = null;
 	/** Resolves when the run in progress ends (curve requests wait for it). */
@@ -1016,6 +1019,8 @@ export class ProjectStore {
 		const request = new AbortController();
 		this.#solveRequest = request;
 		this.#solvingCase = caseId;
+		const ended = new Promise<void>((resolve) => (this.#endSolve = resolve));
+		this.#solveDone = ended;
 		const before = this.#case(caseId);
 		this.#setCase(caseId, {
 			results: { ...before.results, solving: true, cancelled: false },
@@ -1079,6 +1084,9 @@ export class ProjectStore {
 			if (this.#solveRequest === request) {
 				this.#solveRequest = null;
 				this.#solvingCase = undefined;
+				// After the case's new response (or error) is set: a curve asked for meanwhile goes
+				// only if its solve is still the latest.
+				this.#endSolve();
 			}
 		}
 	}
@@ -1118,6 +1126,7 @@ export class ProjectStore {
 		this.#solveSequence++;
 		this.#solveRequest?.abort();
 		this.#solveRequest = null;
+		this.#endSolve(); // curve requests waiting for it go on (or wait for the next one)
 		const caseId = this.#solvingCase;
 		this.#solvingCase = undefined;
 		if (caseId === undefined) return;
@@ -1273,8 +1282,9 @@ export class ProjectStore {
 	 * one), from the project exactly as solved (POST /api/v1/system-curve, with the scenario's id),
 	 * unless it is cached; with `retry`, again after a failure or a cancellation; with `range`,
 	 * over that flow range (an overlay on another case's chart, on its flow grid). Requests run one
-	 * at a time, after any Solve all run; one whose solve is no longer its case's latest, or that
-	 * is cancelled, is dropped (or aborted) and never fills the cache.
+	 * at a time, after any Solve all run, goal seek or solve in flight; one whose solve is no
+	 * longer its case's latest, or that is cancelled, is dropped (or aborted) and never fills the
+	 * cache.
 	 */
 	loadSystemCurve(
 		pumpId: string,
@@ -1308,6 +1318,8 @@ export class ProjectStore {
 			try {
 				await this.#runDone; // one request at a time: after a Solve all run
 				await this.#goalSeekDone; // and after a goal seek
+				// And after a solve in flight (dropped unsent if it replaced the response).
+				if (this.#solvingCase !== undefined) await this.#solveDone;
 				if (signal.aborted || this.#case(caseId).results.response !== response) return;
 				const curve = await solver.systemCurve!(project, pumpId, {
 					signal,
@@ -1364,9 +1376,9 @@ export class ProjectStore {
 	 * one), from the project exactly as solved (POST /api/v1/pump-group-curve, with the scenario's
 	 * id), unless it is cached; with `retry`, again after a failure or a cancellation (a refusal is
 	 * the API's answer for that solve and is kept). Two pumps at least, as the card asks. On the
-	 * system curves' queue: one request at a time, after any Solve all run and goal seek; one whose
-	 * solve is no longer its case's latest, or that is cancelled, is dropped and never fills the
-	 * cache.
+	 * system curves' queue: one request at a time, after any Solve all run, goal seek or solve in
+	 * flight; one whose solve is no longer its case's latest, or that is cancelled, is dropped
+	 * (unsent, when a solve replaced it while it waited) and never fills the cache.
 	 */
 	loadGroupCurve(
 		pumpIds: readonly string[],
@@ -1406,6 +1418,8 @@ export class ProjectStore {
 			try {
 				await this.#runDone; // one request at a time: after a Solve all run
 				await this.#goalSeekDone; // and after a goal seek
+				// And after a solve in flight (dropped unsent if it replaced the response).
+				if (this.#solvingCase !== undefined) await this.#solveDone;
 				if (signal.aborted || this.#case(caseId).results.response !== response) return;
 				const curve = await solver.groupCurve!(project, ids, {
 					signal,

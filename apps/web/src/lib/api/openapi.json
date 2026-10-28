@@ -5210,7 +5210,7 @@
                 "type": "null"
               }
             ],
-            "description": "m, the highest rise sampled; default the largest rise the station can hold with flow (the largest sum of shutoff heads s²H₀(0) along a way from S to D, a speed-controlled pump's at its maximum speed), or the duty's rise if higher",
+            "description": "m, the highest rise sampled; default the largest rise the station can hold with flow (the largest sum of shutoff heads s²H₀(0) along a way from S to D, of the pumps it passes forward and of those beside a bypass in the parts it passes, a speed-controlled pump's at its maximum speed, a pump that is off adding nothing; every pump's that is on, an upper bound, when no way passes a pump), or the duty's rise if higher",
             "title": "Headmax"
           },
           "headMin": {

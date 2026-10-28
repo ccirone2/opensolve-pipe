@@ -599,7 +599,9 @@ def _why_not(
                 found.append(
                     issue(
                         "ASSIGNED_FLOW_INSIDE",
-                        f"the assigned flow at {_quoted_list(inside_af)} enters or leaves the "
+                        f"the assigned flow{'' if len(inside_af) == 1 else 's'} at "
+                        f"{_quoted_list(inside_af)} "
+                        f"{'enters or leaves' if len(inside_af) == 1 else 'enter or leave'} the "
                         f"network between {who} and the rest of it: a station holds "
                         "no assigned flow between its inlet and outlet",
                         inside_af,
@@ -1384,9 +1386,7 @@ def group_curve(
         return GroupCurve(
             station,
             True,
-            "the station's inlet or outlet lies in a part of the network that no reservoir or "
-            "reference node reaches (UNDETERMINED_PRESSURE), and the other does not, so the rise "
-            "between them is not determined: the station has no duty and no curve",
+            _floating_words(built, station, floating),
             None,
             None,
             [],
@@ -1492,6 +1492,28 @@ def group_curve_case(
 
 
 # --------------------------------------------------------------------------- methods
+
+
+def _floating_words(built: BuiltNetwork, station: Station, floating: dict[int, int]) -> str:
+    """Why a station with S or D in a floating section has no duty: which of them lies there."""
+    s_in, d_in = (floating.get(station.inlet[0]), floating.get(station.outlet[0]))
+    inlet = f"its inlet {_port_words(built, station.inlet_port)}"
+    outlet = f"its outlet {_port_words(built, station.outlet_port)}"
+    if s_in is not None and d_in is not None:
+        where = (
+            f"{inlet} and {outlet} lie in different parts of the network that no reservoir or "
+            "reference node reaches (UNDETERMINED_PRESSURE)"
+        )
+    else:
+        one, other = (inlet, "outlet") if s_in is not None else (outlet, "inlet")
+        where = (
+            f"{one} lies in a part of the network that no reservoir or reference node reaches "
+            f"(UNDETERMINED_PRESSURE), and its {other} does not"
+        )
+    return (
+        f"the station's {where.removeprefix('its ')}, so the rise between them is not "
+        "determined: the station has no duty and no curve"
+    )
 
 
 def _port_words(built: BuiltNetwork, port: StationPort) -> str:

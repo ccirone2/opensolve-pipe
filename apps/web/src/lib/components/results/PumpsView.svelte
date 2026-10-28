@@ -246,14 +246,21 @@
 
 	// ---- Pumps together (D20) ----------------------------------------------------------------
 
-	/** The pumps with a result, as the card's boxes (curves and ranges from the project as solved). */
+	/** The project the results belong to (as solved while out of date, else the labels project). */
+	const groupSolvedProject = $derived(resultsProject(ws.labelsProject, solved));
+	/**
+	 * The pumps with a result, as the card's boxes (curves and ranges from the project as solved;
+	 * names current, or as solved for a pump deleted since, as the card names everything).
+	 */
 	const groupPumps = $derived.by((): Omit<GroupMemberInput, 'slot'>[] => {
 		const project = ws.store.solvedProject;
 		return pumps.map((row) => {
 			const pump = project ? componentById(project, row.key) : undefined;
 			return {
 				id: row.key,
-				name: row.name,
+				name: componentById(ws.labelsProject, row.key)
+					? row.name
+					: (componentById(groupSolvedProject, row.key)?.name ?? row.name),
 				result: solved.pumpResults[row.key]!,
 				ratedRange: project && response ? ratedCurveRange(project, row.key) : null,
 				curveId: pump?.type === 'pump' ? pump.curveId : null,
@@ -276,6 +283,10 @@
 	);
 	/** The boxes ticked by slot: the user's, else the group suggested for the pump viewed. */
 	const groupSlots = $derived(ws.pumpGroup ?? defaultGroup(suggestions, viewed?.key ?? null));
+	// Their ids are reserved while shown ticked, the default group's too (ws.reservedIds).
+	$effect(() => {
+		ws.pumpGroupShown = groupSlots;
+	});
 	/**
 	 * The members with a result in this case. The station's extent is the same in every case
 	 * (topology), but whether the API accepts it can differ (an active PRV or PSV inside).
@@ -389,7 +400,8 @@
 			onretry={() => ws.store.loadGroupCurve(groupMembers, { retry: true })}
 			oncancel={() => ws.store.cancelGroupCurve(groupMembers)}
 			prefs={ws.displayUnits}
-			project={resultsProject(ws.labelsProject, solved)}
+			project={ws.labelsProject}
+			solvedProject={groupSolvedProject}
 			nodes={solved.nodeResults}
 			unavailable={groupUnavailable}
 			stale={ws.store.results.stale}

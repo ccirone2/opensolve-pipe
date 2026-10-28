@@ -346,6 +346,30 @@ def _change(data: dict[str, Any], change: str) -> None:
         raise AssertionError(change)
 
 
+def test_two_assigned_flows_are_named_in_the_plural() -> None:
+    data = _parallel()
+    for leg, tee, af in (("LA2", "T3", "A1"), ("LB2", "T4", "A2")):
+        _split(data, leg, _tee(tee), "run_inlet", "run_outlet")
+        data["components"].append(
+            {
+                "type": "assigned_flow",
+                "id": af,
+                "name": af,
+                "elevation": 0.0,
+                "flow": 0.001,
+                "ports": _ports("port_1"),
+            }
+        )
+        _pipe(data, f"F{af}", (tee, "branch"), (af, "port_1"))
+    with pytest.raises(NotAStationError) as info:
+        _station(data, ["PA", "PB"])
+    [only] = info.value.issues
+    assert (only.code, only.component_ids) == ("ASSIGNED_FLOW_INSIDE", ["A1", "A2"])
+    assert only.message.startswith(
+        "the assigned flows at A1 and A2 enter or leave the network between the pumps PA and PB"
+    )
+
+
 def test_refusals_name_their_elements_in_words() -> None:
     data = _parallel()
     _split(data, "LA2", _tee("T3"), "run_inlet", "run_outlet")
@@ -793,4 +817,7 @@ def test_a_rise_into_a_floating_section_has_no_duty() -> None:
     assert gc.converged
     assert gc.duty is None
     assert gc.points == []
-    assert "UNDETERMINED_PRESSURE" in gc.message
+    assert gc.message.startswith(
+        "the station's outlet T0 (branch) lies in a part of the network that no reservoir or "
+        "reference node reaches (UNDETERMINED_PRESSURE), and its inlet does not"
+    )

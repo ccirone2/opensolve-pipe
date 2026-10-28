@@ -28,6 +28,7 @@ import type {
 	UnitPreferences
 } from '../api/types';
 import type { GroupCurveState } from '../state/project.svelte';
+import { readableText } from './flag-text';
 import { componentById } from './graph';
 import { portLabel } from './labels';
 import { pumpChartData, type ChartPoint } from './pump-chart';
@@ -120,8 +121,11 @@ export interface GroupChartData {
 	/** Points of the group curve without a flow (gaps), of `total`. */
 	missing: number;
 	total: number;
-	/** The station's duty (Q_st, ΔH_st); `onCurve` when the duty check agrees. */
-	station: { point: ChartPoint; onCurve: boolean } | null;
+	/**
+	 * The station's duty (Q_st, ΔH_st); `onCurve` when the duty check agrees; `flow`, Q_st in
+	 * display units as words give it (0 below the duty check's floor, dutyFlow).
+	 */
+	station: { point: ChartPoint; onCurve: boolean; flow: number } | null;
 }
 
 const same = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
@@ -191,7 +195,11 @@ export function groupChartData(
 		missing: response ? response.points.filter((p) => p.flow === null).length : 0,
 		total: response?.points.length ?? 0,
 		station: duty
-			? { point: at(duty.flow, duty.head), onCurve: !!response?.dutyCheck?.agrees }
+			? {
+					point: at(duty.flow, duty.head),
+					onCurve: !!response?.dutyCheck?.agrees,
+					flow: fromSI(dutyFlow(duty.flow), flowUnit)
+				}
 			: null
 	};
 }
@@ -307,6 +315,18 @@ export function groupLegend(data: GroupChartData): GroupLegendItem[] {
 // ---------------------------------------------------------------------------------------------
 // Words
 // ---------------------------------------------------------------------------------------------
+
+/**
+ * The project the card names elements from: the labels project (current names, as the rest of the
+ * screen names them), with the components of `solved` (the project the results belong to) that it
+ * no longer has, under their names as solved: an element deleted since the solve.
+ */
+export function namesProject(labels: Project, solved: Project | null | undefined): Project {
+	if (!solved || solved === labels) return labels;
+	const ids = new Set(labels.components.map((c) => c.id));
+	const gone = solved.components.filter((c) => !ids.has(c.id));
+	return gone.length ? { ...labels, components: [...labels.components, ...gone] } : labels;
+}
 
 /** "Tee T1 (run inlet)", or "Reservoir R1" for a boundary taken whole. */
 export function stationPortWords(port: StationPort, project: Project): string {
@@ -461,11 +481,11 @@ export function groupNotes({ data, members, state, project, prefs }: GroupNotesI
 		const check = response.dutyCheck;
 		if (check?.agrees) {
 			duty.push(
-				"At the duty's rise the group curve gives the solve's flows, the station's and every pump's (within 0.5 %): it passes through the Group point."
+				`At the duty's rise the group curve gives the solve's flows, the station's and every pump's (within ${dutyCheckTolerance(prefs)}): it passes through the Group point.`
 			);
 		} else if (check && check.flow === null) {
 			// The station alone at the duty's rise has no solved flow: not another steady state.
-			const reason = response.points.find((p) => p.isDuty)?.reason;
+			const reason = dutyPointReason(response);
 			duty.push(
 				reason === 'not_converged'
 					? "The group curve's point at the duty's rise did not converge, so whether the curve passes through the Group point is not known."
@@ -553,23 +573,72 @@ export function dutyCheckWords(
 	const duty = response.duty;
 	if (!check || !duty) return '';
 	if (check.flow === null) return "the station alone at the duty's rise has no solved flow";
-	const flowUnit = displayUnit('flow', prefs);
-	const flow = (q: number | null) =>
-		q === null
-			? 'no flow'
-			: `${formatNumber(fromSI(q, flowUnit), 4)} ${unitLabel('flow', flowUnit)}`;
+	let zeroed = false;
+	const flow = (q: number | null) => {
+		if (q === null) return 'no flow';
+		if (q !== 0 && dutyFlow(q) === 0) zeroed = true;
+		return flowText(dutyFlow(q), prefs);
+	};
 	const differs = (a: number | null, b: number) =>
-		a === null || Math.abs(a - b) > Math.max(0.005 * Math.abs(b), 1e-6);
+		a === null || Math.abs(a - b) > Math.max(0.005 * Math.abs(b), DUTY_CHECK_FLOOR);
 	const pumps = check.members.flatMap((m) => {
 		const solved = duty.members.find((d) => d.pumpId === m.pumpId);
 		return solved && differs(m.flow, solved.flow)
 			? [`${name(m.pumpId)} ${flow(m.flow)} (the solve: ${flow(solved.flow)})`]
 			: [];
 	});
-	return (
+	const words =
 		`at the duty's rise it gives ${flow(check.flow)} (the solve: ${flow(duty.flow)})` +
-		(pumps.length ? `, and ${andList(pumps)}` : '')
-	);
+		(pumps.length ? `, and ${andList(pumps)}` : '');
+	return zeroed
+		? `${words}; flows below ${flowText(DUTY_CHECK_FLOOR, prefs)}, the check's floor, are shown as 0`
+		: words;
+}
+
+/**
+ * The duty check's floor (m³/s): flows agree within 0.5 % or this, whichever is looser (the API's
+ * PumpGroupDutyCheck.agrees; CLAUDE.md D20).
+ */
+export const DUTY_CHECK_FLOOR = 1e-6;
+
+/**
+ * A flow of the duty or of its check as shown in words: 0 below the check's floor, where a
+ * station dead-headed gives solver noise about zero (the solve's own pump flows are 0 there).
+ */
+export function dutyFlow(q: number): number {
+	return Math.abs(q) < DUTY_CHECK_FLOOR ? 0 : q;
+}
+
+/** The duty check's tolerance in display units: "0.5 % or 0.001 L/s". */
+export function dutyCheckTolerance(prefs: UnitPreferences): string {
+	return `0.5 % or ${flowText(DUTY_CHECK_FLOOR, prefs)}`;
+}
+
+/** The reason the duty's point of the group curve has no flow (null: it has one, or none given). */
+export function dutyPointReason(
+	response: PumpGroupCurveResponse
+): 'not_converged' | 'not_computed' | null {
+	return response.points.find((p) => p.isDuty)?.reason ?? null;
+}
+
+/** The duty check in a few words, for the data table's Group duty line. */
+export function dutyCheckState(response: PumpGroupCurveResponse): string {
+	const check = response.dutyCheck;
+	if (!check) return '';
+	if (check.agrees) return 'the group curve passes through it';
+	if (check.flow !== null) return 'the group curve does not pass through it';
+	const reason = dutyPointReason(response);
+	return reason === 'not_converged'
+		? 'not known, its point at the duty’s rise did not converge'
+		: reason === 'not_computed'
+			? 'not known, its point at the duty’s rise was not computed (the time budget ran out)'
+			: 'not known, the group curve has no solved flow at the duty’s rise';
+}
+
+/** A flow in display units with its unit label. */
+function flowText(q: number, prefs: UnitPreferences): string {
+	const unit = displayUnit('flow', prefs);
+	return `${formatNumber(fromSI(q, unit), 4)} ${unitLabel('flow', unit)}`;
 }
 
 /** A sentence ending in one full stop. */
@@ -639,7 +708,7 @@ export function groupSummary(
 	});
 	const station =
 		response?.duty && data.station
-			? `; station duty ${fmt(data.station.point.x)} ${data.flowUnit} at a rise of ${fmt(data.station.point.y)} ${data.headUnit} from ${stationPortWords(response.station.inlet, project)} to ${stationPortWords(response.station.outlet, project)}${data.station.onCurve ? ', on the group curve' : ''}`
+			? `; station duty ${fmt(data.station.flow)} ${data.flowUnit} at a rise of ${fmt(data.station.point.y)} ${data.headUnit} from ${stationPortWords(response.station.inlet, project)} to ${stationPortWords(response.station.outlet, project)}${data.station.onCurve ? ', on the group curve' : ''}`
 			: '';
 	const curve =
 		data.curve && data.missing < data.total ? '; group curve shown' : '; no group curve shown';
@@ -741,7 +810,7 @@ export function groupTable(
 		footer.push(
 			{
 				label: `Station flow, into the station at ${s}`,
-				value: f.value(response.duty.flow, 'flow')
+				value: f.value(dutyFlow(response.duty.flow), 'flow')
 			},
 			{ label: `Rise from ${s} to ${d}`, value: f.value(response.duty.head, 'head') }
 		);
@@ -787,8 +856,19 @@ export interface GroupSampleRow {
 export function groupSampleRows(
 	response: PumpGroupCurveResponse,
 	memberIds: readonly string[],
-	prefs: UnitPreferences
+	prefs: UnitPreferences,
+	project?: Project
 ): GroupSampleRow[] {
+	// The outer loop's own words follow "not converged: " (the schema's reason): told once, ids in
+	// quotes named and values in display units when the project is given.
+	const notConverged = (message: string) => {
+		const rest = message.replace(/^not converged:\s*/, '').trim();
+		if (!rest) return 'Its solve did not converge.';
+		const words = project
+			? readableText(rest, project, prefs)
+			: rest.charAt(0).toUpperCase() + rest.slice(1);
+		return `Its solve did not converge. ${words}${/[.!?]$/.test(words) ? '' : '.'}`;
+	};
 	const flowUnit = displayUnit('flow', prefs);
 	const headUnit = displayUnit('head', prefs);
 	const fmt = (v: number) => formatNumber(v, 4);
@@ -815,7 +895,7 @@ export function groupSampleRows(
 					: p.reason === 'not_computed'
 						? 'Not computed: the time budget ran out before this point.'
 						: p.reason === 'not_converged'
-							? `Its solve did not converge.${p.message ? ` ${p.message}` : ''}`
+							? notConverged(p.message)
 							: p.message
 		}));
 }

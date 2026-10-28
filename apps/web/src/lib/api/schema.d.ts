@@ -549,7 +549,7 @@ export interface components {
              * @description camelCase path of the value relative to the component
              * @enum {string}
              */
-            field: "status" | "speed" | "control.setpoint" | "setpoint" | "resistance" | "liquidLevel" | "surfacePressure" | "pressure" | "flow" | "rating" | "rating.pressureLoss" | "rating.flow" | "rating.density" | "rating.value";
+            field: "status" | "speed" | "control.setpoint" | "setpoint" | "resistance" | "liquidLevel" | "surfacePressure" | "pressure" | "flow" | "rating" | "rating.pressureLoss" | "rating.flow" | "rating.density" | "rating.value" | "boreDiameter" | "dischargeCoefficient";
             /**
              * Kind
              * @constant
@@ -578,7 +578,7 @@ export interface components {
              * @description camelCase path of the value relative to the component (x-goal-variables)
              * @enum {string}
              */
-            field: "speed" | "control.setpoint" | "setpoint" | "resistance" | "liquidLevel" | "surfacePressure" | "pressure" | "flow" | "rating.pressureLoss" | "rating.flow" | "rating.density" | "rating.value";
+            field: "speed" | "control.setpoint" | "setpoint" | "resistance" | "liquidLevel" | "surfacePressure" | "pressure" | "flow" | "rating.pressureLoss" | "rating.flow" | "rating.density" | "rating.value" | "boreDiameter" | "dischargeCoefficient";
             /**
              * Kind
              * @constant
@@ -1238,7 +1238,7 @@ export interface components {
              * Quantity
              * @enum {string}
              */
-            quantity: "port_pressure" | "link_flow" | "link_velocity" | "link_head_loss" | "pump_flow" | "pump_head" | "pump_npsh_available" | "pump_npsh_margin" | "valve_flow" | "valve_pressure_drop" | "equipment_flow" | "equipment_pressure_loss" | "equipment_pressure_drop" | "boundary_outflow";
+            quantity: "port_pressure" | "link_flow" | "link_velocity" | "link_head_loss" | "pump_flow" | "pump_head" | "pump_npsh_available" | "pump_npsh_margin" | "valve_flow" | "valve_pressure_drop" | "equipment_flow" | "equipment_pressure_loss" | "equipment_pressure_drop" | "orifice_flow" | "orifice_pressure_loss" | "orifice_differential_pressure" | "orifice_pressure_drop" | "boundary_outflow";
             /**
              * Target
              * @description SI, in the quantity's unit
@@ -1813,6 +1813,142 @@ export interface components {
             source: components["schemas"]["UserSource"] | components["schemas"]["RegionPresetSource"];
         };
         /**
+         * Orifice
+         * @description A square-edged concentric orifice plate (SDD §4.16): a restriction orifice, or a flow
+         *     meter with pressure taps. Its loss is ISO 5167-2's permanent pressure loss; it has no status:
+         *     valves isolate it (proposal orifice-plate.md decisions 1-2).
+         */
+        Orifice: {
+            /**
+             * Borediameter
+             * @description The diameter of the plate's hole, ISO 5167-2's d, m, at the flowing temperature. It must be smaller than the inlet pipe's inner diameter (a topology issue otherwise)
+             */
+            boreDiameter: number;
+            /**
+             * Dischargecoefficient
+             * @description Absent: ISO 5167-2's Reader-Harris/Gallagher C at the solved flow (the default). A number: ISO 5167-2's discharge coefficient C of eq. (1), q_m = C/√(1 - β⁴)·ε·(π/4)d²·√(2Δpρ), with Δp between the plate's taps (between D and D/2 tappings for a plate without taps), from a calibration or datasheet, held at every flow. Not the flow coefficient α = C/√(1 - β⁴): convert it, C = α·√(1 - β⁴). The reading uses it as entered; the loss uses it moved to D and D/2 tappings by ISO 5167-2's ratio of the two tap sets' C
+             */
+            dischargeCoefficient?: number | null;
+            /**
+             * Elevation
+             * @description Elevation above the project datum, m
+             */
+            elevation: number;
+            /**
+             * Id
+             * @description Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Ports */
+            ports: components["schemas"]["Port"][];
+            /**
+             * Taps
+             * @description Where a meter's pressure taps are (corner, flange, or D and D/2 tappings); the differential pressure is reported at them, and an entered C is the C at them. Absent: a plate without taps (a restriction orifice), with no reading. The plate's loss uses the C at D and D/2 tappings whatever its taps
+             */
+            taps?: ("corner" | "flange" | "d_and_d_2") | null;
+            /**
+             * Type
+             * @constant
+             */
+            type: "orifice";
+        };
+        /**
+         * OrificeResult
+         * @description An orifice plate (SDD §4.16): ISO 5167-2's permanent pressure loss at the solved flow, a
+         *     meter's reading at its taps, and the coefficients and inputs the solve used (proposal
+         *     orifice-plate.md §2.2).
+         */
+        OrificeResult: {
+            /**
+             * Beta
+             * @description β = boreDiameter / pipeDiameter
+             */
+            beta: number;
+            /**
+             * Borediameter
+             * @description d, m: the bore the solve used, after any scenario or goal-seek trial
+             */
+            boreDiameter: number;
+            /**
+             * Coefficientreynoldsnumber
+             * @description The Reynolds number at which ISO 5167-2's equation is evaluated for dischargeCoefficient (or for the move's ratio): Re_D, or ISO's lowest Reynolds number where C is held below it; null for an entered C without a move
+             */
+            coefficientReynoldsNumber: number | null;
+            /**
+             * Coefficientsource
+             * @description Where C came from: iso_5167_2, ISO 5167-2's Reader-Harris/Gallagher equation (the default); entered, the plate's dischargeCoefficient
+             * @enum {string}
+             */
+            coefficientSource: "iso_5167_2" | "entered";
+            /**
+             * Differentialpressure
+             * @description The meter's reading between the plate's taps, Pa (a difference), signed as the flow: ISO 5167-2 eq. (1) solved for Δp with ε = 1, at meterDischargeCoefficient. It does not act on the network; null for a plate without taps
+             */
+            differentialPressure: number | null;
+            /**
+             * Dischargecoefficient
+             * @description C_L, the discharge coefficient that sets the loss, at D and D/2 tappings for every plate: ISO 5167-2's, or the entered C moved there
+             */
+            dischargeCoefficient: number;
+            /**
+             * Flow
+             * @description m³/s, positive inlet -> outlet
+             */
+            flow: number;
+            /**
+             * Headloss
+             * @description EGL(inlet) - EGL(outlet), m, from the solved heads
+             */
+            headLoss: number;
+            /**
+             * Losscoefficient
+             * @description K on the inlet pipe's velocity: headLoss = K v|v|/(2g)
+             */
+            lossCoefficient: number;
+            /**
+             * Meterdischargecoefficient
+             * @description C_M, the discharge coefficient in the reading: ISO 5167-2's at the plate's taps, or the entered C as entered; null without taps
+             */
+            meterDischargeCoefficient: number | null;
+            /**
+             * Pipediameter
+             * @description D, m: the inner diameter of the inlet pipe's end segment at the inlet port
+             */
+            pipeDiameter: number;
+            /**
+             * Pressuredrop
+             * @description Static pressure drop inlet -> outlet, Pa (a difference), as a valve's: what gauges at the ports read. It equals pressureLoss + ρg(z_outlet - z_inlet) + ρ(v_outlet² - v_inlet²)/2, with the velocities in the connected pipes
+             */
+            pressureDrop: number;
+            /**
+             * Pressureloss
+             * @description ρg × headLoss, Pa (a difference): ISO 5167-2's permanent pressure loss, the part of the pressure difference across the plate not recovered downstream
+             */
+            pressureLoss: number;
+            /**
+             * Reynoldsnumber
+             * @description Re_D = 4ρ|Q|/(πDμ) at the solved flow, in the inlet pipe
+             */
+            reynoldsNumber: number;
+            /**
+             * Tapcoefficientratio
+             * @description r = C_ISO(D and D/2) / C_ISO(taps) at coefficientReynoldsNumber, the move of an entered C from corner or flange taps to D and D/2 tappings; null otherwise
+             */
+            tapCoefficientRatio: number | null;
+            /**
+             * Taps
+             * @description The taps the reading is at, as the plate's input; null without taps
+             */
+            taps: ("corner" | "flange" | "d_and_d_2") | null;
+            /**
+             * Venacontractapressure
+             * @description Static pressure at the vena contracta, Pa gauge, at the elevation of the port the flow leaves by (checked for flashing, BELOW_VAPOR_PRESSURE); null at zero flow and where the pressure level is undetermined (UNDETERMINED_PRESSURE)
+             */
+            venaContractaPressure: number | null;
+        };
+        /**
          * OverrideResult
          * @description How one override of a solved scenario was used.
          */
@@ -2142,7 +2278,7 @@ export interface components {
          */
         Project: {
             /** Components */
-            components: (components["schemas"]["Reservoir"] | components["schemas"]["IdealReferenceNode"] | components["schemas"]["Plug"] | components["schemas"]["AssignedFlow"] | components["schemas"]["TeeBranch"] | components["schemas"]["WyeBranch"] | components["schemas"]["Pump"] | components["schemas"]["IsolationValve"] | components["schemas"]["CheckValve"] | components["schemas"]["ControlValve"] | components["schemas"]["Equipment"])[];
+            components: (components["schemas"]["Reservoir"] | components["schemas"]["IdealReferenceNode"] | components["schemas"]["Plug"] | components["schemas"]["AssignedFlow"] | components["schemas"]["TeeBranch"] | components["schemas"]["WyeBranch"] | components["schemas"]["Pump"] | components["schemas"]["IsolationValve"] | components["schemas"]["CheckValve"] | components["schemas"]["ControlValve"] | components["schemas"]["Equipment"] | components["schemas"]["Orifice"])[];
             /** Connections */
             connections: components["schemas"]["PipeConnection"][];
             /** Fluid */
@@ -2835,6 +2971,13 @@ export interface components {
                 [key: string]: components["schemas"]["NodeResult"];
             };
             /**
+             * Orificeresults
+             * @description Keyed by component id; {} when the project has no orifice plate or the solve did not converge; a closed-off orifice has no result
+             */
+            orificeResults: {
+                [key: string]: components["schemas"]["OrificeResult"];
+            };
+            /**
              * Pumpresults
              * @description Keyed by component id
              */
@@ -3248,9 +3391,9 @@ export interface components {
              * @description The value equals lower or upper exactly
              */
             atBound: ("lower" | "upper") | null;
-            /** @description The base project's value (equal to caseValue for a base run); null where the base holds no value of this variable (an equipment item the base rates by another kind: a point, or the other of Cv and Kv) */
+            /** @description The base project's value (equal to caseValue for a base run); null where the base holds no value of this variable (an equipment item the base rates by another kind: a point, or the other of Cv and Kv; an orifice plate's discharge coefficient on ISO 5167-2's default) */
             baseValue: components["schemas"]["JsonValue"];
-            /** @description The case's value of the field, SI (a resistance: its FlowCoefficient or null) */
+            /** @description The case's value of the field, SI (a resistance: its FlowCoefficient or null; an orifice plate's discharge coefficient: null on ISO 5167-2's default) */
             caseValue: components["schemas"]["JsonValue"];
             /** Index */
             index: number;
@@ -3281,7 +3424,7 @@ export interface components {
             start: number;
             /**
              * Startsource
-             * @description case: the case's value; clipped: the case's value lies outside the bounds, and the nearer bound is used; middle: the case holds no value of this coefficient (a resistance on its default, or of another kind), and the middle of the bounds on the variable's scale is used
+             * @description case: the case's value; clipped: the case's value lies outside the bounds, and the nearer bound is used; middle: the case holds no value of this coefficient (a resistance on its default, or of another kind; an orifice plate's discharge coefficient on ISO 5167-2's default), and the middle of the bounds on the variable's scale is used
              * @enum {string}
              */
             startSource: "case" | "clipped" | "middle";

@@ -6,8 +6,8 @@
  * values the API returned, in the display units. A difference is the scenario's value minus the
  * base case's, with a true minus sign and + for an increase. A relative difference is given only
  * for quantities with a true zero (flows, velocities, a pump's head, head losses, an equipment
- * item's pressure loss, power, speed), never for gauge pressures, static pressure drops, grade
- * lines, elevations or NPSH margins. "Same" means the two values
+ * item's pressure loss, an orifice plate's permanent loss and differential pressure, power, speed),
+ * never for gauge pressures, static pressure drops, grade lines, elevations or NPSH margins. "Same" means the two values
  * display the same: there is no tolerance snapping (D6 and D13 are acceptance rules for solver
  * changes; differences between cases are real results of changed inputs). A case that did not
  * converge shows no values, since they are not a solution; its status row says so. A
@@ -16,7 +16,14 @@
  * the other sign, and one solved before an end moved or its pipes changed gives what it cannot
  * place as no value, with a note saying why.
  */
-import type { Flag, Project, SolvedState, SolveResponse, UnitPreferences } from '../api/types';
+import type {
+	Component,
+	Flag,
+	Project,
+	SolvedState,
+	SolveResponse,
+	UnitPreferences
+} from '../api/types';
 import type { CaseStatus, ResultsState } from '../state/project.svelte';
 import { componentById, connectionById } from './graph';
 import { portLabel } from './labels';
@@ -56,6 +63,10 @@ export type Quantity =
 	| 'equipmentFlow'
 	| 'equipmentPressureLoss'
 	| 'equipmentPressureDrop'
+	| 'orificeFlow'
+	| 'orificePressureLoss'
+	| 'orificeDifferentialPressure'
+	| 'orificePressureDrop'
 	| 'linkFlow'
 	| 'linkVelocity'
 	| 'linkHeadLoss'
@@ -77,6 +88,18 @@ export interface CompareRow {
 	portId?: string;
 }
 
+/** The kinds of element a row can be on (the Choose results dialog's groups). */
+export type ElementKind =
+	| 'network'
+	| 'pump'
+	| 'valve'
+	| 'equipment'
+	| 'orifice'
+	| 'connection'
+	| 'port'
+	| 'boundary'
+	| 'assigned';
+
 interface Spec {
 	label: string;
 	/** Numbers are compared; text is shown as it is. */
@@ -84,8 +107,7 @@ interface Spec {
 	options?: LabelOptions;
 	/** A relative difference is meaningful (a true zero). */
 	relative?: boolean;
-	element:
-		'network' | 'pump' | 'valve' | 'equipment' | 'connection' | 'port' | 'boundary' | 'assigned';
+	element: ElementKind;
 	value: (solved: SolvedState, row: CompareRow) => number | string | null | undefined;
 	/** Where a network extreme occurs, for the cell's second line. */
 	where?: (solved: SolvedState, project: Project) => string;
@@ -97,6 +119,8 @@ const valve = (s: SolvedState, r: CompareRow) =>
 	r.elementId ? s.valveResults[r.elementId] : undefined;
 const equipment = (s: SolvedState, r: CompareRow) =>
 	r.elementId ? s.equipmentResults[r.elementId] : undefined;
+const orifice = (s: SolvedState, r: CompareRow) =>
+	r.elementId ? s.orificeResults?.[r.elementId] : undefined;
 const link = (s: SolvedState, r: CompareRow) =>
 	r.elementId ? s.linkResults[r.elementId] : undefined;
 const node = (s: SolvedState, r: CompareRow) =>
@@ -270,6 +294,36 @@ export const QUANTITIES: Readonly<Record<Quantity, Spec>> = {
 		element: 'equipment',
 		value: (s, r) => equipment(s, r)?.pressureDrop
 	},
+	orificeFlow: {
+		label: 'Flow',
+		category: 'flow',
+		relative: true,
+		element: 'orifice',
+		value: (s, r) => orifice(s, r)?.flow
+	},
+	orificePressureLoss: {
+		// ISO 5167-2's permanent pressure loss (ρg × head loss): a true zero.
+		label: 'Permanent loss',
+		category: 'pressure',
+		relative: true,
+		element: 'orifice',
+		value: (s, r) => orifice(s, r)?.pressureLoss
+	},
+	orificeDifferentialPressure: {
+		// A meter's reading at its taps, signed as the flow (none without taps): a true zero.
+		label: 'Differential pressure (taps)',
+		category: 'pressure',
+		relative: true,
+		element: 'orifice',
+		value: (s, r) => orifice(s, r)?.differentialPressure
+	},
+	orificePressureDrop: {
+		// The static difference holds the ports' elevation and velocity terms: no true zero.
+		label: 'Pressure drop',
+		category: 'pressure',
+		element: 'orifice',
+		value: (s, r) => orifice(s, r)?.pressureDrop
+	},
 	linkFlow: {
 		label: 'Flow',
 		category: 'flow',
@@ -355,11 +409,42 @@ export const ELEMENT_QUANTITIES: Readonly<Record<Spec['element'], readonly Quant
 	],
 	valve: ['valveFlow', 'valveHeadLoss', 'valvePressureDrop', 'valveState', 'valveSetpointMet'],
 	equipment: ['equipmentFlow', 'equipmentPressureLoss', 'equipmentPressureDrop'],
+	orifice: [
+		'orificeFlow',
+		'orificePressureLoss',
+		'orificeDifferentialPressure',
+		'orificePressureDrop'
+	],
 	connection: ['linkFlow', 'linkVelocity', 'linkHeadLoss'],
 	port: ['portPressure', 'portAbsolutePressure', 'portHgl', 'portEgl'],
 	boundary: ['boundaryOutflow', 'boundaryEgl'],
 	assigned: ['assignedPressure', 'assignedHgl']
 };
+
+/**
+ * The kind of element a component's own rows are of (its group in Choose results, the rows its
+ * trace's Add to comparison adds), or null for a component with none (a tee, a plug: its ports'
+ * rows are under Ports). The one mapping from a component's type, so no view repeats it.
+ */
+export function compareElementKind(component: Component): ElementKind | null {
+	switch (component.type) {
+		case 'pump':
+			return 'pump';
+		case 'valve':
+			return 'valve';
+		case 'equipment':
+			return 'equipment';
+		case 'orifice':
+			return 'orifice';
+		case 'reservoir':
+		case 'reference_node':
+			return 'boundary';
+		case 'assigned_flow':
+			return 'assigned';
+		default:
+			return null;
+	}
+}
 
 function flagsOf(flags: readonly Flag[], row: CompareRow): Flag[] {
 	if (!row.elementId) return [];
@@ -409,8 +494,8 @@ export const DEFAULT_ROW_LIMIT = 40;
  * The default rows (proposal §6.12): the network's status; each pump's flow and head, its NPSH
  * margin where the base case has one, and its speed where a case flow-controls it or changes its
  * speed; each element a scenario changes (a valve's flow and state, an equipment item's flow and
- * pressure loss, a reservoir's or reference node's outflow, a pipe's connection flow and head
- * loss, the fluid's density and vapor pressure); each assigned-flow node's pressure; the lowest
+ * pressure loss, an orifice plate's flow and permanent loss, a reservoir's or reference node's
+ * outflow, a pipe's connection flow and head loss, the fluid's density and vapor pressure); each assigned-flow node's pressure; the lowest
  * pressure and the highest velocity.
  * Pumps and changed elements first, at most 40.
  */
@@ -446,6 +531,11 @@ export function defaultRows(
 				rows.push(
 					{ quantity: 'equipmentFlow', elementId: o.componentId },
 					{ quantity: 'equipmentPressureLoss', elementId: o.componentId }
+				);
+			} else if (component?.type === 'orifice') {
+				rows.push(
+					{ quantity: 'orificeFlow', elementId: o.componentId },
+					{ quantity: 'orificePressureLoss', elementId: o.componentId }
 				);
 			} else if (component?.type === 'reservoir' || component?.type === 'reference_node') {
 				rows.push({ quantity: 'boundaryOutflow', elementId: o.componentId });

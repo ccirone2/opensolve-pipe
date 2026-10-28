@@ -26,7 +26,7 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "N", "C4", "PT", "NPY"]
 # Engineering notation in docstrings and trace text.
-allowed-confusables = ["ρ", "ν", "μ", "η", "Δ", "·", "−", "×", "–"]
+allowed-confusables = ["ρ", "ν", "μ", "η", "Δ", "·", "−", "×", "–", "α"]
 
 [tool.mypy]
 python_version = "3.12"

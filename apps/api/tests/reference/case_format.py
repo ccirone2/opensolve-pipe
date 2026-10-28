@@ -15,7 +15,8 @@ A case file ``cases/<name>.json`` holds::
                   "valves": {valveId: {"state"}},                          # optional
                   "equipment": {equipmentId: {"flow", "flowRatio", "headLoss",
                                               "pressureLoss", "pressureDrop"}},  # optional
-                  "flags": [{"code", "componentId"?, "connectionId"?}],   # optional
+                  "orifices": {orificeId: {<every OrificeResult field>}},  # optional
+                  "flags": [{"code", "componentId"?, "connectionId"?, "limit"?}],  # optional
                   "stepHolds": {branchId: {"step", "splitA", "splitB"}}}}  # optional
 
 ``vaporPressure`` may be null (the property source has none). Every pump and valve of a case
@@ -31,7 +32,14 @@ with its flow withdrawn there (SDD §4.11). An equipment item (proposal
 equipment-pressure-drop.md) has no status; its ``equipment`` entry gives the result its rating
 scales to: the flow (inlet → outlet), Q/Q_r (null for a Cv or Kv rating, which has no rated
 flow), the EGL drop inlet → outlet, ρ g times that drop (the loss) and the static pressure drop
-inlet → outlet. ``stepHolds`` names a Crane branch whose K is held across a correlation step
+inlet → outlet. An orifice plate (proposal orifice-plate.md §2.2) has no status either; its
+``orifices`` entry holds every field of its result (flow, headLoss, pressureLoss, pressureDrop,
+differentialPressure, venaContractaPressure, beta, pipeDiameter, boreDiameter, reynoldsNumber,
+dischargeCoefficient, coefficientSource, coefficientReynoldsNumber, tapCoefficientRatio,
+lossCoefficient, taps, meterDischargeCoefficient), null where the design makes it null. A flag
+may name the ``limit`` its details give (an orifice's CORRELATION_OUT_OF_RANGE, one flag per
+inequality broken, §3.5): it then matches only a flag with that ``details.limit``.
+``stepHolds`` names a Crane branch whose K is held across a correlation step
 (design §5.4) at the mean of the fluids values at splitA and splitB: the self-checks evaluate
 that branch's law with the held K.
 
@@ -56,6 +64,8 @@ from opensolve_pipe.models.components import (
     FlowCoefficient,
     IdealReferenceNode,
     IsolationValve,
+    Orifice,
+    OrificeTaps,
     Plug,
     Pump,
     PumpControl,
@@ -107,6 +117,7 @@ class Expected:
     valves: dict[str, dict[str, str]] = field(default_factory=dict)
     step_holds: dict[str, dict[str, float]] = field(default_factory=dict)
     equipment: dict[str, dict[str, float | None]] = field(default_factory=dict)
+    orifices: dict[str, dict[str, float | str | None]] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         fluid: dict[str, Any] = {
@@ -130,6 +141,8 @@ class Expected:
             out["stepHolds"] = self.step_holds
         if self.equipment:
             out["equipment"] = self.equipment
+        if self.orifices:
+            out["orifices"] = self.orifices
         return out
 
 
@@ -425,6 +438,35 @@ def equipment(
         name=f"Equipment {cid}",
         elevation=elevation,
         rating=rating,
+        ports=[
+            Port(id="inlet", nominal_size=nominal_size, elevation=inlet_elevation),
+            Port(id="outlet", nominal_size=nominal_size, elevation=outlet_elevation),
+        ],
+    )
+
+
+def orifice(
+    cid: str,
+    elevation: float,
+    bore_diameter: float,
+    *,
+    discharge_coefficient: float | None = None,
+    taps: OrificeTaps | None = None,
+    inlet_elevation: float | None = None,
+    outlet_elevation: float | None = None,
+    nominal_size: float = 0.1016,
+) -> Orifice:
+    """A square-edged orifice plate with ports inlet → outlet (proposal orifice-plate.md §2.1):
+    its bore d, m; an entered C (ISO 5167-2's C at its taps, at D and D/2 tappings without taps)
+    or None for ISO's C; its pressure taps, or None for a restriction orifice (test inputs)."""
+    return Orifice(
+        type="orifice",
+        id=cid,
+        name=f"Orifice {cid}",
+        elevation=elevation,
+        bore_diameter=bore_diameter,
+        discharge_coefficient=discharge_coefficient,
+        taps=taps,
         ports=[
             Port(id="inlet", nominal_size=nominal_size, elevation=inlet_elevation),
             Port(id="outlet", nominal_size=nominal_size, elevation=outlet_elevation),

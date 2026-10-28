@@ -30,9 +30,10 @@ FIELDS = {
     "valve:psv": _ISOLATION | {"setpoint"},
     "valve:fcv": _ISOLATION | {"setpoint"},
     "equipment": {"rating", "rating.pressureLoss", "rating.flow", "rating.density", "rating.value"},
+    "orifice": {"boreDiameter", "dischargeCoefficient"},
 }
-"""The overridable fields of each component kind, restated from the proposal's table (§2.2) and
-equipment-pressure-drop.md §5.1."""
+"""The overridable fields of each component kind, restated from the proposal's table (§2.2),
+equipment-pressure-drop.md §5.1 and orifice-plate.md §5.1."""
 
 RATING_VALUES = {
     "point": ("pressureLoss", "flow", "density"),
@@ -182,6 +183,12 @@ def _component_value(rng: random.Random, c: dict[str, Any], field: str) -> Any:
         part = field.split(".", 1)[1]
         low, high = (0.5, 2.0) if part == "pressureLoss" else (0.8, 1.25)
         return min(c["rating"][part] * rng.uniform(low, high), RATING_MAX[part])
+    if field == "boreDiameter":  # a second plate (orifice-plate.md §5.1)
+        return min(c["boreDiameter"] * rng.uniform(0.8, 1.2), ORIFICE_BORE_MAX)
+    if field == "dischargeCoefficient":  # ISO 5167-2's (null), or a calibrated or vendor's C
+        held = c.get("dischargeCoefficient")
+        entered = held * rng.uniform(0.95, 1.05) if held is not None else rng.uniform(0.58, 0.66)
+        return rng.choice([None, min(entered, 1.0)])
     raise ValueError(field)
 
 
@@ -192,6 +199,8 @@ COEFFICIENT_C = {"Cv": 1.76758281804e8, "Kv": 1.32248132708e8}
 Cv_to_K and Kv_to_K): used only to draw another datasheet's rating near the base one."""
 RATING_MAX = {"pressureLoss": 1.0e8, "flow": 100.0, "density": 3.0e4, "value": 1.0e7}
 """Upper bounds of the rating's values (equipment-pressure-drop.md §2.1)."""
+ORIFICE_BORE_MAX = 10.0
+"""m: the upper bound of an orifice plate's bore (orifice-plate.md §2.1)."""
 
 
 def _rating(rng: random.Random, rating: dict[str, Any]) -> dict[str, Any]:

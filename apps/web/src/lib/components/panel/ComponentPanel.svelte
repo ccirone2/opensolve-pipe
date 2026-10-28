@@ -36,6 +36,7 @@
 	import ControlValveForm from './forms/ControlValveForm.svelte';
 	import EquipmentForm from './forms/EquipmentForm.svelte';
 	import IsolationValveForm from './forms/IsolationValveForm.svelte';
+	import OrificeForm from './forms/OrificeForm.svelte';
 	import PumpForm from './forms/PumpForm.svelte';
 	import ReferenceNodeForm from './forms/ReferenceNodeForm.svelte';
 	import ReservoirForm from './forms/ReservoirForm.svelte';
@@ -171,6 +172,8 @@
 						<AssignedFlowForm {component} />
 					{:else if component.type === 'equipment'}
 						<EquipmentForm {component} />
+					{:else if component.type === 'orifice'}
+						<OrificeForm {component} />
 					{:else if component.type === 'plug'}
 						<p class="hint sm:col-span-2">A closed end: no flow leaves through its port.</p>
 					{/if}

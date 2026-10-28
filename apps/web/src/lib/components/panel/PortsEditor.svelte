@@ -10,6 +10,7 @@
 	import { addPort, canAddPort, removePort } from '$lib/utils/edit';
 	import { connectionAtPort, otherEnd } from '$lib/utils/graph';
 	import { componentName, npsLabel, portLabel, sameSize } from '$lib/utils/labels';
+	import { pipeAtPort } from '$lib/utils/orifice';
 	import { CUSTOM_MATERIAL_ID, updatePipe, withOptional } from '$lib/utils/piping';
 	import { schemaBounds } from '$lib/utils/schema-bounds';
 	import { formatValue } from '$lib/utils/units';
@@ -31,10 +32,7 @@
 	 * the last at the 'to' end): the solver sizes the port by it, not by the port's size.
 	 */
 	function pipeAt(connection: PipeConnection, port: Port): { pipe: PipeDefinition; index: number } {
-		const pipes = connection.piping.pipes;
-		const atFrom = connection.fromComponentId === component.id && connection.fromPortId === port.id;
-		const index = atFrom ? 0 : pipes.length - 1;
-		return { pipe: pipes[index] as PipeDefinition, index };
+		return pipeAtPort(connection, component.id, port.id);
 	}
 
 	/** "NPS 3", or "custom, 80 mm bore" for a custom pipe. */

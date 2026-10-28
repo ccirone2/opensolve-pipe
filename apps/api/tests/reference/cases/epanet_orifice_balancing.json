@@ -1,0 +1,345 @@
+{
+  "name": "epanet_orifice_balancing",
+  "description": "Two restriction orifices balancing the legs of a loop, as EPANET GPVs: verifies the plates in a looped network (the flow split they set and the EGL at every node) against EPANET 2.2.",
+  "source": "WNTR 1.5.0 EpanetSimulator (EPANET 2.2.0); see tests/reference/generate_epanet_cases.py. D-W headloss, GPM INP units, accuracy 1e-5, headerror 1e-9 ft and flowchange 1e-12 gpm (EPANET reads both in the INP units, input1.c:595-596; WNTR writes them unconverted); viscosity VISCOS = 1.1e-5 ft2/s = 1.02193344e-6 m2/s (the project's custom fluid has the same nu; its density, 1000 kg/m3, does not affect the comparison because friction depends only on nu and a surface-pressure head p/(rho g) is converted with the same rho and g on both sides); solver run in 'swamee_jain' mode. Known EPANET biases, all far inside the 0.5% criterion: EPANET's head-loss coefficients use g = 32.2 ft/s2 = 9.81456 m/s2 against our 9.80665 (0.08% in head loss), its minor-loss constant is 0.02517 against the exact 1/(2g(pi/4)^2) = 0.0251730 in US units (0.012%), its GPM flow-unit constant GPMperCFS = 448.831 differs from the exact ft3/(gal/60) by -3.8e-07 (relative, in flow), and its results are float32 (about 1e-7 relative). Orifice plates: EPANET GPV between junctions at its ports' elevations, diameter of the inlet pipe, minor loss 0, whose HEADLOSS curve tabulates the plate's own law (element_laws.OrificeLaw) at 201 evenly spaced flows from 0 to the flow at which the plate alone would take the spread of the fixed heads (network_check.gpv_span), written by WNTR in gpm and ft with six decimals (checked against network_check.gpv_table); EPANET interpolates it linearly for either flow direction, so it solves the plate's Reynolds-number dependence itself, without its g or minor-loss constant. Expected orifice results from EPANET's flow and heads (derivations_orifice.orifice_result).",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-epanet-orifice-balancing",
+    "metadata": {
+      "name": "Orifice plates balancing a loop (EPANET reference)",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "swamee_jain",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Water at EPANET's default viscosity",
+      "density": 1000.0,
+      "dynamicViscosity": 0.00102193344
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 15.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 5.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "T1",
+        "name": "Tee T1",
+        "elevation": 5.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "ORA",
+        "name": "Orifice ORA",
+        "elevation": 5.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "orifice",
+        "boreDiameter": 0.035055
+      },
+      {
+        "id": "ORB",
+        "name": "Orifice ORB",
+        "elevation": 5.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "orifice",
+        "boreDiameter": 0.04674
+      },
+      {
+        "id": "T2",
+        "name": "Tee T2",
+        "elevation": 4.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "T1",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1541,
+              "length": 100.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LA1",
+        "fromComponentId": "T1",
+        "fromPortId": "run_outlet",
+        "toComponentId": "ORA",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 40.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LA2",
+        "fromComponentId": "ORA",
+        "fromPortId": "outlet",
+        "toComponentId": "T2",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 40.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LB1",
+        "fromComponentId": "T1",
+        "fromPortId": "branch",
+        "toComponentId": "ORB",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 60.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LB2",
+        "fromComponentId": "ORB",
+        "fromPortId": "outlet",
+        "toComponentId": "T2",
+        "toPortId": "branch",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 60.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L4",
+        "fromComponentId": "T2",
+        "fromPortId": "run_outlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1541,
+              "length": 80.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 1000.0,
+      "dynamicViscosity": 0.00102193344
+    },
+    "flows": {
+      "L1": 0.023489853367209435,
+      "LA1": 0.010164638049900532,
+      "LA2": 0.010164638049900532,
+      "LB1": 0.013325215317308903,
+      "LB2": 0.013325215317308903,
+      "L4": 0.023489853367209435
+    },
+    "egl": {
+      "R1:port_1": 20.0,
+      "T1:run_inlet": 19.064098358154297,
+      "T1:run_outlet": 19.064098358154297,
+      "T1:branch": 19.064098358154297,
+      "ORA:inlet": 16.721426010131836,
+      "ORA:outlet": 5.09139347076416,
+      "ORB:inlet": 13.165817260742188,
+      "ORB:outlet": 8.647002220153809,
+      "T2:run_inlet": 2.7487220764160156,
+      "T2:run_outlet": 2.7487220764160156,
+      "T2:branch": 2.7487220764160156,
+      "R2:port_1": 2.0
+    },
+    "pressures": {
+      "ORA:inlet": 112673.74546038304,
+      "ORA:outlet": -1377.9131418069785,
+      "ORB:inlet": 76171.0029399377,
+      "ORB:outlet": 31856.56542215167
+    },
+    "orifices": {
+      "ORA": {
+        "flow": 0.010164638049900532,
+        "headLoss": 11.630032539367676,
+        "pressureLoss": 114051.65860219001,
+        "pressureDrop": 114051.65860219001,
+        "differentialPressure": null,
+        "venaContractaPressure": -33587.43232743701,
+        "beta": 0.45000000000000007,
+        "pipeDiameter": 0.0779,
+        "boreDiameter": 0.035055,
+        "reynoldsNumber": 162570.58519300658,
+        "dischargeCoefficient": 0.6030182440120899,
+        "coefficientSource": "iso_5167_2",
+        "coefficientReynoldsNumber": 162570.58519300658,
+        "tapCoefficientRatio": null,
+        "lossCoefficient": 50.150493291084295,
+        "taps": null,
+        "meterDischargeCoefficient": null
+      },
+      "ORB": {
+        "flow": 0.013325215317308903,
+        "headLoss": 4.518815040588379,
+        "pressureLoss": 44314.43751778603,
+        "pressureDrop": 44314.43751778602,
+        "differentialPressure": null,
+        "venaContractaPressure": 5537.322801678354,
+        "beta": 0.6,
+        "pipeDiameter": 0.0779,
+        "boreDiameter": 0.04674,
+        "reynoldsNumber": 213120.03844336807,
+        "dischargeCoefficient": 0.6096007098650127,
+        "coefficientSource": "iso_5167_2",
+        "coefficientReynoldsNumber": 213120.03844336807,
+        "tapCoefficientRatio": null,
+        "lossCoefficient": 11.33823672719644,
+        "taps": null,
+        "meterDischargeCoefficient": null
+      }
+    }
+  }
+}

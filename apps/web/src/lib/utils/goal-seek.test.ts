@@ -164,6 +164,10 @@ describe('catalogues (x-goal-quantities, x-goal-variables)', () => {
 			equipment_flow: 'equipmentFlow',
 			equipment_pressure_loss: 'equipmentPressureLoss',
 			equipment_pressure_drop: 'equipmentPressureDrop',
+			orifice_flow: 'orificeFlow',
+			orifice_pressure_loss: 'orificePressureLoss',
+			orifice_differential_pressure: 'orificeDifferentialPressure',
+			orifice_pressure_drop: 'orificePressureDrop',
 			boundary_outflow: 'boundaryOutflow'
 		});
 		for (const [quantity, compare] of Object.entries(GOAL_QUANTITIES)) {

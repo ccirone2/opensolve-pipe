@@ -1123,6 +1123,10 @@ export function fieldLabelFor(component: Component | undefined, field: string): 
 			return component?.type === 'equipment' && component.rating.kind !== 'point'
 				? component.rating.kind
 				: 'Flow coefficient';
+		case 'boreDiameter':
+			return 'Bore diameter';
+		case 'dischargeCoefficient':
+			return 'Discharge coefficient';
 		default:
 			return humanize(field.replace(/\./g, ' '));
 	}
@@ -1248,9 +1252,13 @@ function fluidText(value: unknown, units: UnitPreferences): string {
 	return parts.join(', ');
 }
 
+/** An orifice plate's discharge coefficient when none is entered: ISO 5167-2's, the default. */
+export const ISO_COEFFICIENT_TEXT = 'ISO 5167-2 (default)';
+
 /**
  * A change's value in display units: "2.50 m", "Off", "90 %", "Cv 120", "Carbon steel, Sch 40,
- * NPS 6". `project` names the target (its type decides a status's words and a setpoint's unit).
+ * NPS 6", "50 mm", "ISO 5167-2 (default)". `project` names the target (its type decides a status's
+ * words and a setpoint's unit).
  */
 export function changeValueText(
 	project: Project,
@@ -1318,6 +1326,12 @@ export function changeValueText(
 				? `${kind}${formatValue(value, 'dimensionless', units)}`
 				: String(value);
 		}
+		case 'boreDiameter':
+			return number('diameter');
+		case 'dischargeCoefficient':
+			// A C as entered (no unit); none entered: ISO 5167-2's, the default.
+			if (value === null || value === undefined) return ISO_COEFFICIENT_TEXT;
+			return typeof value === 'number' ? formatValue(value, 'dimensionless', units) : String(value);
 		default:
 			return typeof value === 'number' ? formatValue(value, 'dimensionless', units) : String(value);
 	}

@@ -748,7 +748,8 @@ describe('what a scenario says about its values', () => {
 describe('the words of every allow-listed number (exhaustiveness, equipment-pressure-drop.md §7.6)', () => {
 	/**
 	 * One component of every kind (the values with no default as a user enters them), a pump with
-	 * flow control and an equipment item rated by a Cv, so every allow-listed number is held.
+	 * flow control, an equipment item rated by a Cv and an orifice plate with an entered C, so every
+	 * allow-listed number is held.
 	 */
 	function samples(): Project {
 		const base = pumpTransferExample();
@@ -771,7 +772,15 @@ describe('the words of every allow-listed number (exhaustiveness, equipment-pres
 				rating: { kind: 'Cv', value: 80 }
 			}
 		);
-		return { ...base, components: [...all, controlled, cv] };
+		const plate = {
+			...createComponent(
+				'orifice',
+				{ ...sofar, components: [...all, controlled, cv] },
+				{ boreDiameter: 0.05 }
+			),
+			dischargeCoefficient: 0.6
+		} as Component;
+		return { ...base, components: [...all, controlled, cv, plate] };
 	}
 
 	/** Whether a published schema property is a number (directly or as anyOf's number). */
@@ -834,6 +843,14 @@ describe('the words of every allow-listed number (exhaustiveness, equipment-pres
 					expect(spec, where).toEqual({ category: 'dimensionless', options: {}, prefix: 'Cv ' });
 					expect(text, where).toBe('Cv 80');
 					expect(category, where).toBeNull();
+					continue;
+				}
+				if (field === 'dischargeCoefficient') {
+					// The other named exception: ISO 5167-2's C as entered, a pure number with no unit
+					// (orifice-plate.md §5.4: dimensionless in the export).
+					expect(spec, where).toEqual({ category: 'dimensionless', options: {} });
+					expect(text, where).toBe('0.6');
+					expect(category, where).toEqual({ category: 'dimensionless', options: {} });
 					continue;
 				}
 				expect(spec.category, where).not.toBe('dimensionless');

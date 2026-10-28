@@ -177,6 +177,7 @@ describe("the CSV zip's folder", () => {
 			'system-curves.csv',
 			'valves.csv',
 			'equipment.csv',
+			'orifices.csv',
 			'branches.csv',
 			'branch-ports.csv',
 			'boundaries.csv',

@@ -13,6 +13,7 @@
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import {
+		currentOrificeResult,
 		defaultsText,
 		nowText,
 		variableBounds,
@@ -48,12 +49,19 @@
 		if (variable.target.kind !== 'component' || !response?.solvedState.converged) return null;
 		return response.solvedState.valveResults[variable.target.componentId]?.kOpen ?? null;
 	});
+	/** An orifice plate's result in the case's last converged solve, unless out of date (ISO's C). */
+	const orifice = $derived(
+		variable.target.kind === 'component'
+			? currentOrificeResult(ws.store.results, variable.target.componentId)
+			: null
+	);
 	const now = $derived(
 		lapse
 			? ''
 			: nowText(ws.project, variable, {
 					prefs: ws.displayUnits,
 					kOpen,
+					orifice,
 					scenario: ws.activeScenario
 				})
 	);

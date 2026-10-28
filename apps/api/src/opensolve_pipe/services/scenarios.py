@@ -29,6 +29,7 @@ from ..models.components import (
     Equipment,
     IdealReferenceNode,
     IsolationValve,
+    Orifice,
     Plug,
     Pump,
     Reservoir,
@@ -74,6 +75,7 @@ COMPONENT_NAMES: dict[type[BaseComponent], str] = {
     CheckValve: "check valve",
     ControlValve: "control valve",
     Equipment: "equipment",
+    Orifice: "orifice",
 }
 """How messages name a component of each type."""
 
@@ -633,10 +635,15 @@ def _rating_text(rating: dict[str, Any]) -> str:
     return f"{parts[0]} at {parts[1]}, {parts[2]}"
 
 
+NULL_TEXTS = {"dischargeCoefficient": "ISO 5167-2's (the default)"}
+"""How a null value reads where null names a cited default rather than none (an orifice plate's
+discharge coefficient, proposal orifice-plate.md §5.1)."""
+
+
 def value_text(field: str, value: JsonValue, unit: str) -> str:
     """A value in notes and the methods summary (proposal §5.4), SI with its unit."""
     if value is None:
-        return "none (the default)"
+        return NULL_TEXTS.get(field, "none (the default)")
     if field == "spec" and isinstance(value, dict):
         return _spec_text(value)
     if field == "fluid" and isinstance(value, dict):

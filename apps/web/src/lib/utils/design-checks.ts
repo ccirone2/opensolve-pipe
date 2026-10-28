@@ -11,7 +11,7 @@
 import type { DesignCheckResult, UnitPreferences } from '$lib/api/types';
 import type { ElementRef } from './results';
 import { designCheckPresets } from './model-rules';
-import { formatValue, type UnitCategory } from './units';
+import { digitsApart, formatValue, type UnitCategory } from './units';
 
 export type DesignCheckId = DesignCheckResult['check'];
 /** A check's source as set: the user's values or a preset (each check allows its own). */
@@ -92,13 +92,10 @@ export function settingsSourceLabel(source: DesignCheckSource): string {
 	return source.kind === 'user' ? 'your values' : (PRESET_NAMES[source.preset] ?? source.preset);
 }
 
-/** Significant figures enough to tell any two doubles apart. */
-const MAX_DIGITS = 17;
-
 /**
  * The value and its limits in display units, with as many digits as tell them apart (4 to 17
- * significant figures), and whether a limit the value is not equal to still reads as it (a
- * unit conversion can make two doubles equal).
+ * significant figures, units.ts digitsApart), and whether a limit the value is not equal to
+ * still reads as it (a unit conversion can make two doubles equal).
  */
 function formatter(
 	result: DesignCheckResult,
@@ -109,17 +106,13 @@ function formatter(
 		(l): l is number => l !== null && l !== undefined
 	);
 	const value = result.value;
-	const same = (sig: number) =>
-		value !== null &&
-		value !== undefined &&
-		limits.some(
-			(l) =>
-				l !== value &&
-				formatValue(l, category, prefs, sig) === formatValue(value, category, prefs, sig)
-		);
-	let sig = 4;
-	while (sig < MAX_DIGITS && same(sig)) sig += 1;
-	return { fmt: (si) => formatValue(si, category, prefs, sig), tied: same(sig) };
+	const show = (si: number, sig: number) => formatValue(si, category, prefs, sig);
+	if (value === null || value === undefined) {
+		return { fmt: (si) => formatValue(si, category, prefs, 4), tied: false };
+	}
+	const sig = digitsApart(value, limits, show);
+	const tied = limits.some((l) => l !== value && show(l, sig) === show(value, sig));
+	return { fmt: (si) => formatValue(si, category, prefs, sig), tied };
 }
 
 /** "within 70 %–120 %", "below 70 %", "at most 120 %" …, for the limits set. */

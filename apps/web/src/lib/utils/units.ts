@@ -257,6 +257,27 @@ export function formatValue(
 	return unit === 'deg' ? `${text}${label}` : `${text} ${label}`;
 }
 
+/** Significant figures enough to tell any two doubles apart. */
+const MAX_DIGITS = 17;
+
+/**
+ * The significant figures, from 4 up to 17, at which `value` reads differently under `show` from
+ * every one of `others` it is not equal to: a value just past a limit never reads as the limit
+ * ("0.75005 is above 0.75", not "0.75 is above 0.75"). 17 when a unit conversion makes two doubles
+ * read the same even there.
+ */
+export function digitsApart(
+	value: number,
+	others: readonly number[],
+	show: (si: number, sig: number) => string
+): number {
+	const same = (sig: number) =>
+		others.some((other) => other !== value && show(other, sig) === show(value, sig));
+	let sig = 4;
+	while (sig < MAX_DIGITS && same(sig)) sig += 1;
+	return sig;
+}
+
 /**
  * Parse a typed number. Accepts an optional sign, decimals and an exponent ("1.5e-3"), with
  * surrounding spaces. Returns null for anything else, including empty text, so NaN is never

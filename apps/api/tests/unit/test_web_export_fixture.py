@@ -114,6 +114,15 @@ HEADERS: dict[str, list[str]] = {
         f"Rated pressure drop (loss) {DP}", f"Rated flow {Q}", f"Rated fluid density {RHO}",
         "Flow coefficient", "Flags",
     ],
+    # proposal orifice-plate.md §5.4 (the bore and pipe bore the solve used: its named departure
+    # from the screen's table, as equipment's rating)
+    "Orifice plates": [
+        "Orifice id", "Orifice", f"Flow (+ inlet → outlet) {Q}", f"Permanent pressure loss {DP}",
+        f"Differential pressure (taps) {DP}", f"Pressure drop, static {DP}", f"Head loss {H}",
+        f"Vena contracta pressure {PG}", "β", "Reynolds number (inlet pipe)",
+        "Discharge coefficient (loss)", "C from", "C evaluated at Re", "Tap ratio r", "Taps",
+        "Meter C", "Loss coefficient K", f"Bore {D}", f"Pipe bore D {D}", "Flags",
+    ],
     "Branches": [
         "Branch id", "Branch", "Type", "Loss model", "Flow pattern", "Combined port id",
         f"Combined-flow velocity {V}", "K is on", "Correlation", "In correlation range", "Flags",
@@ -608,6 +617,49 @@ def expected_equipment() -> Iterator[tuple[Any, ...]]:
             )
 
 
+def _orifice_coefficient_source(o: dict[str, Any]) -> str:
+    """Proposal orifice-plate.md §5.4's "C from": "ISO 5167-2", "ISO 5167-2 (held)" (eq. (4)
+    evaluated at a Reynolds number above the plate's, ISO's lowest), "Entered" or "Entered,
+    moved to D and D/2" (an entered C with the move's ratio, decision 13)."""
+    if o["coefficientSource"] == "entered":
+        return "Entered" if o["tapCoefficientRatio"] is None else "Entered, moved to D and D/2"
+    held = o["coefficientReynoldsNumber"] > o["reynoldsNumber"]
+    return "ISO 5167-2 (held)" if held else "ISO 5167-2"
+
+
+def expected_orifices() -> Iterator[tuple[Any, ...]]:
+    """Proposal orifice-plate.md §5.4: one row per plate and case, the result's own fields, with
+    the bore and pipe bore the solve used as the result echoes them (after any scenario, §2.2).
+    The reading is empty without taps, the vena-contracta pressure at zero flow and where the
+    pressure level is undetermined (§2.2)."""
+    for case in cases():
+        ss = state(case)
+        for c, o in _components(case, "orificeResults"):
+            yield (
+                *case_columns(case),
+                c["id"],
+                names()[c["id"]],
+                o["flow"],
+                o["pressureLoss"],
+                o["differentialPressure"],
+                o["pressureDrop"],
+                o["headLoss"],
+                o["venaContractaPressure"],
+                o["beta"],
+                o["reynoldsNumber"],
+                o["dischargeCoefficient"],
+                text_with(_orifice_coefficient_source(o)),
+                o["coefficientReynoldsNumber"],
+                o["tapCoefficientRatio"],
+                TEXT,
+                o["meterDischargeCoefficient"],
+                o["lossCoefficient"],
+                o["boreDiameter"],
+                o["pipeDiameter"],
+                _component_flags(ss, c["id"]),
+            )
+
+
 def _k_is_on(b: dict[str, Any]) -> str:
     """Decision 29: every K is on the combined-flow velocity (§2.6 Branches, `K is on`)."""
     if b["lossModel"] != "ideal" and b["combinedPortId"] is not None:
@@ -720,6 +772,9 @@ def _change_value(field: str, value: Any) -> Any:
     if field == "resistance":
         # §2.6: "{kind} {String(coefficient)}", or "Default" when null.
         return "Default" if value is None else f"{value['kind']} {js_number(value['value'])}"
+    if field == "dischargeCoefficient" and value is None:
+        # Proposal orifice-plate.md §5.4: a null C (ISO 5167-2's, the default) is written so.
+        return "ISO 5167-2 (default)"
     return value
 
 
@@ -777,6 +832,7 @@ EXPECTED_TABLES: dict[str, Callable[[], Iterator[tuple[Any, ...]]]] = {
     "Fittings": expected_fittings,
     "Valves": expected_valves,
     "Equipment": expected_equipment,
+    "Orifice plates": expected_orifices,
     "Branches": expected_branches,
     "Branch ports": expected_branch_ports,
     "Boundaries": expected_boundaries,
@@ -1020,6 +1076,8 @@ def expected_sheet_names() -> list[str]:
         ("Valves", any(s["valveResults"] for s in states)),
         # proposal equipment-pressure-drop.md §5.4: after Valves
         ("Equipment", any(s["equipmentResults"] for s in states)),
+        # proposal orifice-plate.md §5.4: after Equipment
+        ("Orifice plates", any(s["orificeResults"] for s in states)),
         ("Branches", any(s["branchResults"] for s in states)),
         ("Branch ports", any(s["branchResults"] for s in states)),
         ("Boundaries", bool(boundaries)),
@@ -1287,6 +1345,17 @@ def test_compare_cases_holds_the_api_values_and_exact_differences() -> None:
             return lambda ss: (ss["equipmentResults"][eid]["pressureLoss"], "Pa", True)
         if q == "equipmentPressureDrop":
             return lambda ss: (ss["equipmentResults"][eid]["pressureDrop"], "Pa", False)
+        # Orifice plates (proposal orifice-plate.md §5.3): the flow, the permanent loss and the
+        # reading have a true zero; the static pressure drop holds the ports' elevation and
+        # velocity terms, so it has none. The pressures are differences (no gauge marker).
+        if q == "orificeFlow":
+            return lambda ss: (ss["orificeResults"][eid]["flow"], "m³/s", True)
+        if q == "orificePressureLoss":
+            return lambda ss: (ss["orificeResults"][eid]["pressureLoss"], "Pa", True)
+        if q == "orificeDifferentialPressure":
+            return lambda ss: (ss["orificeResults"][eid]["differentialPressure"], "Pa", True)
+        if q == "orificePressureDrop":
+            return lambda ss: (ss["orificeResults"][eid]["pressureDrop"], "Pa", False)
         raise AssertionError(f"extend this reader for {q}")
 
     states = [state(c) for c in cases()]
@@ -1469,11 +1538,29 @@ def test_about_opens_with_how_to_read_the_file_and_records_the_export() -> None:
         if equipment
         else ""
     )
-    near_zero = (
-        "valve and equipment pressure drops and equipment pressure losses"
-        if equipment
-        else "valve pressure drops"
+    # Proposal orifice-plate.md §5.4: only a file with an Orifice plates sheet extends the ≈ 0
+    # clause to the plates' pressure differences and adds their sign row.
+    orifices = "Orifice plates" in workbook().sheetnames
+    drops = (
+        ["valve"] + (["equipment"] if equipment else []) + (["orifice plate"] if orifices else [])
     )
+    losses = (["equipment pressure losses"] if equipment else []) + (
+        ["orifice plate permanent losses"] if orifices else []
+    )
+
+    def and_list(items: list[str]) -> str:
+        return items[0] if len(items) < 2 else ", ".join(items[:-1]) + " and " + items[-1]
+
+    near_zero = and_list([f"{and_list(drops)} pressure drops", *losses])
+    # §5.4: the orifice sign row (the loss, reading and head loss signed as the flow)
+    sign = [
+        r for r in export if str(r[1]).startswith("Sign:") and "orifice plate" in str(r[1]).lower()
+    ]
+    assert len(sign) == (1 if orifices else 0), "the orifice plate flow sign"
+    for row in sign:
+        assert str(row[2]).startswith("+ inlet → outlet"), row
+        for part in ("permanent pressure loss", "differential pressure", "head loss"):
+            assert part in str(row[2]), part
     if equipment:  # §5.4: the flow sign for equipment, as the valves' (+ inlet → outlet)
         assert any(
             "equipment" in str(r[1]).lower() and str(r[2]).startswith("+ inlet → outlet")

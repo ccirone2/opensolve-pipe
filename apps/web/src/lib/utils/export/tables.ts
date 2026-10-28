@@ -49,9 +49,11 @@ import {
 } from '../design-checks';
 import { DIRECTION_NAMES, flowDirection } from '../assigned-flow';
 import { pumpChartData } from '../pump-chart';
+import { TAP_LABELS } from '../orifice';
 import {
 	boundaryTable,
 	branchPatternLabel,
+	orificeCoefficientSource,
 	branchVelocityBasis,
 	fittingFlags,
 	flagsForElement,
@@ -63,7 +65,12 @@ import {
 	valveStateLabel,
 	valveTypeLabel
 } from '../results';
-import { changeFieldLabel, changeTargetLabel, changeValueText } from '../scenarios';
+import {
+	changeFieldLabel,
+	changeTargetLabel,
+	changeValueText,
+	ISO_COEFFICIENT_TEXT
+} from '../scenarios';
 import { CUSTOM_MATERIAL_ID } from '../piping';
 import type { LabelOptions, UnitCategory } from '../units';
 import {
@@ -781,6 +788,71 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 		}
 	);
 
+	// Orifice plates (proposal orifice-plate.md §5.4): the results, the coefficients the solve used
+	// and where C came from, then the bore and pipe bore it used (the echoed inputs, a scenario's or
+	// a goal-seek trial's): the sheet's named departure from the screen's table, as equipment's
+	// rating. The reading is null without taps; the vena contracta pressure at zero flow and where
+	// the pressure level is undetermined.
+	const orificeIds = (c: CaseView) =>
+		orderedIds(c.structure, Object.keys(solvedOf(c).orificeResults ?? {}));
+	const orifices = table(
+		ctx,
+		'orifices',
+		'Orifice plates',
+		[
+			text('Orifice id'),
+			text('Orifice'),
+			q('Flow (+ inlet → outlet)', 'flow'),
+			q('Permanent pressure loss', 'pressure'),
+			q('Differential pressure (taps)', 'pressure'),
+			q('Pressure drop, static', 'pressure'),
+			q('Head loss', 'head'),
+			q('Vena contracta pressure', 'pressure', { gauge: true }),
+			number('β'),
+			number('Reynolds number (inlet pipe)'),
+			number('Discharge coefficient (loss)'),
+			text('C from'),
+			number('C evaluated at Re'),
+			number('Tap ratio r'),
+			text('Taps'),
+			number('Meter C'),
+			number('Loss coefficient K'),
+			q('Bore', 'diameter'),
+			q('Pipe bore D', 'diameter'),
+			text('Flags')
+		],
+		cases,
+		(c) => orificeIds(c).length,
+		function* (c) {
+			const solved = solvedOf(c);
+			for (const id of orificeIds(c)) {
+				const plate = solved.orificeResults[id]!;
+				yield [
+					id,
+					componentName(c, id),
+					u.value(plate.flow, 'flow'),
+					u.value(plate.pressureLoss, 'pressure'),
+					u.value(plate.differentialPressure, 'pressure'),
+					u.value(plate.pressureDrop, 'pressure'),
+					u.value(plate.headLoss, 'head'),
+					u.value(plate.venaContractaPressure, 'pressure'),
+					plate.beta,
+					plate.reynoldsNumber,
+					plate.dischargeCoefficient,
+					orificeCoefficientSource(plate),
+					plate.coefficientReynoldsNumber,
+					plate.tapCoefficientRatio,
+					plate.taps ? TAP_LABELS[plate.taps] : 'None',
+					plate.meterDischargeCoefficient,
+					plate.lossCoefficient,
+					u.value(plate.boreDiameter, 'diameter'),
+					u.value(plate.pipeDiameter, 'diameter'),
+					codes(flagsForElement(solved.flags, { kind: 'component', id }))
+				];
+			}
+		}
+	);
+
 	const branchIds = (c: CaseView) =>
 		orderedIds(c.structure, Object.keys(solvedOf(c).branchResults));
 	const branches = table(
@@ -1019,6 +1091,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 		systemCurves,
 		valves,
 		equipment,
+		orifices,
 		branches,
 		branchPorts,
 		boundaries,
@@ -1071,6 +1144,8 @@ export function changeCategory(
 			return { category: 'flow', options: {} };
 		case 'rating.density':
 			return { category: 'density', options: {} };
+		case 'boreDiameter':
+			return { category: 'diameter', options: {} };
 		case 'status':
 		case 'resistance':
 		case 'rating':
@@ -1142,7 +1217,11 @@ export function scenarioChangesTable(ctx: ExportContext): SheetSpec {
 				const cell = (value: unknown): CellValue => {
 					if (!applied) return null;
 					const resistance = o.kind === 'component' && o.field === 'resistance';
-					if (value === null || value === undefined) return resistance ? 'Default' : null;
+					// An orifice plate with no entered C: ISO 5167-2's, the default.
+					const coefficient = o.kind === 'component' && o.field === 'dischargeCoefficient';
+					if (value === null || value === undefined) {
+						return resistance ? 'Default' : coefficient ? ISO_COEFFICIENT_TEXT : null;
+					}
 					if (resistance) {
 						if (isRecord(value)) return `${String(value.kind)} ${String(value.value)}`;
 						return String(value);

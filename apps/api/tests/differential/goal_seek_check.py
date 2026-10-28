@@ -21,8 +21,17 @@ For every corpus project (``corpus.items()``) and n = 1 to 4, a request is drawn
    the field's published bounds (log-uniform widths for log variables), the case's value outside
    them in about one draw in ten (a clipped start). A resistance varies the coefficient the
    valve holds (K on its default, centred on the case's kOpen), another one in about one draw in
-   five (a middle start).
-2. Goals: among the case's results that have values, a quantity uniformly, then an element.
+   five (a middle start). An orifice plate's discharge coefficient on ISO 5167-2's (no number
+   held: a middle start) is centred on the C the case solved at the plate's taps; its bore stays
+   at most ``ORIFICE_BETA_MAX`` × its inlet pipe's bore and an entered C at corner or flange
+   taps at most ``ORIFICE_MOVED_C_MAX`` / r (the case's ratio of the C at D and D/2 tappings to
+   the C at its taps), so that a bound the API refuses is not drawn (proposal orifice-plate.md
+   decisions 17 and 21; a bound it refuses is tested in tests/reference/test_goal_seek.py). The
+   caps are not decision 17 (c) itself: r can be below its r_max (``ORIFICE_MOVED_C_MAX``), and a
+   bore drawn under an entered C at those taps is not capped by r_max, so a draw could reach the
+   bounds 400, counted as a violation; none on the corpus did.
+2. Goals: among the case's results that have values, a quantity uniformly, then an element
+   (an orifice plate's differential pressure only with taps: null without).
 3. Targets: the goal values at a seeded point of the bounds, solved through ``/solve`` with the
    values written by the patcher: an interior point (60 %), a point near the start (15 %), or
    that point's values pushed far beyond what the case gives (20 %, mostly unreachable); the
@@ -147,8 +156,23 @@ SPAN_FLOOR = {
     "setpoint:flow": 5.0e-3,
     "fluid.temperature": 10.0,
     "rating.density": 100.0,
+    "dischargeCoefficient": 0.1,
 }
 """The smallest width scale of a linear variable's bounds, SI (the case's value sets it above)."""
+ORIFICE_BETA_MAX = 0.75
+"""An orifice plate's bore is drawn at most this times its inlet pipe's bore (``pipeDiameter``):
+ISO 5167-2's largest β (proposal orifice-plate.md decision 11, the web's default bounds, §6 W6),
+below every β decision 17 refuses (0.97 on ISO's C, 0.82 for an entered C of 0.95 at corner
+taps)."""
+ORIFICE_MOVED_C_MAX = 0.98
+"""An entered C at corner or flange taps is drawn at most this over the case's ratio r of the C
+at D and D/2 tappings to the C at its taps: decision 17 (c) refuses C·r_max > 1, and r_max
+exceeds r by at most 0.66 % over ISO 5167-2's range (proposal orifice-plate.md §7.7 R8). Below a
+tap set's Re_lo, where each C is held at its own, r can be lower (C_L/C_M 0.9795 against r_max
+1.0018 for flange taps on 52.5 mm at β 0.7, the web review's case), and the cap may not hold."""
+ORIFICE_C_CENTRE = 0.6
+"""A discharge coefficient's centre where the case gives none (a test input: an orifice plate
+without a result, whose C was not solved; ISO 5167-2's C is about 0.6)."""
 
 
 # --------------------------------------------------------------------------- the published API
@@ -520,6 +544,34 @@ def published_limits(
     return lower, upper, lower_strict, upper_strict
 
 
+def _solved_tap_c(state: dict[str, Any], component: dict[str, Any]) -> float:
+    """The discharge coefficient an orifice plate on ISO 5167-2's C solved at its taps (at D and
+    D/2 tappings without taps: the C an entered one would be, proposal orifice-plate.md decision
+    13), or ``ORIFICE_C_CENTRE`` without a result."""
+    result = state["orificeResults"].get(component["id"])
+    if result is None:
+        return ORIFICE_C_CENTRE
+    meter = result.get("meterDischargeCoefficient")
+    return float(meter if meter is not None else result["dischargeCoefficient"])
+
+
+def _orifice_limit(state: dict[str, Any], component: dict[str, Any], field: str) -> float | None:
+    """The largest upper bound drawn for an orifice plate's value (``ORIFICE_BETA_MAX``,
+    ``ORIFICE_MOVED_C_MAX``), math.inf where none applies, or None where the case gives no inlet
+    bore to draw a bore against (a plate without a result)."""
+    result = state["orificeResults"].get(component["id"])
+    if field == "boreDiameter":
+        return None if result is None else ORIFICE_BETA_MAX * float(result["pipeDiameter"])
+    if field != "dischargeCoefficient" or component.get("taps") not in ("corner", "flange"):
+        return math.inf
+    if result is None:
+        return ORIFICE_MOVED_C_MAX / 1.03  # r ≤ 1.0225 over ISO 5167-2's range (§7.7 R6)
+    ratio = result.get("tapCoefficientRatio")
+    if ratio is None:  # ISO 5167-2's C: its C_L over its C_M is the ratio r at that flow
+        ratio = result["dischargeCoefficient"] / result["meterDischargeCoefficient"]
+    return ORIFICE_MOVED_C_MAX / float(ratio)
+
+
 def draw_bounds(
     api: Api,
     rng: random.Random,
@@ -550,6 +602,9 @@ def draw_bounds(
             v = k_open if coefficient == "K" and k_open > 0 else 1.0
     else:
         number = _number(case_value(api, case, variable), variable)
+        if number is None and field == "dischargeCoefficient":  # ISO 5167-2's: a middle start
+            assert component is not None
+            number = _solved_tap_c(state, component)
         assert number is not None
         v = number
     if scale_of(api, case, variable) == "log":
@@ -584,6 +639,11 @@ def draw_bounds(
         elif outside:
             lower = v - span * rng.uniform(1.05, 1.5)
         upper = lower + span
+    if component is not None and component["type"] == "orifice":
+        limit = _orifice_limit(state, component, field)
+        if limit is None:
+            return None
+        upper = min(upper, limit)
     width = max(abs(upper - lower), 1.0e-12)
     if lower < lo_f or (lo_strict and lower <= lo_f):
         lower = lo_f + (1.0e-6 * width if lo_strict else 0.0)
@@ -636,6 +696,14 @@ def goal_value(state: dict[str, Any], goal: dict[str, Any]) -> float | None:
             "equipment_pressure_drop": "pressureDrop",
         }[quantity]
         value = state["equipmentResults"].get(element, {}).get(field)
+    elif quantity.startswith("orifice_"):
+        field = {
+            "orifice_flow": "flow",
+            "orifice_pressure_loss": "pressureLoss",
+            "orifice_differential_pressure": "differentialPressure",
+            "orifice_pressure_drop": "pressureDrop",
+        }[quantity]
+        value = state["orificeResults"].get(element, {}).get(field)
     elif quantity == "boundary_outflow":
         value = state["boundaryResults"].get(element, {}).get("outflow")
     return None if value is None else float(value)
@@ -663,6 +731,14 @@ def goal_candidates(
     for eid in state["equipmentResults"]:
         for q in ("equipment_flow", "equipment_pressure_loss", "equipment_pressure_drop"):
             found[q].append({"quantity": q, "elementId": eid})
+    for oid in state["orificeResults"]:  # the reading only with taps: null without (goal_value)
+        for q in (
+            "orifice_flow",
+            "orifice_pressure_loss",
+            "orifice_differential_pressure",
+            "orifice_pressure_drop",
+        ):
+            found[q].append({"quantity": q, "elementId": oid})
     for bid in state["boundaryResults"]:
         component = _component(case, bid)
         name = (

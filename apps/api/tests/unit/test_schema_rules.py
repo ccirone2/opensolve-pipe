@@ -39,6 +39,7 @@ BASE: dict[str, dict[str, Any]] = {
     "CheckValve": {"type": "valve", "valveType": "check"},
     "ControlValve": {"type": "valve", "valveType": "prv", "setpoint": 0.0},
     "Equipment": {"type": "equipment", "rating": {"kind": "Cv", "value": 90.0}},
+    "Orifice": {"type": "orifice", "boreDiameter": 0.05},
 }
 """One valid instance per component schema, without its ports (test inputs)."""
 

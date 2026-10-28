@@ -149,6 +149,23 @@ export class Workspace {
 	goalSeekPrefill = $state.raw<ElementRef | null>(null);
 	/** The goal-seek setup: goals and variables (SI). Page state: not in the project or the link. */
 	goalSeekSetup = $state.raw<GoalSeekSetup>(EMPTY_SETUP);
+	/**
+	 * The pumps of the Pumps together card by slot (null in a slot: free; a member keeps its slot,
+	 * so its colour, while it stays ticked), or null: the group suggested for the pump viewed (CLAUDE.md
+	 * D21). Page state: not in the project or the link, not an undo step. The pumps ticked carry
+	 * across cases (scenarios never change topology), but the API's answer can differ by case: an
+	 * active PRV or PSV inside, a per-case status, makes it refuse the station. Its ids are
+	 * reserved (reservedIds), so a pump deleted and a new one added never takes a member's place.
+	 */
+	pumpGroup = $state.raw<readonly (string | null)[] | null>(null);
+	/**
+	 * The pumps the card last showed ticked, the suggested group included while pumpGroup is null
+	 * (the Pumps view keeps it): reserved too, so a pump of the default group deleted never comes
+	 * back ticked as a new pump with its id.
+	 */
+	pumpGroupShown = $state.raw<readonly (string | null)[]>([]);
+	/** The Pumps together card is open (page state; closed by default). */
+	pumpGroupOpen = $state(false);
 	#noticeId = 0;
 	/** The project of the case shown (the base, or the base with the active scenario's changes). */
 	#caseProject: Project;
@@ -196,7 +213,8 @@ export class Workspace {
 
 	/**
 	 * Forget the page state about the project shown (the trace open, Compare cases and its chosen
-	 * rows, the scenario manager, Settings, the last case announcement), as a reload would: the
+	 * rows, the scenario manager, Settings, the last case announcement, the pump group), as a
+	 * reload would: the
 	 * rows and cards named elements of the project before.
 	 */
 	#resetPage(): void {
@@ -211,14 +229,24 @@ export class Workspace {
 		this.goalSeekOpen = false;
 		this.goalSeekPrefill = null;
 		this.goalSeekSetup = EMPTY_SETUP;
+		this.pumpGroup = null;
+		this.pumpGroupShown = [];
+		this.pumpGroupOpen = false;
 	}
 
 	/**
 	 * Ids no new element may take (newId's alsoUsed): the components and connections the goal-seek
-	 * setup names, deleted ones included, so a row never moves to another element (§6.15).
+	 * setup names, deleted ones included, so a row never moves to another element (§6.15); and the
+	 * pumps ticked on the Pumps together card, by the user or by default (the group suggested), so
+	 * a new pump never comes back ticked in the place of a deleted member (an undo of the delete
+	 * brings that member back in its slot).
 	 */
 	get reservedIds(): string[] {
-		return reservedIds(this.goalSeekSetup);
+		const group = [...(this.pumpGroup ?? []), ...this.pumpGroupShown].filter(
+			(id): id is string => id !== null
+		);
+		const ids = [...reservedIds(this.goalSeekSetup), ...group];
+		return ids.filter((id, i) => ids.indexOf(id) === i);
 	}
 
 	/** Open the goal-seek dialog; `prefill` opens its New goal form on that element. */

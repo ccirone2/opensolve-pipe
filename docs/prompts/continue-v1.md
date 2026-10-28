@@ -9,7 +9,7 @@ You are continuing **OpenSolve Pipe**, a free, browser-based steady-state hydrau
 ## 1. Read first
 
 1. `docs/GOALS.md`: the priority order (correctness → traceability → longevity → accessibility → privacy → usability → breadth) and the feature gates. Every judgment call starts here.
-2. `CLAUDE.md`: decisions D1–D20. These record how v1 was actually built and why; treat them as binding.
+2. `CLAUDE.md`: decisions D1–D21. These record how v1 was actually built and why; treat them as binding.
 3. `docs/TSD.md` §4–§5 and §10, and `docs/SDD.md` §4–§5. They describe the implementation as built.
 4. `docs/prompts/build-v1.md` §2 (non-negotiables) and §5 (reference-suite rules). They still apply in full.
 

@@ -1,5 +1,6 @@
 """The server logs keep no query strings and no client addresses (GOALS §4.5, design §13)."""
 
+import json
 import logging
 
 import pytest
@@ -142,4 +143,42 @@ def test_a_goal_seek_request_logs_nothing_of_its_body(caplog: pytest.LogCaptureF
     assert "98.76543" not in bad.text
     logged = " ".join(r.getMessage() for r in caplog.records)
     for text in (secret, "3.456789", "34.56789", "0.0234567", "98.76543"):
+        assert text not in logged
+
+
+def test_a_pump_group_request_logs_nothing_of_its_body(caplog: pytest.LogCaptureFixture) -> None:
+    """A group curve's pumps, rises and scenario travel in the body, as the project does
+    (CLAUDE.md D20): neither its run nor its rejections (a refused group, a head range out of
+    order) log them."""
+    from tests.reference import derivations_pumps as dp
+
+    secret = "SECRET9q7"
+    project = dp.pumps_in_parallel().project.model_dump(mode="json", by_alias=True)
+    project["metadata"]["name"] = secret
+    project["scenarios"] = [{"id": "S7", "name": f"{secret} case", "overrides": []}]
+    reversed_ = json.loads(json.dumps(project))
+    for conn in reversed_["connections"]:
+        if conn["id"] == "LB1":
+            conn["toPortId"] = "discharge"
+        if conn["id"] == "LB2":
+            conn["fromPortId"] = "suction"
+    client = TestClient(app, client=("198.51.103.9", 50000))
+    url = "/api/v1/pump-group-curve"
+    with caplog.at_level(logging.DEBUG):
+        ok = client.post(
+            url,
+            json={"project": project, "scenarioId": "S7", "pumpIds": ["PA", "PB"], "numPoints": 5},
+        )
+        refused = client.post(url, json={"project": reversed_, "pumpIds": ["PA", "PB"]})
+        bad = client.post(
+            url,
+            json={"project": project, "pumpIds": ["PA"], "headMin": 34.56789, "headMax": 3.456789},
+        )
+    assert ok.status_code == 200
+    assert refused.status_code == 422
+    assert bad.status_code == 400
+    assert "34.56789" not in bad.text
+    assert "3.456789" not in bad.text
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    for text in (secret, "34.56789", "3.456789"):
         assert text not in logged

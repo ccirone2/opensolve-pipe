@@ -372,13 +372,54 @@ def _cut(
     return _min_cut(len(graph.rep), edges, sources, sinks, graph.centres)
 
 
+def _chain_end(built: BuiltNetwork, key: str) -> str | None:
+    """The reservoir or reference node a pump port leads to through a chain of connections and
+    two-port elements (pumps, valves, equipment), or None when the chain ends elsewhere (a tee
+    or wye, an assigned flow, a plug)."""
+    seen: set[str] = set()
+    while key not in seen:
+        seen.add(key)
+        if key not in built.port_connection:
+            return None
+        conn_id, end = built.port_connection[key]
+        conn = built.connections[conn_id].connection
+        comp_id, port_id = (
+            (conn.to_component_id, conn.to_port_id)
+            if end == "from"
+            else (conn.from_component_id, conn.from_port_id)
+        )
+        comp = built.components[comp_id]
+        if isinstance(comp, Reservoir | IdealReferenceNode):
+            return comp_id
+        other = {
+            "suction": "discharge",
+            "discharge": "suction",
+            "inlet": "outlet",
+            "outlet": "inlet",
+        }
+        if port_id not in other or len(comp.ports) != 2:
+            return None
+        key = f"{comp_id}:{other[port_id]}"
+    return None
+
+
 def _why_not(
     built: BuiltNetwork, graph: _Graph, members: Sequence[str], base: _Cut
 ) -> list[TopologyIssue]:
-    """The reasons the members form no station (module docstring): the cut searched again with
-    one kind of barrier lifted at a time; the places themselves when nothing explains it."""
+    """The reasons the members form no station (module docstring). With three places or more,
+    the cut is searched again with one kind of barrier lifted at a time, and a search that then
+    finds a station by structure (two places, every member facing from one to the other)
+    explains it; members drawn from, or delivering to, different reservoirs or reference nodes
+    through their own chains are named as such. Otherwise the places themselves."""
     sinks, others = _barriers(built, graph, members)
     names = _quoted_list(list(members))
+
+    def explains(lifted: set[int], pumps: Sequence[str] = ()) -> _Cut | None:
+        again = _cut(built, graph, members, sinks=sinks - lifted, plain_pumps=pumps)
+        if again.value == 2 and _shape(built, graph, members, again).sound:
+            return again
+        return None
+
     if base.value >= 3:
         # Assigned flows and other pumps inside: lift them (separately, then together).
         lifts: list[tuple[set[int], list[str]]] = [
@@ -387,10 +428,8 @@ def _why_not(
             (set(graph.assigned) | set(others), sorted(set(others.values()))),
         ]
         for lifted, pumps in lifts:
-            if not lifted:
-                continue
-            again = _cut(built, graph, members, sinks=sinks - lifted, plain_pumps=pumps)
-            if again.value != 2:
+            again = explains(lifted, pumps) if lifted else None
+            if again is None:
                 continue
             found: list[TopologyIssue] = []
             inside_af = sorted(graph.assigned[v] for v in again.inside if v in graph.assigned)
@@ -398,19 +437,18 @@ def _why_not(
                 found.append(
                     issue(
                         "ASSIGNED_FLOW_INSIDE",
-                        f"the assigned flow at {_quoted_list(inside_af)} is taken between the "
-                        f"pumps {names} and the rest of the network: a station holds no "
-                        "assigned flow between its inlet and outlet",
+                        f"the assigned flow at {_quoted_list(inside_af)} enters or leaves the "
+                        f"network between the pumps {names} and the rest of it: a station holds "
+                        "no assigned flow between its inlet and outlet",
                         inside_af,
                     )
                 )
+            index = built.network.node_index
             inside_pumps = sorted(
-                {others[v] for v in again.inside if v in others}
-                | {
-                    p
-                    for p in pumps
-                    if graph.rep[built.network.node_index[built.pumps[p].suction]] in again.inside
-                }
+                p
+                for p in pumps
+                if graph.rep[index[built.pumps[p].suction]] in again.inside
+                or graph.rep[index[built.pumps[p].discharge]] in again.inside
             )
             if inside_pumps:
                 found.append(
@@ -424,35 +462,54 @@ def _why_not(
                 )
             if found:
                 return found
-        # A reservoir or reference node inside: lift each boundary in turn.
-        explaining = []
+        # Members on different reservoirs or reference nodes, each through its own chain.
+        for side in ("suction", "discharge"):
+            ends = {_chain_end(built, f"{m}:{side}") for m in members} - {None}
+            if len(ends) > 1:
+                ids = sorted(e for e in ends if e is not None)
+                verb = "draw from" if side == "suction" else "deliver to"
+                return [
+                    issue(
+                        "DIFFERENT_BOUNDARIES",
+                        f"the pumps {names} {verb} different reservoirs or reference nodes, "
+                        f"{_quoted_list(ids)}, each through its own piping: a station has one "
+                        "inlet and one outlet, so pumps on different ones do not form one, even "
+                        "at equal levels (a scenario can change one)",
+                        ids,
+                    )
+                ]
+        # A reservoir or reference node where a station has none: lift each in turn.
+        explaining: list[tuple[str, _Cut]] = []
         for v, bid in sorted(graph.boundary.items(), key=lambda kv: kv[1]):
-            again = _cut(built, graph, members, sinks=sinks - {v})
-            if again.value == 2 and v in again.inside:
-                explaining.append(bid)
-        if len(explaining) == 1:
+            again = explains({v})
+            if again is not None and v in again.inside:
+                explaining.append((bid, again))
+        if explaining:
+            ids = [bid for bid, _ in explaining]
+            if len(explaining) == 1:
+                bid, again = explaining[0]
+                other = _quoted_list([_place_words(built, graph, v) for v in again.cut])
+                what = (
+                    f"{_boundary_words(built, bid)} is a third place where the pumps {names} "
+                    f"meet a fixed head, besides {other}"
+                )
+            else:
+                what = (
+                    f"the pumps {names} meet the fixed heads of "
+                    f"{_quoted_list([_boundary_words(built, b) for b in ids])}, one more place "
+                    "than a station has"
+                )
             return [
                 issue(
                     "FIXED_HEAD_INSIDE",
-                    f"{_boundary_words(built, explaining[0])} lies between the pumps {names} "
-                    "and the rest of the network: a station holds no fixed head between its "
-                    "inlet and outlet",
-                    explaining,
+                    f"{what}: a station meets the rest of the network at exactly two places, its "
+                    "inlet and outlet, and holds no reservoir or reference node between them",
+                    ids,
                 )
             ]
-        if len(explaining) > 1:
-            return [
-                issue(
-                    "DIFFERENT_BOUNDARIES",
-                    f"the pumps {names} connect to different reservoirs or reference nodes, "
-                    f"{_quoted_list(explaining)}: a station has one inlet and one outlet, so "
-                    "pumps drawing from (or delivering to) different ones do not form one, even "
-                    "at equal levels (a scenario can change one)",
-                    explaining,
-                )
-            ]
-    places = [_place_words(built, graph, v) for v in base.cut]
-    cut_ids = sorted({_place(built, graph, v)[0] for v in base.cut})
+    complete = base.value < CUT_LIMIT  # else the search stopped before the cut was found
+    places = [_place_words(built, graph, v) for v in base.cut] if complete else []
+    cut_ids = sorted({_place(built, graph, v)[0] for v in base.cut}) if complete else []
     if base.value >= CUT_LIMIT:
         where = f"at {CUT_LIMIT} or more places"
     elif base.value >= 3:
@@ -529,6 +586,78 @@ def _ways(
     return ways
 
 
+@dataclass(frozen=True)
+class _Shape:
+    """A two-place cut read as a station: its links and how the members face."""
+
+    inlet: int
+    """S: the vertex the members face away from (the first place when they do not tell)."""
+    outlet: int
+    inlet_part: int
+    """The part of the station (members removed) holding S; ``edges`` name parts so."""
+    outlet_part: int
+    interior: frozenset[int]
+    """Link indices inside: the members' and every link with an end inside the cut."""
+    edges: tuple[tuple[str, int, int], ...]
+    """(member, its suction's part, its discharge's part), the parts of the station with the
+    members removed (``_Parts`` roots)."""
+    oriented: bool
+    """The members tell S from D (some way from one place to the other passes a member)."""
+    forward: tuple[str, ...]
+    """Members facing S -> D on some way and never the other way."""
+    against: tuple[str, ...]
+    """Members facing D -> S on some way and never S -> D (all of them on a tie, with
+    ``forward``)."""
+    tie: bool
+    """As many members face each way (at least one): S and D cannot be told apart."""
+
+    @property
+    def sound(self) -> bool:
+        """Every member that faces a way faces S -> D: a station by structure."""
+        return self.oriented and not self.tie and not self.against
+
+
+def _shape(built: BuiltNetwork, graph: _Graph, members: Sequence[str], cut: _Cut) -> _Shape:
+    a, b = cut.cut
+    member_links = {built.pumps[m].link_index for m in members}
+    inside = cut.inside
+    interior = frozenset(
+        link for u, v, link in graph.edges if link in member_links or u in inside or v in inside
+    )
+    parts = _Parts()
+    for u, v, link in graph.edges:
+        if link in interior and link not in member_links:
+            parts.union(u, v)
+    rep, index = graph.rep, built.network.node_index
+    edges = tuple(
+        (
+            m,
+            parts.find(rep[index[built.pumps[m].suction]]),
+            parts.find(rep[index[built.pumps[m].discharge]]),
+        )
+        for m in members
+    )
+    ways = _ways(parts.find(a), parts.find(b), edges)
+    forward = {m for way in ways for m, f in way if f}
+    backward = {m for way in ways for m, f in way if not f}
+    toward_b, toward_a = sorted(forward - backward), sorted(backward - forward)
+    if len(toward_a) > len(toward_b):  # the members' majority sets the direction
+        a, b, toward_a, toward_b = b, a, toward_b, toward_a
+    tie = bool(toward_b) and len(toward_a) == len(toward_b)
+    return _Shape(
+        inlet=a,
+        outlet=b,
+        inlet_part=parts.find(a),
+        outlet_part=parts.find(b),
+        interior=interior,
+        edges=edges,
+        oriented=bool(toward_a or toward_b),
+        forward=tuple(toward_b),
+        against=tuple(toward_a),
+        tie=tie,
+    )
+
+
 def find_station(project: Project, built: BuiltNetwork, members: Sequence[str]) -> Station:
     """The station holding ``members`` (module docstring), or ``NotAStationError`` with every
     reason. ``members`` in component order; topology only (no solve), so the same in every
@@ -538,63 +667,33 @@ def find_station(project: Project, built: BuiltNetwork, members: Sequence[str]) 
     base = _cut(built, graph, members, sinks=sinks)
     if base.value != 2:
         raise NotAStationError(_why_not(built, graph, members, base))
-    a, b = base.cut
-    member_links = {built.pumps[m].link_index: m for m in members}
-    inside = base.inside
-    interior = frozenset(
-        link for u, v, link in graph.edges if link in member_links or u in inside or v in inside
-    )
-    parts = _Parts()
-    for u, v, link in graph.edges:
-        if link in interior and link not in member_links:
-            parts.union(u, v)
-    rep = graph.rep
-    index = built.network.node_index
-    edges = [
-        (
-            m,
-            parts.find(rep[index[built.pumps[m].suction]]),
-            parts.find(rep[index[built.pumps[m].discharge]]),
-        )
-        for m in members
-    ]
-    pa, pb = parts.find(a), parts.find(b)
-    ways = _ways(pa, pb, edges)
-    forward = {m for way in ways for m, f in way if f}
-    backward = {m for way in ways for m, f in way if not f}
-    toward_b = sorted(forward - backward)  # face a -> b
-    toward_a = sorted(backward - forward)
+    shape = _shape(built, graph, members, base)
+    a, b, interior = shape.inlet, shape.outlet, shape.interior
     issues: list[TopologyIssue] = []
-    oriented = bool(toward_a or toward_b)
-    if len(toward_b) == len(toward_a) and toward_b:
-        named = _component_order(project, toward_a + toward_b)
+    if shape.tie:
+        named = list(_component_order(project, shape.forward + shape.against))
         issues.append(
             issue(
                 "MEMBER_REVERSED",
-                f"the pumps {_quoted_list(list(named))} face opposite ways between the "
-                f"station's two ports, {_place_words(built, graph, a)} and "
-                f"{_place_words(built, graph, b)}: a station's pumps all deliver from its inlet "
-                "to its outlet",
-                list(named),
+                f"the pumps {_quoted_list(named)} face opposite ways between the station's two "
+                f"ports, {_place_words(built, graph, a)} and {_place_words(built, graph, b)}: "
+                "a station's pumps all deliver from its inlet to its outlet",
+                named,
             )
         )
-    elif toward_a or toward_b:
-        if len(toward_a) > len(toward_b):
-            a, b, pa, pb = b, a, pb, pa
-            toward_a, toward_b = toward_b, toward_a
-        if toward_a:
-            against = list(_component_order(project, toward_a))
-            verb = "faces" if len(against) == 1 else "face"
-            issues.append(
-                issue(
-                    "MEMBER_REVERSED",
-                    f"pump {_quoted_list(against)} {verb} from the station's outlet "
-                    f"{_place_words(built, graph, b)} to its inlet "
-                    f"{_place_words(built, graph, a)}, against the other pumps: a station's "
-                    "pumps all deliver from its inlet to its outlet",
-                    against,
-                )
+    elif shape.against:
+        against = list(_component_order(project, shape.against))
+        verb = "faces" if len(against) == 1 else "face"
+        issues.append(
+            issue(
+                "MEMBER_REVERSED",
+                f"pump {_quoted_list(against)} {verb} from the station's outlet "
+                f"{_place_words(built, graph, b)} to its inlet {_place_words(built, graph, a)}, "
+                "against the other pumps: a station's pumps all deliver from its inlet to its "
+                "outlet",
+                against,
             )
+        )
     for cid, data in built.valves.items():
         valve = data.component
         if (
@@ -616,8 +715,9 @@ def find_station(project: Project, built: BuiltNetwork, members: Sequence[str]) 
             )
     if issues:
         raise NotAStationError(issues)
-    ways = _ways(pa, pb, edges) if oriented else []  # S = a, D = b from here on
-    arrangement = _arrangement(pa, pb, edges, ways, oriented)
+    pa, pb, edges = shape.inlet_part, shape.outlet_part, shape.edges
+    ways = _ways(pa, pb, edges) if shape.oriented else []  # S = a, D = b from here on
+    arrangement = _arrangement(pa, pb, edges, ways, shape.oriented)
     comps: set[str] = set()
     conns: set[str] = set()
     for link in interior:
@@ -626,7 +726,7 @@ def find_station(project: Project, built: BuiltNetwork, members: Sequence[str]) 
             conns.add(sl.connection_id)
         elif sl.component_id is not None:
             comps.add(sl.component_id)
-    for v in inside:  # plugs and other ports inside without a link of their own
+    for v in base.inside:  # plugs and other ports inside without a link of their own
         if v not in graph.boundary:
             comps.add(built.network.nodes[v].component_id)
     return Station(
@@ -641,7 +741,7 @@ def find_station(project: Project, built: BuiltNetwork, members: Sequence[str]) 
         ),
         interior_links=interior,
         arrangement=arrangement,
-        oriented=oriented,
+        oriented=shape.oriented,
         ways=tuple(tuple(m for m, f in way if f) for way in ways),
         interior_component_ids=_component_order(project, comps),
         interior_connection_ids=tuple(c.id for c in project.connections if c.id in conns),

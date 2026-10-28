@@ -1243,7 +1243,7 @@ pnpm test        # vitest --run (unit and component tests, §10.3)
 pnpm test:e2e    # playwright test (builds and previews the site, starts the API with uv, §10.3)
 ```
 
-CI (`.github/workflows/ci.yml`) runs `pnpm check`, `pnpm lint` and `pnpm test` with a frozen lockfile. In a separate job it checks that the generated API types are current (`pnpm gen:types && git diff --exit-code -- src/lib/api`) and runs `pnpm test:e2e`.
+CI (`.github/workflows/ci.yml`) runs `pnpm check`, `pnpm lint` and `pnpm test` with a frozen lockfile. In a separate job it checks that the generated API types are current (`pnpm gen:types && git diff --exit-code -- src/lib/api`) and runs `pnpm test:e2e`. That job runs on `ubuntu-24.04`, pinned: `ubuntu-latest` is moving to Ubuntu 26.04 (GitHub, from 2026-10-19), where Playwright 1.56.1 has no Chromium to install.
 
 No Docker, database or Redis is needed for v1 development.
 

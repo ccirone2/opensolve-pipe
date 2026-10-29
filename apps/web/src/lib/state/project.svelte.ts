@@ -1447,8 +1447,8 @@ export class ProjectStore {
 	 * (default: the active one), by loadGroupCurve()'s rules, once the group curve of the same
 	 * pumps has answered for that solve with a duty, or been refused for an active PRV or PSV
 	 * inside only (wantsGroupSystemCurve); before that, or after any other answer, nothing is
-	 * sent. The flows sampled are the API's default (from 0 to 1.2 × the largest of the duty's
-	 * flow and the group curve's flows).
+	 * sent. The flows sampled are the API's default (from the lower of 0 and the duty's flow to
+	 * 1.2 × the largest of the duty's flow and the group curve's flows, SDD §4.17).
 	 */
 	loadGroupSystemCurve(
 		pumpIds: readonly string[],

@@ -1131,7 +1131,7 @@ def system_network(built: BuiltNetwork, station: Station) -> tuple[BuiltNetwork,
     s, d = station.inlet[0], station.outlet[0]
     virtual = SolverLink(
         index=len(net.links),
-        key=f"station of {', '.join(station.members)}",
+        key=f"station {'+'.join(station.members)}",  # the outer loop's words: 'station PA+PB'
         kind=LinkKind.PUMP,
         start=s,
         end=d,

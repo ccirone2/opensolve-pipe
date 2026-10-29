@@ -1164,7 +1164,8 @@ def _with_flow_controlled_pump(data: dict[str, Any]) -> None:
 def test_points_name_the_station_s_pumps_never_its_forced_flow() -> None:
     """At the flow controlled pump P3 holds, the station's flow and P3's over-control each other:
     the point names P3 and the station's pumps (the outer loop names the forced link by its key,
-    which is no component), and a station of one pump names what its own system curve names."""
+    which is no component, and its words call it 'station PA+PB', so a list of controls stays
+    readable), and a station of one pump names what its own system curve names."""
     data = _parallel()
     _with_flow_controlled_pump(data)
     project = Project.model_validate(data)
@@ -1172,6 +1173,7 @@ def test_points_name_the_station_s_pumps_never_its_forced_flow() -> None:
     [mid] = [p for p in sc.system_points if p.flow == 0.04]
     assert mid.reason == "not_converged"
     assert mid.component_ids == ["P3", "PA", "PB"]
+    assert "the controls P3, station PA+PB are in series" in mid.message
     _component(data, "PB")["status"] = "off"
     project = Project.model_validate(data)
     one = group_system_curve(project, ["PA"], flow_min=0.0, flow_max=0.08, num_points=3)

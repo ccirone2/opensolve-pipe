@@ -168,7 +168,7 @@ active PRV or PSV inside does not refuse):
   pump' -> 'the station', 'suction' -> 'inlet', 'discharge' -> 'outlet', 'the head across' ->
   'the rise across': a valve's own inlet and outlet are never mapped, since only the pump's
   message is rewritten); for ``not_converged`` the outer loop names the forced element itself,
-  'station of p' for 'p', and lists it last among the controls whose pressure is undetermined,
+  'station p' for 'p', and lists it last among the controls whose pressure is undetermined,
   so those two are normalised too. The grid flow the duty stands for is the duty's solve, warm
   from the case's, not /system-curve's: it is compared within D6 and counted (equal, within D6,
   another state), not a violation. A pump with no duty (the case not converged, S or D closed
@@ -2216,10 +2216,10 @@ def in_station_words(message: str) -> str:
 
 def controls_named(message: str, pump: str, station: bool) -> str:
     """A not_converged message with the forced element named by the pump's id (the outer loop
-    names a station's virtual link 'station of <pump>') and the controls whose pressure is
+    names a station's virtual link 'station <pump>') and the controls whose pressure is
     undetermined listed in sorted order (it lists the virtual link last)."""
     if station:
-        message = message.replace(f"station of {pump}", pump)
+        message = message.replace(f"station {pump}", pump)
     return re.sub(
         r"(between controls )(.+?)( is undetermined)",
         lambda mo: mo.group(1) + ", ".join(sorted(mo.group(2).split(", "))) + mo.group(3),

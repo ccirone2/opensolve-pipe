@@ -5,8 +5,9 @@
  * the API's `x-relief-data` (model-rules.ts RELIEF_DATA, the API's data/api526_orifices.json),
  * never copied (D10); nothing here is solved: the solve's results carry the values it used.
  */
-import type { ReliefValve, ReliefValveResult, UnitPreferences } from '../api/types';
+import type { Project, ReliefValve, ReliefValveResult, UnitPreferences } from '../api/types';
 import type { CapacityField, CapacityKind } from './factory';
+import { humanize } from './labels';
 import { api526Letters, RELIEF_DATA } from './model-rules';
 import { displayUnit, formatNumber, formatValue, fromSI } from './units';
 
@@ -39,6 +40,30 @@ export const RELIEF_STATE_LABELS: Readonly<Record<ReliefValveResult['state'], st
 	partial_lift: 'Partial lift',
 	full_lift: 'Full lift'
 };
+
+/**
+ * The state of a valve locked closed (gagged, or isolated by its block valve): closed whatever
+ * the pressure difference across it, so its Δp ÷ set can be well above 100 %.
+ */
+export const RELIEF_LOCKED_STATE = 'Closed (locked)';
+
+/**
+ * A relief valve's solved state in words, with its status as solved: `inputs` is the case's
+ * project as it was solved (the store's caseInputs; null when not known, and then the state
+ * alone). A locked-closed valve reads RELIEF_LOCKED_STATE, since its result alone cannot tell it
+ * from an active valve below its set; every other state reads RELIEF_STATE_LABELS.
+ */
+export function reliefStateLabel(
+	state: ReliefValveResult['state'],
+	id: string,
+	inputs: Project | null | undefined
+): string {
+	const valve = inputs?.components.find((c) => c.id === id);
+	if (state === 'closed' && valve?.type === 'relief_valve' && valve.status === 'locked_closed') {
+		return RELIEF_LOCKED_STATE;
+	}
+	return RELIEF_STATE_LABELS[state] ?? humanize(state);
+}
 
 /** Where the overpressure a solve used came from (ReliefValveResult.overpressureSource). */
 export const OVERPRESSURE_SOURCE_LABELS: Readonly<
@@ -150,11 +175,29 @@ export function defaultOverpressureLine(
 
 /**
  * The read-only line of the preliminary kinds (a letter, an effective area): API 520's effective
- * coefficient and ASME's overpressure, never changed (decision 7).
+ * coefficient and ASME's overpressure, never changed (decision 7), with the set ASME's
+ * overpressure covers (ASME VIII's 15 psi scope, from x-relief-data). A set entered below it is a
+ * warning: no source gives the overpressure there, so the solve refuses a letter or an effective
+ * area (RELIEF_VALVE_OUT_OF_RANGE) and only a certified capacity with its overpressure can be
+ * used, as the certified kind's line says (defaultOverpressureLine).
  */
-export function preliminaryLine(units: UnitPreferences): string {
+export function preliminaryLine(
+	units: UnitPreferences,
+	setPressure: number | null | undefined = null
+): { text: string; warning: boolean } {
 	const kd = formatNumber(RELIEF_DATA.effectiveDischargeCoefficient);
-	return `API 520's effective coefficient of discharge ${kd} and ${asmeRuleText(units)} overpressure: preliminary sizing values, never mixed with a valve's certified ones.`;
+	const scope = asmeScopeText(units);
+	const text = `API 520's effective coefficient of discharge ${kd} and ${asmeRuleText(units)} overpressure, for a set of at least ${scope}, ASME VIII's scope: preliminary sizing values, never mixed with a valve's certified ones.`;
+	const below =
+		typeof setPressure === 'number' &&
+		Number.isFinite(setPressure) &&
+		setPressure < RELIEF_DATA.asmeMinimumSetPressure;
+	return below
+		? {
+				text: `${text} This set is below ${scope}, where no source gives the overpressure: give the capacity as a certified area and coefficient, with the valve's full-lift overpressure.`,
+				warning: true
+			}
+		: { text, warning: false };
 }
 
 /** The labels of a capacity's values, as the form names them. */

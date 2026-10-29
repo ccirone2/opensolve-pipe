@@ -282,6 +282,52 @@ describe('the Relief valves sheet', () => {
 		expect(t.get(row, 'Covering letter')).toBe('H');
 	});
 
+	it('reads a valve locked closed in a case as solved "Closed (locked)", as the screen and Compare do', () => {
+		const relieving = withRelief(fixtureInput('scenarios')); // SI, all three cases
+		const scenario = relieving.cases[1]!;
+		const inputs = {
+			...scenario.inputs!,
+			components: scenario.inputs!.components.map((c) =>
+				c.id === 'RV9' ? ({ ...c, status: 'locked_closed' } as Component) : c
+			)
+		};
+		const solved = scenario.response!.solvedState;
+		solved.reliefValveResults.RV9 = {
+			...solved.reliefValveResults.RV9!,
+			state: 'closed',
+			flow: 0,
+			lift: 0,
+			flowRatio: 0,
+			setRatio: 1.3
+		};
+		// The second case as solved with RV9 locked closed; Compare's one row, RV9's state.
+		const input: ExportInput = {
+			...relieving,
+			cases: relieving.cases.map((c, i) => (i === 1 ? { ...c, inputs } : c)),
+			compareRows: [{ quantity: 'reliefState', elementId: 'RV9' }]
+		};
+		const bundle = buildExport(input);
+		const t = readSheet(bundle, 'relief-valves');
+		const state = (caseId: string | null) =>
+			t.get(
+				t.rows.find(
+					(r) => t.get(r, 'Case id') === caseId && t.get(r, 'Relief valve id') === 'RV9'
+				)!,
+				'State'
+			);
+		expect(state(scenario.id)).toBe('Closed (locked)');
+		// The base case, active and relieving.
+		expect(state(null)).toBe('Partial lift');
+		const screen = reliefTable(input.project, solved, input.prefs, inputs);
+		expect(screen.rows.find((r) => r.key === 'RV9')?.cells.state).toBe('Closed (locked)');
+		// Compare cases: the base case's state, then this case's.
+		const compare = readSheet(bundle, 'compare-cases');
+		const row = compare.rows.find(
+			(r) => compare.get(r, 'Quantity') === 'State' && compare.get(r, 'Element id') === 'RV9'
+		)!;
+		expect(row.slice(5, 7)).toEqual(['Partial lift', 'Closed (locked)']);
+	});
+
 	it('is left out without relief valves, and holds no values from a solve that did not converge', () => {
 		expect(sheetIds(buildExport(withoutReliefValves(fixtureInput('pump-transfer'))))).not.toContain(
 			'relief-valves'

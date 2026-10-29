@@ -1672,17 +1672,19 @@ def _capacity_part_reason(component: ReliefValve, field: str) -> str:
     return f"the relief valve's capacity is {kind} in this case ({field} applies to {holds})"
 
 
-def _rated_otherwise(base: object, case: object) -> bool:
-    """The base rates an equipment item by another kind than the case does (a Kv, or a point,
-    where the case's scenario rates it by a Cv): the base's number is then not a value of the
-    variable (a Kv of 60 is a Cv of about 69.4), so the variable reports no base value. A relief
-    valve's capacity likewise: an effective area is not an actual area (proposal
-    pressure-relief-valve.md decision 18)."""
+def _rated_otherwise(base: object, case: object, field: str) -> bool:
+    """For a variable inside an equipment item's rating, the base rates the item by another kind
+    than the case does (a Kv, or a point, where the case's scenario rates it by a Cv): the base's
+    number is then not a value of the variable (a Kv of 60 is a Cv of about 69.4), so the
+    variable reports no base value. A value inside a relief valve's capacity likewise: an
+    effective area is not an actual area (proposal pressure-relief-valve.md decision 18). Any
+    other value of the element (a relief valve's set pressure) is the same value in either kind
+    (``goal_seek_check.rated_otherwise``)."""
     if isinstance(base, ReliefValve) and isinstance(case, ReliefValve):
-        return base.capacity.kind != case.capacity.kind
+        return field.startswith("capacity.") and base.capacity.kind != case.capacity.kind
     if not isinstance(base, Equipment) or not isinstance(case, Equipment):
         return False
-    return base.rating.kind != case.rating.kind
+    return field.startswith("rating.") and base.rating.kind != case.rating.kind
 
 
 def _resolve_variable(
@@ -1787,7 +1789,7 @@ def _resolve_variable(
     base_plan = plan_override(project, i, override)
     if base_plan.target is not None and base_plan.entry is not None:
         base_value = _json(_walk(base_plan.target, base_plan.entry.path))
-        if _rated_otherwise(base_plan.target, target):
+        if _rated_otherwise(base_plan.target, target, variable.field):
             base_value = None  # the base's number is not a value of this variable
     else:  # the base fluid is custom: its (informational) temperature, if any
         base_value = _json(_walk(project, entry.path))
@@ -2028,8 +2030,8 @@ _RELIEF_BOUND_TEXTS: dict[str, str] = {
     ),
     "representable": (
         "the relief valve's law is not representable in floating point at this {what} (Kd·A, "
-        "its capacity at full lift or its band coefficient is not a finite positive normal "
-        "number)"
+        "its square, its capacity at full lift, its band coefficient or its band root's scale "
+        "is not a finite positive normal number)"
     ),
 }
 """Decision 14's rules at a bound, located by index: no id or value (D10, SDD §5.1.2)."""
@@ -2053,11 +2055,11 @@ def _relief_bound_issues(
     area, rated coefficient or overpressure (the other values as the case holds them); decision
     14's issue for this valve there, as an input problem located by index that quotes no value.
     Each of decision 14's tests is monotone in each of these values alone (the scope refuses
-    sets below a bound; C = Kd·A, Q_f and R are each monotone in each value), so for one such
-    variable the two builds prove that every trial builds. A scope refusal at a bound of the
-    set does not apply where the same valve's overpressure is also a variable: every trial
-    then writes an overpressure, never ASME's default. The case's own 422 keeps the builder's
-    quoting text."""
+    sets below a bound; C = Kd·A, C², Q_f, R and the band root's scale are each monotone in each
+    value), so for one such variable the two builds prove that every trial builds. A scope
+    refusal at a bound of the set does not apply where the same valve's overpressure is also a
+    variable: every trial then writes an overpressure, never ASME's default. The case's own 422
+    keeps the builder's quoting text."""
     try:
         build_network(trial, fluid)
     except TopologyError as exc:

@@ -378,14 +378,23 @@ def require_regimes(nu: float, pairs: Sequence[tuple[float, Line]], regime: dv.R
             dv.require_regime(q, line.d, nu, regime)
 
 
-def branch_flow(law: el.ReliefLaw, dh: float, to_rv: Line, from_rv: Line, nu: float) -> float:
+def branch_flow(
+    law: el.ReliefLaw,
+    dh: float,
+    to_rv: Line,
+    from_rv: Line,
+    nu: float,
+    method: FrictionMethod = "colebrook",
+) -> float:
     """The flow through to_rv → valve → from_rv under the EGL difference dh between the line's
     ends: 0 while dh does not exceed h_set (the valve stays closed, its pipes at rest), else the
-    root of h_in(Q) + h(Q) + h_out(Q) = dh (brentq: h increases strictly, proposal §3.1)."""
+    root of h_in(Q) + h(Q) + h_out(Q) = dh (brentq: h increases strictly, proposal §3.1), its
+    pipes' friction by ``method``, as the rest of the network's."""
     if dh <= law.h_set():
         return 0.0
     return dv.solve_flow(
-        lambda q: to_rv.head_loss(q, nu) + law.head(q) + from_rv.head_loss(q, nu), dh
+        lambda q: to_rv.head_loss(q, nu, method) + law.head(q) + from_rv.head_loss(q, nu, method),
+        dh,
     )
 
 
@@ -464,7 +473,7 @@ class NetworkM:
         def relief(h: float) -> float:
             if self.element.status == "locked_closed":
                 return 0.0
-            return branch_flow(law, h - self.h3, M_TO_RV, M_FROM_RV, nu)
+            return branch_flow(law, h - self.h3, M_TO_RV, M_FROM_RV, nu, method)
 
         h = float(
             brentq(

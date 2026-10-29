@@ -36,6 +36,8 @@ from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 
 from ...models.components import (
+    ASME_OVERPRESSURE_FLOOR,
+    ASME_OVERPRESSURE_FRACTION,
     RELIEF_DATA,
     Api526Orifice,
     AssignedFlow,
@@ -146,6 +148,7 @@ from .relief import (
     API_526,
     API_CONSTANT,
     ASME_DEFAULT_WORDS,
+    ASME_SCOPE_WORDS,
     CONSTANT_EXCESS,
     DECISION,
     EXACT_CONSTANT,
@@ -2624,6 +2627,12 @@ def _relief_trace(ctx: TraceInputs, data: ValveData) -> ElementTrace:
         "(v_in, v_out: the velocities in the connected pipes)"
     )
     t.equation("Δp_f = Δp_s (1 + op): the pressure difference at full lift")
+    if relief.overpressure_source == "asme_default":
+        t.equation(
+            f"op = max({ASME_OVERPRESSURE_FRACTION:g}, {FLOOR_PSI} psi/Δp_s), {FLOOR_PSI} psi = "
+            f"{_num(ASME_OVERPRESSURE_FLOOR)} Pa: ASME's liquid certification overpressure (the "
+            f"default), cited for a set of at least {ASME_SCOPE_WORDS}"
+        )
     t.equation(
         "x = clip((Δp_t − Δp_s)/(Δp_f − Δp_s), 0, 1): the lift, rising linearly from the set to "
         "full lift (a convention)"
@@ -2673,6 +2682,26 @@ def _relief_trace(ctx: TraceInputs, data: ValveData) -> ElementTrace:
     t.value("Band coefficient R = (Δp_f − Δp_s)/(C √(2/ρ))", law.band_coefficient, "Pa^1.5·s/m³")
     t.value("Set head h_set = Δp_s/(ρ g) + z_in − z_out", law.h_set, M)
     t.value("Slope at zero flow dh/dQ(0⁺) = R/(√Δp_s ρ g)", law.slope_at_zero(), "s/m²")
+    t.value(
+        "Loss coefficient at full lift on the inlet pipe's bore, K = (A_in/C)²: from Q_f on, "
+        "Δp_t = K ρ v_in²/2 (for comparison; the law above is used)",
+        data.resistance.k,
+        NO_UNIT,
+    )
+    if relief.overpressure_source == "asme_default":
+        floor = ASME_OVERPRESSURE_FLOOR / comp.set_pressure
+        fraction = ASME_OVERPRESSURE_FRACTION
+        ratio = (
+            f"{FLOOR_PSI} psi/Δp_s = {_num(ASME_OVERPRESSURE_FLOOR)}/{_num(comp.set_pressure)} = "
+            f"{_num(floor)}"
+        )
+        term = (
+            f"its {FLOOR_PSI} psi floor, {ratio} > {fraction:g}"
+            if floor > fraction
+            else f"its {fraction * 100:g} %, {ratio} {'<' if floor < fraction else '='} "
+            f"{fraction:g}"
+        )
+        t.note(f"ASME's default overpressure at this set is {term}: op = {_num(law.overpressure)}.")
     result = ctx.relief_valves.get(comp.id)
     if not isinstance(capacity, CertifiedOrifice):
         letter = covering_letter(relief.area)
@@ -2786,6 +2815,10 @@ def _relief_trace(ctx: TraceInputs, data: ValveData) -> ElementTrace:
     return t.build()
 
 
+FLOOR_PSI = f"{RELIEF_DATA['asmeOverpressureFloor']['psi']:g}"
+"""ASME's overpressure floor in psi, as the data file gives it ("3")."""
+
+
 def _letter_source(capacity: Api526Orifice) -> str:
     """The data file's citation of an API 526 letter's area."""
     entry = next(o for o in RELIEF_DATA["orifices"] if o["letter"] == capacity.letter)
@@ -2823,13 +2856,20 @@ def _relief_state_note(
             "cvstatus with the cracking head h_set; reverse flow also closes it)."
         )
         return
-    state = result.state.replace("_", " ")
-    t.note(
-        f"Open, {state} (x = {_num(result.lift)}): the difference across it has not fallen below "
-        f"its set by more than ρ g Htol, "
+    rule = (
+        "the difference across it has not fallen below its set by more than ρ g Htol, "
         f"{_ineq('EGL_in − EGL_out', dh, '≥', 'h_set − Htol', h_set - HTOL)}, and "
-        f"{_forward(result.flow)} (EPANET 2.2 cvstatus with the cracking head h_set)."
+        f"{_forward(result.flow)} (EPANET 2.2 cvstatus with the cracking head h_set)"
     )
+    if result.flow <= 0.0:
+        # the rule closes it only below −Qtol; the result labels no forward flow closed (§12)
+        t.note(
+            "Open at its switch, reported closed (no forward flow, x = 0): the status rule keeps "
+            f"it open, since {rule}; its flow is zero to within that tolerance."
+        )
+        return
+    state = result.state.replace("_", " ")
+    t.note(f"Open, {state} (x = {_num(result.lift)}): {rule}.")
 
 
 def element_traces(ctx: TraceInputs) -> dict[str, ElementTrace]:

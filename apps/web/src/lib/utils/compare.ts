@@ -28,7 +28,7 @@ import type {
 import type { CaseStatus, ResultsState } from '../state/project.svelte';
 import { componentById, connectionById } from './graph';
 import { portLabel } from './labels';
-import { RELIEF_STATE_LABELS } from './relief';
+import { reliefStateLabel } from './relief';
 import {
 	connectionName,
 	fastestLink,
@@ -117,7 +117,15 @@ interface Spec {
 	/** A relative difference is meaningful (a true zero). */
 	relative?: boolean;
 	element: ElementKind;
-	value: (solved: SolvedState, row: CompareRow) => number | string | null | undefined;
+	/**
+	 * The row's value in a case's solved state; `inputs` is that case's project as solved (null or
+	 * absent: not known), for a value that also reads an input (a relief valve's status).
+	 */
+	value: (
+		solved: SolvedState,
+		row: CompareRow,
+		inputs?: Project | null
+	) => number | string | null | undefined;
 	/** Where a network extreme occurs, for the cell's second line. */
 	where?: (solved: SolvedState, project: Project) => string;
 }
@@ -293,9 +301,10 @@ export const QUANTITIES: Readonly<Record<Quantity, Spec>> = {
 	reliefState: {
 		label: 'State',
 		element: 'relief',
-		value: (s, r) => {
+		value: (s, r, inputs) => {
 			const v = relief(s, r);
-			if (v) return RELIEF_STATE_LABELS[v.state];
+			// A locked-closed valve reads "Closed (locked)", from its status as that case was solved.
+			if (v && r.elementId) return reliefStateLabel(v.state, r.elementId, inputs);
 			// No result: a side closed off or on an undetermined level (its flag says which).
 			return flagsOf(s.flags, r).some((flag) => flag.code === 'RELIEF_VALVE_CLOSED')
 				? RELIEF_NO_RESULT
@@ -662,6 +671,11 @@ export interface CompareColumn {
 	 * are current), so its connections' values are read on the connections as they are now.
 	 */
 	sent?: Project | null;
+	/**
+	 * The case's project as solved (the store's caseInputs; null or absent: not known), for the
+	 * inputs a value is read with: a relief valve's status (a locked-closed valve's state).
+	 */
+	inputs?: Project | null;
 }
 
 /** Why a connection's value in a case reads otherwise, or is not given (a cell's note). */
@@ -685,7 +699,7 @@ export function compareValue(
 ): { value: number | string | null; note?: string } {
 	const spec = QUANTITIES[row.quantity];
 	if (!column.solved) return { value: null };
-	const value = spec.value(column.solved, row) ?? null;
+	const value = spec.value(column.solved, row, column.inputs ?? null) ?? null;
 	if (spec.element !== 'connection' || typeof value !== 'number' || !row.elementId) {
 		return { value };
 	}

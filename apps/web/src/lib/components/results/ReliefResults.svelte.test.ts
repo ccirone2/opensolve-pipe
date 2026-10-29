@@ -121,7 +121,7 @@ describe('relief valve results', () => {
 			code: 'RELIEF_VALVE_CLOSED',
 			severity: 'info',
 			message:
-				"relief valve 'RV1' is closed and has no result: the section on its inlet side has no fixed pressure level (UNDETERMINED_PRESSURE), so the pressure difference across it is undetermined; every level of that section at which the difference does not exceed its set pressure (500000 Pa) is a steady state",
+				"relief valve 'RV1' is closed and has no result: the section on its inlet side has no fixed pressure level (UNDETERMINED_PRESSURE), so the pressure difference across it is undetermined; the valve stays closed at every level of that section at which the difference does not exceed its set pressure (500000 Pa); whether such a level is a steady state depends also on the other elements around that section",
 			componentId: 'RV1',
 			details: { side: 'inlet', section: 'floating', setHead: 51.09, setPressure: 500000 }
 		});
@@ -131,6 +131,45 @@ describe('relief valve results', () => {
 			.getByRole('rowheader', { name: /^Discharge relief/ })
 			.closest('tr')!;
 		expect(cells(row)).toEqual(['Closed (no result)', ...Array(9).fill('—')]);
+	});
+
+	it('read a locked-closed valve as Closed (locked) above its set, and the note says it stays closed', async () => {
+		// Gagged, with 213.9 % of its set across it (the review's probe of the real API).
+		const locked = reliefProject({ status: 'locked_closed' });
+		const ws = await solveWith(
+			reliefSolved({
+				state: 'closed',
+				flow: 0,
+				lift: 0,
+				flowRatio: 0,
+				setRatio: 2.139156272608546,
+				inletPressure: 1069578
+			}),
+			locked
+		);
+		const table = await openReliefView();
+		const row = within(table)
+			.getByRole('rowheader', { name: /^Discharge relief/ })
+			.closest('tr')!;
+		expect(cells(row).slice(0, 7)).toEqual([
+			'Closed (locked)',
+			'0',
+			'4.27',
+			'0',
+			'1070',
+			'213.9',
+			'0'
+		]);
+		const note = results().getByText(/^Δp ÷ set is the total-pressure difference/);
+		expect(note).toHaveTextContent(/below 100 % an active valve is closed; above, it relieves/);
+		expect(note).toHaveTextContent(
+			/A valve locked closed \(gagged, or isolated by its block valve\) stays closed at any Δp ÷ set: its state reads Closed \(locked\)\./
+		);
+		// The Build strip reads the same cell.
+		ws.nav.jumpTo('RV1');
+		ws.pane = 'build';
+		await tick();
+		expect(strip()[0]).toBe('State: Closed (locked)');
 	});
 
 	it('are not a view without relief valves', async () => {

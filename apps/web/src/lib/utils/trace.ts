@@ -3,9 +3,11 @@
  * values in SI with a unit string. The unit string alone decides how a value is converted; the
  * value's name never changes a number or a gauge/absolute marker. Unit strings understood:
  *
- * - 'm', 'm³/s' (or 'm3/s'), 'm/s', 'kg/m³', 'Pa·s', 'W': converted to the display unit. A length
- *   in 'm' is shown in the diameter, head or length display unit depending on what it is (all
- *   are lengths, so the number is right either way).
+ * - 'm', 'm²' (or 'm2'), 'm³/s' (or 'm3/s'), 'm/s', 'kg/m³', 'Pa·s', 'W': converted to the display
+ *   unit. A length in 'm' is shown in the diameter, head or length display unit depending on what
+ *   it is (all are lengths, so the number is right either way); an area in 'm²' (a pipe's bore, a
+ *   relief valve's orifice) in the area unit, the square of the diameter unit (mm², m², in²), as
+ *   the forms and tables show it. 'm²/s' (a kinematic viscosity) is not an area: shown as reported.
  * - 'Pa(g)' / 'Pa (gauge)': a gauge pressure, labelled "(g)" / "psig".
  * - 'Pa(a)' / 'Pa (absolute)': an absolute pressure, labelled "(a)" / "psia".
  * - 'Pa (difference)': a pressure difference, no marker.
@@ -49,6 +51,7 @@ export function quantityMapping(name: string, unit: string): QuantityMapping | n
 		if (/head|loss|grade|egl|hgl|npsh|level/i.test(name)) return { category: 'head', options: {} };
 		return { category: 'length', options: {} };
 	}
+	if (u === 'm²' || u === 'm2' || u === 'm^2') return { category: 'area', options: {} };
 	if (u === 'm³/s' || u === 'm3/s' || u === 'm^3/s') return { category: 'flow', options: {} };
 	if (u === 'm/s') return { category: 'velocity', options: {} };
 	if (GAUGE_UNITS.has(u)) return { category: 'pressure', options: { gauge: true } };

@@ -56,7 +56,7 @@ import {
 	capacityGivenBy,
 	letterArea,
 	OVERPRESSURE_SOURCE_LABELS,
-	RELIEF_STATE_LABELS
+	reliefStateLabel
 } from '../relief';
 import {
 	boundaryTable,
@@ -803,7 +803,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 				yield [
 					id,
 					componentName(c, id),
-					RELIEF_STATE_LABELS[valve.state],
+					reliefStateLabel(valve.state, id, c.input.inputs),
 					u.value(valve.flow, 'flow'),
 					u.value(valve.lift, 'fraction'),
 					u.value(valve.fullLiftFlow, 'flow'),
@@ -1528,12 +1528,16 @@ export function compareSheet(ctx: ExportContext): SheetSpec | null {
 	};
 }
 
-/** The Compare sheet's columns: each case's solve, and the project sent for it when out of date. */
+/**
+ * The Compare sheet's columns: each case's solve, the project sent for it when out of date, and
+ * the case as solved (a relief valve's status), as the screen's (CompareView).
+ */
 function compareColumnsOf(ctx: ExportContext): CompareColumn[] {
 	return ctx.cases.map((c) => ({
 		solved: c.solved,
 		converged: c.hasValues,
-		sent: c.stale ? c.input.sent : null
+		sent: c.stale ? c.input.sent : null,
+		inputs: c.input.inputs
 	}));
 }
 

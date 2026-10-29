@@ -343,7 +343,9 @@ export function flagText(flag: Flag, context: FlagTextContext): string {
 					? `: every inlet static pressure up to ${limit} (its back pressure plus its set)`
 					: `: every back pressure down to ${limit} (its inlet pressure less its set)`
 				: '';
-			return `Closed, with no result: the section on its ${side} side ${what}, so the pressure difference across it is undetermined. Every level of that section at which the difference does not exceed its set pressure (${set}) is a steady state${level}.`;
+			// The levels at which this valve stays closed, as the API words them: the other elements
+			// around the section have rules of their own, so not each level is a steady state.
+			return `Closed, with no result: the section on its ${side} side ${what}, so the pressure difference across it is undetermined. It stays closed at every level of that section at which the difference does not exceed its set pressure (${set})${level}; whether such a level is a steady state depends also on the other elements around that section.`;
 		}
 		case 'CHECK_VALVE_CLOSED': {
 			const dh = value('headDifference', 'head');

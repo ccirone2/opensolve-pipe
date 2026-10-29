@@ -344,8 +344,8 @@ For each orifice plate:
 
 For each relief valve:
 
-- State (closed, partial lift, full lift), flow, and the lift
-- Inlet pressure and back pressure (gauge), the pressure difference across it ÷ its set (above 100 % it relieves; the rise is its overpressure), the static pressure drop and the head loss
+- State (closed, partial lift, full lift; a valve locked closed reads "Closed (locked)"), flow, and the lift
+- Inlet pressure and back pressure (gauge), the pressure difference across it ÷ its set (above 100 % an active valve relieves, and the rise is its overpressure; a valve locked closed stays closed at any ratio), the static pressure drop and the head loss
 - Its capacity at full lift for the fluid's density and flow ÷ capacity; the set, the overpressure at full lift and where it came from; the capacity used, and for an effective area the smallest API 526 letter covering it
 - Flags for full lift, for partial lift (the linear lift is a convention), for a closed valve with no result, for flashing at its outlet and for a viscous liquid
 

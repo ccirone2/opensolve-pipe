@@ -177,8 +177,14 @@
 	const valves = $derived(
 		solved ? markChanged(valveTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
 	);
+	// A locked-closed valve's state reads from the case exactly as solved (its status).
 	const reliefValves = $derived(
-		solved ? markChanged(reliefTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
+		solved
+			? markChanged(
+					reliefTable(ws.labelsProject, solved, ws.displayUnits, ws.store.caseInputs()),
+					changed
+				)
+			: null
 	);
 	const equipment = $derived(
 		solved ? markChanged(equipmentTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
@@ -972,15 +978,17 @@
 								/>
 								<p class="text-xs text-slate-600">
 									Δp ÷ set is the total-pressure difference across the valve over its set pressure:
-									below 100 % it is closed; above, it relieves, and the rise is its overpressure,
-									which is the accumulation only when the valve is set at the protected equipment's
-									maximum allowable working pressure. Capacity is the flow at full lift (set plus
-									overpressure) for this case's fluid, by API 520's liquid equation; past full lift
-									the flow keeps growing with the square root of the difference. Partial lift,
-									between set and full lift, is a linear convention, not a cited law, and is
-									flagged. Inlet and back pressures are static, gauge; pressure drop is their
-									difference, as for valves. A valve with no result has a side closed off or on an
-									undetermined level: its flag says which.
+									below 100 % an active valve is closed; above, it relieves, and the rise is its
+									overpressure, which is the accumulation only when the valve is set at the
+									protected equipment's maximum allowable working pressure. A valve locked closed
+									(gagged, or isolated by its block valve) stays closed at any Δp ÷ set: its state
+									reads Closed (locked). Capacity is the flow at full lift (set plus overpressure)
+									for this case's fluid, by API 520's liquid equation; past full lift the flow keeps
+									growing with the square root of the difference. Partial lift, between set and full
+									lift, is a linear convention, not a cited law, and is flagged. Inlet and back
+									pressures are static, gauge; pressure drop is their difference, as for valves. A
+									valve with no result has a side closed off or on an undetermined level: its flag
+									says which.
 								</p>
 							{:else if v === 'equipment' && equipment}
 								<ResultsTable

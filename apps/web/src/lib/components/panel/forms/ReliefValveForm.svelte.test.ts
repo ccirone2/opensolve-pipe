@@ -92,6 +92,10 @@ describe('adding a relief valve', () => {
 			.getAllByRole('alert')
 			.map((a) => a.textContent?.trim());
 		expect(alerts).toEqual([SET_REQUIRED, CAPACITY_REQUIRED]);
+		// Each field with an error is marked invalid, the letter's select as the set's input.
+		expect(set).toHaveAttribute('aria-invalid', 'true');
+		expect(letter).toHaveAttribute('aria-invalid', 'true');
+		expect(letter).toHaveAccessibleDescription(new RegExp(`${CAPACITY_REQUIRED.slice(0, 40)}`));
 		expect(ws.project.components).toHaveLength(1);
 		// Each error goes as its value is entered (the set's as it is typed, never on blur).
 		await fireEvent.input(set, { target: { value: '500' } });
@@ -99,6 +103,7 @@ describe('adding a relief valve', () => {
 		await fireEvent.change(set);
 		await fireEvent.change(letter, { target: { value: 'J' } });
 		expect(within(dialog).queryByRole('alert')).toBeNull();
+		expect(letter).not.toHaveAttribute('aria-invalid');
 		await fireEvent.click(add);
 
 		expect(screen.queryByRole('dialog')).toBeNull();
@@ -269,6 +274,27 @@ describe('Discharge to atmosphere', () => {
 		expect(ws.project.connections.map((c) => c.id)).toEqual(['L1']);
 	});
 
+	it('words the discharge in the display units, its pipe length too', async () => {
+		const project = freeOutlet();
+		project.settings.units = { ...IMPERIAL_UNITS };
+		const ws = testWorkspace(project);
+		ws.nav.jumpTo('RV1');
+		ws.nav.showConnection('outlet');
+		render(WorkspaceView, { workspace: ws });
+		const build = within(screen.getByRole('region', { name: 'Build' }));
+		// 1 m (factory SHORT_PIPE_LENGTH) in feet, to four significant digits: 3.281 ft.
+		const feet = Number((1 / 0.3048).toPrecision(4));
+		expect(
+			build.getByRole('button', { name: 'Discharge to atmosphere' })
+		).toHaveAccessibleDescription(
+			new RegExp(
+				`^Discharge to atmosphere adds an open discharge: a reference node at 0 psig, reached by ${String(feet).replace('.', '\\.')} ft of pipe sized to the port with an exit,`
+			)
+		);
+		await fireEvent.click(build.getByRole('button', { name: 'Discharge to atmosphere' }));
+		expect(ws.project.connections.at(-1)?.piping.pipes[0]?.length).toBe(1);
+	});
+
 	it('is not offered at a check valve outlet', async () => {
 		const valve = createComponent('check', createEmptyProject());
 		const ws = testWorkspace(projectWith([valve]));
@@ -318,6 +344,42 @@ describe('ReliefValveForm', () => {
 		expect(within(letter).getByRole('option', { name: 'J: 1.287 in²' })).toBeInTheDocument();
 		await fireEvent.change(letter, { target: { value: 'J' } });
 		expect(valveOf(ws.project)?.capacity).toEqual({ kind: 'api526', letter: 'J' });
+	});
+
+	it('names each capacity edit in its undo step with its acronyms and symbols as written', async () => {
+		const ws = testWorkspace(reliefProject());
+		ws.nav.jumpTo('RV1');
+		const { unmount } = render(WorkspaceView, { workspace: ws });
+		await fireEvent.change(screen.getByRole('combobox', { name: 'API 526 orifice letter' }), {
+			target: { value: 'J' }
+		});
+		expect(ws.store.undoLabel).toBe('change API 526 orifice letter');
+		expect(
+			screen.getByRole('button', { name: 'Undo change API 526 orifice letter' })
+		).toBeEnabled();
+		unmount();
+
+		const effective = testWorkspace(reliefProject({ capacity: { kind: 'effective', area: 4e-4 } }));
+		effective.nav.jumpTo('RV1');
+		render(WorkspaceView, { workspace: effective });
+		await type(screen.getByRole('textbox', { name: 'API 520 effective area (mm²)' }), '450');
+		expect(effective.store.undoLabel).toBe('change API 520 effective area');
+	});
+
+	it('names a certified capacity edit in its undo step, its symbol (K) as written', async () => {
+		const ws = testWorkspace(
+			reliefProject({
+				capacity: { kind: 'certified', area: 2.5e-4, dischargeCoefficient: 0.7, overpressure: 0.1 }
+			})
+		);
+		ws.nav.jumpTo('RV1');
+		render(WorkspaceView, { workspace: ws });
+		await type(screen.getByRole('textbox', { name: 'Actual orifice area (mm²)' }), '300');
+		expect(ws.store.undoLabel).toBe('change actual orifice area');
+		await type(screen.getByRole('textbox', { name: 'Rated coefficient of discharge (K)' }), '0.75');
+		expect(ws.store.undoLabel).toBe('change rated coefficient of discharge (K)');
+		await type(screen.getByRole('textbox', { name: 'Entered overpressure (%)' }), '8');
+		expect(ws.store.undoLabel).toBe('change overpressure at full lift');
 	});
 
 	it('has the statuses active and locked closed, and a hint that names what it is not', async () => {
@@ -392,6 +454,32 @@ describe('ReliefValveForm', () => {
 				"Below 15 psi (103.4 kPa) (ASME VIII's scope) no source gives the overpressure: enter the valve's certified area, rated coefficient and full-lift overpressure."
 			)
 		).toBeInTheDocument();
+	});
+
+	it("warns at a letter or an effective area set below ASME VIII's 15 psi scope", async () => {
+		const below =
+			"This set is below 15 psi (103.4 kPa), where no source gives the overpressure: give the capacity as a certified area and coefficient, with the valve's full-lift overpressure.";
+		const ws = testWorkspace(reliefProject({ setPressure: 50000 }));
+		ws.nav.jumpTo('RV1');
+		render(WorkspaceView, { workspace: ws });
+		const letter = screen.getByRole('combobox', { name: 'API 526 orifice letter' });
+		expect(letter).toHaveAccessibleDescription(new RegExp(`${below.replace(/[().]/g, '\\$&')}$`));
+		expect(screen.getByText(/This set is below 15 psi/).closest('p')).toHaveClass('text-amber-800');
+		// An effective area: the same warning, describing the area.
+		await fireEvent.change(screen.getByRole('combobox', { name: 'Capacity given by' }), {
+			target: { value: 'effective' }
+		});
+		expect(
+			screen.getByRole('textbox', { name: 'API 520 effective area (mm²)' })
+		).toHaveAccessibleDescription(/This set is below 15 psi \(103\.4 kPa\), where no source/);
+		// At or above the scope: the statement alone, no warning.
+		await type(screen.getByRole('textbox', { name: SET }), '200');
+		expect(screen.queryByText(/This set is below/)).toBeNull();
+		expect(
+			screen
+				.getByText(/for a set of at least 15 psi \(103\.4 kPa\), ASME VIII's scope:/)
+				.closest('p')
+		).toHaveClass('hint');
 	});
 
 	it('in a scenario: the set and a letter are changes of their values; a kind change is one', async () => {

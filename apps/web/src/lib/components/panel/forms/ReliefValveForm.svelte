@@ -20,6 +20,7 @@
 		type CapacityKind,
 		withCapacityValue
 	} from '$lib/utils/factory';
+	import { inSentence } from '$lib/utils/labels';
 	import { RELIEF_STATUS_LABELS } from '$lib/utils/relief';
 	import { fieldLabelFor } from '$lib/utils/scenarios';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
@@ -75,8 +76,9 @@
 			withCapacityValue(capacityDraft(component.capacity), field, value)
 		);
 		if (!next) return false;
+		// Its acronyms and symbols keep their case: "change API 526 orifice letter".
 		const label = fieldLabelFor(component, `capacity.${field}`);
-		return store(next, `change ${label.toLowerCase()}`);
+		return store(next, `change ${inSentence(label)}`);
 	}
 </script>
 

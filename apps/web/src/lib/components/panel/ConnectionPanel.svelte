@@ -12,6 +12,7 @@
 	import {
 		ENTRY_KINDS,
 		missingEntries,
+		SHORT_PIPE_LENGTH,
 		type ComponentKind,
 		type EnteredValues,
 		type MissingEntry
@@ -19,7 +20,7 @@
 	import { connectionAtPort, freePorts, otherEnd } from '$lib/utils/graph';
 	import { componentName, npsLabel, portLabel } from '$lib/utils/labels';
 	import { addPipe } from '$lib/utils/piping';
-	import { displayUnit, unitLabel } from '$lib/utils/units';
+	import { displayUnit, formatValue, unitLabel } from '$lib/utils/units';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import AddComponentDialog, { type AddMode } from './AddComponentDialog.svelte';
 	import FittingsEditor from './FittingsEditor.svelte';
@@ -237,9 +238,9 @@
 							'pressure',
 							displayUnit('pressure', ws.units),
 							{ gauge: true }
-						)}, reached by 1 m of pipe sized to the port with an exit, at the valve's elevation. Its
-						friction is solved as built-up back pressure. For a return line, add or connect the
-						piping instead.
+						)}, reached by {formatValue(SHORT_PIPE_LENGTH, 'length', ws.units)} of pipe sized to the port
+						with an exit, at the valve's elevation. Its friction is solved as built-up back pressure.
+						For a return line, add or connect the piping instead.
 					</p>
 				{/if}
 				{#if targets.length}

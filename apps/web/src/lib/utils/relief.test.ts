@@ -62,6 +62,7 @@ import {
 	capacityText,
 	defaultOverpressure,
 	letterOptionLabel,
+	preliminaryLine,
 	reliefOnAsmeDefault
 } from './relief';
 import { elementSummary, hasReliefValves, reliefTable, RELIEF_NO_RESULT } from './results';
@@ -341,6 +342,22 @@ describe("ASME's default overpressure (decision 6)", () => {
 		).toBe(false);
 	});
 
+	it("names ASME VIII's 15 psi scope on a letter or an effective area, a warning below it", () => {
+		const line =
+			"API 520's effective coefficient of discharge 0.65 and ASME's 10 % or 3 psi (20.68 kPa) overpressure, for a set of at least 15 psi (103.4 kPa), ASME VIII's scope: preliminary sizing values, never mixed with a valve's certified ones.";
+		expect(preliminaryLine(SI_UNITS)).toEqual({ text: line, warning: false });
+		expect(preliminaryLine(SI_UNITS, 5e5)).toEqual({ text: line, warning: false });
+		// At the scope itself the default applies; below it the solve refuses a letter or an area.
+		expect(preliminaryLine(SI_UNITS, RELIEF_DATA.asmeMinimumSetPressure).warning).toBe(false);
+		expect(preliminaryLine(SI_UNITS, 50000)).toEqual({
+			text: `${line} This set is below 15 psi (103.4 kPa), where no source gives the overpressure: give the capacity as a certified area and coefficient, with the valve's full-lift overpressure.`,
+			warning: true
+		});
+		expect(preliminaryLine(IMPERIAL_UNITS, 10 * PSI).text).toMatch(
+			/ASME's 10 % or 3 psi overpressure, for a set of at least 15 psi, ASME VIII's scope: .* This set is below 15 psi, /
+		);
+	});
+
 	it('words a capacity in the display units', () => {
 		expect(capacityText({ kind: 'api526', letter: 'J' }, SI_UNITS)).toBe(
 			'API 526 J (830.3 mm²), Kd 0.65 (preliminary)'
@@ -403,6 +420,30 @@ describe('the Relief valves table and Build strip', () => {
 		]);
 		expect(summary?.items.find((i) => i.key === 'inletPressure')?.unit).toBe('psig');
 		expect(row.cells.state).toBe('Full lift');
+	});
+
+	it('reads a locked-closed valve as "Closed (locked)", at any Δp ÷ set, from the case as solved', () => {
+		// A gagged valve with 213.9 % of its set across it (the review's probe of the real API).
+		const locked = reliefProject({ status: 'locked_closed' });
+		const solved = reliefSolved({
+			state: 'closed',
+			flow: 0,
+			lift: 0,
+			flowRatio: 0,
+			setRatio: 2.139156272608546,
+			inletPressure: 1069578
+		});
+		const row = reliefTable(locked, solved, SI_UNITS, locked).rows[0]!;
+		expect(row.cells).toMatchObject({ state: 'Closed (locked)', setRatio: '213.9' });
+		expect(
+			elementSummary(locked, solved, SI_UNITS, { kind: 'component', id: 'RV1' }, locked)?.items[0]
+		).toMatchObject({ key: 'state', cell: 'Closed (locked)' });
+		// The status is the case's as solved, not the project's now: active then, closed below set.
+		expect(reliefTable(locked, solved, SI_UNITS, reliefProject()).rows[0]!.cells.state).toBe(
+			'Closed'
+		);
+		// With no inputs as solved, the state alone.
+		expect(reliefTable(locked, solved, SI_UNITS).rows[0]!.cells.state).toBe('Closed');
 	});
 
 	it('lists a valve with no result by its RELIEF_VALVE_CLOSED flag', () => {
@@ -497,6 +538,33 @@ describe('Compare (decision 20)', () => {
 			'Partial lift',
 			'Full lift',
 			'Partial lift'
+		]);
+	});
+
+	it("reads a locked-closed valve's state from that case's inputs as solved", () => {
+		const project = reliefProject();
+		const closed = reliefSolved({ state: 'closed', flow: 0, lift: 0, setRatio: 1.15 });
+		const state = compareCells(
+			{ quantity: 'reliefState', elementId: 'RV1' },
+			[
+				{ solved: reliefSolved(), converged: true, inputs: project },
+				{
+					solved: closed,
+					converged: true,
+					inputs: reliefProject({ status: 'locked_closed' })
+				},
+				// An active valve closed, and one whose inputs are not known: its state alone.
+				{ solved: closed, converged: true, inputs: project },
+				{ solved: closed, converged: true }
+			],
+			project,
+			SI_UNITS
+		);
+		expect(state.map((c) => [c.text, c.baseText])).toEqual([
+			['Partial lift', undefined],
+			['Closed (locked)', 'Partial lift'],
+			['Closed', 'Partial lift'],
+			['Closed', 'Partial lift']
 		]);
 	});
 });
@@ -867,7 +935,7 @@ describe('flag texts', () => {
 		expect(text(near)).toMatch(/, 100\.001 % of its capacity at full lift: beyond/);
 	});
 
-	it('closed with no result: the side, why, and the levels that are steady states', () => {
+	it('closed with no result: the side, why, and the levels at which it stays closed', () => {
 		const closed = flag({
 			code: 'RELIEF_VALVE_CLOSED',
 			severity: 'info',
@@ -882,14 +950,14 @@ describe('flag texts', () => {
 			}
 		});
 		expect(text(closed)).toBe(
-			'Closed, with no result: the section on its inlet side has no fixed pressure level (undetermined pressure), so the pressure difference across it is undetermined. Every level of that section at which the difference does not exceed its set pressure (300 kPa) is a steady state: every inlet static pressure up to 300 kPa(g) (its back pressure plus its set).'
+			'Closed, with no result: the section on its inlet side has no fixed pressure level (undetermined pressure), so the pressure difference across it is undetermined. It stays closed at every level of that section at which the difference does not exceed its set pressure (300 kPa): every inlet static pressure up to 300 kPa(g) (its back pressure plus its set); whether such a level is a steady state depends also on the other elements around that section.'
 		);
 		const off = flag({
 			...closed,
 			details: { side: 'outlet', section: 'closed_off', setHead: 30.6, setPressure: 300000 }
 		});
 		expect(text(off, IMPERIAL_UNITS)).toBe(
-			'Closed, with no result: the section on its outlet side is closed off (no flow reaches it), so the pressure difference across it is undetermined. Every level of that section at which the difference does not exceed its set pressure (43.51 psi) is a steady state.'
+			'Closed, with no result: the section on its outlet side is closed off (no flow reaches it), so the pressure difference across it is undetermined. It stays closed at every level of that section at which the difference does not exceed its set pressure (43.51 psi); whether such a level is a steady state depends also on the other elements around that section.'
 		);
 		// Without the details expected: the API's words, with names for ids.
 		expect(

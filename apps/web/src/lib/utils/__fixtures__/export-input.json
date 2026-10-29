@@ -11576,6 +11576,7 @@
 											"equations": [
 												"Δp_t = (p_in + ρ v_in²/2) − (p_out + ρ v_out²/2) = ρ g (EGL_in − EGL_out − (z_in − z_out)): the total-pressure difference between the ports, API 520's P1 − P2 as read here (v_in, v_out: the velocities in the connected pipes)",
 												"Δp_f = Δp_s (1 + op): the pressure difference at full lift",
+												"op = max(0.1, 3 psi/Δp_s), 3 psi = 20684.27188 Pa: ASME's liquid certification overpressure (the default), cited for a set of at least 15 psi (103421 Pa)",
 												"x = clip((Δp_t − Δp_s)/(Δp_f − Δp_s), 0, 1): the lift, rising linearly from the set to full lift (a convention)",
 												"Q = x C √(2 Δp_t/ρ), C = Kd A: API 520's liquid capacity equation at lift x, in exact SI (Kw = Kc = Kv = 1); Q_f = C √(2 Δp_f/ρ), the capacity at full lift",
 												"API 520's own form, A = 11.78 Q/(Kd Kw Kc Kv) √(G₁/(P₁ − P₂)) with A in mm², Q in L/min and pressures in kPa: its 11.78 is 6.09214e-05 above the exact 11.7792823892 (fluids' derivation), so at a given area and difference the exact form passes 6.09214e-05 more flow, relative",
@@ -11728,6 +11729,11 @@
 													"value": 250.16622419267205
 												},
 												{
+													"name": "Loss coefficient at full lift on the inlet pipe's bore, K = (A_in/C)²: from Q_f on, Δp_t = K ρ v_in²/2 (for comparison; the law above is used)",
+													"unit": "",
+													"value": 78.06508998258124
+												},
+												{
 													"name": "Flow Q (inlet → outlet)",
 													"unit": "m³/s",
 													"value": 0.0
@@ -11819,6 +11825,7 @@
 												}
 											],
 											"notes": [
+												"ASME's default overpressure at this set is its 10 %, 3 psi/Δp_s = 20684.27188/350000 = 0.05909791966 < 0.1: op = 0.1.",
 												"Preliminary: API 520's effective values (API 526's effective area or an API 520 effective area, with the effective coefficient of discharge 0.65), for preliminary sizing; the selected valve's actual area and rated coefficient give its capacity.",
 												"Closed: Δp_t 299578.1363 Pa does not exceed the set 350000 Pa by more than ρ g Htol = 0.9789068152 Pa (EGL_in − EGL_out = 30.60333544 m ≤ h_set + Htol = 35.7542693 m; EPANET 2.2 cvstatus with the cracking head h_set; reverse flow also closes it).",
 												"A conventional spring-loaded valve: its spring sees the pressure difference across the disc, so a back pressure adds to the inlet pressure at which it opens. Its set pressure is the static pressure difference, inlet minus outlet, at which it starts to open: discharging to atmosphere at the valve's elevation, the gauge set pressure; against a constant back pressure, the bench setting (the set pressure minus that back pressure, Pentair TP-V300 ch. 4). It opens on the static difference, where a check valve's cracking pressure reads the difference of the energy grade lines.",
@@ -18281,6 +18288,7 @@
 											"equations": [
 												"Δp_t = (p_in + ρ v_in²/2) − (p_out + ρ v_out²/2) = ρ g (EGL_in − EGL_out − (z_in − z_out)): the total-pressure difference between the ports, API 520's P1 − P2 as read here (v_in, v_out: the velocities in the connected pipes)",
 												"Δp_f = Δp_s (1 + op): the pressure difference at full lift",
+												"op = max(0.1, 3 psi/Δp_s), 3 psi = 20684.27188 Pa: ASME's liquid certification overpressure (the default), cited for a set of at least 15 psi (103421 Pa)",
 												"x = clip((Δp_t − Δp_s)/(Δp_f − Δp_s), 0, 1): the lift, rising linearly from the set to full lift (a convention)",
 												"Q = x C √(2 Δp_t/ρ), C = Kd A: API 520's liquid capacity equation at lift x, in exact SI (Kw = Kc = Kv = 1); Q_f = C √(2 Δp_f/ρ), the capacity at full lift",
 												"API 520's own form, A = 11.78 Q/(Kd Kw Kc Kv) √(G₁/(P₁ − P₂)) with A in mm², Q in L/min and pressures in kPa: its 11.78 is 6.09214e-05 above the exact 11.7792823892 (fluids' derivation), so at a given area and difference the exact form passes 6.09214e-05 more flow, relative",
@@ -18433,6 +18441,11 @@
 													"value": 153.854276913582
 												},
 												{
+													"name": "Loss coefficient at full lift on the inlet pipe's bore, K = (A_in/C)²: from Q_f on, Δp_t = K ρ v_in²/2 (for comparison; the law above is used)",
+													"unit": "",
+													"value": 38.275682582240385
+												},
+												{
 													"name": "Flow Q (inlet → outlet)",
 													"unit": "m³/s",
 													"value": 0.014979385969017286
@@ -18560,6 +18573,7 @@
 											],
 											"notes": [
 												"Scenario 'Cv valve' (id S1) overrides the base project here: set pressure 270000 Pa (base: 350000 Pa); API 526 orifice letter K (base: J). The inputs below are the scenario's values.",
+												"ASME's default overpressure at this set is its 10 %, 3 psi/Δp_s = 20684.27188/270000 = 0.07660841437 < 0.1: op = 0.1.",
 												"Preliminary: API 520's effective values (API 526's effective area or an API 520 effective area, with the effective coefficient of discharge 0.65), for preliminary sizing; the selected valve's actual area and rated coefficient give its capacity.",
 												"Open, partial lift (x = 0.8038801302): the difference across it has not fallen below its set by more than ρ g Htol, EGL_in − EGL_out = 29.79903286 m ≥ h_set − Htol = 27.58168775 m, and Q = 0.01497938597 m³/s ≥ −Qtol = -1e-08 m³/s (EPANET 2.2 cvstatus with the cracking head h_set).",
 												"A conventional spring-loaded valve: its spring sees the pressure difference across the disc, so a back pressure adds to the inlet pressure at which it opens. Its set pressure is the static pressure difference, inlet minus outlet, at which it starts to open: discharging to atmosphere at the valve's elevation, the gauge set pressure; against a constant back pressure, the bench setting (the set pressure minus that back pressure, Pentair TP-V300 ch. 4). It opens on the static difference, where a check valve's cracking pressure reads the difference of the energy grade lines.",
@@ -24964,6 +24978,7 @@
 											"equations": [
 												"Δp_t = (p_in + ρ v_in²/2) − (p_out + ρ v_out²/2) = ρ g (EGL_in − EGL_out − (z_in − z_out)): the total-pressure difference between the ports, API 520's P1 − P2 as read here (v_in, v_out: the velocities in the connected pipes)",
 												"Δp_f = Δp_s (1 + op): the pressure difference at full lift",
+												"op = max(0.1, 3 psi/Δp_s), 3 psi = 20684.27188 Pa: ASME's liquid certification overpressure (the default), cited for a set of at least 15 psi (103421 Pa)",
 												"x = clip((Δp_t − Δp_s)/(Δp_f − Δp_s), 0, 1): the lift, rising linearly from the set to full lift (a convention)",
 												"Q = x C √(2 Δp_t/ρ), C = Kd A: API 520's liquid capacity equation at lift x, in exact SI (Kw = Kc = Kv = 1); Q_f = C √(2 Δp_f/ρ), the capacity at full lift",
 												"API 520's own form, A = 11.78 Q/(Kd Kw Kc Kv) √(G₁/(P₁ − P₂)) with A in mm², Q in L/min and pressures in kPa: its 11.78 is 6.09214e-05 above the exact 11.7792823892 (fluids' derivation), so at a given area and difference the exact form passes 6.09214e-05 more flow, relative",
@@ -25116,6 +25131,11 @@
 													"value": 250.16622419267205
 												},
 												{
+													"name": "Loss coefficient at full lift on the inlet pipe's bore, K = (A_in/C)²: from Q_f on, Δp_t = K ρ v_in²/2 (for comparison; the law above is used)",
+													"unit": "",
+													"value": 78.06508998258124
+												},
+												{
 													"name": "Flow Q (inlet → outlet)",
 													"unit": "m³/s",
 													"value": 0.0
@@ -25207,6 +25227,7 @@
 												}
 											],
 											"notes": [
+												"ASME's default overpressure at this set is its 10 %, 3 psi/Δp_s = 20684.27188/350000 = 0.05909791966 < 0.1: op = 0.1.",
 												"Preliminary: API 520's effective values (API 526's effective area or an API 520 effective area, with the effective coefficient of discharge 0.65), for preliminary sizing; the selected valve's actual area and rated coefficient give its capacity.",
 												"Closed: Δp_t 299578.1363 Pa does not exceed the set 350000 Pa by more than ρ g Htol = 0.9789068152 Pa (EGL_in − EGL_out = 30.60333544 m ≤ h_set + Htol = 35.7542693 m; EPANET 2.2 cvstatus with the cracking head h_set; reverse flow also closes it).",
 												"A conventional spring-loaded valve: its spring sees the pressure difference across the disc, so a back pressure adds to the inlet pressure at which it opens. Its set pressure is the static pressure difference, inlet minus outlet, at which it starts to open: discharging to atmosphere at the valve's elevation, the gauge set pressure; against a constant back pressure, the bench setting (the set pressure minus that back pressure, Pentair TP-V300 ch. 4). It opens on the static difference, where a check valve's cracking pressure reads the difference of the energy grade lines.",

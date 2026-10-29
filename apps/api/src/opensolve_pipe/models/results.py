@@ -510,8 +510,9 @@ class ReliefValveResult(OutputModel):
     )
     set_ratio: float = Field(
         description=(
-            "Δp_t / Δp_s: below 1 closed; above 1, 1 + the overpressure reached (on the set "
-            "difference)"
+            "Δp_t / Δp_s: below 1 an active valve is closed; above 1 it relieves, and the ratio "
+            "is 1 + the overpressure reached (on the set difference). A valve locked closed "
+            "stays closed at any ratio"
         )
     )
     overpressure: float = Field(

@@ -1955,11 +1955,13 @@ def test_relief_c3_is_api520_at_the_solved_state() -> None:
 
 def test_epanet_relief_cases_agree_with_the_closed_form() -> None:
     """EPANET's GPV runs (proposal §7.2) against the closed form of network M in EPANET water
-    with the suite's Swamee–Jain: within 2×10⁻⁴ in the relief flow (EPANET's g in the pipes, the
-    interpolated curve). The proposal's measured EPANET flows, its reference flows times 1 + ΔQ
-    (E1 0.0022186660463 × (1 + 1.702×10⁻⁴), E2 0.0047276688973 × (1 + 1.038×10⁻⁵), E3
-    0.0010820268256 × (1 + 1.629×10⁻⁴)), are EPANET's here to their four printed digits of ΔQ
-    (half a unit of the fourth digit is 5×10⁻⁸ of the flow at most)."""
+    with the suite's Swamee–Jain in every pipe, the relief branch's included: within 2×10⁻⁴ in
+    the relief flow (EPANET's g in the pipes, the interpolated curve). That closed form is the
+    proposal's reference flow (E1 0.0022186660463, E2 0.0047276688973, E3 0.0010820268256) to
+    its 11 printed digits; with Colebrook in the branch only it was up to 6.8×10⁻⁵ off. The
+    proposal's measured EPANET flows, its reference flows times 1 + ΔQ (ΔQ 1.702×10⁻⁴,
+    1.038×10⁻⁵ and 1.629×10⁻⁴), are EPANET's here to their four printed digits of ΔQ (half a
+    unit of the fourth digit is 5×10⁻⁸ of the flow at most)."""
     rho, mu, _ = dv.fluid_state(do.epanet_water())
     printed = {
         "epanet_relief_partial": (1.05e6, 0.0022186660463, 1.702e-4),
@@ -1969,6 +1971,7 @@ def test_epanet_relief_cases_agree_with_the_closed_form() -> None:
     for name, (p_r, reference, delta) in printed.items():
         q = read_case(case_path(name))["expected"]["flows"]["LB1"]
         closed = dr.network_m(p_r).solve(rho, mu, "swamee_jain").q_relief
+        assert closed == pytest.approx(reference, rel=1.0e-10), name
         assert abs(q / closed - 1.0) < 2.0e-4, name
         assert q == pytest.approx(reference * (1.0 + delta), rel=6.0e-8), name
 

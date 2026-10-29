@@ -187,9 +187,17 @@ def band_root(set_pressure: float, rq: float) -> float:
     if 27.0 * rq * rq <= 4.0 * a * a * a:
         m = 2.0 * math.sqrt(a / 3.0)
         return m * math.cos(math.acos(min(1.0, 3.0 * rq / (a * m))) / 3.0)
-    s = math.sqrt(rq * rq / 4.0 - a * a * a / 27.0)
+    # max(0, ·): next to the branch boundary the two tests round differently, and the radicand,
+    # zero there, can come out a few units in the last place below it
+    s = math.sqrt(max(0.0, rq * rq / 4.0 - a * a * a / 27.0))
     t = math.cbrt(rq / 2.0 + s)
     return t + a / (3.0 * t)
+
+
+def band_scale(set_pressure: float) -> float:
+    """2 Δp_s √(Δp_s/3), the band root's scale (``band_root``'s trigonometric form divides by it),
+    computed as ``band_root`` computes it, Pa^1.5."""
+    return set_pressure * (2.0 * math.sqrt(set_pressure / 3.0))
 
 
 ReliefState = Literal["closed", "partial_lift", "full_lift"]
@@ -320,13 +328,43 @@ class ReliefRefusal:
 
     rule: RefusalRule
     """scope: a set below ASME VIII's 15 psi where the overpressure would be ASME's default;
-    representable: C, Q_f or R is not a finite positive normal double."""
+    representable: a constant of the law (``LAW_CONSTANTS``) is not a finite positive normal
+    double."""
     c_area: float
     set_pressure: float
     overpressure: float | None
     """The overpressure the law would use (None for scope: ASME's default is not cited there)."""
     full_lift_flow: float | None = None
     band_coefficient: float | None = None
+    c_area_squared: float | None = None
+    """C², m⁴: the full-lift law divides by it."""
+    band_scale: float | None = None
+    """2 Δp_s √(Δp_s/3), Pa^1.5: the band root divides by it (``band_scale``)."""
+
+    def unrepresentable(self) -> tuple[str, ...]:
+        """The constants that are not finite positive normal doubles, in ``LAW_CONSTANTS``'s
+        order."""
+        values = (
+            self.c_area,
+            self.full_lift_flow,
+            self.band_coefficient,
+            self.c_area_squared,
+            self.band_scale,
+        )
+        return tuple(
+            name
+            for name, x in zip(LAW_CONSTANTS, values, strict=True)
+            if x is None or not _normal(x)
+        )
+
+
+LAW_CONSTANTS = ("C", "Q_f", "R", "C²", "band scale")
+"""The constants of the law decision 14 requires to be finite positive normal doubles: C = Kd·A,
+Q_f, R (the forms ``ReliefLaw`` uses), C², which its full-lift branch divides by, and the band
+root's scale 2 Δp_s √(Δp_s/3), which its trigonometric form divides by. Every other division in
+``ReliefLaw`` is by a product or positive sum of these, of ρ, g, Δp_s and their roots, or by the
+band root u (at least √(Δp_s/3) as computed), so with these normal no evaluation divides by
+zero."""
 
 
 def _normal(x: float) -> bool:
@@ -336,24 +374,26 @@ def _normal(x: float) -> bool:
 
 def relief_refusal(valve: ReliefValve, rho: float) -> ReliefRefusal | None:
     """Decision 14's refusal of ``valve`` for a fluid of density ρ, or None. Each rule is
-    monotone in each relief value alone (the scope refuses sets below a bound; C, Q_f and R are
-    each monotone in the area, the coefficient, the set and the overpressure), so a value whose
-    two bounds build builds in between (goal seek's bound builds, decision 19)."""
+    monotone in each relief value alone (the scope refuses sets below a bound; C, C², Q_f and R
+    are each monotone in the area, the coefficient, the set and the overpressure, and the band
+    scale in the set), so a value whose two bounds build builds in between (goal seek's bound
+    builds, decision 19)."""
     capacity = valve.capacity
     area, kd = capacity_area(capacity)
     c = kd * area
+    dps = valve.set_pressure
     entered = entered_overpressure(capacity)
-    if entered is None and valve.set_pressure < ASME_MINIMUM_SET_PRESSURE:
-        return ReliefRefusal("scope", c, valve.set_pressure, None)
-    op = entered if entered is not None else default_overpressure(valve.set_pressure)
+    if entered is None and dps < ASME_MINIMUM_SET_PRESSURE:
+        return ReliefRefusal("scope", c, dps, None)
+    op = entered if entered is not None else default_overpressure(dps)
+    # as ReliefLaw computes them; ρ > 0, so only R can divide by zero (C √(2/ρ) underflowing)
+    q_full = c * math.sqrt(2.0 * dps * (1.0 + op) / rho)
     try:
-        q_full = c * math.sqrt(2.0 * valve.set_pressure * (1.0 + op) / rho)
-        r = op * valve.set_pressure / (c * math.sqrt(2.0 / rho))
-    except (ZeroDivisionError, OverflowError):
-        q_full, r = (math.inf, math.inf)
-    if not all(_normal(x) for x in (c, q_full, r)):
-        return ReliefRefusal("representable", c, valve.set_pressure, op, q_full, r)
-    return None
+        r = op * dps / (c * math.sqrt(2.0 / rho))
+    except ZeroDivisionError:
+        r = math.inf
+    why = ReliefRefusal("representable", c, dps, op, q_full, r, c * c, band_scale(dps))
+    return why if why.unrepresentable() else None
 
 
 def capacity_words(capacity: Capacity) -> str:
@@ -389,12 +429,28 @@ def refusal_text(valve: ReliefValve, why: ReliefRefusal) -> str:
             f"{remedy}"
         )
     op = why.overpressure if why.overpressure is not None else math.nan
-    return (
+    failed = why.unrepresentable()
+    values = (
         f"{head}: {capacity_words(valve.capacity)}, C = Kd·A = {why.c_area:.6g} m², with a set "
-        f"pressure of {why.set_pressure:.6g} Pa and an overpressure of {op:.6g} gives C, the "
-        f"full-lift flow Q_f = {why.full_lift_flow:.6g} m³/s or the band coefficient R = "
-        f"{why.band_coefficient:.6g} that is not a finite positive normal floating-point "
-        "number; the solver cannot represent this valve"
+        f"pressure of {why.set_pressure:.6g} Pa and an overpressure of {op:.6g}"
+    )
+    if {"C", "Q_f", "R"} & set(failed):
+        return (
+            f"{values} gives C, the full-lift flow Q_f = {why.full_lift_flow:.6g} m³/s or the "
+            f"band coefficient R = {why.band_coefficient:.6g} that is not a finite positive "
+            "normal floating-point number; the solver cannot represent this valve"
+        )
+    if "C²" in failed:
+        return (
+            f"{values} gives C² = {why.c_area_squared:.6g} m⁴, which the law at full lift "
+            "divides by and which is not a finite positive normal floating-point number; the "
+            "solver cannot represent this valve; enter a larger area or coefficient of discharge"
+        )
+    return (
+        f"{values} gives the band root's scale 2 Δp_s √(Δp_s/3) = {why.band_scale:.6g} Pa^1.5, "
+        "which the law between set and full lift divides by and which is not a finite positive "
+        "normal floating-point number; the solver cannot represent this valve; enter a larger "
+        "set pressure"
     )
 
 

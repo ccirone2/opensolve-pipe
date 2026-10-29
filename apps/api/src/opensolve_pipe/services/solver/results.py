@@ -1403,7 +1403,9 @@ class _Mapper:
     def relief_closed_flag(self, data: ValveData, relief: ReliefData, h1: float, h2: float) -> None:
         """RELIEF_VALVE_CLOSED (decision 15): an active relief valve that ends closed with no
         result, a side of it closed off or on an undetermined level, and why; not one inside a
-        closed-off section (ISOLATED_SECTION names it), as for a check valve."""
+        closed-off section (ISOLATED_SECTION names it), as for a check valve. The levels it
+        names are those at which this valve's own rule keeps it closed: the other elements
+        around the section have rules of their own, so not each of them is a steady state."""
         comp = data.component
         control = self.outer.controls[comp.id]
         if control.status is not Status.CLOSED or comp.status != "active":
@@ -1438,17 +1440,18 @@ class _Mapper:
         other_missing = on_outlet if side == "inlet" else on_inlet
         if other_missing is None:
             p_other = self.static_pressure(other)
+            # the limit only: the other side's pressure can be round-off of zero (4e-15 Pa)
             if side == "inlet":
                 limit = p_other + dps
                 level = (
-                    f", that is, every inlet static pressure up to {limit:.6g} Pa(g) (its back "
-                    f"pressure {p_other:.6g} Pa(g) plus its set)"
+                    f", that is, every inlet static pressure up to {limit:.6g} Pa(g), its back "
+                    "pressure plus its set"
                 )
             else:
                 limit = p_other - dps
                 level = (
-                    f", that is, every back pressure down to {limit:.6g} Pa(g) (its inlet "
-                    f"pressure {p_other:.6g} Pa(g) less its set)"
+                    f", that is, every back pressure down to {limit:.6g} Pa(g), its inlet "
+                    "pressure less its set"
                 )
             details["pressureLimit"] = limit
         self.flags.append(
@@ -1456,9 +1459,10 @@ class _Mapper:
                 "RELIEF_VALVE_CLOSED",
                 "info",
                 f"relief valve '{comp.id}' is closed and has no result: the section on its {side} "
-                f"side {what}, so the pressure difference across it is undetermined; every level "
-                "of that section at which the difference does not exceed its set pressure "
-                f"({dps:.6g} Pa) is a steady state{level}",
+                f"side {what}, so the pressure difference across it is undetermined; the valve "
+                "stays closed at every level of that section at which the difference does not "
+                f"exceed its set pressure ({dps:.6g} Pa){level}; whether such a level is a steady "
+                "state depends also on the other elements around that section",
                 component_id=comp.id,
                 details=details,
             )

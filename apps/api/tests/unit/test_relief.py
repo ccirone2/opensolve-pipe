@@ -1,19 +1,22 @@
 """The pressure relief valve (docs/proposals/pressure-relief-valve.md §3, §4, §5, §7.6): fluids'
 functions and API 520's identity, the band root and its slope against a 60-digit solve, the
 continuity and margin at full lift, the default overpressure and its scope, decision 14's
-refusals, the builder and the closed start, each flag at its bound, a closed-off and a floating
-side, the results, the trace, the methods summary, scenarios, goal seek, the API, a system curve
-and the design checks.
+refusals at their edges, the builder and the closed start, the opening on the static difference
+and the free-level rule (status._level_changes), each flag at its bound, a closed-off and a
+floating side, the results, the trace, the methods summary, scenarios, goal seek, the API, a
+system curve and the design checks.
 
 Expected values come from fluids' functions called directly, from closed forms written out here
-(the law transcribed again below, its band cubic solved with 60-digit decimals, and the pipes'
-Darcy-Weisbach losses), and from the proposal's measured cases (§7.1, by its prototypes), never
-from the relief code itself. Every pipe, level, set pressure, valve size and fluid below is a
-made-up test input.
+(the law transcribed again below, its band cubic solved with 60-digit decimals, its forward form,
+and the pipes' Darcy-Weisbach losses), and from the proposal's measured cases (§7.1, by its
+prototypes), never from the relief code itself, which the tests of the law (ReliefLaw, band_root)
+call only as the code under test. Every pipe, level, set pressure, valve size and fluid below is
+a made-up test input.
 """
 
 import math
 import random
+import sys
 from decimal import Decimal, localcontext
 from typing import Any
 
@@ -21,6 +24,7 @@ import pytest
 from fastapi.testclient import TestClient
 from fluids.constants import g, psi
 from fluids.safety_valve import API526_A, API520_A_l, API520_Kv, API520_round_size, API526_letters
+from scipy.optimize import brentq
 
 from opensolve_pipe.main import app
 from opensolve_pipe.models.api import GoalSeekRequest
@@ -45,6 +49,7 @@ from opensolve_pipe.services.solver.relief import (
     CONSTANT_EXCESS,
     EXACT_CONSTANT,
     ReliefLaw,
+    band_root,
     covering_letter,
     default_overpressure,
     kv_api520,
@@ -121,6 +126,16 @@ def law_terms(
 def law_head(c: float, set_pressure: float, op: float, q: float, dz: float = 0.0) -> float:
     """h(Q) = Δp_s/(ρ g) + dz + (Δp − Δp_s)/(ρ g), Q ≥ 0."""
     return set_pressure / (RHO * g) + dz + law_terms(c, set_pressure, op, q)[0] / (RHO * g)
+
+
+def law_flow(c: float, set_pressure: float, op: float, difference: float) -> float:
+    """The forward law (proposal §1.1) in decimals: Q = x C √(2 Δp/ρ), x = clip((Δp −
+    Δp_s)/(op Δp_s), 0, 1)."""
+    with localcontext() as ctx:
+        ctx.prec = 60
+        cc, a, o, dp, r = (Decimal(x) for x in (c, set_pressure, op, difference, RHO))
+        x = min(Decimal(1), max(Decimal(0), (dp - a) / (o * a)))
+        return float(x * cc * (2 * dp / r).sqrt()) if dp > 0 else 0.0
 
 
 def pipe_loss(q: float, d: float, length: float, rho: float = RHO, mu: float = MU) -> float:
@@ -509,6 +524,125 @@ def test_a_law_the_floating_point_cannot_represent_is_refused_after_orifice_issu
     assert "not a finite positive normal floating-point number" in message
 
 
+def _certified(area: float, k: float = 1.0, op: float = 0.1) -> dict[str, Any]:
+    """A certified capacity with its own overpressure (decision 14's scope never applies)."""
+    return {"kind": "certified", "area": area, "dischargeCoefficient": k, "overpressure": op}
+
+
+def _refusal(project: Project) -> str:
+    with pytest.raises(TopologyError) as caught:
+        _built(project)
+    [issue] = caught.value.issues
+    assert (issue.code, issue.component_ids) == ("RELIEF_VALVE_OUT_OF_RANGE", ["RV1"])
+    return issue.message
+
+
+def _least(holds: Any, estimate: float) -> float:
+    """The least double at which ``holds`` (true from some double on) is true, within a few
+    hundred units in the last place of ``estimate``."""
+    x = estimate
+    for _ in range(400):
+        if holds(x):
+            break
+        x = math.nextafter(x, math.inf)
+    for _ in range(400):
+        if not holds(math.nextafter(x, 0.0)):
+            break
+        x = math.nextafter(x, 0.0)
+    assert holds(x)
+    assert not holds(math.nextafter(x, 0.0))
+    return x
+
+
+def test_a_c_whose_square_underflows_is_refused_not_a_server_error() -> None:
+    """Decision 14: the law at full lift divides by C², so a C whose square is not a normal
+    double is refused, though C, Q_f and R are normal. A certified area of 1e-200 m² (inside the
+    schema's bounds) was a ZeroDivisionError in the solve: HTTP 500 from /solve and from a goal
+    seek whose bound reached it; now 422 and a bounds 400 located by index."""
+    data = series_dict(7.5e5, relief(capacity=_certified(1e-200, 0.9)))
+    response = _client().post("/api/v1/solve", json={"project": data})
+    assert response.status_code == 422, response.text
+    [issue] = response.json()["issues"]
+    assert (issue["code"], issue["componentIds"]) == ("RELIEF_VALVE_OUT_OF_RANGE", ["RV1"])
+    assert "C = Kd·A = 9e-201 m²" in issue["message"]
+    assert "gives C² = 0 m⁴, which the law at full lift divides by" in issue["message"]
+    assert issue["message"].endswith("enter a larger area or coefficient of discharge")
+    variables = [{"field": "capacity.area", "lower": 1e-200, "upper": 1e-2}]
+    goals = [{"quantity": "port_pressure", "elementId": "RV1", "portId": "inlet", "target": 4e5}]
+    base = series_dict(4.4e5, relief(set_pressure=3.5e5, capacity=_certified(1e-3, 0.9)))
+    with pytest.raises(gs.GoalSeekInputError) as caught:
+        _goal_seek(base, variables, goals)
+    [bound] = caught.value.issues
+    assert bound.code == "RELIEF_VALVE_OUT_OF_RANGE"
+    assert bound.message.startswith(
+        "body.variables.0.lower: the relief valve's law is not representable in floating point "
+        "at this orifice area (Kd·A, its square,"
+    )
+    assert "RV1" not in bound.message
+    assert "e-200" not in bound.message
+    body = {
+        "project": base,
+        "variables": [{"kind": "component", "componentId": "RV1", **variables[0]}],
+        "goals": goals,
+    }
+    assert _client().post("/api/v1/goal-seek", json=body).status_code == 400
+
+
+def test_the_representability_refusal_at_its_edges() -> None:
+    """§7.6: each representability bound at its edge, with K = 1 so that C is the area: C² at
+    the least normal double (accepted) and one step below (refused); the band root's scale
+    2 Δp_s √(Δp_s/3) likewise in the set (a certified valve takes any set); and R, which a tiny
+    overpressure on the largest valve takes below the least normal double."""
+    edge = _least(lambda c: c * c >= sys.float_info.min, math.sqrt(sys.float_info.min))
+    _built(series(7.5e5, relief(capacity=_certified(edge))))
+    below = math.nextafter(edge, 0.0)
+    message = _refusal(series(7.5e5, relief(capacity=_certified(below))))
+    assert f"C = Kd·A = {below:.6g} m²" in message
+    assert f"gives C² = {below * below:.6g} m⁴" in message
+
+    def scale(set_pressure: float) -> float:
+        return set_pressure * (2.0 * math.sqrt(set_pressure / 3.0))
+
+    # 2 x √(x/3) = (2/√3) x^1.5 reaches the least normal double at x = (min √3/2)^(2/3)
+    low = _least(
+        lambda x: scale(x) >= sys.float_info.min,
+        (sys.float_info.min * math.sqrt(3.0) / 2.0) ** (2.0 / 3.0),
+    )
+    capacity = _certified(1e-4, 0.9, 1.0)
+    _built(series(1.0, relief(set_pressure=low, capacity=capacity)))
+    below = math.nextafter(low, 0.0)
+    message = _refusal(series(1.0, relief(set_pressure=below, capacity=capacity)))
+    assert f"with a set pressure of {below:.6g} Pa" in message
+    assert "gives the band root's scale 2 Δp_s √(Δp_s/3) = " in message
+    assert message.endswith("enter a larger set pressure")
+    # R = op Δp_s/(C √(2/ρ)) at the largest area, K 1: subnormal at op 1e-305 on a 1 mPa set
+    big = math.pi * 10.0**2 / 4.0
+    tiny = _certified(big, 1.0, 1e-305)
+    message = _refusal(series(1.0, relief(set_pressure=1e-3, capacity=tiny)))
+    r = 1e-305 * 1e-3 / (big * math.sqrt(2.0 / RHO))
+    assert 0.0 < r < sys.float_info.min
+    assert f"the band coefficient R = {r:.6g} that is not a finite positive normal" in message
+
+
+def test_a_c_that_underflows_to_zero_quotes_q_f_as_zero() -> None:
+    """Decision 14's text quotes the values the law would use: with Kd·A = 0 (an area and a
+    coefficient whose product underflows) Q_f = C √(2 Δp_f/ρ) is 0 and R, dividing by C, is
+    infinite; Q_f was quoted as inf."""
+    message = _refusal(series(7.5e5, relief(capacity=_certified(1e-200, 1e-200))))
+    assert "C = Kd·A = 0 m²" in message
+    assert "the full-lift flow Q_f = 0 m³/s or the band coefficient R = inf" in message
+
+
+def test_the_band_root_where_its_two_branch_tests_round_differently() -> None:
+    """Next to 27 (RQ)² = 4 Δp_s³ the trigonometric test can fail while Cardano's radicand
+    rounds below zero: at this pair (found by stepping a few units in the last place about the
+    boundary) the root raised a math domain error; it is the 60-digit root."""
+    a, rq = 42101985.83804243, 105148234451.42006
+    assert 27.0 * rq * rq > 4.0 * a * a * a
+    assert rq * rq / 4.0 - a * a * a / 27.0 < 0.0
+    assert band_root(a, rq) == pytest.approx(float(band_u(a, rq)), rel=1e-14)
+
+
 # --------------------------------------------------------------------------- builder and status
 
 
@@ -724,7 +858,7 @@ def _closed_loop() -> Project:
 def test_a_floating_inlet_side_leaves_no_result_and_names_the_levels() -> None:
     """C16 (§3.4): started closed, the loop floats (UNDETERMINED_PRESSURE) and circulates where
     the pump's head equals its friction; RV1 has no result, and RELIEF_VALVE_CLOSED names every
-    inlet pressure up to its back pressure (0) plus its set as a steady state."""
+    inlet pressure up to its back pressure (0) plus its set as a level that keeps it closed."""
     state = solve_project(_closed_loop())
     assert state.converged
     q = state.link_results["L1"].flow
@@ -739,6 +873,48 @@ def test_a_floating_inlet_side_leaves_no_result_and_names_the_levels() -> None:
     assert flag.details["pressureLimit"] == pytest.approx(3.0e5, abs=1e-6)
     assert "has no fixed pressure level (UNDETERMINED_PRESSURE)" in flag.message
     assert "every inlet static pressure up to 300000 Pa(g)" in flag.message
+
+
+def test_the_closed_flag_claims_only_the_levels_that_keep_this_valve_closed() -> None:
+    """Decision 15: between two closed relief valves in series (R1 at 900 kPa(g), each set at
+    500 kPa) the middle section is closed off. RVb stays closed up to an inlet of 500 kPa(g)
+    and RVa down to a back pressure of 400 kPa(g), so the section's steady states are 400-500
+    kPa(g): each flag names its own valve's bound only, not each level as a steady state, and
+    quotes the bound without the other side's pressure (here round-off of 0, 4e-15 Pa(g))."""
+    comps = [
+        reservoir("R1", level=0.0, surface_pressure=9.0e5),
+        relief("RVa"),
+        relief("RVb"),
+        reservoir("R3", level=0.0),
+    ]
+    conns = [
+        connection("L1", ("R1", "port_1"), ("RVa", "inlet"), length=2.0, diameter=D_IN),
+        connection("L2", ("RVa", "outlet"), ("RVb", "inlet"), length=1.0, diameter=D_IN),
+        connection("L3", ("RVb", "outlet"), ("R3", "port_1"), length=3.0, diameter=D_OUT),
+    ]
+    state = solve_project(make_project(comps, conns))
+    assert state.converged
+    assert state.relief_valve_results == {}
+    [a] = _flags(state, "RELIEF_VALVE_CLOSED", "RVa")
+    [b] = _flags(state, "RELIEF_VALVE_CLOSED", "RVb")
+    assert (a.details["side"], b.details["side"]) == ("outlet", "inlet")
+    assert a.details["pressureLimit"] == pytest.approx(4.0e5, rel=1e-12)
+    assert b.details["pressureLimit"] == pytest.approx(5.0e5, rel=1e-12)
+    for flag in (a, b):
+        assert "is a steady state, that is" not in flag.message
+        assert (
+            "the valve stays closed at every level of that section at which the difference does "
+            "not exceed its set pressure (500000 Pa)"
+        ) in flag.message
+        assert flag.message.endswith(
+            "whether such a level is a steady state depends also on the other elements around "
+            "that section"
+        )
+    assert "every back pressure down to 400000 Pa(g), its inlet pressure less its set" in a.message
+    assert "every inlet static pressure up to 500000 Pa(g), its back pressure plus its set" in (
+        b.message
+    )
+    assert "e-1" not in b.message
 
 
 def test_a_valve_inside_a_floating_section_has_its_flow_and_no_pressures() -> None:
@@ -776,8 +952,7 @@ def test_a_valve_inside_a_floating_section_has_its_flow_and_no_pressures() -> No
     r = state.relief_valve_results["RV1"]
     assert r.flow > 0.0
     assert (r.inlet_pressure, r.back_pressure) == (None, None)
-    law = ReliefLaw(RHO, g, 0.8 * 2.0e-4, 1.5e5, 0.1, 0.0)
-    assert r.head_loss == pytest.approx(law.head(r.flow), rel=1e-9)
+    assert r.head_loss == pytest.approx(law_head(0.8 * 2.0e-4, 1.5e5, 0.1, r.flow), rel=1e-9)
     assert _flags(state, "BELOW_VAPOR_PRESSURE") == []
 
 
@@ -820,6 +995,132 @@ def test_a_flashing_outlet_and_a_viscous_liquid_are_flagged_while_relieving() ->
     assert not [
         f for f in _flags(thin, "CORRELATION_OUT_OF_RANGE") if f.details["limit"] == "viscosity"
     ]
+
+
+@pytest.mark.parametrize("mu", [0.1, math.nextafter(0.1, 0.0)], ids=["at 0.1", "just below"])
+def test_the_viscosity_flag_at_its_bound(mu: float) -> None:
+    """§7.6, decision 15: CORRELATION_OUT_OF_RANGE (viscosity) from μ = 0.1 Pa·s on, where API
+    520 applies Kv (fluids' API520_Kv docstring), and not one double below it."""
+    c = KD * A_F
+    q = 1.05 * c * math.sqrt(2.0 * 5.5e5 / RHO)
+    p_r = series_pressure(q, c, 5.0e5, 0.1, mu=mu)
+    state = solve_project(series(p_r, fluid=custom_fluid(viscosity=mu)))
+    assert state.relief_valve_results["RV1"].flow == pytest.approx(q, rel=1e-9)
+    flagged = [
+        f for f in _flags(state, "CORRELATION_OUT_OF_RANGE") if f.details["limit"] == "viscosity"
+    ]
+    if mu >= 0.1:
+        [flag] = flagged
+        assert (flag.details["value"], flag.details["lower"]) == (mu, 0.1)
+    else:
+        assert flagged == []
+
+
+@pytest.mark.parametrize("outlet", [0.5, -0.5], ids=["outlet above", "outlet below"])
+def test_the_valve_opens_on_the_static_difference_not_the_egl_difference(outlet: float) -> None:
+    """Decision 10 (§1.3 item 15): h_set = Δp_s/(ρ g) + z_in − z_out, so the valve opens once the
+    static pressure difference at zero flow exceeds its set, whatever its ports' elevations; a
+    check valve's cracking head, without the elevation term, would read the EGL difference.
+    Inside the window between the two readings, on the series network with equal reservoir
+    levels (1 m) and the inlet port at 0: with the outlet port 0.5 m up and a static difference
+    of 502 kPa at zero flow (the EGL difference ρ g × 0.5 m less, below the 500 kPa set) it
+    opens and relieves the flow the closed form gives; with it 0.5 m down and 498 kPa (the EGL
+    difference above the set) it stays closed."""
+    rho_g = RHO * g
+    c = KD * A_F
+    # at zero flow p_in = p_R + ρ g × 1 m and p_out = ρ g (1 m − z_out): static = p_R + ρ g z_out
+    static = 5.02e5 if outlet > 0.0 else 4.98e5
+    p_r = static - rho_g * outlet
+    egl_difference = p_r  # EGL_in − EGL_out at zero flow, × ρ g
+    assert (egl_difference < 5.0e5) is (outlet > 0.0)
+    state = solve_project(series(p_r, relief(outlet=outlet)))
+    assert state.converged, state.convergence.message
+    r = state.relief_valve_results["RV1"]
+    if outlet > 0.0:
+        # p_R = ρ g (h_L1 + h(Q) + h_L2) with h_set holding z_in − z_out = −0.5 m
+        q = brentq(
+            lambda x: series_pressure(x, c, 5.0e5, 0.1) - rho_g * outlet - p_r,
+            1e-9,
+            1e-2,
+            xtol=1e-18,
+            rtol=1e-15,
+        )
+        assert r.state == "partial_lift"
+        assert r.flow == pytest.approx(q, rel=1e-9)
+    else:
+        assert (r.state, r.flow) == ("closed", 0.0)
+        assert r.set_ratio == pytest.approx(static / 5.0e5, rel=1e-12)
+
+
+def test_the_free_level_rule_takes_the_relief_valves_check_rule_at_its_set_head(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§3.4, decision 10 (status._level_changes): two PSVs in series in a pump loop whose only
+    fixed head is the open discharge behind RV1 (set 300 kPa). Open, each needs the loop's level
+    above what RV1 closed allows (setpoints 350 and 340 kPa), so the free-level search lets go
+    RV1 and applies its rule at the levels the PSVs hold: EPANET 2.2 cvstatus with the cracking
+    head h_set = Δp_s/(ρ g), the difference there above it, so it opens. The solve ends at a
+    state every rule holds: no flow, RV1 at its switch (its inlet at the set)."""
+    from opensolve_pipe.services.solver import status
+
+    seen: list[tuple[float, float, Status]] = []
+    inside = [False]
+    level_changes, check = status._level_changes, status.check_valve_status
+
+    def levelled(*args: Any, **kwargs: Any) -> Any:
+        inside[0] = True
+        try:
+            return level_changes(*args, **kwargs)
+        finally:
+            inside[0] = False
+
+    def rule(old: Status, dh: float, q: float, cracking: float) -> Status:
+        new = check(old, dh, q, cracking)
+        if inside[0]:
+            seen.append((dh, cracking, new))
+        return new
+
+    monkeypatch.setattr(status, "_level_changes", levelled)
+    monkeypatch.setattr(status, "check_valve_status", rule)
+
+    def psv(cid: str, setpoint: float) -> dict[str, Any]:
+        return {**gate(cid, "active"), "valveType": "psv", "setpoint": setpoint}
+
+    comps = [pump(), tee("T1"), relief(set_pressure=3.0e5), psv("PSV1", 3.5e5), psv("PSV2", 3.4e5)]
+    comps.append(
+        {
+            "type": "reference_node",
+            "referenceType": "ideal",
+            "id": "N1",
+            "name": "N1",
+            "elevation": 0.0,
+            "pressure": 0.0,
+            "ports": [{"id": "port_1", "nominalSize": 0.08}],
+        }
+    )
+    conns = [
+        connection("L1", ("PU", "discharge"), ("T1", "run_inlet"), length=150.0, diameter=0.1023),
+        connection("L2", ("T1", "run_outlet"), ("PSV1", "inlet"), length=10.0, diameter=0.1023),
+        connection("L3", ("PSV1", "outlet"), ("PSV2", "inlet"), length=10.0, diameter=0.1023),
+        connection("L4", ("PSV2", "outlet"), ("PU", "suction"), length=130.0, diameter=0.1023),
+        connection("B1", ("T1", "branch"), ("RV1", "inlet"), length=2.0, diameter=D_IN),
+        connection("B2", ("RV1", "outlet"), ("N1", "port_1"), length=1.0, diameter=D_OUT),
+    ]
+    state = solve_project(make_project(comps, conns, pump_library=[CURVE]))
+    h_set = 3.0e5 / (RHO * g)
+    assert seen, "the free-level search never applied RV1's rule"
+    for dh, cracking, new in seen:
+        assert cracking == pytest.approx(h_set, rel=1e-15)
+        if dh > h_set + 1e-4:  # Htol: cvstatus opens it
+            assert new is Status.OPEN
+    assert any(new is Status.OPEN for *_, new in seen)
+    assert state.converged, state.convergence.message
+    r = state.relief_valve_results["RV1"]
+    assert (r.state, r.flow) == ("closed", 0.0)
+    assert r.inlet_pressure is not None
+    assert r.back_pressure is not None
+    assert r.inlet_pressure - r.back_pressure <= 3.0e5 + RHO * g * 1e-4
+    assert r.inlet_pressure == pytest.approx(3.0e5, rel=1e-9)
 
 
 def test_each_capacity_kind_resolves_its_area_and_coefficient() -> None:
@@ -879,12 +1180,14 @@ def test_the_trace_gives_the_sources_the_readings_and_the_gauge_set_overpressure
     static = r.inlet_pressure - r.back_pressure
     v_in = r.flow / _area(D_IN)
     stagnation = static + RHO * v_in**2 / 2.0
-    law = ReliefLaw(RHO, g, KD * A_F, 5.0e5, 0.1, 0.0)
     assert _value(trace, "Pressure difference by the static reading").value == pytest.approx(
         static, rel=1e-12
     )
     assert _value(trace, "Flow the static reading would give").value == pytest.approx(
-        law.flow_at(static), rel=1e-12
+        law_flow(KD * A_F, 5.0e5, 0.1, static), rel=1e-12
+    )
+    assert _value(trace, "Flow the definitions' reading would give").value == pytest.approx(
+        law_flow(KD * A_F, 5.0e5, 0.1, stagnation), rel=1e-12
     )
     assert _value(trace, "Flow the static reading would give").value / r.flow - 1.0 == (
         pytest.approx(-0.01609, abs=5e-6)  # C2: the static reading, −1.609 %
@@ -930,6 +1233,61 @@ def test_a_closed_valves_trace_states_its_inequality_without_the_laws_head() -> 
     effective = solve_project(series(4.0e5, relief(capacity={"kind": "effective", "area": 3.0e-4})))
     notes = effective.trace.elements["RV1"].notes
     assert any("covers this area: G (fluids.safety_valve.API520_round_size)" in n for n in notes)
+
+
+def test_the_trace_gives_asmes_default_by_its_equation_and_the_term_that_set_it() -> None:
+    """§4.1: on ASME's default the trace gives op = max(0.1, 3 psi/Δp_s) and names the term that
+    sets it at this set, the 3 psi floor at 150 kPa (C5's 0.1378951459) and the 10 % at 500 kPa;
+    on a certified overpressure neither. And the full-lift loss coefficient on the inlet pipe's
+    bore, K = (A_in/C)², from which Δp_t = K ρ v_in²/2 (for comparison)."""
+    floor = solve_project(series(3.0e5, relief(set_pressure=1.5e5))).trace.elements["RV1"]
+    [equation] = [e for e in floor.equations if e.startswith("op = max(")]
+    assert equation.startswith(f"op = max(0.1, 3 psi/Δp_s), 3 psi = {THREE_PSI:.10g} Pa: ASME's")
+    [note] = [n for n in floor.notes if n.startswith("ASME's default overpressure at this set")]
+    ratio = THREE_PSI / 1.5e5
+    assert ratio == pytest.approx(0.1378951459, rel=1e-9)
+    assert note == (
+        f"ASME's default overpressure at this set is its 3 psi floor, 3 psi/Δp_s = "
+        f"{THREE_PSI:.10g}/150000 = {ratio:.10g} > 0.1: op = {ratio:.10g}."
+    )
+    ten = solve_project(series(1.05e6)).trace.elements["RV1"]
+    [note] = [n for n in ten.notes if n.startswith("ASME's default overpressure at this set")]
+    assert note == (
+        f"ASME's default overpressure at this set is its 10 %, 3 psi/Δp_s = {THREE_PSI:.10g}/"
+        f"500000 = {THREE_PSI / 5.0e5:.10g} < 0.1: op = 0.1."
+    )
+    k = _value(ten, "Loss coefficient at full lift on the inlet pipe's bore, K = (A_in/C)²")
+    assert k.value == pytest.approx((_area(D_IN) / (KD * A_F)) ** 2, rel=1e-14)
+    certified = {"kind": "certified", "area": 2.5e-4, "dischargeCoefficient": 0.7}
+    own = solve_project(series(1.05e6, relief(capacity={**certified, "overpressure": 0.08})))
+    trace = own.trace.elements["RV1"]
+    assert not [e for e in trace.equations if e.startswith("op = max(")]
+    assert not [n for n in trace.notes if n.startswith("ASME's default overpressure")]
+
+
+def test_a_valve_open_at_its_switch_is_not_called_open_and_closed() -> None:
+    """§12 item 2: the status rule (EPANET 2.2 cvstatus) closes a relief valve only below −Qtol,
+    so a valve open at its switch can end with a flow in [−Qtol, 0], which its result labels
+    closed; its trace note says that, never "Open, closed". The note is built directly, at a
+    flow of −4×10⁻⁹ m³/s with the status open, since which side of zero a solve's flow at the
+    switch ends on is round-off."""
+    from types import SimpleNamespace
+
+    from opensolve_pipe.services.solver import trace as tr
+
+    project = series(4.0e5)
+    data = _built(project).valves["RV1"]
+    closed = solve_project(project).relief_valve_results["RV1"]
+    h_set = 5.0e5 / (RHO * g)
+    result = closed.model_copy(update={"flow": -4.0e-9, "head_loss": h_set})
+    controls = {"RV1": SimpleNamespace(status=Status.OPEN)}
+    ctx = SimpleNamespace(outer=SimpleNamespace(controls=controls), rho_g=RHO * g)
+    t = tr._Trace("RV1", "relief_valve")
+    tr._relief_state_note(t, ctx, data, result)  # type: ignore[arg-type]
+    [note] = t.build().notes
+    assert note.startswith("Open at its switch, reported closed (no forward flow, x = 0): ")
+    assert "Q = -4e-09 m³/s ≥ −Qtol = -1e-08 m³/s" in note
+    assert "Open, closed" not in note
 
 
 def test_the_methods_summary_has_a_relief_valves_section_only_with_a_relief_valve() -> None:
@@ -1273,6 +1631,36 @@ def test_a_variable_inside_a_whole_capacity_the_scenario_sets_overrides_the_whol
     section = out.state.trace.methods.sections[1]
     assert section.title == "Scenario"
     assert any("the place of its API 520 effective area" in item for item in section.items)
+
+
+def test_a_set_pressure_keeps_its_base_value_where_the_scenario_changes_the_capacity_kind() -> None:
+    """Decision 19: a variable's baseValue is null only for a value inside a capacity the base
+    gives by another kind; a set pressure is the same value in every kind, so a scenario that
+    changes only the capacity's kind (a letter to an effective area) leaves the set's base value
+    the base's, 350 kPa, as goal_seek_check's oracle reads it."""
+    data = series_dict(4.4e5, relief(set_pressure=3.5e5))
+    data["scenarios"] = [
+        {
+            "id": "S1",
+            "name": "Effective",
+            "overrides": [
+                {
+                    "kind": "component",
+                    "componentId": "RV1",
+                    "field": "capacity",
+                    "value": {"kind": "effective", "area": 1.0e-3},
+                }
+            ],
+        }
+    ]
+    out = _goal_seek(
+        data,
+        [{"field": "setPressure", "lower": 2.0e5, "upper": 4.0e5}],
+        [{"quantity": "relief_valve_flow", "elementId": "RV1", "target": 0.005}],
+        scenario="S1",
+    )
+    [variable] = out.result.variables
+    assert (variable.case_value, variable.base_value) == (3.5e5, 3.5e5)
 
 
 # --------------------------------------------------------------------------- API, curves, checks

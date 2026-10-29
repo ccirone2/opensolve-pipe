@@ -43,7 +43,7 @@ import {
 	PUMP_CONTROL_MODE_NAMES,
 	PUMP_CONTROL_STATE_LABELS
 } from './labels';
-import { RELIEF_STATE_LABELS } from './relief';
+import { reliefStateLabel } from './relief';
 import {
 	displayUnit,
 	formatNumber,
@@ -1021,14 +1021,21 @@ export const RELIEF_NO_RESULT = 'Closed (no result)';
 /**
  * Relief valves (proposal pressure-relief-valve.md §6 W4): the state, the flow, the capacity at
  * full lift for the case fluid and the flow as a fraction of it, the inlet's static pressure
- * (gauge), the total-pressure difference as a fraction of the set (above 100 %, relieving: the
- * rise is its overpressure), the lift, the back pressure (gauge), the static pressure drop, inlet
- * minus outlet, as for valves, and the head loss; "—" for none (a pressure in a floating section).
- * A relief valve with no result (a side closed off or floating) is listed by its
- * RELIEF_VALVE_CLOSED flag, with "—" for every value. Differences the solver resolves only to its
- * head tolerance read "≈ 0".
+ * (gauge), the total-pressure difference as a fraction of the set (above 100 %, an active valve
+ * relieves and the rise is its overpressure; a locked-closed one stays closed), the lift, the back
+ * pressure (gauge), the static pressure drop, inlet minus outlet, as for valves, and the head
+ * loss; "—" for none (a pressure in a floating section). The state of a valve locked closed in the
+ * case as solved (`inputs`, see assignedFlowTable) reads "Closed (locked)" (relief.ts
+ * reliefStateLabel). A relief valve with no result (a side closed off or floating) is listed by
+ * its RELIEF_VALVE_CLOSED flag, with "—" for every value. Differences the solver resolves only to
+ * its head tolerance read "≈ 0".
  */
-export function reliefTable(project: Project, solved: SolvedState, prefs: UnitPreferences): Table {
+export function reliefTable(
+	project: Project,
+	solved: SolvedState,
+	prefs: UnitPreferences,
+	inputs: Project | null = null
+): Table {
 	const f = new Formatter(prefs);
 	const columns: Column[] = [
 		text('state', 'State'),
@@ -1059,7 +1066,7 @@ export function reliefTable(project: Project, solved: SolvedState, prefs: UnitPr
 			});
 		}
 		return componentRow(project, solved.flags, id, {
-			state: RELIEF_STATE_LABELS[valve.state] ?? humanize(valve.state),
+			state: reliefStateLabel(valve.state, id, inputs),
 			flow: f.num(valve.flow, 'flow'),
 			fullLiftFlow: f.num(valve.fullLiftFlow, 'flow'),
 			flowRatio: f.num(valve.flowRatio, 'fraction'),
@@ -1454,7 +1461,7 @@ export function rowsForElement(
 			: [
 					{ title: 'Pump', table: pumpTable(project, solved, prefs) },
 					{ title: 'Valve', table: valveTable(project, solved, prefs) },
-					{ title: 'Relief valve', table: reliefTable(project, solved, prefs) },
+					{ title: 'Relief valve', table: reliefTable(project, solved, prefs, inputs) },
 					{ title: 'Equipment', table: equipmentTable(project, solved, prefs) },
 					{ title: 'Orifice plate', table: orificeTable(project, solved, prefs) },
 					{ title: 'Branch', table: branchTable(project, solved, prefs) },
@@ -1504,7 +1511,8 @@ const SUMMARY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
 	'Pipe connection': ['flow', 'velocity', 'headLoss'],
 	Pump: ['status', 'flow', 'head', 'npshMargin'],
 	Valve: ['state', 'flow', 'pressureDrop'],
-	// Δp ÷ set says how close a closed valve is to opening, or how far an open one relieves past it.
+	// Δp ÷ set says how close a closed valve is to opening, or how far an open one relieves past it
+	// (a locked-closed valve stays closed above 100 %: its state says so).
 	'Relief valve': ['state', 'flow', 'inletPressure', 'setRatio'],
 	// A Cv- or Kv-rated item has no flow ratio ("—"): left out, so it shows flow and pressure loss.
 	Equipment: ['flow', 'flowRatio', 'pressureLoss'],

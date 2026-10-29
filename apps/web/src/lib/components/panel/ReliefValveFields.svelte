@@ -4,7 +4,8 @@
 	inlet minus outlet static, in the pressure unit with no gauge marker. The capacity is one of
 	three kinds, never mixed: an API 526 orifice letter (its effective area from x-relief-data,
 	shown in the area unit), an API 520 effective area, each with API 520's effective coefficient
-	and ASME's overpressure (preliminary, a read-only line); or the valve's certified actual area,
+	and ASME's overpressure (preliminary, a read-only line that names ASME VIII's 15 psi scope and
+	turns into a warning for a set below it); or the valve's certified actual area,
 	rated coefficient and optional full-lift overpressure (ASME's default by default, its value at
 	this set shown). No value is carried from one kind to another.
 
@@ -116,6 +117,10 @@
 		capacity.overpressure !== undefined || pendingEntered ? 'entered' : 'asme'
 	);
 	const defaultLine = $derived(defaultOverpressureLine(setPressure, units));
+	/** The preliminary kinds' line: a warning for a set below ASME VIII's scope. */
+	const preliminary = $derived(preliminaryLine(units, setPressure));
+	/** That warning describes the letter or the effective area it is about. */
+	const preliminaryNote = $derived(preliminary.warning ? `${noteId}-preliminary` : undefined);
 	const waitingOverpressure = $derived(
 		overpressureSource === 'entered' && capacity.overpressure === undefined
 	);
@@ -164,10 +169,12 @@
 				hint="API 526's effective orifice area of the letter (via fluids), for preliminary sizing; the valve selected then has its own actual area and rated coefficient."
 				change={changeOf('letter')}
 				changeNote={!groupNoted('letter')}
+				invalid={!!errorOf('capacity.letter')}
 				describedby={described(
 					groupNoted('letter') && groupNote,
 					warningId,
-					!!errorOf('capacity.letter') && `${noteId}-letter-error`
+					!!errorOf('capacity.letter') && `${noteId}-letter-error`,
+					preliminaryNote
 				)}
 				onchange={(letter) => {
 					oninput?.('capacity.letter');
@@ -203,13 +210,26 @@
 			error={errorOf('capacity.area')}
 			change={changeOf('area')}
 			changeNote={!groupNoted('area')}
-			describedby={described(groupNoted('area') && groupNote, warningId)}
+			describedby={described(
+				groupNoted('area') && groupNote,
+				warningId,
+				capacity.kind === 'effective' && preliminaryNote
+			)}
 			oninput={() => oninput?.('capacity.area')}
 			onchange={(v) => (v === null ? false : onvalue('area', v))}
 		/>
 	{/if}
 	{#if capacity.kind === 'api526' || capacity.kind === 'effective'}
-		<p class="hint sm:col-span-2">{preliminaryLine(units)}</p>
+		<p
+			id="{noteId}-preliminary"
+			class={[
+				'sm:col-span-2',
+				preliminary.warning ? 'flex items-start gap-1 text-sm text-amber-800' : 'hint'
+			]}
+		>
+			{#if preliminary.warning}<Icon name="alert" class="mt-0.5 size-4 shrink-0" />{/if}
+			<span>{preliminary.text}</span>
+		</p>
 	{/if}
 	{#if capacity.kind === 'certified'}
 		<NumberField

@@ -370,6 +370,7 @@ For each assigned-flow node:
 - Operating point (flow, head)
 - NPSH available at pump suction
 - NPSH margin (if NPSH required provided)
+- Pumps together (CLAUDE.md D21; `docs/proposals/pump-groups.md`): for pumps that run together, in parallel or in series, the station that holds them (between the two places it meets the rest of the network), each pump's own curve and solved point on one chart, how the flow divides (each pump's share, and in parallel what each loses on its way between the headers; in series what the piping between the pumps loses), and the group curve: the station's flow at each rise between its inlet and outlet, solved with every pump on its own curve, so it shows where a weaker pump stops delivering. The group is chosen on the page (suggested from the network), never stored. The catalogue composite curve (flows added at equal head) is not drawn: it does not meet the system at the duty. **Later:** the group's own system curve, crossing the group curve at the duty (slice 4b); the group in the export; one pump off as a case of each running pump
 
 #### 3.2.3 Export Formats
 

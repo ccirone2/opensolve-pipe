@@ -1066,6 +1066,33 @@
           }
         ]
       },
+      "DutyCheckMember": {
+        "additionalProperties": false,
+        "properties": {
+          "flow": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m³/s on the group curve at the duty's rise",
+            "title": "Flow"
+          },
+          "pumpId": {
+            "title": "Pumpid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pumpId",
+          "flow"
+        ],
+        "title": "DutyCheckMember",
+        "type": "object"
+      },
       "EfficiencyCurvePoint": {
         "additionalProperties": false,
         "properties": {
@@ -1292,6 +1319,7 @@
           "error": {
             "enum": [
               "TOPOLOGY_ERROR",
+              "NOT_A_STATION",
               "VALIDATION_ERROR",
               "FLUID_ERROR",
               "NOT_FOUND",
@@ -3207,6 +3235,105 @@
           "methods"
         ],
         "title": "GoalSeekResult",
+        "type": "object"
+      },
+      "GroupMemberPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "beyondData": {
+            "description": "Running beyond its head curve's points, on the end tangent (PUMP_OUTSIDE_CURVE)",
+            "title": "Beyonddata",
+            "type": "boolean"
+          },
+          "controlState": {
+            "anyOf": [
+              {
+                "enum": [
+                  "active",
+                  "max_speed",
+                  "min_speed",
+                  "no_flow",
+                  "off"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A speed-controlled pump's state (null for a fixed-speed pump)",
+            "title": "Controlstate"
+          },
+          "flow": {
+            "description": "m³/s through the pump (0 unless running)",
+            "title": "Flow",
+            "type": "number"
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EGL(discharge) - EGL(suction), m; null if undetermined",
+            "title": "Head"
+          },
+          "pumpId": {
+            "title": "Pumpid",
+            "type": "string"
+          },
+          "speed": {
+            "title": "Speed",
+            "type": "number"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "off",
+              "no_flow"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pumpId",
+          "status",
+          "controlState",
+          "speed",
+          "flow",
+          "head",
+          "beyondData"
+        ],
+        "title": "GroupMemberPoint",
+        "type": "object"
+      },
+      "HeadRange": {
+        "additionalProperties": false,
+        "properties": {
+          "max": {
+            "title": "Max",
+            "type": "number"
+          },
+          "min": {
+            "title": "Min",
+            "type": "number"
+          },
+          "unit": {
+            "const": "m",
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "min",
+          "max",
+          "unit"
+        ],
+        "title": "HeadRange",
         "type": "object"
       },
       "IdealReferenceNode": {
@@ -5551,6 +5678,495 @@
         "title": "PumpCurve",
         "type": "object"
       },
+      "PumpGroupCurvePoint": {
+        "additionalProperties": false,
+        "properties": {
+          "componentIds": {
+            "description": "not_converged: the controls and branches the outer loop names as oscillating (convergence.oscillatingComponents); empty otherwise",
+            "items": {
+              "type": "string"
+            },
+            "title": "Componentids",
+            "type": "array"
+          },
+          "converged": {
+            "title": "Converged",
+            "type": "boolean"
+          },
+          "flow": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m³/s, the station's flow from S into the station; null when not solved",
+            "title": "Flow"
+          },
+          "head": {
+            "description": "The rise EGL(D) - EGL(S) held, m",
+            "title": "Head",
+            "type": "number"
+          },
+          "isDuty": {
+            "description": "This point's rise is the duty's rise (the duty check)",
+            "title": "Isduty",
+            "type": "boolean"
+          },
+          "members": {
+            "description": "In member order; empty when not solved",
+            "items": {
+              "$ref": "#/components/schemas/GroupMemberPoint"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "message": {
+            "description": "Why the point has no flow ('' when it has one)",
+            "title": "Message",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "not_converged",
+                  "not_computed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "head",
+          "flow",
+          "converged",
+          "isDuty",
+          "members",
+          "reason",
+          "message",
+          "componentIds"
+        ],
+        "title": "PumpGroupCurvePoint",
+        "type": "object"
+      },
+      "PumpGroupCurveRequest": {
+        "additionalProperties": false,
+        "description": "The group curve of the station holding ``pumpIds`` (CLAUDE.md D21). Checks in order: this\nrequest (400), the scenario (404, then 400 for its values), the case's fluid (400), pump\nids that name no pump (404, all listed), the case's topology (422), then whether the pumps\nform a station (422 NOT_A_STATION, every reason listed), then the head range (400).",
+        "properties": {
+          "curve": {
+            "const": "group",
+            "default": "group",
+            "description": "'group': the station solved alone between its ports held a rise apart (the group's system curve is a later slice)",
+            "title": "Curve",
+            "type": "string"
+          },
+          "headMax": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": -10000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m, the highest rise sampled; default the largest rise the station can hold with flow (the largest sum of shutoff heads s²H₀(0) along a way from S to D, of the pumps it passes forward and of those beside a bypass in the parts it passes, a speed-controlled pump's at its maximum speed, a pump that is off adding nothing; every pump's that is on, an upper bound, when no way passes a pump), or the duty's rise if higher",
+            "title": "Headmax"
+          },
+          "headMin": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": -10000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m, the lowest rise EGL(D) - EGL(S) sampled; default min(0, the duty's rise)",
+            "title": "Headmin"
+          },
+          "numPoints": {
+            "default": 41,
+            "description": "Evenly spaced rises; the duty's rise is added when it is not one of them",
+            "maximum": 201.0,
+            "minimum": 5.0,
+            "title": "Numpoints",
+            "type": "integer"
+          },
+          "project": {
+            "$ref": "#/components/schemas/Project"
+          },
+          "pumpIds": {
+            "description": "The pumps of the group, each once (order does not matter)",
+            "items": {
+              "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "maxItems": 6,
+            "minItems": 1,
+            "title": "Pumpids",
+            "type": "array"
+          },
+          "scenarioId": {
+            "anyOf": [
+              {
+                "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Use this scenario of project.scenarios: its overrides are applied to the base project first (omitted or null: the base project; an unknown id: 404 NOT_FOUND)",
+            "title": "Scenarioid"
+          }
+        },
+        "required": [
+          "project",
+          "pumpIds"
+        ],
+        "title": "PumpGroupCurveRequest",
+        "type": "object",
+        "x-ordered-fields": [
+          {
+            "lower": "headMin",
+            "strict": true,
+            "upper": "headMax"
+          }
+        ]
+      },
+      "PumpGroupCurveResponse": {
+        "additionalProperties": false,
+        "description": "The station holding the pumps, its duty in the case and its group curve (CLAUDE.md D21).",
+        "properties": {
+          "converged": {
+            "description": "The case's solve converged (else no duty and no points)",
+            "title": "Converged",
+            "type": "boolean"
+          },
+          "duty": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PumpGroupDuty"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dutyCheck": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PumpGroupDutyCheck"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "headRange": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HeadRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "description": "Why there is no duty ('' when there is one)",
+            "title": "Message",
+            "type": "string"
+          },
+          "methodVersion": {
+            "title": "Methodversion",
+            "type": "string"
+          },
+          "methods": {
+            "$ref": "#/components/schemas/MethodsSection",
+            "description": "How the station and its curve are computed"
+          },
+          "points": {
+            "description": "In rise order",
+            "items": {
+              "$ref": "#/components/schemas/PumpGroupCurvePoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScenarioResult"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scenario used, with every override's state, the value used and the base value; null for the base project"
+          },
+          "station": {
+            "$ref": "#/components/schemas/PumpGroupStation"
+          }
+        },
+        "required": [
+          "station",
+          "converged",
+          "message",
+          "duty",
+          "dutyCheck",
+          "points",
+          "headRange",
+          "methods",
+          "methodVersion",
+          "scenario"
+        ],
+        "title": "PumpGroupCurveResponse",
+        "type": "object"
+      },
+      "PumpGroupDuty": {
+        "additionalProperties": false,
+        "description": "The station at the case's own solve (exact identities of its reported values).",
+        "properties": {
+          "flow": {
+            "description": "Q_st, m³/s: the net flow from S into the station",
+            "title": "Flow",
+            "type": "number"
+          },
+          "head": {
+            "description": "ΔH_st = EGL(D) - EGL(S), m: the station's rise",
+            "title": "Head",
+            "type": "number"
+          },
+          "inletEgl": {
+            "description": "EGL(S), m: the level the group curve holds S at; an arbitrary level when the station lies in a part of the network that no reservoir or reference node reaches (UNDETERMINED_PRESSURE: its rise and the curve are exact all the same)",
+            "title": "Inletegl",
+            "type": "number"
+          },
+          "interstageHeadLoss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "series, every pump running: the sum of the heads - the rise, m (the piping between the pumps); null otherwise",
+            "title": "Interstageheadloss"
+          },
+          "members": {
+            "description": "In member order",
+            "items": {
+              "$ref": "#/components/schemas/PumpGroupDutyMember"
+            },
+            "title": "Members",
+            "type": "array"
+          }
+        },
+        "required": [
+          "flow",
+          "head",
+          "inletEgl",
+          "members",
+          "interstageHeadLoss"
+        ],
+        "title": "PumpGroupDuty",
+        "type": "object"
+      },
+      "PumpGroupDutyCheck": {
+        "additionalProperties": false,
+        "properties": {
+          "agrees": {
+            "description": "The group curve at the duty's rise gives the station's flow and every pump's flow of the solve, each within 0.5 % or 1e-6 m³/s, whichever is looser",
+            "title": "Agrees",
+            "type": "boolean"
+          },
+          "flow": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m³/s: the group curve's flow at the duty's rise",
+            "title": "Flow"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/DutyCheckMember"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "message": {
+            "description": "What was compared and, when it disagrees, where",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agrees",
+          "flow",
+          "members",
+          "message"
+        ],
+        "title": "PumpGroupDutyCheck",
+        "type": "object"
+      },
+      "PumpGroupDutyMember": {
+        "additionalProperties": false,
+        "properties": {
+          "flow": {
+            "description": "m³/s, as pumpResults[id].operatingFlow (0 unless running)",
+            "title": "Flow",
+            "type": "number"
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m, as pumpResults[id].operatingHead; null when the pump has no result (beside a floating section, or isolated)",
+            "title": "Head"
+          },
+          "pumpId": {
+            "title": "Pumpid",
+            "type": "string"
+          },
+          "routeHeadLoss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "parallel, running pumps: head - the station's rise, m: every loss on the pump's way from S to D (its legs, tee paths, and header pipes it shares); null otherwise",
+            "title": "Routeheadloss"
+          },
+          "share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "parallel: flow / the station's flow; series: head / the sum of the members' heads; null for a mixed station, or when the divisor is 0",
+            "title": "Share"
+          },
+          "speed": {
+            "description": "The speed it runs at, as pumpResults[id].speed",
+            "title": "Speed",
+            "type": "number"
+          },
+          "status": {
+            "description": "As pumpResults[id].status",
+            "enum": [
+              "running",
+              "off",
+              "no_flow"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pumpId",
+          "status",
+          "speed",
+          "flow",
+          "head",
+          "share",
+          "routeHeadLoss"
+        ],
+        "title": "PumpGroupDutyMember",
+        "type": "object"
+      },
+      "PumpGroupStation": {
+        "additionalProperties": false,
+        "properties": {
+          "arrangement": {
+            "description": "parallel: with the pumps removed, the station falls into S's side and D's side, each pump from S's to D's (tee ladders included); series: one way from S to D passes every pump in turn; mixed: anything else (shares and losses on the way are then not given)",
+            "enum": [
+              "parallel",
+              "series",
+              "mixed"
+            ],
+            "title": "Arrangement",
+            "type": "string"
+          },
+          "inlet": {
+            "$ref": "#/components/schemas/StationPort",
+            "description": "S: where the station's flow enters it"
+          },
+          "interiorComponentIds": {
+            "description": "Components with an element inside the station, in component order",
+            "items": {
+              "type": "string"
+            },
+            "title": "Interiorcomponentids",
+            "type": "array"
+          },
+          "interiorConnectionIds": {
+            "description": "Connections inside the station, in connection order",
+            "items": {
+              "type": "string"
+            },
+            "title": "Interiorconnectionids",
+            "type": "array"
+          },
+          "memberIds": {
+            "description": "The group's pumps, in component order",
+            "items": {
+              "type": "string"
+            },
+            "title": "Memberids",
+            "type": "array"
+          },
+          "outlet": {
+            "$ref": "#/components/schemas/StationPort",
+            "description": "D: where it leaves"
+          }
+        },
+        "required": [
+          "inlet",
+          "outlet",
+          "arrangement",
+          "memberIds",
+          "interiorComponentIds",
+          "interiorConnectionIds"
+        ],
+        "title": "PumpGroupStation",
+        "type": "object"
+      },
       "PumpResult": {
         "additionalProperties": false,
         "properties": {
@@ -6866,6 +7482,33 @@
           "after"
         ],
         "title": "StateChange",
+        "type": "object"
+      },
+      "StationPort": {
+        "additionalProperties": false,
+        "properties": {
+          "componentId": {
+            "title": "Componentid",
+            "type": "string"
+          },
+          "portId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null: a reservoir or reference node taken whole (all its ports share its head)",
+            "title": "Portid"
+          }
+        },
+        "required": [
+          "componentId",
+          "portId"
+        ],
+        "title": "StationPort",
         "type": "object"
       },
       "SystemCurvePoint": {
@@ -8226,6 +8869,108 @@
         "summary": "Method Versions",
         "tags": [
           "library"
+        ]
+      }
+    },
+    "/api/v1/pump-group-curve": {
+      "post": {
+        "description": "The station holding a group of pumps, its duty in the case and its group curve (CLAUDE.md\nD21): the station solved alone between its inlet S and outlet D held a rise apart, every\nelement inside on its own law and rules, from the duty's rise outward.\n\nChecks in order: the request (400), the scenario (404, then 400 for its values), the case's\nfluid (400), pump ids that name no pump (404, all listed), the case's topology (422), whether\nthe pumps form a station (422 NOT_A_STATION, every reason listed), the head range (400).\nA case whose solve does not converge is 200 with converged = false and no points.",
+        "operationId": "pump_group_curve_endpoint_api_v1_pump_group_curve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PumpGroupCurveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PumpGroupCurveResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid input"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unknown pump id or scenario id"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Topology error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Server busy (SERVER_BUSY) or the time budget ran out (TIMEOUT)"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Other errors"
+          }
+        },
+        "summary": "Pump Group Curve Endpoint",
+        "tags": [
+          "solve"
         ]
       }
     },

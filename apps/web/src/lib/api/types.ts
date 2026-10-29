@@ -109,6 +109,17 @@ export type FluidListResponse = S['FluidListResponse'];
 export type FluidPropertiesResponse = S['FluidPropertiesResponse'];
 export type MethodVersionsResponse = S['MethodVersionsResponse'];
 
+export type PumpGroupCurveRequest = S['PumpGroupCurveRequest'];
+export type PumpGroupCurveResponse = S['PumpGroupCurveResponse'];
+export type PumpGroupStation = S['PumpGroupStation'];
+export type StationPort = S['StationPort'];
+export type PumpGroupArrangement = PumpGroupStation['arrangement'];
+export type PumpGroupDuty = S['PumpGroupDuty'];
+export type PumpGroupDutyMember = S['PumpGroupDutyMember'];
+export type PumpGroupDutyCheck = S['PumpGroupDutyCheck'];
+export type PumpGroupCurvePoint = S['PumpGroupCurvePoint'];
+export type GroupMemberPoint = S['GroupMemberPoint'];
+
 export type GoalSeekRequest = S['GoalSeekRequest'];
 export type GoalSeekResponse = S['GoalSeekResponse'];
 export type GoalSeekResult = S['GoalSeekResult'];

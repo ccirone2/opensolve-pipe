@@ -19,5 +19,5 @@ import {
 Chart.register(LineController, LineElement, PointElement, LinearScale, Tooltip, Legend);
 
 export { Chart };
-export { pumpChartConfig } from '$lib/utils/pump-chart-config';
+export { pumpChartConfig, pumpGroupConfig } from '$lib/utils/pump-chart-config';
 export { downloadChartImage, IMAGE_REASONS_IN } from '$lib/utils/export/chart-image';

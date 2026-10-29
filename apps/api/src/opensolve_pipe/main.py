@@ -18,6 +18,7 @@ from .models.api import ErrorCode, ErrorResponse, TopologyIssue
 from .routers import fluids, goal_seek, library, solve
 from .services.fluids import FluidError
 from .services.goal_seek import GoalSeekInputError, GoalSeekNotFoundError
+from .services.pump_groups import HeadRangeError, NotAStationError, PumpGroupNotFoundError
 from .services.scenarios import (
     RESISTANCE_TAGS,
     ScenarioFluidError,
@@ -218,6 +219,35 @@ async def goal_seek_input_error(_: Request, exc: GoalSeekInputError) -> JSONResp
 async def pump_not_found(_: Request, exc: PumpNotFoundError) -> JSONResponse:
     body = ErrorResponse(success=False, error="NOT_FOUND", message=str(exc), issues=[])
     return _error(404, body)
+
+
+@app.exception_handler(PumpGroupNotFoundError)
+async def pump_group_not_found(_: Request, exc: PumpGroupNotFoundError) -> JSONResponse:
+    # Every id that names no pump, named (D10: not-found errors name the id at fault).
+    body = ErrorResponse(success=False, error="NOT_FOUND", message=str(exc), issues=exc.issues)
+    return _error(404, body)
+
+
+@app.exception_handler(NotAStationError)
+async def not_a_station(_: Request, exc: NotAStationError) -> JSONResponse:
+    scenario = f"In scenario {exc.scenario_id}, the" if exc.scenario_id is not None else "The"
+    message = f"{scenario} pumps do not form a station: {len(exc.issues)} reason(s)."
+    body = ErrorResponse(success=False, error="NOT_A_STATION", message=message, issues=exc.issues)
+    return _error(422, body)
+
+
+@app.exception_handler(HeadRangeError)
+async def head_range_error(_: Request, exc: HeadRangeError) -> JSONResponse:
+    issue = TopologyIssue(
+        code="EMPTY_HEAD_RANGE", message=str(exc), component_ids=[], connection_ids=[]
+    )
+    body = ErrorResponse(
+        success=False,
+        error="VALIDATION_ERROR",
+        message="Invalid input: 1 problem(s).",
+        issues=[issue],
+    )
+    return _error(400, body)
 
 
 @app.exception_handler(FlowRangeError)

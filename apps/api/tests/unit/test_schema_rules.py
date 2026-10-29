@@ -23,6 +23,7 @@ from opensolve_pipe.models.goal_seek import GoalVariable
 from opensolve_pipe.models.piping import Fitting, PipeDefinition, PipingSegment
 from opensolve_pipe.models.ports import PortDirection
 from opensolve_pipe.models.project_library import PipeSpec, ResistanceSpec
+from opensolve_pipe.models.pump_groups import PumpGroupCurveRequest
 from opensolve_pipe.models.pumps import AllowableOperatingRegion
 
 SCHEMAS: dict[str, Any] = app.openapi()["components"]["schemas"]
@@ -167,6 +168,8 @@ def test_ordered_fields_are_what_the_validators_enforce() -> None:
         ],
         "PipeVelocityCheck": [{"lower": "minimum", "upper": "maximum", "strict": True}],
         "AllowableOperatingRegion": [{"lower": "flowMin", "upper": "flowMax", "strict": True}],
+        # A group curve's rises (CLAUDE.md D21).
+        "PumpGroupCurveRequest": [{"lower": "headMin", "upper": "headMax", "strict": True}],
         # A project library pipe spec's bore below its outer diameter (CLAUDE.md D21).
         "PipeSpec": [{"lower": "innerDiameter", "upper": "outerDiameter", "strict": True}],
     }
@@ -184,6 +187,15 @@ def test_ordered_fields_are_what_the_validators_enforce() -> None:
             with pytest.raises(ValidationError, match=match):
                 model.model_validate({lower: low, upper: 0.8, **extra})
     PipeVelocityCheck.model_validate({"maximum": 0.8, **user})  # one alone is free
+    group = {"project": _group_project(), "pumpIds": ["P1"]}
+    PumpGroupCurveRequest.model_validate({**group, "headMin": 0.5, "headMax": 0.8})
+    PumpGroupCurveRequest.model_validate(
+        {**group, "headMin": math.nextafter(0.8, -math.inf), "headMax": 0.8}
+    )
+    for low in (0.8, 0.95):
+        with pytest.raises(ValidationError, match="headMax must be above headMin"):
+            PumpGroupCurveRequest.model_validate({**group, "headMin": low, "headMax": 0.8})
+    PumpGroupCurveRequest.model_validate({**group, "headMax": -0.8})  # one alone is free
     PipeSpec.model_validate({"innerDiameter": 0.8, **spec})
     variables = {
         "ComponentVariable": {"kind": "component", "componentId": "R1", "field": "liquidLevel"},
@@ -207,6 +219,13 @@ def test_ordered_fields_are_what_the_validators_enforce() -> None:
                 COMPONENTS.validate_python(_ordered_pump(lower, upper, low, 0.8))
         alone = _component("Pump", ["suction", "discharge"], **_nested(upper, 0.2))
         COMPONENTS.validate_python(alone)
+
+
+def _group_project() -> dict[str, Any]:
+    """The smallest project a group-curve request validates with (the request is not solved)."""
+    from .helpers import project_dict, two_reservoirs
+
+    return project_dict(*two_reservoirs())
 
 
 VALID_PARAMETERS = {"angle": 45.0, "radiusRatio": 1.5, "kOverride": 0.5}

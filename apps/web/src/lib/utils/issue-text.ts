@@ -474,8 +474,9 @@ function coefficientWords(
 /**
  * A reference to a project library entry the project does not have (UNKNOWN_PIPE_SPEC,
  * UNKNOWN_RESISTANCE: a valve's or a fitting's), or a fitting whose entry the solver cannot
- * represent on its pipe (FITTING_RESISTANCE_OUT_OF_RANGE), told with names (CLAUDE.md D22); null
- * (the server's message) when the message is not in a form expected.
+ * represent on its pipe, for one unit or its quantity, or a piping whose fittings' loss
+ * coefficients sum to no finite number (FITTING_RESISTANCE_OUT_OF_RANGE), told with names
+ * (CLAUDE.md D22); null (the server's message) when the message is not in a form expected.
  */
 function libraryIssue(
 	issue: TopologyIssue,
@@ -496,7 +497,8 @@ function libraryIssue(
 	const pipe = PIPE_UNKNOWN_SPEC.exec(issue.message);
 	const fitting = FITTING_UNKNOWN_ENTRY.exec(issue.message);
 	const range = FITTING_ENTRY_RANGE.exec(issue.message);
-	const connection = pipingOf(project, issue, (pipe ?? fitting ?? range)?.[1]);
+	const sum = FITTING_ENTRY_SUM.exec(issue.message);
+	const connection = pipingOf(project, issue, (pipe ?? fitting ?? range ?? sum)?.[1]);
 	if (!connection) return null;
 	const piping = `Piping ${pipingName(project, connection)}`;
 	const fittingWords = (number: string, type: string) =>
@@ -509,13 +511,44 @@ function libraryIssue(
 		const [, , number = '', type = '', id] = fitting;
 		text = `${piping}, ${fittingWords(number, type)} refers to a resistance entry the project library does not have (“${id}”): choose an entry from the library, or enter its K.`;
 	} else if (range && issue.code === 'FITTING_RESISTANCE_OUT_OF_RANGE') {
-		const [, , number = '', type = '', id = '', kind = '', value = '', bore, pipeNumber, d = ''] =
-			range;
+		const [
+			,
+			,
+			number = '',
+			type = '',
+			id = '',
+			kind = '',
+			value = '',
+			bore,
+			pipeNumber,
+			d = '',
+			quantity
+		] = range;
+		const forQuantity = quantity === undefined ? '' : `, for its quantity of ${quantity},`;
 		text =
 			`${piping}, ${fittingWords(number, type)}: its project library entry ${entryWords(project, id)} ` +
 			`(${coefficientWords(kind, value, bore, units)}) on the inner diameter of pipe ${pipeNumber} ` +
-			`(${formatValue(Number(d), 'diameter', units)}) gives a loss coefficient that is not a ` +
-			'finite floating-point number, so the solver cannot represent this fitting. Check the entry.';
+			`(${formatValue(Number(d), 'diameter', units)}) gives${forQuantity} a loss coefficient that is ` +
+			'not a finite floating-point number, so the solver cannot represent this fitting. Check the ' +
+			'entry.';
+	} else if (sum && issue.code === 'FITTING_RESISTANCE_OUT_OF_RANGE') {
+		const [, , direction, list = ''] = sum;
+		const onEntries = list.split(', ').map((item) => FITTING_ON_ENTRY.exec(item));
+		if (onEntries.length && onEntries.every((m): m is RegExpExecArray => m !== null)) {
+			const name = (componentId: string) =>
+				componentById(project, componentId)?.name ?? `“${componentId}”`;
+			const [from, to] =
+				direction === 'from → to'
+					? [connection.fromComponentId, connection.toComponentId]
+					: [connection.toComponentId, connection.fromComponentId];
+			const fittings = onEntries
+				.map((m) => `${fittingWords(m[1] ?? '', m[2] ?? '')} on ${entryWords(project, m[3] ?? '')}`)
+				.join(', ');
+			text =
+				`${piping}: its fittings' loss coefficients are each finite, but their sum for flow from ` +
+				`${name(from)} to ${name(to)} is not a finite floating-point number, so the solver cannot ` +
+				`represent this piping (fittings on project library entries: ${fittings}). Check the entries.`;
+		}
 	}
 	return text === null ? null : { text, links: [...links, ...pipingLink(project, connection)] };
 }
@@ -772,10 +805,19 @@ const VALVE_ENTRY = new RegExp(
 );
 const FITTING_ENTRY_RANGE = new RegExp(
 	`^connection '${ID}' fitting (\\d+) \\(([a-z0-9_]+)\\): its project library resistance entry ` +
-		`'${ID}', ${ENTERED}, on the inner diameter of pipe (\\d+), ${NUM} m, gives a loss ` +
-		'coefficient that is not a finite floating-point number; the solver cannot represent this ' +
-		'fitting$'
+		`'${ID}', ${ENTERED}, on the inner diameter of pipe (\\d+), ${NUM} m, gives` +
+		'(?:, for its quantity of (\\d+),)? a loss coefficient that is not a finite floating-point ' +
+		'number; the solver cannot represent this fitting$'
 );
+/** A connection whose fittings' loss coefficients are each finite but sum, for one flow
+ * direction, to no finite number (builder._unrepresentable_fittings, D22): the fittings on
+ * entries it lists ("fitting 1 (custom) on 'RS1', fitting 2 (custom) on 'RS1'"). */
+const FITTING_ENTRY_SUM = new RegExp(
+	`^connection '${ID}': its fittings' loss coefficients n K/\\(2 g A²\\) are each finite, but ` +
+		'their sum for flow (from → to|to → from) is not a finite floating-point number \\(on ' +
+		'project library resistance entries: (.*)\\); the solver cannot represent this connection$'
+);
+const FITTING_ON_ENTRY = new RegExp(`^fitting (\\d+) \\(([a-z0-9_]+)\\) on '${ID}'$`);
 /** Material ids and schedules are free text up to a quote; the lists that end the messages are
  * the library's (the piping editor offers them), kept in the server's message. */
 const UNKNOWN_MATERIAL = /^unknown pipe material '([^']*)'; available: [^']*$/;

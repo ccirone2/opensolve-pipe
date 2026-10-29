@@ -15,7 +15,7 @@ import scipy
 
 from ... import __version__
 from ...models.components import AssignedFlow
-from ...models.piping import ENTRANCE_TYPES, EXIT_TYPES
+from ...models.piping import CUSTOM_MATERIAL_ID, ENTRANCE_TYPES, EXIT_TYPES
 from ...models.project_library import PipeSpec
 from ...models.results import MethodsSection, MethodsSummary
 from .branches import DARBY_TEE
@@ -200,7 +200,9 @@ def equipment_section(built: BuiltNetwork) -> MethodsSection | None:
 
 def _spec_values(spec: PipeSpec, roughness: float | None) -> str:
     """A pipe spec's values as the solver takes them; ``roughness``: the value a spec without
-    one resolves to (None when no pipe uses it)."""
+    one resolves to (None when no pipe uses it). A spec on a material the pipe materials
+    library does not have (only an unused one reaches a solve: a pipe on it is the topology
+    issue UNKNOWN_PIPE_MATERIAL) is said to be so, and cites no roughness (D8)."""
     material = load_pipe_materials().get(spec.material_id)
     named = f"{material.name} ({spec.material_id})" if material is not None else spec.material_id
     text = f"{named}, inner diameter {spec.inner_diameter:.6g} m"
@@ -208,6 +210,12 @@ def _spec_values(spec: PipeSpec, roughness: float | None) -> str:
         text += f", nominal size {spec.nominal_size:.6g} m"
     if spec.outer_diameter is not None:
         text += f", outer diameter {spec.outer_diameter:.6g} m (display only)"
+    if material is None and spec.material_id != CUSTOM_MATERIAL_ID:
+        unknown = f"unknown pipe material '{spec.material_id}', not in the pipe materials library"
+        consequence = "a pipe on this spec would be the topology issue UNKNOWN_PIPE_MATERIAL"
+        if spec.roughness is not None:
+            return f"{text}, roughness {spec.roughness:.6g} m; {unknown}: {consequence}"
+        return f"{text}, no roughness: {unknown}, which cites none; {consequence}"
     if spec.roughness is not None:
         return f"{text}, roughness {spec.roughness:.6g} m"
     at = f", {roughness:.6g} m" if roughness is not None else ""

@@ -25,21 +25,18 @@
 	import type { PipeSpec, ResistanceSpec } from '$lib/api/types';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
-	import { npsLabel } from '$lib/utils/labels';
+	import { fittingFallbackName, npsLabel } from '$lib/utils/labels';
 	import { CUSTOM_MATERIAL_ID } from '$lib/utils/piping';
 	import {
 		entryValueText,
 		newPipeSpecId,
 		newResistanceId,
 		pipeSpecs,
-		pipeSpecUsers,
 		removePipeSpec,
 		removeResistanceSpec,
 		resistanceEntries,
-		resistanceUsers,
 		setPipeSpec,
 		setResistanceSpec,
-		userLabel,
 		type LibraryUser
 	} from '$lib/utils/project-library';
 	import { formatValue } from '$lib/utils/units';
@@ -57,6 +54,7 @@
 	import { libraryFull, libraryLimitText } from './library/limits';
 	import PipeSpecFields from './library/PipeSpecFields.svelte';
 	import ResistanceEntryFields from './library/ResistanceEntryFields.svelte';
+	import { libraryUsers, userLabeller } from './library/users';
 
 	let { onclose }: { onclose: () => void } = $props();
 	const ws = useWorkspace();
@@ -281,12 +279,21 @@
 	const sentence = (text: string) =>
 		`${text.charAt(0).toUpperCase()}${text.slice(1)}${/[.!?]$/.test(text) ? '' : '.'}`;
 	const fittingName = (type: string) => ws.library.fitting(type)?.name;
-	const usersOf = (which: List, entryId: string): LibraryUser[] =>
-		which === 'pipe'
-			? pipeSpecUsers(store.project, entryId)
-			: resistanceUsers(store.project, entryId);
+	/** Every entry's users, found in one walk of the project each time it changes. */
+	const usedBy = $derived(libraryUsers(store.project));
+	/** Names users without searching the project for each (built when a list of users is open). */
+	const labelOf = $derived(userLabeller(store.project));
+	const NONE: readonly LibraryUser[] = [];
+	const usersOf = (which: List, entryId: string): readonly LibraryUser[] =>
+		usedBy[which].get(entryId) ?? NONE;
+	// A fitting's name as the fittings editor gives it, also while the fitting library is not loaded.
 	const label = (user: LibraryUser) =>
-		userLabel(store.project, user, (type) => fittingName(type) ?? type);
+		labelOf(user, (type) => fittingName(type) ?? fittingFallbackName(type));
+	/**
+	 * The cards whose list of users is open ("pipe:PS1"): a closed card builds no list, so it costs
+	 * its count alone, whatever the project's size.
+	 */
+	let usersOpen = $state<Record<string, boolean>>({});
 	const fmt = (si: number) => formatValue(si, 'diameter', ws.units, 4);
 	const materialName = (materialId: string) =>
 		materialId === CUSTOM_MATERIAL_ID
@@ -319,19 +326,22 @@
 
 {#snippet users(which: List, entryId: string)}
 	{@const found = usersOf(which, entryId)}
+	{@const key = `${which}:${entryId}`}
 	{#if found.length}
-		<details class="group">
+		<details class="group" bind:open={usersOpen[key]}>
 			<summary
 				class="flex min-h-11 cursor-pointer list-none items-center gap-1 text-sm font-medium text-blue-800 [&::-webkit-details-marker]:hidden"
 			>
 				<Icon name="right" class="size-4 shrink-0 transition-transform group-open:rotate-90" />
 				Used by {found.length}
 			</summary>
-			<ul class="list-disc space-y-0.5 pb-1 pl-9 text-sm text-slate-700">
-				{#each found as user, i (i)}
-					<li class="break-words">{label(user)}</li>
-				{/each}
-			</ul>
+			{#if usersOpen[key]}
+				<ul class="list-disc space-y-0.5 pb-1 pl-9 text-sm text-slate-700">
+					{#each found as user, i (i)}
+						<li class="break-words">{label(user)}</li>
+					{/each}
+				</ul>
+			{/if}
 		</details>
 	{:else}
 		<p class="py-2 text-sm text-slate-600">Not used.</p>

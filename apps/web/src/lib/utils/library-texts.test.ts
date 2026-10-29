@@ -167,6 +167,40 @@ describe('topology issues about the project library', () => {
 		);
 	});
 
+	it("name a fitting entry that only its quantity, or the piping's sum, takes beyond any number", () => {
+		// The API's forms for a quantity above 1 and for the connection law's sum
+		// (builder._unrepresentable_fittings, test_project_library.py).
+		const [quantity] = views(
+			issue(
+				'FITTING_RESISTANCE_OUT_OF_RANGE',
+				"connection 'L1' fitting 1 (elbow_90_lr): its project library resistance entry 'RS2', K 1e+07 at 1e-75 m, on the inner diameter of pipe 1, 0.1 m, gives, for its quantity of 1000, a loss coefficient that is not a finite floating-point number; the solver cannot represent this fitting",
+				[],
+				['L1']
+			)
+		);
+		expect(quantity!.text).toBe(
+			'Piping Upper tank → Gate valve V1, fitting 1 (90° elbow, long radius): its project library entry “Elbow (K)” (K 10000000 at 1e-72 mm) on the inner diameter of pipe 1 (100 mm) gives, for its quantity of 1000, a loss coefficient that is not a finite floating-point number, so the solver cannot represent this fitting. Check the entry.'
+		);
+		const message =
+			"connection 'L1': its fittings' loss coefficients n K/(2 g A²) are each finite, but their sum for flow to → from is not a finite floating-point number (on project library resistance entries: fitting 1 (elbow_90_lr) on 'RS2', fitting 2 (custom) on 'RS1'); the solver cannot represent this connection";
+		const [sum] = views(issue('FITTING_RESISTANCE_OUT_OF_RANGE', message, [], ['L1']));
+		expect(sum!.text).toBe(
+			"Piping Upper tank → Gate valve V1: its fittings' loss coefficients are each finite, but their sum for flow from Gate valve V1 to Upper tank is not a finite floating-point number, so the solver cannot represent this piping (fittings on project library entries: fitting 1 (90° elbow, long radius) on “Elbow (K)”, fitting 2 (custom fitting (enter k)) on “Gate, open”). Check the entries."
+		);
+		expect(sum!.detail).toBe(message);
+		expect(sum!.links[0]).toMatchObject({ componentId: 'R1', portId: 'port_1' });
+		// A list not in the expected form keeps the server's message.
+		const [odd] = views(
+			issue(
+				'FITTING_RESISTANCE_OUT_OF_RANGE',
+				message.replace("fitting 2 (custom) on 'RS1'", 'something else'),
+				[],
+				['L1']
+			)
+		);
+		expect(odd!.text).toBe(message.replace("fitting 2 (custom) on 'RS1'", 'something else'));
+	});
+
 	it('name a spec whose material the pipe library does not have', () => {
 		const [view] = views(
 			issue(

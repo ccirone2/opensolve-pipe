@@ -178,6 +178,85 @@ describe('ProjectLibrary', () => {
 		expect(dialog.getByRole('button', { name: 'Edit Gate, open' })).toBeInTheDocument();
 	});
 
+	it("a card lists its users by name once its list is opened, and a closed card's list is not built", async () => {
+		// libraryProject's users, and a scenario change of each kind (made up).
+		const project = libraryProject();
+		project.scenarios = [
+			{
+				id: 'S1',
+				name: 'Lined',
+				overrides: [
+					{
+						kind: 'pipe',
+						connectionId: 'L1',
+						pipeIndex: 1,
+						field: 'spec',
+						value: { specId: 'PS1' }
+					},
+					{
+						kind: 'component',
+						componentId: 'V1',
+						field: 'resistance',
+						value: { kind: 'library', id: 'RS2' }
+					}
+				]
+			}
+		];
+		setup(project);
+		const dialog = await openLibrary();
+		const card = (name: RegExp) => dialog.getByRole('region', { name });
+		const items = (region: HTMLElement) =>
+			within(region)
+				.queryAllByRole('listitem')
+				.map((li) => li.textContent?.trim());
+		/** Open a card's list from its summary, as a user does ("Used by 2"). */
+		const open = async (region: HTMLElement) => {
+			await fireEvent.click(within(region).getByText(/^Used by \d+$/));
+			await vi.waitFor(() => expect(within(region).queryAllByRole('listitem')).not.toEqual([]));
+		};
+
+		// Closed, a card says its count alone: at the schema's largest network the lists of every
+		// card took 0.3 s on a desktop and 2 s on a phone each time the dialog opened or saved.
+		const spec = card(/^NPS 4 measured/);
+		expect(within(spec).getByText('Used by 2')).toBeInTheDocument();
+		expect(items(spec)).toEqual([]);
+		await open(spec);
+		expect(items(spec)).toEqual([
+			'Pipe 1 of Upper tank → Gate valve V1',
+			'Scenario Lined, change 1'
+		]);
+		expect(items(card(/^Lined 80 mm/))).toEqual([]);
+
+		await fireEvent.click(dialog.getByRole('tab', { name: 'Resistances (2)' }));
+		const gate = card(/^Gate, open/);
+		expect(within(gate).getByText('Used by 2')).toBeInTheDocument();
+		expect(items(gate)).toEqual([]);
+		await open(gate);
+		// The test library has no fittings: their names are the app's own, as the fittings editor's.
+		expect(items(gate)).toEqual([
+			'Gate valve V1',
+			'Fitting 2 (Custom fitting (enter K)) of Upper tank → Gate valve V1'
+		]);
+		const elbow = card(/^Elbow \(K\)/);
+		expect(items(elbow)).toEqual([]);
+		await open(elbow);
+		expect(items(elbow)).toEqual([
+			'Fitting 1 (90° elbow, long radius) of Upper tank → Gate valve V1',
+			'Scenario Lined, change 2'
+		]);
+
+		// An open list stays open, and current, across a change of tab and an edit to the project.
+		await fireEvent.click(dialog.getByRole('tab', { name: 'Pipe specs (2)' }));
+		await fireEvent.click(dialog.getByRole('button', { name: 'Edit NPS 4 measured' }));
+		await type(dialog.getByRole('textbox', { name: 'Name' }), 'NPS 4 site');
+		await fireEvent.click(dialog.getByRole('button', { name: 'Save' }));
+		await tick();
+		expect(items(card(/^NPS 4 site/))).toEqual([
+			'Pipe 1 of Upper tank → Gate valve V1',
+			'Scenario Lined, change 1'
+		]);
+	});
+
 	it('a change of kind clears the value, and a K asks for the bore it is stated at', async () => {
 		const ws = setup();
 		const dialog = await openLibrary();

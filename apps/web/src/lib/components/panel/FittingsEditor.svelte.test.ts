@@ -189,6 +189,42 @@ describe('a fitting K from the project library', () => {
 		expect(fittingsOf(ws, 'L1')[0]?.resistanceId).toBe('RS2');
 	});
 
+	it('"K entered here" with no K yet stays with its connection when the panel moves to another port', async () => {
+		// V1's two ports: L2 (inlet) given a made-up elbow on its cited K, L3 (outlet) with its own.
+		const project = pumpTransferExample();
+		const l2 = project.connections.find((c) => c.id === 'L2') as PipeConnection;
+		l2.piping.fittings = [{ type: 'elbow_90_lr', quantity: 1, pipeIndex: 0 }];
+		const ws = testWorkspace(project);
+		ws.nav.jumpTo('V1');
+		ws.nav.showConnection('outlet');
+		render(WorkspaceView, { workspace: ws });
+		const choice = () => screen.getByRole('combobox', { name: 'Fitting 1 loss coefficient' });
+		const port = (name: RegExp) =>
+			within(screen.getByRole('group', { name: 'Ports of Discharge isolation valve' })).getByRole(
+				'button',
+				{ name }
+			);
+		const before = { l2: fittingsOf(ws, 'L2'), l3: fittingsOf(ws, 'L3') };
+		expect(screen.getByRole('heading', { name: 'Connection L3' })).toBeInTheDocument();
+		expect(choice()).toHaveValue('cited');
+		await fireEvent.change(choice(), { target: { value: 'entered' } });
+		expect(choice()).toHaveValue('entered');
+
+		// The same editor on L2: its fitting 1 is on its cited K, as nobody chose otherwise there.
+		await fireEvent.click(port(/^Inlet/));
+		expect(screen.getByRole('heading', { name: 'Connection L2' })).toBeInTheDocument();
+		expect(choice()).toHaveValue('cited');
+		expect(screen.queryByRole('textbox', { name: 'K override' })).toBeNull();
+		expect(screen.queryByText('Enter K to use it; until then the cited K applies.')).toBeNull();
+
+		// Back on L3, the choice made there is still being entered; nothing was stored on either.
+		await fireEvent.click(port(/^Outlet/));
+		expect(screen.getByRole('heading', { name: 'Connection L3' })).toBeInTheDocument();
+		expect(choice()).toHaveValue('entered');
+		expect(screen.getByRole('textbox', { name: 'K override' })).toBeInTheDocument();
+		expect({ l2: fittingsOf(ws, 'L2'), l3: fittingsOf(ws, 'L3') }).toEqual(before);
+	});
+
 	it('a custom fitting has no cited K: an entry or a K entered here', async () => {
 		setup();
 		const choice = screen.getByRole('combobox', { name: 'Fitting 2 loss coefficient' });

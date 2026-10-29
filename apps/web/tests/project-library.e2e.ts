@@ -246,6 +246,10 @@ test('a Cv entry made from a valve, used there, cited, and kept while in use', a
 	);
 	await expect(opened.getByRole('tab', { name: 'Resistances (1)' })).toBeVisible();
 	await expect(opened.getByText('Used by 1')).toBeVisible();
+	// Its users are listed by name once its list is opened (a closed card builds none).
+	await expect(opened.getByRole('listitem')).toHaveCount(0);
+	await opened.getByText('Used by 1').click();
+	await expect(opened.getByRole('listitem')).toHaveText([VALVE]);
 	await opened.getByRole('button', { name: 'Done' }).click();
 });
 

@@ -89,13 +89,22 @@
 	const entries = $derived(resistanceEntries(ws.project));
 	/** The library holds as many resistance entries as a project may: no new one. */
 	const entriesFull = $derived(libraryFull(ws.project, 'resistance'));
-	/** Fittings (by index) whose "K entered here" was chosen with no K entered yet. */
-	let entering = $state<number[]>([]);
+	/**
+	 * Fittings whose "K entered here" was chosen with no K entered yet, by connection id and
+	 * fitting index: the panel keeps this editor when it moves to another port of the same
+	 * component, whose connection's fittings are not these.
+	 */
+	let entering = $state<Record<string, readonly number[]>>({});
+	/** This connection's fittings (by index) whose K is being entered. */
+	const enteringHere = $derived(entering[connection.id] ?? []);
+	function setEntering(indexes: readonly number[]) {
+		entering = { ...entering, [connection.id]: indexes };
+	}
 
 	function kChoice(fitting: Fitting, index: number): KChoice {
 		if (fitting.resistanceId) return `entry:${fitting.resistanceId}`;
 		if (fitting.kOverride != null || required(fitting.type, 'kOverride')) return 'entered';
-		return entering.includes(index) ? 'entered' : 'cited';
+		return enteringHere.includes(index) ? 'entered' : 'cited';
 	}
 
 	function kOptions(fitting: Fitting) {
@@ -157,12 +166,12 @@
 			});
 			return;
 		}
-		entering = entering.filter((i) => i !== index);
+		setEntering(enteringHere.filter((i) => i !== index));
 		if (next.startsWith('entry:')) {
 			useEntry(index, next.slice('entry:'.length), 'use resistance entry');
 			return;
 		}
-		if (next === 'entered') entering = [...entering, index];
+		if (next === 'entered') setEntering([...enteringHere, index]);
 		// Neither an entry nor a K until one is entered: the cited K (or a custom fitting's flag).
 		if (fitting.resistanceId || fitting.kOverride != null) {
 			useEntry(index, null, next === 'cited' ? 'use cited fitting K' : 'change fitting K');
@@ -315,7 +324,7 @@
 							class={['btn btn-quiet btn-icon mt-6 text-red-800', ws.inScenario && 'hidden']}
 							aria-label="Remove fitting {i + 1}"
 							onclick={() => {
-								entering = [];
+								setEntering([]);
 								ws.editConnection(connection.id, 'remove fitting', (c) => ({
 									...c,
 									piping: removeFitting(c.piping, i)
@@ -378,7 +387,7 @@
 										? 'Enter K to use it; until then the cited K applies.'
 										: null}
 								onchange={(v) => {
-									entering = entering.filter((x) => x !== i);
+									setEntering(enteringHere.filter((x) => x !== i));
 									return edit(i, 'change fitting K', (f) => withOptional(f, 'kOverride', v));
 								}}
 							/>

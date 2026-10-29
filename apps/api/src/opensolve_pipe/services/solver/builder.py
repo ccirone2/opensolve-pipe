@@ -719,42 +719,98 @@ def _unrepresentable_valves(project: Project, resolved: ResolvedPipes) -> list[T
     return issues
 
 
+def _minor_coefficient(fitting: ResolvedFitting, flow: float, areas: list[float]) -> float:
+    """n K/(2 g A²) of one fitting for the flow's direction, written as
+    ``elements.PipeConnectionLaw._minor_coefficient`` writes it (A on the segment the fitting's
+    K refers to); infinite where A² underflows to 0."""
+    area = areas[fitting.segment(flow)]
+    try:
+        return fitting.quantity * fitting.k(flow) / (2.0 * G * area**2)
+    except ZeroDivisionError:
+        return math.inf
+
+
 def _unrepresentable_fittings(project: Project, resolved: ResolvedPipes) -> list[TopologyIssue]:
-    """Fittings whose K from a project library entry (CLAUDE.md D22), on the inner diameter of
-    their pipe pipeIndex, or K/(2 g A²), is not a finite floating-point number: a schema-valid
-    but extreme entry (a K stated at a bore 10⁸⁰ times smaller, a Cv of 1e-170), on which the
-    solver could only fail. A kOverride is bounded so that it never is. Connections whose pipes
-    did not all resolve are left to the other issues."""
+    """Fittings on a project library entry (CLAUDE.md D22) that their connection's law
+    (``elements.PipeConnectionLaw``) cannot represent: the K on the inner diameter of the
+    fitting's pipe pipeIndex, or n K/(2 g A²) for its quantity n, is not a finite floating-point
+    number (a schema-valid but extreme entry: a K stated at a bore 10⁸⁰ times smaller, a Cv of
+    1e-170, a K of 10³⁰³ on 1,000 units), on which the solver could only fail; or each is, but
+    the law's sum Σ n K/(2 g A²) over the connection's fittings, for one flow direction, is
+    not. A kOverride is bounded so that it never is, and a sum that the fittings without an
+    entry overflow by themselves is left as it was before the library. Only connections with a
+    fitting on an entry are tested; those whose pipes did not all resolve, and the sums of
+    those with a fitting on an entry the project does not have (UNKNOWN_RESISTANCE) or whose
+    cited K cannot be computed on its pipe's bore (an overflow in a Crane function at a bore
+    such as 1e-310 m, which PIPE_SIZE_OUT_OF_RANGE reports), are left to the other issues."""
     entries = resistance_entries(project)
     issues: list[TopologyIssue] = []
     for conn in project.connections:
         pipes = resolved.get(conn.id)
         if pipes is None or len(pipes) != len(conn.piping.pipes):
             continue
-        for j, fitting in enumerate(conn.piping.fittings):
-            entry = entries.get(fitting.resistance_id or "")
-            if entry is None:
-                continue  # none, or UNKNOWN_RESISTANCE (validate_topology)
-            d = pipes[fitting.pipe_index].inner_diameter
-            area = 0.25 * math.pi * d * d
-            k = entry_k(entry, d).k
+        if not any(f.resistance_id in entries for f in conn.piping.fittings):
+            continue  # none, or UNKNOWN_RESISTANCE (validate_topology)
+        diameters = [pipes[i].inner_diameter for i in range(len(pipes))]
+        # PipeSegment.from_resolved's area, so that each n K/(2 g A²) is the law's own double.
+        areas = [0.25 * math.pi * d**2 for d in diameters]
+        fittings: list[ResolvedFitting] = []
+        whole = True  # every fitting resolves, so the law's sums can be formed
+        for j, f in enumerate(conn.piping.fittings):
+            if f.resistance_id is not None and f.resistance_id not in entries:
+                whole = False  # UNKNOWN_RESISTANCE (validate_topology)
+                continue
             try:
-                coefficient = k / (2.0 * G * area * area)
-            except ZeroDivisionError:
-                coefficient = math.inf
-            if not (math.isfinite(k) and math.isfinite(coefficient)):
-                issues.append(
-                    issue(
-                        "FITTING_RESISTANCE_OUT_OF_RANGE",
-                        f"connection '{conn.id}' {fitting_name(j)} ({fitting.type}): its "
-                        f"project library resistance entry '{entry.id}', {entered_text(entry)}, "
-                        f"on the inner diameter of {pipe_name(fitting.pipe_index)}, {d:g} m, "
-                        "gives a loss coefficient that is not a finite floating-point number; "
-                        "the solver cannot represent this fitting",
-                        [],
-                        [conn.id],
-                    )
+                fittings.append(resolve_fitting(j, f, diameters, entries))
+            except ArithmeticError:  # a Crane K on a bore such as 1e-310 m: the pipe's issue
+                whole = False
+        found = len(issues)
+        for fit in fittings:
+            if fit.entry is None or (
+                math.isfinite(fit.entry.k) and math.isfinite(_minor_coefficient(fit, 1.0, areas))
+            ):
+                continue
+            entry = fit.entry.entry
+            units = f", for its quantity of {fit.quantity}," if fit.quantity > 1 else ""
+            issues.append(
+                issue(
+                    "FITTING_RESISTANCE_OUT_OF_RANGE",
+                    f"connection '{conn.id}' {fitting_name(fit.index)} ({fit.type}): its "
+                    f"project library resistance entry '{entry.id}', {entered_text(entry)}, "
+                    f"on the inner diameter of {pipe_name(fit.segment_forward)}, "
+                    f"{fit.entry.bore:g} m, gives{units} a loss coefficient that is not a finite "
+                    "floating-point number; the solver cannot represent this fitting",
+                    [],
+                    [conn.id],
                 )
+            )
+        if len(issues) > found or not whole:
+            continue
+        for flow in (1.0, -1.0):  # the law's two sums, each in its order
+            total = sum(_minor_coefficient(fit, flow, areas) for fit in fittings)
+            inline = sum(
+                _minor_coefficient(fit, flow, areas) for fit in fittings if fit.entry is None
+            )
+            if math.isfinite(total) or not math.isfinite(inline):
+                continue
+            on_entries = ", ".join(
+                f"{fitting_name(fit.index)} ({fit.type}) on '{fit.entry.entry.id}'"
+                for fit in fittings
+                if fit.entry is not None
+            )
+            direction = "from → to" if flow > 0 else "to → from"
+            issues.append(
+                issue(
+                    "FITTING_RESISTANCE_OUT_OF_RANGE",
+                    f"connection '{conn.id}': its fittings' loss coefficients n K/(2 g A²) are "
+                    f"each finite, but their sum for flow {direction} is not a finite "
+                    "floating-point number (on project library resistance entries: "
+                    f"{on_entries}); the solver cannot represent this connection",
+                    [],
+                    [conn.id],
+                )
+            )
+            break
     return issues
 
 

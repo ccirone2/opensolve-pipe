@@ -673,6 +673,87 @@ def test_an_entry_the_solver_cannot_represent_is_a_topology_issue() -> None:
     assert [i["code"] for i in response.json()["issues"]] == ["VALVE_RESISTANCE_OUT_OF_RANGE"]
 
 
+def _fitting_on(entry: str, quantity: int) -> dict[str, Any]:
+    return {"type": "custom", "pipeIndex": 0, "quantity": quantity, "resistanceId": entry}
+
+
+@pytest.mark.parametrize(
+    ("fittings", "entry", "message"),
+    [
+        (  # K = 10³⁰³ on the bore: K/(2 g A²) = 8.3e305 is finite, 1,000 of them are not
+            [_fitting_on("RS1", 1000)],
+            {"kind": "K", "value": 1.0e7, "referenceDiameter": 1.0e-75},
+            "connection 'L1' fitting 1 (custom): its project library resistance entry 'RS1', K "
+            "1e+07 at 1e-75 m, on the inner diameter of pipe 1, 0.1 m, gives, for its quantity of "
+            "1000, a loss coefficient that is not a finite floating-point number; the solver "
+            "cannot represent this fitting",
+        ),
+        (  # a Cv's K/(2 g A²) of 1.1e305, finite once, not 1,000 times
+            [_fitting_on("RS1", 1000)],
+            {"kind": "Cv", "value": 1.0e-150},
+            "connection 'L1' fitting 1 (custom): its project library resistance entry 'RS1', Cv "
+            "1e-150, on the inner diameter of pipe 1, 0.1 m, gives, for its quantity of 1000, a "
+            "loss coefficient that is not a finite floating-point number; the solver cannot "
+            "represent this fitting",
+        ),
+        (  # each K/(2 g A²) = 1.02e308 is finite, their sum is not
+            [_fitting_on("RS1", 1), _fitting_on("RS1", 1)],
+            {"kind": "K", "value": 1.0e7, "referenceDiameter": 3.0e-76},
+            "connection 'L1': its fittings' loss coefficients n K/(2 g A²) are each finite, but "
+            "their sum for flow from → to is not a finite floating-point number (on project "
+            "library resistance entries: fitting 1 (custom) on 'RS1', fitting 2 (custom) on "
+            "'RS1'); the solver cannot represent this connection",
+        ),
+    ],
+    ids=["K-quantity", "Cv-quantity", "sum"],
+)
+def test_a_fitting_entry_is_tested_as_the_law_uses_it(
+    fittings: list[dict[str, Any]], entry: dict[str, Any], message: str
+) -> None:
+    """The connection's law takes Σ n K/(2 g A²) over its fittings
+    (``elements.PipeConnectionLaw``): an entry whose K/(2 g A²) is finite for one unit, but not
+    for the fitting's quantity, or fittings each finite whose sum is not, would make the solver
+    diverge (a NOT_CONVERGED that names neither the fitting nor the entry); each is
+    FITTING_RESISTANCE_OUT_OF_RANGE (422), naming the connection, the fittings and the
+    entry."""
+    data = project_dict(
+        [reservoir("R1", level=10.0), reservoir("R2", level=0.0)],
+        [
+            _link(
+                "L1", ("R1", "port_1"), ("R2", "port_1"), [custom_pipe(10.0, 0.1, 4.5e-5)], fittings
+            )
+        ],
+    )
+    data["resistanceLibrary"] = [{"id": "RS1", "name": "big", "source": "test input", **entry}]
+    client = TestClient(app, client=("198.51.104.6", 50000))
+    response = client.post("/api/v1/solve", json={"project": data})
+    assert response.status_code == 422, response.text
+    found = [
+        (i["code"], i["message"], i["componentIds"], i["connectionIds"])
+        for i in response.json()["issues"]
+    ]
+    assert found == [("FITTING_RESISTANCE_OUT_OF_RANGE", message, [], ["L1"])]
+
+
+def test_a_cited_fitting_beside_an_entry_on_a_bore_no_pipe_can_have_is_the_pipe_issue() -> None:
+    """The sum test resolves the connection's other fittings as the law does; a Crane K that
+    overflows on a pipe of bore 1e-310 m (fluids raises OverflowError) leaves the sum to that
+    pipe's own issue, PIPE_SIZE_OUT_OF_RANGE, a 422 and not a 500."""
+    pipes = [custom_pipe(10.0, 0.1, 4.5e-5), custom_pipe(10.0, 1.0e-310, 0.0)]
+    fittings = [_fitting_on("RS1", 1), {"type": "elbow_90_lr", "pipeIndex": 1}]
+    data = project_dict(
+        [reservoir("R1", level=10.0), reservoir("R2", level=0.0)],
+        [_link("L1", ("R1", "port_1"), ("R2", "port_1"), pipes, fittings)],
+    )
+    data["resistanceLibrary"] = [{**RESISTANCES[0], "referenceDiameter": 0.1}]
+    client = TestClient(app, client=("198.51.104.7", 50000), raise_server_exceptions=False)
+    response = client.post("/api/v1/solve", json={"project": data})
+    assert response.status_code == 422, response.text
+    assert [(i["code"], i["connectionIds"]) for i in response.json()["issues"]] == [
+        ("PIPE_SIZE_OUT_OF_RANGE", ["L1"])
+    ]
+
+
 def _valve(cid: str, resistance: dict[str, Any]) -> dict[str, Any]:
     return _component("valve", cid, ("inlet", "outlet"), valveType="gate", resistance=resistance)
 
@@ -898,6 +979,44 @@ def test_a_library_nothing_uses_is_listed_as_not_used() -> None:
     assert section.references == [
         "OpenSolve Pipe design decision D22 (CLAUDE.md), from docs/proposals/project-library.md."
     ]
+
+
+def test_an_unused_spec_on_an_unknown_material_cites_no_roughness() -> None:
+    """An unused spec raises nothing, whatever its material (a pipe on it would be
+    UNKNOWN_PIPE_MATERIAL), so the project solves; its methods item says the material is not in
+    the pipe materials library and never claims a cited (Farshad) roughness for it (D8)."""
+    project = hand_resolved(network())
+    project["pipeLibrary"] = [
+        {
+            "id": "PS9",
+            "name": "ghost",
+            "source": "test",
+            "materialId": "hdpe",
+            "innerDiameter": 0.1,
+        },
+        {
+            "id": "PS8",
+            "name": "ghost with roughness",
+            "source": "test",
+            "materialId": "hdpe",
+            "innerDiameter": 0.1,
+            "roughness": 1.0e-5,
+        },
+    ]
+    state = _state(project, include_system_curve=False)
+    assert state.converged
+    [section] = [s for s in state.trace.methods.sections if s.title == "Project library"]
+    assert section.items[1:] == [
+        'Project library pipe spec "ghost" (PS9): hdpe, inner diameter 0.1 m, no roughness: '
+        "unknown pipe material 'hdpe', not in the pipe materials library, which cites none; a "
+        "pipe on this spec would be the topology issue UNKNOWN_PIPE_MATERIAL; not used by any "
+        "element. Source: test",
+        'Project library pipe spec "ghost with roughness" (PS8): hdpe, inner diameter 0.1 m, '
+        "roughness 1e-05 m; unknown pipe material 'hdpe', not in the pipe materials library: a "
+        "pipe on this spec would be the topology issue UNKNOWN_PIPE_MATERIAL; not used by any "
+        "element. Source: test",
+    ]
+    assert not any("Farshad" in item for item in section.items)
 
 
 # --------------------------------------------------------------------------- scenarios

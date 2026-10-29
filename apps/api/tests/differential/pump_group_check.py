@@ -291,7 +291,8 @@ HEAD_FLOOR = 0.01
 RANGE_FACTOR = 1.2
 """The default flowMax: this factor × the largest of the duty's and the group curve's flows."""
 RANGE_FLOOR = 1.0e-6
-"""m³/s: below this the default flowMax falls back on the members' curves (every member off)."""
+"""m³/s: below this the default flowMax falls back on the members' curves (no flow through the
+station at the duty or on the group curve)."""
 NOTES_SHOWN = 60
 """Notes on pumps alone (t3) printed in the report; every one is in the --out records."""
 BUDGET = 45.0

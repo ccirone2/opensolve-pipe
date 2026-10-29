@@ -115,7 +115,9 @@ class PumpGroupCurveRequest(CamelModel):
             "the duty's flow and the group curve's flows (on the rises headMin and headMax "
             "give); 1.2 x the duty's flow where the group curve is not defined (an active PRV or "
             "PSV inside); and 1.2 x the sum over the pumps of their curves' largest flows x "
-            "their speeds where neither is above 1e-6 m3/s (every pump off)"
+            "their speeds where none of those is above 1e-6 m3/s (no flow through the station at "
+            "the duty or on the group curve: every pump off, or the pumps closed or carrying no "
+            "flow from inlet to outlet)"
         ),
     )
     num_points: int = Field(

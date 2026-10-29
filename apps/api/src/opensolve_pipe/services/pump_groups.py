@@ -1715,8 +1715,9 @@ def _default_flow_max(
     """The default flowMax and its rule, in words: 1.2 × the largest of the duty's flow and the
     group curve's flows (on its rises); 1.2 × the duty's flow where the group curve is not
     defined (an active PRV or PSV inside); 1.2 × the sum over the members of their curves'
-    largest flows × their speeds where neither is above the duty check's flow floor (every member
-    off: round-off only)."""
+    largest flows × their speeds where none of those is above the duty check's flow floor (no
+    flow through the station at the duty or on the group curve: every member off, or the members
+    closed by their rules or carrying no flow from S to D)."""
     pressure = _pressure_controls(case.built, case.station.members, case.station.interior_links)
     largest = duty.flow
     if not pressure:

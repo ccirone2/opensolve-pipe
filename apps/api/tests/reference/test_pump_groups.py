@@ -2124,8 +2124,10 @@ def test_pgs12_epanet_solves_the_outside(api: Api, branched: bool) -> None:
     ideal tee to two reservoirs, an outside EPANET solves as a network (the grid's flows keep
     both delivery lines carrying flow one way, clear of laminar flow). Beyond D6, the rises
     agree within 1.5 × 10⁻³ of the outside's losses H_sys − (H_R2 − H_R1): EPANET's losses run
-    about 8 × 10⁻⁴ low (measured 8.2–8.4 × 10⁻⁴), its g being 32.2 ft/s² (9.80665 m/s² is
-    32.174) and its minor-loss constant 0.02517 (8/(gπ²) = 0.025194 ft·s²)."""
+    8.2 × 10⁻⁴ low on one line out, its g being 32.2 ft/s² (9.80665 m/s² is 32.174) and its
+    minor-loss constant 0.02517 (8/(gπ²) = 0.025194 ft·s²), and 8.4 × 10⁻⁴ to 1.2 × 10⁻³ low on
+    the branched outside (the most at the lowest flow), where the same scaling also shifts the
+    split between its two reservoirs."""
     gen = pytest.importorskip("tests.reference.generate_epanet_cases")
     rho = gen.EPANET_FLUID_DENSITY
     fluid_ = custom_fluid("Water at EPANET's default viscosity", rho, gen.NU_EPANET * rho)

@@ -20,6 +20,7 @@ from .services.fluids import FluidError
 from .services.goal_seek import GoalSeekInputError, GoalSeekNotFoundError
 from .services.pump_groups import HeadRangeError, NotAStationError, PumpGroupNotFoundError
 from .services.scenarios import (
+    RESISTANCE_TAGS,
     ScenarioFluidError,
     ScenarioNotFoundError,
     ScenarioOverrideError,
@@ -276,15 +277,35 @@ def _within_override_value(loc: Sequence[Any]) -> list[str]:
     return parts
 
 
+def _without_resistance_tag(loc: Sequence[Any]) -> list[Any]:
+    """``loc`` without the tag pydantic inserts after a valve's ``resistance``, a union of an
+    inline coefficient and a project library reference (CLAUDE.md D22), as services/scenarios
+    drops it from a scenario value's location: an inline value is located as it was before
+    the union, ``components.N.valve:isolation.resistance.value``, and a reference's id at
+    ``resistance.id``. An equipment rating keeps its tag (``rating.point.flow``)."""
+    parts = list(loc)
+    for i in range(len(parts) - 4):
+        if (
+            parts[i] == "components"
+            and isinstance(parts[i + 1], int)
+            and str(parts[i + 2]).startswith("valve:")
+            and parts[i + 3] == "resistance"
+            and parts[i + 4] in RESISTANCE_TAGS
+        ):
+            return parts[: i + 4] + parts[i + 5 :]
+    return parts
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
     # Report where and what, never the submitted values (they may be project contents): the
     # messages are the schema's own (models with custom errors where pydantic's would quote
-    # the input), a key the schema does not know is not named, and a location stops at an
-    # override's value, whose keys are the submitter's.
+    # the input), a key the schema does not know is not named, a location stops at an
+    # override's value, whose keys are the submitter's, and a valve resistance's union tag is
+    # left out.
     issues = []
     for err in exc.errors():
-        loc = _within_override_value(err.get("loc", ()))
+        loc = _within_override_value(_without_resistance_tag(err.get("loc", ())))
         if err.get("type") == "extra_forbidden" and loc:
             loc[-1] = "(unknown field)"
         issues.append(

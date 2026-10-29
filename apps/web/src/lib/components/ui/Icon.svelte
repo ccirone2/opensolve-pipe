@@ -31,6 +31,7 @@
 		| 'target'
 		| 'download'
 		| 'droplet'
+		| 'book'
 		| 'up';
 </script>
 
@@ -117,6 +118,11 @@
 	{:else if name === 'droplet'}
 		<!-- A drop of liquid: the project fluid. -->
 		<path d="M12 3c3.5 4.2 6 7.6 6 10.5a6 6 0 0 1-12 0C6 10.6 8.5 7.2 12 3z" />
+	{:else if name === 'book'}
+		<!-- A bound book: the project library. -->
+		<path d="M5 19V5a2 2 0 0 1 2-2h12v14H7a2 2 0 0 0-2 2z" />
+		<path d="M5 19a2 2 0 0 0 2 2h12v-4" />
+		<path d="M9 7h6" />
 	{:else if name === 'target'}
 		<!-- A crosshair: goal seek. -->
 		<circle cx="12" cy="12" r="8" />

@@ -1458,7 +1458,7 @@ def test_the_api_solves_a_plate_and_refuses_one_it_cannot_represent() -> None:
     response = client.post("/api/v1/solve", json={"project": line_dict(plate(taps="flange"))})
     assert response.status_code == 200, response.text
     state = response.json()["solvedState"]
-    assert state["methodVersion"] == "1.4.0"
+    assert state["methodVersion"] == "1.5.0"
     assert list(state["orificeResults"]["O1"]) == [
         "flow",
         "headLoss",

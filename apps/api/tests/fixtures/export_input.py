@@ -37,6 +37,11 @@ so the fixture does not change from one run to the next.
   90 % speed with an efficiency curve and the manufacturer data, but no NPSHr curve, so the
   results are not met, met and not evaluated; API 610's preferred region, HI 9.6.1-2012's NPSH
   margin and a 3 m/s maximum velocity; US display units.
+- ``project-library``: a line whose pipes refer to project library pipe specs (a library material
+  with its cited roughness at the spec's bore, and a custom one), whose butterfly valve takes a K
+  stated at another bore from the library, and whose fittings take a K and a Cv from it, with an
+  entry of each list that nothing uses (CLAUDE.md D22); a scenario points the valve at the Cv
+  entry and gives a pipe its own values. All cases, display units.
 """
 
 import copy
@@ -580,6 +585,186 @@ def design_checks(client: TestClient, library: dict[str, Any]) -> dict[str, Any]
     )
 
 
+PIPE_SPECS = [
+    {
+        "id": "PS1",
+        "name": "NPS 3 carbon steel, measured bore",
+        "source": "test input: a bore measured on site",
+        "materialId": "carbon_steel",
+        "innerDiameter": 0.0779,
+        "nominalSize": 0.0762,
+    },
+    {
+        "id": "PS2",
+        "name": "Lined 80 mm",
+        "source": "test input, not a real product",
+        "materialId": "custom",
+        "innerDiameter": 0.08,
+        "roughness": 1.5e-6,
+        "outerDiameter": 0.09,
+    },
+    {
+        "id": "PS3",
+        "name": "Spare spec",
+        "source": "test input",
+        "materialId": "custom",
+        "innerDiameter": 0.1,
+        "roughness": 4.5e-5,
+    },
+]
+"""The project library's pipe specs (test inputs): PS3 is used by nothing."""
+RESISTANCES = [
+    {
+        "id": "RS1",
+        "name": "3 in butterfly valve, open",
+        "source": "test input, not a real valve",
+        "kind": "K",
+        "value": 0.8,
+        "referenceDiameter": 0.075,
+    },
+    {
+        "id": "RS2",
+        "name": "Long-radius elbow",
+        "source": "test input",
+        "kind": "K",
+        "value": 0.25,
+        "referenceDiameter": 0.0779,
+    },
+    {
+        "id": "RS3",
+        "name": "Basket strainer",
+        "source": "test input, not a real strainer",
+        "kind": "Cv",
+        "value": 350.0,
+    },
+    {"id": "RS4", "name": "Spare Kv", "source": "test input", "kind": "Kv", "value": 90.0},
+]
+"""The project library's resistance entries (test inputs): RS4 is used by nothing."""
+
+
+def library_project() -> dict[str, Any]:
+    """R1 -> L1 (two pipes of spec PS1; an elbow on RS2's K, stated at that bore, and a strainer
+    as a custom fitting on RS3's Cv) -> V1 (a butterfly valve on RS1's K, stated at another bore)
+    -> L2 (spec PS2, then a pipe of its own) -> R2; the scenario S1 points V1 at RS3 and gives
+    L2's first pipe its own values."""
+    components = [
+        {
+            "type": "reservoir",
+            "id": "R1",
+            "name": "Upper tank",
+            "elevation": 0.0,
+            "liquidLevel": 15.0,
+            "surfacePressure": 0.0,
+            "ports": _ports("port_1"),
+        },
+        {
+            "type": "valve",
+            "valveType": "butterfly",
+            "id": "V1",
+            "name": "Isolation valve",
+            "elevation": 0.0,
+            "resistance": {"kind": "library", "id": "RS1"},
+            "ports": _ports("inlet", "outlet"),
+        },
+        {
+            "type": "reservoir",
+            "id": "R2",
+            "name": "Lower tank",
+            "elevation": 0.0,
+            "liquidLevel": 2.0,
+            "surfacePressure": 0.0,
+            "ports": _ports("port_1"),
+        },
+    ]
+    connections = [
+        _link(
+            "L1",
+            ("R1", "port_1"),
+            ("V1", "inlet"),
+            [{"specId": "PS1", "length": 30.0}, {"specId": "PS1", "length": 12.0}],
+            [
+                {"type": "entrance_sharp", "quantity": 1, "pipeIndex": 0},
+                {"type": "elbow_90_lr", "quantity": 2, "pipeIndex": 0, "resistanceId": "RS2"},
+                {"type": "custom", "quantity": 1, "pipeIndex": 1, "resistanceId": "RS3"},
+            ],
+        ),
+        _link(
+            "L2",
+            ("V1", "outlet"),
+            ("R2", "port_1"),
+            [{"specId": "PS2", "length": 20.0}, _steel(25.0)],
+            [{"type": "exit", "quantity": 1, "pipeIndex": 1}],
+        ),
+    ]
+    return {
+        "schemaVersion": 1,
+        "methodVersion": "",
+        "id": "fixture-export-project-library",
+        "metadata": {
+            "name": "Library line",
+            "description": "Export fixture: pipes, a valve and fittings from the project library.",
+            "created": "2026-10-28T00:00:00Z",
+            "modified": "2026-10-28T00:00:00Z",
+        },
+        "settings": {
+            "units": dict(SI_UNITS),
+            "siteElevation": 0.0,
+            "solverOptions": {
+                "frictionMethod": "colebrook",
+                "maxIterations": 100,
+                "tolerance": 1e-9,
+            },
+        },
+        "fluid": {"kind": "builtin", "fluidId": "water", "temperature": 293.15},
+        "components": components,
+        "connections": connections,
+        "pumpLibrary": [],
+        "pipeLibrary": PIPE_SPECS,
+        "resistanceLibrary": RESISTANCES,
+        "scenarios": [
+            {
+                "id": "S1",
+                "name": "Strainer entry on the valve",
+                "overrides": [
+                    {
+                        "kind": "component",
+                        "componentId": "V1",
+                        "field": "resistance",
+                        "value": {"kind": "library", "id": "RS3"},
+                    },
+                    {
+                        "kind": "pipe",
+                        "connectionId": "L2",
+                        "pipeIndex": 0,
+                        "field": "spec",
+                        "value": {"materialId": "custom", "innerDiameter": 0.08, "roughness": 1e-5},
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def project_library(client: TestClient, library: dict[str, Any]) -> dict[str, Any]:
+    project = library_project()
+    cases = [
+        _case(project, _solve(client, project, case_id), case_id, name)
+        for case_id, name in ((None, "Base case"), ("S1", "Strainer entry on the valve"))
+    ]
+    rows = [
+        {"quantity": "status"},
+        {"quantity": "valveFlow", "elementId": "V1"},
+        {"quantity": "linkFlow", "elementId": "L2"},
+    ]
+    return _input(
+        project,
+        cases,
+        library,
+        options={"cases": "all", "format": "xlsx", "units": "display", "link": True},
+        compare_rows=rows,
+    )
+
+
 def generate() -> dict[str, Any]:
     client = _client()
     library = _library(client)
@@ -590,6 +775,7 @@ def generate() -> dict[str, Any]:
             {"name": "scenarios", "input": scenarios(client, library)},
             {"name": "tee-fallback", "input": tee_fallback(client, library)},
             {"name": "design-checks", "input": design_checks(client, library)},
+            {"name": "project-library", "input": project_library(client, library)},
         ],
     }
 

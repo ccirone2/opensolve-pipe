@@ -10,16 +10,19 @@ valve inlet -> outlet; equipment inlet -> outlet; orifice plate inlet -> outlet;
 tee or wye (center -> port).
 Plugs and assigned-flow nodes add no link.
 
-Laws: pipes (segments and fittings); a pump's curve at its speed (a speed-controlled pump's
-maximum speed; its minimum-speed law is built once, ``PumpControlData``); a valve's fully open K on
-the inlet pipe's inner diameter (``valves.valve_resistance``), as a head offset when K = 0
-(an ideal control valve); equipment's c Q|Q| with c from its rating (``equipment.equipment_law``,
-proposal equipment-pressure-drop.md §3.4); an orifice plate's ISO 5167-2 permanent pressure loss
-on its inlet pipe's bore (``orifice.OrificeLaw``, proposal orifice-plate.md §3.8); branch legs as
-head offsets set by the outer loop (design §2.4).
+Laws: pipes (segments and fittings; a pipe's size from its own values or its project library
+spec, a fitting's K from its kOverride, its project library entry or its correlation); a pump's
+curve at its speed (a speed-controlled pump's maximum speed; its minimum-speed law is built once,
+``PumpControlData``); a valve's fully open K on the inlet pipe's inner diameter
+(``valves.valve_resistance``: entered, from a project library entry, a Crane default or 0), as a
+head offset when K = 0 (an ideal control valve); equipment's c Q|Q| with c from its rating
+(``equipment.equipment_law``, proposal equipment-pressure-drop.md §3.4); an orifice plate's ISO
+5167-2 permanent pressure loss on its inlet pipe's bore (``orifice.OrificeLaw``, proposal
+orifice-plate.md §3.8); branch legs as head offsets set by the outer loop (design §2.4).
 
 Every problem that makes the project unsolvable is collected and raised together as one
-``TopologyError`` (design §1.2), including pipe-library references that do not resolve.
+``TopologyError`` (design §1.2), including pipe-library and project-library references that do
+not resolve.
 """
 
 import math
@@ -49,8 +52,10 @@ from ...models.components import (
 from ...models.fluids import FluidProperties
 from ...models.piping import PipeConnection
 from ...models.project import Project
+from ...models.project_library import ResistanceRef
 from ...models.results import Flag
 from .branches import BranchGeometry
+from .coefficients import k_from_coefficient
 from .elements import (
     HeadOffsetLaw,
     PipeConnectionLaw,
@@ -76,8 +81,9 @@ from .orifice import (
     Refusal,
     refusal,
 )
+from .project_library import entered_text, entry_k, pipe_specs, resistance_entries
 from .pumps import PumpCurveModel, SpeedUniqueness, bracket_low, speed_uniqueness
-from .valves import Valve, ValveResistance, k_from_coefficient, valve_resistance
+from .valves import Valve, ValveResistance, valve_resistance
 
 G = float(fluids.constants.g)
 """Standard gravity, m/s² (``fluids.constants.g``, design §1.3)."""
@@ -304,6 +310,52 @@ def _duplicates(ids: Iterable[str]) -> list[str]:
     return dups
 
 
+def _unknown_library_entries(project: Project) -> list[TopologyIssue]:
+    """References to project library entries the project does not have (CLAUDE.md D22), as
+    UNKNOWN_PUMP_CURVE: UNKNOWN_RESISTANCE for a valve's resistance and a fitting's resistanceId,
+    UNKNOWN_PIPE_SPEC for a pipe's specId, each naming the element and the id."""
+    issues: list[TopologyIssue] = []
+    entries = {e.id for e in project.resistance_library}
+    specs = {s.id for s in project.pipe_library}
+    for comp in project.components:
+        if (
+            isinstance(comp, IsolationValve | CheckValve | ControlValve)
+            and isinstance(comp.resistance, ResistanceRef)
+            and comp.resistance.id not in entries
+        ):
+            issues.append(
+                issue(
+                    "UNKNOWN_RESISTANCE",
+                    f"valve '{comp.id}' refers to resistance entry '{comp.resistance.id}', which "
+                    "is not in the project library",
+                    [comp.id],
+                )
+            )
+    for conn in project.connections:
+        for i, pipe in enumerate(conn.piping.pipes):
+            if pipe.spec_id is not None and pipe.spec_id not in specs:
+                issues.append(
+                    issue(
+                        "UNKNOWN_PIPE_SPEC",
+                        f"connection '{conn.id}' {pipe_name(i)} refers to pipe spec "
+                        f"'{pipe.spec_id}', which is not in the project library",
+                        connection_ids=[conn.id],
+                    )
+                )
+        for j, fitting in enumerate(conn.piping.fittings):
+            if fitting.resistance_id is not None and fitting.resistance_id not in entries:
+                issues.append(
+                    issue(
+                        "UNKNOWN_RESISTANCE",
+                        f"connection '{conn.id}' {fitting_name(j)} ({fitting.type}) refers to "
+                        f"resistance entry '{fitting.resistance_id}', which is not in the "
+                        "project library",
+                        connection_ids=[conn.id],
+                    )
+                )
+    return issues
+
+
 def validate_topology(project: Project) -> list[TopologyIssue]:
     """Every topology problem in the project (empty when the port graph is solvable)."""
     issues: list[TopologyIssue] = []
@@ -350,6 +402,7 @@ def validate_topology(project: Project) -> list[TopologyIssue]:
                     [comp.id],
                 )
             )
+    issues.extend(_unknown_library_entries(project))
     curves = {c.id: c for c in project.pump_library}
     checked: dict[str, SpeedUniqueness] = {}
     for comp in project.components:
@@ -506,14 +559,31 @@ def validate_topology(project: Project) -> list[TopologyIssue]:
     return issues
 
 
-def _resolve_pipes(project: Project) -> tuple[dict[str, list[ResolvedPipe]], list[TopologyIssue]]:
-    resolved: dict[str, list[ResolvedPipe]] = {}
+ResolvedPipes = dict[str, dict[int, ResolvedPipe]]
+"""Connection id -> its pipes that resolve, by their index in the connection. A pipe that does
+not resolve (an unknown material, spec, schedule or size: a topology issue) is absent, so every
+other pipe keeps its number (D10) and a port's end pipe is the connection's own end pipe."""
+
+
+def _spec_prefix(pipe: ResolvedPipe) -> str:
+    """The prefix ``pipe spec 'PS1': `` before an issue on a pipe of a project library spec, whose
+    inner diameter and roughness the issue quotes and where they are changed (D10: the id at
+    fault, by id only, as ``resolve_pipe`` names it for an unknown material); empty for a pipe's
+    own values."""
+    return "" if pipe.spec is None else f"pipe spec '{pipe.spec.id}': "
+
+
+def _resolve_pipes(project: Project) -> tuple[ResolvedPipes, list[TopologyIssue]]:
+    resolved: ResolvedPipes = {}
     issues: list[TopologyIssue] = []
+    specs = pipe_specs(project)
     for conn in project.connections:
-        pipes: list[ResolvedPipe] = []
+        pipes: dict[int, ResolvedPipe] = {}
         for i, pipe in enumerate(conn.piping.pipes):
+            if pipe.spec_id is not None and pipe.spec_id not in specs:
+                continue  # UNKNOWN_PIPE_SPEC (validate_topology)
             try:
-                resolved_pipe = resolve_pipe(pipe)
+                resolved_pipe = resolve_pipe(pipe, specs)
             except LibraryLookupError as exc:
                 issues.append(
                     issue(exc.code, f"connection '{conn.id}' {pipe_name(i)}: {exc}", [], [conn.id])
@@ -524,8 +594,8 @@ def _resolve_pipes(project: Project) -> tuple[dict[str, list[ResolvedPipe]], lis
                 issues.append(
                     issue(
                         "ROUGHNESS_OUT_OF_RANGE",
-                        f"connection '{conn.id}' {pipe_name(i)}: roughness "
-                        f"{resolved_pipe.roughness:g} m "
+                        f"connection '{conn.id}' {pipe_name(i)}: {_spec_prefix(resolved_pipe)}"
+                        f"roughness {resolved_pipe.roughness:g} m "
                         f"is {ed:.4g} times the inner diameter "
                         f"{resolved_pipe.inner_diameter:g} m; the Colebrook equation has no "
                         f"solution for relative roughness of {COLEBROOK_ED_LIMIT:g} or more",
@@ -533,7 +603,7 @@ def _resolve_pipes(project: Project) -> tuple[dict[str, list[ResolvedPipe]], lis
                         [conn.id],
                     )
                 )
-            pipes.append(resolved_pipe)
+            pipes[i] = resolved_pipe
         resolved[conn.id] = pipes
     return resolved, issues
 
@@ -541,16 +611,14 @@ def _resolve_pipes(project: Project) -> tuple[dict[str, list[ResolvedPipe]], lis
 # --------------------------------------------------------------------------- building
 
 
-def _unrepresentable_pipes(
-    resolved: dict[str, list[ResolvedPipe]], fluid: FluidProperties
-) -> list[TopologyIssue]:
+def _unrepresentable_pipes(resolved: ResolvedPipes, fluid: FluidProperties) -> list[TopologyIssue]:
     """Pipes whose loss coefficients are not finite, positive floating-point numbers: the
     laminar r = 32 ν L/(g D² A) and the turbulent L/(2 g D A²) (f = 1). A schema-valid but
     extreme size (an inner diameter of 1e-100 m) underflows D² A to 0, and the solver could
     only fail on it."""
     issues: list[TopologyIssue] = []
     for conn_id, pipes in resolved.items():
-        for i, pipe in enumerate(pipes):
+        for i, pipe in pipes.items():
             d, length = pipe.inner_diameter, pipe.length
             area = 0.25 * math.pi * d * d
             try:
@@ -562,10 +630,10 @@ def _unrepresentable_pipes(
                 issues.append(
                     issue(
                         "PIPE_SIZE_OUT_OF_RANGE",
-                        f"connection '{conn_id}' {pipe_name(i)}: an inner diameter of {d:g} m "
-                        "and a "
-                        f"length of {length:g} m give a pipe resistance that is not a finite "
-                        "floating-point number; the solver cannot represent this pipe",
+                        f"connection '{conn_id}' {pipe_name(i)}: {_spec_prefix(pipe)}an inner "
+                        f"diameter of {d:g} m and a length of {length:g} m give a pipe "
+                        "resistance that is not a finite floating-point number; the solver "
+                        "cannot represent this pipe",
                         [],
                         [conn_id],
                     )
@@ -573,39 +641,66 @@ def _unrepresentable_pipes(
     return issues
 
 
-def _port_end_pipes(
-    project: Project, resolved: dict[str, list[ResolvedPipe]]
-) -> dict[str, ResolvedPipe]:
+def _port_end_pipes(project: Project, resolved: ResolvedPipes) -> dict[str, ResolvedPipe]:
     """Node key -> the resolved pipe at that port's end of its connection (the first connection
-    that names the port; a port connected twice is a topology issue)."""
-    pipes_at: dict[str, ResolvedPipe] = {}
+    that names the port; a port connected twice is a topology issue). A port whose end pipe does
+    not resolve has none: it is left to that pipe's issue, never tested on another pipe."""
+    pipes_at: dict[str, ResolvedPipe | None] = {}
     for conn in project.connections:
-        pipes = resolved.get(conn.id)
-        if pipes:
-            pipes_at.setdefault(node_key(conn.from_component_id, conn.from_port_id), pipes[0])
-            pipes_at.setdefault(node_key(conn.to_component_id, conn.to_port_id), pipes[-1])
-    return pipes_at
+        pipes = resolved.get(conn.id, {})
+        ends = (
+            (node_key(conn.from_component_id, conn.from_port_id), 0),
+            (node_key(conn.to_component_id, conn.to_port_id), len(conn.piping.pipes) - 1),
+        )
+        for key, index in ends:
+            pipes_at.setdefault(key, pipes.get(index))
+    return {key: pipe for key, pipe in pipes_at.items() if pipe is not None}
 
 
-def _unrepresentable_valves(
-    project: Project, resolved: dict[str, list[ResolvedPipe]]
-) -> list[TopologyIssue]:
+def _unrepresentable_valves(project: Project, resolved: ResolvedPipes) -> list[TopologyIssue]:
     """Valves whose loss coefficient is not a finite floating-point number: the K of a Cv or Kv
     on the inlet pipe's inner diameter, and K/(2 g A²). A schema-valid but extreme Cv (below
     about 1e-160) makes the conversion divide by zero or overflow, and the solver could only
     fail on it. An unconnected inlet is left to the topology check."""
     inlet_pipes = _port_end_pipes(project, resolved)
+    entries = resistance_entries(project)
     issues: list[TopologyIssue] = []
     for comp in project.components:
         if not isinstance(comp, IsolationValve | CheckValve | ControlValve):
             continue
         pipe = inlet_pipes.get(node_key(comp.id, "inlet"))
-        if comp.resistance is None or pipe is None:
+        entered = comp.resistance
+        if entered is None or pipe is None:
             continue
         d = pipe.inner_diameter
         area = 0.25 * math.pi * d * d
+        if isinstance(entered, ResistanceRef):
+            entry = entries.get(entered.id)
+            if entry is None:
+                continue  # UNKNOWN_RESISTANCE (validate_topology)
+            k = entry_k(entry, d).k
+            try:
+                coefficient = k / (2.0 * G * area * area)
+            except ZeroDivisionError:
+                coefficient = math.inf
+            # A K moved to the inlet pipe's bore must stay a K a user could enter (above 0).
+            if not (math.isfinite(k) and math.isfinite(coefficient)) or (
+                entry.kind == "K" and not k > 0.0
+            ):
+                issues.append(
+                    issue(
+                        "VALVE_RESISTANCE_OUT_OF_RANGE",
+                        f"valve '{comp.id}': its project library resistance entry '{entry.id}', "
+                        f"{entered_text(entry)}, on the inlet pipe's inner diameter of {d:g} m "
+                        "gives a loss coefficient that is not a finite positive floating-point "
+                        "number; the solver cannot represent this valve",
+                        [comp.id],
+                        [],
+                    )
+                )
+            continue
         try:
-            k, _ = k_from_coefficient(comp.resistance, d)
+            k, _ = k_from_coefficient(entered, d)
             coefficient = k / (2.0 * G * area * area)
         except (ZeroDivisionError, OverflowError):
             k = coefficient = math.inf
@@ -613,14 +708,109 @@ def _unrepresentable_valves(
             issues.append(
                 issue(
                     "VALVE_RESISTANCE_OUT_OF_RANGE",
-                    f"valve '{comp.id}': a {comp.resistance.kind} of "
-                    f"{comp.resistance.value:g} on the inlet pipe's inner diameter of {d:g} m "
+                    f"valve '{comp.id}': a {entered.kind} of "
+                    f"{entered.value:g} on the inlet pipe's inner diameter of {d:g} m "
                     "gives a loss coefficient that is not a finite floating-point number; the "
                     "solver cannot represent this valve",
                     [comp.id],
                     [],
                 )
             )
+    return issues
+
+
+def _minor_coefficient(fitting: ResolvedFitting, flow: float, areas: list[float]) -> float:
+    """n K/(2 g A²) of one fitting for the flow's direction, written as
+    ``elements.PipeConnectionLaw._minor_coefficient`` writes it (A on the segment the fitting's
+    K refers to); infinite where A² underflows to 0."""
+    area = areas[fitting.segment(flow)]
+    try:
+        return fitting.quantity * fitting.k(flow) / (2.0 * G * area**2)
+    except ZeroDivisionError:
+        return math.inf
+
+
+def _unrepresentable_fittings(project: Project, resolved: ResolvedPipes) -> list[TopologyIssue]:
+    """Fittings on a project library entry (CLAUDE.md D22) that their connection's law
+    (``elements.PipeConnectionLaw``) cannot represent: the K on the inner diameter of the
+    fitting's pipe pipeIndex, or n K/(2 g A²) for its quantity n, is not a finite floating-point
+    number (a schema-valid but extreme entry: a K stated at a bore 10⁸⁰ times smaller, a Cv of
+    1e-170, a K of 10³⁰³ on 1,000 units), on which the solver could only fail; or each is, but
+    the law's sum Σ n K/(2 g A²) over the connection's fittings, for one flow direction, is
+    not. A kOverride is bounded so that it never is, and a sum that the fittings without an
+    entry overflow by themselves is left as it was before the library. Only connections with a
+    fitting on an entry are tested; those whose pipes did not all resolve, and the sums of
+    those with a fitting on an entry the project does not have (UNKNOWN_RESISTANCE) or whose
+    cited K cannot be computed on its pipe's bore (an overflow in a Crane function at a bore
+    such as 1e-310 m, which PIPE_SIZE_OUT_OF_RANGE reports), are left to the other issues."""
+    entries = resistance_entries(project)
+    issues: list[TopologyIssue] = []
+    for conn in project.connections:
+        pipes = resolved.get(conn.id)
+        if pipes is None or len(pipes) != len(conn.piping.pipes):
+            continue
+        if not any(f.resistance_id in entries for f in conn.piping.fittings):
+            continue  # none, or UNKNOWN_RESISTANCE (validate_topology)
+        diameters = [pipes[i].inner_diameter for i in range(len(pipes))]
+        # PipeSegment.from_resolved's area, so that each n K/(2 g A²) is the law's own double.
+        areas = [0.25 * math.pi * d**2 for d in diameters]
+        fittings: list[ResolvedFitting] = []
+        whole = True  # every fitting resolves, so the law's sums can be formed
+        for j, f in enumerate(conn.piping.fittings):
+            if f.resistance_id is not None and f.resistance_id not in entries:
+                whole = False  # UNKNOWN_RESISTANCE (validate_topology)
+                continue
+            try:
+                fittings.append(resolve_fitting(j, f, diameters, entries))
+            except ArithmeticError:  # a Crane K on a bore such as 1e-310 m: the pipe's issue
+                whole = False
+        found = len(issues)
+        for fit in fittings:
+            if fit.entry is None or (
+                math.isfinite(fit.entry.k) and math.isfinite(_minor_coefficient(fit, 1.0, areas))
+            ):
+                continue
+            entry = fit.entry.entry
+            units = f", for its quantity of {fit.quantity}," if fit.quantity > 1 else ""
+            issues.append(
+                issue(
+                    "FITTING_RESISTANCE_OUT_OF_RANGE",
+                    f"connection '{conn.id}' {fitting_name(fit.index)} ({fit.type}): its "
+                    f"project library resistance entry '{entry.id}', {entered_text(entry)}, "
+                    f"on the inner diameter of {pipe_name(fit.segment_forward)}, "
+                    f"{fit.entry.bore:g} m, gives{units} a loss coefficient that is not a finite "
+                    "floating-point number; the solver cannot represent this fitting",
+                    [],
+                    [conn.id],
+                )
+            )
+        if len(issues) > found or not whole:
+            continue
+        for flow in (1.0, -1.0):  # the law's two sums, each in its order
+            total = sum(_minor_coefficient(fit, flow, areas) for fit in fittings)
+            inline = sum(
+                _minor_coefficient(fit, flow, areas) for fit in fittings if fit.entry is None
+            )
+            if math.isfinite(total) or not math.isfinite(inline):
+                continue
+            on_entries = ", ".join(
+                f"{fitting_name(fit.index)} ({fit.type}) on '{fit.entry.entry.id}'"
+                for fit in fittings
+                if fit.entry is not None
+            )
+            direction = "from → to" if flow > 0 else "to → from"
+            issues.append(
+                issue(
+                    "FITTING_RESISTANCE_OUT_OF_RANGE",
+                    f"connection '{conn.id}': its fittings' loss coefficients n K/(2 g A²) are "
+                    f"each finite, but their sum for flow {direction} is not a finite "
+                    "floating-point number (on project library resistance entries: "
+                    f"{on_entries}); the solver cannot represent this connection",
+                    [],
+                    [conn.id],
+                )
+            )
+            break
     return issues
 
 
@@ -654,7 +844,7 @@ def _unrepresentable_equipment(project: Project) -> list[TopologyIssue]:
 
 
 def orifice_refusals(
-    project: Project, resolved: dict[str, list[ResolvedPipe]] | None = None
+    project: Project, resolved: ResolvedPipes | None = None
 ) -> dict[str, tuple[Orifice, float, Refusal]]:
     """Orifice plates the law cannot represent (proposal orifice-plate.md decision 17), by id:
     the plate, its inlet pipe's inner diameter D and the first rule it breaks. D is the inner
@@ -763,9 +953,7 @@ def _orifice_iso_tail(comp: Orifice, why: Refusal) -> str:
     )
 
 
-def _unrepresentable_orifices(
-    project: Project, resolved: dict[str, list[ResolvedPipe]]
-) -> list[TopologyIssue]:
+def _unrepresentable_orifices(project: Project, resolved: ResolvedPipes) -> list[TopologyIssue]:
     """ORIFICE_OUT_OF_RANGE (proposal orifice-plate.md decision 17): one issue per plate the law
     cannot represent, naming the first rule it breaks; listed after every other issue."""
     return [
@@ -839,6 +1027,7 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
     issues.extend(pipe_issues)
     issues.extend(_unrepresentable_pipes(resolved, fluid))
     issues.extend(_unrepresentable_valves(project, resolved))
+    issues.extend(_unrepresentable_fittings(project, resolved))
     issues.extend(_unrepresentable_equipment(project))
     issues.extend(_unrepresentable_orifices(project, resolved))
     if issues:
@@ -852,6 +1041,7 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
     links: list[SolverLink] = []
     flags = []
     components = {c.id: c for c in project.components}
+    entries = resistance_entries(project)
 
     def add_node(key: str, comp: Component, port_id: str | None, z: float) -> SolverNode:
         node = SolverNode(len(nodes), key, comp.id, port_id, z)
@@ -902,10 +1092,12 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
     for conn in project.connections:
         a = node_key(conn.from_component_id, conn.from_port_id)
         b = node_key(conn.to_component_id, conn.to_port_id)
-        pipes = resolved[conn.id]
+        pipes = list(resolved[conn.id].values())  # every pipe resolved, in order
         segments = [PipeSegment.from_resolved(p, fluid.kinematic_viscosity, g) for p in pipes]
         diameters = [p.inner_diameter for p in pipes]
-        fittings = [resolve_fitting(i, f, diameters) for i, f in enumerate(conn.piping.fittings)]
+        fittings = [
+            resolve_fitting(i, f, diameters, entries) for i, f in enumerate(conn.piping.fittings)
+        ]
         for fit in fittings:
             if fit.range_warning is not None:
                 flags.append(
@@ -1011,7 +1203,7 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
             inlet, outlet = node_key(comp.id, "inlet"), node_key(comp.id, "outlet")
             inlet_pipe, outlet_pipe = built.port_pipe(inlet), built.port_pipe(outlet)
             d_ref, a_ref = inlet_pipe.segment.diameter, inlet_pipe.segment.area
-            resistance = valve_resistance(comp, d_ref)
+            resistance = valve_resistance(comp, d_ref, entries)
             if resistance.range_note is not None:
                 flags.append(
                     make_flag(

@@ -134,7 +134,10 @@ const KIND_NAMES: Readonly<Record<ComponentKind, string>> = {
 	orifice: 'Orifice'
 };
 
-/** Id prefixes: R1, N1, PL1, AF1, T1, Y1, P1, V1, E1, O1; connections L1; pump curves C1. */
+/**
+ * Id prefixes: R1, N1, PL1, AF1, T1, Y1, P1, V1, E1, O1; connections L1; pump curves C1; project
+ * library pipe specs PS1 and resistance entries RS1 (CLAUDE.md D22).
+ */
 export const ID_PREFIX: Readonly<Record<ComponentKind, string>> = {
 	reservoir: 'R',
 	reference_node: 'N',
@@ -157,6 +160,8 @@ export const ID_PREFIX: Readonly<Record<ComponentKind, string>> = {
 };
 export const CONNECTION_PREFIX = 'L';
 export const CURVE_PREFIX = 'C';
+export const PIPE_SPEC_PREFIX = 'PS';
+export const RESISTANCE_PREFIX = 'RS';
 
 /** The kind of an existing component. */
 export function componentKind(component: Component): ComponentKind {
@@ -181,16 +186,20 @@ export const DEFAULT_PIPE_LENGTH = 10;
 export const SHORT_PIPE_LENGTH = 1;
 
 /**
- * Ids in use: components, connections and pump curves (one namespace, so trace keys stay unique),
- * and every component or connection a scenario's change names, deleted ones included: a new
- * component never takes the id of a deleted one whose changes are kept, so those changes never
- * attach to it (proposal scenario-manager.md §6.7).
+ * Ids in use: components, connections, pump curves and the project library's pipe specs and
+ * resistance entries (one namespace, so trace keys stay unique and a new entry never shares an
+ * element's id, though the API keeps each list's ids apart), and every component or connection a
+ * scenario's change names, deleted ones included: a new component never takes the id of a deleted
+ * one whose changes are kept, so those changes never attach to it (proposal scenario-manager.md
+ * §6.7).
  */
 export function usedIds(project: Project): Set<string> {
 	const ids = new Set([
 		...project.components.map((c) => c.id),
 		...project.connections.map((c) => c.id),
-		...project.pumpLibrary.map((c) => c.id)
+		...project.pumpLibrary.map((c) => c.id),
+		...(project.pipeLibrary ?? []).map((s) => s.id),
+		...(project.resistanceLibrary ?? []).map((e) => e.id)
 	]);
 	for (const scenario of project.scenarios ?? []) {
 		for (const change of scenario.overrides ?? []) {
@@ -202,13 +211,47 @@ export function usedIds(project: Project): Set<string> {
 }
 
 /**
+ * The project library entry ids the project refers to, whether or not the library has them: pipes'
+ * specIds, valves' library resistances, fittings' resistanceIds, and the same in scenarios' changes
+ * (a pipe's spec, a valve's resistance).
+ */
+export function libraryReferences(project: Project): Set<string> {
+	const ids = new Set<string>();
+	const resistance = (value: unknown) => {
+		if (value && typeof value === 'object' && 'kind' in value && 'id' in value) {
+			const ref = value as { kind: unknown; id: unknown };
+			if (ref.kind === 'library' && typeof ref.id === 'string') ids.add(ref.id);
+		}
+	};
+	for (const c of project.components) if (c.type === 'valve') resistance(c.resistance);
+	for (const connection of project.connections) {
+		for (const pipe of connection.piping.pipes) if (pipe.specId) ids.add(pipe.specId);
+		for (const fitting of connection.piping.fittings) {
+			if (fitting.resistanceId) ids.add(fitting.resistanceId);
+		}
+	}
+	for (const scenario of project.scenarios ?? []) {
+		for (const change of scenario.overrides ?? []) {
+			if (change.kind === 'pipe' && change.field === 'spec') {
+				const value = change.value as { specId?: unknown } | null;
+				if (value && typeof value.specId === 'string') ids.add(value.specId);
+			}
+			if (change.kind === 'component' && change.field === 'resistance') resistance(change.value);
+		}
+	}
+	return ids;
+}
+
+/**
  * The first unused id `${prefix}${n}`, n = 1, 2, ... Besides usedIds, it avoids the curve ids
  * pumps refer to before the curve is defined, so a new curve or pump never shares another
- * pump's (still undefined) curve.
+ * pump's (still undefined) curve, and the project library ids anything refers to
+ * (libraryReferences), so a new entry never takes a reference meant for another.
  */
 export function newId(project: Project, prefix: string, alsoUsed: Iterable<string> = []): string {
 	const used = usedIds(project);
 	for (const c of project.components) if (c.type === 'pump') used.add(c.curveId);
+	for (const id of libraryReferences(project)) used.add(id);
 	for (const id of alsoUsed) used.add(id);
 	for (let n = 1; ; n++) {
 		const id = `${prefix}${n}`;

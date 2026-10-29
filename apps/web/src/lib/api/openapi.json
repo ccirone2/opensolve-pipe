@@ -420,12 +420,21 @@
           "resistance": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/FlowCoefficient"
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/FlowCoefficient"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ResistanceRef"
+                  }
+                ]
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "K, Cv or Kv as entered ({kind, value}), or {kind: 'library', id}: an entry of the project's resistanceLibrary, its K moved to the inlet pipe's bore, its Cv or Kv as entered",
+            "title": "Resistance"
           },
           "status": {
             "default": "active",
@@ -644,12 +653,21 @@
           "resistance": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/FlowCoefficient"
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/FlowCoefficient"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ResistanceRef"
+                  }
+                ]
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "K, Cv or Kv as entered ({kind, value}), or {kind: 'library', id}: an entry of the project's resistanceLibrary, its K moved to the inlet pipe's bore, its Cv or Kv as entered",
+            "title": "Resistance"
           },
           "setpoint": {
             "maximum": 100000000.0,
@@ -1382,7 +1400,7 @@
                 "type": "null"
               }
             ],
-            "description": "User-specified K (referenced to pipe pipeIndex); required for 'custom'",
+            "description": "User-specified K (referenced to pipe pipeIndex); required for 'custom' unless resistanceId is given, and absent with it",
             "title": "Koverride"
           },
           "pipeIndex": {
@@ -1412,6 +1430,22 @@
             ],
             "description": "Bend radius / inner diameter (bend), or rounding radius / diameter (entrance)",
             "title": "Radiusratio"
+          },
+          "resistanceId": {
+            "anyOf": [
+              {
+                "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Id of an entry of the project's resistanceLibrary, in place of kOverride (never both): its K, Cv or Kv on pipe pipeIndex, which meets a custom fitting's need for kOverride (x-reference-fields). One the project does not have is a topology issue when solving",
+            "title": "Resistanceid"
           },
           "type": {
             "enum": [
@@ -1458,6 +1492,14 @@
           "reducer_sudden",
           "reducer_conical"
         ],
+        "x-reference-fields": {
+          "resistanceId": {
+            "replaces": [
+              "kOverride"
+            ],
+            "requiredWithout": []
+          }
+        },
         "x-required-parameters": {
           "bend": [
             "angle",
@@ -3433,12 +3475,21 @@
           "resistance": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/FlowCoefficient"
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/FlowCoefficient"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ResistanceRef"
+                  }
+                ]
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "K, Cv or Kv as entered ({kind, value}), or {kind: 'library', id}: an entry of the project's resistanceLibrary, its K moved to the inlet pipe's bore, its Cv or Kv as entered",
+            "title": "Resistance"
           },
           "status": {
             "default": "active",
@@ -4310,7 +4361,7 @@
       },
       "PipeDefinition": {
         "additionalProperties": false,
-        "description": "One pipe segment. Segments in a connection are in series, ordered from -> to.",
+        "description": "One pipe segment. Segments in a connection are in series, ordered from -> to. Its size\ncomes from the materials library (materialId, schedule, nominalSize, with optional bore and\nroughness overrides), from its own values (materialId 'custom'), or from a pipe spec of the\nproject library (specId, with nothing but the length beside it).",
         "properties": {
           "innerDiameter": {
             "anyOf": [
@@ -4334,11 +4385,18 @@
             "type": "number"
           },
           "materialId": {
-            "description": "Key into the pipe materials library, or 'custom' with innerDiameter set",
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Materialid",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Key into the pipe materials library, or 'custom' with innerDiameter set. Required unless specId is given; absent with it",
+            "title": "Materialid"
           },
           "nominalSize": {
             "anyOf": [
@@ -4380,14 +4438,43 @@
             ],
             "description": "Schedule designation from the library (e.g. '40', '80', '10S')",
             "title": "Schedule"
+          },
+          "specId": {
+            "anyOf": [
+              {
+                "description": "Letters, digits, '_' or '-' (no ':', so node keys stay unambiguous)",
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Id of a pipe spec in the project's pipeLibrary: the pipe takes its material, inner diameter and roughness, and materialId, schedule, nominalSize, innerDiameter and roughness are absent (x-reference-fields). One the project does not have is a topology issue when solving",
+            "title": "Specid"
           }
         },
         "required": [
-          "materialId",
           "length"
         ],
         "title": "PipeDefinition",
-        "type": "object"
+        "type": "object",
+        "x-reference-fields": {
+          "specId": {
+            "replaces": [
+              "materialId",
+              "schedule",
+              "nominalSize",
+              "innerDiameter",
+              "roughness"
+            ],
+            "requiredWithout": [
+              "materialId"
+            ]
+          }
+        }
       },
       "PipeMaterial": {
         "additionalProperties": false,
@@ -4450,7 +4537,7 @@
             "type": "string"
           },
           "field": {
-            "description": "spec: an object with materialId and optionally schedule, nominalSize, innerDiameter and roughness, which replace all five; length: m",
+            "description": "spec: an object with materialId and optionally schedule, nominalSize, innerDiameter and roughness, or with specId alone (a pipe spec of the project library), which replace all six; length: m",
             "enum": [
               "spec",
               "length"
@@ -4551,6 +4638,116 @@
         ],
         "title": "PipeSize",
         "type": "object"
+      },
+      "PipeSpec": {
+        "additionalProperties": false,
+        "description": "A pipe size the user defines once, with its source, and refers to from any pipe segment\n(``PipeDefinition.specId``): every segment that refers to it is solved with its material,\ninner diameter and roughness, and its own length.",
+        "properties": {
+          "id": {
+            "description": "Unique among the project's pipe specs",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id",
+            "type": "string"
+          },
+          "innerDiameter": {
+            "description": "Inner diameter, m: the bore of every pipe segment that refers to the spec",
+            "exclusiveMinimum": 0.0,
+            "maximum": 10.0,
+            "title": "Innerdiameter",
+            "type": "number"
+          },
+          "materialId": {
+            "description": "Key into the pipe materials library (its cited roughness applies unless roughness is given), or 'custom' (roughness required). An unknown material is a topology issue when solving",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Materialid",
+            "type": "string"
+          },
+          "name": {
+            "description": "What the user calls it, e.g. 'NPS 60 STD carbon steel'",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "nominalSize": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 10.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Nominal size, m (NPS in inches x 0.0254), for display and the web app's port sizes only; the solver uses innerDiameter",
+            "title": "Nominalsize"
+          },
+          "outerDiameter": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 10.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Outer diameter, m, for display only; above innerDiameter when given",
+            "title": "Outerdiameter"
+          },
+          "roughness": {
+            "anyOf": [
+              {
+                "maximum": 0.1,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Absolute roughness, m. Required for material 'custom'. Absent on a library material: that material's cited roughness (Farshad & Rieke 2006) evaluated at innerDiameter, as for a library pipe with an inner-diameter override",
+            "title": "Roughness"
+          },
+          "source": {
+            "description": "Where the values come from (a standard and its table, a datasheet, a measurement), as free text: shown in every trace that uses the entry and in the methods summary",
+            "maxLength": 300,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "source",
+          "materialId",
+          "innerDiameter"
+        ],
+        "title": "PipeSpec",
+        "type": "object",
+        "x-fields-by-value": {
+          "field": "materialId",
+          "forbidden": {},
+          "required": {
+            "custom": [
+              "roughness"
+            ]
+          }
+        },
+        "x-ordered-fields": [
+          {
+            "lower": "innerDiameter",
+            "strict": true,
+            "upper": "outerDiameter"
+          }
+        ]
       },
       "PipeVariable": {
         "additionalProperties": false,
@@ -4906,12 +5103,30 @@
             "title": "Methodversion",
             "type": "string"
           },
+          "pipeLibrary": {
+            "description": "Pipe specs the user defines once, each with its source, and refers to from pipe segments (specId). Omitted when there are none",
+            "items": {
+              "$ref": "#/components/schemas/PipeSpec"
+            },
+            "maxItems": 100,
+            "title": "Pipelibrary",
+            "type": "array"
+          },
           "pumpLibrary": {
             "items": {
               "$ref": "#/components/schemas/PumpCurve"
             },
             "maxItems": 200,
             "title": "Pumplibrary",
+            "type": "array"
+          },
+          "resistanceLibrary": {
+            "description": "Loss coefficients (K at a stated bore, Cv or Kv) the user defines once, each with its source, and refers to from valves (resistance {kind: 'library', id}) and fittings (resistanceId). Omitted when there are none",
+            "items": {
+              "$ref": "#/components/schemas/ResistanceSpec"
+            },
+            "maxItems": 100,
+            "title": "Resistancelibrary",
             "type": "array"
           },
           "scenarios": {
@@ -6442,6 +6657,117 @@
         "title": "ResidualLocation",
         "type": "object"
       },
+      "ResistanceRef": {
+        "additionalProperties": false,
+        "description": "A valve's resistance taken from the project library: the entry's K, Cv or Kv on the\nvalve's inlet pipe, as if entered on the valve (proposal §2.2).",
+        "properties": {
+          "id": {
+            "description": "The id of a resistanceLibrary entry; one the project does not have is a topology issue when solving",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "library",
+            "description": "library: an entry of the project's resistanceLibrary",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "title": "ResistanceRef",
+        "type": "object"
+      },
+      "ResistanceSpec": {
+        "additionalProperties": false,
+        "description": "A loss coefficient from a datasheet, with its source, referred to by valves (a valve's\n``resistance`` as ``{kind: 'library', id}``) and inline fittings (``Fitting.resistanceId``).\nA K is stated at a bore and needs it: an element of bore D takes K·(D/referenceDiameter)⁴,\nthe same head loss at a given flow. A Cv or Kv needs no bore (proposal §3.3).",
+        "properties": {
+          "id": {
+            "description": "Unique among the project's resistance entries",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "K (dimensionless, on the velocity in a bore of referenceDiameter), Cv (US gpm of water at 1 psi) or Kv (m³/h of water at 1 bar)",
+            "enum": [
+              "K",
+              "Cv",
+              "Kv"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "What the user calls it, e.g. '30 in butterfly valve, open'",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "referenceDiameter": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 10.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The bore a K is stated at, m: required for K, absent for Cv and Kv. An element of bore D (a valve's inlet pipe, a fitting's pipe pipeIndex) takes K·(D/referenceDiameter)⁴",
+            "title": "Referencediameter"
+          },
+          "source": {
+            "description": "Where the values come from (a standard and its table, a datasheet, a measurement), as free text: shown in every trace that uses the entry and in the methods summary",
+            "maxLength": 300,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Source",
+            "type": "string"
+          },
+          "value": {
+            "description": "The coefficient as the datasheet prints it, stored as entered (as a valve's resistance): K, Cv in US gpm at 1 psi, or Kv in m³/h at 1 bar",
+            "exclusiveMinimum": 0.0,
+            "maximum": 10000000.0,
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "source",
+          "kind",
+          "value"
+        ],
+        "title": "ResistanceSpec",
+        "type": "object",
+        "x-fields-by-value": {
+          "field": "kind",
+          "forbidden": {
+            "Cv": [
+              "referenceDiameter"
+            ],
+            "Kv": [
+              "referenceDiameter"
+            ]
+          },
+          "required": {
+            "K": [
+              "referenceDiameter"
+            ]
+          }
+        }
+      },
       "Scenario": {
         "additionalProperties": false,
         "description": "A named case of the project: the base project with these values overridden. It changes\nvalues only, never components, connections, ports or pipe counts (PRD §3.8).",
@@ -6626,7 +6952,8 @@
                 "schedule",
                 "nominalSize",
                 "innerDiameter",
-                "roughness"
+                "roughness",
+                "specId"
               ],
               "schema": "PipeDefinition"
             }
@@ -7917,7 +8244,7 @@
           },
           "caseValue": {
             "$ref": "#/components/schemas/JsonValue",
-            "description": "The case's value of the field, SI (a resistance: its FlowCoefficient or null; an orifice plate's discharge coefficient: null on ISO 5167-2's default)"
+            "description": "The case's value of the field, SI (a resistance: its FlowCoefficient, its reference to a project library entry, or null; an orifice plate's discharge coefficient: null on ISO 5167-2's default)"
           },
           "index": {
             "title": "Index",
@@ -7976,7 +8303,7 @@
             "type": "number"
           },
           "startSource": {
-            "description": "case: the case's value; clipped: the case's value lies outside the bounds, and the nearer bound is used; middle: the case holds no value of this coefficient (a resistance on its default, or of another kind; an orifice plate's discharge coefficient on ISO 5167-2's default), and the middle of the bounds on the variable's scale is used",
+            "description": "case: the case's value (a resistance from a project library entry of this kind: its value, a K on the valve's inlet bore); clipped: the case's value lies outside the bounds, and the nearer bound is used; middle: the case holds no value of this coefficient (a resistance on its default, or of another kind; an orifice plate's discharge coefficient on ISO 5167-2's default), and the middle of the bounds on the variable's scale is used",
             "enum": [
               "case",
               "clipped",

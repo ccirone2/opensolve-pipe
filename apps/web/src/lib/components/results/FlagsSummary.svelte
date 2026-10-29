@@ -6,9 +6,16 @@
 	names it: its flags number its pipes as solved. Long groups show their first few
 	flags with "Show all", and a skip button leads past the flags to the results views, so a long
 	list does not push the results several screens down.
+
+	A valve's Crane default K outside its table (CORRELATION_OUT_OF_RANGE with the bore it was
+	evaluated at; its text advises entering the manufacturer's coefficient, proposal
+	project-library.md §4.3) offers "Enter a datasheet value": it shows the valve in Build with the
+	focus on its resistance, which takes a K, Cv or Kv, or a project library entry.
 -->
 <script lang="ts">
+	import { tick } from 'svelte';
 	import type { Flag } from '$lib/api/types';
+	import { componentById } from '$lib/utils/graph';
 	import {
 		elementName,
 		flagElement,
@@ -37,6 +44,28 @@
 		element.kind === 'connection' && solved
 			? elementName(resultsProject(ws.labelsProject, solved), element)
 			: elementName(ws.project, element);
+
+	/**
+	 * The valve whose Crane default K a flag says is outside its table (the flag carries the bore
+	 * the K was evaluated at), if it is still a valve of the case shown: its resistance can be
+	 * entered from the datasheet.
+	 */
+	function datasheetValve(flag: Flag): { id: string; name: string } | null {
+		if (flag.code !== 'CORRELATION_OUT_OF_RANGE' || !flag.componentId) return null;
+		if (typeof flag.details?.referenceDiameter !== 'number') return null;
+		const component = componentById(ws.project, flag.componentId);
+		return component?.type === 'valve' ? { id: component.id, name: component.name } : null;
+	}
+
+	/** Show the valve in Build, its form open, with the focus on its resistance. */
+	async function enterDatasheet(valveId: string) {
+		ws.show(valveId);
+		ws.nav.showComponent();
+		await tick();
+		const select = document.querySelector<HTMLElement>('[data-resistance-field] select');
+		select?.scrollIntoView?.({ block: 'center' });
+		select?.focus();
+	}
 
 	/** Flags shown per group before "Show all". */
 	const SHOWN = 5;
@@ -97,6 +126,7 @@
 						<li class="text-sm">
 							{#if element}
 								{@const name = nameOf(element)}
+								{@const valve = datasheetValve(flag)}
 								<!-- The whole flag opens its element: name first, then what the flag says. -->
 								<button
 									type="button"
@@ -109,6 +139,16 @@
 									>
 									<span class="break-words text-slate-800">{text}</span>
 								</button>
+								{#if valve}
+									<button
+										type="button"
+										class="btn btn-quiet ml-1 px-2 text-blue-800"
+										aria-label="Enter a datasheet value for {valve.name}"
+										onclick={() => enterDatasheet(valve.id)}
+									>
+										Enter a datasheet value
+									</button>
+								{/if}
 							{:else}
 								<p class="px-1 py-1.5 break-words text-slate-800">{text}</p>
 							{/if}

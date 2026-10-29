@@ -2,7 +2,8 @@
  * An orifice plate's pipe bore D and diameter ratio β = d ÷ D, as far as the browser can know them
  * before a solve (proposal orifice-plate.md §6 W3): D is the inner diameter of the inlet pipe's end
  * segment at the inlet port (decision 3), the one the solver uses, resolved as the piping editor
- * resolves a pipe (piping.ts resolvedPipe: a user override, else the library size entry). Nothing
+ * resolves a pipe (piping.ts resolvedPipe: a user override, else the library size entry; a pipe of
+ * a project library spec, its spec's inner diameter, CLAUDE.md D22). Nothing
  * here is a hydraulic value: β is a ratio of two inputs, shown read-only beside the bore, and the
  * solve's own β is in its results (OrificeResult.beta). No ISO 5167-2 range is checked here: those
  * limits are the API's (D10, read never copy), and the solve flags them.
@@ -12,12 +13,14 @@ import type {
 	PipeConnection,
 	PipeDefinition,
 	PipeSize,
+	PipeSpec,
 	Project,
 	UnitPreferences
 } from '../api/types';
 import { connectionAtPort } from './graph';
 import { npsLabel } from './labels';
 import { CUSTOM_MATERIAL_ID, resolvedPipe } from './piping';
+import { entryName, pipeSpecOf } from './project-library';
 import { formatValue } from './units';
 
 /** A plate's pressure taps in words (the form's choice, the export's Taps column). */
@@ -62,9 +65,13 @@ export type InletBore =
 	| { state: 'unconnected' }
 	/** A library pipe while the pipe library has not loaded (or could not be reached). */
 	| { state: 'library'; pipe: PipeDefinition }
-	/** A pipe whose inner diameter neither the pipe nor the library gives (a topology issue). */
+	/**
+	 * A pipe whose inner diameter neither the pipe nor the library gives (a topology issue), or a
+	 * pipe of a project library spec the project does not have (UNKNOWN_PIPE_SPEC).
+	 */
 	| { state: 'unknown'; pipe: PipeDefinition }
-	| { state: 'known'; diameter: number; pipe: PipeDefinition };
+	/** `spec`: the project library spec the pipe refers to, which gives D. */
+	| { state: 'known'; diameter: number; pipe: PipeDefinition; spec?: PipeSpec };
 
 /** D for the orifice plate `componentId` of `project`: its inlet pipe's end segment's bore. */
 export function inletBore(project: Project, componentId: string, library: PipeSizes): InletBore {
@@ -72,22 +79,37 @@ export function inletBore(project: Project, componentId: string, library: PipeSi
 	if (!connection) return { state: 'unconnected' };
 	const { pipe } = pipeAtPort(connection, componentId, 'inlet');
 	if (!pipe) return { state: 'unconnected' };
+	if (pipe.specId != null) {
+		// A project library spec gives the bore itself (CLAUDE.md D22): no library lookup.
+		const spec = pipeSpecOf(project, pipe.specId);
+		return spec && spec.innerDiameter > 0
+			? { state: 'known', diameter: spec.innerDiameter, pipe, spec }
+			: { state: 'unknown', pipe };
+	}
 	const custom = pipe.materialId === CUSTOM_MATERIAL_ID;
 	if (pipe.innerDiameter == null && !custom && library.libraryStatus !== 'ready') {
 		return { state: 'library', pipe };
 	}
-	const size = custom ? undefined : library.size(pipe.materialId, pipe.schedule, pipe.nominalSize);
+	const size =
+		custom || pipe.materialId == null
+			? undefined
+			: library.size(pipe.materialId, pipe.schedule, pipe.nominalSize);
 	const diameter = resolvedPipe(pipe, size).innerDiameter;
 	return diameter != null && diameter > 0
 		? { state: 'known', diameter, pipe }
 		: { state: 'unknown', pipe };
 }
 
-/** "NPS 4, Sch 40", "NPS 4, Sch 40, inner diameter override" or "a custom pipe". */
+/**
+ * "NPS 4, Sch 40", "NPS 4, Sch 40, inner diameter override", "a custom pipe", or "pipe spec “NPS 60
+ * STD”" (a project library spec).
+ */
 function pipeWords(
 	pipe: PipeDefinition,
-	nominalSizes: readonly { nominalSize: number; nps: string }[]
+	nominalSizes: readonly { nominalSize: number; nps: string }[],
+	spec?: PipeSpec
 ) {
+	if (spec) return `pipe spec ${entryName(spec)}`;
 	if (pipe.materialId === CUSTOM_MATERIAL_ID || pipe.nominalSize == null) return 'a custom pipe';
 	const parts = [npsLabel(pipe.nominalSize, nominalSizes)];
 	if (pipe.schedule) parts.push(`Sch ${pipe.schedule}`);
@@ -136,7 +158,7 @@ export function betaLine(
 		};
 	}
 	return {
-		text: `β = d ÷ D = ${beta.toFixed(4)}, with D = ${d}, the inner diameter of the inlet pipe (${pipeWords(inlet.pipe, nominalSizes)})`,
+		text: `β = d ÷ D = ${beta.toFixed(4)}, with D = ${d}, the inner diameter of the inlet pipe (${pipeWords(inlet.pipe, nominalSizes, inlet.spec)})`,
 		warning: false,
 		beta
 	};

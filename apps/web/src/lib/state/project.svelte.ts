@@ -389,7 +389,11 @@ export function hydraulicFingerprint(project: Project): string {
 			return unnamed;
 		}),
 		connections: project.connections,
-		pumpLibrary: project.pumpLibrary
+		pumpLibrary: project.pumpLibrary,
+		// The project library (CLAUDE.md D22): an entry's edit reaches every element that refers
+		// to it. Absent when empty, so a project without one keeps its fingerprint.
+		pipeLibrary: project.pipeLibrary,
+		resistanceLibrary: project.resistanceLibrary
 	});
 }
 

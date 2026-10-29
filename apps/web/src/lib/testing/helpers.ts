@@ -214,3 +214,92 @@ export function reverseKeys(value: unknown): unknown {
 	}
 	return value;
 }
+
+/**
+ * Reservoir R1 (10 m level) → L1 (two pipes: a pipe of spec PS1, then NPS 4 Sch 40 carbon steel;
+ * an elbow on entry RS2, a custom fitting on entry RS1) → gate valve V1 on entry RS1 → L2 (NPS 4
+ * carbon steel) → reservoir R2 (0 m), with a project library (CLAUDE.md D22) of two pipe specs
+ * (PS1 on carbon steel without a roughness, PS2 a custom pipe) and two resistance entries (RS1 a
+ * Cv, RS2 a K stated at 0.09 m). Made-up test inputs.
+ */
+export function libraryProject(): Project {
+	const port = (id: string) => ({ id, nominalSize: 0.1016, direction: 'bidirectional' }) as const;
+	const project = projectWith(
+		[
+			{
+				id: 'R1',
+				name: 'Upper tank',
+				elevation: 0,
+				type: 'reservoir',
+				liquidLevel: 10,
+				surfacePressure: 0,
+				ports: [port('port_1')]
+			},
+			{
+				id: 'V1',
+				name: 'Gate valve V1',
+				elevation: 0,
+				type: 'valve',
+				valveType: 'gate',
+				status: 'active',
+				resistance: { kind: 'library', id: 'RS1' },
+				ports: [
+					{ id: 'inlet', nominalSize: 0.1016, direction: 'inlet' },
+					{ id: 'outlet', nominalSize: 0.1016, direction: 'outlet' }
+				]
+			},
+			{
+				id: 'R2',
+				name: 'Lower tank',
+				elevation: 0,
+				type: 'reservoir',
+				liquidLevel: 0,
+				surfacePressure: 0,
+				ports: [port('port_1')]
+			}
+		],
+		[link('L1', ['R1', 'port_1'], ['V1', 'inlet']), link('L2', ['V1', 'outlet'], ['R2', 'port_1'])]
+	);
+	const l1 = project.connections[0] as PipeConnection;
+	l1.piping = {
+		pipes: [
+			{ specId: 'PS1', length: 30 },
+			{ materialId: 'carbon_steel', schedule: '40', nominalSize: 0.1016, length: 12 }
+		],
+		fittings: [
+			{ type: 'elbow_90_lr', quantity: 2, pipeIndex: 0, resistanceId: 'RS2' },
+			{ type: 'custom', quantity: 1, pipeIndex: 1, resistanceId: 'RS1' }
+		]
+	};
+	project.pipeLibrary = [
+		{
+			id: 'PS1',
+			name: 'NPS 4 measured',
+			source: 'test input: a bore measured on site',
+			materialId: 'carbon_steel',
+			innerDiameter: 0.1,
+			nominalSize: 0.1016
+		},
+		{
+			id: 'PS2',
+			name: 'Lined 80 mm',
+			source: 'test input',
+			materialId: 'custom',
+			innerDiameter: 0.08,
+			roughness: 1.5e-6,
+			outerDiameter: 0.09
+		}
+	];
+	project.resistanceLibrary = [
+		{ id: 'RS1', name: 'Gate, open', source: 'test input', kind: 'Cv', value: 900 },
+		{
+			id: 'RS2',
+			name: 'Elbow (K)',
+			source: 'test input',
+			kind: 'K',
+			value: 0.3,
+			referenceDiameter: 0.09
+		}
+	];
+	return project;
+}

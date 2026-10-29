@@ -173,15 +173,14 @@ def test_method_1_4_0_adds_the_orifice_plate() -> None:
     """GOALS §4.3, proposal orifice-plate.md decision 22 and §3.9: the orifice plate is method
     1.4.0, after 1.3.0 (deployed), with one changelog line that says projects without orifices
     are unchanged."""
-    assert METHOD_VERSION == "1.4.0"
-    assert [e["version"] for e in METHOD_CHANGELOG] == [
+    assert [e["version"] for e in METHOD_CHANGELOG][:5] == [
         "1.0.0",
         "1.1.0",
         "1.2.0",
         "1.3.0",
         "1.4.0",
     ]
-    entry = METHOD_CHANGELOG[-1]
+    [entry] = [e for e in METHOD_CHANGELOG if e["version"] == "1.4.0"]
     assert entry["date"] == "2026-10-28"
     assert entry["changes"] == [
         "Adds the orifice plate: ISO 5167-2's permanent pressure loss from the bore and the "
@@ -193,6 +192,31 @@ def test_method_1_4_0_adds_the_orifice_plate() -> None:
         "refused. Flows, heads, pressures, statuses, traces, messages and system curves of "
         "projects without orifices are unchanged (corpus comparison)."
     ]
+
+
+def test_method_1_5_0_adds_the_project_library() -> None:
+    """GOALS §4.3, proposal project-library.md §2.4 and the owner's answer Q5: the project library
+    (with its K-at-a-stated-bore conversion) is method 1.5.0, after 1.4.0, with one changelog
+    line that says projects without a project library are unchanged."""
+    assert METHOD_VERSION == "1.5.0"
+    assert [e["version"] for e in METHOD_CHANGELOG] == [
+        "1.0.0",
+        "1.1.0",
+        "1.2.0",
+        "1.3.0",
+        "1.4.0",
+        "1.5.0",
+    ]
+    entry = METHOD_CHANGELOG[-1]
+    assert entry["date"] == "2026-10-28"
+    [line] = entry["changes"]
+    assert line.startswith("Adds the project library: ")
+    assert "K = K₀ (D/d₀)⁴" in line
+    assert "A fitting on a Cv or Kv entry in laminar flow is flagged" in line
+    assert line.endswith(
+        "Flows, heads, pressures, statuses, traces, messages and system curves of projects "
+        "without a project library are unchanged (corpus comparison)."
+    )
 
 
 def test_friction_section_follows_the_method() -> None:

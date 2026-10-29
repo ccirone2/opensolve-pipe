@@ -1,8 +1,9 @@
 """Methods and assumptions of a solve (design §13, GOALS §4.2): ``MethodsSummary``.
 
 One summary per solve, written to be pasted into a deliverable: sections for the network
-solution, friction, minor losses, branches, pumps, valves, equipment and orifice plates (each only
-in a project that has some), fluid properties, atmosphere and NPSH, and conventions; the global
+solution, friction, the project library, minor losses, branches, pumps, valves, equipment and
+orifice plates (the library, equipment and orifice plates each only in a project that has some),
+fluid properties, atmosphere and NPSH, and conventions; the global
 assumptions; and the software versions, with the calculation-method version. Every number in it
 is a constant the solver uses or a value of this solve.
 """
@@ -14,7 +15,8 @@ import scipy
 
 from ... import __version__
 from ...models.components import AssignedFlow
-from ...models.piping import ENTRANCE_TYPES, EXIT_TYPES
+from ...models.piping import CUSTOM_MATERIAL_ID, ENTRANCE_TYPES, EXIT_TYPES
+from ...models.project_library import PipeSpec
 from ...models.results import MethodsSection, MethodsSummary
 from .branches import DARBY_TEE
 from .builder import BuiltNetwork
@@ -34,6 +36,8 @@ from .gga import (
     JACOBIAN_FLOOR_RELATIVE,
     ZERO_FLOW_RTOL,
 )
+from .labels import fitting_name, pipe_name
+from .library import load_pipe_materials
 from .orifice import (
     BETA_RANGE,
     BORE_MIN,
@@ -44,6 +48,13 @@ from .orifice import (
     RE_LO_MIN,
     READER_HARRIS_2019,
     WANDA,
+)
+from .project_library import (
+    K_AT_BORE,
+    LIBRARY_DECISION,
+    entered_text,
+    resistance_label,
+    spec_label,
 )
 from .status import HTOL, K_TOL, MAX_OUTER_ITERATIONS, OFFSET_TOL, QTOL, OuterLoopResult
 from .system_curve import DEFAULT_RANGE_FACTOR
@@ -185,6 +196,108 @@ def equipment_section(built: BuiltNetwork) -> MethodsSection | None:
         "its vendor's own factors.",
     ]
     return MethodsSection(title="Equipment", items=items, references=[ISA_75, DARBY])
+
+
+def _spec_values(spec: PipeSpec, roughness: float | None) -> str:
+    """A pipe spec's values as the solver takes them; ``roughness``: the value a spec without
+    one resolves to (None when no pipe uses it). A spec on a material the pipe materials
+    library does not have (only an unused one reaches a solve: a pipe on it is the topology
+    issue UNKNOWN_PIPE_MATERIAL) is said to be so, and cites no roughness (D8)."""
+    material = load_pipe_materials().get(spec.material_id)
+    named = f"{material.name} ({spec.material_id})" if material is not None else spec.material_id
+    text = f"{named}, inner diameter {spec.inner_diameter:.6g} m"
+    if spec.nominal_size is not None:
+        text += f", nominal size {spec.nominal_size:.6g} m"
+    if spec.outer_diameter is not None:
+        text += f", outer diameter {spec.outer_diameter:.6g} m (display only)"
+    if material is None and spec.material_id != CUSTOM_MATERIAL_ID:
+        unknown = f"unknown pipe material '{spec.material_id}', not in the pipe materials library"
+        consequence = "a pipe on this spec would be the topology issue UNKNOWN_PIPE_MATERIAL"
+        if spec.roughness is not None:
+            return f"{text}, roughness {spec.roughness:.6g} m; {unknown}: {consequence}"
+        return f"{text}, no roughness: {unknown}, which cites none; {consequence}"
+    if spec.roughness is not None:
+        return f"{text}, roughness {spec.roughness:.6g} m"
+    at = f", {roughness:.6g} m" if roughness is not None else ""
+    return (
+        f"{text}, roughness: the material's cited roughness (Farshad & Rieke 2006) at that inner "
+        f"diameter{at}"
+    )
+
+
+def _uses(users: list[str]) -> str:
+    return f"used by {', '.join(users)}"
+
+
+def library_section(built: BuiltNetwork) -> MethodsSection | None:
+    """The "Project library" section (CLAUDE.md D22, proposal project-library.md §4.2), only for
+    a project with a library: every entry with its values, its source and the elements that use
+    it (each with the K it takes), so that a reader sees the whole library a result was solved
+    with, an entry no element uses being said to be not used; and one sentence per conversion
+    used."""
+    project = built.project
+    if project is None or not (project.pipe_library or project.resistance_library):
+        return None
+    pipes: dict[str, list[str]] = {}
+    roughness: dict[str, float] = {}
+    resistances: dict[str, list[str]] = {}
+    for conn_id, data in built.connections.items():
+        for i, pipe in enumerate(data.pipes):
+            if pipe.spec is not None:
+                pipes.setdefault(pipe.spec.id, []).append(f"connection {conn_id} {pipe_name(i)}")
+                roughness[pipe.spec.id] = pipe.roughness
+        for fit in data.fittings:
+            if fit.entry is not None:
+                resistances.setdefault(fit.entry.entry.id, []).append(
+                    f"connection {conn_id} {fitting_name(fit.index)} (K {fit.entry.k:.6g} on "
+                    f"its pipe's {fit.entry.bore:.6g} m bore)"
+                )
+    for valve_id, valve in built.valves.items():
+        use = valve.resistance.entry
+        if use is not None:
+            resistances.setdefault(use.entry.id, []).append(
+                f"valve {valve_id} (K {use.k:.6g} on its inlet pipe's {use.bore:.6g} m bore)"
+            )
+    items = [
+        "Project library: pipe specs and loss coefficients defined once in the project, each "
+        "with its source, and referred to by id from pipe segments, valves and inline fittings. "
+        "Every element that refers to an entry is solved with exactly the values it would have "
+        "with them entered on it: its inputs are user data, and its trace names the entry and "
+        "its source.",
+    ]
+    for spec in project.pipe_library:
+        used = pipes.get(spec.id)
+        where = _uses(used) if used else "not used by any element"
+        items.append(
+            f"{spec_label(spec)[0].upper()}{spec_label(spec)[1:]}: "
+            f"{_spec_values(spec, roughness.get(spec.id))}; {where}. Source: {spec.source}"
+        )
+    kinds: set[str] = set()
+    for entry in project.resistance_library:
+        used = resistances.get(entry.id)
+        if used:
+            kinds.add(entry.kind)
+        where = _uses(used) if used else "not used by any element"
+        label = resistance_label(entry)
+        items.append(
+            f"{label[0].upper()}{label[1:]}: {entered_text(entry)}; {where}. Source: {entry.source}"
+        )
+    if "K" in kinds:
+        items.append(
+            f"{K_AT_BORE}, D being the element's reference bore (a valve's inlet pipe, a "
+            "fitting's pipe pipeIndex); exactly K₀ where D = d₀."
+        )
+    if kinds & {"Cv", "Kv"}:
+        items.append(
+            "A Cv or Kv entry is converted to K on each element's reference bore with "
+            "fluids.fittings.Cv_to_K / Kv_to_K (ISA-75.01.01, turbulent flow, without the "
+            "Reynolds number factor F_R), as one entered on that element; on a valve or a fitting "
+            f"in laminar flow (Re < {RE_LAMINAR_MAX:g} in its reference pipe) it is flagged."
+        )
+    references = [LIBRARY_DECISION]
+    if kinds & {"Cv", "Kv"}:
+        references.append(ISA_75)
+    return MethodsSection(title="Project library", items=items, references=references)
 
 
 ORIFICE_ASSUMPTION = (
@@ -410,6 +523,7 @@ def methods_summary(
         )
     equipment = equipment_section(built)
     orifices = orifice_section(built)
+    library = library_section(built)
     if outer is not None:
         iteration_items.append(
             f"This solve: {outer.inner_iterations} Newton iterations in "
@@ -483,6 +597,7 @@ def methods_summary(
                 ],
                 references=[COLEBROOK, CLAMOND, SWAMEE_JAIN, EPANET],
             ),
+            *([library] if library is not None else []),
             MethodsSection(
                 title="Minor losses",
                 items=[

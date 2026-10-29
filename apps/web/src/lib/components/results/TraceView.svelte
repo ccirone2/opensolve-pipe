@@ -11,7 +11,9 @@
 	scenario, lists the element's values the scenario changed, with their base values, from the
 	server's record (proposal scenario-manager.md §6.11). Use in goal seek, on the Result values
 	heading, opens the goal-seek dialog with a new goal on this element (proposal goal-seek.md
-	§6.2); on narrow screens the trace, a sheet itself, closes first.
+	§6.2); on narrow screens the trace, a sheet itself, closes first. A note or data source that
+	names a project library entry (CLAUDE.md D22: 'project library pipe spec "…" (PS1)') links to
+	it: the library opens with that entry in view (proposal project-library.md §6.4).
 -->
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
@@ -40,6 +42,7 @@
 		type CompareRow
 	} from '$lib/utils/compare';
 	import { changeFieldLabel, changeValueText } from '$lib/utils/scenarios';
+	import { libraryMentions, type LibraryMention } from '$lib/utils/project-library';
 	import CellValue from './CellValue.svelte';
 	import FlagIcon from './FlagIcon.svelte';
 	import ResultsStateNotice from './ResultsStateNotice.svelte';
@@ -110,6 +113,21 @@
 			materialName: (m) => ws.library.material(m)?.name,
 			nominalSizes: ws.library.nominalSizes
 		});
+	/** A server text in pieces: plain text, and the project library entries it names. */
+	function pieces(text: string): { text: string; mention?: LibraryMention }[] {
+		const mentions = libraryMentions(text, ws.store.project);
+		if (!mentions.length) return [{ text }];
+		const parts: { text: string; mention?: LibraryMention }[] = [];
+		let at = 0;
+		for (const mention of mentions) {
+			if (mention.index > at) parts.push({ text: text.slice(at, mention.index) });
+			parts.push({ text: text.slice(mention.index, mention.index + mention.length), mention });
+			at = mention.index + mention.length;
+		}
+		if (at < text.length) parts.push({ text: text.slice(at) });
+		return parts;
+	}
+
 	/** "Liquid level", or for a pipe "Pipe 2 length": a connection may have several pipes. */
 	const changeLabel = (record: (typeof changes)[number]) => {
 		const label = changeFieldLabel(solvedAs, record.override);
@@ -209,6 +227,15 @@
 		}
 	}
 </script>
+
+{#snippet linked(text: string)}
+	{#each pieces(text) as piece, i (i)}{#if piece.mention}{@const m = piece.mention}<button
+				type="button"
+				class="inline text-left break-words text-blue-800 underline underline-offset-2"
+				title="Show it in the project library"
+				onclick={() => ws.openLibrary({ list: m.list, show: m.id })}>{piece.text}</button
+			>{:else}{piece.text}{/if}{/each}
+{/snippet}
 
 {#snippet sectionTitle(text: string, sid: string)}
 	<h3 id="{id}-{sid}" class="section-title">{text}</h3>
@@ -422,7 +449,9 @@
 						{#each trace.dataSources as reference, i (i)}
 							<li>
 								<p class="font-medium">{reference.name}</p>
-								<p class="text-xs break-words text-slate-700">{reference.citation}</p>
+								<p class="text-xs break-words text-slate-700">
+									{@render linked(reference.citation)}
+								</p>
 							</li>
 						{/each}
 					</ul>
@@ -454,7 +483,7 @@
 					{@render sectionTitle('Notes', 'notes')}
 					<ul class="list-disc space-y-1 pl-5">
 						{#each trace.notes as note, i (i)}
-							<li class="break-words">{note}</li>
+							<li class="break-words">{@render linked(note)}</li>
 						{/each}
 					</ul>
 				</section>

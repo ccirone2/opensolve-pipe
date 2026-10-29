@@ -664,14 +664,14 @@
 		{ "sheet": "About", "ref": "C60", "type": "n", "value": 0.125 },
 		{ "sheet": "About", "ref": "A61", "type": "s", "value": "Case: Base case" },
 		{ "sheet": "About", "ref": "B61", "type": "s", "value": "Calculation methods version" },
-		{ "sheet": "About", "ref": "C61", "type": "s", "value": "1.4.0" },
+		{ "sheet": "About", "ref": "C61", "type": "s", "value": "1.5.0" },
 		{ "sheet": "About", "ref": "A62", "type": "s", "value": "Case: Base case" },
 		{ "sheet": "About", "ref": "B62", "type": "s", "value": "Calculation methods changed" },
 		{
 			"sheet": "About",
 			"ref": "C62",
 			"type": "s",
-			"value": "This project was last solved with calculation methods version 1.1.0. These results use version 1.4.0, so some values may differ from the ones it was shared with."
+			"value": "This project was last solved with calculation methods version 1.1.0. These results use version 1.5.0, so some values may differ from the ones it was shared with."
 		},
 		{ "sheet": "About", "ref": "A63", "type": "s", "value": "Case: Base case" },
 		{ "sheet": "About", "ref": "B63", "type": "s", "value": "Server library: CoolProp" },
@@ -822,14 +822,14 @@
 		{ "sheet": "About", "ref": "C98", "type": "n", "value": 0.125 },
 		{ "sheet": "About", "ref": "A99", "type": "s", "value": "Case: Cv valve (S1)" },
 		{ "sheet": "About", "ref": "B99", "type": "s", "value": "Calculation methods version" },
-		{ "sheet": "About", "ref": "C99", "type": "s", "value": "1.4.0" },
+		{ "sheet": "About", "ref": "C99", "type": "s", "value": "1.5.0" },
 		{ "sheet": "About", "ref": "A100", "type": "s", "value": "Case: Cv valve (S1)" },
 		{ "sheet": "About", "ref": "B100", "type": "s", "value": "Calculation methods changed" },
 		{
 			"sheet": "About",
 			"ref": "C100",
 			"type": "s",
-			"value": "This project was last solved with calculation methods version 1.1.0. These results use version 1.4.0, so some values may differ from the ones it was shared with."
+			"value": "This project was last solved with calculation methods version 1.1.0. These results use version 1.5.0, so some values may differ from the ones it was shared with."
 		},
 		{ "sheet": "About", "ref": "A101", "type": "s", "value": "Case: Cv valve (S1)" },
 		{ "sheet": "About", "ref": "B101", "type": "s", "value": "Server library: CoolProp" },
@@ -994,14 +994,14 @@
 		{ "sheet": "About", "ref": "C139", "type": "n", "value": 0.125 },
 		{ "sheet": "About", "ref": "A140", "type": "s", "value": "Case: Supply at AF1 (S2)" },
 		{ "sheet": "About", "ref": "B140", "type": "s", "value": "Calculation methods version" },
-		{ "sheet": "About", "ref": "C140", "type": "s", "value": "1.4.0" },
+		{ "sheet": "About", "ref": "C140", "type": "s", "value": "1.5.0" },
 		{ "sheet": "About", "ref": "A141", "type": "s", "value": "Case: Supply at AF1 (S2)" },
 		{ "sheet": "About", "ref": "B141", "type": "s", "value": "Calculation methods changed" },
 		{
 			"sheet": "About",
 			"ref": "C141",
 			"type": "s",
-			"value": "This project was last solved with calculation methods version 1.1.0. These results use version 1.4.0, so some values may differ from the ones it was shared with."
+			"value": "This project was last solved with calculation methods version 1.1.0. These results use version 1.5.0, so some values may differ from the ones it was shared with."
 		},
 		{ "sheet": "About", "ref": "A142", "type": "s", "value": "Case: Supply at AF1 (S2)" },
 		{ "sheet": "About", "ref": "B142", "type": "s", "value": "Server library: CoolProp" },
@@ -4865,7 +4865,7 @@
 			"sheet": "Methods",
 			"ref": "E7",
 			"type": "s",
-			"value": "OpenSolve Pipe calculation methods version 1.4.0"
+			"value": "OpenSolve Pipe calculation methods version 1.5.0"
 		},
 		{ "sheet": "Methods", "ref": "B8", "type": "s", "value": "Base case" },
 		{ "sheet": "Methods", "ref": "C8", "type": "s", "value": "2026-10-25T12:30:00Z" },
@@ -5963,7 +5963,7 @@
 			"sheet": "Methods",
 			"ref": "E153",
 			"type": "s",
-			"value": "OpenSolve Pipe calculation methods version 1.4.0"
+			"value": "OpenSolve Pipe calculation methods version 1.5.0"
 		},
 		{ "sheet": "Methods", "ref": "A154", "type": "s", "value": "S1" },
 		{ "sheet": "Methods", "ref": "B154", "type": "s", "value": "Cv valve" },
@@ -7293,7 +7293,7 @@
 			"sheet": "Methods",
 			"ref": "E309",
 			"type": "s",
-			"value": "OpenSolve Pipe calculation methods version 1.4.0"
+			"value": "OpenSolve Pipe calculation methods version 1.5.0"
 		},
 		{ "sheet": "Methods", "ref": "A310", "type": "s", "value": "S2" },
 		{ "sheet": "Methods", "ref": "B310", "type": "s", "value": "Supply at AF1" },

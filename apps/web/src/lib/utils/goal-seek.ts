@@ -48,9 +48,17 @@ import {
 	type CompareRow,
 	type Quantity
 } from './compare';
-import { componentById, connectionById } from './graph';
+import { componentById, connectionAtPort, connectionById } from './graph';
 import { markProjectCopy } from './identity';
-import type { InletBore } from './orifice';
+import { pipeAtPort, type InletBore } from './orifice';
+import {
+	entryKAtBore,
+	entryRefText,
+	isResistanceRef,
+	resistanceEntryOf,
+	resolvePipe,
+	type PipeSizeLookup
+} from './project-library';
 import { movedRatioBound, RATIO_BOUND_ANY } from './orifice-bound';
 import { portLabel, PUMP_CONTROL_STATE_LABELS } from './labels';
 import {
@@ -767,11 +775,82 @@ function fieldRank(field: string): number {
 	return rank === -1 ? FIELD_ORDER.length : rank;
 }
 
-/** A valve's own coefficient kind, else K (a valve on its default: §6.5). */
-function coefficientOf(component: Component, field: GoalVariableField): Coefficient {
-	const held = component.type === 'valve' ? component.resistance?.kind : undefined;
+/**
+ * A valve's own coefficient kind, or the kind of the project library entry it refers to (so the
+ * search starts at the entry's value, proposal project-library.md §5.2), else K (a valve on its
+ * default: §6.5).
+ */
+function coefficientOf(
+	project: Project,
+	component: Component,
+	field: GoalVariableField
+): Coefficient {
+	const resistance = component.type === 'valve' ? component.resistance : undefined;
+	const held = isResistanceRef(resistance)
+		? resistanceEntryOf(project, resistance.id)?.kind
+		: resistance?.kind;
 	const kind = held && field.coefficients.includes(held) ? held : 'K';
 	return kind as Coefficient;
+}
+
+/**
+ * The inner diameter of a valve's inlet pipe (its end segment at the inlet, the bore its K is on)
+ * as the server resolves it (project-library.ts resolvePipe): a project library spec's, a custom
+ * pipe's, an inner-diameter override, or a library pipe's from the pipe library `sizes`; null
+ * otherwise (a library pipe before the pipe library loads).
+ */
+function valveInletBore(
+	project: Project,
+	componentId: string,
+	sizes?: PipeSizeLookup
+): number | null {
+	const connection = connectionAtPort(project, componentId, 'inlet');
+	if (!connection) return null;
+	const { pipe } = pipeAtPort(connection, componentId, 'inlet');
+	return pipe ? (resolvePipe(project, pipe, sizes).innerDiameter ?? null) : null;
+}
+
+/** What a resistance variable's start on a project library entry needs beyond the case. */
+export interface EntryStartContext {
+	/**
+	 * The case's last converged solve's fully open K of the valve: for a K entry, the same K₀
+	 * (D/d₀)⁴ where the browser does not know D (`sizes` not loaded), while that solve is current.
+	 */
+	kOpen?: number | null;
+	/**
+	 * That solve is out of date (the store's `results.stale`, conservative): the entry or the
+	 * valve's inlet pipe may have changed since, so a K entry's start never reads `kOpen` then.
+	 */
+	kOpenStale?: boolean;
+	/** The pipe library (a LibraryStore, or a fake in tests): a library inlet pipe's bore. */
+	sizes?: PipeSizeLookup;
+}
+
+/**
+ * The start the API takes for a resistance variable on a valve whose case resistance is a project
+ * library entry (proposal project-library.md §5.2; services/goal_seek._library_start): the entry's
+ * Cv or Kv when it is of the variable's kind; a K entry's K moved to the valve's inlet bore, K₀
+ * (D/d₀)⁴, from the bore as the server resolves it (valveInletBore, with the pipe library), else
+ * the current solve's K (`kOpen`, the same K: that solve's fully open K of the valve; never an
+ * out-of-date one); null otherwise (the API starts at the middle of the bounds), and for a valve
+ * that refers to no entry the project has.
+ */
+export function entryStart(
+	project: Project,
+	variable: Pick<VariableDraft, 'target' | 'field' | 'coefficient'>,
+	context: EntryStartContext = {}
+): number | null {
+	const component = componentOf(project, variable.target);
+	if (variable.field !== 'resistance' || component?.type !== 'valve') return null;
+	const resistance = valueOf(project, variable.target, 'resistance');
+	if (!isResistanceRef(resistance)) return null;
+	const entry = resistanceEntryOf(project, resistance.id);
+	if (!entry || entry.kind !== (variable.coefficient ?? 'K')) return null;
+	if (entry.kind !== 'K') return entry.value;
+	const k = entryKAtBore(entry, valveInletBore(project, component.id, context.sizes));
+	if (k !== null) return k;
+	const { kOpen, kOpenStale } = context;
+	return !kOpenStale && typeof kOpen === 'number' && kOpen > 0 ? kOpen : null;
 }
 
 /**
@@ -800,7 +879,7 @@ export function variableChoices(project: Project): VariableChoice[] {
 				group,
 				target,
 				field,
-				...(field === 'resistance' ? { coefficient: coefficientOf(component, entry) } : {})
+				...(field === 'resistance' ? { coefficient: coefficientOf(project, component, entry) } : {})
 			});
 			byGroup.set(group, list);
 		}
@@ -825,13 +904,22 @@ export function variableChoices(project: Project): VariableChoice[] {
 	return choices;
 }
 
-/** The case's value of a variable (SI number), or null (none: a resistance on its default). */
+/**
+ * The case's value of a variable (SI number), or null (none: a resistance on its default, or of
+ * another kind). A resistance taken from a project library entry is the entry's start (entryStart,
+ * with `context`: the pipe library, and the current solve's K for a K entry where the browser does
+ * not know the bore).
+ */
 export function variableValue(
 	project: Project,
-	variable: Pick<VariableDraft, 'target' | 'field' | 'coefficient'>
+	variable: Pick<VariableDraft, 'target' | 'field' | 'coefficient'>,
+	context: EntryStartContext = {}
 ): number | null {
 	const value = valueOf(project, variable.target, variable.field);
 	if (typeof value === 'number') return value;
+	if (variable.field === 'resistance' && isResistanceRef(value)) {
+		return entryStart(project, variable, context);
+	}
 	if (variable.field === 'resistance' && value && typeof value === 'object') {
 		const held = value as { kind?: unknown; value?: unknown };
 		return held.kind === variable.coefficient && typeof held.value === 'number' ? held.value : null;
@@ -850,12 +938,15 @@ export function valueAndWholes(field: string): string[] {
 }
 
 /**
- * What "Now" needs beyond the case: the display units, the last solve's K, the last solve's
- * result of an orifice plate, the scenario shown.
+ * What "Now" needs beyond the case: the display units, the last solve's K and the pipe library
+ * (EntryStartContext), the last solve's result of an orifice plate, the scenario shown.
  */
-export interface NowContext {
+export interface NowContext extends EntryStartContext {
 	prefs: UnitPreferences;
-	/** The case's last converged solve's fully open K of the valve (a resistance on its default). */
+	/**
+	 * The case's last converged solve's fully open K of the valve (a resistance on its default; a
+	 * K entry's start where the browser does not know the bore, while that solve is current).
+	 */
 	kOpen?: number | null;
 	/**
 	 * The orifice plate's result in the case's last converged solve, if it is not out of date
@@ -916,10 +1007,24 @@ const CONTROL_VALVES = new Set(['prv', 'psv', 'fcv']);
 export function nowText(project: Project, variable: VariableDraft, context: NowContext): string {
 	const component = componentOf(project, variable.target);
 	const held = valueOf(project, variable.target, variable.field);
-	const value = variableValue(project, variable);
+	const value = variableValue(project, variable, context);
 	let text: string;
 	let start = '';
-	if (variable.field === 'dischargeCoefficient' && value === null) {
+	if (variable.field === 'resistance' && isResistanceRef(held)) {
+		// A project library entry (proposal project-library.md §5.2): the search starts at its value
+		// when it is of the variable's kind, and a value found is the valve's own coefficient.
+		const coefficient = variable.coefficient ?? 'K';
+		const entry = resistanceEntryOf(project, held.id);
+		text = entryRefText(project, held.id, context.prefs);
+		if (value !== null && entry?.kind === 'K') {
+			start = `; the search starts at its K on this valve's inlet pipe, ${formatValue(value, 'dimensionless', context.prefs, 6)}`;
+		} else if (value === null && entry?.kind === coefficient) {
+			start = "; the search starts at its K on this valve's inlet pipe (solve to see it)";
+		} else if (value === null) {
+			start = `; the search starts at the middle of the bounds (it varies ${coefficient})`;
+		}
+		start += `; a value found is the valve's own ${coefficient}, in place of the entry`;
+	} else if (variable.field === 'dischargeCoefficient' && value === null) {
 		// No entered C: ISO 5167-2's, the default (decision 21's start rule, as a resistance's).
 		// The C at the plate's taps, or at D and D/2 tappings for a plate without taps (decision 13).
 		const c = orificeTapCoefficient(context.orifice);
@@ -1065,11 +1170,14 @@ function clip(value: number, bounds: Bounds): number {
 }
 
 /**
- * What the default bounds need beyond the case: the last solve's K, an orifice plate's pipe bore
- * and last result, and the fluid's ranges.
+ * What the default bounds need beyond the case: the last solve's K and the pipe library
+ * (EntryStartContext), an orifice plate's pipe bore and last result, and the fluid's ranges.
  */
-export interface DefaultBoundsContext {
-	/** The case's last converged solve's fully open K of the valve (a resistance on its default). */
+export interface DefaultBoundsContext extends EntryStartContext {
+	/**
+	 * The case's last converged solve's fully open K of the valve (a resistance on its default; a
+	 * K entry's start where the browser does not know the bore, while that solve is current).
+	 */
 	kOpen?: number | null;
 	/**
 	 * An orifice plate's D, its inlet pipe's inner diameter (orificePipeDiameter: as the case is
@@ -1174,7 +1282,7 @@ export function defaultBounds(
 	variable: Pick<VariableDraft, 'target' | 'field' | 'coefficient'>,
 	context: DefaultBoundsContext = {}
 ): { lower: number; upper: number } {
-	const now = variableValue(project, variable);
+	const now = variableValue(project, variable, context);
 	const component = componentOf(project, variable.target);
 	let lower: number;
 	let upper: number;
@@ -1231,7 +1339,10 @@ export function defaultBounds(
 			break;
 		}
 		case 'resistance': {
-			const kOpen = context.kOpen;
+			// On a project library entry, an out-of-date solve's K may be another entry's or bore's
+			// (EntryStartContext): only a current one centres the box.
+			const onEntry = isResistanceRef(valueOf(project, variable.target, 'resistance'));
+			const kOpen = onEntry && context.kOpenStale ? null : context.kOpen;
 			const v = now ?? (kOpen && kOpen > 0 ? kOpen : 1);
 			[lower, upper] = [v / 100, 100 * v];
 			break;

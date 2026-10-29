@@ -733,7 +733,7 @@ The owner chose the recommended answer to every question of §13 (status line). 
   - **Methods' references:** Ford and Fulkerson (1962), Datacor (Keiser 2021) and the KSB Lexicon, not §5.5's Datacor, Bentley and UFC 3-240-04A (UFC 3-240-04A was read only through a mirror, §12).
   - **Floating ports** (found by the corpus check, fixed): a duty whose S or D alone lies in a section no reservoir or reference node reaches gave an arbitrary rise (6 corpus groups); it now has no duty and says why. A station whole in one floating section keeps its exact rise on the solver's arbitrary level.
   - **Response fields added to §5.1:** `converged` and `message` (the case's solve), `duty.inletEgl`, each point's `isDuty`, and each member point's `controlState` and `speed`.
-  - **`METHOD_VERSION` is left as it is** (1.3.0 when built; 1.4.0 since the orifice plate, D20, merged first), `schemaVersion` 1.
+  - **`METHOD_VERSION` is left as it is** (1.3.0 when built; 1.4.0 since the orifice plate, D20, merged first; 1.5.0 since the project library, D22), `schemaVersion` 1.
 - **Web**
   - **Caption** "Pump PA and Pump PB in parallel", from the pumps' names (which already say "Pump"); the image's title "Pumps together: Pump PA, Pump PB (parallel)[, case]".
   - **Legend** on screen is a list under the canvas (Chart.js's legend took half of the 16 rem plot on a phone); the image keeps Chart.js's, whose dashed lines draw solid, so their labels say "(dashed)".

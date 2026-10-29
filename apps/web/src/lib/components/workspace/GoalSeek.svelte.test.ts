@@ -14,6 +14,7 @@ import { NetworkError, NotFoundError, TopologyError, ValidationError } from '$li
 import type { Component, GoalSeekResponse, Override, Project } from '$lib/api/types';
 import type { Solver } from '$lib/state/project.svelte';
 import { flag, goalSeekResponse, pumpTransferSolved, response } from '$lib/testing/results';
+import { libraryProject } from '$lib/testing/helpers';
 import { TEST_LIBRARY } from '$lib/testing/library';
 import { testWorkspace, type TestWorkspaceOptions } from '$lib/testing/workspace';
 import { reversePiping, updateComponent } from '$lib/utils/edit';
@@ -155,6 +156,30 @@ describe('setting up a goal seek', () => {
 		await fireEvent.click(within(card).getByRole('button', { name: /^Remove goal/ }));
 		await waitFor(() => expect(d.getByRole('button', { name: 'Add goal' })).toHaveFocus());
 		expect(d.getByRole('heading', { name: 'Results to reach (0)' })).toBeInTheDocument();
+	});
+
+	it("starts a K entry's resistance on its valve's library inlet pipe, as the server does", async () => {
+		// V1 on the K entry RS2 (K 0.3 at 0.09 m); its inlet pipe is carbon steel NPS 4 Sch 40,
+		// whose bore (0.10226 m) only the pipe library gives: no solve is needed for the start.
+		const project = libraryProject();
+		const valve = project.components.find((c) => c.id === 'V1')!;
+		if (valve.type === 'valve') valve.resistance = { kind: 'library', id: 'RS2' };
+		const { ws } = mount(project, false, { getLibrary: () => Promise.resolve(TEST_LIBRARY) });
+		await waitFor(() => expect(ws.library.material('carbon_steel')?.name).toBe('Carbon steel'));
+		const d = await open();
+		await fireEvent.click(d.getByRole('button', { name: 'Add variable' }));
+		const vform = d.getByRole('group', { name: 'New variable' });
+		const target = within(vform).getByRole('combobox', { name: 'Element' });
+		const option = within(target).getByRole('option', { name: 'Gate valve V1' });
+		await fireEvent.change(target, { target: { value: (option as HTMLOptionElement).value } });
+		await fireEvent.click(within(vform).getByRole('radio', { name: /\bK\b/ }));
+		await fireEvent.click(within(vform).getByRole('button', { name: 'Add variable' }));
+		const card = d.getByRole('group', { name: /Gate valve V1/ });
+		expect(
+			within(card).getByText(/the search starts at its K on this valve's inlet pipe, 0\.500005;/)
+		).toBeInTheDocument();
+		const k = 0.3 * (0.10226 / 0.09) ** 4;
+		expect(ws.goalSeekSetup.variables[0]).toMatchObject({ lower: k / 100, upper: 100 * k });
 	});
 
 	it("opens on a trace's element, with the New goal form and the focus on its results", async () => {

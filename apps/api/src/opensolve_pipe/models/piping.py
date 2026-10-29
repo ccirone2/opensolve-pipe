@@ -1,8 +1,9 @@
 """Pipe connections: the edges of the port graph, with their pipes and inline fittings."""
 
+from dataclasses import dataclass
 from typing import Literal, Self
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 from pydantic.config import JsonDict
 
@@ -58,6 +59,67 @@ REQUIRED_PARAMETERS: dict[str, tuple[str, ...]] = {
     "custom": ("k_override",),
 }
 
+
+@dataclass(frozen=True)
+class ReferenceField:
+    """A field that refers to an entry of the project library (CLAUDE.md D22), and the inline
+    fields the entry stands in for (published as ``x-reference-fields``)."""
+
+    replaces: tuple[str, ...]
+    """snake_case fields the entry gives: none of them may be given beside the reference, and
+    the reference meets any rule that requires one of them (x-required-parameters)."""
+    required_without: tuple[str, ...] = ()
+    """snake_case fields required when the reference is absent."""
+
+
+SPEC_FIELDS = ("material_id", "schedule", "nominal_size", "inner_diameter", "roughness")
+"""The fields of a pipe that a project-library pipe spec (specId) gives it: with a spec, only the
+length sits beside it (proposal project-library.md §2.1)."""
+
+PIPE_REFERENCES: dict[str, ReferenceField] = {
+    "spec_id": ReferenceField(replaces=SPEC_FIELDS, required_without=("material_id",)),
+}
+"""A pipe's reference to a pipe spec (pipeLibrary)."""
+
+FITTING_REFERENCES: dict[str, ReferenceField] = {
+    "resistance_id": ReferenceField(replaces=("k_override",)),
+}
+"""A fitting's reference to a resistance entry (resistanceLibrary), in place of its K."""
+
+
+def _published_references(references: dict[str, ReferenceField]) -> JsonDict:
+    return {
+        to_camel(name): {
+            "replaces": [to_camel(f) for f in ref.replaces],
+            "requiredWithout": [to_camel(f) for f in ref.required_without],
+        }
+        for name, ref in references.items()
+    }
+
+
+def _reference_problems(model: BaseModel, references: dict[str, ReferenceField]) -> list[str]:
+    """What ``model`` breaks of its references' rules (``x-reference-fields``), naming fields
+    only (never a submitted value)."""
+    fields = type(model).model_fields
+    problems: list[str] = []
+    for name, ref in references.items():
+        reference = fields[name].alias or name
+        if getattr(model, name) is not None:
+            given = [fields[f].alias or f for f in ref.replaces if getattr(model, f) is not None]
+            if given:
+                problems.append(
+                    f"{', '.join(given)} cannot be given with {reference}: the project library "
+                    "entry gives them"
+                )
+        else:
+            missing = [
+                fields[f].alias or f for f in ref.required_without if getattr(model, f) is None
+            ]
+            if missing:
+                problems.append(f"{', '.join(missing)} is required without {reference}")
+    return problems
+
+
 FITTING_SCHEMA_EXTRA: JsonDict = {
     # The rules the validators below enforce, published as OpenAPI extensions so clients read
     # them instead of copying them (the frontend's utils/model-rules.ts).
@@ -67,16 +129,45 @@ FITTING_SCHEMA_EXTRA: JsonDict = {
     "x-reducer-types": list(REDUCER_TYPES),
     "x-entrance-types": list(ENTRANCE_TYPES),
     "x-exit-types": list(EXIT_TYPES),
+    # {reference: {replaces, requiredWithout}}: with the reference given, none of the fields it
+    # replaces may be, and it meets x-required-parameters' need for them; without it,
+    # requiredWithout are required (CLAUDE.md D22).
+    "x-reference-fields": _published_references(FITTING_REFERENCES),
+}
+
+PIPE_SCHEMA_EXTRA: JsonDict = {
+    # As on Fitting: a pipe refers to a pipe spec (specId) or states its own; never both.
+    "x-reference-fields": _published_references(PIPE_REFERENCES),
 }
 
 
 class PipeDefinition(CamelModel):
-    """One pipe segment. Segments in a connection are in series, ordered from -> to."""
+    """One pipe segment. Segments in a connection are in series, ordered from -> to. Its size
+    comes from the materials library (materialId, schedule, nominalSize, with optional bore and
+    roughness overrides), from its own values (materialId 'custom'), or from a pipe spec of the
+    project library (specId, with nothing but the length beside it)."""
 
-    material_id: str = Field(
+    model_config = ConfigDict(json_schema_extra=PIPE_SCHEMA_EXTRA)
+
+    spec_id: Identifier | None = Field(
+        default=None,
+        # Left out of every dump when absent, so a pipe without one serializes as before.
+        exclude_if=lambda spec_id: spec_id is None,
+        description=(
+            "Id of a pipe spec in the project's pipeLibrary: the pipe takes its material, inner "
+            "diameter and roughness, and materialId, schedule, nominalSize, innerDiameter and "
+            "roughness are absent (x-reference-fields). One the project does not have is a "
+            "topology issue when solving"
+        ),
+    )
+    material_id: str | None = Field(
+        default=None,
         min_length=1,
         max_length=64,
-        description="Key into the pipe materials library, or 'custom' with innerDiameter set",
+        description=(
+            "Key into the pipe materials library, or 'custom' with innerDiameter set. Required "
+            "unless specId is given; absent with it"
+        ),
     )
     schedule: str | None = Field(
         default=None,
@@ -105,6 +196,11 @@ class PipeDefinition(CamelModel):
 
     @model_validator(mode="after")
     def _check_size_source(self) -> Self:
+        problems = _reference_problems(self, PIPE_REFERENCES)
+        if problems:
+            raise ValueError("; ".join(problems))
+        if self.spec_id is not None:
+            return self
         if self.material_id == CUSTOM_MATERIAL_ID:
             if self.inner_diameter is None or self.roughness is None:
                 raise ValueError("a custom pipe needs innerDiameter and roughness")
@@ -133,7 +229,21 @@ class Fitting(CamelModel):
         default=None,
         ge=0,
         le=1.0e4,
-        description="User-specified K (referenced to pipe pipeIndex); required for 'custom'",
+        description=(
+            "User-specified K (referenced to pipe pipeIndex); required for 'custom' unless "
+            "resistanceId is given, and absent with it"
+        ),
+    )
+    resistance_id: Identifier | None = Field(
+        default=None,
+        # Left out of every dump when absent, so a fitting without one serializes as before.
+        exclude_if=lambda resistance_id: resistance_id is None,
+        description=(
+            "Id of an entry of the project's resistanceLibrary, in place of kOverride (never "
+            "both): its K, Cv or Kv on pipe pipeIndex, which meets a custom fitting's need for "
+            "kOverride (x-reference-fields). One the project does not have is a topology issue "
+            "when solving"
+        ),
     )
     angle: float | None = Field(
         default=None,
@@ -151,10 +261,30 @@ class Fitting(CamelModel):
 
     @model_validator(mode="after")
     def _check_parameters(self) -> Self:
-        missing = [f for f in REQUIRED_PARAMETERS.get(self.type, ()) if getattr(self, f) is None]
+        problems = _reference_problems(self, FITTING_REFERENCES)
+        if problems:
+            raise ValueError("; ".join(problems))
+        given = {
+            f
+            for name, ref in FITTING_REFERENCES.items()
+            if getattr(self, name) is not None
+            for f in ref.replaces
+        }
+        missing = [
+            f
+            for f in REQUIRED_PARAMETERS.get(self.type, ())
+            if getattr(self, f) is None and f not in given
+        ]
         if missing:
-            names = ", ".join(type(self).model_fields[f].alias or f for f in missing)
-            raise ValueError(f"a {self.type} fitting needs {names}")
+            fields = type(self).model_fields
+            names = ", ".join(fields[f].alias or f for f in missing)
+            instead = [
+                fields[name].alias or name
+                for name, ref in FITTING_REFERENCES.items()
+                if set(missing) & set(ref.replaces)
+            ]
+            alternative = f" (or {', '.join(instead)}, a project library entry)" if instead else ""
+            raise ValueError(f"a {self.type} fitting needs {names}{alternative}")
         return self
 
 

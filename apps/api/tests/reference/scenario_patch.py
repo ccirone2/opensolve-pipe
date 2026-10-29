@@ -8,8 +8,9 @@ is a list of overrides of base values, each naming a target and a field:
 - ``{"kind": "component", "componentId", "field", "value"}``: a field the allow-list names for the
   component's type (``COMPONENT_FIELDS``);
 - ``{"kind": "pipe", "connectionId", "pipeIndex", "field", "value"}``: one pipe's ``spec`` (its
-  material, schedule, nominal size and bore and roughness overrides, replaced together) or its
-  ``length``, with ``pipeIndex`` 0-based;
+  material, schedule, nominal size and bore and roughness overrides, or a pipe spec of the
+  project library, ``specId``, CLAUDE.md D22: replaced together) or its ``length``, with
+  ``pipeIndex`` 0-based;
 - ``{"kind": "project", "field", "value"}``: the whole ``fluid``, or a built-in fluid's
   ``fluid.temperature``.
 
@@ -25,7 +26,7 @@ default); its taps are installation and not overridable.
 
 ``by_hand`` edits the project's JSON the way a user would edit it by hand. It finds each target
 with the model types (``opensolve_pipe.models``) and writes the raw value in place: a ``spec``
-first removes the pipe's five spec keys. Then it drops ``scenarios``. An override whose target is
+first removes the pipe's six spec keys. Then it drops ``scenarios``. An override whose target is
 gone is orphaned, and one whose target has no such value is not applicable; both are left out
 (proposal decision 4). ``expected_records`` derives what the API must report for each override
 (§3.2): its state, the value used (read back from the hand-edited project as validated), the base
@@ -115,8 +116,10 @@ COMPONENT_FIELD_NAMES = (
     "dischargeCoefficient",
 )
 """Every field a component override may name. A field its target's type lacks is not applicable."""
-SPEC_KEYS = ("materialId", "schedule", "nominalSize", "innerDiameter", "roughness")
-"""The keys a pipe's ``spec`` replaces together (proposal decision 10)."""
+SPEC_KEYS = ("materialId", "schedule", "nominalSize", "innerDiameter", "roughness", "specId")
+"""The keys a pipe's ``spec`` replaces together (proposal decision 10): its five values, or a
+pipe spec of the project library (docs/proposals/project-library.md §5.1, CLAUDE.md D22), so a
+spec change moves a pipe to, from or between library specs."""
 
 Where = tuple[Any, ...]
 """Where an applied override's value sits: ('component', index, field),

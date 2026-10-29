@@ -2,6 +2,9 @@
 	A labelled <select> that reports the chosen value. In a scenario (field-mode.ts) it is locked
 	unless it is a scenario value (`change`) or `shared`: then it is drawn as a read-only text
 	input showing the chosen option's label (still focusable, "Same in every scenario").
+
+	It always shows `value`: a choice its owner does not store (an edit refused, or an option that
+	starts an action, such as "New entry…") goes back to the value once the owner has answered.
 -->
 <script lang="ts" module>
 	export interface SelectOption<V extends string> {
@@ -14,6 +17,7 @@
 </script>
 
 <script lang="ts" generics="T extends string">
+	import { tick } from 'svelte';
 	import ChangeNote from './ChangeNote.svelte';
 	import { isLocked, useFieldMode, type FieldChange } from './field-mode';
 	import Icon from './Icon.svelte';
@@ -54,6 +58,14 @@
 
 	const id = $props.id();
 	const mode = useFieldMode();
+	let select: HTMLSelectElement | undefined = $state();
+
+	/** Report a choice; then show the value the owner holds (it may not have taken the choice). */
+	async function choose(chosen: T) {
+		onchange(chosen);
+		await tick();
+		if (select && select.value !== value) select.value = value;
+	}
 	const locked = $derived(isLocked(mode, change, shared));
 	const changed = $derived(!!change?.inScenario && change.changed);
 	const noted = $derived(
@@ -98,12 +110,13 @@
 		</div>
 	{:else}
 		<select
+			bind:this={select}
 			{id}
 			class={['input pr-8', changed && 'border-2 border-teal-600']}
 			{disabled}
 			{value}
 			aria-describedby={described}
-			onchange={(event) => onchange(event.currentTarget.value as T)}
+			onchange={(event) => void choose(event.currentTarget.value as T)}
 		>
 			{#each groups as group, g (g)}
 				{#if group.group}

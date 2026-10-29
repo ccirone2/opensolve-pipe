@@ -4,7 +4,8 @@
 import { describe, expect, it } from 'vitest';
 import { testWorkspace } from '../testing/workspace';
 import { insertComponentInConnection } from '../utils/edit';
-import { closedLoopExample, gravityBranchExample, pumpTransferExample } from '../utils/examples';
+import { closedLoopProject } from '../testing/closed-loop';
+import { gravityBranchExample, pumpTransferExample } from '../utils/examples';
 import { createComponent, createEmptyProject } from '../utils/factory';
 import {
 	arrivalPortId,
@@ -77,7 +78,7 @@ describe('NavigatorStore', () => {
 	});
 
 	it('jumps back along the path for a loop option', () => {
-		const { nav } = testWorkspace(closedLoopExample());
+		const { nav } = testWorkspace(closedLoopProject());
 		nav.setPath([
 			{ componentId: 'N1' },
 			{ componentId: 'T1', viaConnectionId: 'L1' },

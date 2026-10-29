@@ -10,7 +10,9 @@ import random
 from pathlib import Path
 from typing import Any
 
-SPEC_KEYS = ("materialId", "schedule", "nominalSize", "innerDiameter", "roughness")
+SPEC_KEYS = ("materialId", "schedule", "nominalSize", "innerDiameter", "roughness", "specId")
+"""A pipe's spec: its five values, or a project library pipe spec (CLAUDE.md D22), replaced
+together."""
 
 _ISOLATION = {"status", "resistance"}
 FIELDS = {
@@ -143,7 +145,10 @@ def _other_status(rng: random.Random, component: dict[str, Any]) -> str:
 
 
 def _spec(rng: random.Random, pipe: dict[str, Any]) -> dict[str, Any]:
-    """A neighbouring library size in the same schedule, or a custom bore 0.8-1.25 times."""
+    """A neighbouring library size in the same schedule, or a custom bore 0.8-1.25 times; a pipe
+    of a project library spec keeps it."""
+    if pipe.get("specId") is not None:
+        return {"specId": pipe["specId"]}
     if pipe["materialId"] == "custom":
         bore = pipe["innerDiameter"] * rng.uniform(0.8, 1.25)
         return {"materialId": "custom", "innerDiameter": bore, "roughness": pipe["roughness"]}

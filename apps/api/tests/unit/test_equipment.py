@@ -25,6 +25,7 @@ from opensolve_pipe.models.results import Flag, SolvedState
 from opensolve_pipe.services.fluids import fluid_properties
 from opensolve_pipe.services.solver import solve_project, status, system_curve
 from opensolve_pipe.services.solver.builder import build_network
+from opensolve_pipe.services.solver.coefficients import k_from_coefficient
 from opensolve_pipe.services.solver.elements import PipeSegment, QuadraticLossLaw, segment_state
 from opensolve_pipe.services.solver.equipment import COEFFICIENT_SOURCE, equipment_law
 from opensolve_pipe.services.solver.errors import TopologyError
@@ -36,7 +37,6 @@ from opensolve_pipe.services.solver.methods import (
 )
 from opensolve_pipe.services.solver.network import LinkKind
 from opensolve_pipe.services.solver.status import Status
-from opensolve_pipe.services.solver.valves import k_from_coefficient
 
 from .helpers import connection, custom_fluid, make_project, plug, project_dict, reservoir, tee
 
@@ -802,7 +802,7 @@ def test_the_api_solves_equipment_and_reports_a_rating_it_cannot_represent() -> 
         "rating",
     }
     assert state["equipmentResults"]["E1"]["rating"] == POINT
-    assert state["methodVersion"] == "1.4.0"
+    assert state["methodVersion"] == "1.5.0"
     plain = client.post(
         "/api/v1/solve", json={"project": line_dict(gate("V1", {"kind": "K", "value": 1.0}))}
     )

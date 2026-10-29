@@ -5,8 +5,9 @@ from typing import Annotated, Any, ClassVar, Literal, Self
 from pydantic import ConfigDict, Discriminator, Field, Tag, model_validator
 from pydantic.config import JsonDict
 
-from .base import CamelModel, Elevation, GaugePressure, Identifier, Name
+from .base import FLOW_COEFFICIENT_MAX, CamelModel, Elevation, GaugePressure, Identifier, Name
 from .ports import Port
+from .project_library import ResistanceRef
 
 PortRole = Literal["inlet", "outlet"]
 """A port's role in its component's forward flow direction (see BaseComponent.PORT_ROLES)."""
@@ -17,10 +18,6 @@ FCV_SETPOINT_RANGE = (0.0, 100.0)
 ASSIGNED_FLOW_RANGE = (-FCV_SETPOINT_RANGE[1], FCV_SETPOINT_RANGE[1])
 """Bounds of an assigned flow, m³/s: the flow bound of an FCV or a speed-controlled pump's
 setpoint (CLAUDE.md D11), in either direction (TSD §4.8)."""
-
-FLOW_COEFFICIENT_MAX = 1.0e7
-"""Upper bound of a flow coefficient as entered (K, Cv or Kv): a valve's resistance and an
-equipment item's Cv or Kv rating (proposal equipment-pressure-drop.md decision 3)."""
 
 
 def _component_schema_extra(schema: JsonDict, cls: type[Any]) -> None:
@@ -67,6 +64,32 @@ class FlowCoefficient(CamelModel):
 
     kind: Literal["K", "Cv", "Kv"]
     value: float = Field(gt=0, le=FLOW_COEFFICIENT_MAX)
+
+
+def _resistance_tag(value: object) -> str | None:
+    kind = value.get("kind") if isinstance(value, dict) else getattr(value, "kind", None)
+    return "coefficient" if kind in ("K", "Cv", "Kv") else "library" if kind == "library" else None
+
+
+ValveResistance = Annotated[
+    Annotated[FlowCoefficient, Tag("coefficient")] | Annotated[ResistanceRef, Tag("library")],
+    Discriminator(
+        # A callable discriminator, as the equipment rating's, so that an unknown kind gets the
+        # custom error below: pydantic's own message quotes the submitted tag, and errors never
+        # echo input (SDD §5.1.2).
+        _resistance_tag,
+        custom_error_type="invalid_resistance",
+        custom_error_message="unknown resistance kind (expected 'K', 'Cv', 'Kv' or 'library')",
+    ),
+]
+"""A valve's resistance: a coefficient as entered, or a reference to an entry of the project's
+resistanceLibrary (CLAUDE.md D22), told apart by ``kind``."""
+
+
+RESISTANCE_DESCRIPTION = (
+    "K, Cv or Kv as entered ({kind, value}), or {kind: 'library', id}: an entry of the "
+    "project's resistanceLibrary, its K moved to the inlet pipe's bore, its Cv or Kv as entered"
+)
 
 
 class BaseComponent(CamelModel):
@@ -281,7 +304,7 @@ class IsolationValve(_TwoPortValve):
 
     valve_type: Literal["gate", "ball", "butterfly", "globe"]
     status: Literal["active", "isolated"] = "active"
-    resistance: FlowCoefficient | None = None
+    resistance: ValveResistance | None = Field(default=None, description=RESISTANCE_DESCRIPTION)
 
 
 class CheckValve(_TwoPortValve):
@@ -289,7 +312,7 @@ class CheckValve(_TwoPortValve):
 
     valve_type: Literal["check", "stop_check"]
     status: Literal["active", "locked_open", "locked_closed"] = "active"
-    resistance: FlowCoefficient | None = None
+    resistance: ValveResistance | None = Field(default=None, description=RESISTANCE_DESCRIPTION)
     cracking_pressure: float = Field(
         default=0.0, ge=0, le=1.0e7, description="Pressure difference that opens the valve, Pa"
     )
@@ -310,7 +333,7 @@ class ControlValve(_TwoPortValve):
     valve_type: Literal["prv", "psv", "fcv"]
     status: Literal["active", "failed_open", "failed_closed"] = "active"
     setpoint: float = Field(ge=-1.0e5, le=1.0e8)
-    resistance: FlowCoefficient | None = None
+    resistance: ValveResistance | None = Field(default=None, description=RESISTANCE_DESCRIPTION)
 
     @model_validator(mode="after")
     def _check_setpoint(self) -> Self:

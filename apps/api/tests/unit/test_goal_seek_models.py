@@ -114,14 +114,18 @@ def _is_number(prop: dict[str, Any]) -> bool:
 
 
 def _refs(prop: dict[str, Any]) -> set[str]:
+    """The schemas a property refers to, the members of a union (oneOf) included."""
     options = prop.get("anyOf", [prop])
-    return {o["$ref"].rsplit("/", 1)[1] for o in options if "$ref" in o}
+    members = [m for o in options for m in o.get("oneOf", [o])]
+    return {m["$ref"].rsplit("/", 1)[1] for m in members if "$ref" in m}
 
 
 def test_every_allow_list_value_is_a_variable_or_says_why_not() -> None:
     """From the published schema, not the derivation: a value whose property is a number, or a
-    FlowCoefficient, is a variable; every other one is in NOT_VARIABLES. A new numeric value in
-    the allow-list fails here until the variable tables (and their Literals) name it."""
+    FlowCoefficient (alone, or with a reference to a project library entry, which holds no
+    number: a valve's resistance, CLAUDE.md D22), is a variable; every other one is in
+    NOT_VARIABLES. A new numeric value in the allow-list fails here until the variable tables
+    (and their Literals) name it."""
     tables = _tables()
     published = SCHEMAS["Scenario"]["x-override-fields"]
     for target, fields in _allow_list().items():
@@ -129,7 +133,8 @@ def test_every_allow_list_value_is_a_variable_or_says_why_not() -> None:
             where = published[target][name]
             numeric = "path" in where and (
                 _is_number(_property(where["schema"], where["path"]))
-                or _refs(_property(where["schema"], where["path"])) == {"FlowCoefficient"}
+                or _refs(_property(where["schema"], where["path"]))
+                in ({"FlowCoefficient"}, {"FlowCoefficient", "ResistanceRef"})
             )
             if numeric:
                 assert name in tables[target], (target, name)

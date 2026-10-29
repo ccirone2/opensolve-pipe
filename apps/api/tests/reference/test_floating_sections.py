@@ -30,6 +30,11 @@ code. With Σh the pipe losses around the loop at flow Q:
   loop", CF12): Q = Q_set around the loop, H = Σh(Q_set), and for the straight curve
   H₀ = a − b x the speed s* = [b Q + √(b² Q² + 4 a H)]/(2a) (the root of s² H₀(Q/s) = H)
 
+- a pump loop whose only fixed head is a relief valve's open discharge (docs/proposals/
+  pressure-relief-valve.md §3.4, §7.1 C16): the valve starts closed (decision 11) and stays
+  closed, the loop floats, H(Q) = Σh(Q); the valve has no result and RELIEF_VALVE_CLOSED (info)
+  says its inlet side floats (decisions 15, 16)
+
 These are not case files: the case format and its self-checks expect an EGL at every port
 outside a closed-off section (test_derivation_checks), and a floating section has none.
 Flows are checked to 1e-6 relative (both sides solve the same equations; D6 is far looser).
@@ -68,6 +73,7 @@ from tests.reference.derivations_pump_control import (
     require_unique_speed,
     speed_linear,
 )
+from tests.reference.derivations_pumps import curve_a
 from tests.reference.free_levels import free_level_problems
 from tests.reference.line import Line
 
@@ -505,3 +511,38 @@ def test_flow_controlled_pump_holds_its_setpoint_around_a_floating_loop() -> Non
     assert flag.details["componentIds"] == "IV1, PL1, PU1, T1, T2"
     assert not _flags(result, "PUMP_SETPOINT_NOT_MET")
     assert not [f for f in result.flags if f.severity == "invalid"]
+
+
+def test_relief_valve_closed_loop_floats() -> None:
+    """C16 (pressure-relief-valve.md §7.1, R5): PU1 (curve_a) circulates around a loop of two
+    102.3 mm × 150 m pipes through T1, whose branch leads through RV1 (set 300 kPa, API 526 F) to
+    N1, a reference node at 0 kPa(g), the only fixed head. Started closed, the valve stays closed
+    and the loop floats at Q with H(Q) = h_LA(Q) + h_LB(Q) (``derivations_relief.
+    closed_loop_flow``; proposal: 0.03016051574499 m³/s, pump head 35.39224763 m): flows and the
+    pump's head solved, no EGL in the loop, UNDETERMINED_PRESSURE; RV1 has no result and
+    RELIEF_VALVE_CLOSED names its floating inlet side; its outlet side keeps N1's head."""
+    from tests.reference import derivations_relief as dr
+
+    project = dr.closed_loop_project()
+    q = dr.closed_loop_flow()
+    head = el.pump_head(curve_a(), 1.0, q)
+    assert q == pytest.approx(0.03016051574499, rel=1.0e-11)
+    assert head == pytest.approx(35.39224763, rel=1.0e-9)
+    result = solve_project(project)
+    assert result.converged, result.convergence.message
+    flows = {cid: link.flow for cid, link in result.link_results.items()}
+    assert flows["LA"] == pytest.approx(q, rel=REL)
+    assert flows["LB"] == pytest.approx(q, rel=REL)
+    assert flows["LC"] == 0.0
+    assert flows["LD"] == 0.0
+    pump_result = result.pump_results["PU1"]
+    assert pump_result.operating_flow == pytest.approx(q, rel=REL)
+    assert pump_result.operating_head == pytest.approx(head, rel=REL)
+    assert "RV1" not in result.relief_valve_results
+    loop_ports = {"PU1:suction", "PU1:discharge", "T1:run_inlet", "T1:run_outlet", "T1:branch"}
+    assert not loop_ports & set(result.node_results), "the floating loop has no level"
+    assert result.node_results["RV1:outlet"].egl == pytest.approx(0.0, abs=1.0e-9)
+    assert _flags(result, "UNDETERMINED_PRESSURE"), result.flags
+    [closed] = [f for f in _flags(result, "RELIEF_VALVE_CLOSED") if f.component_id == "RV1"]
+    assert closed.severity == "info"
+    assert closed.details.get("side") == "inlet", closed.details

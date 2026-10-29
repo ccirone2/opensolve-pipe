@@ -43,7 +43,8 @@ Statuses fixed by the user (pump 'off', isolation valve 'isolated', check valve 
 or 'locked_closed', control valve 'failed_open' or 'failed_closed', relief valve
 'locked_closed') never change. Active control valves start ACTIVE (EPANET 2.2
 hydraul.c:136-140), and so do speed-controlled pumps that are on; an active relief valve starts
-CLOSED, its normal state (proposal pressure-relief-valve.md decision 11); every other element
+CLOSED, its normal state (proposal pressure-relief-valve.md decision 11), except in a
+system-curve point, where it starts OPEN as a check valve does (§3.5); every other element
 starts OPEN.
 
 Relief valves (proposal pressure-relief-valve.md §3.4): the check valve's rule (EPANET 2.2
@@ -407,12 +408,16 @@ def initial_controls(
             status = Status.CLOSED if valve.status == "locked_closed" else Status.OPEN
             controls[cid] = Control(cid, "check", data.link_index, status, valve.status != "active")
         elif isinstance(valve, ReliefValve):
-            # Closed, its normal state, whether active or locked closed (decision 11): started
-            # open, a pump deadheaded behind a valve set above its shutoff closes with it and its
-            # discharge has no pressure (D9's zero-flow multiplicity).
-            controls[cid] = Control(
-                cid, "relief", data.link_index, Status.CLOSED, valve.status != "active"
-            )
+            # Closed, its normal state (decision 11): started open, a pump deadheaded behind a
+            # valve set above its shutoff closes with it and its discharge has no pressure (D9's
+            # zero-flow multiplicity). A system-curve point (``forced``) starts an active one
+            # open, as a check valve: there the pump is a fixed flow, which a closed relief
+            # valve in its only way out would leave starved (no rule re-opens it), and at zero
+            # flow it sits at its switch, H_sys(0) = h_set plus the static terms (proposal
+            # pressure-relief-valve.md §3.5).
+            locked = valve.status == "locked_closed"
+            start = Status.CLOSED if locked or forced is None else Status.OPEN
+            controls[cid] = Control(cid, "relief", data.link_index, start, locked)
         else:
             assert isinstance(valve, ControlValve)
             if cid in held_open:

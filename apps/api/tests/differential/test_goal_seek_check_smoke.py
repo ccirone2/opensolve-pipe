@@ -8,9 +8,11 @@ would fail here; and the checks themselves must catch a response whose claims we
 """
 
 import copy
+import json
 import math
 import random
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -23,8 +25,10 @@ from tests.differential.goal_seek_check import (
     Case,
     Draw,
     _strip_times,
+    asme_defaulted,
     candidates,
     check_all,
+    default_overpressure,
     draw_bounds,
     first_difference,
     goal_candidates,
@@ -598,3 +602,252 @@ def test_the_checks_over_an_orifice_plate(
     draw.violations, draw.jump_sides = [], []
     draw.check(response)
     assert any(v.startswith("(g) variable 0: start") for v in draw.violations), draw.violations
+
+
+# --------------------------------------------------------------------------- relief valves
+
+
+def _relief_variant(
+    tmp_path: Path, name: str, capacity: dict[str, Any], set_pressure: float | None = None
+) -> Any:
+    """A corpus spec of reference case ``name`` with its relief valve RV1's capacity (and set)
+    replaced (test inputs)."""
+    data = json.loads(Path(dict(items())[name][1]).read_text())
+    valve = next(c for c in data["project"]["components"] if c["id"] == "RV1")
+    valve["capacity"] = capacity
+    if set_pressure is not None:
+        valve["setPressure"] = set_pressure
+    path = tmp_path / f"{name}.json"
+    path.write_text(json.dumps(data))
+    return ("file", str(path), 0)
+
+
+def test_the_draws_know_a_relief_valves_values_and_goals(tmp_path: Path) -> None:
+    """The check learns the relief valve (proposal pressure-relief-valve.md §7.4): its set is a
+    variable on every capacity, its area on an effective or a certified one (the holders
+    x-override-fields lists for it), its rated coefficient and overpressure on a certified one;
+    its two goals are drawn where it has a result and read its flow and static pressure drop; a
+    set whose overpressure is ASME's default is drawn at or above ASME VIII's scope (decision
+    14), one on a certified overpressure below it too; and an overpressure on ASME's default (no
+    number held: a middle start) is centred on that default."""
+    api = Api()
+    fields = (
+        "setPressure",
+        "capacity.area",
+        "capacity.dischargeCoefficient",
+        "capacity.overpressure",
+    )
+    certified = Case(api, "ref_relief_certified", dict(items())["ref_relief_certified"], False)
+    found = candidates(api, certified.case)
+    for field in fields:
+        assert [v["componentId"] for v in found[field]] == ["RV1"], field
+    letter = Case(api, "ref_relief_partial_lift", dict(items())["ref_relief_partial_lift"], False)
+    assert letter.state is not None
+    found = candidates(api, letter.case)
+    assert [v["componentId"] for v in found["setPressure"]] == ["RV1"]
+    for field in fields[1:]:
+        assert found[field] == [], field
+    effective = {"kind": "effective", "area": 2.0e-4}
+    spec = _relief_variant(tmp_path, "ref_relief_partial_lift", effective)
+    found = candidates(api, Case(api, "effective", spec, False).case)
+    assert [v["componentId"] for v in found["capacity.area"]] == ["RV1"]
+    assert found["capacity.dischargeCoefficient"] == found["capacity.overpressure"] == []
+    goals = goal_candidates(api, letter.case, letter.state)
+    result = letter.state["reliefValveResults"]["RV1"]
+    for quantity, field in (
+        ("relief_valve_flow", "flow"),
+        ("relief_valve_pressure_drop", "pressureDrop"),
+    ):
+        (goal,) = goals[quantity]
+        assert goal == {"quantity": quantity, "elementId": "RV1"}
+        assert goal_value(letter.state, goal) == result[field]
+    assert result["flow"] == pytest.approx(0.002221210802348, rel=1e-9)  # proposal §7.1 C2
+    # the set's lower bound: ASME VIII's scope where the overpressure is ASME's default
+    scope = api.relief_data["asmeMinimumSetPressure"]
+    assert scope == pytest.approx(103421.35939752, rel=1e-12)  # 15 psi
+    set_variable = {"kind": "component", "componentId": "RV1", "field": "setPressure"}
+    rng = random.Random("relief")
+    low = 1.2e5  # a set just above the scope (a test input)
+    for capacity, defaulted in (
+        ({"kind": "api526", "letter": "F"}, True),
+        ({"kind": "certified", "area": 2.5e-4, "dischargeCoefficient": 0.7}, True),
+        (
+            {"kind": "certified", "area": 2.5e-4, "dischargeCoefficient": 0.7, "overpressure": 0.1},
+            False,
+        ),
+    ):
+        case = Case(
+            api, "low", _relief_variant(tmp_path, "ref_relief_certified", capacity, low), False
+        )
+        assert case.state is not None
+        valve = next(c for c in case.case["components"] if c["id"] == "RV1")
+        assert asme_defaulted(valve) is defaulted
+        lowers = []
+        for _ in range(100):
+            drawn = draw_bounds(api, rng, case.case, case.state, set_variable)
+            if drawn is not None:
+                lowers.append(drawn["lower"])
+        assert len(lowers) >= 80
+        if defaulted:
+            assert min(lowers) >= scope
+        else:
+            assert min(lowers) < scope  # an entered overpressure has no scope to keep
+    # an overpressure on ASME's default: centred on it, max(10 %, 3 psi / set)
+    assert default_overpressure(api, 5.0e5) == 0.1
+    assert default_overpressure(api, 1.5e5) == pytest.approx(0.1378951459, rel=1e-9)  # §7.1 C5
+    on_default = {"kind": "certified", "area": 2.5e-4, "dischargeCoefficient": 0.7}
+    case = Case(
+        api, "default", _relief_variant(tmp_path, "ref_relief_certified", on_default), False
+    )
+    assert case.state is not None
+    variable = {"kind": "component", "componentId": "RV1", "field": "capacity.overpressure"}
+    centred = 0
+    for _ in range(200):
+        drawn = draw_bounds(api, rng, case.case, case.state, variable)
+        if drawn is not None:
+            assert 0.0 < drawn["lower"] < drawn["upper"] <= 1.0
+            centred += drawn["lower"] <= 0.1 <= drawn["upper"]
+    assert centred >= 150  # about nine draws in ten hold the centre
+
+
+RELIEF_DRAWS = [
+    # G40 (proposal §7.3): the set for a relief flow of 20 L/s on C6, met near 366,924.65 Pa.
+    (
+        "ref_relief_pump_bypass",
+        None,
+        {"field": "setPressure", "lower": 3.0e5, "upper": 4.2e5},
+        {"quantity": "relief_valve_flow", "target": 0.020},
+        "case",
+    ),
+    # G41 (sizing): an effective area in C6's place for the relieving pressure, 385 kPa(g).
+    (
+        "ref_relief_pump_bypass",
+        {"kind": "effective", "area": 1.84e-3},
+        {"field": "capacity.area", "lower": 5.0e-4, "upper": 5.0e-3},
+        {"quantity": "port_pressure", "portId": "inlet", "target": 3.85e5},
+        "case",
+    ),
+    # a certified valve's actual area, and its rated coefficient for a static drop (C15)
+    (
+        "ref_relief_certified",
+        None,
+        {"field": "capacity.area", "lower": 1.5e-4, "upper": 5.0e-4},
+        {"quantity": "relief_valve_flow", "target": 0.0025},
+        "case",
+    ),
+    (
+        "ref_relief_certified",
+        None,
+        {"field": "capacity.dischargeCoefficient", "lower": 0.5, "upper": 0.9},
+        {"quantity": "relief_valve_pressure_drop", "target": 5.25e5},
+        "case",
+    ),
+    # G42's overpressure, here on ASME's default: the search starts in the middle of the bounds
+    (
+        "ref_relief_certified",
+        {"kind": "certified", "area": 2.5e-4, "dischargeCoefficient": 0.7},
+        {"field": "capacity.overpressure", "lower": 0.05, "upper": 0.2},
+        {"quantity": "relief_valve_flow", "target": 0.0025},
+        "middle",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "capacity", "variable", "goal", "start"),
+    RELIEF_DRAWS,
+    ids=[f"{d[0]}-{d[2]['field']}-{d[3]['quantity']}" for d in RELIEF_DRAWS],
+)
+def test_the_checks_over_a_relief_valve(
+    tmp_path: Path,
+    name: str,
+    capacity: dict[str, Any] | None,
+    variable: dict[str, Any],
+    goal: dict[str, Any],
+    start: str,
+) -> None:
+    """Each relief variable and goal goes through every check, met; an overpressure on ASME's
+    default starts in the middle of its bounds (proposal pressure-relief-valve.md decision 19),
+    and a response that says otherwise is a violation (g)."""
+    api = Api()
+    spec = dict(items())[name] if capacity is None else _relief_variant(tmp_path, name, capacity)
+    case = Case(api, name, spec, scenario=False)
+    assert case.state is not None
+    drawn = {
+        "variables": [{"kind": "component", "componentId": "RV1", **variable}],
+        "goals": [{**goal, "elementId": "RV1"}],
+        "kind": "interior",
+    }
+    draw = Draw(
+        api, random.Random(name), case.base, case.project, case.case, case.state, None, drawn
+    )
+    record = draw.run()
+    assert not draw.violations, draw.violations
+    assert record["stop"] == "met", record
+    response = copy.deepcopy(draw.responses[0])
+    assert response["result"]["variables"][0]["startSource"] == start
+    response["result"]["variables"][0]["startSource"] = "clipped"
+    draw.violations, draw.jump_sides = [], []
+    draw.check(response)
+    assert any(v.startswith("(g) variable 0: start") for v in draw.violations), draw.violations
+
+
+def test_the_checks_over_a_whole_capacity_a_scenario_sets() -> None:
+    """Where S1 gives a relief valve a whole certified capacity over the base's letter, its
+    area and rated coefficient vary together: each variable's override is that whole capacity
+    with both values found, replacing the scenario's override, and baseValue is null (the base's
+    letter holds neither value, proposal pressure-relief-valve.md decisions 18-19); an override
+    that keeps the scenario's coefficient, or a base value read from another kind, is a
+    violation (g)."""
+    api = Api()
+    name = "ref_relief_pump_bypass"
+    base = load(dict(items())[name]).model_dump(mode="json", exclude_unset=True)
+    base.pop("scenarios", None)
+    vendor = {  # a certified valve in place of the letter L (test inputs)
+        "kind": "certified",
+        "area": 1.6e-3,
+        "dischargeCoefficient": 0.8,
+        "overpressure": 0.1,
+    }
+    scenario = [{"kind": "component", "componentId": "RV1", "field": "capacity", "value": vendor}]
+    project = {
+        **copy.deepcopy(base),
+        "scenarios": [{"id": "S1", "name": "S1", "overrides": scenario}],
+    }
+    case_json, states = hand_patched(base, scenario)
+    assert states == ["applied"]
+    status, data = api.solve(project, "S1")
+    assert status == 200
+    part = {"kind": "component", "componentId": "RV1"}
+    drawn = {
+        "variables": [
+            {**part, "field": "capacity.area", "lower": 5.0e-4, "upper": 5.0e-3},
+            {**part, "field": "capacity.dischargeCoefficient", "lower": 0.5, "upper": 0.95},
+        ],
+        "goals": [
+            {"quantity": "relief_valve_flow", "elementId": "RV1", "target": 0.022},
+            {"quantity": "port_pressure", "elementId": "RV1", "portId": "inlet", "target": 3.7e5},
+        ],
+        "kind": "interior",
+    }
+    draw = Draw(
+        api, random.Random(name), base, project, case_json, data["solvedState"], scenario, drawn
+    )
+    draw.run()
+    assert not draw.violations, draw.violations
+    variables = draw.responses[0]["result"]["variables"]
+    first, second = (v["override"] for v in variables)
+    assert first == second
+    assert first["field"] == "capacity"
+    assert first["value"]["kind"] == "certified"
+    assert [v["replacedOverride"] for v in variables] == [0, 0]
+    assert [v["baseValue"] for v in variables] == [None, None]
+    lost = copy.deepcopy(draw.responses[0])
+    lost["result"]["variables"][1]["override"]["value"]["dischargeCoefficient"] = 0.8
+    lost["result"]["variables"][0]["baseValue"] = 1.84064148e-3  # the letter L's effective area
+    draw.violations, draw.jump_sides = [], []
+    draw.check(lost)
+    found = {v.split(":")[0] for v in draw.violations}
+    assert {"(g) variable 1", "(g) variable 0"} <= found, draw.violations
+    assert any(v.startswith("(g) variable 0: baseValue") for v in draw.violations)
+    assert any(v.startswith("(g) variable 1: override") for v in draw.violations)

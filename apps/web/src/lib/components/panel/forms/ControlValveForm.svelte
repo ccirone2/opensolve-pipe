@@ -81,7 +81,7 @@
 		bounds={setpointBounds}
 		hint={component.valveType === 'prv'
 			? 'Gauge static pressure the valve holds at its outlet.'
-			: 'Gauge static pressure the valve holds at its inlet.'}
+			: "Gauge static pressure the valve holds at its inlet: EPANET's pressure-sustaining valve, which modulates to hold it. For a safety or relief valve (overpressure protection), use the pressure relief valve (API 520, liquids)."}
 		warning={setpointWarning}
 		change={ws.componentChange(component.id, 'setpoint')}
 		onchange={(v) =>

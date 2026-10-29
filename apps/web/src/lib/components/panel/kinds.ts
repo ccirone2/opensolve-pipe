@@ -10,6 +10,7 @@ const GROUPS: readonly { group: string; kinds: readonly ComponentKind[] }[] = [
 	{ group: 'Isolation valves', kinds: ['gate', 'ball', 'butterfly', 'globe'] },
 	{ group: 'Check valves', kinds: ['check', 'stop_check'] },
 	{ group: 'Control valves', kinds: ['prv', 'psv', 'fcv'] },
+	{ group: 'Relief valves: overpressure protection, liquids', kinds: ['relief_valve'] },
 	{ group: 'Equipment: heat exchangers, coils, strainers, filters', kinds: ['equipment'] },
 	{ group: 'Orifice plates: restriction orifices, flow meters', kinds: ['orifice'] }
 ];

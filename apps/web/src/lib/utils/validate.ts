@@ -19,6 +19,7 @@ import openapi from '../api/openapi.json';
 import type { PipeConnection, Project, UnitPreferences } from '../api/types';
 import { componentName, fieldLabel, fittingFallbackName, portLabel } from './labels';
 import {
+	capacitySchemaName,
 	componentSchemaName,
 	fluidSchemaName,
 	missingFittingParameters,
@@ -80,17 +81,19 @@ function validatorFor(name: string): ValidateFunction {
 
 /**
  * The schema a oneOf member is meant to match, from its tag (component type refined by
- * branchType or valveType; fluid kind; an equipment rating's kind, which no fluid kind shares),
- * read from the schema's unions (model-rules.ts) as the
- * API's discriminators pick it, so problems are reported against the intended schema instead of
- * every alternative.
+ * branchType or valveType; fluid kind; an equipment rating's kind; a relief valve capacity's
+ * kind, which no fluid or rating kind shares), read from the schema's unions (model-rules.ts) as
+ * the API's discriminators pick it, so problems are reported against the intended schema instead
+ * of every alternative.
  */
 function taggedSchema(value: unknown): string | null {
 	if (!isRecord(value)) return null;
 	// A scenario change: kind and field (a fluid has a kind and no field).
 	if ('kind' in value && 'field' in value) return overrideSchemaName(value.kind);
 	if ('kind' in value && !('type' in value))
-		return fluidSchemaName(value.kind) ?? ratingSchemaName(value.kind);
+		return (
+			fluidSchemaName(value.kind) ?? ratingSchemaName(value.kind) ?? capacitySchemaName(value.kind)
+		);
 	return componentSchemaName(value);
 }
 
@@ -187,6 +190,11 @@ function collect(
 			problems.push({
 				pointer,
 				text: `${where}: unknown rating kind ${JSON.stringify(member.kind)} (a pressure drop at a flow, 'point'; 'Cv'; or 'Kv')`
+			});
+		else if (isRecord(member) && 'kind' in member && pointer.endsWith('/capacity'))
+			problems.push({
+				pointer,
+				text: `${where}: unknown capacity kind ${JSON.stringify(member.kind)} (an API 526 orifice letter, 'api526'; an API 520 effective area, 'effective'; or a certified area and coefficient, 'certified')`
 			});
 		else if (isRecord(member) && 'kind' in member && 'field' in member)
 			problems.push({

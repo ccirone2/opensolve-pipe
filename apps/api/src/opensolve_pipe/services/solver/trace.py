@@ -2708,7 +2708,8 @@ def _relief_trace(ctx: TraceInputs, data: ValveData) -> ElementTrace:
         t.value("EGL at the inlet EGL_in", ctx.egl(data.inlet), M)
         t.value("EGL at the outlet EGL_out", ctx.egl(data.outlet), M)
         t.value("Head loss h = EGL_in − EGL_out (solved)", result.head_loss, M)
-        t.value("Head loss by the law h(Q)", law.head(q), M)
+        if q > 0.0:  # closed, the link is out of the network and its law does not apply
+            t.value("Head loss by the law h(Q)", law.head(q), M)
         t.value("Inlet pipe velocity v_in = Q/A_in", v_in, MS)
         t.value("Outlet pipe velocity v_out = Q/A_out", v_out, MS)
         _port_state_values(

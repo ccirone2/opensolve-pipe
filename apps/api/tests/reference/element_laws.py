@@ -546,7 +546,9 @@ def gpv_curve(law: OrificeLaw, span: float, g: float = G) -> list[tuple[float, f
 
 # --- Pressure relief valves (proposal pressure-relief-valve.md) ----------------------------------
 
-API520_EFFECTIVE_KD = float(inspect.signature(fluids.safety_valve.API520_A_l).parameters["Kd"].default)
+API520_EFFECTIVE_KD = float(
+    inspect.signature(fluids.safety_valve.API520_A_l).parameters["Kd"].default
+)
 """API 520's effective coefficient of discharge for preliminary liquid sizing, 0.65: the default
 of fluids' ``API520_A_l`` ("0.65 normally"; proposal decision 7)."""
 API526_AREAS: dict[str, float] = dict(
@@ -693,7 +695,10 @@ class ReliefLaw:
     def flow_at(self, dp_t: float) -> float:
         """The forward law as API 520 and the proposal write it: Q = x·C·√(2Δp_t/ρ), x the
         clipped linear lift (Δp_t ≥ 0)."""
-        x = min(max((dp_t - self.set_pressure) / (self.full_lift_pressure - self.set_pressure), 0.0), 1.0)
+        x = min(
+            max((dp_t - self.set_pressure) / (self.full_lift_pressure - self.set_pressure), 0.0),
+            1.0,
+        )
         return x * self.c * math.sqrt(2.0 * dp_t / self.density)
 
     def lift(self, q: float) -> float:
@@ -712,7 +717,9 @@ class ReliefLaw:
         None at zero flow (proposal §2.2)."""
         if q == 0.0:
             return None
-        return self.density * (abs(q) / self.area) * math.sqrt(4.0 * self.area / math.pi) / viscosity
+        return (
+            self.density * (abs(q) / self.area) * math.sqrt(4.0 * self.area / math.pi) / viscosity
+        )
 
 
 def relief_law(component: ReliefValve, density: float) -> ReliefLaw:
@@ -762,11 +769,15 @@ def relief_state_problem(
     ``margin`` (m; −HTOL reproduces the rule exactly): open needs Q > Qtol and
     EGL_in − EGL_out − h_set ≥ margin; closed needs Q = 0 and h_set − (EGL_in − EGL_out) ≥
     margin (a valve within Htol of its set stays as it was, and it starts closed, decision 11).
-    A locked-closed valve is closed."""
+    A locked-closed valve is closed. A side without a head (NaN: a closed-off side, decision 16)
+    has a free level, so a closed valve there satisfies the rule at every level that keeps it
+    closed (the closed-off constraint H_in − H_out ≤ h_set + Htol, proposal §3.4)."""
     if valve.status == "locked_closed":
         return None if state == "closed" and q == 0.0 else f"a locked-closed valve is not {state}"
     h_set = relief_law(valve, rho).h_set()
     dh = h_in - h_out
+    if state == "closed" and math.isnan(dh):
+        return None if q == 0.0 else "a valve with a closed-off side carries no flow"
     if state == "open":
         return None if q > QTOL and dh - h_set >= margin else "is not clearly open"
     if state == "closed":

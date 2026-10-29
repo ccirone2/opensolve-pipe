@@ -39,6 +39,7 @@
 	import OrificeForm from './forms/OrificeForm.svelte';
 	import PumpForm from './forms/PumpForm.svelte';
 	import ReferenceNodeForm from './forms/ReferenceNodeForm.svelte';
+	import ReliefValveForm from './forms/ReliefValveForm.svelte';
 	import ReservoirForm from './forms/ReservoirForm.svelte';
 	import PortsEditor from './PortsEditor.svelte';
 	import ResultStrip from './ResultStrip.svelte';
@@ -174,6 +175,8 @@
 						<EquipmentForm {component} />
 					{:else if component.type === 'orifice'}
 						<OrificeForm {component} />
+					{:else if component.type === 'relief_valve'}
+						<ReliefValveForm {component} />
 					{:else if component.type === 'plug'}
 						<p class="hint sm:col-span-2">A closed end: no flow leaves through its port.</p>
 					{/if}

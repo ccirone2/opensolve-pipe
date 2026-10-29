@@ -469,7 +469,11 @@ class ReliefValveResult(OutputModel):
         )
     )
     flow: float = Field(
-        description="m³/s, positive inlet -> outlet (never below zero: it closes on reverse flow)"
+        description=(
+            "m³/s, positive inlet -> outlet. It closes on reverse flow beyond the status rules' "
+            "flow tolerance (EPANET 2.2's Qtol, 1e-8 m³/s), so a valve open at its switch can "
+            "report a flow a little below zero, within that tolerance (state closed)"
+        )
     )
     lift: float = Field(
         description="x, a fraction from 0 (closed) to 1 (full lift): flow / (Kd·A·√(2Δp_t/ρ))"

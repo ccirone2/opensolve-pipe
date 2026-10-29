@@ -24,8 +24,17 @@
   coefficients from their definitions; the meter's reading read back by fluids' meter solver;
   C held at another Re missing C7 and E3 beyond D6; the move of an entered C in C12; and the
   proposal's measured values.
+- Pressure relief valves (docs/proposals/pressure-relief-valve.md): the suite's band root
+  against a 60-digit Newton solve and the forward law; continuity and the slope step at full
+  lift (the least band slope op/(2 + 3op)); the full-lift equation against fluids'
+  ``API520_A_l`` for every letter (its rounded 11.78, +6.09×10⁻⁵); the covering letter against
+  ``API520_round_size``; ASME's default overpressure and scope; the published x-relief-data
+  against the suite's own constants; each case's results and flags from their definitions; the
+  other pressure readings on C2; the EPANET cases against the closed form; and the proposal's
+  measured values.
 """
 
+import decimal
 import itertools
 import math
 from pathlib import Path
@@ -33,6 +42,7 @@ from typing import Any
 
 import fluids.fittings
 import fluids.friction
+import fluids.safety_valve
 import numpy as np
 import pytest
 from scipy.constants import inch
@@ -45,13 +55,16 @@ from opensolve_pipe.models.components import (
     OrificeTaps,
     Pump,
     PumpControl,
+    ReliefValve,
     TeeBranch,
     WyeBranch,
+    relief_data_extension,
 )
 from opensolve_pipe.models.project import Project
 from tests.reference import derivations as dv
 from tests.reference import derivations_branches as dvb
 from tests.reference import derivations_orifice as do
+from tests.reference import derivations_relief as dr
 from tests.reference import element_laws as el
 from tests.reference import network_check as nc
 from tests.reference.case_format import case_files, case_path, custom_fluid, read_case
@@ -207,7 +220,7 @@ def test_energy_equations_close(path: Path) -> None:
 
 @pytest.mark.parametrize(
     "path",
-    [p for p in CASES if {"pumps", "valves"} & set(read_case(p)["expected"])],
+    [p for p in CASES if {"pumps", "valves", "reliefValves"} & set(read_case(p)["expected"])],
     ids=lambda p: p.stem,
 )
 def test_element_states_follow_the_status_rules(path: Path) -> None:
@@ -373,12 +386,22 @@ def _has_orifices(path: Path) -> bool:
     return any(c["type"] == "orifice" for c in read_case(path)["project"]["components"])
 
 
+def _has_relief_valves(path: Path) -> bool:
+    return any(c["type"] == "relief_valve" for c in read_case(path)["project"]["components"])
+
+
 def _heads_pinned(path: Path) -> bool:
-    """No pump, valve, assigned flow or orifice plate: every head lies between reservoirs'
-    fixed heads, and every element carries EPANET's g bias alike. An orifice plate is an EPANET
-    GPV, a head-loss curve of the plate's own law that carries no g bias while the pipes beside
-    it do, so the heads between the reservoirs move by more (measured: up to 1.6 mm)."""
-    return not (_has_components(path) or _has_assigned_flows(path) or _has_orifices(path))
+    """No pump, valve, assigned flow, orifice plate or relief valve: every head lies between
+    reservoirs' fixed heads, and every element carries EPANET's g bias alike. An orifice plate
+    or a relief valve is an EPANET GPV, a head-loss curve of the element's own law that carries
+    no g bias while the pipes beside it do, so the heads between the reservoirs move by more
+    (measured: up to 1.6 mm)."""
+    return not (
+        _has_components(path)
+        or _has_assigned_flows(path)
+        or _has_orifices(path)
+        or _has_relief_valves(path)
+    )
 
 
 EPANET_CASES = [p for p in CASES if p.stem.startswith("epanet")]
@@ -1539,3 +1562,503 @@ def test_orifice_derivations_reproduce_the_proposal(name: str) -> None:
         for part in group.split("."):
             where = where[part]
         assert where[key] == pytest.approx(value, rel=1.0e-9), (name, group, key)
+
+
+# --- Pressure relief valves (docs/proposals/pressure-relief-valve.md) -----------------------------
+
+
+def _relief_valves(project: Project) -> list[ReliefValve]:
+    return [c for c in project.components if isinstance(c, ReliefValve)]
+
+
+RELIEF_CASES = [p for p in CASES if _has_relief_valves(p)]
+
+
+def test_relief_cases_exist() -> None:
+    """§7.1's C1-C15 (C9 and C11 two cases each, C16 in test_floating_sections), the closed-off
+    valve, and §7.2's three EPANET cases."""
+    assert len(RELIEF_CASES) == 21
+    assert len([p for p in RELIEF_CASES if p.stem.startswith("epanet")]) == 3
+
+
+def _cubic_root_60_digits(dp_s: float, r: float, q: float) -> decimal.Decimal:
+    """The largest real root of u³ − Δp_s u − R q = 0 by Newton's method in 60-digit decimal
+    arithmetic from above (the cubic is increasing and convex beyond its largest root, so the
+    iterates fall monotonically onto it), with Δp_s, R and q the doubles given, exactly."""
+    context = decimal.Context(prec=60)
+    a, b = decimal.Decimal(dp_s), decimal.Decimal(r) * decimal.Decimal(q)
+    u = context.sqrt(a) * 2 + context.power(b, decimal.Decimal(1) / 3) + 1
+    for _ in range(500):
+        f = context.subtract(context.subtract(context.power(u, 3), context.multiply(a, u)), b)
+        df = context.subtract(context.multiply(3, context.power(u, 2)), a)
+        step = context.divide(f, df)
+        u = context.subtract(u, step)
+        if abs(step) <= abs(u) * decimal.Decimal("1e-55"):
+            return u
+    raise RuntimeError("Newton did not converge")
+
+
+RELIEF_LAW_GRID = [
+    (rho, c_area, dp_s, op)
+    for rho in (700.0, 998.0, 1300.0)
+    for c_area in (1.0e-6, 1.2874e-4, 0.03)
+    for dp_s in (1.0e4, 5.0e5, 3.0e7)
+    for op in (1.0e-3, 0.1, 0.2, 1.0 / 3.0, 0.5, 1.0)
+]
+"""The proposal's S1b ranges (ρ 700-1300 kg/m³, C 10⁻⁶-0.03 m², Δp_s 10⁴-3×10⁷ Pa, op 10⁻³-1),
+at op 1/3 the switch between the trigonometric and the hyperbolic forms (proposal §3.1, S1g)."""
+FLOW_FRACTIONS = (1.0e-9, 1.0e-3, 0.1, 0.5, 0.9, 0.999999, 1.0)
+
+
+@pytest.mark.parametrize(("rho", "c_area", "dp_s", "op"), RELIEF_LAW_GRID)
+def test_relief_band_root_is_the_cubic_root(
+    rho: float, c_area: float, dp_s: float, op: float
+) -> None:
+    """The suite's band root (Chebyshev's cos/cosh forms, ``element_laws.ReliefLaw.band_root``)
+    against a 60-digit Newton solve of the cubic (within 4×10⁻¹⁵ relative, the proposal's S1b
+    measured 8.2×10⁻¹⁶ for its own form), and the excess Δp_t − Δp_s = RQ/u, which avoids the
+    cancellation of u² − Δp_s (decision 13), against the 60-digit u² − Δp_s (8×10⁻¹⁵). The
+    forward law at the root, Q = x·C·√(2Δp_t/ρ) with x the clipped linear lift, gives the flow
+    back to its own cancellation: (Δp_t − Δp_s) from the double Δp_t loses about ε·Δp_s/(Δp_t −
+    Δp_s) relative (the round trip the proposal's S1a measured at 4.6×10⁻¹⁰)."""
+    law = el.ReliefLaw(rho, c_area, 1.0, dp_s, op)
+    for fraction in FLOW_FRACTIONS:
+        q = fraction * law.q_full
+        u = law.band_root(q)
+        exact = _cubic_root_60_digits(dp_s, law.r, q)
+        assert abs(decimal.Decimal(u) - exact) <= decimal.Decimal("4e-15") * exact, (fraction, u)
+        exact_excess = exact * exact - decimal.Decimal(dp_s)
+        excess = law.excess(q)
+        # At Q_f itself the full-lift branch ρQ²/(2C²) − Δp_s holds the subtraction, a few ulps of
+        # Δp_f (an absolute error far below any head the solver resolves).
+        bound = 8.0e-15 if fraction < 1.0 else 8.0 * 2.0**-52 * law.full_lift_pressure / excess
+        assert abs(decimal.Decimal(excess) - exact_excess) <= decimal.Decimal(bound) * exact_excess
+        dp_t = law.total_pressure_difference(q)
+        cancellation = 16.0 * 2.0**-52 * dp_s / excess
+        assert law.flow_at(dp_t) == pytest.approx(q, rel=max(1.0e-12, cancellation), abs=0.0), (
+            fraction
+        )
+
+
+@pytest.mark.parametrize("op", [1.0e-3, 0.1, 0.2, 0.5, 1.0])
+def test_relief_law_is_continuous_at_full_lift_with_a_slope_step(op: float) -> None:
+    """At Q_f the band's Δp_t meets API 520's ρQ²/(2C²) (continuous), and its slope steps up:
+    from the left dΔp/dQ·C²/(ρQ_f) = op/(2 + 3op), the least band slope (proposal §3.1, S1d), from
+    the right 1. h(Q) increases strictly across the band and beyond."""
+    law = el.ReliefLaw(998.0, 1.9806412e-4, 0.65, 5.0e5, op)
+    q_f = law.q_full
+    assert law.excess(q_f * (1.0 - 1.0e-15)) == pytest.approx(law.excess(q_f), rel=1.0e-12)
+    scale = 998.0 * q_f / law.c**2
+    step = q_f * 1.0e-7
+    left = (law.excess(q_f) - law.excess(q_f - step)) / step / scale
+    right = (law.excess(q_f + step) - law.excess(q_f)) / step / scale
+    assert left == pytest.approx(op / (2.0 + 3.0 * op), rel=1.0e-5)
+    assert right == pytest.approx(1.0, rel=1.0e-5)
+    heads = [law.head(q_f * i / 400.0) for i in range(601)]
+    assert all(b > a for a, b in itertools.pairwise(heads))
+    # The slope at 0+ is R/(√Δp_s ρg) (decision 12): finite and positive (read on the excess,
+    # which holds no h_set to cancel).
+    tiny = q_f * 1.0e-9
+    slope0 = law.excess(tiny) / tiny / (998.0 * dv.G)
+    assert slope0 == pytest.approx(law.r / (math.sqrt(5.0e5) * 998.0 * dv.G), rel=1.0e-6)
+
+
+API520_ROUNDING = (
+    11.78 / (math.sqrt(1.0e-3 * fluids.safety_valve.rho0) / 60000.0 * math.sqrt(2.0) / 2.0 * 1.0e6)
+    - 1.0
+)
+"""API 520's 11.78 over the exact constant fluids documents, 11.779282389196 (its reference
+water density ``rho0``): +6.0921436×10⁻⁵ (proposal decision 4, S1f)."""
+
+
+@pytest.mark.parametrize("letter", list(fluids.safety_valve.API526_letters))
+def test_relief_full_lift_is_api520_a_l(letter: str) -> None:
+    """At full lift the law is API 520's liquid equation in exact SI (decision 4): fluids'
+    ``API520_A_l`` at the mass flow ρQ_f and P1 − P2 = Δp_f, Kd 0.65, Kw = Kc = Kv = 1 (both
+    passed: Kw None would apply the balanced-bellows table, proposal §3.10), gives the letter's
+    effective area times 1 + 6.0921×10⁻⁵, the rounding of API's 11.78, for any fluid and back
+    pressure."""
+    assert pytest.approx(6.0921436e-5, abs=1.0e-12) == API520_ROUNDING
+    area = el.API526_AREAS[letter]
+    for rho, dp_s, back in ((998.0, 5.0e5, 101325.0), (1040.0, 2.0e6, 3.0e5)):
+        law = el.ReliefLaw(rho, area, el.API520_EFFECTIVE_KD, dp_s, el.asme_overpressure(dp_s))
+        required = fluids.safety_valve.API520_A_l(
+            m=rho * law.q_full,
+            rho=rho,
+            P1=law.full_lift_pressure + back,
+            P2=back,
+            overpressure=law.overpressure,
+            Kd=0.65,
+            Kc=1.0,
+            Kw=1.0,
+            Kv=1.0,
+        )
+        assert required / area - 1.0 == pytest.approx(API520_ROUNDING, rel=1.0e-9)
+
+
+def test_relief_effective_coefficient_and_areas_are_fluids() -> None:
+    """API 520's effective Kd 0.65 is ``API520_A_l``'s default; API 526's areas are fluids'
+    ``API526_A`` (the in² table × 0.0254²), D to T."""
+    assert el.API520_EFFECTIVE_KD == 0.65
+    assert list(el.API526_AREAS) == list(fluids.safety_valve.API526_letters)
+    for (letter, area), sq_in in zip(
+        el.API526_AREAS.items(), fluids.safety_valve.API526_A_sq_inch, strict=True
+    ):
+        assert area == pytest.approx(sq_in * inch**2, rel=1.0e-15), letter
+
+
+@pytest.mark.parametrize("letter", list(fluids.safety_valve.API526_letters))
+def test_relief_covering_letter_is_api520_round_size(letter: str) -> None:
+    """The smallest API 526 letter whose effective area is at least an area (proposal §2.2) is
+    the letter of fluids' ``API520_round_size``: at a letter's own area, just above it, and None
+    above T's (where fluids raises)."""
+    letters = list(fluids.safety_valve.API526_letters)
+    area = el.API526_AREAS[letter]
+    for a in (area, area * (1.0 - 1.0e-9), area * (1.0 + 1.0e-9)):
+        try:
+            rounded = fluids.safety_valve.API520_round_size(a)
+        except ValueError:
+            assert el.covering_letter(a) is None
+            assert letter == "T"
+            continue
+        assert el.covering_letter(a) == letters[fluids.safety_valve.API526_A.index(rounded)]
+    assert el.covering_letter(1.0e-9) == "D"
+
+
+def test_relief_asme_default_overpressure() -> None:
+    """ASME's default (decision 6): max(10 %, 3 psi/Δp_s), crossing at 3 psi/0.1 = 206,842.72 Pa,
+    0.2 at the 15 psi scope (103,421.36 Pa), not defined below it."""
+    crossover = el.ASME_OVERPRESSURE_FLOOR / el.ASME_OVERPRESSURE
+    assert crossover == pytest.approx(206_842.72, abs=0.01)
+    assert el.asme_overpressure(crossover * 1.001) == 0.1
+    assert el.asme_overpressure(crossover * 0.999) == pytest.approx(0.1 / 0.999, rel=1.0e-12)
+    assert pytest.approx(103_421.36, abs=0.01) == el.ASME_MINIMUM_SET
+    assert el.asme_overpressure(el.ASME_MINIMUM_SET) == pytest.approx(0.2, rel=1.0e-15)
+    with pytest.raises(ValueError, match="not cited below a 15 psi set"):
+        el.asme_overpressure(el.ASME_MINIMUM_SET * (1.0 - 1.0e-12))
+
+
+def test_published_relief_data_is_the_suites() -> None:
+    """``x-relief-data`` (decision 27) holds what the suite derives on its own: fluids' API 526
+    areas, API520_A_l's Kd, 10 %, 3 psi and 15 psi (scipy.constants.psi)."""
+    data = relief_data_extension()
+    areas = data["api526Areas"]
+    assert isinstance(areas, dict)
+    assert areas == pytest.approx(el.API526_AREAS, rel=1.0e-15)
+    assert list(areas) == list(el.API526_AREAS)
+    assert data["effectiveDischargeCoefficient"] == el.API520_EFFECTIVE_KD
+    assert data["asmeOverpressureFraction"] == el.ASME_OVERPRESSURE
+    assert data["asmeOverpressureFloor"] == pytest.approx(el.ASME_OVERPRESSURE_FLOOR, rel=1.0e-15)
+    assert data["asmeMinimumSetPressure"] == pytest.approx(el.ASME_MINIMUM_SET, rel=1.0e-15)
+
+
+def _relief_at(project: Project, rv: ReliefValve, expected: dict[str, Any]) -> dr.Ports:
+    """A valve's solved ports read from a case: its flow from the pipe on its inlet port, the
+    expected EGLs and the pipes' end-segment bores."""
+    key_in, key_out = f"{rv.id}:inlet", f"{rv.id}:outlet"
+    q = nc.port_inflow(project, key_in, expected["flows"])
+    return dr.Ports(
+        q,
+        expected["egl"][key_in],
+        expected["egl"][key_out],
+        nc.port_diameter(project, key_in),
+        nc.port_diameter(project, key_out),
+    )
+
+
+@pytest.mark.parametrize("path", RELIEF_CASES, ids=lambda p: p.stem)
+def test_relief_results_follow_their_definitions(path: Path) -> None:
+    """Each expected relief result from its definition at the case's own flows, EGLs and
+    project (§2.2): Δp_t = ρg(h − (z_in − z_out)); the lift Q/(C√(2Δp_t/ρ)) (decision 13), 1 at
+    full lift and in [0, 1); the forward law x·C·√(2Δp_t/ρ) gives Q back (closed-form cases;
+    EPANET's interpolated curve to 5×10⁻⁴); setRatio, flowRatio, Δp_f and Q_f; the static drop
+    is the pressures' difference and Δp_t − ρ(v_in² − v_out²)/2; the capacity's area and Kd
+    (fluids' API526_A and 0.65 for a letter); the overpressure and its source; Re on the area;
+    a valve without a result has no head at one side."""
+    case, project = _load(path)
+    expected = case["expected"]
+    rho, mu, _ = nc.fluid_state(project)
+    epanet = _is_epanet(case)
+    for rv in _relief_valves(project):
+        want = expected["reliefValves"][rv.id]
+        if want is None:
+            assert not all(f"{rv.id}:{p}" in expected["egl"] for p in ("inlet", "outlet"))
+            continue
+        at = _relief_at(project, rv, expected)
+        law = el.relief_law(rv, rho)
+        values = el.relief_capacity(rv.capacity, rv.set_pressure)
+        h = at.egl_in - at.egl_out
+        dz = nc.port_elevation(project, f"{rv.id}:inlet") - nc.port_elevation(
+            project, f"{rv.id}:outlet"
+        )
+        dp_t = rho * dv.G * (h - dz)
+        assert want["flow"] == at.q
+        assert want["headLoss"] == pytest.approx(h, rel=1.0e-14, abs=1.0e-12)
+        assert want["totalPressureDifference"] == pytest.approx(dp_t, rel=1.0e-12, abs=1.0e-9)
+        assert want["setPressure"] == rv.set_pressure
+        assert want["overpressure"] == values.overpressure
+        assert want["overpressureSource"] == values.source
+        assert want["setRatio"] == pytest.approx(dp_t / rv.set_pressure, rel=1.0e-12, abs=1.0e-15)
+        full = rv.set_pressure * (1.0 + values.overpressure)
+        q_f = values.kd * values.area * math.sqrt(2.0 * full / rho)
+        assert want["fullLiftPressureDifference"] == pytest.approx(full, rel=1.0e-15)
+        assert want["fullLiftFlow"] == pytest.approx(q_f, rel=1.0e-14)
+        assert want["flowRatio"] == pytest.approx(at.q / q_f, rel=1.0e-14)
+        if at.q == 0.0:
+            assert want["state"] == "closed"
+            assert want["lift"] == 0.0
+            assert want["reynoldsNumber"] is None
+        else:
+            lift = at.q / (values.kd * values.area * math.sqrt(2.0 * dp_t / rho))
+            assert want["lift"] == pytest.approx(lift, rel=1.0e-12)
+            assert want["state"] == ("full_lift" if at.q >= q_f else "partial_lift")
+            if want["state"] == "full_lift":
+                assert lift == pytest.approx(1.0, abs=5.0e-6 if epanet else 1.0e-12)
+            else:
+                assert 0.0 < lift < 1.0
+            forward = law.flow_at(dp_t)
+            assert forward == pytest.approx(at.q, rel=5.0e-4 if epanet else 1.0e-9)
+            re = rho * (at.q / values.area) * math.sqrt(4.0 * values.area / math.pi) / mu
+            assert want["reynoldsNumber"] == pytest.approx(re, rel=1.0e-14)
+        key_in, key_out = f"{rv.id}:inlet", f"{rv.id}:outlet"
+        p_in, p_out = expected["pressures"][key_in], expected["pressures"][key_out]
+        assert want["inletPressure"] == p_in
+        assert want["backPressure"] == p_out
+        assert want["pressureDrop"] == pytest.approx(p_in - p_out, rel=1.0e-12, abs=1.0e-9)
+        v_in = nc.end_velocity(project, key_in, expected["flows"])
+        v_out = nc.end_velocity(project, key_out, expected["flows"])
+        identity = dp_t - rho * (v_in**2 - v_out**2) / 2.0
+        assert want["pressureDrop"] == pytest.approx(identity, rel=1.0e-9, abs=1.0e-6)
+        capacity = want["capacity"]
+        assert capacity["kind"] == rv.capacity.kind
+        assert capacity["area"] == values.area
+        assert capacity["dischargeCoefficient"] == values.kd
+        if rv.capacity.kind == "api526":
+            assert capacity["letter"] == rv.capacity.letter
+            index = fluids.safety_valve.API526_letters.index(rv.capacity.letter)
+            assert values.area == pytest.approx(fluids.safety_valve.API526_A[index], rel=1.0e-15)
+            assert values.kd == 0.65
+        if rv.capacity.kind == "effective":
+            assert capacity["coveringLetter"] == el.covering_letter(values.area)
+        if rv.capacity.kind == "certified":
+            assert capacity["overpressure"] == rv.capacity.overpressure
+
+
+@pytest.mark.parametrize("path", RELIEF_CASES, ids=lambda p: p.stem)
+def test_relief_flags_follow_their_inequalities(path: Path) -> None:
+    """The relief flags of each case from its expected results (decision 15): RELIEF_VALVE_OPEN
+    at full lift; CORRELATION_OUT_OF_RANGE partial_lift short of it; BELOW_VAPOR_PRESSURE on the
+    valve (detail backAbsolutePressure) when it relieves with its back pressure at or below the
+    vapor pressure (0 Pa absolute without one); CORRELATION_OUT_OF_RANGE viscosity when it
+    relieves at μ ≥ 0.1 Pa·s; RELIEF_VALVE_CLOSED (detail side) on a valve without a result; and
+    nothing else on a relief valve."""
+    case, project = _load(path)
+    expected = case["expected"]
+    _, mu, p_vap = nc.fluid_state(project)
+    p_atm = dv.standard_atmosphere_pressure(project.settings.site_elevation)
+    flags = expected.get("flags", [])
+    for rv in _relief_valves(project):
+        own = sorted(
+            (f["code"], f.get("limit") or f.get("detail") or "")
+            for f in flags
+            if f.get("componentId") == rv.id
+            and not (f["code"] == "BELOW_VAPOR_PRESSURE" and "detail" not in f)
+        )
+        want = expected["reliefValves"][rv.id]
+        wanted: list[tuple[str, str]] = []
+        if want is None:
+            wanted.append(("RELIEF_VALVE_CLOSED", "side"))
+        elif want["flow"] > 0.0:
+            if want["state"] == "full_lift":
+                wanted.append(("RELIEF_VALVE_OPEN", ""))
+            else:
+                wanted.append(("CORRELATION_OUT_OF_RANGE", "partial_lift"))
+            threshold = 0.0 if p_vap is None else p_vap
+            if want["backPressure"] + p_atm <= threshold:
+                wanted.append(("BELOW_VAPOR_PRESSURE", "backAbsolutePressure"))
+            if mu >= dr.VISCOSITY_LIMIT:
+                wanted.append(("CORRELATION_OUT_OF_RANGE", "viscosity"))
+        assert own == sorted(wanted), (rv.id, own, wanted)
+
+
+def test_relief_flag_cases_cover_every_flag() -> None:
+    """Each relief flag appears in some case (decision 15)."""
+    found = {
+        (f["code"], f.get("limit") or f.get("detail") or "")
+        for path in RELIEF_CASES
+        for f in read_case(path)["expected"].get("flags", [])
+        if f.get("componentId", "").startswith("RV")
+    }
+    assert {
+        ("RELIEF_VALVE_OPEN", ""),
+        ("CORRELATION_OUT_OF_RANGE", "partial_lift"),
+        ("CORRELATION_OUT_OF_RANGE", "viscosity"),
+        ("BELOW_VAPOR_PRESSURE", "backAbsolutePressure"),
+        ("RELIEF_VALVE_CLOSED", "side"),
+    } <= found
+
+
+def test_relief_valve_opens_on_the_static_difference() -> None:
+    """C4 (outlet port 0.5 m above the inlet port): h_set = Δp_s/(ρg) − 0.5 m, so at zero flow
+    the valve opens where the static difference p_in − p_out equals Δp_s exactly (decision 5,
+    §1.3 item 15), and the static and total differences differ by the velocity heads only."""
+    _, project = _load(case_path("relief_port_elevations"))
+    [rv] = _relief_valves(project)
+    rho = nc.density(project)
+    law = el.relief_law(rv, rho)
+    assert law.dz == -dr.C4_OUTLET_ELEVATION
+    # At zero flow both ports are at rest: EGL_in − EGL_out = h_set gives p_in − p_out = Δp_s.
+    z_in, z_out = (nc.port_elevation(project, f"RV1:{p}") for p in ("inlet", "outlet"))
+    h_out = 1.0
+    h_in = h_out + law.h_set()
+    static = dv.static_pressure(rho, h_in, z_in, 0.0) - dv.static_pressure(rho, h_out, z_out, 0.0)
+    assert static == pytest.approx(rv.set_pressure, rel=1.0e-12)
+
+
+def test_relief_c2_other_pressure_readings() -> None:
+    """C2 at its solved pressures (proposal §1.3 item 1, S2): API 520's equation on the inlet
+    stagnation and outlet static pressures (the definitions' literal reading) would pass 0.418 %
+    more flow, on the static difference 1.609 % less; the total-pressure reading used lies
+    between them."""
+    case, project = _load(case_path("relief_partial_lift"))
+    expected = case["expected"]
+    [rv] = _relief_valves(project)
+    rho = nc.density(project)
+    law = el.relief_law(rv, rho)
+    at = _relief_at(project, rv, expected)
+    p_in, p_out = expected["pressures"]["RV1:inlet"], expected["pressures"]["RV1:outlet"]
+    literal = law.flow_at(p_in + rho * at.v_in**2 / 2.0 - p_out)
+    static = law.flow_at(p_in - p_out)
+    assert literal / at.q - 1.0 == pytest.approx(0.00418, abs=5.0e-6)
+    assert static / at.q - 1.0 == pytest.approx(-0.01609, abs=5.0e-6)
+
+
+def test_relief_c3_is_api520_at_the_solved_state() -> None:
+    """C3 beyond full lift: fluids' API520_A_l at the solved flow with P1 − P2 = Δp_t (= ρgh,
+    the ports level) gives API 526 F's area times 1 + 6.0921×10⁻⁵ (proposal §7.1)."""
+    case, project = _load(case_path("relief_full_lift"))
+    want = case["expected"]["reliefValves"]["RV1"]
+    rho = nc.density(project)
+    required = fluids.safety_valve.API520_A_l(
+        m=rho * want["flow"],
+        rho=rho,
+        P1=want["totalPressureDifference"] + 101325.0,
+        P2=101325.0,
+        overpressure=0.1,
+        Kd=0.65,
+        Kc=1.0,
+        Kw=1.0,
+        Kv=1.0,
+    )
+    assert required / el.API526_AREAS["F"] - 1.0 == pytest.approx(API520_ROUNDING, rel=1.0e-7)
+
+
+def test_epanet_relief_cases_agree_with_the_closed_form() -> None:
+    """EPANET's GPV runs (proposal §7.2) against the closed form of network M in EPANET water
+    with the suite's Swamee–Jain: within 2×10⁻⁴ in the relief flow (EPANET's g in the pipes, the
+    interpolated curve). The proposal's measured EPANET flows, its reference flows times 1 + ΔQ
+    (E1 0.0022186660463 × (1 + 1.702×10⁻⁴), E2 0.0047276688973 × (1 + 1.038×10⁻⁵), E3
+    0.0010820268256 × (1 + 1.629×10⁻⁴)), are EPANET's here to their four printed digits of ΔQ
+    (half a unit of the fourth digit is 5×10⁻⁸ of the flow at most)."""
+    rho, mu, _ = dv.fluid_state(do.epanet_water())
+    printed = {
+        "epanet_relief_partial": (1.05e6, 0.0022186660463, 1.702e-4),
+        "epanet_relief_full": (1.4e6, 0.0047276688973, 1.038e-5),
+        "epanet_relief_near_set": (1.004e6, 0.0010820268256, 1.629e-4),
+    }
+    for name, (p_r, reference, delta) in printed.items():
+        q = read_case(case_path(name))["expected"]["flows"]["LB1"]
+        closed = dr.network_m(p_r).solve(rho, mu, "swamee_jain").q_relief
+        assert abs(q / closed - 1.0) < 2.0e-4, name
+        assert q == pytest.approx(reference * (1.0 + delta), rel=6.0e-8), name
+
+
+RELIEF_PROPOSAL_VALUES: dict[str, list[tuple[str, str, float]]] = {
+    "relief_closed": [("pressures", "RV1:inlet", 319_574.0734)],
+    "relief_partial_lift": [
+        ("flows", "LB1", 0.002221210802348),
+        ("reliefValves.RV1", "lift", 0.5311270926),
+        ("reliefValves.RV1", "flowRatio", 0.5196842317),
+        ("egl", "RV1:inlet", 53.81168955),
+        ("egl", "RV1:outlet", 0.01028154777),
+        ("pressures", "RV1:inlet", 526_131.6131),
+        ("pressures", "RV1:outlet", -7.754453834),
+        ("reliefValves.RV1", "totalPressureDifference", 526_556.3546),
+        ("reliefValves.RV1", "pressureDrop", 526_139.3676),
+    ],
+    "relief_full_lift": [
+        ("flows", "LB1", 0.004732647684257),
+        ("reliefValves.RV1", "flowRatio", 1.107271031),
+        ("pressures", "RV1:inlet", 672_346.5806),
+        ("reliefValves.RV1", "headLoss", 68.90002007),
+        ("reliefValves.RV1", "fullLiftFlow", 0.004274154702),
+    ],
+    "relief_port_elevations": [
+        ("flows", "LB1", 0.002466109033239),
+        ("reliefValves.RV1", "lift", 0.5880976056),
+        ("pressures", "RV1:inlet", 523_985.4996),
+        ("pressures", "RV1:outlet", -4_905.375361),
+        ("reliefValves.RV1", "pressureDrop", 528_890.875),
+    ],
+    "relief_asme_3psi": [
+        ("reliefValves.RV1", "overpressure", 0.1378951459),
+        ("flows", "LB1", 0.001473859256618),
+        ("reliefValves.RV1", "lift", 0.6332320359),
+        ("reliefValves.RV1", "flowRatio", 0.6189996008),
+        ("pressures", "RV1:inlet", 162_914.5764),
+    ],
+    "relief_pump_bypass": [
+        ("flows", "LB1", 0.02530885872613),
+        ("reliefValves.RV1", "lift", 0.7913442325),
+        ("reliefValves.RV1", "flowRatio", 0.7838029109),
+        ("pressures", "RV1:inlet", 367_016.2267),
+        ("reliefValves.RV1", "setRatio", 1.07913442325),
+        ("reliefValves.RV1", "setPressure", 330_425.9266),
+    ],
+    "relief_set_above_shutoff": [("pressures", "RV1:inlet", 459_990.7249)],
+    "relief_parallel_staggered": [
+        ("flows", "LA1", 0.01460771747274),
+        ("flows", "LB1", 0.00964240706616),
+        ("reliefValves.RVb", "lift", 0.658683),
+        ("egl", "T2:run_inlet", 39.6433689),
+    ],
+    "relief_assigned_demand": [
+        ("reliefValves.RV1", "headLoss", 54.72182215),
+        ("reliefValves.RV1", "lift", 0.71128963),
+        ("egl", "RV1:outlet", 8.4999204),
+        ("pressures", "AF1:port_1", 82_817.09534),
+    ],
+    "relief_assigned_demand_low_supply": [
+        ("egl", "RV1:outlet", -6.826475587),
+        ("pressures", "AF1:port_1", -67_182.90466),
+    ],
+    "relief_locked_closed": [("pressures", "RV1:inlet", 459_990.7249)],
+    "relief_certified": [
+        ("reliefValves.RV1", "fullLiftFlow", 0.005756846582),
+        ("flows", "LB1", 0.002921930523253),
+        ("reliefValves.RV1", "lift", 0.5168904272),
+        ("reliefValves.RV1", "flowRatio", 0.5075574764),
+        ("pressures", "RV1:inlet", 519_932.5011),
+    ],
+}
+"""Values of each case as the proposal's §7.1 table prints them (10-13 significant digits, the
+C8 lift six), measured by its designers with the law placed in a check valve's link of the real
+solver, and independently by its first reviewer: a second route to each derivation. C8's RVa set
+differs from the proposal's (module docstring of derivations_relief); beyond full lift its flow
+does not depend on the set, so the printed flows and head hold."""
+
+
+@pytest.mark.parametrize("name", sorted(RELIEF_PROPOSAL_VALUES))
+def test_relief_derivations_reproduce_the_proposal(name: str) -> None:
+    expected = read_case(case_path(name))["expected"]
+    for group, key, value in RELIEF_PROPOSAL_VALUES[name]:
+        where: Any = expected
+        for part in group.split("."):
+            where = where[part]
+        digits = len(f"{abs(value):.15g}".replace(".", "").lstrip("0").rstrip("0"))
+        assert where[key] == pytest.approx(value, rel=max(1.0e-12, 0.6 * 10.0 ** (1 - digits))), (
+            name,
+            group,
+            key,
+            where[key],
+        )

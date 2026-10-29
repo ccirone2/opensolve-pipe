@@ -147,8 +147,8 @@ METHOD_CHANGELOG: list[MethodChange] = [
         "version": "1.5.0",
         "date": "2026-10-28",
         "changes": [
-            "Adds the liquid pressure relief valve: a conventional spring-loaded valve closed below "
-            "its set pressure difference, its lift rising linearly with the overpressure (a "
+            "Adds the liquid pressure relief valve: a conventional spring-loaded valve closed "
+            "below its set pressure difference, its lift rising linearly with the overpressure (a "
             "convention, flagged; not the typical characteristic's surge and blowdown) to full "
             "lift at set plus overpressure (ASME's 10 % or 3 psi by default, for sets of at least "
             "15 psi), with API 520's liquid equation Q = Kd·A·√(2Δp/ρ) at its lift on the "

@@ -156,10 +156,14 @@ const units = (ctx: ExportContext) => ctx.units;
  * unbounded, Q ÷ Q_r: no 0–1 fraction) and whose Cv or Kv is as entered (lines added only then,
  * so a file without equipment is as before).
  */
-function unitRows(ctx: ExportContext, equipment: boolean): AboutRow[] {
+function unitRows(ctx: ExportContext, equipment: boolean, relief = false): AboutRow[] {
 	const u = units(ctx);
 	const label = (unit: string) => unit || 'none (a pure number)';
-	const fractions = equipment ? 'speed, efficiency, flow ÷ rated flow' : 'speed, efficiency';
+	const fractions = [
+		'speed, efficiency',
+		...(equipment ? ['flow ÷ rated flow'] : []),
+		...(relief ? ["a relief valve's lift, flow ÷ capacity, Δp ÷ set and overpressure"] : [])
+	].join(', ');
 	const rows: AboutRow[] = [
 		['Export', 'Units: elevations and lengths', u.label('length')],
 		['Export', 'Units: diameters and roughness', u.label('diameter')],
@@ -174,6 +178,7 @@ function unitRows(ctx: ExportContext, equipment: boolean): AboutRow[] {
 		['Export', 'Units: dynamic viscosity', u.label('viscosity')],
 		['Export', 'Units: kinematic viscosity', 'm²/s'],
 		['Export', 'Units: power', u.label('power')],
+		...(relief ? [['Export', 'Units: areas', u.label('area')] as AboutRow] : []),
 		['Export', `Units: fractions (${fractions})`, label(u.label('fraction'))],
 		[
 			'Export',
@@ -196,6 +201,9 @@ function unitRows(ctx: ExportContext, equipment: boolean): AboutRow[] {
 			'Fractions (speed, efficiency) are 0–1 and carry no unit.' +
 				(equipment
 					? ' Flow ÷ rated flow is a signed ratio with no unit: 1 at the rated flow, negative when the flow runs from outlet to inlet.'
+					: '') +
+				(relief
+					? " A relief valve's Δp ÷ set is a ratio with no unit, 1 at its set and above 1 while it relieves; its lift and flow ÷ capacity are 1 at full lift (flow ÷ capacity above 1 beyond it)."
 					: '')
 		]);
 	}
@@ -210,12 +218,13 @@ function andList(items: readonly string[]): string {
 }
 
 /**
- * The Numbers row; `equipment`, `orifices`: the ≈ 0 rule names equipment's and orifice plates'
- * pressure differences too (a file with neither is as before).
+ * The Numbers row; `equipment`, `orifices`, `relief`: the ≈ 0 rule names equipment's, orifice
+ * plates' and relief valves' pressure differences too (a file with none of them is as before).
  */
-function numbersText(equipment: boolean, orifices = false): string {
+function numbersText(equipment: boolean, orifices = false, relief = false): string {
 	const drops = [
 		'valve',
+		...(relief ? ['relief valve'] : []),
 		...(equipment ? ['equipment'] : []),
 		...(orifices ? ['orifice plate'] : [])
 	];
@@ -226,6 +235,12 @@ function numbersText(equipment: boolean, orifices = false): string {
 	const pressures = andList([`${andList(drops)} pressure drops`, ...losses]);
 	return `Full precision: each number is the value the calculation server returned, converted to these units, not rounded. The app shows 4 significant figures, and heads, elevations and lengths to at least 0.01 m (or its equivalent); it shows head differences below 1×10⁻⁷ m, ${pressures} below ρg·10⁻⁷ m and branch K below 1×10⁻⁴ as ≈ 0 (round-off). The file gives them as computed. Spreadsheets display and re-save at most 15 significant digits.`;
 }
+
+/** The relief valves' sign row, only in a file with a Relief valves sheet. */
+const RELIEF_SIGN: [string, string] = [
+	'Sign: relief valve flow',
+	"+ inlet → outlet; the valve closes on reverse flow beyond the status rules' flow tolerance (EPANET 2.2's Qtol, 1×10⁻⁸ m³/s), so a valve at its switch can show a flow a little below zero, with its state closed; the head loss, the total-pressure difference and the static pressure drop are inlet minus outlet; the static pressure drop also holds the ports' velocity terms."
+];
 
 /** The orifice plates' sign row, only in a file with an Orifice plates sheet. */
 const ORIFICE_SIGN: [string, string] = [
@@ -597,10 +612,13 @@ export function aboutRows(
 	const equipment = sheets.some((sheet) => sheet.file === 'equipment.csv');
 	// And about orifice plates only with an Orifice plates sheet.
 	const orifices = sheets.some((sheet) => sheet.file === 'orifices.csv');
-	rows.push(...unitRows(ctx, equipment));
-	rows.push(['Export', 'Numbers', numbersText(equipment, orifices)]);
+	// And about relief valves only with a Relief valves sheet.
+	const relief = sheets.some((sheet) => sheet.file === 'relief-valves.csv');
+	rows.push(...unitRows(ctx, equipment, relief));
+	rows.push(['Export', 'Numbers', numbersText(equipment, orifices, relief)]);
 	for (const [item, value] of SIGNS) {
 		rows.push(['Export', item, value]);
+		if (relief && item === 'Sign: valve flow') rows.push(['Export', ...RELIEF_SIGN]);
 		if (equipment && item === 'Sign: valve flow') rows.push(['Export', ...EQUIPMENT_SIGN]);
 		if (orifices && item === 'Sign: valve flow') rows.push(['Export', ...ORIFICE_SIGN]);
 	}

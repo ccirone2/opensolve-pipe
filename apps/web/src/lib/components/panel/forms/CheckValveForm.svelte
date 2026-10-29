@@ -42,7 +42,7 @@
 	category="pressure"
 	units={ws.units}
 	bounds={schemaBounds('CheckValve', 'crackingPressure')}
-	hint="Pressure difference across the valve (inlet minus outlet) that opens it; 0 opens on any forward flow."
+	hint="The forward pressure across the valve that opens it, read on the energy grade line: the static pressure difference, inlet minus outlet, plus ρg × (inlet port elevation − outlet port elevation); 0 opens on any forward flow. For overpressure protection use a pressure relief valve: a check valve's fixed K does not follow API 520's capacity."
 	onchange={(v) =>
 		v !== null &&
 		ws.editComponent<CheckValve>(component.id, 'change cracking pressure', (c) => {

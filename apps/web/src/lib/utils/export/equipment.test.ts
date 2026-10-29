@@ -20,7 +20,7 @@ import type {
 } from '../../api/types';
 import { equipmentTable, Formatter, HEAD_NOISE, valueText } from '../results';
 import { displayUnit, fromSI, STANDARD_GRAVITY } from '../units';
-import { fixtureInput, readSheet, sheetIds } from './export-testing.testing';
+import { fixtureInput, readSheet, sheetIds, withoutReliefValves } from './export-testing.testing';
 import { buildExport, type ExportInput } from './model';
 
 const ports = [
@@ -131,9 +131,12 @@ describe('the Equipment sheet', () => {
 		const input = withEquipment(fixtureInput('scenarios')); // SI, all three cases
 		const bundle = buildExport(input);
 		expect(sheetIds(bundle)).toContain('equipment');
-		// After Valves (a fixture case has a PRV), before Branches.
+		// After Valves (a fixture case has a PRV) and Relief valves when the file has some, before
+		// Branches.
 		const ids = sheetIds(bundle);
-		expect(ids.indexOf('equipment')).toBe(ids.indexOf('valves') + 1);
+		expect(ids.indexOf('equipment')).toBe(
+			Math.max(ids.indexOf('valves'), ids.indexOf('relief-valves')) + 1
+		);
 		const t = readSheet(bundle, 'equipment');
 		expect(t.headers).toEqual([
 			'Case id',
@@ -224,9 +227,12 @@ describe('the Equipment sheet', () => {
 });
 
 describe('About and Scenario changes with equipment', () => {
-	/** About's rows as Item → Value (without orifice plates: their lines are their own). */
+	/**
+	 * About's rows as Item → Value (without orifice plates and relief valves: their lines are their
+	 * own).
+	 */
 	function about(input: ExportInput): Map<string, unknown> {
-		const t = readSheet(buildExport(withoutOrifices(input)), 'about');
+		const t = readSheet(buildExport(withoutOrifices(withoutReliefValves(input))), 'about');
 		return new Map(t.rows.map((r) => [String(t.get(r, 'Item')), t.get(r, 'Value')]));
 	}
 

@@ -1,0 +1,583 @@
+{
+  "name": "relief_parallel_staggered",
+  "description": "A pump's blocked discharge relieved by two relief valves with staggered sets in parallel: verifies the split between a valve beyond full lift and one at partial lift, and their common inlet head.",
+  "source": "closed-form: tests/reference/derivations_relief.py::relief_parallel_staggered (relief valve on the EGL h(Q) = h_set + (dp_t(Q) - dp_s)/(rho g), h_set = dp_s/(rho g) + z_in - z_out; lift x = clip((dp_t - dp_s)/(dp_s op), 0, 1), Q = x Kd A sqrt(2 dp_t/rho) (API 520 liquid equation, exact SI, Kw = Kc = Kv = 1); band root u = sqrt(dp_t) of u^3 - dp_s u - R Q = 0 by Chebyshev's cos/cosh identity (element_laws.ReliefLaw); ASME overpressure max(0.1, 3 psi/dp_s) (scipy.constants.psi); status EPANET 2.2 cvstatus with cracking head h_set, started closed; pump curve PCHIP (curve_a); Darcy-Weisbach + Colebrook; brentq on T2's EGL, each leg's flow by an inner brentq; static p = rho g (EGL - z - v^2/2g), v in the connected pipe (D7))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-relief-parallel-staggered",
+    "metadata": {
+      "name": "Two relief valves with staggered sets",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "PU1",
+        "name": "Pump PU1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "suction",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "discharge",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "pump",
+        "curveId": "PC-A",
+        "speed": 1.0,
+        "status": "on"
+      },
+      {
+        "id": "T1",
+        "name": "Tee T1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "IV1",
+        "name": "Valve IV1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "valve",
+        "valveType": "gate",
+        "status": "isolated"
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 10.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "T2",
+        "name": "Tee T2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "RVa",
+        "name": "Relief valve RVa",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.0508,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.0508,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "relief_valve",
+        "setPressure": 320425.9266,
+        "capacity": {
+          "kind": "api526",
+          "letter": "J"
+        },
+        "status": "active"
+      },
+      {
+        "id": "RVb",
+        "name": "Relief valve RVb",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.0508,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.0508,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "relief_valve",
+        "setPressure": 344425.9266,
+        "capacity": {
+          "kind": "api526",
+          "letter": "J"
+        },
+        "status": "active"
+      },
+      {
+        "id": "R3",
+        "name": "Reservoir R3",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "R4",
+        "name": "Reservoir R4",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "PU1",
+        "toPortId": "suction",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1541,
+              "length": 5.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "PU1",
+        "fromPortId": "discharge",
+        "toComponentId": "T1",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 5.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L3",
+        "fromComponentId": "T1",
+        "fromPortId": "run_outlet",
+        "toComponentId": "IV1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 50.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L4",
+        "fromComponentId": "IV1",
+        "fromPortId": "outlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 50.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LF",
+        "fromComponentId": "T1",
+        "fromPortId": "branch",
+        "toComponentId": "T2",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 3.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LA1",
+        "fromComponentId": "T2",
+        "fromPortId": "run_outlet",
+        "toComponentId": "RVa",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 1.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LA2",
+        "fromComponentId": "RVa",
+        "fromPortId": "outlet",
+        "toComponentId": "R3",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 6.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LB1",
+        "fromComponentId": "T2",
+        "fromPortId": "branch",
+        "toComponentId": "RVb",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 1.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LB2",
+        "fromComponentId": "RVb",
+        "fromPortId": "outlet",
+        "toComponentId": "R4",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 6.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": [
+      {
+        "id": "PC-A",
+        "name": "Curve PC-A",
+        "points": [
+          {
+            "flow": 0.0,
+            "head": 45.0
+          },
+          {
+            "flow": 0.01,
+            "head": 44.0
+          },
+          {
+            "flow": 0.02,
+            "head": 41.0
+          },
+          {
+            "flow": 0.03,
+            "head": 35.5
+          },
+          {
+            "flow": 0.04,
+            "head": 27.0
+          }
+        ],
+        "npshrCurve": [
+          {
+            "flow": 0.005,
+            "npshr": 1.6
+          },
+          {
+            "flow": 0.015,
+            "npshr": 2.0
+          },
+          {
+            "flow": 0.025,
+            "npshr": 2.7
+          },
+          {
+            "flow": 0.035,
+            "npshr": 3.8
+          },
+          {
+            "flow": 0.045,
+            "npshr": 5.2
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "L1": 0.02425012453890215,
+      "L2": 0.02425012453890215,
+      "L3": 0.0,
+      "L4": 0.0,
+      "LF": 0.02425012453890215,
+      "LA1": 0.014607717472738821,
+      "LA2": 0.014607717472738821,
+      "LB1": 0.009642407066163327,
+      "LB2": 0.009642407066163327
+    },
+    "egl": {
+      "R1:port_1": 2.0,
+      "PU1:suction": 1.950572721132746,
+      "PU1:discharge": 40.96271594097948,
+      "T1:run_inlet": 40.57538331677977,
+      "T1:run_outlet": 40.57538331677977,
+      "T1:branch": 40.57538331677977,
+      "IV1:inlet": 40.57538331677977,
+      "IV1:outlet": 10.0,
+      "R2:port_1": 10.0,
+      "T2:run_inlet": 39.64336890103469,
+      "T2:run_outlet": 39.64336890103469,
+      "T2:branch": 39.64336890103469,
+      "RVa:inlet": 39.52693106867813,
+      "RVa:outlet": 2.1765208190059804,
+      "RVb:inlet": 39.59077959364654,
+      "RVb:outlet": 2.080683239059626,
+      "R3:port_1": 2.0,
+      "R4:port_1": 2.0
+    },
+    "pressures": {
+      "PU1:suction": 18246.723692882835,
+      "PU1:discharge": 396560.0405493769,
+      "T1:run_inlet": 392769.2019412271,
+      "T1:run_outlet": 397112.7656378913,
+      "T1:branch": 384194.6580027574,
+      "T2:run_inlet": 375072.9987109312,
+      "T2:run_outlet": 383303.6668677069,
+      "T2:branch": 385948.7012951011,
+      "RVa:inlet": 382164.0855291648,
+      "RVa:outlet": 19725.59203645806,
+      "RVb:inlet": 385434.00781366567,
+      "RVb:outlet": 19676.98823828346
+    },
+    "pumps": {
+      "PU1": {
+        "status": "running",
+        "operatingFlow": 0.02425012453890215,
+        "operatingHead": 39.012143219846735
+      }
+    },
+    "valves": {
+      "IV1": {
+        "state": "closed"
+      }
+    },
+    "flags": [
+      {
+        "code": "NPSH_NOT_CHECKED",
+        "componentId": "PU1"
+      },
+      {
+        "code": "RELIEF_VALVE_OPEN",
+        "componentId": "RVa"
+      },
+      {
+        "code": "CORRELATION_OUT_OF_RANGE",
+        "componentId": "RVb",
+        "limit": "partial_lift"
+      }
+    ],
+    "reliefValves": {
+      "RVa": {
+        "state": "full_lift",
+        "flow": 0.014607717472738821,
+        "lift": 1.0000000000000002,
+        "headLoss": 37.35041024967215,
+        "totalPressureDifference": 365549.8358735975,
+        "pressureDrop": 362438.49349270674,
+        "inletPressure": 382164.0855291648,
+        "backPressure": 19725.59203645806,
+        "setPressure": 320425.9266,
+        "setRatio": 1.1408247757988927,
+        "overpressure": 0.1,
+        "overpressureSource": "asme_default",
+        "fullLiftPressureDifference": 352468.51926000003,
+        "fullLiftFlow": 0.014343965466876597,
+        "flowRatio": 1.0183876631933677,
+        "capacity": {
+          "kind": "api526",
+          "letter": "J",
+          "area": 0.00083032092,
+          "dischargeCoefficient": 0.65
+        },
+        "reynoldsNumber": 570880.1876737041
+      },
+      "RVb": {
+        "state": "partial_lift",
+        "flow": 0.009642407066163327,
+        "lift": 0.6586833711048005,
+        "headLoss": 37.51009635458691,
+        "totalPressureDifference": 367112.6896428783,
+        "pressureDrop": 365757.01957538223,
+        "inletPressure": 385434.00781366567,
+        "backPressure": 19676.98823828346,
+        "setPressure": 344425.9266,
+        "setRatio": 1.0658683371104802,
+        "overpressure": 0.1,
+        "overpressureSource": "asme_default",
+        "fullLiftPressureDifference": 378868.51926000003,
+        "fullLiftFlow": 0.014871450308182,
+        "flowRatio": 0.6483837733605747,
+        "capacity": {
+          "kind": "api526",
+          "letter": "J",
+          "area": 0.00083032092,
+          "dischargeCoefficient": 0.65
+        },
+        "reynoldsNumber": 376832.25773160404
+      }
+    }
+  }
+}

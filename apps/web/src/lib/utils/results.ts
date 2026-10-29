@@ -24,6 +24,7 @@ import type {
 	PipeConnection,
 	Project,
 	PumpResult,
+	ReliefValveResult,
 	SegmentResult,
 	SolvedState,
 	UnitPreferences,
@@ -42,6 +43,7 @@ import {
 	PUMP_CONTROL_MODE_NAMES,
 	PUMP_CONTROL_STATE_LABELS
 } from './labels';
+import { RELIEF_STATE_LABELS } from './relief';
 import {
 	displayUnit,
 	formatNumber,
@@ -1013,6 +1015,73 @@ export function valveTable(project: Project, solved: SolvedState, prefs: UnitPre
 	return { columns, rows };
 }
 
+/** A relief valve with no result: closed, with a side closed off or floating (RELIEF_VALVE_CLOSED). */
+export const RELIEF_NO_RESULT = 'Closed (no result)';
+
+/**
+ * Relief valves (proposal pressure-relief-valve.md §6 W4): the state, the flow, the capacity at
+ * full lift for the case fluid and the flow as a fraction of it, the inlet's static pressure
+ * (gauge), the total-pressure difference as a fraction of the set (above 100 %, relieving: the
+ * rise is its overpressure), the lift, the back pressure (gauge), the static pressure drop, inlet
+ * minus outlet, as for valves, and the head loss; "—" for none (a pressure in a floating section).
+ * A relief valve with no result (a side closed off or floating) is listed by its
+ * RELIEF_VALVE_CLOSED flag, with "—" for every value. Differences the solver resolves only to its
+ * head tolerance read "≈ 0".
+ */
+export function reliefTable(project: Project, solved: SolvedState, prefs: UnitPreferences): Table {
+	const f = new Formatter(prefs);
+	const columns: Column[] = [
+		text('state', 'State'),
+		f.column('flow', 'Flow (+ inlet → outlet)', 'flow'),
+		f.column('fullLiftFlow', 'Capacity (full lift)', 'flow'),
+		f.column('flowRatio', 'Flow ÷ capacity', 'fraction'),
+		f.column('inletPressure', 'Inlet pressure', 'pressure', { gauge: true }),
+		f.column('setRatio', 'Δp ÷ set', 'fraction'),
+		f.column('lift', 'Lift', 'fraction'),
+		f.column('backPressure', 'Back pressure', 'pressure', { gauge: true }),
+		f.column('pressureDrop', 'Pressure drop (static)', 'pressure'),
+		f.column('headLoss', 'Head loss', 'head')
+	];
+	// An older response may have no map at all.
+	const results = solved.reliefValveResults ?? {};
+	const closed = solved.flags
+		.filter((flag) => flag.code === 'RELIEF_VALVE_CLOSED' && flag.componentId)
+		.map((flag) => flag.componentId as string)
+		.filter((id) => !(id in results));
+	// The head tolerance as a pressure, at the solved fluid's density and standard gravity.
+	const pressureNoise = solved.fluid.density * STANDARD_GRAVITY * HEAD_NOISE;
+	const rows = orderedIds(project, [...Object.keys(results), ...new Set(closed)]).map((id) => {
+		const valve = results[id] as ReliefValveResult | undefined;
+		if (!valve) {
+			return componentRow(project, solved.flags, id, {
+				state: RELIEF_NO_RESULT,
+				...Object.fromEntries(columns.slice(1).map((c) => [c.key, '—']))
+			});
+		}
+		return componentRow(project, solved.flags, id, {
+			state: RELIEF_STATE_LABELS[valve.state] ?? humanize(valve.state),
+			flow: f.num(valve.flow, 'flow'),
+			fullLiftFlow: f.num(valve.fullLiftFlow, 'flow'),
+			flowRatio: f.num(valve.flowRatio, 'fraction'),
+			inletPressure: f.num(valve.inletPressure, 'pressure'),
+			setRatio: f.num(valve.setRatio, 'fraction'),
+			lift: f.num(valve.lift, 'fraction'),
+			backPressure: f.num(valve.backPressure, 'pressure'),
+			pressureDrop: f.diff(valve.pressureDrop, 'pressure', pressureNoise),
+			headLoss: f.diff(valve.headLoss, 'head', HEAD_NOISE)
+		});
+	});
+	return { columns, rows };
+}
+
+/** Whether a solve has a relief valve to show: a result, or one with none (RELIEF_VALVE_CLOSED). */
+export function hasReliefValves(solved: SolvedState): boolean {
+	return (
+		Object.keys(solved.reliefValveResults ?? {}).length > 0 ||
+		solved.flags.some((flag) => flag.code === 'RELIEF_VALVE_CLOSED')
+	);
+}
+
 /**
  * Equipment (proposal equipment-pressure-drop.md §6.3): flow, flow ÷ rated flow ("—" for a Cv or
  * Kv rating, which has no rated flow), the pressure loss (the rating scaled to the solved flow and
@@ -1319,6 +1388,7 @@ export type ResultsView =
 	| 'links'
 	| 'pumps'
 	| 'valves'
+	| 'reliefValves'
 	| 'equipment'
 	| 'orifices'
 	| 'branches'
@@ -1333,6 +1403,7 @@ export const VIEW_LABELS: Readonly<Record<ResultsView, string>> = {
 	links: 'Links',
 	pumps: 'Pumps',
 	valves: 'Valves',
+	reliefValves: 'Relief valves',
 	equipment: 'Equipment',
 	orifices: 'Orifices',
 	branches: 'Branches',
@@ -1352,6 +1423,9 @@ export function availableViews(solved: SolvedState): ResultsView[] {
 	if (has(solved.linkResults)) views.push('links');
 	if (has(solved.pumpResults)) views.push('pumps');
 	if (has(solved.valveResults)) views.push('valves');
+	// Relief valves after the valves (proposal pressure-relief-valve.md W4), when the solve has
+	// some (an older response may have no map at all), with or without a result.
+	if (hasReliefValves(solved)) views.push('reliefValves');
 	// Equipment only when the solve has some (an older response may have no map at all).
 	if (has(solved.equipmentResults ?? {})) views.push('equipment');
 	// Orifice plates only when the solve has some (an older response may have no map at all).
@@ -1380,6 +1454,7 @@ export function rowsForElement(
 			: [
 					{ title: 'Pump', table: pumpTable(project, solved, prefs) },
 					{ title: 'Valve', table: valveTable(project, solved, prefs) },
+					{ title: 'Relief valve', table: reliefTable(project, solved, prefs) },
 					{ title: 'Equipment', table: equipmentTable(project, solved, prefs) },
 					{ title: 'Orifice plate', table: orificeTable(project, solved, prefs) },
 					{ title: 'Branch', table: branchTable(project, solved, prefs) },
@@ -1429,6 +1504,8 @@ const SUMMARY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
 	'Pipe connection': ['flow', 'velocity', 'headLoss'],
 	Pump: ['status', 'flow', 'head', 'npshMargin'],
 	Valve: ['state', 'flow', 'pressureDrop'],
+	// Δp ÷ set says how close a closed valve is to opening, or how far an open one relieves past it.
+	'Relief valve': ['state', 'flow', 'inletPressure', 'setRatio'],
 	// A Cv- or Kv-rated item has no flow ratio ("—"): left out, so it shows flow and pressure loss.
 	Equipment: ['flow', 'flowRatio', 'pressureLoss'],
 	// A plate without taps has no reading ("—"): left out, so it shows flow and permanent loss.

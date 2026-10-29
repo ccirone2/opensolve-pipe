@@ -170,6 +170,8 @@ describe('catalogues (x-goal-quantities, x-goal-variables)', () => {
 			orifice_pressure_loss: 'orificePressureLoss',
 			orifice_differential_pressure: 'orificeDifferentialPressure',
 			orifice_pressure_drop: 'orificePressureDrop',
+			relief_valve_flow: 'reliefFlow',
+			relief_valve_pressure_drop: 'reliefPressureDrop',
 			boundary_outflow: 'boundaryOutflow'
 		});
 		for (const [quantity, compare] of Object.entries(GOAL_QUANTITIES)) {

@@ -11,6 +11,8 @@
  * - on `Fitting`, `x-required-parameters` (fields each fitting type needs), `x-reducer-types`
  *   (fittings between two pipes), `x-entrance-types` and `x-exit-types`;
  * - on `ControlValve`, `x-setpoint-bounds` (an FCV's setpoint is a flow);
+ * - on `ReliefValve`, `x-relief-data` (API 526's letters and effective areas, API 520's effective
+ *   coefficient of discharge, ASME's liquid overpressure and its 15 psi scope);
  * - on a component schema, `x-ordered-fields` (pairs of fields whose values must be ordered, such
  *   as a speed-controlled pump's minimum speed below its speed, the maximum);
  * - on `Scenario`, `x-override-fields` (the values a scenario may change, by target schema: the
@@ -66,25 +68,28 @@ function unionMembers(union: JsonObject): string[] {
 
 /**
  * Whether schema `name` is a member of a union a value is told apart in by its `kind` (a fluid, an
- * equipment rating): a value held by such a schema must be of that member (holderSchema).
+ * equipment rating, a relief valve's capacity): a value held by such a schema must be of that
+ * member (holderSchema).
  */
-function kindUnionOf(name: string): 'fluid' | 'rating' | null {
+function kindUnionOf(name: string): 'fluid' | 'rating' | 'capacity' | null {
 	if ([...FLUID_SCHEMAS.values()].includes(name)) return 'fluid';
 	if ([...RATING_SCHEMAS.values()].includes(name)) return 'rating';
+	if ([...CAPACITY_SCHEMAS.values()].includes(name)) return 'capacity';
 	return null;
 }
 
 /**
  * Whether `holder` (an object found at a value's path) is a holder of schema `name`, as the API's
  * holder test (`isinstance`, services/scenarios.plan_override) decides it: a member of a union
- * told apart by `kind` (a fluid, an equipment rating) must be that member; any other holder (a
- * component, a pump's control) need only exist.
+ * told apart by `kind` (a fluid, an equipment rating, a relief valve's capacity) must be that
+ * member; any other holder (a component, a pump's control) need only exist.
  */
 export function holdsSchema(holder: unknown, name: string): boolean {
 	if (!isRecord(holder)) return false;
 	const union = kindUnionOf(name);
 	if (union === 'fluid') return fluidSchemaName(holder.kind) === name;
 	if (union === 'rating') return ratingSchemaName(holder.kind) === name;
+	if (union === 'capacity') return capacitySchemaName(holder.kind) === name;
 	return true;
 }
 
@@ -184,6 +189,80 @@ export function ratingSchemaName(kind: unknown): string | null {
 /** The rating kinds the `Equipment.rating` union allows, in its members' order. */
 export function ratingKinds(): unknown[] {
 	return [...RATING_SCHEMAS.keys()];
+}
+
+/**
+ * The capacity schemas of the `ReliefValve.capacity` union, by their `kind` const (an API 526
+ * letter, an API 520 effective area, a certified capacity), read from the members, never copied
+ * (proposal pressure-relief-valve.md decision 7, W1).
+ */
+const CAPACITY_SCHEMAS: ReadonlyMap<unknown, string> = new Map(
+	unionMembers(property('ReliefValve', 'capacity')).map((name) => [
+		property(name, 'kind').const,
+		name
+	])
+);
+
+/** The schema a relief valve's capacity is validated against, by its kind; null when none. */
+export function capacitySchemaName(kind: unknown): string | null {
+	return CAPACITY_SCHEMAS.get(kind) ?? null;
+}
+
+/** The capacity kinds the `ReliefValve.capacity` union allows, in its members' order. */
+export function capacityKinds(): unknown[] {
+	return [...CAPACITY_SCHEMAS.keys()];
+}
+
+/**
+ * The relief valve's cited data (`x-relief-data` on `ReliefValve`, from the API's
+ * data/api526_orifices.json): API 526's effective area of each orifice letter (m²), API 520's
+ * effective coefficient of discharge, and ASME's liquid certification overpressure (a fraction
+ * of the set, with its floor in Pa) and the lowest set it covers (Pa), ASME VIII's 15 psi scope
+ * (proposal pressure-relief-valve.md decisions 6, 27). Read, never copied (D10).
+ */
+export interface ReliefData {
+	/** API 526's letters, in the schema's order, with their effective areas, m². */
+	api526Areas: Readonly<Record<string, number>>;
+	effectiveDischargeCoefficient: number;
+	asmeOverpressureFraction: number;
+	asmeOverpressureFloor: number;
+	asmeMinimumSetPressure: number;
+}
+
+export const RELIEF_DATA: ReliefData = (() => {
+	const published = schema('ReliefValve')['x-relief-data'];
+	if (!isRecord(published) || !isRecord(published.api526Areas)) {
+		throw new Error('openapi.json: ReliefValve has no x-relief-data');
+	}
+	const letters = stringList(property('Api526Orifice', 'letter').enum, 'Api526Orifice.letter');
+	const api526Areas: Record<string, number> = {};
+	for (const letter of letters) {
+		const area = published.api526Areas[letter];
+		if (typeof area !== 'number') {
+			throw new Error(`openapi.json: x-relief-data.api526Areas has no letter ${letter}`);
+		}
+		api526Areas[letter] = area;
+	}
+	if (Object.keys(published.api526Areas).length !== letters.length) {
+		throw new Error('openapi.json: x-relief-data.api526Areas is not the letters of Api526Orifice');
+	}
+	const number = (key: string) => {
+		const value = (published as JsonObject)[key];
+		if (typeof value !== 'number') throw new Error(`openapi.json: x-relief-data.${key}`);
+		return value;
+	};
+	return {
+		api526Areas,
+		effectiveDischargeCoefficient: number('effectiveDischargeCoefficient'),
+		asmeOverpressureFraction: number('asmeOverpressureFraction'),
+		asmeOverpressureFloor: number('asmeOverpressureFloor'),
+		asmeMinimumSetPressure: number('asmeMinimumSetPressure')
+	};
+})();
+
+/** API 526's orifice letters, D to T, in the schema's order. */
+export function api526Letters(): string[] {
+	return Object.keys(RELIEF_DATA.api526Areas);
 }
 
 /** The override schemas of the `Scenario.overrides` union, by their `kind`. */
@@ -441,12 +520,21 @@ export function missingFittingParameters(fitting: Fitting): FittingParameter[] {
 /**
  * One value a scenario may change on a target type (`x-override-fields`): the schema that holds
  * it (its bounds are that schema's property) and its camelCase path from the target, or, for a
- * group whose keys are replaced together (a pipe's spec), those keys of the target.
+ * group whose keys are replaced together (a pipe's spec), those keys of the target. `holders`,
+ * where the entry publishes them, are every schema whose objects hold it (a relief valve's
+ * `capacity.area`, held by an effective and by a certified capacity); absent, `schema` alone
+ * (holdersOf).
  */
 export interface OverrideField {
 	schema: string;
 	path: readonly string[];
 	keys: readonly string[];
+	holders?: readonly string[];
+}
+
+/** The schemas whose objects hold an allow-list value: its published holders, else its schema. */
+export function holdersOf(entry: OverrideField): readonly string[] {
+	return entry.holders ?? [entry.schema];
 }
 
 /**
@@ -467,10 +555,16 @@ export const OVERRIDE_FIELDS: Readonly<Record<string, Readonly<Record<string, Ov
 					throw new Error(`openapi.json: x-override-fields.${target}.${name}`);
 				}
 				schema(entry.schema); // the holder exists
+				const holders =
+					entry.holders === undefined
+						? null
+						: stringList(entry.holders, `${target}.${name}.holders`);
+				for (const holder of holders ?? []) schema(holder);
 				fields[target][name] = {
 					schema: entry.schema,
 					path: entry.path === undefined ? [] : stringList(entry.path, `${target}.${name}.path`),
-					keys: entry.keys === undefined ? [] : stringList(entry.keys, `${target}.${name}.keys`)
+					keys: entry.keys === undefined ? [] : stringList(entry.keys, `${target}.${name}.keys`),
+					...(holders ? { holders } : {})
 				};
 			}
 		}

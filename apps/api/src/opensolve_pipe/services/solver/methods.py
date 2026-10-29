@@ -2,9 +2,10 @@
 
 One summary per solve, written to be pasted into a deliverable: sections for the network
 solution, friction, minor losses, branches, pumps, valves, relief valves, equipment and orifice
-plates (each of the last three only in a project that has some), fluid properties, atmosphere and NPSH, and conventions; the global
-assumptions; and the software versions, with the calculation-method version. Every number in it
-is a constant the solver uses or a value of this solve.
+plates (each of the last three only in a project that has some), fluid properties, atmosphere
+and NPSH, and conventions; the global assumptions; and the software versions, with the
+calculation-method version. Every number in it is a constant the solver uses or a value of this
+solve.
 """
 
 import CoolProp
@@ -367,7 +368,10 @@ def relief_section(built: BuiltNetwork) -> MethodsSection | None:
         "pressure on the inlet). A check valve's cracking pressure, unlike the relief valve's "
         "set, is compared with the difference of the energy grade lines. Every closed-off, "
         "free-level and system-curve rule applies to it as to a check valve (in a pump's system "
-        "curve it passes no reverse flow).",
+        "curve it passes no reverse flow). A point of a pump's system curve, where the pump is "
+        "a fixed flow, starts it open, as a check valve, so that the flow has its way through it "
+        "and its rule closes it where the difference across it stays below its set; at zero "
+        "flow it then sits at its set, H_sys(0) holding h_set.",
         "Flagged: full lift (RELIEF_VALVE_OPEN, information); relieving short of full lift "
         "(CORRELATION_OUT_OF_RANGE, partial lift, warning); an active valve closed with a side "
         "closed off or on an undetermined level, which has no result (RELIEF_VALVE_CLOSED, "

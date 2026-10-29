@@ -844,7 +844,9 @@ def state_problems(
     rho = density(project)
     problems = []
     for component in project.components:
-        if not isinstance(component, Pump | IsolationValve | CheckValve | ControlValve | ReliefValve):
+        if not isinstance(
+            component, Pump | IsolationValve | CheckValve | ControlValve | ReliefValve
+        ):
             continue
         key_in, key_out = two_port_ends(component)
         q = port_inflow(project, key_in, flows)

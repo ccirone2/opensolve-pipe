@@ -2,7 +2,7 @@
 	Results pane (design §5): what the last solve returned. Topology issues, validation errors or a
 	network error; or the solve's status (with the convergence report when it did not converge),
 	a notice when the results are out of date or the calculation methods changed, the physics
-	flags by severity, and the results by view: Summary, Nodes, Links, Pumps, Valves, Equipment,
+	flags by severity, and the results by view: Summary, Nodes, Links, Pumps, Valves, Relief valves, Equipment,
 	Orifices, Branches, Boundaries, Assigned flows, Methods. Rows and flags open an element's results and trace, and
 	point the navigator at it. Input problems the solver would also report are listed so they can
 	be fixed first; solving is never blocked. After a cancelled solve, a note says so above what
@@ -53,6 +53,7 @@
 		branchBases,
 		equipmentTable,
 		orificeTable,
+		reliefTable,
 		branchTable,
 		nodeTable,
 		valveTable,
@@ -175,6 +176,9 @@
 	);
 	const valves = $derived(
 		solved ? markChanged(valveTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
+	);
+	const reliefValves = $derived(
+		solved ? markChanged(reliefTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
 	);
 	const equipment = $derived(
 		solved ? markChanged(equipmentTable(ws.labelsProject, solved, ws.displayUnits), changed) : null
@@ -958,6 +962,25 @@
 									minus outlet, so they are negative when the flow runs from outlet to inlet. K is
 									referred to the valve's connected inner diameter. A setpoint is shown for control
 									valves.
+								</p>
+							{:else if v === 'reliefValves' && reliefValves}
+								<ResultsTable
+									table={reliefValves}
+									caption="Results per relief valve"
+									first="Relief valve"
+									onselect={(row) => ws.inspect(row.element)}
+								/>
+								<p class="text-xs text-slate-600">
+									Δp ÷ set is the total-pressure difference across the valve over its set pressure:
+									below 100 % it is closed; above, it relieves, and the rise is its overpressure,
+									which is the accumulation only when the valve is set at the protected equipment's
+									maximum allowable working pressure. Capacity is the flow at full lift (set plus
+									overpressure) for this case's fluid, by API 520's liquid equation; past full lift
+									the flow keeps growing with the square root of the difference. Partial lift,
+									between set and full lift, is a linear convention, not a cited law, and is
+									flagged. Inlet and back pressures are static, gauge; pressure drop is their
+									difference, as for valves. A valve with no result has a side closed off or on an
+									undetermined level: its flag says which.
 								</p>
 							{:else if v === 'equipment' && equipment}
 								<ResultsTable

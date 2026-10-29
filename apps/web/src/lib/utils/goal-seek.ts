@@ -67,11 +67,13 @@ import {
 	pipeOverrideFields,
 	projectGoalFields,
 	projectOverrideFields,
+	RELIEF_DATA,
 	schemaOrderedFields,
 	setpointBounds,
 	type GoalQuantityRule,
 	type GoalVariableField
 } from './model-rules';
+import { areaLabel, asmeRuleText, defaultOverpressure, reliefOnAsmeDefault } from './relief';
 import {
 	branchPatternLabel,
 	connectionName,
@@ -163,13 +165,14 @@ export function calculatingReason(
 
 /** The goal picker's groups, in their order (Compare's element kinds). */
 export type GoalGroup =
-	'port' | 'connection' | 'pump' | 'valve' | 'equipment' | 'orifice' | 'boundary';
+	'port' | 'connection' | 'pump' | 'valve' | 'relief' | 'equipment' | 'orifice' | 'boundary';
 
 export const GOAL_GROUPS: readonly GoalGroup[] = [
 	'port',
 	'connection',
 	'pump',
 	'valve',
+	'relief',
 	'equipment',
 	'orifice',
 	'boundary'
@@ -180,6 +183,7 @@ export const GOAL_GROUP_LABELS: Readonly<Record<GoalGroup, string>> = {
 	connection: 'Pipe connections',
 	pump: 'Pumps',
 	valve: 'Valves',
+	relief: 'Relief valves',
 	equipment: 'Equipment',
 	orifice: 'Orifice plates',
 	boundary: 'Reservoirs and reference nodes'
@@ -208,6 +212,8 @@ export const GOAL_QUANTITIES: Readonly<Record<GoalQuantity, Quantity>> = {
 	orifice_pressure_loss: 'orificePressureLoss',
 	orifice_differential_pressure: 'orificeDifferentialPressure',
 	orifice_pressure_drop: 'orificePressureDrop',
+	relief_valve_flow: 'reliefFlow',
+	relief_valve_pressure_drop: 'reliefPressureDrop',
 	boundary_outflow: 'boundaryOutflow'
 };
 
@@ -328,7 +334,7 @@ export function goalElements(project: Project): GoalElement[] {
 			});
 		}
 	}
-	for (const group of ['pump', 'valve', 'equipment', 'orifice', 'boundary'] as const) {
+	for (const group of ['pump', 'valve', 'relief', 'equipment', 'orifice', 'boundary'] as const) {
 		const targets = groupTargets(group);
 		for (const c of project.components) {
 			if (!targets.has(componentSchemaName(c) ?? '')) continue;
@@ -432,6 +438,10 @@ export function goalHint(
 			return "Between the plate's taps: what a flow meter reads.";
 		case 'orifice_pressure_drop':
 			return 'Static pressure, inlet minus outlet.';
+		case 'relief_valve_flow':
+			return 'Positive from inlet to outlet: the relieving flow.';
+		case 'relief_valve_pressure_drop':
+			return 'Static pressure, inlet minus outlet.';
 		case 'boundary_outflow':
 			return 'Positive into the network.';
 		default:
@@ -500,6 +510,7 @@ export type VariableGroup =
 	| 'pump'
 	| 'controlValve'
 	| 'resistance'
+	| 'relief'
 	| 'equipment'
 	| 'orifice'
 	| 'reservoir'
@@ -512,6 +523,7 @@ export const VARIABLE_GROUPS: readonly VariableGroup[] = [
 	'pump',
 	'controlValve',
 	'resistance',
+	'relief',
 	'equipment',
 	'orifice',
 	'reservoir',
@@ -525,6 +537,7 @@ export const VARIABLE_GROUP_LABELS: Readonly<Record<VariableGroup, string>> = {
 	pump: 'Pumps',
 	controlValve: 'Control valves',
 	resistance: 'Valves (resistance)',
+	relief: 'Relief valves',
 	equipment: 'Equipment',
 	orifice: 'Orifice plates',
 	reservoir: 'Reservoirs',
@@ -553,7 +566,16 @@ export interface VariableDraft {
 	 * else the item's in the project it is shown with. Never sent: the case holds the kind.
 	 */
 	ratingKind?: RatedFlowCoefficient['kind'];
+	/**
+	 * A relief valve's `capacity.area`: the kind of capacity it is the area of in the case (an API
+	 * 520 effective area or a certified actual area), when known; else the valve's in the project
+	 * it is shown with. Never sent: the case holds the kind.
+	 */
+	capacityKind?: AreaCapacityKind;
 }
+
+/** The kinds of relief valve capacity that hold an area (an API 526 letter holds none). */
+export type AreaCapacityKind = 'effective' | 'certified';
 
 export interface GoalSeekSetup {
 	goals: readonly GoalDraft[];
@@ -590,14 +612,32 @@ function ratingKindOf(
 		: null;
 }
 
-/**
- * `variable` with the coefficient its equipment item is rated by in `project` (the case shown), for
- * a `rating.value`: so a label read from another project (names) says Cv or Kv as the case does.
- */
-export function withRatingKind<T extends Pick<VariableDraft, 'target' | 'field' | 'ratingKind'>>(
+/** The kind of capacity a relief valve's `capacity.area` is of: the variable's, else the valve's. */
+function capacityKindOf(
 	project: Project,
-	variable: T
-): T {
+	variable: Pick<VariableDraft, 'target' | 'capacityKind'>
+): AreaCapacityKind | null {
+	if (variable.capacityKind) return variable.capacityKind;
+	const component = componentOf(project, variable.target);
+	return component?.type === 'relief_valve' && component.capacity.kind !== 'api526'
+		? component.capacity.kind
+		: null;
+}
+
+/**
+ * `variable` with the kind of value it is in `project` (the case shown): the coefficient its
+ * equipment item is rated by, for a `rating.value`, and the kind of capacity its relief valve
+ * holds, for a `capacity.area`. So a label read from another project (names) says Cv or Kv, or an
+ * effective or actual area, as the case does.
+ */
+export function withCaseKind<
+	T extends Pick<VariableDraft, 'target' | 'field' | 'ratingKind' | 'capacityKind'>
+>(project: Project, variable: T): T {
+	if (variable.field === 'capacity.area') {
+		if (variable.capacityKind) return variable;
+		const kind = capacityKindOf(project, variable);
+		return kind ? { ...variable, capacityKind: kind } : variable;
+	}
 	if (variable.field !== 'rating.value' || variable.ratingKind) return variable;
 	const kind = ratingKindOf(project, variable);
 	return kind ? { ...variable, ratingKind: kind } : variable;
@@ -653,6 +693,16 @@ export function variableSpec(
 		case 'dischargeCoefficient':
 			// ISO 5167-2's C at the plate's taps, as entered: a pure number.
 			return { category: 'dimensionless', options: {} };
+		case 'setPressure':
+			// A relief valve's set: a pressure difference, inlet minus outlet (no gauge marker).
+			return { category: 'pressure', options: {} };
+		case 'capacity.area':
+			return { category: 'area', options: {} };
+		case 'capacity.dischargeCoefficient':
+			// A certified rated coefficient (ASME's K), as entered: a pure number.
+			return { category: 'dimensionless', options: {} };
+		case 'capacity.overpressure':
+			return { category: 'fraction', options: {} };
 		default:
 			return { category: 'dimensionless', options: {} };
 	}
@@ -693,7 +743,7 @@ export function pairText(
 /** The field of a variable as the dialog names it: "Speed", "Resistance Cv", "Length". */
 export function variableFieldLabel(
 	project: Project,
-	variable: Pick<VariableDraft, 'target' | 'field' | 'coefficient' | 'ratingKind'>
+	variable: Pick<VariableDraft, 'target' | 'field' | 'coefficient' | 'ratingKind' | 'capacityKind'>
 ): string {
 	if (variable.target.kind === 'pipe') return 'Length';
 	if (variable.target.kind === 'project') return 'Fluid temperature';
@@ -702,13 +752,14 @@ export function variableFieldLabel(
 	if (variable.field === 'flow') return 'Assigned flow (+ demand, − supply)';
 	if (variable.field === 'rating.value')
 		return ratingKindOf(project, variable) ?? 'Flow coefficient';
+	if (variable.field === 'capacity.area') return areaLabel(capacityKindOf(project, variable));
 	return fieldLabelFor(component, variable.field);
 }
 
 /** "Transfer pump · Speed", "Pipe 2 of Suction tank → Transfer pump · Length". */
 export function variableLabel(
 	project: Project,
-	variable: Pick<VariableDraft, 'target' | 'field' | 'coefficient' | 'ratingKind'>
+	variable: Pick<VariableDraft, 'target' | 'field' | 'coefficient' | 'ratingKind' | 'capacityKind'>
 ): string {
 	if (variable.target.kind === 'project') return variableFieldLabel(project, variable);
 	const target = changeTargetLabel(project, makeOverride(variable.target, variable.field, null));
@@ -739,6 +790,8 @@ function variableGroup(component: Component, field: string): VariableGroup {
 			return 'equipment';
 		case 'orifice':
 			return 'orifice';
+		case 'relief_valve':
+			return 'relief';
 		default:
 			return 'assignedFlow';
 	}
@@ -759,7 +812,11 @@ const FIELD_ORDER = [
 	'rating.density',
 	'rating.value',
 	'boreDiameter',
-	'dischargeCoefficient'
+	'dischargeCoefficient',
+	'setPressure',
+	'capacity.area',
+	'capacity.dischargeCoefficient',
+	'capacity.overpressure'
 ];
 
 function fieldRank(field: string): number {
@@ -919,7 +976,17 @@ export function nowText(project: Project, variable: VariableDraft, context: NowC
 	const value = variableValue(project, variable);
 	let text: string;
 	let start = '';
-	if (variable.field === 'dischargeCoefficient' && value === null) {
+	if (variable.field === 'capacity.overpressure' && value === null) {
+		// No entered overpressure: ASME's, the default; the API starts in the middle of the bounds
+		// (proposal pressure-relief-valve.md decision 19), as for an orifice plate's C.
+		const set = component?.type === 'relief_valve' ? component.setPressure : null;
+		const op = defaultOverpressure(set);
+		text =
+			op !== null
+				? `${asmeRuleText(context.prefs)}, the default (${formatValue(op, 'fraction', context.prefs, 4)} at this set)`
+				: `${asmeRuleText(context.prefs)}, the default (none below ASME VIII's scope: enter one)`;
+		start = '; the search starts at the middle of the bounds';
+	} else if (variable.field === 'dischargeCoefficient' && value === null) {
 		// No entered C: ISO 5167-2's, the default (decision 21's start rule, as a resistance's).
 		// The C at the plate's taps, or at D and D/2 tappings for a plate without taps (decision 13).
 		const c = orificeTapCoefficient(context.orifice);
@@ -1277,6 +1344,38 @@ export function defaultBounds(
 			}
 			break;
 		}
+		case 'setPressure': {
+			// Designers' default (pressure-relief-valve.md §6 W6): half to twice the set, its lower
+			// bound raised to ASME VIII's 15 psi (x-relief-data) where the overpressure is ASME's
+			// default, below which the API refuses the valve (decision 14).
+			const v = now ?? RELIEF_DATA.asmeMinimumSetPressure;
+			[lower, upper] = [v / 2, 2 * v];
+			if (component?.type === 'relief_valve' && reliefOnAsmeDefault(component)) {
+				lower = Math.max(lower, Math.min(RELIEF_DATA.asmeMinimumSetPressure, v));
+			}
+			break;
+		}
+		case 'capacity.area': {
+			// API 526's effective areas, D to T, widened to hold the case's area (on a certified
+			// area the same range: the range of valve sizes there are).
+			const areas = Object.values(RELIEF_DATA.api526Areas);
+			const a = now ?? Math.min(...areas);
+			[lower, upper] = [Math.min(Math.min(...areas), a), Math.max(Math.max(...areas), a)];
+			break;
+		}
+		case 'capacity.dischargeCoefficient': {
+			const v = now ?? RELIEF_DATA.effectiveDischargeCoefficient;
+			[lower, upper] = [v / 2, Math.min(2 * v, 1)];
+			break;
+		}
+		case 'capacity.overpressure': {
+			// Half to twice the entered overpressure, at most 1; on ASME's default, from its value
+			// at the case's set (0.1 to 0.2 within ASME VIII's scope).
+			const set = component?.type === 'relief_valve' ? component.setPressure : null;
+			const v = now ?? defaultOverpressure(set) ?? RELIEF_DATA.asmeOverpressureFraction;
+			[lower, upper] = [v / 2, Math.min(2 * v, 1)];
+			break;
+		}
 		case 'dischargeCoefficient': {
 			// Half to twice the case's entered C, or the current solve's C at the plate's taps, at
 			// most 1; with neither value, 0.5 to 1. At corner or flange taps every C of the box,
@@ -1611,22 +1710,22 @@ export interface WordsContext {
 	stale?: boolean;
 	/**
 	 * The case the run was on (null or absent: the base), whose values some words depend on: an
-	 * equipment item's Cv or Kv is named by its kind in that case (a scenario may rate it otherwise).
+	 * equipment item's Cv or Kv, and a relief valve's effective or actual area, are named by their
+	 * kind in that case (a scenario may rate or size it otherwise).
 	 */
 	caseId?: CaseId;
 }
 
-/** The kind of an equipment item's coefficient in the case of `context` (rating.value's words). */
-function caseRatingKind(
-	context: WordsContext,
-	target: ChangeTarget
-): RatedFlowCoefficient['kind'] | undefined {
-	if (target.kind !== 'component') return undefined;
-	const project = context.caseId ? caseProject(context.sent, context.caseId) : context.sent;
-	const component = componentById(project, target.componentId);
-	return component?.type === 'equipment' && component.rating.kind !== 'point'
-		? component.rating.kind
-		: undefined;
+/**
+ * `draft` with the kind of value it is in the case of `context` (`withCaseKind`): an equipment
+ * item's Cv or Kv, a relief valve's effective or actual area.
+ */
+function withKindsOfCase(context: WordsContext, draft: VariableDraft): VariableDraft {
+	if (draft.target.kind !== 'component') return draft;
+	return withCaseKind(
+		context.caseId ? caseProject(context.sent, context.caseId) : context.sent,
+		draft
+	);
 }
 
 const MINUS = '−';
@@ -1659,10 +1758,7 @@ export interface VariableView {
 
 export function variableView(context: WordsContext, variable: GoalVariable): VariableView {
 	const [draft] = draftsOf({ project: context.sent, variables: [variable], goals: [] }).variables;
-	const found = draft as VariableDraft;
-	const ratingKind =
-		found.field === 'rating.value' ? caseRatingKind(context, found.target) : undefined;
-	const v: VariableDraft = ratingKind ? { ...found, ratingKind } : found;
+	const v = withKindsOfCase(context, draft as VariableDraft);
 	const id =
 		v.target.kind === 'component'
 			? v.target.componentId
@@ -2497,17 +2593,20 @@ export function variableLabelOf(project: Project, o: Override): string {
 /** A variable named for a notice: "Transfer pump speed", "fluid temperature", "Strainer Cv". */
 function variableNoticeLabel(
 	project: Project,
-	draft: Pick<VariableDraft, 'target' | 'field' | 'coefficient' | 'ratingKind'>
+	draft: Pick<VariableDraft, 'target' | 'field' | 'coefficient' | 'ratingKind' | 'capacityKind'>
 ): string {
 	const label = variableFieldLabel(project, draft).replace(/ \(.*\)$/, '');
 	// A Cv, Kv or K keeps its symbol's case ("Strainer Cv", "valve resistance Cv"); every other
-	// label is lowercase in a sentence.
+	// label is lowercase in a sentence, but for its acronyms ("Relief valve API 520 effective area").
 	const field =
 		label === 'Cv' || label === 'Kv'
 			? label
 			: draft.field === 'resistance'
 				? `resistance ${draft.coefficient ?? 'K'}`
-				: label.toLowerCase();
+				: label
+						.split(' ')
+						.map((word) => (/^[A-Z0-9]{2,}$/.test(word) ? word : word.toLowerCase()))
+						.join(' ');
 	if (draft.target.kind === 'project') return field;
 	return `${changeTargetLabel(project, makeOverride(draft.target, draft.field, null))} ${field}`;
 }
@@ -2533,9 +2632,8 @@ export function foundValueTexts(
 			variables: [result.variable],
 			goals: []
 		}).variables;
-		const v = draft as VariableDraft;
-		const ratingKind = v.field === 'rating.value' ? caseRatingKind(words, v.target) : undefined;
-		const label = variableNoticeLabel(context.labels, ratingKind ? { ...v, ratingKind } : v);
+		const v = withKindsOfCase(words, draft as VariableDraft);
+		const label = variableNoticeLabel(context.labels, v);
 		// A Cv, Kv or K is named by its kind in the label ("Strainer Cv", "valve resistance Cv"):
 		// its number goes without the "Cv " a view prefixes, never "Strainer Cv Cv 81.0724".
 		const text =

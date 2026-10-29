@@ -802,7 +802,7 @@ def test_the_api_solves_equipment_and_reports_a_rating_it_cannot_represent() -> 
         "rating",
     }
     assert state["equipmentResults"]["E1"]["rating"] == POINT
-    assert state["methodVersion"] == "1.4.0"
+    assert state["methodVersion"] == "1.5.0"
     plain = client.post(
         "/api/v1/solve", json={"project": line_dict(gate("V1", {"kind": "K", "value": 1.0}))}
     )

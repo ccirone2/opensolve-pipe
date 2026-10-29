@@ -48,6 +48,7 @@ import {
 import {
 	addBranch,
 	addComponentAtPort,
+	addOpenDischarge,
 	connectPorts,
 	deleteComponent,
 	disconnect,
@@ -114,7 +115,8 @@ export const INLINE_KINDS: readonly ComponentKind[] = [
 	'tee',
 	'wye',
 	'equipment',
-	'orifice'
+	'orifice',
+	'relief_valve'
 ];
 
 export class Workspace {
@@ -779,6 +781,18 @@ export class Workspace {
 		return this.edit(
 			(p) => plugPort(p, componentId, portId, { reserved }),
 			`plug ${componentId} ${portId}`
+		);
+	}
+
+	/**
+	 * Discharge a relief valve's free outlet to atmosphere (edit.ts addOpenDischarge): a reference
+	 * node at 0 Pa gauge through 1 m of pipe with an exit, in one undo step.
+	 */
+	openDischarge(componentId: string, portId: string): boolean {
+		const reserved = this.reservedIds;
+		return this.edit(
+			(p) => addOpenDischarge(p, componentId, portId, { reserved }),
+			`discharge ${componentId} ${portId} to atmosphere`
 		);
 	}
 

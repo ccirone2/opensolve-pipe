@@ -65,13 +65,16 @@ def _component(kind: str, cid: str, ports: tuple[str, ...], **fields: Any) -> di
 
 RATED_POINT = {"kind": "point", "pressureLoss": 5.0e4, "flow": 0.015, "density": 999.102621}
 """An equipment item's rated point (test input): 50 kPa at 15 L/s on water at 15 °C."""
+CERTIFIED = {"kind": "certified", "area": 2.5e-4, "dischargeCoefficient": 0.7, "overpressure": 0.08}
+"""A relief valve's certified capacity (test inputs; proposal pressure-relief-valve.md §7.1 C15)."""
 
 
 def base_project() -> dict[str, Any]:
     """Every component type (equipment rated by a point and by a Kv; an orifice plate with an
-    entered C at flange taps and one on ISO 5167-2's C), with statuses, speeds and resistances
-    left unset (defaults), a connection of two pipes (the first a library pipe with a bore
-    override) and water."""
+    entered C at flange taps and one on ISO 5167-2's C; a relief valve of each capacity kind, an
+    API 526 letter, an API 520 effective area and a certified capacity with its overpressure),
+    with statuses, speeds and resistances left unset (defaults), a connection of two pipes (the
+    first a library pipe with a bore override) and water."""
     valve = ("inlet", "outlet")
     comps = [
         reservoir("R1", level=3.0),
@@ -106,6 +109,21 @@ def base_project() -> dict[str, Any]:
             "orifice", "O1", valve, boreDiameter=0.05, dischargeCoefficient=0.6, taps="flange"
         ),
         _component("orifice", "O2", valve, boreDiameter=0.05),
+        _component(
+            "relief_valve",
+            "RV1",
+            valve,
+            setPressure=5.0e5,
+            capacity={"kind": "api526", "letter": "F"},
+        ),
+        _component(
+            "relief_valve",
+            "RV2",
+            valve,
+            setPressure=4.0e5,
+            capacity={"kind": "effective", "area": 4.0e-4},
+        ),
+        _component("relief_valve", "RV3", valve, setPressure=3.0e5, capacity=CERTIFIED),
     ]
     library = {
         "materialId": "carbon_steel",
@@ -210,6 +228,26 @@ APPLIED: list[tuple[str, list[dict[str, Any]]]] = [
         [comp("O1", "dischargeCoefficient", None)],
     ),
     (
+        "every relief valve value (proposal pressure-relief-valve.md decision 18)",
+        [
+            comp("RV1", "status", "locked_closed"),
+            comp("RV1", "setPressure", 4.5e5),
+            comp("RV1", "capacity.letter", "J"),
+            comp("RV2", "capacity.area", 5.0e-4),
+            comp("RV3", "capacity.area", 3.0e-4),
+            comp("RV3", "capacity.dischargeCoefficient", 0.75),
+            comp("RV3", "capacity.overpressure", 0.12),
+        ],
+    ),
+    (
+        "a whole capacity of another kind, and a certified overpressure set back to ASME's (null)",
+        [
+            comp("RV1", "capacity", {"kind": "effective", "area": 5.0e-4}),
+            comp("RV2", "capacity", {**CERTIFIED, "overpressure": 0.1}),
+            comp("RV3", "capacity.overpressure", None),
+        ],
+    ),
+    (
         "a whole fluid",
         [
             proj(
@@ -254,6 +292,11 @@ APPLIED: list[tuple[str, list[dict[str, Any]]]] = [
             comp("E1", "status", "off"),
             comp("R1", "dischargeCoefficient", 0.6),
             comp("O1", "status", "off"),
+            comp("RV1", "capacity.area", 5.0e-4),
+            comp("RV2", "capacity.dischargeCoefficient", 0.7),
+            comp("RV3", "capacity.letter", "J"),
+            comp("RV1", "boreDiameter", 0.05),
+            comp("O1", "setPressure", 1.0e5),
             comp("R1", "liquidLevel", 4.0),
         ],
     ),
@@ -311,6 +354,25 @@ INVALID: list[tuple[str, list[dict[str, Any]]]] = [
             comp("O1", "boreDiameter", 0.06),
         ],
     ),
+    (
+        "relief valve values their bounds reject, and a letter API 526 does not have",
+        [
+            comp("RV1", "setPressure", 0.0),
+            comp("RV1", "capacity.letter", "Z"),
+            comp("RV2", "capacity.area", 80.0),
+            comp("RV3", "capacity.dischargeCoefficient", 1.5),
+            comp("RV3", "capacity.overpressure", 0.0),
+            comp("RV3", "setPressure", 3.5e5),
+        ],
+    ),
+    (
+        "a capacity of no kind, and a whole capacity with a value its kind rejects (the union's "
+        "tag is not in the location)",
+        [
+            comp("RV1", "capacity", {"kind": "rupture_disc", "area": 1.0e-3}),
+            comp("RV2", "capacity", {**CERTIFIED, "dischargeCoefficient": 0.0}),
+        ],
+    ),
 ]
 """Scenarios of ``base_project()`` whose values the models reject (400 for that scenario)."""
 
@@ -327,6 +389,14 @@ def _rejected_structures() -> list[tuple[str, list[dict[str, Any]]]]:
         (
             "a rating and a part of it",
             [_scenario("S1", comp("E1", "rating.flow", 0.02), comp("E1", "rating", RATED_POINT))],
+        ),
+        (
+            "a capacity and a part of it",
+            [
+                _scenario(
+                    "S1", comp("RV3", "capacity.area", 3.0e-4), comp("RV3", "capacity", CERTIFIED)
+                )
+            ],
         ),
         ("two scenarios with one id", [_scenario("S1"), _scenario("S2"), _scenario("S1")]),
         ("a field of another kind", [_scenario("S1", {**length, "field": "status"})]),

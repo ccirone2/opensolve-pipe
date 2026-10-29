@@ -38,6 +38,9 @@
  * - Group curves (CLAUDE.md D21, proposal pump-groups.md §6.1) follow the system curves' rules:
  *   fetched on demand for the solve shown, per case and set of pumps (the sorted ids), on the same
  *   queue, cached with that solve and dropped by the next, cancelled by a solve or a goal seek.
+ *   A group's system curve (slice 4b, §7) is kept beside its group curve, by the same rules, and
+ *   asked for only after the group curve's answer for the same pumps and case
+ *   (wantsGroupSystemCurve).
  *
  * Nothing is kept in browser storage; history lives only in this page.
  */
@@ -71,6 +74,7 @@ import {
 import { createEmptyProject, isoNow } from '../utils/factory';
 import { markProjectCopy } from '../utils/identity';
 import type { Calculating } from '../utils/goal-seek';
+import { pressureControlOnly } from '../utils/pump-groups';
 import { recordResultsProject } from '../utils/results';
 import {
 	applyScenario,
@@ -178,13 +182,14 @@ export interface Solver {
 		request?: { signal?: AbortSignal; scenarioId?: string }
 	): Promise<GoalSeekResponse>;
 	/**
-	 * The group curve of the station holding `pumpIds` (POST /api/v1/pump-group-curve); absent
-	 * when not available. A scenario's curve has `scenarioId`; `signal` aborts it.
+	 * The group curve of the station holding `pumpIds` (POST /api/v1/pump-group-curve), or with
+	 * `curve: 'system'` its group system curve; absent when not available. A scenario's curve has
+	 * `scenarioId`; `signal` aborts it.
 	 */
 	groupCurve?(
 		project: Project,
 		pumpIds: readonly string[],
-		options?: { signal?: AbortSignal; scenarioId?: string }
+		options?: { signal?: AbortSignal; scenarioId?: string; curve?: 'group' | 'system' }
 	): Promise<PumpGroupCurveResponse>;
 }
 
@@ -254,9 +259,29 @@ export type GroupCurveState =
 	| { status: 'error'; message: string }
 	| { status: 'cancelled'; by: 'solve' | 'goalSeek' | 'user' };
 
+/**
+ * The group system curve of a set of pumps for the solve whose results are shown (CLAUDE.md D21,
+ * slice 4b): the rest of the network between the station's inlet and outlet at a grid of the
+ * station's flows (the same response, curve 'system'). Its own state, with the group curve's
+ * states: a refusal here is the API's for this solve too.
+ */
+export type GroupSystemCurveState = GroupCurveState;
+
 /** The key of a group of pumps: its ids sorted, NUL-separated (the order ticked never matters). */
 export function groupKey(pumpIds: readonly string[]): string {
 	return [...pumpIds].sort().join('\u0000');
+}
+
+/**
+ * The group system curve is asked for after this answer of the group curve (for the same pumps,
+ * case and solve): a group curve with a duty, or a refusal for an active PRV or PSV inside only.
+ * Not after a failure or a cancellation (asked again with the group curve), a refusal for another
+ * reason (the API refuses both curves), or a case with no duty (its answer says the same for
+ * both: no duty, no points).
+ */
+export function wantsGroupSystemCurve(state: GroupCurveState | undefined): boolean {
+	if (state?.status === 'ready') return state.response.converged && state.response.duty !== null;
+	return state?.status === 'refused' && pressureControlOnly(state.issues);
 }
 
 /** A system curve over a given flow range (m³/s): an overlay on another case's chart. */
@@ -297,6 +322,8 @@ interface CaseState {
 	systemCurves: Readonly<Record<string, SystemCurveState>>;
 	/** Group curves by groupKey(), for the solve of `results.response`. */
 	groupCurves: Readonly<Record<string, GroupCurveState>>;
+	/** Group system curves by groupKey(), for the solve of `results.response`. */
+	groupSystemCurves: Readonly<Record<string, GroupSystemCurveState>>;
 	/** Staleness keys of the projects `results.response` and `results.error` came from. */
 	responseKey: string | null;
 	errorKey: string | null;
@@ -334,6 +361,7 @@ const EMPTY_CASE: CaseState = Object.freeze({
 	errorProject: null,
 	systemCurves: Object.freeze({}),
 	groupCurves: Object.freeze({}),
+	groupSystemCurves: Object.freeze({}),
 	responseKey: null,
 	errorKey: null,
 	notReached: false
@@ -347,8 +375,16 @@ const caseOfSlot = (key: string): CaseId => (key === '' ? null : key);
 const curveKey = (pumpId: string, range?: FlowRange) =>
 	range ? `${pumpId}\u0000${range.flowMin}\u0000${range.flowMax}` : pumpId;
 
-/** A group curve's request key among the curve requests (never a pump id: ids have no U+0001). */
-const groupRequestKey = (key: string) => `\u0001${key}`;
+/** The group curves of a case, and its group system curves (CaseState's maps). */
+type GroupCurveKind = 'group' | 'system';
+const GROUP_MAPS = { group: 'groupCurves', system: 'groupSystemCurves' } as const;
+
+/**
+ * A group curve's request key among the curve requests, and a group system curve's (never a pump
+ * id: ids have no U+0001 or U+0002).
+ */
+const groupRequestKey = (key: string, kind: GroupCurveKind = 'group') =>
+	`${kind === 'group' ? '\u0001' : '\u0002'}${key}`;
 
 /** Freeze `value` and everything in it (stored projects are never mutated). */
 export function deepFreeze<T>(value: T): T {
@@ -1366,9 +1402,28 @@ export class ProjectStore {
 		response: SolveResponse | null,
 		pumpIds: readonly string[]
 	): GroupCurveState | undefined {
+		return this.#groupState('group', response, pumpIds);
+	}
+
+	/**
+	 * The group system curve of `pumpIds` (any order) for the solve `response`, if it has been
+	 * requested, by groupCurve()'s rules.
+	 */
+	groupSystemCurve(
+		response: SolveResponse | null,
+		pumpIds: readonly string[]
+	): GroupSystemCurveState | undefined {
+		return this.#groupState('system', response, pumpIds);
+	}
+
+	#groupState(
+		kind: GroupCurveKind,
+		response: SolveResponse | null,
+		pumpIds: readonly string[]
+	): GroupCurveState | undefined {
 		const caseId = this.#caseOf(response);
 		if (caseId === undefined) return undefined;
-		return this.#case(caseId).groupCurves[groupKey(pumpIds)];
+		return this.#case(caseId)[GROUP_MAPS[kind]][groupKey(pumpIds)];
 	}
 
 	/**
@@ -1384,21 +1439,47 @@ export class ProjectStore {
 		pumpIds: readonly string[],
 		options: { retry?: boolean; caseId?: CaseId } = {}
 	): void {
+		this.#loadGroup('group', pumpIds, options);
+	}
+
+	/**
+	 * Compute the group system curve of `pumpIds` (curve 'system') for the latest solve of a case
+	 * (default: the active one), by loadGroupCurve()'s rules, once the group curve of the same
+	 * pumps has answered for that solve with a duty, or been refused for an active PRV or PSV
+	 * inside only (wantsGroupSystemCurve); before that, or after any other answer, nothing is
+	 * sent. The flows sampled are the API's default (from 0 to 1.2 × the largest of the duty's
+	 * flow and the group curve's flows).
+	 */
+	loadGroupSystemCurve(
+		pumpIds: readonly string[],
+		options: { retry?: boolean; caseId?: CaseId } = {}
+	): void {
+		const caseId = options.caseId === undefined ? this.activeCase : options.caseId;
+		if (!wantsGroupSystemCurve(this.#case(caseId).groupCurves[groupKey(pumpIds)])) return;
+		this.#loadGroup('system', pumpIds, { ...options, caseId });
+	}
+
+	#loadGroup(
+		kind: GroupCurveKind,
+		pumpIds: readonly string[],
+		options: { retry?: boolean; caseId?: CaseId }
+	): void {
 		if (pumpIds.length < 2) return;
 		const caseId = options.caseId === undefined ? this.activeCase : options.caseId;
 		const state = this.#case(caseId);
 		const response = state.results.response;
 		const project = state.solvedProject;
 		if (!response || !project) return;
+		const map = GROUP_MAPS[kind];
 		const key = groupKey(pumpIds);
-		const known = state.groupCurves[key];
+		const known = state[map][key];
 		const again = known?.status === 'error' || known?.status === 'cancelled';
 		if (known && !(options.retry && again)) return;
 		const solver = this.#options.solver ?? defaultClient();
 		const set = (next: GroupCurveState) => {
 			const now = this.#case(caseId);
 			if (now.results.response !== response) return; // another solve's results by now
-			this.#setCase(caseId, { groupCurves: { ...now.groupCurves, [key]: next } });
+			this.#setCase(caseId, { [map]: { ...now[map], [key]: next } });
 		};
 		if (!solver.groupCurve) {
 			set({ status: 'error', message: 'Group curves are not available from this server.' });
@@ -1406,7 +1487,7 @@ export class ProjectStore {
 		}
 		set({ status: 'loading' });
 		const controller = new AbortController();
-		const requestKey = groupRequestKey(key);
+		const requestKey = groupRequestKey(key, kind);
 		this.#abortCurveRequests(slot(caseId), requestKey);
 		this.#curveRequests = [
 			...this.#curveRequests,
@@ -1423,7 +1504,8 @@ export class ProjectStore {
 				if (signal.aborted || this.#case(caseId).results.response !== response) return;
 				const curve = await solver.groupCurve!(project, ids, {
 					signal,
-					...(caseId === null ? {} : { scenarioId: caseId })
+					...(caseId === null ? {} : { scenarioId: caseId }),
+					...(kind === 'system' ? { curve: 'system' as const } : {})
 				});
 				if (!signal.aborted) set({ status: 'ready', response: curve });
 			} catch (error) {
@@ -1433,7 +1515,12 @@ export class ProjectStore {
 						? { status: 'refused', message: error.message, issues: error.issues }
 						: {
 								status: 'error',
-								message: error instanceof Error ? error.message : 'The group curve failed.'
+								message:
+									error instanceof Error
+										? error.message
+										: kind === 'group'
+											? 'The group curve failed.'
+											: 'The group system curve failed.'
 							}
 				);
 			} finally {
@@ -1449,19 +1536,33 @@ export class ProjectStore {
 	 * marked cancelled by the user until it is asked for again (loadGroupCurve with `retry`).
 	 */
 	cancelGroupCurve(pumpIds: readonly string[], options: { caseId?: CaseId } = {}): void {
+		this.#cancelGroup('group', pumpIds, options);
+	}
+
+	/** Cancel the group system curve of `pumpIds`, as cancelGroupCurve() its group curve. */
+	cancelGroupSystemCurve(pumpIds: readonly string[], options: { caseId?: CaseId } = {}): void {
+		this.#cancelGroup('system', pumpIds, options);
+	}
+
+	#cancelGroup(
+		kind: GroupCurveKind,
+		pumpIds: readonly string[],
+		options: { caseId?: CaseId }
+	): void {
 		const caseId = options.caseId === undefined ? this.activeCase : options.caseId;
+		const map = GROUP_MAPS[kind];
 		const key = groupKey(pumpIds);
 		const state = this.#case(caseId);
-		if (state.groupCurves[key]?.status !== 'loading') return;
-		this.#abortCurveRequests(slot(caseId), groupRequestKey(key));
+		if (state[map][key]?.status !== 'loading') return;
+		this.#abortCurveRequests(slot(caseId), groupRequestKey(key, kind));
 		this.#setCase(caseId, {
-			groupCurves: { ...state.groupCurves, [key]: { status: 'cancelled', by: 'user' } }
+			[map]: { ...state[map], [key]: { status: 'cancelled', by: 'user' } }
 		});
 	}
 
 	/**
-	 * Abort every case's system-curve and group-curve requests; the curves being computed are
-	 * marked cancelled `by` what started (a solve, or a goal seek).
+	 * Abort every case's system-curve, group-curve and group-system-curve requests; the curves
+	 * being computed are marked cancelled `by` what started (a solve, or a goal seek).
 	 */
 	#cancelSystemCurves(by: 'solve' | 'goalSeek' = 'solve'): void {
 		this.#abortCurveRequests();
@@ -1476,12 +1577,22 @@ export class ProjectStore {
 		for (const [key, state] of Object.entries(this.#cases)) {
 			const loading = (curves: Readonly<Record<string, { status: string }>>) =>
 				Object.values(curves).some((curve) => curve.status === 'loading');
-			if (!loading(state.systemCurves) && !loading(state.groupCurves)) continue;
+			if (
+				!loading(state.systemCurves) &&
+				!loading(state.groupCurves) &&
+				!loading(state.groupSystemCurves)
+			) {
+				continue;
+			}
 			cases ??= { ...this.#cases };
 			cases[key] = {
 				...state,
 				systemCurves: cancelled(state.systemCurves) as Record<string, SystemCurveState>,
-				groupCurves: cancelled(state.groupCurves) as Record<string, GroupCurveState>
+				groupCurves: cancelled(state.groupCurves) as Record<string, GroupCurveState>,
+				groupSystemCurves: cancelled(state.groupSystemCurves) as Record<
+					string,
+					GroupSystemCurveState
+				>
 			};
 		}
 		if (cases) this.#cases = cases;
@@ -1490,7 +1601,12 @@ export class ProjectStore {
 	/** Drop a case's system and group curves (their solve is no longer the one shown). */
 	#forgetSystemCurves(caseId: CaseId): void {
 		this.#abortCurveRequests(slot(caseId));
-		this.#setCase(caseId, { solvedProject: null, systemCurves: {}, groupCurves: {} });
+		this.#setCase(caseId, {
+			solvedProject: null,
+			systemCurves: {},
+			groupCurves: {},
+			groupSystemCurves: {}
+		});
 	}
 
 	/** Abort the system-curve requests of a case (and of one curve of it); default: all of them. */

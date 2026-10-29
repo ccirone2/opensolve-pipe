@@ -14,13 +14,18 @@
  * an FCV, PRV, PSV, check valve or pump lets through) is chosen by that element's kind in the
  * project as solved, as the API chooses it; when an element's kind is not known there, the API's
  * sentence is kept.
+ *
+ * A pump group's system curve (CLAUDE.md D21, slice 4b) has the same points and reasons, with the
+ * station's inlet and outlet in place of the pump's suction and discharge and its rise in place
+ * of the pump's head (`subject: 'station'`), as the API words them.
  */
 import type { Component, Project, SystemCurveResponse, UnitPreferences } from '../api/types';
 import { readableText } from './flag-text';
 import { componentById } from './graph';
 import { formatValue } from './units';
 
-type SystemCurvePoint = SystemCurveResponse['points'][number];
+/** A point of a system curve: a pump's (D10), or a group's (no NPSHa: D21, slice 4b). */
+type SystemCurvePoint = Omit<SystemCurveResponse['points'][number], 'npshAvailable'>;
 
 /** What the reason of a point is told with. */
 export interface SystemCurveTextContext {
@@ -29,7 +34,27 @@ export interface SystemCurveTextContext {
 	/** The project as solved, for each element's kind (its rule); default `project`. */
 	solved?: Project | null;
 	units: UnitPreferences;
+	/**
+	 * What the flow is forced through: a pump (its system curve, the default) or a pump station
+	 * (a group's system curve: its inlet and outlet, and its rise).
+	 */
+	subject?: 'pump' | 'station';
 }
+
+/** The words of a system curve's subject, as the API's (system_curve.py PUMP_WORDS, STATION_WORDS). */
+interface Words {
+	noun: string;
+	/** The side the forced flow is drawn from. */
+	inlet: string;
+	/** The side it is delivered to. */
+	outlet: string;
+	/** What the curve's value is called. */
+	head: string;
+}
+const WORDS: Readonly<Record<'pump' | 'station', Words>> = {
+	pump: { noun: 'pump', inlet: 'suction', outlet: 'discharge', head: 'head' },
+	station: { noun: 'station', inlet: 'inlet', outlet: 'outlet', head: 'rise' }
+};
 
 export interface SystemCurveNote {
 	/** Why the point has no head, in names and display units ('' when it has a head). */
@@ -59,8 +84,8 @@ const STARTS: Readonly<Record<string, string>> = {
 	initial_open: 'that state with its control valves open'
 };
 
-const WAY =
-	"a side of the pump reaches no reservoir or reference node, nor the pump's other side, " +
+const way = (w: Words) =>
+	`a side of the ${w.noun} reaches no reservoir or reference node, nor the ${w.noun}'s other side, ` +
 	'through elements that can open (every element but those closed by a status you set)';
 
 /** The kind of rule that closes a component (null: none, or not a pump or valve). */
@@ -105,6 +130,7 @@ export function systemPointNote(
 function told(point: SystemCurvePoint, context: SystemCurveTextContext): string | null {
 	const { project, units } = context;
 	const solved = context.solved ?? project;
+	const w = WORDS[context.subject ?? 'pump'];
 	const name = (id: string) => componentById(project, id)?.name ?? `“${id}”`;
 	const names = (ids: readonly string[]) => andList(ids.map(name));
 	const flow = (q: number) => formatValue(q, 'flow', units);
@@ -122,8 +148,8 @@ function told(point: SystemCurvePoint, context: SystemCurveTextContext): string 
 	switch (point.reason) {
 		case 'no_way_through':
 			return zero
-				? `At zero flow the head across the pump is undetermined: ${WAY}.`
-				: `No steady state carries this flow: ${WAY}.`;
+				? `At zero flow the ${w.head} across the ${w.noun} is undetermined: ${way(w)}.`
+				: `No steady state carries this flow: ${way(w)}.`;
 		case 'beyond_limit':
 		case 'below_floor': {
 			const ruled = ids.length ? rules(ids) : null;
@@ -139,47 +165,46 @@ function told(point: SystemCurvePoint, context: SystemCurveTextContext): string 
 			if (point.reason === 'below_floor') {
 				if (!assigned.length) return null;
 				return (
-					"No steady state carries this flow: every way from the pump's suction to its discharge, " +
+					`No steady state carries this flow: every way from the ${w.noun}'s ${w.inlet} to its ${w.outlet}, ` +
 					`through the network or a reservoir or reference node, passes ${names(ids)}, ${which} ` +
-					`${amount(passed)} that way (${ruled}), and with the flows of ${nodes}, the pump must ` +
+					`${amount(passed)} that way (${ruled}), and with the flows of ${nodes}, the ${w.noun} must ` +
 					`pass at least ${flow(limit)}.`
 				);
 			}
-			const way =
-				"No steady state carries this flow: every way from the pump's discharge back to its " +
-				`suction, through the network or a reservoir or reference node, passes ${names(ids)}`;
-			if (!assigned.length) return `${way}, ${which} ${amount(limit)} that way (${ruled}).`;
+			const back =
+				`No steady state carries this flow: every way from the ${w.noun}'s ${w.outlet} back to its ` +
+				`${w.inlet}, through the network or a reservoir or reference node, passes ${names(ids)}`;
+			if (!assigned.length) return `${back}, ${which} ${amount(limit)} that way (${ruled}).`;
 			const ending =
 				limit < 0
-					? `the pump would have to pass ${flow(-limit)} in reverse: no forced flow from its ` +
-						'suction to its discharge, zero included, has a steady state'
-					: `the pump can pass ${amount(limit)}`;
-			return `${way}, ${which} ${amount(passed)} that way (${ruled}), and with the flows of ${nodes}, ${ending}.`;
+					? `the ${w.noun} would have to pass ${flow(-limit)} in reverse: no forced flow from its ` +
+						`${w.inlet} to its ${w.outlet}, zero included, has a steady state`
+					: `the ${w.noun} can pass ${amount(limit)}`;
+			return `${back}, ${which} ${amount(passed)} that way (${ruled}), and with the flows of ${nodes}, ${ending}.`;
 		}
 		case 'no_steady_state_found': {
 			const starts = (point.startsTried ?? []).map((s) => STARTS[s]);
 			if (!starts.length || starts.some((s) => s === undefined)) return null;
-			let what =
-				'the status rules leave a side of the pump with no way to a reservoir or reference node';
+			let what = `the status rules leave a side of the ${w.noun} with no way to a reservoir or reference node`;
 			if (ids.length) {
 				const ruled = rules(ids);
 				if (ruled === null) return null;
-				what = `the status rules close ${names(ids)}, which leaves a side of the pump with no way to a reservoir or reference node (${ruled})`;
+				what = `the status rules close ${names(ids)}, which leaves a side of the ${w.noun} with no way to a reservoir or reference node (${ruled})`;
 			}
 			return `No steady state found that carries this flow: ${what}; none is found from ${andList(starts as string[], 'or')}.`;
 		}
 		case 'free_level':
 			return (
-				`The head across the pump is undetermined: a side of the pump${ids.length ? `, closed off by ${names(ids)},` : ''} ` +
+				`The ${w.head} across the ${w.noun} is undetermined: a side of the ${w.noun}${ids.length ? `, closed off by ${names(ids)},` : ''} ` +
 				'is in a part of the network that carries flow but reaches no reservoir or reference ' +
 				'node, so nothing fixes its pressure level.'
 			);
 		case 'closed_off': {
 			const by = ids.length
-				? `${names(ids)} ${ids.length === 1 ? 'closes' : 'close'} off a side of the pump`
-				: 'a side of the pump is closed off';
+				? `${names(ids)} ${ids.length === 1 ? 'closes' : 'close'} off a side of the ${w.noun}`
+				: `a side of the ${w.noun} is closed off`;
 			return (
-				`The head across the pump is undetermined${zero ? ' at zero flow' : ''}: ${by}, and no ` +
+				`The ${w.head} across the ${w.noun} is undetermined${zero ? ' at zero flow' : ''}: ${by}, and no ` +
 				'reservoir or reference node fixes the pressure in the part closed off.'
 			);
 		}
@@ -204,10 +229,10 @@ function told(point: SystemCurvePoint, context: SystemCurveTextContext): string 
 							: null;
 			if (valveId === undefined || at === null || side === null || !finite(head)) return null;
 			return (
-				`The head across the pump is undetermined: at this flow ${name(valveId)} ${at}, so it ` +
-				`could also hold the flow throttled, with any head across the pump at or ${side} ` +
-				`${formatValue(head, 'head', units)} (its head with the valve fully open), and no ` +
-				'reservoir or reference node fixes the pressure between the valve and the pump.'
+				`The ${w.head} across the ${w.noun} is undetermined: at this flow ${name(valveId)} ${at}, so it ` +
+				`could also hold the flow throttled, with any ${w.head} across the ${w.noun} at or ${side} ` +
+				`${formatValue(head, 'head', units)} (its ${w.head} with the valve fully open), and no ` +
+				`reservoir or reference node fixes the pressure between the valve and the ${w.noun}.`
 			);
 		}
 		case 'not_converged': {

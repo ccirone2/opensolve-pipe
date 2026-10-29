@@ -2,18 +2,20 @@
  * The Pumps together card in the Pumps view (CLAUDE.md D21, proposal pump-groups.md §4, §6.1):
  * shown with two pumps or more, closed by default; opening it asks for the group curve of the
  * suggested group for this solve; the members are page state, kept when the case shown changes,
- * and the card asks for the case shown (its scenario id). The solves and group curves are the
- * shared fixture's real API answers, given by a fake solver.
+ * and the card asks for the case shown (its scenario id). After the group curve's answer it asks
+ * for the group system curve (slice 4b), with its own Cancel, failure and retry. The solves and
+ * curves are the shared fixture's real API answers, given by a fake solver.
  */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { NotAStationError, TopologyError } from '$lib/api/client';
+import { NetworkError, NotAStationError, TopologyError } from '$lib/api/client';
 import type {
 	Component,
 	PipeConnection,
 	Project,
 	PumpGroupCurveResponse,
-	SolveResponse
+	SolveResponse,
+	TopologyIssue
 } from '$lib/api/types';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import type { Solver } from '$lib/state/project.svelte';
@@ -42,6 +44,7 @@ interface FixtureCase {
 	project: Project;
 	solve: SolveResponse;
 	groupCurve: { status: number; body: unknown };
+	systemCurve: { status: number; body: unknown } | null;
 }
 const cases = fixture.cases as unknown as FixtureCase[];
 const named = (name: string) => cases.find((c) => c.name === name)!;
@@ -49,21 +52,40 @@ const named = (name: string) => cases.find((c) => c.name === name)!;
 interface Call {
 	pumpIds: readonly string[];
 	scenarioId?: string;
+	/** 'system': the group system curve (slice 4b); absent: the group curve. */
+	curve?: 'system';
 }
 
-function setup(project: Project, c: FixtureCase) {
+/** The fixture's answer to a request: its body, or its refusal (422 NOT_A_STATION). */
+function answer(c: FixtureCase, curve: 'group' | 'system' = 'group'): PumpGroupCurveResponse {
+	const sent = curve === 'group' ? c.groupCurve : c.systemCurve;
+	// A case without a group system curve in the fixture: a failure, as a server's would be.
+	if (!sent) throw new NetworkError('No group system curve for this case in the fixture.', 500);
+	if (sent.status === 422) {
+		const body = sent.body as { message: string; issues: TopologyIssue[] };
+		throw new NotAStationError(body.message, [body.message], body.issues);
+	}
+	return structuredClone(sent.body as PumpGroupCurveResponse);
+}
+
+function setup(project: Project, c: FixtureCase, solverChanges: Partial<Solver> = {}) {
 	HTMLCanvasElement.prototype.getContext = (() => ({})) as unknown as typeof getContext;
 	const calls: Call[] = [];
 	const solver: Solver = {
 		solve: async () => structuredClone(c.solve),
 		groupCurve: async (_project, pumpIds, options) => {
-			calls.push({ pumpIds, ...(options?.scenarioId ? { scenarioId: options.scenarioId } : {}) });
-			return structuredClone(c.groupCurve.body as PumpGroupCurveResponse);
-		}
+			calls.push({
+				pumpIds,
+				...(options?.scenarioId ? { scenarioId: options.scenarioId } : {}),
+				...(options?.curve === 'system' ? { curve: 'system' as const } : {})
+			});
+			return answer(c, options?.curve);
+		},
+		...solverChanges
 	};
 	const ws = testWorkspace(project, { solver });
 	render(WorkspaceView, { workspace: ws });
-	return { ws, calls };
+	return { ws, calls, groupCalls: () => calls.filter((call) => call.curve !== 'system') };
 }
 
 const results = () => within(screen.getByRole('region', { name: 'Results' }));
@@ -74,7 +96,7 @@ async function showPumps() {
 }
 
 describe('the Pumps together card in the Pumps view', () => {
-	it('is closed by default; opened, it asks for the suggested group’s curve and shows its shares', async () => {
+	it('is closed by default; opened, it asks for the suggested group’s curve, then its system curve, and shows its shares', async () => {
 		const c = named('parallel-ideal');
 		const { calls } = setup(structuredClone(c.project), c);
 		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
@@ -84,7 +106,10 @@ describe('the Pumps together card in the Pumps view', () => {
 		expect(toggle).toHaveAttribute('aria-expanded', 'false');
 		expect(calls).toEqual([]);
 		await fireEvent.click(toggle);
-		await waitFor(() => expect(calls).toEqual([{ pumpIds: ['PA', 'PB'] }]));
+		// The group curve first, then (after its answer) the group system curve.
+		await waitFor(() =>
+			expect(calls).toEqual([{ pumpIds: ['PA', 'PB'] }, { pumpIds: ['PA', 'PB'], curve: 'system' }])
+		);
 		const duty = (c.groupCurve.body as PumpGroupCurveResponse).duty!;
 		const table = within(card()).getByRole('table', { name: 'The pumps in the group' });
 		await waitFor(() =>
@@ -93,10 +118,20 @@ describe('the Pumps together card in the Pumps view', () => {
 		expect(
 			within(card()).getByRole('figure', { name: 'Pump PA and Pump PB in parallel' })
 		).toBeVisible();
+		// Both drawn: the group system curve in the legend, the Group point at their crossing.
+		const legend = within(card()).getByRole('list', { name: 'Legend' });
+		await waitFor(() =>
+			expect(
+				within(legend).getByText(/^Group system curve \(the rest of the network/)
+			).toBeVisible()
+		);
+		expect(
+			within(legend).getByText('Group duty, where the group curve and the group system curve cross')
+		).toBeVisible();
 		// Asked once per solve.
 		await fireEvent.click(toggle);
 		await fireEvent.click(toggle);
-		expect(calls).toHaveLength(1);
+		expect(calls).toHaveLength(2);
 	});
 
 	it('keeps the members when the case shown changes, and asks for that case', async () => {
@@ -104,15 +139,17 @@ describe('the Pumps together card in the Pumps view', () => {
 		const project = withScenarios(structuredClone(c.project), [
 			{ id: 'S1', name: 'Winter', overrides: [] }
 		]);
-		const { ws, calls } = setup(project, c);
+		const { ws, groupCalls } = setup(project, c);
 		await ws.store.solveAll();
 		await showPumps();
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
-		await waitFor(() => expect(calls).toEqual([{ pumpIds: ['P1', 'P2', 'P3'] }]));
+		await waitFor(() => expect(groupCalls()).toEqual([{ pumpIds: ['P1', 'P2', 'P3'] }]));
 		await fireEvent.click(within(card()).getByRole('checkbox', { name: /Pump P1/ }));
-		await waitFor(() => expect(calls.at(-1)).toEqual({ pumpIds: ['P2', 'P3'] }));
+		await waitFor(() => expect(groupCalls().at(-1)).toEqual({ pumpIds: ['P2', 'P3'] }));
 		ws.setCase('S1');
-		await waitFor(() => expect(calls.at(-1)).toEqual({ pumpIds: ['P2', 'P3'], scenarioId: 'S1' }));
+		await waitFor(() =>
+			expect(groupCalls().at(-1)).toEqual({ pumpIds: ['P2', 'P3'], scenarioId: 'S1' })
+		);
 		const boxes = within(card()).getAllByRole('checkbox') as HTMLInputElement[];
 		expect(boxes.map((b) => [b.closest('label')!.textContent!.trim(), b.checked])).toEqual([
 			['Pump P1', false],
@@ -221,7 +258,7 @@ describe('the Pumps together card in the Pumps view', () => {
 				}
 			]
 		);
-		const { ws, calls } = setup(project, c);
+		const { ws, calls, groupCalls } = setup(project, c);
 		await ws.store.solveAll();
 		// The PRV holds a pressure inside the station in Winter: nothing is suggested, nothing asked.
 		ws.setCase('S1');
@@ -233,7 +270,7 @@ describe('the Pumps together card in the Pumps view', () => {
 		expect(calls).toEqual([]);
 		// In the base it is failed open: PA and PB are the group suggested, and asked for.
 		ws.setCase(null);
-		await waitFor(() => expect(calls).toEqual([{ pumpIds: ['PA', 'PB'] }]));
+		await waitFor(() => expect(groupCalls()).toEqual([{ pumpIds: ['PA', 'PB'] }]));
 		expect(boxes().map((b) => b.checked)).toEqual([true, true]);
 	});
 
@@ -320,12 +357,12 @@ describe('the Pumps together card in the Pumps view', () => {
 
 	it('names elements as the rest of the screen does while results are out of date', async () => {
 		const c = named('parallel-ideal');
-		const { ws, calls } = setup(structuredClone(c.project), c);
+		const { ws, groupCalls } = setup(structuredClone(c.project), c);
 		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
 		await results().findByRole('heading', { name: 'Converged' });
 		await showPumps();
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
-		await waitFor(() => expect(calls).toHaveLength(1));
+		await waitFor(() => expect(groupCalls()).toHaveLength(1));
 		await within(card()).findByRole('table', { name: 'The pumps in the group' });
 		// One edit that makes the results out of date (L2 a metre longer), and two renames.
 		const rename = (x: Component) =>
@@ -365,14 +402,190 @@ describe('the Pumps together card in the Pumps view', () => {
 		expect(text).not.toContain('Pump PA');
 	});
 
-	it('keeps the ids of the group shown by default from new pumps', async () => {
-		const c = named('ladder');
-		const { ws, calls } = setup(structuredClone(c.project), c);
+	it('cancels each curve on its own, and computes it again on request', async () => {
+		const c = named('parallel-ideal');
+		const sent: {
+			curve: string;
+			signal?: AbortSignal;
+			answer: (r: PumpGroupCurveResponse) => void;
+		}[] = [];
+		const { calls } = setup(structuredClone(c.project), c, {
+			groupCurve: (_project, pumpIds, options) => {
+				calls.push({
+					pumpIds,
+					...(options?.curve === 'system' ? { curve: 'system' as const } : {})
+				});
+				return new Promise<PumpGroupCurveResponse>((resolve, reject) => {
+					options?.signal?.addEventListener('abort', () =>
+						reject(new DOMException('The operation was aborted.', 'AbortError'))
+					);
+					sent.push({ curve: options?.curve ?? 'group', answer: resolve, ...options });
+				});
+			}
+		});
 		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
 		await results().findByRole('heading', { name: 'Converged' });
 		await showPumps();
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
-		await waitFor(() => expect(calls).toEqual([{ pumpIds: ['P1', 'P2', 'P3'] }]));
+		// The group curve: Cancel stops it, and no system curve is asked for.
+		await fireEvent.click(
+			await within(card()).findByRole('button', { name: 'Cancel the group curve' })
+		);
+		expect(sent[0]!.signal?.aborted).toBe(true);
+		expect(
+			within(card()).getByText('The group curve was not computed: you cancelled it.')
+		).toBeVisible();
+		expect(calls).toHaveLength(1);
+		await fireEvent.click(within(card()).getByRole('button', { name: 'Compute the group curve' }));
+		await waitFor(() => expect(sent).toHaveLength(2));
+		sent[1]!.answer(answer(c));
+		// Then the group system curve: its own Cancel; the group curve stays drawn.
+		await fireEvent.click(
+			await within(card()).findByRole('button', { name: 'Cancel the group system curve' })
+		);
+		expect(sent[2]).toMatchObject({ curve: 'system' });
+		expect(sent[2]!.signal?.aborted).toBe(true);
+		expect(
+			within(card()).getByText('The group system curve was not computed: you cancelled it.')
+		).toBeVisible();
+		const legend = within(card()).getByRole('list', { name: 'Legend' });
+		expect(within(legend).getByText("Group curve (station's flow)")).toBeVisible();
+		await fireEvent.click(
+			within(card()).getByRole('button', { name: 'Compute the group system curve' })
+		);
+		await waitFor(() => expect(sent).toHaveLength(4));
+		sent[3]!.answer(answer(c, 'system'));
+		await waitFor(() =>
+			expect(
+				within(legend).getByText(/^Group system curve \(the rest of the network/)
+			).toBeVisible()
+		);
+		expect(calls.map((call) => call.curve ?? 'group')).toEqual([
+			'group',
+			'group',
+			'system',
+			'system'
+		]);
+	});
+
+	it('a failed group system curve says so with a retry; the group curve stays drawn', async () => {
+		const c = named('parallel-ideal');
+		let fail = true;
+		const { calls } = setup(structuredClone(c.project), c, {
+			groupCurve: async (_project, pumpIds, options) => {
+				calls.push({
+					pumpIds,
+					...(options?.curve === 'system' ? { curve: 'system' as const } : {})
+				});
+				if (options?.curve === 'system' && fail) {
+					fail = false;
+					throw new NetworkError('The calculation server is busy.', 503, 'SERVER_BUSY');
+				}
+				return answer(c, options?.curve);
+			}
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await results().findByRole('heading', { name: 'Converged' });
+		await showPumps();
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		const retry = await within(card()).findByRole('button', {
+			name: 'Try the group system curve again'
+		});
+		expect(retry).toHaveAccessibleDescription(
+			'The group system curve could not be computed: The calculation server is busy.'
+		);
+		const legend = within(card()).getByRole('list', { name: 'Legend' });
+		expect(within(legend).getByText("Group curve (station's flow)")).toBeVisible();
+		expect(within(legend).queryByText(/^Group system curve/)).toBeNull();
+		await fireEvent.click(retry);
+		await waitFor(() =>
+			expect(
+				within(legend).getByText(/^Group system curve \(the rest of the network/)
+			).toBeVisible()
+		);
+		expect(calls.map((call) => call.curve ?? 'group')).toEqual(['group', 'system', 'system']);
+	});
+
+	it('a PRV inside: the group curve is not defined there, the group system curve is drawn', async () => {
+		const c = named('prv-inside');
+		const { calls } = setup(structuredClone(c.project), c);
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await results().findByRole('heading', { name: 'Converged' });
+		await showPumps();
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		// Nothing is suggested with a PRV inside: the user ticks the pumps.
+		for (const name of [/Pump PA/, /Pump PB/]) {
+			await fireEvent.click(within(card()).getByRole('checkbox', { name }));
+		}
+		await waitFor(() =>
+			expect(calls).toEqual([{ pumpIds: ['PA', 'PB'] }, { pumpIds: ['PA', 'PB'], curve: 'system' }])
+		);
+		await within(card()).findByText(
+			"These pumps form a station, but its group curve is not defined there; its group system curve is, and the pumps' own curves and points are drawn."
+		);
+		const why = within(card()).getByRole('list', { name: 'Why the group curve is not defined' });
+		expect(within(why).getByRole('listitem').textContent).toMatch(
+			/is inside the station and holds a pressure \(an active PRV or PSV\)/
+		);
+		const legend = within(card()).getByRole('list', { name: 'Legend' });
+		await waitFor(() =>
+			expect(
+				within(legend).getByText(/^Group system curve \(the rest of the network/)
+			).toBeVisible()
+		);
+		expect(within(legend).queryByText("Group curve (station's flow)")).toBeNull();
+		expect(within(legend).getByText('Group duty, on the group system curve')).toBeVisible();
+		// The station and its shares, from the group system curve's answer (the case's own solve).
+		expect(
+			within(card()).getByRole('figure', { name: 'Pump PA and Pump PB in parallel' })
+		).toBeVisible();
+		const duty = (c.systemCurve!.body as PumpGroupCurveResponse).duty!;
+		const table = within(card()).getByRole('table', { name: 'The pumps in the group' });
+		expect(within(table).getByText(formatNumber(duty.members[0]!.share! * 100, 4))).toBeVisible();
+	});
+
+	it('asks the case shown for both curves when the case changes, the members kept', async () => {
+		const c = named('parallel-ideal');
+		const project = withScenarios(structuredClone(c.project), [
+			{ id: 'S1', name: 'Winter', overrides: [] }
+		]);
+		const { ws, calls } = setup(project, c);
+		await ws.store.solveAll();
+		await showPumps();
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		await waitFor(() => expect(calls).toHaveLength(2));
+		ws.setCase('S1');
+		await waitFor(() =>
+			expect(calls.slice(2)).toEqual([
+				{ pumpIds: ['PA', 'PB'], scenarioId: 'S1' },
+				{ pumpIds: ['PA', 'PB'], scenarioId: 'S1', curve: 'system' }
+			])
+		);
+		const legend = within(card()).getByRole('list', { name: 'Legend' });
+		await waitFor(() =>
+			expect(
+				within(legend).getByText(/^Group system curve \(the rest of the network/)
+			).toBeVisible()
+		);
+		expect(
+			within(card()).getByRole('figure', { name: 'Pump PA and Pump PB in parallel, Winter' })
+		).toBeVisible();
+		// Back to the base: its curves are cached with its solve, nothing asked again.
+		ws.setCase(null);
+		await within(card()).findByRole('figure', {
+			name: 'Pump PA and Pump PB in parallel, Base case'
+		});
+		expect(calls).toHaveLength(4);
+	});
+
+	it('keeps the ids of the group shown by default from new pumps', async () => {
+		const c = named('ladder');
+		const { ws, groupCalls } = setup(structuredClone(c.project), c);
+		await fireEvent.click(screen.getByRole('button', { name: 'Solve' }));
+		await results().findByRole('heading', { name: 'Converged' });
+		await showPumps();
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		await waitFor(() => expect(groupCalls()).toEqual([{ pumpIds: ['P1', 'P2', 'P3'] }]));
 		// No box touched: the group suggested is shown ticked, not the user's.
 		expect(ws.pumpGroup).toBe(null);
 		expect(ws.reservedIds).toEqual(expect.arrayContaining(['P1', 'P2', 'P3']));

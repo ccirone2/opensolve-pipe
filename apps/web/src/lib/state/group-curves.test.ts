@@ -3,8 +3,9 @@
  * the project exactly as solved, per case and set of pumps (in any order), cached with that
  * solve and dropped by the next; on the system curves' queue (one request at a time, after a
  * Solve all run and a goal seek); cancelled by a solve, a goal seek or the user; a refusal
- * (NOT_A_STATION) kept with its issues. The responses are the shared fixture's (real API
- * answers); the solver is a fake whose answers the test gives.
+ * (NOT_A_STATION) kept with its issues. The group system curve (slice 4b) beside it, by the same
+ * rules, asked for only after the group curve's answer. The responses are the shared fixture's
+ * (real API answers); the solver is a fake whose answers the test gives.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NetworkError, NotAStationError } from '../api/client';
@@ -21,18 +22,20 @@ import { pumpTransferExample } from '../utils/examples';
 import fixture from '../utils/__fixtures__/pump-groups-input.json';
 import { newGoal, newVariable, toRequest } from '../utils/goal-seek';
 import { withScenarios } from '../utils/scenarios';
-import { groupKey, ProjectStore, type Solver } from './project.svelte';
+import { groupKey, ProjectStore, wantsGroupSystemCurve, type Solver } from './project.svelte';
 
 interface FixtureCase {
 	name: string;
 	project: Project;
 	solve: SolveResponse;
 	groupCurve: { status: number; body: unknown };
+	systemCurve: { status: number; body: unknown } | null;
 }
 const cases = fixture.cases as unknown as FixtureCase[];
 const named = (name: string) => cases.find((c) => c.name === name)!;
 const parallel = named('parallel-ideal');
 const curveOf = (c: FixtureCase) => c.groupCurve.body as PumpGroupCurveResponse;
+const systemOf = (c: FixtureCase) => c.systemCurve!.body as PumpGroupCurveResponse;
 
 function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -53,6 +56,7 @@ interface Call {
 	pumpIds: readonly string[];
 	signal?: AbortSignal;
 	scenarioId?: string;
+	curve?: 'group' | 'system';
 }
 
 /** A fake server: the solve answers at once (a copy of the fixture's), group curves when told. */
@@ -355,6 +359,227 @@ describe('group curves (D21: on demand, per solve and set of pumps)', () => {
 			status: 'error',
 			message: 'Group curves are not available from this server.'
 		});
+	});
+});
+
+describe('group system curves (slice 4b: after the group curve’s answer, by its rules)', () => {
+	/** A store solved, with the group curve of PA and PB answered `answer`. */
+	async function answered(answer: (a: (typeof answers)[number]) => void, project?: Project) {
+		const { solver, calls, answers: list } = groupSolver({ rejectOnAbort: true });
+		answers = list;
+		const store = setup(solver, project);
+		await store.solve();
+		store.loadGroupCurve(['PA', 'PB']);
+		await settle();
+		answer(list[0]!);
+		await settle();
+		return { store, solver, calls, answers: list };
+	}
+	let answers: ReturnType<typeof groupSolver>['answers'] = [];
+
+	it('is asked for only once the group curve has a duty, with curve "system", then cached', async () => {
+		const { solver, calls, answers } = groupSolver();
+		const store = setup(solver);
+		const solved = store.project;
+		await store.solve();
+		const response = store.results.response;
+		// Before the group curve's answer: nothing is sent.
+		store.loadGroupSystemCurve(['PA', 'PB']);
+		store.loadGroupCurve(['PA', 'PB']);
+		store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		expect(calls).toHaveLength(1);
+		expect(store.groupSystemCurve(response, ['PA', 'PB'])).toBeUndefined();
+		answers[0]!.resolve(curveOf(parallel));
+		await settle();
+		expect(wantsGroupSystemCurve(store.groupCurve(response, ['PA', 'PB']))).toBe(true);
+		store.loadGroupSystemCurve(['PB', 'PA']);
+		expect(store.groupSystemCurve(response, ['PA', 'PB'])).toEqual({ status: 'loading' });
+		await settle();
+		expect(calls).toHaveLength(2);
+		expect(calls[1]).toMatchObject({ project: solved, pumpIds: ['PA', 'PB'], curve: 'system' });
+		expect(calls[1]).not.toHaveProperty('scenarioId');
+		expect(calls[0]).not.toHaveProperty('curve');
+		answers[1]!.resolve(systemOf(parallel));
+		await settle();
+		expect(store.groupSystemCurve(response, ['PA', 'PB'])).toEqual({
+			status: 'ready',
+			response: systemOf(parallel)
+		});
+		// Its own entry: the group curve is still the group curve's answer.
+		expect(store.groupCurve(response, ['PA', 'PB'])).toEqual({
+			status: 'ready',
+			response: curveOf(parallel)
+		});
+		store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		expect(calls).toHaveLength(2);
+		// Never shown with another solve's results.
+		expect(store.groupSystemCurve(structuredClone(parallel.solve), ['PA', 'PB'])).toBeUndefined();
+	});
+
+	it('after a refusal for a PRV inside only it is asked for; after any other refusal it is not', async () => {
+		const prv = named('prv-inside').groupCurve.body as { message: string; issues: TopologyIssue[] };
+		const refused = named('refused').groupCurve.body as {
+			message: string;
+			issues: TopologyIssue[];
+		};
+		const refuse = (body: typeof prv) => (a: (typeof answers)[number]) =>
+			a.reject(new NotAStationError(body.message, [body.message], body.issues));
+		const one = await answered(refuse(prv));
+		one.store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		expect(one.calls.map((c) => c.curve)).toEqual([undefined, 'system']);
+		const two = await answered(refuse(refused));
+		two.store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		expect(two.calls).toHaveLength(1);
+		// Mixed with another reason: the API refuses both curves.
+		const mixed = { ...prv, issues: [...prv.issues, ...refused.issues] };
+		const three = await answered(refuse(mixed));
+		three.store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		expect(three.calls).toHaveLength(1);
+	});
+
+	it('is not asked for after a failed, cancelled or duty-less group curve', async () => {
+		const failed = await answered((a) => a.reject(new NetworkError('No connection.', 0)));
+		failed.store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		expect(failed.calls).toHaveLength(1);
+		const noDuty = await answered((a) => a.resolve(curveOf(named('no-duty'))));
+		noDuty.store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		expect(noDuty.calls).toHaveLength(1);
+		const { solver, calls } = groupSolver();
+		const store = setup(solver);
+		await store.solve();
+		store.loadGroupCurve(['PA', 'PB']);
+		store.cancelGroupCurve(['PA', 'PB']);
+		store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		expect(calls.filter((c) => c.curve === 'system')).toEqual([]);
+	});
+
+	it("sends a scenario's id, and keeps each case's system curves apart", async () => {
+		const { solver, calls, answers } = groupSolver();
+		const project = withScenarios(structuredClone(parallel.project), [
+			{ id: 'S1', name: 'Winter', overrides: [] }
+		]);
+		const store = setup(solver, project);
+		await store.solve();
+		store.setCase('S1');
+		await store.solve();
+		store.loadGroupCurve(['PA', 'PB']);
+		await settle();
+		answers[0]!.resolve(curveOf(parallel));
+		await settle();
+		store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		expect(calls[1]).toMatchObject({ scenarioId: 'S1', curve: 'system' });
+		answers[1]!.resolve(systemOf(parallel));
+		await settle();
+		expect(store.groupSystemCurve(store.resultsFor('S1').response, ['PA', 'PB'])).toMatchObject({
+			status: 'ready'
+		});
+		expect(store.groupSystemCurve(store.resultsFor(null).response, ['PA', 'PB'])).toBeUndefined();
+	});
+
+	it('cancels on its own: aborted, a late answer dropped, the group curve kept; a retry asks again', async () => {
+		const { store, calls, answers } = await answered((a) => a.resolve(curveOf(parallel)));
+		const response = store.results.response;
+		store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		store.cancelGroupCurve(['PA', 'PB']); // the group curve is not loading: nothing happens
+		store.cancelGroupSystemCurve(['PB', 'PA']);
+		expect(calls[1]!.signal?.aborted).toBe(true);
+		expect(store.groupSystemCurve(response, ['PA', 'PB'])).toEqual({
+			status: 'cancelled',
+			by: 'user'
+		});
+		expect(store.groupCurve(response, ['PA', 'PB'])).toMatchObject({ status: 'ready' });
+		store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		expect(calls).toHaveLength(2);
+		store.loadGroupSystemCurve(['PA', 'PB'], { retry: true });
+		await settle();
+		expect(calls).toHaveLength(3);
+		answers[2]!.resolve(systemOf(parallel));
+		await settle();
+		expect(store.groupSystemCurve(response, ['PA', 'PB'])).toMatchObject({ status: 'ready' });
+	});
+
+	it('a failure is kept with its message, the group curve still shown, until a retry', async () => {
+		const { store, calls, answers } = await answered((a) => a.resolve(curveOf(parallel)));
+		const response = store.results.response;
+		store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		answers[1]!.reject(new NetworkError('The server is busy.', 503, 'SERVER_BUSY'));
+		await settle();
+		expect(store.groupSystemCurve(response, ['PA', 'PB'])).toEqual({
+			status: 'error',
+			message: 'The server is busy.'
+		});
+		expect(store.groupCurve(response, ['PA', 'PB'])).toMatchObject({ status: 'ready' });
+		store.loadGroupSystemCurve(['PA', 'PB'], { retry: true });
+		await settle();
+		expect(calls).toHaveLength(3);
+	});
+
+	it('a new solve or a goal seek cancels it in flight; a late answer fills nothing', async () => {
+		const { store, solver, calls, answers } = await answered((a) => a.resolve(curveOf(parallel)));
+		store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		const solving = store.solve();
+		expect(calls[1]!.signal?.aborted).toBe(true);
+		expect(store.groupSystemCurve(store.results.response, ['PA', 'PB'])).toEqual({
+			status: 'cancelled',
+			by: 'solve'
+		});
+		await solving;
+		const newer = store.results.response;
+		expect(store.groupSystemCurve(newer, ['PA', 'PB'])).toBeUndefined();
+		answers[1]!.resolve(systemOf(parallel));
+		await settle();
+		expect(store.groupSystemCurve(newer, ['PA', 'PB'])).toBeUndefined();
+
+		// The new solve's: group curve, then its system curve, cancelled by a goal seek.
+		store.loadGroupCurve(['PA', 'PB']);
+		await settle();
+		answers[2]!.resolve(curveOf(parallel));
+		await settle();
+		store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		const goal = deferred<ReturnType<typeof goalSeekResponse>>();
+		solver.goalSeek = vi.fn(() => goal.promise);
+		const request = toRequest(
+			{
+				goals: [{ ...newGoal({ elementId: 'L2' }, 'link_flow'), target: 0.05 }],
+				variables: [
+					newVariable(store.project, {
+						target: { kind: 'component', componentId: 'PA' },
+						field: 'speed'
+					})
+				]
+			},
+			store.project,
+			null
+		);
+		const running = store.runGoalSeek(request);
+		expect(calls[3]!.signal?.aborted).toBe(true);
+		expect(store.groupSystemCurve(newer, ['PA', 'PB'])).toEqual({
+			status: 'cancelled',
+			by: 'goalSeek'
+		});
+		// Asked again during the goal seek: it waits for it.
+		store.loadGroupSystemCurve(['PA', 'PB'], { retry: true });
+		await settle();
+		expect(calls).toHaveLength(4);
+		goal.resolve(goalSeekResponse());
+		await running;
+		await settle();
+		expect(calls).toHaveLength(5);
+		expect(calls[4]!.curve).toBe('system');
 	});
 });
 

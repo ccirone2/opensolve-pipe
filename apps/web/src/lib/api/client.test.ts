@@ -588,6 +588,33 @@ describe('group curves (CLAUDE.md D21)', () => {
 		});
 	});
 
+	it('requests the group system curve with curve "system", its flows only when given', async () => {
+		const { api, fetch } = client([json({}), json({})]);
+		await api.groupCurve(project, ['PB', 'PA'], { curve: 'system' });
+		await api.groupCurve(project, ['PA', 'PB'], {
+			curve: 'system',
+			scenarioId: 'S1',
+			flowMin: 0.01,
+			flowMax: 0.12,
+			numPoints: 21
+		});
+		expect(JSON.parse(fetch.mock.calls[0]![1]!.body as string)).toEqual({
+			project,
+			pumpIds: ['PB', 'PA'],
+			curve: 'system',
+			numPoints: 41
+		});
+		expect(JSON.parse(fetch.mock.calls[1]![1]!.body as string)).toEqual({
+			project,
+			pumpIds: ['PA', 'PB'],
+			curve: 'system',
+			numPoints: 21,
+			flowMin: 0.01,
+			flowMax: 0.12,
+			scenarioId: 'S1'
+		});
+	});
+
 	it('keeps every reason the pumps are not a station (422 NOT_A_STATION)', async () => {
 		const issues = [
 			{

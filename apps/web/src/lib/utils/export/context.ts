@@ -394,6 +394,12 @@ export function curvesOverlayOnly(c: CaseView): { pumpId: string; reason: string
 		.map((pumpId) => ({ pumpId, reason: curveReason(c.input.systemCurves[pumpId]) }));
 }
 
+/**
+ * What a pump group's curves are listed as when left out of an export: its group curve and its
+ * group system curve (CLAUDE.md D21, slices 4a and 4b; slice 4c exports them).
+ */
+export const GROUP_CURVES_ITEM = 'Group curves and group system curves';
+
 /** Why group curves are not in an export (CLAUDE.md D21, proposal pump-groups.md §6.6). */
 export const GROUP_CURVES_LEFT_OUT =
 	'not exported in this version: the Pumps together card under the pump chart draws them on request, and its Download image saves its chart';
@@ -419,7 +425,8 @@ export function omitted(ctx: ExportContext): { what: string; reason: string }[] 
 			list.push({ what: named(c, `System curve of ${componentName(c, pumpId)}`), reason });
 		}
 	}
-	if (groupCurvesLeftOut(ctx)) list.push({ what: 'Group curves', reason: GROUP_CURVES_LEFT_OUT });
+	if (groupCurvesLeftOut(ctx))
+		list.push({ what: GROUP_CURVES_ITEM, reason: GROUP_CURVES_LEFT_OUT });
 	if (!ctx.single) {
 		list.push({
 			what: 'Trace',

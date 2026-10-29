@@ -25,6 +25,7 @@ import {
 	componentName,
 	curvesLeftOut,
 	curvesOverlayOnly,
+	GROUP_CURVES_ITEM,
 	GROUP_CURVES_LEFT_OUT,
 	groupCurvesLeftOut,
 	noValuesReason,
@@ -642,7 +643,7 @@ export function aboutRows(
 			left.push([ctx.hasScenarios ? `${what} (${c.label})` : what, reason]);
 		}
 	}
-	if (groupCurvesLeftOut(ctx)) left.push(['Group curves', GROUP_CURVES_LEFT_OUT]);
+	if (groupCurvesLeftOut(ctx)) left.push([GROUP_CURVES_ITEM, GROUP_CURVES_LEFT_OUT]);
 	if (!input.options.link) left.push(['Project link', 'left out when exported']);
 	for (const [item, value] of left) rows.push(['Not in this file', item, value]);
 

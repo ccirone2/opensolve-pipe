@@ -488,6 +488,15 @@ export function defaultGroup(
 // Why the pumps do not form a station, in words (§6.2)
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * The pumps are refused only because an active PRV or PSV is inside their station
+ * (PRESSURE_CONTROL_INSIDE): the station is found and its group system curve is defined, but its
+ * group curve is not (the API refuses curve 'group' only, CLAUDE.md D21).
+ */
+export function pressureControlOnly(issues: readonly TopologyIssue[]): boolean {
+	return issues.length > 0 && issues.every((issue) => issue.code === 'PRESSURE_CONTROL_INSIDE');
+}
+
 /** A sentence with element names the card links to their results. */
 export type Words = (string | { id: string; name: string })[];
 

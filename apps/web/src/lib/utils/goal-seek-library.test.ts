@@ -1,5 +1,5 @@
 /**
- * Goal seek on a valve that takes its resistance from the project library (CLAUDE.md D21,
+ * Goal seek on a valve that takes its resistance from the project library (CLAUDE.md D22,
  * proposal project-library.md §5.2): the search starts at the entry's value when it is of the
  * variable's kind (a K on the valve's inlet bore, K₀ (D/d₀)⁴), the middle of the bounds otherwise,
  * and the values found are the valve's own coefficient. The shared fixture's library cases

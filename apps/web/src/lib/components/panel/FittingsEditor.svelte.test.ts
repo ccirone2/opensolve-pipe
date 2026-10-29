@@ -109,7 +109,7 @@ describe('reservoir entrance and exit losses', () => {
 });
 
 /**
- * A fitting's loss coefficient (CLAUDE.md D21; proposal project-library.md §6.2): the type's cited
+ * A fitting's loss coefficient (CLAUDE.md D22; proposal project-library.md §6.2): the type's cited
  * K, a K entered here, or a project library entry, which is used by reference (its K, Cv or Kv on
  * the fitting's own pipe) and shown read-only. Test inputs: libraryProject's entries.
  */
@@ -203,7 +203,7 @@ describe('a fitting K from the project library', () => {
 });
 
 /**
- * "K source" names the source of the K the solve uses (CLAUDE.md D21 traceability; the server's
+ * "K source" names the source of the K the solve uses (CLAUDE.md D22 traceability; the server's
  * FittingResult.source): the type's cited K, or user data for a K entered here; a fitting on a
  * library entry shows the entry's own source only, never the type's correlation beside it. Test
  * inputs: libraryProject's entries and a made-up fitting library.

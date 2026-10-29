@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 SPEC_KEYS = ("materialId", "schedule", "nominalSize", "innerDiameter", "roughness", "specId")
-"""A pipe's spec: its five values, or a project library pipe spec (CLAUDE.md D21), replaced
+"""A pipe's spec: its five values, or a project library pipe spec (CLAUDE.md D22), replaced
 together."""
 
 _ISOLATION = {"status", "resistance"}

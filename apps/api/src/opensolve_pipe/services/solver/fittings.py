@@ -8,7 +8,7 @@ the flow direction (contraction or expansion), so each fitting carries a K and a
 segment for each direction.
 
 Precedence (SDD §6.2): a user ``kOverride`` always wins (labeled "user") and is referenced to
-pipe ``pipeIndex``; so does a project library entry (``resistanceId``, CLAUDE.md D21), its K
+pipe ``pipeIndex``; so does a project library entry (``resistanceId``, CLAUDE.md D22), its K
 moved to that pipe's inner diameter or its Cv or Kv converted on it
 (``project_library.entry_k``), exactly the kOverride a user could type there; otherwise the
 cited correlation is used.

@@ -1,4 +1,4 @@
-"""Check the project library against the values it stands for, over the corpus (CLAUDE.md D21,
+"""Check the project library against the values it stands for, over the corpus (CLAUDE.md D22,
 proposal project-library.md §7.2), in two modes with an expected answer each.
 
     uv run python -m tests.differential.library_check [--mode exact|rebased] [--workers N]

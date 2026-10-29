@@ -1,5 +1,5 @@
 /**
- * Where the browser resolves a pipe for display (CLAUDE.md D21): an orifice plate's D from an
+ * Where the browser resolves a pipe for display (CLAUDE.md D22): an orifice plate's D from an
  * inlet pipe of a project library spec, a spec pipe given its own material, the store's
  * staleness fingerprint, which holds the library (and is unchanged for a project without one),
  * and the port size of a component inserted where a spec pipe ends (the spec's nominal size).

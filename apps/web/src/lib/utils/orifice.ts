@@ -3,7 +3,7 @@
  * before a solve (proposal orifice-plate.md §6 W3): D is the inner diameter of the inlet pipe's end
  * segment at the inlet port (decision 3), the one the solver uses, resolved as the piping editor
  * resolves a pipe (piping.ts resolvedPipe: a user override, else the library size entry; a pipe of
- * a project library spec, its spec's inner diameter, CLAUDE.md D21). Nothing
+ * a project library spec, its spec's inner diameter, CLAUDE.md D22). Nothing
  * here is a hydraulic value: β is a ratio of two inputs, shown read-only beside the bore, and the
  * solve's own β is in its results (OrificeResult.beta). No ISO 5167-2 range is checked here: those
  * limits are the API's (D10, read never copy), and the solve flags them.
@@ -80,7 +80,7 @@ export function inletBore(project: Project, componentId: string, library: PipeSi
 	const { pipe } = pipeAtPort(connection, componentId, 'inlet');
 	if (!pipe) return { state: 'unconnected' };
 	if (pipe.specId != null) {
-		// A project library spec gives the bore itself (CLAUDE.md D21): no library lookup.
+		// A project library spec gives the bore itself (CLAUDE.md D22): no library lookup.
 		const spec = pipeSpecOf(project, pipe.specId);
 		return spec && spec.innerDiameter > 0
 			? { state: 'known', diameter: spec.innerDiameter, pipe, spec }

@@ -7,7 +7,7 @@ overrides are applied here by an independent JSON patcher (``scenario_patch.by_h
 
 1. **Metamorphic.** The networks are every reference case and a sample of corpus-like networks:
    generator seeds of the three fuzz profiles, the unit-test data networks, a library-pipe
-   ladder and that ladder on a project library (CLAUDE.md D21), whose pipe specs a spec change
+   ladder and that ladder on a project library (CLAUDE.md D22), whose pipe specs a spec change
    may be drawn to. Each network carries seeded scenarios: every kind of allow-list value it
    has, three kinds to a scenario; a mixed one of 1-6 overrides with 0-2 ignored ones, solved
    with the system curves /solve embeds; one of ignored overrides only; and one that restates

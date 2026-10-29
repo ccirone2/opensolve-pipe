@@ -251,7 +251,7 @@ def test_x_override_fields_states_exactly_the_allow_list() -> None:
         "boreDiameter": {"schema": "Orifice", "path": ["boreDiameter"]},
         "dischargeCoefficient": {"schema": "Orifice", "path": ["dischargeCoefficient"]},
     }
-    # A pipe's spec: the library choice and its overrides, or a project library spec (D21).
+    # A pipe's spec: the library choice and its overrides, or a project library spec (D22).
     assert published["PipeDefinition"]["spec"]["keys"] == [
         "materialId",
         "schedule",

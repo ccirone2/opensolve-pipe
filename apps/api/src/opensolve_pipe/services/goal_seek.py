@@ -1477,7 +1477,7 @@ class _Var:
     default_text: str
     """A resistance the case leaves on its default: what that default is ('' otherwise)."""
     library_text: str = ""
-    """A resistance the case takes from a project library entry (CLAUDE.md D21): the entry, as
+    """A resistance the case takes from a project library entry (CLAUDE.md D22): the entry, as
     texts name it ('' otherwise). The values the search writes, and the override it reports,
     are inline coefficients that replace the reference (proposal project-library.md §5.2)."""
 
@@ -1746,7 +1746,7 @@ def _resolve_variable(
     default_text = ""
     library_text = ""
     if isinstance(variable, ComponentVariable) and variable.coefficient is not None:
-        if isinstance(raw, ResistanceRef):  # a project library entry (CLAUDE.md D21)
+        if isinstance(raw, ResistanceRef):  # a project library entry (CLAUDE.md D22)
             case_number, library_text = _library_start(variable, raw, case, built)
         else:
             holds = raw is not None and raw.kind == variable.coefficient

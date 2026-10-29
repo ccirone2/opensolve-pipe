@@ -218,7 +218,7 @@ export function reverseKeys(value: unknown): unknown {
 /**
  * Reservoir R1 (10 m level) → L1 (two pipes: a pipe of spec PS1, then NPS 4 Sch 40 carbon steel;
  * an elbow on entry RS2, a custom fitting on entry RS1) → gate valve V1 on entry RS1 → L2 (NPS 4
- * carbon steel) → reservoir R2 (0 m), with a project library (CLAUDE.md D21) of two pipe specs
+ * carbon steel) → reservoir R2 (0 m), with a project library (CLAUDE.md D22) of two pipe specs
  * (PS1 on carbon steel without a roughness, PS2 a custom pipe) and two resistance entries (RS1 a
  * Cv, RS2 a K stated at 0.09 m). Made-up test inputs.
  */

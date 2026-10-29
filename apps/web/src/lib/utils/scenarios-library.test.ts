@@ -1,5 +1,5 @@
 /**
- * Scenarios with the project library (CLAUDE.md D21, proposal project-library.md §5.1, §6.3): a
+ * Scenarios with the project library (CLAUDE.md D22, proposal project-library.md §5.1, §6.3): a
  * pipe's spec change may switch it to or from a pipe spec, a valve's resistance change may point it
  * at an entry, and the library itself is base data, never edited in a scenario. The shared
  * fixture's library cases (scenario-cases.json, by the API's real apply_scenario) are checked in

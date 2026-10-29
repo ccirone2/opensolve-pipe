@@ -57,7 +57,7 @@ export interface ExportContext {
 	fittingName: (type: string) => string;
 	materialName: (id: string) => string | undefined;
 	/**
-	 * A case with a response was solved with a project library (CLAUDE.md D21): the file has the
+	 * A case with a response was solved with a project library (CLAUDE.md D22): the file has the
 	 * Project library sheet and the element tables' entry columns. False otherwise, so a file
 	 * without a library is as before.
 	 */

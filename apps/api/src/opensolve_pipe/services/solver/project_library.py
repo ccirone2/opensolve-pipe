@@ -1,4 +1,4 @@
-"""The project library (CLAUDE.md D21, docs/proposals/project-library.md): pipe specs and
+"""The project library (CLAUDE.md D22, docs/proposals/project-library.md): pipe specs and
 resistance entries the user defines once, each with its source, resolved where the solver
 resolves library data today, to exactly the values a user could have typed on each element.
 
@@ -37,7 +37,7 @@ ENTERED_UNITS = {"K": "", "Cv": "US gpm/psi^0.5", "Kv": "m³/h/bar^0.5"}
 """A coefficient's unit as entered, as a valve's trace writes it ('' for K)."""
 
 LIBRARY_DECISION = (
-    "OpenSolve Pipe design decision D21 (CLAUDE.md), from docs/proposals/project-library.md."
+    "OpenSolve Pipe design decision D22 (CLAUDE.md), from docs/proposals/project-library.md."
 )
 
 K_AT_BORE = (

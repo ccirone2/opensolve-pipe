@@ -279,7 +279,7 @@ def _within_override_value(loc: Sequence[Any]) -> list[str]:
 
 def _without_resistance_tag(loc: Sequence[Any]) -> list[Any]:
     """``loc`` without the tag pydantic inserts after a valve's ``resistance``, a union of an
-    inline coefficient and a project library reference (CLAUDE.md D21), as services/scenarios
+    inline coefficient and a project library reference (CLAUDE.md D22), as services/scenarios
     drops it from a scenario value's location: an inline value is located as it was before
     the union, ``components.N.valve:isolation.resistance.value``, and a reference's id at
     ``resistance.id``. An equipment rating keeps its tag (``rating.point.flow``)."""

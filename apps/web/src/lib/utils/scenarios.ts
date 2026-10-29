@@ -17,7 +17,7 @@
  * A pipe's spec change may switch it to or from a pipe spec of the project library ({specId}) and a
  * valve's resistance change may point it at a resistance entry ({kind: 'library', id}); the
  * library itself is base data, shared by every case, so scenarioEdit refuses an edit of it and
- * change texts name entries from the base's library (CLAUDE.md D21; entries are not scenario
+ * change texts name entries from the base's library (CLAUDE.md D22; entries are not scenario
  * targets, proposal project-library.md §5.1).
  *
  * A change whose target is gone (a deleted component, connection or pipe) is kept and is
@@ -1192,7 +1192,7 @@ function specText(
 	options: ValueTextOptions
 ): string {
 	if (!isRecord(value)) return 'not a pipe specification';
-	// A pipe spec of the project library (CLAUDE.md D21), by its name in `project`'s library.
+	// A pipe spec of the project library (CLAUDE.md D22), by its name in `project`'s library.
 	if (typeof value.specId === 'string') return specRefText(project, value.specId);
 	const id = String(value.materialId ?? '');
 	if (id === 'custom') {

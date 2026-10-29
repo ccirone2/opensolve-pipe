@@ -1,5 +1,5 @@
 """Closed-form expected results for the project library (docs/proposals/project-library.md §3.3,
-§7.1 items 2, 3, 4 and 6; CLAUDE.md D6, D7, D21).
+§7.1 items 2, 3, 4 and 6; CLAUDE.md D6, D7, D22).
 
 Written from the proposal (§1.3 decisions 3-4, §2, §3, §4, §5.2), the models and the cited
 libraries by a tester who did not read ``opensolve_pipe.services``; nothing here imports it. Every

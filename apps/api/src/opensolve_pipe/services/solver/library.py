@@ -5,7 +5,7 @@ The JSON is generated from fluids (``scripts/generate_pipe_data.py``): dimension
 with its citation. Resolution turns a ``PipeDefinition`` into the inner diameter and absolute
 roughness the solver uses, and records where each value came from (traceability, GOALS §4.2).
 
-A pipe of a project library spec (``specId``, CLAUDE.md D21) resolves as the pipe the spec
+A pipe of a project library spec (``specId``, CLAUDE.md D22) resolves as the pipe the spec
 stands for (``project_library.spec_pipe``), so its numbers are that pipe's, and carries the spec
 for the trace.
 

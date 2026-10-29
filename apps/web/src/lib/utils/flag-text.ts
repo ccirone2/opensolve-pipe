@@ -14,7 +14,7 @@
  *
  * A Crane default's CORRELATION_OUT_OF_RANGE (a valve's default K, or an inline fitting's Crane
  * K, outside the table it is cited for) ends with the advice to enter the manufacturer's
- * coefficient, on the element or in the project library (CLAUDE.md D21, proposal
+ * coefficient, on the element or in the project library (CLAUDE.md D22, proposal
  * project-library.md §4.3): the flag still fires, and the server's message is unchanged.
  *
  * An orifice plate's validity flags (CORRELATION_OUT_OF_RANGE on the component, proposal

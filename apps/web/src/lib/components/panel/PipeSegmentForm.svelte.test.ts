@@ -62,7 +62,7 @@ describe('PipeSegmentForm', () => {
 });
 
 /**
- * Pipes of a project library spec (CLAUDE.md D21; proposal project-library.md §6.2): the Material
+ * Pipes of a project library spec (CLAUDE.md D22; proposal project-library.md §6.2): the Material
  * list holds the project's specs; a pipe of a spec shows the spec's values read-only with its
  * source; "Use a pipe spec for…" states the count before one undo step changes those pipes. Test
  * inputs (made up): libraryProject's specs.

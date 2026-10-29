@@ -123,7 +123,7 @@ def _refs(prop: dict[str, Any]) -> set[str]:
 def test_every_allow_list_value_is_a_variable_or_says_why_not() -> None:
     """From the published schema, not the derivation: a value whose property is a number, or a
     FlowCoefficient (alone, or with a reference to a project library entry, which holds no
-    number: a valve's resistance, CLAUDE.md D21), is a variable; every other one is in
+    number: a valve's resistance, CLAUDE.md D22), is a variable; every other one is in
     NOT_VARIABLES. A new numeric value in the allow-list fails here until the variable tables
     (and their Literals) name it."""
     tables = _tables()

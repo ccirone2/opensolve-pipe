@@ -12,7 +12,7 @@
 	server's record (proposal scenario-manager.md §6.11). Use in goal seek, on the Result values
 	heading, opens the goal-seek dialog with a new goal on this element (proposal goal-seek.md
 	§6.2); on narrow screens the trace, a sheet itself, closes first. A note or data source that
-	names a project library entry (CLAUDE.md D21: 'project library pipe spec "…" (PS1)') links to
+	names a project library entry (CLAUDE.md D22: 'project library pipe spec "…" (PS1)') links to
 	it: the library opens with that entry in view (proposal project-library.md §6.4).
 -->
 <script lang="ts">

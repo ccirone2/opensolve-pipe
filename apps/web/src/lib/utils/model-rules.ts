@@ -23,7 +23,7 @@
  * - on `PipeDefinition` and `Fitting`, `x-reference-fields` (a field that refers to a project
  *   library entry, the fields the entry stands in for and those required without it), and on
  *   `PipeSpec` and `ResistanceSpec`, `x-fields-by-value` (the fields one field's value requires or
- *   forbids) and `x-ordered-fields` (a spec's inner diameter below its outer), CLAUDE.md D21.
+ *   forbids) and `x-ordered-fields` (a spec's inner diameter below its outer), CLAUDE.md D22.
  *
  * The rest is what the schema states anyway: which schema a component is validated against (the
  * members of the `Project.components` union, by type refined by branchType or valveType, as the
@@ -446,7 +446,7 @@ export function missingFittingParameters(fitting: Fitting): FittingParameter[] {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Project library references and entries (CLAUDE.md D21)
+// Project library references and entries (CLAUDE.md D22)
 // ---------------------------------------------------------------------------------------------
 
 /**

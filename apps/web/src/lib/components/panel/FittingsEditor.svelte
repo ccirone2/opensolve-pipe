@@ -4,7 +4,7 @@
 	radius ratio when the type needs them (left empty and flagged until entered, never guessed).
 
 	The loss coefficient is the type's cited K (the fitting library; none for a custom fitting), a
-	K entered here (a fitting's kOverride), or an entry of the project library (CLAUDE.md D21: a K
+	K entered here (a fitting's kOverride), or an entry of the project library (CLAUDE.md D22: a K
 	at the bore it is stated at, a Cv or a Kv, with its source; the fitting's resistanceId), shown
 	read-only with "Edit in the library" since an edit there changes every element that uses it.
 	"New entry…" (in the base case) opens the library's new entry form, whose entry the fitting then

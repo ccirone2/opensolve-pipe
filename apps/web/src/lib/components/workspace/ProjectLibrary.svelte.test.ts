@@ -1,5 +1,5 @@
 /**
- * The project library dialog (CLAUDE.md D21; proposal project-library.md §6.1, §7.4): a new
+ * The project library dialog (CLAUDE.md D22; proposal project-library.md §6.1, §7.4): a new
  * entry asks for what has no default at its field, and is added as one undo step; an edit
  * reaches every element that refers to the entry (references, not copies); delete is refused
  * while anything uses the entry, naming the first user, its reason scrolled into view; a list

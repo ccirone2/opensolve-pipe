@@ -1,6 +1,6 @@
 <!--
 	Valve resistance: the default (stated by the caller, e.g. "Crane TP-410 K ..."), a value the
-	user enters as K, Cv or Kv, or an entry of the project library (CLAUDE.md D21: a K at the bore
+	user enters as K, Cv or Kv, or an entry of the project library (CLAUDE.md D22: a K at the bore
 	it is stated at, a Cv or a Kv, with its source), referred to by id so an edit to the entry
 	reaches every valve that uses it. Cv and Kv are defined quantities and are stored as entered;
 	the solver converts them to K at the connected inner diameter, and moves an entry's K to that

@@ -123,7 +123,7 @@ export class LibraryStore {
 
 	/**
 	 * The library material `id`, if any. No id (a pipe of a project library spec has no material of
-	 * its own, CLAUDE.md D21) gives none.
+	 * its own, CLAUDE.md D22) gives none.
 	 */
 	material(id: string | null | undefined): PipeMaterial | undefined {
 		return id == null ? undefined : this.materials.find((m) => m.id === id);

@@ -618,7 +618,7 @@ export function aboutRows(
 				"The Result words are the app's sentences, which give fractions in % and powers in kW (hp with gpm). Pipe numbers count from 1."
 		]);
 	}
-	// The project library (D21), only in a file that has its sheet.
+	// The project library (D22), only in a file that has its sheet.
 	if (sheets.some((sheet) => sheet.file === 'project-library.csv')) {
 		rows.push([
 			'Export',

@@ -1,5 +1,5 @@
 /**
- * Flags and topology issues about the project library (CLAUDE.md D21): the advice a Crane
+ * Flags and topology issues about the project library (CLAUDE.md D22): the advice a Crane
  * default's range flag gains (proposal project-library.md §4.3), and the issues the solver raises
  * for references and entries (UNKNOWN_PIPE_SPEC, UNKNOWN_RESISTANCE, VALVE_RESISTANCE_OUT_OF_RANGE,
  * FITTING_RESISTANCE_OUT_OF_RANGE, an unknown material of a spec, a spec's bore or roughness out

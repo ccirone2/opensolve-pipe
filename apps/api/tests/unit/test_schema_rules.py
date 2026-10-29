@@ -170,7 +170,7 @@ def test_ordered_fields_are_what_the_validators_enforce() -> None:
         "AllowableOperatingRegion": [{"lower": "flowMin", "upper": "flowMax", "strict": True}],
         # A group curve's rises (CLAUDE.md D21).
         "PumpGroupCurveRequest": [{"lower": "headMin", "upper": "headMax", "strict": True}],
-        # A project library pipe spec's bore below its outer diameter (CLAUDE.md D21).
+        # A project library pipe spec's bore below its outer diameter (CLAUDE.md D22).
         "PipeSpec": [{"lower": "innerDiameter", "upper": "outerDiameter", "strict": True}],
     }
     user = {"source": {"kind": "user"}}
@@ -306,7 +306,7 @@ BY_VALUE_MODELS: dict[str, type[PipeSpec] | type[ResistanceSpec]] = {
 def test_fields_by_value_are_what_the_validators_enforce() -> None:
     """x-fields-by-value: with ``field`` at a listed value, each required field must be given
     and each forbidden one absent (or null), which is what the model validators enforce; the
-    other values add no rule (CLAUDE.md D21)."""
+    other values add no rule (CLAUDE.md D22)."""
     published = {
         name: schema["x-fields-by-value"]
         for name, schema in SCHEMAS.items()
@@ -359,7 +359,7 @@ REFERENCE_MODELS: dict[str, type[PipeDefinition] | type[Fitting]] = {
 def test_reference_fields_are_what_the_validators_enforce() -> None:
     """x-reference-fields: with a reference to a project library entry given, none of the fields
     it replaces may be (null counts as absent), and it meets x-required-parameters' need for
-    them; without it, requiredWithout are required (CLAUDE.md D21)."""
+    them; without it, requiredWithout are required (CLAUDE.md D22)."""
     published = {
         name: schema["x-reference-fields"]
         for name, schema in SCHEMAS.items()

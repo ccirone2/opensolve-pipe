@@ -177,7 +177,7 @@ function sheetsOf(ctx: ExportContext): SheetSpec[] {
 	const compare = compareSheet(ctx);
 	if (compare) before.push(compare);
 	const after = [
-		// The project library (D21), only in a file with one: a file without one is as before.
+		// The project library (D22), only in a file with one: a file without one is as before.
 		projectLibraryTable(ctx),
 		scenarioChangesTable(ctx),
 		goalSeekSheet(ctx),

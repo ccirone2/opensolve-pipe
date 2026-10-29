@@ -94,7 +94,7 @@ import { NavigatorStore, pathAfterInsert } from './navigator.svelte';
 export type Pane = 'build' | 'results';
 
 /**
- * Where the project library dialog opens (CLAUDE.md D21): its pipe specs or its resistances, with
+ * Where the project library dialog opens (CLAUDE.md D22): its pipe specs or its resistances, with
  * an entry in view (`show`, its id), an entry's form (`edit`; in a scenario, where the library is
  * read-only, the entry in view) or a new entry's form (`create`). A picker that opens a new entry's
  * form gives `use`: the saved entry is then used there, in the same undo step.
@@ -156,7 +156,7 @@ export class Workspace {
 	settingsSection = $state<'fluid' | null>(null);
 	/** The scenario whose card the manager opens on (null: the active one). */
 	managerFocus = $state<string | null>(null);
-	/** The project library dialog is open (CLAUDE.md D21). */
+	/** The project library dialog is open (CLAUDE.md D22). */
 	libraryOpen = $state(false);
 	/** Where the library dialog opens (null: its pipe specs). */
 	libraryFocus = $state.raw<LibraryFocus | null>(null);

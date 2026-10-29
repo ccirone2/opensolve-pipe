@@ -115,7 +115,7 @@ class Project(CamelModel):
         default_factory=list,
         max_length=MAX_LIBRARY_ENTRIES,
         # Left out of every dump when empty, as scenarios: a project without a library
-        # serializes exactly as before (CLAUDE.md D21).
+        # serializes exactly as before (CLAUDE.md D22).
         exclude_if=lambda specs: not specs,
         description=(
             "Pipe specs the user defines once, each with its source, and refers to from pipe "

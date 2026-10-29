@@ -1,5 +1,5 @@
 /**
- * The project library's list limits (CLAUDE.md D21: at most 100 entries in each list), read from
+ * The project library's list limits (CLAUDE.md D22: at most 100 entries in each list), read from
  * the published schema (Project.pipeLibrary and Project.resistanceLibrary maxItems) by
  * utils/project-library.ts, whose setPipeSpec and setResistanceSpec refuse one more, as
  * scenarios.ts reads its own. A full list is said where a new entry starts (the library's New

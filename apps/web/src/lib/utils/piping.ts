@@ -24,7 +24,7 @@ export const CUSTOM_MATERIAL_ID = 'custom';
 
 /**
  * The nominal size the web sizes ports by for `pipe` (a component inserted in its connection):
- * for a pipe of a project library spec, the spec's (CLAUDE.md D21: for display and the web's port
+ * for a pipe of a project library spec, the spec's (CLAUDE.md D22: for display and the web's port
  * sizes only; none when the spec gives none or the project does not have it); else its own.
  */
 export function pipeNominalSize(

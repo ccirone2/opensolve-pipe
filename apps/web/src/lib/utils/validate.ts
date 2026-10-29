@@ -9,7 +9,7 @@
  *   express (port ids per component type, pipe size source, fitting parameters, increasing
  *   curve flows, ordered fields such as a pump's minimum speed below its maximum, a project
  *   library entry's fields by its kind or material, a reference beside the values it stands in
- *   for, ...), plus pump-curve and project library references (CLAUDE.md D21) and ids shared by a
+ *   for, ...), plus pump-curve and project library references (CLAUDE.md D22) and ids shared by a
  *   component and a connection. The rules are read from the schema's extensions (model-rules.ts),
  *   never copied.
  *   A project that breaks only these still opens; the solver reports them too.
@@ -301,7 +301,7 @@ export function schemaProblems(value: unknown): string[] {
 }
 
 /**
- * Problems of a project library pipe spec as a form holds it (CLAUDE.md D21): the `PipeSpec`
+ * Problems of a project library pipe spec as a form holds it (CLAUDE.md D22): the `PipeSpec`
  * schema's (required fields, bounds, the source's length), then the model rules it breaks
  * (project-library.ts pipeSpecRuleProblems); none for a spec the API accepts.
  */
@@ -436,7 +436,7 @@ export function referenceProblems(project: Project): string[] {
 }
 
 /**
- * The project library's ids (CLAUDE.md D21): unique within each list, as the API checks on every
+ * The project library's ids (CLAUDE.md D22): unique within each list, as the API checks on every
  * request (400). The lists are namespaces of their own there (every reference names its list);
  * the app's edits keep them apart from every other id too (factory.usedIds).
  */
@@ -741,7 +741,7 @@ export function modelRuleIssues(
 			add('NPSHr curve flows must be strictly increasing.');
 		}
 	}
-	// The project library's entries (CLAUDE.md D21): the rules their fields keep by their kind or
+	// The project library's entries (CLAUDE.md D22): the rules their fields keep by their kind or
 	// material (x-fields-by-value) and order (x-ordered-fields). Named by id in `text`, by name in
 	// `message`; located at no element (the library is the project's).
 	for (const spec of pipeSpecs(project)) {

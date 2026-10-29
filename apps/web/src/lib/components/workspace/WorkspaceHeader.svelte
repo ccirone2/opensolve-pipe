@@ -32,7 +32,7 @@
 	spinner: it is not solving) and Cancel ("Cancel goal seek") stops the goal seek, also with its
 	dialog closed. One request at a time: Solve reads the store's `calculating`.
 
-	The project library (CLAUDE.md D21; proposal project-library.md §6.1): Library, before the fluid
+	The project library (CLAUDE.md D22; proposal project-library.md §6.1): Library, before the fluid
 	chip, opens its dialog; an icon, labelled from 1280 px (at 1024 px the label would leave the
 	project name about 50 px while a solve runs). Below 1024 px, while a solve or goal seek runs,
 	Cancel takes its place, which keeps the row's fit (320 px upright; the project name's room in
@@ -206,7 +206,7 @@
 				<Icon name="redo" />
 			</button>
 			<span class="flex-1"></span>
-			<!-- The project library (CLAUDE.md D21), next to the fluid. Labelled from 1280 px; below
+			<!-- The project library (CLAUDE.md D22), next to the fluid. Labelled from 1280 px; below
 				1024 px, while a calculation runs, Cancel takes its place (below 640 px the same
 				width, so Solve does not move). A repeated click is ignored, as Solve's and Cancel's:
 				when Cancel goes, Library comes back under the pointer. -->

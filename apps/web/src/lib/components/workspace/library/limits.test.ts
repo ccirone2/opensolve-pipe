@@ -1,6 +1,6 @@
 /**
  * The project library's list limits (limits.ts): the schema's maxItems for Project.pipeLibrary
- * and Project.resistanceLibrary (the API's MAX_LIBRARY_ENTRIES, CLAUDE.md D21), a list full at
+ * and Project.resistanceLibrary (the API's MAX_LIBRARY_ENTRIES, CLAUDE.md D22), a list full at
  * that count, and the sentences that say so. Test inputs: made-up entries.
  */
 import { describe, expect, it } from 'vitest';

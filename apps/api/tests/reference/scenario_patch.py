@@ -9,7 +9,7 @@ is a list of overrides of base values, each naming a target and a field:
   component's type (``COMPONENT_FIELDS``);
 - ``{"kind": "pipe", "connectionId", "pipeIndex", "field", "value"}``: one pipe's ``spec`` (its
   material, schedule, nominal size and bore and roughness overrides, or a pipe spec of the
-  project library, ``specId``, CLAUDE.md D21: replaced together) or its ``length``, with
+  project library, ``specId``, CLAUDE.md D22: replaced together) or its ``length``, with
   ``pipeIndex`` 0-based;
 - ``{"kind": "project", "field", "value"}``: the whole ``fluid``, or a built-in fluid's
   ``fluid.temperature``.
@@ -118,7 +118,7 @@ COMPONENT_FIELD_NAMES = (
 """Every field a component override may name. A field its target's type lacks is not applicable."""
 SPEC_KEYS = ("materialId", "schedule", "nominalSize", "innerDiameter", "roughness", "specId")
 """The keys a pipe's ``spec`` replaces together (proposal decision 10): its five values, or a
-pipe spec of the project library (docs/proposals/project-library.md §5.1, CLAUDE.md D21), so a
+pipe spec of the project library (docs/proposals/project-library.md §5.1, CLAUDE.md D22), so a
 spec change moves a pipe to, from or between library specs."""
 
 Where = tuple[Any, ...]

@@ -19,7 +19,7 @@ the API by Vitest:
   solves at those values (the same JSON form, without ``scenarios``). Applying the overrides to
   the case they ran on (written into the base, or upserted into the scenario by target and
   field) and taking that case's project gives ``trial``.
-  A resistance variable on a valve that refers to a project library entry (CLAUDE.md D21)
+  A resistance variable on a valve that refers to a project library entry (CLAUDE.md D22)
   writes an inline coefficient of its kind in place of the reference, in ``trial`` and in its
   ``override`` (proposal project-library.md §5.2).
 - ``goals``: a solved ``state`` (a SolvedState without its ``trace`` and ``timestamp``) and, for
@@ -205,7 +205,7 @@ RESISTANCES = [
 
 def library_project() -> dict[str, Any]:
     """``base_project()`` whose gate G1 takes its resistance from the project library entry RS1
-    (a Cv) and whose L3 refers to a pipe spec (CLAUDE.md D21)."""
+    (a Cv) and whose L3 refers to a pipe spec (CLAUDE.md D22)."""
     data = base_project()
     data["pipeLibrary"] = [
         {

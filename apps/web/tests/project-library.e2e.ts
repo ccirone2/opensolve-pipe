@@ -13,7 +13,7 @@ import {
 } from './support';
 
 /**
- * The project library (CLAUDE.md D21; proposal project-library.md §7.4), on desktop and mobile,
+ * The project library (CLAUDE.md D22; proposal project-library.md §7.4), on desktop and mobile,
  * solved against the real API, on the pump transfer example:
  *
  *   Suction tank → NPS 4 → Transfer pump → NPS 3 → Discharge isolation valve (gate) → NPS 3 (60 m,

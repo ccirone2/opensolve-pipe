@@ -357,7 +357,7 @@ def _clean(loc: tuple[str | int, ...]) -> Location:
     """An error location in the project JSON without the union tags pydantic inserts: the
     component tag after a component index, an equipment rating's tag after 'rating' (proposal
     equipment-pressure-drop.md §2.1), a valve resistance's tag after 'resistance' (CLAUDE.md
-    D21), the fluid kind after 'fluid'."""
+    D22), the fluid kind after 'fluid'."""
     if len(loc) > 2 and loc[0] == "components":
         tag, rest = loc[2], loc[3:]
         if len(rest) > 1 and (
@@ -583,7 +583,7 @@ def _number(value: float, unit: str) -> str:
 
 
 def _library_text(kind: str, entry_id: Any, project: Project | None) -> str:
-    """A project library entry a value refers to (CLAUDE.md D21), by name and id as traces name
+    """A project library entry a value refers to (CLAUDE.md D22), by name and id as traces name
     it: 'project library pipe spec "NPS 60 STD" (PS1)'; by id only where the project does not
     have it (its solve is then a topology issue) or is not given."""
     entries = (

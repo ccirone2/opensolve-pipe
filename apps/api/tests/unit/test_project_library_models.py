@@ -1,4 +1,4 @@
-"""Project library models (CLAUDE.md D21, docs/proposals/project-library.md §2): pipe specs,
+"""Project library models (CLAUDE.md D22, docs/proposals/project-library.md §2): pipe specs,
 resistance entries, a valve's reference to an entry, a pipe's specId and a fitting's resistanceId,
 the two lists on Project, the rules each validator enforces in both directions, request errors
 that never echo a submitted value (SDD §5.1.2), the scenario allow-list's spec group, and a

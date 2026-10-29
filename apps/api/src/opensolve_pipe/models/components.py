@@ -83,7 +83,7 @@ ValveResistance = Annotated[
     ),
 ]
 """A valve's resistance: a coefficient as entered, or a reference to an entry of the project's
-resistanceLibrary (CLAUDE.md D21), told apart by ``kind``."""
+resistanceLibrary (CLAUDE.md D22), told apart by ``kind``."""
 
 
 RESISTANCE_DESCRIPTION = (

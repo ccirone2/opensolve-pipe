@@ -59,7 +59,7 @@ def test_the_fixture_holds_the_cases_the_export_design_names() -> None:
         "npsh_margin", "operating_region", "allowable_region", "minimum_flow", "motor_power",
         "pipe_velocity",
     }  # fmt: skip
-    # CLAUDE.md D21: pipes, a valve and fittings from the project library, an entry of each list
+    # CLAUDE.md D22: pipes, a valve and fittings from the project library, an entry of each list
     # unused, and a scenario that changes a reference
     library = cases["project-library"]
     assert [c["id"] for c in library["cases"]] == [None, "S1"]

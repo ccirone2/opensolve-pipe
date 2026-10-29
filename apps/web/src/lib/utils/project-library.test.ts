@@ -1,5 +1,5 @@
 /**
- * The project library's model layer (CLAUDE.md D21, proposal project-library.md §6, §7.4): edits,
+ * The project library's model layer (CLAUDE.md D22, proposal project-library.md §6, §7.4): edits,
  * refusals, usage, display resolution and words. Every project is a made-up test input
  * (testing/helpers.ts libraryProject).
  */

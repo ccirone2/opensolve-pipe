@@ -1,5 +1,5 @@
 /**
- * Validation of the project library (CLAUDE.md D21): the published rules read from the schema
+ * Validation of the project library (CLAUDE.md D22): the published rules read from the schema
  * (`x-reference-fields`, `x-fields-by-value`, model-rules.ts), dangling references, duplicate
  * entry ids, and a valve resistance checked against the member its kind names. Made-up test
  * inputs (testing/helpers.ts libraryProject).

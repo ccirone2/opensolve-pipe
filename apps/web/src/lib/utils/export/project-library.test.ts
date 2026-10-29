@@ -1,5 +1,5 @@
 /**
- * The export's Project library sheet and entry columns (CLAUDE.md D21, proposal
+ * The export's Project library sheet and entry columns (CLAUDE.md D22, proposal
  * project-library.md §5.3), on the shared fixture's `project-library` case (real API responses:
  * export_input.py, a line whose pipes, valve and fittings refer to the project library, with an
  * entry of each list that nothing uses, and a scenario S1 that points the valve at another entry

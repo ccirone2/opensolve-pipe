@@ -18,7 +18,7 @@ on every case by Vitest:
 - ``rejected``: a project whose scenarios fail request validation (400 for every request on
   it), with the issues as the API reports them.
 
-The ``project library`` cases (CLAUDE.md D21) start from ``library_project()``: the base project
+The ``project library`` cases (CLAUDE.md D22) start from ``library_project()``: the base project
 with a pipe spec and resistance entries, a pipe that refers to a spec and a valve that refers to
 an entry; their scenarios switch a pipe to and from a spec and a valve to and from an entry.
 """
@@ -350,7 +350,7 @@ RESISTANCES = [
 
 
 def library_project() -> dict[str, Any]:
-    """``base_project()`` with a project library (CLAUDE.md D21): L2's pipe refers to the spec
+    """``base_project()`` with a project library (CLAUDE.md D22): L2's pipe refers to the spec
     PS1 and the check valve C1 to the entry RS2."""
     data = copy.deepcopy(base_project())
     data["pipeLibrary"] = copy.deepcopy(PIPE_SPECS)

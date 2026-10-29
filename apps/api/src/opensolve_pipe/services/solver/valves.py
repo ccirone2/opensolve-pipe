@@ -6,7 +6,7 @@ inlet port (the end segment at that port); K is referenced to the velocity there
 - ``resistance`` given: K as entered; Cv → ``fluids.fittings.Cv_to_K(Cv, D_ref)``;
   Kv → ``fluids.fittings.Kv_to_K(Kv, D_ref)`` (``coefficients.k_from_coefficient``,
   ISA-75.01.01-2007).
-- ``resistance`` a project library entry (``{kind: 'library', id}``, CLAUDE.md D21): its Cv or
+- ``resistance`` a project library entry (``{kind: 'library', id}``, CLAUDE.md D22): its Cv or
   Kv converted as one entered on the valve, its K moved from the bore it is stated at to D_ref,
   K₀ (D_ref/d₀)⁴ (``project_library.entry_k``): the K of the same coefficient typed on the valve.
 - No resistance: the Crane TP-410 (2009) full-bore, fully open K for the valve type at D_ref,

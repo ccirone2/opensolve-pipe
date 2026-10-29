@@ -136,7 +136,7 @@ const KIND_NAMES: Readonly<Record<ComponentKind, string>> = {
 
 /**
  * Id prefixes: R1, N1, PL1, AF1, T1, Y1, P1, V1, E1, O1; connections L1; pump curves C1; project
- * library pipe specs PS1 and resistance entries RS1 (CLAUDE.md D21).
+ * library pipe specs PS1 and resistance entries RS1 (CLAUDE.md D22).
  */
 export const ID_PREFIX: Readonly<Record<ComponentKind, string>> = {
 	reservoir: 'R',

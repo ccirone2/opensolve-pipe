@@ -1,5 +1,5 @@
 /**
- * The project library's forms (CLAUDE.md D21; proposal project-library.md §6.1): an entry as its
+ * The project library's forms (CLAUDE.md D22; proposal project-library.md §6.1): an entry as its
  * form holds it while it is entered (a draft, its required values possibly not entered yet), what
  * is still to enter (each said at its field when the form is saved), and the entry it makes.
  * Nothing has a default but the material a new spec starts on: a name, a source and the values

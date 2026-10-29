@@ -1,5 +1,5 @@
 /**
- * The workspace's edits on a project on the project library (CLAUDE.md D21): a component or a tee
+ * The workspace's edits on a project on the project library (CLAUDE.md D22): a component or a tee
  * inserted where a pipe of a spec ends is sized to the spec's nominal size (the condenser water
  * example's NPS 60 header), so its ports match their pipes as the ports editor checks them; the
  * example ships with every port matching.

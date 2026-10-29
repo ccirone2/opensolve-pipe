@@ -222,7 +222,7 @@ def _uses(users: list[str]) -> str:
 
 
 def library_section(built: BuiltNetwork) -> MethodsSection | None:
-    """The "Project library" section (CLAUDE.md D21, proposal project-library.md §4.2), only for
+    """The "Project library" section (CLAUDE.md D22, proposal project-library.md §4.2), only for
     a project with a library: every entry with its values, its source and the elements that use
     it (each with the K it takes), so that a reader sees the whole library a result was solved
     with, an entry no element uses being said to be not used; and one sentence per conversion

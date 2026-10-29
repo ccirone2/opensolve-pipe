@@ -1,4 +1,4 @@
-"""Request-validation locations under a valve's resistance (CLAUDE.md D21). The resistance is a
+"""Request-validation locations under a valve's resistance (CLAUDE.md D22). The resistance is a
 union of an inline coefficient and a project library reference, and pydantic puts the union's
 tag in every location under it; the API leaves it out (main._without_resistance_tag, with the
 tags services/scenarios drops from a scenario value's location). So an invalid inline value is

@@ -1,4 +1,4 @@
-"""Project library resolution (CLAUDE.md D21, docs/proposals/project-library.md §3-§5): pipe
+"""Project library resolution (CLAUDE.md D22, docs/proposals/project-library.md §3-§5): pipe
 specs, valve and fitting resistances from entries, the K moved to another bore, the topology
 issues of references that do not resolve, the traces and methods section that name entries, and
 scenarios and goal seek on elements that refer to entries.
@@ -885,7 +885,7 @@ def test_the_methods_section_lists_the_whole_library() -> None:
         "a fitting in laminar flow (Re < 2000 in its reference pipe) it is flagged."
     )
     assert len(items) == 12
-    assert section.references[0].startswith("OpenSolve Pipe design decision D21")
+    assert section.references[0].startswith("OpenSolve Pipe design decision D22")
 
 
 def test_a_library_nothing_uses_is_listed_as_not_used() -> None:
@@ -896,7 +896,7 @@ def test_a_library_nothing_uses_is_listed_as_not_used() -> None:
     assert len(section.items) == 2
     assert section.items[1].endswith("not used by any element. Source: test input, used by nothing")
     assert section.references == [
-        "OpenSolve Pipe design decision D21 (CLAUDE.md), from docs/proposals/project-library.md."
+        "OpenSolve Pipe design decision D22 (CLAUDE.md), from docs/proposals/project-library.md."
     ]
 
 

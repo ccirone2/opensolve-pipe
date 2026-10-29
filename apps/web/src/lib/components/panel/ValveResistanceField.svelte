@@ -1,6 +1,6 @@
 <!--
 	A valve's resistance (ResistanceField) in the workspace: the case's value, a scenario value in a
-	scenario, and the project library's entries (CLAUDE.md D21). "New entry…" opens the library's
+	scenario, and the project library's entries (CLAUDE.md D22). "New entry…" opens the library's
 	new entry form, and the entry saved is used for this valve in the same undo step (offered
 	disabled when the library holds as many entries as a project may).
 -->

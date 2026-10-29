@@ -30341,7 +30341,7 @@
 													"A Cv or Kv entry is converted to K on each element's reference bore with fluids.fittings.Cv_to_K / Kv_to_K (ISA-75.01.01, turbulent flow, without the Reynolds number factor F_R), as one entered on that element; on a valve or a fitting in laminar flow (Re < 2000 in its reference pipe) it is flagged."
 												],
 												"references": [
-													"OpenSolve Pipe design decision D21 (CLAUDE.md), from docs/proposals/project-library.md.",
+													"OpenSolve Pipe design decision D22 (CLAUDE.md), from docs/proposals/project-library.md.",
 													"ISA-75.01.01-2007 (60534-2-1 Mod), Flow Equations for Sizing Control Valves."
 												],
 												"title": "Project library"
@@ -32445,7 +32445,7 @@
 													"A Cv or Kv entry is converted to K on each element's reference bore with fluids.fittings.Cv_to_K / Kv_to_K (ISA-75.01.01, turbulent flow, without the Reynolds number factor F_R), as one entered on that element; on a valve or a fitting in laminar flow (Re < 2000 in its reference pipe) it is flagged."
 												],
 												"references": [
-													"OpenSolve Pipe design decision D21 (CLAUDE.md), from docs/proposals/project-library.md.",
+													"OpenSolve Pipe design decision D22 (CLAUDE.md), from docs/proposals/project-library.md.",
 													"ISA-75.01.01-2007 (60534-2-1 Mod), Flow Equations for Sizing Control Valves."
 												],
 												"title": "Project library"

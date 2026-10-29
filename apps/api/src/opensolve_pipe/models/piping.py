@@ -62,7 +62,7 @@ REQUIRED_PARAMETERS: dict[str, tuple[str, ...]] = {
 
 @dataclass(frozen=True)
 class ReferenceField:
-    """A field that refers to an entry of the project library (CLAUDE.md D21), and the inline
+    """A field that refers to an entry of the project library (CLAUDE.md D22), and the inline
     fields the entry stands in for (published as ``x-reference-fields``)."""
 
     replaces: tuple[str, ...]
@@ -131,7 +131,7 @@ FITTING_SCHEMA_EXTRA: JsonDict = {
     "x-exit-types": list(EXIT_TYPES),
     # {reference: {replaces, requiredWithout}}: with the reference given, none of the fields it
     # replaces may be, and it meets x-required-parameters' need for them; without it,
-    # requiredWithout are required (CLAUDE.md D21).
+    # requiredWithout are required (CLAUDE.md D22).
     "x-reference-fields": _published_references(FITTING_REFERENCES),
 }
 

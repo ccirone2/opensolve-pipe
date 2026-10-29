@@ -1,5 +1,5 @@
 <!--
-	The project library (CLAUDE.md D21; proposal project-library.md §6.1): pipe specs and loss
+	The project library (CLAUDE.md D22; proposal project-library.md §6.1): pipe specs and loss
 	coefficients from the user's own sources, each defined once with its source and referred to by
 	any pipe, valve or fitting, so an edit to an entry reaches every element that uses it. Two
 	lists, Pipe specs and Resistances (tabs); each entry shows its name, its values in display

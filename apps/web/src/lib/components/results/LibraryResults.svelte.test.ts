@@ -1,5 +1,5 @@
 /**
- * The project library in the results (CLAUDE.md D21; proposal project-library.md §4.3, §6.2,
+ * The project library in the results (CLAUDE.md D22; proposal project-library.md §4.3, §6.2,
  * §6.4): a valve's Crane default K outside its table says to enter the manufacturer's coefficient
  * and offers "Enter a datasheet value", which shows the valve's resistance in Build; a trace's
  * note naming a library entry links to it in the library. The solve results are made-up test

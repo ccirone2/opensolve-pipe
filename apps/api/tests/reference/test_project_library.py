@@ -1,5 +1,5 @@
 """The project library through the public API, tested independently of its implementation
-(docs/proposals/project-library.md §7.1; CLAUDE.md D6, D13, D21).
+(docs/proposals/project-library.md §7.1; CLAUDE.md D6, D13, D22).
 
 Written from the proposal, the specs and the models by a tester who did not read ``services/``
 or the API builder's tests. Every project goes through ``POST /api/v1/solve``, ``/system-curve``

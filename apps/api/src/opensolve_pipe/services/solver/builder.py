@@ -311,7 +311,7 @@ def _duplicates(ids: Iterable[str]) -> list[str]:
 
 
 def _unknown_library_entries(project: Project) -> list[TopologyIssue]:
-    """References to project library entries the project does not have (CLAUDE.md D21), as
+    """References to project library entries the project does not have (CLAUDE.md D22), as
     UNKNOWN_PUMP_CURVE: UNKNOWN_RESISTANCE for a valve's resistance and a fitting's resistanceId,
     UNKNOWN_PIPE_SPEC for a pipe's specId, each naming the element and the id."""
     issues: list[TopologyIssue] = []
@@ -720,7 +720,7 @@ def _unrepresentable_valves(project: Project, resolved: ResolvedPipes) -> list[T
 
 
 def _unrepresentable_fittings(project: Project, resolved: ResolvedPipes) -> list[TopologyIssue]:
-    """Fittings whose K from a project library entry (CLAUDE.md D21), on the inner diameter of
+    """Fittings whose K from a project library entry (CLAUDE.md D22), on the inner diameter of
     their pipe pipeIndex, or K/(2 g A²), is not a finite floating-point number: a schema-valid
     but extreme entry (a K stated at a bore 10⁸⁰ times smaller, a Cv of 1e-170), on which the
     solver could only fail. A kOverride is bounded so that it never is. Connections whose pipes

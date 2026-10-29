@@ -40,7 +40,7 @@ so the fixture does not change from one run to the next.
 - ``project-library``: a line whose pipes refer to project library pipe specs (a library material
   with its cited roughness at the spec's bore, and a custom one), whose butterfly valve takes a K
   stated at another bore from the library, and whose fittings take a K and a Cv from it, with an
-  entry of each list that nothing uses (CLAUDE.md D21); a scenario points the valve at the Cv
+  entry of each list that nothing uses (CLAUDE.md D22); a scenario points the valve at the Cv
   entry and gives a pipe its own values. All cases, display units.
 """
 

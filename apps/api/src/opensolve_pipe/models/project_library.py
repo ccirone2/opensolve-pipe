@@ -1,4 +1,4 @@
-"""The project library (CLAUDE.md D21, docs/proposals/project-library.md §2): pipe specs and
+"""The project library (CLAUDE.md D22, docs/proposals/project-library.md §2): pipe specs and
 loss coefficients the user defines once, each with its source, and refers to by id from pipe
 segments (``PipeDefinition.specId``), valves (``resistance: {kind: 'library', id}``) and inline
 fittings (``Fitting.resistanceId``). An edit to an entry reaches every element that refers to it.

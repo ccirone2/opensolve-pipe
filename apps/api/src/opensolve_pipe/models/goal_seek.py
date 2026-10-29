@@ -139,7 +139,7 @@ def _unannotated(annotation: Any) -> Any:
 def _number_model(annotation: Any) -> type[BaseModel] | None:
     """The model of ``_NUMBER_IN`` a value is, or the one member of its union that is (a
     valve's resistance: a FlowCoefficient, or a reference to a project library entry, which
-    holds no number, CLAUDE.md D21); None otherwise."""
+    holds no number, CLAUDE.md D22); None otherwise."""
     annotation = _unannotated(annotation)
     members = (
         [_unannotated(a) for a in get_args(annotation)]

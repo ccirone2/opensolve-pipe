@@ -562,7 +562,7 @@ def valve_k(
     valve_type: ValveType, resistance: FlowCoefficient | ResistanceRef | None, d: float
 ) -> float:
     """K of a fully open valve at its reference (inlet pipe) diameter d. The resistance is the
-    valve's own, as entered: these laws never read a project library entry (CLAUDE.md D21),
+    valve's own, as entered: these laws never read a project library entry (CLAUDE.md D22),
     whose cases derive a reference's K themselves (``derivations_project_library``)."""
     if isinstance(resistance, ResistanceRef):
         raise TypeError(

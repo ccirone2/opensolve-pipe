@@ -1,6 +1,6 @@
 /**
  * Compare and Build read a connection's solved pipes by identity (identity.ts, results.ts
- * linkReading): a pipe switched to a project library spec (CLAUDE.md D21), or whose spec is
+ * linkReading): a pipe switched to a project library spec (CLAUDE.md D22), or whose spec is
  * edited, is still the pipe solved, so its last results stay on it, out of date. Results do not
  * change form with the library (proposal project-library.md §5.3). Made-up test inputs.
  */

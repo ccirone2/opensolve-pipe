@@ -1,7 +1,7 @@
 <!--
 	The ports of a component: size (the default for new connections at the port), elevation where
 	it matters, what each is connected to, and a way into its piping. Reservoirs can add and
-	remove ports. A connected pipe of a project library spec (CLAUDE.md D21) is named by its spec,
+	remove ports. A connected pipe of a project library spec (CLAUDE.md D22) is named by its spec,
 	and compared with the port by the spec's nominal size when it states one.
 -->
 <script lang="ts">

@@ -21,7 +21,7 @@
  * A reference to a project library entry the project does not have (UNKNOWN_PIPE_SPEC,
  * UNKNOWN_RESISTANCE), and an entry whose coefficient the solver cannot represent on an element's
  * bore (VALVE_RESISTANCE_OUT_OF_RANGE, FITTING_RESISTANCE_OUT_OF_RANGE), are told with the
- * element's names and the entry's name from the project (CLAUDE.md D21); the server's messages
+ * element's names and the entry's name from the project (CLAUDE.md D22); the server's messages
  * name entries by id only.
  *
  * A speed-controlled pump whose curve does not give one speed for each head
@@ -474,7 +474,7 @@ function coefficientWords(
 /**
  * A reference to a project library entry the project does not have (UNKNOWN_PIPE_SPEC,
  * UNKNOWN_RESISTANCE: a valve's or a fitting's), or a fitting whose entry the solver cannot
- * represent on its pipe (FITTING_RESISTANCE_OUT_OF_RANGE), told with names (CLAUDE.md D21); null
+ * represent on its pipe (FITTING_RESISTANCE_OUT_OF_RANGE), told with names (CLAUDE.md D22); null
  * (the server's message) when the message is not in a form expected.
  */
 function libraryIssue(
@@ -529,7 +529,7 @@ function pipeIssue(issue: TopologyIssue, links: IssueLink[], context: Context): 
 	const [, , number, whole = ''] = head;
 	const where = `Piping ${pipingName(project, connection)}, pipe ${number}`;
 	const material = (id: string) => options.materialName?.(id) ?? `material “${id}”`;
-	// A pipe of a project library spec (CLAUDE.md D21): the server names the spec by id first.
+	// A pipe of a project library spec (CLAUDE.md D22): the server names the spec by id first.
 	const ofSpec = SPEC_PREFIX.exec(whole);
 	const rest = ofSpec ? (ofSpec[2] ?? '') : whole;
 	const spec = ofSpec ? pipeSpecOf(project, ofSpec[1]) : undefined;
@@ -566,7 +566,7 @@ function pipeIssue(issue: TopologyIssue, links: IssueLink[], context: Context): 
 				const r = formatValue(Number(roughness), 'diameter', units);
 				const times = `${formatNumber(Number(ratio), 4)} times its inner diameter`;
 				const d = formatValue(Number(diameter), 'diameter', units);
-				// On a pipe of a spec the values are the spec's, changed in the library (D21).
+				// On a pipe of a spec the values are the spec's, changed in the library (D22).
 				text =
 					(ofSpec
 						? `${where}: its pipe spec “${spec?.name ?? ofSpec[1]}” has a roughness (${r}) ${times} (${d}), `
@@ -750,11 +750,11 @@ const ORIFICE_LOSS = new RegExp(
 /** "connection 'L1' pipe 2: <the pipe's problem>" (pipes numbered from 1). */
 const PIPE_PREFIX = new RegExp(`^connection '${ID}' pipe (\\d+): (.*)$`, 's');
 /** A pipe of a project library spec: "pipe spec 'PS1': <its material's, bore's or roughness's
- * problem>" (D21: UNKNOWN_PIPE_MATERIAL, ROUGHNESS_OUT_OF_RANGE, PIPE_SIZE_OUT_OF_RANGE). */
+ * problem>" (D22: UNKNOWN_PIPE_MATERIAL, ROUGHNESS_OUT_OF_RANGE, PIPE_SIZE_OUT_OF_RANGE). */
 const SPEC_PREFIX = new RegExp(`^pipe spec '${ID}': (.*)$`, 's');
 /** An entry's coefficient as entered (project_library.entered_text): "Cv 60000", "K 0.3 at 0.7366 m". */
 const ENTERED = `(K|Cv|Kv) ${NUM}(?: at ${NUM} m)?`;
-/** A reference to a project library entry the project does not have (builder.py, D21). */
+/** A reference to a project library entry the project does not have (builder.py, D22). */
 const VALVE_UNKNOWN_ENTRY = new RegExp(
 	`^valve '${ID}' refers to resistance entry '${ID}', which is not in the project library$`
 );
@@ -764,7 +764,7 @@ const PIPE_UNKNOWN_SPEC = new RegExp(
 const FITTING_UNKNOWN_ENTRY = new RegExp(
 	`^connection '${ID}' fitting (\\d+) \\(([a-z0-9_]+)\\) refers to resistance entry '${ID}', which is not in the project library$`
 );
-/** A valve or fitting whose entry gives no representable loss coefficient on its bore (D21). */
+/** A valve or fitting whose entry gives no representable loss coefficient on its bore (D22). */
 const VALVE_ENTRY = new RegExp(
 	`^valve '${ID}': its project library resistance entry '${ID}', ${ENTERED}, on the inlet ` +
 		`pipe's inner diameter of ${NUM} m gives a loss coefficient that is not a finite positive ` +

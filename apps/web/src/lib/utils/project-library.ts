@@ -1,5 +1,5 @@
 /**
- * The project library (CLAUDE.md D21, docs/proposals/project-library.md): pipe specs and loss
+ * The project library (CLAUDE.md D22, docs/proposals/project-library.md): pipe specs and loss
  * coefficients (a K at the bore it is stated at, a Cv or a Kv) the user defines once, each with
  * its source, and refers to by id: a pipe segment by `specId`, a valve by its resistance
  * `{kind: 'library', id}`, an inline fitting by `resistanceId`. They are references, not

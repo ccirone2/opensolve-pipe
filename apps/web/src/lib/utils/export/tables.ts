@@ -464,7 +464,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 		}
 	);
 
-	// The project library (CLAUDE.md D21): the entry each pipe, fitting and valve refers to, by id
+	// The project library (CLAUDE.md D22): the entry each pipe, fitting and valve refers to, by id
 	// and name in the case as solved, as columns only in a file with a library (else as before).
 	const library = ctx.library;
 	const entryColumns = (what: string) =>
@@ -1206,7 +1206,7 @@ function ratingCell(value: Record<string, unknown>, u: ExportContext['units']): 
 }
 
 /**
- * The project library (CLAUDE.md D21, proposal project-library.md §5.3): every pipe spec and
+ * The project library (CLAUDE.md D22, proposal project-library.md §5.3): every pipe spec and
  * resistance entry of each case with a response, as that case was solved (its project as solved:
  * an out-of-date case's may differ from the project now), one per row, pipe specs first, in the
  * library's order: its values as entered in the file's units (a K with the bore it is stated at; a

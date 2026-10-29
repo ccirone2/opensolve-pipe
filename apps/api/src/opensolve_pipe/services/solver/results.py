@@ -486,7 +486,7 @@ class _Mapper:
                 )
             )
             re = states[seg_index].reynolds
-            # A Cv or Kv from the project library (CLAUDE.md D21) is converted as on a valve,
+            # A Cv or Kv from the project library (CLAUDE.md D22) is converted as on a valve,
             # and flagged in laminar flow as a valve's is; a K entry, as a kOverride, is not.
             coefficient = fit.entry.entry.kind if fit.entry is not None else None
             if not fit.valid_in_laminar_flow and 0 < re < RE_LAMINAR_MAX:

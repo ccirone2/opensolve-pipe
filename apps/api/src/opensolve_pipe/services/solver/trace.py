@@ -544,7 +544,7 @@ def _connection_trace(ctx: TraceInputs, data: ConnectionData) -> ElementTrace:
     materials = load_pipe_materials()
     for i, (pipe, defn) in enumerate(zip(data.pipes, conn.piping.pipes, strict=True)):
         label = pipe_label(i)
-        spec = pipe.spec  # a project library pipe spec (CLAUDE.md D21), or None
+        spec = pipe.spec  # a project library pipe spec (CLAUDE.md D22), or None
         if spec is not None:
             t.input(f"{label} pipe spec", f'"{spec.name}" ({spec.id})', NO_UNIT, "user")
         material = materials.get(pipe.material_id)
@@ -1645,7 +1645,7 @@ def _flow_coefficient_text(t: _Trace, kind: str, bore: str) -> None:
 
 
 def _entry_inputs(t: _Trace, use: EntryK, label: str) -> None:
-    """A project library resistance entry's values as entered (CLAUDE.md D21): user data."""
+    """A project library resistance entry's values as entered (CLAUDE.md D22): user data."""
     entry = use.entry
     t.input(
         f"{label} {entry.kind} (project library, as entered)",

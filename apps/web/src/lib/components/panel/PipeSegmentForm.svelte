@@ -2,7 +2,7 @@
 	One pipe segment of a connection: a library pipe (material, schedule, nominal size; inner
 	diameter and roughness resolved from the cited library, with optional overrides), a custom
 	pipe (inner diameter and roughness entered by the user), or a pipe spec of the project library
-	(CLAUDE.md D21: its values shown read-only, with its source and "Edit in the library", since an
+	(CLAUDE.md D22: its values shown read-only, with its source and "Edit in the library", since an
 	edit there changes every pipe that uses it), and its length. The Material list holds the
 	project's specs under "Project specs", and "New pipe spec…" (in the base case: the library is
 	the same in every case) opens the library's new spec form, whose spec this pipe then uses (when

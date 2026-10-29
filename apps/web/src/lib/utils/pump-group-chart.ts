@@ -491,6 +491,8 @@ export interface GroupNotesInput {
 	system?: GroupSystemCurveState | undefined;
 	/** The labels project: names of the station's ports. */
 	project: Project;
+	/** The project as solved: each element's kind, for the rule a reason names (default `project`). */
+	solved?: Project | null;
 	prefs: UnitPreferences;
 }
 
@@ -501,6 +503,7 @@ export function groupNotes({
 	state,
 	system,
 	project,
+	solved,
 	prefs
 }: GroupNotesInput): GroupNotes {
 	const headUnit = displayUnit('head', prefs);
@@ -577,7 +580,7 @@ export function groupNotes({
 		systemCurve,
 		system: systemNote,
 		systemDuty
-	} = groupSystemNotes(data, state, system, project, prefs);
+	} = groupSystemNotes(data, state, system, project, prefs, solved);
 
 	let frame: string | null = null;
 	const duty: string[] = [];
@@ -697,7 +700,8 @@ function groupSystemNotes(
 	state: GroupCurveState | undefined,
 	system: GroupSystemCurveState | undefined,
 	project: Project,
-	prefs: UnitPreferences
+	prefs: UnitPreferences,
+	solved?: Project | null
 ): Pick<GroupNotes, 'systemCurve' | 'system' | 'systemDuty'> {
 	const headUnit = displayUnit('head', prefs);
 	const head = (m: number) => `${formatNumber(fromSI(m, headUnit), 4)} ${data.headUnit}`;
@@ -765,7 +769,7 @@ function groupSystemNotes(
 		} else if (check && check.head === null) {
 			const point = response.systemPoints.find((p) => p.isDuty);
 			const why = point
-				? systemPointNote(point, { project, units: prefs, subject: 'station' }).text
+				? systemPointNote(point, { project, solved, units: prefs, subject: 'station' }).text
 				: '';
 			duty.push(
 				`The group system curve has no rise at the duty's flow, so whether it passes through the Group point is not known${why ? `: ${lowerFirst(why)}` : '.'}`
@@ -927,7 +931,10 @@ export function groupSummary(
 	system: PumpGroupCurveResponse | null = null
 ): string {
 	const fmt = (v: number) => formatNumber(v, 4);
-	const share = (id: string) => response?.duty?.members.find((m) => m.pumpId === id)?.share ?? null;
+	/** The station and its duty: the group curve's, else the group system curve's (the same). */
+	const stationOf = response?.duty ? response : system?.duty ? system : null;
+	const share = (id: string) =>
+		stationOf?.duty?.members.find((m) => m.pumpId === id)?.share ?? null;
 	const parts = members.map((m) => {
 		const p = data.points.find((pt) => pt.id === m.id);
 		const s = share(m.id);
@@ -938,7 +945,6 @@ export function groupSummary(
 			? `${m.name} held at zero flow, ${fmt(p.point.y)} ${data.headUnit} across it${shareText}`
 			: `${m.name} at ${fmt(p.point.x)} ${data.flowUnit} and ${fmt(p.point.y)} ${data.headUnit}${shareText}`;
 	});
-	const stationOf = response?.duty ? response : system?.duty ? system : null;
 	const systemShown = data.system?.some((p) => p.y !== null) ?? false;
 	const on = data.station?.crossing
 		? ', on the group curve and the group system curve, where they cross'

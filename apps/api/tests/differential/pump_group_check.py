@@ -132,9 +132,10 @@ active PRV or PSV inside does not refuse):
   ``group_system_curve(numPoints=SYSTEM_POINTS)`` on its default range: its station
   ``find_station``'s (or the same swapped, when no member orients it), its duty, ``converged``
   and ``message`` ``group_curve``'s exactly, no group-curve fields; without a duty no points,
-  check or range; with one, ``flowRange`` [0, the default flowMax recomputed here: 1.2 × the
-  largest of Q_st and ``group_curve``'s point flows at the same ``numPoints`` (Q_st alone with an
-  active PRV or PSV inside), or, where none exceeds 1e-6 m³/s, 1.2 × the sum of each member's
+  check or range; with one, ``flowRange`` [the lower of 0 and Q_st, the default flowMax
+  recomputed here: 1.2 × the largest of Q_st and ``group_curve``'s point flows at the same
+  ``numPoints`` (Q_st alone with an active PRV or PSV inside), or, where none exceeds 1e-6
+  m³/s, 1.2 × the sum of each member's
   curve's last data flow × its speed (``pump_library``)]; the points in increasing flow, the
   ``numPoints`` flows of ``numpy.linspace`` over the range and Q_st, exactly one point marked
   ``isDuty`` at Q_st when Q_st lies in the range (none when it does not, counted), standing for
@@ -152,7 +153,7 @@ active PRV or PSV inside does not refuse):
   steady state too); any other is a violation. The largest |H_sys(Q_st) − ΔH_st| of the checks
   that agree is reported.
 - (t2) invariance, every station with a duty: the same group's system curve on the same flows
-  (``flowMin`` 0, ``flowMax`` the base's) after (a) every member's status set to 'off' and (b)
+  (the base's ``flowMin`` and ``flowMax``) after (a) every member's status set to 'off' and (b)
   every member's speed changed (0.8 ×, or halfway to its minimum speed), each grid point equal
   to the base's in every field (rise bit for bit, reason, ids, numbers, message), skipping grid
   flows where either curve's duty stands (another start); an edit the model or the topology
@@ -2027,7 +2028,7 @@ def _system_duty_check(
         why = at.reason if at is not None else "the duty's flow outside the range"
         rec.counts[f"system_disagrees: no rise ({why})"] += 1
         rec.notes.append(f"system duty check without a rise ({why}; {where}): {check.message}")
-    elif "more than one steady state" not in check.message:
+    elif "CLAUDE.md D13" not in check.message:
         problems.append(f"{label} the system duty check disagrees, without D13's words: {check}")
     elif abs(duty.flow) <= DUTY_FLOOR:
         rec.counts["system_disagrees: zero station flow"] += 1
@@ -2386,7 +2387,7 @@ def system_checks(
         system_problems(
             sc,
             station,
-            flow_min=0.0,
+            flow_min=min(0.0, sc.duty.flow) if sc.duty is not None else 0.0,
             flow_max=flow_max,
             exact=False,
             num_points=SYSTEM_POINTS,
@@ -2417,7 +2418,7 @@ def system_checks(
             other = group_system_curve(
                 edited,
                 list(members),
-                flow_min=0.0,
+                flow_min=sc.flow_range.min,
                 flow_max=sc.flow_range.max,
                 num_points=SYSTEM_POINTS,
             )

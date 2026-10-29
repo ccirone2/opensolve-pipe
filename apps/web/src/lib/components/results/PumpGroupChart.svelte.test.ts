@@ -703,6 +703,9 @@ describe('the group system curve (slice 4b)', () => {
 		expect(screen.getByRole('status')).toHaveTextContent(
 			'Computing the group system curve for this solve…'
 		);
+		// The figure is busy while either curve is computed, as the pump chart's for its system curve.
+		const figure = screen.getByRole('figure');
+		expect(figure).toHaveAttribute('aria-busy', 'true');
 		const cancel = screen.getByRole('button', { name: 'Cancel the group system curve' });
 		expect(screen.queryByRole('button', { name: 'Cancel the group curve' })).toBeNull();
 		cancel.focus();
@@ -711,6 +714,7 @@ describe('the group system curve (slice 4b)', () => {
 		await view.rerender(values({ status: 'cancelled', by: 'user' }));
 		await tick();
 		await tick();
+		expect(figure).toHaveAttribute('aria-busy', 'false');
 		const compute = screen.getByRole('button', { name: 'Compute the group system curve' });
 		expect(compute).toHaveFocus();
 		expect(compute).toHaveAccessibleDescription(
@@ -868,10 +872,14 @@ describe('the group system curve (slice 4b)', () => {
 		expect(config.plugins.map((p) => p.id)).toEqual(['groupLabels', 'groupReadout']);
 		await fireEvent.input(slider, { target: { value: '0' } });
 		expect(slider).toHaveAttribute('aria-valuetext', words(0));
-		// Back to the duty: the button, or Escape.
-		await fireEvent.click(screen.getByRole('button', { name: 'Back to the duty' }));
+		// Back to the duty: the button, or Escape. The button goes, so the focus moves to the slider.
+		const back = screen.getByRole('button', { name: 'Back to the duty' });
+		back.focus();
+		await fireEvent.click(back);
+		await tick();
 		expect(slider).toHaveAttribute('aria-valuetext', `${words(duty)} (the duty's rise)`);
 		expect(screen.queryByRole('button', { name: 'Back to the duty' })).toBeNull();
+		expect(slider).toHaveFocus();
 		await fireEvent.input(slider, { target: { value: String(points.length - 1) } });
 		await fireEvent.keyDown(slider, { key: 'Escape' });
 		expect(slider).toHaveAttribute('aria-valuetext', `${words(duty)} (the duty's rise)`);

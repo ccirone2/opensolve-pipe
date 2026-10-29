@@ -254,9 +254,16 @@ describe("the Group point: the curves' crossing only when both duty checks agree
 		);
 		const prv = named('prv-inside');
 		const p = card(prv);
-		expect(groupSummary(p.data, membersOf(prv), null, prv.project, systemOf(prv))).toMatch(
+		const prvSummary = groupSummary(p.data, membersOf(prv), null, prv.project, systemOf(prv));
+		expect(prvSummary).toMatch(
 			/, on the group system curve; no group curve shown; group system curve shown\.$/
 		);
+		// The shares, as the table shows them: from the group system curve's duty (the same duty).
+		for (const m of systemOf(prv).duty!.members) {
+			if (m.share === null) continue;
+			expect(prvSummary).toContain(`share ${formatNumber(m.share * 100, 4)} %`);
+		}
+		expect(prvSummary).toMatch(/share \d/);
 	});
 });
 
@@ -516,5 +523,44 @@ describe("a system-curve point's reason, in a station's words", () => {
 		).toBe(
 			'The head across the pump is undetermined: Control valve FC closes off a side of the pump, and no reservoir or reference node fixes the pressure in the part closed off.'
 		);
+	});
+});
+
+describe("the duty's reason, worded with each element as solved", () => {
+	it('names the rule of the element as solved, not as it has been edited since', () => {
+		const c = named('fcv-outside');
+		// Made-up, from the fixture's answer: the duty's point at the FCV's switch (no rise).
+		const system = structuredClone(systemOf(c));
+		const at = system.systemPoints.find((p) => p.isDuty)!;
+		Object.assign(at, {
+			head: null,
+			converged: false,
+			reason: 'valve_at_switch',
+			componentIds: ['FC'],
+			openHead: system.duty!.head - 5,
+			openHeadBound: 'lower',
+			message: 'made-up server words'
+		});
+		Object.assign(system.systemDutyCheck!, { agrees: false, head: null });
+		const members = membersOf(c);
+		const group = groupState(c);
+		const state: GroupSystemCurveState = { status: 'ready', response: system };
+		const data = groupChartData(
+			members,
+			prefsOf(c),
+			group.status === 'ready' ? group.response : null,
+			system
+		);
+		const notes = (project: Project, solved?: Project) =>
+			groupNotes({ data, members, state: group, system: state, project, solved, prefs: prefsOf(c) })
+				.systemDuty;
+		const asSolved = notes(c.project);
+		expect(asSolved[0]).toMatch(/no rise at the duty's flow/);
+		// The FCV made a PRV since the solve: the reason still names the FCV's rule.
+		const edited = structuredClone(c.project);
+		const fc = edited.components.find((x) => x.id === 'FC') as { valveType: string };
+		fc.valveType = 'prv';
+		expect(notes(edited, c.project)).toEqual(asSolved);
+		expect(notes(edited)).not.toEqual(asSolved);
 	});
 });

@@ -101,7 +101,10 @@ class PumpGroupCurveRequest(CamelModel):
         default=None,
         ge=0.0,
         le=FLOW_LIMIT,
-        description="m³/s, curve 'system' only: the lowest flow sampled; default 0",
+        description=(
+            "m³/s, curve 'system' only: the lowest flow sampled; default the lower of 0 and the "
+            "duty's flow"
+        ),
     )
     flow_max: float | None = Field(
         default=None,
@@ -110,9 +113,9 @@ class PumpGroupCurveRequest(CamelModel):
         description=(
             "m³/s, curve 'system' only: the highest flow sampled; default 1.2 x the largest of "
             "the duty's flow and the group curve's flows (on the rises headMin and headMax "
-            "give), or, where none of those is above 1e-6 m3/s (every pump off) or the group "
-            "curve is not defined (an active PRV or PSV inside), 1.2 x the sum over the pumps of "
-            "their curves' largest flows x their speeds"
+            "give); 1.2 x the duty's flow where the group curve is not defined (an active PRV or "
+            "PSV inside); and 1.2 x the sum over the pumps of their curves' largest flows x "
+            "their speeds where neither is above 1e-6 m3/s (every pump off)"
         ),
     )
     num_points: int = Field(
@@ -290,7 +293,8 @@ class FlowRange(OutputModel):
 class PumpGroupSystemPoint(OutputModel):
     """A point of the group system curve: /system-curve's point (SystemCurvePoint) with the
     station's inlet S and outlet D in place of a pump's suction and discharge, and its rise in
-    place of a pump's head; no NPSHa (the pumps' suctions are inside, held closed)."""
+    place of a pump's head; no NPSHa, as none is along the group curve (the station is read at
+    its ports; each pump's NPSHa at the duty is in its own results)."""
 
     flow: float = Field(description="m³/s forced from S to D through the station")
     head: float | None = Field(
@@ -317,7 +321,12 @@ class PumpGroupSystemPoint(OutputModel):
             "back to S; below_floor: every way from S to D), and its rise the pump's head"
         )
     )
-    component_ids: list[str] = Field(description="As SystemCurvePoint.componentIds")
+    component_ids: list[str] = Field(
+        description=(
+            "As SystemCurvePoint.componentIds (where the outer loop names the station's forced "
+            "flow among the controls it cannot settle, the station's pumps)"
+        )
+    )
     assigned_flow_node_ids: list[str] = Field(description="As SystemCurvePoint.assignedFlowNodeIds")
     limit_flow: float | None = Field(
         description="m³/s, as SystemCurvePoint.limitFlow, for the station's flow"

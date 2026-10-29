@@ -113,6 +113,7 @@ from .solver.system_curve import (
     Forced,
     SystemCurvePointResult,
     curve_flows,
+    first_start,
     system_curve_points,
 )
 from .solver.version import METHOD_VERSION
@@ -1153,7 +1154,9 @@ def system_network(built: BuiltNetwork, station: Station) -> tuple[BuiltNetwork,
         branch_legs=legs,
         held_closed=inside,
     )
-    forced = Forced(virtual.index, net.nodes[s].key, net.nodes[d].key, None, STATION_WORDS)
+    forced = Forced(
+        virtual.index, net.nodes[s].key, net.nodes[d].key, None, STATION_WORDS, station.members
+    )
     return view, forced
 
 
@@ -1440,9 +1443,11 @@ def _duty_check(duty: PumpGroupDuty, point: _Point) -> PumpGroupDutyCheck:
 
 
 def _system_duty_check(
-    duty: PumpGroupDuty, point: SystemCurvePointResult
+    duty: PumpGroupDuty, point: SystemCurvePointResult, first: str | None = None
 ) -> PumpGroupSystemDutyCheck:
-    """The group system curve at the duty's flow against the duty's rise (D6's tolerance)."""
+    """The group system curve at the duty's flow against the duty's rise (D6's tolerance).
+    ``first``: why the duty's first start alone, warm from the case's solve, has no rise, when it
+    has none (the point's rise then comes from another start)."""
     forced = f"with the station's flow {duty.flow:.6g} m³/s forced from S to D"
     if point.head is None:
         outcome = (
@@ -1464,6 +1469,14 @@ def _system_duty_check(
             f"the rest of the network {forced} needs a rise of {point.head:.6g} m (the solve: "
             f"{duty.head:.6g} m), within 0.5 % or 0.01 m: the group system curve passes through "
             "the duty"
+        )
+    elif first is not None:
+        message = (
+            f"the rest of the network {forced}, solved from the case's own state, leaves the rise "
+            f"undetermined ({first}): the station alone sets the level there, so the solve's rise "
+            f"{duty.head:.6g} m is one of many; the group system curve's point is another steady "
+            f"state, found from another start, with a rise of {point.head:.6g} m (more than 0.5 % "
+            "or 0.01 m apart; CLAUDE.md D13)"
         )
     else:
         message = (
@@ -1699,10 +1712,11 @@ def _default_flow_max(
     head_max: float | None,
     num_points: int,
 ) -> tuple[float, str]:
-    """1.2 × the largest of the duty's flow and the group curve's flows (on its rises), or 1.2 ×
-    the members' curves' largest flows × speeds, added, where none of those is above the duty
-    check's flow floor (every member off: round-off only) or the group curve is not defined (an
-    active PRV or PSV inside); and what it was taken from, in words."""
+    """The default flowMax and its rule, in words: 1.2 × the largest of the duty's flow and the
+    group curve's flows (on its rises); 1.2 × the duty's flow where the group curve is not
+    defined (an active PRV or PSV inside); 1.2 × the sum over the members of their curves'
+    largest flows × their speeds where neither is above the duty check's flow floor (every member
+    off: round-off only)."""
     pressure = _pressure_controls(case.built, case.station.members, case.station.interior_links)
     largest = duty.flow
     if not pressure:
@@ -1712,11 +1726,16 @@ def _default_flow_max(
         flows = [p.flow for p in solved.values() if p.flow is not None]
         largest = max([largest, *flows])
     if largest > DUTY_FLOW_FLOOR:
-        what = "the duty's flow and the group curve's flows" if not pressure else "the duty's flow"
-        return DEFAULT_RANGE_FACTOR * largest, what
+        rule = (
+            "1.2 × the largest of the duty's flow and the group curve's flows"
+            if not pressure
+            else "1.2 × the duty's flow (no group curve: an active PRV or PSV inside)"
+        )
+        return DEFAULT_RANGE_FACTOR * largest, rule
     return (
         DEFAULT_RANGE_FACTOR * _members_flow_max(case.built, case.station),
-        "the pumps' curves' largest flows × their speeds, added",
+        "1.2 × the sum over the pumps of their curves' largest flows × their speeds (no flow "
+        "above 1e-6 m³/s at the duty or on the group curve)",
     )
 
 
@@ -1740,15 +1759,16 @@ def group_system_curve(
     if duty is None:
         return _no_duty(case, "system")
     station, tol, iters = case.station, case.tolerance, case.max_iterations
-    low = flow_min if flow_min is not None else 0.0
+    low = flow_min if flow_min is not None else min(0.0, duty.flow)
     if flow_max is not None:
         high, source = flow_max, "given"
     else:
         high, source = _default_flow_max(project, case, duty, head_min, head_max, num_points)
     if not high > low:
+        top = "as given" if source == "given" else f"by default {source}"
         raise FlowRangeError(
-            "the flow range is empty: flowMax (given, or by default 1.2 x the largest of the "
-            "duty's flow and the group curve's flows) must be above flowMin (given, or 0)"
+            f"the flow range is empty: flowMax ({top}) must be above flowMin (given, or by "
+            "default the lower of 0 and the duty's flow)"
         )
     flows = curve_flows(low, high, num_points)
     # The group system curve's own network: its branch laws are set by its solves.
@@ -1771,7 +1791,22 @@ def group_system_curve(
     if added:
         points.append(_system_point_model(at_duty, True))
         points.sort(key=lambda p: p.flow)
-    check = _system_duty_check(duty, at_duty)
+    first: str | None = None
+    if at_duty.head is not None and not _system_duty_check(duty, at_duty).agrees:
+        # Word why: does the duty's first start alone, warm from the case, have a rise?
+        try:
+            head, why = first_start(
+                view,
+                forced,
+                duty.flow,
+                warm=_padded(case.outer, duty.flow),
+                tolerance=tol,
+                max_iterations=iters,
+            )
+            first = why if head is None else None
+        except SolveDeadlineError:
+            first = None
+    check = _system_duty_check(duty, at_duty, first)
     flow_range = FlowRange(min=low, max=high, unit="m³/s")
     return GroupCurve(
         station,
@@ -1900,7 +1935,8 @@ _SYSTEM_DEFINITION = (
     "separate the station from the rest, so the curve depends neither on the pumps' statuses "
     "nor on how they share the flow, and an active PRV or PSV inside the station does not "
     "matter to it; where the rest has one steady state at a flow, it crosses the group curve "
-    "at the duty. No NPSHa is given along it: the pumps' suctions are inside, held closed."
+    "at the duty. No NPSHa is given along it, as none is along the group curve: the station is "
+    "read at its ports, and each pump's NPSHa at the duty is in its own results."
 )
 
 
@@ -1991,14 +2027,11 @@ def methods_section(
             if flow_range.min <= duty.flow <= flow_range.max
             else f"the duty's flow {duty.flow:.6g} m³/s lying outside them (solved for the check)"
         )
-        top = (
-            "flowMax as given"
-            if source == "given"
-            else f"flowMax by default 1.2 × the largest of {source}"
-        )
+        top = "flowMax as given" if source == "given" else f"flowMax by default {source}"
         items.append(
             f"Points: {count} flows from {flow_range.min:.6g} to {flow_range.max:.6g} m³/s, "
-            f"{where}; flowMin 0 by default, {top}. The duty's flow is solved first, from the "
+            f"{where}; flowMin by default the lower of 0 and the duty's flow, {top}. The duty's "
+            "flow is solved first, from the "
             "case's solve; then the flows are solved as each pump's system curve is: in flow "
             "order from the network's initial state, each from the last converged point, a "
             "point that does not converge solved again from the initial state, and one without "

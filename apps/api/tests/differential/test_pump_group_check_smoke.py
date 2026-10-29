@@ -160,7 +160,8 @@ def test_the_smoke_selection_breaks_no_rule_but_the_known_api_defect() -> None:
     for rule in ("group curve", "duty", "fallback"):
         assert counts[f"default_range: {rule}"] >= 1, (rule, counts)
     assert counts["system_agrees"] >= 15, counts
-    assert counts["duty_outside_range"] >= 1, counts
+    # the default range starts at the lower of 0 and the duty's flow: the duty is always a point
+    assert counts["duty_outside_range"] == 0, counts
     assert counts["system_disagrees: zero station flow"] >= 1, counts
     assert counts["invariance_curves"] >= 40, counts
     assert counts["invariance_points"] >= 300, counts

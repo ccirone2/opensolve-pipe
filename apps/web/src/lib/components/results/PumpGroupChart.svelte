@@ -216,6 +216,7 @@
 			state: unavailable ? undefined : groupCurve,
 			system: unavailable ? undefined : systemCurve,
 			project,
+			solved: solvedProject ?? labels,
 			prefs
 		})
 	);
@@ -281,6 +282,8 @@
 	const heightRem = $derived(chartHeightRem(['head'], phone.current));
 
 	let figure: HTMLElement | undefined = $state();
+	/** "Read along the curves": focus returns here from "Back to the duty", which then goes. */
+	let readSlider: HTMLInputElement | undefined = $state();
 	let cancelButton: HTMLButtonElement | undefined = $state();
 	let retryButton: HTMLButtonElement | undefined = $state();
 	let systemCancelButton: HTMLButtonElement | undefined = $state();
@@ -493,7 +496,7 @@
 					bind:this={figure}
 					class="space-y-2"
 					aria-labelledby="{id}-caption"
-					aria-busy={loading}
+					aria-busy={loading || systemLoading}
 					tabindex="-1"
 				>
 					<figcaption id="{id}-caption" class="text-sm font-medium">{caption}</figcaption>
@@ -546,6 +549,7 @@
 									>Read along the curves</label
 								>
 								<input
+									bind:this={readSlider}
 									id="{id}-read"
 									type="range"
 									class="min-h-11 min-w-40 flex-1 accent-slate-700"
@@ -568,7 +572,10 @@
 									<button
 										type="button"
 										class="btn btn-quiet px-2 text-blue-800"
-										onclick={() => (reading = null)}>Back to the duty</button
+										onclick={() => {
+											reading = null;
+											void tick().then(() => readSlider?.focus());
+										}}>Back to the duty</button
 									>
 								{/if}
 							</div>

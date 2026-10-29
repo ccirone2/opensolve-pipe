@@ -203,6 +203,10 @@ class Forced:
     pump_id: str | None = None
     """The pump replaced; None for a station's virtual link."""
     words: Words = PUMP_WORDS
+    ids: tuple[str, ...] = ()
+    """The components a station's virtual link stands for, its pumps: where the outer loop names
+    the forced link among the controls it cannot settle (``oscillating_components``, by link
+    key), a point names these instead (``_read``), as a pump's point names the pump."""
 
     def pumps(self, q: float) -> dict[str, float] | None:
         """``run_outer_loop``'s ``forced_flows`` for a forced flow q."""
@@ -699,7 +703,11 @@ def _read(built: BuiltNetwork, forced: Forced, q: float, outer: OuterLoopResult)
     net = built.network
     suction, discharge = net.node_index[forced.suction], net.node_index[forced.discharge]
     if not outer.converged:
-        reason = PointReason("not_converged", tuple(outer.oscillating_components))
+        named = tuple(outer.oscillating_components)
+        key = net.links[forced.link_index].key
+        if forced.pump_id is None and key in named:  # a station's virtual link: its pumps
+            named = tuple(sorted({*named, *forced.ids} - {key}))
+        reason = PointReason("not_converged", named)
         return _Solved(None, "not_converged", outer.message, reason=reason)
     gga = outer.gga
     starved = forced.link_index in gga.starved_links
@@ -837,6 +845,43 @@ def _message(
         f"the {w.head} across the {w.noun} is undetermined{where}: {by}, and no reservoir or "
         "reference node fixes the pressure in the part closed off"
     ), PointReason("closed_off", named)
+
+
+def first_start(
+    built: BuiltNetwork,
+    element: "str | Forced",
+    q: float,
+    *,
+    warm: OuterLoopResult,
+    tolerance: float,
+    max_iterations: int,
+) -> tuple[float | None, str]:
+    """A point's first start alone (``system_curve_points`` without its retries): the network
+    solved once with the forced element carrying q, warm from ``warm``, and its head, or None and
+    why it has none, in words."""
+    forced = _forced(built, element)
+    outer = run_outer_loop(
+        built,
+        tolerance=tolerance,
+        max_iterations=max_iterations,
+        forced_flows=forced.pumps(q),
+        warm=warm,
+        forced_links=forced.links(q),
+    )
+    solved = _read(built, forced, q, outer)
+    if solved.head is not None:
+        return solved.head, ""
+    w = forced.words
+    why = {
+        "switch": solved.detail,
+        "not_converged": f"not converged: {solved.detail}",
+        "starved": f"the forced flow passes nowhere: a side of the {w.noun} has no way to a "
+        "reservoir or reference node",
+        "free_level": f"a side of the {w.noun} is in a part of the network that carries flow but "
+        "reaches no reservoir or reference node",
+        "closed_off": f"a side of the {w.noun} is closed off",
+    }
+    return None, why.get(solved.kind, solved.kind)
 
 
 def system_curve_points(

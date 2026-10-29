@@ -233,13 +233,14 @@ from opensolve_pipe.services.pump_groups import (
     find_station,
     group_curve,
     group_system_curve,
+    system_network,
 )
 from opensolve_pipe.services.solver import TopologyError, solve_project
 from opensolve_pipe.services.solver import system_curve as pump_system_curve
 from opensolve_pipe.services.solver.builder import BuiltNetwork, build_network
 from opensolve_pipe.services.solver.gga import CONTINUITY_ATOL, CONTINUITY_RTOL
 from opensolve_pipe.services.solver.network import LinkKind
-from opensolve_pipe.services.solver.status import HTOL
+from opensolve_pipe.services.solver.status import HTOL, run_outer_loop
 from opensolve_pipe.services.solver.system_curve import SystemCurve, default_flow_max
 from tests.differential.corpus import Item, items, load
 
@@ -1918,11 +1919,13 @@ def system_problems(
     num_points: int,
     label: str,
     case: Callable[[], SolvedState] | None = None,
+    project: Project | None = None,
 ) -> CurveRecord:
     """(t1) for one response of curve 'system': ``station`` is find_station's; ``flow_min`` and
     ``flow_max`` the range expected (``exact``: given in the request, else recomputed and
     compared to ``EXACT_RTOL``); ``label`` names the check that asked for the curve; ``case``
-    gives the case's own solve (read only to explain a disagreeing system duty check)."""
+    gives the case's own solve and ``project`` the project (read only to explain a disagreeing
+    system duty check)."""
     rec = CurveRecord()
     if curve.station != station and (station.oriented or curve.station != station.swapped()):
         rec.problems.append(f"{label} the system curve's station is not find_station's")
@@ -1983,7 +1986,7 @@ def system_problems(
         rec.problems += _point_problems(p, label)
         rec.counts[f"point:{p.reason or 'rise'}"] += 1
     at = marked[0] if inside and len(marked) == 1 else None
-    rec.problems += _system_duty_check(curve, duty, at, label, rec, case)
+    rec.problems += _system_duty_check(curve, duty, at, label, rec, case, project)
     return rec
 
 
@@ -1994,10 +1997,13 @@ def _system_duty_check(
     label: str,
     rec: CurveRecord,
     case: Callable[[], SolvedState] | None,
+    project: Project | None = None,
 ) -> list[str]:
     """(t1): the system duty check recomputed; a disagreement explained by the duty's flow
-    having no rise, by zero station flow, or by a control in series at its switch (the D13
-    message each time), is counted and listed, any other is a violation."""
+    having no rise, by zero station flow, by a control in series at its switch, or by the rest
+    having no rise when solved once warm from the case's own solve (``warm_without_rise``: the
+    rise reported is then the state D10's rule finds from another start), the D13 message each
+    time, is counted and listed, any other is a violation."""
     check = curve.system_duty_check
     if check is None:
         return [f"{label} a duty, but no system duty check"]
@@ -2036,9 +2042,50 @@ def _system_duty_check(
             f"{'it is' if len(controls) == 1 else 'they are'} at the switch and the rest holds "
             f"other rises too (D13; {where}): H_sys(Q_st) {check.head:.6g} m"
         )
+    elif project is not None and (why := warm_without_rise(project, curve.station, duty.flow)):
+        rec.counts["system_disagrees: no rise warm from the case, another start's state"] += 1
+        rec.notes.append(
+            f"system duty check where the rest, solved once warm from the case's solve, has no "
+            f"rise ({why[:160]}), so the rise reported is the state D10's rule finds from another "
+            f"start (D13; {where}): H_sys(Q_st) {check.head:.6g} m"
+        )
     else:
         problems.append(f"{label} the system duty check disagrees ({where}): {check.message}")
     return problems
+
+
+def warm_without_rise(project: Project, station: Station, flow: float) -> str | None:
+    """Why the rest of the network, with the station's flow forced from S to D and solved once
+    warm from the case's own solve (no retry: the first start of D10's rule), has no rise at
+    ``flow``; None when it has one. Without a rise there (the station alone sets the level, as
+    when it alone feeds an assigned flow), D10's rule (owner, 2026-10-23) reports the first rise
+    another start finds: another steady state (D13). With one, that rise is the one reported,
+    and a disagreement with the duty is not explained by this."""
+    fluid = fluid_properties(project.fluid)
+    options = project.settings.solver_options
+    tol, iters = options.tolerance, options.max_iterations
+    case = run_outer_loop(build_network(project, fluid), tolerance=tol, max_iterations=iters)
+    view, forced = system_network(build_network(project, fluid), station)
+    gga = dataclasses.replace(case.gga, flows=np.append(case.gga.flows, flow))
+    outer = run_outer_loop(
+        view,
+        tolerance=tol,
+        max_iterations=iters,
+        forced_links=forced.links(flow),
+        warm=dataclasses.replace(case, gga=gga),
+    )
+    if not outer.converged:
+        return f"not converged: {outer.message}"
+    net, gga_out = view.network, outer.gga
+    s, d = net.node_index[forced.suction], net.node_index[forced.discharge]
+    floating = {v: i for i, nodes in enumerate(gga_out.floating_sections) for v in nodes}
+    if forced.link_index in gga_out.starved_links:
+        return "the forced flow passes nowhere"
+    if not (math.isfinite(gga_out.heads[s]) and math.isfinite(gga_out.heads[d])):
+        return "a side closed off"
+    if floating.get(s) != floating.get(d):
+        return "a side on a free level"
+    return None
 
 
 def at_switch(state: SolvedState, station: Station, flow: float) -> list[str]:
@@ -2345,6 +2392,7 @@ def system_checks(
             num_points=SYSTEM_POINTS,
             label="(t1)",
             case=lambda: state,
+            project=project,
         )
     )
     if group is not None and (
@@ -2429,6 +2477,7 @@ def check_one(
         num_points=ONE_POINTS,
         label=f"(t3) {pump} alone:",
         case=case,
+        project=project,
     )
     checked.merge(one_member_problems(pump, group, own))
     violations += checked.problems

@@ -628,15 +628,15 @@ def test_compare_the_relief_valve_proof_command(tmp_path: Path) -> None:
     while a relief result the old dump lacks, a changed value, or the orifice plates' map left
     empty on one side only is a difference; each ignore's count is printed."""
     a, b = tmp_path / "a", tmp_path / "b"
-    methods = {"methodVersion": "1.4.0", "sections": []}
+    methods = {"methodVersion": "1.5.0", "sections": []}
     old: dict[str, Any] = {
-        "methodVersion": "1.4.0",
+        "methodVersion": "1.5.0",
         "equipmentResults": {},
         "orificeResults": {},
         "trace": {"methods": methods},
     }
     new = copy.deepcopy(old)
-    new["methodVersion"] = new["trace"]["methods"]["methodVersion"] = "1.5.0"
+    new["methodVersion"] = new["trace"]["methods"]["methodVersion"] = "1.6.0"
     new["reliefValveResults"] = {}
     write(a, "p", old)
     write(b, "p", new)

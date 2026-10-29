@@ -73,6 +73,7 @@ from opensolve_pipe.models.components import (
     RatedPoint,
     ReliefValve,
 )
+from opensolve_pipe.models.project_library import ResistanceRef
 from opensolve_pipe.models.pumps import PumpCurve
 from tests.reference.derivations import G, area
 
@@ -815,8 +816,17 @@ def default_valve_k(valve_type: ValveType, d: float) -> float:
             return 0.0
 
 
-def valve_k(valve_type: ValveType, resistance: FlowCoefficient | None, d: float) -> float:
-    """K of a fully open valve at its reference (inlet pipe) diameter d."""
+def valve_k(
+    valve_type: ValveType, resistance: FlowCoefficient | ResistanceRef | None, d: float
+) -> float:
+    """K of a fully open valve at its reference (inlet pipe) diameter d. The resistance is the
+    valve's own, as entered: these laws never read a project library entry (CLAUDE.md D22),
+    whose cases derive a reference's K themselves (``derivations_project_library``)."""
+    if isinstance(resistance, ResistanceRef):
+        raise TypeError(
+            "valve_k takes a resistance as entered, not a project library reference "
+            f"({resistance.id}): resolve the entry first"
+        )
     if resistance is not None:
         return k_from_flow_coefficient(resistance, d)
     return default_valve_k(valve_type, d)

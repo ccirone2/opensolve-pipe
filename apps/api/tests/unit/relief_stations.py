@@ -1,4 +1,4 @@
-"""Small pump stations that hold pressure relief valves (CLAUDE.md D21 and D22), as API JSON
+"""Small pump stations that hold pressure relief valves (CLAUDE.md D21 and D23), as API JSON
 dicts. Test helper, also used by ``tests/differential/test_pump_group_check_smoke.py``.
 
 Every pump has the curve ``CURVE`` (shutoff head 45 m) at full speed; every relief valve is

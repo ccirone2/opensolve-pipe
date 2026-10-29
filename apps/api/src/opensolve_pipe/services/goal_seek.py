@@ -76,6 +76,7 @@ from ..models.goal_seek import (
     tolerance_floor,
 )
 from ..models.project import Project
+from ..models.project_library import ResistanceRef
 from ..models.results import MethodsSection, SolvedState
 from ..models.scenarios import (
     ComponentField,
@@ -104,9 +105,10 @@ from .scenarios import (
 )
 from .solver import TopologyError, solve_project
 from .solver.budget import SolveDeadlineError, check_budget, current_budget
-from .solver.builder import build_network, orifice_refusals, relief_refusals
+from .solver.builder import BuiltNetwork, build_network, orifice_refusals, relief_refusals
 from .solver.labels import pipe_name
 from .solver.methods import BRENT
+from .solver.project_library import entered_text, resistance_label
 from .solver.relief import ASME_DEFAULT_WORDS, ASME_SCOPE_WORDS, covering_letter
 from .solver.version import METHOD_VERSION
 
@@ -1482,6 +1484,10 @@ class _Var:
     effective_area: bool = False
     """A relief valve's API 520 effective area (sizing, proposal pressure-relief-valve.md
     decision 7): the section names the smallest API 526 letter that covers the area found."""
+    library_text: str = ""
+    """A resistance the case takes from a project library entry (CLAUDE.md D22): the entry, as
+    texts name it ('' otherwise). The values the search writes, and the override it reports,
+    are inline coefficients that replace the reference (proposal project-library.md §5.2)."""
 
     def write(self, data: dict[str, Any], x: float) -> None:
         *parents, leaf = self.location
@@ -1687,6 +1693,29 @@ def _rated_otherwise(base: object, case: object, field: str) -> bool:
     return field.startswith("rating.") and base.rating.kind != case.rating.kind
 
 
+def _library_start(
+    variable: ComponentVariable, ref: ResistanceRef, case: Project, built: BuiltNetwork | None
+) -> tuple[float | None, str]:
+    """The start of a resistance variable on a valve whose case resistance is a project library
+    entry (proposal project-library.md §5.2), and the entry as texts name it: the entry's value
+    when its kind is the variable's, a K on the valve's own bore (K₀ (D/d₀)⁴, the K the case's
+    solve uses, from its network ``built``); else None (the middle of the bounds, today's rule).
+    An entry the case does not have is a topology issue (raised after these checks)."""
+    entry = next((e for e in case.resistance_library if e.id == ref.id), None)
+    if entry is None:
+        return None, f"project library resistance {ref.id}"
+    text = f"{resistance_label(entry)}, {entered_text(entry)}"
+    if entry.kind != variable.coefficient:
+        return None, text
+    if entry.kind != "K":
+        return entry.value, text
+    valve = built.valves.get(variable.component_id) if built is not None else None
+    if valve is None:
+        return None, text
+    k = valve.resistance.k
+    return k, f"{text} (K {k:.6g} on this valve's inlet pipe)"
+
+
 def _resolve_variable(
     i: int,
     variable: AnyVariable,
@@ -1695,7 +1724,10 @@ def _resolve_variable(
     applied: AppliedScenario | None,
     not_found: list[TopologyIssue],
     problems: list[TopologyIssue],
+    built: BuiltNetwork | None = None,
 ) -> _Var | None:
+    """``built``: the case's network (None where it has topology issues), for the start of a
+    resistance taken from a project library entry."""
     where = f"body.variables.{i}"
     element = _element_of(variable)
     override = _planning_override(variable)
@@ -1755,9 +1787,13 @@ def _resolve_variable(
     case_value = _json(raw)
     case_number: float | None
     default_text = ""
+    library_text = ""
     if isinstance(variable, ComponentVariable) and variable.coefficient is not None:
-        holds = raw is not None and raw.kind == variable.coefficient
-        case_number = float(raw.value) if holds else None
+        if isinstance(raw, ResistanceRef):  # a project library entry (CLAUDE.md D22)
+            case_number, library_text = _library_start(variable, raw, case, built)
+        else:
+            holds = raw is not None and raw.kind == variable.coefficient
+            case_number = float(raw.value) if holds else None
         if raw is None:
             assert isinstance(target, BaseComponent)
             default_text = _default_text(target)
@@ -1823,6 +1859,7 @@ def _resolve_variable(
         effective_area=isinstance(target, ReliefValve)
         and isinstance(target.capacity, EffectiveOrifice)
         and variable.field == "capacity.area",
+        library_text=library_text,
     )
 
 
@@ -2288,6 +2325,8 @@ def _variable_value_text(var: _Var, x: float) -> str:
 
 def _case_value_text(var: _Var) -> str:
     value = var.case_value
+    if var.library_text:
+        return var.library_text
     if isinstance(var.request, ComponentVariable) and var.request.coefficient is not None:
         if isinstance(value, dict):
             number = value.get("value")
@@ -2382,11 +2421,15 @@ def _method_items(n: int, logs: Sequence[str], cap: int, budget_s: float) -> lis
 def _variable_item(var: _Var, axis: Axis, value: float | None) -> str:
     request = var.request
     lo, hi = _variable_value_text(var, request.lower), _variable_value_text(var, request.upper)
+    library = f", from its {var.library_text}" if var.library_text else ""
     if axis.source == "case":
-        source = "the case's value"
+        source = f"the case's value{library}"
     elif axis.source == "clipped":
         assert axis.case is not None
-        source = f"the case's value {_variable_value_text(var, axis.case)}, clipped into the bounds"
+        source = (
+            f"the case's value {_variable_value_text(var, axis.case)}{library}, clipped into the "
+            "bounds"
+        )
     else:
         held = var.default_text or _case_value_text(var)
         resistance = isinstance(request, ComponentVariable) and request.coefficient is not None
@@ -2410,10 +2453,17 @@ def _variable_item(var: _Var, axis: Axis, value: float | None) -> str:
                 else " (larger than API 526's largest letter, T: no single API 526 valve covers "
                 "it, fluids.safety_valve.API520_round_size)"
             )
-    return (
+    text = (
         f"Variable {var.index + 1}: {var.label}, bounds {lo} to {hi} ({var.variable.scale}), "
         f"start {_variable_value_text(var, axis.start)} ({source}); {found}."
     )
+    if var.library_text and isinstance(request, ComponentVariable):
+        # proposal project-library.md §5.2: the trials and the override hold inline values
+        text += (
+            f" Each value tried is written on the valve as an inline {request.coefficient}, in "
+            "place of its project library entry, and so is the override reported."
+        )
+    return text
 
 
 def _goal_item(goal: _Goal, result: GoalResult, density: float) -> str:
@@ -2512,6 +2562,8 @@ def _element_notes(
         if var.element_id is None or x is None:
             continue
         case = _case_value_text(var)
+        if var.library_text:
+            case += ", which the value found replaces here"
         if var.replaced is not None and applied is not None:
             scenario = applied.scenario
             case += f", set by scenario '{scenario.name}' (id {scenario.id})"
@@ -2599,10 +2651,18 @@ def prepare(request: GoalSeekRequest) -> Prepared:
         if applied is not None:
             raise ScenarioFluidError(applied.scenario.id, exc) from exc
         raise
+    # Built first, for the start of a resistance from a project library entry (its K on the
+    # valve's bore); its topology issues are raised in their turn, after the checks below.
+    built: BuiltNetwork | None = None
+    topology: TopologyError | None = None
+    try:
+        built = build_network(case, fluid)
+    except TopologyError as exc:
+        topology = exc
     not_found: list[TopologyIssue] = []
     problems: list[TopologyIssue] = []
     resolved = [
-        _resolve_variable(i, v, project, case, applied, not_found, problems)
+        _resolve_variable(i, v, project, case, applied, not_found, problems, built)
         for i, v in enumerate(request.variables)
     ]
     targets = [
@@ -2614,12 +2674,10 @@ def prepare(request: GoalSeekRequest) -> Prepared:
         raise GoalSeekInputError(problems)
     variables = [v for v in resolved if v is not None]
     goals = [g for g in targets if g is not None]
-    try:
-        build_network(case, fluid)
-    except TopologyError as exc:
+    if topology is not None:
         if applied is not None:
-            raise ScenarioTopologyError(exc.issues, applied.scenario.id) from exc
-        raise
+            raise ScenarioTopologyError(topology.issues, applied.scenario.id) from topology
+        raise topology
     dump: dict[str, Any] = case.model_dump(mode="json", exclude_unset=True)
     dump.pop("scenarios", None)
     _check_bounds(dump, variables, fluid)

@@ -17,6 +17,10 @@ on every case by Vitest:
 - ``not_found``: an unknown scenario id, with the 404 message;
 - ``rejected``: a project whose scenarios fail request validation (400 for every request on
   it), with the issues as the API reports them.
+
+The ``project library`` cases (CLAUDE.md D22) start from ``library_project()``: the base project
+with a pipe spec and resistance entries, a pipe that refers to a spec and a valve that refers to
+an entry; their scenarios switch a pipe to and from a spec and a valve to and from an entry.
 """
 
 import copy
@@ -376,6 +380,93 @@ INVALID: list[tuple[str, list[dict[str, Any]]]] = [
 ]
 """Scenarios of ``base_project()`` whose values the models reject (400 for that scenario)."""
 
+PIPE_SPECS = [
+    {
+        "id": "PS1",
+        "name": "NPS 4 measured",
+        "source": "test input",
+        "materialId": "carbon_steel",
+        "innerDiameter": 0.1,
+    },
+    {
+        "id": "PS2",
+        "name": "Lined",
+        "source": "test input",
+        "materialId": "custom",
+        "innerDiameter": 0.095,
+        "roughness": 1.5e-6,
+    },
+]
+RESISTANCES = [
+    {"id": "RS1", "name": "Gate, open", "source": "test input", "kind": "Cv", "value": 900.0},
+    {
+        "id": "RS2",
+        "name": "Check, open",
+        "source": "test input",
+        "kind": "K",
+        "value": 1.2,
+        "referenceDiameter": 0.09,
+    },
+]
+"""The project library of ``library_project()`` (test inputs)."""
+
+
+def library_project() -> dict[str, Any]:
+    """``base_project()`` with a project library (CLAUDE.md D22): L2's pipe refers to the spec
+    PS1 and the check valve C1 to the entry RS2."""
+    data = copy.deepcopy(base_project())
+    data["pipeLibrary"] = copy.deepcopy(PIPE_SPECS)
+    data["resistanceLibrary"] = copy.deepcopy(RESISTANCES)
+    [l2] = [c for c in data["connections"] if c["id"] == "L2"]
+    l2["piping"]["pipes"] = [{"specId": "PS1", "length": 40.0}]
+    [c1] = [c for c in data["components"] if c["id"] == "C1"]
+    c1["resistance"] = {"kind": "library", "id": "RS2"}
+    dumped: dict[str, Any] = Project.model_validate(data).model_dump(
+        mode="json", exclude_unset=True
+    )
+    return dumped
+
+
+LIBRARY_APPLIED: list[tuple[str, list[dict[str, Any]]]] = [
+    (
+        "project library: a pipe and a valve switched to entries",
+        [
+            pipe("L1", 0, "spec", {"specId": "PS2"}),
+            comp("G1", "resistance", {"kind": "library", "id": "RS1"}),
+        ],
+    ),
+    (
+        "project library: a pipe and a valve switched from entries to their own values",
+        [
+            pipe(
+                "L2", 0, "spec", {"materialId": "custom", "innerDiameter": 0.1, "roughness": 1e-5}
+            ),
+            comp("C1", "resistance", {"kind": "Kv", "value": 80.0}),
+        ],
+    ),
+    (
+        "project library: another entry, and none",
+        [
+            pipe("L2", 0, "spec", {"specId": "PS2"}),
+            comp("C1", "resistance", {"kind": "library", "id": "RS1"}),
+            comp("F1", "resistance", {"kind": "library", "id": "RS2"}),
+            comp("G1", "resistance", None),
+        ],
+    ),
+]
+"""Scenarios of ``library_project()`` that apply."""
+
+LIBRARY_INVALID: list[tuple[str, list[dict[str, Any]]]] = [
+    (
+        "project library: a spec with an entry and its own values, a reference without its id",
+        [
+            pipe("L2", 0, "spec", {"specId": "PS2", "materialId": "custom"}),
+            comp("C1", "resistance", {"kind": "library"}),
+        ],
+    ),
+]
+"""Scenarios of ``library_project()`` whose values the models reject."""
+
 
 def _rejected_structures() -> list[tuple[str, list[dict[str, Any]]]]:
     level = comp("R1", "liquidLevel", 4.0)
@@ -432,9 +523,13 @@ def _records(applied: Any) -> list[dict[str, Any]]:
 def generate() -> dict[str, Any]:
     """The fixture (module docstring)."""
     base = base_project()
+    library = library_project()
     cases: list[dict[str, Any]] = []
-    for name, overrides in APPLIED:
-        project = _with(base, _scenario("S0"), _scenario("S1", *overrides, description="Case"))
+    applied_cases = [(base, *case) for case in APPLIED] + [
+        (library, *case) for case in LIBRARY_APPLIED
+    ]
+    for start, name, overrides in applied_cases:
+        project = _with(start, _scenario("S0"), _scenario("S1", *overrides, description="Case"))
         applied = apply_scenario(Project.model_validate(project), "S1")
         cases.append(
             {
@@ -448,8 +543,11 @@ def generate() -> dict[str, Any]:
                 },
             }
         )
-    for name, overrides in INVALID:
-        project = _with(base, _scenario("S1", *overrides))
+    invalid_cases = [(base, *case) for case in INVALID] + [
+        (library, *case) for case in LIBRARY_INVALID
+    ]
+    for start, name, overrides in invalid_cases:
+        project = _with(start, _scenario("S1", *overrides))
         try:
             apply_scenario(Project.model_validate(project), "S1")
         except ScenarioOverrideError as exc:

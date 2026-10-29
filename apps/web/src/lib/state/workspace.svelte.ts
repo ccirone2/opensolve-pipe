@@ -31,6 +31,7 @@ import type { FieldChange } from '../components/ui/field-mode';
 import type { CompareRow } from '../utils/compare';
 import { flagText } from '../utils/flag-text';
 import { fittingFallbackName } from '../utils/labels';
+import { pipeNominalSize } from '../utils/piping';
 import {
 	caseProject,
 	changeStates,
@@ -93,6 +94,25 @@ import { NavigatorStore, pathAfterInsert } from './navigator.svelte';
 
 export type Pane = 'build' | 'results';
 
+/**
+ * Where the project library dialog opens (CLAUDE.md D22): its pipe specs or its resistances, with
+ * an entry in view (`show`, its id), an entry's form (`edit`; in a scenario, where the library is
+ * read-only, the entry in view) or a new entry's form (`create`). A picker that opens a new entry's
+ * form gives `use`: the saved entry is then used there, in the same undo step.
+ */
+export interface LibraryFocus {
+	list: 'pipe' | 'resistance';
+	show?: string;
+	edit?: string;
+	create?: boolean;
+	use?: {
+		/** Where it is used, in the undo label: "pipe 2 of Tank → Pump". */
+		label: string;
+		/** The project with the new entry `id` used there (pure; EditError to refuse). */
+		apply: (project: Project, id: string) => Project;
+	};
+}
+
 export interface Notice {
 	kind: 'error' | 'info';
 	text: string;
@@ -138,6 +158,10 @@ export class Workspace {
 	settingsSection = $state<'fluid' | null>(null);
 	/** The scenario whose card the manager opens on (null: the active one). */
 	managerFocus = $state<string | null>(null);
+	/** The project library dialog is open (CLAUDE.md D22). */
+	libraryOpen = $state(false);
+	/** Where the library dialog opens (null: its pipe specs). */
+	libraryFocus = $state.raw<LibraryFocus | null>(null);
 	/**
 	 * The Results pane shows the Compare cases view instead of the active case's results (page
 	 * state; only when the project has scenarios).
@@ -227,6 +251,8 @@ export class Workspace {
 		this.managerFocus = null;
 		this.settingsOpen = false;
 		this.settingsSection = null;
+		this.libraryOpen = false;
+		this.libraryFocus = null;
 		this.announcement = '';
 		this.goalSeekOpen = false;
 		this.goalSeekPrefill = null;
@@ -249,6 +275,17 @@ export class Workspace {
 		);
 		const ids = [...reservedIds(this.goalSeekSetup), ...group];
 		return ids.filter((id, i) => ids.indexOf(id) === i);
+	}
+
+	/** Open the project library dialog: on a list, an entry's form or a new entry's form. */
+	openLibrary(focus?: LibraryFocus): void {
+		this.libraryFocus = focus ?? null;
+		this.libraryOpen = true;
+	}
+
+	closeLibrary(): void {
+		this.libraryOpen = false;
+		this.libraryFocus = null;
 	}
 
 	/** Open the goal-seek dialog; `prefill` opens its New goal form on that element. */
@@ -763,10 +800,14 @@ export class Workspace {
 		return branch.id;
 	}
 
-	/** A component inserted in `connection` sits at its upstream end's elevation, sized to its last pipe. */
+	/**
+	 * A component inserted in `connection` sits at its upstream end's elevation, sized to its last
+	 * pipe (a project library spec's nominal size for a pipe of a spec, pipeNominalSize).
+	 */
 	#insertOptions(connection: PipeConnection): { elevation: number; nominalSize?: number } {
 		const from = componentById(this.project, connection.fromComponentId);
-		const size = connection.piping.pipes[connection.piping.pipes.length - 1]?.nominalSize;
+		const pipes = connection.piping.pipes;
+		const size = pipeNominalSize(this.project, pipes[pipes.length - 1]);
 		return { elevation: from?.elevation ?? 0, ...(size ? { nominalSize: size } : {}) };
 	}
 

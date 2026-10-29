@@ -20,6 +20,7 @@ import type {
 } from '../../api/types';
 import type { SystemCurveState } from '../../state/project.svelte';
 import { CASE_STATUS_LABELS, fittingFallbackName, portLabel } from '../labels';
+import { hasLibrary } from '../project-library';
 import { scenariosOf } from '../scenarios';
 import { localIso } from './filename';
 import type { ExportCase, ExportInput, SheetSpec } from './model';
@@ -55,6 +56,12 @@ export interface ExportContext {
 	valued: readonly CaseView[];
 	fittingName: (type: string) => string;
 	materialName: (id: string) => string | undefined;
+	/**
+	 * A case with a response was solved with a project library (CLAUDE.md D22): the file has the
+	 * Project library sheet and the element tables' entry columns. False otherwise, so a file
+	 * without a library is as before.
+	 */
+	library: boolean;
 }
 
 /** A project's components and connections by id (projects are never mutated: the store freezes them). */
@@ -108,16 +115,18 @@ export function exportContext(input: ExportInput): ExportContext {
 			label: caseLabel(c)
 		};
 	});
+	const responded = cases.filter((c) => c.response);
 	return {
 		input,
 		units: new ExportUnitSystem(input.options.units, input.prefs),
 		hasScenarios,
 		single: input.options.cases === 'shown' || !hasScenarios,
 		cases,
-		responded: cases.filter((c) => c.response),
+		responded,
 		valued: cases.filter((c) => c.hasValues),
 		fittingName: (type) => input.library.fittings[type] ?? fittingFallbackName(type),
-		materialName: (id) => input.library.materials[id]
+		materialName: (id) => input.library.materials[id],
+		library: responded.some((c) => hasLibrary(c.structure))
 	};
 }
 

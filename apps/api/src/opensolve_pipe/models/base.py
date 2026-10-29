@@ -38,6 +38,11 @@ Identifier = Annotated[
 
 Name = Annotated[str, Field(min_length=1, max_length=100)]
 
+FLOW_COEFFICIENT_MAX = 1.0e7
+"""Upper bound of a flow coefficient as entered (K, Cv or Kv): a valve's resistance, an
+equipment item's Cv or Kv rating (proposal equipment-pressure-drop.md decision 3) and a project
+library resistance entry (proposal project-library.md §2.2)."""
+
 Elevation = Annotated[
     float, Field(ge=-1.0e4, le=1.0e4, description="Elevation above the project datum, m")
 ]

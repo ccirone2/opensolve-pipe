@@ -6,10 +6,12 @@ overrides are applied here by an independent JSON patcher (``scenario_patch.by_h
 ``apply_scenario``, so the two implementations check each other.
 
 1. **Metamorphic.** The networks are every reference case and a sample of corpus-like networks:
-   generator seeds of the three fuzz profiles, the unit-test data networks and a library-pipe
-   ladder. Each network carries seeded scenarios: every kind of allow-list value it has, three
-   kinds to a scenario; a mixed one of 1-6 overrides with 0-2 ignored ones, solved with the
-   system curves /solve embeds; one of ignored overrides only; and one that restates base values.
+   generator seeds of the three fuzz profiles, the unit-test data networks, a library-pipe
+   ladder and that ladder on a project library (CLAUDE.md D22), whose pipe specs a spec change
+   may be drawn to. Each network carries seeded scenarios: every kind of allow-list value it
+   has, three kinds to a scenario; a mixed one of 1-6 overrides with 0-2 ignored ones, solved
+   with the system curves /solve embeds; one of ignored overrides only; and one that restates
+   base values.
    ``POST /api/v1/solve`` with a scenario must equal, value for value (bit for bit), the solve of
    the project edited by hand. Only these may differ:
    - ``computeTime`` and the timestamp;
@@ -23,7 +25,9 @@ overrides are applied here by an independent JSON patcher (``scenario_patch.by_h
    The restating scenario must equal the base solve itself (§7.2 item 3). Errors must be the
    hand-edited project's errors, with the scenario's id in the message (§3.3). Another test
    checks that each kind of value, overridden, moves some reference case's solution beyond D6.
-   Without that check, a value that never reached the solver could pass.
+   Without that check, a value that never reached the solver could pass. On the project-library
+   ladder, a third sets a spec change in each direction (to, from and between pipe specs; the
+   seeded draws reach only some), each one moving the solution beyond D6.
 2. **System curves.** ``POST /api/v1/system-curve`` with a scenario must equal the hand-edited
    project's curve, point for point, apart from the record.
 3. **Ignored and invalid overrides** (§2.4, §3.3).
@@ -95,6 +99,7 @@ from opensolve_pipe.models.components import (
 from opensolve_pipe.models.fluids import BuiltinFluid, CustomFluid
 from opensolve_pipe.models.piping import CUSTOM_MATERIAL_ID, MAX_PIPES, PipeDefinition
 from opensolve_pipe.models.project import Project
+from opensolve_pipe.models.project_library import PipeSpec
 from tests.differential import networks
 from tests.differential.generator import ASSIGNED_FLOW, DEFAULT, FLOW_CONTROL, generate
 from tests.reference import element_laws as el
@@ -107,6 +112,7 @@ from tests.reference.scenario_patch import (
     PIPE_FIELDS,
     PROJECT_FIELDS,
     RATING_PARTS,
+    SPEC_KEYS,
     HandApplied,
     State,
     by_hand,
@@ -148,8 +154,9 @@ CORPUS_SAMPLE = {
 }
 """Corpus-like networks (TSD §10.4): seeds of each profile's corpus range (3 default, 4
 flow_control and 4 assigned_flow seeds: the ranges' steps of 1000 and 333), with every third
-unit-test data network (5) and a ladder of library pipes, 17 networks in all (the corpus tool,
-``tests/differential/scenario_check.py``, covers the whole corpus)."""
+unit-test data network (5), a ladder of library pipes and that ladder on a project library, 18
+networks in all (the corpus tool, ``tests/differential/scenario_check.py``, covers the whole
+corpus)."""
 
 
 def _api_json(project: Project) -> dict[str, Any]:
@@ -170,6 +177,51 @@ def _ladder() -> dict[str, Any]:
     return _api_json(networks.ladder(7, 1, "crane", True))
 
 
+def _ladder_on_project_library() -> dict[str, Any]:
+    """The library-pipe ladder (4" schedule 40 steel) with a project library of three pipe specs
+    (docs/proposals/project-library.md §2.1): PS1, the ladder's own steel bore with no roughness
+    (Farshad's at that bore); PS2, the 3" steel bore with a stated roughness; PS3, a custom bore.
+    Every third connection's pipe refers to PS1 and the next one's to PS2, so the seeded spec
+    changes (``_draw_spec``) start from spec pipes and library pipes, and
+    ``test_spec_changes_to_and_from_the_project_library`` sets each direction. The specs' values
+    are test inputs, the steel bores those of ``pipe_materials.json``."""
+    data = _ladder()
+    steel = SIZES[("carbon_steel", "40")]
+    bore = {round(s["nominalSize"], 4): s["innerDiameter"] for s in steel}
+    data["pipeLibrary"] = [
+        {
+            "id": "PS1",
+            "name": "4 in steel",
+            "source": "Test input: the 4 in schedule 40 bore of pipe_materials.json",
+            "materialId": "carbon_steel",
+            "innerDiameter": bore[0.1016],
+        },
+        {
+            "id": "PS2",
+            "name": "3 in steel",
+            "source": "Test input: the 3 in schedule 40 bore of pipe_materials.json",
+            "materialId": "carbon_steel",
+            "innerDiameter": bore[0.0762],
+            "roughness": 9.0e-5,
+        },
+        {
+            "id": "PS3",
+            "name": "Custom 90 mm",
+            "source": "Test input",
+            "materialId": CUSTOM_MATERIAL_ID,
+            "innerDiameter": 0.09,
+            "roughness": 3.0e-5,
+        },
+    ]
+    for i, conn in enumerate(data["connections"]):
+        if i % 3 < 2:
+            spec = "PS1" if i % 3 == 0 else "PS2"
+            conn["piping"]["pipes"] = [
+                {"specId": spec, "length": pipe["length"]} for pipe in conn["piping"]["pipes"]
+            ]
+    return data
+
+
 def _sources() -> dict[str, Callable[[], dict[str, Any]]]:
     """Each network's loader: a fresh copy of its API JSON on every call."""
     out: dict[str, Callable[[], dict[str, Any]]] = {}
@@ -181,6 +233,7 @@ def _sources() -> dict[str, Callable[[], dict[str, Any]]]:
     for path in sorted(API_ROOT.glob("tests/unit/data/*/*.json"))[::3]:
         out[f"unit_{path.stem}"] = functools.partial(_file_json, path)
     out["ladder_7_library"] = _ladder
+    out["ladder_7_project_library"] = _ladder_on_project_library
     return out
 
 
@@ -274,6 +327,8 @@ class Slot:
     target: dict[str, Any]
     field: str
     model: Any
+    specs: tuple[PipeSpec, ...] = ()
+    """A pipe's slot: the project's pipe specs, which a spec change may refer to."""
 
     def override(self, value: Any) -> dict[str, Any]:
         return {**self.target, "field": self.field, "value": value}
@@ -297,12 +352,13 @@ def slots(project: Project) -> list[Slot]:
             key = ("c", c.id, whole if whole in ("rating", "capacity") else field)
             target: dict[str, Any] = {"kind": "component", "componentId": c.id}
             out.append(Slot(f"{type(c).__name__}.{field}", key, target, field, c))
+    specs = tuple(project.pipe_library)
     for conn in project.connections:
         for i, pipe in enumerate(conn.piping.pipes):
             for field in PIPE_FIELDS:
                 target = {"kind": "pipe", "connectionId": conn.id, "pipeIndex": i}
                 kind = f"PipeDefinition.{field}"
-                out.append(Slot(kind, ("p", conn.id, i, field), target, field, pipe))
+                out.append(Slot(kind, ("p", conn.id, i, field), target, field, pipe, specs))
     for field in PROJECT_FIELDS:
         if field == "fluid.temperature" and not isinstance(project.fluid, BuiltinFluid):
             continue
@@ -310,9 +366,12 @@ def slots(project: Project) -> list[Slot]:
     return out
 
 
-def _inner_diameter(pipe: PipeDefinition) -> float:
+def _inner_diameter(pipe: PipeDefinition, specs: tuple[PipeSpec, ...]) -> float:
+    if pipe.spec_id is not None:
+        return next(s.inner_diameter for s in specs if s.id == pipe.spec_id)
     if pipe.inner_diameter is not None:
         return pipe.inner_diameter
+    assert pipe.material_id is not None
     assert pipe.schedule is not None
     assert pipe.nominal_size is not None
     nominal = pipe.nominal_size  # as written (0.0762), not always the data's float
@@ -324,10 +383,16 @@ def _inner_diameter(pipe: PipeDefinition) -> float:
     return diameter
 
 
-def _draw_spec(rng: random.Random, pipe: PipeDefinition) -> dict[str, Any]:
-    """Another pipe of about the same bore: a library pipe (sometimes with a roughness or bore
-    override) or a custom one."""
-    diameter = _inner_diameter(pipe)
+def _draw_spec(
+    rng: random.Random, pipe: PipeDefinition, specs: tuple[PipeSpec, ...]
+) -> dict[str, Any]:
+    """Another pipe: one of the project's other pipe specs (a third of the draws, in a project
+    that has one), else one of about the same bore, a library pipe (sometimes with a roughness or
+    bore override) or a custom one."""
+    others = [s.id for s in specs if s.id != pipe.spec_id]
+    if others and rng.random() < 1.0 / 3.0:
+        return {"specId": rng.choice(others)}
+    diameter = _inner_diameter(pipe, specs)
     if rng.random() < 0.5:
         own = (pipe.material_id, pipe.schedule or "")
         material, schedule = (
@@ -522,7 +587,7 @@ def draw(rng: random.Random, slot: Slot) -> Any:
     if field == "length":
         return _clip(m.length * rng.uniform(0.5, 2.0), 1.0e-3, 1.0e6)
     if field == "spec":
-        return _draw_spec(rng, m)
+        return _draw_spec(rng, m, slot.specs)
     if field == "fluid":
         return _draw_fluid(rng)
     assert field == "fluid.temperature"
@@ -1057,6 +1122,62 @@ def test_every_overridable_value_moves_some_solution() -> None:
     assert not pending, f"no reference case where these overrides move the solution: {pending}"
 
 
+LIBRARY_SPEC_CHANGES = {
+    "spec to spec": ("F0", {"specId": "PS3"}),
+    "spec to library pipe": (
+        "FA",
+        {"materialId": "carbon_steel", "schedule": "80", "nominalSize": 0.1016},
+    ),
+    "spec to custom pipe": (
+        "B0",
+        {"materialId": CUSTOM_MATERIAL_ID, "innerDiameter": 0.095, "roughness": 5.0e-5},
+    ),
+    "library pipe to spec": ("A0", {"specId": "PS2"}),
+}
+"""Spec changes on the project-library ladder (``_ladder_on_project_library``): connection ->
+the value for its first pipe. F0 and B0 refer to PS1, FA to PS2, A0 is a plain library pipe."""
+
+
+def test_spec_changes_to_and_from_the_project_library() -> None:
+    """A spec change moves a pipe to, from or between project library specs (proposal
+    project-library.md §5.1: specId is one of the spec's keys, replaced together): each
+    direction alone, and all four in one scenario, solves as the hand-edited project and moves
+    the solution beyond D6; restating a spec pipe's base value ({specId}) gives the base solve.
+    The seeded draws reach only some directions, so each is set here."""
+    base = NETWORKS["ladder_7_project_library"]()
+    project = Project.model_validate(base)
+    overrides = {}
+    for label, (conn, value) in LIBRARY_SPEC_CHANGES.items():
+        target = {"kind": "pipe", "connectionId": conn, "pipeIndex": 0}
+        overrides[label] = {**target, "field": "spec", "value": value}
+    scenarios = [
+        _scenario(f"S{i + 1}", label, [override])
+        for i, (label, override) in enumerate(overrides.items())
+    ]
+    scenarios.append(_scenario("S5", "All four", list(overrides.values())))
+    restated = {"kind": "pipe", "connectionId": "R1", "pipeIndex": 0, "field": "spec"}
+    _, where, _ = resolve(project, {**restated, "value": None})
+    assert where is not None
+    assert read(project, where) == {"specId": "PS1"}
+    scenarios.append(_scenario("S6", "Restated", [{**restated, "value": {"specId": "PS1"}}]))
+    with_scenarios = {**base, "scenarios": scenarios}
+    api = Api()
+    base_response = api.solve(base)
+    assert base_response.status_code == 200, base_response.text
+    base_state = base_response.json()["solvedState"]
+    problems = []
+    for s_index, scenario in enumerate(scenarios):
+        hand = by_hand(with_scenarios, scenario)
+        got = api.solve(with_scenarios, scenario["id"])
+        restating = scenario["id"] == "S6"
+        want = base_response if restating else api.solve(hand.project)
+        problems += solve_problems(scenario, s_index, hand, got, want)
+        moved = got.status_code == 200 and _moved(base_state, got.json()["solvedState"])
+        if not restating and not moved:
+            problems.append(f"{scenario['id']} ({scenario['name']}): the solution did not move")
+    assert not problems, "\n".join(problems)
+
+
 # --------------------------------------------------------------------------- 2. system curves
 
 PUMP_NETWORKS = [name for name in NETWORKS if _pump_ids(Project.model_validate(NETWORKS[name]()))]
@@ -1516,6 +1637,8 @@ def test_the_published_allow_list_is_the_designs() -> None:
     mine["PipeDefinition"] = set(PIPE_FIELDS)
     mine["Project"] = set(PROJECT_FIELDS)
     assert {k: set(v) for k, v in published.items()} == mine
+    # A spec replaces these keys together, the patcher's (a library spec's specId among them).
+    assert set(published["PipeDefinition"]["spec"]["keys"]) == set(SPEC_KEYS)
     literals = schemas["ComponentOverride"]["properties"]["field"]
     assert set(literals["enum"]) == set(COMPONENT_FIELD_NAMES)
 

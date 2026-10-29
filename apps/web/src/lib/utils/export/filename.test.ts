@@ -184,6 +184,7 @@ describe("the CSV zip's folder", () => {
 			'boundaries.csv',
 			'boundary-ports.csv',
 			'assigned-flows.csv',
+			'project-library.csv',
 			'scenario-changes.csv',
 			'goal-seek.txt',
 			'methods.txt',

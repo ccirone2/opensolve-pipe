@@ -714,14 +714,14 @@
 		{ "sheet": "About", "ref": "C63", "type": "n", "value": 0.125 },
 		{ "sheet": "About", "ref": "A64", "type": "s", "value": "Case: Base case" },
 		{ "sheet": "About", "ref": "B64", "type": "s", "value": "Calculation methods version" },
-		{ "sheet": "About", "ref": "C64", "type": "s", "value": "1.5.0" },
+		{ "sheet": "About", "ref": "C64", "type": "s", "value": "1.6.0" },
 		{ "sheet": "About", "ref": "A65", "type": "s", "value": "Case: Base case" },
 		{ "sheet": "About", "ref": "B65", "type": "s", "value": "Calculation methods changed" },
 		{
 			"sheet": "About",
 			"ref": "C65",
 			"type": "s",
-			"value": "This project was last solved with calculation methods version 1.1.0. These results use version 1.5.0, so some values may differ from the ones it was shared with."
+			"value": "This project was last solved with calculation methods version 1.1.0. These results use version 1.6.0, so some values may differ from the ones it was shared with."
 		},
 		{ "sheet": "About", "ref": "A66", "type": "s", "value": "Case: Base case" },
 		{ "sheet": "About", "ref": "B66", "type": "s", "value": "Server library: CoolProp" },
@@ -867,14 +867,14 @@
 		{ "sheet": "About", "ref": "C101", "type": "n", "value": 0.125 },
 		{ "sheet": "About", "ref": "A102", "type": "s", "value": "Case: Cv valve (S1)" },
 		{ "sheet": "About", "ref": "B102", "type": "s", "value": "Calculation methods version" },
-		{ "sheet": "About", "ref": "C102", "type": "s", "value": "1.5.0" },
+		{ "sheet": "About", "ref": "C102", "type": "s", "value": "1.6.0" },
 		{ "sheet": "About", "ref": "A103", "type": "s", "value": "Case: Cv valve (S1)" },
 		{ "sheet": "About", "ref": "B103", "type": "s", "value": "Calculation methods changed" },
 		{
 			"sheet": "About",
 			"ref": "C103",
 			"type": "s",
-			"value": "This project was last solved with calculation methods version 1.1.0. These results use version 1.5.0, so some values may differ from the ones it was shared with."
+			"value": "This project was last solved with calculation methods version 1.1.0. These results use version 1.6.0, so some values may differ from the ones it was shared with."
 		},
 		{ "sheet": "About", "ref": "A104", "type": "s", "value": "Case: Cv valve (S1)" },
 		{ "sheet": "About", "ref": "B104", "type": "s", "value": "Server library: CoolProp" },
@@ -1039,14 +1039,14 @@
 		{ "sheet": "About", "ref": "C142", "type": "n", "value": 0.125 },
 		{ "sheet": "About", "ref": "A143", "type": "s", "value": "Case: Supply at AF1 (S2)" },
 		{ "sheet": "About", "ref": "B143", "type": "s", "value": "Calculation methods version" },
-		{ "sheet": "About", "ref": "C143", "type": "s", "value": "1.5.0" },
+		{ "sheet": "About", "ref": "C143", "type": "s", "value": "1.6.0" },
 		{ "sheet": "About", "ref": "A144", "type": "s", "value": "Case: Supply at AF1 (S2)" },
 		{ "sheet": "About", "ref": "B144", "type": "s", "value": "Calculation methods changed" },
 		{
 			"sheet": "About",
 			"ref": "C144",
 			"type": "s",
-			"value": "This project was last solved with calculation methods version 1.1.0. These results use version 1.5.0, so some values may differ from the ones it was shared with."
+			"value": "This project was last solved with calculation methods version 1.1.0. These results use version 1.6.0, so some values may differ from the ones it was shared with."
 		},
 		{ "sheet": "About", "ref": "A145", "type": "s", "value": "Case: Supply at AF1 (S2)" },
 		{ "sheet": "About", "ref": "B145", "type": "s", "value": "Server library: CoolProp" },
@@ -5827,7 +5827,7 @@
 			"sheet": "Methods",
 			"ref": "E7",
 			"type": "s",
-			"value": "OpenSolve Pipe calculation methods version 1.5.0"
+			"value": "OpenSolve Pipe calculation methods version 1.6.0"
 		},
 		{ "sheet": "Methods", "ref": "B8", "type": "s", "value": "Base case" },
 		{ "sheet": "Methods", "ref": "C8", "type": "s", "value": "2026-10-25T12:30:00Z" },
@@ -6419,7 +6419,7 @@
 			"sheet": "Methods",
 			"ref": "E85",
 			"type": "s",
-			"value": "- Three named departures. (1) The band between set and full lift is a convention, the linear lift of MathWorks Simscape and AFT Impulse, exact at the two points the certification fixes, not the cited behaviour: Pentair's typical liquid-trim characteristic (TP-V300 Fig. 4-12) lifts to about half at 107 % of set, surges to full lift there, and on falling pressure stays at full lift to about 95 % and recloses near 90 %, so between about 90 % and 107 % of set a real valve has two steady states; a valve that has surged open passes more flow at a lower inlet pressure. No cited source verifies a band law, so every relieving state short of full lift is flagged (CORRELATION_OUT_OF_RANGE, partial lift), and the band is an exception to the project's verifiable gate that the owner accepted (CLAUDE.md D22). (2) API 520's P1 − P2 is read as Δp_t; ASME's definitions as Pentair quotes them (the inlet stagnation pressure, the outlet static pressure) differ by the outlet velocity head, and this reading gives the higher inlet pressure at a given flow. (3) With a superimposed back pressure the overpressure is taken on the set difference, as the opening is, so full lift comes op × the back pressure below the in-situ relieving pressure; at the relieving pressure both readings are at or past full lift and give API 520's flow."
+			"value": "- Three named departures. (1) The band between set and full lift is a convention, the linear lift of MathWorks Simscape and AFT Impulse, exact at the two points the certification fixes, not the cited behaviour: Pentair's typical liquid-trim characteristic (TP-V300 Fig. 4-12) lifts to about half at 107 % of set, surges to full lift there, and on falling pressure stays at full lift to about 95 % and recloses near 90 %, so between about 90 % and 107 % of set a real valve has two steady states; a valve that has surged open passes more flow at a lower inlet pressure. No cited source verifies a band law, so every relieving state short of full lift is flagged (CORRELATION_OUT_OF_RANGE, partial lift), and the band is an exception to the project's verifiable gate that the owner accepted (CLAUDE.md D23). (2) API 520's P1 − P2 is read as Δp_t; ASME's definitions as Pentair quotes them (the inlet stagnation pressure, the outlet static pressure) differ by the outlet velocity head, and this reading gives the higher inlet pressure at a given flow. (3) With a superimposed back pressure the overpressure is taken on the set difference, as the opening is, so full lift comes op × the back pressure below the in-situ relieving pressure; at the relieving pressure both readings are at or past full lift and give API 520's flow."
 		},
 		{ "sheet": "Methods", "ref": "B86", "type": "s", "value": "Base case" },
 		{ "sheet": "Methods", "ref": "C86", "type": "s", "value": "2026-10-25T12:30:00Z" },
@@ -6531,7 +6531,7 @@
 			"sheet": "Methods",
 			"ref": "E98",
 			"type": "s",
-			"value": "- OpenSolve Pipe design decision D22 (CLAUDE.md), from docs/proposals/pressure-relief-valve.md (the owner's answers of 2026-10-28: the linear lift in the band, an exception to GOALS §5)."
+			"value": "- OpenSolve Pipe design decision D23 (CLAUDE.md), from docs/proposals/pressure-relief-valve.md (the owner's answers of 2026-10-28: the linear lift in the band, an exception to GOALS §5)."
 		},
 		{ "sheet": "Methods", "ref": "B99", "type": "s", "value": "Base case" },
 		{ "sheet": "Methods", "ref": "C99", "type": "s", "value": "2026-10-25T12:30:00Z" },
@@ -7072,7 +7072,7 @@
 			"sheet": "Methods",
 			"ref": "E171",
 			"type": "s",
-			"value": "OpenSolve Pipe calculation methods version 1.5.0"
+			"value": "OpenSolve Pipe calculation methods version 1.6.0"
 		},
 		{ "sheet": "Methods", "ref": "A172", "type": "s", "value": "S1" },
 		{ "sheet": "Methods", "ref": "B172", "type": "s", "value": "Cv valve" },
@@ -7847,7 +7847,7 @@
 			"sheet": "Methods",
 			"ref": "E261",
 			"type": "s",
-			"value": "- Three named departures. (1) The band between set and full lift is a convention, the linear lift of MathWorks Simscape and AFT Impulse, exact at the two points the certification fixes, not the cited behaviour: Pentair's typical liquid-trim characteristic (TP-V300 Fig. 4-12) lifts to about half at 107 % of set, surges to full lift there, and on falling pressure stays at full lift to about 95 % and recloses near 90 %, so between about 90 % and 107 % of set a real valve has two steady states; a valve that has surged open passes more flow at a lower inlet pressure. No cited source verifies a band law, so every relieving state short of full lift is flagged (CORRELATION_OUT_OF_RANGE, partial lift), and the band is an exception to the project's verifiable gate that the owner accepted (CLAUDE.md D22). (2) API 520's P1 − P2 is read as Δp_t; ASME's definitions as Pentair quotes them (the inlet stagnation pressure, the outlet static pressure) differ by the outlet velocity head, and this reading gives the higher inlet pressure at a given flow. (3) With a superimposed back pressure the overpressure is taken on the set difference, as the opening is, so full lift comes op × the back pressure below the in-situ relieving pressure; at the relieving pressure both readings are at or past full lift and give API 520's flow."
+			"value": "- Three named departures. (1) The band between set and full lift is a convention, the linear lift of MathWorks Simscape and AFT Impulse, exact at the two points the certification fixes, not the cited behaviour: Pentair's typical liquid-trim characteristic (TP-V300 Fig. 4-12) lifts to about half at 107 % of set, surges to full lift there, and on falling pressure stays at full lift to about 95 % and recloses near 90 %, so between about 90 % and 107 % of set a real valve has two steady states; a valve that has surged open passes more flow at a lower inlet pressure. No cited source verifies a band law, so every relieving state short of full lift is flagged (CORRELATION_OUT_OF_RANGE, partial lift), and the band is an exception to the project's verifiable gate that the owner accepted (CLAUDE.md D23). (2) API 520's P1 − P2 is read as Δp_t; ASME's definitions as Pentair quotes them (the inlet stagnation pressure, the outlet static pressure) differ by the outlet velocity head, and this reading gives the higher inlet pressure at a given flow. (3) With a superimposed back pressure the overpressure is taken on the set difference, as the opening is, so full lift comes op × the back pressure below the in-situ relieving pressure; at the relieving pressure both readings are at or past full lift and give API 520's flow."
 		},
 		{ "sheet": "Methods", "ref": "A262", "type": "s", "value": "S1" },
 		{ "sheet": "Methods", "ref": "B262", "type": "s", "value": "Cv valve" },
@@ -7972,7 +7972,7 @@
 			"sheet": "Methods",
 			"ref": "E274",
 			"type": "s",
-			"value": "- OpenSolve Pipe design decision D22 (CLAUDE.md), from docs/proposals/pressure-relief-valve.md (the owner's answers of 2026-10-28: the linear lift in the band, an exception to GOALS §5)."
+			"value": "- OpenSolve Pipe design decision D23 (CLAUDE.md), from docs/proposals/pressure-relief-valve.md (the owner's answers of 2026-10-28: the linear lift in the band, an exception to GOALS §5)."
 		},
 		{ "sheet": "Methods", "ref": "A275", "type": "s", "value": "S1" },
 		{ "sheet": "Methods", "ref": "B275", "type": "s", "value": "Cv valve" },
@@ -8587,7 +8587,7 @@
 			"sheet": "Methods",
 			"ref": "E347",
 			"type": "s",
-			"value": "OpenSolve Pipe calculation methods version 1.5.0"
+			"value": "OpenSolve Pipe calculation methods version 1.6.0"
 		},
 		{ "sheet": "Methods", "ref": "A348", "type": "s", "value": "S2" },
 		{ "sheet": "Methods", "ref": "B348", "type": "s", "value": "Supply at AF1" },
@@ -9322,7 +9322,7 @@
 			"sheet": "Methods",
 			"ref": "E433",
 			"type": "s",
-			"value": "- Three named departures. (1) The band between set and full lift is a convention, the linear lift of MathWorks Simscape and AFT Impulse, exact at the two points the certification fixes, not the cited behaviour: Pentair's typical liquid-trim characteristic (TP-V300 Fig. 4-12) lifts to about half at 107 % of set, surges to full lift there, and on falling pressure stays at full lift to about 95 % and recloses near 90 %, so between about 90 % and 107 % of set a real valve has two steady states; a valve that has surged open passes more flow at a lower inlet pressure. No cited source verifies a band law, so every relieving state short of full lift is flagged (CORRELATION_OUT_OF_RANGE, partial lift), and the band is an exception to the project's verifiable gate that the owner accepted (CLAUDE.md D22). (2) API 520's P1 − P2 is read as Δp_t; ASME's definitions as Pentair quotes them (the inlet stagnation pressure, the outlet static pressure) differ by the outlet velocity head, and this reading gives the higher inlet pressure at a given flow. (3) With a superimposed back pressure the overpressure is taken on the set difference, as the opening is, so full lift comes op × the back pressure below the in-situ relieving pressure; at the relieving pressure both readings are at or past full lift and give API 520's flow."
+			"value": "- Three named departures. (1) The band between set and full lift is a convention, the linear lift of MathWorks Simscape and AFT Impulse, exact at the two points the certification fixes, not the cited behaviour: Pentair's typical liquid-trim characteristic (TP-V300 Fig. 4-12) lifts to about half at 107 % of set, surges to full lift there, and on falling pressure stays at full lift to about 95 % and recloses near 90 %, so between about 90 % and 107 % of set a real valve has two steady states; a valve that has surged open passes more flow at a lower inlet pressure. No cited source verifies a band law, so every relieving state short of full lift is flagged (CORRELATION_OUT_OF_RANGE, partial lift), and the band is an exception to the project's verifiable gate that the owner accepted (CLAUDE.md D23). (2) API 520's P1 − P2 is read as Δp_t; ASME's definitions as Pentair quotes them (the inlet stagnation pressure, the outlet static pressure) differ by the outlet velocity head, and this reading gives the higher inlet pressure at a given flow. (3) With a superimposed back pressure the overpressure is taken on the set difference, as the opening is, so full lift comes op × the back pressure below the in-situ relieving pressure; at the relieving pressure both readings are at or past full lift and give API 520's flow."
 		},
 		{ "sheet": "Methods", "ref": "A434", "type": "s", "value": "S2" },
 		{ "sheet": "Methods", "ref": "B434", "type": "s", "value": "Supply at AF1" },
@@ -9447,7 +9447,7 @@
 			"sheet": "Methods",
 			"ref": "E446",
 			"type": "s",
-			"value": "- OpenSolve Pipe design decision D22 (CLAUDE.md), from docs/proposals/pressure-relief-valve.md (the owner's answers of 2026-10-28: the linear lift in the band, an exception to GOALS §5)."
+			"value": "- OpenSolve Pipe design decision D23 (CLAUDE.md), from docs/proposals/pressure-relief-valve.md (the owner's answers of 2026-10-28: the linear lift in the band, an exception to GOALS §5)."
 		},
 		{ "sheet": "Methods", "ref": "A447", "type": "s", "value": "S2" },
 		{ "sheet": "Methods", "ref": "B447", "type": "s", "value": "Supply at AF1" },

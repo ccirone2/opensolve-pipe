@@ -106,7 +106,7 @@ describe('loading', () => {
 		const { store, writes } = setup();
 		store.update(rename('A'), 'Rename');
 		store.load(EXAMPLES[2]!.create(), { writeUrl: true });
-		expect(store.project.id).toBe('example-closed-loop');
+		expect(store.project.id).toBe('example-condenser-water');
 		expect(store.canUndo).toBe(false);
 		expect(writes).toEqual([`/p#${encodeProject(EXAMPLES[2]!.create())}`]);
 		vi.runAllTimers();

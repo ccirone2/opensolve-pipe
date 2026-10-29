@@ -1,14 +1,18 @@
 import { expect, test, type Page } from '@playwright/test';
 import { ALLOWED_ORIGINS } from './support';
 
-/** The examples on the home page, their start component and the next one along the walk. */
-const EXAMPLES = [
+/**
+ * The examples on the home page, their start component and the next one along the walk; where
+ * the start has several connections, Next asks which way and the walk takes `next`.
+ */
+const EXAMPLES: { link: RegExp; start: string; next: string; choose?: boolean }[] = [
 	{ link: /Pump transfer/, start: 'Suction tank', next: 'Transfer pump' },
 	{ link: /Gravity-fed/, start: 'Elevated tank', next: 'Distribution tee' },
 	{
-		link: /Closed loop/,
-		start: 'Expansion tank (pressurization point)',
-		next: 'Pressurization tee'
+		link: /Chiller plant/,
+		start: 'Cooling tower basin',
+		next: 'Condenser water pump CWP-1',
+		choose: true
 	}
 ];
 
@@ -31,6 +35,10 @@ for (const example of EXAMPLES) {
 		await expect(breadcrumb(page)).toHaveText([example.start]);
 
 		await panel.getByRole('button', { name: /^Next/ }).click();
+		if (example.choose) {
+			const chooser = page.getByRole('dialog', { name: `Which way from ${example.start}?` });
+			await chooser.getByRole('button', { name: new RegExp(`^${example.next} `) }).click();
+		}
 		await expect(panel.getByRole('heading', { level: 2, name: example.next })).toBeVisible();
 		await expect(breadcrumb(page)).toHaveText([example.start, example.next]);
 

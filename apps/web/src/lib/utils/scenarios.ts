@@ -14,6 +14,12 @@
  * - carryChanges: a base edit that moves pipes (a join, a reversal, an insertion that turns a
  *   connection) or removes one carries the scenarios' pipe changes with their pipes (identity.ts).
  *
+ * A pipe's spec change may switch it to or from a pipe spec of the project library ({specId}) and a
+ * valve's resistance change may point it at a resistance entry ({kind: 'library', id}); the
+ * library itself is base data, shared by every case, so scenarioEdit refuses an edit of it and
+ * change texts name entries from the base's library (CLAUDE.md D22; entries are not scenario
+ * targets, proposal project-library.md §5.1).
+ *
  * A change whose target is gone (a deleted component, connection or pipe) is kept and is
  * "orphaned"; one whose target has no such value (a flow setpoint on a pump without flow
  * control) is "not applicable". Both are ignored when solving, and the UI says they no longer
@@ -54,6 +60,7 @@ import {
 	projectOverrideFields,
 	type OverrideField
 } from './model-rules';
+import { resistanceText, specRefText } from './project-library';
 import {
 	areaLabel,
 	CAPACITY_FIELD_LABELS,
@@ -1261,8 +1268,15 @@ function statusText(component: Component | undefined, value: unknown): string {
 	return labels[key] ?? humanize(key);
 }
 
-function specText(value: unknown, units: UnitPreferences, options: ValueTextOptions): string {
+function specText(
+	project: Project,
+	value: unknown,
+	units: UnitPreferences,
+	options: ValueTextOptions
+): string {
 	if (!isRecord(value)) return 'not a pipe specification';
+	// A pipe spec of the project library (CLAUDE.md D22), by its name in `project`'s library.
+	if (typeof value.specId === 'string') return specRefText(project, value.specId);
 	const id = String(value.materialId ?? '');
 	if (id === 'custom') {
 		const parts = ['Custom pipe'];
@@ -1340,8 +1354,10 @@ export const ISO_COEFFICIENT_TEXT = 'ISO 5167-2 (default)';
 
 /**
  * A change's value in display units: "2.50 m", "Off", "90 %", "Cv 120", "Carbon steel, Sch 40,
- * NPS 6", "50 mm", "ISO 5167-2 (default)". `project` names the target (its type decides a status's
- * words and a setpoint's unit).
+ * NPS 6", "50 mm", "ISO 5167-2 (default)", “Headers” (project library pipe spec). `project` names
+ * the target (its type decides a status's words and a setpoint's unit) and the project library
+ * entries a value refers to (the base's library: entries are not scenario targets, proposal
+ * project-library.md §5.1).
  */
 export function changeValueText(
 	project: Project,
@@ -1353,7 +1369,7 @@ export function changeValueText(
 	const number = (category: Parameters<typeof formatValue>[1], gauge = false) =>
 		typeof value === 'number' ? formatValue(value, category, units, 4, { gauge }) : String(value);
 	if (override.kind === 'pipe') {
-		return override.field === 'spec' ? specText(value, units, options) : number('length');
+		return override.field === 'spec' ? specText(project, value, units, options) : number('length');
 	}
 	if (override.kind === 'project') {
 		return override.field === 'fluid' ? fluidText(value, units) : number('temperature');
@@ -1386,10 +1402,8 @@ export function changeValueText(
 		case 'pressure':
 			return number('pressure', true);
 		case 'resistance':
-			if (value === null || value === undefined) return 'Default';
-			if (isRecord(value))
-				return `${String(value.kind)} ${formatValue(Number(value.value), 'dimensionless', units)}`;
-			return String(value);
+			// A K, Cv or Kv as entered, the default, or a project library entry by its name.
+			return resistanceText(project, value, units);
 		case 'rating':
 			return ratingText(value, units);
 		case 'rating.pressureLoss':

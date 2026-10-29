@@ -4,10 +4,9 @@
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { KIND_LABELS } from '$lib/utils/factory';
 	import { CHECK_STATUS_LABELS } from '$lib/utils/labels';
-	import { withOptional } from '$lib/utils/piping';
 	import { schemaBounds } from '$lib/utils/schema-bounds';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
-	import ResistanceField from '../ResistanceField.svelte';
+	import ValveResistanceField from '../ValveResistanceField.svelte';
 
 	let { component }: { component: CheckValve } = $props();
 	const ws = useWorkspace();
@@ -49,13 +48,7 @@
 			c.crackingPressure = v;
 		})}
 />
-<ResistanceField
-	value={component.resistance}
-	units={ws.units}
+<ValveResistanceField
+	{component}
 	defaultLabel="the solver's cited loss for this valve type (shown in the results)"
-	change={ws.componentChange(component.id, 'resistance')}
-	onchange={(r) =>
-		ws.editComponent<CheckValve>(component.id, 'change valve resistance', (c) =>
-			withOptional(c, 'resistance', r)
-		)}
 />

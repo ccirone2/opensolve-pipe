@@ -31,6 +31,18 @@
 	Goal seek (proposal goal-seek.md §6.8): while one runs, Solve is unavailable with the reason (no
 	spinner: it is not solving) and Cancel ("Cancel goal seek") stops the goal seek, also with its
 	dialog closed. One request at a time: Solve reads the store's `calculating`.
+
+	The project library (CLAUDE.md D22; proposal project-library.md §6.1): Library, before the fluid
+	chip, opens its dialog; an icon, labelled from 1280 px (at 1024 px the label would leave the
+	project name about 50 px while a solve runs). Below 1024 px, while a solve or goal seek runs,
+	Cancel takes its place, which keeps the row's fit (320 px upright; the project name's room in
+	the one row from 640 px); below 640 px the two are the same width, so Solve, Share and Settings
+	do not move. Cancel takes Library's focus with its place (a solve started with Ctrl+Enter while
+	Library has the focus), so the focus never falls to the page, and gives it back to Library when
+	it goes. When Cancel goes, Library comes back under the pointer, so its click ignores the
+	second click of a double click (or double tap), as Solve's and Cancel's do: a double click on
+	Cancel does not open the library. The library is also opened from the pickers that use it and
+	from a trace.
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
@@ -41,6 +53,7 @@
 	import { stringLimits } from '$lib/utils/schema-bounds';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import { calculatingReason } from '$lib/utils/goal-seek';
+	import ProjectLibrary from './ProjectLibrary.svelte';
 	import ScenarioManager from './ScenarioManager.svelte';
 	import SettingsDialog from './SettingsDialog.svelte';
 	import ShareButton from './ShareButton.svelte';
@@ -95,11 +108,37 @@
 		if (!repeated(event)) store.cancelSolve();
 	}
 
-	// Before the DOM drops Cancel at the end of a solve: if it has the focus, Solve takes it.
+	let libraryButton: HTMLButtonElement | undefined = $state();
+	/** Cancel took the focus from Library, whose place it took: Library takes it back. */
+	let cancelFromLibrary = false;
+	const shown = (element: HTMLElement) => element.getClientRects().length > 0;
+
 	$effect.pre(() => {
-		if (solving || seeking) return;
+		if (solving || seeking) {
+			// Before the DOM hides Library (below 1024 px) as a calculation starts: if it has the
+			// focus, Cancel, which takes its place, takes the focus, rather than <body>.
+			const library = untrack(() => libraryButton);
+			if (library && document.activeElement === library) {
+				void tick().then(() => {
+					if (shown(library) || !cancelButton) return;
+					cancelButton.focus();
+					cancelFromLibrary = true;
+				});
+			}
+			return;
+		}
+		// Before the DOM drops Cancel at the end of a calculation: if it has the focus, Solve takes
+		// it, or Library when Cancel had taken the focus from it.
 		const cancel = untrack(() => cancelButton);
-		if (cancel && document.activeElement === cancel) void tick().then(() => solveButton?.focus());
+		const back = cancelFromLibrary;
+		cancelFromLibrary = false;
+		if (cancel && document.activeElement === cancel) {
+			void tick().then(() => {
+				const library = libraryButton;
+				if (back && library && shown(library)) library.focus();
+				else solveButton?.focus();
+			});
+		}
 	});
 </script>
 
@@ -167,6 +206,26 @@
 				<Icon name="redo" />
 			</button>
 			<span class="flex-1"></span>
+			<!-- The project library (CLAUDE.md D22), next to the fluid. Labelled from 1280 px; below
+				1024 px, while a calculation runs, Cancel takes its place (below 640 px the same
+				width, so Solve does not move). A repeated click is ignored, as Solve's and Cancel's:
+				when Cancel goes, Library comes back under the pointer. -->
+			<button
+				bind:this={libraryButton}
+				type="button"
+				class={[
+					'btn btn-quiet btn-icon xl:w-auto xl:px-3',
+					(solving || seeking) && 'max-lg:hidden'
+				]}
+				aria-label="Project library"
+				title="Project library: pipe specs and resistances with their sources"
+				aria-haspopup="dialog"
+				onclick={(event) => {
+					if (!repeated(event)) ws.openLibrary();
+				}}
+			>
+				<Icon name="book" /><span class="hidden xl:inline">Library</span>
+			</button>
 			<!-- The fluid every result depends on, in view; it opens its settings. From 1024 px only:
 				below that the header's rows have no room left for it beside the project name. -->
 			<button
@@ -242,6 +301,9 @@
 
 {#if ws.settingsOpen}
 	<SettingsDialog onclose={() => (ws.settingsOpen = false)} />
+{/if}
+{#if ws.libraryOpen}
+	<ProjectLibrary onclose={() => ws.closeLibrary()} />
 {/if}
 {#if ws.managerOpen}
 	<ScenarioManager

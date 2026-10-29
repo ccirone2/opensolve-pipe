@@ -3,9 +3,8 @@
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { KIND_LABELS } from '$lib/utils/factory';
 	import { ISOLATION_STATUS_LABELS } from '$lib/utils/labels';
-	import { withOptional } from '$lib/utils/piping';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
-	import ResistanceField from '../ResistanceField.svelte';
+	import ValveResistanceField from '../ValveResistanceField.svelte';
 
 	let { component }: { component: IsolationValve } = $props();
 	const ws = useWorkspace();
@@ -34,13 +33,7 @@
 			c.status = v;
 		})}
 />
-<ResistanceField
-	value={component.resistance}
-	units={ws.units}
+<ValveResistanceField
+	{component}
 	defaultLabel="Crane TP-410 K, full bore and fully open, at the connected size"
-	change={ws.componentChange(component.id, 'resistance')}
-	onchange={(r) =>
-		ws.editComponent<IsolationValve>(component.id, 'change valve resistance', (c) =>
-			withOptional(c, 'resistance', r)
-		)}
 />

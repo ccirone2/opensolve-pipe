@@ -645,7 +645,11 @@ export interface components {
             name: string;
             /** Ports */
             ports: components["schemas"]["Port"][];
-            resistance?: components["schemas"]["FlowCoefficient"] | null;
+            /**
+             * Resistance
+             * @description K, Cv or Kv as entered ({kind, value}), or {kind: 'library', id}: an entry of the project's resistanceLibrary, its K moved to the inlet pipe's bore, its Cv or Kv as entered
+             */
+            resistance?: (components["schemas"]["FlowCoefficient"] | components["schemas"]["ResistanceRef"]) | null;
             /**
              * Status
              * @default active
@@ -747,7 +751,11 @@ export interface components {
             name: string;
             /** Ports */
             ports: components["schemas"]["Port"][];
-            resistance?: components["schemas"]["FlowCoefficient"] | null;
+            /**
+             * Resistance
+             * @description K, Cv or Kv as entered ({kind, value}), or {kind: 'library', id}: an entry of the project's resistanceLibrary, its K moved to the inlet pipe's bore, its Cv or Kv as entered
+             */
+            resistance?: (components["schemas"]["FlowCoefficient"] | components["schemas"]["ResistanceRef"]) | null;
             /** Setpoint */
             setpoint: number;
             /**
@@ -1099,7 +1107,7 @@ export interface components {
             description?: string | null;
             /**
              * Koverride
-             * @description User-specified K (referenced to pipe pipeIndex); required for 'custom'
+             * @description User-specified K (referenced to pipe pipeIndex); required for 'custom' unless resistanceId is given, and absent with it
              */
             kOverride?: number | null;
             /**
@@ -1118,6 +1126,11 @@ export interface components {
              * @description Bend radius / inner diameter (bend), or rounding radius / diameter (entrance)
              */
             radiusRatio?: number | null;
+            /**
+             * Resistanceid
+             * @description Id of an entry of the project's resistanceLibrary, in place of kOverride (never both): its K, Cv or Kv on pipe pipeIndex, which meets a custom fitting's need for kOverride (x-reference-fields). One the project does not have is a topology issue when solving
+             */
+            resistanceId?: string | null;
             /**
              * Type
              * @enum {string}
@@ -1810,7 +1823,11 @@ export interface components {
             name: string;
             /** Ports */
             ports: components["schemas"]["Port"][];
-            resistance?: components["schemas"]["FlowCoefficient"] | null;
+            /**
+             * Resistance
+             * @description K, Cv or Kv as entered ({kind, value}), or {kind: 'library', id}: an entry of the project's resistanceLibrary, its K moved to the inlet pipe's bore, its Cv or Kv as entered
+             */
+            resistance?: (components["schemas"]["FlowCoefficient"] | components["schemas"]["ResistanceRef"]) | null;
             /**
              * Status
              * @default active
@@ -2247,7 +2264,10 @@ export interface components {
         };
         /**
          * PipeDefinition
-         * @description One pipe segment. Segments in a connection are in series, ordered from -> to.
+         * @description One pipe segment. Segments in a connection are in series, ordered from -> to. Its size
+         *     comes from the materials library (materialId, schedule, nominalSize, with optional bore and
+         *     roughness overrides), from its own values (materialId 'custom'), or from a pipe spec of the
+         *     project library (specId, with nothing but the length beside it).
          */
         PipeDefinition: {
             /**
@@ -2262,9 +2282,9 @@ export interface components {
             length: number;
             /**
              * Materialid
-             * @description Key into the pipe materials library, or 'custom' with innerDiameter set
+             * @description Key into the pipe materials library, or 'custom' with innerDiameter set. Required unless specId is given; absent with it
              */
-            materialId: string;
+            materialId?: string | null;
             /**
              * Nominalsize
              * @description Nominal size, m (NPS in inches x 0.0254); resolved to an inner diameter
@@ -2280,6 +2300,11 @@ export interface components {
              * @description Schedule designation from the library (e.g. '40', '80', '10S')
              */
             schedule?: string | null;
+            /**
+             * Specid
+             * @description Id of a pipe spec in the project's pipeLibrary: the pipe takes its material, inner diameter and roughness, and materialId, schedule, nominalSize, innerDiameter and roughness are absent (x-reference-fields). One the project does not have is a topology issue when solving
+             */
+            specId?: string | null;
         };
         /** PipeMaterial */
         PipeMaterial: {
@@ -2313,7 +2338,7 @@ export interface components {
             connectionId: string;
             /**
              * Field
-             * @description spec: an object with materialId and optionally schedule, nominalSize, innerDiameter and roughness, which replace all five; length: m
+             * @description spec: an object with materialId and optionally schedule, nominalSize, innerDiameter and roughness, or with specId alone (a pipe spec of the project library), which replace all six; length: m
              * @enum {string}
              */
             field: "spec" | "length";
@@ -2369,6 +2394,54 @@ export interface components {
              * @description m
              */
             wallThickness: number;
+        };
+        /**
+         * PipeSpec
+         * @description A pipe size the user defines once, with its source, and refers to from any pipe segment
+         *     (``PipeDefinition.specId``): every segment that refers to it is solved with its material,
+         *     inner diameter and roughness, and its own length.
+         */
+        PipeSpec: {
+            /**
+             * Id
+             * @description Unique among the project's pipe specs
+             */
+            id: string;
+            /**
+             * Innerdiameter
+             * @description Inner diameter, m: the bore of every pipe segment that refers to the spec
+             */
+            innerDiameter: number;
+            /**
+             * Materialid
+             * @description Key into the pipe materials library (its cited roughness applies unless roughness is given), or 'custom' (roughness required). An unknown material is a topology issue when solving
+             */
+            materialId: string;
+            /**
+             * Name
+             * @description What the user calls it, e.g. 'NPS 60 STD carbon steel'
+             */
+            name: string;
+            /**
+             * Nominalsize
+             * @description Nominal size, m (NPS in inches x 0.0254), for display and the web app's port sizes only; the solver uses innerDiameter
+             */
+            nominalSize?: number | null;
+            /**
+             * Outerdiameter
+             * @description Outer diameter, m, for display only; above innerDiameter when given
+             */
+            outerDiameter?: number | null;
+            /**
+             * Roughness
+             * @description Absolute roughness, m. Required for material 'custom'. Absent on a library material: that material's cited roughness (Farshad & Rieke 2006) evaluated at innerDiameter, as for a library pipe with an inner-diameter override
+             */
+            roughness?: number | null;
+            /**
+             * Source
+             * @description Where the values come from (a standard and its table, a datasheet, a measurement), as free text: shown in every trace that uses the entry and in the methods summary
+             */
+            source: string;
         };
         /**
          * PipeVariable
@@ -2524,8 +2597,18 @@ export interface components {
              * @default
              */
             methodVersion: string;
+            /**
+             * Pipelibrary
+             * @description Pipe specs the user defines once, each with its source, and refers to from pipe segments (specId). Omitted when there are none
+             */
+            pipeLibrary?: components["schemas"]["PipeSpec"][];
             /** Pumplibrary */
             pumpLibrary: components["schemas"]["PumpCurve"][];
+            /**
+             * Resistancelibrary
+             * @description Loss coefficients (K at a stated bore, Cv or Kv) the user defines once, each with its source, and refers to from valves (resistance {kind: 'library', id}) and fittings (resistanceId). Omitted when there are none
+             */
+            resistanceLibrary?: components["schemas"]["ResistanceSpec"][];
             /**
              * Scenarios
              * @description Named sets of overrides of this project's values (the base project); solve one with scenarioId. Omitted when there are none
@@ -3185,7 +3268,7 @@ export interface components {
         };
         /**
          * ReliefValve
-         * @description A conventional spring-loaded pressure relief valve in liquid service (SDD §4.18): closed
+         * @description A conventional spring-loaded pressure relief valve in liquid service (SDD §4.19): closed
          *     while the static pressure difference across it is below its set pressure, its lift rising
          *     linearly with the overpressure (a convention, flagged) to full lift at set plus overpressure,
          *     with API 520's liquid capacity equation at its lift (proposal pressure-relief-valve.md §1.1).
@@ -3231,7 +3314,7 @@ export interface components {
         };
         /**
          * ReliefValveResult
-         * @description A pressure relief valve (SDD §4.18): its lift, flow and capacity at the solved pressures
+         * @description A pressure relief valve (SDD §4.19): its lift, flow and capacity at the solved pressures
          *     (proposal pressure-relief-valve.md §2.2). Δp_t, the total-pressure difference between the
          *     ports, is what its law reads; the lift x rises linearly from the set Δp_s to full lift at
          *     Δp_f = Δp_s(1 + overpressure), and Q = x·Kd·A·√(2Δp_t/ρ).
@@ -3370,6 +3453,64 @@ export interface components {
              * @description The largest residual's magnitude (m³/s or m); null when it is not a finite number (the iteration diverged there)
              */
             value: number | null;
+        };
+        /**
+         * ResistanceRef
+         * @description A valve's resistance taken from the project library: the entry's K, Cv or Kv on the
+         *     valve's inlet pipe, as if entered on the valve (proposal §2.2).
+         */
+        ResistanceRef: {
+            /**
+             * Id
+             * @description The id of a resistanceLibrary entry; one the project does not have is a topology issue when solving
+             */
+            id: string;
+            /**
+             * Kind
+             * @description library: an entry of the project's resistanceLibrary
+             * @constant
+             */
+            kind: "library";
+        };
+        /**
+         * ResistanceSpec
+         * @description A loss coefficient from a datasheet, with its source, referred to by valves (a valve's
+         *     ``resistance`` as ``{kind: 'library', id}``) and inline fittings (``Fitting.resistanceId``).
+         *     A K is stated at a bore and needs it: an element of bore D takes K·(D/referenceDiameter)⁴,
+         *     the same head loss at a given flow. A Cv or Kv needs no bore (proposal §3.3).
+         */
+        ResistanceSpec: {
+            /**
+             * Id
+             * @description Unique among the project's resistance entries
+             */
+            id: string;
+            /**
+             * Kind
+             * @description K (dimensionless, on the velocity in a bore of referenceDiameter), Cv (US gpm of water at 1 psi) or Kv (m³/h of water at 1 bar)
+             * @enum {string}
+             */
+            kind: "K" | "Cv" | "Kv";
+            /**
+             * Name
+             * @description What the user calls it, e.g. '30 in butterfly valve, open'
+             */
+            name: string;
+            /**
+             * Referencediameter
+             * @description The bore a K is stated at, m: required for K, absent for Cv and Kv. An element of bore D (a valve's inlet pipe, a fitting's pipe pipeIndex) takes K·(D/referenceDiameter)⁴
+             */
+            referenceDiameter?: number | null;
+            /**
+             * Source
+             * @description Where the values come from (a standard and its table, a datasheet, a measurement), as free text: shown in every trace that uses the entry and in the methods summary
+             */
+            source: string;
+            /**
+             * Value
+             * @description The coefficient as the datasheet prints it, stored as entered (as a valve's resistance): K, Cv in US gpm at 1 psi, or Kv in m³/h at 1 bar
+             */
+            value: number;
         };
         /**
          * Scenario
@@ -4007,7 +4148,7 @@ export interface components {
             atBound: ("lower" | "upper") | null;
             /** @description The base project's value (equal to caseValue for a base run); null where the base holds no value of this variable (an equipment item the base rates by another kind: a point, or the other of Cv and Kv; an orifice plate's discharge coefficient on ISO 5167-2's default; a relief valve whose base capacity is of another kind, an effective area not being an actual area, or whose overpressure is ASME's default) */
             baseValue: components["schemas"]["JsonValue"];
-            /** @description The case's value of the field, SI (a resistance: its FlowCoefficient or null; an orifice plate's discharge coefficient: null on ISO 5167-2's default; a relief valve's overpressure: null on ASME's default) */
+            /** @description The case's value of the field, SI (a resistance: its FlowCoefficient, its reference to a project library entry, or null; an orifice plate's discharge coefficient: null on ISO 5167-2's default; a relief valve's overpressure: null on ASME's default) */
             caseValue: components["schemas"]["JsonValue"];
             /** Index */
             index: number;
@@ -4038,7 +4179,7 @@ export interface components {
             start: number;
             /**
              * Startsource
-             * @description case: the case's value; clipped: the case's value lies outside the bounds, and the nearer bound is used; middle: the case holds no value of this coefficient (a resistance on its default, or of another kind; an orifice plate's discharge coefficient on ISO 5167-2's default; a certified relief valve's overpressure on ASME's default), and the middle of the bounds on the variable's scale is used
+             * @description case: the case's value (a resistance from a project library entry of this kind: its value, a K on the valve's inlet bore); clipped: the case's value lies outside the bounds, and the nearer bound is used; middle: the case holds no value of this coefficient (a resistance on its default, or of another kind; an orifice plate's discharge coefficient on ISO 5167-2's default; a certified relief valve's overpressure on ASME's default), and the middle of the bounds on the variable's scale is used
              * @enum {string}
              */
             startSource: "case" | "clipped" | "middle";

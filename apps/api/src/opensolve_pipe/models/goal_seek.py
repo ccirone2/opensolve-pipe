@@ -138,6 +138,26 @@ def _without_none(annotation: Any) -> Any:
     return annotation
 
 
+def _unannotated(annotation: Any) -> Any:
+    while get_origin(annotation) is Annotated:
+        annotation = get_args(annotation)[0]
+    return annotation
+
+
+def _number_model(annotation: Any) -> type[BaseModel] | None:
+    """The model of ``_NUMBER_IN`` a value is, or the one member of its union that is (a
+    valve's resistance: a FlowCoefficient, or a reference to a project library entry, which
+    holds no number, CLAUDE.md D22); None otherwise."""
+    annotation = _unannotated(annotation)
+    members = (
+        [_unannotated(a) for a in get_args(annotation)]
+        if get_origin(annotation) in (Union, types.UnionType)
+        else [annotation]
+    )
+    found = [m for m in members if isinstance(m, type) and m in _NUMBER_IN]
+    return found[0] if len(found) == 1 else None
+
+
 def _variable(name: str, entry: Overridable, target: type[BaseModel]) -> Variable | None:
     """The variable of allow-list entry ``name`` on ``target``, or None when its value is not a
     number (a status, a group, a whole fluid)."""
@@ -148,8 +168,9 @@ def _variable(name: str, entry: Overridable, target: type[BaseModel]) -> Variabl
     scale: Scale = "log" if name in LOG_FIELDS else "linear"
     if annotation is float:
         return Variable(entry, scale=scale)
-    if isinstance(annotation, type) and annotation in _NUMBER_IN:
-        return Variable(entry, number=_NUMBER_IN[annotation], schema=annotation, scale=scale)
+    model = _number_model(annotation)
+    if model is not None:
+        return Variable(entry, number=_NUMBER_IN[model], schema=model, scale=scale)
     return None
 
 
@@ -704,18 +725,21 @@ class VariableResult(OutputModel):
     start: float = Field(description="SI: the value evaluation 0 solved")
     start_source: Literal["case", "clipped", "middle"] = Field(
         description=(
-            "case: the case's value; clipped: the case's value lies outside the bounds, and the "
-            "nearer bound is used; middle: the case holds no value of this coefficient (a "
-            "resistance on its default, or of another kind; an orifice plate's discharge "
-            "coefficient on ISO 5167-2's default; a certified relief valve's overpressure on "
-            "ASME's default), and the middle of the bounds on the variable's scale is used"
+            "case: the case's value (a resistance from a project library entry of this kind: "
+            "its value, a K on the valve's inlet bore); clipped: the case's value lies outside "
+            "the bounds, and the nearer bound is used; middle: the case holds no value of this "
+            "coefficient (a resistance on its default, or of another kind; an orifice plate's "
+            "discharge coefficient on ISO 5167-2's default; a certified relief valve's "
+            "overpressure on ASME's default), and the middle of the bounds on the variable's "
+            "scale is used"
         )
     )
     case_value: JsonValue = Field(
         description=(
-            "The case's value of the field, SI (a resistance: its FlowCoefficient or null; an "
-            "orifice plate's discharge coefficient: null on ISO 5167-2's default; a relief "
-            "valve's overpressure: null on ASME's default)"
+            "The case's value of the field, SI (a resistance: its FlowCoefficient, its "
+            "reference to a project library entry, or null; an orifice plate's discharge "
+            "coefficient: null on ISO 5167-2's default; a relief valve's overpressure: null on "
+            "ASME's default)"
         )
     )
     base_value: JsonValue = Field(

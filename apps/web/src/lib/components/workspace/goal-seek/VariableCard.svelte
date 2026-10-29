@@ -44,7 +44,10 @@
 	const label = $derived(variableLabel(ws.labelsProject, withCaseKind(ws.project, variable)));
 	const spec = $derived(variableSpec(ws.project, variable));
 	const bounds = $derived(lapse ? { lower: {}, upper: {} } : variableBounds(ws.project, variable));
-	/** The case's last converged solve: a valve's fully open K, for one on its default. */
+	/**
+	 * The case's last converged solve: a valve's fully open K, for one on its default (and for a K
+	 * entry where the pipe library is not loaded, read only while that solve is current).
+	 */
 	const kOpen = $derived.by(() => {
 		const response = ws.store.results.response;
 		if (variable.target.kind !== 'component' || !response?.solvedState.converged) return null;
@@ -62,6 +65,8 @@
 			: nowText(ws.project, variable, {
 					prefs: ws.displayUnits,
 					kOpen,
+					kOpenStale: ws.store.results.stale,
+					sizes: ws.library,
 					orifice,
 					scenario: ws.activeScenario
 				})

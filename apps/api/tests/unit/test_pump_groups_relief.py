@@ -1,4 +1,4 @@
-"""Pump groups with pressure relief valves (CLAUDE.md D21 and D22): a relief valve is a two-port
+"""Pump groups with pressure relief valves (CLAUDE.md D21 and D23): a relief valve is a two-port
 element like a check valve, allowed inside a station (its set is a pressure difference, so the
 station alone still has a curve in its rise only), started closed at every point as in a solve.
 The networks are ``relief_stations``; every station here is solved alone from the duty's rise

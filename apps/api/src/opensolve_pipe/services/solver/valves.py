@@ -4,10 +4,11 @@ The reference diameter D_ref is the inner diameter of the pipe connected to the 
 inlet port (the end segment at that port); K is referenced to the velocity there.
 
 - ``resistance`` given: K as entered; Cv → ``fluids.fittings.Cv_to_K(Cv, D_ref)``;
-  Kv → ``fluids.fittings.Kv_to_K(Kv, D_ref)``. fluids implements ISA-75.01.01-2007 (60534-2-1
-  Mod): Kv is m³/h of water at 1 bar, Cv US gpm of water at 1 psi, water at 999.29744568 kg/m³
-  (60 °F, IAPWS-95), K = 1.6e9 D⁴/Kv² with D in m and Kv = Cv/1.1560992283536566 (the
-  derivation from the definitions is unit-tested).
+  Kv → ``fluids.fittings.Kv_to_K(Kv, D_ref)`` (``coefficients.k_from_coefficient``,
+  ISA-75.01.01-2007).
+- ``resistance`` a project library entry (``{kind: 'library', id}``, CLAUDE.md D22): its Cv or
+  Kv converted as one entered on the valve, its K moved from the bore it is stated at to D_ref,
+  K₀ (D_ref/d₀)⁴ (``project_library.entry_k``): the K of the same coefficient typed on the valve.
 - No resistance: the Crane TP-410 (2009) full-bore, fully open K for the valve type at D_ref,
   via the fluids Crane functions with their default fully turbulent friction factor
   fd = ft_Crane(D_ref). Crane's K values are "not valid in the laminar regime" (fluids
@@ -24,14 +25,11 @@ from typing import Literal
 
 import fluids.fittings
 
-from ...models.components import (
-    CheckValve,
-    ControlValve,
-    FlowCoefficient,
-    IsolationValve,
-    ReliefValve,
-)
+from ...models.components import CheckValve, ControlValve, IsolationValve, ReliefValve
+from ...models.project_library import ResistanceRef
+from .coefficients import k_from_coefficient
 from .fittings import load_fittings, size_warning
+from .project_library import EntryK, ResistanceEntries, entry_k
 
 ResistanceValve = IsolationValve | CheckValve | ControlValve
 """The valves with a resistance (a K, Cv or Kv, or a default)."""
@@ -101,30 +99,26 @@ class ValveResistance:
     """True for a Crane default (not valid in laminar flow)."""
     range_note: str | None = None
     """A Crane default evaluated outside the sizes its table covers (flagged)."""
+    coefficient: Literal["K", "Cv", "Kv"] | None = None
+    """The kind of the coefficient entered, on the valve or in its project library entry (None:
+    a Crane default or an ideal control valve)."""
+    entry: EntryK | None = None
+    """The project library entry the K comes from (None: none)."""
 
 
-def k_from_coefficient(resistance: FlowCoefficient, d_ref: float) -> tuple[float, str]:
-    """K on d_ref from a K, Cv or Kv as entered, and how it was obtained."""
-    if resistance.kind == "K":
-        return resistance.value, "user K"
-    if resistance.kind == "Cv":
-        k = float(fluids.fittings.Cv_to_K(resistance.value, d_ref))
-        return k, (
-            f"Cv = {resistance.value:g} (US gpm at 1 psi) converted with "
-            f"fluids.fittings.Cv_to_K(Cv, D={d_ref:g} m) (ISA-75.01.01-2007)"
-        )
-    k = float(fluids.fittings.Kv_to_K(resistance.value, d_ref))
-    return k, (
-        f"Kv = {resistance.value:g} (m³/h at 1 bar) converted with "
-        f"fluids.fittings.Kv_to_K(Kv, D={d_ref:g} m) (ISA-75.01.01-2007)"
-    )
-
-
-def valve_resistance(valve: ResistanceValve, d_ref: float) -> ValveResistance:
-    """Fully open K of a valve on its reference diameter d_ref (design §2.3)."""
-    if valve.resistance is not None:
-        k, source = k_from_coefficient(valve.resistance, d_ref)
-        return ValveResistance(k, source, "user", False)
+def valve_resistance(
+    valve: ResistanceValve, d_ref: float, entries: ResistanceEntries | None = None
+) -> ValveResistance:
+    """Fully open K of a valve on its reference diameter d_ref (design §2.3). ``entries``: the
+    project's resistance entries by id, for a valve that refers to one (every reference
+    resolves: a dangling one is a topology issue, ``builder.validate_topology``)."""
+    resistance = valve.resistance
+    if isinstance(resistance, ResistanceRef):
+        use = entry_k((entries or {})[resistance.id], d_ref)
+        return ValveResistance(use.k, use.how, "user", False, coefficient=use.entry.kind, entry=use)
+    if resistance is not None:
+        k, source = k_from_coefficient(resistance, d_ref)
+        return ValveResistance(k, source, "user", False, coefficient=resistance.kind)
     if isinstance(valve, ControlValve):
         return ValveResistance(0.0, IDEAL_CONTROL_VALVE, "default", False)
     default = CRANE_DEFAULTS[valve.valve_type]

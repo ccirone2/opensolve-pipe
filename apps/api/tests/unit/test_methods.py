@@ -194,12 +194,11 @@ def test_method_1_4_0_adds_the_orifice_plate() -> None:
     ]
 
 
-def test_method_1_5_0_adds_the_pressure_relief_valve() -> None:
-    """GOALS §4.3, proposal pressure-relief-valve.md decision 23 and §3.9: the liquid pressure
-    relief valve is method 1.5.0, after 1.4.0 (deployed), with one changelog line that says
-    projects without relief valves are unchanged."""
-    assert METHOD_VERSION == "1.5.0"
-    assert [e["version"] for e in METHOD_CHANGELOG] == [
+def test_method_1_5_0_adds_the_project_library() -> None:
+    """GOALS §4.3, proposal project-library.md §2.4 and the owner's answer Q5: the project library
+    (with its K-at-a-stated-bore conversion) is method 1.5.0, after 1.4.0, with one changelog
+    line that says projects without a project library are unchanged."""
+    assert [e["version"] for e in METHOD_CHANGELOG][:6] == [
         "1.0.0",
         "1.1.0",
         "1.2.0",
@@ -207,8 +206,34 @@ def test_method_1_5_0_adds_the_pressure_relief_valve() -> None:
         "1.4.0",
         "1.5.0",
     ]
-    entry = METHOD_CHANGELOG[-1]
+    [entry] = [e for e in METHOD_CHANGELOG if e["version"] == "1.5.0"]
     assert entry["date"] == "2026-10-28"
+    [line] = entry["changes"]
+    assert line.startswith("Adds the project library: ")
+    assert "K = K₀ (D/d₀)⁴" in line
+    assert "A fitting on a Cv or Kv entry in laminar flow is flagged" in line
+    assert line.endswith(
+        "Flows, heads, pressures, statuses, traces, messages and system curves of projects "
+        "without a project library are unchanged (corpus comparison)."
+    )
+
+
+def test_method_1_6_0_adds_the_pressure_relief_valve() -> None:
+    """GOALS §4.3, proposal pressure-relief-valve.md decision 23 and §3.9: the liquid pressure
+    relief valve is method 1.6.0, after 1.5.0 (the project library, CLAUDE.md D22), with one
+    changelog line that says projects without relief valves are unchanged."""
+    assert METHOD_VERSION == "1.6.0"
+    assert [e["version"] for e in METHOD_CHANGELOG] == [
+        "1.0.0",
+        "1.1.0",
+        "1.2.0",
+        "1.3.0",
+        "1.4.0",
+        "1.5.0",
+        "1.6.0",
+    ]
+    entry = METHOD_CHANGELOG[-1]
+    assert entry["date"] == "2026-10-29"
     assert entry["changes"] == [
         "Adds the liquid pressure relief valve: a conventional spring-loaded valve closed below "
         "its set pressure difference, its lift rising linearly with the overpressure (a "

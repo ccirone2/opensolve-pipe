@@ -22,6 +22,9 @@ the API by Vitest:
   ``scenarios``). Applying the overrides to the case they ran on (written into the base, or
   upserted into the scenario by target and field) and taking that case's project gives
   ``trial``.
+  A resistance variable on a valve that refers to a project library entry (CLAUDE.md D22)
+  writes an inline coefficient of its kind in place of the reference, in ``trial`` and in its
+  ``override`` (proposal project-library.md §5.2).
 - ``goals``: a solved ``state`` (a SolvedState without its ``trace`` and ``timestamp``) and, for
   goals on it
   (``goal`` as a request's), the ``value`` the API reads (SI, null when there is none) and its
@@ -214,8 +217,48 @@ def _with_scenario(project: dict[str, Any], *overrides: dict[str, Any]) -> dict[
     return project
 
 
+RESISTANCES = [
+    {"id": "RS1", "name": "Gate, open", "source": "test input", "kind": "Cv", "value": 900.0},
+    {
+        "id": "RS2",
+        "name": "Gate, open (K)",
+        "source": "test input",
+        "kind": "K",
+        "value": 0.2,
+        "referenceDiameter": 0.09,
+    },
+]
+"""The project library of ``library_project()`` (test inputs)."""
+
+
+def library_project() -> dict[str, Any]:
+    """``base_project()`` whose gate G1 takes its resistance from the project library entry RS1
+    (a Cv) and whose L3 refers to a pipe spec (CLAUDE.md D22)."""
+    data = base_project()
+    data["pipeLibrary"] = [
+        {
+            "id": "PS1",
+            "name": "Measured bore",
+            "source": "test input",
+            "materialId": "custom",
+            "innerDiameter": 0.1,
+            "roughness": 4.5e-5,
+        }
+    ]
+    data["resistanceLibrary"] = copy.deepcopy(RESISTANCES)
+    [l3] = [c for c in data["connections"] if c["id"] == "L3"]
+    l3["piping"]["pipes"] = [{"specId": "PS1", "length": 10.0}]
+    [g1] = [c for c in data["components"] if c["id"] == "G1"]
+    g1["resistance"] = {"kind": "library", "id": "RS1"}
+    dumped: dict[str, Any] = Project.model_validate(data).model_dump(
+        mode="json", exclude_unset=True
+    )
+    return dumped
+
+
 def _apply_cases() -> list[tuple[str, dict[str, Any], str | None, list[Any], list[float]]]:
     base = base_project()
+    library = library_project()
     speed = variable("P1", "speed", 0.2, 1.0)
     level = variable("R1", "liquidLevel", 0.0, 20.0)
     rated_loss = variable("E1", "rating.pressureLoss", 1.0e3, 1.0e6)
@@ -295,6 +338,27 @@ def _apply_cases() -> list[tuple[str, dict[str, Any], str | None, list[Any], lis
             None,
             [variable("O2", "dischargeCoefficient", 0.5, 0.75)],
             [0.6512345678],
+        ),
+        (
+            "base run: a resistance from a project library entry of its kind",
+            library,
+            None,
+            [variable("G1", "resistance", 10.0, 5000.0, coefficient="Cv")],
+            [1234.5678],
+        ),
+        (
+            "base run: a resistance from a project library entry of another kind",
+            library,
+            None,
+            [variable("G1", "resistance", 0.01, 100.0, coefficient="K")],
+            [0.4321],
+        ),
+        (
+            "scenario run: a resistance the scenario points at a project library entry",
+            _with_scenario(library, comp("G1", "resistance", {"kind": "library", "id": "RS2"})),
+            "S1",
+            [variable("G1", "resistance", 0.01, 100.0, coefficient="K")],
+            [0.55],
         ),
         (
             "scenario run: a bore and a coefficient the scenario sets",

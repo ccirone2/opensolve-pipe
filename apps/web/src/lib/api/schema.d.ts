@@ -2902,7 +2902,7 @@ export interface components {
             inletEgl: number;
             /**
              * Interstageheadloss
-             * @description series, every pump running: the sum of the heads - the rise, m (the piping between the pumps); null otherwise
+             * @description series, every pump running: the sum of the heads - the rise, m (the head across the elements between the pumps: their pipes' and valves' losses, or the head a closed valve holds); null otherwise
              */
             interstageHeadLoss: number | null;
             /**
@@ -2952,7 +2952,7 @@ export interface components {
             routeHeadLoss: number | null;
             /**
              * Share
-             * @description parallel: flow / the station's flow; series: head / the sum of the members' heads; null for a mixed station, or when the divisor is 0
+             * @description parallel: flow / the station's flow; series: head / the sum of the members' heads; null for a mixed station, when the divisor is 0, or in parallel when the station's flow is zero within the solver's continuity tolerance
              */
             share: number | null;
             /**

@@ -184,6 +184,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/pump-group-curve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pump Group Curve Endpoint
+         * @description The station holding a group of pumps, its duty in the case and its group curve (CLAUDE.md
+         *     D21): the station solved alone between its inlet S and outlet D held a rise apart, every
+         *     element inside on its own law and rules, from the duty's rise outward.
+         *
+         *     Checks in order: the request (400), the scenario (404, then 400 for its values), the case's
+         *     fluid (400), pump ids that name no pump (404, all listed), the case's topology (422), whether
+         *     the pumps form a station (422 NOT_A_STATION, every reason listed), the head range (400).
+         *     A case whose solve does not converge is 200 with converged = false and no points.
+         */
+        post: operations["pump_group_curve_endpoint_api_v1_pump_group_curve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/solve": {
         parameters: {
             query?: never;
@@ -882,6 +909,16 @@ export interface components {
             operatingRegion?: components["schemas"]["OperatingRegionCheck"] | null;
             pipeVelocity?: components["schemas"]["PipeVelocityCheck"] | null;
         };
+        /** DutyCheckMember */
+        DutyCheckMember: {
+            /**
+             * Flow
+             * @description m³/s on the group curve at the duty's rise
+             */
+            flow: number | null;
+            /** Pumpid */
+            pumpId: string;
+        };
         /**
          * EffectiveOrifice
          * @description An API 520 effective discharge area, with API 520's effective coefficient of discharge
@@ -1037,7 +1074,7 @@ export interface components {
              * Error
              * @enum {string}
              */
-            error: "TOPOLOGY_ERROR" | "VALIDATION_ERROR" | "FLUID_ERROR" | "NOT_FOUND" | "METHOD_NOT_ALLOWED" | "PAYLOAD_TOO_LARGE" | "RATE_LIMITED" | "SERVER_BUSY" | "TIMEOUT" | "INTERNAL_ERROR";
+            error: "TOPOLOGY_ERROR" | "NOT_A_STATION" | "VALIDATION_ERROR" | "FLUID_ERROR" | "NOT_FOUND" | "METHOD_NOT_ALLOWED" | "PAYLOAD_TOO_LARGE" | "RATE_LIMITED" | "SERVER_BUSY" | "TIMEOUT" | "INTERNAL_ERROR";
             /** Issues */
             issues: components["schemas"]["TopologyIssue"][];
             /** Message */
@@ -1642,6 +1679,50 @@ export interface components {
             timeBudget: number;
             /** Variables */
             variables: components["schemas"]["VariableResult"][];
+        };
+        /** GroupMemberPoint */
+        GroupMemberPoint: {
+            /**
+             * Beyonddata
+             * @description Running beyond its head curve's points, on the end tangent (PUMP_OUTSIDE_CURVE)
+             */
+            beyondData: boolean;
+            /**
+             * Controlstate
+             * @description A speed-controlled pump's state (null for a fixed-speed pump)
+             */
+            controlState: ("active" | "max_speed" | "min_speed" | "no_flow" | "off") | null;
+            /**
+             * Flow
+             * @description m³/s through the pump (0 unless running)
+             */
+            flow: number;
+            /**
+             * Head
+             * @description EGL(discharge) - EGL(suction), m; null if undetermined
+             */
+            head: number | null;
+            /** Pumpid */
+            pumpId: string;
+            /** Speed */
+            speed: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "off" | "no_flow";
+        };
+        /** HeadRange */
+        HeadRange: {
+            /** Max */
+            max: number;
+            /** Min */
+            min: number;
+            /**
+             * Unit
+             * @constant
+             */
+            unit: "m";
         };
         /**
          * IdealReferenceNode
@@ -2688,6 +2769,232 @@ export interface components {
             /** Points */
             points: components["schemas"]["FlowHeadPoint"][];
         };
+        /** PumpGroupCurvePoint */
+        PumpGroupCurvePoint: {
+            /**
+             * Componentids
+             * @description not_converged: the controls and branches the outer loop names as oscillating (convergence.oscillatingComponents); empty otherwise
+             */
+            componentIds: string[];
+            /** Converged */
+            converged: boolean;
+            /**
+             * Flow
+             * @description m³/s, the station's flow from S into the station; null when not solved
+             */
+            flow: number | null;
+            /**
+             * Head
+             * @description The rise EGL(D) - EGL(S) held, m
+             */
+            head: number;
+            /**
+             * Isduty
+             * @description This point's rise is the duty's rise (the duty check)
+             */
+            isDuty: boolean;
+            /**
+             * Members
+             * @description In member order; empty when not solved
+             */
+            members: components["schemas"]["GroupMemberPoint"][];
+            /**
+             * Message
+             * @description Why the point has no flow ('' when it has one)
+             */
+            message: string;
+            /** Reason */
+            reason: ("not_converged" | "not_computed") | null;
+        };
+        /**
+         * PumpGroupCurveRequest
+         * @description The group curve of the station holding ``pumpIds`` (CLAUDE.md D21). Checks in order: this
+         *     request (400), the scenario (404, then 400 for its values), the case's fluid (400), pump
+         *     ids that name no pump (404, all listed), the case's topology (422), then whether the pumps
+         *     form a station (422 NOT_A_STATION, every reason listed), then the head range (400).
+         */
+        PumpGroupCurveRequest: {
+            /**
+             * Curve
+             * @description 'group': the station solved alone between its ports held a rise apart (the group's system curve is a later slice)
+             * @default group
+             * @constant
+             */
+            curve: "group";
+            /**
+             * Headmax
+             * @description m, the highest rise sampled; default the largest rise the station can hold with flow (the largest sum of shutoff heads s²H₀(0) along a way from S to D, of the pumps it passes forward and of those beside a bypass in the parts it passes, a speed-controlled pump's at its maximum speed, a pump that is off adding nothing; every pump's that is on, an upper bound, when no way passes a pump), or the duty's rise if higher
+             */
+            headMax?: number | null;
+            /**
+             * Headmin
+             * @description m, the lowest rise EGL(D) - EGL(S) sampled; default min(0, the duty's rise)
+             */
+            headMin?: number | null;
+            /**
+             * Numpoints
+             * @description Evenly spaced rises; the duty's rise is added when it is not one of them
+             * @default 41
+             */
+            numPoints: number;
+            project: components["schemas"]["Project"];
+            /**
+             * Pumpids
+             * @description The pumps of the group, each once (order does not matter)
+             */
+            pumpIds: string[];
+            /**
+             * Scenarioid
+             * @description Use this scenario of project.scenarios: its overrides are applied to the base project first (omitted or null: the base project; an unknown id: 404 NOT_FOUND)
+             */
+            scenarioId?: string | null;
+        };
+        /**
+         * PumpGroupCurveResponse
+         * @description The station holding the pumps, its duty in the case and its group curve (CLAUDE.md D21).
+         */
+        PumpGroupCurveResponse: {
+            /**
+             * Converged
+             * @description The case's solve converged (else no duty and no points)
+             */
+            converged: boolean;
+            duty: components["schemas"]["PumpGroupDuty"] | null;
+            dutyCheck: components["schemas"]["PumpGroupDutyCheck"] | null;
+            headRange: components["schemas"]["HeadRange"] | null;
+            /**
+             * Message
+             * @description Why there is no duty ('' when there is one)
+             */
+            message: string;
+            /** Methodversion */
+            methodVersion: string;
+            /** @description How the station and its curve are computed */
+            methods: components["schemas"]["MethodsSection"];
+            /**
+             * Points
+             * @description In rise order
+             */
+            points: components["schemas"]["PumpGroupCurvePoint"][];
+            /** @description The scenario used, with every override's state, the value used and the base value; null for the base project */
+            scenario: components["schemas"]["ScenarioResult"] | null;
+            station: components["schemas"]["PumpGroupStation"];
+        };
+        /**
+         * PumpGroupDuty
+         * @description The station at the case's own solve (exact identities of its reported values).
+         */
+        PumpGroupDuty: {
+            /**
+             * Flow
+             * @description Q_st, m³/s: the net flow from S into the station
+             */
+            flow: number;
+            /**
+             * Head
+             * @description ΔH_st = EGL(D) - EGL(S), m: the station's rise
+             */
+            head: number;
+            /**
+             * Inletegl
+             * @description EGL(S), m: the level the group curve holds S at; an arbitrary level when the station lies in a part of the network that no reservoir or reference node reaches (UNDETERMINED_PRESSURE: its rise and the curve are exact all the same)
+             */
+            inletEgl: number;
+            /**
+             * Interstageheadloss
+             * @description series, every pump running: the sum of the heads - the rise, m (the piping between the pumps); null otherwise
+             */
+            interstageHeadLoss: number | null;
+            /**
+             * Members
+             * @description In member order
+             */
+            members: components["schemas"]["PumpGroupDutyMember"][];
+        };
+        /** PumpGroupDutyCheck */
+        PumpGroupDutyCheck: {
+            /**
+             * Agrees
+             * @description The group curve at the duty's rise gives the station's flow and every pump's flow of the solve, each within 0.5 % or 1e-6 m³/s, whichever is looser
+             */
+            agrees: boolean;
+            /**
+             * Flow
+             * @description m³/s: the group curve's flow at the duty's rise
+             */
+            flow: number | null;
+            /** Members */
+            members: components["schemas"]["DutyCheckMember"][];
+            /**
+             * Message
+             * @description What was compared and, when it disagrees, where
+             */
+            message: string;
+        };
+        /** PumpGroupDutyMember */
+        PumpGroupDutyMember: {
+            /**
+             * Flow
+             * @description m³/s, as pumpResults[id].operatingFlow (0 unless running)
+             */
+            flow: number;
+            /**
+             * Head
+             * @description m, as pumpResults[id].operatingHead; null when the pump has no result (beside a floating section, or isolated)
+             */
+            head: number | null;
+            /** Pumpid */
+            pumpId: string;
+            /**
+             * Routeheadloss
+             * @description parallel, running pumps: head - the station's rise, m: every loss on the pump's way from S to D (its legs, tee paths, and header pipes it shares); null otherwise
+             */
+            routeHeadLoss: number | null;
+            /**
+             * Share
+             * @description parallel: flow / the station's flow; series: head / the sum of the members' heads; null for a mixed station, or when the divisor is 0
+             */
+            share: number | null;
+            /**
+             * Speed
+             * @description The speed it runs at, as pumpResults[id].speed
+             */
+            speed: number;
+            /**
+             * Status
+             * @description As pumpResults[id].status
+             * @enum {string}
+             */
+            status: "running" | "off" | "no_flow";
+        };
+        /** PumpGroupStation */
+        PumpGroupStation: {
+            /**
+             * Arrangement
+             * @description parallel: with the pumps removed, the station falls into S's side and D's side, each pump from S's to D's (tee ladders included); series: one way from S to D passes every pump in turn; mixed: anything else (shares and losses on the way are then not given)
+             * @enum {string}
+             */
+            arrangement: "parallel" | "series" | "mixed";
+            /** @description S: where the station's flow enters it */
+            inlet: components["schemas"]["StationPort"];
+            /**
+             * Interiorcomponentids
+             * @description Components with an element inside the station, in component order
+             */
+            interiorComponentIds: string[];
+            /**
+             * Interiorconnectionids
+             * @description Connections inside the station, in connection order
+             */
+            interiorConnectionIds: string[];
+            /**
+             * Memberids
+             * @description The group's pumps, in component order
+             */
+            memberIds: string[];
+            /** @description D: where it leaves */
+            outlet: components["schemas"]["StationPort"];
+        };
         /** PumpResult */
         PumpResult: {
             /** @description The efficiency curve's largest value strictly between its first and last points, at the running speed; null without an efficiency curve or when the largest value is at an end of its points */
@@ -2878,7 +3185,7 @@ export interface components {
         };
         /**
          * ReliefValve
-         * @description A conventional spring-loaded pressure relief valve in liquid service (SDD §4.17): closed
+         * @description A conventional spring-loaded pressure relief valve in liquid service (SDD §4.18): closed
          *     while the static pressure difference across it is below its set pressure, its lift rising
          *     linearly with the overpressure (a convention, flagged) to full lift at set plus overpressure,
          *     with API 520's liquid capacity equation at its lift (proposal pressure-relief-valve.md §1.1).
@@ -2924,7 +3231,7 @@ export interface components {
         };
         /**
          * ReliefValveResult
-         * @description A pressure relief valve (SDD §4.17): its lift, flow and capacity at the solved pressures
+         * @description A pressure relief valve (SDD §4.18): its lift, flow and capacity at the solved pressures
          *     (proposal pressure-relief-valve.md §2.2). Δp_t, the total-pressure difference between the
          *     ports, is what its law reads; the lift x rises linearly from the set Δp_s to full lift at
          *     Δp_f = Δp_s(1 + overpressure), and Q = x·Kd·A·√(2Δp_t/ρ).
@@ -3359,6 +3666,16 @@ export interface components {
             before: string | null;
             /** Elementid */
             elementId: string;
+        };
+        /** StationPort */
+        StationPort: {
+            /** Componentid */
+            componentId: string;
+            /**
+             * Portid
+             * @description null: a reservoir or reference node taken whole (all its ports share its head)
+             */
+            portId: string | null;
         };
         /** SystemCurvePoint */
         SystemCurvePoint: {
@@ -4107,6 +4424,93 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MethodVersionsResponse"];
+                };
+            };
+        };
+    };
+    pump_group_curve_endpoint_api_v1_pump_group_curve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PumpGroupCurveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PumpGroupCurveResponse"];
+                };
+            };
+            /** @description Invalid input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unknown pump id or scenario id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Topology error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Server busy (SERVER_BUSY) or the time budget ran out (TIMEOUT) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Other errors */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

@@ -1,4 +1,4 @@
-"""Components: the nodes of the port graph (SDD §4.2-4.9, §4.11, §4.14, §4.16, §4.17), v1
+"""Components: the nodes of the port graph (SDD §4.2-4.9, §4.11, §4.14, §4.16, §4.18), v1
 scope."""
 
 import json
@@ -673,7 +673,7 @@ def _relief_schema_extra(schema: JsonDict, cls: type[Any]) -> None:
 
 
 class ReliefValve(BaseComponent):
-    """A conventional spring-loaded pressure relief valve in liquid service (SDD §4.17): closed
+    """A conventional spring-loaded pressure relief valve in liquid service (SDD §4.18): closed
     while the static pressure difference across it is below its set pressure, its lift rising
     linearly with the overpressure (a convention, flagged) to full lift at set plus overpressure,
     with API 520's liquid capacity equation at its lift (proposal pressure-relief-valve.md §1.1).

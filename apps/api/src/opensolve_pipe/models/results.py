@@ -456,7 +456,7 @@ coefficient of discharge resolved, and an effective area's covering API 526 lett
 
 
 class ReliefValveResult(OutputModel):
-    """A pressure relief valve (SDD §4.17): its lift, flow and capacity at the solved pressures
+    """A pressure relief valve (SDD §4.18): its lift, flow and capacity at the solved pressures
     (proposal pressure-relief-valve.md §2.2). Δp_t, the total-pressure difference between the
     ports, is what its law reads; the lift x rises linearly from the set Δp_s to full lift at
     Δp_f = Δp_s(1 + overpressure), and Q = x·Kd·A·√(2Δp_t/ρ)."""

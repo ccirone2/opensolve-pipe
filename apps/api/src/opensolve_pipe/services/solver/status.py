@@ -483,6 +483,8 @@ def link_states(
             states[tracker.geometry.legs[tracker.dead_leg]] = CLOSED
     for pump_id, flow in (forced or {}).items():
         states[built.pumps[pump_id].link_index] = LinkState(LinkMode.FIXED_FLOW, flow)
+    for link in built.held_closed:  # a pump station solved alone (``BuiltNetwork.held_closed``)
+        states[link] = CLOSED
     return states
 
 

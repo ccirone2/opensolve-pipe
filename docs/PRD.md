@@ -106,7 +106,7 @@ v1 is the core analysis MVP. Everything else in this document is **Later**. The 
 - PRV, PSV, FCV
 - Equipment such as heat exchangers, coils, strainers and filters, rated by a pressure drop at a flow or by a Cv or Kv (§3.1.2; CLAUDE.md D18)
 - Orifice plates (square-edged, concentric, ISO 5167-2): restriction orifices and orifice flow meters, with the permanent pressure loss in the network and a meter's differential pressure at its taps (§3.1.2; CLAUDE.md D20)
-- Pressure relief valves (conventional spring-loaded, liquid service): a set pressure difference and a capacity by API 526 letter, API 520 effective area or certified area and coefficient, with API 520's liquid capacity at full lift (§3.1.2; CLAUDE.md D21)
+- Pressure relief valves (conventional spring-loaded, liquid service): a set pressure difference and a capacity by API 526 letter, API 520 effective area or certified area and coefficient, with API 520's liquid capacity at full lift (§3.1.2; CLAUDE.md D22)
 - Water, ethylene/propylene glycol solutions, user-defined fluids
 - NPSH available and NPSH margin
 - Panel navigator, results tables, pump/system curve chart
@@ -173,7 +173,7 @@ Users shall be able to model the following components:
 | Flow Control Valve        | Setpoint, fully open Cv/Kv/K (default: ideal), status (active/failed-open/failed-closed); Cv-vs-position curve: Later | v1      |
 | Differential Pressure Control Valve | Pressure-drop setpoint across the valve (inlet minus outlet), fully open Cv/Kv/K, status (active/failed-open/failed-closed) | Later   |
 | Three-Way Valve           | Mixing or diverting; Cv per path at the actual position (a cited characteristic is needed for position-dependent Cv), status | Later   |
-| Pressure Relief Valve (conventional spring-loaded, liquid service) | Set pressure, a pressure difference, inlet minus outlet static (no default; discharging to atmosphere it is the gauge set, with a return line the bench setting); capacity (no default), one of three kinds never mixed: an API 526 orifice letter or an API 520 effective area, each with API 520's effective coefficient 0.65 and ASME's overpressure (preliminary), or the valve's certified actual area, rated coefficient and full-lift overpressure (default ASME's 10 % or 3 psi, whichever is greater, for sets of at least 15 psi); status active or locked closed. Closed below its set, its lift rising linearly with the overpressure to full lift at set plus overpressure (a convention, flagged: real valves surge open and reclose below set), API 520's liquid capacity at its lift. Discharge to atmosphere is an open discharge the app adds at its free outlet. Flashing at its outlet and a viscous liquid are flagged; a set below 15 psi on ASME's overpressure is refused (CLAUDE.md D21) | v1      |
+| Pressure Relief Valve (conventional spring-loaded, liquid service) | Set pressure, a pressure difference, inlet minus outlet static (no default; discharging to atmosphere it is the gauge set, with a return line the bench setting); capacity (no default), one of three kinds never mixed: an API 526 orifice letter or an API 520 effective area, each with API 520's effective coefficient 0.65 and ASME's overpressure (preliminary), or the valve's certified actual area, rated coefficient and full-lift overpressure (default ASME's 10 % or 3 psi, whichever is greater, for sets of at least 15 psi); status active or locked closed. Closed below its set, its lift rising linearly with the overpressure to full lift at set plus overpressure (a convention, flagged: real valves surge open and reclose below set), API 520's liquid capacity at its lift. Discharge to atmosphere is an open discharge the app adds at its free outlet. Flashing at its outlet and a viscous liquid are flagged; a set below 15 psi on ASME's overpressure is refused (CLAUDE.md D22) | v1      |
 | Pressure relief valves, other kinds | Balanced-bellows and pilot valves (set on the inlet's gauge pressure), pop action and blowdown, a manufacturer's lift or pressure–flow curve, API 520's Kv, Kw and Kc, non-certified valves, a nameplate rated capacity, gas, steam and two-phase relief, a one-port valve to atmosphere, failed open | Later   |
 | Equipment (heat exchanger side, coil, strainer, filter) | Rated pressure drop at a rated flow, with the density of the fluid the rating is for, or a Cv or Kv (a rating on water); loss ∝ ρQ² (constant K). No status, no default rating. Reverse flow and laminar flow in a connected pipe are flagged; viscosity is not corrected (CLAUDE.md D18) | v1      |
 | Equipment, other ratings  | K on a stated diameter, a head rating, a mass-flow rating, a ΔP–flow curve, a viscosity correction, a reverse or clean/dirty rating | Later   |
@@ -361,6 +361,7 @@ For each assigned-flow node:
 - Operating point (flow, head)
 - NPSH available at pump suction
 - NPSH margin (if NPSH required provided)
+- Pumps together (CLAUDE.md D21; `docs/proposals/pump-groups.md`): for pumps that run together, in parallel or in series, the station that holds them (between the two places it meets the rest of the network), each pump's own curve and solved point on one chart, how the flow divides (each pump's share, and in parallel what each loses on its way between the headers; in series what the piping between the pumps loses), and the group curve: the station's flow at each rise between its inlet and outlet, solved with every pump on its own curve, so it shows where a weaker pump stops delivering. The group is chosen on the page (suggested from the network), never stored. The catalogue composite curve (flows added at equal head) is not drawn: it does not meet the system at the duty. **Later:** the group's own system curve, crossing the group curve at the duty (slice 4b); the group in the export; one pump off as a case of each running pump
 
 #### 3.2.3 Export Formats
 
@@ -565,7 +566,7 @@ Design practice, not physics: a check never changes a result or raises a flag (G
 
 - Code compliance: NFPA 13 (fire sprinkler systems), NFPA 20 (fire pumps), ASME B31.1 (power piping)
 - User-defined check libraries, velocity limits by pipe material and application
-- Relief valve checks, each once its standard is read: the overpressure at the relieving flow within an allowable value, API 520 Part II's 3 % inlet loss, built-up back pressure within 10 % of set for a conventional valve (CLAUDE.md D21)
+- Relief valve checks, each once its standard is read: the overpressure at the relieving flow within an allowable value, API 520 Part II's 3 % inlet loss, built-up back pressure within 10 % of set for a conventional valve (CLAUDE.md D22)
 - A "Check model" button for on-demand validation
 
 ---

@@ -8,6 +8,7 @@
  */
 import type { Chart as ChartInstance, ChartConfiguration, LegendItem, Plugin } from 'chart.js';
 import type { ChartPoint, OtherCaseData, PanelKey, PumpChartData } from './pump-chart';
+import type { GroupChartData } from './pump-group-chart';
 
 /**
  * The chart's palette: categorical slots 1 and 2 of the dataviz reference palette (validated
@@ -725,6 +726,232 @@ export function pumpChartConfig(
 									const unit =
 										axis === 'yEfficiency' ? '%' : axis === 'yPower' ? d.powerUnit : d.headUnit;
 									return `${item.dataset.label}: ${fmt(p.x)} ${d.flowUnit}, ${fmt(p.y)} ${unit}`;
+								}
+							}
+						}
+			}
+		}
+	};
+}
+
+// ---------------------------------------------------------------------------------------------
+// The Pumps together card (CLAUDE.md D21, proposal pump-groups.md §6.3)
+// ---------------------------------------------------------------------------------------------
+
+/** The group curve and the station's point: the primary ink, as the pump chart's duty. */
+export const GROUP_CURVE_LABEL = "Group curve (station's flow)";
+export const GROUP_BEYOND_LABEL = 'Group curve, a pump beyond its data (dashed)';
+
+export interface PumpGroupConfigOptions {
+	/** Chart.js's own legend labels, from the chart chunk (as pumpChartConfig's). */
+	legendLabels: (chart: ChartInstance) => LegendItem[];
+	/** How the tooltip writes a number. */
+	format: (value: number) => string;
+	/** The fixed-size render of the image (as pumpChartConfig's). */
+	forImage?: boolean;
+	/**
+	 * The page draws the legend under the canvas (pump-group-chart.ts groupLegend), so the plot
+	 * keeps the panel's height on a phone; the image draws Chart.js's own.
+	 */
+	htmlLegend?: boolean;
+}
+
+/**
+ * The Pumps together chart, head panel only: each member's curve (its colour and dash, dashed
+ * beyond its data) and point (its marker, a held pump the pump chart's diamond, a direct label),
+ * the group curve in ink (dashed where a pump runs beyond its data, gaps where a point has no
+ * flow) and the station's duty, an ink dot labelled "Group". Nothing else: no combined curve and
+ * no member's system curve (proposal §6.3).
+ */
+export function pumpGroupConfig(
+	d: GroupChartData,
+	{ legendLabels, format, forImage = false, htmlLegend = false }: PumpGroupConfigOptions
+): PumpChartConfig {
+	const { ink: INK, grid: GRID, text: TEXT } = CHART_COLORS;
+	const fmt = format;
+	const font = (size: number) => (forImage ? { font: { size } } : {});
+	const crossed = (marker: string) => marker === 'cross' || marker === 'crossRot';
+	const datasets = [
+		...d.lines.flatMap((line) => [
+			{
+				label: line.label,
+				yAxisID: 'y',
+				data: line.curve as ChartDatum[],
+				borderColor: line.style.color,
+				backgroundColor: line.style.color,
+				borderWidth: 2,
+				...(line.style.dash.length ? { borderDash: line.style.dash } : {}),
+				pointRadius: 0,
+				pointHitRadius: 6,
+				memberIds: line.ids
+			},
+			...(line.extrapolated.length
+				? [
+						{
+							label: `${line.label}, beyond its data`,
+							yAxisID: 'y',
+							data: joinSegments(line.extrapolated),
+							borderColor: line.style.color,
+							backgroundColor: line.style.color,
+							borderWidth: 2,
+							borderDash: line.style.beyondDash,
+							pointRadius: 0,
+							pointHitRadius: 6,
+							spanGaps: false,
+							// The notes say what dashes are: one legend entry per line.
+							legend: false,
+							memberIds: line.ids
+						}
+					]
+				: [])
+		]),
+		...(d.curve?.solid.length
+			? [
+					{
+						label: GROUP_CURVE_LABEL,
+						yAxisID: 'y',
+						data: joinSegments(d.curve.solid),
+						borderColor: INK,
+						backgroundColor: INK,
+						borderWidth: 2,
+						pointRadius: 0,
+						pointHitRadius: 6,
+						spanGaps: false
+					}
+				]
+			: []),
+		...(d.curve?.beyond.length
+			? [
+					{
+						label: GROUP_BEYOND_LABEL,
+						yAxisID: 'y',
+						data: joinSegments(d.curve.beyond),
+						borderColor: INK,
+						backgroundColor: INK,
+						borderWidth: 2,
+						borderDash: [6, 4],
+						pointRadius: 0,
+						pointHitRadius: 6,
+						spanGaps: false
+					}
+				]
+			: []),
+		...d.points.map((p) => ({
+			label: p.held ? `${p.name}, held at zero flow` : p.name,
+			yAxisID: 'y',
+			data: [p.point] as ChartDatum[],
+			borderColor: p.held || crossed(p.style.marker) ? p.style.color : '#ffffff',
+			backgroundColor: p.held ? '#ffffff' : p.style.color,
+			borderWidth: p.held || crossed(p.style.marker) ? 3 : 1.5,
+			pointStyle: p.held ? ('rectRot' as const) : p.style.marker,
+			pointRadius: 8,
+			pointHoverRadius: 10,
+			pointHitRadius: 12,
+			showLine: false,
+			caseLabel: p.name,
+			memberIds: [p.id]
+		})),
+		...(d.station
+			? [
+					{
+						label: d.station.onCurve ? 'Group duty, on the curve' : "Group duty (the solve's)",
+						yAxisID: 'y',
+						data: [d.station.point] as ChartDatum[],
+						borderColor: '#ffffff',
+						backgroundColor: INK,
+						borderWidth: 2,
+						pointStyle: 'circle' as const,
+						pointRadius: 7,
+						pointHoverRadius: 9,
+						pointHitRadius: 12,
+						showLine: false,
+						caseLabel: 'Group'
+					}
+				]
+			: [])
+	];
+	// Direct labels next to each point: above and below in turn, so close points' labels part.
+	const pointLabels: Plugin<'line'> = {
+		id: 'groupLabels',
+		afterDatasetsDraw(chart) {
+			const ctx = chart.ctx;
+			ctx.save();
+			ctx.fillStyle = INK;
+			ctx.font = `${forImage ? 14 : 12}px system-ui, sans-serif`;
+			let n = 0;
+			chart.data.datasets.forEach((dataset, i) => {
+				const label = (dataset as { caseLabel?: string }).caseLabel;
+				const point = chart.getDatasetMeta(i).data[0];
+				if (!label || !point || !chart.isDatasetVisible(i)) return;
+				// To the right of the point, or to its left where the plot ends first.
+				const width = ctx.measureText(label).width;
+				const x =
+					point.x + 10 + width > chart.chartArea.right ? point.x - 10 - width : point.x + 10;
+				ctx.fillText(label, x, n++ % 2 === 0 ? point.y - 10 : point.y + 20);
+			});
+			ctx.restore();
+		}
+	};
+	return {
+		type: 'line',
+		plugins: [pointLabels],
+		data: { datasets },
+		options: {
+			animation: false,
+			responsive: !forImage,
+			maintainAspectRatio: false,
+			...(forImage ? { devicePixelRatio: 2, events: [] } : {}),
+			parsing: false,
+			interaction: { mode: 'nearest', intersect: false },
+			scales: {
+				x: {
+					type: 'linear',
+					beginAtZero: true,
+					title: { display: true, text: `Flow (${d.flowUnit})`, color: TEXT, ...font(15) },
+					grid: { color: GRID },
+					ticks: { color: TEXT, ...font(14) }
+				},
+				y: {
+					type: 'linear',
+					beginAtZero: true,
+					title: { display: true, text: `Head or rise (${d.headUnit})`, color: TEXT, ...font(15) },
+					grid: { color: GRID },
+					ticks: { color: TEXT, ...font(14) }
+				}
+			},
+			plugins: {
+				legend: {
+					display: !htmlLegend,
+					position: 'bottom',
+					labels: {
+						color: CHART_COLORS.legend,
+						usePointStyle: true,
+						boxHeight: 12,
+						filter: (item, chartData) =>
+							(chartData.datasets[item.datasetIndex ?? -1] as { legend?: boolean } | undefined)
+								?.legend !== false,
+						...font(14),
+						generateLabels: (c) =>
+							legendLabels(c).map((item) => {
+								const ds = c.data.datasets[item.datasetIndex ?? -1] as
+									{ showLine?: boolean; pointStyle?: unknown } | undefined;
+								return {
+									...item,
+									pointStyle: (ds?.showLine === false && typeof ds.pointStyle === 'string'
+										? ds.pointStyle
+										: 'line') as 'circle' | 'line'
+								};
+							})
+					}
+				},
+				tooltip: forImage
+					? { enabled: false }
+					: {
+							callbacks: {
+								label: (item) => {
+									const p = item.raw as ChartDatum;
+									if (p.y === null) return '';
+									return `${item.dataset.label}: ${fmt(p.x)} ${d.flowUnit}, ${fmt(p.y)} ${d.headUnit}`;
 								}
 							}
 						}

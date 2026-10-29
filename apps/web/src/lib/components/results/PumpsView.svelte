@@ -7,6 +7,12 @@
 	this chart's flow grid; proposal scenario-manager.md §6.13): those of every case other than the
 	one shown that the chart shows, whichever case is shown. A pump the scenario of these results
 	changed says so in the table (`changed`).
+
+	Under it, with two pumps or more, the Pumps together card (CLAUDE.md D21, proposal
+	pump-groups.md §6): its members are page state (the workspace's `pumpGroup`, the same in every
+	case), defaulting to the group suggested on the topology as solved for the pump viewed; its
+	group curve is computed on demand for this solve and case, cached with it (ProjectStore
+	loadGroupCurve).
 -->
 <script lang="ts">
 	import { untrack } from 'svelte';
@@ -25,8 +31,17 @@
 		type OtherCaseInput,
 		type PumpChecksInput
 	} from '$lib/utils/pump-chart';
-	import { markChanged, pumpTable, type TableSort } from '$lib/utils/results';
+	import {
+		flagsForElement,
+		markChanged,
+		pumpTable,
+		resultsProject,
+		type TableSort
+	} from '$lib/utils/results';
+	import { defaultGroup, suggestGroups } from '$lib/utils/pump-groups';
+	import type { GroupMemberInput } from '$lib/utils/pump-group-chart';
 	import PumpChart from './PumpChart.svelte';
+	import PumpGroupChart from './PumpGroupChart.svelte';
 	import ResultsTable from './ResultsTable.svelte';
 
 	interface Props {
@@ -229,6 +244,84 @@
 		unticked = [...untickedKeys];
 	}
 
+	// ---- Pumps together (D21) ----------------------------------------------------------------
+
+	/** The project the results belong to (as solved while out of date, else the labels project). */
+	const groupSolvedProject = $derived(resultsProject(ws.labelsProject, solved));
+	/**
+	 * The pumps with a result, as the card's boxes (curves and ranges from the project as solved;
+	 * names current, or as solved for a pump deleted since, as the card names everything).
+	 */
+	const groupPumps = $derived.by((): Omit<GroupMemberInput, 'slot'>[] => {
+		const project = ws.store.solvedProject;
+		return pumps.map((row) => {
+			const pump = project ? componentById(project, row.key) : undefined;
+			return {
+				id: row.key,
+				name: componentById(ws.labelsProject, row.key)
+					? row.name
+					: (componentById(groupSolvedProject, row.key)?.name ?? row.name),
+				result: solved.pumpResults[row.key]!,
+				ratedRange: project && response ? ratedCurveRange(project, row.key) : null,
+				curveId: pump?.type === 'pump' ? pump.curveId : null,
+				flags: flagsForElement(solved.flags, { kind: 'component', id: row.key })
+			};
+		});
+	});
+	/**
+	 * The groups suggested on the case as solved (once per solve): the scenario applied to the base
+	 * sent, so a PRV or PSV a scenario sets active (or not) is read as the API reads it.
+	 */
+	const caseSolved = $derived(response ? ws.store.caseInputs() : null);
+	const suggestions = $derived(
+		caseSolved && pumps.length >= 2
+			? suggestGroups(
+					caseSolved,
+					pumps.map((row) => row.key)
+				)
+			: []
+	);
+	/** The boxes ticked by slot: the user's, else the group suggested for the pump viewed. */
+	const groupSlots = $derived(ws.pumpGroup ?? defaultGroup(suggestions, viewed?.key ?? null));
+	// Their ids are reserved while shown ticked, the default group's too (ws.reservedIds).
+	$effect(() => {
+		ws.pumpGroupShown = groupSlots;
+	});
+	/**
+	 * The members with a result in this case. The station's extent is the same in every case
+	 * (topology), but whether the API accepts it can differ (an active PRV or PSV inside).
+	 */
+	const groupMembers = $derived(
+		groupSlots.filter((pumpId): pumpId is string => !!pumpId && !!solved.pumpResults[pumpId])
+	);
+	/**
+	 * Why these results give the card no values: a solve that did not converge, or (Compare's
+	 * rule) the earlier results shown after a failed solve or a stopped Solve all.
+	 */
+	const groupUnavailable = $derived.by(() => {
+		if (!response)
+			return 'These results are not the latest solve of this case: no group curve is computed for them.';
+		if (!(response.success && response.solvedState.converged))
+			return 'This solve did not converge: its values are not a solution, so the card shows none.';
+		const status = ws.store.caseStatus(ws.store.activeCase);
+		if (!caseResponse(status, ws.store.results))
+			return status === 'not_reached'
+				? 'Solve all stopped before it reached this case; the card shows nothing from an earlier version of the project.'
+				: 'The latest solve failed; the card shows nothing from an earlier version of the project.';
+		return null;
+	});
+	const groupState = $derived(
+		groupUnavailable ? undefined : ws.store.groupCurve(response, groupMembers)
+	);
+	const groupList = $derived(groupMembers.join('\u0000'));
+
+	// Opening the card with two members or more asks for their group curve, once per solve.
+	$effect(() => {
+		const ids = groupList ? groupList.split('\u0000') : [];
+		if (!ws.pumpGroupOpen || ids.length < 2 || !response || groupUnavailable) return;
+		untrack(() => ws.store.loadGroupCurve(ids));
+	});
+
 	function cancelOverlay() {
 		const pumpId = viewed?.key;
 		if (!pumpId || !grid) return;
@@ -295,5 +388,27 @@
 				/>
 			{/key}
 		</div>
+	{/if}
+	{#if pumps.length > 1}
+		<PumpGroupChart
+			pumps={groupPumps}
+			slots={groupSlots}
+			onslots={(next) => (ws.pumpGroup = next)}
+			{suggestions}
+			bind:open={ws.pumpGroupOpen}
+			curve={groupState}
+			onretry={() => ws.store.loadGroupCurve(groupMembers, { retry: true })}
+			oncancel={() => ws.store.cancelGroupCurve(groupMembers)}
+			prefs={ws.displayUnits}
+			project={ws.labelsProject}
+			solvedProject={groupSolvedProject}
+			nodes={solved.nodeResults}
+			unavailable={groupUnavailable}
+			stale={ws.store.results.stale}
+			{...hasScenarios ? { caseName: ws.caseName(ws.store.activeCase) } : {}}
+			oninspect={(id) => ws.inspect({ kind: 'component', id })}
+			flagText={(flag) => ws.flagText(flag)}
+			{image}
+		/>
 	{/if}
 </div>

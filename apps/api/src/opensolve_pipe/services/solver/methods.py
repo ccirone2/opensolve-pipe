@@ -340,7 +340,7 @@ def relief_section(built: BuiltNetwork) -> MethodsSection | None:
         "valve that has surged open passes more flow at a lower inlet pressure. No cited source "
         "verifies a band law, so every relieving state short of full lift is flagged "
         "(CORRELATION_OUT_OF_RANGE, partial lift), and the band is an exception to the project's "
-        "verifiable gate that the owner accepted (CLAUDE.md D21). (2) API 520's P1 − P2 is read "
+        "verifiable gate that the owner accepted (CLAUDE.md D22). (2) API 520's P1 − P2 is read "
         "as Δp_t; ASME's definitions as Pentair quotes them (the inlet stagnation pressure, the "
         "outlet static pressure) differ by the outlet velocity head, and this reading gives the "
         "higher inlet pressure at a given flow. (3) With a superimposed back pressure the "

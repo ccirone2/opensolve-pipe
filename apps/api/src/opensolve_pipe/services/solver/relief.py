@@ -1,5 +1,5 @@
 """Pressure relief valve: a conventional spring-loaded valve in liquid service (proposal
-pressure-relief-valve.md §1.1, §3; CLAUDE.md D21).
+pressure-relief-valve.md §1.1, §3; CLAUDE.md D22).
 
 The law reads Δp_t, the total-pressure difference between the ports (decision 5), on the energy
 grade line (D7):
@@ -111,7 +111,7 @@ AFT = (
     "pressure to fully open at its full-open overpressure (linear in between)."
 )
 DECISION = (
-    "OpenSolve Pipe design decision D21 (CLAUDE.md), from docs/proposals/pressure-relief-valve.md "
+    "OpenSolve Pipe design decision D22 (CLAUDE.md), from docs/proposals/pressure-relief-valve.md "
     "(the owner's answers of 2026-10-28: the linear lift in the band, an exception to GOALS §5)."
 )
 LAW = "API 520 liquid capacity equation at lift x, Q = x Kd A √(2 Δp_t/ρ) (exact SI form)"

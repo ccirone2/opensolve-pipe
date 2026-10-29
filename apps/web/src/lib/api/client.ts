@@ -8,6 +8,8 @@
  * - ValidationError: the request was rejected as invalid input (400, or 422 from validation);
  *   NotFoundError, a ValidationError, when what it names is not in the project (404 NOT_FOUND:
  *   an unknown scenario or pump, or a goal seek's unknown elements, with their issues);
+ *   NotAStationError, a ValidationError, when the pumps of a group curve do not form a station
+ *   (422 NOT_A_STATION, every reason an issue with its code and ids);
  * - NetworkError: the API could not be reached, could not do the work now, or did not answer as
  *   documented (offline, timeout, 429 or 5xx, with the server's message when it sent the error
  *   envelope: busy, still solving the previous request, the time budget ran out; or an endpoint
@@ -26,6 +28,8 @@ import type {
 	LibraryResponse,
 	MethodVersionsResponse,
 	Project,
+	PumpGroupCurveRequest,
+	PumpGroupCurveResponse,
 	SolveOptions,
 	SolveResponse,
 	SystemCurveRequest,
@@ -104,6 +108,25 @@ export class NotFoundError extends ValidationError {
 	}
 }
 
+/**
+ * 422 NOT_A_STATION: the pumps of a group curve do not form a station (CLAUDE.md D21; proposal
+ * pump-groups.md §5.6). Every reason is an issue with its code (NO_SEPARATING_PORTS: one place,
+ * or three or more; NO_WAY_THROUGH: two places, no member on a way between them;
+ * FIXED_HEAD_INSIDE, ASSIGNED_FLOW_INSIDE, OTHER_PUMP_INSIDE, DIFFERENT_BOUNDARIES;
+ * MEMBERS_OPPOSED: as many members face each way; MEMBER_REVERSED: a minority faces against the
+ * rest; PRESSURE_CONTROL_INSIDE, alone or beside another reason), the server's sentence and the
+ * ids it names, which the Pumps together card words with element names.
+ */
+export class NotAStationError extends ValidationError {
+	readonly issues: readonly TopologyIssue[];
+
+	constructor(message: string, details: readonly string[], issues: readonly TopologyIssue[]) {
+		super(message, details, 422, 'NOT_A_STATION');
+		this.name = 'NotAStationError';
+		this.issues = issues;
+	}
+}
+
 export interface ApiClientOptions {
 	/** Base URL; default apiBaseUrl() at request time. */
 	baseUrl?: string;
@@ -129,6 +152,13 @@ export interface CaseRequestOptions extends RequestOptions {
 export interface SystemCurveOptions extends CaseRequestOptions {
 	flowMin?: number;
 	flowMax?: number | null;
+	numPoints?: number;
+}
+
+export interface GroupCurveOptions extends CaseRequestOptions {
+	/** The rises sampled, m (default: the API's, from its duty and the pumps' shutoff heads). */
+	headMin?: number;
+	headMax?: number;
 	numPoints?: number;
 }
 
@@ -277,6 +307,9 @@ export class ApiClient {
 			if (response.status === 404 && data.error === 'NOT_FOUND') {
 				throw new NotFoundError(data.message, details, data.issues);
 			}
+			if (response.status === 422 && data.error === 'NOT_A_STATION') {
+				throw new NotAStationError(data.message, details, data.issues);
+			}
 			throw new ValidationError(data.message, details, response.status, data.error);
 		}
 		const details = validationDetails(data);
@@ -327,6 +360,25 @@ export class ApiClient {
 			...(options.scenarioId ? { scenarioId: options.scenarioId } : {})
 		};
 		return this.#request<SystemCurveResponse>('POST', '/api/v1/system-curve', body, options);
+	}
+
+	/**
+	 * The group curve of the station holding `pumpIds` (POST /api/v1/pump-group-curve, CLAUDE.md
+	 * D21): the station the API finds, its duty in the case's solve and the station solved alone
+	 * at a grid of rises; of a scenario with `scenarioId` (in the body only). Pumps that do not form
+	 * a station: NotAStationError, with every reason.
+	 */
+	groupCurve(project: Project, pumpIds: readonly string[], options: GroupCurveOptions = {}) {
+		const body: PumpGroupCurveRequest = {
+			project,
+			pumpIds: [...pumpIds],
+			curve: 'group',
+			numPoints: options.numPoints ?? 41,
+			...(options.headMin === undefined ? {} : { headMin: options.headMin }),
+			...(options.headMax === undefined ? {} : { headMax: options.headMax }),
+			...(options.scenarioId ? { scenarioId: options.scenarioId } : {})
+		};
+		return this.#request<PumpGroupCurveResponse>('POST', '/api/v1/pump-group-curve', body, options);
 	}
 
 	/**
@@ -411,6 +463,8 @@ export function defaultClient(): ApiClient {
 export const solve = (...args: Parameters<ApiClient['solve']>) => defaultClient().solve(...args);
 export const systemCurve = (...args: Parameters<ApiClient['systemCurve']>) =>
 	defaultClient().systemCurve(...args);
+export const groupCurve = (...args: Parameters<ApiClient['groupCurve']>) =>
+	defaultClient().groupCurve(...args);
 export const goalSeek = (...args: Parameters<ApiClient['goalSeek']>) =>
 	defaultClient().goalSeek(...args);
 export const getLibrary = () => defaultClient().getLibrary();

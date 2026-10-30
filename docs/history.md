@@ -39,16 +39,21 @@ Session 6 (2026-10-29 to 10-30):
 - the documentation restructured for progressive disclosure (`0b7e26d`): `CLAUDE.md` 119 KB → 14 KB, the decisions in `docs/decisions/`, this file, `roadmap.md`, `workflow.md`, `library-facts.md`, `deployment.md`, the indexes, and `tests/unit/test_docs.py`; `scripts/record_history.py` refreshes the verified-state block below.
 
 <!-- verified-state:start -->
-Verified state with pump groups (D21), the project library (D22) and the pressure relief valve (D23), on the merge `9c4b2a3`, where the relief valve's proofs were run again against `86c40c3` (item 55 of the relief proposal's §12):
+Verified state at `9e54d81` (`ccr-efab8cb5-vzm6cg`, 2026-10-30), written by `apps/api/scripts/record_history.py`:
 
 | Area | Result |
 |---|---|
-| API pytest | 7,022 passed |
-| API ruff, ruff format, mypy strict, pipe data, relief data | clean |
-| Web svelte-check, Prettier + ESLint | clean (800 files) |
-| Web Vitest | 1,537 passed (119 files) |
-| Web Playwright (one worker) | desktop 1280×800 and mobile 390×844: 180 passed, 10 skipped by design (87 and 8 on desktop, 93 and 2 on mobile) |
-
+| API pytest | 7153 passed |
+| API ruff | clean |
+| API ruff format | clean |
+| API mypy strict | clean |
+| API pipe data | clean |
+| API relief data | clean |
+| Web generated API types | clean |
+| Web svelte-check | clean |
+| Web Prettier + ESLint | clean |
+| Web Vitest | 1576 passed (120 files) |
+| Not run this time | Web Playwright (desktop 1280×800 and mobile 390×844, one worker) |
 <!-- verified-state:end -->
 
 The proof record below is written by hand with each merge (the script measures only the gates):
@@ -59,4 +64,4 @@ The proof record below is written by hand with each merge (the script measures o
 
 **Differential test** (TSD §10.4): three profiles of 3,000 random networks against EPANET, `default` (seeds 0–2,999), `flow_control` (10,000–12,999) and `assigned_flow` (20,000–22,999), each with 0 critical seeds; the 1.2.0 class tables in TSD §10.4 are the baseline, and 1.3.0 (D18), 1.4.0 (D20), the project library's 1.5.0 (D22) and the relief valve (D23, measured as 1.5.0 before the library merged and as 1.6.0 on the merge `9c4b2a3`) each left all 9,000 records identical, as did pump groups (D21) and the merge of the relief valve with them. `equipment_check` (TSD §10.4) replaces every active isolation valve of the corpus by an equipment item of the same loss: 1,781 valves, 0 different. `orifice_check` replaces them by orifice plates of the same K, with an entered C (1,464 valves) and on ISO's Reynolds-dependent C (1,698 valves): 0 different, the largest differences 9.3·10⁻¹⁰ of the largest flow and 6.7·10⁻⁶ m. `relief_check` places relief valves on the corpus in three modes with exact answers (323 valves at partial lift, 420 beyond full lift, 803 set to stay closed): 0 different, the largest differences 1.05·10⁻⁹ of the largest flow and 4.47·10⁻⁶ m in the open modes, with projects at zero flow, at a switch or differing in which nodes have results listed and triaged (TSD §10.4). `pump_group_check` checks every group the suggestion rules give and every pair of pumps (4,235 groups, 537 stations) against a second station finder: 0 violations. `library_check` lifts every corpus project into the project library (95,559 pipe specs, 47,329 resistance entries) and solves it again: 0 different in both modes (mode `exact`, each K at its element's bore, bit for bit). The corpus is 5,189 projects.
 
-**Before changing anything, re-run every gate and confirm these numbers:** `cd apps/api && uv run python scripts/record_history.py` runs them all and rewrites the block above ([`workflow.md`](workflow.md) §4; `--skip e2e` for a quick pass, `--dry-run` to print without writing). The numbers above predate the 4b merge where they count tests; the script's next run replaces them.
+**Before changing anything, re-run every gate and confirm these numbers:** `cd apps/api && uv run python scripts/record_history.py` runs them all and rewrites the block above ([`workflow.md`](workflow.md) §4; `--skip e2e` for a quick pass, `--dry-run` to print without writing).

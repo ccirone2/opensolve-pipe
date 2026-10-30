@@ -1,7 +1,14 @@
 /**
  * Shared helpers for unit tests. Not used by the app.
  */
-import type { Component, EquipmentRating, Orifice, PipeConnection, Project } from '../api/types';
+import type {
+	Component,
+	EquipmentRating,
+	Orifice,
+	PipeConnection,
+	Project,
+	ReliefValve
+} from '../api/types';
 import { createEmptyProject, type ComponentKind, type EnteredValues } from '../utils/factory';
 
 /** Freeze an object graph, so a test fails if code under test modifies its input. */
@@ -115,8 +122,8 @@ export function assignedFlowProject(flow: number): Project {
 /**
  * The values a user enters for a kind that has no default for them, where it is added (factory.ts
  * ENTRY_KINDS): made-up test inputs, 0.004 m³/s for an assigned-flow node's flow, for an equipment
- * item a rated point of 50 kPa at 15 L/s on a fluid of 999.1 kg/m³, and a 50 mm bore for an
- * orifice plate. Empty for others.
+ * item a rated point of 50 kPa at 15 L/s on a fluid of 999.1 kg/m³, a 50 mm bore for an
+ * orifice plate, and for a relief valve a 500 kPa set on API 526's J. Empty for others.
  */
 export function enteredFor(kind: ComponentKind): EnteredValues {
 	if (kind === 'assigned_flow') return { flow: 0.004 };
@@ -124,6 +131,8 @@ export function enteredFor(kind: ComponentKind): EnteredValues {
 		return { rating: { kind: 'point', pressureLoss: 50000, flow: 0.015, density: 999.1 } };
 	}
 	if (kind === 'orifice') return { boreDiameter: 0.05 };
+	if (kind === 'relief_valve')
+		return { setPressure: 500000, capacity: { kind: 'api526', letter: 'J' } };
 	return {};
 }
 
@@ -199,6 +208,61 @@ export function orificeProject(plate: Partial<Orifice> = {}): Project {
 			reservoir('R2', 'Return tank', 0)
 		],
 		[link('L1', ['R1', 'port_1'], ['O1', 'inlet']), link('L2', ['O1', 'outlet'], ['R2', 'port_1'])]
+	);
+}
+
+/**
+ * Reservoir R1 "Pump discharge header" (2 m level, 1.05 MPa gauge surface) → L1 (NPS 2) → relief
+ * valve RV1 "Discharge relief" → L2 (NPS 3, 1 m, with an exit) → reference node N1 "Open discharge"
+ * at 0 Pa gauge, all at 0 m. Made-up test inputs: a 500 kPa set on API 526's F, active, unless
+ * `valve` says otherwise.
+ */
+export function reliefProject(valve: Partial<ReliefValve> = {}): Project {
+	return projectWith(
+		[
+			{
+				id: 'R1',
+				name: 'Pump discharge header',
+				elevation: 0,
+				type: 'reservoir',
+				liquidLevel: 2,
+				surfacePressure: 1050000,
+				ports: [{ id: 'port_1', nominalSize: 0.0508, direction: 'bidirectional' }]
+			},
+			{
+				id: 'RV1',
+				name: 'Discharge relief',
+				elevation: 0,
+				type: 'relief_valve',
+				setPressure: 500000,
+				capacity: { kind: 'api526', letter: 'F' },
+				status: 'active',
+				ports: [
+					{ id: 'inlet', nominalSize: 0.0508, direction: 'inlet' },
+					{ id: 'outlet', nominalSize: 0.0762, direction: 'outlet' }
+				],
+				...valve
+			},
+			{
+				id: 'N1',
+				name: 'Open discharge',
+				elevation: 0,
+				type: 'reference_node',
+				referenceType: 'ideal',
+				pressure: 0,
+				ports: [{ id: 'port_1', nominalSize: 0.0762, direction: 'bidirectional' }]
+			}
+		],
+		[
+			link('L1', ['R1', 'port_1'], ['RV1', 'inlet'], 0.0508),
+			{
+				...link('L2', ['RV1', 'outlet'], ['N1', 'port_1'], 0.0762),
+				piping: {
+					pipes: [{ materialId: 'carbon_steel', schedule: '40', nominalSize: 0.0762, length: 1 }],
+					fittings: [{ type: 'exit', quantity: 1, pipeIndex: 0 }]
+				}
+			}
+		]
 	);
 }
 

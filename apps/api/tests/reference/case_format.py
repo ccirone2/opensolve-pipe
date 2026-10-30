@@ -16,6 +16,8 @@ A case file ``cases/<name>.json`` holds::
                   "equipment": {equipmentId: {"flow", "flowRatio", "headLoss",
                                               "pressureLoss", "pressureDrop"}},  # optional
                   "orifices": {orificeId: {<every OrificeResult field>}},  # optional
+                  "reliefValves": {reliefValveId: {<every ReliefValveResult field>}
+                                   | null},                                # optional
                   "flags": [{"code", "componentId"?, "connectionId"?, "limit"?}],  # optional
                   "stepHolds": {branchId: {"step", "splitA", "splitB"}}}}  # optional
 
@@ -36,7 +38,14 @@ inlet → outlet. An orifice plate (proposal orifice-plate.md §2.2) has no stat
 ``orifices`` entry holds every field of its result (flow, headLoss, pressureLoss, pressureDrop,
 differentialPressure, venaContractaPressure, beta, pipeDiameter, boreDiameter, reynoldsNumber,
 dischargeCoefficient, coefficientSource, coefficientReynoldsNumber, tapCoefficientRatio,
-lossCoefficient, taps, meterDischargeCoefficient), null where the design makes it null. A flag
+lossCoefficient, taps, meterDischargeCoefficient), null where the design makes it null. A
+pressure relief valve (proposal pressure-relief-valve.md §2.2) has its ``reliefValves`` entry: every
+field of its result (state, flow, lift, headLoss, totalPressureDifference, pressureDrop,
+inletPressure, backPressure, setPressure, setRatio, overpressure, overpressureSource,
+fullLiftPressureDifference, fullLiftFlow, flowRatio, capacity, reynoldsNumber), or null for a valve
+with no result (closed, with a closed-off or floating side: decision 16, RELIEF_VALVE_CLOSED); its
+state for the self-checks is 'closed' (state closed or null) or 'open' (partial or full lift), the
+check valve's rule with cracking head h_set (decision 10). A flag
 may name the ``limit`` its details give (an orifice's CORRELATION_OUT_OF_RANGE, one flag per
 inequality broken, §3.5): it then matches only a flag with that ``details.limit``.
 ``stepHolds`` names a Crane branch whose K is held across a correlation step
@@ -55,11 +64,15 @@ from pathlib import Path
 from typing import Any, Literal
 
 from opensolve_pipe.models.components import (
+    API526Letter,
+    Api526Orifice,
     AssignedFlow,
     BranchLossModel,
+    CertifiedOrifice,
     CheckValve,
     Component,
     ControlValve,
+    EffectiveOrifice,
     Equipment,
     FlowCoefficient,
     IdealReferenceNode,
@@ -71,6 +84,7 @@ from opensolve_pipe.models.components import (
     PumpControl,
     RatedFlowCoefficient,
     RatedPoint,
+    ReliefValve,
     Reservoir,
     TeeBranch,
     WyeBranch,
@@ -118,6 +132,7 @@ class Expected:
     step_holds: dict[str, dict[str, float]] = field(default_factory=dict)
     equipment: dict[str, dict[str, float | None]] = field(default_factory=dict)
     orifices: dict[str, dict[str, float | str | None]] = field(default_factory=dict)
+    relief_valves: dict[str, dict[str, Any] | None] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         fluid: dict[str, Any] = {
@@ -143,6 +158,8 @@ class Expected:
             out["equipment"] = self.equipment
         if self.orifices:
             out["orifices"] = self.orifices
+        if self.relief_valves:
+            out["reliefValves"] = self.relief_valves
         return out
 
 
@@ -467,6 +484,59 @@ def orifice(
         bore_diameter=bore_diameter,
         discharge_coefficient=discharge_coefficient,
         taps=taps,
+        ports=[
+            Port(id="inlet", nominal_size=nominal_size, elevation=inlet_elevation),
+            Port(id="outlet", nominal_size=nominal_size, elevation=outlet_elevation),
+        ],
+    )
+
+
+def api526_capacity(letter: API526Letter) -> Api526Orifice:
+    """An API 526 orifice letter, with API 520's effective Kd 0.65 and ASME's overpressure
+    (proposal pressure-relief-valve.md decision 7; test input)."""
+    return Api526Orifice(kind="api526", letter=letter)
+
+
+def effective_capacity(area: float) -> EffectiveOrifice:
+    """An API 520 effective area, m², with API 520's effective Kd and ASME's overpressure."""
+    return EffectiveOrifice(kind="effective", area=area)
+
+
+def certified_capacity(
+    area: float, discharge_coefficient: float, overpressure: float | None = None
+) -> CertifiedOrifice:
+    """A certified capacity: the valve's actual area, m², its rated coefficient of discharge and
+    its full-lift overpressure (None: ASME's, the default); test inputs."""
+    return CertifiedOrifice(
+        kind="certified",
+        area=area,
+        discharge_coefficient=discharge_coefficient,
+        overpressure=overpressure,
+    )
+
+
+def relief_valve(
+    cid: str,
+    elevation: float,
+    set_pressure: float,
+    capacity: Api526Orifice | EffectiveOrifice | CertifiedOrifice,
+    *,
+    status: Literal["active", "locked_closed"] = "active",
+    inlet_elevation: float | None = None,
+    outlet_elevation: float | None = None,
+    nominal_size: float = 0.0508,
+) -> ReliefValve:
+    """A conventional spring-loaded pressure relief valve, ports inlet -> outlet, each at the
+    component's elevation unless given; its set pressure is a static pressure difference, inlet
+    minus outlet, Pa (proposal pressure-relief-valve.md §2.1; test inputs)."""
+    return ReliefValve(
+        type="relief_valve",
+        id=cid,
+        name=f"Relief valve {cid}",
+        elevation=elevation,
+        set_pressure=set_pressure,
+        capacity=capacity,
+        status=status,
         ports=[
             Port(id="inlet", nominal_size=nominal_size, elevation=inlet_elevation),
             Port(id="outlet", nominal_size=nominal_size, elevation=outlet_elevation),

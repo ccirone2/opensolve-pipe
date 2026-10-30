@@ -748,8 +748,8 @@ describe('what a scenario says about its values', () => {
 describe('the words of every allow-listed number (exhaustiveness, equipment-pressure-drop.md §7.6)', () => {
 	/**
 	 * One component of every kind (the values with no default as a user enters them), a pump with
-	 * flow control, an equipment item rated by a Cv and an orifice plate with an entered C, so every
-	 * allow-listed number is held.
+	 * flow control, an equipment item rated by a Cv, an orifice plate with an entered C and a relief
+	 * valve with a certified capacity and overpressure, so every allow-listed number is held.
 	 */
 	function samples(): Project {
 		const base = pumpTransferExample();
@@ -780,7 +780,22 @@ describe('the words of every allow-listed number (exhaustiveness, equipment-pres
 			),
 			dischargeCoefficient: 0.6
 		} as Component;
-		return { ...base, components: [...all, controlled, cv, plate] };
+		// A relief valve with a certified capacity and an entered overpressure holds its area,
+		// rated coefficient and overpressure (made-up test inputs).
+		const certified = createComponent(
+			'relief_valve',
+			{ ...sofar, components: [...all, controlled, cv, plate] },
+			{
+				setPressure: 500000,
+				capacity: {
+					kind: 'certified',
+					area: 0.00025,
+					dischargeCoefficient: 0.7,
+					overpressure: 0.08
+				}
+			}
+		);
+		return { ...base, components: [...all, controlled, cv, plate, certified] };
 	}
 
 	/** Whether a published schema property is a number (directly or as anyOf's number). */
@@ -850,6 +865,14 @@ describe('the words of every allow-listed number (exhaustiveness, equipment-pres
 					// (orifice-plate.md §5.4: dimensionless in the export).
 					expect(spec, where).toEqual({ category: 'dimensionless', options: {} });
 					expect(text, where).toBe('0.6');
+					expect(category, where).toEqual({ category: 'dimensionless', options: {} });
+					continue;
+				}
+				if (field === 'capacity.dischargeCoefficient') {
+					// And a relief valve's certified rated coefficient (ASME's K) as entered: a pure
+					// number with no unit (pressure-relief-valve.md §5).
+					expect(spec, where).toEqual({ category: 'dimensionless', options: {} });
+					expect(text, where).toBe('0.7');
 					expect(category, where).toEqual({ category: 'dimensionless', options: {} });
 					continue;
 				}

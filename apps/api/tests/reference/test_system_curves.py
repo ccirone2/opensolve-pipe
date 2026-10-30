@@ -39,6 +39,14 @@ keeps running: a SciPy PchipInterpolator built from the curve points), never wit
   to the line's, in a water-like liquid and in a viscous oil whose low points are held,
       H_sys(Q) = (H_R2 − H_R1) + Σ h_line(Q) + h_or(Q);
 
+- a pressure relief valve on the pump's only way out (docs/proposals/pressure-relief-valve.md
+  §3.5, §7.1; network B of ``derivations_relief``: the pump relieving through it back to its
+  suction tank, the discharge's other path isolated): its law h(Q) (``element_laws.ReliefLaw``,
+  the linear lift with API 520's equation, then full lift) adds to the loop's pipes, one tank so
+  no static term,
+      H_sys(Q) = Σ h_line(Q) + h(Q),   H_sys(0) = h_set,
+  through the band and beyond full lift;
+
 - a pump whose only way out is an FCV or a PRV in series (TSD §5.6, §12 decided item 8, was
   open item 4; owner's decision 2026-10-23), through the public POST /api/v1/system-curve: every
   flow the valve passes with a determined head has that head (q = 0 included: the valve, below
@@ -62,7 +70,14 @@ from fastapi.testclient import TestClient
 from scipy.optimize import brentq
 
 from opensolve_pipe.models.api import SystemCurvePoint, SystemCurveResponse
-from opensolve_pipe.models.components import ControlValve, Equipment, Orifice, Pump, Reservoir
+from opensolve_pipe.models.components import (
+    ControlValve,
+    Equipment,
+    Orifice,
+    Pump,
+    ReliefValve,
+    Reservoir,
+)
 from opensolve_pipe.models.piping import PipeConnection
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.pumps import PumpCurve
@@ -321,6 +336,33 @@ def test_orifice_loss_is_in_the_system_curve(fluid: tuple[str, float, float]) ->
     q_max = 1.2 * max(p.flow for p in dp.curve_a().points)
     held = law.reynolds(q_max * 10.0 / (POINTS - 1)) < law.re_lo_loss
     assert held == (fluid == SYSTEM_CURVE_OIL), "the oil's low points, and only its, are held"
+
+
+# --- Pressure relief valves (docs/proposals/pressure-relief-valve.md §3.5, §7.1) ----------------
+
+
+def test_relief_law_is_in_the_system_curve() -> None:
+    """Network B (relief_pump_bypass: R1 → PU1 → T1 → RV1, API 526 L, the bench set, → R1 port 2;
+    IV1 isolated): with the pump replaced by a fixed flow Q, every point's head is the loop's
+    pipes plus the valve's law, H_sys(Q) = Σ h_line(Q) + h(Q), explicitly; H_sys(0) = h_set, the
+    valve at its switch (proposal §3.5). The default range, 0 to 48 L/s, crosses the band (Q_f
+    32.3 L/s) into full lift."""
+    from tests.reference import derivations_relief as dr
+
+    project = dr.relief_pump_bypass().project
+    rho, mu, _ = dv.fluid_state(project.fluid)
+    nu = mu / rho
+    parts = [_line(project, c) for c in ("L1", "L2", "LB1", "LB2")]
+    valve = next(c for c in project.components if isinstance(c, ReliefValve))
+    law = el.relief_law(valve, rho)
+
+    def expected(q: float) -> float:
+        return sum(line.head_loss(q, nu) for line in parts) + law.head(q)
+
+    _check(project, "PU1", expected)
+    q_max = 1.2 * max(p.flow for p in dp.curve_a().points)
+    assert 0.0 < law.q_full < q_max, "the curve crosses full lift"
+    assert expected(0.0) == pytest.approx(law.h_set(), rel=1.0e-15)
 
 
 # --- Flow-controlled pumps (CLAUDE.md D11) -------------------------------------------------------

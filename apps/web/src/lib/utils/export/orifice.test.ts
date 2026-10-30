@@ -18,7 +18,7 @@ import type {
 } from '../../api/types';
 import { Formatter, HEAD_NOISE, orificeTable, valueText } from '../results';
 import { displayUnit, fromSI, STANDARD_GRAVITY } from '../units';
-import { fixtureInput, readSheet, sheetIds } from './export-testing.testing';
+import { fixtureInput, readSheet, sheetIds, withoutReliefValves } from './export-testing.testing';
 import { buildExport, type ExportInput } from './model';
 
 const ports = [
@@ -253,9 +253,9 @@ describe('the Orifice plates sheet', () => {
 });
 
 describe('About and Scenario changes with orifice plates', () => {
-	/** About's rows as Item → Value. */
+	/** About's rows as Item → Value (without relief valves: their lines are their own). */
 	function about(input: ExportInput): Map<string, unknown> {
-		const t = readSheet(buildExport(input), 'about');
+		const t = readSheet(buildExport(withoutReliefValves(input)), 'about');
 		return new Map(t.rows.map((r) => [String(t.get(r, 'Item')), t.get(r, 'Value')]));
 	}
 

@@ -31,8 +31,20 @@ every coefficient is a cited library call or a definition written out below.
   ``discharge_coefficient_to_K``) written without cancellation; the meter's reading is ISO eq.
   (1) solved for Δp, ε = 1. Nothing here calls fluids' orifice functions: the self-checks pin
   the transcription to them.
+- Pressure relief valves (docs/proposals/pressure-relief-valve.md §1.1, decisions 2-7, 12, 13):
+  API 520's liquid equation Q = x·Kd·A·√(2Δp_t/ρ) in exact SI (the raw expression fluids'
+  ``API520_A_l`` documents), at a lift x rising linearly from the set Δp_s to full lift at
+  Δp_f = Δp_s(1 + op) (the convention the owner accepted, decision 3), on the total-pressure
+  difference Δp_t = ρg(h − (z_in − z_out)), h the EGL drop (decision 5). Its inverse in the band
+  is the largest root of the cubic u³ − Δp_s u − R Q = 0, u = √Δp_t, solved here by the
+  trigonometric (three real roots) or hyperbolic (one) form of Chebyshev's cosine identity, not
+  by Cardano's; the self-checks pin it to a brentq on the forward law and to a 60-digit Newton
+  solve. API 526's areas are fluids' ``API526_A``; API 520's effective Kd is ``API520_A_l``'s
+  default; ASME's overpressure (10 % or 3 psi) and scope (15 psi) are the proposal's cited
+  values (Pentair TP-V300, decision 6).
 """
 
+import inspect
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -40,14 +52,18 @@ from typing import Literal
 
 import fluids.fittings
 import fluids.piping
+import fluids.safety_valve
 from CoolProp.CoolProp import PropsSI
 from scipy.constants import bar, convert_temperature, gallon, hour, minute, psi
 from scipy.interpolate import PchipInterpolator
 from scipy.optimize import brentq
 
 from opensolve_pipe.models.components import (
+    Api526Orifice,
+    CertifiedOrifice,
     CheckValve,
     ControlValve,
+    EffectiveOrifice,
     FlowCoefficient,
     IsolationValve,
     Orifice,
@@ -55,6 +71,7 @@ from opensolve_pipe.models.components import (
     PumpControl,
     RatedFlowCoefficient,
     RatedPoint,
+    ReliefValve,
 )
 from opensolve_pipe.models.project_library import ResistanceRef
 from opensolve_pipe.models.pumps import PumpCurve
@@ -528,6 +545,247 @@ def gpv_curve(law: OrificeLaw, span: float, g: float = G) -> list[tuple[float, f
     return [(span * i / n, law.head(span * i / n, g)) for i in range(GPV_POINTS)]
 
 
+# --- Pressure relief valves (proposal pressure-relief-valve.md) ----------------------------------
+
+API520_EFFECTIVE_KD = float(
+    inspect.signature(fluids.safety_valve.API520_A_l).parameters["Kd"].default
+)
+"""API 520's effective coefficient of discharge for preliminary liquid sizing, 0.65: the default
+of fluids' ``API520_A_l`` ("0.65 normally"; proposal decision 7)."""
+API526_AREAS: dict[str, float] = dict(
+    zip(fluids.safety_valve.API526_letters, fluids.safety_valve.API526_A, strict=True)
+)
+"""m²: API 526's effective orifice area of each letter D to T (fluids' ``API526_letters`` and
+``API526_A``, the in² table × 0.0254²)."""
+ASME_OVERPRESSURE = 0.10
+"""ASME VIII's liquid certification overpressure, a fraction of the set ("the steam, gas, or
+liquid capacity tests are performed with 10% or 3 psi overpressure", Pentair TP-V300 ch. 3, as
+the proposal quotes it, decision 6)."""
+ASME_OVERPRESSURE_FLOOR = 3.0 * psi
+"""Pa: its 3 psi floor (scipy.constants.psi, exact): 20,684.27 Pa."""
+ASME_MINIMUM_SET = 15.0 * psi
+"""Pa: ASME VIII's scope ("outside of the scope of ASME (below 15 psig)", Pentair ch. 5):
+103,421.36 Pa. Below it ASME's overpressure is not cited (decision 6: refused)."""
+
+
+def asme_overpressure(set_pressure: float) -> float:
+    """ASME's default overpressure on the set difference Δp_s: max(10 %, 3 psi/Δp_s) (decision
+    6), defined for Δp_s ≥ 15 psi only (in [0.1, 0.2] there)."""
+    if not set_pressure >= ASME_MINIMUM_SET:
+        raise ValueError("ASME's overpressure is not cited below a 15 psi set (decision 6)")
+    return max(ASME_OVERPRESSURE, ASME_OVERPRESSURE_FLOOR / set_pressure)
+
+
+ReliefCapacity = Api526Orifice | EffectiveOrifice | CertifiedOrifice
+OverpressureSource = Literal["asme_default", "user"]
+
+
+@dataclass(frozen=True)
+class ReliefCapacityValues:
+    """A capacity as the law uses it: its area A, m², its coefficient Kd and its overpressure."""
+
+    area: float
+    kd: float
+    overpressure: float
+    source: OverpressureSource
+
+
+def relief_capacity(capacity: ReliefCapacity, set_pressure: float) -> ReliefCapacityValues:
+    """(A, Kd, op) of a capacity (decision 7): an API 526 letter is its effective area, an
+    effective area as entered, each with API 520's Kd 0.65 and ASME's overpressure; a certified
+    capacity its actual area and rated coefficient, with its overpressure or ASME's."""
+    if isinstance(capacity, Api526Orifice):
+        area_, kd = API526_AREAS[capacity.letter], API520_EFFECTIVE_KD
+    elif isinstance(capacity, EffectiveOrifice):
+        area_, kd = capacity.area, API520_EFFECTIVE_KD
+    else:
+        area_, kd = capacity.area, capacity.discharge_coefficient
+        if capacity.overpressure is not None:
+            return ReliefCapacityValues(area_, kd, capacity.overpressure, "user")
+    return ReliefCapacityValues(area_, kd, asme_overpressure(set_pressure), "asme_default")
+
+
+def covering_letter(area_: float) -> str | None:
+    """The smallest API 526 letter whose effective area is at least ``area_`` (the self-checks
+    compare fluids' ``API520_round_size``); None above T's."""
+    return next((letter for letter, a in API526_AREAS.items() if a >= area_), None)
+
+
+ReliefState = Literal["closed", "partial_lift", "full_lift"]
+
+
+@dataclass(frozen=True)
+class ReliefLaw:
+    """A conventional spring-loaded relief valve's law in the case fluid (proposal §1.1):
+
+    Δp_t = ρg(h − dz),  h = EGL_in − EGL_out,  dz = z_in − z_out
+    x    = clip((Δp_t − Δp_s)/(Δp_f − Δp_s), 0, 1),  Δp_f = Δp_s(1 + op)
+    Q    = x·C·√(2Δp_t/ρ),  C = Kd·A
+
+    For Q ≥ 0: h(Q) = h_set + (Δp_t(Q) − Δp_s)/(ρg), h_set = Δp_s/(ρg) + dz, with Δp_t(Q) from
+    the band cubic below Q_f = C√(2Δp_f/ρ) and Δp_t = ρQ²/(2C²) from Q_f on; for Q < 0 the odd
+    extension about h_set (decision 12: the status rule closes it on reverse flow first)."""
+
+    density: float
+    area: float
+    kd: float
+    set_pressure: float
+    overpressure: float
+    dz: float = 0.0
+    """m: z_in − z_out, the ports' elevation difference."""
+
+    @property
+    def c(self) -> float:
+        """C = Kd·A, m²."""
+        return self.kd * self.area
+
+    @property
+    def full_lift_pressure(self) -> float:
+        """Δp_f = Δp_s(1 + op), Pa."""
+        return self.set_pressure * (1.0 + self.overpressure)
+
+    @property
+    def q_full(self) -> float:
+        """Q_f = C√(2Δp_f/ρ): API 520's capacity at full lift in the case fluid, m³/s."""
+        return self.c * math.sqrt(2.0 * self.full_lift_pressure / self.density)
+
+    @property
+    def r(self) -> float:
+        """R = (Δp_f − Δp_s)/(C√(2/ρ)) = Δp_s·op/(C√(2/ρ)), Pa^(3/2)·s/m³ (Δp_f − Δp_s written
+        as Δp_s·op, without the subtraction)."""
+        return self.set_pressure * self.overpressure / (self.c * math.sqrt(2.0 / self.density))
+
+    def h_set(self, g: float = G) -> float:
+        """The EGL drop at which it starts to open, m: Δp_s/(ρg) + z_in − z_out (decision 10)."""
+        return self.set_pressure / (self.density * g) + self.dz
+
+    def band_root(self, q: float) -> float:
+        """u = √Δp_t on the band, 0 ≤ q ≤ Q_f: the largest real root of u³ − Δp_s u − R q = 0.
+
+        With u = 2a·w, a = √(Δp_s/3), the cubic is Chebyshev's 4w³ − 3w = k, k = R q/(2a³) ≥ 0:
+        for k ≤ 1 (27R²q² ≤ 4Δp_s³, three real roots) the largest is w = cos(arccos(k)/3), and
+        for k > 1 (one real root) w = cosh(arccosh(k)/3), from cos 3φ = 4cos³φ − 3cos φ and
+        cosh 3φ = 4cosh³φ − 3cosh φ. At q = 0, w = cos(π/6) = √3/2 and u = √Δp_s."""
+        if not 0.0 <= q <= self.q_full:
+            raise ValueError("the band root is for 0 <= q <= Q_f")
+        a = math.sqrt(self.set_pressure / 3.0)
+        k = self.r * q / (2.0 * a * a * a)
+        w = math.cos(math.acos(k) / 3.0) if k <= 1.0 else math.cosh(math.acosh(k) / 3.0)
+        return 2.0 * a * w
+
+    def excess(self, q: float) -> float:
+        """Δp_t − Δp_s at a flow q ≥ 0, Pa: R q/u on the band (from u(u² − Δp_s) = R q, without
+        the cancellation of u² − Δp_s, decision 13), ρq²/(2C²) − Δp_s from Q_f on."""
+        if q < 0.0:
+            raise ValueError("the law is written for q >= 0")
+        if q >= self.q_full:
+            return self.density * q * q / (2.0 * self.c * self.c) - self.set_pressure
+        if q == 0.0:
+            return 0.0
+        return self.r * q / self.band_root(q)
+
+    def total_pressure_difference(self, q: float) -> float:
+        """Δp_t(q), Pa, for q ≥ 0."""
+        return self.set_pressure + self.excess(q)
+
+    def head(self, q: float, g: float = G) -> float:
+        """EGL_in − EGL_out, m: h_set + (Δp_t(|q|) − Δp_s)/(ρg), odd about h_set."""
+        rise = self.excess(abs(q)) / (self.density * g)
+        return self.h_set(g) + (rise if q >= 0.0 else -rise)
+
+    def flow_at(self, dp_t: float) -> float:
+        """The forward law as API 520 and the proposal write it: Q = x·C·√(2Δp_t/ρ), x the
+        clipped linear lift (Δp_t ≥ 0)."""
+        x = min(
+            max((dp_t - self.set_pressure) / (self.full_lift_pressure - self.set_pressure), 0.0),
+            1.0,
+        )
+        return x * self.c * math.sqrt(2.0 * dp_t / self.density)
+
+    def lift(self, q: float) -> float:
+        """x = Q/(C√(2Δp_t/ρ)) at the flow's own Δp_t (decision 13, no cancellation)."""
+        if q <= 0.0:
+            return 0.0
+        return q / (self.c * math.sqrt(2.0 * self.total_pressure_difference(q) / self.density))
+
+    def state(self, q: float) -> ReliefState:
+        if q <= 0.0:
+            return "closed"
+        return "full_lift" if q >= self.q_full else "partial_lift"
+
+    def reynolds(self, q: float, viscosity: float) -> float | None:
+        """API 520's Reynolds number on the orifice, ρ(Q/A)√(4A/π)/μ, A the capacity's area;
+        None at zero flow (proposal §2.2)."""
+        if q == 0.0:
+            return None
+        return (
+            self.density * (abs(q) / self.area) * math.sqrt(4.0 * self.area / math.pi) / viscosity
+        )
+
+
+def relief_law(component: ReliefValve, density: float) -> ReliefLaw:
+    """The law of a relief valve in a fluid of this density, its ports at their elevations."""
+    values = relief_capacity(component.capacity, component.set_pressure)
+    z = {p.id: component.elevation if p.elevation is None else p.elevation for p in component.ports}
+    return ReliefLaw(
+        density,
+        values.area,
+        values.kd,
+        component.set_pressure,
+        values.overpressure,
+        z["inlet"] - z["outlet"],
+    )
+
+
+def relief_flow_at_head(law: ReliefLaw, dh: float, g: float = G) -> float:
+    """The flow Q ≥ 0 whose EGL drop is dh (h(Q) increases strictly from h_set, proposal §3.1):
+    0 at or below h_set, else brentq on the law alone."""
+    if dh <= law.h_set(g):
+        return 0.0
+    hi = 1.0e-6
+    while law.head(hi, g) < dh:
+        hi *= 2.0
+    root: float = brentq(
+        lambda q: law.head(q, g) - dh, 0.0, hi, xtol=1.0e-18, rtol=4.0 * 2.0**-52, maxiter=500
+    )
+    return root
+
+
+def relief_gpv_curve(law: ReliefLaw, span: float, g: float = G) -> list[tuple[float, float]]:
+    """(Q, h(Q)) for the EPANET GPV standing for a relief valve (decision 24): the law at
+    GPV_POINTS evenly spaced flows on [0, span] (from h_set at Q = 0) and at Q_f, where the
+    slope steps up, in increasing flow."""
+    n = GPV_POINTS - 1
+    flows = sorted({span * i / n for i in range(GPV_POINTS)} | {law.q_full})
+    if not law.q_full < span:
+        raise ValueError("the GPV span must lie beyond full lift")
+    return [(q, law.head(q, g)) for q in flows]
+
+
+def relief_state_problem(
+    valve: ReliefValve, state: str, q: float, h_in: float, h_out: float, rho: float, margin: float
+) -> str | None:
+    """None when ``state`` ('open' or 'closed') is what EPANET 2.2's cvstatus with cracking
+    head h_set selects at flow q and port EGLs (decision 10), each inequality cleared by
+    ``margin`` (m; −HTOL reproduces the rule exactly): open needs Q > Qtol and
+    EGL_in − EGL_out − h_set ≥ margin; closed needs Q = 0 and h_set − (EGL_in − EGL_out) ≥
+    margin (a valve within Htol of its set stays as it was, and it starts closed, decision 11).
+    A locked-closed valve is closed. A side without a head (NaN: a closed-off side, decision 16)
+    has a free level, so a closed valve there satisfies the rule at every level that keeps it
+    closed (the closed-off constraint H_in − H_out ≤ h_set + Htol, proposal §3.4)."""
+    if valve.status == "locked_closed":
+        return None if state == "closed" and q == 0.0 else f"a locked-closed valve is not {state}"
+    h_set = relief_law(valve, rho).h_set()
+    dh = h_in - h_out
+    if state == "closed" and math.isnan(dh):
+        return None if q == 0.0 else "a valve with a closed-off side carries no flow"
+    if state == "open":
+        return None if q > QTOL and dh - h_set >= margin else "is not clearly open"
+    if state == "closed":
+        return None if q == 0.0 and h_set - dh >= margin else "is not clearly closed"
+    return f"a relief valve cannot be {state}"
+
+
 ValveType = Literal[
     "gate", "ball", "butterfly", "globe", "check", "stop_check", "prv", "psv", "fcv"
 ]
@@ -602,6 +860,12 @@ def pump_state_problem(
     if status == "off":
         return None if state == "off" and q == 0.0 else "a pump that is off is closed"
     shutoff = shutoff_head(curve, speed)
+    if state == "running" and q == 0.0:
+        # A pump whose discharge has no way out (a dead end behind a closed relief valve,
+        # pressure-relief-valve.md decision 11, C7): open at zero flow, it holds its shutoff
+        # head exactly (EPANET 2.2 pumpstatus keeps it open: the lift does not exceed s² H₀(0)).
+        dead_end = abs(lift - shutoff) <= 1.0e-9 * max(1.0, shutoff)
+        return None if dead_end else "is not clearly running"
     if state == "running":
         return None if q > 0.0 and shutoff - lift >= margin else "is not clearly running"
     if state == "no_flow":

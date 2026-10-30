@@ -218,7 +218,7 @@ describe('createComponent', () => {
 			expect(missingEntry(kind, {}), kind).toBeNull();
 			expect(missingEntries(kind, {}), kind).toEqual([]);
 		}
-		expect(ENTRY_KINDS).toEqual(['assigned_flow', 'equipment', 'orifice']);
+		expect(ENTRY_KINDS).toEqual(['assigned_flow', 'equipment', 'orifice', 'relief_valve']);
 		expect(KIND_LABELS.assigned_flow).toBe('Assigned flow (demand or supply)');
 	});
 

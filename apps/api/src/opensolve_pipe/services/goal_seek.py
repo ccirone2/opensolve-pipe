@@ -33,11 +33,14 @@ from scipy.optimize import brentq, least_squares, minimize_scalar
 from ..models.api import GoalSeekRequest, TopologyIssue
 from ..models.components import (
     BaseComponent,
+    CertifiedOrifice,
     ControlValve,
+    EffectiveOrifice,
     Equipment,
     Orifice,
     Pump,
     RatedPoint,
+    ReliefValve,
 )
 from ..models.fluids import FluidProperties
 from ..models.goal_seek import (
@@ -102,10 +105,11 @@ from .scenarios import (
 )
 from .solver import TopologyError, solve_project
 from .solver.budget import SolveDeadlineError, check_budget, current_budget
-from .solver.builder import BuiltNetwork, build_network, orifice_refusals
+from .solver.builder import BuiltNetwork, build_network, orifice_refusals, relief_refusals
 from .solver.labels import pipe_name
 from .solver.methods import BRENT
 from .solver.project_library import entered_text, resistance_label
+from .solver.relief import ASME_DEFAULT_WORDS, ASME_SCOPE_WORDS, covering_letter
 from .solver.version import METHOD_VERSION
 
 # --------------------------------------------------------------------------- constants (§3.10)
@@ -1438,6 +1442,7 @@ _ELEMENT_NEEDED: dict[str, str] = {
     "valve": "a valve",
     "equipment": "an equipment item",
     "orifice": "an orifice plate",
+    "relief_valve": "a relief valve",
     "boundary": "a reservoir or reference node",
 }
 _TOLERANCE_UNITS = {"pressure": "Pa", "head": "m", "flow": "m³/s", "velocity": "m/s"}
@@ -1476,6 +1481,9 @@ class _Var:
     otherwise): the override carries that whole value (``override``)."""
     default_text: str
     """A resistance the case leaves on its default: what that default is ('' otherwise)."""
+    effective_area: bool = False
+    """A relief valve's API 520 effective area (sizing, proposal pressure-relief-valve.md
+    decision 7): the section names the smallest API 526 letter that covers the area found."""
     library_text: str = ""
     """A resistance the case takes from a project library entry (CLAUDE.md D22): the entry, as
     texts name it ('' otherwise). The values the search writes, and the override it reports,
@@ -1618,14 +1626,20 @@ _DEFAULTS = {
         "plate's default",
         "ISO 5167-2's Reader-Harris/Gallagher coefficient",
     ),
+    "asme_overpressure": (
+        f"{ASME_DEFAULT_WORDS}, the relief valve's default",
+        "ASME's liquid certification overpressure",
+    ),
 }
-"""A valve's resistance, or an orifice plate's discharge coefficient, when it has none: in the
-methods text, and in its element note."""
+"""A valve's resistance, an orifice plate's discharge coefficient or a certified relief valve's
+overpressure, when it has none: in the methods text, and in its element note."""
 
 
 def _default_text(component: BaseComponent) -> str:
     if isinstance(component, Orifice):
         return _DEFAULTS["iso_5167_2"][0]
+    if isinstance(component, ReliefValve):
+        return _DEFAULTS["asme_overpressure"][0]
     return _DEFAULTS["control" if isinstance(component, ControlValve) else "crane"][0]
 
 
@@ -1643,13 +1657,40 @@ def _rating_part_reason(component: Equipment, field: str) -> str:
     )
 
 
-def _rated_otherwise(base: object, case: object) -> bool:
-    """The base rates an equipment item by another kind than the case does (a Kv, or a point,
-    where the case's scenario rates it by a Cv): the base's number is then not a value of the
-    variable (a Kv of 60 is a Cv of about 69.4), so the variable reports no base value."""
+def _capacity_part_reason(component: ReliefValve, field: str) -> str:
+    """Why a value of a relief valve's capacity does not apply: the case gives its capacity by
+    another kind (proposal pressure-relief-valve.md decision 19; ids only in componentIds,
+    D16)."""
+    capacity = component.capacity
+    if isinstance(capacity, EffectiveOrifice):
+        kind = "an API 520 effective area"
+    elif isinstance(capacity, CertifiedOrifice):
+        kind = "a certified capacity"
+    else:
+        kind = "an API 526 orifice letter"
+    if field == "capacity.area":
+        holds = "an API 520 effective area or a certified capacity"
+    else:
+        holds = (
+            "a certified capacity; a letter or an effective area takes API 520's effective "
+            "coefficient of discharge and ASME's overpressure"
+        )
+    return f"the relief valve's capacity is {kind} in this case ({field} applies to {holds})"
+
+
+def _rated_otherwise(base: object, case: object, field: str) -> bool:
+    """For a variable inside an equipment item's rating, the base rates the item by another kind
+    than the case does (a Kv, or a point, where the case's scenario rates it by a Cv): the base's
+    number is then not a value of the variable (a Kv of 60 is a Cv of about 69.4), so the
+    variable reports no base value. A value inside a relief valve's capacity likewise: an
+    effective area is not an actual area (proposal pressure-relief-valve.md decision 18). Any
+    other value of the element (a relief valve's set pressure) is the same value in either kind
+    (``goal_seek_check.rated_otherwise``)."""
+    if isinstance(base, ReliefValve) and isinstance(case, ReliefValve):
+        return field.startswith("capacity.") and base.capacity.kind != case.capacity.kind
     if not isinstance(base, Equipment) or not isinstance(case, Equipment):
         return False
-    return base.rating.kind != case.rating.kind
+    return field.startswith("rating.") and base.rating.kind != case.rating.kind
 
 
 def _library_start(
@@ -1711,6 +1752,8 @@ def _resolve_variable(
                 )
             elif isinstance(component, Equipment) and variable.field.startswith("rating."):
                 message = _rating_part_reason(component, variable.field)
+            elif isinstance(component, ReliefValve) and variable.field.startswith("capacity."):
+                message = _capacity_part_reason(component, variable.field)
             else:
                 label = FIELD_LABELS.get(variable.field, variable.field)
                 message = f"{_a(kind)} has no {label} to vary"
@@ -1759,10 +1802,11 @@ def _resolve_variable(
         label = f"{name} of {COMPONENT_NAMES[type(target)]} {target.id}"
     else:
         if raw is None:
-            # An orifice plate on ISO 5167-2's C (its default) holds no number: the search
-            # starts in the middle of the bounds, as for a resistance on its default (proposal
-            # orifice-plate.md §5.2).
-            assert isinstance(target, Orifice)
+            # An orifice plate on ISO 5167-2's C (its default), or a certified relief valve on
+            # ASME's overpressure (its default), holds no number: the search starts in the
+            # middle of the bounds, as for a resistance on its default (proposal
+            # orifice-plate.md §5.2, pressure-relief-valve.md decision 19).
+            assert isinstance(target, Orifice | ReliefValve)
             case_number = None
             default_text = _default_text(target)
         else:
@@ -1781,7 +1825,7 @@ def _resolve_variable(
     base_plan = plan_override(project, i, override)
     if base_plan.target is not None and base_plan.entry is not None:
         base_value = _json(_walk(base_plan.target, base_plan.entry.path))
-        if _rated_otherwise(base_plan.target, target):
+        if _rated_otherwise(base_plan.target, target, variable.field):
             base_value = None  # the base's number is not a value of this variable
     else:  # the base fluid is custom: its (informational) temperature, if any
         base_value = _json(_walk(project, entry.path))
@@ -1812,6 +1856,9 @@ def _resolve_variable(
         replaced=replaced,
         whole=whole,
         default_text=default_text,
+        effective_area=isinstance(target, ReliefValve)
+        and isinstance(target.capacity, EffectiveOrifice)
+        and variable.field == "capacity.area",
         library_text=library_text,
     )
 
@@ -2005,6 +2052,81 @@ def _orifice_bound_issues(
     return []
 
 
+RELIEF_FIELDS = frozenset(
+    {"setPressure", "capacity.area", "capacity.dischargeCoefficient", "capacity.overpressure"}
+)
+"""A relief valve's values whose bounds also meet a topology rule (proposal
+pressure-relief-valve.md decisions 14 and 19): ASME VIII's scope where the overpressure is ASME's
+default, and a law the floating point can represent."""
+
+_RELIEF_BOUND_TEXTS: dict[str, str] = {
+    "scope": (
+        "the relief valve's set pressure is below ASME VIII's scope, {scope}, at this bound, "
+        "where ASME's default overpressure is not cited; enter its certified overpressure at "
+        "full lift (on a certified capacity)"
+    ),
+    "representable": (
+        "the relief valve's law is not representable in floating point at this {what} (Kd·A, "
+        "its square, its capacity at full lift, its band coefficient or its band root's scale "
+        "is not a finite positive normal number)"
+    ),
+}
+"""Decision 14's rules at a bound, located by index: no id or value (D10, SDD §5.1.2)."""
+
+_RELIEF_WHAT = {
+    "setPressure": "set pressure",
+    "capacity.area": "orifice area",
+    "capacity.dischargeCoefficient": "rated coefficient of discharge",
+    "capacity.overpressure": "overpressure",
+}
+
+
+def _relief_bound_issues(
+    trial: Project,
+    fluid: FluidProperties,
+    var: _Var,
+    side: str,
+    variables: Sequence[_Var],
+) -> list[TopologyIssue]:
+    """Decision 19: the network built at one bound of a relief valve's set pressure, orifice
+    area, rated coefficient or overpressure (the other values as the case holds them); decision
+    14's issue for this valve there, as an input problem located by index that quotes no value.
+    Each of decision 14's tests is monotone in each of these values alone (the scope refuses
+    sets below a bound; C = Kd·A, C², Q_f, R and the band root's scale are each monotone in each
+    value), so for one such variable the two builds prove that every trial builds. A scope
+    refusal at a bound of the set does not apply where the same valve's overpressure is also a
+    variable: every trial then writes an overpressure, never ASME's default. The case's own 422
+    keeps the builder's quoting text."""
+    try:
+        build_network(trial, fluid)
+    except TopologyError as exc:
+        element = _element_of(var.request)
+        eid = var.element_id
+        refused = relief_refusals(trial, fluid)
+        overpressure_varied = any(
+            isinstance(v.request, ComponentVariable)
+            and v.element_id == eid
+            and v.request.field == "capacity.overpressure"
+            for v in variables
+        )
+        found: list[TopologyIssue] = []
+        for problem in exc.issues:
+            if problem.code == "RELIEF_VALVE_OUT_OF_RANGE" and eid in problem.component_ids:
+                why = refused[eid][1]
+                if why.rule == "scope" and overpressure_varied:
+                    continue
+                text = _RELIEF_BOUND_TEXTS[why.rule].format(
+                    scope=ASME_SCOPE_WORDS, what=_RELIEF_WHAT[var.request.field]
+                )
+            else:  # the case builds, and only this value changed: not expected
+                text = f"the project does not build at this bound ({problem.code})"
+            found.append(
+                _issue(problem.code, f"body.variables.{var.index}.{side}: {text}", element)
+            )
+        return found
+    return []
+
+
 def _check_bounds(
     dump: Mapping[str, Any], variables: Sequence[_Var], fluid: FluidProperties
 ) -> None:
@@ -2015,7 +2137,9 @@ def _check_bounds(
     21): decision 17's test is monotone in that value alone, so for one such variable the two
     builds prove that every trial builds; with a bore and a coefficient varied together, or a
     bore on an entered coefficient moved from corner or flange taps, a trial they do not cover
-    can still be refused, and is then an unusable trial."""
+    can still be refused, and is then an unusable trial. A relief valve's set pressure, orifice
+    area, rated coefficient and overpressure likewise (proposal pressure-relief-valve.md
+    decision 19, ``_relief_bound_issues``)."""
     issues: list[TopologyIssue] = []
     for var in variables:
         element = _element_of(var.request)
@@ -2035,6 +2159,8 @@ def _check_bounds(
             request = var.request
             if isinstance(request, ComponentVariable) and request.field in ORIFICE_FIELDS:
                 issues.extend(_orifice_bound_issues(trial, fluid, var, side))
+            elif isinstance(request, ComponentVariable) and request.field in RELIEF_FIELDS:
+                issues.extend(_relief_bound_issues(trial, fluid, var, side, variables))
     if issues:
         raise GoalSeekInputError(issues)
 
@@ -2048,6 +2174,8 @@ def _state_map(state: SolvedState) -> dict[tuple[str, StateAspect], tuple[str | 
             states[(pid, "pump_control")] = (pump.control.state, flow)
     for vid, valve in state.valve_results.items():
         states[(vid, "valve_state")] = (valve.state, abs(valve.flow))
+    for rid, relief in state.relief_valve_results.items():
+        states[(rid, "valve_state")] = (relief.state, abs(relief.flow))
     for bid, branch in state.branch_results.items():
         flow = max((abs(q) for q in branch.port_flows.values()), default=0.0)
         states[(bid, "branch_pattern")] = (branch.pattern, flow)
@@ -2129,6 +2257,14 @@ def goal_value(state: SolvedState, goal: Goal, name: str) -> tuple[float | None,
             value = plate.differential_pressure
         else:
             value = plate.pressure_drop
+    elif q.startswith("relief_valve_"):
+        relief = state.relief_valve_results.get(eid)
+        if relief is None:
+            return None, (
+                f"{name} has no result (a side of it is closed off, or its pressure level is "
+                "undetermined)"
+            )
+        value = relief.flow if q == "relief_valve_flow" else relief.pressure_drop
     else:
         boundary = state.boundary_results.get(eid)
         if boundary is None:
@@ -2308,6 +2444,15 @@ def _variable_item(var: _Var, axis: Axis, value: float | None) -> str:
             else (", at its upper bound" if value == request.upper else "")
         )
         found = f"found {_variable_value_text(var, value)}{at}"
+        if var.effective_area:
+            letter = covering_letter(value)
+            found += (
+                f" (the smallest API 526 letter whose effective area covers it: {letter}, "
+                "fluids.safety_valve.API520_round_size)"
+                if letter is not None
+                else " (larger than API 526's largest letter, T: no single API 526 valve covers "
+                "it, fluids.safety_valve.API520_round_size)"
+            )
     text = (
         f"Variable {var.index + 1}: {var.label}, bounds {lo} to {hi} ({var.variable.scale}), "
         f"start {_variable_value_text(var, axis.start)} ({source}); {found}."

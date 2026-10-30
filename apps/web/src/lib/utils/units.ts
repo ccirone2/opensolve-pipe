@@ -25,14 +25,20 @@ export const US_GALLON = 231 * INCH * INCH * INCH; // m³
 
 export type PreferenceCategory = keyof UnitPreferences;
 
-/** Categories with display units: those in UnitPreferences, plus power and fixed units. */
-export type UnitCategory = PreferenceCategory | 'power' | 'dimensionless' | 'fraction' | 'angle';
+/**
+ * Categories with display units: those in UnitPreferences, plus power and area (derived from a
+ * preference) and fixed units.
+ */
+export type UnitCategory =
+	PreferenceCategory | 'power' | 'area' | 'dimensionless' | 'fraction' | 'angle';
 
 export type PreferenceUnit = UnitPreferences[PreferenceCategory];
 export type PowerUnit = 'W' | 'kW' | 'hp';
+/** Areas (a relief valve's orifice area): the square of a diameter unit. */
+export type AreaUnit = 'mm2' | 'm2' | 'in2';
 /** '' is a pure number; '%' shows a stored fraction (0–1) as a percentage; 'deg' is degrees. */
 export type FixedUnit = '' | '%' | 'deg';
-export type UnitId = PreferenceUnit | PowerUnit | FixedUnit;
+export type UnitId = PreferenceUnit | PowerUnit | AreaUnit | FixedUnit;
 
 interface UnitDefinition {
 	factor: number;
@@ -76,6 +82,10 @@ const UNITS: Record<UnitId, UnitDefinition> = {
 	W: { factor: 1, label: 'W' },
 	kW: { factor: 1e3, label: 'kW' },
 	hp: { factor: 550 * FOOT * POUND_FORCE, label: 'hp' },
+	// area → m² (the squares of exact lengths)
+	mm2: { factor: 1e-6, label: 'mm²' },
+	m2: { factor: 1, label: 'm²' },
+	in2: { factor: INCH * INCH, label: 'in²' },
 	// fixed
 	'': { factor: 1, label: '' },
 	'%': { factor: 0.01, label: '%' },
@@ -94,11 +104,13 @@ export const CATEGORY_UNITS = {
 	density: ['kg/m3', 'lb/ft3'],
 	viscosity: ['Pa.s', 'mPa.s', 'cP'],
 	power: ['W', 'kW', 'hp'],
+	area: ['mm2', 'm2', 'in2'],
 	dimensionless: [''],
 	fraction: ['%'],
 	angle: ['deg']
 } as const satisfies { [C in PreferenceCategory]: readonly UnitPreferences[C][] } & {
 	power: readonly PowerUnit[];
+	area: readonly AreaUnit[];
 	dimensionless: readonly FixedUnit[];
 	fraction: readonly FixedUnit[];
 	angle: readonly FixedUnit[];
@@ -164,15 +176,25 @@ export function fromSI(value: number, unit: UnitId): number {
 	return (value - (def.offset ?? 0)) / def.factor;
 }
 
+/** The area unit of each diameter unit: its square (mm², m², in²). */
+const AREA_UNITS: Readonly<Record<UnitPreferences['diameter'], AreaUnit>> = {
+	mm: 'mm2',
+	m: 'm2',
+	in: 'in2'
+};
+
 /**
  * The unit a category is displayed in. Preference categories follow the project's
  * preferences. Power has no preference of its own: it is shown in hp when flow is shown in
- * US gallons per minute, otherwise in kW. Fixed categories have one unit.
+ * US gallons per minute, otherwise in kW. Area has none either: it is the square of the diameter
+ * unit (mm², m², in²; proposal pressure-relief-valve.md W7). Fixed categories have one unit.
  */
 export function displayUnit(category: UnitCategory, prefs: UnitPreferences): UnitId {
 	switch (category) {
 		case 'power':
 			return prefs.flow === 'gpm' ? 'hp' : 'kW';
+		case 'area':
+			return AREA_UNITS[prefs.diameter];
 		case 'dimensionless':
 			return '';
 		case 'fraction':

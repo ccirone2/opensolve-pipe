@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from opensolve_pipe.models.project import Project
+from opensolve_pipe.models.scenarios import MAX_OVERRIDES
 from opensolve_pipe.services.scenarios import (
     ScenarioNotFoundError,
     ScenarioOverrideError,
@@ -86,6 +87,18 @@ def _orifice(cid: str, **fields: Any) -> dict[str, Any]:
     }
 
 
+def _relief(cid: str, set_pressure: float, capacity: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "relief_valve",
+        "id": cid,
+        "name": cid,
+        "elevation": 0.0,
+        "ports": _ports("inlet", "outlet"),
+        "setPressure": set_pressure,
+        "capacity": capacity,
+    }
+
+
 CURVE = {
     "id": "C1",
     "name": "curve",
@@ -129,6 +142,9 @@ def base_json(fluid: dict[str, Any] | None = None) -> dict[str, Any]:
         _equipment("E3", {"kind": "Cv", "value": 90.0}),
         _orifice("O1", dischargeCoefficient=0.6, taps="flange"),
         _orifice("O2"),
+        _relief("RV1", 5.0e5, {"kind": "api526", "letter": "F"}),
+        _relief("RV2", 4.0e5, {"kind": "effective", "area": 4.0e-4}),
+        _relief("RV3", 3.0e5, {"kind": "certified", "area": 2.5e-4, "dischargeCoefficient": 0.7}),
     ]
     conns = [
         connection(
@@ -189,6 +205,17 @@ VALID = {
     "Equipment.rating.value": comp("E2", "rating.value", 72.0),
     "Orifice.boreDiameter": comp("O1", "boreDiameter", 0.06),
     "Orifice.dischargeCoefficient": comp("O2", "dischargeCoefficient", 0.62),
+    "ReliefValve.status": comp("RV1", "status", "locked_closed"),
+    "ReliefValve.setPressure": comp("RV1", "setPressure", 4.5e5),
+    "ReliefValve.capacity": comp(
+        "RV2",
+        "capacity",
+        {"kind": "certified", "area": 3.0e-4, "dischargeCoefficient": 0.8, "overpressure": 0.1},
+    ),
+    "ReliefValve.capacity.letter": comp("RV1", "capacity.letter", "J"),
+    "ReliefValve.capacity.area": comp("RV3", "capacity.area", 3.0e-4),
+    "ReliefValve.capacity.dischargeCoefficient": comp("RV3", "capacity.dischargeCoefficient", 0.75),
+    "ReliefValve.capacity.overpressure": comp("RV3", "capacity.overpressure", 0.12),
     "PipeDefinition.spec": pipe(
         "L1", 0, "spec", {"materialId": "stainless_steel", "schedule": "40S", "nominalSize": 0.1524}
     ),
@@ -569,17 +596,23 @@ def test_an_equal_value_still_counts_as_applied_and_no_overrides_give_the_base()
 
 
 def test_the_order_of_overrides_does_not_change_the_result() -> None:
-    overrides = [VALID[name] for name in sorted(VALID) if name != "Project.fluid"]
-    first = apply_scenario(_with(*overrides), "S1")
+    everything = [VALID[name] for name in sorted(VALID) if name != "Project.fluid"]
+    # A scenario holds at most MAX_OVERRIDES: every valid override is shuffled in one of two
+    # scenarios of about half of them each.
+    half = (len(everything) + 1) // 2
+    assert half <= MAX_OVERRIDES
     rng = random.Random(20261025)
-    for _ in range(20):
-        shuffled = list(overrides)
-        rng.shuffle(shuffled)
-        applied = apply_scenario(_with(*shuffled), "S1")
-        assert applied.project == first.project
-        assert _dump(applied.project) == _dump(first.project)
-        by_override = {repr(r.override): (r.value, r.base_value) for r in applied.overrides}
-        assert by_override == {repr(r.override): (r.value, r.base_value) for r in first.overrides}
+    for overrides in (everything[:half], everything[half:]):
+        first = apply_scenario(_with(*overrides), "S1")
+        for _ in range(20):
+            shuffled = list(overrides)
+            rng.shuffle(shuffled)
+            applied = apply_scenario(_with(*shuffled), "S1")
+            assert applied.project == first.project
+            assert _dump(applied.project) == _dump(first.project)
+            by_override = {repr(r.override): (r.value, r.base_value) for r in applied.overrides}
+            first_values = {repr(r.override): (r.value, r.base_value) for r in first.overrides}
+            assert by_override == first_values
 
 
 def test_an_unknown_scenario_id_raises() -> None:

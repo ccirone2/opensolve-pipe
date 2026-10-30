@@ -20,16 +20,20 @@ so the fixture does not change from one run to the next.
   a finished goal seek (the pump's speed for a flow), exported as the case shown, display units.
 - ``scenarios``: a project with two scenarios, a Crane tee, a PRV, a reservoir with two ports, a
   reference node, an assigned-flow node, two equipment items, a strainer rated by a pressure
-  drop at a flow and a cooler rated by a Kv (proposal equipment-pressure-drop.md §7.6), and an
+  drop at a flow and a cooler rated by a Kv (proposal equipment-pressure-drop.md §7.6), an
   orifice flow meter with flange taps on ISO 5167-2's C whose outlet pipe is a size up
-  (proposal orifice-plate.md §7.6); one scenario changes the PRV's resistance to a Cv, a
-  reservoir's level, the strainer's rated pressure drop (a dirty strainer) and the meter's bore
-  (a second plate), the other sets a negative assigned flow (a supply), a pipe's length and the
-  meter's discharge coefficient (a calibration at its taps, moved to D and D/2 tappings for the
-  loss); names hold ``_x0041_x0042_`` (two escapes that share an underscore) and a CR, a
+  (proposal orifice-plate.md §7.6), and, on a pressure tank of its own, a relief valve on an API
+  526 letter discharging to atmosphere, its outlet pipe a size up, closed in the base case
+  (proposal pressure-relief-valve.md §7.6); one scenario changes the PRV's resistance to a Cv, a
+  reservoir's level, the strainer's rated pressure drop (a dirty strainer), the meter's bore (a
+  second plate) and the relief valve's set and letter (a lower set on a larger valve, so that it
+  relieves at partial lift), the other sets a negative assigned flow (a supply), a pipe's length
+  and the meter's discharge coefficient (a calibration at its taps, moved to D and D/2 tappings
+  for the loss); names hold ``_x0041_x0042_`` (two escapes that share an underscore) and a CR, a
   formula (``=HYPERLINK(...)``) and a leading ``-``. Its Compare rows include the four orifice
-  quantities on the meter (proposal orifice-plate.md §5.3). Exported as All cases, SI base
-  units: the committed workbook.
+  quantities on the meter (proposal orifice-plate.md §5.3) and the relief valve's five
+  (pressure-relief-valve.md decision 20). Exported as All cases, SI base units: the committed
+  workbook.
 - ``tee-fallback``: ``tests/reference/cases/tee_crane_bullhead_fallback.json``, a tee on the Darby
   3-K fallback (TEE_PATTERN_FALLBACK), in US display units: its K values are on the combined-flow
   velocity (export.md decision 29).
@@ -288,15 +292,23 @@ COOLER_RATING = {"kind": "Kv", "value": 60.0}
 """The cooler E2's rating (test input): Kv 60."""
 ORIFICE_BORE = 0.025
 """m: the flow meter O1's bore (test input), β 0.5 in its 50 mm inlet pipe."""
+RELIEF_SET, RELIEF_LETTER = 350000.0, "J"
+"""Pa (a difference) and an API 526 letter: the relief valve RV1's set and orifice (test inputs),
+above the pressure tank R4's 280 kPa(g) and 2 m of water (about 300 kPa), so that it is closed
+in the base case."""
 
 
 def scenario_project() -> dict[str, Any]:
     """R1 (two ports) feeds a Crane tee T1, whose run goes through the strainer E1 and PRV1 to
     R2 and whose branch ends at the demand AF1; R1's second port feeds the reference node R3
-    through the orifice flow meter O1 and the cooler E2. E1's and O1's outlet pipes are a size
-    up and E2's outlet port 0.5 m up, so each element's static pressure drop differs from its
-    pressure loss (proposal equipment-pressure-drop.md §3.3, orifice-plate.md §3.7), and a
-    column that swapped them would fail."""
+    through the orifice flow meter O1 and the cooler E2. Apart, the pressure tank R4 (a part of
+    the network with fixed heads of its own) feeds the relief valve RV1, which discharges to
+    atmosphere (the web's open discharge: 1 m of pipe with an exit to the reference node N1 at
+    0 kPa(g), at the valve's elevation). E1's, O1's and RV1's outlet pipes
+    are a size up and E2's outlet port 0.5 m up, so each element's static pressure drop differs
+    from its pressure loss (proposal equipment-pressure-drop.md §3.3, orifice-plate.md §3.7) or
+    total-pressure difference (pressure-relief-valve.md §2.2), and a column that swapped them
+    would fail."""
     components = [
         {
             "type": "reservoir",
@@ -355,6 +367,36 @@ def scenario_project() -> dict[str, Any]:
         },
         {
             "type": "reservoir",
+            "id": "R4",
+            "name": "Pressure tank",
+            "elevation": 0.0,
+            "liquidLevel": 2.0,
+            "surfacePressure": 280000.0,
+            "ports": _ports("port_1"),
+        },
+        {
+            "type": "relief_valve",
+            "id": "RV1",
+            "name": "Header relief valve",
+            "elevation": 0.0,
+            "setPressure": RELIEF_SET,
+            "capacity": {"kind": "api526", "letter": RELIEF_LETTER},
+            "ports": [
+                {"id": "inlet", "nominalSize": 0.0762},
+                {"id": "outlet", "nominalSize": 0.1016},
+            ],
+        },
+        {
+            "type": "reference_node",
+            "referenceType": "ideal",
+            "id": "N1",
+            "name": "Relief discharge",
+            "elevation": 0.0,
+            "pressure": 0.0,
+            "ports": _ports("port_1", size=0.1016),
+        },
+        {
+            "type": "reservoir",
             "id": "R2",
             "name": "Low tank_x0041_x0042_\r(B)",
             "elevation": 0.0,
@@ -405,6 +447,20 @@ def scenario_project() -> dict[str, Any]:
         _link("L5", ("R1", "port_2"), ("O1", "inlet"), [_custom(50.0, 0.05)]),
         _link("L8", ("O1", "outlet"), ("E2", "inlet"), [_custom(3.0, 0.0627)]),
         _link("L7", ("E2", "outlet"), ("R3", "port_1"), [_custom(5.0, 0.05)]),
+        _link(
+            "L9",
+            ("R4", "port_1"),
+            ("RV1", "inlet"),
+            [_steel(3.0)],
+            [{"type": "entrance_sharp", "quantity": 1, "pipeIndex": 0}],
+        ),
+        _link(
+            "L10",
+            ("RV1", "outlet"),
+            ("N1", "port_1"),
+            [_steel(1.0, size=0.1016)],
+            [{"type": "exit", "quantity": 1, "pipeIndex": 0}],
+        ),
     ]
     return {
         "schemaVersion": 1,
@@ -413,8 +469,8 @@ def scenario_project() -> dict[str, Any]:
         "metadata": {
             "name": "Plant water header",
             "description": (
-                "Export fixture: a tee, a PRV, a demand, a strainer, a flow meter and a cooler, "
-                "with two scenarios."
+                "Export fixture: a tee, a PRV, a demand, a strainer, a flow meter, a cooler and "
+                "a relief valve, with two scenarios."
             ),
             "created": "2026-10-25T00:00:00Z",
             "modified": "2026-10-25T00:00:00Z",
@@ -437,8 +493,8 @@ def scenario_project() -> dict[str, Any]:
                 "id": "S1",
                 "name": "Cv valve",
                 "description": (
-                    "The PRV with a Cv 120 trim, a higher low tank, a dirty strainer and a "
-                    "larger meter bore."
+                    "The PRV with a Cv 120 trim, a higher low tank, a dirty strainer, a larger "
+                    "meter bore and a lower relief set on a K orifice."
                 ),
                 "overrides": [
                     {
@@ -464,6 +520,18 @@ def scenario_project() -> dict[str, Any]:
                         "componentId": "O1",
                         "field": "boreDiameter",
                         "value": 0.03,
+                    },
+                    {
+                        "kind": "component",
+                        "componentId": "RV1",
+                        "field": "setPressure",
+                        "value": 270000.0,
+                    },
+                    {
+                        "kind": "component",
+                        "componentId": "RV1",
+                        "field": "capacity.letter",
+                        "value": "K",
                     },
                 ],
             },
@@ -513,6 +581,12 @@ def scenarios(client: TestClient, library: dict[str, Any]) -> dict[str, Any]:
         {"quantity": "orificePressureLoss", "elementId": "O1"},
         {"quantity": "orificeDifferentialPressure", "elementId": "O1"},
         {"quantity": "orificePressureDrop", "elementId": "O1"},
+        # proposal pressure-relief-valve.md decision 20: the relief valve's five quantities
+        {"quantity": "reliefFlow", "elementId": "RV1"},
+        {"quantity": "reliefState", "elementId": "RV1"},
+        {"quantity": "reliefInletPressure", "elementId": "RV1"},
+        {"quantity": "reliefSetRatio", "elementId": "RV1"},
+        {"quantity": "reliefPressureDrop", "elementId": "RV1"},
         {"quantity": "lowestPressure"},
         {"quantity": "highestVelocity"},
     ]

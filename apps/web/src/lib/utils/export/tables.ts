@@ -50,6 +50,14 @@ import {
 import { DIRECTION_NAMES, flowDirection } from '../assigned-flow';
 import { pumpChartData } from '../pump-chart';
 import { TAP_LABELS } from '../orifice';
+import { RELIEF_DATA } from '../model-rules';
+import {
+	asmeRuleWords,
+	capacityGivenBy,
+	letterArea,
+	OVERPRESSURE_SOURCE_LABELS,
+	reliefStateLabel
+} from '../relief';
 import {
 	boundaryTable,
 	branchPatternLabel,
@@ -60,6 +68,7 @@ import {
 	groupFlags,
 	pumpStatusLabel,
 	regimeLabel,
+	RELIEF_NO_RESULT,
 	segmentFlags,
 	SEVERITY_LABELS,
 	valveStateLabel,
@@ -767,6 +776,89 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 		}
 	);
 
+	// Relief valves (proposal pressure-relief-valve.md §5): the results, then the set, overpressure
+	// and capacity the solve used (ReliefValveResult's, a scenario's or a goal-seek trial's): the
+	// sheet's named departure from the screen's table, as equipment's rating. A valve with no
+	// result (a side closed off or floating: RELIEF_VALVE_CLOSED) is listed by its flag, as on the
+	// screen, with its values empty. Inlet and back pressures are null where the level is
+	// undetermined.
+	const reliefIds = (c: CaseView) => {
+		const solved = solvedOf(c);
+		const results = solved.reliefValveResults ?? {};
+		const closed = solved.flags
+			.filter((flag) => flag.code === 'RELIEF_VALVE_CLOSED' && flag.componentId)
+			.map((flag) => flag.componentId as string)
+			.filter((id) => !(id in results));
+		return orderedIds(c.structure, [...Object.keys(results), ...new Set(closed)]);
+	};
+	const reliefValves = table(
+		ctx,
+		'relief-valves',
+		'Relief valves',
+		[
+			text('Relief valve id'),
+			text('Relief valve'),
+			text('State'),
+			q('Flow (+ inlet → outlet)', 'flow'),
+			q('Lift', 'fraction'),
+			q('Capacity (full lift)', 'flow'),
+			q('Flow ÷ capacity', 'fraction'),
+			q('Inlet pressure', 'pressure', { gauge: true }),
+			q('Back pressure', 'pressure', { gauge: true }),
+			q('Δp ÷ set', 'fraction'),
+			q('Pressure difference, total', 'pressure'),
+			q('Pressure drop, static', 'pressure'),
+			q('Head loss', 'head'),
+			q('Set pressure', 'pressure'),
+			q('Overpressure at full lift', 'fraction'),
+			text('Overpressure from'),
+			text('Capacity given by'),
+			q('Area', 'area'),
+			number('Kd'),
+			text('Covering letter'),
+			number('Reynolds number (orifice)'),
+			text('Flags')
+		],
+		cases,
+		(c) => reliefIds(c).length,
+		function* (c) {
+			const solved = solvedOf(c);
+			for (const id of reliefIds(c)) {
+				const valve = solved.reliefValveResults?.[id];
+				const flags = codes(flagsForElement(solved.flags, { kind: 'component', id }));
+				if (!valve) {
+					yield [id, componentName(c, id), RELIEF_NO_RESULT, ...Array(18).fill(null), flags];
+					continue;
+				}
+				const capacity = valve.capacity;
+				yield [
+					id,
+					componentName(c, id),
+					reliefStateLabel(valve.state, id, c.input.inputs),
+					u.value(valve.flow, 'flow'),
+					u.value(valve.lift, 'fraction'),
+					u.value(valve.fullLiftFlow, 'flow'),
+					u.value(valve.flowRatio, 'fraction'),
+					u.value(valve.inletPressure, 'pressure'),
+					u.value(valve.backPressure, 'pressure'),
+					u.value(valve.setRatio, 'fraction'),
+					u.value(valve.totalPressureDifference, 'pressure'),
+					u.value(valve.pressureDrop, 'pressure'),
+					u.value(valve.headLoss, 'head'),
+					u.value(valve.setPressure, 'pressure'),
+					u.value(valve.overpressure, 'fraction'),
+					OVERPRESSURE_SOURCE_LABELS[valve.overpressureSource],
+					capacityGivenBy(capacity),
+					u.value(capacity.area, 'area'),
+					capacity.dischargeCoefficient,
+					capacity.kind === 'effective' ? capacity.coveringLetter : null,
+					valve.reynoldsNumber,
+					flags
+				];
+			}
+		}
+	);
+
 	// Equipment (proposal equipment-pressure-drop.md §5.4): the results, then the rating the solve
 	// used (EquipmentResult.rating: a scenario's or a goal-seek trial's), its one named departure
 	// from the screen's table, since a file has no form to read the rating from. "(loss)" says
@@ -1121,6 +1213,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 		pumpCurves,
 		systemCurves,
 		valves,
+		reliefValves,
 		equipment,
 		orifices,
 		branches,
@@ -1177,11 +1270,21 @@ export function changeCategory(
 			return { category: 'density', options: {} };
 		case 'boreDiameter':
 			return { category: 'diameter', options: {} };
+		case 'setPressure':
+			// A relief valve's set: a pressure difference, no gauge marker.
+			return { category: 'pressure', options: {} };
+		case 'capacity.area':
+			return { category: 'area', options: {} };
+		case 'capacity.overpressure':
+			return { category: 'fraction', options: {} };
 		case 'status':
 		case 'resistance':
 		case 'rating':
 		case 'rating.value':
-			// Text: a coefficient as entered with its kind ("Cv 120"), or a whole rating.
+		case 'capacity':
+		case 'capacity.letter':
+			// Text: a coefficient as entered with its kind ("Cv 120"), a whole rating or capacity, or
+			// an API 526 letter.
 			return null;
 		default:
 			return { category: 'dimensionless', options: {} };
@@ -1203,6 +1306,29 @@ function ratingCell(value: Record<string, unknown>, u: ExportContext['units']): 
 		return n === null ? '—' : label ? `${n} ${label}` : String(n);
 	};
 	return `${part(value.pressureLoss, 'pressure')} at ${part(value.flow, 'flow')}, ${part(value.density, 'density')}`;
+}
+
+/**
+ * A whole relief valve capacity as text in the file's units, every number exact: "API 526 J
+ * (0.00083032092 m²), Kd 0.65 (preliminary)", "API 520 effective area 447.0709 mm², Kd 0.65
+ * (preliminary)", "Certified area 250 mm², rated coefficient 0.7, overpressure 8 %".
+ */
+function capacityCell(value: Record<string, unknown>, u: ExportContext['units']): string {
+	const part = (v: unknown, category: UnitCategory) => {
+		const n = typeof v === 'number' ? u.value(v, category) : null;
+		const label = u.label(category);
+		return n === null ? '—' : label ? `${n} ${label}` : String(n);
+	};
+	const kd = `Kd ${RELIEF_DATA.effectiveDischargeCoefficient} (preliminary)`;
+	if (value.kind === 'api526') {
+		const letter = String(value.letter);
+		return `API 526 ${letter} (${part(letterArea(letter), 'area')}), ${kd}`;
+	}
+	if (value.kind === 'effective')
+		return `API 520 effective area ${part(value.area, 'area')}, ${kd}`;
+	const op =
+		typeof value.overpressure === 'number' ? part(value.overpressure, 'fraction') : asmeRuleWords();
+	return `Certified area ${part(value.area, 'area')}, rated coefficient ${String(value.dischargeCoefficient)}, overpressure ${op}`;
 }
 
 /**
@@ -1370,8 +1496,16 @@ export function scenarioChangesTable(ctx: ExportContext): SheetSpec {
 					const resistance = o.kind === 'component' && o.field === 'resistance';
 					// An orifice plate with no entered C: ISO 5167-2's, the default.
 					const coefficient = o.kind === 'component' && o.field === 'dischargeCoefficient';
+					// A certified relief valve with no entered overpressure: ASME's, the default.
+					const overpressure = o.kind === 'component' && o.field === 'capacity.overpressure';
 					if (value === null || value === undefined) {
-						return resistance ? 'Default' : coefficient ? ISO_COEFFICIENT_TEXT : null;
+						return resistance
+							? 'Default'
+							: coefficient
+								? ISO_COEFFICIENT_TEXT
+								: overpressure
+									? asmeRuleWords()
+									: null;
 					}
 					if (resistance) {
 						// A project library entry by its id and name in the case solved (exact text).
@@ -1386,6 +1520,15 @@ export function scenarioChangesTable(ctx: ExportContext): SheetSpec {
 					}
 					if (o.kind === 'component' && o.field === 'rating') {
 						return isRecord(value) ? ratingCell(value, u) : String(value);
+					}
+					if (o.kind === 'component' && o.field === 'capacity') {
+						return isRecord(value) ? capacityCell(value, u) : String(value);
+					}
+					if (o.kind === 'component' && o.field === 'capacity.letter') {
+						const area = letterArea(String(value));
+						return area === null
+							? `API 526 ${String(value)}`
+							: `API 526 ${String(value)} (${u.value(area, 'area')} ${u.label('area')})`;
 					}
 					if (o.kind === 'component' && o.field === 'rating.value') {
 						// The coefficient as entered, with its kind in the case solved (exact text).
@@ -1543,12 +1686,16 @@ export function compareSheet(ctx: ExportContext): SheetSpec | null {
 	};
 }
 
-/** The Compare sheet's columns: each case's solve, and the project sent for it when out of date. */
+/**
+ * The Compare sheet's columns: each case's solve, the project sent for it when out of date, and
+ * the case as solved (a relief valve's status), as the screen's (CompareView).
+ */
 function compareColumnsOf(ctx: ExportContext): CompareColumn[] {
 	return ctx.cases.map((c) => ({
 		solved: c.solved,
 		converged: c.hasValues,
-		sent: c.stale ? c.input.sent : null
+		sent: c.stale ? c.input.sent : null,
+		inputs: c.input.inputs
 	}));
 }
 

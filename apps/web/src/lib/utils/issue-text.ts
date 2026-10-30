@@ -12,7 +12,8 @@
  *
  * Values the server states in its message (a pipe's roughness and inner diameter, a valve's
  * resistance, an equipment item's rating, an orifice plate's bore, pipe bore, β and the bound its
- * discharge coefficient breaks, a controlled pump curve's flow interval or setpoint bound, a pipe
+ * discharge coefficient breaks, a relief valve's set pressure, capacity and overpressure, a
+ * controlled pump curve's flow interval or setpoint bound, a pipe
  * library's schedules and sizes) are taken from the message, which states what the
  * server solved, and shown in the display unit; pipes are numbered from 1, as the message and the piping editor
  * number them. Values that the message does not state are taken from the project only when the
@@ -47,7 +48,7 @@ import type {
 import { componentById, connectionById, freePorts, portById } from './graph';
 import { fittingFallbackName, fluidSummary, portLabel, sameSize } from './labels';
 import { pipeSpecOf, resistanceEntryOf } from './project-library';
-import { formatNumber, formatValue, INCH, SI_UNITS } from './units';
+import { displayUnit, formatNumber, formatValue, INCH, SI_UNITS } from './units';
 
 export interface IssueLink {
 	componentId: string;
@@ -334,6 +335,8 @@ function tell(issue: TopologyIssue, links: IssueLink[], context: Context): Issue
 		}
 		case 'ORIFICE_OUT_OF_RANGE':
 			return orificeIssue(issue, links, component, only, units);
+		case 'RELIEF_VALVE_OUT_OF_RANGE':
+			return reliefIssue(issue, links, component, only, units);
 		case 'UNKNOWN_PIPE_SPEC':
 		case 'UNKNOWN_RESISTANCE':
 		case 'FITTING_RESISTANCE_OUT_OF_RANGE':
@@ -452,6 +455,75 @@ function orificeIssue(
 		}
 	}
 	return text === null ? null : { text, links };
+}
+
+/**
+ * A relief valve the solver refuses (RELIEF_VALVE_OUT_OF_RANGE, the builder's
+ * _unrepresentable_relief_valves, proposal pressure-relief-valve.md decision 14), told with its
+ * name and the message's values in display units: a set below ASME VIII's scope where the
+ * overpressure would be ASME's default, with the remedy the message gives; or a capacity the
+ * floating point cannot represent. Null (the server's message) when the message is not in a form
+ * expected.
+ */
+function reliefIssue(
+	issue: TopologyIssue,
+	links: IssueLink[],
+	component: Component | undefined,
+	only: string | undefined,
+	units: UnitPreferences
+): IssueView | null {
+	const scope = RELIEF_SCOPE.exec(issue.message);
+	if (scope) {
+		const [, id, set = '', psi = '', bound = '', remedy = ''] = scope;
+		if (id !== only || !component) return null;
+		const told = RELIEF_REMEDIES[remedy];
+		if (!told) return null;
+		// The scope as the message states it, in psi, and in the display unit unless that is psi.
+		const scopeText =
+			displayUnit('pressure', units) === 'psi'
+				? `${formatNumber(Number(psi), 6)} psi`
+				: `${formatNumber(Number(psi), 6)} psi (${formatValue(Number(bound), 'pressure', units, 6)})`;
+		return {
+			text:
+				`${component.name}: its set pressure (${formatValue(Number(set), 'pressure', units, 6)}) is ` +
+				`below ASME VIII's scope, ${scopeText}: ` +
+				"below it no cited source gives its overpressure at full lift (ASME's default, 10 % or 3 " +
+				"psi, is for sets within that scope), and API 520's effective coefficient of discharge " +
+				`applies to valves certified within it. ${told}`,
+			links
+		};
+	}
+	const law = RELIEF_LAW.exec(issue.message);
+	if (!law || law[1] !== only || !component) return null;
+	const [, , words = '', c = '', set = '', op = ''] = law;
+	const capacity = reliefCapacityWords(words, units);
+	if (capacity === null) return null;
+	const overpressure = op === 'nan' ? 'none' : formatValue(Number(op), 'fraction', units, 6);
+	return {
+		text:
+			`${component.name}: ${capacity}, C = Kd·A = ${formatValue(Number(c), 'area', units, 6)}, with a ` +
+			`set pressure of ${formatValue(Number(set), 'pressure', units, 6)} and an overpressure of ` +
+			`${overpressure} gives a capacity, a full-lift flow or a band coefficient that is not a ` +
+			'finite positive floating-point number, so the solver cannot represent this valve. Check ' +
+			'its set pressure and capacity.',
+		links
+	};
+}
+
+/** The capacity the refusal quotes ("API 526 letter J (0.00083 m²)"), in display units, or null. */
+function reliefCapacityWords(words: string, units: UnitPreferences): string | null {
+	const area = (v: string) => formatValue(Number(v), 'area', units, 6);
+	const letter = new RegExp(`^API 526 letter ([A-Z]) \\(${NUM} m²\\)$`).exec(words);
+	if (letter) return `API 526 letter ${letter[1]} (${area(letter[2] ?? '')})`;
+	const effective = new RegExp(`^an API 520 effective area of ${NUM} m²$`).exec(words);
+	if (effective) return `an API 520 effective area of ${area(effective[1] ?? '')}`;
+	const certified = new RegExp(
+		`^a certified area of ${NUM} m² with a rated coefficient of discharge of ${NUM}$`
+	).exec(words);
+	if (certified) {
+		return `a certified area of ${area(certified[1] ?? '')} with a rated coefficient of discharge of ${formatNumber(Number(certified[2]), 6)}`;
+	}
+	return null;
 }
 
 /** A project library entry in an issue: its name in the project (“Name”), else its id. */
@@ -714,6 +786,34 @@ const UNKNOWN_PORT = new RegExp(
 const SELF_CONNECTION = new RegExp(`^connection '${ID}' connects port '${ID}:${ID}' to itself$`);
 const PORT_CONNECTED_TWICE = new RegExp(
 	`^port '${ID}:${ID}' has (\\d+) connections; a port takes exactly one$`
+);
+/**
+ * A relief valve refused below ASME VIII's scope (the API's relief.refusal_text, rule 'scope'):
+ * its set, the scope in psi and Pa, and the remedy.
+ */
+const RELIEF_SCOPE = new RegExp(
+	`^relief valve '${ID}': its set pressure of ${NUM} Pa is below ASME VIII's scope, ${NUM} psi ` +
+		`\\(${NUM} Pa\\): below it no cited source gives its overpressure at full lift \\(ASME's ` +
+		"default, 10 % or 3 psi, is for sets within that scope\\), and API 520's effective " +
+		'coefficient of discharge applies to valves certified within it; (.*)$',
+	's'
+);
+/** The remedies RELIEF_SCOPE's message gives, as the app tells them. */
+const RELIEF_REMEDIES: Readonly<Record<string, string>> = {
+	'enter its certified overpressure at full lift': 'Enter its certified overpressure at full lift.',
+	"enter the valve's certified capacity: its actual orifice area, rated coefficient of discharge and full-lift overpressure":
+		"Give its capacity as certified: the valve's actual orifice area, rated coefficient of discharge and full-lift overpressure."
+};
+/**
+ * A relief valve whose law the floating point cannot represent (rule 'representable'): its
+ * capacity in words, C, its set and its overpressure (nan when none).
+ */
+const RELIEF_LAW = new RegExp(
+	`^relief valve '${ID}': (.*), C = Kd·A = ${NUM} m², with a set pressure of ${NUM} Pa and an ` +
+		`overpressure of (${NUM.slice(1, -1)}|nan) gives C, the full-lift flow Q_f = \\S+ m³/s or ` +
+		'the band coefficient R = \\S+ that is not a finite positive normal floating-point number; ' +
+		'the solver cannot represent this valve$',
+	's'
 );
 const VALVE_RESISTANCE = new RegExp(
 	`^valve '${ID}': a (K|Cv|Kv) of ${NUM} on the inlet pipe's inner diameter of ${NUM} m gives a ` +

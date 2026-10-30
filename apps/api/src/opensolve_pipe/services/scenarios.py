@@ -22,6 +22,10 @@ from pydantic_core import ErrorDetails
 
 from ..models.api import SolveOptions, TopologyIssue
 from ..models.components import (
+    API520_EFFECTIVE_DISCHARGE_COEFFICIENT,
+    API526_AREAS,
+    ASME_OVERPRESSURE_FRACTION,
+    RELIEF_DATA,
     AssignedFlow,
     BaseComponent,
     CheckValve,
@@ -32,6 +36,7 @@ from ..models.components import (
     Orifice,
     Plug,
     Pump,
+    ReliefValve,
     Reservoir,
     TeeBranch,
     WyeBranch,
@@ -78,6 +83,7 @@ COMPONENT_NAMES: dict[type[BaseComponent], str] = {
     ControlValve: "control valve",
     Equipment: "equipment",
     Orifice: "orifice",
+    ReliefValve: "relief valve",
 }
 """How messages name a component of each type."""
 
@@ -108,9 +114,29 @@ MISSING_HOLDER = {
         "equipment {id} is rated by a pressure drop at a flow in the base project (rating.value "
         "applies to a Cv or Kv rating; set the whole rating instead)"
     ),
+    "capacity.letter": (
+        "relief valve {id} has no API 526 orifice letter in the base project, whose capacity is "
+        "of another kind (capacity.letter applies to a capacity given by a letter; set the whole "
+        "capacity instead)"
+    ),
+    "capacity.area": (
+        "relief valve {id} is sized by an API 526 orifice letter in the base project "
+        "(capacity.area applies to an API 520 effective area or a certified capacity; set the "
+        "whole capacity instead)"
+    ),
+    **{  # {id}: .format below
+        field: (
+            "relief valve {id} has no certified capacity in the base project: an API 526 letter "
+            "or an API 520 effective area takes API 520's effective coefficient of discharge and "
+            f"ASME's overpressure, never another ({field} applies to a certified capacity; set "
+            "the whole capacity instead)"
+        )
+        for field in ("capacity.dischargeCoefficient", "capacity.overpressure")
+    },
 }
 """Why a value whose holder the base project lacks does not apply (an equipment item's rating
-holds the values of its own kind only: proposal equipment-pressure-drop.md §5.1)."""
+holds the values of its own kind only: proposal equipment-pressure-drop.md §5.1; a relief valve's
+capacity likewise, proposal pressure-relief-valve.md decision 18)."""
 
 AnyOverride = ComponentOverride | PipeOverride | ProjectOverride
 Location = tuple[str | int, ...]
@@ -300,7 +326,9 @@ def plan_override(project: Project, j: int, override: AnyOverride) -> OverridePl
         entry = PROJECT_FIELDS[override.field]
         target, location, target_label = project, (), "the fluid"
     holder = _walk(target, entry.path[:-1]) if entry.path else target
-    expected = entry.holder or type(target)
+    # Any of the value's holders (a relief valve's capacity.area: an effective or a certified
+    # capacity, proposal pressure-relief-valve.md decision 18), else the target itself.
+    expected = entry.holders or (type(target),)
     if not isinstance(holder, expected):
         message = MISSING_HOLDER[override.field].format(id=getattr(target, "id", ""))
         return ignored("not_applicable", message, target_label, override_label(entry, target))
@@ -351,13 +379,16 @@ RATING_TAGS = ("point", "coefficient")
 """The tags of an equipment rating's union (models/components.py ``_rating_tag``)."""
 RESISTANCE_TAGS = ("coefficient", "library")
 """The tags of a valve resistance's union (models/components.py ``_resistance_tag``)."""
+CAPACITY_TAGS = ("api526", "effective", "certified")
+"""The tags of a relief valve capacity's union (models/components.py ``_capacity_tag``)."""
 
 
 def _clean(loc: tuple[str | int, ...]) -> Location:
     """An error location in the project JSON without the union tags pydantic inserts: the
     component tag after a component index, an equipment rating's tag after 'rating' (proposal
     equipment-pressure-drop.md §2.1), a valve resistance's tag after 'resistance' (CLAUDE.md
-    D22), the fluid kind after 'fluid'."""
+    D22), a relief valve capacity's tag after 'capacity' (proposal pressure-relief-valve.md
+    §2.1), the fluid kind after 'fluid'."""
     if len(loc) > 2 and loc[0] == "components":
         tag, rest = loc[2], loc[3:]
         if len(rest) > 1 and (
@@ -367,6 +398,13 @@ def _clean(loc: tuple[str | int, ...]) -> Location:
                 and rest[0] == "resistance"
                 and rest[1] in RESISTANCE_TAGS
             )
+        ):
+            rest = rest[:1] + rest[2:]
+        if (
+            tag == "relief_valve"
+            and len(rest) > 1
+            and rest[0] == "capacity"
+            and rest[1] in CAPACITY_TAGS
         ):
             rest = rest[:1] + rest[2:]
         return loc[:2] + rest
@@ -670,9 +708,46 @@ def _rating_text(rating: dict[str, Any]) -> str:
     return f"{parts[0]} at {parts[1]}, {parts[2]}"
 
 
-NULL_TEXTS = {"dischargeCoefficient": "ISO 5167-2's (the default)"}
+def _capacity_text(capacity: dict[str, Any]) -> str:
+    """A relief valve's capacity (proposal pressure-relief-valve.md §5), SI with its units: 'API
+    526 J (0.000830321 m²), Kd 0.65 (preliminary)', 'API 520 effective area 0.000447071 m², Kd
+    0.65 (preliminary)', 'certified area 0.00025 m², rated coefficient 0.7, overpressure 0.08'
+    (or ASME's, the default), never a Python dict's repr."""
+    kind = capacity.get("kind")
+    preliminary = f"Kd {API520_EFFECTIVE_DISCHARGE_COEFFICIENT:g} (preliminary)"
+    area = capacity.get("area")
+    if kind == "api526":
+        letter = capacity.get("letter")
+        known = API526_AREAS.get(str(letter))
+        size = f" ({_number(known, 'm²')})" if known is not None else ""
+        return f"API 526 {letter}{size}, {preliminary}"
+    area_text = _number(area, "m²") if isinstance(area, int | float) else "?"
+    if kind == "effective":
+        return f"API 520 effective area {area_text}, {preliminary}"
+    coefficient = capacity.get("dischargeCoefficient")
+    overpressure = capacity.get("overpressure")
+    return (
+        f"certified area {area_text}, rated coefficient "
+        + (f"{coefficient:.6g}" if isinstance(coefficient, int | float) else "?")
+        + ", overpressure "
+        + (
+            f"{overpressure:.6g}"
+            if isinstance(overpressure, int | float)
+            else NULL_TEXTS["capacity.overpressure"]
+        )
+    )
+
+
+NULL_TEXTS = {
+    "dischargeCoefficient": "ISO 5167-2's (the default)",
+    "capacity.overpressure": (
+        f"ASME's {ASME_OVERPRESSURE_FRACTION * 100:g} % or "
+        f"{RELIEF_DATA['asmeOverpressureFloor']['psi']:g} psi (the default)"
+    ),
+}
 """How a null value reads where null names a cited default rather than none (an orifice plate's
-discharge coefficient, proposal orifice-plate.md §5.1)."""
+discharge coefficient, proposal orifice-plate.md §5.1; a certified relief valve's overpressure,
+ASME's liquid certification overpressure, proposal pressure-relief-valve.md §5)."""
 
 
 def value_text(field: str, value: JsonValue, unit: str, project: Project | None = None) -> str:
@@ -686,6 +761,8 @@ def value_text(field: str, value: JsonValue, unit: str, project: Project | None 
         return _fluid_text(value)
     if field == "rating" and isinstance(value, dict):
         return _rating_text(value)
+    if field == "capacity" and isinstance(value, dict):
+        return _capacity_text(value)
     if field == "resistance" and isinstance(value, dict):
         if value.get("kind") == "library":
             return _library_text("resistance", value.get("id"), project)

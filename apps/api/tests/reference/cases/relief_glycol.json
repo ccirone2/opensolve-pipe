@@ -1,0 +1,280 @@
+{
+  "name": "relief_glycol",
+  "description": "The partial-lift network on 30 % ethylene glycol: verifies that the relief law takes the case fluid's density (API 520's equation in exact SI) with the same set and capacity.",
+  "source": "closed-form: tests/reference/derivations_relief.py::relief_glycol (relief valve on the EGL h(Q) = h_set + (dp_t(Q) - dp_s)/(rho g), h_set = dp_s/(rho g) + z_in - z_out; lift x = clip((dp_t - dp_s)/(dp_s op), 0, 1), Q = x Kd A sqrt(2 dp_t/rho) (API 520 liquid equation, exact SI, Kw = Kc = Kv = 1); band root u = sqrt(dp_t) of u^3 - dp_s u - R Q = 0 by Chebyshev's cos/cosh identity (element_laws.ReliefLaw); ASME overpressure max(0.1, 3 psi/dp_s) (scipy.constants.psi); status EPANET 2.2 cvstatus with cracking head h_set, started closed; Darcy-Weisbach + Colebrook; brentq on T1's EGL, the relief branch's flow by an inner brentq; static p = rho g (EGL - z - v^2/2g), v in the connected pipe (D7); CoolProp INCOMP::MEG[0.3] at 293.15 K)",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-relief-glycol",
+    "metadata": {
+      "name": "Relief valve on glycol",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "builtin",
+      "fluidId": "ethylene_glycol",
+      "temperature": 293.15,
+      "concentration": 0.3
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 1050000.0
+      },
+      {
+        "id": "T1",
+        "name": "Tee T1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "run_inlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "run_outlet",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "branch",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "branch",
+        "branchType": "tee",
+        "lossModel": "ideal"
+      },
+      {
+        "id": "R2",
+        "name": "Reservoir R2",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 0.0
+      },
+      {
+        "id": "RV1",
+        "name": "Relief valve RV1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.0508,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.0508,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "relief_valve",
+        "setPressure": 500000.0,
+        "capacity": {
+          "kind": "api526",
+          "letter": "F"
+        },
+        "status": "active"
+      },
+      {
+        "id": "R3",
+        "name": "Reservoir R3",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 0.0,
+        "surfacePressure": 0.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "L1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "T1",
+        "toPortId": "run_inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 100.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "L2",
+        "fromComponentId": "T1",
+        "fromPortId": "run_outlet",
+        "toComponentId": "R2",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.1023,
+              "length": 100.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LB1",
+        "fromComponentId": "T1",
+        "fromPortId": "branch",
+        "toComponentId": "RV1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 2.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LB2",
+        "fromComponentId": "RV1",
+        "fromPortId": "outlet",
+        "toComponentId": "R3",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 3.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 1038.0455069991867,
+      "dynamicViscosity": 0.00216644950875951,
+      "vaporPressure": null
+    },
+    "flows": {
+      "L1": 0.06416369990127069,
+      "L2": 0.061954989630318515,
+      "LB1": 0.002208710270952172,
+      "LB2": 0.002208710270952172
+    },
+    "egl": {
+      "R1:port_1": 105.14596194554538,
+      "T1:run_inlet": 51.82691900916992,
+      "T1:run_outlet": 51.82691900916992,
+      "T1:branch": 51.82691900916992,
+      "R2:port_1": 2.0,
+      "RV1:inlet": 51.77359437589699,
+      "RV1:outlet": 0.011793502555892727,
+      "R3:port_1": 0.0
+    },
+    "pressures": {
+      "R1:port_1": 1070359.4979424272,
+      "T1:run_inlet": 495956.2121687352,
+      "T1:run_outlet": 498096.2541843048,
+      "T1:branch": 527044.7105915875,
+      "R2:port_1": 20359.497942427148,
+      "RV1:inlet": 526501.879210887,
+      "RV1:outlet": 8.59097730540752,
+      "R3:port_1": 0.0
+    },
+    "flags": [
+      {
+        "code": "CORRELATION_OUT_OF_RANGE",
+        "componentId": "RV1",
+        "limit": "partial_lift"
+      },
+      {
+        "code": "NO_VAPOR_PRESSURE"
+      }
+    ],
+    "reliefValves": {
+      "RV1": {
+        "state": "partial_lift",
+        "flow": 0.002208710270952172,
+        "lift": 0.5384427837711193,
+        "headLoss": 51.7618008733411,
+        "totalPressureDifference": 526922.139188556,
+        "pressureDrop": 526493.2882335816,
+        "inletPressure": 526501.879210887,
+        "backPressure": 8.59097730540752,
+        "setPressure": 500000.0,
+        "setRatio": 1.053844278377112,
+        "overpressure": 0.1,
+        "overpressureSource": "asme_default",
+        "fullLiftPressureDifference": 550000.0,
+        "fullLiftFlow": 0.004190900128061359,
+        "flowRatio": 0.5270252698610322,
+        "capacity": {
+          "kind": "api526",
+          "letter": "F",
+          "area": 0.00019806412,
+          "dischargeCoefficient": 0.65
+        },
+        "reynoldsNumber": 84851.3442315011
+      }
+    }
+  }
+}

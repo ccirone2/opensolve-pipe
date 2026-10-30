@@ -33,10 +33,11 @@ from opensolve_pipe.models.scenarios import (
 from .helpers import connection, project_dict, reservoir
 
 SCHEMAS: dict[str, Any] = app.openapi()["components"]["schemas"]
-TRACE_UNITS = {"", "m", "m³/s", "Pa(g)", "Pa (difference)", "kg/m³", "K"}
+TRACE_UNITS = {"", "m", "m³/s", "Pa(g)", "Pa (difference)", "kg/m³", "K", "m²"}
 """Unit strings apps/web/src/lib/utils/trace.ts converts (or shows as reported: '', 'K'):
 'Pa (difference)', an equipment item's rated pressure drop (a pressure difference, never a bare
-'Pa', SDD §4.10), and 'kg/m³' its rated density (equipment-pressure-drop.md §5.1)."""
+'Pa', SDD §4.10), and 'kg/m³' its rated density (equipment-pressure-drop.md §5.1); 'm²', a relief
+valve's orifice area, in the web's area category (pressure-relief-valve.md §6 W7)."""
 SECRET = "SECRET9x7"
 _clients = iter(range(1, 250))
 
@@ -115,6 +116,15 @@ def test_every_entry_path_and_holder_exist_on_its_model(
     assert leaves, field
     for leaf in leaves:
         assert leaf in model.model_fields, (field, leaf)
+    # A value other members of the same union hold too (a relief valve's capacity.area, an
+    # effective or a certified area): each is a member there and holds the value.
+    assert entry.holders == ((entry.holder, *entry.also_held_by) if entry.holder else ())
+    for other in entry.also_held_by:
+        assert len(entry.path) >= 2, field
+        union = target.model_fields[entry.path[-2]].annotation
+        assert other in [m for m in _members(union) if isinstance(m, type)], (field, other)
+        for leaf in leaves:
+            assert leaf in other.model_fields, (field, other, leaf)
     # The field name is the camelCase path relative to the target (as x-ordered-fields).
     if not entry.keys:
         aliases = [_alias(target, entry, i) for i in range(len(entry.path))]
@@ -182,6 +192,15 @@ def test_the_prd_list_is_overridable() -> None:
         "rating.value",
     }
     assert names["Orifice"] == {"boreDiameter", "dischargeCoefficient"}
+    assert names["ReliefValve"] == {
+        "status",
+        "setPressure",
+        "capacity",
+        "capacity.letter",
+        "capacity.area",
+        "capacity.dischargeCoefficient",
+        "capacity.overpressure",
+    }
     spec = PIPE_FIELDS["spec"]
     assert spec.keys == (
         "material_id",
@@ -203,7 +222,12 @@ def _published(entry: Overridable, target: str) -> dict[str, Any]:
         return {"schema": holder, "keys": sorted(keys, key=lambda k: entry.keys.index(_snake(k)))}
     leaf = entry.path[-1]
     assert any(_snake(k) == leaf for k in model), (holder, leaf)
-    return {"schema": holder, "path": [_camel(p) for p in entry.path]}
+    published = {"schema": holder, "path": [_camel(p) for p in entry.path]}
+    if entry.also_held_by:  # every holder schema, the first the bounding one
+        published["holders"] = [holder, *(cls.__name__ for cls in entry.also_held_by)]
+        for other in entry.also_held_by:
+            assert any(_snake(k) == leaf for k in SCHEMAS[other.__name__]["properties"])
+    return published
 
 
 def _snake(name: str) -> str:
@@ -251,6 +275,34 @@ def test_x_override_fields_states_exactly_the_allow_list() -> None:
         "boreDiameter": {"schema": "Orifice", "path": ["boreDiameter"]},
         "dischargeCoefficient": {"schema": "Orifice", "path": ["dischargeCoefficient"]},
     }
+    # A relief valve's set, its whole capacity and each value, held by the capacity of its kind:
+    # an effective and a certified capacity both hold an area (pressure-relief-valve.md
+    # decision 18).
+    assert published["ReliefValve"] == {
+        "status": {"schema": "ReliefValve", "path": ["status"]},
+        "setPressure": {"schema": "ReliefValve", "path": ["setPressure"]},
+        "capacity": {"schema": "ReliefValve", "path": ["capacity"]},
+        "capacity.letter": {"schema": "Api526Orifice", "path": ["capacity", "letter"]},
+        "capacity.area": {
+            "schema": "EffectiveOrifice",
+            "path": ["capacity", "area"],
+            "holders": ["EffectiveOrifice", "CertifiedOrifice"],
+        },
+        "capacity.dischargeCoefficient": {
+            "schema": "CertifiedOrifice",
+            "path": ["capacity", "dischargeCoefficient"],
+        },
+        "capacity.overpressure": {
+            "schema": "CertifiedOrifice",
+            "path": ["capacity", "overpressure"],
+        },
+    }
+    assert all(
+        "holders" not in entry
+        for target, fields in published.items()
+        for name, entry in fields.items()
+        if (target, name) != ("ReliefValve", "capacity.area")
+    )
     # A pipe's spec: the library choice and its overrides, or a project library spec (D22).
     assert published["PipeDefinition"]["spec"]["keys"] == [
         "materialId",

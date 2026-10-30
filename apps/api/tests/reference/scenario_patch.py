@@ -24,6 +24,14 @@ An orifice plate (docs/proposals/orifice-plate.md §5.1, decision 20) takes its 
 (m) and its ``dischargeCoefficient`` (dimensionless: a number, or null for ISO 5167-2's C, the
 default); its taps are installation and not overridable.
 
+A pressure relief valve (docs/proposals/pressure-relief-valve.md §5, decision 18) takes its
+``status``, its ``setPressure`` (Pa, a difference), its whole ``capacity`` (another valve, of any
+of the three kinds) and each of the capacity's values: ``capacity.letter``, held by an API 526
+letter; ``capacity.area``, held by an effective area and by a certified one (an effective area is
+not an actual area, but each kind holds its own); ``capacity.dischargeCoefficient`` and
+``capacity.overpressure`` (null: ASME's default), held by a certified capacity. A value the base
+valve's capacity kind does not hold is not applicable.
+
 ``by_hand`` edits the project's JSON the way a user would edit it by hand. It finds each target
 with the model types (``opensolve_pipe.models``) and writes the raw value in place: a ``spec``
 first removes the pipe's six spec keys. Then it drops ``scenarios``. An override whose target is
@@ -52,6 +60,7 @@ from opensolve_pipe.models.components import (
     Orifice,
     Plug,
     Pump,
+    ReliefValve,
     Reservoir,
     TeeBranch,
     WyeBranch,
@@ -80,13 +89,31 @@ COMPONENT_FIELDS: dict[type[BaseModel], dict[str, str | None]] = {
         "rating.value": "",
     },
     Orifice: {"boreDiameter": "m", "dischargeCoefficient": ""},
+    ReliefValve: {
+        "status": "",
+        "setPressure": "Pa (difference)",
+        "capacity": "",
+        "capacity.letter": "",
+        "capacity.area": "m²",
+        "capacity.dischargeCoefficient": "",
+        "capacity.overpressure": "",
+    },
 }
 """The allow-list for components (proposal §2.2): field -> the unit its record states ('' for
 none). None means the design leaves the unit open and it is not checked: a resistance is K, Cv or
 Kv as entered, and a control valve's setpoint unit depends on its type (``SETPOINT_UNITS``). An
 equipment item's rated pressure drop is a difference, "Pa (difference)" (never a bare "Pa",
 SDD §4.10); its whole rating and its Cv or Kv have none (proposal §5.1). An orifice plate's bore
-is in m and its discharge coefficient has none (orifice-plate.md §5.1)."""
+is in m and its discharge coefficient has none (orifice-plate.md §5.1). A relief valve's set is a
+difference, "Pa (difference)", its areas m²; its whole capacity, letter, rated coefficient and
+overpressure (a fraction) have none (pressure-relief-valve.md decision 18)."""
+CAPACITY_PARTS: dict[str, tuple[str, ...]] = {
+    "capacity.letter": ("api526",),
+    "capacity.area": ("effective", "certified"),
+    "capacity.dischargeCoefficient": ("certified",),
+    "capacity.overpressure": ("certified",),
+}
+"""The relief capacity kinds that hold each value (pressure-relief-valve.md decision 18)."""
 RATING_PARTS: dict[str, tuple[str, ...]] = {
     "rating.pressureLoss": ("point",),
     "rating.flow": ("point",),
@@ -114,6 +141,12 @@ COMPONENT_FIELD_NAMES = (
     "rating.value",
     "boreDiameter",
     "dischargeCoefficient",
+    "setPressure",
+    "capacity",
+    "capacity.letter",
+    "capacity.area",
+    "capacity.dischargeCoefficient",
+    "capacity.overpressure",
 )
 """Every field a component override may name. A field its target's type lacks is not applicable."""
 SPEC_KEYS = ("materialId", "schedule", "nominalSize", "innerDiameter", "roughness", "specId")
@@ -177,6 +210,12 @@ def resolve(base: Project, override: dict[str, Any]) -> tuple[State, Where | Non
             isinstance(component, Equipment)
             and field in RATING_PARTS
             and component.rating.kind not in RATING_PARTS[field]
+        ):
+            return "not_applicable", None, None
+        if (
+            isinstance(component, ReliefValve)
+            and field in CAPACITY_PARTS
+            and component.capacity.kind not in CAPACITY_PARTS[field]
         ):
             return "not_applicable", None, None
         return "applied", ("component", index, field), component.id

@@ -514,6 +514,71 @@
                 }
               ],
               "type": "orifice"
+            },
+            {
+              "capacity": {
+                "kind": "api526",
+                "letter": "F"
+              },
+              "elevation": 0.0,
+              "id": "RV1",
+              "name": "RV1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 500000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.0004,
+                "kind": "effective"
+              },
+              "elevation": 0.0,
+              "id": "RV2",
+              "name": "RV2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 400000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.00025,
+                "dischargeCoefficient": 0.7,
+                "kind": "certified",
+                "overpressure": 0.08
+              },
+              "elevation": 0.0,
+              "id": "RV3",
+              "name": "RV3",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 300000.0,
+              "type": "relief_valve"
             }
           ],
           "connections": [
@@ -899,6 +964,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -1489,6 +1619,71 @@
                 }
               ],
               "type": "orifice"
+            },
+            {
+              "capacity": {
+                "kind": "api526",
+                "letter": "F"
+              },
+              "elevation": 0.0,
+              "id": "RV1",
+              "name": "RV1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 500000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.0004,
+                "kind": "effective"
+              },
+              "elevation": 0.0,
+              "id": "RV2",
+              "name": "RV2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 400000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.00025,
+                "dischargeCoefficient": 0.7,
+                "kind": "certified",
+                "overpressure": 0.08
+              },
+              "elevation": 0.0,
+              "id": "RV3",
+              "name": "RV3",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 300000.0,
+              "type": "relief_valve"
             }
           ],
           "connections": [
@@ -1875,6 +2070,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -2306,6 +2566,71 @@
                 }
               ],
               "type": "orifice"
+            },
+            {
+              "capacity": {
+                "kind": "api526",
+                "letter": "F"
+              },
+              "elevation": 0.0,
+              "id": "RV1",
+              "name": "RV1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 500000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.0004,
+                "kind": "effective"
+              },
+              "elevation": 0.0,
+              "id": "RV2",
+              "name": "RV2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 400000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.00025,
+                "dischargeCoefficient": 0.7,
+                "kind": "certified",
+                "overpressure": 0.08
+              },
+              "elevation": 0.0,
+              "id": "RV3",
+              "name": "RV3",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 300000.0,
+              "type": "relief_valve"
             }
           ],
           "connections": [
@@ -2692,6 +3017,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -2789,6 +3179,2009 @@
               {
                 "componentId": "O1",
                 "field": "dischargeCoefficient",
+                "kind": "component",
+                "value": null
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "scenarioId": "S1"
+    },
+    {
+      "expected": {
+        "overrides": [
+          {
+            "baseValue": "active",
+            "index": 0,
+            "message": "",
+            "state": "applied",
+            "unit": "",
+            "value": "locked_closed"
+          },
+          {
+            "baseValue": 500000.0,
+            "index": 1,
+            "message": "",
+            "state": "applied",
+            "unit": "Pa (difference)",
+            "value": 450000.0
+          },
+          {
+            "baseValue": "F",
+            "index": 2,
+            "message": "",
+            "state": "applied",
+            "unit": "",
+            "value": "J"
+          },
+          {
+            "baseValue": 0.0004,
+            "index": 3,
+            "message": "",
+            "state": "applied",
+            "unit": "m²",
+            "value": 0.0005
+          },
+          {
+            "baseValue": 0.00025,
+            "index": 4,
+            "message": "",
+            "state": "applied",
+            "unit": "m²",
+            "value": 0.0003
+          },
+          {
+            "baseValue": 0.7,
+            "index": 5,
+            "message": "",
+            "state": "applied",
+            "unit": "",
+            "value": 0.75
+          },
+          {
+            "baseValue": 0.08,
+            "index": 6,
+            "message": "",
+            "state": "applied",
+            "unit": "",
+            "value": 0.12
+          }
+        ],
+        "project": {
+          "components": [
+            {
+              "elevation": 0.0,
+              "id": "R1",
+              "liquidLevel": 3.0,
+              "name": "R1",
+              "ports": [
+                {
+                  "id": "port_1",
+                  "nominalSize": 0.1
+                }
+              ],
+              "surfacePressure": 0.0,
+              "type": "reservoir"
+            },
+            {
+              "elevation": 0.0,
+              "id": "N1",
+              "name": "N1",
+              "ports": [
+                {
+                  "id": "port_1",
+                  "nominalSize": 0.1
+                }
+              ],
+              "pressure": 100000.0,
+              "referenceType": "ideal",
+              "type": "reference_node"
+            },
+            {
+              "elevation": 0.0,
+              "flow": 0.01,
+              "id": "A1",
+              "name": "A1",
+              "ports": [
+                {
+                  "id": "port_1",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "assigned_flow"
+            },
+            {
+              "elevation": 0.0,
+              "id": "X1",
+              "name": "X1",
+              "ports": [
+                {
+                  "id": "port_1",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "plug"
+            },
+            {
+              "branchType": "tee",
+              "elevation": 0.0,
+              "id": "T1",
+              "lossModel": "ideal",
+              "name": "T1",
+              "ports": [
+                {
+                  "id": "run_inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "run_outlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "branch",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "branch"
+            },
+            {
+              "branchType": "wye",
+              "elevation": 0.0,
+              "id": "W1",
+              "name": "W1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet_1",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet_2",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "branch"
+            },
+            {
+              "curveId": "C1",
+              "elevation": 0.0,
+              "id": "P1",
+              "name": "P1",
+              "ports": [
+                {
+                  "id": "suction",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "discharge",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "pump"
+            },
+            {
+              "control": {
+                "minSpeed": 0.4,
+                "mode": "flow",
+                "setpoint": 0.01
+              },
+              "curveId": "C1",
+              "elevation": 0.0,
+              "id": "P2",
+              "name": "P2",
+              "ports": [
+                {
+                  "id": "suction",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "discharge",
+                  "nominalSize": 0.1
+                }
+              ],
+              "speed": 0.9,
+              "type": "pump"
+            },
+            {
+              "elevation": 0.0,
+              "id": "G1",
+              "name": "G1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "valve",
+              "valveType": "gate"
+            },
+            {
+              "elevation": 0.0,
+              "id": "C1",
+              "name": "C1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "valve",
+              "valveType": "check"
+            },
+            {
+              "elevation": 0.0,
+              "id": "V1",
+              "name": "V1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setpoint": 200000.0,
+              "type": "valve",
+              "valveType": "prv"
+            },
+            {
+              "elevation": 0.0,
+              "id": "F1",
+              "name": "F1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "resistance": {
+                "kind": "K",
+                "value": 1.5
+              },
+              "setpoint": 0.01,
+              "type": "valve",
+              "valveType": "fcv"
+            },
+            {
+              "elevation": 0.0,
+              "id": "E1",
+              "name": "E1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "rating": {
+                "density": 999.102621,
+                "flow": 0.015,
+                "kind": "point",
+                "pressureLoss": 50000.0
+              },
+              "type": "equipment"
+            },
+            {
+              "elevation": 0.0,
+              "id": "E2",
+              "name": "E2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "rating": {
+                "kind": "Kv",
+                "value": 60.0
+              },
+              "type": "equipment"
+            },
+            {
+              "boreDiameter": 0.05,
+              "dischargeCoefficient": 0.6,
+              "elevation": 0.0,
+              "id": "O1",
+              "name": "O1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "taps": "flange",
+              "type": "orifice"
+            },
+            {
+              "boreDiameter": 0.05,
+              "elevation": 0.0,
+              "id": "O2",
+              "name": "O2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "orifice"
+            },
+            {
+              "capacity": {
+                "kind": "api526",
+                "letter": "J"
+              },
+              "elevation": 0.0,
+              "id": "RV1",
+              "name": "RV1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 450000.0,
+              "status": "locked_closed",
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.0005,
+                "kind": "effective"
+              },
+              "elevation": 0.0,
+              "id": "RV2",
+              "name": "RV2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 400000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.0003,
+                "dischargeCoefficient": 0.75,
+                "kind": "certified",
+                "overpressure": 0.12
+              },
+              "elevation": 0.0,
+              "id": "RV3",
+              "name": "RV3",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 300000.0,
+              "type": "relief_valve"
+            }
+          ],
+          "connections": [
+            {
+              "fromComponentId": "R1",
+              "fromPortId": "port_1",
+              "id": "L1",
+              "piping": {
+                "fittings": [
+                  {
+                    "pipeIndex": 1,
+                    "type": "elbow_90_lr"
+                  }
+                ],
+                "pipes": [
+                  {
+                    "innerDiameter": 0.1,
+                    "length": 12.0,
+                    "materialId": "carbon_steel",
+                    "nominalSize": 0.1016,
+                    "schedule": "40"
+                  },
+                  {
+                    "innerDiameter": 0.1,
+                    "length": 5.0,
+                    "materialId": "custom",
+                    "roughness": 4.5e-05
+                  }
+                ]
+              },
+              "toComponentId": "P1",
+              "toPortId": "suction"
+            },
+            {
+              "fromComponentId": "P1",
+              "fromPortId": "discharge",
+              "id": "L2",
+              "piping": {
+                "fittings": [],
+                "pipes": [
+                  {
+                    "innerDiameter": 0.1,
+                    "length": 40.0,
+                    "materialId": "custom",
+                    "roughness": 4.5e-05
+                  }
+                ]
+              },
+              "toComponentId": "G1",
+              "toPortId": "inlet"
+            }
+          ],
+          "fluid": {
+            "fluidId": "water",
+            "kind": "builtin",
+            "temperature": 293.15
+          },
+          "id": "test",
+          "metadata": {
+            "created": "2026-10-21",
+            "modified": "2026-10-21",
+            "name": "test"
+          },
+          "pumpLibrary": [
+            {
+              "id": "C1",
+              "name": "curve",
+              "points": [
+                {
+                  "flow": 0.0,
+                  "head": 40.0
+                },
+                {
+                  "flow": 0.02,
+                  "head": 35.0
+                },
+                {
+                  "flow": 0.04,
+                  "head": 20.0
+                }
+              ]
+            }
+          ],
+          "schemaVersion": 1,
+          "settings": {
+            "siteElevation": 0.0,
+            "solverOptions": {
+              "frictionMethod": "colebrook",
+              "maxIterations": 100,
+              "tolerance": 1e-09
+            },
+            "units": {}
+          }
+        }
+      },
+      "kind": "applied",
+      "name": "every relief valve value (proposal pressure-relief-valve.md decision 18)",
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 3.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "elevation": 0.0,
+            "id": "N1",
+            "name": "N1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "pressure": 100000.0,
+            "referenceType": "ideal",
+            "type": "reference_node"
+          },
+          {
+            "elevation": 0.0,
+            "flow": 0.01,
+            "id": "A1",
+            "name": "A1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "assigned_flow"
+          },
+          {
+            "elevation": 0.0,
+            "id": "X1",
+            "name": "X1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "plug"
+          },
+          {
+            "branchType": "tee",
+            "elevation": 0.0,
+            "id": "T1",
+            "lossModel": "ideal",
+            "name": "T1",
+            "ports": [
+              {
+                "id": "run_inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "run_outlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "branch",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "branch"
+          },
+          {
+            "branchType": "wye",
+            "elevation": 0.0,
+            "id": "W1",
+            "name": "W1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet_1",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet_2",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "branch"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "P1",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "control": {
+              "minSpeed": 0.4,
+              "mode": "flow",
+              "setpoint": 0.01
+            },
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P2",
+            "name": "P2",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "speed": 0.9,
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "G1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "C1",
+            "name": "C1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "check"
+          },
+          {
+            "elevation": 0.0,
+            "id": "V1",
+            "name": "V1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setpoint": 200000.0,
+            "type": "valve",
+            "valveType": "prv"
+          },
+          {
+            "elevation": 0.0,
+            "id": "F1",
+            "name": "F1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "resistance": {
+              "kind": "K",
+              "value": 1.5
+            },
+            "setpoint": 0.01,
+            "type": "valve",
+            "valveType": "fcv"
+          },
+          {
+            "elevation": 0.0,
+            "id": "E1",
+            "name": "E1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "rating": {
+              "density": 999.102621,
+              "flow": 0.015,
+              "kind": "point",
+              "pressureLoss": 50000.0
+            },
+            "type": "equipment"
+          },
+          {
+            "elevation": 0.0,
+            "id": "E2",
+            "name": "E2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "rating": {
+              "kind": "Kv",
+              "value": 60.0
+            },
+            "type": "equipment"
+          },
+          {
+            "boreDiameter": 0.05,
+            "dischargeCoefficient": 0.6,
+            "elevation": 0.0,
+            "id": "O1",
+            "name": "O1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "taps": "flange",
+            "type": "orifice"
+          },
+          {
+            "boreDiameter": 0.05,
+            "elevation": 0.0,
+            "id": "O2",
+            "name": "O2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [
+                {
+                  "pipeIndex": 1,
+                  "type": "elbow_90_lr"
+                }
+              ],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 12.0,
+                  "materialId": "carbon_steel",
+                  "nominalSize": 0.1016,
+                  "schedule": "40"
+                },
+                {
+                  "innerDiameter": 0.1,
+                  "length": 5.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 40.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "scenarios": [
+          {
+            "id": "S0",
+            "name": "Scenario S0",
+            "overrides": []
+          },
+          {
+            "description": "Case",
+            "id": "S1",
+            "name": "Scenario S1",
+            "overrides": [
+              {
+                "componentId": "RV1",
+                "field": "status",
+                "kind": "component",
+                "value": "locked_closed"
+              },
+              {
+                "componentId": "RV1",
+                "field": "setPressure",
+                "kind": "component",
+                "value": 450000.0
+              },
+              {
+                "componentId": "RV1",
+                "field": "capacity.letter",
+                "kind": "component",
+                "value": "J"
+              },
+              {
+                "componentId": "RV2",
+                "field": "capacity.area",
+                "kind": "component",
+                "value": 0.0005
+              },
+              {
+                "componentId": "RV3",
+                "field": "capacity.area",
+                "kind": "component",
+                "value": 0.0003
+              },
+              {
+                "componentId": "RV3",
+                "field": "capacity.dischargeCoefficient",
+                "kind": "component",
+                "value": 0.75
+              },
+              {
+                "componentId": "RV3",
+                "field": "capacity.overpressure",
+                "kind": "component",
+                "value": 0.12
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "scenarioId": "S1"
+    },
+    {
+      "expected": {
+        "overrides": [
+          {
+            "baseValue": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "index": 0,
+            "message": "",
+            "state": "applied",
+            "unit": "",
+            "value": {
+              "area": 0.0005,
+              "kind": "effective"
+            }
+          },
+          {
+            "baseValue": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "index": 1,
+            "message": "",
+            "state": "applied",
+            "unit": "",
+            "value": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.1
+            }
+          },
+          {
+            "baseValue": 0.08,
+            "index": 2,
+            "message": "",
+            "state": "applied",
+            "unit": "",
+            "value": null
+          }
+        ],
+        "project": {
+          "components": [
+            {
+              "elevation": 0.0,
+              "id": "R1",
+              "liquidLevel": 3.0,
+              "name": "R1",
+              "ports": [
+                {
+                  "id": "port_1",
+                  "nominalSize": 0.1
+                }
+              ],
+              "surfacePressure": 0.0,
+              "type": "reservoir"
+            },
+            {
+              "elevation": 0.0,
+              "id": "N1",
+              "name": "N1",
+              "ports": [
+                {
+                  "id": "port_1",
+                  "nominalSize": 0.1
+                }
+              ],
+              "pressure": 100000.0,
+              "referenceType": "ideal",
+              "type": "reference_node"
+            },
+            {
+              "elevation": 0.0,
+              "flow": 0.01,
+              "id": "A1",
+              "name": "A1",
+              "ports": [
+                {
+                  "id": "port_1",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "assigned_flow"
+            },
+            {
+              "elevation": 0.0,
+              "id": "X1",
+              "name": "X1",
+              "ports": [
+                {
+                  "id": "port_1",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "plug"
+            },
+            {
+              "branchType": "tee",
+              "elevation": 0.0,
+              "id": "T1",
+              "lossModel": "ideal",
+              "name": "T1",
+              "ports": [
+                {
+                  "id": "run_inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "run_outlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "branch",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "branch"
+            },
+            {
+              "branchType": "wye",
+              "elevation": 0.0,
+              "id": "W1",
+              "name": "W1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet_1",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet_2",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "branch"
+            },
+            {
+              "curveId": "C1",
+              "elevation": 0.0,
+              "id": "P1",
+              "name": "P1",
+              "ports": [
+                {
+                  "id": "suction",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "discharge",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "pump"
+            },
+            {
+              "control": {
+                "minSpeed": 0.4,
+                "mode": "flow",
+                "setpoint": 0.01
+              },
+              "curveId": "C1",
+              "elevation": 0.0,
+              "id": "P2",
+              "name": "P2",
+              "ports": [
+                {
+                  "id": "suction",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "discharge",
+                  "nominalSize": 0.1
+                }
+              ],
+              "speed": 0.9,
+              "type": "pump"
+            },
+            {
+              "elevation": 0.0,
+              "id": "G1",
+              "name": "G1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "valve",
+              "valveType": "gate"
+            },
+            {
+              "elevation": 0.0,
+              "id": "C1",
+              "name": "C1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "valve",
+              "valveType": "check"
+            },
+            {
+              "elevation": 0.0,
+              "id": "V1",
+              "name": "V1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setpoint": 200000.0,
+              "type": "valve",
+              "valveType": "prv"
+            },
+            {
+              "elevation": 0.0,
+              "id": "F1",
+              "name": "F1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "resistance": {
+                "kind": "K",
+                "value": 1.5
+              },
+              "setpoint": 0.01,
+              "type": "valve",
+              "valveType": "fcv"
+            },
+            {
+              "elevation": 0.0,
+              "id": "E1",
+              "name": "E1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "rating": {
+                "density": 999.102621,
+                "flow": 0.015,
+                "kind": "point",
+                "pressureLoss": 50000.0
+              },
+              "type": "equipment"
+            },
+            {
+              "elevation": 0.0,
+              "id": "E2",
+              "name": "E2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "rating": {
+                "kind": "Kv",
+                "value": 60.0
+              },
+              "type": "equipment"
+            },
+            {
+              "boreDiameter": 0.05,
+              "dischargeCoefficient": 0.6,
+              "elevation": 0.0,
+              "id": "O1",
+              "name": "O1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "taps": "flange",
+              "type": "orifice"
+            },
+            {
+              "boreDiameter": 0.05,
+              "elevation": 0.0,
+              "id": "O2",
+              "name": "O2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "type": "orifice"
+            },
+            {
+              "capacity": {
+                "area": 0.0005,
+                "kind": "effective"
+              },
+              "elevation": 0.0,
+              "id": "RV1",
+              "name": "RV1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 500000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.00025,
+                "dischargeCoefficient": 0.7,
+                "kind": "certified",
+                "overpressure": 0.1
+              },
+              "elevation": 0.0,
+              "id": "RV2",
+              "name": "RV2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 400000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.00025,
+                "dischargeCoefficient": 0.7,
+                "kind": "certified",
+                "overpressure": null
+              },
+              "elevation": 0.0,
+              "id": "RV3",
+              "name": "RV3",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 300000.0,
+              "type": "relief_valve"
+            }
+          ],
+          "connections": [
+            {
+              "fromComponentId": "R1",
+              "fromPortId": "port_1",
+              "id": "L1",
+              "piping": {
+                "fittings": [
+                  {
+                    "pipeIndex": 1,
+                    "type": "elbow_90_lr"
+                  }
+                ],
+                "pipes": [
+                  {
+                    "innerDiameter": 0.1,
+                    "length": 12.0,
+                    "materialId": "carbon_steel",
+                    "nominalSize": 0.1016,
+                    "schedule": "40"
+                  },
+                  {
+                    "innerDiameter": 0.1,
+                    "length": 5.0,
+                    "materialId": "custom",
+                    "roughness": 4.5e-05
+                  }
+                ]
+              },
+              "toComponentId": "P1",
+              "toPortId": "suction"
+            },
+            {
+              "fromComponentId": "P1",
+              "fromPortId": "discharge",
+              "id": "L2",
+              "piping": {
+                "fittings": [],
+                "pipes": [
+                  {
+                    "innerDiameter": 0.1,
+                    "length": 40.0,
+                    "materialId": "custom",
+                    "roughness": 4.5e-05
+                  }
+                ]
+              },
+              "toComponentId": "G1",
+              "toPortId": "inlet"
+            }
+          ],
+          "fluid": {
+            "fluidId": "water",
+            "kind": "builtin",
+            "temperature": 293.15
+          },
+          "id": "test",
+          "metadata": {
+            "created": "2026-10-21",
+            "modified": "2026-10-21",
+            "name": "test"
+          },
+          "pumpLibrary": [
+            {
+              "id": "C1",
+              "name": "curve",
+              "points": [
+                {
+                  "flow": 0.0,
+                  "head": 40.0
+                },
+                {
+                  "flow": 0.02,
+                  "head": 35.0
+                },
+                {
+                  "flow": 0.04,
+                  "head": 20.0
+                }
+              ]
+            }
+          ],
+          "schemaVersion": 1,
+          "settings": {
+            "siteElevation": 0.0,
+            "solverOptions": {
+              "frictionMethod": "colebrook",
+              "maxIterations": 100,
+              "tolerance": 1e-09
+            },
+            "units": {}
+          }
+        }
+      },
+      "kind": "applied",
+      "name": "a whole capacity of another kind, and a certified overpressure set back to ASME's (null)",
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 3.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "elevation": 0.0,
+            "id": "N1",
+            "name": "N1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "pressure": 100000.0,
+            "referenceType": "ideal",
+            "type": "reference_node"
+          },
+          {
+            "elevation": 0.0,
+            "flow": 0.01,
+            "id": "A1",
+            "name": "A1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "assigned_flow"
+          },
+          {
+            "elevation": 0.0,
+            "id": "X1",
+            "name": "X1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "plug"
+          },
+          {
+            "branchType": "tee",
+            "elevation": 0.0,
+            "id": "T1",
+            "lossModel": "ideal",
+            "name": "T1",
+            "ports": [
+              {
+                "id": "run_inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "run_outlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "branch",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "branch"
+          },
+          {
+            "branchType": "wye",
+            "elevation": 0.0,
+            "id": "W1",
+            "name": "W1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet_1",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet_2",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "branch"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "P1",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "control": {
+              "minSpeed": 0.4,
+              "mode": "flow",
+              "setpoint": 0.01
+            },
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P2",
+            "name": "P2",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "speed": 0.9,
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "G1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "C1",
+            "name": "C1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "check"
+          },
+          {
+            "elevation": 0.0,
+            "id": "V1",
+            "name": "V1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setpoint": 200000.0,
+            "type": "valve",
+            "valveType": "prv"
+          },
+          {
+            "elevation": 0.0,
+            "id": "F1",
+            "name": "F1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "resistance": {
+              "kind": "K",
+              "value": 1.5
+            },
+            "setpoint": 0.01,
+            "type": "valve",
+            "valveType": "fcv"
+          },
+          {
+            "elevation": 0.0,
+            "id": "E1",
+            "name": "E1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "rating": {
+              "density": 999.102621,
+              "flow": 0.015,
+              "kind": "point",
+              "pressureLoss": 50000.0
+            },
+            "type": "equipment"
+          },
+          {
+            "elevation": 0.0,
+            "id": "E2",
+            "name": "E2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "rating": {
+              "kind": "Kv",
+              "value": 60.0
+            },
+            "type": "equipment"
+          },
+          {
+            "boreDiameter": 0.05,
+            "dischargeCoefficient": 0.6,
+            "elevation": 0.0,
+            "id": "O1",
+            "name": "O1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "taps": "flange",
+            "type": "orifice"
+          },
+          {
+            "boreDiameter": 0.05,
+            "elevation": 0.0,
+            "id": "O2",
+            "name": "O2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [
+                {
+                  "pipeIndex": 1,
+                  "type": "elbow_90_lr"
+                }
+              ],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 12.0,
+                  "materialId": "carbon_steel",
+                  "nominalSize": 0.1016,
+                  "schedule": "40"
+                },
+                {
+                  "innerDiameter": 0.1,
+                  "length": 5.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 40.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "scenarios": [
+          {
+            "id": "S0",
+            "name": "Scenario S0",
+            "overrides": []
+          },
+          {
+            "description": "Case",
+            "id": "S1",
+            "name": "Scenario S1",
+            "overrides": [
+              {
+                "componentId": "RV1",
+                "field": "capacity",
+                "kind": "component",
+                "value": {
+                  "area": 0.0005,
+                  "kind": "effective"
+                }
+              },
+              {
+                "componentId": "RV2",
+                "field": "capacity",
+                "kind": "component",
+                "value": {
+                  "area": 0.00025,
+                  "dischargeCoefficient": 0.7,
+                  "kind": "certified",
+                  "overpressure": 0.1
+                }
+              },
+              {
+                "componentId": "RV3",
+                "field": "capacity.overpressure",
                 "kind": "component",
                 "value": null
               }
@@ -3118,6 +5511,71 @@
                 }
               ],
               "type": "orifice"
+            },
+            {
+              "capacity": {
+                "kind": "api526",
+                "letter": "F"
+              },
+              "elevation": 0.0,
+              "id": "RV1",
+              "name": "RV1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 500000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.0004,
+                "kind": "effective"
+              },
+              "elevation": 0.0,
+              "id": "RV2",
+              "name": "RV2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 400000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.00025,
+                "dischargeCoefficient": 0.7,
+                "kind": "certified",
+                "overpressure": 0.08
+              },
+              "elevation": 0.0,
+              "id": "RV3",
+              "name": "RV3",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 300000.0,
+              "type": "relief_valve"
             }
           ],
           "connections": [
@@ -3505,6 +5963,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -3935,6 +6458,71 @@
                 }
               ],
               "type": "orifice"
+            },
+            {
+              "capacity": {
+                "kind": "api526",
+                "letter": "F"
+              },
+              "elevation": 0.0,
+              "id": "RV1",
+              "name": "RV1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 500000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.0004,
+                "kind": "effective"
+              },
+              "elevation": 0.0,
+              "id": "RV2",
+              "name": "RV2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 400000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.00025,
+                "dischargeCoefficient": 0.7,
+                "kind": "certified",
+                "overpressure": 0.08
+              },
+              "elevation": 0.0,
+              "id": "RV3",
+              "name": "RV3",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 300000.0,
+              "type": "relief_valve"
             }
           ],
           "connections": [
@@ -4320,6 +6908,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -4751,6 +7404,71 @@
                 }
               ],
               "type": "orifice"
+            },
+            {
+              "capacity": {
+                "kind": "api526",
+                "letter": "F"
+              },
+              "elevation": 0.0,
+              "id": "RV1",
+              "name": "RV1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 500000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.0004,
+                "kind": "effective"
+              },
+              "elevation": 0.0,
+              "id": "RV2",
+              "name": "RV2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 400000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.00025,
+                "dischargeCoefficient": 0.7,
+                "kind": "certified",
+                "overpressure": 0.08
+              },
+              "elevation": 0.0,
+              "id": "RV3",
+              "name": "RV3",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 300000.0,
+              "type": "relief_valve"
             }
           ],
           "connections": [
@@ -5136,6 +7854,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -5567,6 +8350,71 @@
                 }
               ],
               "type": "orifice"
+            },
+            {
+              "capacity": {
+                "kind": "api526",
+                "letter": "F"
+              },
+              "elevation": 0.0,
+              "id": "RV1",
+              "name": "RV1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 500000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.0004,
+                "kind": "effective"
+              },
+              "elevation": 0.0,
+              "id": "RV2",
+              "name": "RV2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 400000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.00025,
+                "dischargeCoefficient": 0.7,
+                "kind": "certified",
+                "overpressure": 0.08
+              },
+              "elevation": 0.0,
+              "id": "RV3",
+              "name": "RV3",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 300000.0,
+              "type": "relief_valve"
             }
           ],
           "connections": [
@@ -5953,6 +8801,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -6367,6 +9280,71 @@
                 }
               ],
               "type": "orifice"
+            },
+            {
+              "capacity": {
+                "kind": "api526",
+                "letter": "F"
+              },
+              "elevation": 0.0,
+              "id": "RV1",
+              "name": "RV1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 500000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.0004,
+                "kind": "effective"
+              },
+              "elevation": 0.0,
+              "id": "RV2",
+              "name": "RV2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 400000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.00025,
+                "dischargeCoefficient": 0.7,
+                "kind": "certified",
+                "overpressure": 0.08
+              },
+              "elevation": 0.0,
+              "id": "RV3",
+              "name": "RV3",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 300000.0,
+              "type": "relief_valve"
             }
           ],
           "connections": [
@@ -6753,6 +9731,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -6970,8 +10013,48 @@
             "value": null
           },
           {
-            "baseValue": 3.0,
+            "baseValue": null,
             "index": 13,
+            "message": "relief valve RV1 is sized by an API 526 orifice letter in the base project (capacity.area applies to an API 520 effective area or a certified capacity; set the whole capacity instead)",
+            "state": "not_applicable",
+            "unit": "",
+            "value": null
+          },
+          {
+            "baseValue": null,
+            "index": 14,
+            "message": "relief valve RV2 has no certified capacity in the base project: an API 526 letter or an API 520 effective area takes API 520's effective coefficient of discharge and ASME's overpressure, never another (capacity.dischargeCoefficient applies to a certified capacity; set the whole capacity instead)",
+            "state": "not_applicable",
+            "unit": "",
+            "value": null
+          },
+          {
+            "baseValue": null,
+            "index": 15,
+            "message": "relief valve RV3 has no API 526 orifice letter in the base project, whose capacity is of another kind (capacity.letter applies to a capacity given by a letter; set the whole capacity instead)",
+            "state": "not_applicable",
+            "unit": "",
+            "value": null
+          },
+          {
+            "baseValue": null,
+            "index": 16,
+            "message": "relief valve RV1 has no bore diameter to override",
+            "state": "not_applicable",
+            "unit": "",
+            "value": null
+          },
+          {
+            "baseValue": null,
+            "index": 17,
+            "message": "orifice O1 has no set pressure to override",
+            "state": "not_applicable",
+            "unit": "",
+            "value": null
+          },
+          {
+            "baseValue": 3.0,
+            "index": 18,
             "message": "",
             "state": "applied",
             "unit": "m",
@@ -7267,6 +10350,71 @@
                 }
               ],
               "type": "orifice"
+            },
+            {
+              "capacity": {
+                "kind": "api526",
+                "letter": "F"
+              },
+              "elevation": 0.0,
+              "id": "RV1",
+              "name": "RV1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 500000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.0004,
+                "kind": "effective"
+              },
+              "elevation": 0.0,
+              "id": "RV2",
+              "name": "RV2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 400000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.00025,
+                "dischargeCoefficient": 0.7,
+                "kind": "certified",
+                "overpressure": 0.08
+              },
+              "elevation": 0.0,
+              "id": "RV3",
+              "name": "RV3",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 300000.0,
+              "type": "relief_valve"
             }
           ],
           "connections": [
@@ -7653,6 +10801,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -7826,6 +11039,36 @@
                 "field": "status",
                 "kind": "component",
                 "value": "off"
+              },
+              {
+                "componentId": "RV1",
+                "field": "capacity.area",
+                "kind": "component",
+                "value": 0.0005
+              },
+              {
+                "componentId": "RV2",
+                "field": "capacity.dischargeCoefficient",
+                "kind": "component",
+                "value": 0.7
+              },
+              {
+                "componentId": "RV3",
+                "field": "capacity.letter",
+                "kind": "component",
+                "value": "J"
+              },
+              {
+                "componentId": "RV1",
+                "field": "boreDiameter",
+                "kind": "component",
+                "value": 0.05
+              },
+              {
+                "componentId": "O1",
+                "field": "setPressure",
+                "kind": "component",
+                "value": 100000.0
               },
               {
                 "componentId": "R1",
@@ -8176,6 +11419,71 @@
                 }
               ],
               "type": "orifice"
+            },
+            {
+              "capacity": {
+                "kind": "api526",
+                "letter": "F"
+              },
+              "elevation": 0.0,
+              "id": "RV1",
+              "name": "RV1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 500000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.0004,
+                "kind": "effective"
+              },
+              "elevation": 0.0,
+              "id": "RV2",
+              "name": "RV2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 400000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.00025,
+                "dischargeCoefficient": 0.7,
+                "kind": "certified",
+                "overpressure": 0.08
+              },
+              "elevation": 0.0,
+              "id": "RV3",
+              "name": "RV3",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 300000.0,
+              "type": "relief_valve"
             }
           ],
           "connections": [
@@ -8595,6 +11903,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -9080,6 +12453,71 @@
                 }
               ],
               "type": "orifice"
+            },
+            {
+              "capacity": {
+                "kind": "api526",
+                "letter": "F"
+              },
+              "elevation": 0.0,
+              "id": "RV1",
+              "name": "RV1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 500000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.0004,
+                "kind": "effective"
+              },
+              "elevation": 0.0,
+              "id": "RV2",
+              "name": "RV2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 400000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.00025,
+                "dischargeCoefficient": 0.7,
+                "kind": "certified",
+                "overpressure": 0.08
+              },
+              "elevation": 0.0,
+              "id": "RV3",
+              "name": "RV3",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 300000.0,
+              "type": "relief_valve"
             }
           ],
           "connections": [
@@ -9504,6 +12942,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -10012,6 +13515,71 @@
                 }
               ],
               "type": "orifice"
+            },
+            {
+              "capacity": {
+                "kind": "api526",
+                "letter": "F"
+              },
+              "elevation": 0.0,
+              "id": "RV1",
+              "name": "RV1",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 500000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.0004,
+                "kind": "effective"
+              },
+              "elevation": 0.0,
+              "id": "RV2",
+              "name": "RV2",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 400000.0,
+              "type": "relief_valve"
+            },
+            {
+              "capacity": {
+                "area": 0.00025,
+                "dischargeCoefficient": 0.7,
+                "kind": "certified",
+                "overpressure": 0.08
+              },
+              "elevation": 0.0,
+              "id": "RV3",
+              "name": "RV3",
+              "ports": [
+                {
+                  "id": "inlet",
+                  "nominalSize": 0.1
+                },
+                {
+                  "id": "outlet",
+                  "nominalSize": 0.1
+                }
+              ],
+              "setPressure": 300000.0,
+              "type": "relief_valve"
             }
           ],
           "connections": [
@@ -10434,6 +14002,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -10949,6 +14582,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -11418,6 +15116,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -11864,6 +15627,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -12280,6 +16108,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -12703,6 +16596,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -13132,6 +17090,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -13563,6 +17586,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -13668,6 +17756,1044 @@
                 "field": "boreDiameter",
                 "kind": "component",
                 "value": 0.06
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "scenarioId": "S1"
+    },
+    {
+      "issues": [
+        {
+          "code": "greater_than",
+          "componentIds": [
+            "RV1"
+          ],
+          "connectionIds": [],
+          "message": "body.project.scenarios.0.overrides.0.value: Input should be greater than 0"
+        },
+        {
+          "code": "literal_error",
+          "componentIds": [
+            "RV1"
+          ],
+          "connectionIds": [],
+          "message": "body.project.scenarios.0.overrides.1.value: Input should be 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'Q', 'R' or 'T'"
+        },
+        {
+          "code": "less_than_equal",
+          "componentIds": [
+            "RV2"
+          ],
+          "connectionIds": [],
+          "message": "body.project.scenarios.0.overrides.2.value: Input should be less than or equal to 78.53981633974483"
+        },
+        {
+          "code": "less_than_equal",
+          "componentIds": [
+            "RV3"
+          ],
+          "connectionIds": [],
+          "message": "body.project.scenarios.0.overrides.3.value: Input should be less than or equal to 1"
+        },
+        {
+          "code": "greater_than",
+          "componentIds": [
+            "RV3"
+          ],
+          "connectionIds": [],
+          "message": "body.project.scenarios.0.overrides.4.value: Input should be greater than 0"
+        }
+      ],
+      "kind": "invalid",
+      "name": "relief valve values their bounds reject, and a letter API 526 does not have",
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 3.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "elevation": 0.0,
+            "id": "N1",
+            "name": "N1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "pressure": 100000.0,
+            "referenceType": "ideal",
+            "type": "reference_node"
+          },
+          {
+            "elevation": 0.0,
+            "flow": 0.01,
+            "id": "A1",
+            "name": "A1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "assigned_flow"
+          },
+          {
+            "elevation": 0.0,
+            "id": "X1",
+            "name": "X1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "plug"
+          },
+          {
+            "branchType": "tee",
+            "elevation": 0.0,
+            "id": "T1",
+            "lossModel": "ideal",
+            "name": "T1",
+            "ports": [
+              {
+                "id": "run_inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "run_outlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "branch",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "branch"
+          },
+          {
+            "branchType": "wye",
+            "elevation": 0.0,
+            "id": "W1",
+            "name": "W1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet_1",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet_2",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "branch"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "P1",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "control": {
+              "minSpeed": 0.4,
+              "mode": "flow",
+              "setpoint": 0.01
+            },
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P2",
+            "name": "P2",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "speed": 0.9,
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "G1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "C1",
+            "name": "C1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "check"
+          },
+          {
+            "elevation": 0.0,
+            "id": "V1",
+            "name": "V1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setpoint": 200000.0,
+            "type": "valve",
+            "valveType": "prv"
+          },
+          {
+            "elevation": 0.0,
+            "id": "F1",
+            "name": "F1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "resistance": {
+              "kind": "K",
+              "value": 1.5
+            },
+            "setpoint": 0.01,
+            "type": "valve",
+            "valveType": "fcv"
+          },
+          {
+            "elevation": 0.0,
+            "id": "E1",
+            "name": "E1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "rating": {
+              "density": 999.102621,
+              "flow": 0.015,
+              "kind": "point",
+              "pressureLoss": 50000.0
+            },
+            "type": "equipment"
+          },
+          {
+            "elevation": 0.0,
+            "id": "E2",
+            "name": "E2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "rating": {
+              "kind": "Kv",
+              "value": 60.0
+            },
+            "type": "equipment"
+          },
+          {
+            "boreDiameter": 0.05,
+            "dischargeCoefficient": 0.6,
+            "elevation": 0.0,
+            "id": "O1",
+            "name": "O1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "taps": "flange",
+            "type": "orifice"
+          },
+          {
+            "boreDiameter": 0.05,
+            "elevation": 0.0,
+            "id": "O2",
+            "name": "O2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [
+                {
+                  "pipeIndex": 1,
+                  "type": "elbow_90_lr"
+                }
+              ],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 12.0,
+                  "materialId": "carbon_steel",
+                  "nominalSize": 0.1016,
+                  "schedule": "40"
+                },
+                {
+                  "innerDiameter": 0.1,
+                  "length": 5.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 40.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "scenarios": [
+          {
+            "id": "S1",
+            "name": "Scenario S1",
+            "overrides": [
+              {
+                "componentId": "RV1",
+                "field": "setPressure",
+                "kind": "component",
+                "value": 0.0
+              },
+              {
+                "componentId": "RV1",
+                "field": "capacity.letter",
+                "kind": "component",
+                "value": "Z"
+              },
+              {
+                "componentId": "RV2",
+                "field": "capacity.area",
+                "kind": "component",
+                "value": 80.0
+              },
+              {
+                "componentId": "RV3",
+                "field": "capacity.dischargeCoefficient",
+                "kind": "component",
+                "value": 1.5
+              },
+              {
+                "componentId": "RV3",
+                "field": "capacity.overpressure",
+                "kind": "component",
+                "value": 0.0
+              },
+              {
+                "componentId": "RV3",
+                "field": "setPressure",
+                "kind": "component",
+                "value": 350000.0
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      },
+      "scenarioId": "S1"
+    },
+    {
+      "issues": [
+        {
+          "code": "invalid_capacity",
+          "componentIds": [
+            "RV1"
+          ],
+          "connectionIds": [],
+          "message": "body.project.scenarios.0.overrides.0.value: unknown capacity kind (expected 'api526', 'effective' or 'certified')"
+        },
+        {
+          "code": "greater_than",
+          "componentIds": [
+            "RV2"
+          ],
+          "connectionIds": [],
+          "message": "body.project.scenarios.0.overrides.1.value.dischargeCoefficient: Input should be greater than 0"
+        }
+      ],
+      "kind": "invalid",
+      "name": "a capacity of no kind, and a whole capacity with a value its kind rejects (the union's tag is not in the location)",
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 3.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "elevation": 0.0,
+            "id": "N1",
+            "name": "N1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "pressure": 100000.0,
+            "referenceType": "ideal",
+            "type": "reference_node"
+          },
+          {
+            "elevation": 0.0,
+            "flow": 0.01,
+            "id": "A1",
+            "name": "A1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "assigned_flow"
+          },
+          {
+            "elevation": 0.0,
+            "id": "X1",
+            "name": "X1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "plug"
+          },
+          {
+            "branchType": "tee",
+            "elevation": 0.0,
+            "id": "T1",
+            "lossModel": "ideal",
+            "name": "T1",
+            "ports": [
+              {
+                "id": "run_inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "run_outlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "branch",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "branch"
+          },
+          {
+            "branchType": "wye",
+            "elevation": 0.0,
+            "id": "W1",
+            "name": "W1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet_1",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet_2",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "branch"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "P1",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "control": {
+              "minSpeed": 0.4,
+              "mode": "flow",
+              "setpoint": 0.01
+            },
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P2",
+            "name": "P2",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "speed": 0.9,
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "G1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "C1",
+            "name": "C1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "check"
+          },
+          {
+            "elevation": 0.0,
+            "id": "V1",
+            "name": "V1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setpoint": 200000.0,
+            "type": "valve",
+            "valveType": "prv"
+          },
+          {
+            "elevation": 0.0,
+            "id": "F1",
+            "name": "F1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "resistance": {
+              "kind": "K",
+              "value": 1.5
+            },
+            "setpoint": 0.01,
+            "type": "valve",
+            "valveType": "fcv"
+          },
+          {
+            "elevation": 0.0,
+            "id": "E1",
+            "name": "E1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "rating": {
+              "density": 999.102621,
+              "flow": 0.015,
+              "kind": "point",
+              "pressureLoss": 50000.0
+            },
+            "type": "equipment"
+          },
+          {
+            "elevation": 0.0,
+            "id": "E2",
+            "name": "E2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "rating": {
+              "kind": "Kv",
+              "value": 60.0
+            },
+            "type": "equipment"
+          },
+          {
+            "boreDiameter": 0.05,
+            "dischargeCoefficient": 0.6,
+            "elevation": 0.0,
+            "id": "O1",
+            "name": "O1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "taps": "flange",
+            "type": "orifice"
+          },
+          {
+            "boreDiameter": 0.05,
+            "elevation": 0.0,
+            "id": "O2",
+            "name": "O2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [
+                {
+                  "pipeIndex": 1,
+                  "type": "elbow_90_lr"
+                }
+              ],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 12.0,
+                  "materialId": "carbon_steel",
+                  "nominalSize": 0.1016,
+                  "schedule": "40"
+                },
+                {
+                  "innerDiameter": 0.1,
+                  "length": 5.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 40.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "scenarios": [
+          {
+            "id": "S1",
+            "name": "Scenario S1",
+            "overrides": [
+              {
+                "componentId": "RV1",
+                "field": "capacity",
+                "kind": "component",
+                "value": {
+                  "area": 0.001,
+                  "kind": "rupture_disc"
+                }
+              },
+              {
+                "componentId": "RV2",
+                "field": "capacity",
+                "kind": "component",
+                "value": {
+                  "area": 0.00025,
+                  "dischargeCoefficient": 0.0,
+                  "kind": "certified",
+                  "overpressure": 0.08
+                }
               }
             ]
           }
@@ -13999,6 +19125,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -14446,6 +19637,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -14849,6 +20105,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -15264,6 +20585,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -15679,6 +21065,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -15782,6 +21233,491 @@
                   "flow": 0.015,
                   "kind": "point",
                   "pressureLoss": 50000.0
+                }
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 1,
+        "settings": {
+          "siteElevation": 0.0,
+          "solverOptions": {
+            "frictionMethod": "colebrook",
+            "maxIterations": 100,
+            "tolerance": 1e-09
+          },
+          "units": {}
+        }
+      }
+    },
+    {
+      "issues": [
+        {
+          "code": "value_error",
+          "componentIds": [],
+          "connectionIds": [],
+          "message": "body.project.scenarios.0: Value error, overrides 0 and 1 set a value and a part of it: set the part in the whole value's override"
+        }
+      ],
+      "kind": "rejected",
+      "name": "a capacity and a part of it",
+      "project": {
+        "components": [
+          {
+            "elevation": 0.0,
+            "id": "R1",
+            "liquidLevel": 3.0,
+            "name": "R1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "surfacePressure": 0.0,
+            "type": "reservoir"
+          },
+          {
+            "elevation": 0.0,
+            "id": "N1",
+            "name": "N1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "pressure": 100000.0,
+            "referenceType": "ideal",
+            "type": "reference_node"
+          },
+          {
+            "elevation": 0.0,
+            "flow": 0.01,
+            "id": "A1",
+            "name": "A1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "assigned_flow"
+          },
+          {
+            "elevation": 0.0,
+            "id": "X1",
+            "name": "X1",
+            "ports": [
+              {
+                "id": "port_1",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "plug"
+          },
+          {
+            "branchType": "tee",
+            "elevation": 0.0,
+            "id": "T1",
+            "lossModel": "ideal",
+            "name": "T1",
+            "ports": [
+              {
+                "id": "run_inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "run_outlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "branch",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "branch"
+          },
+          {
+            "branchType": "wye",
+            "elevation": 0.0,
+            "id": "W1",
+            "name": "W1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet_1",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet_2",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "branch"
+          },
+          {
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P1",
+            "name": "P1",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "pump"
+          },
+          {
+            "control": {
+              "minSpeed": 0.4,
+              "mode": "flow",
+              "setpoint": 0.01
+            },
+            "curveId": "C1",
+            "elevation": 0.0,
+            "id": "P2",
+            "name": "P2",
+            "ports": [
+              {
+                "id": "suction",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "discharge",
+                "nominalSize": 0.1
+              }
+            ],
+            "speed": 0.9,
+            "type": "pump"
+          },
+          {
+            "elevation": 0.0,
+            "id": "G1",
+            "name": "G1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "gate"
+          },
+          {
+            "elevation": 0.0,
+            "id": "C1",
+            "name": "C1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "valve",
+            "valveType": "check"
+          },
+          {
+            "elevation": 0.0,
+            "id": "V1",
+            "name": "V1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setpoint": 200000.0,
+            "type": "valve",
+            "valveType": "prv"
+          },
+          {
+            "elevation": 0.0,
+            "id": "F1",
+            "name": "F1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "resistance": {
+              "kind": "K",
+              "value": 1.5
+            },
+            "setpoint": 0.01,
+            "type": "valve",
+            "valveType": "fcv"
+          },
+          {
+            "elevation": 0.0,
+            "id": "E1",
+            "name": "E1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "rating": {
+              "density": 999.102621,
+              "flow": 0.015,
+              "kind": "point",
+              "pressureLoss": 50000.0
+            },
+            "type": "equipment"
+          },
+          {
+            "elevation": 0.0,
+            "id": "E2",
+            "name": "E2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "rating": {
+              "kind": "Kv",
+              "value": 60.0
+            },
+            "type": "equipment"
+          },
+          {
+            "boreDiameter": 0.05,
+            "dischargeCoefficient": 0.6,
+            "elevation": 0.0,
+            "id": "O1",
+            "name": "O1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "taps": "flange",
+            "type": "orifice"
+          },
+          {
+            "boreDiameter": 0.05,
+            "elevation": 0.0,
+            "id": "O2",
+            "name": "O2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
+          }
+        ],
+        "connections": [
+          {
+            "fromComponentId": "R1",
+            "fromPortId": "port_1",
+            "id": "L1",
+            "piping": {
+              "fittings": [
+                {
+                  "pipeIndex": 1,
+                  "type": "elbow_90_lr"
+                }
+              ],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 12.0,
+                  "materialId": "carbon_steel",
+                  "nominalSize": 0.1016,
+                  "schedule": "40"
+                },
+                {
+                  "innerDiameter": 0.1,
+                  "length": 5.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "P1",
+            "toPortId": "suction"
+          },
+          {
+            "fromComponentId": "P1",
+            "fromPortId": "discharge",
+            "id": "L2",
+            "piping": {
+              "fittings": [],
+              "pipes": [
+                {
+                  "innerDiameter": 0.1,
+                  "length": 40.0,
+                  "materialId": "custom",
+                  "roughness": 4.5e-05
+                }
+              ]
+            },
+            "toComponentId": "G1",
+            "toPortId": "inlet"
+          }
+        ],
+        "fluid": {
+          "fluidId": "water",
+          "kind": "builtin",
+          "temperature": 293.15
+        },
+        "id": "test",
+        "metadata": {
+          "created": "2026-10-21",
+          "modified": "2026-10-21",
+          "name": "test"
+        },
+        "pumpLibrary": [
+          {
+            "id": "C1",
+            "name": "curve",
+            "points": [
+              {
+                "flow": 0.0,
+                "head": 40.0
+              },
+              {
+                "flow": 0.02,
+                "head": 35.0
+              },
+              {
+                "flow": 0.04,
+                "head": 20.0
+              }
+            ]
+          }
+        ],
+        "scenarios": [
+          {
+            "id": "S1",
+            "name": "Scenario S1",
+            "overrides": [
+              {
+                "componentId": "RV3",
+                "field": "capacity.area",
+                "kind": "component",
+                "value": 0.0003
+              },
+              {
+                "componentId": "RV3",
+                "field": "capacity",
+                "kind": "component",
+                "value": {
+                  "area": 0.00025,
+                  "dischargeCoefficient": 0.7,
+                  "kind": "certified",
+                  "overpressure": 0.08
                 }
               }
             ]
@@ -16099,6 +22035,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -16511,6 +22512,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -16921,6 +22987,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -17330,6 +23461,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -17740,6 +23936,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -18329,6 +24590,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [
@@ -18831,6 +25157,71 @@
               }
             ],
             "type": "orifice"
+          },
+          {
+            "capacity": {
+              "kind": "api526",
+              "letter": "F"
+            },
+            "elevation": 0.0,
+            "id": "RV1",
+            "name": "RV1",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 500000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.0004,
+              "kind": "effective"
+            },
+            "elevation": 0.0,
+            "id": "RV2",
+            "name": "RV2",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 400000.0,
+            "type": "relief_valve"
+          },
+          {
+            "capacity": {
+              "area": 0.00025,
+              "dischargeCoefficient": 0.7,
+              "kind": "certified",
+              "overpressure": 0.08
+            },
+            "elevation": 0.0,
+            "id": "RV3",
+            "name": "RV3",
+            "ports": [
+              {
+                "id": "inlet",
+                "nominalSize": 0.1
+              },
+              {
+                "id": "outlet",
+                "nominalSize": 0.1
+              }
+            ],
+            "setPressure": 300000.0,
+            "type": "relief_valve"
           }
         ],
         "connections": [

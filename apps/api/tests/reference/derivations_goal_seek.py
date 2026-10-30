@@ -36,7 +36,13 @@ boundary without a fitting (D10):
   eq. (4)'s ratio from corner or flange taps), ``element_laws.OrificeLaw``; K strictly decreases
   in β and in C, so each inverse is one brentq on the plate's own law (``derivations_orifice``);
   its goals read the flow, the loss ρg (EGL_in − EGL_out), the reading at the taps and the static
-  drop p_in − p_out.
+  drop p_in − p_out;
+- pressure relief valves (docs/proposals/pressure-relief-valve.md §5, §7.3): the linear lift on
+  the total-pressure difference with API 520's equation at its lift (``element_laws.ReliefLaw``,
+  ``derivations_relief``); at a known flow and Δp_t the lift x = Q/(Kd·A·√(2Δp_t/ρ)) fixes the
+  set (Δp_s = Δp_t/(1 + op·x)), the overpressure (op = (Δp_t − Δp_s)/(x·Δp_s)) or, beyond full
+  lift, the area or coefficient (Kd·A = Q/√(2Δp_t/ρ)) in closed form; its goals read the flow
+  and the static drop p_in − p_out.
 
 The request follows design §2.1-§2.3: a variable ``{kind, componentId | connectionId +
 pipeIndex, field, coefficient?, lower, upper}`` and a goal ``{quantity, elementId, portId?,
@@ -59,22 +65,26 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import brentq, fsolve
 
+from opensolve_pipe.models.components import API526Letter
 from opensolve_pipe.models.fluids import BuiltinFluid, CustomFluid
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.pumps import PumpCurve
 from tests.reference import derivations as dv
 from tests.reference import derivations_equipment as de
 from tests.reference import derivations_orifice as do
+from tests.reference import derivations_relief as dr
 from tests.reference import element_laws as el
 from tests.reference.case_format import (
     FrictionMethod,
     assigned_flow,
     builtin_water,
+    certified_capacity,
     check_valve,
     connect,
     control_valve,
     custom_fluid,
     custom_pipe,
+    effective_capacity,
     fitting,
     flow_coefficient,
     flow_control,
@@ -87,6 +97,7 @@ from tests.reference.case_format import (
     rated_coefficient,
     rated_point,
     reference_node,
+    relief_valve,
     reservoir,
 )
 from tests.reference.derivations_assigned_flow import FLOW_PUMP_DISCHARGE
@@ -123,6 +134,8 @@ Quantity = Literal[
     "orifice_pressure_loss",
     "orifice_differential_pressure",
     "orifice_pressure_drop",
+    "relief_valve_flow",
+    "relief_valve_pressure_drop",
     "boundary_outflow",
 ]
 Dimension = Literal["pressure", "head", "flow", "velocity"]
@@ -145,6 +158,8 @@ DIMENSION: dict[str, Dimension] = {
     "orifice_pressure_loss": "pressure",
     "orifice_differential_pressure": "pressure",
     "orifice_pressure_drop": "pressure",
+    "relief_valve_flow": "flow",
+    "relief_valve_pressure_drop": "pressure",
 }
 """What each goal quantity measures (design §2.2's unit column; the equipment goals' units are
 equipment-pressure-drop.md §5.2's: m³/s and Pa (difference); the orifice goals' orifice-plate.md
@@ -2599,6 +2614,340 @@ def goal_seek_orifice_pressure_drop_level() -> GoalSeekCase:
     return _orifice_level_case("orifice_pressure_drop")
 
 
+# --- G40-G44: pressure relief valves (pressure-relief-valve.md §5, §7.3) -------------------------
+
+
+def _relief_fluid() -> tuple[float, float]:
+    rho, mu, _ = dv.fluid_state(dr.liquid_a())
+    return rho, mu
+
+
+def _b_json(name: str, element: Any) -> dict[str, Any]:
+    return _json(dr.b_project(f"ref-{name.replace('_', '-')}", name.replace("_", " "), element))
+
+
+def _b_relief_head(q: float, nu: float) -> float:
+    """Network B at loop flow q: the head the relief valve takes, H(q) less the loop's pipes."""
+    return el.pump_head(curve_a(), 1.0, q) - sum(
+        line.head_loss(q, nu) for line in (dr.B_SUCTION, dr.B_DISCHARGE, dr.B_TO_RV, dr.B_FROM_RV)
+    )
+
+
+G40_TARGET = 0.020
+"""m³/s: the relief flow G40 asks of network B (proposal §7.3)."""
+
+
+def goal_seek_relief_set_flow() -> GoalSeekCase:
+    """G40: RV1's setPressure → its flow 20 L/s on relief_pump_bypass (network B, API 526 L,
+    ASME's overpressure). At the loop flow Q* the valve takes h* = H(Q*) − Σh(Q*), Δp_t* = ρg h*;
+    its lift x* = Q*/(C√(2Δp_t*/ρ)) and the linear lift give Δp_s* = Δp_t*/(1 + 0.1 x*) (op 0.1:
+    the set stays above the 3 psi crossover). Proposal §7.3: set* 366,924.6494 Pa, x 0.5987988.
+    Bounds [v/2, 2v] about the case's set (the web's default, proposal §6 W6), above 15 psi."""
+    rho, mu = _relief_fluid()
+    nu = mu / rho
+    q = G40_TARGET
+    dp_t = rho * G * _b_relief_head(q, nu)
+    c = el.API520_EFFECTIVE_KD * el.API526_AREAS[dr.B_LETTER]
+    x = q / (c * math.sqrt(2.0 * dp_t / rho))
+    dp_s = dp_t / (1.0 + el.ASME_OVERPRESSURE * x)
+    if not (0.0 < x < 1.0 and dp_s * el.ASME_OVERPRESSURE > el.ASME_OVERPRESSURE_FLOOR):
+        raise ValueError("G40 is in the band, on ASME's 10 %")
+    base = dr.bench_set(dr.B_GAUGE_SET)
+    bounds = (base / 2.0, 2.0 * base)
+
+    def forward(xs: Sequence[float]) -> list[float]:
+        return [dr.solve_b(dr.b_valve(set_pressure=xs[0]), rho, mu).q]
+
+    name = "goal_seek_relief_set_flow"
+    return GoalSeekCase(
+        name=name,
+        description="G40: the set pressure at which a pump's relief valve passes 20 L/s back "
+        "to its suction tank (setPressure; relief_valve_flow).",
+        source=_source(
+            name,
+            "h* = H(Q*) - sum h(Q*) around the loop (pump curve PCHIP, Darcy-Weisbach + "
+            "Colebrook); dp_t* = rho g h*; x* = Q*/(Kd A sqrt(2 dp_t*/rho)); dp_s* = dp_t*/(1 + "
+            "op x*), op = 0.1 (ASME)",
+        ),
+        project=_b_json(name, dr.b_valve()),
+        variables=(component_variable("RV1", "setPressure", *bounds),),
+        goals=(goal("relief_valve_flow", "RV1", q),),
+        forward=forward,
+        inverse=(dp_s,),
+        checks=("pressure",),
+        density=rho,
+        data={"lift": x},
+    )
+
+
+G41_TARGET = 385_000.0
+"""Pa(g): the relieving pressure G41 sizes for, the gauge set 350 kPa(g) plus ASME's 10 %
+(proposal §7.3)."""
+G41_START_LETTER: API526Letter = "L"
+
+
+def g41_valve(area: float) -> Any:
+    """RV1 of network B with an API 520 effective area (Kd 0.65, ASME's overpressure)."""
+    return relief_valve("RV1", 0.0, dr.bench_set(dr.B_GAUGE_SET), effective_capacity(area))
+
+
+def g41_inlet_pressure(sol: dr.BSolution, rho: float) -> float:
+    """RV1's inlet static pressure, Pa(g): ρg(EGL_in − z) − ρv_in²/2 (D7)."""
+    return dv.static_pressure(rho, sol.at.egl_in, 0.0, sol.at.v_in)
+
+
+def g41_state() -> tuple[float, float, float]:
+    """(Q*, Δp_t*, A*) of G41: the loop flow whose inlet static pressure is 385 kPa(g) on the
+    pump side alone, p_in(Q) = ρg(H₁ − h_L1 + H(Q) − h_L2 − h_LB1) − ρv_in²/2, decreasing in Q
+    (brentq); Δp_t* = ρg(EGL_in − EGL_out), EGL_out = H₁ + h_LB2(Q*); beyond full lift the area is
+    A* = Q*/(Kd√(2Δp_t*/ρ)) (API 520's equation, the valve sized by it)."""
+    rho, mu = _relief_fluid()
+    nu = mu / rho
+    curve = curve_a()
+
+    def egl_in(q: float) -> float:
+        return (
+            dr.B_LEVEL1
+            - dr.B_SUCTION.head_loss(q, nu)
+            + el.pump_head(curve, 1.0, q)
+            - dr.B_DISCHARGE.head_loss(q, nu)
+            - dr.B_TO_RV.head_loss(q, nu)
+        )
+
+    def excess(q: float) -> float:
+        return dv.static_pressure(rho, egl_in(q), 0.0, dr.B_TO_RV.velocity(q)) - G41_TARGET
+
+    q = solve_decreasing(excess)
+    dp_t = rho * G * (egl_in(q) - dr.B_LEVEL1 - dr.B_FROM_RV.head_loss(q, nu))
+    area = q / (el.API520_EFFECTIVE_KD * math.sqrt(2.0 * dp_t / rho))
+    full = dr.bench_set(dr.B_GAUGE_SET) * (1.0 + el.ASME_OVERPRESSURE)
+    if not dp_t > full * (1.0 + 2.0 * dr.FLOW_CLEARANCE):
+        raise ValueError("G41's valve is clearly beyond full lift")
+    return q, dp_t, area
+
+
+def goal_seek_relief_effective_area() -> GoalSeekCase:
+    """G41 (sizing, decision 19): RV1 as an API 520 effective area (Kd 0.65, ASME's 10 %) in
+    relief_pump_bypass's place, starting at API 526 L's area; capacity.area → RV1's inlet static
+    pressure 385 kPa(g), set plus 10 % (``g41_state``). Beyond full lift A* is API 520's area at
+    the solved flow and Δp_t: fluids' API520_A_l there gives A* × (1 + 6.0921×10⁻⁵), and the
+    covering letter is L. Proposal §7.3: A* 1.2866259342×10⁻³ m², Q/Q_f 1.0128157. Bounds: API
+    526 D's to T's effective areas (the web's default, proposal §6 W6)."""
+    rho, mu = _relief_fluid()
+    q, dp_t, area = g41_state()
+    bounds = (el.API526_AREAS["D"], el.API526_AREAS["T"])
+
+    def forward(xs: Sequence[float]) -> list[float]:
+        return [g41_inlet_pressure(dr.solve_b(g41_valve(xs[0]), rho, mu), rho)]
+
+    name = "goal_seek_relief_effective_area"
+    return GoalSeekCase(
+        name=name,
+        description="G41: the API 520 effective area that holds a pump's relief valve inlet at "
+        "its relieving pressure, set plus 10 % (sizing; capacity.area; port_pressure).",
+        source=_source(
+            name,
+            "Q* by brentq on the pump side's inlet static pressure p_in(Q) = 385 kPa(g) "
+            "(pump curve PCHIP, Darcy-Weisbach + Colebrook, D7); dp_t* = rho g (EGL_in - "
+            "EGL_out); A* = Q*/(0.65 sqrt(2 dp_t*/rho)) beyond full lift",
+        ),
+        project=_b_json(name, g41_valve(el.API526_AREAS[G41_START_LETTER])),
+        variables=(component_variable("RV1", "capacity.area", *bounds),),
+        goals=(goal("port_pressure", "RV1", G41_TARGET, "inlet"),),
+        forward=forward,
+        inverse=(area,),
+        checks=("forward",),
+        density=rho,
+        data={
+            "flow": q,
+            "totalPressureDifference": dp_t,
+            "coveringLetter": el.covering_letter(area),
+        },
+    )
+
+
+def _m_state_at_relief_flow(p_r: float, q: float, rho: float, mu: float) -> tuple[float, float]:
+    """Network M at R1's surface pressure p_r with a relief flow q: T1's EGL H from continuity,
+    h_L1⁻¹(H₁ − H) = h_L2⁻¹(H − H₂) + q (brentq), and the valve's Δp_t = ρg(H − h_LB1(q) −
+    h_LB2(q) − H₃) (its ports level)."""
+    nu = mu / rho
+    h1 = dr.M_LEVEL1 + p_r / (rho * G)
+
+    def continuity(h: float) -> float:
+        main_in = dv.solve_flow(lambda x: dr.M_MAIN_IN.head_loss(x, nu), h1 - h)
+        main_out = dv.solve_flow(lambda x: dr.M_MAIN_OUT.head_loss(x, nu), h - dr.M_LEVEL2)
+        return main_in - main_out - q
+
+    h = bisect(continuity, dr.M_LEVEL2 + 1.0e-9, h1 - 1.0e-9)
+    head = h - dr.M_TO_RV.head_loss(q, nu) - dr.M_FROM_RV.head_loss(q, nu) - dr.M_LEVEL3
+    return h, rho * G * head
+
+
+G42_TARGET = 0.0025
+"""m³/s: the relief flow G42 asks of C15's network."""
+
+
+def goal_seek_relief_overpressure_flow() -> GoalSeekCase:
+    """G42: the certified valve of relief_certified (area 2.5×10⁻⁴ m², K 0.70, op 0.08), its
+    capacity.overpressure → relief flow 2.5 L/s at p_R 1.05 MPa. With the relief flow known T1's
+    EGL follows from continuity (``_m_state_at_relief_flow``), then x* = Q*/(K A √(2Δp_t*/ρ)) and
+    op* = (Δp_t* − Δp_s)/(x* Δp_s). Proposal §7.3 (R6): op* 0.1099375341, x 0.44075. Bounds
+    [v/2, min(2v, 1)] about the case's 0.08 (the web's default)."""
+    rho, mu = _relief_fluid()
+    q = G42_TARGET
+    _, dp_t = _m_state_at_relief_flow(1.05e6, q, rho, mu)
+    c = dr.C15_KD * dr.C15_AREA
+    x = q / (c * math.sqrt(2.0 * dp_t / rho))
+    op = (dp_t - dr.M_SET) / (x * dr.M_SET)
+    if not 0.0 < x < 1.0:
+        raise ValueError("G42 is in the band")
+    bounds = (dr.C15_OP / 2.0, min(2.0 * dr.C15_OP, 1.0))
+
+    def forward(xs: Sequence[float]) -> list[float]:
+        capacity = certified_capacity(dr.C15_AREA, dr.C15_KD, xs[0])
+        net = dr.NetworkM(1.05e6, dr.m_valve(capacity=capacity))
+        return [net.solve(rho, mu).q_relief]
+
+    name = "goal_seek_relief_overpressure_flow"
+    return GoalSeekCase(
+        name=name,
+        description="G42: the full-lift overpressure a certified relief valve must have to "
+        "pass 2.5 L/s (the overpressure a calibration must show; capacity.overpressure).",
+        source=_source(
+            name,
+            "T1's EGL by brentq on continuity at the relief flow (Darcy-Weisbach + Colebrook); "
+            "dp_t* = rho g h*; x* = Q*/(K A sqrt(2 dp_t*/rho)); op* = (dp_t* - dp_s)/(x* dp_s)",
+        ),
+        project=_json(dr.relief_certified().project),
+        variables=(component_variable("RV1", "capacity.overpressure", *bounds),),
+        goals=(goal("relief_valve_flow", "RV1", q),),
+        forward=forward,
+        inverse=(op,),
+        checks=("forward",),
+        density=rho,
+        data={"lift": x},
+    )
+
+
+G43_TARGET = 0.0045
+"""m³/s: the relief flow G43 asks of C3's network."""
+G43_START = 0.65
+"""G43's certified coefficient (a test input; the area is API 526 F's)."""
+
+
+def g43_valve(kd: float) -> Any:
+    return dr.m_valve(capacity=certified_capacity(el.API526_AREAS["F"], kd))
+
+
+def goal_seek_relief_coefficient_flow() -> GoalSeekCase:
+    """G43: C3's network (p_R 1.4 MPa) with RV1 certified (API 526 F's area as the actual area,
+    K 0.65, ASME's overpressure), its capacity.dischargeCoefficient → relief flow 4.5 L/s. T1's
+    EGL from continuity at the relief flow, then beyond full lift K* = Q*/(A√(2Δp_t*/ρ)).
+    Proposal §7.3: K* 0.6169863575. Bounds [v/2, min(2v, 1)] (the web's default)."""
+    rho, mu = _relief_fluid()
+    q = G43_TARGET
+    _, dp_t = _m_state_at_relief_flow(1.4e6, q, rho, mu)
+    area = el.API526_AREAS["F"]
+    kd = q / (area * math.sqrt(2.0 * dp_t / rho))
+    full = dr.M_SET * (1.0 + el.asme_overpressure(dr.M_SET))
+    if not dp_t > full * (1.0 + 2.0 * dr.FLOW_CLEARANCE):
+        raise ValueError("G43's valve is clearly beyond full lift")
+    bounds = (G43_START / 2.0, min(2.0 * G43_START, 1.0))
+
+    def forward(xs: Sequence[float]) -> list[float]:
+        return [dr.NetworkM(1.4e6, g43_valve(xs[0])).solve(rho, mu).q_relief]
+
+    name = "goal_seek_relief_coefficient_flow"
+    return GoalSeekCase(
+        name=name,
+        description="G43: the rated coefficient of discharge at which a certified relief "
+        "valve passes 4.5 L/s at full lift (capacity.dischargeCoefficient).",
+        source=_source(
+            name,
+            "T1's EGL by brentq on continuity at the relief flow (Darcy-Weisbach + Colebrook); "
+            "dp_t* = rho g h*; K* = Q*/(A sqrt(2 dp_t*/rho)) beyond full lift",
+        ),
+        project=_json(
+            dr.NetworkM(1.4e6, g43_valve(G43_START)).project(
+                "ref-goal-seek-relief-coefficient-flow",
+                "goal seek relief coefficient flow",
+                dr.liquid_a(),
+                "colebrook",
+            )
+        ),
+        variables=(component_variable("RV1", "capacity.dischargeCoefficient", *bounds),),
+        goals=(goal("relief_valve_flow", "RV1", q),),
+        forward=forward,
+        inverse=(kd,),
+        checks=("forward",),
+        density=rho,
+    )
+
+
+G44_TARGET = 520_000.0
+"""Pa: the static pressure drop across RV1 G44 asks of C4's network."""
+G44_BOUNDS = (9.0e5, 1.3e6)
+"""Pa(g): R1's surface pressure bounds about C4's 1.05 MPa (test inputs)."""
+
+
+def _c4_drop(q: float, rho: float, nu: float) -> float:
+    """C4's valve at flow q (outlet port 0.5 m up): the static drop Δp_t(q) − ρ(v_in² −
+    v_out²)/2, Δp_t = ρg(h(q) − (z_in − z_out))."""
+    law = el.relief_law(dr.m_valve(outlet_elevation=dr.C4_OUTLET_ELEVATION), rho)
+    dp_t = rho * G * (law.head(q) - law.dz)
+    return dp_t - rho * (dr.M_TO_RV.velocity(q) ** 2 - dr.M_FROM_RV.velocity(q) ** 2) / 2.0
+
+
+def goal_seek_relief_supply_pressure_drop() -> GoalSeekCase:
+    """G44: R1's surfacePressure → RV1's static pressure drop 520 kPa on relief_port_elevations
+    (outlet port 0.5 m above the inlet). The drop rises with the relief flow, so Q* by brentq on
+    ``_c4_drop``; then T1's EGL H = H₃ + h_LB2 + h(Q*) + h_LB1, the main's flows from H and
+    continuity, H₁ = H + h_L1(Q_in) and p_R* = ρg(H₁ − 2 m). The law reads Δp_t, which differs
+    from the static drop by the velocity heads and 0.5 m of elevation: a goal read on the wrong
+    one misses (proposal §7.3: p_R* 1,018,261.857 Pa, Δp_t 520,239.30 Pa)."""
+    rho, mu = _relief_fluid()
+    nu = mu / rho
+    element = dr.m_valve(outlet_elevation=dr.C4_OUTLET_ELEVATION)
+    law = el.relief_law(element, rho)
+    full = law.q_full
+    q = bisect(lambda x: _c4_drop(x, rho, nu) - G44_TARGET, 1.0e-12, full)
+    h_t1 = dr.M_LEVEL3 + dr.M_FROM_RV.head_loss(q, nu) + law.head(q) + dr.M_TO_RV.head_loss(q, nu)
+    main_out = dv.solve_flow(lambda x: dr.M_MAIN_OUT.head_loss(x, nu), h_t1 - dr.M_LEVEL2)
+    h1 = h_t1 + dr.M_MAIN_IN.head_loss(main_out + q, nu)
+    p_r = rho * G * (h1 - dr.M_LEVEL1)
+    if not G44_BOUNDS[0] < p_r < G44_BOUNDS[1]:
+        raise ValueError("G44's surface pressure is outside its bounds")
+
+    def forward(xs: Sequence[float]) -> list[float]:
+        net = dr.NetworkM(xs[0], element)
+        sol = net.solve(rho, mu)
+        at = net.ports(sol, nu)
+        p = dr.port_pressures(element, at, rho)
+        return [p["RV1:inlet"] - p["RV1:outlet"]]
+
+    name = "goal_seek_relief_supply_pressure_drop"
+    return GoalSeekCase(
+        name=name,
+        description="G44: the supply tank's surface pressure that puts 520 kPa of static "
+        "pressure drop across a relief valve whose outlet port sits 0.5 m above its inlet "
+        "(surfacePressure; relief_valve_pressure_drop).",
+        source=_source(
+            name,
+            "Q* by brentq on the static drop dp_t(Q) - rho (v_in^2 - v_out^2)/2, dp_t = rho g "
+            "(h(Q) - (z_in - z_out)); T1's EGL, the main's flows (Darcy-Weisbach + Colebrook) "
+            "and p_R* = rho g (H1 - level)",
+        ),
+        project=_json(dr.relief_port_elevations().project),
+        variables=(component_variable("R1", "surfacePressure", *G44_BOUNDS),),
+        goals=(goal("relief_valve_pressure_drop", "RV1", G44_TARGET),),
+        forward=forward,
+        inverse=(p_r,),
+        checks=("pressure",),
+        density=rho,
+        data={"flow": q, "totalPressureDifference": rho * G * (law.head(q) - law.dz)},
+    )
+
+
 MET_CASES: tuple[Callable[[], GoalSeekCase], ...] = (
     goal_seek_level_turbulent,
     goal_seek_level_laminar,
@@ -2636,12 +2985,18 @@ MET_CASES: tuple[Callable[[], GoalSeekCase], ...] = (
     goal_seek_orifice_c_at_corner_taps,
     goal_seek_orifice_pressure_loss_level,
     goal_seek_orifice_pressure_drop_level,
+    goal_seek_relief_set_flow,
+    goal_seek_relief_effective_area,
+    goal_seek_relief_overpressure_flow,
+    goal_seek_relief_coefficient_flow,
+    goal_seek_relief_supply_pressure_drop,
 )
 """Cases whose targets the closed form reaches inside the bounds (G1-G14, G17, G19, and
 G20-G24, which give the variables and quantities §7.2 leaves without a case one each: D6, "a new
 variable field or goal quantity ships with a reference case"; G25-G31, the equipment variables
 and goals, equipment-pressure-drop.md §7.3; G33-G39, the orifice variables and goals,
-orifice-plate.md §7.3)."""
+orifice-plate.md §7.3; G40-G44, the relief valve's variables and goals and sizing,
+pressure-relief-valve.md §7.3)."""
 LABELS = {
     "goal_seek_level_turbulent": "G1",
     "goal_seek_level_laminar": "G2",
@@ -2683,5 +3038,10 @@ LABELS = {
     "goal_seek_orifice_c_at_corner_taps": "G37",
     "goal_seek_orifice_pressure_loss_level": "G38",
     "goal_seek_orifice_pressure_drop_level": "G39",
+    "goal_seek_relief_set_flow": "G40",
+    "goal_seek_relief_effective_area": "G41",
+    "goal_seek_relief_overpressure_flow": "G42",
+    "goal_seek_relief_coefficient_flow": "G43",
+    "goal_seek_relief_supply_pressure_drop": "G44",
 }
 """Design §7.2's numbers (G10b, G20-G24 are this module's additions)."""

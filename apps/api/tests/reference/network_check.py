@@ -21,7 +21,12 @@ orifice plate has no status either: always 'open', with the law H_in − H_out =
 ``element_laws.OrificeLaw`` on its inlet pipe's bore in the case fluid (proposal orifice-plate.md
 §1.1); under EPANET's constants it is the GPV of decision 23, the same law tabulated at
 ``element_laws.GPV_POINTS`` flows on [0, Q_span] as WNTR writes it to the INP file
-(``gpv_table``) and interpolated linearly as EPANET 2.2 does (``epanet_gpv_head``).
+(``gpv_table``) and interpolated linearly as EPANET 2.2 does (``epanet_gpv_head``). A pressure
+relief valve (proposal pressure-relief-valve.md) is 'open' (relieving, at partial or full lift) with
+the law H_in − H_out = h(Q) of ``element_laws.ReliefLaw``, or 'closed' (Q = 0); its status rule is
+the check valve's with cracking head h_set (decision 10). Under EPANET's constants it is decision
+24's GPV, the law tabulated at 0, Q_f and ``element_laws.GPV_POINTS`` flows (``relief_gpv_points``),
+in series with its inlet pipe as an EPANET CV pipe, whose open loss is the pipe's own.
 """
 
 import math
@@ -45,6 +50,7 @@ from opensolve_pipe.models.components import (
     Orifice,
     Plug,
     Pump,
+    ReliefValve,
     Reservoir,
     TeeBranch,
     WyeBranch,
@@ -123,6 +129,8 @@ class Model:
     """m³/s per m of head across an active FCV (EPANET's 1/CBIG conductance; 0 for ours)."""
     orifice_table: bool = False
     """Orifice plates as EPANET GPVs (their law tabulated, ``epanet_gpv_head``), not the law."""
+    relief_table: bool = False
+    """Relief valves as EPANET GPVs (their law tabulated, ``relief_gpv_points``), not the law."""
 
 
 def our_model(project: Project) -> Model:
@@ -136,6 +144,7 @@ EPANET_MODEL = Model(
     k_scale=EPANET_MINOR_LOSS_SCALE,
     fcv_leak=EPANET_FCV_LEAK,
     orifice_table=True,
+    relief_table=True,
 )
 
 # --- EPANET GPV standing for an orifice plate (proposal orifice-plate.md decision 23) -----------
@@ -271,8 +280,8 @@ def connection_head_loss(connection: PipeConnection, q: float, nu: float, model:
 # --- Nodes ---------------------------------------------------------------------------------------
 
 Valve = IsolationValve | CheckValve | ControlValve
-TwoPort = Pump | IsolationValve | CheckValve | ControlValve | Equipment | Orifice
-TWO_PORTS = (Pump, IsolationValve, CheckValve, ControlValve, Equipment, Orifice)
+TwoPort = Pump | IsolationValve | CheckValve | ControlValve | Equipment | Orifice | ReliefValve
+TWO_PORTS = (Pump, IsolationValve, CheckValve, ControlValve, Equipment, Orifice, ReliefValve)
 Branch = TeeBranch | WyeBranch
 
 TWO_PORT_ENDS = {
@@ -280,6 +289,7 @@ TWO_PORT_ENDS = {
     "valve": ("inlet", "outlet"),
     "equipment": ("inlet", "outlet"),
     "orifice": ("inlet", "outlet"),
+    "relief_valve": ("inlet", "outlet"),
 }
 EQUIPMENT_STATE = "open"
 """An equipment item has no status (proposal decision 8): its law always applies; an orifice
@@ -391,7 +401,15 @@ def element_states(project: Project, expected: Mapping[str, Any]) -> dict[str, s
             states[component.id] = expected["valves"][component.id]["state"]
         elif isinstance(component, Equipment | Orifice):
             states[component.id] = EQUIPMENT_STATE
+        elif isinstance(component, ReliefValve):
+            states[component.id] = relief_state(expected["reliefValves"][component.id])
     return states
+
+
+def relief_state(result: Mapping[str, Any] | None) -> str:
+    """A relief valve's state for the laws and rules: 'closed' (its result's state closed, or no
+    result: a valve with a closed-off or floating side, decision 16) or 'open' (relieving)."""
+    return "closed" if result is None or result["state"] == "closed" else "open"
 
 
 PUMP_HEAD_STATES = ("running", "max_speed", "min_speed")
@@ -437,6 +455,8 @@ def connects_heads(component: TwoPort, state: str) -> bool:
         return state in PUMP_HEAD_STATES
     if isinstance(component, Equipment | Orifice):
         return True
+    if isinstance(component, ReliefValve):
+        return state == "open"
     if state == "active":
         return isinstance(component, ControlValve) and component.valve_type != "fcv"
     return state == "open"
@@ -585,6 +605,12 @@ def element_law(
     h(Q), its law on the inlet pipe's bore (``orifice_head``)."""
     rho = density(project)
     key_in, key_out = two_port_ends(component)
+    if isinstance(component, ReliefValve):
+        if state == "closed":
+            return "flow", q
+        if state != "open":
+            raise ValueError(f"{component.id}: a relief valve has no state {state!r}")
+        return "head", h_in - h_out - relief_head(project, component, q, model)
     if isinstance(component, Orifice):
         if state != EQUIPMENT_STATE:
             raise ValueError(f"{component.id}: an orifice plate has no state {state!r}")
@@ -770,6 +796,37 @@ def orifice_head(project: Project, component: Orifice, q: float, model: Model) -
     return orifice_plate_law(project, component).head(q, model.g)
 
 
+def relief_valve_law(project: Project, component: ReliefValve) -> el.ReliefLaw:
+    """The relief valve's law in the case fluid, its ports at their elevations."""
+    return el.relief_law(component, density(project))
+
+
+def relief_gpv_span(project: Project, component: ReliefValve) -> float:
+    """The largest flow the GPV curve standing for a relief valve tabulates: the flow at which
+    the valve alone would take the whole spread of the network's fixed heads (as ``gpv_span``
+    for a plate; no relief valve of a network without pumps carries more)."""
+    if any(isinstance(c, Pump) for c in project.components):
+        raise ValueError("a GPV span from the fixed heads needs a network without pumps")
+    heads = fixed_heads(project).values()
+    return el.relief_flow_at_head(relief_valve_law(project, component), max(heads) - min(heads))
+
+
+def relief_gpv_points(project: Project, component: ReliefValve) -> list[tuple[float, float]]:
+    """The (Q, h) points of a relief valve's GPV curve, SI, before WNTR's rounding (decision 24:
+    at 0, at Q_f and at GPV_POINTS evenly spaced flows)."""
+    law = relief_valve_law(project, component)
+    return el.relief_gpv_curve(law, relief_gpv_span(project, component))
+
+
+def relief_head(project: Project, component: ReliefValve, q: float, model: Model) -> float:
+    """H_in − H_out of an open relief valve at flow q: its law (our model, with the model's g),
+    or the GPV standing for it (EPANET's, ``Model.relief_table``)."""
+    if model.relief_table:
+        xs, ys = gpv_table(relief_gpv_points(project, component))
+        return epanet_gpv_head(xs, ys, q)
+    return relief_valve_law(project, component).head(q, model.g)
+
+
 def state_problems(
     project: Project,
     flows: Mapping[str, float],
@@ -787,12 +844,18 @@ def state_problems(
     rho = density(project)
     problems = []
     for component in project.components:
-        if not isinstance(component, Pump | IsolationValve | CheckValve | ControlValve):
+        if not isinstance(
+            component, Pump | IsolationValve | CheckValve | ControlValve | ReliefValve
+        ):
             continue
         key_in, key_out = two_port_ends(component)
         q = port_inflow(project, key_in, flows)
         h_in, h_out = egl.get(key_in, math.nan), egl.get(key_out, math.nan)
-        if isinstance(component, Pump):
+        if isinstance(component, ReliefValve):
+            problem = el.relief_state_problem(
+                component, states[component.id], q, h_in, h_out, rho, margin
+            )
+        elif isinstance(component, Pump):
             curve = next(c for c in project.pump_library if c.id == component.curve_id)
             if component.control is not None:
                 problem = el.controlled_pump_state_problem(

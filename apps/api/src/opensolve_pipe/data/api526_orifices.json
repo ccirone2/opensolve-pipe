@@ -1,0 +1,110 @@
+{
+  "description": "The pressure relief valve's cited data (proposal pressure-relief-valve.md decision 27). orifices: API 526's letters with their effective areas, m², for preliminary sizing with API 520's effective coefficient of discharge (never with a valve's rated coefficient or actual area). effectiveDischargeCoefficient: that coefficient. asmeOverpressureFraction and asmeOverpressureFloor (Pa, a difference): ASME VIII's liquid certification overpressure, the fraction of the set pressure or the floor, whichever is greater, the default overpressure at full lift. asmeMinimumSetPressure (Pa, a difference): ASME VIII's scope, below which that default is not cited.",
+  "generatedBy": "apps/api/scripts/generate_relief_data.py",
+  "fluidsVersion": "1.3.1",
+  "units": "m² (areas), Pa (pressures), fractions (no unit)",
+  "orifices": [
+    {
+      "letter": "D",
+      "area": 7.09676e-05,
+      "areaSquareInches": 0.11,
+      "source": "API Standard 526, Flanged Steel Pressure-Relief Valves (effective orifice areas); letter D, 0.11 in², via fluids 1.3.1 fluids.safety_valve.API526_A (API526_A_sq_inch × inch²); Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, Table 7-6 (API effective orifice area and coefficient of discharge, liquid K = 0.650), gives the same areas"
+    },
+    {
+      "letter": "E",
+      "area": 0.00012645136,
+      "areaSquareInches": 0.196,
+      "source": "API Standard 526, Flanged Steel Pressure-Relief Valves (effective orifice areas); letter E, 0.196 in², via fluids 1.3.1 fluids.safety_valve.API526_A (API526_A_sq_inch × inch²); Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, Table 7-6 (API effective orifice area and coefficient of discharge, liquid K = 0.650), gives the same areas"
+    },
+    {
+      "letter": "F",
+      "area": 0.00019806412,
+      "areaSquareInches": 0.307,
+      "source": "API Standard 526, Flanged Steel Pressure-Relief Valves (effective orifice areas); letter F, 0.307 in², via fluids 1.3.1 fluids.safety_valve.API526_A (API526_A_sq_inch × inch²); Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, Table 7-6 (API effective orifice area and coefficient of discharge, liquid K = 0.650), gives the same areas"
+    },
+    {
+      "letter": "G",
+      "area": 0.00032451547999999997,
+      "areaSquareInches": 0.503,
+      "source": "API Standard 526, Flanged Steel Pressure-Relief Valves (effective orifice areas); letter G, 0.503 in², via fluids 1.3.1 fluids.safety_valve.API526_A (API526_A_sq_inch × inch²); Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, Table 7-6 (API effective orifice area and coefficient of discharge, liquid K = 0.650), gives the same areas"
+    },
+    {
+      "letter": "H",
+      "area": 0.0005064506,
+      "areaSquareInches": 0.785,
+      "source": "API Standard 526, Flanged Steel Pressure-Relief Valves (effective orifice areas); letter H, 0.785 in², via fluids 1.3.1 fluids.safety_valve.API526_A (API526_A_sq_inch × inch²); Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, Table 7-6 (API effective orifice area and coefficient of discharge, liquid K = 0.650), gives the same areas"
+    },
+    {
+      "letter": "J",
+      "area": 0.00083032092,
+      "areaSquareInches": 1.287,
+      "source": "API Standard 526, Flanged Steel Pressure-Relief Valves (effective orifice areas); letter J, 1.287 in², via fluids 1.3.1 fluids.safety_valve.API526_A (API526_A_sq_inch × inch²); Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, Table 7-6 (API effective orifice area and coefficient of discharge, liquid K = 0.650), gives the same areas"
+    },
+    {
+      "letter": "K",
+      "area": 0.00118580408,
+      "areaSquareInches": 1.838,
+      "source": "API Standard 526, Flanged Steel Pressure-Relief Valves (effective orifice areas); letter K, 1.838 in², via fluids 1.3.1 fluids.safety_valve.API526_A (API526_A_sq_inch × inch²); Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, Table 7-6 (API effective orifice area and coefficient of discharge, liquid K = 0.650), gives the same areas"
+    },
+    {
+      "letter": "L",
+      "area": 0.00184064148,
+      "areaSquareInches": 2.853,
+      "source": "API Standard 526, Flanged Steel Pressure-Relief Valves (effective orifice areas); letter L, 2.853 in², via fluids 1.3.1 fluids.safety_valve.API526_A (API526_A_sq_inch × inch²); Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, Table 7-6 (API effective orifice area and coefficient of discharge, liquid K = 0.650), gives the same areas"
+    },
+    {
+      "letter": "M",
+      "area": 0.002322576,
+      "areaSquareInches": 3.6,
+      "source": "API Standard 526, Flanged Steel Pressure-Relief Valves (effective orifice areas); letter M, 3.6 in², via fluids 1.3.1 fluids.safety_valve.API526_A (API526_A_sq_inch × inch²); Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, Table 7-6 (API effective orifice area and coefficient of discharge, liquid K = 0.650), gives the same areas"
+    },
+    {
+      "letter": "N",
+      "area": 0.0027999944,
+      "areaSquareInches": 4.34,
+      "source": "API Standard 526, Flanged Steel Pressure-Relief Valves (effective orifice areas); letter N, 4.34 in², via fluids 1.3.1 fluids.safety_valve.API526_A (API526_A_sq_inch × inch²); Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, Table 7-6 (API effective orifice area and coefficient of discharge, liquid K = 0.650), gives the same areas"
+    },
+    {
+      "letter": "P",
+      "area": 0.004116120799999999,
+      "areaSquareInches": 6.38,
+      "source": "API Standard 526, Flanged Steel Pressure-Relief Valves (effective orifice areas); letter P, 6.38 in², via fluids 1.3.1 fluids.safety_valve.API526_A (API526_A_sq_inch × inch²); Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, Table 7-6 (API effective orifice area and coefficient of discharge, liquid K = 0.650), gives the same areas"
+    },
+    {
+      "letter": "Q",
+      "area": 0.007129018,
+      "areaSquareInches": 11.05,
+      "source": "API Standard 526, Flanged Steel Pressure-Relief Valves (effective orifice areas); letter Q, 11.05 in², via fluids 1.3.1 fluids.safety_valve.API526_A (API526_A_sq_inch × inch²); Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, Table 7-6 (API effective orifice area and coefficient of discharge, liquid K = 0.650), gives the same areas"
+    },
+    {
+      "letter": "R",
+      "area": 0.01032256,
+      "areaSquareInches": 16.0,
+      "source": "API Standard 526, Flanged Steel Pressure-Relief Valves (effective orifice areas); letter R, 16 in², via fluids 1.3.1 fluids.safety_valve.API526_A (API526_A_sq_inch × inch²); Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, Table 7-6 (API effective orifice area and coefficient of discharge, liquid K = 0.650), gives the same areas"
+    },
+    {
+      "letter": "T",
+      "area": 0.01677416,
+      "areaSquareInches": 26.0,
+      "source": "API Standard 526, Flanged Steel Pressure-Relief Valves (effective orifice areas); letter T, 26 in², via fluids 1.3.1 fluids.safety_valve.API526_A (API526_A_sq_inch × inch²); Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, Table 7-6 (API effective orifice area and coefficient of discharge, liquid K = 0.650), gives the same areas"
+    }
+  ],
+  "effectiveDischargeCoefficient": {
+    "value": 0.65,
+    "source": "API Standard 520, Part I, Sizing and Selection, 10th edition: the effective coefficient of discharge for preliminary sizing of a liquid relief valve ('0.65 normally'), via fluids 1.3.1 fluids.safety_valve.API520_A_l's default Kd; Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, Table 7-6 (liquid K = 0.650)"
+  },
+  "asmeOverpressureFraction": {
+    "value": 0.1,
+    "source": "Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, ch. 3, p. 3.15, on ASME Section VIII: 'The steam, gas, or liquid capacity tests are performed with 10% or 3 psi [0.207 bar] overpressure'"
+  },
+  "asmeOverpressureFloor": {
+    "value": 20684.271879505082,
+    "psi": 3.0,
+    "source": "Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, ch. 3, p. 3.15, the same sentence ('10% or 3 psi'); 3 psi × fluids 1.3.1 fluids.constants.psi (6894.757293168361 Pa)"
+  },
+  "asmeMinimumSetPressure": {
+    "value": 103421.3593975254,
+    "psi": 15.0,
+    "source": "Pentair, Pressure Relief Valve Engineering Handbook, Technical Publication No. TP-V300, rev. 12-2012, ch. 5, p. 5.3: 'outside of the scope of ASME (below 15 psig)'; 15 psi × fluids 1.3.1 fluids.constants.psi (6894.757293168361 Pa)"
+  }
+}

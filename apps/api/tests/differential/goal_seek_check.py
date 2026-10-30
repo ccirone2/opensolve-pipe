@@ -29,7 +29,14 @@ For every corpus project (``corpus.items()``) and n = 1 to 4, a request is drawn
    decisions 17 and 21; a bound it refuses is tested in tests/reference/test_goal_seek.py). The
    caps are not decision 17 (c) itself: r can be below its r_max (``ORIFICE_MOVED_C_MAX``), and a
    bore drawn under an entered C at those taps is not capped by r_max, so a draw could reach the
-   bounds 400, counted as a violation; none on the corpus did.
+   bounds 400, counted as a violation; none on the corpus did. A relief valve's orifice area is
+   a variable on an effective or a certified capacity (the holders x-override-fields lists), its
+   rated coefficient and overpressure on a certified one; an overpressure on ASME's default (no
+   number held: a middle start) is centred on that default, max(fraction, floor / set) from
+   x-relief-data; and a set pressure whose overpressure is ASME's default is drawn at or above
+   x-relief-data's asmeMinimumSetPressure, ASME VIII's scope, below which the API refuses the
+   bound (proposal pressure-relief-valve.md decisions 14 and 19; a bound it refuses is tested in
+   tests/reference/test_goal_seek.py).
 2. Goals: among the case's results that have values, a quantity uniformly, then an element
    (an orifice plate's differential pressure only with taps: null without).
 3. Targets: the goal values at a seeded point of the bounds, solved through ``/solve`` with the
@@ -66,17 +73,20 @@ Checks, each a claim of the response (a violation names its letter):
 - (g) bounds: every evaluation's values lie within the variable's bounds, evaluation 0 is the
   start, the start follows its source (the case's value, the nearer bound, or the middle on the
   log scale), caseValue and baseValue are the projects' values (baseValue null where the base
-  rates an equipment item by another kind than the case), value and atBound match the
+  rates an equipment item by another kind than the case, or gives a relief valve's capacity, a
+  value of it varied, by another kind), value and atBound match the
   reported evaluation, the override sets that value at the variable's target (or, where the
   scenario overrides a whole value that holds it, a whole fluid or a whole equipment rating,
   that whole value as the reported evaluation's case holds it: every variable written at its
-  value found, proposal equipment-pressure-drop.md §5.2), and replacedOverride names the
-  scenario override with the variable's target and field, or that whole value's;
+  value found, proposal equipment-pressure-drop.md §5.2; a whole relief valve capacity
+  likewise, pressure-relief-valve.md decision 19), and replacedOverride names the scenario
+  override with the variable's target and field, or that whole value's;
 - (h) spot checks: evaluation 0 and up to SPOT_CHECKS others (an unusable one first), and both
   sides of a jump, solved again through ``/solve``: the outcome (usable, not converged, no
   value, 422 topology, 400 fluid), the goal values bit for bit, the residuals, and the state
   changes against the first solved evaluation (elements that carry more than 1e-6 m³/s on one
-  side, D13).
+  side, D13: a pump's status and control state, a valve's or relief valve's state, a branch's
+  pattern).
 
 Recorded (no threshold, proposal §7.4 (f)): the stop reasons and the met rate per n and per
 target kind, evaluation counts, the rates of jumps, unsolved crossings, time-budget stops and
@@ -157,6 +167,9 @@ SPAN_FLOOR = {
     "fluid.temperature": 10.0,
     "rating.density": 100.0,
     "dischargeCoefficient": 0.1,
+    "setPressure": 1.0e5,
+    "capacity.dischargeCoefficient": 0.1,
+    "capacity.overpressure": 0.05,
 }
 """The smallest width scale of a linear variable's bounds, SI (the case's value sets it above)."""
 ORIFICE_BETA_MAX = 0.75
@@ -192,6 +205,8 @@ class Api:
         request = self.components["GoalSeekRequest"]
         self.goal_variables: dict[str, Any] = request["x-goal-variables"]
         self.goal_quantities: dict[str, Any] = request["x-goal-quantities"]
+        self.override_fields: dict[str, Any] = self.components["Scenario"]["x-override-fields"]
+        self.relief_data: dict[str, Any] = self.components["ReliefValve"]["x-relief-data"]
         self.response_schema = self.schema["paths"]["/api/v1/goal-seek"]["post"]["responses"][
             "200"
         ]["content"]["application/json"]["schema"]
@@ -231,11 +246,15 @@ class Api:
         status, data, _ = self.post("/api/v1/solve", body)
         return status, data
 
-    def bounds(self, schema_name: str, field: str) -> tuple[float, float, bool, bool]:
+    def bounds(
+        self, schema_name: str, field: str, holder: str | None = None
+    ) -> tuple[float, float, bool, bool]:
         """(lower, upper, lower strict, upper strict) of the number a variable writes, from its
-        published property (x-goal-variables gives the schema and the path)."""
+        published property (x-goal-variables gives the schema and the path; ``holder``, the
+        schema that holds it in the case where several do)."""
         entry = self.goal_variables[schema_name][field]
-        prop = _number_schema(self.components[entry["schema"]]["properties"][entry["path"][-1]])
+        props = self.components[holder or entry["schema"]]["properties"]
+        prop = _number_schema(props[entry["path"][-1]])
         lower, lower_strict = -math.inf, False
         upper, upper_strict = math.inf, False
         if "minimum" in prop:
@@ -423,13 +442,18 @@ def case_value(api: Api, project: dict[str, Any], variable: dict[str, Any]) -> A
 def rated_otherwise(base: dict[str, Any], case: dict[str, Any], variable: dict[str, Any]) -> bool:
     """The base rates the variable's equipment item by another kind than the case (a Kv or a
     point where S1 rates it by a Cv): the base's number is not a value of the variable, so its
-    baseValue is null (proposal equipment-pressure-drop.md §12 item 32)."""
-    if variable["kind"] != "component" or not variable["field"].startswith("rating."):
+    baseValue is null (proposal equipment-pressure-drop.md §12 item 32); likewise a relief
+    valve's capacity given by another kind (an effective area is not an actual area, proposal
+    pressure-relief-valve.md decision 18)."""
+    if variable["kind"] != "component":
         return False
     b, c = _component(base, variable["componentId"]), _component(case, variable["componentId"])
-    if b is None or c is None or b.get("type") != "equipment":
+    if b is None or c is None or b.get("type") != c.get("type"):
         return False
-    return bool(b["rating"]["kind"] != c["rating"]["kind"])
+    whole = {"equipment": "rating", "relief_valve": "capacity"}.get(str(b.get("type")))
+    if whole is None or not variable["field"].startswith(f"{whole}."):
+        return False
+    return bool(b[whole]["kind"] != c[whole]["kind"])
 
 
 def _number(value: Any, variable: dict[str, Any]) -> float | None:
@@ -471,21 +495,38 @@ def from_u(u: float, lower: float, upper: float, scale: str) -> float:
     return min(max(x, lower), upper)
 
 
+def holder_schemas(api: Api, schema: str, field: str) -> list[str]:
+    """The schemas that hold a variable's value: every holder x-override-fields lists for it
+    where several members of a union hold it (a relief valve's capacity.area, an effective and a
+    certified capacity), else x-goal-variables' bounding schema."""
+    listed = api.override_fields.get(schema, {}).get(field, {}).get("holders")
+    return list(listed) if listed else [api.goal_variables[schema][field]["schema"]]
+
+
+def _kinds(api: Api, schema: str) -> list[str] | None:
+    """The kinds a schema names (``kind``, a const or an enum), or None."""
+    kind = api.components[schema].get("properties", {}).get("kind", {})
+    return [kind["const"]] if "const" in kind else kind.get("enum")
+
+
 def holds(api: Api, component: dict[str, Any], schema: str, field: str) -> bool:
     """Whether the component holds the variable's value, read from x-goal-variables: a value
     inside a holder (a published path of more than one name) needs the holder (a pump's
     control), and a holder whose published schema names its kinds (``kind``, a const or an
-    enum: RatedPoint's 'point', RatedFlowCoefficient's 'Cv' and 'Kv') one of them."""
-    entry = api.goal_variables[schema][field]
-    path = entry["path"]
+    enum: RatedPoint's 'point', RatedFlowCoefficient's 'Cv' and 'Kv') one of them, of any of
+    its holder schemas (``holder_schemas``: a relief valve's area, an effective or a certified
+    capacity's)."""
+    path = api.goal_variables[schema][field]["path"]
     if len(path) < 2:
         return True
     holder = _path_value(component, ".".join(path[:-1]))
     if not isinstance(holder, dict):
         return False
-    kind = api.components[entry["schema"]].get("properties", {}).get("kind", {})
-    kinds = [kind["const"]] if "const" in kind else kind.get("enum")
-    return kinds is None or holder.get("kind") in kinds
+    for name in holder_schemas(api, schema, field):
+        kinds = _kinds(api, name)
+        if kinds is None or holder.get("kind") in kinds:
+            return True
+    return False
 
 
 def candidates(api: Api, case: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -522,7 +563,9 @@ def published_limits(
     property's bounds, narrowed by the type's x-setpoint-bounds (by valve type) and by
     x-ordered-fields against the component's other values (a controlled pump's speed above its
     minSpeed)."""
-    lower, upper, lower_strict, upper_strict = api.bounds(schema, field)
+    lower, upper, lower_strict, upper_strict = api.bounds(
+        schema, field, _holder_of(api, schema, component, field)
+    )
     if component is None:
         return lower, upper, lower_strict, upper_strict
     extensions = api.components[schema]
@@ -542,6 +585,35 @@ def published_limits(
             if other is not None and other <= upper:
                 upper, upper_strict = other, rule["strict"]
     return lower, upper, lower_strict, upper_strict
+
+
+def _holder_of(api: Api, schema: str, component: dict[str, Any] | None, field: str) -> str | None:
+    """The holder schema of the component's kind where several hold the value (a certified
+    capacity's area: CertifiedOrifice), else None (x-goal-variables' schema)."""
+    holders = holder_schemas(api, schema, field)
+    if component is None or len(holders) < 2:
+        return None
+    path = api.goal_variables[schema][field]["path"]
+    holder = _path_value(component, ".".join(path[:-1]))
+    kind = holder.get("kind") if isinstance(holder, dict) else None
+    return next((h for h in holders if kind in (_kinds(api, h) or [])), None)
+
+
+def default_overpressure(api: Api, set_pressure: float) -> float:
+    """ASME's liquid certification overpressure at full lift as a fraction of a set pressure
+    difference, max(fraction, floor / set), from the published x-relief-data (proposal
+    pressure-relief-valve.md decision 6)."""
+    data = api.relief_data
+    return float(
+        max(data["asmeOverpressureFraction"], data["asmeOverpressureFloor"] / set_pressure)
+    )
+
+
+def asme_defaulted(component: dict[str, Any]) -> bool:
+    """Whether a relief valve takes ASME's default overpressure: a letter or an effective
+    area always, a certified capacity without an overpressure (decision 6)."""
+    capacity = component["capacity"]
+    return capacity["kind"] != "certified" or capacity.get("overpressure") is None
 
 
 def _solved_tap_c(state: dict[str, Any], component: dict[str, Any]) -> float:
@@ -605,6 +677,9 @@ def draw_bounds(
         if number is None and field == "dischargeCoefficient":  # ISO 5167-2's: a middle start
             assert component is not None
             number = _solved_tap_c(state, component)
+        if number is None and field == "capacity.overpressure":  # ASME's: a middle start
+            assert component is not None
+            number = default_overpressure(api, float(component["setPressure"]))
         assert number is not None
         v = number
     if scale_of(api, case, variable) == "log":
@@ -644,6 +719,10 @@ def draw_bounds(
         if limit is None:
             return None
         upper = min(upper, limit)
+    if component is not None and field == "setPressure" and asme_defaulted(component):
+        scope = float(api.relief_data["asmeMinimumSetPressure"])
+        if lo_f < scope:  # ASME's overpressure is cited only from its scope on (decision 14)
+            lo_f, lo_strict = scope, False
     width = max(abs(upper - lower), 1.0e-12)
     if lower < lo_f or (lo_strict and lower <= lo_f):
         lower = lo_f + (1.0e-6 * width if lo_strict else 0.0)
@@ -704,6 +783,11 @@ def goal_value(state: dict[str, Any], goal: dict[str, Any]) -> float | None:
             "orifice_pressure_drop": "pressureDrop",
         }[quantity]
         value = state["orificeResults"].get(element, {}).get(field)
+    elif quantity.startswith("relief_valve_"):
+        field = {"relief_valve_flow": "flow", "relief_valve_pressure_drop": "pressureDrop"}[
+            quantity
+        ]
+        value = state["reliefValveResults"].get(element, {}).get(field)
     elif quantity == "boundary_outflow":
         value = state["boundaryResults"].get(element, {}).get("outflow")
     return None if value is None else float(value)
@@ -739,6 +823,9 @@ def goal_candidates(
             "orifice_pressure_drop",
         ):
             found[q].append({"quantity": q, "elementId": oid})
+    for rid in state["reliefValveResults"]:
+        for q in ("relief_valve_flow", "relief_valve_pressure_drop"):
+            found[q].append({"quantity": q, "elementId": rid})
     for bid in state["boundaryResults"]:
         component = _component(case, bid)
         name = (
@@ -900,7 +987,8 @@ def _far(
 
 def state_map(state: dict[str, Any]) -> dict[tuple[str, str], tuple[str | None, list[float]]]:
     """Each element's state with its flows (§3.1 step 6): pump status and control state,
-    valve state, branch pattern."""
+    valve state (a relief valve's too: closed, partial or full lift, proposal
+    pressure-relief-valve.md §2.2), branch pattern."""
     out: dict[tuple[str, str], tuple[str | None, list[float]]] = {}
     for pid, pump in state["pumpResults"].items():
         out[(pid, "pump_status")] = (pump["status"], [pump["operatingFlow"]])
@@ -908,6 +996,8 @@ def state_map(state: dict[str, Any]) -> dict[tuple[str, str], tuple[str | None, 
             out[(pid, "pump_control")] = (pump["control"]["state"], [pump["operatingFlow"]])
     for vid, valve in state["valveResults"].items():
         out[(vid, "valve_state")] = (valve["state"], [valve["flow"]])
+    for rid, relief in state["reliefValveResults"].items():
+        out[(rid, "valve_state")] = (relief["state"], [relief["flow"]])
     for bid, branch in state["branchResults"].items():
         out[(bid, "branch_pattern")] = (branch["pattern"], list(branch["portFlows"].values()))
     return out

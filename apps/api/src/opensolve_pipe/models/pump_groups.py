@@ -147,7 +147,8 @@ class PumpGroupDutyMember(OutputModel):
     share: float | None = Field(
         description=(
             "parallel: flow / the station's flow; series: head / the sum of the members' heads; "
-            "null for a mixed station, or when the divisor is 0"
+            "null for a mixed station, when the divisor is 0, or in parallel when the station's "
+            "flow is zero within the solver's continuity tolerance"
         )
     )
     route_head_loss: float | None = Field(
@@ -173,8 +174,9 @@ class PumpGroupDuty(OutputModel):
     members: list[PumpGroupDutyMember] = Field(description="In member order")
     interstage_head_loss: float | None = Field(
         description=(
-            "series, every pump running: the sum of the heads - the rise, m (the piping between "
-            "the pumps); null otherwise"
+            "series, every pump running: the sum of the heads - the rise, m (the head across the "
+            "elements between the pumps: their pipes' and valves' losses, or the head a closed "
+            "valve holds); null otherwise"
         )
     )
 

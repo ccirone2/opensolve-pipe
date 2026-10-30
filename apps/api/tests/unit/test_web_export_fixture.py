@@ -42,6 +42,7 @@ import pytest
 from fastapi.testclient import TestClient
 from openpyxl.worksheet.worksheet import Worksheet
 
+import opensolve_pipe
 from opensolve_pipe.main import app
 from tests.fixtures.round_off import round_off_differences
 
@@ -69,6 +70,7 @@ XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 Q, H, L, D, V = "[m³/s]", "[m]", "[m]", "[m]", "[m/s]"
 PG, PA, DP = "[Pa(g)]", "[Pa(a)]", "[Pa]"
 RHO = "[kg/m³]"
+AREA = "[m²]"
 
 CASE_COLUMNS = ["Case id", "Case", "Solved at", "Results"]  # §2.2 item 9, with scenarios
 
@@ -105,6 +107,16 @@ HEADERS: dict[str, list[str]] = {
         f"Pressure drop, static {DP}", "K (open)", f"K referred to diameter {D}", "K effective",
         "Cv effective", f"Pressure setpoint {PG}", f"Flow setpoint {Q}", "Setpoint achieved",
         "Flags",
+    ],
+    # proposal pressure-relief-valve.md §5 (the set, overpressure and capacity the solve used: the
+    # sheet's named departure from the screen's table, as equipment's rating)
+    "Relief valves": [
+        "Relief valve id", "Relief valve", "State", f"Flow (+ inlet → outlet) {Q}", "Lift",
+        f"Capacity (full lift) {Q}", "Flow ÷ capacity", f"Inlet pressure {PG}",
+        f"Back pressure {PG}", "Δp ÷ set", f"Pressure difference, total {DP}",
+        f"Pressure drop, static {DP}", f"Head loss {H}", f"Set pressure {DP}",
+        "Overpressure at full lift", "Overpressure from", "Capacity given by", f"Area {AREA}",
+        "Kd", "Covering letter", "Reynolds number (orifice)", "Flags",
     ],
     # proposal equipment-pressure-drop.md §5.4 (the rated values: its named departure from the
     # screen's table, which has no form to read them from)
@@ -590,6 +602,69 @@ def expected_valves() -> Iterator[tuple[Any, ...]]:
             )
 
 
+def _relief_ids(case: dict[str, Any]) -> list[str]:
+    """The relief valves of a case's sheet rows, in component order: those with a result, and
+    an active valve with no result that RELIEF_VALVE_CLOSED names (a closed-off or floating
+    side, proposal pressure-relief-valve.md decisions 15-16), listed by its flag as on the
+    screen (§6 W4)."""
+    ss = state(case)
+    results = ss.get("reliefValveResults") or {}
+    flagged = {f["componentId"] for f in ss["flags"] if f["code"] == "RELIEF_VALVE_CLOSED"} - set(
+        results
+    )
+    return [c["id"] for c in as_solved(case)["components"] if c["id"] in {*results, *flagged}]
+
+
+def _capacity_given_by(capacity: dict[str, Any]) -> str:
+    """Proposal pressure-relief-valve.md §5's "Capacity given by": "API 526 J", "Effective
+    area" or "Certified"."""
+    if capacity["kind"] == "api526":
+        return f"API 526 {capacity['letter']}"
+    return {"effective": "Effective area", "certified": "Certified"}[capacity["kind"]]
+
+
+def expected_relief_valves() -> Iterator[tuple[Any, ...]]:
+    """Proposal pressure-relief-valve.md §5: one row per valve and case, the result's own
+    fields, then the set, overpressure and capacity the solve used as the result echoes them
+    (after any scenario, §2.2): the capacity's area and coefficient resolved, the covering
+    letter only for an effective area. A valve without a result has its flags only."""
+    for case in cases():
+        ss = state(case)
+        results = ss.get("reliefValveResults") or {}
+        for cid in _relief_ids(case):
+            flags = _component_flags(ss, cid)
+            r = results.get(cid)
+            if r is None:
+                yield (*case_columns(case), cid, names()[cid], TEXT, *[None] * 18, flags)
+                continue
+            capacity = r["capacity"]
+            yield (
+                *case_columns(case),
+                cid,
+                names()[cid],
+                TEXT,
+                r["flow"],
+                r["lift"],
+                r["fullLiftFlow"],
+                r["flowRatio"],
+                r["inletPressure"],
+                r["backPressure"],
+                r["setRatio"],
+                r["totalPressureDifference"],
+                r["pressureDrop"],
+                r["headLoss"],
+                r["setPressure"],
+                r["overpressure"],
+                TEXT,
+                _capacity_given_by(capacity),
+                capacity["area"],
+                capacity["dischargeCoefficient"],
+                capacity.get("coveringLetter") if capacity["kind"] == "effective" else None,
+                r["reynoldsNumber"],
+                flags,
+            )
+
+
 def expected_equipment() -> Iterator[tuple[Any, ...]]:
     """Proposal equipment-pressure-drop.md §5.4: one row per item and case, the result's own
     fields, and the rating the solve used as the result echoes it (after any scenario, §2.2):
@@ -768,7 +843,34 @@ def expected_assigned_flows() -> Iterator[tuple[Any, ...]]:
             )
 
 
+@cache
+def api526_areas() -> dict[str, float]:
+    """API 526's effective areas by letter, m², from the API's data file (decision 27)."""
+    path = Path(opensolve_pipe.__file__).parent / "data" / "api526_orifices.json"
+    return {o["letter"]: o["area"] for o in json.loads(path.read_text())["orifices"]}
+
+
+def _capacity_text(capacity: dict[str, Any]) -> _Text:
+    """A whole relief valve capacity as a scenario change's value (proposal
+    pressure-relief-valve.md §5's value texts: "API 526 J (...), Kd 0.65 (preliminary)", "API
+    520 effective area ..."), its numbers exact in SI."""
+    if capacity["kind"] == "api526":
+        letter = capacity["letter"]
+        return text_with(f"API 526 {letter} ({js_number(api526_areas()[letter])} m²)", "0.65")
+    if capacity["kind"] == "effective":
+        return text_with(f"API 520 effective area {js_number(capacity['area'])} m²", "0.65")
+    return text_with(js_number(capacity["area"]), js_number(capacity["dischargeCoefficient"]))
+
+
 def _change_value(field: str, value: Any) -> Any:
+    if field == "capacity.letter" and value is not None:
+        # Proposal pressure-relief-valve.md §5: the letter with its effective area, exact.
+        return f"API 526 {value} ({js_number(api526_areas()[value])} m²)"
+    if field == "capacity" and value is not None:
+        return _capacity_text(value)
+    if field == "capacity.overpressure" and value is None:
+        # Proposal pressure-relief-valve.md §5: a null overpressure is ASME's, the default.
+        return text_with("ASME")
     if field == "resistance":
         # §2.6: "{kind} {String(coefficient)}", or "Default" when null.
         return "Default" if value is None else f"{value['kind']} {js_number(value['value'])}"
@@ -804,7 +906,8 @@ def expected_scenario_changes() -> Iterator[tuple[Any, ...]]:
             # pressure drop (trace unit 'Pa (difference)'), as 'Pa' (§2.2's table: "Pressure
             # difference ... Pa" in SI mode); the SI unit column keeps the server's string.
             unit_label = SI_LABELS.get(unit, unit) if unit is not None else None
-            text = target["field"] == "resistance"
+            text = target["field"] in {"resistance", "capacity", "capacity.letter"}
+            applied = o["state"] == "applied"
             yield (
                 *case_columns(case),
                 o["index"] + 1,
@@ -814,8 +917,10 @@ def expected_scenario_changes() -> Iterator[tuple[Any, ...]]:
                 TEXT,
                 target["field"],
                 {"applied": "Applied", "not_applicable": "Not applicable"}.get(o["state"], TEXT),
-                _change_value(target["field"], o["value"]),
-                _change_value(target["field"], o["baseValue"]),
+                # An ignored change has no Value or Base value (export review V2): the server
+                # records them only for a change it applied.
+                _change_value(target["field"], o["value"]) if applied else None,
+                _change_value(target["field"], o["baseValue"]) if applied else None,
                 None if text else unit_label,
                 ("json", o["value"]),
                 ("json", o["baseValue"]),
@@ -831,6 +936,7 @@ EXPECTED_TABLES: dict[str, Callable[[], Iterator[tuple[Any, ...]]]] = {
     "Pipes": expected_pipes,
     "Fittings": expected_fittings,
     "Valves": expected_valves,
+    "Relief valves": expected_relief_valves,
     "Equipment": expected_equipment,
     "Orifice plates": expected_orifices,
     "Branches": expected_branches,
@@ -1074,7 +1180,9 @@ def expected_sheet_names() -> list[str]:
         ("Pump curves", pumps),
         ("System curves", curves),
         ("Valves", any(s["valveResults"] for s in states)),
-        # proposal equipment-pressure-drop.md §5.4: after Valves
+        # proposal pressure-relief-valve.md decision 21: after Valves
+        ("Relief valves", any(_relief_ids(c) for c in cases())),
+        # proposal equipment-pressure-drop.md §5.4: after Valves (and the relief valves)
         ("Equipment", any(s["equipmentResults"] for s in states)),
         # proposal orifice-plate.md §5.4: after Equipment
         ("Orifice plates", any(s["orificeResults"] for s in states)),
@@ -1297,9 +1405,11 @@ def test_no_pump_or_curve_sheet_without_pumps() -> None:
 
 
 def _network_extremes(ss: dict[str, Any], project: dict[str, Any]) -> dict[str, Any]:
-    order = [f"{c['id']}:{p['id']}" for c in project["components"] for p in c["ports"]]
-    nodes = [k for k in order if k in ss["nodeResults"]]
-    low = min(nodes, key=lambda k: ss["nodeResults"][k]["pressure"])
+    # export.md §2.7 names `lowestPressureNode`: the least absolute pressure, the first of equal
+    # ones in the API's own nodeResults order (the fixture's relief valve discharges to 0 kPa(g),
+    # so its outlet port and the discharge's reference node tie at exactly 0 Pa(g) while it is
+    # closed).
+    low = min(ss["nodeResults"], key=lambda k: ss["nodeResults"][k]["absolutePressure"])
     links = [c["id"] for c in project["connections"] if c["id"] in ss["linkResults"]]
 
     def speed(cid: str) -> float:
@@ -1356,6 +1466,19 @@ def test_compare_cases_holds_the_api_values_and_exact_differences() -> None:
             return lambda ss: (ss["orificeResults"][eid]["differentialPressure"], "Pa", True)
         if q == "orificePressureDrop":
             return lambda ss: (ss["orificeResults"][eid]["pressureDrop"], "Pa", False)
+        # Relief valves (proposal pressure-relief-valve.md decision 20): relative only for the
+        # flow; the inlet pressure is gauge, the ratio Δp_t/Δp_s has no unit, and the static
+        # pressure drop holds the ports' elevation and velocity terms, so it has no true zero.
+        if q == "reliefFlow":
+            return lambda ss: (ss["reliefValveResults"][eid]["flow"], "m³/s", True)
+        if q == "reliefState":
+            return lambda ss: (TEXT, None, False)
+        if q == "reliefInletPressure":
+            return lambda ss: (ss["reliefValveResults"][eid]["inletPressure"], "Pa(g)", False)
+        if q == "reliefSetRatio":
+            return lambda ss: (ss["reliefValveResults"][eid]["setRatio"], None, False)
+        if q == "reliefPressureDrop":
+            return lambda ss: (ss["reliefValveResults"][eid]["pressureDrop"], "Pa", False)
         raise AssertionError(f"extend this reader for {q}")
 
     states = [state(c) for c in cases()]
@@ -1506,6 +1629,9 @@ def test_about_opens_with_how_to_read_the_file_and_records_the_export() -> None:
     # SI mode: the units of every category (§2.3), and the fractions note.
     units = {r[2] for r in export}
     assert {"m", "Pa(g)", "Pa(a)", "Pa", "m³/s", "m/s", "K", "kg/m³", "Pa·s", "m²/s", "W"} <= units
+    # Proposal pressure-relief-valve.md §6 W7: a relief valve's areas are in their own category.
+    relief = "Relief valves" in workbook().sheetnames
+    assert ("m²" in units) == relief, "the areas unit only with a Relief valves sheet"
     # Proposal equipment-pressure-drop.md §5.4: only a file with an Equipment sheet extends the
     # fractions, exceptions and round-off lines and adds the equipment flow sign, so a file
     # without one keeps §2.7's sentences byte for byte.
@@ -1517,7 +1643,15 @@ def test_about_opens_with_how_to_read_the_file_and_records_the_export() -> None:
         if equipment
         else ""
     )
-    assert any(r[2] == fractions for r in export)
+    if relief:
+        # Proposal pressure-relief-valve.md §5: the ratios of the Relief valves sheet are
+        # fractions too, named after the sentences a file without the sheet keeps.
+        extended = [r[2] for r in export if str(r[2]).startswith(fractions + " ")]
+        assert len(extended) == 1, "the fractions sentence names the relief valve's ratios"
+        for part in ("Δp ÷ set", "lift", "flow ÷ capacity"):
+            assert part in extended[0], part
+    else:
+        assert any(r[2] == fractions for r in export)
     assert any(
         r[2] == "Pressures are gauge unless marked (a) or psia; differences carry no marker."
         for r in export
@@ -1541,8 +1675,13 @@ def test_about_opens_with_how_to_read_the_file_and_records_the_export() -> None:
     # Proposal orifice-plate.md §5.4: only a file with an Orifice plates sheet extends the ≈ 0
     # clause to the plates' pressure differences and adds their sign row.
     orifices = "Orifice plates" in workbook().sheetnames
+    # Proposal pressure-relief-valve.md §5: a file with a Relief valves sheet names the relief
+    # valves' pressure drops in the ≈ 0 clause too, after the valves', and adds their sign row.
     drops = (
-        ["valve"] + (["equipment"] if equipment else []) + (["orifice plate"] if orifices else [])
+        ["valve"]
+        + (["relief valve"] if relief else [])
+        + (["equipment"] if equipment else [])
+        + (["orifice plate"] if orifices else [])
     )
     losses = (["equipment pressure losses"] if equipment else []) + (
         ["orifice plate permanent losses"] if orifices else []
@@ -1560,6 +1699,14 @@ def test_about_opens_with_how_to_read_the_file_and_records_the_export() -> None:
     for row in sign:
         assert str(row[2]).startswith("+ inlet → outlet"), row
         for part in ("permanent pressure loss", "differential pressure", "head loss"):
+            assert part in str(row[2]), part
+    relief_sign = [
+        r for r in export if str(r[1]).startswith("Sign:") and "relief valve" in str(r[1]).lower()
+    ]
+    assert len(relief_sign) == (1 if relief else 0), "the relief valve flow sign"
+    for row in relief_sign:
+        assert str(row[2]).startswith("+ inlet → outlet"), row
+        for part in ("head loss", "total-pressure difference", "static pressure drop"):
             assert part in str(row[2]), part
     if equipment:  # §5.4: the flow sign for equipment, as the valves' (+ inlet → outlet)
         assert any(

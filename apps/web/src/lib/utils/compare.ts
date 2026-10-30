@@ -5,7 +5,8 @@
  * Every value comes from a case's solved state; nothing is computed here but differences of
  * values the API returned, in the display units. A difference is the scenario's value minus the
  * base case's, with a true minus sign and + for an increase. A relative difference is given only
- * for quantities with a true zero (flows, velocities, a pump's head, head losses, an equipment
+ * for quantities with a true zero (flows, velocities, a pump's head, head losses, a relief valve's
+ * flow (never its inlet pressure, Δp ÷ set or static drop), an equipment
  * item's pressure loss, an orifice plate's permanent loss and differential pressure, power, speed),
  * never for gauge pressures, static pressure drops, grade lines, elevations or NPSH margins. "Same" means the two values
  * display the same: there is no tolerance snapping (D6 and D13 are acceptance rules for solver
@@ -27,6 +28,7 @@ import type {
 import type { CaseStatus, ResultsState } from '../state/project.svelte';
 import { componentById, connectionById } from './graph';
 import { portLabel } from './labels';
+import { reliefStateLabel } from './relief';
 import {
 	connectionName,
 	fastestLink,
@@ -34,6 +36,7 @@ import {
 	linkReading,
 	lowestPressureNode,
 	pumpStatusLabel,
+	RELIEF_NO_RESULT,
 	valveStateLabel,
 	type ElementRef
 } from './results';
@@ -60,6 +63,11 @@ export type Quantity =
 	| 'valvePressureDrop'
 	| 'valveState'
 	| 'valveSetpointMet'
+	| 'reliefFlow'
+	| 'reliefState'
+	| 'reliefInletPressure'
+	| 'reliefSetRatio'
+	| 'reliefPressureDrop'
 	| 'equipmentFlow'
 	| 'equipmentPressureLoss'
 	| 'equipmentPressureDrop'
@@ -93,6 +101,7 @@ export type ElementKind =
 	| 'network'
 	| 'pump'
 	| 'valve'
+	| 'relief'
 	| 'equipment'
 	| 'orifice'
 	| 'connection'
@@ -108,7 +117,15 @@ interface Spec {
 	/** A relative difference is meaningful (a true zero). */
 	relative?: boolean;
 	element: ElementKind;
-	value: (solved: SolvedState, row: CompareRow) => number | string | null | undefined;
+	/**
+	 * The row's value in a case's solved state; `inputs` is that case's project as solved (null or
+	 * absent: not known), for a value that also reads an input (a relief valve's status).
+	 */
+	value: (
+		solved: SolvedState,
+		row: CompareRow,
+		inputs?: Project | null
+	) => number | string | null | undefined;
 	/** Where a network extreme occurs, for the cell's second line. */
 	where?: (solved: SolvedState, project: Project) => string;
 }
@@ -117,6 +134,8 @@ const pump = (s: SolvedState, r: CompareRow) =>
 	r.elementId ? s.pumpResults[r.elementId] : undefined;
 const valve = (s: SolvedState, r: CompareRow) =>
 	r.elementId ? s.valveResults[r.elementId] : undefined;
+const relief = (s: SolvedState, r: CompareRow) =>
+	r.elementId ? s.reliefValveResults?.[r.elementId] : undefined;
 const equipment = (s: SolvedState, r: CompareRow) =>
 	r.elementId ? s.equipmentResults[r.elementId] : undefined;
 const orifice = (s: SolvedState, r: CompareRow) =>
@@ -272,6 +291,48 @@ export const QUANTITIES: Readonly<Record<Quantity, Spec>> = {
 			return met === null || met === undefined ? null : met ? 'Yes' : 'No';
 		}
 	},
+	reliefFlow: {
+		label: 'Flow',
+		category: 'flow',
+		relative: true,
+		element: 'relief',
+		value: (s, r) => relief(s, r)?.flow
+	},
+	reliefState: {
+		label: 'State',
+		element: 'relief',
+		value: (s, r, inputs) => {
+			const v = relief(s, r);
+			// A locked-closed valve reads "Closed (locked)", from its status as that case was solved.
+			if (v && r.elementId) return reliefStateLabel(v.state, r.elementId, inputs);
+			// No result: a side closed off or on an undetermined level (its flag says which).
+			return flagsOf(s.flags, r).some((flag) => flag.code === 'RELIEF_VALVE_CLOSED')
+				? RELIEF_NO_RESULT
+				: null;
+		}
+	},
+	reliefInletPressure: {
+		// A gauge pressure: no true zero.
+		label: 'Inlet pressure',
+		category: 'pressure',
+		options: { gauge: true },
+		element: 'relief',
+		value: (s, r) => relief(s, r)?.inletPressure
+	},
+	reliefSetRatio: {
+		// Δp_t ÷ Δp_s: 100 % is the set, not a zero.
+		label: 'Δp ÷ set',
+		category: 'fraction',
+		element: 'relief',
+		value: (s, r) => relief(s, r)?.setRatio
+	},
+	reliefPressureDrop: {
+		// The static difference holds the ports' elevation and velocity terms: no true zero.
+		label: 'Pressure drop',
+		category: 'pressure',
+		element: 'relief',
+		value: (s, r) => relief(s, r)?.pressureDrop
+	},
 	equipmentFlow: {
 		label: 'Flow',
 		category: 'flow',
@@ -408,6 +469,13 @@ export const ELEMENT_QUANTITIES: Readonly<Record<Spec['element'], readonly Quant
 		'pumpStatus'
 	],
 	valve: ['valveFlow', 'valveHeadLoss', 'valvePressureDrop', 'valveState', 'valveSetpointMet'],
+	relief: [
+		'reliefFlow',
+		'reliefState',
+		'reliefInletPressure',
+		'reliefSetRatio',
+		'reliefPressureDrop'
+	],
 	equipment: ['equipmentFlow', 'equipmentPressureLoss', 'equipmentPressureDrop'],
 	orifice: [
 		'orificeFlow',
@@ -432,6 +500,8 @@ export function compareElementKind(component: Component): ElementKind | null {
 			return 'pump';
 		case 'valve':
 			return 'valve';
+		case 'relief_valve':
+			return 'relief';
 		case 'equipment':
 			return 'equipment';
 		case 'orifice':
@@ -493,11 +563,12 @@ export const DEFAULT_ROW_LIMIT = 40;
 /**
  * The default rows (proposal §6.12): the network's status; each pump's flow and head, its NPSH
  * margin where the base case has one, and its speed where a case flow-controls it or changes its
- * speed; each element a scenario changes (a valve's flow and state, an equipment item's flow and
+ * speed; each relief valve's flow, state and inlet pressure (proposal pressure-relief-valve.md
+ * decision 20); each element a scenario changes (a valve's flow and state, an equipment item's flow and
  * pressure loss, an orifice plate's flow and permanent loss, a reservoir's or reference node's
  * outflow, a pipe's connection flow and head loss, the fluid's density and vapor pressure); each assigned-flow node's pressure; the lowest
  * pressure and the highest velocity.
- * Pumps and changed elements first, at most 40.
+ * Pumps, relief valves and changed elements first, at most 40.
  */
 export function defaultRows(
 	project: Project,
@@ -519,6 +590,18 @@ export function defaultRows(
 			changes.some((o) => o.kind === 'component' && o.componentId === id && o.field === 'speed');
 		if (controlled) rows.push({ quantity: 'pumpSpeed', elementId: id });
 	}
+	// Each relief valve's flow, state and inlet pressure, after the pumps' (proposal
+	// pressure-relief-valve.md decision 20): its relieving cases come from changing other elements
+	// (a blocked discharge), so changed elements alone would hide them.
+	for (const component of project.components) {
+		if (component.type !== 'relief_valve') continue;
+		const id = component.id;
+		rows.push(
+			{ quantity: 'reliefFlow', elementId: id },
+			{ quantity: 'reliefState', elementId: id },
+			{ quantity: 'reliefInletPressure', elementId: id }
+		);
+	}
 	for (const o of changes) {
 		if (o.kind === 'component') {
 			const component = componentById(project, o.componentId);
@@ -526,6 +609,11 @@ export function defaultRows(
 				rows.push(
 					{ quantity: 'valveFlow', elementId: o.componentId },
 					{ quantity: 'valveState', elementId: o.componentId }
+				);
+			} else if (component?.type === 'relief_valve') {
+				rows.push(
+					{ quantity: 'reliefFlow', elementId: o.componentId },
+					{ quantity: 'reliefState', elementId: o.componentId }
 				);
 			} else if (component?.type === 'equipment') {
 				rows.push(
@@ -583,6 +671,11 @@ export interface CompareColumn {
 	 * are current), so its connections' values are read on the connections as they are now.
 	 */
 	sent?: Project | null;
+	/**
+	 * The case's project as solved (the store's caseInputs; null or absent: not known), for the
+	 * inputs a value is read with: a relief valve's status (a locked-closed valve's state).
+	 */
+	inputs?: Project | null;
 }
 
 /** Why a connection's value in a case reads otherwise, or is not given (a cell's note). */
@@ -606,7 +699,7 @@ export function compareValue(
 ): { value: number | string | null; note?: string } {
 	const spec = QUANTITIES[row.quantity];
 	if (!column.solved) return { value: null };
-	const value = spec.value(column.solved, row) ?? null;
+	const value = spec.value(column.solved, row, column.inputs ?? null) ?? null;
 	if (spec.element !== 'connection' || typeof value !== 'number' || !row.elementId) {
 		return { value };
 	}

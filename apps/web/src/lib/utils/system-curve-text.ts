@@ -11,7 +11,7 @@
  *
  * Every number comes from the point; only units change. Names are the project's (an id that the
  * project does not have stays as the id, in quotes). The rule each kind of element follows (what
- * an FCV, PRV, PSV, check valve or pump lets through) is chosen by that element's kind in the
+ * an FCV, PRV, PSV, check valve, relief valve or pump lets through) is chosen by that element's kind in the
  * project as solved, as the API chooses it; when an element's kind is not known there, the API's
  * sentence is kept.
  */
@@ -39,7 +39,7 @@ export interface SystemCurveNote {
 }
 
 /** The kinds of element a status rule closes, in the API's order (status.RULES). */
-const RULE_KINDS = ['fcv', 'prv', 'psv', 'check', 'pump'] as const;
+const RULE_KINDS = ['fcv', 'prv', 'psv', 'check', 'relief', 'pump'] as const;
 type RuleKind = (typeof RULE_KINDS)[number];
 
 /** What each status rule that can close an element lets through, in words. */
@@ -48,6 +48,8 @@ const RULES: Readonly<Record<RuleKind, string>> = {
 	prv: 'a PRV passes no reverse flow, and no flow while the pressure its outlet side needs is above its setting',
 	psv: 'a PSV passes no reverse flow, and no flow while the pressure at its inlet would fall below its setting',
 	check: 'a check valve passes no reverse flow',
+	relief:
+		'a relief valve passes no reverse flow, and no flow while the pressure difference across it is below its set pressure',
 	pump: 'a pump passes no reverse flow, nor any flow against more than its shutoff head'
 };
 
@@ -66,6 +68,7 @@ const WAY =
 /** The kind of rule that closes a component (null: none, or not a pump or valve). */
 function ruleKind(component: Component | undefined): RuleKind | null {
 	if (component?.type === 'pump') return 'pump';
+	if (component?.type === 'relief_valve') return 'relief';
 	if (component?.type !== 'valve') return null;
 	switch (component.valveType) {
 		case 'fcv':

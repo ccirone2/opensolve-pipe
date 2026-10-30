@@ -621,6 +621,57 @@ def test_compare_the_orifice_proof_command(tmp_path: Path) -> None:
     assert diff == 0
 
 
+def test_compare_the_relief_valve_proof_command(tmp_path: Path) -> None:
+    """The corpus comparison of the relief valve (proposal pressure-relief-valve.md §3.9):
+    ``compare A B --ignore-empty reliefValveResults --ignore methodVersion --ignore
+    trace.methods.methodVersion`` leaves out the new empty map and the version, in both modes,
+    while a relief result the old dump lacks, a changed value, or the orifice plates' map left
+    empty on one side only is a difference; each ignore's count is printed."""
+    a, b = tmp_path / "a", tmp_path / "b"
+    methods = {"methodVersion": "1.5.0", "sections": []}
+    old: dict[str, Any] = {
+        "methodVersion": "1.5.0",
+        "equipmentResults": {},
+        "orificeResults": {},
+        "trace": {"methods": methods},
+    }
+    new = copy.deepcopy(old)
+    new["methodVersion"] = new["trace"]["methods"]["methodVersion"] = "1.6.0"
+    new["reliefValveResults"] = {}
+    write(a, "p", old)
+    write(b, "p", new)
+    ignore = ["methodVersion", "trace.methods.methodVersion"]
+    for tolerances in (None, compare.DEFAULT_SETTINGS):
+        _, diff = compare.compare_dirs(a, b, ignore, tolerances=tolerances)
+        assert diff == 1  # the new map shows without --ignore-empty
+        lines, diff = compare.compare_dirs(
+            a, b, ignore, tolerances=tolerances, ignore_empty=["reliefValveResults"]
+        )
+        assert diff == 0
+        assert "ignored reliefValveResults (empty or absent): 1 values in 1 projects" in lines
+        assert "ignored methodVersion: 1 values in 1 projects" in lines
+        assert "ignored trace.methods.methodVersion: 1 values in 1 projects" in lines
+    item = {"state": "partial_lift", "flow": 0.0022, "headLoss": 53.8, "inletPressure": 5.26e5}
+    write(b, "p", {**new, "reliefValveResults": {"RV1": item}})
+    lines, diff = compare.compare_dirs(a, b, ignore, ignore_empty=["reliefValveResults"])
+    assert diff == 1
+    assert "ignored reliefValveResults (empty or absent): 0 values in 0 projects" in lines
+    write(a, "p", {**old, "reliefValveResults": {"RV1": item}})
+    write(b, "p", {**new, "reliefValveResults": {"RV1": {**item, "inletPressure": 5.2600001e5}}})
+    for tolerances in (None, compare.DEFAULT_SETTINGS):  # 0.01 Pa > ρg·10⁻⁶ m: a pressure
+        _, diff = compare.compare_dirs(
+            a, b, ignore, tolerances=tolerances, ignore_empty=["reliefValveResults"]
+        )
+        assert diff == 1
+    write(b, "p", {**new, "reliefValveResults": {"RV1": item}, "orificeResults": []})
+    _, diff = compare.compare_dirs(a, b, ignore, ignore_empty=["reliefValveResults"])
+    assert diff == 1  # each path is left out only where it is named
+    _, diff = compare.compare_dirs(
+        a, b, ignore, ignore_empty=["reliefValveResults", "orificeResults"]
+    )
+    assert diff == 0
+
+
 # --------------------------------------------------------------------------- missing results
 # A pump or valve without a result is skipped by every other check (state 'isolated'), so
 # ``checks.missing_result_problems`` holds it to the rule for when one has none (SDD §4.10, TSD

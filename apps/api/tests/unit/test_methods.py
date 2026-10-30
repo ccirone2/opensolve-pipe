@@ -198,8 +198,7 @@ def test_method_1_5_0_adds_the_project_library() -> None:
     """GOALS §4.3, proposal project-library.md §2.4 and the owner's answer Q5: the project library
     (with its K-at-a-stated-bore conversion) is method 1.5.0, after 1.4.0, with one changelog
     line that says projects without a project library are unchanged."""
-    assert METHOD_VERSION == "1.5.0"
-    assert [e["version"] for e in METHOD_CHANGELOG] == [
+    assert [e["version"] for e in METHOD_CHANGELOG][:6] == [
         "1.0.0",
         "1.1.0",
         "1.2.0",
@@ -207,7 +206,7 @@ def test_method_1_5_0_adds_the_project_library() -> None:
         "1.4.0",
         "1.5.0",
     ]
-    entry = METHOD_CHANGELOG[-1]
+    [entry] = [e for e in METHOD_CHANGELOG if e["version"] == "1.5.0"]
     assert entry["date"] == "2026-10-28"
     [line] = entry["changes"]
     assert line.startswith("Adds the project library: ")
@@ -217,6 +216,35 @@ def test_method_1_5_0_adds_the_project_library() -> None:
         "Flows, heads, pressures, statuses, traces, messages and system curves of projects "
         "without a project library are unchanged (corpus comparison)."
     )
+
+
+def test_method_1_6_0_adds_the_pressure_relief_valve() -> None:
+    """GOALS §4.3, proposal pressure-relief-valve.md decision 23 and §3.9: the liquid pressure
+    relief valve is method 1.6.0, after 1.5.0 (the project library, CLAUDE.md D22), with one
+    changelog line that says projects without relief valves are unchanged."""
+    assert METHOD_VERSION == "1.6.0"
+    assert [e["version"] for e in METHOD_CHANGELOG] == [
+        "1.0.0",
+        "1.1.0",
+        "1.2.0",
+        "1.3.0",
+        "1.4.0",
+        "1.5.0",
+        "1.6.0",
+    ]
+    entry = METHOD_CHANGELOG[-1]
+    assert entry["date"] == "2026-10-29"
+    assert entry["changes"] == [
+        "Adds the liquid pressure relief valve: a conventional spring-loaded valve closed below "
+        "its set pressure difference, its lift rising linearly with the overpressure (a "
+        "convention, flagged; not the typical characteristic's surge and blowdown) to full lift "
+        "at set plus overpressure (ASME's 10 % or 3 psi by default, for sets of at least 15 "
+        "psi), with API 520's liquid equation Q = Kd·A·√(2Δp/ρ) at its lift on the "
+        "total-pressure difference between its ports; API 526 letters and effective areas at "
+        "API 520's preliminary coefficient 0.65, or a certified area and rated coefficient. "
+        "Flows, heads, pressures, statuses, traces, messages and system curves of projects "
+        "without relief valves are unchanged (corpus comparison)."
+    ]
 
 
 def test_friction_section_follows_the_method() -> None:

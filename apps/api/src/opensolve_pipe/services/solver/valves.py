@@ -25,13 +25,17 @@ from typing import Literal
 
 import fluids.fittings
 
-from ...models.components import CheckValve, ControlValve, IsolationValve
+from ...models.components import CheckValve, ControlValve, IsolationValve, ReliefValve
 from ...models.project_library import ResistanceRef
 from .coefficients import k_from_coefficient
 from .fittings import load_fittings, size_warning
 from .project_library import EntryK, ResistanceEntries, entry_k
 
-Valve = IsolationValve | CheckValve | ControlValve
+ResistanceValve = IsolationValve | CheckValve | ControlValve
+"""The valves with a resistance (a K, Cv or Kv, or a default)."""
+Valve = ResistanceValve | ReliefValve
+"""Every element in ``BuiltNetwork.valves``: a relief valve is a valve link too, whose status
+rule is the check valve's (proposal pressure-relief-valve.md decision 10)."""
 
 _CRANE = "Crane Co. TP-410 Flow of Fluids Through Valves, Fittings, and Pipe (2009), via fluids"
 
@@ -103,7 +107,7 @@ class ValveResistance:
 
 
 def valve_resistance(
-    valve: Valve, d_ref: float, entries: ResistanceEntries | None = None
+    valve: ResistanceValve, d_ref: float, entries: ResistanceEntries | None = None
 ) -> ValveResistance:
     """Fully open K of a valve on its reference diameter d_ref (design §2.3). ``entries``: the
     project's resistance entries by id, for a valve that refers to one (every reference

@@ -37,6 +37,7 @@ import type {
 	UnitPreferences
 } from '../api/types';
 import { flowDirection } from './assigned-flow';
+import { CAPACITY_FIELDS, type CapacityKind } from './factory';
 import { componentById, connectionById } from './graph';
 import { originOf } from './identity';
 import { canonicalJson } from './json';
@@ -53,12 +54,22 @@ import {
 import {
 	componentOverrideFields,
 	componentSchemaName,
+	holdersOf,
 	holdsSchema,
 	pipeOverrideFields,
 	projectOverrideFields,
 	type OverrideField
 } from './model-rules';
 import { resistanceText, specRefText } from './project-library';
+import {
+	areaLabel,
+	CAPACITY_FIELD_LABELS,
+	CAPACITY_KIND_WORDS,
+	capacityText,
+	letterArea,
+	overpressureDefaultText,
+	RELIEF_STATUS_LABELS
+} from './relief';
 import { itemLimit, stringLimits } from './schema-bounds';
 import { formatValue } from './units';
 
@@ -263,6 +274,21 @@ function holderMatches(holder: unknown, schema: string): boolean {
 	return holdsSchema(holder, schema);
 }
 
+/**
+ * Why a value of a relief valve's capacity does not apply: its capacity is of another kind (a
+ * letter has no area; only a certified capacity has a rated coefficient and an overpressure).
+ */
+function capacityMismatch(component: Component, field: string): string | null {
+	if (component.type !== 'relief_valve' || !field.startsWith('capacity.')) return null;
+	const applies =
+		field === 'capacity.letter'
+			? 'a capacity given by an API 526 letter'
+			: field === 'capacity.area'
+				? 'an API 520 effective area or a certified capacity'
+				: 'a certified capacity';
+	return `${component.name}'s capacity is given by ${CAPACITY_KIND_WORDS[component.capacity.kind]} (its ${fieldLabelFor(component, field).toLowerCase()} applies to ${applies})`;
+}
+
 /** Why a value of an equipment item's rating does not apply: the item is rated another way. */
 function ratingMismatch(component: Component, field: string): string | null {
 	if (component.type !== 'equipment' || !field.startsWith('rating.')) return null;
@@ -290,13 +316,15 @@ function resolve(project: Project, override: Override): Resolved | Ignored {
 			};
 		}
 		const holder = entry.path.length > 1 ? walk(component, entry.path.slice(0, -1)) : component;
-		if (!holderMatches(holder, entry.schema)) {
+		if (!holdersOf(entry).some((schema) => holderMatches(holder, schema))) {
 			return {
 				state: 'not_applicable',
 				message:
 					override.field === 'control.setpoint'
 						? `${component.name} has no flow control`
-						: (ratingMismatch(component, override.field) ?? `${component.name} has no ${label}`)
+						: (ratingMismatch(component, override.field) ??
+							capacityMismatch(component, override.field) ??
+							`${component.name} has no ${label}`)
 			};
 		}
 		return { state: 'applied', target: component as unknown as JsonObject, entry };
@@ -860,7 +888,11 @@ function namesList(names: readonly string[]): string {
  * - a control valve changed between a pressure valve (PRV, PSV) and a flow valve (FCV) loses its
  *   setpoint changes, whose meaning changed (the base resets its setpoint to 0 too);
  * - an equipment item whose base rating changed between a Cv and a Kv loses its coefficient
- *   changes (`rating.value`), whose meaning changed (a Cv is not a Kv; the same rule).
+ *   changes (`rating.value`), whose meaning changed (a Cv is not a Kv; the same rule);
+ * - a relief valve whose base capacity changed kind loses the changes of the old kind's values
+ *   (`capacity.letter`, `capacity.area`, ...), between an effective area and a certified one its
+ *   area changes too (an effective area is not an actual area; proposal pressure-relief-valve.md
+ *   decision 18).
  * Notes say what happened to changes, for the user.
  */
 export function carryChanges(
@@ -911,8 +943,25 @@ export function carryChanges(
 			coefficientChanged.set(component.id, component.rating.kind);
 		}
 	}
+	/**
+	 * Relief valves whose base capacity changed kind (decision 18): the scenarios' changes of the
+	 * old kind's values go, since no value carries from one kind to another (an effective area is
+	 * not an actual area, nor a letter's area either).
+	 */
+	const capacityChanged = new Map<string, { from: CapacityKind; to: CapacityKind }>();
+	for (const component of next.components) {
+		const old = componentById(before, component.id);
+		if (
+			old?.type === 'relief_valve' &&
+			component.type === 'relief_valve' &&
+			old.capacity.kind !== component.capacity.kind
+		) {
+			capacityChanged.set(component.id, { from: old.capacity.kind, to: component.capacity.kind });
+		}
+	}
 	const valveNotes = new Map<string, Set<string>>();
 	const coefficientNotes = new Map<string, Set<string>>();
+	const capacityNotes = new Map<string, Set<string>>();
 	let changed = false;
 	const carried = scenarios.map((scenario) => {
 		const known = earlier.get(scenario.id);
@@ -952,6 +1001,15 @@ export function carryChanges(
 					}
 					coefficientNotes.get(kept.componentId)!.add(scenario.name);
 					kept = null;
+				} else if (
+					capacityChanged.has(kept.componentId) &&
+					CAPACITY_FIELDS[capacityChanged.get(kept.componentId)!.from]
+						.map((field) => `capacity.${field}`)
+						.includes(kept.field)
+				) {
+					if (!capacityNotes.has(kept.componentId)) capacityNotes.set(kept.componentId, new Set());
+					capacityNotes.get(kept.componentId)!.add(scenario.name);
+					kept = null;
 				}
 			}
 			if (kept !== o) changed = true;
@@ -986,6 +1044,17 @@ export function carryChanges(
 		const was = coefficientChanged.get(componentId) === 'Cv' ? 'Kv' : 'Cv';
 		notes.push(
 			`The ${was} changes of ${item?.name ?? componentId} in ${namesList([...names])} were removed: it is rated by a ${coefficientChanged.get(componentId)} now, and a ${was} is not a ${coefficientChanged.get(componentId)}.`
+		);
+	}
+	for (const [componentId, names] of capacityNotes) {
+		const valve = componentById(next, componentId);
+		const { from, to } = capacityChanged.get(componentId)!;
+		const area =
+			[from, to].includes('effective') && [from, to].includes('certified')
+				? ' (an effective area is not an actual area)'
+				: '';
+		notes.push(
+			`The capacity value changes of ${valve?.name ?? componentId} in ${namesList([...names])} were removed: its capacity is given by ${CAPACITY_KIND_WORDS[to]} now, not ${CAPACITY_KIND_WORDS[from]}, and no value carries from one kind of capacity to another${area}.`
 		);
 	}
 	notes.push(...lapseNotes(before, next));
@@ -1134,6 +1203,18 @@ export function fieldLabelFor(component: Component | undefined, field: string): 
 			return 'Bore diameter';
 		case 'dischargeCoefficient':
 			return 'Discharge coefficient';
+		case 'setPressure':
+			return 'Set pressure';
+		case 'capacity':
+			return 'Capacity';
+		case 'capacity.letter':
+			return CAPACITY_FIELD_LABELS.letter;
+		case 'capacity.area':
+			return areaLabel(component?.type === 'relief_valve' ? component.capacity.kind : null);
+		case 'capacity.dischargeCoefficient':
+			return CAPACITY_FIELD_LABELS.dischargeCoefficient;
+		case 'capacity.overpressure':
+			return CAPACITY_FIELD_LABELS.overpressure;
 		default:
 			return humanize(field.replace(/\./g, ' '));
 	}
@@ -1177,11 +1258,13 @@ function statusText(component: Component | undefined, value: unknown): string {
 	const labels: Readonly<Record<string, string>> =
 		component?.type === 'pump'
 			? PUMP_STATUS_LABELS
-			: component?.type === 'valve' && ['check', 'stop_check'].includes(component.valveType)
-				? CHECK_STATUS_LABELS
-				: component?.type === 'valve' && ['prv', 'psv', 'fcv'].includes(component.valveType)
-					? CONTROL_STATUS_LABELS
-					: ISOLATION_STATUS_LABELS;
+			: component?.type === 'relief_valve'
+				? RELIEF_STATUS_LABELS
+				: component?.type === 'valve' && ['check', 'stop_check'].includes(component.valveType)
+					? CHECK_STATUS_LABELS
+					: component?.type === 'valve' && ['prv', 'psv', 'fcv'].includes(component.valveType)
+						? CONTROL_STATUS_LABELS
+						: ISOLATION_STATUS_LABELS;
 	return labels[key] ?? humanize(key);
 }
 
@@ -1346,6 +1429,26 @@ export function changeValueText(
 			// A C as entered (no unit); none entered: ISO 5167-2's, the default.
 			if (value === null || value === undefined) return ISO_COEFFICIENT_TEXT;
 			return typeof value === 'number' ? formatValue(value, 'dimensionless', units) : String(value);
+		case 'setPressure':
+			// A relief valve's set: a pressure difference, inlet minus outlet (no gauge marker).
+			return number('pressure');
+		case 'capacity':
+			return capacityText(value, units);
+		case 'capacity.letter': {
+			const area = typeof value === 'string' ? letterArea(value) : null;
+			return area === null
+				? `API 526 ${String(value)}`
+				: `API 526 ${value} (${formatValue(area, 'area', units)})`;
+		}
+		case 'capacity.area':
+			return number('area');
+		case 'capacity.dischargeCoefficient':
+			// A rated K as entered: a pure number.
+			return number('dimensionless');
+		case 'capacity.overpressure':
+			// None entered: ASME's 10 % or 3 psi, the default.
+			if (value === null || value === undefined) return overpressureDefaultText(units);
+			return number('fraction');
 		default:
 			return typeof value === 'number' ? formatValue(value, 'dimensionless', units) : String(value);
 	}

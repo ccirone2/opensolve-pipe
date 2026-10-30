@@ -39,6 +39,11 @@
 		shared?: boolean;
 		/** Show the change note here (false: the field's group shows one). */
 		changeNote?: boolean;
+		/**
+		 * Its value is missing or refused (aria-invalid): the error itself is shown by the caller,
+		 * which names it in `describedby`.
+		 */
+		invalid?: boolean;
 	}
 
 	let {
@@ -53,7 +58,8 @@
 		onchange,
 		change = null,
 		shared = false,
-		changeNote = true
+		changeNote = true,
+		invalid = false
 	}: Props = $props();
 
 	const id = $props.id();
@@ -115,6 +121,7 @@
 			class={['input pr-8', changed && 'border-2 border-teal-600']}
 			{disabled}
 			{value}
+			aria-invalid={invalid ? 'true' : undefined}
 			aria-describedby={described}
 			onchange={(event) => void choose(event.currentTarget.value as T)}
 		>

@@ -478,7 +478,7 @@ def test_the_twin_equality_holds_for_the_api_responses_too() -> None:
             for fit in link["fittings"]:
                 fit.pop("source")
     assert library == twin
-    assert library["solvedState"]["methodVersion"] == "1.5.0"
+    assert library["solvedState"]["methodVersion"] == "1.6.0"
 
 
 def test_a_system_curve_through_library_elements_is_the_twins() -> None:

@@ -69,6 +69,16 @@ EXPECTED: dict[str, dict[str, tuple[str, list[str], str]]] = {
         "boreDiameter": ("Orifice", ["boreDiameter"], "log"),
         "dischargeCoefficient": ("Orifice", ["dischargeCoefficient"], "linear"),
     },
+    "ReliefValve": {
+        "setPressure": ("ReliefValve", ["setPressure"], "linear"),
+        "capacity.area": ("EffectiveOrifice", ["capacity", "area"], "log"),
+        "capacity.dischargeCoefficient": (
+            "CertifiedOrifice",
+            ["capacity", "dischargeCoefficient"],
+            "linear",
+        ),
+        "capacity.overpressure": ("CertifiedOrifice", ["capacity", "overpressure"], "linear"),
+    },
     "PipeDefinition": {"length": ("PipeDefinition", ["length"], "log")},
     "Project": {"fluid.temperature": ("BuiltinFluid", ["fluid", "temperature"], "linear")},
 }
@@ -141,7 +151,14 @@ def test_every_allow_list_value_is_a_variable_or_says_why_not() -> None:
             else:
                 assert name not in tables[target], (target, name)
                 assert name in NOT_VARIABLES, (target, name)
-    assert set(NOT_VARIABLES) == {"status", "spec", "fluid", "rating"}
+    assert set(NOT_VARIABLES) == {
+        "status",
+        "spec",
+        "fluid",
+        "rating",
+        "capacity",
+        "capacity.letter",
+    }
     assert all(NOT_VARIABLES.values())
 
 
@@ -203,6 +220,36 @@ BASES: dict[str, tuple[str, tuple[str, ...], dict[str, Any]]] = {
         ("boreDiameter", "dischargeCoefficient"),
         {"type": "orifice", "boreDiameter": 0.05, "taps": "flange", "ports": ["inlet", "outlet"]},
     ),
+    "Relief valve (effective)": (
+        "ReliefValve",
+        ("setPressure", "capacity.area"),
+        {
+            "type": "relief_valve",
+            "setPressure": 3.5e5,
+            "capacity": {"kind": "effective", "area": 1.3e-3},
+            "ports": ["inlet", "outlet"],
+        },
+    ),
+    "Relief valve (certified)": (
+        "ReliefValve",
+        (
+            "setPressure",
+            "capacity.area",
+            "capacity.dischargeCoefficient",
+            "capacity.overpressure",
+        ),
+        {
+            "type": "relief_valve",
+            "setPressure": 5.0e5,
+            "capacity": {
+                "kind": "certified",
+                "area": 2.5e-4,
+                "dischargeCoefficient": 0.7,
+                "overpressure": 0.08,
+            },
+            "ports": ["inlet", "outlet"],
+        },
+    ),
 }
 """A valid instance of each component type with two or more variables, one per set of
 variables an element can hold at once (an equipment item's rated point holds three values, its
@@ -221,6 +268,12 @@ GRIDS: dict[tuple[str, str], list[Any]] = {
     ("Equipment", "rating.value"): [-1.0, 0.0, 1e-3, 60.0, 1.0e7, 1.1e7],
     ("Orifice", "boreDiameter"): [-1.0, 0.0, 1e-6, 0.05, 10.0, 11.0],
     ("Orifice", "dischargeCoefficient"): [-0.1, 0.0, 1e-6, 0.6, 1.0, 1.1],
+    # The set's bounds, (0, 1e8] Pa; 15 psi (ASME VIII's scope) is a refusal, not a model rule
+    # (pressure-relief-valve.md decision 14), so a set below it is a valid model.
+    ("ReliefValve", "setPressure"): [-1.0, 0.0, 1.0, 1.0e5, 5.0e5, 1.0e8, 1.0e8 + 1],
+    ("ReliefValve", "capacity.area"): [-1.0, 0.0, 1e-9, 1.3e-3, 78.5, 78.6],
+    ("ReliefValve", "capacity.dischargeCoefficient"): [-0.1, 0.0, 1e-6, 0.65, 0.7, 1.0, 1.1],
+    ("ReliefValve", "capacity.overpressure"): [-0.1, 0.0, 1e-6, 0.1, 1.0, 1.1],
 }
 """Values on both sides of each field's bounds and rules (test input)."""
 
@@ -353,6 +406,8 @@ def test_x_goal_quantities_states_the_quantities_and_their_tolerances() -> None:
         "orifice_pressure_loss": ["Orifice"],
         "orifice_differential_pressure": ["Orifice"],
         "orifice_pressure_drop": ["Orifice"],
+        "relief_valve_flow": ["ReliefValve"],
+        "relief_valve_pressure_drop": ["ReliefValve"],
         "boundary_outflow": ["Reservoir", "IdealReferenceNode"],
     }
     pressures = (
@@ -363,6 +418,7 @@ def test_x_goal_quantities_states_the_quantities_and_their_tolerances() -> None:
         "orifice_pressure_loss",
         "orifice_differential_pressure",
         "orifice_pressure_drop",
+        "relief_valve_pressure_drop",
     )
     units = {
         "port_pressure": "Pa(g)",
@@ -372,6 +428,7 @@ def test_x_goal_quantities_states_the_quantities_and_their_tolerances() -> None:
         "orifice_pressure_loss": "Pa (difference)",
         "orifice_differential_pressure": "Pa (difference)",
         "orifice_pressure_drop": "Pa (difference)",
+        "relief_valve_pressure_drop": "Pa (difference)",
         "link_velocity": "m/s",
         "link_head_loss": "m",
         "pump_head": "m",

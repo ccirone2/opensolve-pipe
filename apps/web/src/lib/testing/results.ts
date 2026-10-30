@@ -17,6 +17,7 @@ import type {
 	NodeResult,
 	OrificeResult,
 	PumpResult,
+	ReliefValveResult,
 	SolvedState,
 	SolveResponse,
 	SystemCurveResponse
@@ -286,6 +287,7 @@ export function pumpTransferSolved(values: Partial<SolvedState> = {}): SolvedSta
 		},
 		equipmentResults: {},
 		orificeResults: {},
+		reliefValveResults: {},
 		branchResults: {},
 		boundaryResults: {
 			R1: { type: 'reservoir', egl: 3, outflow: 0.02, portOutflows: { port_1: 0.02 } },
@@ -503,6 +505,98 @@ export function orificeSolved(
 			maxEnergyResidual: { value: 1e-12, elementId: 'L2' },
 			oscillatingComponents: [],
 			message: 'converged: 6 Newton iterations in 1 outer iteration(s)'
+		},
+		...values
+	});
+}
+
+/**
+ * A made-up relief valve result: RV1, API 526 F at a 500 kPa set on ASME's 10 %, relieving
+ * 0.00222 m³/s at partial lift (52 % of its capacity), discharging to atmosphere.
+ */
+export function reliefResult(values: Partial<ReliefValveResult> = {}): ReliefValveResult {
+	return {
+		state: 'partial_lift',
+		flow: 0.00222,
+		lift: 0.531,
+		headLoss: 53.8,
+		totalPressureDifference: 526600,
+		pressureDrop: 526100,
+		inletPressure: 526100,
+		backPressure: -8,
+		setPressure: 500000,
+		setRatio: 1.0532,
+		overpressure: 0.1,
+		overpressureSource: 'asme_default',
+		fullLiftPressureDifference: 550000,
+		fullLiftFlow: 0.00427,
+		flowRatio: 0.52,
+		capacity: { kind: 'api526', letter: 'F', area: 0.000198, dischargeCoefficient: 0.65 },
+		reynoldsNumber: 178000,
+		...values
+	};
+}
+
+/**
+ * A made-up state for testing/helpers.ts reliefProject (R1 → L1 → RV1 → L2 → N1): RV1 relieves
+ * at partial lift, with the partial-lift warning. `valve` replaces fields of RV1's result.
+ */
+export function reliefSolved(
+	valve: Partial<ReliefValveResult> = {},
+	values: Partial<SolvedState> = {}
+): SolvedState {
+	return pumpTransferSolved({
+		nodeResults: {
+			'R1:port_1': node('R1', 'port_1', {
+				pressure: 1069600,
+				absolutePressure: 1170925,
+				hgl: 109.3,
+				egl: 109.3
+			}),
+			'RV1:inlet': node('RV1', 'inlet', {
+				velocity: 1.03,
+				pressure: 526100,
+				absolutePressure: 627425,
+				hgl: 53.76,
+				egl: 53.81
+			}),
+			'RV1:outlet': node('RV1', 'outlet', {
+				velocity: 0.47,
+				pressure: -8,
+				absolutePressure: 101317,
+				hgl: 0,
+				egl: 0.01
+			}),
+			'N1:port_1': node('N1', 'port_1', { pressure: 0, absolutePressure: 101325, hgl: 0, egl: 0 })
+		},
+		linkResults: {
+			L1: link({ flow: 0.00222, velocity: 1.03 }),
+			L2: link({ flow: 0.00222, velocity: 0.47 })
+		},
+		pumpResults: {},
+		valveResults: {},
+		reliefValveResults: { RV1: reliefResult(valve) },
+		boundaryResults: {
+			R1: { type: 'reservoir', egl: 109.3, outflow: 0.00222, portOutflows: { port_1: 0.00222 } },
+			N1: { type: 'reference_node', egl: 0, outflow: -0.00222, portOutflows: { port_1: -0.00222 } }
+		},
+		flags: [
+			flag({
+				code: 'CORRELATION_OUT_OF_RANGE',
+				severity: 'warning',
+				message:
+					"relief valve 'RV1' relieves at partial lift (0.531): between set and full lift the lift is the linear convention, not a cited law.",
+				componentId: 'RV1',
+				details: { limit: 'partial_lift', lift: 0.531, setRatio: 1.0532, overpressure: 0.1 }
+			})
+		],
+		convergence: {
+			innerIterations: 7,
+			outerIterations: 2,
+			maxContinuityResidual: { value: 0, elementId: 'RV1:inlet' },
+			maxEnergyResidual: { value: 1e-12, elementId: 'L2' },
+			oscillatingComponents: [],
+			message: 'converged: 7 Newton iterations in 2 outer iteration(s)'
 		},
 		...values
 	});

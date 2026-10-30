@@ -263,7 +263,8 @@ describe('fields in a scenario', () => {
 			'prv',
 			'fcv',
 			'equipment',
-			'orifice'
+			'orifice',
+			'relief_valve'
 		] as const;
 		const extra = kinds.reduce<Project['components']>((list, kind) => {
 			const so_far = { ...base, components: [...base.components, ...list] };
@@ -289,14 +290,22 @@ describe('fields in a scenario', () => {
 				'Rated flow (L/s)',
 				'Rated fluid density (kg/m³)'
 			],
-			[extra[6]!.id]: ['Bore diameter (mm)', 'Discharge coefficient']
+			[extra[6]!.id]: ['Bore diameter (mm)', 'Discharge coefficient'],
+			[extra[7]!.id]: [
+				'Status',
+				'Set pressure (difference) (kPa)',
+				'Capacity given by',
+				'API 526 orifice letter'
+			]
 		};
 		for (const [id, names] of Object.entries(expected)) {
 			ws.nav.jumpTo(id);
 			await tick();
 			for (const name of names) {
 				const field = screen.getByRole(
-					/given as|Status|Direction|Rated by|Discharge coefficient/.test(name)
+					/given as|given by|Status|Direction|Rated by|Discharge coefficient|orifice letter/.test(
+						name
+					)
 						? 'combobox'
 						: 'textbox',
 					{
@@ -340,6 +349,7 @@ describe('fields in a scenario', () => {
 				'Plug',
 				'Project',
 				'Pump',
+				'ReliefValve',
 				'Reservoir',
 				'TeeBranch',
 				'WyeBranch'

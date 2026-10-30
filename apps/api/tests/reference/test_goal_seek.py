@@ -39,6 +39,15 @@ seek. Each case posts ``POST /api/v1/goal-seek`` and checks:
    fluids' meter solver's; a reading goal on a plate without taps is 400 GOAL_NOT_APPLICABLE (its
    ``needs: ['taps']``); a bore bound at or above the inlet pipe's bore is a bounds 400 located
    by index, the plate in componentIds, neither the bound nor the id in the text (decision 21).
+7. **Pressure relief valves** (docs/proposals/pressure-relief-valve.md §5, §7.3): G40-G44 are met
+   cases (item 2) for each relief variable (the set, linear; the area, log; the rated coefficient
+   and the overpressure, linear) and each relief goal; G41 sizes an API 520 effective area for
+   the relieving pressure, and fluids' ``API520_A_l`` at the reported state gives the area found
+   times 1 + 6.0921×10⁻⁵ (API's rounded 11.78), with API 526 L the covering letter; a value the
+   valve's capacity kind does not hold is not a variable there (400 VARIABLE_NOT_APPLICABLE),
+   nor is the whole capacity or the letter; a set bound below ASME's 15 psi on a capacity that
+   takes ASME's overpressure is a bounds 400 located by index (decision 14's refusal at the
+   bound build).
 """
 
 import copy
@@ -167,6 +176,8 @@ def expected_start(case: GoalSeekCase, i: int) -> tuple[float, str]:
     lower, upper = variable["lower"], variable["upper"]
     if variable["field"] == "dischargeCoefficient" and value is None:
         return 0.5 * (lower + upper), "middle"  # ISO 5167-2's C: no case value (decision 21)
+    if variable["field"] == "capacity.overpressure" and value is None:
+        return 0.5 * (lower + upper), "middle"  # ASME's default: no case value (relief decision 19)
     if variable["field"] == "resistance":
         if not isinstance(value, dict) or value.get("kind") != variable["coefficient"]:
             return lower * math.sqrt(upper / lower), "middle"
@@ -186,11 +197,14 @@ LOG_SCALE = (
     "rating.flow",
     "rating.value",
     "boreDiameter",
+    "capacity.area",
 )
 """Fields searched in log x (design §2.1; an equipment item's rated drop, rated flow and Cv or
 Kv by equipment-pressure-drop.md decision 15: each > 0 and spanning decades; an orifice plate's
-bore by orifice-plate.md decision 21). An equipment item's rated density and an orifice plate's
-discharge coefficient are linear."""
+bore by orifice-plate.md decision 21; a relief valve's area by pressure-relief-valve.md decision
+19: API 526's D to T span 2.4 decades). An equipment item's rated density, an orifice plate's
+discharge coefficient and a relief valve's set, rated coefficient and overpressure are
+linear."""
 
 
 def scale(variable: dict[str, Any]) -> str:
@@ -988,4 +1002,150 @@ def test_a_bore_bound_at_or_above_the_pipe_is_a_bounds_error(
     assert issue["message"].startswith("body.variables.0.upper"), issue
     assert issue["componentIds"] == ["OR1"], issue
     for text in ("OR1", "1234567", "0.1023", "102.3"):
+        assert text not in issue["message"], (text, issue)
+
+
+# --------------------------------------------------------------------------- relief valves
+
+
+def test_g41_sizes_the_valve_by_api520_against_the_network(api: Api) -> None:
+    """G41 (decision 19, proposal §7.3): the effective area found holds the inlet at the
+    relieving pressure; beyond full lift the reported state is API 520's equation, so fluids'
+    ``API520_A_l`` at its flow with P1 − P2 = its Δp_t (Kd 0.65, Kw = Kc = Kv = 1) gives the
+    area found times 1 + 6.0921×10⁻⁵ (API's 11.78 against the exact constant); the result names
+    API 526 L as the covering letter, the derivation's (``coveringLetter``)."""
+    import fluids.safety_valve as sv
+
+    case, body = _run(api, dg.goal_seek_relief_effective_area)
+    result = body["result"]
+    assert result["stopReason"] in ("met", "met_at_start"), result["message"]
+    area = result["variables"][0]["value"]
+    relief = body["solvedState"]["reliefValveResults"]["RV1"]
+    assert relief["state"] == "full_lift", relief
+    assert relief["capacity"]["kind"] == "effective"
+    assert relief["capacity"]["area"] == area
+    assert relief["capacity"]["coveringLetter"] == case.data["coveringLetter"] == "L"
+    rho = body["solvedState"]["fluid"]["density"]
+    required = sv.API520_A_l(
+        m=rho * relief["flow"],
+        rho=rho,
+        P1=relief["totalPressureDifference"] + 101325.0,
+        P2=101325.0,
+        overpressure=0.1,
+        Kd=0.65,
+        Kc=1.0,
+        Kw=1.0,
+        Kv=1.0,
+    )
+    rounding = 11.78 / (math.sqrt(1.0e-3 * sv.rho0) / 60000.0 * math.sqrt(2.0) / 2.0 * 1.0e6)
+    assert required / area == pytest.approx(rounding, rel=1.0e-6), (required, area)
+    assert rounding - 1.0 == pytest.approx(6.0921436e-5, abs=1.0e-12)
+
+
+def test_g41_closed_form_is_api520_a_l() -> None:
+    """G41's closed form (derivations_goal_seek.g41_state) sizes the valve as API 520 does, at
+    the network's own flow and pressures: fluids' ``API520_A_l`` at the derived Q* and Δp_t*
+    (Kd 0.65, Kw = Kc = Kv = 1) is A* × (1 + 6.0921×10⁻⁵) (proposal §7.3, R4), and the
+    proposal's A* 1.2866259342×10⁻³ m² is the derivation's."""
+    import fluids.safety_valve as sv
+
+    from tests.reference import derivations_relief as dr
+    from tests.reference import element_laws as el
+
+    q, dp_t, area = dg.g41_state()
+    rho = dr.liquid_a().density
+    required = sv.API520_A_l(
+        m=rho * q,
+        rho=rho,
+        P1=dp_t + 101325.0,
+        P2=101325.0,
+        overpressure=0.1,
+        Kd=0.65,
+        Kc=1.0,
+        Kw=1.0,
+        Kv=1.0,
+    )
+    assert required / area - 1.0 == pytest.approx(6.0921436e-5, rel=1.0e-7)
+    assert area == pytest.approx(1.2866259342e-3, rel=1.0e-10)
+    assert el.covering_letter(area) == "L"
+
+
+RELIEF_NOT_APPLICABLE = [
+    ("relief_pump_bypass", "capacity.area", (1.0e-4, 1.0e-2)),
+    ("relief_pump_bypass", "capacity.dischargeCoefficient", (0.3, 1.0)),
+    ("relief_pump_bypass", "capacity.overpressure", (0.05, 0.2)),
+    ("relief_effective", "capacity.overpressure", (0.05, 0.2)),
+    ("relief_effective", "capacity.dischargeCoefficient", (0.3, 1.0)),
+]
+"""A value the valve's capacity kind does not hold (pressure-relief-valve.md decision 19): an
+area on an API 526 letter; a rated coefficient or an overpressure on a letter or on an
+effective area (API 520's preliminary pair always takes 0.65 and ASME's overpressure)."""
+
+
+def _relief_project(name: str) -> dict[str, Any]:
+    from tests.reference.case_format import case_path, read_case
+
+    if name == "relief_effective":
+        return dg.goal_seek_relief_effective_area().project
+    project: dict[str, Any] = read_case(case_path(name))["project"]
+    return project
+
+
+@pytest.mark.parametrize(("name", "field", "bounds"), RELIEF_NOT_APPLICABLE, ids=lambda x: str(x))
+def test_a_capacity_value_of_another_kind_is_not_a_variable(
+    api: Api, name: str, field: str, bounds: tuple[float, float]
+) -> None:
+    """400 VALIDATION_ERROR with one VARIABLE_NOT_APPLICABLE issue at the variable, naming the
+    valve in componentIds (D16's "inputs that do not apply")."""
+    body = {
+        "project": _relief_project(name),
+        "variables": [dg.component_variable("RV1", field, *bounds)],
+        "goals": [dg.goal("relief_valve_flow", "RV1", 0.02)],
+    }
+    response = api.post(GOAL_SEEK, body)
+    assert response.status_code == 400, response.text
+    data = response.json()
+    assert data["error"] == "VALIDATION_ERROR", data
+    [issue] = data["issues"]
+    assert issue["code"] == "VARIABLE_NOT_APPLICABLE", issue
+    assert issue["message"].startswith("body.variables.0"), issue
+    assert issue["componentIds"] == ["RV1"], issue
+
+
+@pytest.mark.parametrize("field", ["capacity", "capacity.letter"])
+def test_a_whole_capacity_or_a_letter_is_not_a_variable(api: Api, field: str) -> None:
+    """The whole capacity and the API 526 letter are not numbers to search (decision 19: a
+    letter is set in a scenario, a valve sized on an effective area): a 400 request error."""
+    body = {
+        "project": _relief_project("relief_pump_bypass"),
+        "variables": [dg.component_variable("RV1", field, 1.0, 2.0)],
+        "goals": [dg.goal("relief_valve_flow", "RV1", 0.02)],
+    }
+    response = api.post(GOAL_SEEK, body)
+    assert response.status_code == 400, response.text
+    assert response.json()["error"] == "VALIDATION_ERROR"
+
+
+RELIEF_SENTINEL_BOUND = 101_234.567
+"""Pa: a set bound below ASME's 15 psi (103,421.36 Pa), whose digits must not come back."""
+
+
+def test_a_set_bound_below_asmes_scope_is_a_bounds_error(api: Api) -> None:
+    """Decision 14 and 19: the network is built at each bound of a relief variable; a set below
+    15 psi on an API 526 letter (ASME's overpressure, not cited there) is refused at the build,
+    so the box is 400 VALIDATION_ERROR at body.variables.0.lower, the valve in componentIds,
+    neither the bound nor the valve's id in the text."""
+    body = {
+        "project": _relief_project("relief_pump_bypass"),
+        "variables": [dg.component_variable("RV1", "setPressure", RELIEF_SENTINEL_BOUND, 6.0e5)],
+        "goals": [dg.goal("relief_valve_flow", "RV1", 0.02)],
+    }
+    response = api.post(GOAL_SEEK, body)
+    assert response.status_code == 400, response.text
+    data = response.json()
+    assert data["error"] == "VALIDATION_ERROR", data
+    [issue] = data["issues"]
+    assert issue["message"].startswith("body.variables.0.lower"), issue
+    assert issue["componentIds"] == ["RV1"], issue
+    for text in ("RV1", "1234567", "101234", "101,234"):
         assert text not in issue["message"], (text, issue)

@@ -24,6 +24,7 @@ import type {
 	PortDirection,
 	Project,
 	Pump,
+	ReliefValve,
 	Reservoir,
 	TeeBranch,
 	WyeBranch
@@ -45,7 +46,8 @@ export type ComponentKind =
 	| CheckValve['valveType']
 	| ControlValve['valveType']
 	| 'equipment'
-	| 'orifice';
+	| 'orifice'
+	| 'relief_valve';
 
 export const COMPONENT_KINDS: readonly ComponentKind[] = [
 	'reservoir',
@@ -65,7 +67,8 @@ export const COMPONENT_KINDS: readonly ComponentKind[] = [
 	'psv',
 	'fcv',
 	'equipment',
-	'orifice'
+	'orifice',
+	'relief_valve'
 ];
 
 /** The component type each kind creates. */
@@ -88,6 +91,7 @@ export interface ComponentOfKind {
 	fcv: ControlValve;
 	equipment: Equipment;
 	orifice: Orifice;
+	relief_valve: ReliefValve;
 }
 
 /** Menu labels. */
@@ -109,7 +113,8 @@ export const KIND_LABELS: Readonly<Record<ComponentKind, string>> = {
 	psv: 'Pressure-sustaining valve (PSV)',
 	fcv: 'Flow-control valve (FCV)',
 	equipment: 'Equipment (rated pressure drop)',
-	orifice: 'Orifice plate (ISO 5167-2)'
+	orifice: 'Orifice plate (ISO 5167-2)',
+	relief_valve: 'Pressure relief valve (API 520, liquids)'
 };
 
 /** Short names used for default component names ("Gate valve V1"). */
@@ -131,12 +136,15 @@ const KIND_NAMES: Readonly<Record<ComponentKind, string>> = {
 	psv: 'PSV',
 	fcv: 'FCV',
 	equipment: 'Equipment',
-	orifice: 'Orifice'
+	orifice: 'Orifice',
+	relief_valve: 'Relief valve'
 };
 
 /**
- * Id prefixes: R1, N1, PL1, AF1, T1, Y1, P1, V1, E1, O1; connections L1; pump curves C1; project
- * library pipe specs PS1 and resistance entries RS1 (CLAUDE.md D22).
+ * Id prefixes: R1, N1, PL1, AF1, T1, Y1, P1, V1, E1, O1, RV1; connections L1; pump curves C1;
+ * project library pipe specs PS1 and resistance entries RS1 (CLAUDE.md D22). A relief valve is
+ * never PRV or PSV: in this app those are EPANET's pressure-reducing and pressure-sustaining valves
+ * (proposal pressure-relief-valve.md decision 26).
  */
 export const ID_PREFIX: Readonly<Record<ComponentKind, string>> = {
 	reservoir: 'R',
@@ -156,7 +164,8 @@ export const ID_PREFIX: Readonly<Record<ComponentKind, string>> = {
 	psv: 'V',
 	fcv: 'V',
 	equipment: 'E',
-	orifice: 'O'
+	orifice: 'O',
+	relief_valve: 'RV'
 };
 export const CONNECTION_PREFIX = 'L';
 export const CURVE_PREFIX = 'C';
@@ -295,6 +304,18 @@ export interface ComponentOptions {
 	 */
 	boreDiameter?: number;
 	/**
+	 * A relief valve's set pressure, Pa (a difference, inlet minus outlet static), as the user
+	 * enters it. Required for that kind, which has no default (proposal pressure-relief-valve.md
+	 * §2.1); ignored by the others.
+	 */
+	setPressure?: number;
+	/**
+	 * A relief valve's capacity as the user enters it (CapacityDraft: its kind and the values
+	 * entered, SI). Required for that kind, every value its kind needs (no default: decision 7);
+	 * ignored by the others.
+	 */
+	capacity?: CapacityDraft;
+	/**
 	 * Ids a new id must not take besides usedIds (newId's alsoUsed): those page state names, such
 	 * as a goal-seek setup's elements, so a row never moves to a new element (goal-seek.md §6.15).
 	 */
@@ -302,7 +323,10 @@ export interface ComponentOptions {
 }
 
 /** Values the user enters before a component is added: those its kind has no default for. */
-export type EnteredValues = Pick<ComponentOptions, 'flow' | 'rating' | 'boreDiameter'>;
+export type EnteredValues = Pick<
+	ComponentOptions,
+	'flow' | 'rating' | 'boreDiameter' | 'setPressure' | 'capacity'
+>;
 
 /** Ids new elements must not take besides usedIds (see ComponentOptions.reserved). */
 export interface NewIdOptions {
@@ -311,11 +335,16 @@ export interface NewIdOptions {
 
 /**
  * Kinds whose values have no default, entered where the component is added (before it exists):
- * an assigned-flow node's flow (D12), an equipment item's rating (decision 19) and an orifice
- * plate's bore (proposal orifice-plate.md §6 W2). Every path that creates a component asks for
- * them first.
+ * an assigned-flow node's flow (D12), an equipment item's rating (decision 19), an orifice
+ * plate's bore (proposal orifice-plate.md §6 W2) and a relief valve's set pressure and capacity
+ * (proposal pressure-relief-valve.md W1). Every path that creates a component asks for them first.
  */
-export const ENTRY_KINDS: readonly ComponentKind[] = ['assigned_flow', 'equipment', 'orifice'];
+export const ENTRY_KINDS: readonly ComponentKind[] = [
+	'assigned_flow',
+	'equipment',
+	'orifice',
+	'relief_valve'
+];
 
 /** How a datasheet gives a rating: a pressure drop at a flow ('point'), a Cv or a Kv. */
 export type RatingKind = EquipmentRating['kind'];
@@ -394,6 +423,111 @@ function ratingEntryMessage(kind: RatingKind, field: RatingField): string {
 /** What to say when an orifice plate's bore is not entered yet: no source gives a default. */
 export const BORE_ENTRY_MESSAGE = 'Enter the orifice bore: it has no default.';
 
+/** How a relief valve's capacity is given: an API 526 letter, an API 520 effective area, certified. */
+export type CapacityKind = ReliefValve['capacity']['kind'];
+
+/** The kinds of capacity, in the form's order (the first is where the choice starts). */
+export const CAPACITY_KINDS: readonly CapacityKind[] = ['api526', 'effective', 'certified'];
+
+/** A value of a capacity (the API's field names). */
+export type CapacityField = 'letter' | 'area' | 'dischargeCoefficient' | 'overpressure';
+
+/**
+ * The values each kind of capacity holds, in the form's order; a certified capacity's
+ * overpressure is optional (absent: ASME's, the default), so it is never missing.
+ */
+export const CAPACITY_FIELDS: Readonly<Record<CapacityKind, readonly CapacityField[]>> = {
+	api526: ['letter'],
+	effective: ['area'],
+	certified: ['area', 'dischargeCoefficient', 'overpressure']
+};
+
+/** The values a kind of capacity cannot be stored without. */
+const REQUIRED_CAPACITY_FIELDS: Readonly<Record<CapacityKind, readonly CapacityField[]>> = {
+	api526: ['letter'],
+	effective: ['area'],
+	certified: ['area', 'dischargeCoefficient']
+};
+
+/**
+ * A relief valve's capacity as it is being entered: its kind and the values entered so far (SI;
+ * the letter as chosen). A value is never carried from one kind to another (an effective area is
+ * not an actual area, and API 520's effective coefficient is never mixed with a rated one).
+ */
+export interface CapacityDraft {
+	kind: CapacityKind;
+	letter?: string;
+	area?: number;
+	dischargeCoefficient?: number;
+	overpressure?: number;
+}
+
+/** A draft of a stored capacity (every value it holds). */
+export function capacityDraft(capacity: ReliefValve['capacity']): CapacityDraft {
+	const { overpressure, ...rest } = capacity as ReliefValve['capacity'] & {
+		overpressure?: number | null;
+	};
+	return typeof overpressure === 'number' ? { ...rest, overpressure } : rest;
+}
+
+/**
+ * The draft with `field` set to `value` (SI; a letter as chosen), or without it for null (a
+ * certified overpressure back to ASME's default). A string is only ever a letter.
+ */
+export function withCapacityValue(
+	draft: CapacityDraft,
+	field: CapacityField,
+	value: number | string | null
+): CapacityDraft {
+	const next: CapacityDraft = { ...draft };
+	if (value === null) delete next[field];
+	else if (field === 'letter') next.letter = String(value);
+	else if (typeof value === 'number') next[field] = value;
+	return next;
+}
+
+/** The capacity a draft makes once every value its kind needs is entered, or null. */
+export function completeCapacity(draft: CapacityDraft | undefined): ReliefValve['capacity'] | null {
+	if (!draft) return null;
+	const finite = (field: 'area' | 'dischargeCoefficient' | 'overpressure') => {
+		const v = draft[field];
+		return typeof v === 'number' && Number.isFinite(v) ? v : null;
+	};
+	if (draft.kind === 'api526') {
+		return draft.letter
+			? {
+					kind: 'api526',
+					letter: draft.letter as Extract<ReliefValve['capacity'], { kind: 'api526' }>['letter']
+				}
+			: null;
+	}
+	const area = finite('area');
+	if (area === null) return null;
+	if (draft.kind === 'effective') return { kind: 'effective', area };
+	const dischargeCoefficient = finite('dischargeCoefficient');
+	if (dischargeCoefficient === null) return null;
+	const overpressure = finite('overpressure');
+	return overpressure === null
+		? { kind: 'certified', area, dischargeCoefficient }
+		: { kind: 'certified', area, dischargeCoefficient, overpressure };
+}
+
+/** What to say when a relief valve's set pressure is not entered yet: it has no default. */
+export const SET_PRESSURE_ENTRY_MESSAGE = 'Enter the set pressure: it has no default.';
+
+/** What to say about each capacity value that is not entered yet (W1). */
+export function capacityEntryMessage(kind: CapacityKind, field: CapacityField): string {
+	if (kind === 'api526' || field === 'letter') {
+		return 'Choose an API 526 orifice letter, or enter an effective area or the certified area and coefficient: the capacity has no default.';
+	}
+	if (field === 'dischargeCoefficient') {
+		return 'Enter the rated coefficient of discharge from the certification: the capacity has no default.';
+	}
+	return kind === 'effective'
+		? 'Enter the API 520 effective area, or choose an API 526 orifice letter: the capacity has no default.'
+		: 'Enter the certified actual orifice area: the capacity has no default.';
+}
+
 /**
  * Every value a component of `kind` cannot be added without, not yet in `values`, in the form's
  * order (one per empty field): an assigned-flow node's flow; each value of an equipment item's
@@ -410,6 +544,24 @@ export function missingEntries(kind: ComponentKind, values: EnteredValues): Miss
 		return values.boreDiameter === undefined || !Number.isFinite(values.boreDiameter)
 			? [{ field: 'boreDiameter', message: BORE_ENTRY_MESSAGE }]
 			: [];
+	}
+	if (kind === 'relief_valve') {
+		const missing: MissingEntry[] = [];
+		if (values.setPressure === undefined || !Number.isFinite(values.setPressure)) {
+			missing.push({ field: 'setPressure', message: SET_PRESSURE_ENTRY_MESSAGE });
+		}
+		const capacity = values.capacity ?? { kind: CAPACITY_KINDS[0]! };
+		for (const field of REQUIRED_CAPACITY_FIELDS[capacity.kind]) {
+			const v = capacity[field];
+			const entered = field === 'letter' ? !!v : typeof v === 'number' && Number.isFinite(v);
+			if (!entered) {
+				missing.push({
+					field: `capacity.${field}`,
+					message: capacityEntryMessage(capacity.kind, field)
+				});
+			}
+		}
+		return missing;
 	}
 	if (kind !== 'equipment') return [];
 	const draft = values.rating ?? { kind: 'point' };
@@ -433,12 +585,15 @@ const MISSING_ENTRY_TEXT = {
 	assigned_flow: 'An assigned-flow node needs the flow the user enters: it has no default.',
 	equipment:
 		'An equipment item needs the rating the user enters from its datasheet: it has no default.',
-	orifice: 'An orifice plate needs the bore the user enters: it has no default.'
+	orifice: 'An orifice plate needs the bore the user enters: it has no default.',
+	relief_valve:
+		'A relief valve needs the set pressure and the capacity the user enters: they have no default.'
 } as const;
 
 /**
  * Thrown when a component is created without a value the user enters (it has no default): an
- * assigned-flow node's flow, an equipment item's rating, an orifice plate's bore.
+ * assigned-flow node's flow, an equipment item's rating, an orifice plate's bore, a relief valve's
+ * set pressure and capacity.
  */
 export class MissingEntryError extends Error {
 	constructor(kind: keyof typeof MISSING_ENTRY_TEXT) {
@@ -466,7 +621,11 @@ export class MissingEntryError extends Error {
  *   before the item is added; MissingEntryError otherwise);
  * - orifice plate: ports inlet and outlet, the bore given in `options.boreDiameter` (required: no
  *   source gives a default bore; MissingEntryError otherwise), ISO 5167-2's discharge coefficient
- *   (the cited default: no entered C) and no pressure taps (a restriction orifice, no reading).
+ *   (the cited default: no entered C) and no pressure taps (a restriction orifice, no reading);
+ * - relief valve: ports inlet and outlet, active, the set pressure and capacity given in
+ *   `options.setPressure` and `options.capacity` (required: neither has a default;
+ *   MissingEntryError otherwise), a certified capacity's overpressure only where entered (absent:
+ *   ASME's, the default).
  */
 export function createComponent<K extends ComponentKind>(
 	kind: K,
@@ -591,6 +750,20 @@ function buildComponent(
 				boreDiameter: options.boreDiameter,
 				ports: valvePorts(size)
 			};
+		case 'relief_valve': {
+			const capacity = completeCapacity(options.capacity);
+			if (options.setPressure === undefined || !Number.isFinite(options.setPressure) || !capacity) {
+				throw new MissingEntryError('relief_valve');
+			}
+			return {
+				...base,
+				type: 'relief_valve',
+				setPressure: options.setPressure,
+				capacity,
+				status: 'active',
+				ports: valvePorts(size)
+			};
+		}
 	}
 }
 

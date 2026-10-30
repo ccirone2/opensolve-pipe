@@ -2,8 +2,8 @@
 extensions (x-port-ids, x-port-roles, x-port-count, x-required-parameters, x-reducer-types,
 x-entrance-types, x-exit-types, x-setpoint-bounds, x-ordered-fields, and the project library's
 x-fields-by-value and x-reference-fields; goal seek's x-goal-variables, x-goal-quantities and
-x-goal-seek-rules are checked in test_goal_seek_models.py), which the web app reads instead of
-copying
+x-goal-seek-rules are checked in test_goal_seek_models.py, the relief valve's x-relief-data in
+test_relief_model.py), which the web app reads instead of copying
 (apps/web/src/lib/utils/model-rules.ts). These tests check that each extension states exactly
 what the validators enforce, and that the web app's copy of the schema is the API's current
 one, so a model change cannot leave the two apart."""
@@ -43,6 +43,11 @@ BASE: dict[str, dict[str, Any]] = {
     "ControlValve": {"type": "valve", "valveType": "prv", "setpoint": 0.0},
     "Equipment": {"type": "equipment", "rating": {"kind": "Cv", "value": 90.0}},
     "Orifice": {"type": "orifice", "boreDiameter": 0.05},
+    "ReliefValve": {
+        "type": "relief_valve",
+        "setPressure": 5.0e5,
+        "capacity": {"kind": "api526", "letter": "F"},
+    },
 }
 """One valid instance per component schema, without its ports (test inputs)."""
 

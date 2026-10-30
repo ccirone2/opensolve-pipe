@@ -4,12 +4,12 @@ Pressures are gauge unless the field name says absolute. Heads are measured from
 datum. ``egl`` (energy grade line) is the solver's nodal unknown; ``hgl = egl - v²/2g``.
 """
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field
 
 from .base import OutputModel
-from .components import EquipmentRating, OrificeTaps
+from .components import API526Letter, EquipmentRating, OrificeTaps
 from .design_checks import DesignCheckResult
 from .fluids import FluidProperties
 
@@ -32,6 +32,8 @@ FlagCode = Literal[
     "NO_VAPOR_PRESSURE",
     "PORT_ABOVE_LIQUID_LEVEL",
     "CHECK_VALVE_CLOSED",
+    "RELIEF_VALVE_OPEN",
+    "RELIEF_VALVE_CLOSED",
     "CONTROL_VALVE_SETPOINT_NOT_MET",
     "PUMP_SETPOINT_NOT_MET",
     "ISOLATED_SECTION",
@@ -401,6 +403,147 @@ class OrificeResult(OutputModel):
     )
 
 
+class Api526OrificeResult(OutputModel):
+    """An API 526 letter capacity as the solve used it (proposal pressure-relief-valve.md
+    §2.2)."""
+
+    kind: Literal["api526"]
+    letter: API526Letter
+    area: float = Field(description="API 526's effective area of the letter, m²")
+    discharge_coefficient: float = Field(
+        description="API 520's effective coefficient of discharge, 0.65 (preliminary)"
+    )
+
+
+class EffectiveOrificeResult(OutputModel):
+    """An API 520 effective area capacity as the solve used it (proposal §2.2)."""
+
+    kind: Literal["effective"]
+    area: float = Field(description="The API 520 effective area, m²")
+    discharge_coefficient: float = Field(
+        description="API 520's effective coefficient of discharge, 0.65 (preliminary)"
+    )
+    covering_letter: API526Letter | None = Field(
+        description=(
+            "The smallest API 526 letter whose effective area is at least the area (fluids' "
+            "API520_round_size); null above T's"
+        )
+    )
+
+
+class CertifiedOrificeResult(OutputModel):
+    """A certified capacity as the solve used it (proposal §2.2)."""
+
+    kind: Literal["certified"]
+    area: float = Field(description="The valve's actual orifice area, m², as entered")
+    discharge_coefficient: float = Field(
+        description="The valve's rated coefficient of discharge, as entered"
+    )
+    overpressure: float | None = Field(
+        description=(
+            "The certified overpressure at full lift as entered, a fraction of the set; null on "
+            "ASME's default (the result's overpressure is the value used)"
+        )
+    )
+
+
+ReliefCapacityResult = Annotated[
+    Api526OrificeResult | EffectiveOrificeResult | CertifiedOrificeResult,
+    Field(discriminator="kind"),
+]
+"""A relief valve's capacity as the solve used it: the input's kind and values, with the area and
+coefficient of discharge resolved, and an effective area's covering API 526 letter."""
+
+
+class ReliefValveResult(OutputModel):
+    """A pressure relief valve (SDD §4.19): its lift, flow and capacity at the solved pressures
+    (proposal pressure-relief-valve.md §2.2). Δp_t, the total-pressure difference between the
+    ports, is what its law reads; the lift x rises linearly from the set Δp_s to full lift at
+    Δp_f = Δp_s(1 + overpressure), and Q = x·Kd·A·√(2Δp_t/ρ)."""
+
+    state: Literal["closed", "partial_lift", "full_lift"] = Field(
+        description=(
+            "closed: no flow; partial_lift: relieving short of full lift (0 < x < 1, the linear "
+            "convention, flagged); full_lift: at or beyond full lift (x = 1, flow ≥ "
+            "fullLiftFlow)"
+        )
+    )
+    flow: float = Field(
+        description=(
+            "m³/s, positive inlet -> outlet. It closes on reverse flow beyond the status rules' "
+            "flow tolerance (EPANET 2.2's Qtol, 1e-8 m³/s), so a valve open at its switch can "
+            "report a flow a little below zero, within that tolerance (state closed)"
+        )
+    )
+    lift: float = Field(
+        description="x, a fraction from 0 (closed) to 1 (full lift): flow / (Kd·A·√(2Δp_t/ρ))"
+    )
+    head_loss: float = Field(description="EGL(inlet) - EGL(outlet), m")
+    total_pressure_difference: float = Field(
+        description=(
+            "Δp_t = ρg(headLoss - (z_inlet - z_outlet)), Pa (a difference): the total-pressure "
+            "difference between the ports, (p + ρv²/2) at the inlet minus at the outlet, what "
+            "the law reads"
+        )
+    )
+    pressure_drop: float = Field(
+        description=(
+            "Static pressure drop inlet -> outlet, Pa (a difference), as a valve's: what gauges "
+            "at the ports read. It equals totalPressureDifference - ρ(v_inlet² - v_outlet²)/2, "
+            "with the velocities in the connected pipes"
+        )
+    )
+    inlet_pressure: float | None = Field(
+        description=(
+            "Static pressure at the inlet port, Pa gauge; null where the pressure level is "
+            "undetermined (UNDETERMINED_PRESSURE)"
+        )
+    )
+    back_pressure: float | None = Field(
+        description=(
+            "Static pressure at the outlet port, Pa gauge; null where the pressure level is "
+            "undetermined"
+        )
+    )
+    set_pressure: float = Field(
+        description="Δp_s, the set pressure difference the solve used, Pa (a difference)"
+    )
+    set_ratio: float = Field(
+        description=(
+            "Δp_t / Δp_s: below 1 an active valve is closed; above 1 it relieves, and the ratio "
+            "is 1 + the overpressure reached (on the set difference). A valve locked closed "
+            "stays closed at any ratio"
+        )
+    )
+    overpressure: float = Field(
+        description="The overpressure at full lift the solve used, a fraction of the set"
+    )
+    overpressure_source: Literal["asme_default", "user"] = Field(
+        description=(
+            "asme_default: ASME's liquid certification overpressure, 10 % of the set or 3 psi, "
+            "whichever is greater (the default); user: the certified capacity's overpressure"
+        )
+    )
+    full_lift_pressure_difference: float = Field(
+        description="Δp_f = Δp_s(1 + overpressure), Pa (a difference)"
+    )
+    full_lift_flow: float = Field(
+        description=(
+            "Q_f = Kd·A·√(2Δp_f/ρ), m³/s: the capacity at full lift for the case fluid's density"
+        )
+    )
+    flow_ratio: float = Field(description="flow / fullLiftFlow")
+    capacity: ReliefCapacityResult = Field(
+        description="The capacity the solve used, after any scenario or goal-seek trial"
+    )
+    reynolds_number: float | None = Field(
+        description=(
+            "API 520's Reynolds number on the orifice, ρ(Q/A)√(4A/π)/μ at the solved flow; null "
+            "at zero flow"
+        )
+    )
+
+
 class BranchResult(OutputModel):
     branch_type: Literal["tee", "wye"]
     loss_model: Literal["crane", "ideal"]
@@ -522,6 +665,13 @@ class SolvedState(OutputModel):
         description=(
             "Keyed by component id; {} when the project has no orifice plate or the solve did "
             "not converge; a closed-off orifice has no result"
+        )
+    )
+    relief_valve_results: dict[str, ReliefValveResult] = Field(
+        description=(
+            "Keyed by component id; {} when the project has no relief valve or the solve did not "
+            "converge; a relief valve with a closed-off or floating side has no result "
+            "(RELIEF_VALVE_CLOSED says why)"
         )
     )
     branch_results: dict[str, BranchResult] = Field(description="Keyed by component id")

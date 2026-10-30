@@ -116,6 +116,6 @@ A feature enters scope only if it passes **all three**:
 
 ## 8. Using this document
 
-- **For a design decision:** name the values in tension, apply §3's order, and record the choice and its reasoning (in the PR, or as a decision in `CLAUDE.md` if it's architectural).
+- **For a design decision:** name the values in tension, apply §3's order, and record the choice and its reasoning (in the PR, or as a decision in `docs/decisions/`, indexed in `CLAUDE.md`, if it's architectural).
 - **For a feature request:** check §5's gates first, then weigh maintenance cost.
-- **Precedence:** this document → rebuild decisions in `CLAUDE.md` → PRD → SDD → TSD. When a spec conflicts with this document, change the spec.
+- **Precedence:** this document → the decisions in `docs/decisions/` (indexed in `CLAUDE.md`) → PRD → SDD → TSD. When a spec conflicts with this document, change the spec.

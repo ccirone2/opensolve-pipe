@@ -1,5 +1,7 @@
 # Prompt: Build OpenSolve Pipe v1 in one run
 
+> **Historical record.** This is the prompt v1 was built from (2026-10-21, milestones M0–M7). It is kept as the record of the build; its "decisions already made" (§3) and its reading list are superseded by `docs/decisions/` and `CLAUDE.md`, and its non-negotiables now live in `CLAUDE.md` (Rules) and `docs/workflow.md`. Do not paste it into a session; use `continue-v1.md`.
+
 > Paste everything below the line into a fresh Claude Code session at the repository root.
 
 ---

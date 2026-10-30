@@ -4,7 +4,7 @@
 
 **Version:** 0.2.0 (Rebuild baseline)
 **Date:** October 2026
-**Status:** Aligned with the rebuild decisions D1–D6 in `CLAUDE.md`
+**Status:** Aligned with decisions D1–D23 (`docs/decisions/`, indexed in `CLAUDE.md`); updated with each decision
 
 ---
 
@@ -30,7 +30,7 @@ Code samples are sketches that show intent, unless a section says the code was t
 
 - PRD: Product Requirements Document v0.2.0
 - SDD: Software Design Document v0.2.0
-- `CLAUDE.md`: rebuild decisions D1–D6 (take precedence over this document)
+- `docs/decisions/` (indexed in `CLAUDE.md`): decisions D1–D23 (take precedence over this document)
 
 ---
 
@@ -247,16 +247,23 @@ opensolve-pipe/
 │       └── Dockerfile
 │
 ├── docs/
-│   ├── PRD.md
-│   ├── SDD.md
-│   └── TSD.md
+│   ├── README.md               # Map of the documents and reading paths by task
+│   ├── GOALS.md, PRD.md, SDD.md, TSD.md
+│   ├── decisions/              # D01-… one file per decision; README.md indexes them; TEMPLATE.md
+│   ├── proposals/              # One design proposal per feature, with its as-built section; README.md indexes them
+│   ├── prompts/                # build-v1.md (historical), continue-v1.md (session start)
+│   ├── workflow.md             # How a slice ships: gate, propose, build, prove, record
+│   ├── history.md              # Merges and the verified gate numbers
+│   ├── roadmap.md              # Open work, shelved, Later
+│   ├── library-facts.md        # Verified quirks of fluids, CoolProp, EPANET/WNTR
+│   └── deployment.md           # The Cloud Run and Pages runbook
 │
 ├── .github/
 │   └── workflows/
 │       └── ci.yml
 │
 ├── .gitignore
-├── CLAUDE.md
+├── CLAUDE.md                   # Loaded into every AI session: rules, reading map, decision index
 └── README.md
 ```
 
@@ -276,35 +283,13 @@ The project route is rendered in the browser only (`export const ssr = false` in
 
 #### Backend Entry: `apps/api/src/opensolve_pipe/main.py`
 
-```python
-import os
+As built (read the file; the sketch that stood here predated the middleware and the error envelope):
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-from .routers import fluids, solve
-
-app = FastAPI(
-    title="OpenSolve Pipe API",
-    description="Hydraulic network analysis API",
-    version="0.1.0",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(","),
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
-)
-
-app.include_router(solve.router, prefix="/api/v1", tags=["solve"])
-app.include_router(fluids.router, prefix="/api/v1", tags=["fluids"])
-
-
-@app.get("/health")
-async def health_check() -> dict[str, str]:
-    return {"status": "healthy"}
-```
+- `logging_privacy.install()` first: the access log drops query strings and client addresses, and bodies are never logged (D10).
+- Middleware, outermost first: CORS from `CORS_ORIGINS` (exact origins) and `CORS_ORIGIN_REGEX` (the Pages previews, §11.3; a regex that does not compile stops start-up), `CatchAll` (every unhandled exception becomes the error envelope), gzip above 1,000 bytes, `BodySizeLimit`, `RateLimit` (per client key, `routers/_common.py`).
+- Routers under `/api/v1`: `solve` (`/solve`, `/system-curve`, `/pump-group-curve`), `goal_seek`, `fluids`, `library`.
+- One exception handler per service error, each mapped to its code in the one `ErrorResponse` envelope (SDD §8.1): topology 422 with every issue; validation, fluid-range, scenario-override, goal-seek-input and bounds errors 400 (request-validation locations leave out a union's tag, D22); not-found 404; `SERVER_BUSY` 503 and `TIMEOUT` 503; cancelled requests closed without a body.
+- `GET /health`; `GET /api/v1/about` and `GET /source` (`source.py`, §11.2); `/docs` and `/redoc` only with `API_DOCS=1` (§9.2).
 
 ---
 
@@ -2047,7 +2032,7 @@ Free tiers and prices in USD, read on 2026-10-22:
 
 ## 12. Implementation Questions
 
-**Decided** (recorded in `CLAUDE.md` D7–D9, D11, D12, D15–D18 and D20–D23):
+**Decided** (recorded in `docs/decisions/` as D7–D9, D11, D12, D15–D18 and D20–D23, indexed in `CLAUDE.md`):
 
 1. **Tee and wye K correlation:** Crane TP-410 functions in `fluids.fittings`; Darby 3-K fallback for tees with the combined flow through the branch; uncovered wye patterns are not converged (§4.2).
 2. **Water property package:** CoolProp 8.0.0, `Water` = IAPWS-95; glycols `INCOMP::MEG`/`MPG` (§4.6).

@@ -299,7 +299,7 @@ describe('scenario allow-list (x-override-fields)', () => {
 	it('is read from the Scenario schema, for every component schema, pipes and the project', () => {
 		const published = extension('Scenario', 'x-override-fields') as Record<
 			string,
-			Record<string, { schema: string; path?: string[]; keys?: string[] }>
+			Record<string, { schema: string; path?: string[]; keys?: string[]; holders?: string[] }>
 		>;
 		expect(Object.keys(OVERRIDE_FIELDS).sort()).toEqual(Object.keys(published).sort());
 		for (const [target, fields] of Object.entries(published)) {
@@ -307,7 +307,8 @@ describe('scenario allow-list (x-override-fields)', () => {
 				expect(OVERRIDE_FIELDS[target]![name]).toEqual({
 					schema: entry.schema,
 					path: entry.path ?? [],
-					keys: entry.keys ?? []
+					keys: entry.keys ?? [],
+					...(entry.holders ? { holders: entry.holders } : {})
 				});
 				// The value's holder schema has the field (bounds are read from there).
 				const properties = SCHEMAS[entry.schema]!.properties as Record<string, unknown>;

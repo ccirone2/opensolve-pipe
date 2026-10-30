@@ -8,12 +8,14 @@ refusals, group system curves on every default-range rule, invariance and one-me
 comparisons with points of every common reason, so that a check that compared nothing would
 fail here; the second finder is tested on hand-built networks (a closed loop with one expansion
 tank, a dead end, a reversed member, a PRV in a leg, pumps returning to the tank they draw
-from); and the checks must catch falsified results: a moved S, a wrong interior, a perturbed
-route loss, a reported loss that does not add up, a point's flow changed, a wrong arrangement,
-duty check and grid, a refusal that names the wrong elements; and for the group system curve a
-perturbed rise, a moved isDuty, a wrong range or grid, a reason beside a rise, a pump's words, a
-disagreement nothing explains, a one-member point or message changed, and an invariance point
-that differs. The full corpus run is the command-line tool."""
+from); the checks read relief valves and an orifice plate inside stations, and a duty at zero
+flow (``tests/unit/relief_stations.py``); and the checks must catch falsified results: a moved
+S, a wrong interior, a perturbed route loss, a reported loss that does not add up, a point's
+flow changed, a wrong arrangement, duty check and grid, a refusal that names the wrong
+elements; and for the group system curve a perturbed rise, a moved isDuty, a wrong range or
+grid, a reason beside a rise, a pump's words, a disagreement nothing explains, a one-member
+point or message changed, and an invariance point that differs. The full corpus run is the
+command-line tool."""
 
 import copy
 import dataclasses
@@ -67,6 +69,7 @@ from tests.differential.pump_group_check import (
     violations_of,
 )
 from tests.differential.pump_group_random import check_seed
+from tests.unit import relief_stations as rs
 
 SMOKE = (
     [f"fuzz_{s}" for s in range(40)]
@@ -671,6 +674,63 @@ def test_random_networks_break_no_rule() -> None:
     assert counts["station"] >= 50
     for code in ("NO_SEPARATING_PORTS", "NO_WAY_THROUGH", "MEMBERS_OPPOSED", "MEMBER_REVERSED"):
         assert counts[f"code:{code}"] >= 5, (code, counts)
+
+
+def _orifice_between(set_pressure: float) -> dict[str, Any]:
+    """``relief_stations.series_between`` with an orifice plate (bore 50 mm) where RV1 was."""
+    data = rs.series_between(set_pressure=set_pressure)
+    data["components"] = [
+        c
+        if c["id"] != "RV1"
+        else {
+            "type": "orifice",
+            "id": "RV1",
+            "name": "RV1",
+            "elevation": 0.0,
+            "boreDiameter": 0.05,
+            "ports": c["ports"],
+        }
+        for c in data["components"]
+    ]
+    return data
+
+
+RELIEF_STATIONS: dict[str, tuple[dict[str, Any], str]] = {
+    # a relief valve between series pumps, relieving and held shut
+    "series_relieving": (rs.series_between(), "series"),
+    "series_held_shut": (rs.series_between(set_pressure=500_000.0), "series"),
+    "series_through_an_orifice": (_orifice_between(150_000.0), "series"),
+    # a minimum-flow relief bypass inside a parallel station, at full and partial lift
+    "bypass_full_lift": (rs.bypass_parallel(), "mixed"),
+    "bypass_partial_lift": (rs.bypass_parallel(set_pressure=300_000.0), "mixed"),
+    # the pumps at zero flow behind relief valves set above their shutoff head
+    "deadheaded": (rs.deadheaded(2.0, 20.0, "relief"), "mixed"),
+    "parallel_then_shut": (rs.parallel_then_closed(), "parallel"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(RELIEF_STATIONS))
+def test_relief_valves_and_orifice_plates_inside_stations_are_read(name: str) -> None:
+    """A relief valve is a valve link with a result of its own (``reliefValveResults``, no
+    ``valveResults`` entry) and an orifice plate a link of its own kind (``orificeResults``):
+    the walks of reported losses and the flows at S and D read both, chains pass through them,
+    and a duty at zero flow has no shares."""
+    data, arrangement = RELIEF_STATIONS[name]
+    record = _group(_case(data), ("P1", "P2"))
+    assert record["outcome"] == "station", record
+    assert record["arrangement"] == arrangement
+    assert record["violations"] == []
+    for members in (("P1",), ("P2",)):
+        assert _group(_case(data), members)["violations"] == []
+
+
+def test_different_boundaries_through_a_relief_valve_are_checked() -> None:
+    """P1 delivers to RA through a relief valve, P2 to RB: the refusal names both reservoirs,
+    where the members' own chains of pipes and two-port elements end."""
+    record = _group(_case(rs.different_boundaries()), ("P1", "P2"))
+    assert record["outcome"] == "refused"
+    assert record["reasons"] == ["DIFFERENT_BOUNDARIES"]
+    assert record["violations"] == []
 
 
 def _refusal(case: Case, members: list[str]) -> NotAStationError:

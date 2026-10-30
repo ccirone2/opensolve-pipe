@@ -43,17 +43,32 @@ the vena contracta pressure decision 15's, at the reported port pressures. On a 
 plate dominates, a C(Re) with the wrong dependence moves the flow by less than D6 at high Re but
 not at the low Re of orifice_reynolds_dependence (test_derivation_checks), and these checks catch
 it at any Re.
+
+A pressure relief valve (docs/proposals/pressure-relief-valve.md §2.2) has its
+``reliefValveResults`` entry, every field expected: flows within D6 (the flow floor), the head
+loss within D6 (0.01 m), pressures and differences within D6 (ρ·g·0.01 m), the lift and the two
+ratios within D6's 0.5 % (the flow floor below), the values the inputs fix (set, overpressure,
+full-lift difference and flow, the capacity's numbers) to 10⁻¹² relative, the texts equal, the
+null fields null; a valve expected without a result (null: a closed-off or floating side,
+decision 16) has none. At the solver's own reported state (decisions 5, 13): the head loss is
+EGL_in − EGL_out; Δp_t = ρg(h − (z_in − z_out)); a relieving valve's head loss is the suite's
+law h(Q) within the energy stop tolerance; the lift is Q/(C√(2Δp_t/ρ)); the state follows Q
+against Q_f; setRatio, flowRatio and Re follow their definitions; the static drop is the ports'
+pressure difference and Δp_t − ρ(v_in² − v_out²)/2; and the inlet and back pressures are the
+ports' node pressures.
 """
 
+import math
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from opensolve_pipe.models.components import AssignedFlow, Equipment, Orifice, Pump
+from opensolve_pipe.models.components import AssignedFlow, Equipment, Orifice, Pump, ReliefValve
 from opensolve_pipe.models.project import Project
 from opensolve_pipe.models.results import SolvedState
+from tests.reference import derivations as dv
 from tests.reference import element_laws as el
 from tests.reference.case_format import case_files, read_case
 from tests.reference.derivations import G
@@ -415,6 +430,167 @@ def _orifice_own_state(project: Project, result: SolvedState, component: Orifice
     return failures
 
 
+RELIEF_FIELDS = {
+    "state": ("state", "text"),
+    "flow": ("flow", "flow"),
+    "lift": ("lift", "ratio"),
+    "headLoss": ("head_loss", "head"),
+    "totalPressureDifference": ("total_pressure_difference", "pressure"),
+    "pressureDrop": ("pressure_drop", "pressure"),
+    "inletPressure": ("inlet_pressure", "pressure"),
+    "backPressure": ("back_pressure", "pressure"),
+    "setPressure": ("set_pressure", "input"),
+    "setRatio": ("set_ratio", "ratio"),
+    "overpressure": ("overpressure", "input"),
+    "overpressureSource": ("overpressure_source", "text"),
+    "fullLiftPressureDifference": ("full_lift_pressure_difference", "input"),
+    "fullLiftFlow": ("full_lift_flow", "input"),
+    "flowRatio": ("flow_ratio", "ratio"),
+    "reynoldsNumber": ("reynolds_number", "relative"),
+}
+"""Expected key -> (ReliefValveResult attribute, how it is compared): D6's floors for flows,
+heads and pressures; D6's 0.5 % with the flow floor for the lift and the ratios; 0.5 % for Re;
+INPUT_RELATIVE for values the inputs and the fluid fix; text exactly. ``capacity`` is compared
+on its own (``_capacity_failures``)."""
+INPUT_RELATIVE = 1.0e-12
+"""Values the inputs and the case fluid's density fix (no solve between): far above round-off."""
+
+
+def _capacity_failures(rid: str, got: Any, want: dict[str, Any]) -> list[str]:
+    """The capacity a relief result echoes (proposal §2.2): its kind, letter and covering
+    letter equal, its numbers to INPUT_RELATIVE, null where expected null."""
+    dumped = got.model_dump(mode="json", by_alias=True)
+    failures = []
+    for key, value in want.items():
+        found = dumped.get(key)
+        if isinstance(value, float) and isinstance(found, int | float):
+            if abs(found - value) > INPUT_RELATIVE * abs(value):
+                failures.append(f"relief valve {rid} capacity.{key}: {found!r}, not {value!r}")
+        elif found != value:
+            failures.append(f"relief valve {rid} capacity.{key}: {found!r}, not {value!r}")
+    extra = set(dumped) - set(want)
+    if extra:
+        failures.append(f"relief valve {rid} capacity has unexpected fields {sorted(extra)}")
+    return failures
+
+
+def _relief_failures(
+    project: Project, result: SolvedState, expected: dict[str, Any], density: float
+) -> list[str]:
+    """Every expected relief result (pressure-relief-valve.md §2.2) within D6, every relief
+    valve of the project expected, and the checks at the solver's own state (module
+    docstring)."""
+    floors = {
+        "flow": FLOW_FLOOR,
+        "ratio": FLOW_FLOOR,
+        "head": HEAD_FLOOR,
+        "pressure": density * G * HEAD_FLOOR,
+        "relative": 0.0,
+    }
+    wanted = expected.get("reliefValves", {})
+    failures = [
+        f"relief valve {c.id} has no expected result"
+        for c in project.components
+        if isinstance(c, ReliefValve) and c.id not in wanted
+    ]
+    for rid, want in wanted.items():
+        got = result.relief_valve_results.get(rid)
+        if want is None:
+            if got is not None:
+                failures.append(f"relief valve {rid}: a result, expected none")
+            continue
+        if got is None:
+            failures.append(f"no relief valve result for {rid}")
+            continue
+        for key, (attr, kind) in RELIEF_FIELDS.items():
+            value = getattr(got, attr)
+            if kind == "text" or want[key] is None or value is None:
+                if value != want[key]:
+                    failures.append(
+                        f"relief valve {rid} {key}: got {value!r}, expected {want[key]!r}"
+                    )
+            elif kind == "input":
+                if abs(value - want[key]) > INPUT_RELATIVE * abs(want[key]):
+                    failures.append(
+                        f"relief valve {rid} {key}: got {value!r}, expected {want[key]!r}"
+                    )
+            elif not _within(value, want[key], floors[kind]):
+                failures.append(f"relief valve {rid} {key}: got {value!r}, expected {want[key]!r}")
+        failures += _capacity_failures(rid, got.capacity, want["capacity"])
+        component = next(c for c in project.components if c.id == rid)
+        assert isinstance(component, ReliefValve)
+        failures += _relief_own_state(project, result, component)
+    return failures
+
+
+def _relief_own_state(project: Project, result: SolvedState, component: ReliefValve) -> list[str]:
+    """The checks at the solver's own reported state (module docstring)."""
+    rid = component.id
+    got = result.relief_valve_results[rid]
+    rho, mu = result.fluid.density, result.fluid.dynamic_viscosity
+    law = el.relief_law(component, rho)
+    nodes = result.node_results
+    key_in, key_out = f"{rid}:inlet", f"{rid}:outlet"
+    q = got.flow
+    failures = []
+
+    def check(label: str, value: float | None, want: float | None, scale: float = 0.0) -> None:
+        if value is None or want is None:
+            if value is not want:
+                failures.append(
+                    f"relief valve {rid} at its own state: {label} {value!r}, expected {want!r}"
+                )
+        elif abs(value - want) > COEFFICIENT_RELATIVE * max(abs(want), scale):
+            failures.append(
+                f"relief valve {rid} at its own state: {label} {value!r}, expected {want!r}"
+            )
+
+    dp_t = got.total_pressure_difference
+    check(
+        "totalPressureDifference", dp_t, rho * G * (got.head_loss - law.dz), rho * G * abs(law.dz)
+    )
+    check("setRatio", got.set_ratio, dp_t / component.set_pressure)
+    check("flowRatio", got.flow_ratio, q / law.q_full)
+    check("fullLiftFlow", got.full_lift_flow, law.q_full)
+    check("reynoldsNumber", got.reynolds_number, law.reynolds(q, mu))
+    if q > 0.0:
+        check("lift", got.lift, q / (law.c * math.sqrt(2.0 * dp_t / rho)))
+        state = "full_lift" if q >= law.q_full else "partial_lift"
+    else:
+        state = "closed"
+        if q != 0.0:
+            failures.append(f"relief valve {rid}: reverse flow {q!r}")
+        check("lift", got.lift, 0.0)
+    if got.state != state:
+        failures.append(f"relief valve {rid}: state {got.state!r} at Q/Q_f {q / law.q_full!r}")
+    if key_in in nodes and key_out in nodes:
+        h_in, h_out = nodes[key_in].egl, nodes[key_out].egl
+        if abs(got.head_loss - (h_in - h_out)) > ENERGY_STOP_ROUND_OFF * max(abs(h_in), abs(h_out)):
+            failures.append(
+                f"relief valve {rid}: head loss {got.head_loss!r} is not EGL_in - EGL_out"
+            )
+        if q > 0.0:
+            h_law = law.head(q)
+            stop = ENERGY_STOP_ABSOLUTE + ENERGY_STOP_ROUND_OFF * max(
+                abs(h_in), abs(h_out), abs(h_law)
+            )
+            if abs(got.head_loss - h_law) > stop:
+                failures.append(
+                    f"relief valve {rid}: head loss {got.head_loss!r} is not the law's h(Q) = "
+                    f"{h_law!r} within the energy stop tolerance {stop:.3g} m"
+                )
+        check("inletPressure", got.inlet_pressure, nodes[key_in].pressure)
+        check("backPressure", got.back_pressure, nodes[key_out].pressure)
+        if got.inlet_pressure is not None and got.back_pressure is not None:
+            scale = max(abs(got.inlet_pressure), abs(got.back_pressure))
+            check("pressureDrop", got.pressure_drop, got.inlet_pressure - got.back_pressure, scale)
+    v_in = dv.velocity(q, _end_bore(project, key_in))
+    v_out = dv.velocity(q, _end_bore(project, key_out))
+    identity = dp_t - rho * (v_in**2 - v_out**2) / 2.0
+    check("pressureDrop (Δp_t identity)", got.pressure_drop, identity, abs(dp_t))
+    return failures
+
+
 def _step_hold_failures(result: SolvedState, expected: dict[str, Any]) -> list[str]:
     """The step and the two splits of every expected step hold, from the solver's
     CORRELATION_OUT_OF_RANGE flag on that branch (details step, splitA, splitB)."""
@@ -502,6 +678,7 @@ def test_reference_case(case_path: Path) -> None:
         + _step_hold_failures(result, expected)
         + _equipment_failures(project, result, expected, fluid["density"])
         + _orifice_failures(project, result, expected, fluid["density"])
+        + _relief_failures(project, result, expected, fluid["density"])
     )
     assert not failures, "\n".join(failures)
 

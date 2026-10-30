@@ -12,11 +12,22 @@
  * (TRANSITIONAL_FLOW, CORRELATION_OUT_OF_RANGE) is numbered from its segmentIndex, so a copy with
  * the pipe's index as it is now (Build's strip, utils/results.ts) names that pipe.
  *
+ * A Crane default's CORRELATION_OUT_OF_RANGE (a valve's default K, or an inline fitting's Crane
+ * K, outside the table it is cited for) ends with the advice to enter the manufacturer's
+ * coefficient, on the element or in the project library (CLAUDE.md D22, proposal
+ * project-library.md §4.3): the flag still fires, and the server's message is unchanged.
+ *
  * An orifice plate's validity flags (CORRELATION_OUT_OF_RANGE on the component, proposal
  * orifice-plate.md §3.5) are told from `details.limit` and their SI numbers; the flashing check at
  * its vena contracta (BELOW_VAPOR_PRESSURE) from `details.venaContractaAbsolutePressure`. Its
  * Reynolds-number flag, whose numbers have no unit and whose consequence differs between ISO's and
  * an entered coefficient, keeps the API's words (names for ids).
+ *
+ * A relief valve's flags (proposal pressure-relief-valve.md §3.6, §4.3) are told from their
+ * details: full lift (RELIEF_VALVE_OPEN), closed with no result (RELIEF_VALVE_CLOSED), partial lift
+ * and a viscous liquid (CORRELATION_OUT_OF_RANGE, `details.limit`), and flashing at its outlet
+ * (BELOW_VAPOR_PRESSURE, `details.backAbsolutePressure`); each falls back to the API's message
+ * without its details.
  */
 import type { Flag, Project, UnitPreferences } from '../api/types';
 import { componentById, connectionById } from './graph';
@@ -165,6 +176,75 @@ function orificeText(flag: Flag, f: Formatter): string | null {
 	}
 }
 
+/** A ratio (a fraction of something) as a percentage, told apart from `others` (digitsApart). */
+function percentApart(f: Formatter, value: number, others: readonly number[]): string {
+	const show = (si: number, sig: number) => formatValue(si, 'fraction', f.prefs, sig);
+	return show(value, digitsApart(value, others, show));
+}
+
+/**
+ * A relief valve's validity flags (CORRELATION_OUT_OF_RANGE on the component, proposal
+ * pressure-relief-valve.md §3.6), told from `details.limit` ('partial_lift', 'viscosity') and
+ * their SI numbers, or null to keep the API's words (another limit, or details not in the form
+ * expected). A value near the limit it is compared with gets the digits that tell them apart.
+ */
+function reliefText(flag: Flag, f: Formatter): string | null {
+	const limit = flag.details.limit;
+	if (!flag.componentId || (limit !== 'partial_lift' && limit !== 'viscosity')) return null;
+	const n = (key: string) => number(flag, key);
+	if (limit === 'partial_lift') {
+		const lift = n('lift');
+		const ratio = n('setRatio');
+		const op = n('overpressure');
+		if (lift === null || ratio === null || op === null) return null;
+		const full = 1 + op;
+		return (
+			`It relieves at partial lift (${percentApart(f, lift, [0, 1])}, the pressure difference at ` +
+			`${percentApart(f, ratio, [1, full])} of its set; full lift at ${percentApart(f, full, [ratio])}): ` +
+			'between set and full lift the lift is the linear convention, not a cited law. A typical ' +
+			'liquid-trim valve lifts more slowly, surges to full lift near 107 % of set and recloses ' +
+			'near 90 % (Pentair TP-V300 Fig. 4-12). A valve that has surged open passes more flow at a ' +
+			'lower inlet pressure.'
+		);
+	}
+	const mu = n('value');
+	const lower = n('lower');
+	const kv = n('kv');
+	const re = n('reynoldsNumber');
+	if (mu === null || lower === null || kv === null || re === null) return null;
+	const show = (si: number, sig: number) => formatValue(si, 'viscosity', f.prefs, sig);
+	const sig = digitsApart(mu, [lower], show);
+	return (
+		`The liquid's viscosity (${show(mu, sig)}) is at or above ${show(lower, sig)}, where API 520 ` +
+		`(10th edition) corrects the capacity by its viscosity factor Kv (${f.plain(kv)} at the ` +
+		`solved flow, Reynolds number ${f.plain(re)} on the orifice). Kv is not applied, so the ` +
+		'capacity solved is likely overstated and the inlet pressure at this flow understated.'
+	);
+}
+
+/** The advice after a Crane default valve K's range flag (proposal project-library.md §4.3). */
+export const VALVE_LIBRARY_ADVICE =
+	"Enter the manufacturer's coefficient as a resistance, or in the project library.";
+/** The advice after an inline fitting's Crane range flag: its K is the fitting's resistance. */
+export const FITTING_LIBRARY_ADVICE =
+	"Enter the manufacturer's coefficient as its K, or in the project library.";
+
+/**
+ * Whether a CORRELATION_OUT_OF_RANGE flag is on a valve's Crane default K (builder.py: the valve's
+ * flag carries the inlet pipe's diameter its default K was evaluated at, `referenceDiameter`).
+ */
+function onValveDefault(flag: Flag, project: Project): boolean {
+	if (!flag.componentId || number(flag, 'referenceDiameter') === null) return false;
+	const component = componentById(project, flag.componentId);
+	return component === undefined || component.type === 'valve';
+}
+
+/** `text` with `advice` after it, as a sentence of its own. */
+function withAdvice(text: string, advice: string): string {
+	const trimmed = text.trimEnd();
+	return `${trimmed}${/[.!?]$/.test(trimmed) ? '' : '.'} ${advice}`;
+}
+
 /** Display text of a flag (see the module comment). */
 export function flagText(flag: Flag, context: FlagTextContext): string {
 	const f = new Formatter(context.prefs);
@@ -190,6 +270,17 @@ export function flagText(flag: Flag, context: FlagTextContext): string {
 			const surface = value('surfaceAbsolutePressure', 'pressure', { absolute: true });
 			if (surface)
 				return `The liquid surface is at ${surface}, below ${bound}: the liquid would boil.`;
+			// A relieving relief valve's jet leaves it at its back pressure (proposal
+			// pressure-relief-valve.md decision 15).
+			const back = number(flag, 'backAbsolutePressure');
+			if (back !== null) {
+				const vaporSi = number(flag, 'vaporPressure');
+				const show = (si: number, sig: number) =>
+					formatValue(si, 'pressure', context.prefs, sig, { absolute: true });
+				const sig = digitsApart(back, vaporSi === null ? [0] : [vaporSi], show);
+				const limit = vaporSi === null ? bound : `the vapor pressure (${show(vaporSi, sig)})`;
+				return `The absolute static pressure at its outlet is ${show(back, sig)}, below ${limit} while it relieves: the jet leaves the valve at that back pressure, so the liquid would flash there and the flow solved is too high.`;
+			}
 			// An orifice plate's jet (decision 15): at the vena contracta, not at a port.
 			const jet = value('venaContractaAbsolutePressure', 'pressure', { absolute: true });
 			if (jet)
@@ -248,9 +339,50 @@ export function flagText(flag: Flag, context: FlagTextContext): string {
 					/fitting \d+ \(([^)]+)\)/.exec(flag.message)?.[1] ??
 					connectionById(context.project, flag.connectionId)?.piping.fittings[fitting]?.type;
 				const name = type ? (context.fittingName ?? fittingFallbackName)(type) : 'Fitting';
-				return `${name} (fitting ${fitting + 1}): ${messageText({ ...flag, message: reason(flag.message) }, context)}`;
+				const text = `${name} (fitting ${fitting + 1}): ${messageText({ ...flag, message: reason(flag.message) }, context)}`;
+				// A fitting's Crane table range (fittings.py _range_warning: its size, a bend's or an
+				// entrance's ratio) takes the advice; its laminar-flow flag (with the Reynolds number)
+				// does not: an entered coefficient is no more valid in laminar flow.
+				return number(flag, 'reynoldsNumber') === null
+					? withAdvice(text, FITTING_LIBRARY_ADVICE)
+					: text;
 			}
-			return orificeText(flag, f) ?? fallback();
+			if (onValveDefault(flag, context.project)) {
+				return withAdvice(fallback(), VALVE_LIBRARY_ADVICE);
+			}
+			return reliefText(flag, f) ?? orificeText(flag, f) ?? fallback();
+		}
+		case 'RELIEF_VALVE_OPEN': {
+			const q = value('flow', 'flow');
+			const dp = value('totalPressureDifference', 'pressure');
+			const ratio = number(flag, 'setRatio');
+			const flowRatio = number(flag, 'flowRatio');
+			if (!q || !dp || ratio === null || flowRatio === null) return fallback();
+			const beyond =
+				flowRatio > 1
+					? ": beyond its rated overpressure, where API 520's equation holds and the flow grows with the square root of the pressure difference."
+					: '.';
+			return `At full lift: it relieves ${q} at a total-pressure difference of ${dp} (${percentApart(f, ratio, [1])} of its set pressure), ${percentApart(f, flowRatio, [1])} of its capacity at full lift${beyond}`;
+		}
+		case 'RELIEF_VALVE_CLOSED': {
+			const side = flag.details.side;
+			const section = flag.details.section;
+			const set = value('setPressure', 'pressure');
+			if ((side !== 'inlet' && side !== 'outlet') || !set) return fallback();
+			if (section !== 'floating' && section !== 'closed_off') return fallback();
+			const what =
+				section === 'floating'
+					? 'has no fixed pressure level (undetermined pressure)'
+					: 'is closed off (no flow reaches it)';
+			const limit = value('pressureLimit', 'pressure', { gauge: true });
+			const level = limit
+				? side === 'inlet'
+					? `: every inlet static pressure up to ${limit} (its back pressure plus its set)`
+					: `: every back pressure down to ${limit} (its inlet pressure less its set)`
+				: '';
+			// The levels at which this valve stays closed, as the API words them: the other elements
+			// around the section have rules of their own, so not each level is a steady state.
+			return `Closed, with no result: the section on its ${side} side ${what}, so the pressure difference across it is undetermined. It stays closed at every level of that section at which the difference does not exceed its set pressure (${set})${level}; whether such a level is a steady state depends also on the other elements around that section.`;
 		}
 		case 'CHECK_VALVE_CLOSED': {
 			const dh = value('headDifference', 'head');

@@ -52,7 +52,8 @@
 				solved: response?.solvedState ?? null,
 				converged: !!response && response.success && response.solvedState.converged,
 				stale,
-				sent: stale ? store.sentProjectFor(caseId) : null
+				sent: stale ? store.sentProjectFor(caseId) : null,
+				inputs: response ? store.caseInputs(caseId) : null
 			};
 		})
 	);

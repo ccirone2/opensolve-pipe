@@ -34,6 +34,11 @@ describe('trace quantities', () => {
 		expect(quantityMapping('Temperature', 'K')).toBeNull();
 		expect(quantityMapping('Approach', 'K')).toBeNull();
 		expect(quantityMapping('Kinematic viscosity', 'm²/s')).toBeNull();
+		// An area, in the area unit (the square of the diameter unit), as forms and tables show it.
+		expect(quantityMapping('API 520 effective area A', 'm²')).toEqual({
+			category: 'area',
+			options: {}
+		});
 	});
 
 	it('shows known units in display units with the SI value alongside', () => {
@@ -49,6 +54,19 @@ describe('trace quantities', () => {
 			`${sig4(200000 / PSI)} psig`
 		);
 		expect(formatQuantity('Velocity', 2.5, 'm/s', SI_UNITS)).toEqual({ text: '2.5 m/s' });
+		// A relief valve's area (trace inputs in m²): mm² in SI, in² in US units.
+		expect(formatQuantity('API 520 effective area A', 4.47e-4, 'm²', SI_UNITS)).toEqual({
+			text: `${sig4(4.47e-4 / 1e-6)} mm²`,
+			si: '0.000447 m²'
+		});
+		expect(formatQuantity('API 520 effective area A', 4.47e-4, 'm²', IMPERIAL_UNITS)).toEqual({
+			text: `${sig4(4.47e-4 / (IN * IN))} in²`,
+			si: '0.000447 m²'
+		});
+		// With the diameter in metres the area unit is m²: no second, SI line.
+		expect(formatQuantity('C = Kd A', 2.9e-4, 'm²', { ...SI_UNITS, diameter: 'm' })).toEqual({
+			text: '0.00029 m²'
+		});
 	});
 
 	it('shows other values as reported', () => {

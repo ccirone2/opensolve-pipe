@@ -17,11 +17,14 @@ import type {
 	FluidProperties,
 	LibraryResponse,
 	MethodVersionsResponse,
+	PipeDefinition,
 	PipeMaterial,
 	PipeSchedule,
-	PipeSize
+	PipeSize,
+	Project
 } from '../api/types';
 import { sameSize } from '../utils/labels';
+import { resolvePipe, type PipeResolution } from '../utils/project-library';
 
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'unavailable';
 
@@ -118,17 +121,24 @@ export class LibraryStore {
 		return this.library?.fittings ?? [];
 	}
 
-	material(id: string): PipeMaterial | undefined {
-		return this.materials.find((m) => m.id === id);
+	/**
+	 * The library material `id`, if any. No id (a pipe of a project library spec has no material of
+	 * its own, CLAUDE.md D22) gives none.
+	 */
+	material(id: string | null | undefined): PipeMaterial | undefined {
+		return id == null ? undefined : this.materials.find((m) => m.id === id);
 	}
 
-	schedule(materialId: string, scheduleId: string | null | undefined): PipeSchedule | undefined {
+	schedule(
+		materialId: string | null | undefined,
+		scheduleId: string | null | undefined
+	): PipeSchedule | undefined {
 		if (scheduleId == null) return undefined;
 		return this.material(materialId)?.schedules.find((s) => s.id === scheduleId);
 	}
 
 	size(
-		materialId: string,
+		materialId: string | null | undefined,
 		scheduleId: string | null | undefined,
 		nominalSize: number | null | undefined
 	): PipeSize | undefined {
@@ -136,6 +146,16 @@ export class LibraryStore {
 		return this.schedule(materialId, scheduleId)?.sizes.find((s) =>
 			sameSize(s.nominalSize, nominalSize)
 		);
+	}
+
+	/**
+	 * The inner diameter and roughness the server resolves `pipe` of `project` to, as far as the
+	 * browser knows them, with where they come from (utils/project-library.ts resolvePipe): a pipe of
+	 * a project library spec takes the spec's values; a library pipe its size's, once the library
+	 * has loaded.
+	 */
+	resolvePipe(project: Project, pipe: PipeDefinition): PipeResolution {
+		return resolvePipe(project, pipe, this);
 	}
 
 	/** Every nominal size in the library (any material or schedule), smallest first. */

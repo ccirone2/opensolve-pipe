@@ -1,7 +1,14 @@
 /**
  * Shared helpers for unit tests. Not used by the app.
  */
-import type { Component, EquipmentRating, Orifice, PipeConnection, Project } from '../api/types';
+import type {
+	Component,
+	EquipmentRating,
+	Orifice,
+	PipeConnection,
+	Project,
+	ReliefValve
+} from '../api/types';
 import { createEmptyProject, type ComponentKind, type EnteredValues } from '../utils/factory';
 
 /** Freeze an object graph, so a test fails if code under test modifies its input. */
@@ -115,8 +122,8 @@ export function assignedFlowProject(flow: number): Project {
 /**
  * The values a user enters for a kind that has no default for them, where it is added (factory.ts
  * ENTRY_KINDS): made-up test inputs, 0.004 m³/s for an assigned-flow node's flow, for an equipment
- * item a rated point of 50 kPa at 15 L/s on a fluid of 999.1 kg/m³, and a 50 mm bore for an
- * orifice plate. Empty for others.
+ * item a rated point of 50 kPa at 15 L/s on a fluid of 999.1 kg/m³, a 50 mm bore for an
+ * orifice plate, and for a relief valve a 500 kPa set on API 526's J. Empty for others.
  */
 export function enteredFor(kind: ComponentKind): EnteredValues {
 	if (kind === 'assigned_flow') return { flow: 0.004 };
@@ -124,6 +131,8 @@ export function enteredFor(kind: ComponentKind): EnteredValues {
 		return { rating: { kind: 'point', pressureLoss: 50000, flow: 0.015, density: 999.1 } };
 	}
 	if (kind === 'orifice') return { boreDiameter: 0.05 };
+	if (kind === 'relief_valve')
+		return { setPressure: 500000, capacity: { kind: 'api526', letter: 'J' } };
 	return {};
 }
 
@@ -202,6 +211,61 @@ export function orificeProject(plate: Partial<Orifice> = {}): Project {
 	);
 }
 
+/**
+ * Reservoir R1 "Pump discharge header" (2 m level, 1.05 MPa gauge surface) → L1 (NPS 2) → relief
+ * valve RV1 "Discharge relief" → L2 (NPS 3, 1 m, with an exit) → reference node N1 "Open discharge"
+ * at 0 Pa gauge, all at 0 m. Made-up test inputs: a 500 kPa set on API 526's F, active, unless
+ * `valve` says otherwise.
+ */
+export function reliefProject(valve: Partial<ReliefValve> = {}): Project {
+	return projectWith(
+		[
+			{
+				id: 'R1',
+				name: 'Pump discharge header',
+				elevation: 0,
+				type: 'reservoir',
+				liquidLevel: 2,
+				surfacePressure: 1050000,
+				ports: [{ id: 'port_1', nominalSize: 0.0508, direction: 'bidirectional' }]
+			},
+			{
+				id: 'RV1',
+				name: 'Discharge relief',
+				elevation: 0,
+				type: 'relief_valve',
+				setPressure: 500000,
+				capacity: { kind: 'api526', letter: 'F' },
+				status: 'active',
+				ports: [
+					{ id: 'inlet', nominalSize: 0.0508, direction: 'inlet' },
+					{ id: 'outlet', nominalSize: 0.0762, direction: 'outlet' }
+				],
+				...valve
+			},
+			{
+				id: 'N1',
+				name: 'Open discharge',
+				elevation: 0,
+				type: 'reference_node',
+				referenceType: 'ideal',
+				pressure: 0,
+				ports: [{ id: 'port_1', nominalSize: 0.0762, direction: 'bidirectional' }]
+			}
+		],
+		[
+			link('L1', ['R1', 'port_1'], ['RV1', 'inlet'], 0.0508),
+			{
+				...link('L2', ['RV1', 'outlet'], ['N1', 'port_1'], 0.0762),
+				piping: {
+					pipes: [{ materialId: 'carbon_steel', schedule: '40', nominalSize: 0.0762, length: 1 }],
+					fittings: [{ type: 'exit', quantity: 1, pipeIndex: 0 }]
+				}
+			}
+		]
+	);
+}
+
 /** Recursively rebuild an object with its keys in reverse order (arrays keep their order). */
 export function reverseKeys(value: unknown): unknown {
 	if (Array.isArray(value)) return value.map(reverseKeys);
@@ -213,4 +277,93 @@ export function reverseKeys(value: unknown): unknown {
 		);
 	}
 	return value;
+}
+
+/**
+ * Reservoir R1 (10 m level) → L1 (two pipes: a pipe of spec PS1, then NPS 4 Sch 40 carbon steel;
+ * an elbow on entry RS2, a custom fitting on entry RS1) → gate valve V1 on entry RS1 → L2 (NPS 4
+ * carbon steel) → reservoir R2 (0 m), with a project library (CLAUDE.md D22) of two pipe specs
+ * (PS1 on carbon steel without a roughness, PS2 a custom pipe) and two resistance entries (RS1 a
+ * Cv, RS2 a K stated at 0.09 m). Made-up test inputs.
+ */
+export function libraryProject(): Project {
+	const port = (id: string) => ({ id, nominalSize: 0.1016, direction: 'bidirectional' }) as const;
+	const project = projectWith(
+		[
+			{
+				id: 'R1',
+				name: 'Upper tank',
+				elevation: 0,
+				type: 'reservoir',
+				liquidLevel: 10,
+				surfacePressure: 0,
+				ports: [port('port_1')]
+			},
+			{
+				id: 'V1',
+				name: 'Gate valve V1',
+				elevation: 0,
+				type: 'valve',
+				valveType: 'gate',
+				status: 'active',
+				resistance: { kind: 'library', id: 'RS1' },
+				ports: [
+					{ id: 'inlet', nominalSize: 0.1016, direction: 'inlet' },
+					{ id: 'outlet', nominalSize: 0.1016, direction: 'outlet' }
+				]
+			},
+			{
+				id: 'R2',
+				name: 'Lower tank',
+				elevation: 0,
+				type: 'reservoir',
+				liquidLevel: 0,
+				surfacePressure: 0,
+				ports: [port('port_1')]
+			}
+		],
+		[link('L1', ['R1', 'port_1'], ['V1', 'inlet']), link('L2', ['V1', 'outlet'], ['R2', 'port_1'])]
+	);
+	const l1 = project.connections[0] as PipeConnection;
+	l1.piping = {
+		pipes: [
+			{ specId: 'PS1', length: 30 },
+			{ materialId: 'carbon_steel', schedule: '40', nominalSize: 0.1016, length: 12 }
+		],
+		fittings: [
+			{ type: 'elbow_90_lr', quantity: 2, pipeIndex: 0, resistanceId: 'RS2' },
+			{ type: 'custom', quantity: 1, pipeIndex: 1, resistanceId: 'RS1' }
+		]
+	};
+	project.pipeLibrary = [
+		{
+			id: 'PS1',
+			name: 'NPS 4 measured',
+			source: 'test input: a bore measured on site',
+			materialId: 'carbon_steel',
+			innerDiameter: 0.1,
+			nominalSize: 0.1016
+		},
+		{
+			id: 'PS2',
+			name: 'Lined 80 mm',
+			source: 'test input',
+			materialId: 'custom',
+			innerDiameter: 0.08,
+			roughness: 1.5e-6,
+			outerDiameter: 0.09
+		}
+	];
+	project.resistanceLibrary = [
+		{ id: 'RS1', name: 'Gate, open', source: 'test input', kind: 'Cv', value: 900 },
+		{
+			id: 'RS2',
+			name: 'Elbow (K)',
+			source: 'test input',
+			kind: 'K',
+			value: 0.3,
+			referenceDiameter: 0.09
+		}
+	];
+	return project;
 }

@@ -74,6 +74,12 @@ OUT_OF_BOUNDS: dict[str, Any] = {
     "rating.value": 2.0e7,
     "boreDiameter": 11.0,
     "dischargeCoefficient": 1.5,
+    "setPressure": 2.0e8,
+    "capacity": {"kind": "rupture_disc", "area": 1.0e-3},  # no capacity kind
+    "capacity.letter": "Z",
+    "capacity.area": 80.0,
+    "capacity.dischargeCoefficient": 1.5,
+    "capacity.overpressure": 2.0,
     "length": 0.0,
     "spec": {"materialId": "custom"},
     "fluid": {"kind": "custom"},
@@ -81,13 +87,23 @@ OUT_OF_BOUNDS: dict[str, Any] = {
 }
 """A value outside each field's bounds (or its model's rules); an equipment item's whole rating
 of an unknown kind (proposal equipment-pressure-drop.md §2.1, decision 22); an orifice plate's
-bore above 10 m and C above 1 (proposal orifice-plate.md §2.1, §7.4), or below their lower
-bounds (``BELOW_BOUNDS``)."""
+bore above 10 m and C above 1 (proposal orifice-plate.md §2.1, §7.4); a relief valve's set above
+10⁸ Pa, a capacity of no kind, a letter API 526 does not have, an area above 78.54 m², a rated
+coefficient above 1 and an overpressure above 1 (proposal pressure-relief-valve.md §2.1, §7.4);
+or each of these numbers below its lower bound (``BELOW_BOUNDS``)."""
 
-BELOW_BOUNDS: dict[str, Any] = {"boreDiameter": 0.0, "dischargeCoefficient": 0.0}
-"""An orifice plate's bore and C at their exclusive lower bound of 0, drawn in place of
-``OUT_OF_BOUNDS`` half the time (a draw only where an orifice value was chosen, so the other
-projects' scenarios are unchanged)."""
+BELOW_BOUNDS: dict[str, Any] = {
+    "boreDiameter": 0.0,
+    "dischargeCoefficient": 0.0,
+    "setPressure": 0.0,
+    "capacity.area": 0.0,
+    "capacity.dischargeCoefficient": 0.0,
+    "capacity.overpressure": 0.0,
+}
+"""An orifice plate's bore and C, and a relief valve's set, area, rated coefficient and
+overpressure, at their exclusive lower bound of 0, drawn in place of ``OUT_OF_BOUNDS`` half the
+time (a draw only where such a value was chosen, so the other projects' scenarios are
+unchanged)."""
 
 
 def draw(name: str, base: dict[str, Any]) -> list[dict[str, Any]]:

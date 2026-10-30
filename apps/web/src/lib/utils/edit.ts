@@ -18,7 +18,9 @@ import {
 	createComponent,
 	createConnection,
 	DEFAULT_NOMINAL_SIZE,
+	defaultPipe,
 	defaultPiping,
+	ID_PREFIX,
 	newId,
 	SHORT_PIPE_LENGTH,
 	usedIds,
@@ -46,6 +48,7 @@ import {
 	requiredPortCount,
 	requiredPortIds
 } from './model-rules';
+import { pipeNominalSize } from './piping';
 
 export class EditError extends Error {
 	constructor(message: string) {
@@ -312,7 +315,7 @@ export function addBranch(
 	const connection = requireConnection(project, connectionId);
 	const from = requireComponent(project, connection.fromComponentId);
 	const size =
-		connection.piping.pipes[connection.piping.pipes.length - 1]?.nominalSize ??
+		pipeNominalSize(project, connection.piping.pipes[connection.piping.pipes.length - 1]) ??
 		portById(from, connection.fromPortId)?.nominalSize;
 	const tee =
 		branch ??
@@ -492,6 +495,53 @@ export function plugPort(
 		newId(withPlug, CONNECTION_PREFIX, options.reserved)
 	);
 	return { ...withPlug, connections: [...project.connections, connection] };
+}
+
+/**
+ * Whether a free port takes an open discharge (addOpenDischarge): a relief valve's outlet, where it
+ * discharges to atmosphere (proposal pressure-relief-valve.md decision 9). Any other port, Later.
+ */
+export function takesOpenDischarge(component: Component, portId: string): boolean {
+	return component.type === 'relief_valve' && portId === 'outlet';
+}
+
+/**
+ * An open discharge at a free port, a relief valve's outlet discharging to atmosphere (proposal
+ * pressure-relief-valve.md decision 9): a reference node at 0 Pa gauge at the port's elevation (the
+ * valve's, unless the port has its own), reached by SHORT_PIPE_LENGTH (1 m) of default pipe sized
+ * to the port with an exit fitting at its end, so the pipe's friction is solved as built-up back
+ * pressure and its open end's static pressure is exactly atmospheric (D7, D10). One edit, so one
+ * undo step. New ids avoid `options.reserved`.
+ */
+export function addOpenDischarge(
+	project: Project,
+	componentId: string,
+	portId: string,
+	options: NewIdOptions = {}
+): Project {
+	const { component, port } = requireFreePort(project, { componentId, portId });
+	const reserved = options.reserved ? { reserved: options.reserved } : {};
+	const id = newId(project, ID_PREFIX.reference_node, options.reserved);
+	const node = createComponent('reference_node', project, {
+		id,
+		name: `Open discharge ${id}`,
+		nominalSize: port.nominalSize,
+		elevation: port.elevation ?? component.elevation,
+		...reserved
+	});
+	const withNode = { ...project, components: [...project.components, node] };
+	const piping: PipingSegment = {
+		pipes: [defaultPipe(port.nominalSize, SHORT_PIPE_LENGTH)],
+		fittings: [{ type: DEFAULT_EXIT, quantity: 1, pipeIndex: 0 }]
+	};
+	const connection = createConnection(
+		withNode,
+		{ componentId, portId },
+		{ componentId: node.id, portId: 'port_1' },
+		piping,
+		newId(withNode, CONNECTION_PREFIX, options.reserved)
+	);
+	return { ...withNode, connections: [...project.connections, connection] };
 }
 
 /**

@@ -10,7 +10,12 @@ import random
 from pathlib import Path
 from typing import Any
 
-SPEC_KEYS = ("materialId", "schedule", "nominalSize", "innerDiameter", "roughness")
+from fluids.constants import psi
+from fluids.safety_valve import API526_A, API526_letters
+
+SPEC_KEYS = ("materialId", "schedule", "nominalSize", "innerDiameter", "roughness", "specId")
+"""A pipe's spec: its five values, or a project library pipe spec (CLAUDE.md D22), replaced
+together."""
 
 _ISOLATION = {"status", "resistance"}
 FIELDS = {
@@ -31,9 +36,19 @@ FIELDS = {
     "valve:fcv": _ISOLATION | {"setpoint"},
     "equipment": {"rating", "rating.pressureLoss", "rating.flow", "rating.density", "rating.value"},
     "orifice": {"boreDiameter", "dischargeCoefficient"},
+    "relief_valve": {
+        "status",
+        "setPressure",
+        "capacity",
+        "capacity.letter",
+        "capacity.area",
+        "capacity.dischargeCoefficient",
+        "capacity.overpressure",
+    },
 }
 """The overridable fields of each component kind, restated from the proposal's table (§2.2),
-equipment-pressure-drop.md §5.1 and orifice-plate.md §5.1."""
+equipment-pressure-drop.md §5.1, orifice-plate.md §5.1 and pressure-relief-valve.md decision
+18."""
 
 RATING_VALUES = {
     "point": ("pressureLoss", "flow", "density"),
@@ -42,6 +57,18 @@ RATING_VALUES = {
 }
 """The values an equipment item's rating holds, by its kind (equipment-pressure-drop.md decision
 22): a part of the other kind does not apply."""
+
+
+CAPACITY_VALUES = {
+    "api526": ("letter",),
+    "effective": ("area",),
+    "certified": ("area", "dischargeCoefficient", "overpressure"),
+}
+"""The values a relief valve's capacity holds, by its kind (pressure-relief-valve.md decisions 7
+and 18): a value of another kind does not apply."""
+ASME_SCOPE = 15.0 * psi
+"""Pa: ASME VIII's scope, the lowest set at which ASME's default overpressure is cited
+(pressure-relief-valve.md decision 6); fluids' psi."""
 
 
 def _kind(component: dict[str, Any]) -> str:
@@ -77,6 +104,9 @@ def hand_patched(
             if parents == ["rating"] and leaf not in RATING_VALUES[holder["rating"]["kind"]]:
                 states.append("not_applicable")  # a value the base rating's kind does not hold
                 continue
+            if parents == ["capacity"] and leaf not in CAPACITY_VALUES[holder["capacity"]["kind"]]:
+                states.append("not_applicable")  # a value the base capacity's kind does not hold
+                continue
             for name in parents:
                 holder = holder[name]
             holder[leaf] = copy.deepcopy(value)
@@ -111,6 +141,7 @@ STATUSES = {
     "isolation": ("active", "isolated"),
     "check": ("active", "locked_open", "locked_closed"),
     "control": ("active", "failed_open", "failed_closed"),
+    "relief": ("active", "locked_closed"),
 }
 _FAMILY = {"gate": "isolation", "ball": "isolation", "butterfly": "isolation", "globe": "isolation"}
 _FAMILY |= {"check": "check", "stop_check": "check", "prv": "control", "psv": "control"}
@@ -131,19 +162,26 @@ def _library_sizes() -> dict[tuple[str, str], list[float]]:
 LIBRARY_SIZES = _library_sizes()
 
 
+def _family(component: dict[str, Any]) -> str:
+    if component["type"] in ("pump", "relief_valve"):
+        return "pump" if component["type"] == "pump" else "relief"
+    return _FAMILY[component["valveType"]]
+
+
 def _status(component: dict[str, Any]) -> str:
-    family = "pump" if component["type"] == "pump" else _FAMILY[component["valveType"]]
-    current = component.get("status", STATUSES[family][0])
+    current = component.get("status", STATUSES[_family(component)][0])
     return str(current)
 
 
 def _other_status(rng: random.Random, component: dict[str, Any]) -> str:
-    family = "pump" if component["type"] == "pump" else _FAMILY[component["valveType"]]
-    return rng.choice([s for s in STATUSES[family] if s != _status(component)])
+    return rng.choice([s for s in STATUSES[_family(component)] if s != _status(component)])
 
 
 def _spec(rng: random.Random, pipe: dict[str, Any]) -> dict[str, Any]:
-    """A neighbouring library size in the same schedule, or a custom bore 0.8-1.25 times."""
+    """A neighbouring library size in the same schedule, or a custom bore 0.8-1.25 times; a pipe
+    of a project library spec keeps it."""
+    if pipe.get("specId") is not None:
+        return {"specId": pipe["specId"]}
     if pipe["materialId"] == "custom":
         bore = pipe["innerDiameter"] * rng.uniform(0.8, 1.25)
         return {"materialId": "custom", "innerDiameter": bore, "roughness": pipe["roughness"]}
@@ -189,7 +227,53 @@ def _component_value(rng: random.Random, c: dict[str, Any], field: str) -> Any:
         held = c.get("dischargeCoefficient")
         entered = held * rng.uniform(0.95, 1.05) if held is not None else rng.uniform(0.58, 0.66)
         return rng.choice([None, min(entered, 1.0)])
+    if field == "setPressure" or field == "capacity" or field.startswith("capacity."):
+        return _relief_value(rng, c, field)
     raise ValueError(field)
+
+
+def _relief_area(capacity: dict[str, Any]) -> float:
+    """m²: a capacity's area, a letter's from fluids' API 526 table."""
+    if capacity["kind"] == "api526":
+        return float(API526_A[API526_letters.index(capacity["letter"])])
+    return float(capacity["area"])
+
+
+def _defaulted(capacity: dict[str, Any]) -> bool:
+    """Whether a capacity takes ASME's default overpressure (cited only from ASME_SCOPE on)."""
+    return capacity["kind"] != "certified" or capacity.get("overpressure") is None
+
+
+def _relief_value(rng: random.Random, c: dict[str, Any], field: str) -> Any:
+    """Another set, valve or certification near the base one (pressure-relief-valve.md decision
+    18), never a defaulted overpressure below ASME_SCOPE (decision 14's refusal)."""
+    capacity = c["capacity"]
+    if field == "setPressure":
+        value = c["setPressure"] * rng.uniform(0.9, 1.1)
+        return max(value, ASME_SCOPE) if _defaulted(capacity) else value
+    if field == "capacity.letter":
+        return rng.choice([letter for letter in API526_letters if letter != capacity["letter"]])
+    if field == "capacity.area":
+        return min(capacity["area"] * rng.uniform(0.8, 1.25), RELIEF_AREA_MAX)
+    if field == "capacity.dischargeCoefficient":
+        return min(capacity["dischargeCoefficient"] * rng.uniform(0.9, 1.1), 1.0)
+    if field == "capacity.overpressure":
+        drawn = rng.uniform(0.05, 0.3)
+        return rng.choice([None, drawn]) if c["setPressure"] >= ASME_SCOPE else drawn
+    area = _relief_area(capacity) * rng.uniform(0.8, 1.25)  # a whole capacity, of any kind
+    kind = rng.choice(("api526", "effective", "certified"))
+    if c["setPressure"] < ASME_SCOPE:  # below the scope only a certified overpressure is cited
+        kind = "certified"
+    if kind == "api526":
+        return {"kind": kind, "letter": rng.choice(API526_letters)}
+    if kind == "effective":
+        return {"kind": kind, "area": min(area, RELIEF_AREA_MAX)}
+    return {
+        "kind": kind,
+        "area": min(area, RELIEF_AREA_MAX),
+        "dischargeCoefficient": rng.uniform(0.6, 0.9),
+        "overpressure": rng.uniform(0.05, 0.3),
+    }
 
 
 GRAVITY = 9.80665
@@ -201,6 +285,8 @@ RATING_MAX = {"pressureLoss": 1.0e8, "flow": 100.0, "density": 3.0e4, "value": 1
 """Upper bounds of the rating's values (equipment-pressure-drop.md §2.1)."""
 ORIFICE_BORE_MAX = 10.0
 """m: the upper bound of an orifice plate's bore (orifice-plate.md §2.1)."""
+RELIEF_AREA_MAX = 3.141592653589793 * 10.0**2 / 4
+"""m²: the upper bound of a relief valve's orifice area (pressure-relief-valve.md §2.1)."""
 
 
 def _rating(rng: random.Random, rating: dict[str, Any]) -> dict[str, Any]:
@@ -240,6 +326,9 @@ def draw_overrides(
         if c["type"] == "equipment":  # never the whole rating and a part of it; parts of its kind
             parts = [f"rating.{value}" for value in RATING_VALUES[c["rating"]["kind"]]]
             fields = rng.choice([["rating"], parts])
+        if c["type"] == "relief_valve":  # likewise its capacity, and its set and status
+            parts = [f"capacity.{value}" for value in CAPACITY_VALUES[c["capacity"]["kind"]]]
+            fields = ["setPressure", "status", *rng.choice([["capacity"], parts])]
         for field in fields:
             if field == "control.setpoint" and not c.get("control"):
                 continue
@@ -317,6 +406,10 @@ def _ignored(rng: random.Random, project: dict[str, Any], n: int) -> dict[str, A
         held = RATING_VALUES[c["rating"]["kind"]]
         other = sorted({v for values in RATING_VALUES.values() for v in values} - set(held))
         field = f"rating.{rng.choice(other)}"
+    elif c["type"] == "relief_valve":  # a value its capacity's kind does not hold
+        held = CAPACITY_VALUES[c["capacity"]["kind"]]
+        other = sorted({v for values in CAPACITY_VALUES.values() for v in values} - set(held))
+        field = f"capacity.{rng.choice(other)}"
     else:
         field = next(
             f for f in ("status", "liquidLevel", "pressure", "flow") if f not in FIELDS[_kind(c)]

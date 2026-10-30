@@ -1,16 +1,18 @@
 <!--
 	The connection at a chosen port of the current component (SDD §3.1.1 ConnectionPanel): its key
 	results from the last solve (ResultStrip), its pipes and fittings, or — for a port that is not connected — ways to connect it: add a
-	component there, plug it, or connect it to a free port elsewhere (to close a loop).
+	component there, plug it, discharge it to atmosphere (a relief valve's outlet), or connect it to
+	a free port elsewhere (to close a loop).
 -->
 <script lang="ts">
 	import type { Component } from '$lib/api/types';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
-	import { removePort } from '$lib/utils/edit';
+	import { removePort, takesOpenDischarge } from '$lib/utils/edit';
 	import {
 		ENTRY_KINDS,
 		missingEntries,
+		SHORT_PIPE_LENGTH,
 		type ComponentKind,
 		type EnteredValues,
 		type MissingEntry
@@ -18,6 +20,7 @@
 	import { connectionAtPort, freePorts, otherEnd } from '$lib/utils/graph';
 	import { componentName, npsLabel, portLabel } from '$lib/utils/labels';
 	import { addPipe } from '$lib/utils/piping';
+	import { displayUnit, formatValue, unitLabel } from '$lib/utils/units';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import AddComponentDialog, { type AddMode } from './AddComponentDialog.svelte';
 	import FittingsEditor from './FittingsEditor.svelte';
@@ -205,6 +208,16 @@
 					</button>
 				</div>
 				<div class="flex flex-wrap gap-2">
+					{#if takesOpenDischarge(component, portId)}
+						<button
+							type="button"
+							class="btn"
+							aria-describedby="{id}-discharge"
+							onclick={() => ws.openDischarge(component.id, portId)}
+						>
+							Discharge to atmosphere
+						</button>
+					{/if}
 					<button type="button" class="btn" onclick={() => ws.plug(component.id, portId)}>
 						Plug this port
 					</button>
@@ -219,6 +232,17 @@
 						</button>
 					{/if}
 				</div>
+				{#if takesOpenDischarge(component, portId)}
+					<p id="{id}-discharge" class="hint">
+						Discharge to atmosphere adds an open discharge: a reference node at 0 {unitLabel(
+							'pressure',
+							displayUnit('pressure', ws.units),
+							{ gauge: true }
+						)}, reached by {formatValue(SHORT_PIPE_LENGTH, 'length', ws.units)} of pipe sized to the port
+						with an exit, at the valve's elevation. Its friction is solved as built-up back pressure.
+						For a return line, add or connect the piping instead.
+					</p>
+				{/if}
 				{#if targets.length}
 					<div class="border-t border-slate-200 pt-3">
 						<div class="flex flex-wrap items-end gap-2">

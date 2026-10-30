@@ -29,9 +29,10 @@ empty, or null, on either side is compared as usual. For example, the change tha
 result map ``equipmentResults`` to every solved state (``{}`` without equipment; proposal
 equipment-pressure-drop.md §3.5) is compared with ``--ignore-empty equipmentResults``: an old
 project that gained an equipment result shows; likewise ``--ignore-empty orificeResults`` for
-the orifice plates' map (proposal orifice-plate.md §2.2, §3.9). Each path's count of values left
-out, and in how many projects, is printed after the totals, so that an ignore broader than
-intended shows.
+the orifice plates' map (proposal orifice-plate.md §2.2, §3.9) and ``--ignore-empty
+reliefValveResults`` for the relief valves' (proposal pressure-relief-valve.md §2.2, §3.9). Each
+path's count of values left out, and in how many projects, is printed after the totals, so that
+an ignore broader than intended shows.
 
 ``--within-tolerance`` compares the numbers of each project within tolerances instead, for a
 solver change that moves results by its convergence error (proposal
@@ -47,14 +48,15 @@ names (``Judge.quantity``), within the tolerances of §2.7's table (``DEFAULT_SE
 - flow (``flow``, ``outflow``, ``operatingFlow``, ``portFlows.*``, ``portOutflows.*``, the flows
   of pump and system curves, flag details' ``flow``, trace values in m³/s):
   10⁻⁸ × the project's largest |flow| + 10⁻¹⁴ m³/s, the largest flow being that of a connection,
-  valve, pump, equipment item, orifice plate, or branch or boundary port of the main solve, on
-  either side (``element_flows``);
+  valve, pump, equipment item, orifice plate, relief valve, or branch or boundary port of the
+  main solve, on either side (``element_flows``);
 - head (EGL, HGL, head losses, head rises, NPSH, pump-curve heads, the heads of flag details,
   trace values in m but for diameters, roughnesses, lengths, elevations and levels): 10⁻⁶ m;
 - pressure (static, absolute, dynamic and total pressures, pressure drops, an equipment item's
   or orifice plate's pressure loss, an orifice plate's differential pressure and vena-contracta
-  pressure, the atmospheric and vapor pressure, trace values in Pa): ρg·10⁻⁶ m, with the dump's
-  fluid density and g = 9.80665 m/s² (``G``);
+  pressure, a relief valve's inlet and back pressures, set pressure and total-pressure and
+  full-lift differences, the atmospheric and vapor pressure, trace values in Pa): ρg·10⁻⁶ m, with
+  the dump's fluid density and g = 9.80665 m/s² (``G``);
 - speed (``speed``, ``maxSpeed``, ``minSpeed``, dimensionless trace values named for a speed):
   10⁻⁹ relative;
 - system-curve head: 10⁻⁸ relative or 10⁻⁶ m, whichever is looser;
@@ -306,6 +308,7 @@ KEYS = {
             "npshRequired",
             "npshMargin",
             "crackingHead",  # flag details
+            "setHead",  # a relief valve's h_set, RELIEF_VALVE_CLOSED's details
             "headDifference",
             "headRise",
             "shutoffHead",
@@ -322,6 +325,13 @@ KEYS = {
             "pressureLoss",  # an equipment item's or orifice plate's, ρg × its head loss
             "differentialPressure",  # an orifice plate's reading at its taps
             "venaContractaPressure",  # an orifice plate's, gauge
+            "inletPressure",  # a relief valve's static pressures at its ports, gauge
+            "backPressure",
+            "setPressure",  # a relief valve's set, a difference (also in flag details)
+            "totalPressureDifference",  # Δp_t, what a relief valve's law reads
+            "fullLiftPressureDifference",  # Δp_f = Δp_s (1 + op)
+            "backAbsolutePressure",  # a relief valve's flashing flag
+            "pressureLimit",  # RELIEF_VALVE_CLOSED's level bound, gauge
             "suctionAbsolutePressure",
             "atmosphericPressure",
             "vaporPressure",
@@ -384,10 +394,10 @@ def _number(x: Any) -> bool:
 
 def element_flows(doc: Any) -> dict[str, float]:
     """|flow| of each element of a dump's main solve: connections, valves, equipment items,
-    orifice plates and pumps by id; each port of a branch or boundary by 'id:port', and the branch
-    or boundary by id with the least of its port flows (a tee's K factors, flow ratio and port
-    velocities are round-off where one of its ports carries a round-off flow; a boundary without
-    port flows by its outflow)."""
+    orifice plates, relief valves and pumps by id; each port of a branch or boundary by
+    'id:port', and the branch or boundary by id with the least of its port flows (a tee's K
+    factors, flow ratio and port velocities are round-off where one of its ports carries a
+    round-off flow; a boundary without port flows by its outflow)."""
     flows: dict[str, float] = {}
 
     def results(field: str) -> dict[str, Any]:
@@ -399,6 +409,7 @@ def element_flows(doc: Any) -> dict[str, float]:
         ("valveResults", "flow"),
         ("equipmentResults", "flow"),
         ("orificeResults", "flow"),
+        ("reliefValveResults", "flow"),
     ):
         for eid, r in results(field).items():
             if _number(r.get(key)):
@@ -475,6 +486,7 @@ class Judge:
             "valveResults",
             "equipmentResults",
             "orificeResults",
+            "reliefValveResults",
             "pumpResults",
             "branchResults",
             "boundaryResults",
@@ -790,7 +802,7 @@ def main(argv: list[str] | None = None) -> None:
         metavar="PATH",
         help="leave out the values at this path only where they are an empty map or list, or"
         " absent, on both sides, and compare them elsewhere (e.g. equipmentResults,"
-        " orificeResults); repeatable",
+        " orificeResults, reliefValveResults); repeatable",
     )
     parser.add_argument(
         "--within-tolerance",

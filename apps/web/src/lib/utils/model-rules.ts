@@ -11,6 +11,8 @@
  * - on `Fitting`, `x-required-parameters` (fields each fitting type needs), `x-reducer-types`
  *   (fittings between two pipes), `x-entrance-types` and `x-exit-types`;
  * - on `ControlValve`, `x-setpoint-bounds` (an FCV's setpoint is a flow);
+ * - on `ReliefValve`, `x-relief-data` (API 526's letters and effective areas, API 520's effective
+ *   coefficient of discharge, ASME's liquid overpressure and its 15 psi scope);
  * - on a component schema, `x-ordered-fields` (pairs of fields whose values must be ordered, such
  *   as a speed-controlled pump's minimum speed below its speed, the maximum);
  * - on `Scenario`, `x-override-fields` (the values a scenario may change, by target schema: the
@@ -19,7 +21,11 @@
  *   target schema, with the schema that bounds each number and its search scale),
  *   `x-goal-quantities` (the results a goal may name, with their default-tolerance rules) and
  *   `x-goal-seek-rules` (the request's list rules), and `x-ordered-fields` on each goal-seek
- *   variable schema (its lower bound below its upper), PRD §3.9.
+ *   variable schema (its lower bound below its upper), PRD §3.9;
+ * - on `PipeDefinition` and `Fitting`, `x-reference-fields` (a field that refers to a project
+ *   library entry, the fields the entry stands in for and those required without it), and on
+ *   `PipeSpec` and `ResistanceSpec`, `x-fields-by-value` (the fields one field's value requires or
+ *   forbids) and `x-ordered-fields` (a spec's inner diameter below its outer), CLAUDE.md D22.
  *
  * The rest is what the schema states anyway: which schema a component is validated against (the
  * members of the `Project.components` union, by type refined by branchType or valveType, as the
@@ -66,25 +72,28 @@ function unionMembers(union: JsonObject): string[] {
 
 /**
  * Whether schema `name` is a member of a union a value is told apart in by its `kind` (a fluid, an
- * equipment rating): a value held by such a schema must be of that member (holderSchema).
+ * equipment rating, a relief valve's capacity): a value held by such a schema must be of that
+ * member (holderSchema).
  */
-function kindUnionOf(name: string): 'fluid' | 'rating' | null {
+function kindUnionOf(name: string): 'fluid' | 'rating' | 'capacity' | null {
 	if ([...FLUID_SCHEMAS.values()].includes(name)) return 'fluid';
 	if ([...RATING_SCHEMAS.values()].includes(name)) return 'rating';
+	if ([...CAPACITY_SCHEMAS.values()].includes(name)) return 'capacity';
 	return null;
 }
 
 /**
  * Whether `holder` (an object found at a value's path) is a holder of schema `name`, as the API's
  * holder test (`isinstance`, services/scenarios.plan_override) decides it: a member of a union
- * told apart by `kind` (a fluid, an equipment rating) must be that member; any other holder (a
- * component, a pump's control) need only exist.
+ * told apart by `kind` (a fluid, an equipment rating, a relief valve's capacity) must be that
+ * member; any other holder (a component, a pump's control) need only exist.
  */
 export function holdsSchema(holder: unknown, name: string): boolean {
 	if (!isRecord(holder)) return false;
 	const union = kindUnionOf(name);
 	if (union === 'fluid') return fluidSchemaName(holder.kind) === name;
 	if (union === 'rating') return ratingSchemaName(holder.kind) === name;
+	if (union === 'capacity') return capacitySchemaName(holder.kind) === name;
 	return true;
 }
 
@@ -184,6 +193,80 @@ export function ratingSchemaName(kind: unknown): string | null {
 /** The rating kinds the `Equipment.rating` union allows, in its members' order. */
 export function ratingKinds(): unknown[] {
 	return [...RATING_SCHEMAS.keys()];
+}
+
+/**
+ * The capacity schemas of the `ReliefValve.capacity` union, by their `kind` const (an API 526
+ * letter, an API 520 effective area, a certified capacity), read from the members, never copied
+ * (proposal pressure-relief-valve.md decision 7, W1).
+ */
+const CAPACITY_SCHEMAS: ReadonlyMap<unknown, string> = new Map(
+	unionMembers(property('ReliefValve', 'capacity')).map((name) => [
+		property(name, 'kind').const,
+		name
+	])
+);
+
+/** The schema a relief valve's capacity is validated against, by its kind; null when none. */
+export function capacitySchemaName(kind: unknown): string | null {
+	return CAPACITY_SCHEMAS.get(kind) ?? null;
+}
+
+/** The capacity kinds the `ReliefValve.capacity` union allows, in its members' order. */
+export function capacityKinds(): unknown[] {
+	return [...CAPACITY_SCHEMAS.keys()];
+}
+
+/**
+ * The relief valve's cited data (`x-relief-data` on `ReliefValve`, from the API's
+ * data/api526_orifices.json): API 526's effective area of each orifice letter (m²), API 520's
+ * effective coefficient of discharge, and ASME's liquid certification overpressure (a fraction
+ * of the set, with its floor in Pa) and the lowest set it covers (Pa), ASME VIII's 15 psi scope
+ * (proposal pressure-relief-valve.md decisions 6, 27). Read, never copied (D10).
+ */
+export interface ReliefData {
+	/** API 526's letters, in the schema's order, with their effective areas, m². */
+	api526Areas: Readonly<Record<string, number>>;
+	effectiveDischargeCoefficient: number;
+	asmeOverpressureFraction: number;
+	asmeOverpressureFloor: number;
+	asmeMinimumSetPressure: number;
+}
+
+export const RELIEF_DATA: ReliefData = (() => {
+	const published = schema('ReliefValve')['x-relief-data'];
+	if (!isRecord(published) || !isRecord(published.api526Areas)) {
+		throw new Error('openapi.json: ReliefValve has no x-relief-data');
+	}
+	const letters = stringList(property('Api526Orifice', 'letter').enum, 'Api526Orifice.letter');
+	const api526Areas: Record<string, number> = {};
+	for (const letter of letters) {
+		const area = published.api526Areas[letter];
+		if (typeof area !== 'number') {
+			throw new Error(`openapi.json: x-relief-data.api526Areas has no letter ${letter}`);
+		}
+		api526Areas[letter] = area;
+	}
+	if (Object.keys(published.api526Areas).length !== letters.length) {
+		throw new Error('openapi.json: x-relief-data.api526Areas is not the letters of Api526Orifice');
+	}
+	const number = (key: string) => {
+		const value = (published as JsonObject)[key];
+		if (typeof value !== 'number') throw new Error(`openapi.json: x-relief-data.${key}`);
+		return value;
+	};
+	return {
+		api526Areas,
+		effectiveDischargeCoefficient: number('effectiveDischargeCoefficient'),
+		asmeOverpressureFraction: number('asmeOverpressureFraction'),
+		asmeOverpressureFloor: number('asmeOverpressureFloor'),
+		asmeMinimumSetPressure: number('asmeMinimumSetPressure')
+	};
+})();
+
+/** API 526's orifice letters, D to T, in the schema's order. */
+export function api526Letters(): string[] {
+	return Object.keys(RELIEF_DATA.api526Areas);
 }
 
 /** The override schemas of the `Scenario.overrides` union, by their `kind`. */
@@ -429,10 +512,186 @@ export const ENTRANCE_TYPES: ReadonlySet<FittingType> = fittingTypes('x-entrance
 /** Fittings for the loss where flow leaves a pipe into a body of liquid (`x-exit-types`). */
 export const EXIT_TYPES: ReadonlySet<FittingType> = fittingTypes('x-exit-types');
 
-/** The fields of `fitting` its type requires that it does not have. */
+/**
+ * The fields of `fitting` its type requires that it does not have. A reference to a project
+ * library entry (`x-reference-fields`: a resistanceId) meets the need for the fields it stands in
+ * for (a custom fitting's kOverride).
+ */
 export function missingFittingParameters(fitting: Fitting): FittingParameter[] {
-	return (FITTING_PARAMETERS[fitting.type] ?? []).filter((f) => fitting[f] == null);
+	const given = referencedFields(fitting, FITTING_REFERENCES);
+	return (FITTING_PARAMETERS[fitting.type] ?? []).filter(
+		(f) => fitting[f] == null && !given.has(f)
+	);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Project library references and entries (CLAUDE.md D22)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * A field that refers to an entry of the project library (`x-reference-fields`): with it given,
+ * none of `replaces` may be given, and it meets any rule that requires one of them
+ * (`x-required-parameters`); without it, `requiredWithout` are required.
+ */
+export interface ReferenceField {
+	replaces: readonly string[];
+	requiredWithout: readonly string[];
+}
+
+/** The reference fields a schema publishes (`x-reference-fields`), by field; none when absent. */
+export function referenceFields(schemaName: string): Readonly<Record<string, ReferenceField>> {
+	const published = schema(schemaName)['x-reference-fields'];
+	if (published === undefined) return {};
+	if (!isRecord(published)) throw new Error(`openapi.json: ${schemaName} x-reference-fields`);
+	const properties = schema(schemaName).properties;
+	const known = (field: string) => isRecord(properties) && field in properties;
+	const fields: Record<string, ReferenceField> = {};
+	for (const [name, entry] of Object.entries(published)) {
+		const where = `${schemaName} x-reference-fields.${name}`;
+		if (!isRecord(entry) || !known(name)) throw new Error(`openapi.json: ${where}`);
+		const replaces = stringList(entry.replaces, `${where}.replaces`);
+		const requiredWithout = stringList(entry.requiredWithout, `${where}.requiredWithout`);
+		for (const field of [...replaces, ...requiredWithout]) {
+			if (!known(field)) throw new Error(`openapi.json: ${where} names "${field}"`);
+		}
+		fields[name] = { replaces, requiredWithout };
+	}
+	return fields;
+}
+
+/** A pipe's reference to a pipe spec of the project library (specId, `x-reference-fields`). */
+export const PIPE_REFERENCES = referenceFields('PipeDefinition');
+/** A fitting's reference to a resistance entry of the project library (resistanceId). */
+export const FITTING_REFERENCES = referenceFields('Fitting');
+
+/** The fields the references `value` holds stand in for (a resistanceId: kOverride). */
+export function referencedFields(
+	value: object,
+	references: Readonly<Record<string, ReferenceField>>
+): Set<string> {
+	const record = value as JsonObject;
+	const fields = new Set<string>();
+	for (const [name, ref] of Object.entries(references)) {
+		if (record[name] != null) for (const f of ref.replaces) fields.add(f);
+	}
+	return fields;
+}
+
+/**
+ * What `value` breaks of its references' rules (`x-reference-fields`), by reference field: the
+ * fields given beside a reference (`given`), and those missing without it (`missing`); none when
+ * it keeps them. Null counts as absent, as the API's.
+ */
+export function referenceViolations(
+	value: object,
+	references: Readonly<Record<string, ReferenceField>>
+): { reference: string; given: string[]; missing: string[] }[] {
+	const record = value as JsonObject;
+	const found: { reference: string; given: string[]; missing: string[] }[] = [];
+	for (const [name, ref] of Object.entries(references)) {
+		const given = record[name] != null ? ref.replaces.filter((f) => record[f] != null) : [];
+		const missing =
+			record[name] == null ? ref.requiredWithout.filter((f) => record[f] == null) : [];
+		if (given.length || missing.length) found.push({ reference: name, given, missing });
+	}
+	return found;
+}
+
+/**
+ * The fields one field's value requires (given, not null) and forbids (absent or null), published
+ * as `x-fields-by-value`: a value not listed adds no rule.
+ */
+export interface FieldsByValue {
+	field: string;
+	required: Readonly<Record<string, readonly string[]>>;
+	forbidden: Readonly<Record<string, readonly string[]>>;
+}
+
+function fieldLists(value: unknown, where: string): Record<string, string[]> {
+	if (!isRecord(value)) throw new Error(`openapi.json: ${where}`);
+	const lists: Record<string, string[]> = {};
+	for (const [key, fields] of Object.entries(value))
+		lists[key] = stringList(fields, `${where}.${key}`);
+	return lists;
+}
+
+/** The rule a schema publishes as `x-fields-by-value`, or null when it publishes none. */
+export function fieldsByValue(schemaName: string): FieldsByValue | null {
+	const published = schema(schemaName)['x-fields-by-value'];
+	if (published === undefined) return null;
+	const where = `${schemaName} x-fields-by-value`;
+	if (!isRecord(published) || typeof published.field !== 'string') {
+		throw new Error(`openapi.json: ${where}`);
+	}
+	return {
+		field: published.field,
+		required: fieldLists(published.required, `${where}.required`),
+		forbidden: fieldLists(published.forbidden, `${where}.forbidden`)
+	};
+}
+
+/**
+ * What `value` breaks of the `x-fields-by-value` rule of schema `schemaName`: the fields its
+ * deciding field's value requires that it lacks (`missing`), and those it forbids that it has
+ * (`extra`); both empty when it keeps the rule, or the schema has none.
+ */
+export function byValueViolations(
+	value: object,
+	schemaName: string
+): { field: string; value: string; missing: string[]; extra: string[] } {
+	const rule = fieldsByValue(schemaName);
+	const record = value as JsonObject;
+	const key = rule ? record[rule.field] : undefined;
+	if (!rule || typeof key !== 'string')
+		return { field: rule?.field ?? '', value: '', missing: [], extra: [] };
+	return {
+		field: rule.field,
+		value: key,
+		missing: (rule.required[key] ?? []).filter((f) => record[f] == null),
+		extra: (rule.forbidden[key] ?? []).filter((f) => record[f] != null)
+	};
+}
+
+/** The ordered pairs (`x-ordered-fields`) of schema `schemaName` whose values `value` breaks. */
+export function schemaOrderViolations(value: unknown, schemaName: string): OrderedFields[] {
+	return schemaOrderedFields(schemaName).filter((pair) => {
+		const lower = fieldValue(value, pair.lower);
+		const upper = fieldValue(value, pair.upper);
+		if (lower === null || upper === null) return false;
+		return pair.strict ? !(lower < upper) : !(lower <= upper);
+	});
+}
+
+/**
+ * The schemas of a valve's resistance union (a coefficient as entered, or a reference to a
+ * resistance entry), by each `kind` a member allows (its const or enum), read from the members of
+ * `IsolationValve.resistance` (the three valve schemas share it).
+ */
+const RESISTANCE_SCHEMAS: ReadonlyMap<unknown, string> = (() => {
+	const resistance = property('IsolationValve', 'resistance');
+	const branches = Array.isArray(resistance.anyOf) ? resistance.anyOf : [resistance];
+	const union = branches.find((b): b is JsonObject => isRecord(b) && Array.isArray(b.oneOf));
+	if (!union) throw new Error('openapi.json: IsolationValve.resistance is not a union');
+	return new Map(
+		unionMembers(union).flatMap((name) => {
+			const kind = property(name, 'kind');
+			const kinds = Array.isArray(kind.enum) ? kind.enum : [kind.const];
+			return kinds.map((k): [unknown, string] => [k, name]);
+		})
+	);
+})();
+
+/** The schema a valve's resistance is validated against, by its kind; null when none matches. */
+export function resistanceSchemaName(kind: unknown): string | null {
+	return RESISTANCE_SCHEMAS.get(kind) ?? null;
+}
+
+/** The kind of a valve resistance that refers to a resistance entry ('library'), from the schema. */
+export const LIBRARY_RESISTANCE_KIND: string = (() => {
+	const kind = property('ResistanceRef', 'kind').const;
+	if (typeof kind !== 'string') throw new Error('openapi.json: ResistanceRef.kind has no const');
+	return kind;
+})();
 
 // ---------------------------------------------------------------------------------------------
 // Scenario overrides
@@ -441,12 +700,21 @@ export function missingFittingParameters(fitting: Fitting): FittingParameter[] {
 /**
  * One value a scenario may change on a target type (`x-override-fields`): the schema that holds
  * it (its bounds are that schema's property) and its camelCase path from the target, or, for a
- * group whose keys are replaced together (a pipe's spec), those keys of the target.
+ * group whose keys are replaced together (a pipe's spec), those keys of the target. `holders`,
+ * where the entry publishes them, are every schema whose objects hold it (a relief valve's
+ * `capacity.area`, held by an effective and by a certified capacity); absent, `schema` alone
+ * (holdersOf).
  */
 export interface OverrideField {
 	schema: string;
 	path: readonly string[];
 	keys: readonly string[];
+	holders?: readonly string[];
+}
+
+/** The schemas whose objects hold an allow-list value: its published holders, else its schema. */
+export function holdersOf(entry: OverrideField): readonly string[] {
+	return entry.holders ?? [entry.schema];
 }
 
 /**
@@ -467,10 +735,16 @@ export const OVERRIDE_FIELDS: Readonly<Record<string, Readonly<Record<string, Ov
 					throw new Error(`openapi.json: x-override-fields.${target}.${name}`);
 				}
 				schema(entry.schema); // the holder exists
+				const holders =
+					entry.holders === undefined
+						? null
+						: stringList(entry.holders, `${target}.${name}.holders`);
+				for (const holder of holders ?? []) schema(holder);
 				fields[target][name] = {
 					schema: entry.schema,
 					path: entry.path === undefined ? [] : stringList(entry.path, `${target}.${name}.path`),
-					keys: entry.keys === undefined ? [] : stringList(entry.keys, `${target}.${name}.keys`)
+					keys: entry.keys === undefined ? [] : stringList(entry.keys, `${target}.${name}.keys`),
+					...(holders ? { holders } : {})
 				};
 			}
 		}

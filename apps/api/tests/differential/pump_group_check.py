@@ -93,19 +93,22 @@ names), and then a message and nothing else. The checks read the station as the 
   gives no EGL at S or D (a floating section, UNDETERMINED_PRESSURE), the rise within
   ``ROUTE_TOL`` of the reported losses and running members' heads along a walk from S to D (no
   such walk: the rise is not determined, a violation); the station's flow the net flow from S
-  into the interior read from the link, valve, equipment, pump and branch results (within one
-  node's continuity tolerance: a branch's port flows are read from its pipes), equal to the flow
-  out at D within the solver's continuity tolerance summed over the interior's nodes;
+  into the interior read from the link, valve, relief valve, equipment, orifice, pump and branch
+  results (within one node's continuity tolerance: a branch's port flows are read from its
+  pipes), equal to the flow out at D within the solver's continuity tolerance summed over the
+  interior's nodes;
 - (f) the identities of §2.4 and §3.2: in parallel, the station's flow is the sum of the running
-  members' flows (within that tolerance), each share flow / the station's flow, and each running
-  member's ``routeHeadLoss`` is head − rise and equals, within ``ROUTE_TOL`` (1e-9 m), the sum
-  of the reported head losses (``linkResults``, ``valveResults``, ``equipmentResults``,
-  ``branchResults[].pathHeadLosses``) along this module's own walk from S to its suction and
-  from its discharge to D through the interior without the members; in series, every running
-  member carries the station's flow, and with every member running each share is head / the sum
-  of heads and ``interstageHeadLoss`` is that sum less the rise and equals the reported losses
-  along the walk from S through every member to D (else no shares or interstage loss); a mixed
-  station has no shares, route or interstage losses;
+  members' flows (within that tolerance), each share flow / the station's flow (none only where
+  the station's flow is within that tolerance of zero), and each running member's
+  ``routeHeadLoss`` is head − rise and equals, within ``ROUTE_TOL`` (1e-9 m), the sum of the
+  reported head losses (``linkResults``, ``valveResults``, ``reliefValveResults``,
+  ``equipmentResults``, ``orificeResults``, ``branchResults[].pathHeadLosses``) along this
+  module's own walk from S to its suction and from its discharge to D through the interior
+  without the members; in series, every running member carries the station's flow, and with
+  every member running each share is head / the sum of heads and ``interstageHeadLoss`` is
+  that sum less the rise and equals the reported losses along the walk from S through every
+  member to D (else no shares or interstage loss); a mixed station has no shares, route or
+  interstage losses;
 - (g) every converged point has a flow and its members in member order; in parallel the flow is
   the sum of the running members' flows, in series each running member's flow is the point's,
   within the continuity tolerance summed over the interior's nodes; a member that is not
@@ -219,6 +222,7 @@ from opensolve_pipe.models.components import (
     IsolationValve,
     Orifice,
     Pump,
+    ReliefValve,
     Reservoir,
     TeeBranch,
     WyeBranch,
@@ -324,7 +328,7 @@ REASON_FIELDS = (
 )
 """A system-curve point's reason fields beside its code (D10), empty on a point with a rise."""
 PROFILES = ("ref", "unit", "ladder", "wye", "fuzz", "fuzzfc", "fuzzaf")
-TWO_PORT = (Pump, IsolationValve, CheckValve, ControlValve, Equipment, Orifice)
+TWO_PORT = (Pump, IsolationValve, CheckValve, ControlValve, ReliefValve, Equipment, Orifice)
 """Components with two ports and one link between them, first port in (chains, §4)."""
 JUNCTION = (TeeBranch, WyeBranch, Reservoir, IdealReferenceNode)
 """Components where chains meet (§4: tees and wyes, and a reservoir pumps draw from)."""
@@ -1281,8 +1285,8 @@ def _different_boundaries(project: Project, members: Sequence[str], named: set[s
 
 class Reported:
     """The case's reported values on the graph. Every drop is an EGL difference as reported (a
-    connection's, valve's or equipment item's headLoss, a branch's path losses), so that a sum
-    along any walk telescopes (proposal §2.4)."""
+    connection's, valve's, relief valve's, equipment item's or orifice plate's headLoss, a
+    branch's path losses), so that a sum along any walk telescopes (proposal §2.4)."""
 
     def __init__(self, built: BuiltNetwork, graph: Graph, state: SolvedState) -> None:
         self.built = built
@@ -1302,11 +1306,17 @@ class Reported:
             lr = st.link_results.get(lk.connection_id or "")
             value = lr.head_loss if lr is not None else None
         elif lk.kind == LinkKind.VALVE:
-            vr = st.valve_results.get(lk.component_id or "")
-            value = vr.head_loss if vr is not None else None
+            # a relief valve is a valve link with a result of its own (no ValveResult)
+            cid = lk.component_id or ""
+            vr = st.valve_results.get(cid)
+            rr = st.relief_valve_results.get(cid)
+            value = vr.head_loss if vr is not None else rr.head_loss if rr is not None else None
         elif lk.kind == LinkKind.EQUIPMENT:
             er = st.equipment_results.get(lk.component_id or "")
             value = er.head_loss if er is not None else None
+        elif lk.kind == LinkKind.ORIFICE:
+            orr = st.orifice_results.get(lk.component_id or "")
+            value = orr.head_loss if orr is not None else None
         elif lk.kind == LinkKind.BRANCH_LEG:
             # centre -> port; the centre stands at the combined port's EGL (offset 0 there)
             offset = self._offset(lk.component_id or "", lk.port_id or "")
@@ -1372,11 +1382,16 @@ class Reported:
             lr = st.link_results.get(lk.connection_id or "")
             return lr.flow if lr is not None else 0.0
         if lk.kind == LinkKind.VALVE:
-            vr = st.valve_results.get(lk.component_id or "")
-            return vr.flow if vr is not None else 0.0
+            cid = lk.component_id or ""
+            vr = st.valve_results.get(cid)
+            rr = st.relief_valve_results.get(cid)
+            return vr.flow if vr is not None else rr.flow if rr is not None else 0.0
         if lk.kind == LinkKind.EQUIPMENT:
             er = st.equipment_results.get(lk.component_id or "")
             return er.flow if er is not None else 0.0
+        if lk.kind == LinkKind.ORIFICE:
+            orr = st.orifice_results.get(lk.component_id or "")
+            return orr.flow if orr is not None else 0.0
         if lk.kind == LinkKind.PUMP:
             pr = st.pump_results.get(lk.component_id or "")
             return pr.operating_flow if pr is not None and pr.status == "running" else 0.0
@@ -1400,6 +1415,8 @@ class Reported:
         flows += [abs(r.operating_flow) for r in st.pump_results.values()]
         flows += [abs(r.flow) for r in st.valve_results.values()]
         flows += [abs(r.flow) for r in st.equipment_results.values()]
+        flows += [abs(r.flow) for r in st.orifice_results.values()]
+        flows += [abs(r.flow) for r in st.relief_valve_results.values()]
         flows += [abs(q) for r in st.branch_results.values() for q in r.port_flows.values()]
         return max(flows, default=0.0)
 
@@ -1624,12 +1641,15 @@ def _identities(
         from_s = reported.potentials(view.s, vertices - {view.d}, walk_links)
         from_d = reported.potentials(view.d, vertices - {view.s}, walk_links)
         for m in duty.members:
-            share = m.flow / q_st if q_st != 0.0 else None
-            if (m.share is None) != (share is None) or (
-                m.share is not None
-                and share is not None
-                and not _close(m.share, share, EXACT_RTOL * max(1.0, abs(share)))
+            # no share where the station's flow is zero to the solve's continuity (the API
+            # tests one node's tolerance on the solver's flows; the slack is looser)
+            if m.share is None:
+                if abs(q_st) > slack:
+                    problems.append(f"(f) {m.pump_id}: no share, but a station flow {q_st!r}")
+            elif q_st == 0.0 or not _close(
+                m.share, m.flow / q_st, EXACT_RTOL * max(1.0, abs(m.flow / q_st))
             ):
+                share = m.flow / q_st if q_st != 0.0 else None
                 problems.append(f"(f) {m.pump_id}: share {m.share!r}, flow / station {share!r}")
             if m.status != "running" or m.head is None:
                 if m.route_head_loss is not None:

@@ -17,6 +17,10 @@ on every case by Vitest:
 - ``not_found``: an unknown scenario id, with the 404 message;
 - ``rejected``: a project whose scenarios fail request validation (400 for every request on
   it), with the issues as the API reports them.
+
+The ``project library`` cases (CLAUDE.md D22) start from ``library_project()``: the base project
+with a pipe spec and resistance entries, a pipe that refers to a spec and a valve that refers to
+an entry; their scenarios switch a pipe to and from a spec and a valve to and from an entry.
 """
 
 import copy
@@ -65,13 +69,16 @@ def _component(kind: str, cid: str, ports: tuple[str, ...], **fields: Any) -> di
 
 RATED_POINT = {"kind": "point", "pressureLoss": 5.0e4, "flow": 0.015, "density": 999.102621}
 """An equipment item's rated point (test input): 50 kPa at 15 L/s on water at 15 °C."""
+CERTIFIED = {"kind": "certified", "area": 2.5e-4, "dischargeCoefficient": 0.7, "overpressure": 0.08}
+"""A relief valve's certified capacity (test inputs; proposal pressure-relief-valve.md §7.1 C15)."""
 
 
 def base_project() -> dict[str, Any]:
     """Every component type (equipment rated by a point and by a Kv; an orifice plate with an
-    entered C at flange taps and one on ISO 5167-2's C), with statuses, speeds and resistances
-    left unset (defaults), a connection of two pipes (the first a library pipe with a bore
-    override) and water."""
+    entered C at flange taps and one on ISO 5167-2's C; a relief valve of each capacity kind, an
+    API 526 letter, an API 520 effective area and a certified capacity with its overpressure),
+    with statuses, speeds and resistances left unset (defaults), a connection of two pipes (the
+    first a library pipe with a bore override) and water."""
     valve = ("inlet", "outlet")
     comps = [
         reservoir("R1", level=3.0),
@@ -106,6 +113,21 @@ def base_project() -> dict[str, Any]:
             "orifice", "O1", valve, boreDiameter=0.05, dischargeCoefficient=0.6, taps="flange"
         ),
         _component("orifice", "O2", valve, boreDiameter=0.05),
+        _component(
+            "relief_valve",
+            "RV1",
+            valve,
+            setPressure=5.0e5,
+            capacity={"kind": "api526", "letter": "F"},
+        ),
+        _component(
+            "relief_valve",
+            "RV2",
+            valve,
+            setPressure=4.0e5,
+            capacity={"kind": "effective", "area": 4.0e-4},
+        ),
+        _component("relief_valve", "RV3", valve, setPressure=3.0e5, capacity=CERTIFIED),
     ]
     library = {
         "materialId": "carbon_steel",
@@ -210,6 +232,26 @@ APPLIED: list[tuple[str, list[dict[str, Any]]]] = [
         [comp("O1", "dischargeCoefficient", None)],
     ),
     (
+        "every relief valve value (proposal pressure-relief-valve.md decision 18)",
+        [
+            comp("RV1", "status", "locked_closed"),
+            comp("RV1", "setPressure", 4.5e5),
+            comp("RV1", "capacity.letter", "J"),
+            comp("RV2", "capacity.area", 5.0e-4),
+            comp("RV3", "capacity.area", 3.0e-4),
+            comp("RV3", "capacity.dischargeCoefficient", 0.75),
+            comp("RV3", "capacity.overpressure", 0.12),
+        ],
+    ),
+    (
+        "a whole capacity of another kind, and a certified overpressure set back to ASME's (null)",
+        [
+            comp("RV1", "capacity", {"kind": "effective", "area": 5.0e-4}),
+            comp("RV2", "capacity", {**CERTIFIED, "overpressure": 0.1}),
+            comp("RV3", "capacity.overpressure", None),
+        ],
+    ),
+    (
         "a whole fluid",
         [
             proj(
@@ -254,6 +296,11 @@ APPLIED: list[tuple[str, list[dict[str, Any]]]] = [
             comp("E1", "status", "off"),
             comp("R1", "dischargeCoefficient", 0.6),
             comp("O1", "status", "off"),
+            comp("RV1", "capacity.area", 5.0e-4),
+            comp("RV2", "capacity.dischargeCoefficient", 0.7),
+            comp("RV3", "capacity.letter", "J"),
+            comp("RV1", "boreDiameter", 0.05),
+            comp("O1", "setPressure", 1.0e5),
             comp("R1", "liquidLevel", 4.0),
         ],
     ),
@@ -311,8 +358,114 @@ INVALID: list[tuple[str, list[dict[str, Any]]]] = [
             comp("O1", "boreDiameter", 0.06),
         ],
     ),
+    (
+        "relief valve values their bounds reject, and a letter API 526 does not have",
+        [
+            comp("RV1", "setPressure", 0.0),
+            comp("RV1", "capacity.letter", "Z"),
+            comp("RV2", "capacity.area", 80.0),
+            comp("RV3", "capacity.dischargeCoefficient", 1.5),
+            comp("RV3", "capacity.overpressure", 0.0),
+            comp("RV3", "setPressure", 3.5e5),
+        ],
+    ),
+    (
+        "a capacity of no kind, and a whole capacity with a value its kind rejects (the union's "
+        "tag is not in the location)",
+        [
+            comp("RV1", "capacity", {"kind": "rupture_disc", "area": 1.0e-3}),
+            comp("RV2", "capacity", {**CERTIFIED, "dischargeCoefficient": 0.0}),
+        ],
+    ),
 ]
 """Scenarios of ``base_project()`` whose values the models reject (400 for that scenario)."""
+
+PIPE_SPECS = [
+    {
+        "id": "PS1",
+        "name": "NPS 4 measured",
+        "source": "test input",
+        "materialId": "carbon_steel",
+        "innerDiameter": 0.1,
+    },
+    {
+        "id": "PS2",
+        "name": "Lined",
+        "source": "test input",
+        "materialId": "custom",
+        "innerDiameter": 0.095,
+        "roughness": 1.5e-6,
+    },
+]
+RESISTANCES = [
+    {"id": "RS1", "name": "Gate, open", "source": "test input", "kind": "Cv", "value": 900.0},
+    {
+        "id": "RS2",
+        "name": "Check, open",
+        "source": "test input",
+        "kind": "K",
+        "value": 1.2,
+        "referenceDiameter": 0.09,
+    },
+]
+"""The project library of ``library_project()`` (test inputs)."""
+
+
+def library_project() -> dict[str, Any]:
+    """``base_project()`` with a project library (CLAUDE.md D22): L2's pipe refers to the spec
+    PS1 and the check valve C1 to the entry RS2."""
+    data = copy.deepcopy(base_project())
+    data["pipeLibrary"] = copy.deepcopy(PIPE_SPECS)
+    data["resistanceLibrary"] = copy.deepcopy(RESISTANCES)
+    [l2] = [c for c in data["connections"] if c["id"] == "L2"]
+    l2["piping"]["pipes"] = [{"specId": "PS1", "length": 40.0}]
+    [c1] = [c for c in data["components"] if c["id"] == "C1"]
+    c1["resistance"] = {"kind": "library", "id": "RS2"}
+    dumped: dict[str, Any] = Project.model_validate(data).model_dump(
+        mode="json", exclude_unset=True
+    )
+    return dumped
+
+
+LIBRARY_APPLIED: list[tuple[str, list[dict[str, Any]]]] = [
+    (
+        "project library: a pipe and a valve switched to entries",
+        [
+            pipe("L1", 0, "spec", {"specId": "PS2"}),
+            comp("G1", "resistance", {"kind": "library", "id": "RS1"}),
+        ],
+    ),
+    (
+        "project library: a pipe and a valve switched from entries to their own values",
+        [
+            pipe(
+                "L2", 0, "spec", {"materialId": "custom", "innerDiameter": 0.1, "roughness": 1e-5}
+            ),
+            comp("C1", "resistance", {"kind": "Kv", "value": 80.0}),
+        ],
+    ),
+    (
+        "project library: another entry, and none",
+        [
+            pipe("L2", 0, "spec", {"specId": "PS2"}),
+            comp("C1", "resistance", {"kind": "library", "id": "RS1"}),
+            comp("F1", "resistance", {"kind": "library", "id": "RS2"}),
+            comp("G1", "resistance", None),
+        ],
+    ),
+]
+"""Scenarios of ``library_project()`` that apply."""
+
+LIBRARY_INVALID: list[tuple[str, list[dict[str, Any]]]] = [
+    (
+        "project library: a spec with an entry and its own values, a reference without its id",
+        [
+            pipe("L2", 0, "spec", {"specId": "PS2", "materialId": "custom"}),
+            comp("C1", "resistance", {"kind": "library"}),
+        ],
+    ),
+]
+"""Scenarios of ``library_project()`` whose values the models reject."""
 
 
 def _rejected_structures() -> list[tuple[str, list[dict[str, Any]]]]:
@@ -327,6 +480,14 @@ def _rejected_structures() -> list[tuple[str, list[dict[str, Any]]]]:
         (
             "a rating and a part of it",
             [_scenario("S1", comp("E1", "rating.flow", 0.02), comp("E1", "rating", RATED_POINT))],
+        ),
+        (
+            "a capacity and a part of it",
+            [
+                _scenario(
+                    "S1", comp("RV3", "capacity.area", 3.0e-4), comp("RV3", "capacity", CERTIFIED)
+                )
+            ],
         ),
         ("two scenarios with one id", [_scenario("S1"), _scenario("S2"), _scenario("S1")]),
         ("a field of another kind", [_scenario("S1", {**length, "field": "status"})]),
@@ -362,9 +523,13 @@ def _records(applied: Any) -> list[dict[str, Any]]:
 def generate() -> dict[str, Any]:
     """The fixture (module docstring)."""
     base = base_project()
+    library = library_project()
     cases: list[dict[str, Any]] = []
-    for name, overrides in APPLIED:
-        project = _with(base, _scenario("S0"), _scenario("S1", *overrides, description="Case"))
+    applied_cases = [(base, *case) for case in APPLIED] + [
+        (library, *case) for case in LIBRARY_APPLIED
+    ]
+    for start, name, overrides in applied_cases:
+        project = _with(start, _scenario("S0"), _scenario("S1", *overrides, description="Case"))
         applied = apply_scenario(Project.model_validate(project), "S1")
         cases.append(
             {
@@ -378,8 +543,11 @@ def generate() -> dict[str, Any]:
                 },
             }
         )
-    for name, overrides in INVALID:
-        project = _with(base, _scenario("S1", *overrides))
+    invalid_cases = [(base, *case) for case in INVALID] + [
+        (library, *case) for case in LIBRARY_INVALID
+    ]
+    for start, name, overrides in invalid_cases:
+        project = _with(start, _scenario("S1", *overrides))
         try:
             apply_scenario(Project.model_validate(project), "S1")
         except ScenarioOverrideError as exc:

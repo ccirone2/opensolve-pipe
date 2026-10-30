@@ -50,6 +50,14 @@ import {
 import { DIRECTION_NAMES, flowDirection } from '../assigned-flow';
 import { pumpChartData } from '../pump-chart';
 import { TAP_LABELS } from '../orifice';
+import { RELIEF_DATA } from '../model-rules';
+import {
+	asmeRuleWords,
+	capacityGivenBy,
+	letterArea,
+	OVERPRESSURE_SOURCE_LABELS,
+	reliefStateLabel
+} from '../relief';
 import {
 	boundaryTable,
 	branchPatternLabel,
@@ -60,6 +68,7 @@ import {
 	groupFlags,
 	pumpStatusLabel,
 	regimeLabel,
+	RELIEF_NO_RESULT,
 	segmentFlags,
 	SEVERITY_LABELS,
 	valveStateLabel,
@@ -72,6 +81,16 @@ import {
 	ISO_COEFFICIENT_TEXT
 } from '../scenarios';
 import { CUSTOM_MATERIAL_ID } from '../piping';
+import {
+	isResistanceRef,
+	pipeSpecOf,
+	pipeSpecs,
+	pipeSpecUsers,
+	resistanceEntries,
+	resistanceEntryOf,
+	resistanceUsers,
+	type LibraryUser
+} from '../project-library';
 import type { LabelOptions, UnitCategory } from '../units';
 import {
 	componentById,
@@ -454,6 +473,14 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 		}
 	);
 
+	// The project library (CLAUDE.md D22): the entry each pipe, fitting and valve refers to, by id
+	// and name in the case as solved, as columns only in a file with a library (else as before).
+	const library = ctx.library;
+	const entryColumns = (what: string) =>
+		library ? [text(`${what} id`), text(what)] : ([] as ExportColumn[]);
+	const entryCells = (id: string | null | undefined, name: string | undefined): CellValue[] =>
+		library ? [id ?? null, id == null ? null : (name ?? null)] : [];
+
 	const pipes = table(
 		ctx,
 		'pipes',
@@ -462,6 +489,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 			text('Connection id'),
 			text('Connection'),
 			number('Pipe #'),
+			...entryColumns('Pipe spec'),
 			text('Material'),
 			text('Schedule'),
 			text('Nominal size'),
@@ -485,20 +513,22 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 				const piping = connectionById(c.structure, id)?.piping;
 				for (const s of link.segments) {
 					const pipe = piping?.pipes[s.index];
-					const custom = pipe?.materialId === CUSTOM_MATERIAL_ID;
+					// A pipe of a project library spec: the spec's material and nominal size.
+					const spec = pipeSpecOf(c.structure, pipe?.specId);
+					const materialId = spec?.materialId ?? pipe?.materialId ?? null;
+					const nominalSize = spec ? spec.nominalSize : pipe?.nominalSize;
 					yield [
 						id,
 						name,
 						s.index + 1,
-						pipe
-							? custom
+						...entryCells(pipe?.specId, spec?.name),
+						materialId === null
+							? null
+							: materialId === CUSTOM_MATERIAL_ID
 								? 'Custom pipe'
-								: (ctx.materialName(pipe.materialId) ?? pipe.materialId)
-							: null,
+								: (ctx.materialName(materialId) ?? materialId),
 						pipe?.schedule ?? null,
-						pipe?.nominalSize != null
-							? npsLabel(pipe.nominalSize, ctx.input.library.nominalSizes)
-							: null,
+						nominalSize != null ? npsLabel(nominalSize, ctx.input.library.nominalSizes) : null,
 						u.value(s.innerDiameter, 'diameter'),
 						u.value(s.length, 'length'),
 						u.value(s.roughness, 'diameter'),
@@ -529,6 +559,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 			number('K (each)'),
 			q('K referred to diameter', 'diameter'),
 			q('Head loss, all (+ with the flow)', 'head'),
+			...entryColumns('Resistance entry'),
 			text('K source'),
 			text('Flags')
 		],
@@ -553,6 +584,10 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 						f.k,
 						u.value(f.referenceDiameter, 'diameter'),
 						u.value(f.headLoss, 'head'),
+						...entryCells(
+							fitting?.resistanceId,
+							resistanceEntryOf(c.structure, fitting?.resistanceId)?.name
+						),
 						f.source,
 						codes(fittingFlags(solved.flags, id, f.index))
 					];
@@ -703,6 +738,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 			q('K referred to diameter', 'diameter'),
 			number('K effective'),
 			number('Cv effective'),
+			...entryColumns('Resistance entry'),
 			q('Pressure setpoint', 'pressure', { gauge: true }),
 			q('Flow setpoint', 'flow'),
 			bool('Setpoint achieved'),
@@ -715,6 +751,9 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 			for (const id of orderedIds(c.structure, Object.keys(solved.valveResults))) {
 				const valve = solved.valveResults[id]!;
 				const pressureSet = valve.valveType === 'prv' || valve.valveType === 'psv';
+				const own = componentById(c.structure, id);
+				const ref =
+					own?.type === 'valve' && isResistanceRef(own.resistance) ? own.resistance.id : null;
 				yield [
 					id,
 					componentName(c, id),
@@ -727,10 +766,94 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 					u.value(valve.referenceDiameter, 'diameter'),
 					valve.kEffective,
 					valve.cvEffective,
+					...entryCells(ref, resistanceEntryOf(c.structure, ref)?.name),
 					pressureSet ? u.value(valve.setpoint, 'pressure') : null,
 					valve.valveType === 'fcv' ? u.value(valve.setpoint, 'flow') : null,
 					valve.setpointAchieved,
 					codes(flagsForElement(solved.flags, { kind: 'component', id }))
+				];
+			}
+		}
+	);
+
+	// Relief valves (proposal pressure-relief-valve.md §5): the results, then the set, overpressure
+	// and capacity the solve used (ReliefValveResult's, a scenario's or a goal-seek trial's): the
+	// sheet's named departure from the screen's table, as equipment's rating. A valve with no
+	// result (a side closed off or floating: RELIEF_VALVE_CLOSED) is listed by its flag, as on the
+	// screen, with its values empty. Inlet and back pressures are null where the level is
+	// undetermined.
+	const reliefIds = (c: CaseView) => {
+		const solved = solvedOf(c);
+		const results = solved.reliefValveResults ?? {};
+		const closed = solved.flags
+			.filter((flag) => flag.code === 'RELIEF_VALVE_CLOSED' && flag.componentId)
+			.map((flag) => flag.componentId as string)
+			.filter((id) => !(id in results));
+		return orderedIds(c.structure, [...Object.keys(results), ...new Set(closed)]);
+	};
+	const reliefValves = table(
+		ctx,
+		'relief-valves',
+		'Relief valves',
+		[
+			text('Relief valve id'),
+			text('Relief valve'),
+			text('State'),
+			q('Flow (+ inlet → outlet)', 'flow'),
+			q('Lift', 'fraction'),
+			q('Capacity (full lift)', 'flow'),
+			q('Flow ÷ capacity', 'fraction'),
+			q('Inlet pressure', 'pressure', { gauge: true }),
+			q('Back pressure', 'pressure', { gauge: true }),
+			q('Δp ÷ set', 'fraction'),
+			q('Pressure difference, total', 'pressure'),
+			q('Pressure drop, static', 'pressure'),
+			q('Head loss', 'head'),
+			q('Set pressure', 'pressure'),
+			q('Overpressure at full lift', 'fraction'),
+			text('Overpressure from'),
+			text('Capacity given by'),
+			q('Area', 'area'),
+			number('Kd'),
+			text('Covering letter'),
+			number('Reynolds number (orifice)'),
+			text('Flags')
+		],
+		cases,
+		(c) => reliefIds(c).length,
+		function* (c) {
+			const solved = solvedOf(c);
+			for (const id of reliefIds(c)) {
+				const valve = solved.reliefValveResults?.[id];
+				const flags = codes(flagsForElement(solved.flags, { kind: 'component', id }));
+				if (!valve) {
+					yield [id, componentName(c, id), RELIEF_NO_RESULT, ...Array(18).fill(null), flags];
+					continue;
+				}
+				const capacity = valve.capacity;
+				yield [
+					id,
+					componentName(c, id),
+					reliefStateLabel(valve.state, id, c.input.inputs),
+					u.value(valve.flow, 'flow'),
+					u.value(valve.lift, 'fraction'),
+					u.value(valve.fullLiftFlow, 'flow'),
+					u.value(valve.flowRatio, 'fraction'),
+					u.value(valve.inletPressure, 'pressure'),
+					u.value(valve.backPressure, 'pressure'),
+					u.value(valve.setRatio, 'fraction'),
+					u.value(valve.totalPressureDifference, 'pressure'),
+					u.value(valve.pressureDrop, 'pressure'),
+					u.value(valve.headLoss, 'head'),
+					u.value(valve.setPressure, 'pressure'),
+					u.value(valve.overpressure, 'fraction'),
+					OVERPRESSURE_SOURCE_LABELS[valve.overpressureSource],
+					capacityGivenBy(capacity),
+					u.value(capacity.area, 'area'),
+					capacity.dischargeCoefficient,
+					capacity.kind === 'effective' ? capacity.coveringLetter : null,
+					valve.reynoldsNumber,
+					flags
 				];
 			}
 		}
@@ -1090,6 +1213,7 @@ export function elementTables(ctx: ExportContext): SheetSpec[] {
 		pumpCurves,
 		systemCurves,
 		valves,
+		reliefValves,
 		equipment,
 		orifices,
 		branches,
@@ -1146,11 +1270,21 @@ export function changeCategory(
 			return { category: 'density', options: {} };
 		case 'boreDiameter':
 			return { category: 'diameter', options: {} };
+		case 'setPressure':
+			// A relief valve's set: a pressure difference, no gauge marker.
+			return { category: 'pressure', options: {} };
+		case 'capacity.area':
+			return { category: 'area', options: {} };
+		case 'capacity.overpressure':
+			return { category: 'fraction', options: {} };
 		case 'status':
 		case 'resistance':
 		case 'rating':
 		case 'rating.value':
-			// Text: a coefficient as entered with its kind ("Cv 120"), or a whole rating.
+		case 'capacity':
+		case 'capacity.letter':
+			// Text: a coefficient as entered with its kind ("Cv 120"), a whole rating or capacity, or
+			// an API 526 letter.
 			return null;
 		default:
 			return { category: 'dimensionless', options: {} };
@@ -1172,6 +1306,149 @@ function ratingCell(value: Record<string, unknown>, u: ExportContext['units']): 
 		return n === null ? '—' : label ? `${n} ${label}` : String(n);
 	};
 	return `${part(value.pressureLoss, 'pressure')} at ${part(value.flow, 'flow')}, ${part(value.density, 'density')}`;
+}
+
+/**
+ * A whole relief valve capacity as text in the file's units, every number exact: "API 526 J
+ * (0.00083032092 m²), Kd 0.65 (preliminary)", "API 520 effective area 447.0709 mm², Kd 0.65
+ * (preliminary)", "Certified area 250 mm², rated coefficient 0.7, overpressure 8 %".
+ */
+function capacityCell(value: Record<string, unknown>, u: ExportContext['units']): string {
+	const part = (v: unknown, category: UnitCategory) => {
+		const n = typeof v === 'number' ? u.value(v, category) : null;
+		const label = u.label(category);
+		return n === null ? '—' : label ? `${n} ${label}` : String(n);
+	};
+	const kd = `Kd ${RELIEF_DATA.effectiveDischargeCoefficient} (preliminary)`;
+	if (value.kind === 'api526') {
+		const letter = String(value.letter);
+		return `API 526 ${letter} (${part(letterArea(letter), 'area')}), ${kd}`;
+	}
+	if (value.kind === 'effective')
+		return `API 520 effective area ${part(value.area, 'area')}, ${kd}`;
+	const op =
+		typeof value.overpressure === 'number' ? part(value.overpressure, 'fraction') : asmeRuleWords();
+	return `Certified area ${part(value.area, 'area')}, rated coefficient ${String(value.dischargeCoefficient)}, overpressure ${op}`;
+}
+
+/**
+ * The project library (CLAUDE.md D22, proposal project-library.md §5.3): every pipe spec and
+ * resistance entry of each case with a response, as that case was solved (its project as solved:
+ * an out-of-date case's may differ from the project now), one per row, pipe specs first, in the
+ * library's order: its values as entered in the file's units (a K with the bore it is stated at; a
+ * Cv or Kv as entered, in every unit system), its source as typed, and the elements of the case
+ * that refer to it (an entry nothing uses has none: the methods summary lists it as not used).
+ * A library material's roughness left blank is the material's at the inner diameter, which the
+ * server computes (Roughness from). Only in a file with a library (ctx.library).
+ */
+export function projectLibraryTable(ctx: ExportContext): SheetSpec | null {
+	if (!ctx.library) return null;
+	const u = ctx.units;
+	const q = (label: string, category: UnitCategory) => quantity(ctx, label, category);
+	const cases = ctx.responded;
+	const elementUsers = (users: readonly LibraryUser[]) =>
+		users.filter((x) => x.kind !== 'scenario');
+	const where = (c: CaseView, user: LibraryUser): { id: string; label: string } => {
+		switch (user.kind) {
+			case 'pipe':
+				return {
+					id: `${user.connectionId} pipe ${user.pipeIndex + 1}`,
+					label: `Pipe ${user.pipeIndex + 1} of ${connectionLabel(c, user.connectionId)}`
+				};
+			case 'fitting': {
+				const type = connectionById(c.structure, user.connectionId)?.piping.fittings[
+					user.fittingIndex
+				]?.type;
+				return {
+					id: `${user.connectionId} fitting ${user.fittingIndex + 1}`,
+					label: `Fitting ${user.fittingIndex + 1}${type ? ` (${ctx.fittingName(type)})` : ''} of ${connectionLabel(c, user.connectionId)}`
+				};
+			}
+			case 'valve':
+				return { id: user.componentId, label: componentName(c, user.componentId) };
+			default:
+				return { id: '', label: '' };
+		}
+	};
+	const used = (c: CaseView, users: readonly LibraryUser[]): CellValue[] => {
+		const found = elementUsers(users).map((x) => where(c, x));
+		return [
+			found.length,
+			found.length ? found.map((f) => f.label).join('; ') : null,
+			found.length ? found.map((f) => f.id).join('; ') : null
+		];
+	};
+	return table(
+		ctx,
+		'project-library',
+		'Project library',
+		[
+			text('List'),
+			text('Entry id'),
+			text('Entry'),
+			text('Material id'),
+			text('Material'),
+			text('Nominal size'),
+			q('Inner diameter', 'diameter'),
+			q('Outer diameter', 'diameter'),
+			q('Roughness', 'diameter'),
+			text('Roughness from'),
+			text('Coefficient kind'),
+			number('Coefficient (as entered)'),
+			q('Reference diameter (K)', 'diameter'),
+			text('Source'),
+			number('Used by (count)'),
+			text('Used by'),
+			text('Used by (ids)')
+		],
+		cases,
+		(c) => pipeSpecs(c.structure).length + resistanceEntries(c.structure).length,
+		function* (c) {
+			for (const spec of pipeSpecs(c.structure)) {
+				const custom = spec.materialId === CUSTOM_MATERIAL_ID;
+				yield [
+					'Pipe spec',
+					spec.id,
+					spec.name,
+					spec.materialId,
+					custom ? 'Custom pipe' : (ctx.materialName(spec.materialId) ?? spec.materialId),
+					spec.nominalSize != null
+						? npsLabel(spec.nominalSize, ctx.input.library.nominalSizes)
+						: null,
+					u.value(spec.innerDiameter, 'diameter'),
+					u.value(spec.outerDiameter, 'diameter'),
+					u.value(spec.roughness, 'diameter'),
+					spec.roughness != null
+						? 'The entry'
+						: "The material's at the inner diameter (Farshad & Rieke 2006), computed by the server",
+					null,
+					null,
+					null,
+					spec.source,
+					...used(c, pipeSpecUsers(c.structure, spec.id))
+				];
+			}
+			for (const entry of resistanceEntries(c.structure)) {
+				yield [
+					'Resistance',
+					entry.id,
+					entry.name,
+					null,
+					null,
+					null,
+					null,
+					null,
+					null,
+					null,
+					entry.kind,
+					entry.value,
+					u.value(entry.referenceDiameter, 'diameter'),
+					entry.source,
+					...used(c, resistanceUsers(c.structure, entry.id))
+				];
+			}
+		}
+	);
 }
 
 /** Scenario changes (§2.6): the overrides the server applied, from its record. */
@@ -1219,15 +1496,39 @@ export function scenarioChangesTable(ctx: ExportContext): SheetSpec {
 					const resistance = o.kind === 'component' && o.field === 'resistance';
 					// An orifice plate with no entered C: ISO 5167-2's, the default.
 					const coefficient = o.kind === 'component' && o.field === 'dischargeCoefficient';
+					// A certified relief valve with no entered overpressure: ASME's, the default.
+					const overpressure = o.kind === 'component' && o.field === 'capacity.overpressure';
 					if (value === null || value === undefined) {
-						return resistance ? 'Default' : coefficient ? ISO_COEFFICIENT_TEXT : null;
+						return resistance
+							? 'Default'
+							: coefficient
+								? ISO_COEFFICIENT_TEXT
+								: overpressure
+									? asmeRuleWords()
+									: null;
 					}
 					if (resistance) {
+						// A project library entry by its id and name in the case solved (exact text).
+						if (isResistanceRef(value)) {
+							const entry = resistanceEntryOf(solvedAs, value.id);
+							return entry
+								? `Project library ${value.id} “${entry.name}”`
+								: `Project library ${value.id}`;
+						}
 						if (isRecord(value)) return `${String(value.kind)} ${String(value.value)}`;
 						return String(value);
 					}
 					if (o.kind === 'component' && o.field === 'rating') {
 						return isRecord(value) ? ratingCell(value, u) : String(value);
+					}
+					if (o.kind === 'component' && o.field === 'capacity') {
+						return isRecord(value) ? capacityCell(value, u) : String(value);
+					}
+					if (o.kind === 'component' && o.field === 'capacity.letter') {
+						const area = letterArea(String(value));
+						return area === null
+							? `API 526 ${String(value)}`
+							: `API 526 ${String(value)} (${u.value(area, 'area')} ${u.label('area')})`;
 					}
 					if (o.kind === 'component' && o.field === 'rating.value') {
 						// The coefficient as entered, with its kind in the case solved (exact text).
@@ -1385,12 +1686,16 @@ export function compareSheet(ctx: ExportContext): SheetSpec | null {
 	};
 }
 
-/** The Compare sheet's columns: each case's solve, and the project sent for it when out of date. */
+/**
+ * The Compare sheet's columns: each case's solve, the project sent for it when out of date, and
+ * the case as solved (a relief valve's status), as the screen's (CompareView).
+ */
 function compareColumnsOf(ctx: ExportContext): CompareColumn[] {
 	return ctx.cases.map((c) => ({
 		solved: c.solved,
 		converged: c.hasValues,
-		sent: c.stale ? c.input.sent : null
+		sent: c.stale ? c.input.sent : null,
+		inputs: c.input.inputs
 	}));
 }
 

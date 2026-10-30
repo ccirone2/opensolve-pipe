@@ -36,7 +36,7 @@ import {
 	variableLabel,
 	variableSpec,
 	variableView,
-	withRatingKind,
+	withCaseKind,
 	applyToCase,
 	type WordsContext
 } from './goal-seek';
@@ -612,12 +612,12 @@ describe('goal seek: equipment goals and variables (§5.2, §6.4)', () => {
 		});
 		const variable = { target: E1, field: 'rating.value' };
 		expect(variableLabel(base, variable)).toBe('Strainer · Cv');
-		expect(variableLabel(base, withRatingKind(caseProject(base, 'S1'), variable))).toBe(
+		expect(variableLabel(base, withCaseKind(caseProject(base, 'S1'), variable))).toBe(
 			'Strainer · Kv'
 		);
 		// Other fields are left as they are.
 		const other = { target: E1, field: 'rating.flow' };
-		expect(withRatingKind(caseProject(base, 'S1'), other)).toBe(other);
+		expect(withCaseKind(caseProject(base, 'S1'), other)).toBe(other);
 	});
 
 	it('says a scenario with a whole-rating change keeps its own rated pressure drop', () => {

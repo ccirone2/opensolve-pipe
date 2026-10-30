@@ -20,24 +20,31 @@ it from its suction to its discharge (ways enumerated, a few members only). Para
 are S's and D's, every member from S's to D's (tee ladders included). Series: one way passes
 every member in turn and every part. Mixed: anything else. Members that only face D → S
 are refused: a minority against the rest (MEMBER_REVERSED), or as many each way
-(MEMBERS_OPPOSED: S and D are not told apart).
+(MEMBERS_OPPOSED: S and D are not told apart). Where no way between the two places passes a
+member (a bypass inside joins the members' sides), S is the place the duty's flow enters; a duty
+flow within the solver's continuity tolerance of zero enters neither, and the places keep the
+finder's order (the one whose node comes first in the network), so round-off never picks S.
 
 **Duty.** From the case's own solve (``solve_project``'s steps, so the values are /solve's):
 Q_st, the net flow from S into the station, and ΔH_st = EGL(D) − EGL(S). Every pump's head is
 its EGL rise and every element's head loss an EGL difference, so along any way from S to D the
 heads less the losses sum to ΔH_st exactly: in parallel H_i − ΔH_st is everything the member
 loses on its way (its legs, tee paths, shared header pipes); in series ΣH_i − ΔH_st is the
-loss of the piping between the pumps.
+head across the elements between the pumps (their pipes' and valves' losses, or the head a
+closed valve holds). Parallel shares Q_i/Q_st are not given at a duty flow within the
+continuity tolerance of zero (pumps that deliver nothing).
 
 **Group curve.** The station solved alone: a copy of the network in which every link outside
 the station is held closed (``BuiltNetwork.held_closed``), every assigned flow set aside, S held
 at the duty's EGL(S) and D at EGL(S) + ΔH, every element inside on its own law and status rules
 (``run_outer_loop`` unchanged: members on their curves, a speed-controlled member regulating,
-off members closed, check valves and FCVs by their rules, branch K by the flow split). The
-outside sees the station only through the flow at S and D, so where the station has one steady
-state at a rise its curve crosses the group's system curve at the duty. Every law inside
-depends on head differences and flows only, so the curve does not depend on the level held at
-S; an active PRV or PSV, whose setpoint is a pressure, is refused. The duty's rise is solved
+off members closed, check valves and FCVs by their rules, relief valves by their rule started
+closed as in a solve, branch K by the flow split). The outside sees the station only through
+the flow at S and D, so where the station has one steady state at a rise its curve crosses the
+group's system curve at the duty. Every law inside depends on head differences and flows only,
+so the curve does not depend on the level held at S (a relief valve's set is a pressure
+difference, compared with the EGL difference less the fixed elevation term); an active PRV or
+PSV, whose setpoint is a pressure, is refused. The duty's rise is solved
 first, from the case's solve; then the rises outward, each from its converged neighbour toward
 the duty, so the curve is the branch through the duty (a point that does not converge from
 there is solved again from the initial state). The duty check compares that first point with
@@ -100,7 +107,7 @@ from .scenarios import ScenarioFluidError, ScenarioTopologyError, apply_scenario
 from .solver.budget import SolveDeadlineError, check_budget
 from .solver.builder import BuiltNetwork, PumpData, build_network
 from .solver.errors import TopologyError, issue
-from .solver.gga import FloatArray
+from .solver.gga import CONTINUITY_ATOL, CONTINUITY_RTOL, FloatArray
 from .solver.network import LinkKind, SolverLink
 from .solver.npsh import atmospheric_pressure
 from .solver.pumps import operating_speed
@@ -545,8 +552,8 @@ def _place_cuts(
 
 def _chain_end(built: BuiltNetwork, key: str) -> str | None:
     """The reservoir or reference node a pump port leads to through a chain of connections and
-    two-port elements (pumps, valves, equipment, orifice plates), or None when the chain ends
-    elsewhere (a tee or wye, an assigned flow, a plug)."""
+    two-port elements (pumps, valves, equipment, orifice plates, relief valves), or None when
+    the chain ends elsewhere (a tee or wye, an assigned flow, a plug)."""
     seen: set[str] = set()
     while key not in seen:
         seen.add(key)
@@ -1187,6 +1194,13 @@ def station_flow(built: BuiltNetwork, station: Station, flows: FloatArray) -> fl
     return math.fsum(terms)
 
 
+def zero_flow_tolerance(flows: FloatArray) -> float:
+    """m³/s: the solver's continuity tolerance at a solve's flows, CONTINUITY_RTOL × the largest
+    |flow| + CONTINUITY_ATOL (gga.py). The solve resolves a node's net flow only to it, so a
+    station flow within it is zero: it orients no station and divides into no shares."""
+    return CONTINUITY_RTOL * float(np.max(np.abs(flows), initial=0.0)) + CONTINUITY_ATOL
+
+
 def _head_at(nodes: Sequence[int], heads: FloatArray) -> float:
     """EGL at a station port (any of a boundary's ports: they share its head), m."""
     return float(heads[nodes[0]])
@@ -1351,6 +1365,7 @@ def _duty(
 ) -> PumpGroupDuty:
     gga = outer.gga
     q_st = station_flow(built, station, gga.flows)
+    no_flow = abs(q_st) <= zero_flow_tolerance(gga.flows)
     egl_s = _head_at(station.inlet, gga.heads)
     rise = _head_at(station.outlet, gga.heads) - egl_s
     members: list[PumpGroupDutyMember] = []
@@ -1376,7 +1391,7 @@ def _duty(
     interstage: float | None = None
     if station.arrangement == "parallel":
         for m in members:
-            m.share = m.flow / q_st if q_st != 0.0 else None
+            m.share = None if no_flow else m.flow / q_st
             if m.status == "running" and m.head is not None:
                 m.route_head_loss = m.head - rise
     elif station.arrangement == "series":
@@ -1569,7 +1584,8 @@ def _case(project: Project, pump_ids: Sequence[str], *, pressure_controls: bool)
     floating = {v: i for i, nodes in enumerate(outer.gga.floating_sections) for v in nodes}
     if floating.get(station.inlet[0]) != floating.get(station.outlet[0]):
         return without(_floating_words(built, station, floating))
-    if not station.oriented and station_flow(built, station, outer.gga.flows) < 0.0:
+    flows = outer.gga.flows
+    if not station.oriented and station_flow(built, station, flows) < -zero_flow_tolerance(flows):
         station = station.swapped()
     duty = _duty(built, station, outer, state.pump_results)
     return _Case(fluid, built, station, outer, duty, "", tol, iters)
@@ -1915,13 +1931,16 @@ _GROUP_DEFINITION = (
     "EGL(S) + ΔH; every element inside follows its own law and status rules as in a solve "
     "(pumps on their curves at their speeds, a speed-controlled pump regulating, a pump "
     "that is off closed, a pump closed by its rule above its shutoff head, check valves "
-    "and FCVs by their rules, branch K by the flow split). S and D separate the station "
-    "from the rest, so the rest sees only the flow through them: where the station has one "
-    "steady state at a rise, its curve crosses the group's system curve at the duty. Every "
-    "law inside depends on head differences and flows only, so the curve does not depend "
-    "on the level held at S; an active PRV or PSV, whose setpoint is a pressure, is not "
-    "allowed inside. Away from the duty the absolute pressures inside are not physical, so "
-    "no NPSHa and no pressure flags are given along the curve."
+    "and FCVs by their rules, relief valves by their rule, starting closed as in a solve, "
+    "branch K by the flow split). S and D separate the station from the rest, so the rest "
+    "sees only the flow through them: where the station has one steady state at a rise, "
+    "its curve crosses the group's system curve at the duty. Every law inside depends on "
+    "head differences and flows only, so the curve does not depend on the level held at S: "
+    "a relief valve's set is a pressure difference, compared with the EGL difference "
+    "across it less its ports' fixed elevation term, so it is allowed inside; an active PRV "
+    "or PSV, whose setpoint is a pressure, is not. Away from the duty the absolute "
+    "pressures inside are not physical, so no NPSHa and no pressure flags are given along "
+    "the curve."
 )
 
 _SYSTEM_DEFINITION = (
@@ -1969,7 +1988,9 @@ def methods_section(
         ""
         if station.oriented
         else " The pumps' directions do not tell the inlet from the outlet (a way between them "
-        "passes no pump), so the inlet is the port the station's flow enters at the duty."
+        "passes no pump), so the inlet is the port the station's flow enters at the duty; at a "
+        "duty without flow (within the solver's continuity tolerance) the ports keep the order "
+        "in which the station is found (the one first in the network is the inlet)."
     )
     items = [
         f"Station: the pumps {members} and everything between them and the rest of the "
@@ -1986,8 +2007,9 @@ def methods_section(
         "loss an EGL difference, so along a way from S to D the heads less the losses sum to "
         "ΔH_st exactly: in parallel H_i − ΔH_st is everything a pump loses on its way (its "
         "legs, tee paths, and header pipes it shares with others); in series ΣH_i − ΔH_st is "
-        "the loss of the piping between the pumps. Shares: Q_i/Q_st in parallel, H_i/ΣH_i in "
-        "series.",
+        "the head across the elements between the pumps (the losses of their pipes and valves, "
+        "or the head a closed valve holds). Shares: Q_i/Q_st in parallel, not given when the "
+        "station's flow is zero within the solver's continuity tolerance; H_i/ΣH_i in series.",
         _GROUP_DEFINITION if curve == "group" else _SYSTEM_DEFINITION,
         "A pump that is stopped is closed both ways: a stopped pump passing flow (a rotating "
         "throttle) is not modelled, so in series it blocks the line.",

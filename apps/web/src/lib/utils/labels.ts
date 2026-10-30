@@ -36,6 +36,17 @@ export function humanize(id: string): string {
 	return text ? text.charAt(0).toUpperCase() + text.slice(1) : id;
 }
 
+/**
+ * A field's label inside a sentence ("change …"): its first word lowercased, unless that word is
+ * an acronym or a symbol of two or more capitals and digits ("API 526 orifice letter" stays as it
+ * is); the rest is kept, so a symbol later on keeps its case ("rated coefficient of discharge (K)").
+ */
+export function inSentence(label: string): string {
+	const first = /^\S+/.exec(label)?.[0] ?? '';
+	if (/^[A-Z0-9]{2,}$/.test(first)) return label;
+	return label.charAt(0).toLowerCase() + label.slice(1);
+}
+
 /** 'Gate valve', 'Tee', 'Reservoir', ... */
 export function kindLabel(component: Component): string {
 	return KIND_LABELS[componentKind(component)];

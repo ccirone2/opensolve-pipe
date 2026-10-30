@@ -450,7 +450,8 @@ describe('Compare: the orifice rows and the one element-kind mapping (§5.3)', (
 			psv: 'valve',
 			fcv: 'valve',
 			equipment: 'equipment',
-			orifice: 'orifice'
+			orifice: 'orifice',
+			relief_valve: 'relief'
 		});
 	});
 });

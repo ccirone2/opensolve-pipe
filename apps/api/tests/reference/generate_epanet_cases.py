@@ -62,6 +62,16 @@ Conversion rules (design §11; facts from research notes coolprop_wntr_epanet.md
   the points in gpm and ft with six decimals; the generator checks that the INP file holds
   exactly ``network_check.gpv_table``'s values, the curve ``network_check.EPANET_MODEL``
   evaluates.
+- Pressure relief valve (docs/proposals/pressure-relief-valve.md decision 24, §7.2) → EPANET GPV
+  between two junctions at its ports' elevations, diameter of the inlet pipe's end segment, minor
+  loss 0, whose HEADLOSS curve tabulates the valve's EGL law (``element_laws.ReliefLaw``, the
+  reference's) at Q = 0 (h_set), at Q_f (where the slope steps up) and at
+  ``element_laws.GPV_POINTS`` evenly spaced flows on [0, Q_span]
+  (``network_check.relief_gpv_points``, the span as a plate's), in series with its inlet pipe as
+  an EPANET CV pipe: EPANET has no relief
+  valve, and the CV closes the path below set and on reverse flow (EPANET 2.2 cvstatus), while the
+  GPV, odd in its flow, carries the law above it. The connection on the valve's inlet port must be
+  drawn towards the valve. The generator checks the INP curve as for a plate.
 - EPANET's PRV/PSV setting is a pressure head without velocity
   head (hset = El + setting, hydstatus.c:74, 79), ours is a static pressure at the port, i.e.
   EGL = z + p_set/(ρg) + v²/(2g) with v in the pipe on that port (design §5.3). The generator
@@ -99,6 +109,7 @@ import warnings
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import wntr
 import wntr.epanet.util
@@ -114,6 +125,7 @@ from opensolve_pipe.models.components import (
     Equipment,
     Orifice,
     Pump,
+    ReliefValve,
     Reservoir,
     TeeBranch,
 )
@@ -124,6 +136,7 @@ from opensolve_pipe.models.pumps import PumpCurve
 from tests.reference import derivations as dv
 from tests.reference import derivations_equipment as de
 from tests.reference import derivations_orifice as do
+from tests.reference import derivations_relief as dr
 from tests.reference import element_laws as el
 from tests.reference import network_check as nc
 from tests.reference.case_format import (
@@ -228,6 +241,19 @@ def source_text(project: Project | None = None) -> str:
                 "linearly for either flow direction, so it solves the plate's Reynolds-number "
                 "dependence itself, without its g or minor-loss constant. Expected orifice "
                 "results from EPANET's flow and heads (derivations_orifice.orifice_result)."
+            )
+        if any(isinstance(c, ReliefValve) for c in project.components):
+            extra += (
+                " Relief valves: EPANET GPV between junctions at its ports' elevations, diameter "
+                "of the inlet pipe, minor loss 0, whose HEADLOSS curve tabulates the valve's EGL "
+                "law (element_laws.ReliefLaw: h_set + (dp_t(Q) - dp_s)/(rho g), the band's cubic "
+                "root and API 520's full-lift equation) at Q = 0, at Q_f and at "
+                f"{el.GPV_POINTS} evenly spaced flows from 0 to the flow at which the valve alone "
+                "would take the spread of the fixed heads (network_check.relief_gpv_points), "
+                "written by WNTR in gpm and ft with six decimals (checked against "
+                "network_check.gpv_table); the connection on its inlet port is an EPANET CV pipe, "
+                "which closes the path below set and on reverse flow (cvstatus). Expected relief "
+                "results from EPANET's flow and heads (derivations_relief.relief_result)."
             )
         if any(isinstance(c, ControlValve) and c.valve_type == "fcv" for c in project.components):
             extra += (
@@ -666,6 +692,42 @@ def orifice_low_re_network() -> Project:
     )
 
 
+RELIEF_PARTIAL_SUPPLY, RELIEF_FULL_SUPPLY, RELIEF_NEAR_SET_SUPPLY = 1.05e6, 1.4e6, 1.004e6
+"""Pa: R1's surface pressure in E1-E3 (proposal §7.2, V's E2a, E2b and E2d)."""
+
+
+def _relief_network(p_r: float, pid: str, title: str) -> Project:
+    """The closed-form network M (derivations_relief) in EPANET water: R1 (z 0, level 2 m,
+    surface p_R) → 102.3 mm × 100 m → T1 → 102.3 mm × 100 m → R2 (H 2 m); T1 branch → 52.5 mm ×
+    2 m (the CV pipe) → RV1 (set 500 kPa, API 526 F, ASME's 10 %) → 77.9 mm × 3 m → R3 (H 0)."""
+    return dr.network_m(p_r).project(pid, title, do.epanet_water(), "swamee_jain")
+
+
+def relief_partial_network() -> Project:
+    """E1: network M at p_R 1.05 MPa, the valve at partial lift (C2's state)."""
+    return _relief_network(
+        RELIEF_PARTIAL_SUPPLY,
+        "ref-epanet-relief-partial",
+        "Relief valve at partial lift (EPANET reference)",
+    )
+
+
+def relief_full_network() -> Project:
+    """E2: network M at p_R 1.4 MPa, the valve beyond full lift (C3's state)."""
+    return _relief_network(
+        RELIEF_FULL_SUPPLY, "ref-epanet-relief-full", "Relief valve at full lift (EPANET reference)"
+    )
+
+
+def relief_near_set_network() -> Project:
+    """E3: network M at p_R 1.004 MPa, the valve just above its set (a quarter of full lift)."""
+    return _relief_network(
+        RELIEF_NEAR_SET_SUPPLY,
+        "ref-epanet-relief-near-set",
+        "Relief valve just above its set (EPANET reference)",
+    )
+
+
 def assigned_flow_pump_network() -> Project:
     """A pump at speed ratio 0.9 (the pump_network curve, H = 50 − 300 Q) lifting from S1
     (head 5 m) into a loop TA-TB-TC whose only outlets are two assigned demands, D1 (12 L/s at
@@ -786,6 +848,24 @@ EPANET_NETWORKS = {
         "verifies the Reynolds-number dependence of ISO 5167-2's coefficient, which moves the "
         "flow beyond D6 here, against EPANET 2.2.",
     ),
+    "epanet_relief_partial": (
+        relief_partial_network,
+        "A pressure relief valve at partial lift on a branch of a pressurized main, as an EPANET "
+        "GPV whose head-loss curve tabulates the valve's law behind a CV pipe: verifies the "
+        "linear lift with API 520's equation and the main's split against EPANET 2.2.",
+    ),
+    "epanet_relief_full": (
+        relief_full_network,
+        "The relief network pressurized beyond the valve's full lift, as an EPANET GPV behind a "
+        "CV pipe: verifies API 520's full-lift capacity equation in a network against EPANET "
+        "2.2.",
+    ),
+    "epanet_relief_near_set": (
+        relief_near_set_network,
+        "The relief network pressurized just above the valve's set, as an EPANET GPV behind a "
+        "CV pipe: verifies the start of the lift, where the flow is most sensitive to the "
+        "pressure, against EPANET 2.2.",
+    ),
     "epanet_pump_flow_control": (
         pump_flow_control_network,
         "The pump network with its pump flow-controlled at 18 L/s within speeds 0.6 to 0.9: "
@@ -825,7 +905,7 @@ def _node_names(project: Project) -> dict[str, str]:
         ):
             for port in component.ports:
                 names[f"{component.id}:{port.id}"] = component.id
-        elif isinstance(component, Pump | ControlValve | Equipment | Orifice):
+        elif isinstance(component, Pump | ControlValve | Equipment | Orifice | ReliefValve):
             for port in component.ports:
                 names[f"{component.id}:{port.id}"] = f"{component.id}_{port.id}"
         elif isinstance(component, AssignedFlow):
@@ -911,7 +991,7 @@ def project_to_wntr(
             wn.add_reservoir(component.id, base_head=head)
         elif isinstance(component, TeeBranch):
             wn.add_junction(component.id, base_demand=0.0, elevation=component.elevation)
-        elif isinstance(component, Pump | ControlValve | Equipment | Orifice):
+        elif isinstance(component, Pump | ControlValve | Equipment | Orifice | ReliefValve):
             for port in component.ports:
                 z = component.elevation if port.elevation is None else port.elevation
                 junction = f"{component.id}_{port.id}"
@@ -981,6 +1061,23 @@ def project_to_wntr(
                 initial_setting=curve_name,
             )
 
+        elif isinstance(component, ReliefValve):
+            if component.status != "active":
+                raise ValueError(f"{component.id}: EPANET cases use active relief valves")
+            _, d_in = _port_pipe(project, f"{component.id}:inlet")
+            curve_name = gpv_curve_name(component)
+            wn.add_curve(curve_name, "HEADLOSS", nc.relief_gpv_points(project, component))
+            wn.add_valve(
+                component.id,
+                nodes[f"{component.id}:inlet"],
+                nodes[f"{component.id}:outlet"],
+                diameter=d_in,
+                valve_type="GPV",
+                minor_loss=0.0,
+                initial_setting=curve_name,
+            )
+
+    check_valve_pipes = relief_inlet_pipes(project)
     for connection in project.connections:
         pipes = connection.piping.pipes
         if len(pipes) != 1 or pipes[0].material_id != CUSTOM_MATERIAL_ID:
@@ -1001,23 +1098,46 @@ def project_to_wntr(
             diameter=pipe.inner_diameter,
             roughness=pipe.roughness,
             minor_loss=minor_loss,
+            check_valve=connection.id in check_valve_pipes,
         )
     return wn
 
 
-def gpv_curve_name(component: Orifice) -> str:
+def relief_inlet_pipes(project: Project) -> set[str]:
+    """The connection on every relief valve's inlet port, which EPANET runs as a CV pipe
+    (decision 24). It must be drawn towards the valve: a CV pipe passes flow only from its start
+    node to its end node."""
+    out = set()
+    for component in project.components:
+        if isinstance(component, ReliefValve):
+            connection, _ = _port_pipe(project, f"{component.id}:inlet")
+            if connection.to_component_id != component.id:
+                raise ValueError(f"{component.id}: its inlet pipe must be drawn towards it")
+            out.add(connection.id)
+    return out
+
+
+def gpv_curve_name(component: Orifice | ReliefValve) -> str:
     return f"GPV_{component.id}"
 
 
+def gpv_points(project: Project, component: Orifice | ReliefValve) -> list[tuple[float, float]]:
+    """The (Q, h) points of the GPV standing for a plate or a relief valve (network_check)."""
+    if isinstance(component, ReliefValve):
+        return nc.relief_gpv_points(project, component)
+    return nc.gpv_points(project, component)
+
+
 def check_gpv_curves(project: Project, inp: Path) -> None:
-    """Each plate's HEADLOSS curve in the INP file WNTR wrote equals ``network_check.gpv_table``
-    (the curve network_check.EPANET_MODEL evaluates): the same points, x in gpm and y in ft,
-    after WNTR's six-decimal formatting; and WNTR's gpm is network_check.WNTR_GPM."""
+    """Each plate's and relief valve's HEADLOSS curve in the INP file WNTR wrote equals
+    ``network_check.gpv_table`` (the curve network_check.EPANET_MODEL evaluates): the same points,
+    x in gpm and y in ft, after WNTR's six-decimal formatting; and WNTR's gpm is
+    network_check.WNTR_GPM."""
     if wntr.epanet.util.FlowUnits.GPM.factor != nc.WNTR_GPM:
         raise RuntimeError("network_check.WNTR_GPM is not WNTR's gpm")
     lines = inp.read_text().splitlines()
     for component in project.components:
-        if not isinstance(component, Orifice):
+        if not isinstance(component, Orifice | ReliefValve):
             continue
         name = gpv_curve_name(component)
         written = [
@@ -1025,7 +1145,7 @@ def check_gpv_curves(project: Project, inp: Path) -> None:
             for fields in (line.split() for line in lines)
             if len(fields) >= 3 and fields[0] == name
         ]
-        xs, ys = nc.gpv_table(nc.gpv_points(project, component))
+        xs, ys = nc.gpv_table(gpv_points(project, component))
         if written != list(zip(xs, ys, strict=True)):
             raise RuntimeError(f"{component.id}: the INP curve is not network_check.gpv_table")
         if any(b <= a for a, b in itertools.pairwise(xs)):
@@ -1063,8 +1183,10 @@ def run_epanet(
     statuses = {
         c.id: int(status_table.loc[0, c.id])
         for c in project.components
-        if isinstance(c, Pump | ControlValve | Equipment | Orifice)
+        if isinstance(c, Pump | ControlValve | Equipment | Orifice | ReliefValve)
     }
+    for cid in relief_inlet_pipes(project):
+        statuses[cid] = int(status_table.loc[0, cid])
     return flows, heads, statuses
 
 
@@ -1313,6 +1435,15 @@ def _orifice_ports(project: Project, run: EpanetRun, o: Orifice) -> do.Ports:
     return do.Ports(q, run[1][f"{o.id}:inlet"], run[1][f"{o.id}:outlet"], d_in, d_out)
 
 
+def _relief_ports(project: Project, run: EpanetRun, rv: ReliefValve) -> dr.Ports:
+    """A relief valve's ports in an EPANET run: its flow (inlet → outlet, from the pipe on its
+    inlet port), EPANET's heads as EGLs, and the pipes' end-segment diameters."""
+    c_in, d_in = _port_pipe(project, f"{rv.id}:inlet")
+    _, d_out = _port_pipe(project, f"{rv.id}:outlet")
+    q = (1.0 if c_in.to_component_id == rv.id else -1.0) * run[0][c_in.id]
+    return dr.Ports(q, run[1][f"{rv.id}:inlet"], run[1][f"{rv.id}:outlet"], d_in, d_out)
+
+
 def build_case(name: str) -> ReferenceCase:
     make, description = EPANET_NETWORKS[name]
     project = make()
@@ -1324,6 +1455,7 @@ def build_case(name: str) -> ReferenceCase:
     valves: dict[str, dict[str, str]] = {}
     equipment: dict[str, dict[str, float | None]] = {}
     orifices: dict[str, dict[str, float | str | None]] = {}
+    relief_valves: dict[str, dict[str, Any] | None] = {}
     pressures: dict[str, float] = {}
     flags: list[dict[str, str]] = []
     for c in project.components:
@@ -1363,6 +1495,19 @@ def build_case(name: str) -> ReferenceCase:
             pressures |= do.port_pressures(c, at_o, fluid.density)
             p_atm = dv.standard_atmosphere_pressure(project.settings.site_elevation)
             flags += do.orifice_flags(c, at_o, fluid.density, mu, fluid.vapor_pressure, p_atm)
+        elif isinstance(c, ReliefValve):
+            # The GPV and its CV pipe stand for a relieving valve: EPANET must not close either.
+            cv_pipe = _port_pipe(project, f"{c.id}:inlet")[0].id
+            if VALVE_STATE[statuses[c.id]] == "closed" or statuses[cv_pipe] == 0:
+                raise ValueError(f"{name}: {c.id}'s GPV or CV pipe is closed in EPANET")
+            at_r = _relief_ports(project, (flows, heads, statuses), c)
+            if not at_r.q > 0.0:
+                raise ValueError(f"{name}: {c.id} must relieve in EPANET")
+            mu = fluid.dynamic_viscosity
+            relief_valves[c.id] = dr.relief_result(c, at_r, fluid.density, mu)
+            pressures |= dr.port_pressures(c, at_r, fluid.density)
+            p_atm = dv.standard_atmosphere_pressure(project.settings.site_elevation)
+            flags += dr.relief_flags(c, at_r, fluid.density, mu, fluid.vapor_pressure, p_atm)
     source = source_text(project)
     if control is not None:
         source += control.method
@@ -1382,6 +1527,7 @@ def build_case(name: str) -> ReferenceCase:
             flags=flags + regime_flags(project, flows),
             equipment=equipment,
             orifices=orifices,
+            relief_valves=relief_valves,
         ),
     )
 

@@ -60,6 +60,26 @@ const valve = (id: string) =>
 		elevation: 0,
 		ports: ['inlet', 'outlet'].map(port)
 	});
+const relief = (id: string) =>
+	comp({
+		id,
+		name: `Relief valve ${id}`,
+		type: 'relief_valve',
+		elevation: 0,
+		setPressure: 150000,
+		capacity: { kind: 'api526', letter: 'L' },
+		status: 'active',
+		ports: ['inlet', 'outlet'].map(port)
+	});
+const orifice = (id: string) =>
+	comp({
+		id,
+		name: `Orifice ${id}`,
+		type: 'orifice',
+		elevation: 0,
+		boreDiameter: 0.05,
+		ports: ['inlet', 'outlet'].map(port)
+	});
 const assigned = (id: string) =>
 	comp({
 		id,
@@ -182,6 +202,27 @@ describe('suggested groups on hand-built topologies', () => {
 			{ pumpIds: ['PA', 'PB'], kind: 'series' }
 		]);
 		expect(suggestGroups(line(true), ['PA', 'PB'])).toEqual([]);
+	});
+
+	it('finds series pumps through a relief valve or an orifice plate, as the API walks them', () => {
+		// R1 → PA → RV1 → PB → R2: the API accepts it as a series station. A relief valve's set
+		// is a pressure difference, so it is no pressure control (unlike a PRV or PSV).
+		const line = (element: Component) =>
+			projectWith(
+				[reservoir('R1'), pump('PA'), element, pump('PB'), reservoir('R2')],
+				[
+					pipe('L1', 'R1:port_1', 'PA:suction'),
+					pipe('L2', 'PA:discharge', 'RV1:inlet'),
+					pipe('L3', 'RV1:outlet', 'PB:suction'),
+					pipe('L4', 'PB:discharge', 'R2:port_1')
+				]
+			);
+		expect(suggestGroups(line(relief('RV1')), ['PA', 'PB'])).toEqual([
+			{ pumpIds: ['PA', 'PB'], kind: 'series' }
+		]);
+		expect(suggestGroups(line(orifice('RV1')), ['PA', 'PB'])).toEqual([
+			{ pumpIds: ['PA', 'PB'], kind: 'series' }
+		]);
 	});
 
 	it('finds a 2 × 2 station and each of its series pairs, the largest first', () => {
@@ -586,6 +627,50 @@ describe('why the pumps do not form a station, in words', () => {
 			);
 		expect(side(twoTanks)).toMatch(/^Duty pump and Pump PB draw from different /);
 		expect(side()).toMatch(/^Duty pump and Pump PB deliver to different /);
+	});
+
+	it('reads a different boundary through a relief valve on a pump’s chain, as the API does', () => {
+		// PA delivers through RV1 to RA, PB straight to RB: the API's 422 says "deliver to".
+		const throughRelief = projectWith(
+			[reservoir('R1', 2), pump('PA'), pump('PB'), relief('RV1'), reservoir('RA'), reservoir('RB')],
+			[
+				pipe('LA1', 'R1:port_1', 'PA:suction'),
+				pipe('LB1', 'R1:port_2', 'PB:suction'),
+				pipe('LA2', 'PA:discharge', 'RV1:inlet'),
+				pipe('LA3', 'RV1:outlet', 'RA:port_1'),
+				pipe('LB2', 'PB:discharge', 'RB:port_1')
+			]
+		);
+		expect(
+			wordsText(
+				refusalWords(issue('DIFFERENT_BOUNDARIES', ['RA', 'RB']), ['PA', 'PB'], throughRelief)
+			)
+		).toBe(
+			'Pump PA and Pump PB deliver to different reservoirs or reference nodes, Tank RA and Tank RB, each through its own piping: a station has one inlet and one outlet, so they do not form one, even at equal levels (a scenario can change one).'
+		);
+		// Nor is it a pressure control: pumps from R1 to RA, each through its own relief valve,
+		// are suggested as the parallel group the API accepts.
+		const twoReliefs = projectWith(
+			[
+				reservoir('R1', 2),
+				pump('PA'),
+				pump('PB'),
+				relief('RV1'),
+				relief('RV2'),
+				reservoir('RA', 2)
+			],
+			[
+				pipe('LA1', 'R1:port_1', 'PA:suction'),
+				pipe('LB1', 'R1:port_2', 'PB:suction'),
+				pipe('LA2', 'PA:discharge', 'RV1:inlet'),
+				pipe('LA3', 'RV1:outlet', 'RA:port_1'),
+				pipe('LB2', 'PB:discharge', 'RV2:inlet'),
+				pipe('LB3', 'RV2:outlet', 'RA:port_2')
+			]
+		);
+		expect(suggestGroups(twoReliefs, ['PA', 'PB'])).toEqual([
+			{ pumpIds: ['PA', 'PB'], kind: 'parallel' }
+		]);
 	});
 
 	it('words the refusals of the fixture, the API’s own answers', () => {

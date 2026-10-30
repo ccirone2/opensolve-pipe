@@ -30,6 +30,7 @@ from opensolve_pipe.services.solver.budget import SolveDeadlineError
 from opensolve_pipe.services.solver.builder import build_network
 from opensolve_pipe.services.solver.system_curve import curve_flows
 from tests.reference import derivations_pumps as dp
+from tests.unit import relief_stations as rs
 
 client = TestClient(app)
 URL = "/api/v1/pump-group-curve"
@@ -1045,7 +1046,7 @@ def test_the_system_network_holds_the_inside_closed_and_adds_one_link() -> None:
     virtual = view.network.links[forced.link_index]
     assert (virtual.start, virtual.end) == (station.inlet[0], station.outlet[0])
     assert (forced.suction, forced.discharge) == ("T1:run_inlet", "T2:run_outlet")
-    assert forced.pumps(0.01) is None
+    assert forced.pumps(0.01) == {}  # a system-curve solve with no pump forced (D23's relief start)
     assert forced.links(0.01) == {forced.link_index: 0.01}
     with pytest.raises(AssertionError):
         virtual.law.evaluate(0.01)  # a fixed flow in every solve: its law is never evaluated
@@ -1186,6 +1187,27 @@ def test_points_name_the_station_s_pumps_never_its_forced_flow() -> None:
         list(pump.reason.component_ids),
     )
     assert alone.component_ids == ["P3", "PA"]
+
+
+def test_a_relief_valve_outside_starts_open_as_in_a_pump_s_system_curve() -> None:
+    """A relief valve outside the station starts open in every solve of the group system curve,
+    as in a pump's (``initial_controls``, CLAUDE.md D23): started closed, it starved the forced
+    flow, so P2 behind RV1 had no steady state at any flow but the duty. A station of one pump
+    gives its /system-curve bit for bit at every grid flow, and the pumps deadheaded behind a
+    closed relief valve get the rest's curve from its cracking head."""
+    project = Project.model_validate(rs.series_between())
+    flows = {"flow_min": 0.0, "flow_max": 0.04, "num_points": 5}
+    one = group_system_curve(project, ["P2"], **flows)
+    own = system_curve(project, "P2", **flows)
+    grid = [p for p in one.system_points if not p.is_duty]
+    assert [(p.flow, p.head, p.reason) for p in grid] == [
+        (p.flow, p.head, p.reason.code if p.reason else None) for p in own.points
+    ]
+    assert all(p.head is not None for p in grid)
+    both = group_system_curve(
+        Project.model_validate(rs.parallel_then_closed()), ["P1", "P2"], **flows
+    )
+    assert all(p.head is not None and p.head > 58.0 for p in both.system_points)
 
 
 def test_a_duty_at_round_off_below_zero_is_a_point() -> None:

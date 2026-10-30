@@ -81,8 +81,8 @@ describe('schema lookups', () => {
 
 	it('names the schema of every kind of component', () => {
 		const project = createEmptyProject();
-		// An assigned-flow node's flow, an equipment item's rating and an orifice plate's bore have
-		// no default: made-up test inputs (enteredFor).
+		// An assigned-flow node's flow, an equipment item's rating, an orifice plate's bore and a
+		// relief valve's set pressure and capacity have no default: made-up test inputs (enteredFor).
 		const schemas = COMPONENT_KINDS.map((k) =>
 			componentSchema(createComponent(k, project, enteredFor(k)))
 		);
@@ -99,7 +99,8 @@ describe('schema lookups', () => {
 				'CheckValve',
 				'ControlValve',
 				'Equipment',
-				'Orifice'
+				'Orifice',
+				'ReliefValve'
 			])
 		);
 		for (const schema of schemas) expect(openapi.components.schemas).toHaveProperty(schema);

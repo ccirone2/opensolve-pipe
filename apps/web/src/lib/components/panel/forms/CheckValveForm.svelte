@@ -4,10 +4,9 @@
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { KIND_LABELS } from '$lib/utils/factory';
 	import { CHECK_STATUS_LABELS } from '$lib/utils/labels';
-	import { withOptional } from '$lib/utils/piping';
 	import { schemaBounds } from '$lib/utils/schema-bounds';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
-	import ResistanceField from '../ResistanceField.svelte';
+	import ValveResistanceField from '../ValveResistanceField.svelte';
 
 	let { component }: { component: CheckValve } = $props();
 	const ws = useWorkspace();
@@ -42,20 +41,14 @@
 	category="pressure"
 	units={ws.units}
 	bounds={schemaBounds('CheckValve', 'crackingPressure')}
-	hint="Pressure difference across the valve (inlet minus outlet) that opens it; 0 opens on any forward flow."
+	hint="The forward pressure across the valve that opens it, read on the energy grade line: the static pressure difference, inlet minus outlet, plus ρg × (inlet port elevation − outlet port elevation); 0 opens on any forward flow. For overpressure protection use a pressure relief valve: a check valve's fixed K does not follow API 520's capacity."
 	onchange={(v) =>
 		v !== null &&
 		ws.editComponent<CheckValve>(component.id, 'change cracking pressure', (c) => {
 			c.crackingPressure = v;
 		})}
 />
-<ResistanceField
-	value={component.resistance}
-	units={ws.units}
+<ValveResistanceField
+	{component}
 	defaultLabel="the solver's cited loss for this valve type (shown in the results)"
-	change={ws.componentChange(component.id, 'resistance')}
-	onchange={(r) =>
-		ws.editComponent<CheckValve>(component.id, 'change valve resistance', (c) =>
-			withOptional(c, 'resistance', r)
-		)}
 />

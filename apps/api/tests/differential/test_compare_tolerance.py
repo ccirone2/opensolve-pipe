@@ -409,6 +409,97 @@ def test_an_orifice_result_is_an_element_with_its_quantities() -> None:
     assert got == "round-off"
 
 
+def test_a_relief_valve_result_is_an_element_with_its_quantities() -> None:
+    """A relief valve's result (proposal pressure-relief-valve.md §2.2, §7.4) takes the tolerance
+    of its quantity: its inlet and back pressures, static pressure drop, set pressure and
+    total-pressure and full-lift differences those of a pressure, ρg·10⁻⁶ m, not 10⁻⁶ relative;
+    its flow (and its full-lift flow) those of a flow, counting in the largest flow; its lift and
+    ratios are round-off where it carries a round-off flow, while its pressures are compared,
+    since a closed valve's pressure difference is its answer. Its flags' details take the same
+    quantities: RELIEF_VALVE_CLOSED's set head that of a head, its pressure limit and the
+    flashing flag's back pressure those of a pressure."""
+    item = {
+        "state": "partial_lift",
+        "flow": 0.05,
+        "lift": 0.53,
+        "headLoss": 53.8,
+        "totalPressureDifference": 5.27e5,
+        "pressureDrop": 5.26e5,
+        "inletPressure": 5.26e5,
+        "backPressure": -7.75,
+        "setPressure": 5.0e5,
+        "setRatio": 1.053,
+        "overpressure": 0.1,
+        "overpressureSource": "asme_default",
+        "fullLiftPressureDifference": 5.5e5,
+        "fullLiftFlow": 0.0962,
+        "flowRatio": 0.52,
+        "reynoldsNumber": 1.78e5,
+    }
+    a = put(solved(), "reliefValveResults", {"RV1": item})
+    for field, quantity, tol in (
+        ("flow", "flow", FLOW_TOL),
+        ("fullLiftFlow", "other", 1.0e-6 * 0.0962),
+        ("headLoss", "head", 1.0e-6),
+        ("totalPressureDifference", "pressure", PRESSURE_TOL),
+        ("pressureDrop", "pressure", PRESSURE_TOL),
+        ("inletPressure", "pressure", PRESSURE_TOL),
+        ("backPressure", "pressure", PRESSURE_TOL),
+        ("setPressure", "pressure", PRESSURE_TOL),
+        ("fullLiftPressureDifference", "pressure", PRESSURE_TOL),
+        ("lift", "other", 1.0e-6 * 0.53),
+        ("setRatio", "other", 1.0e-6 * 1.053),
+        ("reynoldsNumber", "other", 1.0e-6 * 1.78e5),
+    ):
+        path = f"reliefValveResults.RV1.{field}"
+        for multiple, kind in ((INSIDE, "in"), (OUTSIDE, "out")):
+            ((got, *_, ratio, judged_as),) = judged(
+                a, put(a, path, at(a, path) + multiple * tol), compare.DEFAULT_SETTINGS
+            )
+            assert (got, judged_as) == (kind, quantity), field
+            assert ratio == pytest.approx(multiple, rel=1e-4), field
+    # the largest flow: RV1 carrying 0.2 m³/s sets a flow's tolerance
+    big = put(a, "reliefValveResults.RV1.flow", 0.2)
+    ((got, *_),) = judged(
+        big, put(big, "linkResults.C2.flow", 0.05 + 0.99e-8 * 0.2), compare.DEFAULT_SETTINGS
+    )
+    assert got == "in"
+    # a closed valve (flow 0): its ratios are round-off, its pressures are compared
+    closed = put(a, "reliefValveResults.RV1.flow", 0.0)
+    ((got, path, *_),) = judged(
+        closed, put(closed, "reliefValveResults.RV1.setRatio", 0.9), compare.DEFAULT_SETTINGS
+    )
+    assert (got, path) == ("round-off", "/reliefValveResults/RV1/setRatio")
+    for field in ("totalPressureDifference", "inletPressure"):
+        path = f"reliefValveResults.RV1.{field}"
+        ((got, *_, judged_as),) = judged(
+            closed,
+            put(closed, path, at(closed, path) + 1.01 * PRESSURE_TOL),
+            compare.DEFAULT_SETTINGS,
+        )
+        assert (got, judged_as) == ("out", "pressure"), field
+    # its flags' details
+    flag = {
+        "code": "RELIEF_VALVE_CLOSED",
+        "componentId": "RV1",
+        "connectionId": None,
+        "portId": None,
+        "message": "relief valve 'RV1' is closed and has no result",
+        "details": {"setHead": 51.09, "setPressure": 5.0e5, "pressureLimit": 5.2e5},
+    }
+    flagged = put(closed, "flags", [flag, {**flag, "details": {"backAbsolutePressure": 9.0e4}}])
+    for path, quantity, tol in (
+        ("flags.0.details.setHead", "head", 1.0e-6),
+        ("flags.0.details.setPressure", "pressure", PRESSURE_TOL),
+        ("flags.0.details.pressureLimit", "pressure", PRESSURE_TOL),
+        ("flags.1.details.backAbsolutePressure", "pressure", PRESSURE_TOL),
+    ):
+        ((got, *_, judged_as),) = judged(
+            flagged, put(flagged, path, at(flagged, path) + 1.01 * tol), compare.DEFAULT_SETTINGS
+        )
+        assert (got, judged_as) == ("out", quantity), path
+
+
 def test_a_flag_detail_index_compares_exactly_on_a_round_off_element(tmp_path: Path) -> None:
     """``Flag.details`` holds floats, so the index of the pipe or fitting a flag names is a float
     in the dumps (``segmentIndex`` 0.0); it compares exactly, as an integer does, also where its

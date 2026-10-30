@@ -36,7 +36,12 @@ from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 
 from ...models.components import (
+    ASME_OVERPRESSURE_FLOOR,
+    ASME_OVERPRESSURE_FRACTION,
+    RELIEF_DATA,
+    Api526Orifice,
     AssignedFlow,
+    CertifiedOrifice,
     CheckValve,
     Component,
     ControlValve,
@@ -47,12 +52,14 @@ from ...models.components import (
     Plug,
     Pump,
     RatedPoint,
+    ReliefValve,
     Reservoir,
     TeeBranch,
     WyeBranch,
 )
 from ...models.fluids import BuiltinFluid, FluidProperties
 from ...models.piping import ENTRANCE_TYPES, EXIT_TYPES, REDUCER_TYPES
+from ...models.project_library import ResistanceRef
 from ...models.results import (
     BoundaryResult,
     BranchResult,
@@ -64,6 +71,7 @@ from ...models.results import (
     OrificeResult,
     PumpResult,
     Reference,
+    ReliefValveResult,
     TraceInput,
     TraceValue,
     ValveResult,
@@ -134,7 +142,34 @@ from .orifice import (
     rhg_terms_at,
     s_of_c,
 )
+from .project_library import (
+    ENTERED_UNITS,
+    EntryK,
+    entered_text,
+    provenance,
+    resistance_label,
+)
 from .pumps import speed_derivative_factor
+from .relief import (
+    AFT,
+    API_520,
+    API_526,
+    API_CONSTANT,
+    ASME_DEFAULT_WORDS,
+    ASME_SCOPE_WORDS,
+    CONSTANT_EXCESS,
+    DECISION,
+    EXACT_CONSTANT,
+    KV_EDITION,
+    PENTAIR,
+    PRELIMINARY,
+    SIMSCAPE,
+    VISCOSITY_LIMIT,
+    capacity_kind_words,
+    covering_letter,
+    kv_api520,
+)
+from .relief import LAW as RELIEF_LAW
 from .status import HTOL, QTOL, OuterLoopResult, Status, active_state, open_loss
 from .system_curve import DEFAULT_RANGE_FACTOR
 from .valves import CRANE_DEFAULTS, IDEAL_CONTROL_VALVE
@@ -238,6 +273,7 @@ class TraceInputs:
     valves: dict[str, ValveResult] = field(default_factory=dict)
     equipment: dict[str, EquipmentResult] = field(default_factory=dict)
     orifices: dict[str, OrificeResult] = field(default_factory=dict)
+    relief_valves: dict[str, ReliefValveResult] = field(default_factory=dict)
     branches: dict[str, BranchResult] = field(default_factory=dict)
     boundaries: dict[str, BoundaryResult] = field(default_factory=dict)
     flags: list[Flag] = field(default_factory=list)
@@ -536,6 +572,9 @@ def _connection_trace(ctx: TraceInputs, data: ConnectionData) -> ElementTrace:
     materials = load_pipe_materials()
     for i, (pipe, defn) in enumerate(zip(data.pipes, conn.piping.pipes, strict=True)):
         label = pipe_label(i)
+        spec = pipe.spec  # a project library pipe spec (CLAUDE.md D22), or None
+        if spec is not None:
+            t.input(f"{label} pipe spec", f'"{spec.name}" ({spec.id})', NO_UNIT, "user")
         material = materials.get(pipe.material_id)
         t.input(
             f"{label} material",
@@ -545,8 +584,9 @@ def _connection_trace(ctx: TraceInputs, data: ConnectionData) -> ElementTrace:
         )
         if pipe.schedule is not None:
             t.input(f"{label} schedule", pipe.schedule, NO_UNIT, "user")
-        if defn.nominal_size is not None:
-            t.input(f"{label} nominal diameter", defn.nominal_size, M, "user")
+        nominal = spec.nominal_size if spec is not None else defn.nominal_size
+        if nominal is not None:
+            t.input(f"{label} nominal diameter", nominal, M, "user")
         if pipe.nps is not None:
             t.input(f"{label} NPS (library size)", pipe.nps, NO_UNIT, "library")
         t.input(f"{label} length L", pipe.length, M, "user")
@@ -556,13 +596,18 @@ def _connection_trace(ctx: TraceInputs, data: ConnectionData) -> ElementTrace:
             f"{label} inner diameter D", pipe.inner_diameter, M, "user" if user_d else "library"
         )
         t.input(f"{label} roughness ε", pipe.roughness, M, "user" if user_e else "library")
-        t.data(f"{label} inner diameter", "user value" if user_d else pipe.diameter_source)
+        # A spec's values are user data, labelled with the spec and its source (proposal
+        # project-library.md §4.1); a roughness it leaves blank is the material's cited one.
+        given = provenance(spec) if spec is not None else "user value"
+        t.data(f"{label} inner diameter", given if user_d else pipe.diameter_source)
         t.data(
             f"{label} roughness",
-            "user value"
+            given
             if user_e
             else pipe.roughness_source + (f". {material.notes}" if material is not None else ""),
         )
+        if spec is not None:
+            t.note(f"{label}: {provenance(spec)}")
 
     q = float(ctx.flows[data.link_index])
     crane_fittings = False
@@ -576,7 +621,9 @@ def _connection_trace(ctx: TraceInputs, data: ConnectionData) -> ElementTrace:
             NO_UNIT,
             _given(fdef, "pipe_index"),
         )
-        if fdef.k_override is not None:
+        if fit.entry is not None:
+            _entry_inputs(t, fit.entry, label)
+        elif fdef.k_override is not None:
             t.input(f"{label} K (user)", fdef.k_override, NO_UNIT, "user")
         if fdef.angle is not None:
             t.input(f"{label} angle", fdef.angle, DEG, "user")
@@ -587,7 +634,9 @@ def _connection_trace(ctx: TraceInputs, data: ConnectionData) -> ElementTrace:
                     "rc = radiusRatio · D: the entrance's rounding radius (D: the inner diameter "
                     "of the fitting's reference segment)"
                 )
-        if fit.user_k:
+        if fit.entry is not None:
+            _entry_text(t, fit.entry, label, "the inner diameter of the fitting's pipe")
+        elif fit.user_k:
             t.correlation(f"{label}: K as entered", "user value (kOverride)")
         else:
             t.correlation(f"{label}: K = {fit.correlation(q)}", fit.source)
@@ -1610,37 +1659,77 @@ def _control_rule_values(
     return f"CLOSED: {why}, so it stays closed (EPANET 2.2 psvstatus)"
 
 
+def _flow_coefficient_text(t: _Trace, kind: str, bore: str) -> None:
+    """A Cv's or Kv's conversion to K on bore ``bore`` (its symbol: 'D_ref' for a valve)."""
+    t.equation(
+        f"K = 1.6·10⁹ {bore}⁴/Kv² with {bore} in m (Kv: m³/h of water at 1 bar)"
+        + ("; Kv = Cv/1.1560992283536566 (Cv: US gpm of water at 1 psi)" if kind == "Cv" else "")
+    )
+    t.correlation(f"fluids.fittings.{kind}_to_K({kind}, {bore})", f"{ISA_75} Via fluids 1.3.1.")
+    t.note(
+        f"{kind} → K uses the turbulent-flow valve equation (ISA-75.01.01) without the Reynolds "
+        "number factor F_R, which needs valve data not entered here."
+    )
+
+
+def _entry_inputs(t: _Trace, use: EntryK, label: str) -> None:
+    """A project library resistance entry's values as entered (CLAUDE.md D22): user data."""
+    entry = use.entry
+    t.input(
+        f"{label} {entry.kind} (project library, as entered)",
+        entry.value,
+        ENTERED_UNITS[entry.kind],
+        "user",
+    )
+    if entry.reference_diameter is not None:
+        t.input(f"{label} K stated at bore d₀", entry.reference_diameter, M, "user")
+
+
+def _entry_text(t: _Trace, use: EntryK, label: str, bore: str, symbol: str = "D") -> None:
+    """How an element's K follows from its project library entry (proposal project-library.md
+    §4.1): the conversion, the entry and its source. ``bore`` says what D is."""
+    entry = use.entry
+    if entry.kind == "K":
+        t.equation(
+            f"K = K₀ ({symbol}/d₀)⁴ ({symbol}: {bore}): the entry's K₀, stated at bore d₀, on "
+            f"{symbol}, the same head loss K₀ (Q/A₀)²/(2g) at a given flow (A₀ = π d₀²/4)"
+        )
+        t.correlation(
+            f"{label}: K = K₀ ({symbol}/d₀)⁴ from the project library",
+            "Same head loss at a given flow on either bore (proposal project-library.md §3.3; "
+            "the scaling of fluids.fittings.Cv_to_K)",
+        )
+    else:
+        _flow_coefficient_text(t, entry.kind, symbol)
+    t.data(f"{label} {entry.kind}", provenance(entry))
+    t.note(f"{label}: {provenance(entry)}")
+    t.note(f"{label}: {entered_text(entry)}, {resistance_label(entry)}; {use.how}.")
+
+
 def _resistance(t: _Trace, data: ValveData) -> None:
-    """The valve's fully open K: as entered, converted from Cv / Kv, a Crane default, or an
-    ideal control valve."""
+    """The valve's fully open K: as entered, from a project library entry, converted from Cv /
+    Kv, a Crane default, or an ideal control valve."""
     valve = data.component
+    assert not isinstance(valve, ReliefValve)  # its own trace (``_relief_trace``)
     resistance = data.resistance
     entered = valve.resistance
-    if entered is not None:
-        units = {"K": NO_UNIT, "Cv": "US gpm/psi^0.5", "Kv": "m³/h/bar^0.5"}
+    if resistance.entry is not None:
+        _entry_inputs(t, resistance.entry, "Resistance")
+        _entry_text(
+            t, resistance.entry, "Resistance", "the inlet pipe's inner diameter", symbol="D_ref"
+        )
+    elif entered is not None:
+        assert not isinstance(entered, ResistanceRef)  # resolved: resistance.entry
         t.input(
-            f"Resistance {entered.kind} (as entered)", entered.value, units[entered.kind], "user"
+            f"Resistance {entered.kind} (as entered)",
+            entered.value,
+            ENTERED_UNITS[entered.kind],
+            "user",
         )
         if entered.kind == "K":
             t.equation("K: as entered, on the reference diameter")
         else:
-            t.equation(
-                "K = 1.6·10⁹ D_ref⁴/Kv² with D_ref in m (Kv: m³/h of water at 1 bar)"
-                + (
-                    "; Kv = Cv/1.1560992283536566 (Cv: US gpm of water at 1 psi)"
-                    if entered.kind == "Cv"
-                    else ""
-                )
-            )
-            t.correlation(
-                f"fluids.fittings.{entered.kind}_to_K({entered.kind}, D_ref)",
-                f"{ISA_75} Via fluids 1.3.1.",
-            )
-            t.note(
-                f"{entered.kind} → K uses the turbulent-flow valve equation (ISA-75.01.01) "
-                "without the Reynolds number factor F_R, which needs valve data not entered "
-                "here."
-            )
+            _flow_coefficient_text(t, entered.kind, "D_ref")
     elif isinstance(valve, ControlValve):
         t.input("Resistance", "none: ideal control valve", NO_UNIT, "default")
         t.equation("K = 0 when fully open (an ideal control valve)")
@@ -1662,6 +1751,7 @@ def _resistance(t: _Trace, data: ValveData) -> None:
 
 def _valve_trace(ctx: TraceInputs, data: ValveData) -> ElementTrace:
     valve = data.component
+    assert not isinstance(valve, ReliefValve)  # its own trace (``_relief_trace``)
     kind = (
         "control_valve"
         if isinstance(valve, ControlValve)
@@ -2458,6 +2548,390 @@ def _orifice_trace(ctx: TraceInputs, data: OrificeData) -> ElementTrace:
 # --------------------------------------------------------------------------- entry point
 
 
+# --------------------------------------------------------------------------- relief valves
+
+RELIEF_CONVENTIONAL_NOTE = (
+    "A conventional spring-loaded valve: its spring sees the pressure difference across the disc, "
+    "so a back pressure adds to the inlet pressure at which it opens. Its set pressure is the "
+    "static pressure difference, inlet minus outlet, at which it starts to open: discharging to "
+    "atmosphere at the valve's elevation, the gauge set pressure; against a constant back "
+    "pressure, the bench setting (the set pressure minus that back pressure, Pentair TP-V300 "
+    "ch. 4). It opens on the static difference, where a check valve's cracking pressure reads "
+    "the difference of the energy grade lines."
+)
+RELIEF_OVERPRESSURE_NOTE = (
+    "The overpressure is taken on the set difference, as the opening is: with a superimposed "
+    "back pressure P_b, full lift comes op · P_b below the in-situ relieving pressure, (1 + op) × "
+    "the gauge set. ASME's certification fixes full lift only on the bench, discharging to "
+    "atmosphere, where the two coincide; for full lift against a back pressure this is an "
+    "inference (proposal pressure-relief-valve.md §1.1), named. At the relieving pressure both "
+    "readings are at or past full lift and give API 520's flow."
+)
+RELIEF_BAND_NOTE = (
+    "Between set and full lift the lift rises linearly with the overpressure: a convention "
+    "(MathWorks Simscape, AFT Impulse), exact at the two points the certification fixes, not a "
+    "cited law, and every relieving state short of full lift is flagged. Pentair's typical "
+    "liquid-trim lift characteristic (TP-V300 Fig. 4-12) lifts to about half at 107 % of set, "
+    "surges to full lift there, and on falling pressure stays at full lift to about 95 % and "
+    "recloses near 90 % (a fixed blowdown of 10 to 15 %). This state is on a rising branch; a "
+    "valve that has surged open passes more flow at a lower inlet pressure."
+)
+RELIEF_CERTIFICATION_NOTE = (
+    "What the certification does not bound: ASME VIII's set tolerance (±2 psi to 70 psig, ±3 % "
+    "above, Pentair TP-V300 Table 3-2), and a rated coefficient that is 0.9 × the measured one, "
+    "so a certified valve's capacity may exceed its rated capacity."
+)
+RELIEF_ASSUMPTIONS_NOTE = (
+    "Kw = Kc = Kv = 1 (no back-pressure, rupture-disc or viscosity correction); no blowdown or "
+    "pop action; the outlet piping is liquid-full (an outlet pipe rising or falling to an open end "
+    "adds its static head to the opening pressure); liquids only."
+)
+RELIEF_READING_NOTE = (
+    "API 520's P1 − P2 is read as the total-pressure difference between the ports (the law's "
+    "Δp_t). ASME's definitions as Pentair quotes them put the capacity on the inlet stagnation "
+    "pressure and the outlet static pressure, which differs from Δp_t by the outlet velocity head; "
+    "the static reading differs by the difference of the two velocity heads. The differences and "
+    "flows of both other readings at the solved pressures are shown above, not used."
+)
+
+
+def _relief_trace(ctx: TraceInputs, data: ValveData) -> ElementTrace:
+    """Proposal pressure-relief-valve.md §4.1: the inputs with their sources, the law and its
+    band root, the capacity at full lift, the solved state with the rule that set it, the
+    pressure readings not used, and the notes that bound the law (the named departures, the
+    assumptions, each flag's inequality)."""
+    comp = data.component
+    relief = data.relief
+    assert isinstance(comp, ReliefValve)
+    assert relief is not None
+    law = relief.law
+    capacity = comp.capacity
+    rho = ctx.fluid.density
+    t = _Trace(comp.id, "relief_valve")
+    t.input(
+        "Set pressure Δp_s (static pressure difference, inlet − outlet, at which it starts to "
+        "open)",
+        comp.set_pressure,
+        PA_D,
+        "user",
+    )
+    t.input("Status", comp.status, NO_UNIT, _given(comp, "status"))
+    t.input("Capacity", capacity_kind_words(capacity), NO_UNIT, "user")
+    data_file = RELIEF_DATA
+    if isinstance(capacity, Api526Orifice):
+        t.input(f"API 526 effective area A (letter {capacity.letter})", relief.area, M2, "library")
+        t.data(f"API 526 effective area (letter {capacity.letter})", _letter_source(capacity))
+    elif isinstance(capacity, CertifiedOrifice):
+        t.input("Actual orifice area A (certified)", relief.area, M2, "user")
+    else:
+        t.input("API 520 effective area A", relief.area, M2, "user")
+    if isinstance(capacity, CertifiedOrifice):
+        t.input(
+            "Rated coefficient of discharge K (certified: ASME's K, 0.9 × the measured "
+            "coefficient)",
+            relief.discharge_coefficient,
+            NO_UNIT,
+            "user",
+        )
+    else:
+        t.input(
+            "Effective coefficient of discharge Kd (API 520, preliminary)",
+            relief.discharge_coefficient,
+            NO_UNIT,
+            "library",
+        )
+        t.data(
+            "Effective coefficient of discharge Kd",
+            f"{data_file['effectiveDischargeCoefficient']['source']}.",
+        )
+    if relief.overpressure_source == "user":
+        t.input(
+            "Overpressure at full lift op (certified, a fraction of the set)",
+            law.overpressure,
+            NO_UNIT,
+            "user",
+        )
+    else:
+        t.input(
+            "Overpressure at full lift op (ASME's liquid certification overpressure, a fraction "
+            "of the set)",
+            law.overpressure,
+            NO_UNIT,
+            "default",
+        )
+        t.data(
+            "Overpressure at full lift op",
+            f"{ASME_DEFAULT_WORDS}: {data_file['asmeOverpressureFraction']['source']}; the "
+            f"floor: {data_file['asmeOverpressureFloor']['source']}; cited for a set within "
+            f"ASME VIII's scope: {data_file['asmeMinimumSetPressure']['source']}.",
+        )
+    _port_elevation_input(t, comp, "inlet", "Inlet port elevation z_in")
+    _port_elevation_input(t, comp, "outlet", "Outlet port elevation z_out")
+    for label, key, pipe in (
+        ("Inlet", data.inlet, data.inlet_pipe),
+        ("Outlet", data.outlet, data.outlet_pipe),
+    ):
+        t.input(
+            f"{label} pipe inner diameter (its end segment at the port)",
+            pipe.segment.diameter,
+            M,
+            _port_pipe_source(ctx, key),
+        )
+    _fluid(t, ctx, viscosity=True, vapor=True)
+    _gravity(t, ctx)
+    _atmosphere(t, ctx)
+
+    t.equation(
+        "Δp_t = (p_in + ρ v_in²/2) − (p_out + ρ v_out²/2) = ρ g (EGL_in − EGL_out − (z_in − "
+        "z_out)): the total-pressure difference between the ports, API 520's P1 − P2 as read here "
+        "(v_in, v_out: the velocities in the connected pipes)"
+    )
+    t.equation("Δp_f = Δp_s (1 + op): the pressure difference at full lift")
+    if relief.overpressure_source == "asme_default":
+        t.equation(
+            f"op = max({ASME_OVERPRESSURE_FRACTION:g}, {FLOOR_PSI} psi/Δp_s), {FLOOR_PSI} psi = "
+            f"{_num(ASME_OVERPRESSURE_FLOOR)} Pa: ASME's liquid certification overpressure (the "
+            f"default), cited for a set of at least {ASME_SCOPE_WORDS}"
+        )
+    t.equation(
+        "x = clip((Δp_t − Δp_s)/(Δp_f − Δp_s), 0, 1): the lift, rising linearly from the set to "
+        "full lift (a convention)"
+    )
+    t.equation(
+        "Q = x C √(2 Δp_t/ρ), C = Kd A: API 520's liquid capacity equation at lift x, in exact SI "
+        "(Kw = Kc = Kv = 1); Q_f = C √(2 Δp_f/ρ), the capacity at full lift"
+    )
+    t.equation(
+        f"API 520's own form, A = {API_CONSTANT:g} Q/(Kd Kw Kc Kv) √(G₁/(P₁ − P₂)) with A in mm², "
+        f"Q in L/min and pressures in kPa: its {API_CONSTANT:g} is {CONSTANT_EXCESS:.6g} above the "
+        f"exact {EXACT_CONSTANT:.12g} (fluids' derivation), so at a given area and difference the "
+        f"exact form passes {CONSTANT_EXCESS:.6g} more flow, relative"
+    )
+    t.equation(
+        "EGL_in − EGL_out = h(Q) = h_set + (Δp(Q) − Δp_s)/(ρ g), h_set = Δp_s/(ρ g) + z_in − "
+        "z_out: the law on the energy grade line (Q ≥ 0; it closes on reverse flow)"
+    )
+    t.equation(
+        "Band (Q < Q_f): u = √Δp is the largest real root of u³ − Δp_s u − R Q = 0, R = "
+        "(Δp_f − Δp_s)/(C √(2/ρ)); Δp − Δp_s = R Q/u, dΔp/dQ = 2 u R/(3 u² − Δp_s); x = "
+        "Q/(C √(2 Δp/ρ))"
+    )
+    t.equation("Full lift (Q ≥ Q_f): Δp = ρ Q²/(2 C²)")
+    t.equation(
+        f"Closed while EGL_in − EGL_out ≤ h_set + {HTOL:g} m, its static difference within "
+        f"ρ g × {HTOL:g} m of the set at zero flow; opens when it exceeds h_set + {HTOL:g} m; "
+        f"closes when it falls below h_set − {HTOL:g} m or on reverse flow, Q < −{QTOL:g} m³/s "
+        "(EPANET 2.2 cvstatus with the cracking head h_set)"
+    )
+    t.equation(
+        "p_in = ρ g (EGL_in − z_in − v_in²/(2g)), p_out = ρ g (EGL_out − z_out − v_out²/(2g)): "
+        "static gauge pressures at the ports; Δp_static = p_in − p_out = Δp_t − ρ (v_in² − "
+        "v_out²)/2"
+    )
+    t.equation("Re = ρ (Q/A) √(4A/π)/μ: API 520's Reynolds number on the orifice")
+    t.correlation(RELIEF_LAW, API_520)
+    t.correlation("Linear lift from the set to full lift (a convention)", f"{SIMSCAPE} {AFT}")
+    t.correlation("Relief valve status rule (EPANET 2.2 cvstatus)", EPANET_STATUS)
+    t.data("Definitions, certification, scope and the typical lift characteristic", PENTAIR)
+    t.data("API 526 orifice areas", API_526)
+    t.data("Design decision", DECISION)
+
+    t.value("C = Kd A", law.c_area, M2)
+    t.value("Pressure difference at full lift Δp_f", law.full_lift_pressure, PA_D)
+    t.value("Capacity at full lift Q_f", law.q_full, M3S)
+    t.value("Band coefficient R = (Δp_f − Δp_s)/(C √(2/ρ))", law.band_coefficient, "Pa^1.5·s/m³")
+    t.value("Set head h_set = Δp_s/(ρ g) + z_in − z_out", law.h_set, M)
+    t.value("Slope at zero flow dh/dQ(0⁺) = R/(√Δp_s ρ g)", law.slope_at_zero(), "s/m²")
+    t.value(
+        "Loss coefficient at full lift on the inlet pipe's bore, K = (A_in/C)²: from Q_f on, "
+        "Δp_t = K ρ v_in²/2 (for comparison; the law above is used)",
+        data.resistance.k,
+        NO_UNIT,
+    )
+    if relief.overpressure_source == "asme_default":
+        floor = ASME_OVERPRESSURE_FLOOR / comp.set_pressure
+        fraction = ASME_OVERPRESSURE_FRACTION
+        ratio = (
+            f"{FLOOR_PSI} psi/Δp_s = {_num(ASME_OVERPRESSURE_FLOOR)}/{_num(comp.set_pressure)} = "
+            f"{_num(floor)}"
+        )
+        term = (
+            f"its {FLOOR_PSI} psi floor, {ratio} > {fraction:g}"
+            if floor > fraction
+            else f"its {fraction * 100:g} %, {ratio} {'<' if floor < fraction else '='} "
+            f"{fraction:g}"
+        )
+        t.note(f"ASME's default overpressure at this set is {term}: op = {_num(law.overpressure)}.")
+    result = ctx.relief_valves.get(comp.id)
+    if not isinstance(capacity, CertifiedOrifice):
+        letter = covering_letter(relief.area)
+        if not isinstance(capacity, Api526Orifice):
+            t.note(
+                "The smallest API 526 letter whose effective area covers this area: "
+                + (
+                    f"{letter} (fluids.safety_valve.API520_round_size)."
+                    if letter is not None
+                    else "none: it exceeds T's, the largest (fluids.safety_valve."
+                    "API520_round_size)."
+                )
+            )
+        t.note(f"Preliminary: {PRELIMINARY}.")
+    else:
+        t.note(
+            "Certified values: the valve's actual orifice area with its rated coefficient of "
+            "discharge (ASME's K, 0.9 × the measured coefficient), never mixed with API 520's "
+            "effective values."
+        )
+    if result is not None:
+        q = result.flow
+        a_in, a_out = data.inlet_pipe.segment.area, data.outlet_pipe.segment.area
+        v_in, v_out = q / a_in, q / a_out
+        t.value("Flow Q (inlet → outlet)", q, M3S)
+        t.value("Total-pressure difference Δp_t (solved)", result.total_pressure_difference, PA_D)
+        t.value("Δp_t ÷ set Δp_s", result.set_ratio, NO_UNIT)
+        t.value("Lift x", result.lift, NO_UNIT)
+        t.value("Flow ÷ capacity at full lift Q/Q_f", result.flow_ratio, NO_UNIT)
+        if q > 0.0:
+            t.value("Pressure difference by the law Δp(Q)", law.pressure_difference(q), PA_D)
+            t.value("Slope dh/dQ at Q", law.evaluate(q)[1], "s/m²")
+        t.value("EGL at the inlet EGL_in", ctx.egl(data.inlet), M)
+        t.value("EGL at the outlet EGL_out", ctx.egl(data.outlet), M)
+        t.value("Head loss h = EGL_in − EGL_out (solved)", result.head_loss, M)
+        if q > 0.0:  # closed, the link is out of the network and its law does not apply
+            t.value("Head loss by the law h(Q)", law.head(q), M)
+        t.value("Inlet pipe velocity v_in = Q/A_in", v_in, MS)
+        t.value("Outlet pipe velocity v_out = Q/A_out", v_out, MS)
+        _port_state_values(
+            t,
+            ctx,
+            comp,
+            {"inlet": ("Inlet", "_in"), "outlet": ("Outlet", "_out")},
+            velocity=False,  # v_in and v_out are above, signed as Q
+        )
+        t.value("Velocity-head term ρ (v_in² − v_out²)/2", 0.5 * rho * (v_in**2 - v_out**2), PA_D)
+        t.value("Static pressure drop Δp_static = p_in − p_out", result.pressure_drop, PA_D)
+        t.value("Reynolds number on the orifice Re", result.reynolds_number, NO_UNIT)
+        if result.reynolds_number is not None:
+            t.value(
+                f"API 520 ({KV_EDITION}) viscosity correction Kv at Re (not applied)",
+                kv_api520(result.reynolds_number),
+                NO_UNIT,
+            )
+        static = result.pressure_drop
+        stagnation = static + 0.5 * rho * v_in * v_in
+        t.value("Pressure difference by the static reading p_in − p_out (not used)", static, PA_D)
+        t.value(
+            "Flow the static reading would give at these pressures (not used)",
+            law.flow_at(static),
+            M3S,
+        )
+        t.value(
+            "Pressure difference by the definitions' reading (p_in + ρ v_in²/2) − p_out (not used)",
+            stagnation,
+            PA_D,
+        )
+        t.value(
+            "Flow the definitions' reading would give at these pressures (not used)",
+            law.flow_at(stagnation),
+            M3S,
+        )
+        if result.back_pressure is not None and result.back_pressure != 0.0:
+            p_out = result.back_pressure
+            vf_in, vf_out = law.q_full / a_in, law.q_full / a_out
+            t.value(
+                "Inlet static pressure at full lift with the outlet at this back pressure, p_out + "
+                "Δp_f − ρ (v_in² − v_out²)/2 at Q_f (not used)",
+                p_out + law.full_lift_pressure - 0.5 * rho * (vf_in**2 - vf_out**2),
+                PA_G,
+            )
+            t.value(
+                "Overpressure on the set difference that would put full lift at (1 + op) × the "
+                "in-situ gauge set Δp_s + p_out, op (Δp_s + p_out)/Δp_s (not used)",
+                law.overpressure * (comp.set_pressure + p_out) / comp.set_pressure,
+                NO_UNIT,
+            )
+    if ctx.converged:
+        _relief_state_note(t, ctx, data, result)
+    t.note(RELIEF_CONVENTIONAL_NOTE)
+    t.note(RELIEF_OVERPRESSURE_NOTE)
+    t.note(RELIEF_BAND_NOTE)
+    t.note(RELIEF_CERTIFICATION_NOTE)
+    t.note(RELIEF_READING_NOTE)
+    t.note(RELIEF_ASSUMPTIONS_NOTE)
+    if result is not None and result.flow > 0.0:
+        mu = ctx.fluid.dynamic_viscosity
+        if mu >= VISCOSITY_LIMIT:
+            t.note(
+                f"Viscous liquid: μ = {_num(mu)} Pa·s ≥ {VISCOSITY_LIMIT:g} Pa·s, where API 520 "
+                "corrects the capacity by Kv (shown above, not applied); it is flagged."
+            )
+        else:
+            t.note(
+                f"μ = {_num(mu)} Pa·s < {VISCOSITY_LIMIT:g} Pa·s: API 520 recommends Kv = 1 (as "
+                "fluids documents it)."
+            )
+    _no_values_note(t, ctx, result is None)
+    _flag_notes(t, ctx)
+    return t.build()
+
+
+FLOOR_PSI = f"{RELIEF_DATA['asmeOverpressureFloor']['psi']:g}"
+"""ASME's overpressure floor in psi, as the data file gives it ("3")."""
+
+
+def _letter_source(capacity: Api526Orifice) -> str:
+    """The data file's citation of an API 526 letter's area."""
+    entry = next(o for o in RELIEF_DATA["orifices"] if o["letter"] == capacity.letter)
+    return f"{entry['source']}."
+
+
+def _relief_state_note(
+    t: _Trace, ctx: TraceInputs, data: ValveData, result: ReliefValveResult | None
+) -> None:
+    """The inequality that set the valve's state (its status rule, or the user's status)."""
+    comp = data.component
+    assert isinstance(comp, ReliefValve)
+    assert data.relief is not None
+    law = data.relief.law
+    if comp.status == "locked_closed":
+        t.note("Locked closed by the user (gagged, or isolated by its block valve): no flow.")
+        return
+    h_set = law.h_set
+    control = ctx.outer.controls.get(comp.id)
+    if result is None:
+        t.note(
+            f"{(control.status.value if control else 'closed').capitalize()}: it opens once the "
+            f"static pressure difference across it exceeds its set by ρ g × {HTOL:g} m (EGL_in − "
+            f"EGL_out > h_set + Htol, h_set = {h_set:.6g} m) and closes on reverse flow; a side of "
+            "it has no head here, so the difference is not known."
+        )
+        return
+    dh = result.head_loss
+    rho_g = ctx.rho_g
+    if control is not None and control.status is Status.CLOSED:
+        t.note(
+            f"Closed: Δp_t {_num(result.total_pressure_difference)} Pa does not exceed the set "
+            f"{_num(comp.set_pressure)} Pa by more than ρ g Htol = {_num(rho_g * HTOL)} Pa "
+            f"({_ineq('EGL_in − EGL_out', dh, '≤', 'h_set + Htol', h_set + HTOL)}; EPANET 2.2 "
+            "cvstatus with the cracking head h_set; reverse flow also closes it)."
+        )
+        return
+    rule = (
+        "the difference across it has not fallen below its set by more than ρ g Htol, "
+        f"{_ineq('EGL_in − EGL_out', dh, '≥', 'h_set − Htol', h_set - HTOL)}, and "
+        f"{_forward(result.flow)} (EPANET 2.2 cvstatus with the cracking head h_set)"
+    )
+    if result.flow <= 0.0:
+        # the rule closes it only below −Qtol; the result labels no forward flow closed (§12)
+        t.note(
+            "Open at its switch, reported closed (no forward flow, x = 0): the status rule keeps "
+            f"it open, since {rule}; its flow is zero to within that tolerance."
+        )
+        return
+    state = result.state.replace("_", " ")
+    t.note(f"Open, {state} (x = {_num(result.lift)}): {rule}.")
+
+
 def element_traces(ctx: TraceInputs) -> dict[str, ElementTrace]:
     """A trace for every component and pipe connection (module docstring)."""
     built = ctx.built
@@ -2479,6 +2953,8 @@ def element_traces(ctx: TraceInputs) -> dict[str, ElementTrace]:
             traces[comp.id] = _equipment_trace(ctx, built.equipment[comp.id])
         elif isinstance(comp, Orifice):
             traces[comp.id] = _orifice_trace(ctx, built.orifices[comp.id])
+        elif isinstance(comp, ReliefValve):
+            traces[comp.id] = _relief_trace(ctx, built.valves[comp.id])
         else:
             traces[comp.id] = _valve_trace(ctx, built.valves[comp.id])
     for conn_id, data in built.connections.items():

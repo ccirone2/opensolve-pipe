@@ -208,9 +208,12 @@ class Forced:
     the forced link among the controls it cannot settle (``oscillating_components``, by link
     key), a point names these instead (``_read``), as a pump's point names the pump."""
 
-    def pumps(self, q: float) -> dict[str, float] | None:
-        """``run_outer_loop``'s ``forced_flows`` for a forced flow q."""
-        return {self.pump_id: q} if self.pump_id is not None else None
+    def pumps(self, q: float) -> dict[str, float]:
+        """``run_outer_loop``'s ``forced_flows`` for a forced flow q: the pump's, or for a
+        station's virtual link an empty map, never None, so that every solve of the curve is a
+        system-curve solve as a pump's is (``initial_controls`` starts an active relief valve
+        open there, CLAUDE.md D23)."""
+        return {self.pump_id: q} if self.pump_id is not None else {}
 
     def links(self, q: float) -> dict[int, float] | None:
         """``run_outer_loop``'s ``forced_links`` for a forced flow q."""

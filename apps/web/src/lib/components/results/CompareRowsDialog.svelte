@@ -79,6 +79,7 @@
 		network: 'Network',
 		pump: 'Pumps',
 		valve: 'Valves',
+		relief: 'Relief valves',
 		equipment: 'Equipment',
 		orifice: 'Orifice plates',
 		connection: 'Pipe connections',

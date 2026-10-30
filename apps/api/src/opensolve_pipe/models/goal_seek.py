@@ -44,6 +44,7 @@ from .components import (
     IsolationValve,
     Orifice,
     Pump,
+    ReliefValve,
     Reservoir,
 )
 from .piping import MAX_PIPES, PipeConnection, PipeDefinition
@@ -75,6 +76,10 @@ VariableComponentField = Literal[
     "rating.value",
     "boreDiameter",
     "dischargeCoefficient",
+    "setPressure",
+    "capacity.area",
+    "capacity.dischargeCoefficient",
+    "capacity.overpressure",
 ]
 """The numeric overridable values of components (x-goal-variables gives each type's)."""
 VariablePipeField = Literal["length"]
@@ -112,12 +117,15 @@ LOG_FIELDS = frozenset(
         "rating.flow",
         "rating.value",
         "boreDiameter",
+        "capacity.area",
     }
 )
 """Values searched in log x: each is > 0 by its field bounds, and spans decades (a K from 0.01
 to 10⁵), proposal §1.2 decision 6; an equipment item's rated pressure drop, rated flow and Cv or
-Kv likewise (equipment-pressure-drop.md decision 15; its rated density is linear), and an orifice
-plate's bore (orifice-plate.md decision 21; its discharge coefficient, in (0, 1], is linear)."""
+Kv likewise (equipment-pressure-drop.md decision 15; its rated density is linear), an orifice
+plate's bore (orifice-plate.md decision 21; its discharge coefficient, in (0, 1], is linear) and
+a relief valve's orifice area (pressure-relief-valve.md decision 19: API 526's D to T span 2.4
+decades; its set pressure, rated coefficient of discharge and overpressure are linear)."""
 
 _NUMBER_IN: dict[type[BaseModel], tuple[str, ...]] = {FlowCoefficient: ("value",)}
 """Values that are a model holding one number: the attributes to it."""
@@ -130,6 +138,26 @@ def _without_none(annotation: Any) -> Any:
     return annotation
 
 
+def _unannotated(annotation: Any) -> Any:
+    while get_origin(annotation) is Annotated:
+        annotation = get_args(annotation)[0]
+    return annotation
+
+
+def _number_model(annotation: Any) -> type[BaseModel] | None:
+    """The model of ``_NUMBER_IN`` a value is, or the one member of its union that is (a
+    valve's resistance: a FlowCoefficient, or a reference to a project library entry, which
+    holds no number, CLAUDE.md D22); None otherwise."""
+    annotation = _unannotated(annotation)
+    members = (
+        [_unannotated(a) for a in get_args(annotation)]
+        if get_origin(annotation) in (Union, types.UnionType)
+        else [annotation]
+    )
+    found = [m for m in members if isinstance(m, type) and m in _NUMBER_IN]
+    return found[0] if len(found) == 1 else None
+
+
 def _variable(name: str, entry: Overridable, target: type[BaseModel]) -> Variable | None:
     """The variable of allow-list entry ``name`` on ``target``, or None when its value is not a
     number (a status, a group, a whole fluid)."""
@@ -140,8 +168,9 @@ def _variable(name: str, entry: Overridable, target: type[BaseModel]) -> Variabl
     scale: Scale = "log" if name in LOG_FIELDS else "linear"
     if annotation is float:
         return Variable(entry, scale=scale)
-    if isinstance(annotation, type) and annotation in _NUMBER_IN:
-        return Variable(entry, number=_NUMBER_IN[annotation], schema=annotation, scale=scale)
+    model = _number_model(annotation)
+    if model is not None:
+        return Variable(entry, number=_NUMBER_IN[model], schema=model, scale=scale)
     return None
 
 
@@ -164,6 +193,11 @@ NOT_VARIABLES: dict[str, str] = {
     "spec": "a library choice replaced as a group, not a number",
     "fluid": "a whole definition; vary its temperature",
     "rating": "a whole rating, a rated point or a flow coefficient; vary one of its values",
+    "capacity": "a whole relief valve capacity of one kind; vary one of its values",
+    "capacity.letter": (
+        "a discrete API 526 letter: set it in a scenario, or size the valve by varying an "
+        "effective area"
+    ),
 }
 """Allow-list fields that are not variables, with the reason."""
 
@@ -319,10 +353,14 @@ GoalQuantity = Literal[
     "orifice_pressure_loss",
     "orifice_differential_pressure",
     "orifice_pressure_drop",
+    "relief_valve_flow",
+    "relief_valve_pressure_drop",
     "boundary_outflow",
 ]
 Category = Literal["pressure", "head", "flow", "velocity"]
-ElementKind = Literal["port", "connection", "pump", "valve", "equipment", "orifice", "boundary"]
+ElementKind = Literal[
+    "port", "connection", "pump", "valve", "equipment", "orifice", "relief_valve", "boundary"
+]
 
 RELATIVE_TOLERANCE = 0.005
 """The default tolerance's relative part, D6's 0.5 %."""
@@ -450,6 +488,16 @@ GOAL_QUANTITIES: dict[str, QuantitySpec] = {
         "pressure",
         "orifice",
         (Orifice,),
+        "static pressure drop across {element}",
+    ),
+    "relief_valve_flow": QuantitySpec(
+        "m³/s", "flow", "relief_valve", (ReliefValve,), "flow through {element}"
+    ),
+    "relief_valve_pressure_drop": QuantitySpec(
+        "Pa (difference)",
+        "pressure",
+        "relief_valve",
+        (ReliefValve,),
         "static pressure drop across {element}",
     ),
     "boundary_outflow": QuantitySpec(
@@ -677,17 +725,21 @@ class VariableResult(OutputModel):
     start: float = Field(description="SI: the value evaluation 0 solved")
     start_source: Literal["case", "clipped", "middle"] = Field(
         description=(
-            "case: the case's value; clipped: the case's value lies outside the bounds, and the "
-            "nearer bound is used; middle: the case holds no value of this coefficient (a "
-            "resistance on its default, or of another kind; an orifice plate's discharge "
-            "coefficient on ISO 5167-2's default), and the middle of the bounds on the "
-            "variable's scale is used"
+            "case: the case's value (a resistance from a project library entry of this kind: "
+            "its value, a K on the valve's inlet bore); clipped: the case's value lies outside "
+            "the bounds, and the nearer bound is used; middle: the case holds no value of this "
+            "coefficient (a resistance on its default, or of another kind; an orifice plate's "
+            "discharge coefficient on ISO 5167-2's default; a certified relief valve's "
+            "overpressure on ASME's default), and the middle of the bounds on the variable's "
+            "scale is used"
         )
     )
     case_value: JsonValue = Field(
         description=(
-            "The case's value of the field, SI (a resistance: its FlowCoefficient or null; an "
-            "orifice plate's discharge coefficient: null on ISO 5167-2's default)"
+            "The case's value of the field, SI (a resistance: its FlowCoefficient, its "
+            "reference to a project library entry, or null; an orifice plate's discharge "
+            "coefficient: null on ISO 5167-2's default; a relief valve's overpressure: null on "
+            "ASME's default)"
         )
     )
     base_value: JsonValue = Field(
@@ -695,7 +747,8 @@ class VariableResult(OutputModel):
             "The base project's value (equal to caseValue for a base run); null where the base "
             "holds no value of this variable (an equipment item the base rates by another kind: "
             "a point, or the other of Cv and Kv; an orifice plate's discharge coefficient on "
-            "ISO 5167-2's default)"
+            "ISO 5167-2's default; a relief valve whose base capacity is of another kind, an "
+            "effective area not being an actual area, or whose overpressure is ASME's default)"
         )
     )
     value: float | None = Field(description="At the reported evaluation (null: none usable)")

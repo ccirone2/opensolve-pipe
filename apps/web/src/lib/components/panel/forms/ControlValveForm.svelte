@@ -4,10 +4,9 @@
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { KIND_LABELS } from '$lib/utils/factory';
 	import { CONTROL_STATUS_LABELS } from '$lib/utils/labels';
-	import { withOptional } from '$lib/utils/piping';
 	import { setpointBounds as boundsFor } from '$lib/utils/model-rules';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
-	import ResistanceField from '../ResistanceField.svelte';
+	import ValveResistanceField from '../ValveResistanceField.svelte';
 
 	let { component }: { component: ControlValve } = $props();
 	const ws = useWorkspace();
@@ -81,7 +80,7 @@
 		bounds={setpointBounds}
 		hint={component.valveType === 'prv'
 			? 'Gauge static pressure the valve holds at its outlet.'
-			: 'Gauge static pressure the valve holds at its inlet.'}
+			: "Gauge static pressure the valve holds at its inlet: EPANET's pressure-sustaining valve, which modulates to hold it. For a safety or relief valve (overpressure protection), use the pressure relief valve (API 520, liquids)."}
 		warning={setpointWarning}
 		change={ws.componentChange(component.id, 'setpoint')}
 		onchange={(v) =>
@@ -91,13 +90,4 @@
 			})}
 	/>
 {/if}
-<ResistanceField
-	value={component.resistance}
-	units={ws.units}
-	defaultLabel="ideal (no loss when fully open)"
-	change={ws.componentChange(component.id, 'resistance')}
-	onchange={(r) =>
-		ws.editComponent<ControlValve>(component.id, 'change valve resistance', (c) =>
-			withOptional(c, 'resistance', r)
-		)}
-/>
+<ValveResistanceField {component} defaultLabel="ideal (no loss when fully open)" />

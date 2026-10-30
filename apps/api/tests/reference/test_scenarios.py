@@ -6,10 +6,12 @@ overrides are applied here by an independent JSON patcher (``scenario_patch.by_h
 ``apply_scenario``, so the two implementations check each other.
 
 1. **Metamorphic.** The networks are every reference case and a sample of corpus-like networks:
-   generator seeds of the three fuzz profiles, the unit-test data networks and a library-pipe
-   ladder. Each network carries seeded scenarios: every kind of allow-list value it has, three
-   kinds to a scenario; a mixed one of 1-6 overrides with 0-2 ignored ones, solved with the
-   system curves /solve embeds; one of ignored overrides only; and one that restates base values.
+   generator seeds of the three fuzz profiles, the unit-test data networks, a library-pipe
+   ladder and that ladder on a project library (CLAUDE.md D22), whose pipe specs a spec change
+   may be drawn to. Each network carries seeded scenarios: every kind of allow-list value it
+   has, three kinds to a scenario; a mixed one of 1-6 overrides with 0-2 ignored ones, solved
+   with the system curves /solve embeds; one of ignored overrides only; and one that restates
+   base values.
    ``POST /api/v1/solve`` with a scenario must equal, value for value (bit for bit), the solve of
    the project edited by hand. Only these may differ:
    - ``computeTime`` and the timestamp;
@@ -23,7 +25,9 @@ overrides are applied here by an independent JSON patcher (``scenario_patch.by_h
    The restating scenario must equal the base solve itself (§7.2 item 3). Errors must be the
    hand-edited project's errors, with the scenario's id in the message (§3.3). Another test
    checks that each kind of value, overridden, moves some reference case's solution beyond D6.
-   Without that check, a value that never reached the solver could pass.
+   Without that check, a value that never reached the solver could pass. On the project-library
+   ladder, a third sets a spec change in each direction (to, from and between pipe specs; the
+   seeded draws reach only some), each one moving the solution beyond D6.
 2. **System curves.** ``POST /api/v1/system-curve`` with a scenario must equal the hand-edited
    project's curve, point for point, apart from the record.
 3. **Ignored and invalid overrides** (§2.4, §3.3).
@@ -53,6 +57,15 @@ publishes in ``x-override-fields``.
    hand-edited project and move the solution beyond D6, the result echoing the bore and C used;
    bad values are a 400 at the override, never echoed; a bore the plate's inlet pipe cannot hold
    (β ≥ 1) fails as the hand-edited project does (422 ORIFICE_OUT_OF_RANGE).
+7. **Pressure relief valves** (docs/proposals/pressure-relief-valve.md §5, §7.3, decision 18): a
+   lower set, a smaller valve (a letter), a gagged valve (locked closed), a kind change (a
+   certified capacity on a letter's valve), an opened discharge beside it, a null
+   ``capacity.overpressure`` (ASME's default) and a certified valve's coefficient and area each
+   solve as the hand-edited project and move the solution beyond D6, the result echoing the set,
+   capacity and overpressure used; values the base valve's capacity kind does not hold are not
+   applicable; a capacity and a part of it in one scenario are rejected; bad values are a 400 at
+   the override, never echoed; a set below ASME's 15 psi on a capacity that takes ASME's
+   overpressure fails as the hand-edited project does (422 RELIEF_VALVE_OUT_OF_RANGE).
 """
 
 import functools
@@ -81,21 +94,25 @@ from opensolve_pipe.models.components import (
     Orifice,
     Pump,
     RatedPoint,
+    ReliefValve,
 )
 from opensolve_pipe.models.fluids import BuiltinFluid, CustomFluid
 from opensolve_pipe.models.piping import CUSTOM_MATERIAL_ID, MAX_PIPES, PipeDefinition
 from opensolve_pipe.models.project import Project
+from opensolve_pipe.models.project_library import PipeSpec
 from tests.differential import networks
 from tests.differential.generator import ASSIGNED_FLOW, DEFAULT, FLOW_CONTROL, generate
 from tests.reference import element_laws as el
 from tests.reference.case_format import case_files
 from tests.reference.derivations import G
 from tests.reference.scenario_patch import (
+    CAPACITY_PARTS,
     COMPONENT_FIELD_NAMES,
     COMPONENT_FIELDS,
     PIPE_FIELDS,
     PROJECT_FIELDS,
     RATING_PARTS,
+    SPEC_KEYS,
     HandApplied,
     State,
     by_hand,
@@ -137,8 +154,9 @@ CORPUS_SAMPLE = {
 }
 """Corpus-like networks (TSD §10.4): seeds of each profile's corpus range (3 default, 4
 flow_control and 4 assigned_flow seeds: the ranges' steps of 1000 and 333), with every third
-unit-test data network (5) and a ladder of library pipes, 17 networks in all (the corpus tool,
-``tests/differential/scenario_check.py``, covers the whole corpus)."""
+unit-test data network (5), a ladder of library pipes and that ladder on a project library, 18
+networks in all (the corpus tool, ``tests/differential/scenario_check.py``, covers the whole
+corpus)."""
 
 
 def _api_json(project: Project) -> dict[str, Any]:
@@ -159,6 +177,51 @@ def _ladder() -> dict[str, Any]:
     return _api_json(networks.ladder(7, 1, "crane", True))
 
 
+def _ladder_on_project_library() -> dict[str, Any]:
+    """The library-pipe ladder (4" schedule 40 steel) with a project library of three pipe specs
+    (docs/proposals/project-library.md §2.1): PS1, the ladder's own steel bore with no roughness
+    (Farshad's at that bore); PS2, the 3" steel bore with a stated roughness; PS3, a custom bore.
+    Every third connection's pipe refers to PS1 and the next one's to PS2, so the seeded spec
+    changes (``_draw_spec``) start from spec pipes and library pipes, and
+    ``test_spec_changes_to_and_from_the_project_library`` sets each direction. The specs' values
+    are test inputs, the steel bores those of ``pipe_materials.json``."""
+    data = _ladder()
+    steel = SIZES[("carbon_steel", "40")]
+    bore = {round(s["nominalSize"], 4): s["innerDiameter"] for s in steel}
+    data["pipeLibrary"] = [
+        {
+            "id": "PS1",
+            "name": "4 in steel",
+            "source": "Test input: the 4 in schedule 40 bore of pipe_materials.json",
+            "materialId": "carbon_steel",
+            "innerDiameter": bore[0.1016],
+        },
+        {
+            "id": "PS2",
+            "name": "3 in steel",
+            "source": "Test input: the 3 in schedule 40 bore of pipe_materials.json",
+            "materialId": "carbon_steel",
+            "innerDiameter": bore[0.0762],
+            "roughness": 9.0e-5,
+        },
+        {
+            "id": "PS3",
+            "name": "Custom 90 mm",
+            "source": "Test input",
+            "materialId": CUSTOM_MATERIAL_ID,
+            "innerDiameter": 0.09,
+            "roughness": 3.0e-5,
+        },
+    ]
+    for i, conn in enumerate(data["connections"]):
+        if i % 3 < 2:
+            spec = "PS1" if i % 3 == 0 else "PS2"
+            conn["piping"]["pipes"] = [
+                {"specId": spec, "length": pipe["length"]} for pipe in conn["piping"]["pipes"]
+            ]
+    return data
+
+
 def _sources() -> dict[str, Callable[[], dict[str, Any]]]:
     """Each network's loader: a fresh copy of its API JSON on every call."""
     out: dict[str, Callable[[], dict[str, Any]]] = {}
@@ -170,6 +233,7 @@ def _sources() -> dict[str, Callable[[], dict[str, Any]]]:
     for path in sorted(API_ROOT.glob("tests/unit/data/*/*.json"))[::3]:
         out[f"unit_{path.stem}"] = functools.partial(_file_json, path)
     out["ladder_7_library"] = _ladder
+    out["ladder_7_project_library"] = _ladder_on_project_library
     return out
 
 
@@ -247,6 +311,7 @@ STATUSES: dict[type[Any], tuple[str, ...]] = {
     IsolationValve: ("active", "isolated"),
     CheckValve: ("active", "locked_open", "locked_closed"),
     ControlValve: ("active", "failed_open", "failed_closed"),
+    ReliefValve: ("active", "locked_closed"),
 }
 
 
@@ -262,6 +327,8 @@ class Slot:
     target: dict[str, Any]
     field: str
     model: Any
+    specs: tuple[PipeSpec, ...] = ()
+    """A pipe's slot: the project's pipe specs, which a spec change may refer to."""
 
     def override(self, value: Any) -> dict[str, Any]:
         return {**self.target, "field": self.field, "value": value}
@@ -277,15 +344,21 @@ def slots(project: Project) -> list[Slot]:
                 field, (c.rating.kind,)
             ):
                 continue  # a part the element's rating kind does not hold
-            key = ("c", c.id, "rating" if field.startswith("rating") else field)
+            if isinstance(c, ReliefValve) and c.capacity.kind not in CAPACITY_PARTS.get(
+                field, (c.capacity.kind,)
+            ):
+                continue  # a value the valve's capacity kind does not hold
+            whole = field.split(".")[0]
+            key = ("c", c.id, whole if whole in ("rating", "capacity") else field)
             target: dict[str, Any] = {"kind": "component", "componentId": c.id}
             out.append(Slot(f"{type(c).__name__}.{field}", key, target, field, c))
+    specs = tuple(project.pipe_library)
     for conn in project.connections:
         for i, pipe in enumerate(conn.piping.pipes):
             for field in PIPE_FIELDS:
                 target = {"kind": "pipe", "connectionId": conn.id, "pipeIndex": i}
                 kind = f"PipeDefinition.{field}"
-                out.append(Slot(kind, ("p", conn.id, i, field), target, field, pipe))
+                out.append(Slot(kind, ("p", conn.id, i, field), target, field, pipe, specs))
     for field in PROJECT_FIELDS:
         if field == "fluid.temperature" and not isinstance(project.fluid, BuiltinFluid):
             continue
@@ -293,9 +366,12 @@ def slots(project: Project) -> list[Slot]:
     return out
 
 
-def _inner_diameter(pipe: PipeDefinition) -> float:
+def _inner_diameter(pipe: PipeDefinition, specs: tuple[PipeSpec, ...]) -> float:
+    if pipe.spec_id is not None:
+        return next(s.inner_diameter for s in specs if s.id == pipe.spec_id)
     if pipe.inner_diameter is not None:
         return pipe.inner_diameter
+    assert pipe.material_id is not None
     assert pipe.schedule is not None
     assert pipe.nominal_size is not None
     nominal = pipe.nominal_size  # as written (0.0762), not always the data's float
@@ -307,10 +383,16 @@ def _inner_diameter(pipe: PipeDefinition) -> float:
     return diameter
 
 
-def _draw_spec(rng: random.Random, pipe: PipeDefinition) -> dict[str, Any]:
-    """Another pipe of about the same bore: a library pipe (sometimes with a roughness or bore
-    override) or a custom one."""
-    diameter = _inner_diameter(pipe)
+def _draw_spec(
+    rng: random.Random, pipe: PipeDefinition, specs: tuple[PipeSpec, ...]
+) -> dict[str, Any]:
+    """Another pipe: one of the project's other pipe specs (a third of the draws, in a project
+    that has one), else one of about the same bore, a library pipe (sometimes with a roughness or
+    bore override) or a custom one."""
+    others = [s.id for s in specs if s.id != pipe.spec_id]
+    if others and rng.random() < 1.0 / 3.0:
+        return {"specId": rng.choice(others)}
+    diameter = _inner_diameter(pipe, specs)
     if rng.random() < 0.5:
         own = (pipe.material_id, pipe.schedule or "")
         material, schedule = (
@@ -401,9 +483,62 @@ def _draw_rating(rng: random.Random, rating: Any) -> dict[str, Any]:
     return {"kind": kind, "value": _clip(value, 1.0e-3, 1.0e7)}
 
 
+RELIEF_LETTERS = list(el.API526_AREAS)
+RELIEF_AREA_MAX = 78.5
+"""m²: just inside a relief area's bound, π × 10²/4 (proposal §2.1)."""
+
+
+def _draw_capacity(rng: random.Random, valve: ReliefValve) -> dict[str, Any]:
+    """Another relief valve's capacity, of any kind (decision 18): another API 526 letter, an
+    effective area, or a certified area, coefficient and (half the time) overpressure, the
+    areas the base's times a factor that moves the flow beyond D6."""
+    values = el.relief_capacity(valve.capacity, valve.set_pressure)
+    kind = rng.choice(["api526", "effective", "certified"])
+    area = _clip(values.area * _factor(rng), 1.0e-6, RELIEF_AREA_MAX)
+    if kind == "api526":
+        own = getattr(valve.capacity, "letter", None)
+        return {"kind": "api526", "letter": rng.choice([x for x in RELIEF_LETTERS if x != own])}
+    if kind == "effective":
+        return {"kind": "effective", "area": area}
+    out: dict[str, Any] = {
+        "kind": "certified",
+        "area": area,
+        "dischargeCoefficient": rng.uniform(0.6, 0.9),
+    }
+    if rng.random() < 0.5:
+        out["overpressure"] = rng.uniform(0.05, 0.3)
+    return out
+
+
+def _draw_relief(rng: random.Random, valve: ReliefValve, field: str) -> Any:
+    """A relief valve's value (decision 18): the set times 0.75-0.9 or 1.1-1.25 (every case's set
+    stays above ASME's 15 psi), a whole capacity, another letter, an area, coefficient or
+    overpressure moved beyond D6 (an overpressure set back to ASME's default, null, a third of
+    the time when the base enters one)."""
+    if field == "setPressure":
+        return valve.set_pressure * _factor_small(rng)
+    if field == "capacity":
+        return _draw_capacity(rng, valve)
+    capacity: Any = valve.capacity
+    if field == "capacity.letter":
+        return rng.choice([x for x in RELIEF_LETTERS if x != capacity.letter])
+    if field == "capacity.area":
+        return _clip(capacity.area * _factor(rng), 1.0e-9 * capacity.area, RELIEF_AREA_MAX)
+    if field == "capacity.dischargeCoefficient":
+        return min(1.0, capacity.discharge_coefficient * _factor_small(rng))
+    assert field == "capacity.overpressure"
+    if capacity.overpressure is None:
+        return rng.uniform(0.05, 0.3)
+    if rng.random() < 1.0 / 3.0:
+        return None
+    return min(1.0, capacity.overpressure * _factor(rng))
+
+
 def draw(rng: random.Random, slot: Slot) -> Any:
     """A value of the slot's field, within its bounds, other than the base value."""
     m, field = slot.model, slot.field
+    if isinstance(m, ReliefValve) and field != "status":
+        return _draw_relief(rng, m, field)
     if field == "status":
         return rng.choice([s for s in STATUSES[type(m)] if s != m.status])
     if field == "speed":
@@ -452,7 +587,7 @@ def draw(rng: random.Random, slot: Slot) -> Any:
     if field == "length":
         return _clip(m.length * rng.uniform(0.5, 2.0), 1.0e-3, 1.0e6)
     if field == "spec":
-        return _draw_spec(rng, m)
+        return _draw_spec(rng, m, slot.specs)
     if field == "fluid":
         return _draw_fluid(rng)
     assert field == "fluid.temperature"
@@ -536,6 +671,23 @@ def ignored(rng: random.Random, project: Project, n: int, keys: set[Any]) -> lis
             {
                 "kind": "component",
                 "componentId": e.id,
+                "field": rng.choice(other),
+                "value": _garbage(rng),
+            }
+        )
+    reliefs = [
+        c
+        for c in project.components
+        if isinstance(c, ReliefValve) and ("c", c.id, "capacity") not in keys
+    ]
+    if reliefs:
+        # A capacity value the valve's kind does not hold (never beside its whole capacity).
+        rv = rng.choice(reliefs)
+        other = [f for f, kinds in CAPACITY_PARTS.items() if rv.capacity.kind not in kinds]
+        candidates.append(
+            {
+                "kind": "component",
+                "componentId": rv.id,
                 "field": rng.choice(other),
                 "value": _garbage(rng),
             }
@@ -970,6 +1122,62 @@ def test_every_overridable_value_moves_some_solution() -> None:
     assert not pending, f"no reference case where these overrides move the solution: {pending}"
 
 
+LIBRARY_SPEC_CHANGES = {
+    "spec to spec": ("F0", {"specId": "PS3"}),
+    "spec to library pipe": (
+        "FA",
+        {"materialId": "carbon_steel", "schedule": "80", "nominalSize": 0.1016},
+    ),
+    "spec to custom pipe": (
+        "B0",
+        {"materialId": CUSTOM_MATERIAL_ID, "innerDiameter": 0.095, "roughness": 5.0e-5},
+    ),
+    "library pipe to spec": ("A0", {"specId": "PS2"}),
+}
+"""Spec changes on the project-library ladder (``_ladder_on_project_library``): connection ->
+the value for its first pipe. F0 and B0 refer to PS1, FA to PS2, A0 is a plain library pipe."""
+
+
+def test_spec_changes_to_and_from_the_project_library() -> None:
+    """A spec change moves a pipe to, from or between project library specs (proposal
+    project-library.md §5.1: specId is one of the spec's keys, replaced together): each
+    direction alone, and all four in one scenario, solves as the hand-edited project and moves
+    the solution beyond D6; restating a spec pipe's base value ({specId}) gives the base solve.
+    The seeded draws reach only some directions, so each is set here."""
+    base = NETWORKS["ladder_7_project_library"]()
+    project = Project.model_validate(base)
+    overrides = {}
+    for label, (conn, value) in LIBRARY_SPEC_CHANGES.items():
+        target = {"kind": "pipe", "connectionId": conn, "pipeIndex": 0}
+        overrides[label] = {**target, "field": "spec", "value": value}
+    scenarios = [
+        _scenario(f"S{i + 1}", label, [override])
+        for i, (label, override) in enumerate(overrides.items())
+    ]
+    scenarios.append(_scenario("S5", "All four", list(overrides.values())))
+    restated = {"kind": "pipe", "connectionId": "R1", "pipeIndex": 0, "field": "spec"}
+    _, where, _ = resolve(project, {**restated, "value": None})
+    assert where is not None
+    assert read(project, where) == {"specId": "PS1"}
+    scenarios.append(_scenario("S6", "Restated", [{**restated, "value": {"specId": "PS1"}}]))
+    with_scenarios = {**base, "scenarios": scenarios}
+    api = Api()
+    base_response = api.solve(base)
+    assert base_response.status_code == 200, base_response.text
+    base_state = base_response.json()["solvedState"]
+    problems = []
+    for s_index, scenario in enumerate(scenarios):
+        hand = by_hand(with_scenarios, scenario)
+        got = api.solve(with_scenarios, scenario["id"])
+        restating = scenario["id"] == "S6"
+        want = base_response if restating else api.solve(hand.project)
+        problems += solve_problems(scenario, s_index, hand, got, want)
+        moved = got.status_code == 200 and _moved(base_state, got.json()["solvedState"])
+        if not restating and not moved:
+            problems.append(f"{scenario['id']} ({scenario['name']}): the solution did not move")
+    assert not problems, "\n".join(problems)
+
+
 # --------------------------------------------------------------------------- 2. system curves
 
 PUMP_NETWORKS = [name for name in NETWORKS if _pump_ids(Project.model_validate(NETWORKS[name]()))]
@@ -1254,6 +1462,19 @@ MALFORMED: list[tuple[str, list[dict[str, Any]]]] = [
             )
         ],
     ),
+    (
+        "a capacity and a part of it",
+        [
+            _scenario(
+                "S1",
+                "x",
+                [
+                    _component("RV1", "capacity", {"kind": "effective", "area": 0.001234567}),
+                    _component("RV1", "capacity.area", 0.002234567),
+                ],
+            )
+        ],
+    ),
     ("pipe index 100", [_scenario("S1", "x", [{**_pipe("L1", "length", 1.0), "pipeIndex": 100}])]),
     ("an unknown key", [_scenario("S1", "x", [{**_pipe("L1", "length", 1.0), SENTINEL: 1}])]),
     ("21 scenarios", [_scenario(f"S{i}", "x", []) for i in range(21)]),
@@ -1283,7 +1504,12 @@ def test_a_malformed_scenario_is_rejected_with_the_project(
         assert response.status_code == 400, response.text
         assert response.json()["error"] == "VALIDATION_ERROR"
         assert not _no_echo(response), _no_echo(response)
-        if label in ("one value twice", "a value and a part of it", "a rating and a part of it"):
+        if label in (
+            "one value twice",
+            "a value and a part of it",
+            "a rating and a part of it",
+            "a capacity and a part of it",
+        ):
             assert "overrides 0 and 1" in response.text, response.text
         if label == "two scenarios with one id":
             assert "scenarios 0 and 1" in response.text, response.text
@@ -1411,6 +1637,8 @@ def test_the_published_allow_list_is_the_designs() -> None:
     mine["PipeDefinition"] = set(PIPE_FIELDS)
     mine["Project"] = set(PROJECT_FIELDS)
     assert {k: set(v) for k, v in published.items()} == mine
+    # A spec replaces these keys together, the patcher's (a library spec's specId among them).
+    assert set(published["PipeDefinition"]["spec"]["keys"]) == set(SPEC_KEYS)
     literals = schemas["ComponentOverride"]["properties"]["field"]
     assert set(literals["enum"]) == set(COMPONENT_FIELD_NAMES)
 
@@ -1824,5 +2052,260 @@ def test_an_unrepresentable_orifice_fails_as_the_hand_edited_project() -> None:
         assert codes == {"ORIFICE_OUT_OF_RANGE"}, want.text
         assert all("OR1" in i["componentIds"] for i in want.json()["issues"]), want.text
         problems += error_problems(scenario["id"], s_index, hand, got, want)
+    assert api.solve(project).status_code == 200
+    assert not problems, "\n".join(problems)
+
+
+# --------------------------------------------------------------------------- 7. relief valves
+
+RELIEF_SCENARIOS: list[tuple[str, list[tuple[dict[str, Any], tuple[State, ...], bool]]]] = [
+    (
+        "relief_pump_bypass",
+        [
+            (
+                _scenario("S1", "A lower set", [_component("RV1", "setPressure", 3.0e5)]),
+                ("applied",),
+                True,
+            ),
+            (
+                _scenario("S2", "A smaller valve", [_component("RV1", "capacity.letter", "J")]),
+                ("applied",),
+                True,
+            ),
+            (
+                _scenario("S3", "Gagged", [_component("RV1", "status", "locked_closed")]),
+                ("applied",),
+                True,
+            ),
+            (
+                _scenario(
+                    "S4",
+                    "The selected valve",
+                    [
+                        _component(
+                            "RV1",
+                            "capacity",
+                            {"kind": "certified", "area": 1.6e-3, "dischargeCoefficient": 0.85},
+                        )
+                    ],
+                ),
+                ("applied",),
+                True,
+            ),
+            (
+                _scenario(
+                    "S5",
+                    "Discharge open, and values a letter does not hold",
+                    [
+                        _component("IV1", "status", "active"),
+                        _component("RV1", "capacity.area", 1.0e-3),
+                        _component("RV1", "capacity.overpressure", 0.1),
+                        _component("RV1", "capacity.dischargeCoefficient", 0.8),
+                    ],
+                ),
+                ("applied", "not_applicable", "not_applicable", "not_applicable"),
+                True,
+            ),
+        ],
+    ),
+    (
+        "relief_certified",
+        [
+            (
+                _scenario(
+                    "S1", "ASME's overpressure", [_component("RV1", "capacity.overpressure", None)]
+                ),
+                ("applied",),
+                True,
+            ),
+            (
+                _scenario(
+                    "S2",
+                    "Recertified",
+                    [
+                        _component("RV1", "capacity.dischargeCoefficient", 0.6),
+                        _component("RV1", "capacity.area", 2.0e-4),
+                    ],
+                ),
+                ("applied", "applied"),
+                True,
+            ),
+            (
+                _scenario(
+                    "S3",
+                    "A letter on a certified valve",
+                    [_component("RV1", "capacity.letter", "G")],
+                ),
+                ("not_applicable",),
+                False,
+            ),
+            (
+                _scenario(
+                    "S4",
+                    "An API 526 letter",
+                    [_component("RV1", "capacity", {"kind": "api526", "letter": "G"})],
+                ),
+                ("applied",),
+                True,
+            ),
+        ],
+    ),
+]
+"""Proposal §5's use cases (test inputs): a lower set, a smaller valve (a letter), a gagged
+valve, the selected valve's certified values in place of a letter (a kind change), the
+discharge opened beside values a letter does not hold, ASME's default overpressure (null) on a
+certified valve, its coefficient and area recertified, a letter on it (not applicable), and a
+letter in place of it; with the state the design gives each override and whether the solution
+moves beyond D6."""
+
+
+@pytest.mark.parametrize("name", [n for n, _ in RELIEF_SCENARIOS])
+def test_relief_scenarios_solve_as_the_hand_edited_project(name: str) -> None:
+    """Each scenario solves as its hand-edited project (bit for bit, apart from its record and
+    text), with the states the design gives; one marked so moves the solution beyond D6, and the
+    valve's result echoes the set, capacity kind, area and overpressure used (proposal §2.2)."""
+    scenarios = dict(RELIEF_SCENARIOS)[name]
+    base = _case(name)
+    project = {**base, "scenarios": [s for s, _, _ in scenarios]}
+    api = Api()
+    base_response = api.solve(base)
+    assert base_response.status_code == 200, base_response.text
+    base_state = base_response.json()["solvedState"]
+    problems = []
+    for s_index, (scenario, states, moves) in enumerate(scenarios):
+        hand = by_hand(project, scenario)
+        assert tuple(o.state for o in hand.outcomes) == states, scenario["id"]
+        got = api.solve(project, scenario["id"])
+        applied = "applied" in states
+        want = api.solve(hand.project) if applied else base_response
+        problems += solve_problems(scenario, s_index, hand, got, want)
+        if got.status_code != 200:
+            problems.append(f"{scenario['id']}: {got.status_code} {got.text[:300]}")
+            continue
+        state = got.json()["solvedState"]
+        if moves and not _moved(base_state, state):
+            problems.append(f"{scenario['id']}: the solution did not move beyond D6")
+        [valve] = [
+            c for c in Project.model_validate(hand.project).components if isinstance(c, ReliefValve)
+        ]
+        result = state["reliefValveResults"][valve.id]
+        values = el.relief_capacity(valve.capacity, valve.set_pressure)
+        if result["setPressure"] != valve.set_pressure:
+            problems.append(f"{scenario['id']}: setPressure {result['setPressure']}")
+        if result["capacity"]["kind"] != valve.capacity.kind:
+            problems.append(f"{scenario['id']}: capacity kind {result['capacity']['kind']}")
+        if result["capacity"]["area"] != values.area:
+            problems.append(f"{scenario['id']}: capacity area {result['capacity']['area']}")
+        if result["overpressure"] != values.overpressure:
+            problems.append(f"{scenario['id']}: overpressure {result['overpressure']}")
+        if result["overpressureSource"] != values.source:
+            problems.append(f"{scenario['id']}: overpressureSource {result['overpressureSource']}")
+        if valve.status == "locked_closed" and result["flow"] != 0.0:
+            problems.append(f"{scenario['id']}: a gagged valve passes {result['flow']}")
+    assert not problems, "\n".join(problems)
+
+
+RELIEF_INVALID = [
+    ("a set of zero", [_component("RV1", "setPressure", 0.0)]),
+    ("a set above 1e8 Pa", [_component("RV1", "setPressure", 2.01234567e8)]),
+    ("a set as text", [_component("RV1", "setPressure", SENTINEL)]),
+    ("an unknown letter", [_component("RV1", "capacity.letter", "Z1234567")]),
+    (
+        "an unknown capacity kind",
+        [_component("RV1", "capacity", {"kind": SENTINEL, "area": 1.01234567e-3})],
+    ),
+    (
+        "a certified capacity without its coefficient",
+        [_component("RV1", "capacity", {"kind": "certified", "area": 1.01234567e-3})],
+    ),
+    ("a gagged-open status", [_component("RV1", "status", f"failed_open {SENTINEL}")]),
+]
+"""Values the model rejects on a letter's valve (proposal §2.1: the set in (0, 10⁸] Pa, letters
+D to T, a capacity of one of three kinds with its values, statuses active and locked_closed):
+each a 400 at the override."""
+
+RELIEF_CERTIFIED_INVALID = [
+    ("an overpressure of zero", [_component("RV1", "capacity.overpressure", 0.0)]),
+    ("an overpressure above 1", [_component("RV1", "capacity.overpressure", 2.01234567)]),
+    ("an area of zero", [_component("RV1", "capacity.area", 0.0)]),
+    ("an area above its bound", [_component("RV1", "capacity.area", 81.1234567)]),
+    ("a coefficient above 1", [_component("RV1", "capacity.dischargeCoefficient", 1.51234567)]),
+]
+"""Values a certified capacity rejects (overpressure and coefficient in (0, 1], the area in (0,
+π × 10²/4] m²): each a 400 at the override."""
+
+
+@pytest.mark.parametrize(
+    ("name", "invalid"),
+    [("relief_pump_bypass", RELIEF_INVALID), ("relief_certified", RELIEF_CERTIFIED_INVALID)],
+    ids=["letter", "certified"],
+)
+def test_invalid_relief_values_are_400_at_the_override(
+    name: str, invalid: list[tuple[str, list[dict[str, Any]]]]
+) -> None:
+    """Each invalid value makes its scenario a 400 (VALIDATION_ERROR), its issues at the override
+    with the hand-edited project's error codes and messages, and no submitted value or name
+    echoed; the base solves."""
+    base = _case(name)
+    scenarios = [
+        _scenario(f"B{i + 1}", f"{label} {SENTINEL}", overrides)
+        for i, (label, overrides) in enumerate(invalid)
+    ]
+    project = {**base, "scenarios": scenarios}
+    api = Api()
+    problems = []
+    for s_index, scenario in enumerate(scenarios):
+        sid = scenario["id"]
+        hand = by_hand(project, scenario)
+        with pytest.raises(ValidationError):
+            Project.model_validate(hand.project)
+        got, want = api.solve(project, sid), api.solve(hand.project)
+        assert want.status_code == 400, want.text
+        problems += error_problems(sid, s_index, hand, got, want) + _no_echo(got)
+    assert api.solve(project).status_code == 200
+    assert not problems, "\n".join(problems)
+
+
+def test_a_relief_set_below_asmes_scope_fails_as_the_hand_edited_project() -> None:
+    """A set inside its bounds but below ASME's 15 psi (103,421.36 Pa) on a capacity that takes
+    ASME's overpressure (a letter, or a certified one set back to the default) is a topology issue
+    (422 RELIEF_VALVE_OUT_OF_RANGE, decision 14) in a scenario as in the hand-edited project,
+    naming the valve, with the scenario's id in the message; the same set with a certified
+    overpressure solves; the base still solves."""
+    base = _case("relief_certified")
+    scenarios = [
+        _scenario(
+            "U1",
+            "Below ASME's scope on a letter",
+            [
+                _component("RV1", "capacity", {"kind": "api526", "letter": "F"}),
+                _component("RV1", "setPressure", 9.0e4),
+            ],
+        ),
+        _scenario(
+            "U2",
+            "Below ASME's scope on ASME's default",
+            [
+                _component("RV1", "capacity.overpressure", None),
+                _component("RV1", "setPressure", 9.0e4),
+            ],
+        ),
+    ]
+    fine = _scenario("OK", "Below 15 psi, certified", [_component("RV1", "setPressure", 9.0e4)])
+    project = {**base, "scenarios": [*scenarios, fine]}
+    api = Api()
+    problems = []
+    for s_index, scenario in enumerate(scenarios):
+        hand = by_hand(project, scenario)
+        got, want = api.solve(project, scenario["id"]), api.solve(hand.project)
+        assert want.status_code == 422, want.text
+        codes = {i["code"] for i in want.json()["issues"]}
+        assert codes == {"RELIEF_VALVE_OUT_OF_RANGE"}, want.text
+        assert all("RV1" in i["componentIds"] for i in want.json()["issues"]), want.text
+        problems += error_problems(scenario["id"], s_index, hand, got, want)
+    hand = by_hand(project, fine)
+    got = api.solve(project, "OK")
+    assert got.status_code == 200, got.text
+    problems += solve_problems(fine, len(scenarios), hand, got, api.solve(hand.project))
     assert api.solve(project).status_code == 200
     assert not problems, "\n".join(problems)

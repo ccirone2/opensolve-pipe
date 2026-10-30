@@ -7,7 +7,8 @@ import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import WorkspaceView from '$lib/components/workspace/Workspace.svelte';
 import { testWorkspace } from '$lib/testing/workspace';
-import { closedLoopExample, gravityBranchExample, pumpTransferExample } from '$lib/utils/examples';
+import { closedLoopProject } from '$lib/testing/closed-loop';
+import { gravityBranchExample, pumpTransferExample } from '$lib/utils/examples';
 import { createComponent, createEmptyProject } from '$lib/utils/factory';
 
 function breadcrumb(): string[] {
@@ -126,7 +127,7 @@ describe('PanelNavigator', () => {
 	});
 
 	it('offers a loop as a jump back to the component already on the path', async () => {
-		const ws = testWorkspace(closedLoopExample());
+		const ws = testWorkspace(closedLoopProject());
 		render(WorkspaceView, { workspace: ws });
 		expect(current()).toBe('Expansion tank (pressurization point)');
 		await next();

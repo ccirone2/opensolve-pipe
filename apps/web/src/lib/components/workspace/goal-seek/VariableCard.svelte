@@ -21,7 +21,7 @@
 		variableLabel,
 		variableLapse,
 		variableSpec,
-		withRatingKind,
+		withCaseKind,
 		type VariableDraft
 	} from '$lib/utils/goal-seek';
 
@@ -39,11 +39,15 @@
 	const ws = useWorkspace();
 
 	const lapse = $derived(variableLapse(ws.project, variable));
-	// Names from the labels project; a Cv's or Kv's kind from the case shown (as its value).
-	const label = $derived(variableLabel(ws.labelsProject, withRatingKind(ws.project, variable)));
+	// Names from the labels project; a Cv's or Kv's kind, and an effective or actual area's,
+	// from the case shown (as its value).
+	const label = $derived(variableLabel(ws.labelsProject, withCaseKind(ws.project, variable)));
 	const spec = $derived(variableSpec(ws.project, variable));
 	const bounds = $derived(lapse ? { lower: {}, upper: {} } : variableBounds(ws.project, variable));
-	/** The case's last converged solve: a valve's fully open K, for one on its default. */
+	/**
+	 * The case's last converged solve: a valve's fully open K, for one on its default (and for a K
+	 * entry where the pipe library is not loaded, read only while that solve is current).
+	 */
 	const kOpen = $derived.by(() => {
 		const response = ws.store.results.response;
 		if (variable.target.kind !== 'component' || !response?.solvedState.converged) return null;
@@ -61,6 +65,8 @@
 			: nowText(ws.project, variable, {
 					prefs: ws.displayUnits,
 					kOpen,
+					kOpenStale: ws.store.results.stale,
+					sizes: ws.library,
 					orifice,
 					scenario: ws.activeScenario
 				})

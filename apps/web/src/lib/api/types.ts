@@ -19,6 +19,15 @@ export type PipeDefinition = S['PipeDefinition'];
 export type Fitting = S['Fitting'];
 export type FittingType = Fitting['type'];
 export type FlowCoefficient = S['FlowCoefficient'];
+/** A project library pipe spec (Project.pipeLibrary), referred to by PipeDefinition.specId. */
+export type PipeSpec = S['PipeSpec'];
+/** A project library loss coefficient (Project.resistanceLibrary): a K at its bore, a Cv or a Kv. */
+export type ResistanceSpec = S['ResistanceSpec'];
+export type ResistanceKind = ResistanceSpec['kind'];
+/** A valve's resistance taken from the project library: {kind: 'library', id}. */
+export type ResistanceRef = S['ResistanceRef'];
+/** A valve's resistance: a coefficient as entered, or a reference to a library entry. */
+export type ValveResistance = FlowCoefficient | ResistanceRef;
 export type Reservoir = S['Reservoir'];
 export type IdealReferenceNode = S['IdealReferenceNode'];
 export type Plug = S['Plug'];
@@ -35,6 +44,8 @@ export type RatedFlowCoefficient = S['RatedFlowCoefficient'];
 export type EquipmentRating = Equipment['rating'];
 export type Orifice = S['Orifice'];
 export type OrificeTaps = NonNullable<Orifice['taps']>;
+export type ReliefValve = S['ReliefValve'];
+export type ReliefCapacity = ReliefValve['capacity'];
 export type Component = Project['components'][number];
 export type ComponentType = Component['type'];
 export type PumpCurve = S['PumpCurve'];
@@ -69,6 +80,7 @@ export type PumpResult = S['PumpResult'];
 export type ValveResult = S['ValveResult'];
 export type EquipmentResult = S['EquipmentResult'];
 export type OrificeResult = S['OrificeResult'];
+export type ReliefValveResult = S['ReliefValveResult'];
 export type BranchResult = S['BranchResult'];
 export type BoundaryResult = S['BoundaryResult'];
 export type Flag = S['Flag'];

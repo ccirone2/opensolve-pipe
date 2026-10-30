@@ -196,14 +196,15 @@ def head_bound(state: dict[str, Any]) -> float:
     """m: a bound on |EGL| at a port without a node result: one in a floating section, whose
     heads are solved on an arbitrary level, one node held at 0 m (``gga.FLOATING_REFERENCE_HEAD``),
     so that every head in it lies within the sum of the head differences of the solve (links,
-    valves, equipment, orifice plates, pump heads, branch paths) of 0 m; the largest reported
-    |EGL| is added for the ports that do have one."""
+    valves, equipment, orifice plates, relief valves, pump heads, branch paths) of 0 m; the
+    largest reported |EGL| is added for the ports that do have one."""
     total = max((abs(n["egl"]) for n in state["nodeResults"].values()), default=0.0)
     for field, key in (
         ("linkResults", "headLoss"),
         ("valveResults", "headLoss"),
         ("equipmentResults", "headLoss"),
         ("orificeResults", "headLoss"),  # orifice_check's plates (proposal orifice-plate.md §7.4)
+        ("reliefValveResults", "headLoss"),  # relief_check's (pressure-relief-valve.md §7.4)
         ("pumpResults", "operatingHead"),
     ):
         total += sum(abs(r.get(key) or 0.0) for r in state.get(field, {}).values())

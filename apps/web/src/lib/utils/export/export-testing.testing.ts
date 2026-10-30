@@ -64,3 +64,25 @@ export function readSheet(bundle: ExportBundle, id: string): ReadSheet {
 export function sheetIds(bundle: ExportBundle): string[] {
 	return bundle.sheets.map((s) => s.id);
 }
+
+/**
+ * `input` with no relief valve in any response (no result, no RELIEF_VALVE_CLOSED flag): a file
+ * without a Relief valves sheet, so About's lines compared by another element's tests are that
+ * element's alone (the shared fixture may have a relief valve, pressure-relief-valve.md §7.6).
+ */
+export function withoutReliefValves(input: ExportInput): ExportInput {
+	return {
+		...input,
+		cases: input.cases.map((c) => ({
+			...c,
+			response: c.response && {
+				...c.response,
+				solvedState: {
+					...c.response.solvedState,
+					reliefValveResults: {},
+					flags: c.response.solvedState.flags.filter((f) => f.code !== 'RELIEF_VALVE_CLOSED')
+				}
+			}
+		}))
+	};
+}

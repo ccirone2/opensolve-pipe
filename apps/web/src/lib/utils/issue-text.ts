@@ -12,11 +12,18 @@
  *
  * Values the server states in its message (a pipe's roughness and inner diameter, a valve's
  * resistance, an equipment item's rating, an orifice plate's bore, pipe bore, β and the bound its
- * discharge coefficient breaks, a controlled pump curve's flow interval or setpoint bound, a pipe
+ * discharge coefficient breaks, a relief valve's set pressure, capacity and overpressure, a
+ * controlled pump curve's flow interval or setpoint bound, a pipe
  * library's schedules and sizes) are taken from the message, which states what the
  * server solved, and shown in the display unit; pipes are numbered from 1, as the message and the piping editor
  * number them. Values that the message does not state are taken from the project only when the
  * error is for the project as it is now (`current`).
+ *
+ * A reference to a project library entry the project does not have (UNKNOWN_PIPE_SPEC,
+ * UNKNOWN_RESISTANCE), and an entry whose coefficient the solver cannot represent on an element's
+ * bore (VALVE_RESISTANCE_OUT_OF_RANGE, FITTING_RESISTANCE_OUT_OF_RANGE), are told with the
+ * element's names and the entry's name from the project (CLAUDE.md D22); the server's messages
+ * name entries by id only.
  *
  * A speed-controlled pump whose curve does not give one speed for each head
  * (CONTROLLED_PUMP_CURVE) is told with its names, and the curve and the flow interval where it
@@ -39,8 +46,9 @@ import type {
 	UnitPreferences
 } from '../api/types';
 import { componentById, connectionById, freePorts, portById } from './graph';
-import { fluidSummary, portLabel, sameSize } from './labels';
-import { formatNumber, formatValue, INCH, SI_UNITS } from './units';
+import { fittingFallbackName, fluidSummary, portLabel, sameSize } from './labels';
+import { pipeSpecOf, resistanceEntryOf } from './project-library';
+import { displayUnit, formatNumber, formatValue, INCH, SI_UNITS } from './units';
 
 export interface IssueLink {
 	componentId: string;
@@ -327,7 +335,27 @@ function tell(issue: TopologyIssue, links: IssueLink[], context: Context): Issue
 		}
 		case 'ORIFICE_OUT_OF_RANGE':
 			return orificeIssue(issue, links, component, only, units);
+		case 'RELIEF_VALVE_OUT_OF_RANGE':
+			return reliefIssue(issue, links, component, only, units);
+		case 'UNKNOWN_PIPE_SPEC':
+		case 'UNKNOWN_RESISTANCE':
+		case 'FITTING_RESISTANCE_OUT_OF_RANGE':
+			return libraryIssue(issue, links, context, component, only);
 		case 'VALVE_RESISTANCE_OUT_OF_RANGE': {
+			const entry = VALVE_ENTRY.exec(issue.message);
+			if (entry) {
+				if (entry[1] !== only || !component) return null;
+				const [, , id = '', kind = '', value = '', bore, diameter = ''] = entry;
+				return {
+					text:
+						`${component.name}: its project library entry ${entryWords(project, id)} ` +
+						`(${coefficientWords(kind, value, bore, units)}) on its inlet pipe's inner diameter ` +
+						`(${formatValue(Number(diameter), 'diameter', units)}) gives a loss coefficient that ` +
+						'is not a finite positive floating-point number, so the solver cannot represent this ' +
+						'valve. Check the entry.',
+					links
+				};
+			}
 			const match = VALVE_RESISTANCE.exec(issue.message);
 			if (!match || match[1] !== only || !component) return null;
 			const [, , kind, value = '', diameter = ''] = match;
@@ -429,20 +457,194 @@ function orificeIssue(
 	return text === null ? null : { text, links };
 }
 
+/**
+ * A relief valve the solver refuses (RELIEF_VALVE_OUT_OF_RANGE, the builder's
+ * _unrepresentable_relief_valves, proposal pressure-relief-valve.md decision 14), told with its
+ * name and the message's values in display units: a set below ASME VIII's scope where the
+ * overpressure would be ASME's default, with the remedy the message gives; or a capacity the
+ * floating point cannot represent. Null (the server's message) when the message is not in a form
+ * expected.
+ */
+function reliefIssue(
+	issue: TopologyIssue,
+	links: IssueLink[],
+	component: Component | undefined,
+	only: string | undefined,
+	units: UnitPreferences
+): IssueView | null {
+	const scope = RELIEF_SCOPE.exec(issue.message);
+	if (scope) {
+		const [, id, set = '', psi = '', bound = '', remedy = ''] = scope;
+		if (id !== only || !component) return null;
+		const told = RELIEF_REMEDIES[remedy];
+		if (!told) return null;
+		// The scope as the message states it, in psi, and in the display unit unless that is psi.
+		const scopeText =
+			displayUnit('pressure', units) === 'psi'
+				? `${formatNumber(Number(psi), 6)} psi`
+				: `${formatNumber(Number(psi), 6)} psi (${formatValue(Number(bound), 'pressure', units, 6)})`;
+		return {
+			text:
+				`${component.name}: its set pressure (${formatValue(Number(set), 'pressure', units, 6)}) is ` +
+				`below ASME VIII's scope, ${scopeText}: ` +
+				"below it no cited source gives its overpressure at full lift (ASME's default, 10 % or 3 " +
+				"psi, is for sets within that scope), and API 520's effective coefficient of discharge " +
+				`applies to valves certified within it. ${told}`,
+			links
+		};
+	}
+	const law = RELIEF_LAW.exec(issue.message);
+	if (!law || law[1] !== only || !component) return null;
+	const [, , words = '', c = '', set = '', op = ''] = law;
+	const capacity = reliefCapacityWords(words, units);
+	if (capacity === null) return null;
+	const overpressure = op === 'nan' ? 'none' : formatValue(Number(op), 'fraction', units, 6);
+	return {
+		text:
+			`${component.name}: ${capacity}, C = Kd·A = ${formatValue(Number(c), 'area', units, 6)}, with a ` +
+			`set pressure of ${formatValue(Number(set), 'pressure', units, 6)} and an overpressure of ` +
+			`${overpressure} gives a capacity, a full-lift flow or a band coefficient that is not a ` +
+			'finite positive floating-point number, so the solver cannot represent this valve. Check ' +
+			'its set pressure and capacity.',
+		links
+	};
+}
+
+/** The capacity the refusal quotes ("API 526 letter J (0.00083 m²)"), in display units, or null. */
+function reliefCapacityWords(words: string, units: UnitPreferences): string | null {
+	const area = (v: string) => formatValue(Number(v), 'area', units, 6);
+	const letter = new RegExp(`^API 526 letter ([A-Z]) \\(${NUM} m²\\)$`).exec(words);
+	if (letter) return `API 526 letter ${letter[1]} (${area(letter[2] ?? '')})`;
+	const effective = new RegExp(`^an API 520 effective area of ${NUM} m²$`).exec(words);
+	if (effective) return `an API 520 effective area of ${area(effective[1] ?? '')}`;
+	const certified = new RegExp(
+		`^a certified area of ${NUM} m² with a rated coefficient of discharge of ${NUM}$`
+	).exec(words);
+	if (certified) {
+		return `a certified area of ${area(certified[1] ?? '')} with a rated coefficient of discharge of ${formatNumber(Number(certified[2]), 6)}`;
+	}
+	return null;
+}
+
+/** A project library entry in an issue: its name in the project (“Name”), else its id. */
+function entryWords(project: Project, id: string): string {
+	const entry = resistanceEntryOf(project, id);
+	return `“${entry?.name ?? id}”`;
+}
+
+/** An entry's coefficient as the server's message states it (SI), in display units. */
+function coefficientWords(
+	kind: string,
+	value: string,
+	bore: string | undefined,
+	units: UnitPreferences
+): string {
+	const at = bore === undefined ? '' : ` at ${formatValue(Number(bore), 'diameter', units)}`;
+	return `${kind} ${formatNumber(Number(value), 6)}${at}`;
+}
+
+/**
+ * A reference to a project library entry the project does not have (UNKNOWN_PIPE_SPEC,
+ * UNKNOWN_RESISTANCE: a valve's or a fitting's), or a fitting whose entry the solver cannot
+ * represent on its pipe, for one unit or its quantity, or a piping whose fittings' loss
+ * coefficients sum to no finite number (FITTING_RESISTANCE_OUT_OF_RANGE), told with names
+ * (CLAUDE.md D22); null (the server's message) when the message is not in a form expected.
+ */
+function libraryIssue(
+	issue: TopologyIssue,
+	links: IssueLink[],
+	context: Context,
+	component: Component | undefined,
+	only: string | undefined
+): IssueView | null {
+	const { project, units } = context;
+	const valve = VALVE_UNKNOWN_ENTRY.exec(issue.message);
+	if (valve) {
+		if (valve[1] !== only || !component) return null;
+		return {
+			text: `${component.name} refers to a resistance entry the project library does not have (“${valve[2]}”): choose an entry from the library, enter its resistance, or leave it on its default.`,
+			links
+		};
+	}
+	const pipe = PIPE_UNKNOWN_SPEC.exec(issue.message);
+	const fitting = FITTING_UNKNOWN_ENTRY.exec(issue.message);
+	const range = FITTING_ENTRY_RANGE.exec(issue.message);
+	const sum = FITTING_ENTRY_SUM.exec(issue.message);
+	const connection = pipingOf(project, issue, (pipe ?? fitting ?? range ?? sum)?.[1]);
+	if (!connection) return null;
+	const piping = `Piping ${pipingName(project, connection)}`;
+	const fittingWords = (number: string, type: string) =>
+		`fitting ${number} (${fittingFallbackName(type).toLowerCase()})`;
+	let text: string | null = null;
+	if (pipe && issue.code === 'UNKNOWN_PIPE_SPEC') {
+		const [, , number, id] = pipe;
+		text = `${piping}, pipe ${number} refers to a pipe spec the project library does not have (“${id}”): choose a spec from the library, or give the pipe its own size.`;
+	} else if (fitting && issue.code === 'UNKNOWN_RESISTANCE') {
+		const [, , number = '', type = '', id] = fitting;
+		text = `${piping}, ${fittingWords(number, type)} refers to a resistance entry the project library does not have (“${id}”): choose an entry from the library, or enter its K.`;
+	} else if (range && issue.code === 'FITTING_RESISTANCE_OUT_OF_RANGE') {
+		const [
+			,
+			,
+			number = '',
+			type = '',
+			id = '',
+			kind = '',
+			value = '',
+			bore,
+			pipeNumber,
+			d = '',
+			quantity
+		] = range;
+		const forQuantity = quantity === undefined ? '' : `, for its quantity of ${quantity},`;
+		text =
+			`${piping}, ${fittingWords(number, type)}: its project library entry ${entryWords(project, id)} ` +
+			`(${coefficientWords(kind, value, bore, units)}) on the inner diameter of pipe ${pipeNumber} ` +
+			`(${formatValue(Number(d), 'diameter', units)}) gives${forQuantity} a loss coefficient that is ` +
+			'not a finite floating-point number, so the solver cannot represent this fitting. Check the ' +
+			'entry.';
+	} else if (sum && issue.code === 'FITTING_RESISTANCE_OUT_OF_RANGE') {
+		const [, , direction, list = ''] = sum;
+		const onEntries = list.split(', ').map((item) => FITTING_ON_ENTRY.exec(item));
+		if (onEntries.length && onEntries.every((m): m is RegExpExecArray => m !== null)) {
+			const name = (componentId: string) =>
+				componentById(project, componentId)?.name ?? `“${componentId}”`;
+			const [from, to] =
+				direction === 'from → to'
+					? [connection.fromComponentId, connection.toComponentId]
+					: [connection.toComponentId, connection.fromComponentId];
+			const fittings = onEntries
+				.map((m) => `${fittingWords(m[1] ?? '', m[2] ?? '')} on ${entryWords(project, m[3] ?? '')}`)
+				.join(', ');
+			text =
+				`${piping}: its fittings' loss coefficients are each finite, but their sum for flow from ` +
+				`${name(from)} to ${name(to)} is not a finite floating-point number, so the solver cannot ` +
+				`represent this piping (fittings on project library entries: ${fittings}). Check the entries.`;
+		}
+	}
+	return text === null ? null : { text, links: [...links, ...pipingLink(project, connection)] };
+}
+
 /** An issue about one pipe of a piping ("connection 'L1' pipe 2: ..."), told with its names. */
 function pipeIssue(issue: TopologyIssue, links: IssueLink[], context: Context): IssueView | null {
 	const { project, units, options } = context;
 	const head = PIPE_PREFIX.exec(issue.message);
 	const connection = pipingOf(project, issue, head?.[1]);
 	if (!head || !connection) return null;
-	const [, , number, rest = ''] = head;
+	const [, , number, whole = ''] = head;
 	const where = `Piping ${pipingName(project, connection)}, pipe ${number}`;
 	const material = (id: string) => options.materialName?.(id) ?? `material “${id}”`;
+	// A pipe of a project library spec (CLAUDE.md D22): the server names the spec by id first.
+	const ofSpec = SPEC_PREFIX.exec(whole);
+	const rest = ofSpec ? (ofSpec[2] ?? '') : whole;
+	const spec = ofSpec ? pipeSpecOf(project, ofSpec[1]) : undefined;
 	let text: string | null = null;
 	switch (issue.code) {
 		case 'UNKNOWN_PIPE_MATERIAL': {
 			const match = UNKNOWN_MATERIAL.exec(rest);
-			if (match)
+			if (match && ofSpec)
+				text = `${where}: its pipe spec “${spec?.name ?? ofSpec[1]}” names a material the pipe library does not have, “${match[1]}”: choose a material from the library for the spec, or make it a custom spec.`;
+			else if (match)
 				text = `${where}: the pipe library has no material “${match[1]}”: choose a material from the library, or enter a custom pipe.`;
 			break;
 		}
@@ -466,13 +668,20 @@ function pipeIssue(issue: TopologyIssue, links: IssueLink[], context: Context): 
 			const match = ROUGHNESS.exec(rest);
 			if (match) {
 				const [, roughness = '', ratio = '', diameter = '', limit = ''] = match;
+				const r = formatValue(Number(roughness), 'diameter', units);
+				const times = `${formatNumber(Number(ratio), 4)} times its inner diameter`;
+				const d = formatValue(Number(diameter), 'diameter', units);
+				// On a pipe of a spec the values are the spec's, changed in the library (D22).
 				text =
-					`${where}: its roughness (${formatValue(Number(roughness), 'diameter', units)}) is ` +
-					`${formatNumber(Number(ratio), 4)} times its inner diameter ` +
-					`(${formatValue(Number(diameter), 'diameter', units)}), and the Colebrook equation has ` +
+					(ofSpec
+						? `${where}: its pipe spec “${spec?.name ?? ofSpec[1]}” has a roughness (${r}) ${times} (${d}), `
+						: `${where}: its roughness (${r}) is ${times} (${d}), `) +
+					`and the Colebrook equation has ` +
 					`no solution for a relative roughness (roughness ÷ inner diameter) of ` +
-					`${formatNumber(Number(limit), 6)} or more. Use a smaller roughness or a larger inner ` +
-					'diameter.';
+					`${formatNumber(Number(limit), 6)} or more. ` +
+					(ofSpec
+						? 'Give the spec a smaller roughness or a larger inner diameter in the project library.'
+						: 'Use a smaller roughness or a larger inner diameter.');
 			}
 			break;
 		}
@@ -480,11 +689,18 @@ function pipeIssue(issue: TopologyIssue, links: IssueLink[], context: Context): 
 			const match = PIPE_SIZE.exec(rest);
 			if (match) {
 				const [, diameter = '', length = ''] = match;
+				const d = formatValue(Number(diameter), 'diameter', units);
+				const l = formatValue(Number(length), 'length', units);
+				// On a pipe of a spec the bore is the spec's (changed in the library), the length the pipe's.
 				text =
-					`${where}: an inner diameter of ${formatValue(Number(diameter), 'diameter', units)} and ` +
-					`a length of ${formatValue(Number(length), 'length', units)} give a pipe resistance ` +
+					(ofSpec
+						? `${where}: the inner diameter of its pipe spec “${spec?.name ?? ofSpec[1]}”, ${d}, and its length, ${l}, give a pipe resistance `
+						: `${where}: an inner diameter of ${d} and a length of ${l} give a pipe resistance `) +
 					'that is not a finite floating-point number, so the solver cannot represent this ' +
-					'pipe. Check its inner diameter and length.';
+					'pipe. ' +
+					(ofSpec
+						? "Check the spec's inner diameter in the project library, and the pipe's length."
+						: 'Check its inner diameter and length.');
 			}
 			break;
 		}
@@ -571,6 +787,34 @@ const SELF_CONNECTION = new RegExp(`^connection '${ID}' connects port '${ID}:${I
 const PORT_CONNECTED_TWICE = new RegExp(
 	`^port '${ID}:${ID}' has (\\d+) connections; a port takes exactly one$`
 );
+/**
+ * A relief valve refused below ASME VIII's scope (the API's relief.refusal_text, rule 'scope'):
+ * its set, the scope in psi and Pa, and the remedy.
+ */
+const RELIEF_SCOPE = new RegExp(
+	`^relief valve '${ID}': its set pressure of ${NUM} Pa is below ASME VIII's scope, ${NUM} psi ` +
+		`\\(${NUM} Pa\\): below it no cited source gives its overpressure at full lift \\(ASME's ` +
+		"default, 10 % or 3 psi, is for sets within that scope\\), and API 520's effective " +
+		'coefficient of discharge applies to valves certified within it; (.*)$',
+	's'
+);
+/** The remedies RELIEF_SCOPE's message gives, as the app tells them. */
+const RELIEF_REMEDIES: Readonly<Record<string, string>> = {
+	'enter its certified overpressure at full lift': 'Enter its certified overpressure at full lift.',
+	"enter the valve's certified capacity: its actual orifice area, rated coefficient of discharge and full-lift overpressure":
+		"Give its capacity as certified: the valve's actual orifice area, rated coefficient of discharge and full-lift overpressure."
+};
+/**
+ * A relief valve whose law the floating point cannot represent (rule 'representable'): its
+ * capacity in words, C, its set and its overpressure (nan when none).
+ */
+const RELIEF_LAW = new RegExp(
+	`^relief valve '${ID}': (.*), C = Kd·A = ${NUM} m², with a set pressure of ${NUM} Pa and an ` +
+		`overpressure of (${NUM.slice(1, -1)}|nan) gives C, the full-lift flow Q_f = \\S+ m³/s or ` +
+		'the band coefficient R = \\S+ that is not a finite positive normal floating-point number; ' +
+		'the solver cannot represent this valve$',
+	's'
+);
 const VALVE_RESISTANCE = new RegExp(
 	`^valve '${ID}': a (K|Cv|Kv) of ${NUM} on the inlet pipe's inner diameter of ${NUM} m gives a ` +
 		'loss coefficient that is not a finite floating-point number; the solver cannot represent ' +
@@ -638,6 +882,42 @@ const ORIFICE_LOSS = new RegExp(
 );
 /** "connection 'L1' pipe 2: <the pipe's problem>" (pipes numbered from 1). */
 const PIPE_PREFIX = new RegExp(`^connection '${ID}' pipe (\\d+): (.*)$`, 's');
+/** A pipe of a project library spec: "pipe spec 'PS1': <its material's, bore's or roughness's
+ * problem>" (D22: UNKNOWN_PIPE_MATERIAL, ROUGHNESS_OUT_OF_RANGE, PIPE_SIZE_OUT_OF_RANGE). */
+const SPEC_PREFIX = new RegExp(`^pipe spec '${ID}': (.*)$`, 's');
+/** An entry's coefficient as entered (project_library.entered_text): "Cv 60000", "K 0.3 at 0.7366 m". */
+const ENTERED = `(K|Cv|Kv) ${NUM}(?: at ${NUM} m)?`;
+/** A reference to a project library entry the project does not have (builder.py, D22). */
+const VALVE_UNKNOWN_ENTRY = new RegExp(
+	`^valve '${ID}' refers to resistance entry '${ID}', which is not in the project library$`
+);
+const PIPE_UNKNOWN_SPEC = new RegExp(
+	`^connection '${ID}' pipe (\\d+) refers to pipe spec '${ID}', which is not in the project library$`
+);
+const FITTING_UNKNOWN_ENTRY = new RegExp(
+	`^connection '${ID}' fitting (\\d+) \\(([a-z0-9_]+)\\) refers to resistance entry '${ID}', which is not in the project library$`
+);
+/** A valve or fitting whose entry gives no representable loss coefficient on its bore (D22). */
+const VALVE_ENTRY = new RegExp(
+	`^valve '${ID}': its project library resistance entry '${ID}', ${ENTERED}, on the inlet ` +
+		`pipe's inner diameter of ${NUM} m gives a loss coefficient that is not a finite positive ` +
+		'floating-point number; the solver cannot represent this valve$'
+);
+const FITTING_ENTRY_RANGE = new RegExp(
+	`^connection '${ID}' fitting (\\d+) \\(([a-z0-9_]+)\\): its project library resistance entry ` +
+		`'${ID}', ${ENTERED}, on the inner diameter of pipe (\\d+), ${NUM} m, gives` +
+		'(?:, for its quantity of (\\d+),)? a loss coefficient that is not a finite floating-point ' +
+		'number; the solver cannot represent this fitting$'
+);
+/** A connection whose fittings' loss coefficients are each finite but sum, for one flow
+ * direction, to no finite number (builder._unrepresentable_fittings, D22): the fittings on
+ * entries it lists ("fitting 1 (custom) on 'RS1', fitting 2 (custom) on 'RS1'"). */
+const FITTING_ENTRY_SUM = new RegExp(
+	`^connection '${ID}': its fittings' loss coefficients n K/\\(2 g A²\\) are each finite, but ` +
+		'their sum for flow (from → to|to → from) is not a finite floating-point number \\(on ' +
+		'project library resistance entries: (.*)\\); the solver cannot represent this connection$'
+);
+const FITTING_ON_ENTRY = new RegExp(`^fitting (\\d+) \\(([a-z0-9_]+)\\) on '${ID}'$`);
 /** Material ids and schedules are free text up to a quote; the lists that end the messages are
  * the library's (the piping editor offers them), kept in the server's message. */
 const UNKNOWN_MATERIAL = /^unknown pipe material '([^']*)'; available: [^']*$/;

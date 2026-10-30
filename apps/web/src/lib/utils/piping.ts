@@ -12,7 +12,8 @@ import type {
 	PipeMaterial,
 	PipeSchedule,
 	PipeSize,
-	PipingSegment
+	PipingSegment,
+	Project
 } from '../api/types';
 import { DEFAULT_PIPE_LENGTH } from './factory';
 import { markCopy } from './identity';
@@ -20,6 +21,23 @@ import { sameSize } from './labels';
 import { REDUCER_TYPES } from './model-rules';
 
 export const CUSTOM_MATERIAL_ID = 'custom';
+
+/**
+ * The nominal size the web sizes ports by for `pipe` (a component inserted in its connection):
+ * for a pipe of a project library spec, the spec's (CLAUDE.md D22: for display and the web's port
+ * sizes only; none when the spec gives none or the project does not have it); else its own.
+ */
+export function pipeNominalSize(
+	project: Pick<Project, 'pipeLibrary'>,
+	pipe: PipeDefinition | undefined
+): number | undefined {
+	if (!pipe) return undefined;
+	const size =
+		pipe.specId != null
+			? project.pipeLibrary?.find((spec) => spec.id === pipe.specId)?.nominalSize
+			: pipe.nominalSize;
+	return size ?? undefined;
+}
 
 /** A fitting that sits between two pipes (x-reducer-types, model-rules.ts). */
 export function isReducer(fitting: Pick<Fitting, 'type'>): boolean {
@@ -151,10 +169,12 @@ export function resolvedPipe(pipe: PipeDefinition, size: PipeSize | undefined): 
 
 /**
  * The pipe with a new material. To a library material: the same schedule if it has one, else
- * its first; the same nominal size if that schedule has it, else the nearest; overrides are
- * dropped. To 'custom': the pipe keeps its length and takes its inner diameter and roughness
- * from its own overrides or the library values it resolved to (left empty when neither is
- * known, for the user to enter).
+ * its first; the same nominal size if that schedule has it, else the nearest (by nominal size, or
+ * by the inner diameter it resolved to: a custom pipe's, or a project library spec's); overrides
+ * are dropped. To 'custom': the pipe keeps its length and takes its inner diameter and roughness
+ * from its own overrides or the values it resolved to (left empty when neither is known, for the
+ * user to enter). Either way a reference to a project library spec (specId) is dropped: the pipe
+ * has its own values now.
  */
 export function withMaterial(
 	pipe: PipeDefinition,
@@ -177,7 +197,9 @@ export function withMaterial(
 	const keep =
 		pipe.nominalSize != null &&
 		sizes.some((s) => sameSize(s.nominalSize, pipe.nominalSize as number));
-	const size = keep ? undefined : nearestSize(sizes, pipe.nominalSize, pipe.innerDiameter);
+	const size = keep
+		? undefined
+		: nearestSize(sizes, pipe.nominalSize, pipe.innerDiameter ?? resolved.innerDiameter);
 	return {
 		...next,
 		schedule: schedule.id,

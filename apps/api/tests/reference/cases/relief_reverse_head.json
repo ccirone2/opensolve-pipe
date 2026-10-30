@@ -1,0 +1,183 @@
+{
+  "name": "relief_reverse_head",
+  "description": "A pressure relief valve with a higher pressure at its outlet than at its inlet: verifies that it stays closed against reverse head, with the negative difference across it as a result.",
+  "source": "closed-form: tests/reference/derivations_relief.py::relief_reverse_head (status EPANET 2.2 cvstatus with cracking head h_set, started closed (reverse head: closed); zero flow, EGL_in = H1, EGL_out = H3; static p = rho g (EGL - z - v^2/2g), v in the connected pipe (D7))",
+  "project": {
+    "schemaVersion": 1,
+    "methodVersion": "",
+    "id": "ref-relief-reverse-head",
+    "metadata": {
+      "name": "Relief valve against a higher outlet pressure",
+      "created": "2026-10-21T00:00:00Z",
+      "modified": "2026-10-21T00:00:00Z"
+    },
+    "settings": {
+      "units": {
+        "length": "m",
+        "diameter": "mm",
+        "pressure": "kPa",
+        "head": "m",
+        "flow": "L/s",
+        "velocity": "m/s",
+        "temperature": "C",
+        "density": "kg/m3",
+        "viscosity": "mPa.s"
+      },
+      "siteElevation": 0.0,
+      "solverOptions": {
+        "frictionMethod": "colebrook",
+        "maxIterations": 100,
+        "tolerance": 1e-09
+      }
+    },
+    "fluid": {
+      "kind": "custom",
+      "name": "Test liquid A (custom input)",
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "components": [
+      {
+        "id": "R1",
+        "name": "Reservoir R1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 2.0,
+        "surfacePressure": 300000.0
+      },
+      {
+        "id": "RV1",
+        "name": "Relief valve RV1",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "inlet",
+            "nominalSize": 0.0508,
+            "direction": "bidirectional"
+          },
+          {
+            "id": "outlet",
+            "nominalSize": 0.0508,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "relief_valve",
+        "setPressure": 500000.0,
+        "capacity": {
+          "kind": "api526",
+          "letter": "F"
+        },
+        "status": "active"
+      },
+      {
+        "id": "R3",
+        "name": "Reservoir R3",
+        "elevation": 0.0,
+        "ports": [
+          {
+            "id": "port_1",
+            "nominalSize": 0.1016,
+            "direction": "bidirectional"
+          }
+        ],
+        "type": "reservoir",
+        "liquidLevel": 0.0,
+        "surfacePressure": 400000.0
+      }
+    ],
+    "connections": [
+      {
+        "id": "LB1",
+        "fromComponentId": "R1",
+        "fromPortId": "port_1",
+        "toComponentId": "RV1",
+        "toPortId": "inlet",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0525,
+              "length": 2.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      },
+      {
+        "id": "LB2",
+        "fromComponentId": "RV1",
+        "fromPortId": "outlet",
+        "toComponentId": "R3",
+        "toPortId": "port_1",
+        "piping": {
+          "pipes": [
+            {
+              "materialId": "custom",
+              "innerDiameter": 0.0779,
+              "length": 3.0,
+              "roughness": 4.5e-05
+            }
+          ],
+          "fittings": []
+        }
+      }
+    ],
+    "pumpLibrary": []
+  },
+  "expected": {
+    "fluid": {
+      "density": 998.0,
+      "dynamicViscosity": 0.001
+    },
+    "flows": {
+      "LB1": 0.0,
+      "LB2": 0.0
+    },
+    "egl": {
+      "R1:port_1": 32.65279197328442,
+      "RV1:inlet": 32.65279197328442,
+      "RV1:outlet": 40.87038929771256,
+      "R3:port_1": 40.87038929771256
+    },
+    "pressures": {
+      "R1:port_1": 319574.0734,
+      "RV1:inlet": 319574.0734,
+      "RV1:outlet": 400000.00000000006,
+      "R3:port_1": 400000.00000000006
+    },
+    "reliefValves": {
+      "RV1": {
+        "state": "closed",
+        "flow": 0.0,
+        "lift": 0.0,
+        "headLoss": -8.21759732442814,
+        "totalPressureDifference": -80425.9266,
+        "pressureDrop": -80425.92660000006,
+        "inletPressure": 319574.0734,
+        "backPressure": 400000.00000000006,
+        "setPressure": 500000.0,
+        "setRatio": -0.1608518532,
+        "overpressure": 0.1,
+        "overpressureSource": "asme_default",
+        "fullLiftPressureDifference": 550000.0,
+        "fullLiftFlow": 0.004274154701986614,
+        "flowRatio": 0.0,
+        "capacity": {
+          "kind": "api526",
+          "letter": "F",
+          "area": 0.00019806412,
+          "dischargeCoefficient": 0.65
+        },
+        "reynoldsNumber": null
+      }
+    }
+  }
+}

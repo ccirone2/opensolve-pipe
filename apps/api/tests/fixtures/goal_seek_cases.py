@@ -11,14 +11,20 @@ the API by Vitest:
 
 - ``apply``: a request (``project`` as API JSON with its set fields only, ``scenarioId`` or null,
   ``variables``) with found ``values`` (SI), among them an orifice plate's bore and its
-  discharge coefficient on ISO 5167-2's (no number held, proposal orifice-plate.md §5.2); each
+  discharge coefficient on ISO 5167-2's (no number held, proposal orifice-plate.md §5.2) and a
+  relief valve's set, effective area, certified area and rated coefficient, and overpressure on
+  ASME's default (no number held, proposal pressure-relief-valve.md decision 19); each
   variable's ``override`` and ``replacedOverride`` as ``result.variables`` gives them (an
-  override of a whole value the scenario sets, a whole fluid or a whole equipment rating, built
-  from the case with every value written, as the API builds it from the reported evaluation:
-  proposal equipment-pressure-drop.md §5.2); and ``trial``, the case project the goal seek
-  solves at those values (the same JSON form, without ``scenarios``). Applying the overrides to
-  the case they ran on (written into the base, or upserted into the scenario by target and
-  field) and taking that case's project gives ``trial``.
+  override of a whole value the scenario sets, a whole fluid, a whole equipment rating or a
+  whole relief valve capacity, built from the case with every value written, as the API builds
+  it from the reported evaluation: proposal equipment-pressure-drop.md §5.2); and ``trial``, the
+  case project the goal seek solves at those values (the same JSON form, without
+  ``scenarios``). Applying the overrides to the case they ran on (written into the base, or
+  upserted into the scenario by target and field) and taking that case's project gives
+  ``trial``.
+  A resistance variable on a valve that refers to a project library entry (CLAUDE.md D22)
+  writes an inline coefficient of its kind in place of the reference, in ``trial`` and in its
+  ``override`` (proposal project-library.md §5.2).
 - ``goals``: a solved ``state`` (a SolvedState without its ``trace`` and ``timestamp``) and, for
   goals on it
   (``goal`` as a request's), the ``value`` the API reads (SI, null when there is none) and its
@@ -35,7 +41,7 @@ from opensolve_pipe.models.project import Project
 from opensolve_pipe.services.goal_seek import goal_value, prepare
 from opensolve_pipe.services.scenarios import COMPONENT_NAMES
 from opensolve_pipe.services.solver import solve_project
-from tests.unit.helpers import connection, custom_pipe, project_dict, reservoir
+from tests.unit.helpers import connection, custom_pipe, project_dict, reference_node, reservoir
 
 GENERATED_BY = "apps/api/tests/fixtures/goal_seek_cases.py"
 
@@ -62,6 +68,11 @@ METER_BORE = 0.06
 """m: the orifice flow meter O1's bore (test input), β 0.6 in its 0.1 m inlet pipe."""
 RESTRICTION_BORE, RESTRICTION_C = 0.07, 0.62
 """m and -: the restriction orifice O2's bore and entered C (test inputs)."""
+RELIEF_SET, RELIEF_AREA = 1.5e5, 3.0e-4
+"""Pa (a difference) and m²: the relief valve RV1's set and API 520 effective area (test
+inputs); R2's 20 m of water hold it at full lift."""
+CERTIFIED = {"kind": "certified", "area": 2.5e-4, "dischargeCoefficient": 0.7}
+"""A certified relief valve capacity on ASME's default overpressure (test inputs)."""
 
 
 def base_project(*, pump: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -69,7 +80,9 @@ def base_project(*, pump: dict[str, Any] | None = None) -> dict[str, Any]:
     (equipment rated by a point, its outlet port 1 m up, so that its static pressure drop is not
     its pressure loss) -> L4 -> O1 (an orifice flow meter with flange taps on ISO 5167-2's C, its
     outlet port 0.5 m up, likewise) -> L5 -> O2 (a restriction orifice: no taps, so no reading,
-    and an entered C) -> L6 -> R2 (20 m), water with a vapor-pressure override."""
+    and an entered C) -> L6 -> R2 (20 m), whose second port L7 -> RV1 (a relief valve on an API
+    520 effective area, relieving) -> L8 (with an exit) -> N1 (0 Pa(g): a discharge to
+    atmosphere) water with a vapor-pressure override."""
     comps = [
         reservoir("R1", level=5.0),
         {
@@ -121,7 +134,17 @@ def base_project(*, pump: dict[str, Any] | None = None) -> dict[str, Any]:
             "dischargeCoefficient": RESTRICTION_C,
             "ports": _ports("inlet", "outlet"),
         },
-        reservoir("R2", level=20.0),
+        reservoir("R2", level=20.0, ports=("port_1", "port_2")),
+        {
+            "type": "relief_valve",
+            "id": "RV1",
+            "name": "Relief valve",
+            "elevation": 0.0,
+            "setPressure": RELIEF_SET,
+            "capacity": {"kind": "effective", "area": RELIEF_AREA},
+            "ports": _ports("inlet", "outlet"),
+        },
+        reference_node("N1", pressure=0.0),
     ]
     conns = [
         connection(
@@ -135,6 +158,14 @@ def base_project(*, pump: dict[str, Any] | None = None) -> dict[str, Any]:
         connection("L4", ("E1", "outlet"), ("O1", "inlet"), length=5.0),
         connection("L5", ("O1", "outlet"), ("O2", "inlet"), length=5.0),
         connection("L6", ("O2", "outlet"), ("R2", "port_1"), length=5.0),
+        connection("L7", ("R2", "port_2"), ("RV1", "inlet"), length=2.0),
+        connection(
+            "L8",
+            ("RV1", "outlet"),
+            ("N1", "port_1"),
+            length=1.0,
+            fittings=[{"type": "exit", "quantity": 1, "pipeIndex": 0}],
+        ),
     ]
     fluid = {**WATER, "overrides": {"vaporPressure": 2339.0}}
     data = project_dict(comps, conns, fluid=fluid, pump_library=[CURVE])
@@ -186,8 +217,48 @@ def _with_scenario(project: dict[str, Any], *overrides: dict[str, Any]) -> dict[
     return project
 
 
+RESISTANCES = [
+    {"id": "RS1", "name": "Gate, open", "source": "test input", "kind": "Cv", "value": 900.0},
+    {
+        "id": "RS2",
+        "name": "Gate, open (K)",
+        "source": "test input",
+        "kind": "K",
+        "value": 0.2,
+        "referenceDiameter": 0.09,
+    },
+]
+"""The project library of ``library_project()`` (test inputs)."""
+
+
+def library_project() -> dict[str, Any]:
+    """``base_project()`` whose gate G1 takes its resistance from the project library entry RS1
+    (a Cv) and whose L3 refers to a pipe spec (CLAUDE.md D22)."""
+    data = base_project()
+    data["pipeLibrary"] = [
+        {
+            "id": "PS1",
+            "name": "Measured bore",
+            "source": "test input",
+            "materialId": "custom",
+            "innerDiameter": 0.1,
+            "roughness": 4.5e-5,
+        }
+    ]
+    data["resistanceLibrary"] = copy.deepcopy(RESISTANCES)
+    [l3] = [c for c in data["connections"] if c["id"] == "L3"]
+    l3["piping"]["pipes"] = [{"specId": "PS1", "length": 10.0}]
+    [g1] = [c for c in data["components"] if c["id"] == "G1"]
+    g1["resistance"] = {"kind": "library", "id": "RS1"}
+    dumped: dict[str, Any] = Project.model_validate(data).model_dump(
+        mode="json", exclude_unset=True
+    )
+    return dumped
+
+
 def _apply_cases() -> list[tuple[str, dict[str, Any], str | None, list[Any], list[float]]]:
     base = base_project()
+    library = library_project()
     speed = variable("P1", "speed", 0.2, 1.0)
     level = variable("R1", "liquidLevel", 0.0, 20.0)
     rated_loss = variable("E1", "rating.pressureLoss", 1.0e3, 1.0e6)
@@ -269,6 +340,27 @@ def _apply_cases() -> list[tuple[str, dict[str, Any], str | None, list[Any], lis
             [0.6512345678],
         ),
         (
+            "base run: a resistance from a project library entry of its kind",
+            library,
+            None,
+            [variable("G1", "resistance", 10.0, 5000.0, coefficient="Cv")],
+            [1234.5678],
+        ),
+        (
+            "base run: a resistance from a project library entry of another kind",
+            library,
+            None,
+            [variable("G1", "resistance", 0.01, 100.0, coefficient="K")],
+            [0.4321],
+        ),
+        (
+            "scenario run: a resistance the scenario points at a project library entry",
+            _with_scenario(library, comp("G1", "resistance", {"kind": "library", "id": "RS2"})),
+            "S1",
+            [variable("G1", "resistance", 0.01, 100.0, coefficient="K")],
+            [0.55],
+        ),
+        (
             "scenario run: a bore and a coefficient the scenario sets",
             _with_scenario(
                 base, comp("O1", "boreDiameter", 0.055), comp("O1", "dischargeCoefficient", 0.61)
@@ -276,6 +368,38 @@ def _apply_cases() -> list[tuple[str, dict[str, Any], str | None, list[Any], lis
             "S1",
             [bore, meter_c],
             [0.0512345678, 0.6345678912],
+        ),
+        (
+            "base run: a relief valve's set pressure",
+            base,
+            None,
+            [variable("RV1", "setPressure", 1.2e5, 3.0e5)],
+            [167890.12345],
+        ),
+        (
+            "base run: an API 520 effective area (sizing)",
+            base,
+            None,
+            [variable("RV1", "capacity.area", 1.0e-4, 1.0e-3)],
+            [4.56789012e-4],
+        ),
+        (
+            "scenario run: an area and a rated coefficient inside a whole-capacity override",
+            _with_scenario(base, comp("RV1", "capacity", {**CERTIFIED, "overpressure": 0.1})),
+            "S1",
+            [
+                variable("RV1", "capacity.area", 1.0e-4, 1.0e-3),
+                variable("RV1", "capacity.dischargeCoefficient", 0.5, 0.9),
+            ],
+            [3.12345678e-4, 0.7234567891],
+        ),
+        (
+            "scenario run: an overpressure on ASME's default (no number held) inside a "
+            "whole-capacity override",
+            _with_scenario(base, comp("RV1", "capacity", CERTIFIED)),
+            "S1",
+            [variable("RV1", "capacity.overpressure", 0.05, 0.3)],
+            [0.1234567891],
         ),
     ]
 
@@ -307,6 +431,8 @@ GOALS = [
     _goal("orifice_differential_pressure", "O1"),
     _goal("orifice_differential_pressure", "O2"),
     _goal("orifice_pressure_drop", "O1"),
+    _goal("relief_valve_flow", "RV1"),
+    _goal("relief_valve_pressure_drop", "RV1"),
     _goal("boundary_outflow", "R1"),
     _goal("boundary_outflow", "R2"),
 ]

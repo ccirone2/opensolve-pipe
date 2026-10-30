@@ -11,6 +11,15 @@
  * against the flow through that pump; the group curve and the Group point against the station's
  * flow, the net flow from S into the station.
  *
+ * The group system curve (slice 4b, proposal §3.4 and §7) is the same request with curve 'system':
+ * the rise EGL(D) − EGL(S) the rest of the network needs at each station's flow, every link inside
+ * the station held closed. It is drawn in the pump chart's system orange (orange keeps one meaning
+ * in the Pumps view: a system curve), with a gap at each point without a rise and the point's
+ * reason in the data table (system-curve-text.ts, in the station's words). The Group point is
+ * labelled as the two curves' crossing only when both duty checks agree. "Read along the curves"
+ * steps over the group curve's samples, each member's flow and the station's read from the
+ * response at that rise (no value between samples is made up here).
+ *
  * Identity never rests on colour alone: each member has a colour (the dataviz palette's blue and,
  * a step darker than its slot 3 to clear 3:1 on white, aqua; orange stays the system's), a dash
  * pattern from its third slot on, a marker with a text stand-in, a direct label, a legend entry
@@ -23,16 +32,19 @@ import type {
 	Project,
 	PumpGroupCurvePoint,
 	PumpGroupCurveResponse,
+	PumpGroupSystemPoint,
 	PumpResult,
 	StationPort,
 	UnitPreferences
 } from '../api/types';
-import type { GroupCurveState } from '../state/project.svelte';
+import type { GroupCurveState, GroupSystemCurveState } from '../state/project.svelte';
 import { readableText } from './flag-text';
 import { componentById } from './graph';
 import { portLabel } from './labels';
 import { pumpChartData, type ChartPoint } from './pump-chart';
+import { pressureControlOnly } from './pump-groups';
 import { Formatter, pumpStatusLabel, type Column } from './results';
+import { systemPointNote, type SystemCurveTextContext } from './system-curve-text';
 import { displayUnit, formatNumber, fromSI, unitLabel } from './units';
 
 /** Chart.js point styles of the members' points (a held pump: 'rectRot', the pump chart's diamond). */
@@ -60,6 +72,15 @@ export const GROUP_BLUE = '#2a78d6';
 export const GROUP_AQUA = '#199e70';
 /** The group curve and the station's point: the primary ink (the pump chart's operating point). */
 export const GROUP_INK = '#0f172a';
+/**
+ * The group system curve: the pump chart's system orange (pump-chart-config.ts
+ * CHART_COLORS.system, which the chart chunk holds; equal by test), so orange means a system
+ * curve wherever the Pumps view draws one.
+ */
+export const GROUP_SYSTEM = '#eb6834';
+/** The group system curve's legend entry and dataset label. */
+export const GROUP_SYSTEM_LABEL =
+	"Group system curve (the rest of the network between the station's inlet and outlet, station's flow)";
 
 /** The six slots: blue and aqua in turn, each pair with its own dashes, every one its marker. */
 export const GROUP_SLOTS: readonly GroupSlot[] = [
@@ -122,10 +143,29 @@ export interface GroupChartData {
 	missing: number;
 	total: number;
 	/**
-	 * The station's duty (Q_st, ΔH_st); `onCurve` when the duty check agrees; `flow`, Q_st in
-	 * display units as words give it (0 below the duty check's floor, dutyFlow).
+	 * The station's duty (Q_st, ΔH_st), from the group curve's response, else the group system
+	 * curve's (the same: the case's own solve); `onCurve` when the group curve's duty check agrees,
+	 * `onSystem` when the group system curve's does, `crossing` when both do (the Group point is
+	 * then where the two curves cross); `flow`, Q_st in display units as words give it (0 below the
+	 * duty check's floor, dutyFlow); `label`, its legend entry; `tag`, its label on the chart.
 	 */
-	station: { point: ChartPoint; onCurve: boolean; flow: number } | null;
+	station: {
+		point: ChartPoint;
+		onCurve: boolean;
+		onSystem: boolean;
+		crossing: boolean;
+		flow: number;
+		label: string;
+		tag: string;
+	} | null;
+	/**
+	 * The group system curve in flow order (station's flow, rise): a null rise is a point without
+	 * one (a gap); null without a group system curve response or points.
+	 */
+	system: { x: number; y: number | null }[] | null;
+	/** Points of the group system curve without a rise (gaps), of `systemTotal`. */
+	systemMissing: number;
+	systemTotal: number;
 }
 
 const same = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
@@ -135,12 +175,14 @@ export const speedPercent = (speed: number) => `${formatNumber(speed * 100, 4)} 
 
 /**
  * The chart's data: each member's curve at its speed (members with one curve at one speed on one
- * line), each member's point, and from `response` the group curve and the station's duty.
+ * line), each member's point, from `response` the group curve and the station's duty, and from
+ * `system` (the same request with curve 'system') the group system curve.
  */
 export function groupChartData(
 	members: readonly GroupMemberInput[],
 	prefs: UnitPreferences,
-	response: PumpGroupCurveResponse | null
+	response: PumpGroupCurveResponse | null,
+	system: PumpGroupCurveResponse | null = null
 ): GroupChartData {
 	const flowUnit = displayUnit('flow', prefs);
 	const headUnit = displayUnit('head', prefs);
@@ -185,7 +227,19 @@ export function groupChartData(
 			points.push({ id: member.id, name: member.name, style, point: data.held, held: true });
 		}
 	}
-	const duty = response?.duty ?? null;
+	const duty = response?.duty ?? system?.duty ?? null;
+	const systemPoints = system?.systemPoints.length
+		? [...system.systemPoints].sort((a, b) => a.flow - b.flow)
+		: null;
+	const systemLine =
+		systemPoints?.map((p) => ({
+			x: fromSI(p.flow, flowUnit),
+			y: p.head === null ? null : fromSI(p.head, headUnit)
+		})) ?? null;
+	const systemDrawn = !!systemLine?.some((p) => p.y !== null);
+	const onCurve = !!response?.dutyCheck?.agrees;
+	const onSystem = !!system?.systemDutyCheck?.agrees;
+	const crossing = onCurve && onSystem && !!response?.points.length && systemDrawn;
 	return {
 		flowUnit: unitLabel('flow', flowUnit),
 		headUnit: unitLabel('head', headUnit),
@@ -197,10 +251,25 @@ export function groupChartData(
 		station: duty
 			? {
 					point: at(duty.flow, duty.head),
-					onCurve: !!response?.dutyCheck?.agrees,
-					flow: fromSI(dutyFlow(duty.flow), flowUnit)
+					onCurve,
+					onSystem,
+					crossing,
+					flow: fromSI(dutyFlow(duty.flow), flowUnit),
+					label: crossing
+						? 'Group duty, where the group curve and the group system curve cross'
+						: onCurve
+							? systemDrawn
+								? 'Group duty, on the group curve'
+								: 'Group duty, on the curve'
+							: onSystem && systemDrawn
+								? 'Group duty, on the group system curve'
+								: "Group duty (the solve's)",
+					tag: crossing ? 'Group (crossing)' : 'Group'
 				}
-			: null
+			: null,
+		system: systemLine,
+		systemMissing: (systemLine ?? []).filter((p) => p.y === null).length,
+		systemTotal: systemLine?.length ?? 0
 	};
 }
 
@@ -291,6 +360,17 @@ export function groupLegend(data: GroupChartData): GroupLegendItem[] {
 					}
 				]
 			: []),
+		...(data.system?.some((p) => p.y !== null)
+			? [
+					{
+						key: 'group-system',
+						label: GROUP_SYSTEM_LABEL,
+						kind: 'line' as const,
+						color: GROUP_SYSTEM,
+						dash: []
+					}
+				]
+			: []),
 		...data.points.map((p): GroupLegendItem => ({
 			key: `point-${p.id}`,
 			label: p.held ? `${p.name}, held at zero flow` : p.name,
@@ -302,7 +382,7 @@ export function groupLegend(data: GroupChartData): GroupLegendItem[] {
 			? [
 					{
 						key: 'station',
-						label: data.station.onCurve ? 'Group duty, on the curve' : "Group duty (the solve's)",
+						label: data.station.label,
 						kind: 'marker' as const,
 						color: GROUP_INK,
 						symbol: STATION_SYMBOL
@@ -366,10 +446,29 @@ export function groupImageTitle(names: readonly string[], arrangement: string | 
 export type GroupCurveNoteKind =
 	'loading' | 'error' | 'cancelled' | 'refused' | 'missing' | 'few' | 'not_converged' | 'no_duty';
 
+/** The state of the group system curve the card tells, with the control beside it. */
+export type GroupSystemNoteKind =
+	'loading' | 'error' | 'cancelled' | 'refused' | 'missing' | 'not_converged' | 'no_duty';
+
 /** The sentences under the chart, which the image's footer repeats (proposal §6.4). */
 export interface GroupNotes {
 	/** The group curve's state (null: drawn whole). */
 	curve: { kind: GroupCurveNoteKind; text: string } | null;
+	/**
+	 * The group system curve's state (null: drawn whole, or not asked for: it is asked for after
+	 * the group curve's answer, store.wantsGroupSystemCurve).
+	 */
+	systemCurve: { kind: GroupSystemNoteKind; text: string } | null;
+	/**
+	 * What the group system curve is (proposal §7's note, the station's ports named), when it has
+	 * a response with a duty.
+	 */
+	system: string | null;
+	/**
+	 * The group system curve at the duty's flow: whether it passes through the Group point (and
+	 * crosses the group curve there), or why that is not known.
+	 */
+	systemDuty: string[];
 	/** Which flow each line is drawn against. */
 	axes: string;
 	/** The frame: the rise between S and D, and each member's loss on its way (or between them). */
@@ -388,16 +487,30 @@ export interface GroupNotesInput {
 	data: GroupChartData;
 	members: readonly GroupMemberInput[];
 	state: GroupCurveState | undefined;
+	/** The group system curve's state (undefined: not asked for, or unavailable). */
+	system?: GroupSystemCurveState | undefined;
 	/** The labels project: names of the station's ports. */
 	project: Project;
+	/** The project as solved: each element's kind, for the rule a reason names (default `project`). */
+	solved?: Project | null;
 	prefs: UnitPreferences;
 }
 
 /** The figure's notes, from one function the screen and the image both use. */
-export function groupNotes({ data, members, state, project, prefs }: GroupNotesInput): GroupNotes {
+export function groupNotes({
+	data,
+	members,
+	state,
+	system,
+	project,
+	solved,
+	prefs
+}: GroupNotesInput): GroupNotes {
 	const headUnit = displayUnit('head', prefs);
 	const head = (m: number) => `${formatNumber(fromSI(m, headUnit), 4)} ${data.headUnit}`;
 	const response = state?.status === 'ready' ? state.response : null;
+	/** Refused only for an active PRV or PSV inside: a station, with no group curve there. */
+	const undefinedThere = state?.status === 'refused' && pressureControlOnly(state.issues);
 	const name = (id: string) => members.find((m) => m.id === id)?.name ?? id;
 	const ordered = response
 		? response.station.memberIds.map((id) => members.find((m) => m.id === id)).filter((m) => !!m)
@@ -425,7 +538,9 @@ export function groupNotes({ data, members, state, project, prefs }: GroupNotesI
 							: state.status === 'refused'
 								? {
 										kind: 'refused',
-										text: 'These pumps do not form a station, so they have no group curve; their own curves and points are drawn.'
+										text: undefinedThere
+											? "These pumps form a station, but its group curve is not defined there; its group system curve is, and the pumps' own curves and points are drawn."
+											: 'These pumps do not form a station, so they have no group curve; their own curves and points are drawn.'
 									}
 								: !state.response.converged
 									? {
@@ -451,9 +566,21 @@ export function groupNotes({ data, members, state, project, prefs }: GroupNotesI
 													}
 												: null;
 
-	const axes = response?.duty
-		? "Each pump's curve and point are drawn against the flow through that pump; the group curve and the Group point against the station's flow, the net flow into the station at its inlet."
-		: "Each pump's curve and point are drawn against the flow through that pump.";
+	const systemShown = data.system?.some((p) => p.y !== null) ?? false;
+	const against = andList([
+		...(response?.duty ? ['the group curve'] : []),
+		...(systemShown ? ['the group system curve'] : []),
+		...(data.station ? ['the Group point'] : [])
+	]);
+	const axes =
+		response?.duty || (systemShown && data.station)
+			? `Each pump's curve and point are drawn against the flow through that pump; ${against} against the station's flow, the net flow into the station at its inlet.`
+			: "Each pump's curve and point are drawn against the flow through that pump.";
+	const {
+		systemCurve,
+		system: systemNote,
+		systemDuty
+	} = groupSystemNotes(data, state, system, project, prefs, solved);
 
 	let frame: string | null = null;
 	const duty: string[] = [];
@@ -547,6 +674,9 @@ export function groupNotes({ data, members, state, project, prefs }: GroupNotesI
 
 	return {
 		curve,
+		systemCurve,
+		system: systemNote,
+		systemDuty,
 		axes,
 		frame,
 		duty,
@@ -555,6 +685,108 @@ export function groupNotes({ data, members, state, project, prefs }: GroupNotesI
 			"Each pump's own system curve is on its pump chart above; it crosses that pump's curve, not the group curve.",
 		dashed
 	};
+}
+
+/** The tolerance of the group system curve's duty check (D6): 0.5 % of the rise, or this, m. */
+export const SYSTEM_DUTY_CHECK_FLOOR = 0.01;
+
+/**
+ * The group system curve's notes (slice 4b): its state, what it is, and whether it passes through
+ * the Group point at the duty's flow (crossing the group curve there when the group curve's duty
+ * check agrees too), or why that is not known.
+ */
+function groupSystemNotes(
+	data: GroupChartData,
+	state: GroupCurveState | undefined,
+	system: GroupSystemCurveState | undefined,
+	project: Project,
+	prefs: UnitPreferences,
+	solved?: Project | null
+): Pick<GroupNotes, 'systemCurve' | 'system' | 'systemDuty'> {
+	const headUnit = displayUnit('head', prefs);
+	const head = (m: number) => `${formatNumber(fromSI(m, headUnit), 4)} ${data.headUnit}`;
+	const response = system?.status === 'ready' ? system.response : null;
+	const systemCurve: GroupNotes['systemCurve'] =
+		system === undefined
+			? null
+			: system.status === 'loading'
+				? { kind: 'loading', text: 'Computing the group system curve for this solve…' }
+				: system.status === 'error'
+					? {
+							kind: 'error',
+							text: `The group system curve could not be computed: ${system.message}`
+						}
+					: system.status === 'cancelled'
+						? {
+								kind: 'cancelled',
+								text:
+									system.by === 'user'
+										? 'The group system curve was not computed: you cancelled it.'
+										: system.by === 'goalSeek'
+											? 'The group system curve was not computed: a goal seek was started.'
+											: 'The group system curve was not computed: a new solve was started.'
+							}
+						: system.status === 'refused'
+							? {
+									kind: 'refused',
+									text: `No group system curve: ${sentence(system.message || 'these pumps do not form a station')}`
+								}
+							: !system.response.converged
+								? {
+										kind: 'not_converged',
+										text: `The case's solve did not converge, so no group system curve is computed${system.response.message ? `: ${system.response.message}` : '.'}`
+									}
+								: !system.response.duty
+									? {
+											kind: 'no_duty',
+											text: `No group system curve for this case: ${sentence(system.response.message || 'the station has no duty in this case')}`
+										}
+									: data.systemTotal && data.systemMissing === data.systemTotal
+										? {
+												kind: 'missing',
+												text: 'No point of the group system curve has a rise, so it is not drawn; the data table says why for each.'
+											}
+										: data.systemMissing
+											? {
+													kind: 'missing',
+													text: `${data.systemMissing} of ${data.systemTotal} group-system-curve points have no rise: the line has gaps there, and the data table says why for each.`
+												}
+											: null;
+
+	let note: string | null = null;
+	const duty: string[] = [];
+	if (response?.duty) {
+		const s = stationPortWords(response.station.inlet, project);
+		const d = stationPortWords(response.station.outlet, project);
+		note = `The group's system curve is the rise the rest of the network needs between ${s} and ${d} at each total flow; it does not depend on how the pumps share the flow.`;
+		const check = response.systemDutyCheck;
+		const groupAgrees = state?.status === 'ready' && !!state.response.dutyCheck?.agrees;
+		const tolerance = `0.5 % or ${head(SYSTEM_DUTY_CHECK_FLOOR)}`;
+		if (check?.agrees) {
+			duty.push(
+				`At the duty's flow the group system curve gives the solve's rise (within ${tolerance}): it passes through the Group point${groupAgrees ? ', where it crosses the group curve' : ''}.`
+			);
+		} else if (check && check.head === null) {
+			const point = response.systemPoints.find((p) => p.isDuty);
+			const why = point
+				? systemPointNote(point, { project, solved, units: prefs, subject: 'station' }).text
+				: '';
+			duty.push(
+				`The group system curve has no rise at the duty's flow, so whether it passes through the Group point is not known${why ? `: ${lowerFirst(why)}` : '.'}`
+			);
+		} else if (check) {
+			duty.push(
+				`The group system curve does not pass through the Group point: at the duty's flow it needs a rise of ${head(check.head!)} (the solve: ${head(response.duty.head)}), more than ${tolerance} apart.`,
+				'Several steady states can exist (D13); the point is the one the solve found.'
+			);
+		}
+	}
+	return { systemCurve, system: note, systemDuty: duty };
+}
+
+/** "Its solve …" → "its solve …" (a sentence continued after a colon). */
+function lowerFirst(text: string): string {
+	return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
 /**
@@ -675,9 +907,12 @@ export function groupNoteLines(notes: GroupNotes, refusals: readonly string[] = 
 	return [
 		notes.curve?.text,
 		...refusals,
+		notes.systemCurve?.text,
 		notes.frame,
+		notes.system,
 		notes.axes,
 		...notes.duty,
+		...notes.systemDuty,
 		...notes.members,
 		notes.dashed,
 		notes.systemCurves
@@ -692,10 +927,14 @@ export function groupSummary(
 	data: GroupChartData,
 	members: readonly GroupMemberInput[],
 	response: PumpGroupCurveResponse | null,
-	project: Project
+	project: Project,
+	system: PumpGroupCurveResponse | null = null
 ): string {
 	const fmt = (v: number) => formatNumber(v, 4);
-	const share = (id: string) => response?.duty?.members.find((m) => m.pumpId === id)?.share ?? null;
+	/** The station and its duty: the group curve's, else the group system curve's (the same). */
+	const stationOf = response?.duty ? response : system?.duty ? system : null;
+	const share = (id: string) =>
+		stationOf?.duty?.members.find((m) => m.pumpId === id)?.share ?? null;
 	const parts = members.map((m) => {
 		const p = data.points.find((pt) => pt.id === m.id);
 		const s = share(m.id);
@@ -706,13 +945,26 @@ export function groupSummary(
 			? `${m.name} held at zero flow, ${fmt(p.point.y)} ${data.headUnit} across it${shareText}`
 			: `${m.name} at ${fmt(p.point.x)} ${data.flowUnit} and ${fmt(p.point.y)} ${data.headUnit}${shareText}`;
 	});
+	const systemShown = data.system?.some((p) => p.y !== null) ?? false;
+	const on = data.station?.crossing
+		? ', on the group curve and the group system curve, where they cross'
+		: data.station?.onCurve
+			? ', on the group curve'
+			: data.station?.onSystem && systemShown
+				? ', on the group system curve'
+				: '';
 	const station =
-		response?.duty && data.station
-			? `; station duty ${fmt(data.station.flow)} ${data.flowUnit} at a rise of ${fmt(data.station.point.y)} ${data.headUnit} from ${stationPortWords(response.station.inlet, project)} to ${stationPortWords(response.station.outlet, project)}${data.station.onCurve ? ', on the group curve' : ''}`
+		stationOf && data.station
+			? `; station duty ${fmt(data.station.flow)} ${data.flowUnit} at a rise of ${fmt(data.station.point.y)} ${data.headUnit} from ${stationPortWords(stationOf.station.inlet, project)} to ${stationPortWords(stationOf.station.outlet, project)}${on}`
 			: '';
 	const curve =
 		data.curve && data.missing < data.total ? '; group curve shown' : '; no group curve shown';
-	return `Pump curves and points of ${parts.join('; ')}${station}${curve}.`;
+	const systemCurve = system
+		? systemShown
+			? '; group system curve shown'
+			: '; no group system curve shown'
+		: '';
+	return `Pump curves and points of ${parts.join('; ')}${station}${curve}${systemCurve}.`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -898,6 +1150,130 @@ export function groupSampleRows(
 							? notConverged(p.message)
 							: p.message
 		}));
+}
+
+/** A group system curve's sample as the data table lists it (formatted, display units). */
+export interface GroupSystemRow {
+	flow: string;
+	/** The rise ('—' without one). */
+	rise: string;
+	/** Duty: the point at the duty's flow (the system duty check). */
+	duty: boolean;
+	/** Why the point has no rise ('' when it has one), in names and display units. */
+	note: string;
+	/** The API's sentence, when `note` is told in the browser. */
+	detail?: string;
+}
+
+/**
+ * Every sample of the group system curve, in flow order, with its rise or why it has none: the
+ * pump chart's system-curve rows (system-curve-text.ts), in the station's words. `names` tells a
+ * reason with element names (the labels project) and each element's rule from the project as
+ * solved; without it, a point keeps the API's sentence.
+ */
+export function groupSystemRows(
+	response: PumpGroupCurveResponse,
+	prefs: UnitPreferences,
+	names: Omit<SystemCurveTextContext, 'units' | 'subject'> | null = null
+): GroupSystemRow[] {
+	const flowUnit = displayUnit('flow', prefs);
+	const headUnit = displayUnit('head', prefs);
+	const fmt = (v: number) => formatNumber(v, 4);
+	return [...response.systemPoints]
+		.sort((a, b) => a.flow - b.flow)
+		.map((p: PumpGroupSystemPoint) => {
+			const why =
+				p.head !== null
+					? { text: '' }
+					: names
+						? systemPointNote(p, { ...names, units: prefs, subject: 'station' })
+						: { text: p.message };
+			return {
+				flow: fmt(fromSI(p.flow, flowUnit)),
+				rise: p.head === null ? '—' : fmt(fromSI(p.head, headUnit)),
+				duty: p.isDuty,
+				note: why.text,
+				...(why.detail ? { detail: why.detail } : {})
+			};
+		});
+}
+
+/** The group system curve's duty check in a few words, for the data table's Group duty line. */
+export function systemDutyCheckState(response: PumpGroupCurveResponse): string {
+	const check = response.systemDutyCheck;
+	if (!check) return '';
+	if (check.agrees) return 'the group system curve passes through it';
+	if (check.head !== null) return 'the group system curve does not pass through it';
+	return 'not known, the group system curve has no rise at the duty’s flow';
+}
+
+// ---------------------------------------------------------------------------------------------
+// Read along the curves (slice 4b)
+// ---------------------------------------------------------------------------------------------
+
+/** Where the readout marks the chart: the rise read and the points read there (display units). */
+export interface GroupReadoutMark {
+	/** The rise read (display unit). */
+	rise: number;
+	/** Each member's point (its flow, its own head) and the station's (its flow, the rise). */
+	points: ChartPoint[];
+}
+
+/** A sample of the group curve as the readout gives it. */
+export interface GroupReadoutSample {
+	/** "At a rise of 20 m: Pump PA 43.8 L/s, Pump PB 24 L/s, group 67.8 L/s". */
+	text: string;
+	/** The sample at the duty's rise. */
+	duty: boolean;
+	mark: GroupReadoutMark;
+}
+
+/**
+ * "Read along the curves": the group curve's samples in rise order, each with every member's
+ * flow and the station's at that rise, exactly as the response gives them (display units, the
+ * card's four figures), and the points to mark. Nothing between samples is read.
+ */
+export function groupReadout(
+	response: PumpGroupCurveResponse,
+	name: (pumpId: string) => string,
+	prefs: UnitPreferences
+): GroupReadoutSample[] {
+	const flowUnit = displayUnit('flow', prefs);
+	const headUnit = displayUnit('head', prefs);
+	const flowLabel = unitLabel('flow', flowUnit);
+	const headLabel = unitLabel('head', headUnit);
+	const fmt = (v: number) => formatNumber(v, 4);
+	return [...response.points]
+		.sort((a, b) => a.head - b.head)
+		.map((p) => {
+			const rise = fromSI(p.head, headUnit);
+			const at = `At a rise of ${fmt(rise)} ${headLabel}`;
+			if (p.flow === null) {
+				return {
+					text: `${at}: no flow solved here; the data table says why.`,
+					duty: p.isDuty,
+					mark: { rise, points: [] }
+				};
+			}
+			const members = response.station.memberIds.flatMap((id) => {
+				const m = p.members.find((x) => x.pumpId === id);
+				if (!m) return [];
+				const state =
+					m.status === 'running' ? '' : ` (${STATUS_WORDS[m.status]?.toLowerCase() ?? m.status})`;
+				return [`${name(id)} ${fmt(fromSI(m.flow, flowUnit))} ${flowLabel}${state}`];
+			});
+			const points: ChartPoint[] = [
+				...p.members.flatMap((m) =>
+					m.head === null ? [] : [{ x: fromSI(m.flow, flowUnit), y: fromSI(m.head, headUnit) }]
+				),
+				{ x: fromSI(p.flow, flowUnit), y: rise }
+			];
+			return {
+				text: `${at}: ${[...members, `group ${fmt(fromSI(p.flow, flowUnit))} ${flowLabel}`].join(', ')}`,
+				duty: p.isDuty,
+				mark: { rise, points }
+			};
+		});
 }
 
 /** The methods section of the response: "How this curve is computed". */

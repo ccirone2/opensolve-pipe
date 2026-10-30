@@ -173,8 +173,11 @@ def test_ordered_fields_are_what_the_validators_enforce() -> None:
         ],
         "PipeVelocityCheck": [{"lower": "minimum", "upper": "maximum", "strict": True}],
         "AllowableOperatingRegion": [{"lower": "flowMin", "upper": "flowMax", "strict": True}],
-        # A group curve's rises (CLAUDE.md D21).
-        "PumpGroupCurveRequest": [{"lower": "headMin", "upper": "headMax", "strict": True}],
+        # A group curve's rises and a group system curve's flows (CLAUDE.md D21).
+        "PumpGroupCurveRequest": [
+            {"lower": "headMin", "upper": "headMax", "strict": True},
+            {"lower": "flowMin", "upper": "flowMax", "strict": True},
+        ],
         # A project library pipe spec's bore below its outer diameter (CLAUDE.md D22).
         "PipeSpec": [{"lower": "innerDiameter", "upper": "outerDiameter", "strict": True}],
     }
@@ -201,6 +204,15 @@ def test_ordered_fields_are_what_the_validators_enforce() -> None:
         with pytest.raises(ValidationError, match="headMax must be above headMin"):
             PumpGroupCurveRequest.model_validate({**group, "headMin": low, "headMax": 0.8})
     PumpGroupCurveRequest.model_validate({**group, "headMax": -0.8})  # one alone is free
+    system = {**group, "curve": "system"}
+    PumpGroupCurveRequest.model_validate({**system, "flowMin": 0.5, "flowMax": 0.8})
+    PumpGroupCurveRequest.model_validate(
+        {**system, "flowMin": math.nextafter(0.8, -math.inf), "flowMax": 0.8}
+    )
+    for low in (0.8, 0.95):
+        with pytest.raises(ValidationError, match="flowMax must be above flowMin"):
+            PumpGroupCurveRequest.model_validate({**system, "flowMin": low, "flowMax": 0.8})
+    PumpGroupCurveRequest.model_validate({**system, "flowMin": 0.9})  # one alone is free
     PipeSpec.model_validate({"innerDiameter": 0.8, **spec})
     variables = {
         "ComponentVariable": {"kind": "component", "componentId": "R1", "field": "liquidLevel"},

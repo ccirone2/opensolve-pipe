@@ -459,10 +459,13 @@ def link_states(
     controls: dict[str, Control],
     branches: "dict[str, BranchTracker] | None" = None,
     forced: Mapping[str, float] | None = None,
+    forced_links: Mapping[int, float] | None = None,
 ) -> list[LinkState]:
     """Link modes for the next inner solve. ``forced``: pump id -> flow, m³/s; that pump's
-    link is a FIXED_FLOW link (a system-curve solve, design §13). A speed-controlled pump holding
-    its setpoint is a FIXED_FLOW link too; at its minimum speed it is a NORMAL link with the
+    link is a FIXED_FLOW link (a system-curve solve, design §13). ``forced_links``: link index
+    -> flow, m³/s, for links that are no element's (a pump station's virtual link from its inlet
+    to its outlet, CLAUDE.md D21), FIXED_FLOW likewise. A speed-controlled pump holding its
+    setpoint is a FIXED_FLOW link too; at its minimum speed it is a NORMAL link with the
     minimum-speed law in place of its own (CLAUDE.md D11)."""
     states = [NORMAL for _ in built.network.links]
     for control in controls.values():
@@ -483,6 +486,8 @@ def link_states(
             states[tracker.geometry.legs[tracker.dead_leg]] = CLOSED
     for pump_id, flow in (forced or {}).items():
         states[built.pumps[pump_id].link_index] = LinkState(LinkMode.FIXED_FLOW, flow)
+    for index, flow in (forced_links or {}).items():
+        states[index] = LinkState(LinkMode.FIXED_FLOW, flow)
     for link in built.held_closed:  # a pump station solved alone (``BuiltNetwork.held_closed``)
         states[link] = CLOSED
     return states
@@ -1789,21 +1794,25 @@ def run_outer_loop(
     warm: "OuterLoopResult | None" = None,
     open_valves: bool = False,
     held_open: Collection[str] = (),
+    forced_links: Mapping[int, float] | None = None,
 ) -> OuterLoopResult:
     """The outer loop (module docstring). ``forced_flows``: pump id -> flow, m³/s, for a
     system-curve solve: each such pump is replaced by a fixed flow (design §13) and takes no
     part in the status rules; every other element follows its rules as in a normal solve.
+    ``forced_links``: link index -> flow, m³/s, for links that are no element's (a pump
+    station's virtual link, CLAUDE.md D21), fixed likewise (``link_states``).
     ``warm``: a converged solve of the same network to start from (``_warm_start``).
     ``open_valves``: active control valves start open; ``held_open``: these control valves are
     held open, out of the rules (``initial_controls``)."""
     controls = initial_controls(built, forced_flows, open_valves=open_valves, held_open=held_open)
     branches = initial_branches(built)
     forced = dict(forced_flows or {})
+    links_forced = dict(forced_links or {})
     flows: FloatArray | None = None
     if warm is not None:
         _warm_start(built, controls, branches, warm)
         flows = np.array(warm.gga.flows, dtype=np.float64)
-    states = link_states(built, controls, branches, forced)
+    states = link_states(built, controls, branches, forced, links_forced)
     history: list[StatusVector] = [_vector(controls, branches)]
     failed: dict[StatusVector, GgaResult] = {}
     """States whose inner solve failed, and how (to fall back again without re-solving)."""
@@ -1895,7 +1904,7 @@ def run_outer_loop(
                     _apply(built, tracker, initial_solution())
                     tracker.history.clear()
                 history = [_vector(controls, branches)]
-                states = link_states(built, controls, branches, forced)
+                states = link_states(built, controls, branches, forced, links_forced)
                 flows = None
                 continue
             opened = (
@@ -1923,7 +1932,7 @@ def run_outer_loop(
                     named,
                 )
             history.append(_vector(controls, branches))
-            states = link_states(built, controls, branches, forced)
+            states = link_states(built, controls, branches, forced, links_forced)
             flows = None  # the failed iterate is no starting point
             continue
         released = release_held_legs(built, branches, result.flows, result.heads)
@@ -1979,7 +1988,7 @@ def run_outer_loop(
             if not free:
                 counted -= 1
             history = [_vector(controls, branches)]
-            states = link_states(built, controls, branches, forced)
+            states = link_states(built, controls, branches, forced, links_forced)
             flows = np.asarray(result.flows, dtype=np.float64)
             continue
         vector = _vector(controls, branches)
@@ -2021,7 +2030,7 @@ def run_outer_loop(
                 if not free:
                     counted -= 1
                 history = [_vector(controls, branches)]
-                states = link_states(built, controls, branches, forced)
+                states = link_states(built, controls, branches, forced, links_forced)
                 flows = np.asarray(result.flows, dtype=np.float64)
                 continue
             if not sequential and any(m in branches for m in members):
@@ -2029,7 +2038,7 @@ def run_outer_loop(
                 # forth; continue with the statuses waiting for the branch losses to settle.
                 sequential = True
                 history = [history[-1], vector]
-                states = link_states(built, controls, branches, forced)
+                states = link_states(built, controls, branches, forced, links_forced)
                 flows = np.asarray(result.flows, dtype=np.float64)
                 continue
             proposed = [cid for cid, c in controls.items() if c.status is not before[cid]]
@@ -2047,13 +2056,13 @@ def run_outer_loop(
                     _one_change(controls, branches, before, proposed, tried)
                     vector = _vector(controls, branches)
                 history = [history[-1], vector]
-                states = link_states(built, controls, branches, forced)
+                states = link_states(built, controls, branches, forced, links_forced)
                 flows = np.asarray(result.flows, dtype=np.float64)
                 continue
             if single and _backtrack(controls, splits, [*history, *tried, vector]):
                 # Single-change mode came back to a state: take a change not taken before.
                 history.append(_vector(controls, branches))
-                states = link_states(built, controls, branches, forced)
+                states = link_states(built, controls, branches, forced, links_forced)
                 flows = np.asarray(result.flows, dtype=np.float64)
                 continue
             note, named = _over_control_note(built, controls, states, members)
@@ -2075,7 +2084,7 @@ def run_outer_loop(
                 named,
             )
         history.append(vector)
-        states = link_states(built, controls, branches, forced)
+        states = link_states(built, controls, branches, forced, links_forced)
         flows = np.asarray(result.flows, dtype=np.float64)
     # Reached only when the last outer iteration ended in a fallback (a branch restart, a held
     # leg or sequential mode) that would need another solve.
@@ -2597,6 +2606,8 @@ def _disconnected_report(
     for link, state in zip(net.links, states, strict=True):
         if (link.start in cut_off) == (link.end in cut_off):
             continue
+        if link.index in built.held_closed:
+            continue  # inside a pump station whose rest is solved: no element's to re-open
         if state.mode is not LinkMode.CLOSED and link.index not in starved:
             continue
         control = by_link.get(link.index)

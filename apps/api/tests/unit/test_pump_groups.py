@@ -1,9 +1,12 @@
-"""Pump groups (CLAUDE.md D21, proposal docs/proposals/pump-groups.md §5): the station finder and
-its reasons, the duty from the case's own solve, the group curve's grid and order, the error
-order of POST /api/v1/pump-group-curve, scenarios, the time budget and the methods section.
-The independent reference cases are tests/reference/test_pump_groups.py."""
+"""Pump groups (CLAUDE.md D21, proposal docs/proposals/pump-groups.md §5 and §7): the station
+finder and its reasons, the duty from the case's own solve, the group curve's grid and order, the
+group system curve (slice 4b: the crossing at the duty, a station of one pump against its own
+system curve, its independence from the members, its range and words), the error order of POST
+/api/v1/pump-group-curve, scenarios, the time budget and the methods section. The independent
+reference cases are tests/reference/test_pump_groups.py."""
 
 import copy
+import importlib
 from typing import Any
 
 import pytest
@@ -11,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from opensolve_pipe.main import app
 from opensolve_pipe.models.project import Project
+from opensolve_pipe.models.pump_groups import FlowRange
 from opensolve_pipe.services import pump_groups
 from opensolve_pipe.services.fluids import fluid_properties
 from opensolve_pipe.services.pump_groups import (
@@ -18,14 +22,20 @@ from opensolve_pipe.services.pump_groups import (
     find_station,
     group_curve,
     group_curve_case,
+    group_system_curve,
+    system_network,
 )
-from opensolve_pipe.services.solver import solve_project
+from opensolve_pipe.services.solver import solve_project, system_curve
 from opensolve_pipe.services.solver.budget import SolveDeadlineError
 from opensolve_pipe.services.solver.builder import build_network
+from opensolve_pipe.services.solver.system_curve import curve_flows
 from tests.reference import derivations_pumps as dp
+from tests.unit import relief_stations as rs
 
 client = TestClient(app)
 URL = "/api/v1/pump-group-curve"
+system_curve_module = importlib.import_module("opensolve_pipe.services.solver.system_curve")
+"""The module (``services.solver`` exports its function ``system_curve`` under the same name)."""
 
 
 def _parallel(model: str = "ideal") -> dict[str, Any]:
@@ -726,7 +736,8 @@ def test_head_bounds_are_ordered_and_published() -> None:
     assert "5" not in r.json()["issues"][0]["message"]  # never quoting a submitted value
     schema = client.get("/openapi.json").json()["components"]["schemas"]
     assert schema["PumpGroupCurveRequest"]["x-ordered-fields"] == [
-        {"lower": "headMin", "upper": "headMax", "strict": True}
+        {"lower": "headMin", "upper": "headMax", "strict": True},
+        {"lower": "flowMin", "upper": "flowMax", "strict": True},
     ]
     assert "NOT_A_STATION" in schema["ErrorResponse"]["properties"]["error"]["enum"]
 
@@ -821,3 +832,455 @@ def test_a_rise_into_a_floating_section_has_no_duty() -> None:
         "the station's outlet T0 (branch) lies in a part of the network that no reservoir or "
         "reference node reaches (UNDETERMINED_PRESSURE), and its inlet does not"
     )
+
+
+# --------------------------------------------------------------------------- the group system curve
+
+
+def _grid(curve: pump_groups.GroupCurve, flows: list[float]) -> dict[float, tuple[Any, ...]]:
+    """The points at ``flows`` (the evenly spaced grid, not an added duty's flow)."""
+    return {p.flow: (p.head, p.reason) for p in curve.system_points if p.flow in flows}
+
+
+@pytest.mark.parametrize("model", ["ideal", "crane"])
+def test_the_group_system_curve_crosses_the_duty(model: str) -> None:
+    sc = group_system_curve(Project.model_validate(_parallel(model)), ["PA", "PB"], num_points=9)
+    assert sc.duty is not None
+    assert sc.system_duty_check is not None
+    assert sc.system_duty_check.agrees
+    [at] = [p for p in sc.system_points if p.is_duty]
+    assert at.flow == sc.duty.flow
+    assert at.head == pytest.approx(sc.duty.head, abs=1e-9)
+    assert sc.system_duty_check.head == at.head
+    assert len(sc.system_points) == 10  # nine flows and the duty's
+    assert [p.flow for p in sc.system_points] == sorted(p.flow for p in sc.system_points)
+    assert all(p.head is not None and p.reason is None for p in sc.system_points)
+    assert (sc.points, sc.head_range, sc.duty_check) == ([], None, None)
+
+
+def test_a_station_of_one_pump_gives_the_pump_s_own_system_curve() -> None:
+    """The same code with the virtual link in place of the pump's own: equal bit for bit."""
+    for project in (Project.model_validate(_parallel("crane")), Project.model_validate(_series())):
+        for pid in ("PA", "PB"):
+            one = group_system_curve(project, [pid], flow_min=0.0, flow_max=0.08, num_points=11)
+            own = system_curve(project, pid, flow_min=0.0, flow_max=0.08, num_points=11)
+            assert one.station.inlet_port.port_id == "suction"
+            assert one.station.outlet_port.port_id == "discharge"
+            flows = [p.flow for p in own.points]
+            assert _grid(one, flows) == {
+                p.flow: (p.head, None if p.reason is None else p.reason.code) for p in own.points
+            }
+
+
+def test_the_group_system_curve_does_not_depend_on_the_members() -> None:
+    """Every link inside is held closed: a member off, or another speed, changes the duty, not
+    the curve."""
+    flows = curve_flows(0.0, 0.1, 11)
+    data = _parallel("crane")
+    base = group_system_curve(
+        Project.model_validate(data), ["PA", "PB"], flow_min=0.0, flow_max=0.1, num_points=11
+    )
+    for change in ({"status": "off"}, {"speed": 1.0}):
+        edited = copy.deepcopy(data)
+        _component(edited, "PB").update(change)
+        other = group_system_curve(
+            Project.model_validate(edited), ["PA", "PB"], flow_min=0.0, flow_max=0.1, num_points=11
+        )
+        assert other.duty is not None
+        assert base.duty is not None
+        assert other.duty.flow != base.duty.flow
+        assert _grid(other, flows) == _grid(base, flows)
+
+
+def test_a_pressure_control_inside_refuses_the_group_curve_only() -> None:
+    data = _parallel()
+    _change(data, "prv")
+    project = Project.model_validate(data)
+    with pytest.raises(NotAStationError) as refused:
+        group_curve(project, ["PA", "PB"], num_points=5)
+    assert [i.code for i in refused.value.issues] == ["PRESSURE_CONTROL_INSIDE"]
+    sc = group_system_curve(project, ["PA", "PB"], num_points=5)
+    assert sc.duty is not None
+    assert sc.system_duty_check is not None
+    assert sc.system_duty_check.agrees
+    assert sc.flow_range is not None
+    assert sc.flow_range.max == 1.2 * sc.duty.flow  # no group curve to take the range from
+    text = " ".join(sc.methods.items)
+    assert "flowMax by default 1.2 × the duty's flow (no group curve: an active PRV or PSV" in text
+
+
+def test_the_default_flow_range_spans_the_group_curve() -> None:
+    project = Project.model_validate(_parallel())
+    gc = group_curve(project, ["PA", "PB"])
+    sc = group_system_curve(project, ["PA", "PB"])
+    assert gc.duty is not None
+    largest = max([gc.duty.flow, *(p.flow for p in gc.points if p.flow is not None)])
+    assert sc.flow_range == FlowRange(min=0.0, max=1.2 * largest, unit="m³/s")
+    assert "the duty's flow and the group curve's flows" in " ".join(sc.methods.items)
+
+
+def test_with_every_member_off_the_range_comes_from_the_pumps_curves() -> None:
+    data = _parallel()
+    for pid in ("PA", "PB"):
+        _component(data, pid)["status"] = "off"
+    project = Project.model_validate(data)
+    built = build_network(project, fluid_properties(project.fluid))
+    sc = group_system_curve(project, ["PA", "PB"], num_points=5)
+    assert sc.duty is not None
+    assert abs(sc.duty.flow) < 1e-15  # round-off of the closed members' flows
+    total = sum(
+        built.pumps[p].curve.flow_range[1] * built.pumps[p].component.speed for p in ("PA", "PB")
+    )
+    assert sc.flow_range is not None
+    assert sc.flow_range.max == pytest.approx(1.2 * total, rel=1e-15)
+    assert (
+        "flowMax by default 1.2 × the sum over the pumps of their curves' largest flows × their "
+        "speeds" in " ".join(sc.methods.items)
+    )
+    [at] = [p for p in sc.system_points if p.is_duty]
+    assert at.flow == sc.duty.flow
+    assert len(sc.system_points) == 6
+
+
+def test_messages_name_the_station_not_a_pump() -> None:
+    """An FCV on the delivery line holds every flow above its setpoint off the curve, in words of
+    the station's inlet and outlet."""
+    data = _parallel()
+    _split(
+        data,
+        "L2",
+        {
+            "type": "valve",
+            "valveType": "fcv",
+            "id": "FC",
+            "name": "FC",
+            "elevation": 0.5,
+            "setpoint": 0.03,
+            "ports": _ports("inlet", "outlet"),
+        },
+        "inlet",
+        "outlet",
+    )
+    sc = group_system_curve(Project.model_validate(data), ["PA", "PB"], num_points=9)
+    beyond = [p for p in sc.system_points if p.reason == "beyond_limit"]
+    assert beyond
+    assert all(p.flow > 0.03 and p.component_ids == ["FC"] for p in beyond)
+    assert all(
+        "every way from the station's outlet back to its inlet" in p.message
+        and "pump" not in p.message
+        for p in beyond
+    )
+
+
+def test_system_points_past_the_budget_are_not_computed(monkeypatch: pytest.MonkeyPatch) -> None:
+    real = system_curve_module.run_outer_loop
+    calls = {"n": 0}
+
+    def limited(*args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] > 3:  # the duty's flow and two more points
+            raise SolveDeadlineError("the request's 45 s budget ran out")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(system_curve_module, "run_outer_loop", limited)
+    sc = group_system_curve(
+        Project.model_validate(_parallel()), ["PA", "PB"], flow_min=0.0, flow_max=0.1, num_points=9
+    )
+    solved = [p for p in sc.system_points if p.head is not None]
+    skipped = [p for p in sc.system_points if p.reason == "not_computed"]
+    assert len(solved) == 3
+    assert any(p.is_duty for p in solved)
+    assert len(skipped) == len(sc.system_points) - 3
+    assert all(p.message.startswith("not computed: ") for p in skipped)
+    assert sc.system_duty_check is not None
+    assert sc.system_duty_check.agrees
+
+
+def test_a_duty_flow_out_of_time_is_not_solved(monkeypatch: pytest.MonkeyPatch) -> None:
+    def out_of_time(*args: Any, **kwargs: Any) -> Any:
+        raise SolveDeadlineError("the request's 45 s budget ran out")
+
+    monkeypatch.setattr(system_curve_module, "run_outer_loop", out_of_time)
+    sc = group_system_curve(
+        Project.model_validate(_parallel()), ["PA", "PB"], flow_min=0.0, flow_max=0.1, num_points=5
+    )
+    assert sc.system_duty_check is not None
+    assert not sc.system_duty_check.agrees
+    assert sc.system_duty_check.head is None
+    assert "was not solved (not computed: the request's 45 s budget ran out)" in (
+        sc.system_duty_check.message
+    )
+    assert all(p.reason == "not_computed" for p in sc.system_points)
+
+
+def test_a_case_that_does_not_converge_has_no_system_curve(monkeypatch: pytest.MonkeyPatch) -> None:
+    real = pump_groups.run_outer_loop
+
+    def failing(*args: Any, **kwargs: Any) -> Any:
+        outer = real(*args, **kwargs)
+        outer.converged = False
+        outer.message = "status oscillation"
+        return outer
+
+    monkeypatch.setattr(pump_groups, "run_outer_loop", failing)
+    sc = group_system_curve(Project.model_validate(_parallel()), ["PA", "PB"])
+    assert (sc.converged, sc.duty, sc.system_duty_check, sc.system_points, sc.flow_range) == (
+        False,
+        None,
+        None,
+        [],
+        None,
+    )
+    assert "Group system curve H_sys(Q)" in " ".join(sc.methods.items)
+
+
+def test_the_system_network_holds_the_inside_closed_and_adds_one_link() -> None:
+    project = Project.model_validate(_parallel())
+    built = build_network(project, fluid_properties(project.fluid))
+    station = find_station(project, built, ["PA", "PB"])
+    view, forced = system_network(built, station)
+    assert len(view.network.links) == len(built.network.links) + 1  # built is left alone
+    assert view.held_closed == station.interior_links
+    assert set(view.pumps) == set()
+    assert set(view.branches) == set()
+    virtual = view.network.links[forced.link_index]
+    assert (virtual.start, virtual.end) == (station.inlet[0], station.outlet[0])
+    assert (forced.suction, forced.discharge) == ("T1:run_inlet", "T2:run_outlet")
+    assert forced.pumps(0.01) == {}  # a system-curve solve with no pump forced (D23's relief start)
+    assert forced.links(0.01) == {forced.link_index: 0.01}
+    with pytest.raises(AssertionError):
+        virtual.law.evaluate(0.01)  # a fixed flow in every solve: its law is never evaluated
+
+
+def test_system_methods_section_defines_the_curve_and_its_check() -> None:
+    sc = group_system_curve(Project.model_validate(_parallel("crane")), ["PA", "PB"], num_points=5)
+    text = " ".join(sc.methods.items)
+    assert "Group system curve H_sys(Q): the rest of the network" in text
+    assert "System duty check: the rest of the network with the station's flow" in text
+    assert "Group curve Q_group" not in text
+    assert any(r.startswith("Gale, D.") for r in sc.methods.references)
+
+
+def test_a_scenario_s_system_curve_equals_the_hand_edited_project() -> None:
+    data = _parallel("crane")
+    data["components"].append(_reservoir("R9"))
+    edited = copy.deepcopy(data)
+    _component(edited, "R2")["liquidLevel"] = 12.0
+    data["scenarios"] = [
+        {
+            "id": "S1",
+            "name": "Higher",
+            "overrides": [
+                {"kind": "component", "componentId": "R2", "field": "liquidLevel", "value": 12.0}
+            ],
+        }
+    ]
+    data["components"] = [c for c in data["components"] if c["id"] != "R9"]
+    edited["components"] = [c for c in edited["components"] if c["id"] != "R9"]
+    by_case, scenario = group_curve_case(
+        Project.model_validate(data), ["PA", "PB"], "S1", curve="system", num_points=5
+    )
+    by_hand = group_system_curve(Project.model_validate(edited), ["PA", "PB"], num_points=5)
+    assert scenario is not None
+    assert by_case.duty == by_hand.duty
+    assert by_case.system_points == by_hand.system_points
+
+
+def test_the_endpoint_answers_with_the_group_system_curve() -> None:
+    r = client.post(
+        URL,
+        json={"project": _parallel(), "pumpIds": ["PA", "PB"], "curve": "system", "numPoints": 5},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert (body["points"], body["headRange"], body["dutyCheck"]) == ([], None, None)
+    assert body["systemDutyCheck"]["agrees"]
+    assert len(body["systemPoints"]) == 6
+    assert sum(p["isDuty"] for p in body["systemPoints"]) == 1
+    assert body["flowRange"]["unit"] == "m³/s"
+    assert "npshAvailable" not in body["systemPoints"][0]
+    r = client.post(URL, json={"project": _parallel(), "pumpIds": ["PA", "PB"], "numPoints": 5})
+    body = r.json()
+    assert (body["systemPoints"], body["flowRange"], body["systemDutyCheck"]) == ([], None, None)
+
+
+def test_flow_bounds_belong_to_the_system_curve() -> None:
+    group = {"project": _parallel(), "pumpIds": ["PA", "PB"]}
+    r = client.post(URL, json={**group, "flowMax": 0.1})  # curve 'group' by default
+    assert r.status_code == 400
+    assert "flowMin and flowMax apply to curve 'system' only" in r.json()["issues"][0]["message"]
+    system = {**group, "curve": "system"}
+    r = client.post(URL, json={**system, "flowMin": 0.1, "flowMax": 0.1})
+    assert r.status_code == 400
+    assert "0.1" not in r.json()["issues"][0]["message"]  # never quoting a submitted value
+    r = client.post(URL, json={**system, "flowMin": 50.0, "numPoints": 5})
+    assert r.status_code == 400
+    assert r.json()["issues"][0]["code"] == "EMPTY_FLOW_RANGE"
+    # An active PRV inside refuses the group curve, not the group system curve.
+    _change(group["project"], "prv")
+    assert client.post(URL, json={**group, "numPoints": 5}).status_code == 422
+    assert (
+        client.post(URL, json={**system, "project": group["project"], "numPoints": 5}).status_code
+        == 200
+    )
+
+
+def test_a_station_delivering_to_an_assigned_flow_only_has_no_rise() -> None:
+    """The outlet's side holds only an assigned flow, which no fixed head reaches: no steady state
+    carries another flow, and at the demand's the rise is undetermined. Every point says so,
+    naming the demand (the first build raised KeyError here: the outer loop's report on the
+    disconnected part looked up the tee held closed inside the station)."""
+    data = _parallel()
+    r2 = _component(data, "R2")
+    r2.clear()
+    r2.update(
+        id="R2",
+        name="R2",
+        elevation=20.0,
+        type="assigned_flow",
+        flow=0.05,
+        ports=_ports("port_1"),
+    )
+    for conn in data["connections"]:
+        for end in ("from", "to"):
+            if conn[f"{end}ComponentId"] == "R2":
+                conn[f"{end}PortId"] = "port_1"
+    sc = group_system_curve(Project.model_validate(data), ["PA", "PB"], num_points=5)
+    assert sc.duty is not None
+    assert sc.system_points
+    assert all(p.head is None and p.reason == "not_converged" for p in sc.system_points)
+    assert all("assigned-flow node" in p.message and "'R2'" in p.message for p in sc.system_points)
+    assert sc.system_duty_check is not None
+    assert not sc.system_duty_check.agrees
+
+
+def _with_flow_controlled_pump(data: dict[str, Any]) -> None:
+    """A flow-controlled pump P3 on the delivery line L2, holding 0.04 m³/s against R2 at 30 m."""
+    p3 = copy.deepcopy(_component(data, "PA"))
+    p3.update(id="P3", name="P3", control={"mode": "flow", "setpoint": 0.04, "minSpeed": 0.3})
+    _split(data, "L2", p3, "suction", "discharge")
+    _component(data, "R2")["liquidLevel"] = 30.0
+
+
+def test_points_name_the_station_s_pumps_never_its_forced_flow() -> None:
+    """At the flow controlled pump P3 holds, the station's flow and P3's over-control each other:
+    the point names P3 and the station's pumps (the outer loop names the forced link by its key,
+    which is no component, and its words call it 'station PA+PB', so a list of controls stays
+    readable), and a station of one pump names what its own system curve names."""
+    data = _parallel()
+    _with_flow_controlled_pump(data)
+    project = Project.model_validate(data)
+    sc = group_system_curve(project, ["PA", "PB"], flow_min=0.0, flow_max=0.08, num_points=3)
+    [mid] = [p for p in sc.system_points if p.flow == 0.04]
+    assert mid.reason == "not_converged"
+    assert mid.component_ids == ["P3", "PA", "PB"]
+    assert "the controls P3, station PA+PB are in series" in mid.message
+    _component(data, "PB")["status"] = "off"
+    project = Project.model_validate(data)
+    one = group_system_curve(project, ["PA"], flow_min=0.0, flow_max=0.08, num_points=3)
+    own = system_curve(project, "PA", flow_min=0.0, flow_max=0.08, num_points=3)
+    [alone] = [p for p in one.system_points if p.flow == 0.04 and not p.is_duty]
+    [pump] = [p for p in own.points if p.flow == 0.04]
+    assert pump.reason is not None
+    assert (alone.reason, alone.component_ids) == (
+        pump.reason.code,
+        list(pump.reason.component_ids),
+    )
+    assert alone.component_ids == ["P3", "PA"]
+
+
+def test_a_relief_valve_outside_starts_open_as_in_a_pump_s_system_curve() -> None:
+    """A relief valve outside the station starts open in every solve of the group system curve,
+    as in a pump's (``initial_controls``, CLAUDE.md D23): started closed, it starved the forced
+    flow, so P2 behind RV1 had no steady state at any flow but the duty. A station of one pump
+    gives its /system-curve bit for bit at every grid flow, and the pumps deadheaded behind a
+    closed relief valve get the rest's curve from its cracking head."""
+    project = Project.model_validate(rs.series_between())
+    flows = {"flow_min": 0.0, "flow_max": 0.04, "num_points": 5}
+    one = group_system_curve(project, ["P2"], **flows)
+    own = system_curve(project, "P2", **flows)
+    grid = [p for p in one.system_points if not p.is_duty]
+    assert [(p.flow, p.head, p.reason) for p in grid] == [
+        (p.flow, p.head, p.reason.code if p.reason else None) for p in own.points
+    ]
+    assert all(p.head is not None for p in grid)
+    both = group_system_curve(
+        Project.model_validate(rs.parallel_then_closed()), ["P1", "P2"], **flows
+    )
+    assert all(p.head is not None and p.head > 58.0 for p in both.system_points)
+
+
+def test_a_duty_at_round_off_below_zero_is_a_point() -> None:
+    """Every member off in series: the station's flow is round-off, maybe below 0; the default
+    range starts at the lower of 0 and the duty's flow, so the duty is a point (the group curve's
+    rises start at the lower of 0 and the duty's rise likewise)."""
+    data = _series()
+    _component(data, "PB")["status"] = "off"
+    sc = group_system_curve(Project.model_validate(data), ["PA", "PB"], num_points=5)
+    assert sc.duty is not None
+    assert sc.flow_range is not None
+    assert sc.flow_range.min == min(0.0, sc.duty.flow)
+    assert [p.flow for p in sc.system_points if p.is_duty] == [sc.duty.flow]
+    assert "flowMin by default the lower of 0 and the duty's flow" in " ".join(sc.methods.items)
+
+
+def test_the_empty_flow_range_message_names_the_rule_used() -> None:
+    data = _parallel()
+    _change(data, "prv")
+    r = client.post(
+        URL,
+        json={"project": data, "pumpIds": ["PA", "PB"], "curve": "system", "flowMin": 50.0},
+    )
+    assert r.status_code == 400
+    message = r.json()["issues"][0]["message"]
+    assert "by default 1.2 × the duty's flow (no group curve" in message
+    assert "50" not in message
+
+
+def test_a_duty_the_case_s_state_leaves_undetermined_says_so() -> None:
+    """A pump feeding exactly an assigned demand, a check valve closed on the tee's branch to a
+    high reservoir: at the demand's flow the rest leaves the level undetermined from the case's
+    own state (any rise up to the reservoir's holds, the valve closed), and the system curve's
+    point is the state another start finds, the valve open at the reservoir's level. The system
+    duty check says which (CLAUDE.md D13)."""
+    data = _series()
+    data["components"] = [c for c in data["components"] if c["id"] not in ("PB", "R2")]
+    data["connections"] = [c for c in data["connections"] if c["id"] != "L3"]
+    data["components"].append(
+        {
+            "type": "assigned_flow",
+            "id": "AF",
+            "name": "AF",
+            "elevation": 0.0,
+            "flow": 0.02,
+            "ports": _ports("port_1"),
+        }
+    )
+    _connection(data, "L2").update(toComponentId="AF", toPortId="port_1")
+    _split(data, "L2", _tee("T3"), "run_inlet", "run_outlet")
+    data["components"] += [
+        {
+            "type": "valve",
+            "valveType": "check",
+            "id": "CV",
+            "name": "CV",
+            "elevation": 0.5,
+            "ports": _ports("inlet", "outlet"),
+        },
+        _reservoir("R3", level=200.0),
+    ]
+    _pipe(data, "LC1", ("T3", "branch"), ("CV", "inlet"))
+    _pipe(data, "LC2", ("CV", "outlet"), ("R3", "port_1"))
+    project = Project.model_validate(data)
+    state = solve_project(project)
+    assert state.valve_results["CV"].state == "closed"
+    sc = group_system_curve(project, ["PA"], num_points=5)
+    assert sc.duty is not None
+    assert sc.duty.flow == pytest.approx(0.02)
+    check = sc.system_duty_check
+    assert check is not None
+    assert not check.agrees
+    assert check.head is not None
+    assert check.head > 190.0  # the tee at R3's level, the valve open
+    assert "solved from the case's own state, leaves the rise undetermined" in check.message
+    assert "another steady state, found from another start" in check.message

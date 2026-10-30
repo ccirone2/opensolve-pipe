@@ -12,14 +12,14 @@
 	pump-groups.md §6): its members are page state (the workspace's `pumpGroup`, the same in every
 	case), defaulting to the group suggested on the topology as solved for the pump viewed; its
 	group curve is computed on demand for this solve and case, cached with it (ProjectStore
-	loadGroupCurve).
+	loadGroupCurve), and after its answer the group system curve (slice 4b, loadGroupSystemCurve).
 -->
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import type { SolvedState } from '$lib/api/types';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
-	import type { FlowRange } from '$lib/state/project.svelte';
+	import { wantsGroupSystemCurve, type FlowRange } from '$lib/state/project.svelte';
 	import { caseResponse } from '$lib/utils/compare';
 	import type { ChartImageSource } from '$lib/utils/export/chart-image';
 	import { calculatingReason } from '$lib/utils/goal-seek';
@@ -313,6 +313,9 @@
 	const groupState = $derived(
 		groupUnavailable ? undefined : ws.store.groupCurve(response, groupMembers)
 	);
+	const groupSystemState = $derived(
+		groupUnavailable ? undefined : ws.store.groupSystemCurve(response, groupMembers)
+	);
 	const groupList = $derived(groupMembers.join('\u0000'));
 
 	// Opening the card with two members or more asks for their group curve, once per solve.
@@ -320,6 +323,14 @@
 		const ids = groupList ? groupList.split('\u0000') : [];
 		if (!ws.pumpGroupOpen || ids.length < 2 || !response || groupUnavailable) return;
 		untrack(() => ws.store.loadGroupCurve(ids));
+	});
+	// Then, once the group curve has answered (with a duty, or refused only for an active PRV or
+	// PSV inside), their group system curve, once per solve (slice 4b).
+	const wantsSystem = $derived(wantsGroupSystemCurve(groupState));
+	$effect(() => {
+		const ids = groupList ? groupList.split('\u0000') : [];
+		if (!ws.pumpGroupOpen || !wantsSystem || ids.length < 2 || !response) return;
+		untrack(() => ws.store.loadGroupSystemCurve(ids));
 	});
 
 	function cancelOverlay() {
@@ -399,6 +410,9 @@
 			curve={groupState}
 			onretry={() => ws.store.loadGroupCurve(groupMembers, { retry: true })}
 			oncancel={() => ws.store.cancelGroupCurve(groupMembers)}
+			system={groupSystemState}
+			onretrysystem={() => ws.store.loadGroupSystemCurve(groupMembers, { retry: true })}
+			oncancelsystem={() => ws.store.cancelGroupSystemCurve(groupMembers)}
 			prefs={ws.displayUnits}
 			project={ws.labelsProject}
 			solvedProject={groupSolvedProject}

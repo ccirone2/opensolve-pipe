@@ -1,4 +1,4 @@
-"""Check the pump group curve over the corpus (CLAUDE.md D21; proposal pump-groups.md §9.1).
+"""Check the pump group curves over the corpus (CLAUDE.md D21; pump-groups.md §9.1, §9.2).
 
     uv run python -m tests.differential.pump_group_check [--workers N] [--only PREFIX]
                                                          [--every K] [--out FILE]
@@ -125,11 +125,70 @@ names), and then a message and nothing else. The checks read the station as the 
   points those rises evenly spaced (to 1e-9 of the span), in rise order, with the duty's rise
   among them exactly once, marked ``isDuty``, its head the duty's exactly.
 
+**Group system curve checks** (slice 4b, proposal §3.4 and §9.2; curve 'system', which an
+active PRV or PSV inside does not refuse):
+
+- (t1) every group: ``find_station(pressure_controls=False)`` is ``find_station``'s station when
+  that accepts the group; refuses it with exactly the same issues less the
+  ``PRESSURE_CONTROL_INSIDE`` ones when those are not all; and, when they are all, accepts it
+  with the second finder's station (s2)-(s4). For every station so accepted,
+  ``group_system_curve(numPoints=SYSTEM_POINTS)`` on its default range: its station
+  ``find_station``'s (or the same swapped, when no member orients it), its duty, ``converged``
+  and ``message`` ``group_curve``'s exactly, no group-curve fields; without a duty no points,
+  check or range; with one, ``flowRange`` [the lower of 0 and Q_st, the default flowMax
+  recomputed here: 1.2 × the largest of Q_st and ``group_curve``'s point flows at the same
+  ``numPoints`` (Q_st alone with an active PRV or PSV inside), or, where none exceeds 1e-6
+  m³/s, 1.2 × the sum of each member's
+  curve's last data flow × its speed (``pump_library``)]; the points in increasing flow, the
+  ``numPoints`` flows of ``numpy.linspace`` over the range and Q_st, exactly one point marked
+  ``isDuty`` at Q_st when Q_st lies in the range (none when it does not, counted), standing for
+  the grid flow it equals; ``reason`` null, ``converged`` true and ``message`` '' exactly when a
+  point has a rise (and then every reason field empty), one of D10's nine codes otherwise; no
+  message in a pump's words ('the pump', 'suction', 'discharge', 'head across'); the system
+  duty check's rise the duty point's and ``agrees`` as recomputed (|H_sys(Q_st) − ΔH_st| <=
+  max(0.5 % of |ΔH_st|, 0.01 m)). A disagreement is explained, counted and listed when the duty's
+  flow has no rise (its point's reason), or when the check says the rest has more than one
+  steady state there (D13) and either the station passes no flow (|Q_st| <= 1e-6 m³/s: a side
+  the interior held closed can hang on elements that are closed or open at zero flow) or a
+  control outside it, regulating in the case's solve, carries its whole flow (``at_switch``: a
+  PRV, PSV or FCV active, or a speed-controlled pump holding its setpoint, in series, so that at
+  Q_st it sits at its switch, D10's valve_at_switch, and every rise beyond the open valve's is a
+  steady state too); any other is a violation. The largest |H_sys(Q_st) − ΔH_st| of the checks
+  that agree is reported.
+- (t2) invariance, every station with a duty: the same group's system curve on the same flows
+  (the base's ``flowMin`` and ``flowMax``) after (a) every member's status set to 'off' and (b)
+  every member's speed changed (0.8 ×, or halfway to its minimum speed), each grid point equal
+  to the base's in every field (rise bit for bit, reason, ids, numbers, message), skipping grid
+  flows where either curve's duty stands (another start); an edit the model or the topology
+  refuses, an edited case with no duty, or a station oriented the other way by its duty's flow
+  is skipped and counted.
+- (t3) every corpus pump p alone: ``find_station`` gives exactly the station between its own
+  suction and discharge (parallel, the pump's link alone inside), or refuses it as the
+  definition allows (s1)-(s6); ``group_system_curve(project, [p], 0, default_flow_max(built,
+  p), ONE_POINTS)`` passes (t1)'s point checks, and at every grid flow equals /system-curve's
+  point (``system_curve`` with the same flows) bit for bit in rise, ``converged``, reason and
+  every reason field, and in its message once the pump's words are put in the station's ('the
+  pump' -> 'the station', 'suction' -> 'inlet', 'discharge' -> 'outlet', 'the head across' ->
+  'the rise across': a valve's own inlet and outlet are never mapped, since only the pump's
+  message is rewritten); for ``not_converged`` the outer loop names the forced element itself,
+  'station p' for 'p', and lists it last among the controls whose pressure is undetermined,
+  so those two are normalised too. The grid flow the duty stands for is the duty's solve, warm
+  from the case's, not /system-curve's: it is compared within D6 and counted (equal, within D6,
+  another state), not a violation. A pump with no duty (the case not converged, S or D closed
+  off or floating) has no points to compare, counted by cause.
+- (t4) the time of each group system curve, of each invariance curve, of each one-member curve
+  and of its pump's own /system-curve (median and largest); a curve over the request's 45 s
+  budget (``BUDGET``) is a violation.
+
 The report counts groups by source (suggested, pair) and outcome, stations by arrangement (and
 ``oriented`` against the members facing S → D), refusals by reason, refusals whose reason
 differs from the definition's, dead-end and skipped groups, cases not converged, duty-check
 disagreements, the largest |difference| / allowance of every toleranced identity, and the times
-of ``find_station``, the second finder and ``group_curve`` (median and largest).
+of ``find_station``, the second finder and ``group_curve`` (median and largest); then the group
+system curves (stations by arrangement, curves with and without a duty, points by reason, the
+default range's rule, the system duty checks and their explained disagreements), invariance,
+the one-member stations (pumps by outcome, points by reason, messages compared, the duty's grid
+flow) and the timings (t4).
 Exit status 1 on any violation. ``--every K`` checks every K-th project of the selection (a
 sample, stated in the report). ``test_pump_group_check_smoke.py`` runs the reference cases, the
 unit-test networks, the ladders and a few fuzz seeds, and falsified results.
@@ -137,17 +196,22 @@ unit-test networks, the ladders and a few fuzz seeds, and falsified results.
 
 import argparse
 import dataclasses
+import functools
 import itertools
 import json
 import math
+import re
 import statistics
 import sys
 import time
 from collections import Counter, defaultdict, deque
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from multiprocessing import Pool
 from typing import Any
+
+import numpy as np
+from pydantic import ValidationError
 
 from opensolve_pipe.models.components import (
     AssignedFlow,
@@ -164,7 +228,7 @@ from opensolve_pipe.models.components import (
     WyeBranch,
 )
 from opensolve_pipe.models.project import Project
-from opensolve_pipe.models.pump_groups import PumpGroupDuty
+from opensolve_pipe.models.pump_groups import PumpGroupDuty, PumpGroupSystemPoint, StationPort
 from opensolve_pipe.models.results import SolvedState
 from opensolve_pipe.services.fluids import fluid_properties
 from opensolve_pipe.services.pump_groups import (
@@ -173,12 +237,16 @@ from opensolve_pipe.services.pump_groups import (
     Station,
     find_station,
     group_curve,
+    group_system_curve,
+    system_network,
 )
 from opensolve_pipe.services.solver import TopologyError, solve_project
+from opensolve_pipe.services.solver import system_curve as pump_system_curve
 from opensolve_pipe.services.solver.builder import BuiltNetwork, build_network
 from opensolve_pipe.services.solver.gga import CONTINUITY_ATOL, CONTINUITY_RTOL
 from opensolve_pipe.services.solver.network import LinkKind
-from opensolve_pipe.services.solver.status import HTOL
+from opensolve_pipe.services.solver.status import HTOL, run_outer_loop
+from opensolve_pipe.services.solver.system_curve import SystemCurve, default_flow_max
 from tests.differential.corpus import Item, items, load
 
 GROUP_CAP = 30
@@ -216,6 +284,49 @@ STRUCTURAL = frozenset(
 PRESSURE_CONTROL_INSIDE refuse a station that exists."""
 REVERSAL = frozenset({"MEMBER_REVERSED", "MEMBERS_OPPOSED"})
 """Members facing D -> S: a minority against the rest, or as many each way (a tie)."""
+SYSTEM_POINTS = 9
+"""Flows of each group system curve (``numPoints``, curve 'system'; t1, t2), as the group
+curve's rises."""
+ONE_POINTS = 11
+"""Flows of each one-member station's system curve and of its pump's own (t3), the fuzz
+corpus's /system-curve count."""
+HEAD_FLOOR = 0.01
+"""m: D6's head floor (the system duty check's)."""
+RANGE_FACTOR = 1.2
+"""The default flowMax: this factor × the largest of the duty's and the group curve's flows."""
+RANGE_FLOOR = 1.0e-6
+"""m³/s: below this the default flowMax falls back on the members' curves (no flow through the
+station at the duty or on the group curve)."""
+NOTES_SHOWN = 60
+"""Notes on pumps alone (t3) printed in the report; every one is in the --out records."""
+BUDGET = 45.0
+"""s: the request budget (CLAUDE.md D10) a curve's computation is held against (t4)."""
+SYSTEM_REASONS = frozenset(
+    {
+        "no_way_through",
+        "beyond_limit",
+        "below_floor",
+        "no_steady_state_found",
+        "free_level",
+        "closed_off",
+        "valve_at_switch",
+        "not_converged",
+        "not_computed",
+    }
+)
+"""D10's reasons a system-curve point has no head (rise)."""
+PUMP_WORDS = re.compile(r"\bthe pump\b|\bsuction\b|\bdischarge\b|\bhead across\b")
+"""A pump's words for the forced element, which a station's messages must not use."""
+REASON_FIELDS = (
+    "component_ids",
+    "assigned_flow_node_ids",
+    "limit_flow",
+    "passed_flow",
+    "open_head",
+    "open_head_bound",
+    "starts_tried",
+)
+"""A system-curve point's reason fields beside its code (D10), empty on a point with a rise."""
 PROFILES = ("ref", "unit", "ladder", "wye", "fuzz", "fuzzfc", "fuzzaf")
 TWO_PORT = (Pump, IsolationValve, CheckValve, ControlValve, ReliefValve, Equipment, Orifice)
 """Components with two ports and one link between them, first port in (chains, §4)."""
@@ -1329,10 +1440,24 @@ class CurveRecord:
     counts: Counter[str] = field(default_factory=Counter)
     ratios: dict[str, float] = field(default_factory=dict)
     """The largest |difference| / allowance of each tolerance-checked identity."""
+    maxima: dict[str, float] = field(default_factory=dict)
+    """The largest value of each quantity reported as such (m or m³/s)."""
 
     def ratio(self, name: str, diff: float, allowance: float) -> None:
         r = abs(diff) / allowance if allowance > 0 else (0.0 if diff == 0 else math.inf)
         self.ratios[name] = max(self.ratios.get(name, 0.0), r)
+
+    def most(self, name: str, value: float) -> None:
+        self.maxima[name] = max(self.maxima.get(name, 0.0), value)
+
+    def merge(self, other: "CurveRecord") -> None:
+        self.problems += other.problems
+        self.notes += other.notes
+        self.counts.update(other.counts)
+        for k, v in other.ratios.items():
+            self.ratios[k] = max(self.ratios.get(k, 0.0), v)
+        for k, v in other.maxima.items():
+            self.most(k, v)
 
 
 def curve_problems(
@@ -1757,6 +1882,636 @@ def _grid(
     return problems
 
 
+# --------------------------------------------------------------------------- system curves
+
+
+def even_flows(low: float, high: float, count: int) -> list[float]:
+    """``count`` evenly spaced flows from ``low`` to ``high`` inclusive (D10's grid)."""
+    return [float(q) for q in np.linspace(low, high, count)]
+
+
+def expected_flow_max(
+    project: Project, members: Sequence[str], duty_flow: float, group: GroupCurve | None
+) -> tuple[float, str]:
+    """The default flowMax of curve 'system' by the contract, and the rule that gave it: 'group
+    curve' (1.2 × the largest of Q_st and ``group``'s point flows), 'duty' (an active PRV or PSV
+    inside: no group curve, Q_st alone) or 'fallback' (none above ``RANGE_FLOOR``: 1.2 × each
+    member's curve's last data flow × its speed, added up)."""
+    flows = [duty_flow]
+    if group is not None:
+        flows += [p.flow for p in group.points if p.flow is not None]
+    largest = max(flows)
+    if largest > RANGE_FLOOR:
+        return RANGE_FACTOR * largest, "group curve" if group is not None else "duty"
+    curves = {c.id: c for c in project.pump_library}
+    pumps = {c.id: c for c in project.components if isinstance(c, Pump)}
+    total = math.fsum(curves[pumps[m].curve_id].points[-1].flow * pumps[m].speed for m in members)
+    return RANGE_FACTOR * total, "fallback"
+
+
+def _point_problems(p: PumpGroupSystemPoint, label: str) -> list[str]:
+    """(t1) for one point: a rise exactly when no reason, converged and no message; then every
+    reason field empty, else one of D10's codes; and the station's words."""
+    problems: list[str] = []
+    at = f"{label} at {p.flow!r}"
+    rise = p.head is not None
+    if p.converged != rise or (p.reason is None) != rise or (p.message == "") != rise:
+        problems.append(
+            f"{at}: rise {p.head!r}, converged {p.converged}, reason {p.reason}, message "
+            f"{p.message!r}"
+        )
+    if rise:
+        filled = [f for f in REASON_FIELDS if getattr(p, f) not in (None, [])]
+        if filled or (p.head is not None and not math.isfinite(p.head)):
+            problems.append(f"{at}: a rise {p.head!r} with reason fields {filled}")
+    elif p.reason not in SYSTEM_REASONS:
+        problems.append(f"{at}: reason {p.reason!r} is none of D10's")
+    if PUMP_WORDS.search(p.message):
+        problems.append(f"{at}: a pump's words in {p.message!r}")
+    return problems
+
+
+def system_problems(
+    curve: GroupCurve,
+    station: Station,
+    *,
+    flow_min: float,
+    flow_max: float,
+    exact: bool,
+    num_points: int,
+    label: str,
+    case: Callable[[], SolvedState] | None = None,
+    project: Project | None = None,
+) -> CurveRecord:
+    """(t1) for one response of curve 'system': ``station`` is find_station's; ``flow_min`` and
+    ``flow_max`` the range expected (``exact``: given in the request, else recomputed and
+    compared to ``EXACT_RTOL``); ``label`` names the check that asked for the curve; ``case``
+    gives the case's own solve and ``project`` the project (read only to explain a disagreeing
+    system duty check)."""
+    rec = CurveRecord()
+    if curve.station != station and (station.oriented or curve.station != station.swapped()):
+        rec.problems.append(f"{label} the system curve's station is not find_station's")
+        return rec
+    if curve.points or curve.head_range is not None or curve.duty_check is not None:
+        rec.problems.append(f"{label} curve 'system' with group-curve points, range or check")
+    duty = curve.duty
+    if duty is None:
+        rec.counts["system_no_duty"] += 1
+        if (
+            curve.system_points
+            or curve.system_duty_check is not None
+            or curve.flow_range is not None
+            or not curve.message
+        ):
+            rec.problems.append(f"{label} no duty, but points, a check or a range (or no message)")
+        return rec
+    rec.counts["system_curves"] += 1
+    rng = curve.flow_range
+    if rng is None or not curve.converged:
+        rec.problems.append(f"{label} a duty, but no flow range or not converged")
+        return rec
+    same = rng.max == flow_max or (
+        not exact and _close(rng.max, flow_max, EXACT_RTOL * abs(flow_max))
+    )
+    if rng.min != flow_min or not same or rng.unit != "m³/s":
+        rec.problems.append(
+            f"{label} flow range [{rng.min!r}, {rng.max!r}], expected [{flow_min!r}, {flow_max!r}]"
+        )
+    points = curve.system_points
+    flows = [p.flow for p in points]
+    if any(b <= a for a, b in itertools.pairwise(flows)):
+        rec.problems.append(f"{label} points not in increasing flow: {flows}")
+    q = duty.flow
+    inside = rng.min <= q <= rng.max
+    marked = [p for p in points if p.is_duty]
+    if inside:
+        if len(marked) != 1 or marked[0].flow != q:
+            rec.problems.append(
+                f"{label} {len(marked)} points marked isDuty "
+                f"({[p.flow for p in marked]}) for the duty's flow {q!r}"
+            )
+    else:
+        rec.counts["duty_outside_range"] += 1
+        if marked:
+            rec.problems.append(
+                f"{label} the duty's flow {q!r} lies outside the range, but "
+                f"{[p.flow for p in marked]} are marked isDuty"
+            )
+    grid = even_flows(rng.min, rng.max, num_points)
+    others = sorted(p.flow for p in points if not p.is_duty)
+    if others != [g for g in grid if not (inside and g == q)]:
+        rec.problems.append(
+            f"{label} flows {flows} are not the {num_points} even flows of {rng.min!r} to "
+            f"{rng.max!r} and the duty's {q!r}"
+        )
+    for p in points:
+        rec.problems += _point_problems(p, label)
+        rec.counts[f"point:{p.reason or 'rise'}"] += 1
+    at = marked[0] if inside and len(marked) == 1 else None
+    rec.problems += _system_duty_check(curve, duty, at, label, rec, case, project)
+    return rec
+
+
+def _system_duty_check(
+    curve: GroupCurve,
+    duty: PumpGroupDuty,
+    at: PumpGroupSystemPoint | None,
+    label: str,
+    rec: CurveRecord,
+    case: Callable[[], SolvedState] | None,
+    project: Project | None = None,
+) -> list[str]:
+    """(t1): the system duty check recomputed; a disagreement explained by the duty's flow
+    having no rise, by zero station flow, by a control in series at its switch, or by the rest
+    having no rise when solved once warm from the case's own solve (``warm_without_rise``: the
+    rise reported is then the state D10's rule finds from another start), the D13 message each
+    time, is counted and listed, any other is a violation."""
+    check = curve.system_duty_check
+    if check is None:
+        return [f"{label} a duty, but no system duty check"]
+    problems: list[str] = []
+    if at is not None and check.head != at.head:
+        problems.append(
+            f"{label} the system duty check's rise {check.head!r}, the duty point's {at.head!r}"
+        )
+    allowance = max(DUTY_RTOL * abs(duty.head), HEAD_FLOOR)
+    agrees = check.head is not None and abs(check.head - duty.head) <= allowance
+    if check.agrees != agrees:
+        return [
+            *problems,
+            f"{label} systemDutyCheck agrees {check.agrees}, recomputed {agrees}: {check.message}",
+        ]
+    where = f"Q_st {duty.flow:.6g} m³/s, rise {duty.head:.6g} m"
+    if check.head is not None and agrees:
+        rec.counts["system_agrees"] += 1
+        rec.most("|H_sys(Q_st) - rise|, m", abs(check.head - duty.head))
+    elif check.head is None:
+        why = at.reason if at is not None else "the duty's flow outside the range"
+        rec.counts[f"system_disagrees: no rise ({why})"] += 1
+        rec.notes.append(f"system duty check without a rise ({why}; {where}): {check.message}")
+    elif "CLAUDE.md D13" not in check.message:
+        problems.append(f"{label} the system duty check disagrees, without D13's words: {check}")
+    elif abs(duty.flow) <= DUTY_FLOOR:
+        rec.counts["system_disagrees: zero station flow"] += 1
+        rec.notes.append(
+            f"system duty check at zero station flow (D13; {where}): H_sys(Q_st) {check.head:.6g} m"
+        )
+    elif case is not None and (controls := at_switch(case(), curve.station, duty.flow)):
+        rec.counts["system_disagrees: a control in series at its switch"] += 1
+        rec.notes.append(
+            f"system duty check where {', '.join(controls)}, active in the case, carr"
+            f"{'ies' if len(controls) == 1 else 'y'} the station's whole flow, so at Q_st "
+            f"{'it is' if len(controls) == 1 else 'they are'} at the switch and the rest holds "
+            f"other rises too (D13; {where}): H_sys(Q_st) {check.head:.6g} m"
+        )
+    elif project is not None and (why := warm_without_rise(project, curve.station, duty.flow)):
+        rec.counts["system_disagrees: no rise warm from the case, another start's state"] += 1
+        rec.notes.append(
+            f"system duty check where the rest, solved once warm from the case's solve, has no "
+            f"rise ({why[:160]}), so the rise reported is the state D10's rule finds from another "
+            f"start (D13; {where}): H_sys(Q_st) {check.head:.6g} m"
+        )
+    else:
+        problems.append(f"{label} the system duty check disagrees ({where}): {check.message}")
+    return problems
+
+
+def warm_without_rise(project: Project, station: Station, flow: float) -> str | None:
+    """Why the rest of the network, with the station's flow forced from S to D and solved once
+    warm from the case's own solve (no retry: the first start of D10's rule), has no rise at
+    ``flow``; None when it has one. Without a rise there (the station alone sets the level, as
+    when it alone feeds an assigned flow), D10's rule (owner, 2026-10-23) reports the first rise
+    another start finds: another steady state (D13). With one, that rise is the one reported,
+    and a disagreement with the duty is not explained by this."""
+    fluid = fluid_properties(project.fluid)
+    options = project.settings.solver_options
+    tol, iters = options.tolerance, options.max_iterations
+    case = run_outer_loop(build_network(project, fluid), tolerance=tol, max_iterations=iters)
+    view, forced = system_network(build_network(project, fluid), station)
+    gga = dataclasses.replace(case.gga, flows=np.append(case.gga.flows, flow))
+    outer = run_outer_loop(
+        view,
+        tolerance=tol,
+        max_iterations=iters,
+        forced_links=forced.links(flow),
+        warm=dataclasses.replace(case, gga=gga),
+    )
+    if not outer.converged:
+        return f"not converged: {outer.message}"
+    net, gga_out = view.network, outer.gga
+    s, d = net.node_index[forced.suction], net.node_index[forced.discharge]
+    floating = {v: i for i, nodes in enumerate(gga_out.floating_sections) for v in nodes}
+    if forced.link_index in gga_out.starved_links:
+        return "the forced flow passes nowhere"
+    if not (math.isfinite(gga_out.heads[s]) and math.isfinite(gga_out.heads[d])):
+        return "a side closed off"
+    if floating.get(s) != floating.get(d):
+        return "a side on a free level"
+    return None
+
+
+def at_switch(state: SolvedState, station: Station, flow: float) -> list[str]:
+    """The controls outside ``station`` that the case's solve has regulating (a PRV, PSV or FCV
+    'active', a speed-controlled pump holding its setpoint) and that carry the station's whole
+    flow (within 0.5 % or 1e-6 m³/s): in series with it, so at that flow each sits at its switch
+    and the rest has a steady state at every rise beyond the one with it open (D10's
+    valve_at_switch; for a pump, two flow controls in series, D11)."""
+    inside = set(station.interior_component_ids)
+    valves = [
+        vid
+        for vid, vr in state.valve_results.items()
+        if vid not in inside and vr.state == "active" and _within(abs(vr.flow), abs(flow))
+    ]
+    pumps = [
+        pid
+        for pid, pr in state.pump_results.items()
+        if pid not in inside
+        and pr.control is not None
+        and pr.control.state == "active"
+        and _within(pr.operating_flow, abs(flow))
+    ]
+    return valves + pumps
+
+
+def edited_members(project: Project, members: Sequence[str], change: str) -> Project | None:
+    """(t2): the project with every member off ('off') or at another speed ('speed': 0.8 × its
+    speed, or halfway to a speed-controlled member's minimum speed when 0.8 × is not above it);
+    None when the model refuses the edit."""
+    data = project.model_dump(mode="json", by_alias=True, exclude_unset=True)
+    pumps = {c.id: c for c in project.components if isinstance(c, Pump)}
+    for comp in data["components"]:
+        if comp["id"] not in members:
+            continue
+        if change == "off":
+            comp["status"] = "off"
+            continue
+        pump = pumps[comp["id"]]
+        low = pump.control.min_speed if pump.control is not None else 0.0
+        speed = 0.8 * pump.speed
+        comp["speed"] = speed if speed > low else 0.5 * (pump.speed + low)
+    try:
+        return Project.model_validate(data)
+    except ValidationError:
+        return None
+
+
+def invariance_problems(
+    base: GroupCurve, other: GroupCurve, change: str, num_points: int
+) -> CurveRecord:
+    """(t2): ``other`` (the group with its members edited by ``change``, on the base's flows)
+    against ``base`` at every grid flow neither duty stands for: every field equal."""
+    rec = CurveRecord()
+    label = f"(t2) {change}:"
+    if base.duty is None or base.flow_range is None:
+        return rec
+    if other.duty is None:
+        rec.counts["invariance_no_duty"] += 1
+        return rec
+    if (other.station.inlet, other.station.outlet) != (base.station.inlet, base.station.outlet):
+        rec.counts["invariance_swapped"] += 1
+        return rec
+    if other.flow_range != base.flow_range:
+        rec.problems.append(f"{label} flow range {other.flow_range}, the base's {base.flow_range}")
+        return rec
+    rec.counts["invariance_curves"] += 1
+    duties = {p.flow for p in [*base.system_points, *other.system_points] if p.is_duty}
+    mine = {p.flow: p for p in base.system_points if not p.is_duty}
+    theirs = {p.flow: p for p in other.system_points if not p.is_duty}
+    for q in even_flows(base.flow_range.min, base.flow_range.max, num_points):
+        if q in duties:
+            rec.counts["invariance_duty_flow"] += 1
+            continue
+        a, b = mine.get(q), theirs.get(q)
+        if a is None or b is None:
+            rec.problems.append(f"{label} no point at the grid flow {q!r}")
+            continue
+        rec.counts["invariance_points"] += 1
+        if a.head != b.head or a.reason != b.reason:
+            rec.problems.append(
+                f"{label} at {q!r}: rise {b.head!r} ({b.reason}), the base's {a.head!r} "
+                f"({a.reason})"
+            )
+            continue
+        da, db = a.model_dump(), b.model_dump()
+        differ = sorted(k for k in da if da[k] != db[k])
+        if differ:
+            rec.problems.append(
+                f"{label} at {q!r}: "
+                + "; ".join(f"{k} {db[k]!r}, the base's {da[k]!r}" for k in differ)
+            )
+    return rec
+
+
+def one_station_problems(built: BuiltNetwork, pump: str, station: Station) -> list[str]:
+    """(t3): ``station`` is exactly ``pump`` alone between its own suction and discharge."""
+    data = built.pumps[pump]
+    index = built.network.node_index
+    want: dict[str, Any] = {
+        "members": (pump,),
+        "inlet": (index[data.suction],),
+        "outlet": (index[data.discharge],),
+        "inlet_port": StationPort(component_id=pump, port_id="suction"),
+        "outlet_port": StationPort(component_id=pump, port_id="discharge"),
+        "interior_links": frozenset({data.link_index}),
+        "arrangement": "parallel",
+        "oriented": True,
+        "interior_component_ids": (pump,),
+        "interior_connection_ids": (),
+    }
+    return [
+        f"(t3) {pump} alone: {k} {getattr(station, k)!r}, expected {v!r}"
+        for k, v in want.items()
+        if getattr(station, k) != v
+    ]
+
+
+def in_station_words(message: str) -> str:
+    """D10's message of a pump's point with the pump's words for itself put in a station's (t3):
+    only the forced pump is 'the pump' (another is "pump 'id'", and 'a pump' in a rule), and
+    'suction' and 'discharge' are its sides; a valve's inlet and outlet are left as they are."""
+    m = re.sub(r"\bthe pump\b", "the station", message)
+    m = re.sub(r"\bsuction\b", "inlet", m)
+    m = re.sub(r"\bdischarge\b", "outlet", m)
+    return m.replace("the head across", "the rise across")
+
+
+def controls_named(message: str, pump: str, station: bool) -> str:
+    """A not_converged message with the forced element named by the pump's id (the outer loop
+    names a station's virtual link 'station <pump>') and the controls whose pressure is
+    undetermined listed in sorted order (it lists the virtual link last)."""
+    if station:
+        message = message.replace(f"station {pump}", pump)
+    return re.sub(
+        r"(between controls )(.+?)( is undetermined)",
+        lambda mo: mo.group(1) + ", ".join(sorted(mo.group(2).split(", "))) + mo.group(3),
+        message,
+    )
+
+
+def one_member_problems(pump: str, group: GroupCurve, own: SystemCurve) -> CurveRecord:
+    """(t3): the station of ``pump`` alone (``group``) against the pump's own /system-curve
+    (``own``) at every grid flow; the flow the duty stands for is compared within D6 only."""
+    rec = CurveRecord()
+    if group.duty is None:
+        cause = (
+            "case not converged"
+            if not group.converged
+            else "floating"
+            if "UNDETERMINED_PRESSURE" in group.message
+            else "closed off"
+        )
+        rec.counts[f"one_no_duty: {cause}"] += 1
+        return rec
+    rec.counts["one_compared"] += 1
+    points = {p.flow: p for p in group.system_points}
+    for op in own.points:
+        gp = points.get(op.flow)
+        if gp is None:
+            rec.problems.append(f"(t3) {pump} alone: no point at /system-curve's {op.flow!r}")
+            continue
+        r = op.reason
+        code = r.code if r is not None else None
+        if gp.is_duty:
+            close = (
+                gp.head is not None
+                and op.head is not None
+                and abs(gp.head - op.head) <= max(DUTY_RTOL * abs(op.head), HEAD_FLOOR)
+            )
+            if gp.head == op.head and gp.reason == code:
+                rec.counts["one_duty_flow: equal"] += 1
+            elif close and gp.head is not None and op.head is not None:
+                rec.counts["one_duty_flow: within D6"] += 1
+                rec.most(
+                    "one-member |rise - /system-curve's| at the duty's flow, m",
+                    abs(gp.head - op.head),
+                )
+            else:
+                rec.counts["one_duty_flow: another state"] += 1
+                rec.notes.append(
+                    f"{pump} alone at the duty's flow {op.flow!r}: the duty's solve gives "
+                    f"{gp.head!r} ({gp.reason}), /system-curve {op.head!r} ({code})"
+                )
+            continue
+        want: dict[str, Any] = {"head": op.head, "converged": op.converged, "reason": code}
+        for f in REASON_FIELDS:
+            value = getattr(r, f) if r is not None else None
+            if f in ("component_ids", "assigned_flow_node_ids", "starts_tried"):
+                value = list(value or ())
+            want[f] = value
+        got = {k: getattr(gp, k) for k in want}
+        differ = [k for k in want if got[k] != want[k]]
+        if differ:
+            rec.problems.append(
+                f"(t3) {pump} alone at {op.flow!r}: "
+                + "; ".join(f"{k} {got[k]!r}, /system-curve {want[k]!r}" for k in differ)
+            )
+        rec.counts["one_points"] += 1
+        rec.counts[f"one_point:{code or 'rise'}"] += 1
+        expected, message = in_station_words(op.message), gp.message
+        if code == "not_converged":
+            expected = controls_named(expected, pump, station=False)
+            message = controls_named(message, pump, station=True)
+        if message != expected:
+            rec.problems.append(
+                f"(t3) {pump} alone at {op.flow!r} ({code}): message {gp.message!r}; "
+                f"/system-curve's in a station's words {expected!r}"
+            )
+        elif code is not None:
+            rec.counts["one_messages"] += 1
+    return rec
+
+
+def _over_budget(rec: dict[str, Any], keys: Iterable[str], what: str) -> list[str]:
+    """(t4): each timing of ``keys`` (seconds, or lists of them) within ``BUDGET``."""
+    out = []
+    for key in keys:
+        values = rec.get(key, [])
+        for t in values if isinstance(values, list) else [values]:
+            if t > BUDGET:
+                out.append(f"(t4) {what} took {t:.1f} s, over the {BUDGET:.0f} s budget")
+    return out
+
+
+def system_checks(
+    project: Project,
+    built: BuiltNetwork,
+    graph: Graph,
+    members: tuple[str, ...],
+    api: Station | None,
+    error: NotAStationError | None,
+    mine: Found | None,
+    curve: GroupCurve | None,
+    rec: dict[str, Any],
+    state: SolvedState,
+) -> CurveRecord:
+    """(t1), (t2) and (t4) for one group: ``find_station`` without the PRESSURE_CONTROL_INSIDE
+    rule against ``find_station`` with it (``api`` or ``error``; ``mine`` the second finder's
+    station, None when it found none or was skipped), then the group system curve and its
+    invariance. ``curve``: the group curve at ``NUM_POINTS`` rises, when computed."""
+    out = CurveRecord()
+    station: Station | None
+    try:
+        station, refusal = find_station(project, built, members, pressure_controls=False), None
+    except NotAStationError as ex:
+        station, refusal = None, ex
+    if api is not None:
+        if station != api:
+            out.problems.append(
+                "(t1) find_station without the PRV/PSV rule does not give its station: "
+                + (f"refused {[i.code for i in refusal.issues]}" if refusal else f"{station}")
+            )
+            return out
+    else:
+        assert error is not None
+        rest = [(i.code, list(i.component_ids)) for i in error.issues]
+        rest = [(code, ids) for code, ids in rest if code != "PRESSURE_CONTROL_INSIDE"]
+        if rest:
+            found = (
+                None
+                if refusal is None
+                else [(i.code, list(i.component_ids)) for i in refusal.issues]
+            )
+            if found != rest:
+                out.problems.append(
+                    f"(t1) without the PRV/PSV rule {'accepted' if found is None else found}; "
+                    f"expected the refusal less PRESSURE_CONTROL_INSIDE: {rest}"
+                )
+            return out
+        if station is None:
+            assert refusal is not None
+            out.problems.append(
+                "(t1) refused for PRESSURE_CONTROL_INSIDE alone, but refused without the rule "
+                f"too: {[(i.code, i.component_ids) for i in refusal.issues]}"
+            )
+            return out
+        out.counts["system_pressure_control_inside"] += 1
+        if mine is not None:
+            out.problems += [
+                f"{p} (without the PRV/PSV rule)"
+                for p in station_problems(project, built, graph, station, mine)
+            ]
+        if out.problems:
+            return out
+    rec["system_arrangement"] = station.arrangement
+    group = None
+    if api is not None:
+        group = curve if curve is not None and NUM_POINTS == SYSTEM_POINTS else None
+        group = group or group_curve(project, list(members), num_points=SYSTEM_POINTS)
+    t = time.perf_counter()
+    sc = group_system_curve(project, list(members), num_points=SYSTEM_POINTS)
+    rec["t_system"] = time.perf_counter() - t
+    flow_max = math.nan
+    if sc.duty is not None:
+        flow_max, rule = expected_flow_max(project, members, sc.duty.flow, group)
+        out.counts[f"default_range: {rule}"] += 1
+    out.merge(
+        system_problems(
+            sc,
+            station,
+            flow_min=min(0.0, sc.duty.flow) if sc.duty is not None else 0.0,
+            flow_max=flow_max,
+            exact=False,
+            num_points=SYSTEM_POINTS,
+            label="(t1)",
+            case=lambda: state,
+            project=project,
+        )
+    )
+    if group is not None and (
+        sc.duty != group.duty
+        or sc.converged != group.converged
+        or sc.message != group.message
+        or sc.station != group.station
+    ):
+        out.problems.append(
+            "(t1) the system curve's station, duty, converged or message is not the group curve's"
+        )
+    out.problems += _over_budget(rec, ["t_system"], "the group system curve")
+    if sc.duty is None or sc.flow_range is None or out.problems:
+        return out
+    for change in ("off", "speed"):
+        edited = edited_members(project, members, change)
+        if edited is None:
+            out.counts[f"invariance_invalid: {change}"] += 1
+            continue
+        t = time.perf_counter()
+        try:
+            other = group_system_curve(
+                edited,
+                list(members),
+                flow_min=sc.flow_range.min,
+                flow_max=sc.flow_range.max,
+                num_points=SYSTEM_POINTS,
+            )
+        except TopologyError:
+            out.counts[f"invariance_invalid: {change}"] += 1
+            continue
+        except NotAStationError as ex:
+            out.problems.append(f"(t2) {change}: the edited group is refused: {ex}")
+            continue
+        rec.setdefault("t_invariance", []).append(time.perf_counter() - t)
+        out.merge(invariance_problems(sc, other, change, SYSTEM_POINTS))
+    out.problems += _over_budget(rec, ["t_invariance"], "an invariance curve")
+    return out
+
+
+def check_one(
+    project: Project,
+    built: BuiltNetwork,
+    graph: Graph,
+    pump: str,
+    case: Callable[[], SolvedState],
+) -> dict[str, Any]:
+    """(t3), (t4): the record of ``pump`` alone; ``case`` gives the case's own solve."""
+    rec: dict[str, Any] = {"pump": pump, "violations": []}
+    violations: list[str] = rec["violations"]
+    counts: Counter[str] = Counter()
+    try:
+        station = find_station(project, built, [pump])
+    except NotAStationError as error:
+        rec["outcome"] = "refused"
+        rec["reasons"] = sorted({i.code for i in error.issues})
+        mine = second_station(graph, [pump])
+        if isinstance(mine, Skipped):
+            counts["one_refusal_unchecked"] += 1
+        else:
+            found = refusal_problems(project, built, graph, [pump], error, mine, counts)
+            violations += [f"(t3) {pump} alone: {v}" for v in found]
+        rec["counts"] = dict(counts)
+        return rec
+    rec["outcome"] = "station"
+    violations += one_station_problems(built, pump, station)
+    flow_max = default_flow_max(built, pump)
+    t = time.perf_counter()
+    group = group_system_curve(
+        project, [pump], flow_min=0.0, flow_max=flow_max, num_points=ONE_POINTS
+    )
+    rec["t_one"] = time.perf_counter() - t
+    t = time.perf_counter()
+    own = pump_system_curve(project, pump, flow_min=0.0, flow_max=flow_max, num_points=ONE_POINTS)
+    rec["t_own"] = time.perf_counter() - t
+    checked = system_problems(
+        group,
+        station,
+        flow_min=0.0,
+        flow_max=flow_max,
+        exact=True,
+        num_points=ONE_POINTS,
+        label=f"(t3) {pump} alone:",
+        case=case,
+        project=project,
+    )
+    checked.merge(one_member_problems(pump, group, own))
+    violations += checked.problems
+    violations += _over_budget(rec, ["t_one"], f"{pump} alone's system curve")
+    violations += _over_budget(rec, ["t_own"], f"{pump}'s /system-curve")
+    counts.update(checked.counts)
+    rec["counts"] = dict(counts)
+    rec["notes"] = checked.notes
+    rec["maxima"] = checked.maxima
+    return rec
+
+
 # --------------------------------------------------------------------------- suggestions
 
 
@@ -1912,7 +2667,8 @@ def check_group(
     members: tuple[str, ...],
     source: str,
 ) -> dict[str, Any]:
-    """The record of one group (station and curve checks)."""
+    """The record of one group: the station and group-curve checks, then the group system
+    curve's (t1, t2, t4), which run whatever the first found."""
     rec: dict[str, Any] = {"members": list(members), "source": source, "violations": []}
     violations: list[str] = rec["violations"]
     counts: Counter[str] = Counter()
@@ -1938,6 +2694,7 @@ def check_group(
             rec["loop"] = mine.loop
             if mine.alternatives:
                 counts["ties"] += 1
+    curve: GroupCurve | None = None
     if error is not None:
         rec["outcome"] = "refused"
         rec["reasons"] = sorted({i.code for i in error.issues})
@@ -1953,48 +2710,67 @@ def check_group(
             violations += found
             if mine is not None and not mine.live:
                 rec["dead_end_refused"] = True
-        rec["counts"] = dict(counts)
-        return rec
-    assert api is not None
-    rec["outcome"] = "station"
-    rec["arrangement"] = api.arrangement
-    view = view_of(graph, api)
-    if view is not None:
-        forward = facing(structure(graph, view, members), view.s, view.d)
-        faces = "all" if forward >= set(members) else "some" if forward else "none"
-        rec["oriented"] = f"{api.oriented}, {faces} face S -> D"
-    if not skipped:
-        if mine is None:
-            violations.append("(s1) find_station accepts a group the definition gives no station")
-        else:
-            violations += station_problems(project, built, graph, api, mine)
-    if violations:
-        rec["counts"] = dict(counts)
-        return rec
-    t = time.perf_counter()
-    curve = group_curve(project, list(members), num_points=NUM_POINTS)
-    rec["t_curve"] = time.perf_counter() - t
-    checked = curve_problems(project, built, graph, state, api, curve)
-    violations += checked.problems
-    counts.update(checked.counts)
+    else:
+        assert api is not None
+        rec["outcome"] = "station"
+        rec["arrangement"] = api.arrangement
+        view = view_of(graph, api)
+        if view is not None:
+            forward = facing(structure(graph, view, members), view.s, view.d)
+            faces = "all" if forward >= set(members) else "some" if forward else "none"
+            rec["oriented"] = f"{api.oriented}, {faces} face S -> D"
+        if not skipped:
+            if mine is None:
+                violations.append(
+                    "(s1) find_station accepts a group the definition gives no station"
+                )
+            else:
+                violations += station_problems(project, built, graph, api, mine)
+        if not violations:
+            t = time.perf_counter()
+            curve = group_curve(project, list(members), num_points=NUM_POINTS)
+            rec["t_curve"] = time.perf_counter() - t
+            checked = curve_problems(project, built, graph, state, api, curve)
+            violations += checked.problems
+            counts.update(checked.counts)
+            rec["notes"] = checked.notes
+            rec["ratios"] = checked.ratios
+    try:
+        system = system_checks(project, built, graph, members, api, error, mine, curve, rec, state)
+    except Exception as ex:
+        system = CurveRecord(problems=[f"(t1) crash: {ex!r}"])
+    violations += system.problems
+    counts.update(system.counts)
+    rec["notes"] = [*rec.get("notes", []), *system.notes]
+    rec["maxima"] = system.maxima
     rec["counts"] = dict(counts)
-    rec["notes"] = checked.notes
-    rec["ratios"] = checked.ratios
     return rec
 
 
-def check(name: str, project: Project) -> dict[str, Any]:
-    record: dict[str, Any] = {"name": name, "profile": profile(name), "groups": []}
+def check(name: str, project: Project, one_member: bool = True) -> dict[str, Any]:
+    """The record of one project: every group of two or more pumps (``groups_of``), then, with
+    ``one_member``, every pump alone (t3)."""
+    record: dict[str, Any] = {"name": name, "profile": profile(name), "groups": [], "pumps": []}
     try:
         built = build_network(project, fluid_properties(project.fluid))
     except TopologyError:
         record["outcome"] = "topology_error"
         return record
     graph = graph_of(built)
-    state = solve_project(project)
-    record["converged"] = state.converged
     groups, left = groups_of(project)
     record["left_out"] = dict(left)
+    solved: list[SolvedState] = []
+
+    def case() -> SolvedState:
+        """The case's own solve, once (a project of one pump needs it only to explain a
+        disagreeing system duty check)."""
+        if not solved:
+            solved.append(solve_project(project))
+        return solved[0]
+
+    if groups:
+        state = case()
+        record["converged"] = state.converged
     for members, source in groups:
         try:
             record["groups"].append(check_group(project, built, graph, state, members, source))
@@ -2007,6 +2783,13 @@ def check(name: str, project: Project) -> dict[str, Any]:
                     "violations": [f"crash: {ex!r}"],
                 }
             )
+    for pump in (c.id for c in project.components if isinstance(c, Pump) and one_member):
+        try:
+            record["pumps"].append(check_one(project, built, graph, pump, case))
+        except Exception as ex:
+            record["pumps"].append(
+                {"pump": pump, "outcome": "crash", "violations": [f"(t3) crash: {ex!r}"]}
+            )
     record["outcome"] = "checked"
     return record
 
@@ -2014,17 +2797,19 @@ def check(name: str, project: Project) -> dict[str, Any]:
 # --------------------------------------------------------------------------- the corpus
 
 
-def run(item: Item) -> dict[str, Any]:
+def run(item: Item, one_member: frozenset[str] | None = None) -> dict[str, Any]:
+    """The record of one corpus item; ``one_member``: the projects whose pumps are each checked
+    alone (t3), None for every project."""
     name, spec = item
     try:
         project = load(spec)
     except Exception as ex:  # a corpus file that does not load is not a pump-group finding
         return {"name": name, "profile": profile(name), "outcome": "load_error", "error": repr(ex)}
-    if sum(isinstance(c, Pump) for c in project.components) < 2:
-        return {"name": name, "profile": profile(name), "outcome": "fewer_than_two_pumps"}
+    if not any(isinstance(c, Pump) for c in project.components):
+        return {"name": name, "profile": profile(name), "outcome": "no_pumps"}
     t = time.perf_counter()
     try:
-        record = check(name, project)
+        record = check(name, project, one_member is None or name in one_member)
     except Exception as ex:
         record = {
             "name": name,
@@ -2036,12 +2821,14 @@ def run(item: Item) -> dict[str, Any]:
     return record
 
 
-def check_all(selection: list[Item], workers: int = 1) -> list[dict[str, Any]]:
-    """The records of ``selection`` (corpus items), in order."""
+def check_all(
+    selection: list[Item], workers: int = 1, one_member: frozenset[str] | None = None
+) -> list[dict[str, Any]]:
+    """The records of ``selection`` (corpus items), in order; ``one_member`` as ``run``'s."""
     if workers <= 1:
-        return [run(item) for item in selection]
+        return [run(item, one_member) for item in selection]
     with Pool(workers) as pool:
-        return pool.map(run, selection, chunksize=2)
+        return pool.map(functools.partial(run, one_member=one_member), selection, chunksize=2)
 
 
 def violations_of(records: list[dict[str, Any]]) -> list[str]:
@@ -2054,6 +2841,8 @@ def violations_of(records: list[dict[str, Any]]) -> list[str]:
             counts = g.get("counts", {})
             converged += counts.get("converged_station", 0)
             disagree += counts.get("duty_disagrees", 0)
+        for p in r.get("pumps", []):
+            out += [f"{r['name']} [{p['pump']!r}]: {v}" for v in p.get("violations", [])]
     if converged and disagree > DUTY_DISAGREE_MAX * converged:
         out.append(
             f"(d) {disagree} of {converged} converged stations' duty checks disagree, more than "
@@ -2083,11 +2872,13 @@ def summarize(records: list[dict[str, Any]]) -> list[str]:
             tally["projects"] += 1
             tally["groups"] += len(r["groups"])
             tally["stations"] += sum(g["outcome"] == "station" for g in r["groups"])
+            tally["pumps"] += len(r.get("pumps", []))
     order = (*PROFILES, *sorted(by_profile))
     lines.append(
         "checked by profile: "
         + "; ".join(
-            f"{p} {c['projects']} projects, {c['groups']} groups, {c['stations']} stations"
+            f"{p} {c['projects']} projects, {c['groups']} groups, {c['stations']} stations, "
+            f"{c['pumps']} pumps"
             for p, c in sorted(by_profile.items(), key=lambda kv: order.index(kv[0]))
         )
     )
@@ -2175,16 +2966,86 @@ def summarize(records: list[dict[str, Any]]) -> list[str]:
     lines.append(
         "time per project: " + _times([r["seconds"] for r in records if r["outcome"] == "checked"])
     )
+    lines += system_lines(records)
     violations = violations_of(records)
     lines += violations[:200]
     lines.append(f"violations: {len(violations)}")
     return lines
 
 
+def _prefixed(counts: Counter[str], prefix: str) -> Counter[str]:
+    return Counter({k[len(prefix) :]: v for k, v in counts.items() if k.startswith(prefix)})
+
+
+def system_lines(records: list[dict[str, Any]]) -> list[str]:
+    """The report's lines on the group system curve (t1-t4)."""
+    groups = [(r, g) for r in records for g in r.get("groups", [])]
+    pumps = [(r, p) for r in records for p in r.get("pumps", [])]
+    counts: Counter[str] = Counter()
+    for _, g in groups:
+        counts.update(g.get("counts", {}))
+    one: Counter[str] = Counter()
+    for _, p in pumps:
+        one.update(p.get("counts", {}))
+    maxima: dict[str, float] = {}
+    for _, item in [*groups, *pumps]:
+        for k, v in item.get("maxima", {}).items():
+            maxima[k] = max(maxima.get(k, 0.0), v)
+    stations = Counter(g["system_arrangement"] for _, g in groups if "system_arrangement" in g)
+    lines = [
+        f"group system curves (t1): stations without the PRV/PSV rule {sum(stations.values())} "
+        f"({_tally(stations)}), of which refused with it for PRESSURE_CONTROL_INSIDE alone "
+        f"{counts['system_pressure_control_inside']}; curves with a duty "
+        f"{counts['system_curves']}, without {counts['system_no_duty']}; default flowMax by "
+        f"{_tally(_prefixed(counts, 'default_range: '))}; the duty's flow outside the range "
+        f"{counts['duty_outside_range']}",
+        "group system curve points by reason: " + _tally(_prefixed(counts, "point:")),
+        f"system duty checks: agree {counts['system_agrees']}; disagree, explained (listed "
+        "with the notes): " + _tally(_prefixed(counts, "system_disagrees: ")),
+        f"invariance (t2): curves compared {counts['invariance_curves']}, grid points "
+        f"{counts['invariance_points']}; skipped: grid flows a duty stands for "
+        f"{counts['invariance_duty_flow']}, edits refused "
+        f"{_tally(_prefixed(counts, 'invariance_invalid: '))}, edited cases without a duty "
+        f"{counts['invariance_no_duty']}, oriented the other way {counts['invariance_swapped']}",
+        f"one-member stations (t3): pumps {len(pumps)}: "
+        + _tally(Counter(p["outcome"] for _, p in pumps))
+        + "; refused by reason "
+        + _tally(Counter(c for _, p in pumps for c in p.get("reasons", [])))
+        + f"; no duty {_tally(_prefixed(one, 'one_no_duty: '))}; compared with /system-curve "
+        f"{one['one_compared']} pumps, {one['one_points']} points "
+        f"({_tally(_prefixed(one, 'one_point:'))}), messages without a rise compared "
+        f"{one['one_messages']}; the grid flow the duty stands for: "
+        + _tally(_prefixed(one, "one_duty_flow: "))
+        + f"; their system curves' points by reason {_tally(_prefixed(one, 'point:'))}; system "
+        f"duty checks agree {one['system_agrees']}, disagree explained "
+        + _tally(_prefixed(one, "system_disagrees: ")),
+    ]
+    notes = [f"  {r['name']} [{p['pump']!r}]: {n}" for r, p in pumps for n in p.get("notes", [])]
+    lines += notes[:NOTES_SHOWN]
+    if len(notes) > NOTES_SHOWN:
+        lines.append(f"  ... and {len(notes) - NOTES_SHOWN} more notes on pumps alone (--out)")
+    lines.append(
+        "largest values: "
+        + (", ".join(f"{k} {v:.3g}" for k, v in sorted(maxima.items())) or "none")
+    )
+    invariance = [t for _, g in groups for t in g.get("t_invariance", [])]
+    lines += [
+        "time per group system curve (t4, "
+        f"{SYSTEM_POINTS} flows and the duty's): "
+        + _times([g["t_system"] for _, g in groups if "t_system" in g]),
+        "time per invariance curve: " + _times(invariance),
+        f"time per one-member system curve ({ONE_POINTS} flows and the duty's): "
+        + _times([p["t_one"] for _, p in pumps if "t_one" in p]),
+        "time per /system-curve of the same pump: "
+        + _times([p["t_own"] for _, p in pumps if "t_own" in p]),
+    ]
+    return lines
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="python -m tests.differential.pump_group_check",
-        description="Check the pump group curve over the corpus (proposal pump-groups.md §9.1).",
+        description="Check the pump group curves over the corpus (pump-groups.md §9.1, §9.2).",
     )
     parser.add_argument("--workers", type=int, default=2, help="worker processes (default 2)")
     parser.add_argument("--only", default="", help="only projects whose name starts with this")

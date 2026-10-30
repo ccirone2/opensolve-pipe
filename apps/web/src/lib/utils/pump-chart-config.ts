@@ -8,7 +8,7 @@
  */
 import type { Chart as ChartInstance, ChartConfiguration, LegendItem, Plugin } from 'chart.js';
 import type { ChartPoint, OtherCaseData, PanelKey, PumpChartData } from './pump-chart';
-import type { GroupChartData } from './pump-group-chart';
+import type { GroupChartData, GroupReadoutMark } from './pump-group-chart';
 
 /**
  * The chart's palette: categorical slots 1 and 2 of the dataviz reference palette (validated
@@ -741,6 +741,13 @@ export function pumpChartConfig(
 /** The group curve and the station's point: the primary ink, as the pump chart's duty. */
 export const GROUP_CURVE_LABEL = "Group curve (station's flow)";
 export const GROUP_BEYOND_LABEL = 'Group curve, a pump beyond its data (dashed)';
+/**
+ * The group system curve in the system orange (slice 4b): its legend entry (pump-group-chart.ts
+ * GROUP_SYSTEM_LABEL, the page's, equal by test) and its direct label on the chart.
+ */
+export const GROUP_SYSTEM_CURVE_LABEL =
+	"Group system curve (the rest of the network between the station's inlet and outlet, station's flow)";
+export const GROUP_SYSTEM_TAG = 'Group system curve';
 
 export interface PumpGroupConfigOptions {
 	/** Chart.js's own legend labels, from the chart chunk (as pumpChartConfig's). */
@@ -754,20 +761,27 @@ export interface PumpGroupConfigOptions {
 	 * keeps the panel's height on a phone; the image draws Chart.js's own.
 	 */
 	htmlLegend?: boolean;
+	/**
+	 * The sample "Read along the curves" is at (read when the chart draws): a dashed line at its
+	 * rise and a ring on each point read there. Not in the image.
+	 */
+	readout?: () => GroupReadoutMark | null;
 }
 
 /**
  * The Pumps together chart, head panel only: each member's curve (its colour and dash, dashed
  * beyond its data) and point (its marker, a held pump the pump chart's diamond, a direct label),
  * the group curve in ink (dashed where a pump runs beyond its data, gaps where a point has no
- * flow) and the station's duty, an ink dot labelled "Group". Nothing else: no combined curve and
- * no member's system curve (proposal §6.3).
+ * flow), the group system curve in the system orange (gaps where a point has no rise; a direct
+ * label at its end) and the station's duty, an ink dot labelled "Group" ("Group (crossing)" where
+ * both duty checks agree). Nothing else: no combined curve and no member's system curve
+ * (proposal §6.3, §7).
  */
 export function pumpGroupConfig(
 	d: GroupChartData,
-	{ legendLabels, format, forImage = false, htmlLegend = false }: PumpGroupConfigOptions
+	{ legendLabels, format, forImage = false, htmlLegend = false, readout }: PumpGroupConfigOptions
 ): PumpChartConfig {
-	const { ink: INK, grid: GRID, text: TEXT } = CHART_COLORS;
+	const { ink: INK, grid: GRID, text: TEXT, system: SYSTEM, slate: SLATE } = CHART_COLORS;
 	const fmt = format;
 	const font = (size: number) => (forImage ? { font: { size } } : {});
 	const crossed = (marker: string) => marker === 'cross' || marker === 'crossRot';
@@ -836,6 +850,23 @@ export function pumpGroupConfig(
 					}
 				]
 			: []),
+		...(d.system?.some((p) => p.y !== null)
+			? [
+					{
+						label: GROUP_SYSTEM_CURVE_LABEL,
+						yAxisID: 'y',
+						data: d.system as ChartDatum[],
+						borderColor: SYSTEM,
+						backgroundColor: SYSTEM,
+						borderWidth: 2,
+						pointRadius: 0,
+						pointHitRadius: 6,
+						// A point without a solution is a gap, never bridged.
+						spanGaps: false,
+						curveTag: GROUP_SYSTEM_TAG
+					}
+				]
+			: []),
 		...d.points.map((p) => ({
 			label: p.held ? `${p.name}, held at zero flow` : p.name,
 			yAxisID: 'y',
@@ -854,7 +885,7 @@ export function pumpGroupConfig(
 		...(d.station
 			? [
 					{
-						label: d.station.onCurve ? 'Group duty, on the curve' : "Group duty (the solve's)",
+						label: d.station.label,
 						yAxisID: 'y',
 						data: [d.station.point] as ChartDatum[],
 						borderColor: '#ffffff',
@@ -865,7 +896,7 @@ export function pumpGroupConfig(
 						pointHoverRadius: 9,
 						pointHitRadius: 12,
 						showLine: false,
-						caseLabel: 'Group'
+						caseLabel: d.station.tag
 					}
 				]
 			: [])
@@ -889,12 +920,71 @@ export function pumpGroupConfig(
 					point.x + 10 + width > chart.chartArea.right ? point.x - 10 - width : point.x + 10;
 				ctx.fillText(label, x, n++ % 2 === 0 ? point.y - 10 : point.y + 20);
 			});
+			// A curve's label at its last drawn point, above the line, inside the plot.
+			chart.data.datasets.forEach((dataset, i) => {
+				const tag = (dataset as { curveTag?: string }).curveTag;
+				if (!tag || !chart.isDatasetVisible(i)) return;
+				const drawn = chart
+					.getDatasetMeta(i)
+					.data.filter((el, k) => (dataset.data[k] as ChartDatum | undefined)?.y != null);
+				const last = drawn.filter(
+					(el) =>
+						el.x >= chart.chartArea.left &&
+						el.x <= chart.chartArea.right &&
+						el.y >= chart.chartArea.top &&
+						el.y <= chart.chartArea.bottom
+				);
+				const end = last[last.length - 1];
+				if (!end) return;
+				const width = ctx.measureText(tag).width;
+				const x = Math.max(
+					chart.chartArea.left + 2,
+					Math.min(end.x - width, chart.chartArea.right - width - 2)
+				);
+				const y = Math.max(chart.chartArea.top + 14, end.y - 8);
+				ctx.fillText(tag, x, y);
+			});
+			ctx.restore();
+		}
+	};
+	// "Read along the curves": the sample read, a dashed line at its rise and a ring on each
+	// point read there (drawn last, over the curves).
+	const readoutMark: Plugin<'line'> = {
+		id: 'groupReadout',
+		afterDatasetsDraw(chart) {
+			const mark = readout?.();
+			const { ctx, chartArea, scales } = chart;
+			const x = scales.x;
+			const y = scales.y;
+			if (!mark || !x || !y) return;
+			const py = y.getPixelForValue(mark.rise);
+			ctx.save();
+			ctx.strokeStyle = SLATE;
+			if (py >= chartArea.top && py <= chartArea.bottom) {
+				ctx.lineWidth = 1;
+				ctx.setLineDash([4, 3]);
+				ctx.beginPath();
+				ctx.moveTo(chartArea.left, py);
+				ctx.lineTo(chartArea.right, py);
+				ctx.stroke();
+			}
+			ctx.setLineDash([]);
+			ctx.lineWidth = 2;
+			for (const p of mark.points) {
+				const px = x.getPixelForValue(p.x);
+				const ppy = y.getPixelForValue(p.y);
+				if (px < chartArea.left || px > chartArea.right) continue;
+				if (ppy < chartArea.top || ppy > chartArea.bottom) continue;
+				ctx.beginPath();
+				ctx.arc(px, ppy, 11, 0, 2 * Math.PI);
+				ctx.stroke();
+			}
 			ctx.restore();
 		}
 	};
 	return {
 		type: 'line',
-		plugins: [pointLabels],
+		plugins: forImage || !readout ? [pointLabels] : [pointLabels, readoutMark],
 		data: { datasets },
 		options: {
 			animation: false,

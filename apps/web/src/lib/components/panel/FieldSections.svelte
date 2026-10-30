@@ -27,11 +27,13 @@
 		field?: Snippet<[path: string, label: string]>;
 		/** Paths the form reports as pending (a draft, a warning, an error): they open More. */
 		pending?: readonly string[];
-		/** Text about the model, after the fields: in its own closed disclosure. */
+		/** Text about the model: last in More. */
 		about?: Snippet;
+		/** A sub-form after the core fields, before More (a pump's curve editor). */
+		after?: Snippet;
 	}
 
-	let { component, field, pending = [], about }: Props = $props();
+	let { component, field, pending = [], about, after }: Props = $props();
 	const ws = useWorkspace();
 	const id = $props.id();
 	const schema = $derived(componentSchema(component));
@@ -54,11 +56,15 @@
 	const setPaths = $derived(morePaths.filter((p) => isSet(schema, p, valueAt(component, p))));
 	const notedPaths = $derived(morePaths.filter(noted));
 	const pendingPaths = $derived(morePaths.filter((p) => pending.includes(p)));
+	/** A port not connected, sized unlike its pipe, or with an elevation of its own (PortsEditor). */
+	let portsAttention = $state(false);
 	/**
 	 * Opens itself while it holds something the user should see, and never closes itself (a value
 	 * set back to its default while editing leaves it open); the user may close it.
 	 */
-	const attention = $derived(setPaths.length + notedPaths.length + pendingPaths.length > 0);
+	const attention = $derived(
+		setPaths.length + notedPaths.length + pendingPaths.length > 0 || portsAttention
+	);
 	let open = $state(false);
 	$effect.pre(() => {
 		if (attention) open = true;
@@ -68,9 +74,13 @@
 		const entry = fieldEntry(schema, path);
 		return entry ? labelOf(entry, component) : path;
 	};
-	/** "Resistance (default), Elevation": what More holds, each at its default said so. */
+	/** "Resistance (default), ports (2)": what More holds, each at its default said so. */
 	const contents = $derived(
-		morePaths.map((p) => (setPaths.includes(p) ? label(p) : `${label(p)} (default)`)).join(', ')
+		[
+			...morePaths.map((p) => (setPaths.includes(p) ? label(p) : `${label(p)} (default)`)),
+			`ports (${component.ports.length})`,
+			...(about ? ['about this model'] : [])
+		].join(', ')
 	);
 	const status = $derived(
 		[
@@ -88,16 +98,20 @@
 
 {#snippet one(path: string)}
 	{@const entry = fieldEntry(schema, path)}
-	{#if entry?.input}
-		<RegistryField {schema} {path} {entry} {component} />
-	{:else if entry}
-		{@render field?.(path, labelOf(entry, component))}
-	{/if}
+	<!-- No box of its own: the field's rows sit in the grid; the path marks it for the density
+		spec (tests/build-density.e2e.ts). -->
+	<div class="contents" data-field={path}>
+		{#if entry?.input}
+			<RegistryField {schema} {path} {entry} {component} />
+		{:else if entry}
+			{@render field?.(path, labelOf(entry, component))}
+		{/if}
+	</div>
 {/snippet}
 
 <div class="space-y-4">
 	{#each core as section (section.facet)}
-		<section class="space-y-2" aria-labelledby="{id}-{section.facet}">
+		<section class="space-y-2" aria-labelledby="{id}-{section.facet}" data-tier="core">
 			<h3 id="{id}-{section.facet}" class="section-title">{section.title}</h3>
 			<div class="fields fields-pairs">
 				{#each section.paths as path (path)}{@render one(path)}{/each}
@@ -105,45 +119,39 @@
 		</section>
 	{/each}
 
-	{#if morePaths.length}
-		<details class="group rounded-md border border-slate-200 px-2" bind:open>
-			<summary class="more-summary -mx-2 px-2">
-				<Icon
-					name="right"
-					class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
-				/>
-				<span class="min-w-0 flex-1">
-					More<span class="font-normal text-slate-600">: {contents}</span>
-				</span>
-				{#if status}
-					<span class="shrink-0 rounded-full bg-blue-50 px-2 text-xs text-blue-900">{status}</span>
-				{/if}
-			</summary>
-			<div class="space-y-3 pt-1 pb-3">
-				{#each more as section (section.facet)}
-					<section class="space-y-2" aria-labelledby="{id}-more-{section.facet}">
-						<h4 id="{id}-more-{section.facet}" class="section-title">{section.title}</h4>
-						<div class="fields fields-pairs">
-							{#each section.paths as path (path)}{@render one(path)}{/each}
-						</div>
-					</section>
-				{/each}
-			</div>
-		</details>
-	{/if}
+	{@render after?.()}
 
-	<PortsEditor {component} />
-
-	{#if about}
-		<details class="group">
-			<summary class="more-summary">
-				<Icon
-					name="right"
-					class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
-				/>
-				About this model
-			</summary>
-			<div class="pb-2 text-sm text-slate-700">{@render about()}</div>
-		</details>
-	{/if}
+	<!-- One disclosure for the rest: fewer rows of chrome than one per kind of detail
+		(build-density.md §6). -->
+	<details class="group rounded-md border border-slate-200 px-2" bind:open>
+		<summary class="more-summary -mx-2 px-2">
+			<Icon
+				name="right"
+				class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+			/>
+			<span class="min-w-0 flex-1">
+				More<span class="font-normal text-slate-600">: {contents}</span>
+			</span>
+			{#if status}
+				<span class="shrink-0 rounded-full bg-blue-50 px-2 text-xs text-blue-900">{status}</span>
+			{/if}
+		</summary>
+		<div class="space-y-3 pt-1 pb-3">
+			{#each more as section (section.facet)}
+				<section class="space-y-2" aria-labelledby="{id}-more-{section.facet}">
+					<h4 id="{id}-more-{section.facet}" class="section-title">{section.title}</h4>
+					<div class="fields fields-pairs">
+						{#each section.paths as path (path)}{@render one(path)}{/each}
+					</div>
+				</section>
+			{/each}
+			<PortsEditor {component} onattention={(a) => (portsAttention = a)} />
+			{#if about}
+				<section class="space-y-1" aria-labelledby="{id}-about">
+					<h4 id="{id}-about" class="section-title">About this model</h4>
+					<p class="text-sm text-slate-700">{@render about()}</p>
+				</section>
+			{/if}
+		</div>
+	</details>
 </div>

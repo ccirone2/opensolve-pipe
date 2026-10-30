@@ -203,38 +203,39 @@
 				<p class="hint wide">This pump is off: its flow control is not applied.</p>
 			{/if}
 		{:else if path === 'curveId'}
-			<section class="wide space-y-3" aria-label="Pump curve">
-				<SelectField
-					label="Pump curve"
-					value={creating ?? component.curveId}
-					options={creating
-						? [...options, { value: creating, label: `${creating} (new)` }]
-						: options}
-					hint={curve && users > 1
-						? `This curve is shared by ${users} pumps; changes apply to all of them.`
-						: !curve && !creating && library.length
-							? 'Pick a curve from the project library, or enter this pump’s own curve below.'
-							: undefined}
-					onchange={(v) => {
-						if (v === NEW) {
-							creating = newId(ws.project, CURVE_PREFIX);
-						} else {
-							creating = null;
-							ws.editComponent<Pump>(component.id, 'change pump curve', (c) => {
-								c.curveId = v;
-							});
-						}
-					}}
-				/>
-				{#key creating ?? component.curveId}
-					<PumpCurveEditor
-						pump={component}
-						curve={creating ? undefined : curve}
-						curveId={creating ?? component.curveId}
-						oncreated={() => (creating = null)}
-					/>
-				{/key}
-			</section>
+			<SelectField
+				label="Pump curve"
+				value={creating ?? component.curveId}
+				options={creating ? [...options, { value: creating, label: `${creating} (new)` }] : options}
+				hint={curve && users > 1
+					? `This curve is shared by ${users} pumps; changes apply to all of them.`
+					: !curve && !creating && library.length
+						? 'Pick a curve from the project library, or enter this pump’s own curve below.'
+						: undefined}
+				onchange={(v) => {
+					if (v === NEW) {
+						creating = newId(ws.project, CURVE_PREFIX);
+					} else {
+						creating = null;
+						ws.editComponent<Pump>(component.id, 'change pump curve', (c) => {
+							c.curveId = v;
+						});
+					}
+				}}
+			/>
 		{/if}
+	{/snippet}
+	{#snippet after()}
+		<!-- The curve itself, after the core fields: its table is long (build-density.md §6). -->
+		<section class="space-y-3" aria-label="Pump curve">
+			{#key creating ?? component.curveId}
+				<PumpCurveEditor
+					pump={component}
+					curve={creating ? undefined : curve}
+					curveId={creating ?? component.curveId}
+					oncreated={() => (creating = null)}
+				/>
+			{/key}
+		</section>
 	{/snippet}
 </FieldSections>

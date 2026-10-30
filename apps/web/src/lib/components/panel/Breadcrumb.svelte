@@ -38,7 +38,7 @@
 		bind:this={list}
 		onfocusin={(event) =>
 			(event.target as HTMLElement).scrollIntoView?.({ block: 'nearest', inline: 'nearest' })}
-		class="flex [scrollbar-width:none] items-center overflow-x-auto py-1 [&::-webkit-scrollbar]:hidden"
+		class="flex [scrollbar-width:none] items-center overflow-x-auto [&::-webkit-scrollbar]:hidden"
 	>
 		{#each ws.nav.path as step, i (`${i}:${step.componentId}`)}
 			{@const last = i === ws.nav.path.length - 1}

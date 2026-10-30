@@ -25,10 +25,20 @@ Each ships as one verified slice with reference cases and traces. Candidates, in
 
 Speed-controlled pumps slice 2 (discharge pressure) and C1 (an exact Newton step for an active PRV's velocity-head term). Their design and measurements are in `proposals/vfd-slice2-discharge-pressure.md`; the owner's answers there are provisional notes, not decisions. Revisit with a simpler design under D13 if the owner asks for slice 2 again. The PRV's slow lag is TSD §12 open item 5.
 
-## 4. Still to do by hand
+## 4. Web: Build density (proposal `proposals/build-density.md` §10, §12)
+
+Every Build form is laid out from the field registry. Not done in its timebox, each with what it needs:
+- **The workspace header and the scenario bar** are unchanged (53 px desktop, 101 px phone; scenario bar 53 px): one row on phones needs an overflow menu for Library, Share and Settings, which hides core items, so it is the owner's call; the scenario bar can take the 40 px Build height.
+- **Compact tables** for ports and fittings (the inspector's measurement: ports 484 → 136 px, fittings −70 %); `FittingsEditor` keeps its cards.
+- **One label table**: `scenarios.ts fieldLabelFor`, `labels.fieldLabel` and the unit switches of goal seek, scenarios and export to read the registry, with the guard extended to the scenario allow-list's keys.
+- **A pump curve point on a phone** is one scroll below the core fields; a solved connection's pipe size likewise.
+- **400 % zoom** (WCAG 1.4.10 at 320×256): bars that scroll with the page below a 30 rem height.
+- The sibling inconsistencies of the proposal's §3.4 (labels of K, "difference", "default").
+
+## 5. Still to do by hand
 
 Export's by-hand checks (TSD §10.3): the workbook in Excel for Android and the chart image on Android are recorded; the rest is still to do.
 
-## 5. Later, by the specs
+## 6. Later, by the specs
 
 PRD §2.4 (cost estimation, pipe sizing optimization, a pump database, curve digitization, a public API, colour-coded results, code compliance libraries) and the deferred list of [D5](decisions/D05-v1-scope.md). TSD §12's open items 1–2 (schematic layout, version storage) wait on accounts and the schematic, both Later.

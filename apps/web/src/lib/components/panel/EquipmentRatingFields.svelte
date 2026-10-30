@@ -224,6 +224,7 @@
 					class="flex flex-wrap gap-2"
 					role="group"
 					aria-label="Rated fluid density from a fluid"
+					data-input
 				>
 					<button
 						type="button"

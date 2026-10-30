@@ -38,6 +38,9 @@ Session 6 (2026-10-29 to 10-30):
 - pump groups slice 4b (**D21**, #251, merged as `b067626`; `METHOD_VERSION` unchanged, 1.6.0): the group system curve, `curve: 'system'` of `POST /api/v1/pump-group-curve`, H_sys between the station's outer ports by the pump system curve's own code, on the "Pumps together" card with "Read along the curves"; reference cases PGS1–PGS12 (39 tests), 21 unit tests, the corpus comparison against `b407676` (5,168 identical, no ignores) and, after merging D22 and D23, against `83da77e` (5,189 identical), `pump_group_check` (t1)–(t4) 0 violations (1,001 stations, 800 group system curves with a duty, each of 4,547 pumps alone equal to its `/system-curve` at 49,384 points); proposal `pump-groups.md` §15 records the as-built departures;
 - the documentation restructured for progressive disclosure (`0b7e26d`): `CLAUDE.md` 119 KB → 14 KB, the decisions in `docs/decisions/`, this file, `roadmap.md`, `workflow.md`, `library-facts.md`, `deployment.md`, the indexes, and `tests/unit/test_docs.py`; `scripts/record_history.py` refreshes the verified-state block below.
 
+Session 7 (2026-10-30), web only:
+- Build density (proposal `docs/proposals/build-density.md`, branch `web/build-density`; `METHOD_VERSION` unchanged): the Build forms measured at both sizes, six disciplines and a red team in `docs/proposals/build-density/`, the field registry (`apps/web/src/lib/utils/field-registry.ts`) with its schema guard, label/value rows, help on focus, one More disclosure per form, a 36/40 px Build control height, compact Build chrome, and `tests/build-density.e2e.ts` enforcing the budgets (core fields on a phone's first screen, chrome ≤ 15 % at 1280×800, edit action counts, axe-core); `docs/adding-a-field.md` for the next slice.
+
 <!-- verified-state:start -->
 Verified state at `9e54d81` (`ccr-efab8cb5-vzm6cg`, 2026-10-30), written by `apps/api/scripts/record_history.py`:
 

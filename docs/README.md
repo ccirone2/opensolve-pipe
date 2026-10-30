@@ -16,6 +16,7 @@ What each document provides and when to read it. Agents start from [`CLAUDE.md`]
 | [`workflow.md`](workflow.md) | How a slice ships: gate, propose, build with independent reference cases, prove, record; agent practices; session report | Starting any feature or solver change | Builders |
 | [`history.md`](history.md) | Where things stand: sessions, merges, the verified numbers of the latest gate run | Starting a session; before changing anything | Appended per merge |
 | [`roadmap.md`](roadmap.md) | Open work in priority order, shelved items, Later lists by feature | Choosing or scoping the next slice | Trimmed per merge |
+| [`adding-a-field.md`](adding-a-field.md) | One page: how a field or a component type reaches the Build forms through the field registry, and what CI checks | Adding a model field or a component type | Updated with the registry |
 | [`library-facts.md`](library-facts.md) | Verified quirks of `fluids`, CoolProp and EPANET/WNTR | Writing code against any of them | Anyone who finds one the hard way |
 | [`deployment.md`](deployment.md) | The Cloud Run and Cloudflare Pages runbook, copy-and-paste | Deploying or checking a deployment | The owner |
 | [`proposals/`](proposals/README.md) | One design proposal per feature, with the owner's answers, the review record and the as-built departures | Understanding why a feature is shaped as it is; designing its next slice | Frozen after the build, except the as-built section |
@@ -25,7 +26,7 @@ Code and tests cite sections as `TSD §10.4`, `SDD §4.19`, `PRD §3.8`, `GOALS 
 
 ## Reading paths by task
 
-- **Add a component type:** `workflow.md` → the closest decision (D18 equipment, D20 orifice, D23 relief valve: the pattern) and its proposal's §12 → `decisions/TEMPLATE.md` → TSD §4–§5, §10 → SDD §4.
+- **Add a component type:** `workflow.md` → the closest decision (D18 equipment, D20 orifice, D23 relief valve: the pattern) and its proposal's §12 → `decisions/TEMPLATE.md` → TSD §4–§5, §10 → SDD §4 → `adding-a-field.md` for its Build form.
 - **Change the solver or a loss law:** D6, D7, D9, D13 → TSD §5 and §10.4 (the corpus comparison) → `library-facts.md`.
 - **Change a model, the API or the link format:** D2, D3, D10, D14 → SDD §4–§5 → TSD §4.7 (encoding), §7.
 - **Web-only change:** PRD §3.2, §4.1 → the feature's decision ("Designers' web defaults") → TSD §8 → the `web/<topic>` branch rule in `CLAUDE.md`.

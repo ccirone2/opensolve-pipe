@@ -106,7 +106,7 @@
 	{/if}
 
 	<!-- The views and the actions in one row where they fit; phones put the actions above. -->
-	<div class="flex flex-wrap items-end gap-x-2 gap-y-2 border-b border-slate-200">
+	<div class="flex flex-wrap items-center gap-x-2 gap-y-2 border-b border-slate-200">
 		<div
 			role="tablist"
 			aria-label="Edit {component.name}"
@@ -135,9 +135,7 @@
 			{/each}
 		</div>
 		{#if !ws.inScenario}
-			<div
-				class="mb-1 flex min-w-0 flex-wrap justify-end max-sm:order-first max-sm:w-full sm:ml-auto"
-			>
+			<div class="flex min-w-0 flex-wrap justify-end max-sm:order-first max-sm:w-full sm:ml-auto">
 				<ComponentActions {component} />
 			</div>
 		{/if}

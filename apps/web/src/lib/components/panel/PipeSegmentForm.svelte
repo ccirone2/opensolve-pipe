@@ -201,11 +201,15 @@
 	}
 
 	const fmt = (si: number) => formatValue(si, 'diameter', ws.units, 4);
+	/** The overrides set (build-density.md §5: a disclosure says how many it holds). */
+	const overrides = $derived(
+		(pipe.innerDiameter != null ? 1 : 0) + (pipe.roughness != null ? 1 : 0)
+	);
 	let using = $state(false);
 </script>
 
-<section class="card space-y-3 p-3" aria-labelledby={headingId}>
-	<div class="flex min-h-11 items-center justify-between gap-2">
+<section class="card space-y-2 p-2" aria-labelledby={headingId}>
+	<div class={['flex items-center justify-between gap-2', count > 1 && 'min-h-ctl']}>
 		<h4 id={headingId} class="font-medium">Pipe {index + 1}{count > 1 ? ` of ${count}` : ''}</h4>
 		{#if count > 1 && !ws.inScenario}
 			<button
@@ -224,12 +228,12 @@
 
 	<ChangeNote change={specChange} id="{headingId}-spec" />
 
-	<div class="grid gap-3 sm:grid-cols-2">
+	<!-- Material, schedule, size and length: the pipe's core (field-registry.ts PipeDefinition). -->
+	<div class="fields fields-pairs">
 		<SelectField
 			label="Material"
 			value={materialValue}
 			options={materialOptions}
-			class="sm:col-span-2"
 			change={specChange}
 			changeNote={false}
 			describedby={specNote}
@@ -264,7 +268,7 @@
 				<TextField
 					label="Schedule"
 					value={pipe.schedule}
-					hint="Schedule designation, e.g. 40 or 10S."
+					help="Schedule designation, e.g. 40 or 10S."
 					change={specChange}
 					onchange={(v) => edit('change pipe schedule', (p) => withOptional(p, 'schedule', v))}
 				/>
@@ -317,14 +321,14 @@
 				changeNote={false}
 				describedby={specNote}
 				warning={pipe.roughness == null ? 'Required for a custom pipe.' : null}
-				hint="Absolute roughness of the pipe wall."
+				help="Absolute roughness of the pipe wall."
 				onchange={(v) => edit('change roughness', (p) => withOptional(p, 'roughness', v))}
 			/>
 		{/if}
 	</div>
 
 	{#if specId !== null}
-		<div class="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700" data-pipe-spec>
+		<div class="rounded-md bg-slate-50 px-2 py-1 text-sm text-slate-700" data-pipe-spec>
 			{#if libSpec}
 				<p>
 					Project library pipe spec <strong class="break-words">{libSpec.name}</strong>
@@ -378,7 +382,7 @@
 			{/if}
 		</div>
 	{:else if !custom}
-		<div class="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
+		<div class="rounded-md bg-slate-50 px-2 py-1 text-sm text-slate-700">
 			{#if lib.libraryStatus === 'ready' && material && size}
 				<p>
 					Inner diameter <strong>{fmt(pipe.innerDiameter ?? size.innerDiameter)}</strong>
@@ -413,14 +417,23 @@
 				</p>
 			{/if}
 		</div>
-		<details class="group" open={pipe.innerDiameter != null || pipe.roughness != null}>
-			<summary
-				class="flex min-h-11 cursor-pointer list-none items-center gap-1 text-sm font-medium text-blue-800 [&::-webkit-details-marker]:hidden"
-			>
-				<Icon name="right" class="size-4 shrink-0 transition-transform group-open:rotate-90" />
-				Overrides (optional)
+		<!-- The registry's More for a pipe: it names what it holds, and opens while one is set. -->
+		<details class="group" open={overrides > 0}>
+			<summary class="more-summary">
+				<Icon
+					name="right"
+					class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+				/>
+				<span class="min-w-0 flex-1">
+					Overrides (optional)<span class="font-normal text-slate-600"
+						>: inner diameter, roughness</span
+					>
+				</span>
+				<span class="shrink-0 rounded-full bg-blue-50 px-2 text-xs text-blue-900"
+					>{overrides ? `${overrides} set` : 'from the library'}</span
+				>
 			</summary>
-			<div class="grid gap-3 pt-2 sm:grid-cols-2">
+			<div class="fields fields-pairs pt-1 pb-2">
 				<NumberField
 					label="Inner diameter override"
 					value={pipe.innerDiameter}

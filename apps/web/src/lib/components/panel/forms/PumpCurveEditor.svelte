@@ -70,6 +70,8 @@
 		untrack(
 			() =>
 				!!(
+					curve?.manufacturer ||
+					curve?.model ||
 					curve?.allowableOperatingRegion ||
 					curve?.minimumContinuousStableFlow ||
 					curve?.minimumThermalFlow ||
@@ -163,7 +165,7 @@
 		/>
 	</div>
 {:else}
-	<div class="space-y-4">
+	<div class="space-y-3">
 		<TextField
 			label="Curve name"
 			value={curve.name}
@@ -171,20 +173,6 @@
 			maxlength={nameLimits.maxLength}
 			onchange={(v) => !!v && save('rename pump curve', (c) => ({ ...c, name: v }))}
 		/>
-		<div class="grid gap-3 sm:grid-cols-2">
-			<TextField
-				label="Manufacturer"
-				value={curve.manufacturer}
-				maxlength={stringLimits('PumpCurve', 'manufacturer').maxLength}
-				onchange={(v) => save('change pump manufacturer', (c) => ({ ...c, manufacturer: v }))}
-			/>
-			<TextField
-				label="Model"
-				value={curve.model}
-				maxlength={stringLimits('PumpCurve', 'model').maxLength}
-				onchange={(v) => save('change pump model', (c) => ({ ...c, model: v }))}
-			/>
-		</div>
 		<PointsTable
 			caption="Head curve (at rated speed)"
 			rows={curve.points.map((p) => ({ x: p.flow, y: p.head }))}
@@ -269,13 +257,29 @@
 			</button>
 		{/if}
 		<details class="group" bind:open={manufacturerOpen}>
-			<summary class="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium">
+			<summary class="flex min-h-ctl cursor-pointer items-center gap-2 text-sm font-medium">
 				<span
 					class="text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
 					aria-hidden="true">▸</span
 				>
-				Manufacturer data (optional)
+				Manufacturer data (optional)<span class="font-normal text-slate-600"
+					>: manufacturer, model, operating region, minimum flows, motor power</span
+				>
 			</summary>
+			<div class="fields fields-pairs mb-2">
+				<TextField
+					label="Manufacturer"
+					value={curve.manufacturer}
+					maxlength={stringLimits('PumpCurve', 'manufacturer').maxLength}
+					onchange={(v) => save('change pump manufacturer', (c) => ({ ...c, manufacturer: v }))}
+				/>
+				<TextField
+					label="Model"
+					value={curve.model}
+					maxlength={stringLimits('PumpCurve', 'model').maxLength}
+					onchange={(v) => save('change pump model', (c) => ({ ...c, model: v }))}
+				/>
+			</div>
 			<p class="hint mb-2">
 				From the pump's datasheet, at rated speed. Read only by the opt-in pump operating region
 				check (Settings → Design checks); the solve does not use them.

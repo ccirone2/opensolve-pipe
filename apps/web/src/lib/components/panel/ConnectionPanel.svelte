@@ -76,21 +76,22 @@
 	}
 </script>
 
-<div class="space-y-4">
-	<div role="group" aria-label="Ports of {component.name}" class="flex flex-wrap gap-2">
+<div class="space-y-3">
+	<!-- One row of ports where they fit: each names where it leads, cut short on a phone. -->
+	<div role="group" aria-label="Ports of {component.name}" class="flex gap-1 overflow-x-auto">
 		{#each component.ports as p (p.id)}
 			{@const linked = connectionAtPort(ws.project, component.id, p.id)}
 			<button
 				type="button"
 				class={[
-					'btn h-auto flex-col items-start gap-0 py-1.5 text-left',
+					'btn h-auto max-w-full min-w-0 shrink items-baseline gap-x-1 px-2 py-1 text-left',
 					p.id === portId && 'border-blue-700 bg-blue-50 ring-1 ring-blue-700'
 				]}
 				aria-pressed={p.id === portId}
 				onclick={() => ws.nav.showConnection(p.id)}
 			>
-				<span>{portLabel(p.id)}</span>
-				<span class="text-xs font-normal text-slate-600">
+				<span class="shrink-0">{portLabel(p.id)}</span>
+				<span class="min-w-0 truncate text-xs font-normal text-slate-600">
 					{linked
 						? `to ${componentName(ws.project, otherEnd(linked, { componentId: component.id, portId: p.id }).componentId)}`
 						: 'not connected'}
@@ -100,34 +101,43 @@
 	</div>
 
 	{#if connection && other && portId}
-		<section aria-labelledby="{id}-conn" class="space-y-4">
+		<section aria-labelledby="{id}-conn" class="space-y-3">
 			<div class="space-y-2">
-				<h3 id="{id}-conn" class="text-base font-semibold">
-					Connection <span class="font-mono">{connection.id}</span>
-				</h3>
-				<p class="text-sm text-slate-700">
-					From {componentName(ws.project, connection.fromComponentId)} ({portLabel(
-						connection.fromPortId
-					).toLowerCase()}) to {componentName(ws.project, connection.toComponentId)} ({portLabel(
-						connection.toPortId
-					).toLowerCase()}). Positive flow runs this way, and the pipes are listed in that order.
-				</p>
+				<!-- The heading leads its sentence: one block instead of two (build-density.md §6). -->
+				<div class="text-sm text-slate-700">
+					<h3 id="{id}-conn" class="inline text-base font-semibold text-slate-900">
+						Connection <span class="font-mono">{connection.id}</span>
+					</h3>
+					<p class="ml-1 inline">
+						From {componentName(ws.project, connection.fromComponentId)} ({portLabel(
+							connection.fromPortId
+						).toLowerCase()}) to {componentName(ws.project, connection.toComponentId)} ({portLabel(
+							connection.toPortId
+						).toLowerCase()}). Positive flow runs this way, and the pipes are listed in that order.
+					</p>
+				</div>
 				<ResultStrip element={{ kind: 'connection', id: connection.id }} />
-				<div class="flex flex-wrap gap-2">
-					<button type="button" class="btn" onclick={() => ws.nav.follow(connection.id)}>
-						Go to {componentName(ws.project, other.componentId)}
-						<Icon name="right" class="size-4" />
+				<div class="flex flex-wrap gap-1">
+					<button
+						type="button"
+						class="btn btn-tight max-w-full min-w-0"
+						onclick={() => ws.nav.follow(connection.id)}
+					>
+						<span class="truncate">Go to {componentName(ws.project, other.componentId)}</span>
+						<Icon name="right" class="size-4 shrink-0" />
 					</button>
 					{#if !ws.inScenario}
-						<button type="button" class="btn" onclick={() => (dialog = 'insert')}>
-							<Icon name="insert" class="size-4" /> Insert component
+						<button type="button" class="btn btn-tight" onclick={() => (dialog = 'insert')}>
+							<Icon name="insert" class="size-4" /> Insert<span class="max-sm:sr-only">
+								component</span
+							>
 						</button>
-						<button type="button" class="btn" onclick={() => (dialog = 'branch')}>
+						<button type="button" class="btn btn-tight" onclick={() => (dialog = 'branch')}>
 							<Icon name="branch" class="size-4" /> Add branch
 						</button>
 						<button
 							type="button"
-							class="btn btn-quiet text-red-800"
+							class="btn btn-quiet btn-tight text-red-800"
 							onclick={() => {
 								const removed = connection.id;
 								if (ws.disconnect(removed)) {
@@ -141,7 +151,7 @@
 				</div>
 			</div>
 
-			<div class="space-y-3">
+			<div class="space-y-2">
 				<h3 class="section-title">Pipes</h3>
 				{#each connection.piping.pipes as pipe, i (i)}
 					<PipeSegmentForm {connection} index={i} {pipe} />

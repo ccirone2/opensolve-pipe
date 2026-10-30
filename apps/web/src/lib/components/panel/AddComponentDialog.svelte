@@ -156,20 +156,35 @@
 </script>
 
 <Dialog {title} {onclose}>
-	<form id={formId} class="space-y-4" onsubmit={submit}>
+	<!-- What first, then where (build-density.md §6): the choice made most often leads, and the
+		placement, preset to the way onward, is one compact row of options. -->
+	<form id={formId} class="space-y-3" onsubmit={submit}>
+		<SelectField
+			label="Component"
+			value={kind}
+			options={kinds}
+			onchange={(v) => {
+				kind = v;
+				missing = [];
+			}}
+		/>
+		<div class="fields">
+			<NewComponentFields {kind} units={ws.units} bind:values bind:errors={missing} />
+		</div>
+
 		{#if initialMode === 'after' && !free.length}
 			<p class="text-sm text-slate-700">
 				Every port of {component.name} is connected, so the new component goes into one of its connections.
 			</p>
 		{/if}
 		<fieldset>
-			<legend class="label mb-2">Where</legend>
-			<div class="grid gap-2">
+			<legend class="label mb-1">Where</legend>
+			<div class="flex flex-wrap gap-1">
 				{#each MODES as option (option.value)}
 					{@const why = unavailable(option.value)}
 					<label
 						class={[
-							'flex min-h-11 items-center gap-3 rounded-md border border-slate-200 px-3',
+							'flex min-h-ctl items-center gap-2 rounded-md border border-slate-200 px-2',
 							why && 'cursor-not-allowed bg-slate-50 text-slate-500'
 						]}
 					>
@@ -217,17 +232,6 @@
 				{component.name} has no connections yet. Add a component at one of its ports instead.
 			</p>
 		{/if}
-
-		<SelectField
-			label="Component"
-			value={kind}
-			options={kinds}
-			onchange={(v) => {
-				kind = v;
-				missing = [];
-			}}
-		/>
-		<NewComponentFields {kind} units={ws.units} bind:values bind:errors={missing} />
 	</form>
 	{#snippet footer()}
 		<button type="button" class="btn" onclick={onclose}>Cancel</button>

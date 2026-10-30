@@ -178,7 +178,7 @@
 		<fieldset class="space-y-1">
 			<legend class="label mb-1">For</legend>
 			{#each SCOPES as option (option.kind)}
-				<label class="flex min-h-11 items-start gap-3 rounded-md px-1 py-2 hover:bg-slate-50">
+				<label class="flex min-h-ctl items-start gap-3 rounded-md px-1 py-2 hover:bg-slate-50">
 					<input
 						type="radio"
 						class="mt-0.5 size-5 shrink-0"

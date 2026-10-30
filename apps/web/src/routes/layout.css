@@ -4,9 +4,10 @@
  * Density tokens (proposal build-density.md §6): one control height, a fixed label column and
  * the container widths at which a form's rows stack or pair up, on a 4 px grid. Controls are
  * 44 px by default (the header, Results and dialogs elsewhere); the Build pane sets the compact
- * height (`.dense`), 40 px on every pointer: 1.7 × WCAG 2.5.8's 24 px.
+ * height (`.dense`): 40 px for touch, 36 px for a mouse or trackpad (1.5 × WCAG 2.5.8's 24 px).
  */
-@theme {
+@theme inline {
+	/* inline: utilities read --ctl-h where they apply, so `.dense` sets it for its subtree. */
 	--spacing-ctl: var(--ctl-h, 2.75rem);
 	--spacing-label: 10rem;
 }
@@ -27,6 +28,12 @@
 
 	.dense {
 		--ctl-h: 2.5rem;
+	}
+
+	@media (pointer: fine) {
+		.dense {
+			--ctl-h: 2.25rem;
+		}
 	}
 
 	dialog::backdrop {
@@ -53,6 +60,11 @@
 
 	.btn-quiet {
 		@apply border-transparent bg-transparent hover:bg-slate-100 active:bg-slate-200 disabled:hover:bg-transparent aria-disabled:hover:bg-transparent aria-disabled:active:bg-transparent;
+	}
+
+	/* A row of several actions: tighter, and smaller text on a phone so the row stays one row. */
+	.btn-tight {
+		@apply gap-1 px-2 max-sm:text-xs;
 	}
 
 	.btn-icon {
@@ -93,13 +105,21 @@
 		@apply mb-0;
 	}
 
-	/* Static help: shown while its field has focus; always in its description (aria-describedby). */
+	/*
+	 * Static help: shown while its field has focus, always in its description (aria-describedby).
+	 * It floats under the field, over what follows, so showing and hiding it never moves anything:
+	 * a press on a button below lands where it was aimed (the blur that hides the help comes first).
+	 */
+	.field {
+		@apply relative;
+	}
+
 	.field .help {
 		@apply hidden;
 	}
 
 	.field:focus-within .help {
-		@apply block;
+		@apply pointer-events-none absolute top-full right-0 left-0 z-20 mt-1 block rounded-md border border-slate-200 bg-white px-2 py-1 shadow-md;
 	}
 
 	@container (min-width: 21rem) {
@@ -119,7 +139,7 @@
 	}
 
 	/* A field as wide as the form (a table, a note): both columns of a pair. */
-	.fields > .wide {
+	.fields .wide {
 		grid-column: 1 / -1;
 	}
 

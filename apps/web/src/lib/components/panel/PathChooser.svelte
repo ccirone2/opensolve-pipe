@@ -30,7 +30,7 @@
 				<li>
 					<button
 						type="button"
-						class="card flex min-h-11 w-full items-center gap-3 px-3 py-2 text-left hover:border-blue-400 hover:bg-blue-50"
+						class="card flex min-h-ctl w-full items-center gap-3 px-3 py-2 text-left hover:border-blue-400 hover:bg-blue-50"
 						onclick={() => onchoose(option)}
 					>
 						<span class="min-w-0 flex-1">
@@ -55,7 +55,7 @@
 				<li>
 					<button
 						type="button"
-						class="card flex min-h-11 w-full items-center gap-3 border-dashed px-3 py-2 text-left hover:border-blue-400 hover:bg-blue-50"
+						class="card flex min-h-ctl w-full items-center gap-3 border-dashed px-3 py-2 text-left hover:border-blue-400 hover:bg-blue-50"
 						onclick={() => onchoose(option)}
 					>
 						<Icon name="undo" class="size-5 shrink-0 text-slate-500" />

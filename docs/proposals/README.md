@@ -13,6 +13,7 @@ Read a proposal when you need to know *why* a feature is shaped as it is, or whe
 | [`goal-seek.md`](goal-seek.md) | built | D16 | The search (§3), tolerances, the web dialog; §12 as built |
 | [`export.md`](export.md) | built | D17 | Workbook and CSV contents, the SpreadsheetML and ZIP writers, licensing; §12 as built |
 | [`ui-ux-refinement.md`](ui-ux-refinement.md) | Tier 1 and items 6, 8–10 built | — | Measured friction in the web app and the remaining opportunities |
+| [`build-density.md`](build-density.md) | built (web only) | — | The Build forms measured; the field registry, density tokens and the budgets CI enforces; six disciplines' and the red team's findings in `build-density/`; §11 as built |
 | [`equipment-pressure-drop.md`](equipment-pressure-drop.md) | built | D18 | The rated-point and Cv/Kv law, the density scaling, §9 Later, §10 owner's answers, §12 as built |
 | [`pump-chart.md`](pump-chart.md) | slices 1–3, 4a and 4b built | D19, D21 | What an engineer reads from a pump chart; the slice plan; §9–§10 as built |
 | [`design-checks.md`](design-checks.md) | built | D19 | The check framework, presets and their citations; §7 as built |

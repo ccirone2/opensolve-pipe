@@ -1,6 +1,6 @@
 # Web UI/UX refinement: opportunities
 
-**Status: Tier 1 (items 1–5, and editing an element's name in place) and items 6, 8, 9 and 10 built** (2026-10-25 and 2026-10-26; §5 records where the build departs from this text); the other items are proposals, nothing decided. Written against `7babcc6`. Web app only: no API, model or solver change is needed for anything here except where an item says so. Every item is a reversible web default under D14 unless it is marked **owner** (it touches a decision or a GOALS value).
+**Status: Tier 1 (items 1–5, and editing an element's name in place) and items 6, 8, 9 and 10 built; the Build forms measured and condensed in [`build-density.md`](build-density.md) (2026-10-30)** (2026-10-25 and 2026-10-26; §5 records where the build departs from this text); the other items are proposals, nothing decided. Written against `7babcc6`. Web app only: no API, model or solver change is needed for anything here except where an item says so. Every item is a reversible web default under D14 unless it is marked **owner** (it touches a decision or a GOALS value).
 
 **Aim.** Keep the interface clean and calm for a first-time user, and let a working engineer go from "build" to "trust and sign off" with fewer trips between panes. The method throughout is progressive disclosure: show the answer and the next action, keep the depth (traces, methods, tables) one step away, never removed.
 

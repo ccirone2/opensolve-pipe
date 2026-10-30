@@ -48,7 +48,7 @@
 			<li>
 				<button
 					type="button"
-					class="flex min-h-11 w-full items-center gap-3 px-3 py-2 text-left hover:bg-slate-50"
+					class="flex min-h-ctl w-full items-center gap-3 px-3 py-2 text-left hover:bg-slate-50"
 					aria-current={current ? 'true' : undefined}
 					onclick={() => go(component.id)}
 				>

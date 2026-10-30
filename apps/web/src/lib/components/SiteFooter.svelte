@@ -19,44 +19,22 @@
 </script>
 
 <!--
-	Kept small and quiet: it sits at the foot of the results pane, under the user's work. Links have
-	short labels inside their full accessible names and tooltips (WCAG 2.5.3), and are 24 px tall
-	for a mouse (WCAG 2.5.8) and 44 px on a touch screen (the app's targets).
+	Kept small and quiet: it sits at the foot of the results pane, under the user's work. The
+	copyright and links share one wrapping row. Links are 24 px tall for a mouse (WCAG 2.5.8) and
+	44 px on a touch screen (the app's targets).
 -->
 <footer class="space-y-1 border-t border-slate-200 pt-2 text-xs text-slate-500">
 	<p>{DISCLAIMER}</p>
 	<p class="flex flex-wrap items-center gap-x-3">
 		<span>{COPYRIGHT}</span>
-		<a href={aboutHref()} class={link} aria-label="About and privacy" title="About and privacy"
-			>About</a
+		<a href={aboutHref()} class={link}>About and privacy</a>
+		<a href={LICENSE_URL} rel="external noopener noreferrer" class={link}
+			>License: AGPL-3.0-or-later</a
 		>
-		<a
-			href={LICENSE_URL}
-			rel="external noopener noreferrer"
-			class={link}
-			aria-label="License: AGPL-3.0-or-later"
-			title="License: AGPL-3.0-or-later">AGPL-3.0</a
+		<a href={SOURCE_URL} rel="external noopener noreferrer" class={link}>Source code</a>
+		<a href={serverSourceHref()} rel="external noopener noreferrer" class={link}
+			>Server source code</a
 		>
-		<a
-			href={SOURCE_URL}
-			rel="external noopener noreferrer"
-			class={link}
-			aria-label="Source code"
-			title="Source code of this app">Source</a
-		>
-		<a
-			href={serverSourceHref()}
-			rel="external noopener noreferrer"
-			class={link}
-			aria-label="Server source code"
-			title="Source code of the calculation server">Server source</a
-		>
-		<a
-			href={NOTICES_URL}
-			rel="external"
-			class={link}
-			aria-label="Third-party licenses"
-			title="Third-party licenses">Third-party</a
-		>
+		<a href={NOTICES_URL} rel="external" class={link}>Third-party licenses</a>
 	</p>
 </footer>

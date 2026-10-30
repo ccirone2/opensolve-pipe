@@ -157,6 +157,10 @@
 		describedby={groupNote}
 		onchange={choose}
 	/>
+	{#if choice === 'default'}
+		<!-- The default's basis in full (D10): a phone's select cuts its option text short. -->
+		<p class="hint">Default: {defaultLabel}.</p>
+	{/if}
 	{#if kind}
 		<NumberField
 			label={kind}

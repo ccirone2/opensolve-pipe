@@ -24,8 +24,8 @@ import { buildPane, showPane, solve } from './support';
 
 /**
  * One of every kind of component, in a chain, with the values the kinds without defaults need;
- * every port left free is plugged, so each panel shows its normal state (an unconnected port is
- * an exception the panel raises, by design).
+ * every port left free is plugged and every control valve has a setpoint, so each panel shows its
+ * normal state (an unconnected port or a setpoint of 0 is an exception the panel raises, by design).
  */
 function everyKind(): Project {
 	const project = createEmptyProject({ name: 'Every kind', now: '2026-10-30T00:00:00Z' });
@@ -36,7 +36,11 @@ function everyKind(): Project {
 		relief_valve: { setPressure: 500000, capacity: { kind: 'api526', letter: 'D' } }
 	};
 	for (const kind of COMPONENT_KINDS) {
-		project.components.push(createComponent(kind, project, entered[kind] ?? {}));
+		const component = createComponent(kind, project, entered[kind] ?? {});
+		if (component.type === 'valve' && 'setpoint' in component) {
+			component.setpoint = component.valveType === 'fcv' ? 0.01 : 300000;
+		}
+		project.components.push(component);
 	}
 	const used = new Set<string>();
 	for (let i = 0; i + 1 < project.components.length; i++) {

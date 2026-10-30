@@ -63,9 +63,12 @@
 	 */
 	.action {
 		gap: 0.25rem;
-		padding: 0 0.375rem;
+		padding: 0 0.25rem;
 		font-size: 0.75rem;
-		line-height: 1rem;
+		line-height: 0.875rem;
+		/* Below 360 px a label wraps inside its button rather than running past it. */
+		white-space: normal;
+		text-align: left;
 	}
 
 	@media (min-width: 40rem) {
@@ -74,6 +77,7 @@
 			padding: 0 0.5rem;
 			font-size: 0.875rem;
 			line-height: 1.25rem;
+			white-space: nowrap;
 		}
 	}
 </style>

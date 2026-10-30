@@ -123,11 +123,15 @@ From the IA card sort and the red team: "K" is a loss coefficient on valves and 
 
 ## 10. The red team's unresolved objections
 
+The red team ran twice: on the app before the build ([pass 1](build-density/findings-redteam-1.md)) and on the built app ([pass 2](build-density/findings-redteam-2.md)). Pass 2 measured the field engineer's task (change the discharge pipe's size, re-solve, close the valve, re-solve) at **10 taps and 0 scrolls** (pass 1: 10 taps, 2 scrolls), and confirmed, with no field focused, the D15 notes in both cases, More opening for a scenario change and a base-case note, "(default)" in More's summary, "Base: 0 kPa(g)", and help in `aria-describedby`. Still standing:
+
 1. **A phone's main loop stays top-heavy** (field engineer): Solve, Undo and Redo are in the header, and Solve switches to Results, so edit → solve → edit is a tap at the top, then the Build tab. Not changed: Solve-to-Results is the decided phone flow (ui-ux-refinement.md §1).
 2. **Native selects need two taps** for a two-value status. Not changed: a segmented control for 2–3 values is a candidate (§12).
 3. **A solved connection on a phone**: with the connection's result strip shown, the pipe size sits below the first screen (one scroll); the budget test is unsolved.
 4. **The guard is blind under `whole`**: a valve's resistance editor owns its sub-fields (`resistance.kind`, `value`, `id`). Every other union (capacity, rating, control) registers each sub-field.
-5. **Five label tables** remain (`scenarios.ts fieldLabelFor`, `labels.fieldLabel`, the unit switches of goal seek, scenarios and export): a new scenario-changeable field still needs its label there, and a missing unit there shows silently as dimensionless (§12).
+5. **Five label tables** remain (`scenarios.ts fieldLabelFor`, `labels.fieldLabel`, the unit switches of goal seek, scenarios and export): a new scenario-changeable field still needs its label there, and a missing unit there shows silently as dimensionless (§12); pass 2 counted 4 files for such a field, and the export's pump table lists its columns by hand. The registry's label for a pump's speed repeats `fieldLabelFor`'s rule.
+7. **A scenario change note says "Base: Default"** without the default's basis (the select now spells it out under itself).
+8. **Low**: a reservoir's outflow of −8.9×10⁻¹³ L/s (convergence noise, D13) is shown as a value in its strip; "Names are the same in every case." starts 4 px from the screen edge.
 6. **400 % zoom** (320×256) leaves no room for the form under the fixed header and tabs (WCAG 1.4.10), as before this build.
 
 ## 11. As built
@@ -163,6 +167,10 @@ Measured with the same script on the built app (`measure.cjs`, before at `569319
 5. **One e2e locator re-scoped**: `pump-system.e2e.ts` reads the Pump curve select from the Build panel instead of the "Pump curve" region, since the select now sits in Rating (D16); the assertion (its value is C1) is unchanged.
 6. **The density spec's fixture plugs every free port**, so its panels show their normal state; unconnected ports open More by design (§5 D8), and their chrome is the exception being raised.
 7. **Not built in the timebox** (roadmap §4): the workspace header and scenario bar, compact port and fitting tables, one label table.
+8. **The scenario banner is one line on phones too** ([second red-team pass](build-density/findings-redteam-2.md)): at 390 px it wrapped to ~160 px and pushed a valve's second scenario change under the bottom bar; its explanation is now for screen readers only below 640 px.
+9. **A valve's default resistance is spelled out under its select** ("Default: Crane TP-410 K, full bore and fully open, at the connected size."), since a phone's native select cut it to "…full bore and f" (D10).
+10. **The action labels wrap inside their buttons below 360 px** (they ran past them at 320 px).
+11. **The density fixture gives control valves a setpoint**, as a user would: a setpoint of 0 raises a warning (an exception), and with the default-resistance line it pushed a PRV's and a PSV's elevation off a phone's first screen, which the spec caught.
 
 Screenshots: `build-density/before-*.png` and `after-*.png` (the solved pump at 1280×800 and 390×844, the solved gate valve and the relief valve on a phone, Piping on both, the Add dialog, the equipment form).
 

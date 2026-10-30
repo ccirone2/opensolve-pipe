@@ -1,5 +1,16 @@
 @import 'tailwindcss';
 
+/*
+ * Density tokens (proposal build-density.md §6): one control height, a fixed label column and
+ * the container widths at which a form's rows stack or pair up, on a 4 px grid. Controls are
+ * 44 px by default (the header, Results and dialogs elsewhere); the Build pane sets the compact
+ * height (`.dense`), 40 px on every pointer: 1.7 × WCAG 2.5.8's 24 px.
+ */
+@theme {
+	--spacing-ctl: var(--ctl-h, 2.75rem);
+	--spacing-label: 10rem;
+}
+
 @layer base {
 	html {
 		-webkit-text-size-adjust: 100%;
@@ -14,6 +25,10 @@
 		outline-offset: 2px;
 	}
 
+	.dense {
+		--ctl-h: 2.5rem;
+	}
+
 	dialog::backdrop {
 		background: rgb(15 23 42 / 0.45);
 	}
@@ -25,7 +40,7 @@
 	 * the button focusable, for buttons that become unavailable while focused (Solve, Undo).
 	 */
 	.btn {
-		@apply inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium whitespace-nowrap text-slate-800 select-none hover:bg-slate-50 active:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-white aria-disabled:cursor-not-allowed aria-disabled:opacity-45 aria-disabled:hover:bg-white aria-disabled:active:bg-white;
+		@apply inline-flex min-h-ctl items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium whitespace-nowrap text-slate-800 select-none hover:bg-slate-50 active:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-white aria-disabled:cursor-not-allowed aria-disabled:opacity-45 aria-disabled:hover:bg-white aria-disabled:active:bg-white;
 	}
 
 	.btn-primary {
@@ -41,11 +56,11 @@
 	}
 
 	.btn-icon {
-		@apply w-11 shrink-0 px-0;
+		@apply w-ctl shrink-0 px-0;
 	}
 
 	.input {
-		@apply block min-h-11 w-full min-w-0 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-900 placeholder:text-slate-400 disabled:bg-slate-100 disabled:text-slate-500 aria-invalid:border-red-600 aria-invalid:bg-red-50;
+		@apply block min-h-ctl w-full min-w-0 rounded-md border border-slate-300 bg-white px-3 text-base text-slate-900 tabular-nums placeholder:text-slate-400 disabled:bg-slate-100 disabled:text-slate-500 aria-invalid:border-red-600 aria-invalid:bg-red-50;
 	}
 
 	.label {
@@ -54,6 +69,67 @@
 
 	.hint {
 		@apply mt-1 text-xs text-slate-600;
+	}
+
+	.field .hint {
+		@apply mt-0;
+	}
+
+	/*
+	 * A form's fields (build-density.md §6): each field one row, its label in a fixed column
+	 * beside the control, notes under the control. Stacks (label above) in a container narrower
+	 * than 21 rem (reflow at 320 px); two columns of rows from 44 rem. The container is the Build
+	 * pane's scrolling area, or a dialog's body (`@container` there).
+	 */
+	.fields {
+		@apply grid gap-x-6 gap-y-2;
+	}
+
+	.field {
+		@apply grid min-w-0 grid-cols-1 items-center gap-x-3 gap-y-1;
+	}
+
+	.field > .label {
+		@apply mb-0;
+	}
+
+	/* Static help: shown while its field has focus; always in its description (aria-describedby). */
+	.field .help {
+		@apply hidden;
+	}
+
+	.field:focus-within .help {
+		@apply block;
+	}
+
+	@container (min-width: 21rem) {
+		.field {
+			grid-template-columns: minmax(8rem, var(--spacing-label)) minmax(0, 1fr);
+		}
+
+		.field > :not(.label) {
+			grid-column: 2;
+		}
+	}
+
+	@container (min-width: 44rem) {
+		.fields-pairs {
+			@apply grid-cols-2;
+		}
+	}
+
+	/* A field as wide as the form (a table, a note): both columns of a pair. */
+	.fields > .wide {
+		grid-column: 1 / -1;
+	}
+
+	/* A form's "More" disclosure and its sections' titles. */
+	.more-summary {
+		@apply flex min-h-ctl cursor-pointer list-none items-center gap-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50;
+	}
+
+	.more-summary::-webkit-details-marker {
+		display: none;
 	}
 
 	.section-title {

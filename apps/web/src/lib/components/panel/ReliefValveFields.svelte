@@ -126,14 +126,14 @@
 	);
 </script>
 
-<div class="min-w-0 sm:col-span-2">
+<div class="wide min-w-0">
 	<NumberField
 		label="Set pressure (difference)"
 		value={setPressure}
 		category="pressure"
 		{units}
 		bounds={schemaBounds('ReliefValve', 'setPressure')}
-		hint="The static pressure difference, inlet minus outlet, at which the valve starts to open. Discharging to atmosphere at the valve's elevation it is the gauge set pressure; with a constant back pressure (a return line) it is the bench setting: the set pressure minus that back pressure. Back pressure adds to the inlet pressure at which a conventional valve opens."
+		help="The static pressure difference, inlet minus outlet, at which the valve starts to open. Discharging to atmosphere at the valve's elevation it is the gauge set pressure; with a constant back pressure (a return line) it is the bench setting: the set pressure minus that back pressure. Back pressure adds to the inlet pressure at which a conventional valve opens."
 		error={errorOf('setPressure')}
 		change={setChange}
 		oninput={() => oninput?.('setPressure')}
@@ -141,17 +141,17 @@
 	/>
 </div>
 
-<fieldset class="grid gap-4 sm:col-span-2 sm:grid-cols-2">
-	<legend class="label mb-1 sm:col-span-2">Capacity</legend>
+<fieldset class="wide space-y-2">
+	<legend class="label wide mb-1">Capacity</legend>
 	{#if wholeChange && hasChangeNote(wholeChange)}
-		<div class="sm:col-span-2"><ChangeNote change={wholeChange} id="{noteId}-change" /></div>
+		<div class="wide"><ChangeNote change={wholeChange} id="{noteId}-change" /></div>
 	{/if}
 	<SelectField
-		class="sm:col-span-2"
+		class="wide"
 		label="Capacity given by"
 		value={capacity.kind}
 		options={CAPACITY_KINDS.map((k) => ({ value: k, label: CAPACITY_KIND_LABELS[k] }))}
-		hint="The manufacturer's actual orifice area with its rated coefficient, or an API 526 letter or effective area with API 520's effective values: never one from each. A letter or an effective area is for preliminary sizing."
+		help="The manufacturer's actual orifice area with its rated coefficient, or an API 526 letter or effective area with API 520's effective values: never one from each. A letter or an effective area is for preliminary sizing."
 		change={wholeChange}
 		changeNote={false}
 		describedby={described(groupNote, warningId)}
@@ -161,12 +161,12 @@
 		}}
 	/>
 	{#if capacity.kind === 'api526'}
-		<div class="min-w-0 space-y-1 sm:col-span-2">
+		<div class="wide min-w-0 space-y-1">
 			<SelectField
 				label={CAPACITY_FIELD_LABELS.letter}
 				value={capacity.letter ?? ''}
 				options={letterOptions}
-				hint="API 526's effective orifice area of the letter (via fluids), for preliminary sizing; the valve selected then has its own actual area and rated coefficient."
+				help="API 526's effective orifice area of the letter (via fluids), for preliminary sizing; the valve selected then has its own actual area and rated coefficient."
 				change={changeOf('letter')}
 				changeNote={!groupNoted('letter')}
 				invalid={!!errorOf('capacity.letter')}
@@ -204,7 +204,7 @@
 				capacity.kind === 'effective' ? 'EffectiveOrifice' : 'CertifiedOrifice',
 				'area'
 			)}
-			hint={capacity.kind === 'effective'
+			help={capacity.kind === 'effective'
 				? "An API 520 effective discharge area, as API 520's liquid sizing equation gives it (goal seek sizes it against the network); never a valve's actual orifice area."
 				: "The valve's actual orifice area, from its certification; used with its rated coefficient, never with API 526's effective area."}
 			error={errorOf('capacity.area')}
@@ -223,7 +223,7 @@
 		<p
 			id="{noteId}-preliminary"
 			class={[
-				'sm:col-span-2',
+				'wide',
 				preliminary.warning ? 'flex items-start gap-1 text-sm text-amber-800' : 'hint'
 			]}
 		>
@@ -238,7 +238,7 @@
 			category="dimensionless"
 			{units}
 			bounds={schemaBounds('CertifiedOrifice', 'dischargeCoefficient')}
-			hint="The valve's rated coefficient of discharge for liquid, from its certification: ASME's K, 0.9 × the measured coefficient. Never API 520's effective coefficient with an actual area."
+			help="The valve's rated coefficient of discharge for liquid, from its certification: ASME's K, 0.9 × the measured coefficient. Never API 520's effective coefficient with an actual area."
 			error={errorOf('capacity.dischargeCoefficient')}
 			change={changeOf('dischargeCoefficient')}
 			changeNote={!groupNoted('dischargeCoefficient')}
@@ -246,7 +246,7 @@
 			oninput={() => oninput?.('capacity.dischargeCoefficient')}
 			onchange={(v) => (v === null ? false : onvalue('dischargeCoefficient', v))}
 		/>
-		<div class="min-w-0 space-y-2 sm:col-span-2">
+		<div class="wide min-w-0 space-y-2">
 			<SelectField
 				label={CAPACITY_FIELD_LABELS.overpressure}
 				value={overpressureSource}
@@ -254,7 +254,7 @@
 					{ value: 'asme', label: asmeDefaultText(units) },
 					{ value: 'entered', label: 'Entered (certified)' }
 				]}
-				hint="The overpressure at which this valve reaches its rated capacity, from its certification; not the allowable accumulation a valve is sized for. Required for a set below {asmeScopeText(
+				help="The overpressure at which this valve reaches its rated capacity, from its certification; not the allowable accumulation a valve is sized for. Required for a set below {asmeScopeText(
 					units
 				)}."
 				change={changeOf('overpressure')}
@@ -281,7 +281,7 @@
 					category="fraction"
 					{units}
 					bounds={schemaBounds('CertifiedOrifice', 'overpressure')}
-					hint="The rise of the pressure difference above the set, as a fraction of the set, at which this valve reaches full lift."
+					help="The rise of the pressure difference above the set, as a fraction of the set, at which this valve reaches full lift."
 					change={changeOf('overpressure')}
 					changeNote={false}
 					describedby={described(groupNoted('overpressure') && groupNote, warningId)}
@@ -317,7 +317,7 @@
 		</div>
 	{/if}
 	{#if warning}
-		<p id={warningId} class="flex items-start gap-1 text-sm text-amber-800 sm:col-span-2">
+		<p id={warningId} class="wide flex items-start gap-1 text-sm text-amber-800">
 			<Icon name="alert" class="mt-0.5 size-4 shrink-0" /><span>{warning}</span>
 		</p>
 	{/if}

@@ -20,6 +20,7 @@
 	import { fieldLabelFor } from '$lib/utils/scenarios';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import EquipmentRatingFields from '../EquipmentRatingFields.svelte';
+	import FieldSections from '../FieldSections.svelte';
 
 	let { component }: { component: Equipment } = $props();
 	const ws = useWorkspace();
@@ -71,21 +72,28 @@
 	}
 </script>
 
-<EquipmentRatingFields
-	rating={shown}
-	units={ws.units}
-	{warning}
-	{onkind}
-	{onvalue}
-	wholeChange={ws.componentChange(component.id, 'rating')}
-	partChange={(field) => ws.componentChange(component.id, `rating.${field}`)}
-/>
-<p class="hint sm:col-span-2">
-	A heat exchanger, coil, strainer, filter, restriction orifice or other element given by its
-	datasheet: a pressure drop at a rated flow, or a Cv or Kv. The loss scales with the square of the
-	flow and with density: ΔP = ΔP<sub>rated</sub> × (Q ÷ Q<sub>rated</sub>)² × ρ ÷ ρ<sub>rated</sub>;
-	a Cv or Kv is a rating on water. Viscosity is not corrected; the scaling holds where the loss goes
-	as the flow squared, as in turbulent flow. Laminar flow in a connected pipe, and flow from outlet
-	to inlet, are flagged. For a dirty strainer or a fouled exchanger, make a scenario with its own
-	rating: a higher rated pressure drop, or a lower Cv or Kv.
-</p>
+<FieldSections {component}>
+	{#snippet field(path)}
+		{#if path === 'rating'}
+			<EquipmentRatingFields
+				rating={shown}
+				units={ws.units}
+				{warning}
+				{onkind}
+				{onvalue}
+				wholeChange={ws.componentChange(component.id, 'rating')}
+				partChange={(field) => ws.componentChange(component.id, `rating.${field}`)}
+			/>
+		{/if}
+	{/snippet}
+	{#snippet about()}
+		A heat exchanger, coil, strainer, filter, restriction orifice or other element given by its
+		datasheet: a pressure drop at a rated flow, or a Cv or Kv. The loss scales with the square of
+		the flow and with density: ΔP = ΔP<sub>rated</sub> × (Q ÷ Q<sub>rated</sub>)² × ρ ÷ ρ<sub
+			>rated</sub
+		>; a Cv or Kv is a rating on water. Viscosity is not corrected; the scaling holds where the loss
+		goes as the flow squared, as in turbulent flow. Laminar flow in a connected pipe, and flow from
+		outlet to inlet, are flagged. For a dirty strainer or a fouled exchanger, make a scenario with
+		its own rating: a higher rated pressure drop, or a lower Cv or Kv.
+	{/snippet}
+</FieldSections>

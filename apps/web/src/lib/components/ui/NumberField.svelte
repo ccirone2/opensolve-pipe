@@ -44,7 +44,10 @@
 		/** Empty is allowed and stored as null. */
 		optional?: boolean;
 		integer?: boolean;
+		/** A note about its value (always shown): what applies, what a blank means. */
 		hint?: string;
+		/** Static explanation: shown while the field has focus (and with the pane's help on). */
+		help?: string;
 		/** Shown in the empty field, e.g. what a blank optional field means. */
 		placeholder?: string;
 		/** A note that does not block storing (e.g. outside a correlation's range). */
@@ -86,6 +89,7 @@
 		optional = false,
 		integer = false,
 		hint,
+		help,
 		placeholder,
 		warning = null,
 		error: ownerError = null,
@@ -211,7 +215,7 @@
 	}
 </script>
 
-<div class="min-w-0">
+<div class={hideLabel ? 'min-w-0' : 'field'}>
 	<label for={id} class={hideLabel ? 'sr-only' : 'label mb-1'}>
 		{label}
 	</label>
@@ -241,6 +245,7 @@
 					error && `${id}-error`,
 					warning && `${id}-warning`,
 					hint && `${id}-hint`,
+					help && `${id}-help`,
 					describedby
 				]
 					.filter(Boolean)
@@ -263,7 +268,7 @@
 		</div>
 		{#if unitText && !compact}
 			<span
-				class="inline-flex min-h-11 shrink-0 items-center rounded-r-md border border-l-0 border-slate-300 bg-slate-50 px-2 text-sm text-slate-600"
+				class="inline-flex min-h-ctl shrink-0 items-center rounded-r-md border border-l-0 border-slate-300 bg-slate-50 px-2 text-sm text-slate-600"
 				aria-hidden="true">{unitText}</span
 			>
 		{/if}
@@ -286,5 +291,8 @@
 	{/if}
 	{#if hint}
 		<p id="{id}-hint" class="hint">{hint}</p>
+	{/if}
+	{#if help}
+		<p id="{id}-help" class="hint help">{help}</p>
 	{/if}
 </div>

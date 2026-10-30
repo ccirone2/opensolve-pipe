@@ -173,17 +173,17 @@
 	}
 </script>
 
-<fieldset class="grid gap-4 sm:col-span-2 sm:grid-cols-2">
-	<legend class="label mb-1 sm:col-span-2">Rating</legend>
+<fieldset class="wide space-y-2">
+	<legend class="label wide mb-1">Rating</legend>
 	{#if wholeChange && hasChangeNote(wholeChange)}
-		<div class="sm:col-span-2"><ChangeNote change={wholeChange} id="{noteId}-change" /></div>
+		<div class="wide"><ChangeNote change={wholeChange} id="{noteId}-change" /></div>
 	{/if}
 	<SelectField
-		class="sm:col-span-2"
+		class="wide"
 		label="Rated by"
 		value={rating.kind}
 		options={RATING_KINDS.map((k) => ({ value: k, label: KIND_OPTIONS[k] }))}
-		hint="How the datasheet gives the rating."
+		help="How the datasheet gives the rating."
 		change={wholeChange}
 		changeNote={false}
 		describedby={described(groupNote, warningId)}
@@ -203,7 +203,7 @@
 				category={s.category}
 				{units}
 				bounds={schemaBounds(s.schema, field)}
-				hint={s.hint}
+				help={s.hint}
 				error={field === 'density' ? (densityError ?? errorOf(field)) : errorOf(field)}
 				change={changeOf(field)}
 				changeNote={!groupNoted(field)}
@@ -250,7 +250,7 @@
 		</div>
 	{/each}
 	{#if warning}
-		<p id={warningId} class="flex items-start gap-1 text-sm text-amber-800 sm:col-span-2">
+		<p id={warningId} class="wide flex items-start gap-1 text-sm text-amber-800">
 			<Icon name="alert" class="mt-0.5 size-4 shrink-0" /><span>{warning}</span>
 		</p>
 	{/if}

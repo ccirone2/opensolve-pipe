@@ -46,7 +46,7 @@
 	category="diameter"
 	{units}
 	bounds={schemaBounds('Orifice', 'boreDiameter')}
-	hint="The diameter of the plate's hole (ISO 5167-2's d) at the flowing temperature; smaller than the inlet pipe's inner diameter."
+	help="The diameter of the plate's hole (ISO 5167-2's d) at the flowing temperature; smaller than the inlet pipe's inner diameter."
 	{error}
 	{change}
 	{describedby}

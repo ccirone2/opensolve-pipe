@@ -992,3 +992,78 @@ const DESIGN_CHECK_PRESETS: readonly DesignCheckPreset[] = (() => {
 export function designCheckPresets(check?: DesignCheckPreset['check']): DesignCheckPreset[] {
 	return DESIGN_CHECK_PRESETS.filter((p) => !check || p.check === check);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Fields of a schema (the Build form registry, utils/field-registry.ts)
+// ---------------------------------------------------------------------------------------------
+
+/** One field of a schema: its dotted path from the schema and what the schema says of it. */
+export interface SchemaField {
+	/** 'speed', 'control.setpoint', 'capacity.letter' (a union member's field). */
+	path: string;
+	/** The schemas holding it (several for a field of more than one union member). */
+	holders: readonly string[];
+	/** Its default, when the schema states one. */
+	default?: unknown;
+	/** It is an object (a pump's control, a relief valve's capacity), not a value. */
+	object: boolean;
+}
+
+/** The object schemas a property's value can be: $refs, and the members of anyOf/oneOf. */
+function objectSchemasOf(node: JsonObject): string[] {
+	if (typeof node.$ref === 'string') {
+		const name = node.$ref.split('/').pop() ?? '';
+		return isRecord(schema(name).properties) ? [name] : [];
+	}
+	const members = [
+		...(Array.isArray(node.anyOf) ? node.anyOf : []),
+		...(Array.isArray(node.oneOf) ? node.oneOf : [])
+	];
+	return members.filter(isRecord).flatMap(objectSchemasOf);
+}
+
+/** A discriminator: a property whose value is fixed (`const`), such as `kind` or `mode`. */
+function isConst(node: JsonObject): boolean {
+	return 'const' in node;
+}
+
+/**
+ * Every field of schema `name` a form can set, read from openapi.json: each property that is not
+ * a discriminator (`const`), and, inside an object property (a $ref, or a union of them), each of
+ * its members' fields, under its dotted path. Lists (ports, curve points) are one field each. A
+ * field held by several union members (a capacity's `area`) is listed once, with every holder.
+ */
+export function schemaFields(name: string): SchemaField[] {
+	const found = new Map<string, SchemaField>();
+	const walk = (schemaName: string, prefix: string) => {
+		const properties = schema(schemaName).properties;
+		if (!isRecord(properties)) return;
+		for (const [key, node] of Object.entries(properties)) {
+			if (!isRecord(node) || isConst(node)) continue;
+			const path = prefix + key;
+			const objects = objectSchemasOf(node);
+			const existing = found.get(path);
+			if (existing) {
+				existing.holders = [...existing.holders, schemaName];
+			} else {
+				found.set(path, {
+					path,
+					holders: [schemaName],
+					...('default' in node ? { default: node.default } : {}),
+					object: objects.length > 0
+				});
+			}
+			for (const member of objects) walk(member, `${path}.`);
+		}
+	};
+	walk(name, '');
+	return [...found.values()];
+}
+
+/** The values a choice field of schema `name` allows (its `enum`, also inside anyOf), in order. */
+export function schemaChoices(name: string, path: string): string[] {
+	const node = property(name, path);
+	const alternatives = Array.isArray(node.anyOf) ? node.anyOf.filter(isRecord) : [node];
+	const values = alternatives.flatMap((alt) => (Array.isArray(alt.enum) ? alt.enum : []));
+	return values.map(String);
+}

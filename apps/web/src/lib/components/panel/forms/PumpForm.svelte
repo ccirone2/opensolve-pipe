@@ -4,7 +4,7 @@
 	import NumberField from '$lib/components/ui/NumberField.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { CURVE_PREFIX, newId } from '$lib/utils/factory';
-	import { PUMP_CONTROL_LABELS, PUMP_STATUS_LABELS } from '$lib/utils/labels';
+	import { PUMP_CONTROL_LABELS } from '$lib/utils/labels';
 	import { withOptional } from '$lib/utils/piping';
 	import {
 		completedControl,
@@ -17,6 +17,7 @@
 	} from '$lib/utils/pump-control';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import PumpCurveEditor from './PumpCurveEditor.svelte';
+	import FieldSections from '../FieldSections.svelte';
 
 	let { component }: { component: Pump } = $props();
 	const ws = useWorkspace();
@@ -131,113 +132,109 @@
 	const controlValue = (field: ControlField) => control?.[field] ?? draft?.[field] ?? null;
 </script>
 
-<SelectField
-	label="Status"
-	value={component.status}
-	options={[
-		{ value: 'on', label: PUMP_STATUS_LABELS.on },
-		{ value: 'off', label: PUMP_STATUS_LABELS.off }
-	]}
-	change={ws.componentChange(component.id, 'status')}
-	onchange={(v) =>
-		ws.editComponent<Pump>(component.id, 'change pump status', (c) => {
-			c.status = v;
-		})}
-/>
-<div class="min-w-0">
-	<SelectField
-		label="Control"
-		value={mode}
-		options={[
-			{ value: 'fixed', label: PUMP_CONTROL_LABELS.fixed },
-			{ value: 'flow', label: PUMP_CONTROL_LABELS.flow }
-		]}
-		hint={controlled
-			? 'A drive (VFD) varies the speed, between the minimum and maximum speeds, to hold the flow through the pump.'
-			: 'Flow control: a drive (VFD) varies the speed to hold the flow through the pump.'}
-		describedby={problem ? noteId : undefined}
-		onchange={chooseMode}
-	/>
-	<div id={noteId} role="status">
-		{#if problem}
-			<p
-				bind:this={noteElement}
-				class="mt-2 flex scroll-mb-4 items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
-			>
-				<Icon name="alert" class="mt-0.5 size-4 shrink-0" />
-				<span>
-					{problem === 'incomplete'
-						? 'Enter the flow setpoint and minimum speed to switch to flow control. Until then the pump runs at a fixed speed.'
-						: 'The minimum speed must be below the maximum speed to switch to flow control. Until then the pump runs at a fixed speed.'}
-				</span>
-			</p>
+<FieldSections {component}>
+	{#snippet field(path)}
+		{#if path === 'control'}
+			<div class="contents">
+				<SelectField
+					label="Control"
+					value={mode}
+					options={[
+						{ value: 'fixed', label: PUMP_CONTROL_LABELS.fixed },
+						{ value: 'flow', label: PUMP_CONTROL_LABELS.flow }
+					]}
+					help={controlled
+						? 'A drive (VFD) varies the speed, between the minimum and maximum speeds, to hold the flow through the pump.'
+						: 'Flow control: a drive (VFD) varies the speed to hold the flow through the pump.'}
+					describedby={problem ? noteId : undefined}
+					onchange={chooseMode}
+				/>
+				<div id={noteId} role="status" class="wide">
+					{#if problem}
+						<p
+							bind:this={noteElement}
+							class="mt-2 flex scroll-mb-4 items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+						>
+							<Icon name="alert" class="mt-0.5 size-4 shrink-0" />
+							<span>
+								{problem === 'incomplete'
+									? 'Enter the flow setpoint and minimum speed to switch to flow control. Until then the pump runs at a fixed speed.'
+									: 'The minimum speed must be below the maximum speed to switch to flow control. Until then the pump runs at a fixed speed.'}
+							</span>
+						</p>
+					{/if}
+				</div>
+			</div>
+		{:else if path === 'control.setpoint' && controlled}
+			<NumberField
+				label="Flow setpoint"
+				value={controlValue('setpoint')}
+				category="flow"
+				units={ws.units}
+				bounds={controlFieldBounds(component, 'setpoint', draft ?? undefined)}
+				help="Flow through the pump, suction to discharge, that the drive holds."
+				change={component.control ? ws.componentChange(component.id, 'control.setpoint') : null}
+				onchange={(v) => v !== null && setControlField('setpoint', v)}
+			/>
+		{:else if path === 'control.minSpeed' && controlled}
+			<NumberField
+				label="Minimum speed"
+				value={controlValue('minSpeed')}
+				category="fraction"
+				units={ws.units}
+				bounds={controlFieldBounds(component, 'minSpeed', draft ?? undefined)}
+				help="From the drive or pump data; there is no standard default. Below the maximum speed."
+				onchange={(v) => v !== null && setControlField('minSpeed', v)}
+			/>
+		{:else if path === 'speed'}
+			<NumberField
+				label={controlled ? 'Maximum speed' : 'Speed'}
+				value={component.speed}
+				category="fraction"
+				units={ws.units}
+				bounds={speedBounds(component, draft)}
+				help={controlled
+					? "Highest speed the drive runs the pump at, as a percentage of the curve's rated speed; at this speed the pump behaves as a fixed-speed pump."
+					: "Fixed speed, as a percentage of the curve's rated speed (affinity laws)."}
+				change={ws.componentChange(component.id, 'speed')}
+				onchange={(v) => v !== null && setSpeed(v)}
+			/>
+			{#if controlled && component.status === 'off'}
+				<p class="hint wide">This pump is off: its flow control is not applied.</p>
+			{/if}
+		{:else if path === 'curveId'}
+			<section class="wide space-y-3" aria-label="Pump curve">
+				<SelectField
+					label="Pump curve"
+					value={creating ?? component.curveId}
+					options={creating
+						? [...options, { value: creating, label: `${creating} (new)` }]
+						: options}
+					hint={curve && users > 1
+						? `This curve is shared by ${users} pumps; changes apply to all of them.`
+						: !curve && !creating && library.length
+							? 'Pick a curve from the project library, or enter this pump’s own curve below.'
+							: undefined}
+					onchange={(v) => {
+						if (v === NEW) {
+							creating = newId(ws.project, CURVE_PREFIX);
+						} else {
+							creating = null;
+							ws.editComponent<Pump>(component.id, 'change pump curve', (c) => {
+								c.curveId = v;
+							});
+						}
+					}}
+				/>
+				{#key creating ?? component.curveId}
+					<PumpCurveEditor
+						pump={component}
+						curve={creating ? undefined : curve}
+						curveId={creating ?? component.curveId}
+						oncreated={() => (creating = null)}
+					/>
+				{/key}
+			</section>
 		{/if}
-	</div>
-</div>
-{#if controlled}
-	<NumberField
-		label="Flow setpoint"
-		value={controlValue('setpoint')}
-		category="flow"
-		units={ws.units}
-		bounds={controlFieldBounds(component, 'setpoint', draft ?? undefined)}
-		hint="Flow through the pump, suction to discharge, that the drive holds."
-		change={component.control ? ws.componentChange(component.id, 'control.setpoint') : null}
-		onchange={(v) => v !== null && setControlField('setpoint', v)}
-	/>
-	<NumberField
-		label="Minimum speed"
-		value={controlValue('minSpeed')}
-		category="fraction"
-		units={ws.units}
-		bounds={controlFieldBounds(component, 'minSpeed', draft ?? undefined)}
-		hint="From the drive or pump data; there is no standard default. Below the maximum speed."
-		onchange={(v) => v !== null && setControlField('minSpeed', v)}
-	/>
-{/if}
-<NumberField
-	label={controlled ? 'Maximum speed' : 'Speed'}
-	value={component.speed}
-	category="fraction"
-	units={ws.units}
-	bounds={speedBounds(component, draft)}
-	hint={controlled
-		? "Highest speed the drive runs the pump at, as a percentage of the curve's rated speed; at this speed the pump behaves as a fixed-speed pump."
-		: "Fixed speed, as a percentage of the curve's rated speed (affinity laws)."}
-	change={ws.componentChange(component.id, 'speed')}
-	onchange={(v) => v !== null && setSpeed(v)}
-/>
-{#if controlled && component.status === 'off'}
-	<p class="hint sm:col-span-2">This pump is off: its flow control is not applied.</p>
-{/if}
-
-<section class="space-y-3 border-t border-slate-200 pt-4 sm:col-span-2" aria-label="Pump curve">
-	<SelectField
-		label="Pump curve"
-		value={creating ?? component.curveId}
-		options={creating ? [...options, { value: creating, label: `${creating} (new)` }] : options}
-		hint={curve && users > 1
-			? `This curve is shared by ${users} pumps; changes apply to all of them.`
-			: !curve && !creating && library.length
-				? 'Pick a curve from the project library, or enter this pump’s own curve below.'
-				: undefined}
-		onchange={(v) => {
-			if (v === NEW) {
-				creating = newId(ws.project, CURVE_PREFIX);
-			} else {
-				creating = null;
-				ws.editComponent<Pump>(component.id, 'change pump curve', (c) => {
-					c.curveId = v;
-				});
-			}
-		}}
-	/>
-	{#key creating ?? component.curveId}
-		<PumpCurveEditor
-			pump={component}
-			curve={creating ? undefined : curve}
-			curveId={creating ?? component.curveId}
-			oncreated={() => (creating = null)}
-		/>
-	{/key}
-</section>
+	{/snippet}
+</FieldSections>

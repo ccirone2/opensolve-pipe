@@ -67,7 +67,7 @@
 		role="group"
 		aria-labelledby="{id}-title"
 		class={[
-			'rounded-md border px-3 py-1 text-sm',
+			'rounded-md border px-2 py-1 text-sm',
 			results.stale ? 'border-dashed border-slate-300' : 'border-slate-200 bg-slate-50'
 		]}
 	>
@@ -84,7 +84,7 @@
 			{#if summary}
 				<button
 					type="button"
-					class="btn btn-quiet px-2 text-blue-800"
+					class="btn btn-quiet -my-1 min-h-8 px-2 text-blue-800"
 					aria-label="Trace of {name}"
 					onclick={openTrace}
 				>
@@ -100,14 +100,10 @@
 		{:else if !summary}
 			<p class="pb-2 text-slate-700">Not in the last solve: solve again to see its results.</p>
 		{:else}
-			<dl
-				class={[
-					'grid grid-cols-2 gap-x-4 gap-y-1 pb-2 sm:grid-cols-4',
-					results.stale && 'text-slate-500'
-				]}
-			>
+			<!-- Label and value side by side, wrapping as pairs (build-density.md §6). -->
+			<dl class={['flex flex-wrap gap-x-4 gap-y-0.5 pb-1', results.stale && 'text-slate-500']}>
 				{#each summary.items as item (item.key)}
-					<div class="min-w-0">
+					<div class="flex min-w-0 items-baseline gap-1.5">
 						<dt class="text-xs text-slate-600">
 							{item.label}{#if item.unit}&nbsp;({item.unit}){/if}
 						</dt>
@@ -116,10 +112,10 @@
 				{/each}
 			</dl>
 			{#each summary.notes as note (note)}
-				<p class="pb-2 text-slate-700">{note}</p>
+				<p class="pb-1 text-slate-700">{note}</p>
 			{/each}
 			{#if shownFlags.length || moreFlags}
-				<ul class="space-y-1 pb-2">
+				<ul class="space-y-1 pb-1">
 					{#each shownFlags as flag, i (i)}
 						<li class="flex items-start gap-2">
 							<FlagIcon severity={flag.severity} class="mt-0.5 size-4" />

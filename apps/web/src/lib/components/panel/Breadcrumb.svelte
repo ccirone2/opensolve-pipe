@@ -36,6 +36,8 @@
 <nav aria-label="Path" class="min-w-0 flex-1">
 	<ol
 		bind:this={list}
+		onfocusin={(event) =>
+			(event.target as HTMLElement).scrollIntoView?.({ block: 'nearest', inline: 'nearest' })}
 		class="flex [scrollbar-width:none] items-center overflow-x-auto py-1 [&::-webkit-scrollbar]:hidden"
 	>
 		{#each ws.nav.path as step, i (`${i}:${step.componentId}`)}
@@ -47,7 +49,7 @@
 				<button
 					type="button"
 					class={[
-						'min-h-11 max-w-48 truncate rounded-md px-2 text-sm',
+						'min-h-ctl max-w-48 truncate rounded-md px-2 text-sm',
 						last
 							? 'font-semibold text-slate-900'
 							: 'text-blue-800 underline-offset-2 hover:underline'

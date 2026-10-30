@@ -258,6 +258,7 @@
 				id="{id}-build"
 				aria-label="Build"
 				class={[
+					'dense',
 					ws.pane === 'build' ? 'flex' : 'hidden',
 					'min-w-0 flex-1 flex-col lg:flex',
 					!sized && 'lg:max-w-[52rem] lg:flex-[3]'

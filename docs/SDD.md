@@ -4,7 +4,7 @@
 
 **Version:** 0.2.0 (Rebuild baseline)
 **Date:** October 2026
-**Status:** Aligned with the rebuild decisions D1–D6 in `CLAUDE.md`
+**Status:** Aligned with decisions D1–D23 (`docs/decisions/`, indexed in `CLAUDE.md`); updated with each decision
 
 ---
 
@@ -31,7 +31,7 @@ Items marked **(Later)** are outside v1 (PRD §2.3) and are kept here so the v1 
 - PRD: Product Requirements Document v0.2.0
 - TSD: Technical Specification Document v0.2.0
 - `docs/GOALS.md`: mission, values and priority order (take precedence over everything below)
-- `CLAUDE.md`: rebuild decisions D1–D6 (take precedence over this document)
+- `docs/decisions/` (indexed in `CLAUDE.md`): decisions D1–D23 (take precedence over this document)
 
 ---
 

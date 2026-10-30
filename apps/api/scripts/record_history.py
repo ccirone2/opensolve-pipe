@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 API = Path(__file__).resolve().parents[1]
-ROOT = API.parent
+ROOT = API.parents[1]
 WEB = ROOT / "apps" / "web"
 HISTORY = ROOT / "docs" / "history.md"
 START = "<!-- verified-state:start -->"

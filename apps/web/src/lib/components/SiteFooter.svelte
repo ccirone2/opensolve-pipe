@@ -13,40 +13,50 @@
 		serverSourceHref,
 		SOURCE_URL
 	} from './links';
+
+	const link =
+		'inline-flex min-h-6 items-center text-slate-600 underline underline-offset-2 hover:text-blue-800 pointer-coarse:min-h-11';
 </script>
 
-<footer class="space-y-1 border-t border-slate-200 pt-3 text-xs text-slate-600">
+<!--
+	Kept small and quiet: it sits at the foot of the results pane, under the user's work. Links have
+	short labels inside their full accessible names and tooltips (WCAG 2.5.3), and are 24 px tall
+	for a mouse (WCAG 2.5.8) and 44 px on a touch screen (the app's targets).
+-->
+<footer class="space-y-1 border-t border-slate-200 pt-2 text-xs text-slate-500">
 	<p>{DISCLAIMER}</p>
-	<p>{COPYRIGHT}</p>
-	<p class="flex flex-wrap gap-x-4">
-		<a
-			href={aboutHref()}
-			class="inline-flex min-h-11 items-center text-blue-800 underline underline-offset-2"
-			>About and privacy</a
+	<p class="flex flex-wrap items-center gap-x-3">
+		<span>{COPYRIGHT}</span>
+		<a href={aboutHref()} class={link} aria-label="About and privacy" title="About and privacy"
+			>About</a
 		>
 		<a
 			href={LICENSE_URL}
 			rel="external noopener noreferrer"
-			class="inline-flex min-h-11 items-center text-blue-800 underline underline-offset-2"
-			>License: AGPL-3.0-or-later</a
+			class={link}
+			aria-label="License: AGPL-3.0-or-later"
+			title="License: AGPL-3.0-or-later">AGPL-3.0</a
 		>
 		<a
 			href={SOURCE_URL}
 			rel="external noopener noreferrer"
-			class="inline-flex min-h-11 items-center text-blue-800 underline underline-offset-2"
-			>Source code</a
+			class={link}
+			aria-label="Source code"
+			title="Source code of this app">Source</a
 		>
 		<a
 			href={serverSourceHref()}
 			rel="external noopener noreferrer"
-			class="inline-flex min-h-11 items-center text-blue-800 underline underline-offset-2"
-			>Server source code</a
+			class={link}
+			aria-label="Server source code"
+			title="Source code of the calculation server">Server source</a
 		>
 		<a
 			href={NOTICES_URL}
 			rel="external"
-			class="inline-flex min-h-11 items-center text-blue-800 underline underline-offset-2"
-			>Third-party licenses</a
+			class={link}
+			aria-label="Third-party licenses"
+			title="Third-party licenses">Third-party</a
 		>
 	</p>
 </footer>

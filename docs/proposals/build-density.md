@@ -36,7 +36,7 @@ Keystroke-Level Model (Card, Moran & Newell 1980): M 1.35 s, P 1.1 s, click or t
 
 | Edit | Before: actions, scrolls | Before: KLM | After: actions, scrolls | After: KLM |
 |---|---|---|---|---|
-| Change a pipe size (pump → Piping → size) | 2 + 1 scroll (desktop y 947 > 686), 2 + 2 scrolls (phone y 1243 > 638) | 7.7 s / 8.8 s | 2, no scroll at either size (e2e) | 6.6 s |
+| Change a pipe size (pump → Piping → size) | 2 + 1 scroll (desktop y 947 > 686), 2 + 2 scrolls (phone y 1243 > 638) | 7.7 s / 8.8 s | 2, no scroll at either size unsolved (e2e); solved, 1 scroll on a phone | 6.6 s / 7.7 s |
 | Switch a valve's status | 1 (desktop), 1 + 1 scroll (phone y 696 > 638) | 3.95 s / 5.05 s | 1, no scroll (e2e) | 3.95 s |
 | Edit a pump curve point | 1 + 1 scroll (desktop y 969 > 686), 1 + 2 scrolls (phone y 1305 > 638) | 5.3 s / 6.4 s | 1 + 1 scroll on a phone (the curve table follows the core fields), none on desktop | 4.2 s / 5.3 s |
 | Add a component after this one | 3 (Add after, kind, Add) | 7.5 s | 3, the kind first in the dialog; dialog 602 → 490 px (desktop) | 7.5 s |
@@ -132,7 +132,39 @@ From the IA card sort and the red team: "K" is a loss coefficient on valves and 
 
 ## 11. As built
 
-<!-- AS-BUILT -->
+Measured with the same script on the built app (`measure.cjs`, before at `5693197`, after on this branch), unsolved unless marked; the "every kind" project's free ports are unplugged there, so the tee and relief valve open More for their unconnected ports (an exception, by design).
+
+| Form | Height desktop | Height phone | Inputs, first screen, desktop | phone | Hint prose, first screen, desktop | phone |
+|---|---|---|---|---|---|---|
+| Reservoir | 881 → 747 | 1113 → 699 | 23.6 → 27.6 % | 25.2 → 34.3 % | 15.1 → 8.2 % | 11.2 → 11.7 % |
+| Pump | 1570 → 826 | 1874 → 1110 | 23.8 → 43.4 % | 28.0 → 34.3 % | 13.0 → 6.8 % | 9.0 → 11.0 % |
+| Pump, solved | 2442 → 1454 | 2818 → 1736 | 22.1 → 48.1 % | 18.9 → 36.9 % | 8.4 → 2.3 % | 4.7 → 0.7 % |
+| Gate valve | 1107 → 747 | 1203 → 699 | 28.8 → 29.6 % | 31.5 → 34.3 % | 7.1 → 13.7 % | 4.7 → 5.9 % |
+| Check valve | 1207 → 747 | 1387 → 699 | 23.6 → 33.7 % | 31.5 → 34.3 % | 16.5 → 11.0 % | 5.9 → 2.6 % |
+| Equipment | 1539 → 747 | 1735 → 705 | 23.6 → 33.7 % | 25.2 → 34.3 % | 18.5 → 11.0 % | 13.3 → 4.1 % |
+| Orifice | 1335 → 747 | 1515 → 699 | 23.6 → 28.9 % | 25.2 → 28.6 % | 20.1 → 13.3 % | 13.9 → 8.4 % |
+| Relief valve | 1507 → 1152 | 1831 → 1469 | 23.6 → 33.7 % | 25.2 → 34.3 % | 16.5 → 15.0 % | 16.6 → 11.2 % |
+| Piping, solved | 1601 → 1014 | 1993 → 1438 | 5.9 → 16.9 % | 6.3 → 5.7 % | 7.0 → 21.2 % | 9.9 → 7.3 % |
+
+(747 and 699 px are the pane's own height: those forms now fit without scrolling. A form's "hint prose" can rise where its More opened with the ports list and the model text.)
+
+**Budgets** (`tests/build-density.e2e.ts`, both projects):
+- Core fields on a phone's first screen: **met** for all 19 types unsolved and the solved pump example (it failed for the pump's elevation until the curve editor moved after the core fields, D16).
+- Chrome at 1280×800: **14.6 %** for every type in its normal state (9.8 % for the solved pump), under 15 %; it was 23.6–29.5 %. It met the budget only once the control height was really applied (below) and the More/Ports/About rows were one (D11). The equipment item's two density buttons enter the density, so they count as inputs (`data-input`), the spec's one stated rule beyond the element type.
+- Pipe size 2 actions and valve status 1 action from the panel, no scroll: **met** at both sizes (unsolved). Solved, a phone needs one scroll for the pipe size (Size at y 808 of 650) and for the first curve point (y 781 of 650).
+- axe-core: **0 violations** on four forms with their disclosures open and on Piping, at both sizes.
+- A new field is one entry and its label: **met for plain fields** (`adding-a-field.md`); a field with its own editor adds its branch in the form's snippet; a scenario-changeable field still needs its label in `fieldLabelFor` (§10 item 5).
+
+**Departures from §5:**
+1. **The compact height first did nothing.** Tailwind's `@theme` resolved `--spacing-ctl: var(--ctl-h)` once on `:root`, so `.dense` changed nothing until it became `@theme inline`; found by the chrome budget, which kept failing at 44 px controls.
+2. **Help floats instead of pushing.** Shown in the flow, it moved the Add button of a dialog when the field lost focus, and four equipment e2e flows that hold "the first click adds it" failed; it is now an overlay under the field with `pointer-events: none`, so nothing moves (a11y findings asked for exactly this).
+3. **Ports and About went into More** (D11) after measuring three disclosure rows as chrome on short forms; the Ports region keeps its name ("Ports") for the tests and screen readers.
+4. **The Breadcrumb's focus** is scrolled into view (`focusin`), the a11y review's 2.4.11 failure.
+5. **One e2e locator re-scoped**: `pump-system.e2e.ts` reads the Pump curve select from the Build panel instead of the "Pump curve" region, since the select now sits in Rating (D16); the assertion (its value is C1) is unchanged.
+6. **The density spec's fixture plugs every free port**, so its panels show their normal state; unconnected ports open More by design (§5 D8), and their chrome is the exception being raised.
+7. **Not built in the timebox** (roadmap §4): the workspace header and scenario bar, compact port and fitting tables, one label table.
+
+Screenshots: `build-density/before-*.png` and `after-*.png` (the solved pump at 1280×800 and 390×844, the solved gate valve and the relief valve on a phone, Piping on both, the Add dialog, the equipment form).
 
 ## 12. Later
 

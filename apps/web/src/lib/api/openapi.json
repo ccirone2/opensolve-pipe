@@ -2116,6 +2116,31 @@
         "title": "FlowNpshrPoint",
         "type": "object"
       },
+      "FlowRange": {
+        "additionalProperties": false,
+        "properties": {
+          "max": {
+            "title": "Max",
+            "type": "number"
+          },
+          "min": {
+            "title": "Min",
+            "type": "number"
+          },
+          "unit": {
+            "const": "m³/s",
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "min",
+          "max",
+          "unit"
+        ],
+        "title": "FlowRange",
+        "type": "object"
+      },
       "FluidInfo": {
         "additionalProperties": false,
         "description": "A built-in fluid and the input ranges its property source supports (queried from\nCoolProp). The lower temperature bound is exclusive and, for glycols, depends on the\nconcentration: see ``freezingPoints`` and ``notes``.",
@@ -6100,14 +6125,45 @@
       },
       "PumpGroupCurveRequest": {
         "additionalProperties": false,
-        "description": "The group curve of the station holding ``pumpIds`` (CLAUDE.md D21). Checks in order: this\nrequest (400), the scenario (404, then 400 for its values), the case's fluid (400), pump\nids that name no pump (404, all listed), the case's topology (422), then whether the pumps\nform a station (422 NOT_A_STATION, every reason listed), then the head range (400).",
+        "description": "The group curve, or the group system curve, of the station holding ``pumpIds`` (CLAUDE.md\nD21). Checks in order: this request (400), the scenario (404, then 400 for its values), the\ncase's fluid (400), pump ids that name no pump (404, all listed), the case's topology (422),\nthen whether the pumps form a station (422 NOT_A_STATION, every reason listed), then the\nhead range (400) and, for the group system curve, the flow range (400).",
         "properties": {
           "curve": {
-            "const": "group",
             "default": "group",
-            "description": "'group': the station solved alone between its ports held a rise apart (the group's system curve is a later slice)",
+            "description": "'group': the station solved alone between its ports held a rise apart (points, headRange, dutyCheck); 'system': the group system curve, the rest of the network with the station's flow forced from its inlet S to its outlet D (systemPoints, flowRange, systemDutyCheck). An active PRV or PSV inside the station refuses 'group' only",
+            "enum": [
+              "group",
+              "system"
+            ],
             "title": "Curve",
             "type": "string"
+          },
+          "flowMax": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m³/s, curve 'system' only: the highest flow sampled; default 1.2 x the largest of the duty's flow and the group curve's flows (on the rises headMin and headMax give); 1.2 x the duty's flow where the group curve is not defined (an active PRV or PSV inside); and 1.2 x the sum over the pumps of their curves' largest flows x their speeds where none of those is above 1e-6 m3/s (no flow through the station at the duty or on the group curve: every pump off, or the pumps closed or carrying no flow from inlet to outlet)",
+            "title": "Flowmax"
+          },
+          "flowMin": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m³/s, curve 'system' only: the lowest flow sampled; default the lower of 0 and the duty's flow",
+            "title": "Flowmin"
           },
           "headMax": {
             "anyOf": [
@@ -6134,12 +6190,12 @@
                 "type": "null"
               }
             ],
-            "description": "m, the lowest rise EGL(D) - EGL(S) sampled; default min(0, the duty's rise)",
+            "description": "m, the lowest rise EGL(D) - EGL(S) sampled; default min(0, the duty's rise). With curve 'system' and no flowMax, the rises of the group curve whose largest flow sets the default flowMax",
             "title": "Headmin"
           },
           "numPoints": {
             "default": 41,
-            "description": "Evenly spaced rises; the duty's rise is added when it is not one of them",
+            "description": "Evenly spaced rises ('group'), or flows ('system'); the duty's rise or flow is added when it is not one of them",
             "maximum": 201.0,
             "minimum": 5.0,
             "title": "Numpoints",
@@ -6190,12 +6246,17 @@
             "lower": "headMin",
             "strict": true,
             "upper": "headMax"
+          },
+          {
+            "lower": "flowMin",
+            "strict": true,
+            "upper": "flowMax"
           }
         ]
       },
       "PumpGroupCurveResponse": {
         "additionalProperties": false,
-        "description": "The station holding the pumps, its duty in the case and its group curve (CLAUDE.md D21).",
+        "description": "The station holding the pumps, its duty in the case, and its group curve (curve 'group')\nor its group system curve (curve 'system') (CLAUDE.md D21).",
         "properties": {
           "converged": {
             "description": "The case's solve converged (else no duty and no points)",
@@ -6220,7 +6281,19 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "curve 'group': the group curve at the duty's rise; null otherwise"
+          },
+          "flowRange": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlowRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "curve 'system': the flows the points span; null otherwise"
           },
           "headRange": {
             "anyOf": [
@@ -6230,7 +6303,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "curve 'group': the rises the points span; null otherwise"
           },
           "message": {
             "description": "Why there is no duty ('' when there is one)",
@@ -6246,7 +6320,7 @@
             "description": "How the station and its curve are computed"
           },
           "points": {
-            "description": "In rise order",
+            "description": "curve 'group': the group curve, in rise order; empty otherwise",
             "items": {
               "$ref": "#/components/schemas/PumpGroupCurvePoint"
             },
@@ -6266,6 +6340,25 @@
           },
           "station": {
             "$ref": "#/components/schemas/PumpGroupStation"
+          },
+          "systemDutyCheck": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PumpGroupSystemDutyCheck"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "curve 'system': the group system curve at the duty's flow; null otherwise"
+          },
+          "systemPoints": {
+            "description": "curve 'system': the group system curve, in flow order; empty otherwise",
+            "items": {
+              "$ref": "#/components/schemas/PumpGroupSystemPoint"
+            },
+            "title": "Systempoints",
+            "type": "array"
           }
         },
         "required": [
@@ -6276,6 +6369,9 @@
           "dutyCheck",
           "points",
           "headRange",
+          "systemDutyCheck",
+          "systemPoints",
+          "flowRange",
           "methods",
           "methodVersion",
           "scenario"
@@ -6506,6 +6602,200 @@
           "interiorConnectionIds"
         ],
         "title": "PumpGroupStation",
+        "type": "object"
+      },
+      "PumpGroupSystemDutyCheck": {
+        "additionalProperties": false,
+        "properties": {
+          "agrees": {
+            "description": "The group system curve at the duty's flow gives the duty's rise, within 0.5 % or 0.01 m, whichever is looser (CLAUDE.md D6)",
+            "title": "Agrees",
+            "type": "boolean"
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m: the group system curve's rise at the duty's flow (null: no rise there)",
+            "title": "Head"
+          },
+          "message": {
+            "description": "What was compared and, when it disagrees, why",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agrees",
+          "head",
+          "message"
+        ],
+        "title": "PumpGroupSystemDutyCheck",
+        "type": "object"
+      },
+      "PumpGroupSystemPoint": {
+        "additionalProperties": false,
+        "description": "A point of the group system curve: /system-curve's point (SystemCurvePoint) with the\nstation's inlet S and outlet D in place of a pump's suction and discharge, and its rise in\nplace of a pump's head; no NPSHa, as none is along the group curve (the station is read at\nits ports; each pump's NPSHa at the duty is in its own results).",
+        "properties": {
+          "assignedFlowNodeIds": {
+            "description": "As SystemCurvePoint.assignedFlowNodeIds",
+            "items": {
+              "type": "string"
+            },
+            "title": "Assignedflownodeids",
+            "type": "array"
+          },
+          "componentIds": {
+            "description": "As SystemCurvePoint.componentIds (where the outer loop names the station's forced flow among the controls it cannot settle, the station's pumps)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Componentids",
+            "type": "array"
+          },
+          "converged": {
+            "description": "True when the point has a rise: its solve converged to a steady state that carries the flow with a determined rise",
+            "title": "Converged",
+            "type": "boolean"
+          },
+          "flow": {
+            "description": "m³/s forced from S to D through the station",
+            "title": "Flow",
+            "type": "number"
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EGL(D) - EGL(S), m: the rise the rest of the network needs at this flow; null when no steady state carries the flow, its rise is undetermined or its solve did not converge (see reason and message)",
+            "title": "Head"
+          },
+          "isDuty": {
+            "description": "This point's flow is the duty's flow (solved from the case's solve)",
+            "title": "Isduty",
+            "type": "boolean"
+          },
+          "limitFlow": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m³/s, as SystemCurvePoint.limitFlow, for the station's flow",
+            "title": "Limitflow"
+          },
+          "message": {
+            "description": "Why the point has no rise ('' when it has one)",
+            "title": "Message",
+            "type": "string"
+          },
+          "openHead": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m, as SystemCurvePoint.openHead: the rise with the valve fully open",
+            "title": "Openhead"
+          },
+          "openHeadBound": {
+            "anyOf": [
+              {
+                "enum": [
+                  "lower",
+                  "upper"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As SystemCurvePoint.openHeadBound",
+            "title": "Openheadbound"
+          },
+          "passedFlow": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "m³/s, as SystemCurvePoint.passedFlow",
+            "title": "Passedflow"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_way_through",
+                  "beyond_limit",
+                  "below_floor",
+                  "no_steady_state_found",
+                  "free_level",
+                  "closed_off",
+                  "valve_at_switch",
+                  "not_converged",
+                  "not_computed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As /system-curve's reason (SystemCurvePoint.reason), the station's inlet S and outlet D taking the pump's suction and discharge (beyond_limit: every way from D back to S; below_floor: every way from S to D), and its rise the pump's head",
+            "title": "Reason"
+          },
+          "startsTried": {
+            "description": "As SystemCurvePoint.startsTried",
+            "items": {
+              "enum": [
+                "solve",
+                "previous_point",
+                "initial",
+                "initial_open"
+              ],
+              "type": "string"
+            },
+            "title": "Startstried",
+            "type": "array"
+          }
+        },
+        "required": [
+          "flow",
+          "head",
+          "converged",
+          "isDuty",
+          "message",
+          "reason",
+          "componentIds",
+          "assignedFlowNodeIds",
+          "limitFlow",
+          "passedFlow",
+          "openHead",
+          "openHeadBound",
+          "startsTried"
+        ],
+        "title": "PumpGroupSystemPoint",
         "type": "object"
       },
       "PumpResult": {
@@ -9550,7 +9840,7 @@
     },
     "/api/v1/pump-group-curve": {
       "post": {
-        "description": "The station holding a group of pumps, its duty in the case and its group curve (CLAUDE.md\nD21): the station solved alone between its inlet S and outlet D held a rise apart, every\nelement inside on its own law and rules, from the duty's rise outward.\n\nChecks in order: the request (400), the scenario (404, then 400 for its values), the case's\nfluid (400), pump ids that name no pump (404, all listed), the case's topology (422), whether\nthe pumps form a station (422 NOT_A_STATION, every reason listed), the head range (400).\nA case whose solve does not converge is 200 with converged = false and no points.",
+        "description": "The station holding a group of pumps, its duty in the case, and its group curve or its\ngroup system curve (CLAUDE.md D21). curve 'group': the station solved alone between its\ninlet S and outlet D held a rise apart, every element inside on its own law and rules, from\nthe duty's rise outward. curve 'system': the rest of the network with the station's flow\nforced from S to D, every element inside held closed (each pump's system curve with the\nwhole station in place of one pump).\n\nChecks in order: the request (400), the scenario (404, then 400 for its values), the case's\nfluid (400), pump ids that name no pump (404, all listed), the case's topology (422), whether\nthe pumps form a station (422 NOT_A_STATION, every reason listed; an active PRV or PSV inside\nrefuses curve 'group' only), the head range (400), then for curve 'system' the flow range\n(400). A case whose solve does not converge is 200 with converged = false and no points.",
         "operationId": "pump_group_curve_endpoint_api_v1_pump_group_curve_post",
         "requestBody": {
           "content": {

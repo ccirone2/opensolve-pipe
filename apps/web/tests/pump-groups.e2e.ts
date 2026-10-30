@@ -13,9 +13,13 @@ import { halfUlp, resultsView, solveConverged } from './support';
  * The Pumps together card (CLAUDE.md D21, proposal pump-groups.md §6), against the real app and
  * API, on desktop and on a phone: two pumps in parallel between Crane tees, two in series (US
  * display units) and two pumps the API refuses as a station (a tank on the discharge header).
- * The projects are the shared fixture's (apps/api/tests/fixtures/pump_groups_input.py); every
- * expected number is read from the intercepted response of the real API and compared in display
- * units, to the rounding the table shows. No sideways scroll; the image is a PNG.
+ * Slice 4b (§7): the group system curve asked for after the group curve, drawn and listed in the
+ * data table, the Group point at the curves' crossing, "Read along the curves", an FCV outside
+ * the station (points without a rise, and why) and a PRV inside it (no group curve, the group
+ * system curve all the same). The projects are the shared fixture's
+ * (apps/api/tests/fixtures/pump_groups_input.py); every expected number is read from the
+ * intercepted response of the real API and compared in display units, to the rounding the table
+ * shows. No sideways scroll; the image is a PNG.
  */
 
 interface FixtureCase {
@@ -65,18 +69,40 @@ async function openCard(page: Page) {
 	return { card, toggle };
 }
 
-async function answerOf(page: Page, press: () => Promise<void>) {
-	const answer = page.waitForResponse(
-		(r) => r.url().endsWith('/api/v1/pump-group-curve') && r.request().method() === 'POST'
-	);
-	await press();
-	const response = await answer;
-	return {
-		status: response.status(),
-		body: (await response.json()) as PumpGroupCurveResponse & Partial<ErrorResponse>,
-		request: response.request().postDataJSON() as PumpGroupCurveRequest
-	};
+/** The answer to a group-curve request of `curve` ('group' or 'system'). */
+function curveAnswer(page: Page, curve: 'group' | 'system') {
+	return page
+		.waitForResponse(
+			(r) =>
+				r.url().endsWith('/api/v1/pump-group-curve') &&
+				r.request().method() === 'POST' &&
+				(r.request().postDataJSON() as PumpGroupCurveRequest).curve === curve
+		)
+		.then(async (response) => ({
+			status: response.status(),
+			body: (await response.json()) as PumpGroupCurveResponse & Partial<ErrorResponse>,
+			request: response.request().postDataJSON() as PumpGroupCurveRequest
+		}));
 }
+
+/** Press, and wait for the group curve's answer (the request the press sends first). */
+async function answerOf(page: Page, press: () => Promise<void>) {
+	const answer = curveAnswer(page, 'group');
+	await press();
+	return answer;
+}
+
+/** Press, and wait for the group curve's answer, then the group system curve's (slice 4b). */
+async function answersOf(page: Page, press: () => Promise<void>) {
+	const group = curveAnswer(page, 'group');
+	const system = curveAnswer(page, 'system');
+	await press();
+	return { group: await group, system: await system };
+}
+
+/** The numbers in a text, in order (display units, as shown). */
+const numbers = (text: string) =>
+	[...text.matchAll(/-?\d+(?:\.\d+)?(?:e-?\d+)?/g)].map((m) => m[0]);
 
 async function noSidewaysScroll(page: Page) {
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
@@ -90,16 +116,20 @@ test('two pumps in parallel: the station, each share and loss on its way, the PN
 	await open(page, projectOf('parallel-crane'));
 	await solveConverged(page);
 	const { card, toggle } = await openCard(page);
-	const { status, body, request } = await answerOf(page, () => toggle.click());
+	const answers = await answersOf(page, () => toggle.click());
+	const { status, body, request } = answers.group;
 	expect(status).toBe(200);
 	expect(request.pumpIds).toEqual(['PA', 'PB']);
 	expect(request).not.toHaveProperty('scenarioId');
 	const duty = body.duty!;
 	expect(body.station.arrangement).toBe('parallel');
+	expect(answers.system.status).toBe(200);
 
 	const figure = card.getByRole('figure', { name: 'Pump PA and Pump PB in parallel' });
 	await expect(figure).toBeVisible();
-	await expect(figure.getByRole('img')).toHaveAccessibleName(/; group curve shown\.$/);
+	await expect(figure.getByRole('img')).toHaveAccessibleName(
+		/; group curve shown; group system curve shown\.$/
+	);
 	await expect(figure.getByRole('img')).toHaveAccessibleName(
 		/from Tee T1 \(run inlet\) to Tee T2 \(run outlet\), on the group curve/
 	);
@@ -214,5 +244,217 @@ test('two pumps that are not a station: why, in words, and their own curves stil
 		await expect(entry.locator('svg line')).toHaveCount(1);
 	}
 	await expect(legend.getByRole('listitem').filter({ hasText: /group curve/i })).toHaveCount(0);
+	await noSidewaysScroll(page);
+});
+
+test('the group system curve: drawn, listed with the response’s values, crossing at the Group point; reading along the curves', async ({
+	page
+}) => {
+	await open(page, projectOf('parallel-crane'));
+	await solveConverged(page);
+	const { card, toggle } = await openCard(page);
+	const { group, system } = await answersOf(page, () => toggle.click());
+	expect(group.status).toBe(200);
+	expect(system.status).toBe(200);
+	expect(system.request).toMatchObject({ pumpIds: ['PA', 'PB'], curve: 'system' });
+	expect(system.request).not.toHaveProperty('flowMax');
+	const body = system.body;
+	expect(body.station).toEqual(group.body.station);
+	expect(body.duty).toEqual(group.body.duty);
+	expect(group.body.dutyCheck!.agrees).toBe(true);
+	expect(body.systemDutyCheck!.agrees).toBe(true);
+
+	const figure = card.getByRole('figure', { name: 'Pump PA and Pump PB in parallel' });
+	const legend = figure.getByRole('list', { name: 'Legend' });
+	// A regular expression is matched against the item's raw text, which starts with the
+	// whitespace after its swatch.
+	const line = legend.getByRole('listitem').filter({ hasText: /^\s*Group system curve/ });
+	await expect(line).toHaveText(
+		"Group system curve (the rest of the network between the station's inlet and outlet, station's flow)"
+	);
+	await expect(line.locator('svg line')).toHaveAttribute('stroke', '#eb6834');
+	await expect(
+		legend.getByRole('listitem').filter({
+			hasText: 'Group duty, where the group curve and the group system curve cross'
+		})
+	).toHaveCount(1);
+	await expect(figure.getByRole('img')).toHaveAccessibleName(
+		/, on the group curve and the group system curve, where they cross; group curve shown; group system curve shown\.$/
+	);
+	await expect(
+		figure.getByText(
+			"The group's system curve is the rise the rest of the network needs between Tee T1 (run inlet) and Tee T2 (run outlet) at each total flow; it does not depend on how the pumps share the flow."
+		)
+	).toBeVisible();
+	await expect(
+		figure.getByText(
+			"At the duty's flow the group system curve gives the solve's rise (within 0.5 % or 0.01 m): it passes through the Group point, where it crosses the group curve."
+		)
+	).toBeVisible();
+
+	// The data table: every point of the group system curve, its flow and rise as the response's.
+	await card.getByRole('button', { name: 'Show data table' }).click();
+	const table = card.getByRole('table', {
+		name: "Group system curve (rise the rest of the network needs at each station's flow)"
+	});
+	const points = [...body.systemPoints].sort((a, b) => a.flow - b.flow);
+	const rows = table.getByRole('row');
+	await expect(rows).toHaveCount(points.length + 1);
+	for (const [i, p] of points.entries()) {
+		const cells = (
+			await rows
+				.nth(i + 1)
+				.getByRole('cell')
+				.allInnerTexts()
+		).map(squash);
+		shows(cells[0]!, p.flow * 1000);
+		shows(cells[1]!, p.head!);
+		if (p.isDuty) expect(cells[2]).toBe("The duty's flow (the system duty check).");
+	}
+	await expect(
+		card.getByText(/System duty check: the group system curve passes through it\./)
+	).toBeVisible();
+
+	// Read along the curves: a native slider over the group curve's samples, each read exactly.
+	const slider = card.getByRole('slider', { name: 'Read along the curves' });
+	const box = (await slider.boundingBox())!;
+	expect(box.height).toBeGreaterThanOrEqual(44);
+	const samples = [...group.body.points].sort((a, b) => a.head - b.head);
+	const duty = samples.findIndex((p) => p.isDuty);
+	await expect(slider).toHaveValue(String(duty));
+	const readsAt = async (i: number) => {
+		const sample = samples[i]!;
+		const text = (await slider.getAttribute('aria-valuetext'))!;
+		expect(text).toMatch(
+			/^At a rise of [\d.e-]+ m: Pump PA [\d.e-]+ L\/s(?: \(no flow\))?, Pump PB [\d.e-]+ L\/s(?: \(no flow\))?, group [\d.e-]+ L\/s/
+		);
+		const [rise, pa, pb, station] = numbers(text);
+		shows(rise!, sample.head);
+		shows(pa!, sample.members.find((m) => m.pumpId === 'PA')!.flow * 1000);
+		shows(pb!, sample.members.find((m) => m.pumpId === 'PB')!.flow * 1000);
+		shows(station!, sample.flow! * 1000);
+		await expect(card.locator('[data-group-readout]')).toHaveText(text);
+	};
+	await readsAt(duty);
+	await slider.focus();
+	await page.keyboard.press('ArrowRight');
+	await expect(slider).toHaveValue(String(duty + 1));
+	await readsAt(duty + 1);
+	await page.keyboard.press('Home');
+	await expect(slider).toHaveValue('0');
+	await readsAt(0);
+	await card.getByRole('button', { name: 'Back to the duty' }).click();
+	await expect(slider).toHaveValue(String(duty));
+	await noSidewaysScroll(page);
+
+	// The image: a PNG of the chart with the group system curve.
+	const image = card.locator('[data-chart-image]');
+	await expect(image).not.toHaveAttribute('aria-disabled', 'true');
+	const [download] = await Promise.all([page.waitForEvent('download'), image.click()]);
+	const png = readFileSync(await download.path());
+	expect([...png.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+	expect(png.readUInt32BE(16)).toBe(1600);
+});
+
+test('the group system curve in US units: its points in gpm and ft', async ({ page }) => {
+	await open(page, projectOf('series'));
+	await solveConverged(page);
+	const { card, toggle } = await openCard(page);
+	const { system } = await answersOf(page, () => toggle.click());
+	expect(system.status).toBe(200);
+	await card.getByRole('button', { name: 'Show data table' }).click();
+	const table = card.getByRole('table', {
+		name: "Group system curve (rise the rest of the network needs at each station's flow)"
+	});
+	const heads = (await table.getByRole('columnheader').allInnerTexts()).map(squash);
+	expect(heads).toEqual(['Flow (gpm)', 'Rise (ft)', 'Note']);
+	const points = [...system.body.systemPoints].sort((a, b) => a.flow - b.flow);
+	const gpm = 0.0000630901964;
+	for (const i of [1, points.length - 1]) {
+		const cells = (
+			await table
+				.getByRole('row')
+				.nth(i + 1)
+				.getByRole('cell')
+				.allInnerTexts()
+		).map(squash);
+		shows(cells[0]!, points[i]!.flow / gpm);
+		shows(cells[1]!, points[i]!.head! / 0.3048);
+	}
+	await expect(
+		card.getByText(
+			`At the duty's flow the group system curve gives the solve's rise (within 0.5 % or 0.03281 ft): it passes through the Group point, where it crosses the group curve.`
+		)
+	).toBeVisible();
+	await noSidewaysScroll(page);
+});
+
+test('an FCV outside the station: the group system curve has no rise beyond it, and says why', async ({
+	page
+}) => {
+	await open(page, projectOf('fcv-outside'));
+	await solveConverged(page);
+	const { card, toggle } = await openCard(page);
+	const { system } = await answersOf(page, () => toggle.click());
+	expect(system.status).toBe(200);
+	const points = [...system.body.systemPoints].sort((a, b) => a.flow - b.flow);
+	const missing = points.filter((p) => p.head === null);
+	expect(missing.length).toBeGreaterThan(0);
+	expect(new Set(missing.map((p) => p.reason))).toEqual(new Set(['beyond_limit']));
+	await expect(
+		card.getByText(
+			`${missing.length} of ${points.length} group-system-curve points have no rise: the line has gaps there, and the data table says why for each.`
+		)
+	).toBeVisible();
+	await card.getByRole('button', { name: 'Show data table' }).click();
+	const table = card.getByRole('table', {
+		name: "Group system curve (rise the rest of the network needs at each station's flow)"
+	});
+	const at = points.indexOf(missing[0]!);
+	const row = table.getByRole('row').nth(at + 1);
+	const cells = (await row.getByRole('cell').allInnerTexts()).map(squash);
+	shows(cells[0]!, missing[0]!.flow * 1000);
+	expect(cells[1]).toBe('—');
+	expect(cells[2]).toContain(
+		"No steady state carries this flow: every way from the station's outlet back to its inlet, through the network or a reservoir or reference node, passes Control valve FC, which passes at most 60 L/s that way (an FCV passes neither reverse flow nor more than its flow setpoint)."
+	);
+	await noSidewaysScroll(page);
+});
+
+test('a PRV inside the station: no group curve there, the group system curve all the same', async ({
+	page
+}) => {
+	await open(page, projectOf('prv-inside'));
+	await solveConverged(page);
+	const { card, toggle } = await openCard(page);
+	await toggle.click();
+	// Nothing is suggested with an active PRV inside: the user ticks the pumps.
+	const members = card.getByRole('group', { name: 'Pumps in the group' });
+	await members.getByRole('checkbox', { name: /Pump PA/ }).check();
+	const { group, system } = await answersOf(page, () =>
+		members.getByRole('checkbox', { name: /Pump PB/ }).check()
+	);
+	expect(group.status).toBe(422);
+	expect(group.body.issues!.map((i) => i.code)).toEqual(['PRESSURE_CONTROL_INSIDE']);
+	expect(system.status).toBe(200);
+	await expect(
+		card.getByText(
+			"These pumps form a station, but its group curve is not defined there; its group system curve is, and the pumps' own curves and points are drawn."
+		)
+	).toBeVisible();
+	await expect(
+		card.getByRole('list', { name: 'Why the group curve is not defined' }).getByRole('listitem')
+	).toContainText('is inside the station and holds a pressure (an active PRV or PSV)');
+	const figure = card.getByRole('figure', { name: 'Pump PA and Pump PB in parallel' });
+	const legend = figure.getByRole('list', { name: 'Legend' });
+	// Regular expressions are matched against an item's raw text (whitespace after its swatch).
+	await expect(
+		legend.getByRole('listitem').filter({ hasText: /^\s*Group system curve/ })
+	).toHaveCount(1);
+	await expect(legend.getByRole('listitem').filter({ hasText: /^\s*Group curve/ })).toHaveCount(0);
+	await expect(
+		legend.getByRole('listitem').filter({ hasText: 'Group duty, on the group system curve' })
+	).toHaveCount(1);
+	await expect(card.getByRole('slider')).toHaveCount(0);
 	await noSidewaysScroll(page);
 });

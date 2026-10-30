@@ -122,6 +122,8 @@ export type PumpGroupDutyMember = S['PumpGroupDutyMember'];
 export type PumpGroupDutyCheck = S['PumpGroupDutyCheck'];
 export type PumpGroupCurvePoint = S['PumpGroupCurvePoint'];
 export type GroupMemberPoint = S['GroupMemberPoint'];
+export type PumpGroupSystemPoint = S['PumpGroupSystemPoint'];
+export type PumpGroupSystemDutyCheck = S['PumpGroupSystemDutyCheck'];
 
 export type GoalSeekRequest = S['GoalSeekRequest'];
 export type GoalSeekResponse = S['GoalSeekResponse'];

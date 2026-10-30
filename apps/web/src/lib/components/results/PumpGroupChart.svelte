@@ -14,11 +14,20 @@
 	pumps do not form a station, the card says why in words with the elements named and linked,
 	and still draws the members. Under the chart: the notes, how the curve is computed, the group
 	table (from the solve, then the shares and losses from the duty) and the data table.
+
+	Slice 4b (proposal §7): after the group curve's answer, the group system curve (the same
+	request with curve 'system': the rest of the network between the station's inlet and outlet,
+	at each station's flow), with its own progress, Cancel, failure and retry, drawn in the system
+	orange with gaps where a point has no rise (the data table says why). The Group point is the
+	two curves' crossing only when both duty checks agree. Where the group curve is refused only
+	for an active PRV or PSV inside, the card says so and draws the group system curve all the
+	same. "Read along the curves" steps over the group curve's samples, giving each member's flow
+	and the station's at that rise exactly as the response does, and marks them on the chart.
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import type { Flag, NodeResult, Project, UnitPreferences } from '$lib/api/types';
-	import type { GroupCurveState } from '$lib/state/project.svelte';
+	import type { GroupCurveState, GroupSystemCurveState } from '$lib/state/project.svelte';
 	import type { ChartImageSource } from '$lib/utils/export/chart-image';
 	import { DISCLAIMER } from '$lib/components/links';
 	import { STALE_CHUNK_MESSAGE } from '$lib/utils/export/load';
@@ -34,8 +43,10 @@
 		groupLegend,
 		groupNoteLines,
 		groupNotes,
+		groupReadout,
 		groupSampleRows,
 		groupSummary,
+		groupSystemRows,
 		groupTable,
 		dutyCheckState,
 		dutyCheckWords,
@@ -43,10 +54,13 @@
 		namesProject,
 		slotStyle,
 		STATION_SYMBOL,
-		type GroupMemberInput
+		systemDutyCheckState,
+		type GroupMemberInput,
+		type GroupReadoutMark
 	} from '$lib/utils/pump-group-chart';
 	import {
 		MAX_GROUP_PUMPS,
+		pressureControlOnly,
 		refusalWords,
 		wordsText,
 		type GroupSuggestion
@@ -74,6 +88,15 @@
 		onretry?: () => void;
 		/** Cancel it while it is computed. */
 		oncancel?: () => void;
+		/**
+		 * The group system curve of the members for this solve (undefined: not requested; it is asked
+		 * for after the group curve's answer).
+		 */
+		system?: GroupSystemCurveState;
+		/** Compute the group system curve again (after a failure or a cancellation). */
+		onretrysystem?: () => void;
+		/** Cancel the group system curve while it is computed. */
+		oncancelsystem?: () => void;
 		prefs: UnitPreferences;
 		/** Names (the labels project). */
 		project: Project;
@@ -107,6 +130,9 @@
 		curve: groupCurve,
 		onretry,
 		oncancel,
+		system: systemCurve,
+		onretrysystem,
+		oncancelsystem,
 		prefs,
 		project: labels,
 		solvedProject,
@@ -174,9 +200,29 @@
 
 	const response = $derived(groupCurve?.status === 'ready' ? groupCurve.response : null);
 	const shown = $derived(unavailable ? null : response);
-	const data = $derived(groupChartData(members, prefs, shown));
+	const systemResponse = $derived(systemCurve?.status === 'ready' ? systemCurve.response : null);
+	const systemShown = $derived(unavailable ? null : systemResponse);
+	/**
+	 * The station and its duty: the group curve's response, else the group system curve's (the
+	 * same station and the same duty, from the case's own solve), when the group curve is refused
+	 * for an active PRV or PSV inside only.
+	 */
+	const stationShown = $derived(shown ?? (systemShown?.duty ? systemShown : null));
+	const data = $derived(groupChartData(members, prefs, shown, systemShown));
 	const notes = $derived(
-		groupNotes({ data, members, state: unavailable ? undefined : groupCurve, project, prefs })
+		groupNotes({
+			data,
+			members,
+			state: unavailable ? undefined : groupCurve,
+			system: unavailable ? undefined : systemCurve,
+			project,
+			solved: solvedProject ?? labels,
+			prefs
+		})
+	);
+	/** Refused only for an active PRV or PSV inside: a station, whose group curve is not defined. */
+	const undefinedThere = $derived(
+		groupCurve?.status === 'refused' && pressureControlOnly(groupCurve.issues)
 	);
 	const refusals = $derived(
 		groupCurve?.status === 'refused' && !unavailable
@@ -189,9 +235,9 @@
 				}))
 			: []
 	);
-	const arrangement = $derived(shown?.station.arrangement ?? null);
+	const arrangement = $derived(stationShown?.station.arrangement ?? null);
 	const memberNames = $derived(
-		(shown ? shown.station.memberIds : [...memberIds].sort(byTable)).map(nameOf)
+		(stationShown ? stationShown.station.memberIds : [...memberIds].sort(byTable)).map(nameOf)
 	);
 	function byTable(a: string, b: string) {
 		return pumps.findIndex((p) => p.id === a) - pumps.findIndex((p) => p.id === b);
@@ -199,21 +245,49 @@
 	const caption = $derived(
 		`${groupCaption(memberNames, arrangement)}${caseName ? `, ${caseName}` : ''}${stale ? ' (out of date)' : ''}`
 	);
-	const summary = $derived(groupSummary(data, members, shown, project));
+	const summary = $derived(groupSummary(data, members, shown, project, systemShown));
 	const legend = $derived(groupLegend(data));
-	const table = $derived(groupTable(members, nodes, shown, prefs, project));
+	const table = $derived(groupTable(members, nodes, stationShown, prefs, project));
 	const samples = $derived(
 		shown ? groupSampleRows(shown, shown.station.memberIds, prefs, project) : []
 	);
+	/** The group system curve's rows: its reasons told with names and each element's rule. */
+	const systemRows = $derived(
+		systemShown
+			? groupSystemRows(systemShown, prefs, { project, solved: solvedProject ?? labels })
+			: []
+	);
 	const loading = $derived(groupCurve?.status === 'loading' && !unavailable);
+	const systemLoading = $derived(systemCurve?.status === 'loading' && !unavailable);
+
+	/** "Read along the curves": the group curve's samples, in rise order. */
+	const readout = $derived(shown ? groupReadout(shown, nameOf, prefs) : []);
+	const dutyIndex = $derived(readout.findIndex((r) => r.duty));
+	/** The sample the user moved to, for this response (else the duty's, else the first). */
+	// Raw: the response is compared by identity (a deep proxy would never equal it).
+	let reading = $state.raw<{ response: unknown; index: number } | null>(null);
+	const moved = $derived(reading !== null && reading.response === shown);
+	const readIndex = $derived(
+		moved ? Math.min(reading!.index, readout.length - 1) : dutyIndex >= 0 ? dutyIndex : 0
+	);
+	const readSample = $derived(readout[readIndex] ?? null);
+	const readText = $derived(
+		readSample ? `${readSample.text}${readSample.duty ? " (the duty's rise)" : ''}` : ''
+	);
+	/** Marked on the chart once the user reads along (the duty's points are drawn already). */
+	const mark = $derived<GroupReadoutMark | null>(moved ? (readSample?.mark ?? null) : null);
 	const fmt = (v: number) => formatNumber(v, 4);
 
 	const phone = mediaQuery('(max-width: 639px)');
 	const heightRem = $derived(chartHeightRem(['head'], phone.current));
 
 	let figure: HTMLElement | undefined = $state();
+	/** "Read along the curves": focus returns here from "Back to the duty", which then goes. */
+	let readSlider: HTMLInputElement | undefined = $state();
 	let cancelButton: HTMLButtonElement | undefined = $state();
 	let retryButton: HTMLButtonElement | undefined = $state();
+	let systemCancelButton: HTMLButtonElement | undefined = $state();
+	let systemRetryButton: HTMLButtonElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let noCanvas = $state(false);
 	let showTable = $state(false);
@@ -233,10 +307,30 @@
 		if (!retry || document.activeElement !== retry) return;
 		void tick().then(() => (cancelButton ?? figure)?.focus());
 	});
+	// The same for the group system curve's Cancel and retry.
+	$effect.pre(() => {
+		if (systemLoading) return;
+		const cancel = untrack(() => systemCancelButton);
+		if (!cancel || document.activeElement !== cancel) return;
+		void tick().then(() => (systemRetryButton ?? figure)?.focus());
+	});
+	$effect.pre(() => {
+		if (!systemLoading) return;
+		const retry = untrack(() => systemRetryButton);
+		if (!retry || document.activeElement !== retry) return;
+		void tick().then(() => (systemCancelButton ?? figure)?.focus());
+	});
 
 	/** The chart chunk, kept once loaded (the image never waits for it again). */
 	let chartModule: typeof import('./chart-setup') | null = null;
 	let drawn = $state(false);
+	/** The chart drawn on screen (not reactive): the readout's mark redraws it. */
+	let drawnChart: ChartInstance<'line'> | null = null;
+	let markNow: GroupReadoutMark | null = null;
+	$effect(() => {
+		markNow = mark;
+		drawnChart?.draw();
+	});
 
 	$effect(() => {
 		const element = canvas;
@@ -260,9 +354,11 @@
 					pumpGroupConfig(d, {
 						legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
 						format: fmt,
-						htmlLegend: true
+						htmlLegend: true,
+						readout: () => markNow
 					})
 				);
+				drawnChart = chart;
 				drawn = true;
 			},
 			() => {
@@ -271,6 +367,7 @@
 		);
 		return () => {
 			cancelled = true;
+			if (drawnChart === chart) drawnChart = null;
 			chart?.destroy();
 		};
 	});
@@ -282,9 +379,11 @@
 			: image.unavailable ||
 					(loading
 						? 'Wait until the group curve is computed, or cancel it.'
-						: !drawn
-							? 'The chart is being drawn.'
-							: '')
+						: systemLoading
+							? 'Wait until the group system curve is computed, or cancel it.'
+							: !drawn
+								? 'The chart is being drawn.'
+								: '')
 	);
 	let makingImage = false;
 
@@ -397,7 +496,7 @@
 					bind:this={figure}
 					class="space-y-2"
 					aria-labelledby="{id}-caption"
-					aria-busy={loading}
+					aria-busy={loading || systemLoading}
 					tabindex="-1"
 				>
 					<figcaption id="{id}-caption" class="text-sm font-medium">{caption}</figcaption>
@@ -442,9 +541,57 @@
 							The chart cannot be drawn in this browser. The tables below list its points.
 						</p>
 					{/if}
+					{#if readSample}
+						<!-- Read along the curves: the group curve's samples, each read from the response. -->
+						<div class="space-y-1">
+							<div class="flex flex-wrap items-center gap-x-3">
+								<label for="{id}-read" class="text-xs font-medium text-slate-700"
+									>Read along the curves</label
+								>
+								<input
+									bind:this={readSlider}
+									id="{id}-read"
+									type="range"
+									class="min-h-11 min-w-40 flex-1 accent-slate-700"
+									min="0"
+									max={readout.length - 1}
+									step="1"
+									value={readIndex}
+									aria-valuetext={readText}
+									aria-describedby="{id}-read-hint"
+									oninput={(event) =>
+										(reading = { response: shown, index: Number(event.currentTarget.value) })}
+									onkeydown={(event) => {
+										if (event.key === 'Escape' && moved) {
+											event.preventDefault();
+											reading = null;
+										}
+									}}
+								/>
+								{#if moved && dutyIndex >= 0 && readIndex !== dutyIndex}
+									<button
+										type="button"
+										class="btn btn-quiet px-2 text-blue-800"
+										onclick={() => {
+											reading = null;
+											void tick().then(() => readSlider?.focus());
+										}}>Back to the duty</button
+									>
+								{/if}
+							</div>
+							<p class="text-xs text-slate-700 tabular-nums" data-group-readout>{readText}</p>
+							<p id="{id}-read-hint" class="hint">
+								Steps over the group curve's samples, each pump's flow and the station's as computed
+								at that rise (nothing between samples is read).
+							</p>
+						</div>
+					{/if}
+					<!-- One live region for both curves' progress (never computed at once). -->
 					<div role="status" class="text-xs text-slate-600">
 						{#if notes.curve?.kind === 'loading'}
 							<span id="{id}-curve-state">{notes.curve.text}</span>
+						{:else if notes.systemCurve?.kind === 'loading'}
+							<span id="{id}-system-state">{notes.systemCurve.text}</span>
 						{/if}
 					</div>
 					{#if notes.curve?.kind === 'loading' && oncancel}
@@ -481,7 +628,12 @@
 					{:else if notes.curve?.kind === 'refused'}
 						<div class="space-y-1 text-sm" data-group-refusal>
 							<p class="font-medium">{notes.curve.text}</p>
-							<ul class="list-disc space-y-1 pl-5" aria-label="Why they do not form a station">
+							<ul
+								class="list-disc space-y-1 pl-5"
+								aria-label={undefinedThere
+									? 'Why the group curve is not defined'
+									: 'Why they do not form a station'}
+							>
 								{#each refusals as refusal, i (i)}
 									<li>
 										{@render words(refusal.words)}
@@ -493,12 +645,57 @@
 					{:else if notes.curve}
 						<p class="text-xs text-slate-700">{notes.curve.text}</p>
 					{/if}
+					<!-- The group system curve's state: asked for after the group curve's answer. -->
+					{#if notes.systemCurve?.kind === 'loading' && oncancelsystem}
+						<button
+							bind:this={systemCancelButton}
+							type="button"
+							class="btn btn-quiet px-2 text-blue-800"
+							aria-label="Cancel the group system curve"
+							onclick={oncancelsystem}>Cancel</button
+						>
+					{:else if notes.systemCurve?.kind === 'error' || notes.systemCurve?.kind === 'cancelled'}
+						<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+							<p
+								id="{id}-system-state"
+								class={[
+									'text-xs',
+									notes.systemCurve.kind === 'error' ? 'text-red-800' : 'text-slate-600'
+								]}
+							>
+								{notes.systemCurve.text}
+							</p>
+							{#if onretrysystem}
+								<button
+									bind:this={systemRetryButton}
+									type="button"
+									class="btn btn-quiet px-2 text-blue-800"
+									aria-describedby="{id}-system-state"
+									onclick={onretrysystem}
+								>
+									{notes.systemCurve.kind === 'error'
+										? 'Try the group system curve again'
+										: 'Compute the group system curve'}
+								</button>
+							{/if}
+						</div>
+					{:else if notes.systemCurve}
+						<p class="text-xs text-slate-700">{notes.systemCurve.text}</p>
+					{/if}
 					{#if notes.frame}<p class="text-xs text-slate-700">{notes.frame}</p>{/if}
+					{#if notes.system}<p class="text-xs text-slate-700">{notes.system}</p>{/if}
 					<p class="text-xs text-slate-600">{notes.axes}</p>
 					{#each notes.duty as note, i (note)}
 						<p class="text-xs text-slate-600">
 							{note}{#if i === 0 && shown?.dutyCheck && !shown.dutyCheck.agrees}<IssueDetail
 									detail={shown.dutyCheck.message}
+								/>{/if}
+						</p>
+					{/each}
+					{#each notes.systemDuty as note, i (note)}
+						<p class="text-xs text-slate-600">
+							{note}{#if i === 0 && systemShown?.systemDutyCheck && !systemShown.systemDutyCheck.agrees}<IssueDetail
+									detail={systemShown.systemDutyCheck.message}
 								/>{/if}
 						</p>
 					{/each}
@@ -516,7 +713,7 @@
 									name="right"
 									class="size-3 shrink-0 transition-transform group-open:rotate-90"
 								/>
-								How this curve is computed
+								{systemShown ? 'How the group curve is computed' : 'How this curve is computed'}
 							</summary>
 							<div class="space-y-1 text-slate-700">
 								<p class="font-medium">
@@ -527,6 +724,37 @@
 									<p class="font-medium">References</p>
 									<ul class="list-disc pl-5">
 										{#each shown.methods.references as reference, i (i)}<li class="break-words">
+												{reference}
+											</li>{/each}
+									</ul>
+								{/if}
+							</div>
+						</details>
+					{/if}
+					{#if systemShown}
+						<details class="group text-xs">
+							<summary
+								class="inline-flex min-h-11 cursor-pointer list-none items-center gap-1 font-medium text-blue-800 [&::-webkit-details-marker]:hidden"
+							>
+								<Icon
+									name="right"
+									class="size-3 shrink-0 transition-transform group-open:rotate-90"
+								/>
+								How the group system curve is computed
+							</summary>
+							<div class="space-y-1 text-slate-700">
+								<p class="font-medium">
+									{systemShown.methods.title} (calculation methods {systemShown.methodVersion})
+								</p>
+								{#each systemShown.methods.items as item, i (i)}<p class="break-words">
+										{item}
+									</p>{/each}
+								{#if systemShown.methods.references.length}
+									<p class="font-medium">References</p>
+									<ul class="list-disc pl-5">
+										{#each systemShown.methods.references as reference, i (i)}<li
+												class="break-words"
+											>
 												{reference}
 											</li>{/each}
 									</ul>
@@ -730,19 +958,24 @@
 								</tbody>
 							</table>
 						</div>
-						{#if shown?.duty && data.station}
+						{#if stationShown?.duty && data.station}
 							<p class="text-sm">
 								<span aria-hidden="true">{STATION_SYMBOL}</span> Group duty (station's flow):
 								<span class="tabular-nums">{fmt(data.station.flow)} {data.flowUnit}</span> at a rise
 								of
 								<span class="tabular-nums">{fmt(data.station.point.y)} {data.headUnit}</span>; {ARRANGEMENT_WORDS[
-									shown.station.arrangement
+									stationShown.station.arrangement
 								]}.
-								{#if shown.dutyCheck}
+								{#if shown?.dutyCheck}
 									Duty check: {dutyCheckState(shown)}{shown.dutyCheck.flow === null
 										? ''
 										: `; ${dutyCheckWords(shown, nameOf, prefs)}`}.<IssueDetail
 										detail={shown.dutyCheck.message}
+									/>
+								{/if}
+								{#if systemShown?.systemDutyCheck}
+									System duty check: {systemDutyCheckState(systemShown)}.<IssueDetail
+										detail={systemShown.systemDutyCheck.message}
 									/>
 								{/if}
 							</p>
@@ -800,6 +1033,48 @@
 													>{[sample.duty ? "The duty's rise (the duty check)." : '', sample.note]
 														.filter(Boolean)
 														.join(' ')}</td
+												>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						{/if}
+						{#if systemRows.length}
+							<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+							<div
+								class="relative max-h-72 overflow-auto rounded-md border border-slate-200 bg-white"
+								role="region"
+								aria-labelledby="{id}-system-caption"
+								tabindex="0"
+							>
+								<table class="w-full text-sm">
+									<caption
+										id="{id}-system-caption"
+										class="sticky left-0 px-2 py-1 text-left text-xs font-semibold text-slate-700"
+									>
+										Group system curve (rise the rest of the network needs at each station's flow)
+									</caption>
+									<thead class="sticky top-0 bg-slate-50">
+										<tr>
+											<th scope="col" class="px-2 py-1 text-right font-medium"
+												>Flow ({data.flowUnit})</th
+											>
+											<th scope="col" class="px-2 py-1 text-right font-medium"
+												>Rise ({data.headUnit})</th
+											>
+											<th scope="col" class="px-2 py-1 text-left font-medium">Note</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each systemRows as row, i (i)}
+											<tr class="border-t border-slate-100">
+												<td class="px-2 py-1 text-right tabular-nums">{row.flow}</td>
+												<td class="px-2 py-1 text-right tabular-nums">{row.rise}</td>
+												<td class="px-2 py-1 text-xs text-slate-600"
+													>{[row.duty ? "The duty's flow (the system duty check)." : '', row.note]
+														.filter(Boolean)
+														.join(' ')}{#if row.detail}<IssueDetail detail={row.detail} />{/if}</td
 												>
 											</tr>
 										{/each}

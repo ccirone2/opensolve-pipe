@@ -27,7 +27,7 @@ Design workflows have worked well as several designers from different angles (ph
 
 ## 4. Prove it
 
-Every gate, every time (`history.md` holds the latest counts to confirm):
+Every gate, every time. `cd apps/api && uv run python scripts/record_history.py` runs them all, prints each summary and rewrites the verified-state block of [`history.md`](history.md) (`--skip e2e` for a quick pass, `--dry-run` to write nothing, `--only pytest` for one gate; a failed gate leaves the file unchanged). By hand:
 
 ```bash
 cd apps/api && uv sync && uv run pytest && uv run ruff check . && uv run ruff format --check . && uv run mypy src
@@ -56,7 +56,7 @@ In the same change set as the code:
 2. The specs: PRD §2.3 and §3 (scope and requirements), SDD §4 (a model subsection) and §5 where a contract changes, TSD §4–§5 (data and solver), §10.4 (the proof counts) and §12 (the "Decided" item). Add subsections at the end of a section; never renumber, since code cites `TSD §4.10`.
 3. `METHOD_VERSION` and `METHOD_CHANGELOG` (`services/solver/version.py`) if any solved value can change, with a line saying what is unchanged and how that was proven.
 4. The proposal's status line and as-built section.
-5. [`history.md`](history.md): a line for the merge with its hash, PR, decision and method version, and the new gate counts; [`roadmap.md`](roadmap.md) trimmed.
+5. [`history.md`](history.md): a line for the merge with its hash, PR, decision and method version, the verified-state block refreshed by `scripts/record_history.py`, and the proof record below it (reference-suite deviations, corpus counts) updated by hand; [`roadmap.md`](roadmap.md) trimmed.
 6. [`library-facts.md`](library-facts.md) if a library surprised you.
 
 ## 6. Commits, branches and agents

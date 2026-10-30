@@ -56,6 +56,16 @@ pumps drawing from one reservoir (PG8), the 2 × 2 mixed station, a drooping mem
 one topology per refusal (PG9): an assigned flow or a reservoir between member tees, a pump
 between members, members on two reservoirs, a reversed member, a PRV or PSV in a leg, a loop
 that meets the rest at one place, and a station that meets it at three.
+
+The **group system curve** (slice 4b, proposal §3.4, §7) is the rest of the network with every
+link inside the station closed and the station's flow Q forced from S to D. Every fixture's
+outside here is one chain of lines from R1 to S and one from D to R2, so the forced flow passes
+each outside line whole and H_sys(Q) = H_R2 − H_R1 + Σ h_line(Q) (``group_system_rise``),
+whatever the station holds; an ideal FCV on the delivery line adds nothing while it is open
+(``outlet_fcv_project``). The forced-split construction (``forced_split_project``: the members
+holding flow setpoints that sum to Q) and EPANET's outside (``epanet_station_project``,
+``epanet_outside_project``: S a junction with demand Q and D one with demand −Q) give the same
+rise by other routes.
 """
 
 import itertools
@@ -77,9 +87,12 @@ from tests.reference import element_laws as el
 from tests.reference.case_format import (
     assigned_flow,
     check_valve,
+    connect,
     control_valve,
     crane_tee,
     custom_fluid,
+    custom_pipe,
+    fitting,
     flow_control,
     ideal_tee,
     make_project,
@@ -1265,3 +1278,199 @@ def no_state_band(leg: Leg) -> tuple[float, float]:
         raise ValueError("the leg runs at zero rise")
     r_lo = float(brentq(excess, low, shutoff - 1.0e-9, xtol=1.0e-13))
     return r_lo, shutoff
+
+
+# ------------------------------------------------------------------------ group system curve (4b)
+#
+# The group system curve (proposal §3.4, §7; CLAUDE.md D21): every link inside the station held
+# closed and the station's flow Q forced from S to D, every element outside on its own law and
+# rules; H_sys(Q) = EGL(D) − EGL(S). Where the outside is one chain of lines from a reservoir R1
+# to S and one from D to a reservoir R2 (every fixture below), the forced flow passes every
+# outside line whole, and the energy equation along each chain gives
+#
+#     EGL(S) = H_R1 − Σ_{R1→S} h(Q),   EGL(D) = H_R2 + Σ_{D→R2} h(Q),
+#     H_sys(Q) = H_R2 − H_R1 + Σ_{outside lines} h(Q),
+#
+# h the Darcy–Weisbach line law with Colebrook and the fluids fitting K (``line.Line``), with
+# no entrance or exit loss but the fittings the lines carry (CLAUDE.md D10). Nothing inside the
+# station enters: neither its members (their statuses, speeds or controls), nor its tees (ideal
+# or Crane), valves and check valves, nor how the members share Q. With S a reservoir taken
+# whole, EGL(S) is its head and the chain R1 → S is empty. An ideal control valve fully open
+# on an outside line loses nothing (CLAUDE.md D9), so it adds no term while it is open.
+
+
+def group_system_rise(
+    h1: float, h2: float, lines: Sequence[Line], q: float, nu: float = NU
+) -> float:
+    """H_sys(Q) = H_R2 − H_R1 + Σ h_line(Q) of a station whose outside is the chains ``lines``
+    from R1 (head h1) to S and from D to R2 (head h2), every line carrying the forced flow."""
+    return h2 - h1 + sum(line.head_loss(q, nu) for line in lines)
+
+
+def outside_lines(outside: Outside) -> tuple[Line, ...]:
+    """A ladder's outside chains (``Outside``): the inlet line, if any, and the outlet line."""
+    return (outside.outlet,) if outside.inlet is None else (outside.inlet, outside.outlet)
+
+
+def series_outside(project: Project) -> tuple[float, float, tuple[Line, ...]]:
+    """``pumps_in_series``' outside: H_R1, H_R2 and its lines L1 (R1 → PA) and L3 (PB → R2);
+    L2, between the pumps, is inside the station."""
+    return (
+        reservoir_head(project, "R1"),
+        reservoir_head(project, "R2"),
+        (line_of(project, "L1"), line_of(project, "L3")),
+    )
+
+
+def parallel_outside(project: Project) -> tuple[float, float, tuple[Line, ...]]:
+    """``pumps_in_parallel``' outside (or a copy's, whatever its members): H_R1, H_R2 and L1
+    (R1 → T1), L2 (T2 → R2)."""
+    return (
+        reservoir_head(project, "R1"),
+        reservoir_head(project, "R2"),
+        (line_of(project, "L1"), line_of(project, "L2")),
+    )
+
+
+def leg_check_valve_project(parallel: Project) -> Project:
+    """``pumps_in_parallel`` with a swing check valve in PB's discharge leg: LB2 becomes PB →
+    LB2 → CVB → LB3 → T2:branch (a check valve inside the station)."""
+    lb2 = line_of(parallel, "LB2")
+    components = [*parallel.components, check_valve("CVB", 0.5, "check")]
+    connections = [c for c in parallel.connections if c.id != "LB2"]
+    connections += [
+        lb2.connect("LB2", "PB:discharge", "CVB:inlet"),
+        Line(lb2.d, 2.0).connect("LB3", "CVB:outlet", "T2:branch"),
+    ]
+    return parallel.model_copy(update={"components": components, "connections": connections})
+
+
+def forced_split_project(project: Project, q_a: float, q_b: float, min_speed: float) -> Project:
+    """The forced-split construction (proposal §9.2): ``pumps_in_parallel`` (or a copy) with PA
+    and PB at speed 1 (the maximum), each holding a flow setpoint (CLAUDE.md D11), q_a and q_b.
+    While both regulate (control state active) each is a fixed-flow link, so the station passes
+    exactly q_a + q_b split as set, and EGL(D) − EGL(S) of the solve is the outside's rise at
+    that flow, whatever the split does to the tee paths inside."""
+    a = with_component(project, "PA", speed=1.0, control=flow_control(q_a, min_speed))
+    return with_component(a, "PB", speed=1.0, control=flow_control(q_b, min_speed))
+
+
+OUTLET_FCV_LEAD = 5.0
+"""m: the pipe from T2 to the outlet FCV (on L2's bore, no fittings; a test input)."""
+
+
+def outlet_fcv_project(parallel: Project, setpoint: float) -> Project:
+    """``pumps_in_parallel`` with an ideal FCV FC (setpoint m³/s) on the delivery line, outside
+    the station: T2:run_outlet → L2a → FC → L2 → R2."""
+    l2 = line_of(parallel, "L2")
+    components: list[Component] = [*parallel.components, control_valve("FC", 1.0, "fcv", setpoint)]
+    connections = [c for c in parallel.connections if c.id != "L2"]
+    connections += [
+        Line(l2.d, OUTLET_FCV_LEAD).connect("L2a", "T2:run_outlet", "FC:inlet"),
+        l2.connect("L2", "FC:outlet", "R2:port_1"),
+    ]
+    return parallel.model_copy(update={"components": components, "connections": connections})
+
+
+def outlet_fcv_outside(project: Project) -> tuple[float, float, tuple[Line, ...]]:
+    """``outlet_fcv_project``'s outside with FC fully open (ideal: no loss): L1, L2a and L2."""
+    return (
+        reservoir_head(project, "R1"),
+        reservoir_head(project, "R2"),
+        (line_of(project, "L1"), line_of(project, "L2a"), line_of(project, "L2")),
+    )
+
+
+def rise_at_station_flow(ladder: Ladder, q: float, low: float, high: float) -> float:
+    """The rise at which the group curve passes the station flow q (brentq on ``ladder_state``'s
+    total, which falls as the rise grows): the duty's rise where the case fixes the station's
+    flow at q (an FCV holding it outside)."""
+
+    def fn(rise: float) -> float:
+        return ladder_state(ladder, rise).total - q
+
+    return float(brentq(fn, low, high, xtol=1.0e-13, rtol=1.0e-15, maxiter=200))
+
+
+# EPANET's outside (optional proof): S and D become two junctions of EPANET's own network, S
+# with a demand Q and D with a demand −Q (EPANET 2.2's "pump of a specific flow" substitute: the
+# station closed, its flow taken at S and given back at D), every outside line an EPANET pipe;
+# EPANET's head difference at D and S is H_sys(Q) (EPANET neglects velocity heads, so its heads
+# are our EGL, CLAUDE.md D7). The projects below are written for ``generate_epanet_cases``'
+# conversion: one custom pipe per connection, custom fittings only, a custom fluid of EPANET's
+# viscosity, and the solver in 'swamee_jain' mode.
+
+EPANET_ENTRANCE_K = 0.5
+EPANET_OUTLET_K = 1.6
+"""Custom minor-loss coefficients on L1 (an entrance) and L2 (two elbows and an exit) of the
+EPANET station (test inputs)."""
+
+
+def epanet_station_project(fluid_: CustomFluid, branched: bool) -> Project:
+    """``pumps_in_parallel``'s layout for EPANET: R1 (H 3 m) → L1 (0.2027 m, 10 m, K 0.5) →
+    T1; PA (s = 1) and PB (s = 0.85) legs between ideal tees T1 and T2; T2:run_outlet → L2
+    (0.1541 m, 160 m, K 1.6) → R2 (H 22 m). With ``branched`` the delivery splits at an ideal
+    tee TX: L2 → TX, TX:run_outlet → L3 (0.1023 m, 90 m) → R2, TX:branch → L4 (0.0779 m, 70 m)
+    → R3 (H 16 m), so the outside's flows are a solve of their own."""
+    curve = curve_a()
+    components: list[Component] = [
+        reservoir("R1", 0.0, 3.0),
+        ideal_tee("T1", 0.5),
+        pump("PA", 0.5, curve.id, speed=1.0),
+        pump("PB", 0.5, curve.id, speed=0.85),
+        ideal_tee("T2", 1.0),
+        reservoir("R2", 20.0, 2.0),
+    ]
+    connections = [
+        _epanet_pipe("L1", "R1:port_1", "T1:run_inlet", 0.2027, 10.0, EPANET_ENTRANCE_K),
+        _epanet_pipe("LA1", "T1:run_outlet", "PA:suction", 0.1023, 4.0),
+        _epanet_pipe("LA2", "PA:discharge", "T2:run_inlet", 0.1023, 6.0),
+        _epanet_pipe("LB1", "T1:branch", "PB:suction", 0.0779, 4.0),
+        _epanet_pipe("LB2", "PB:discharge", "T2:branch", 0.0779, 6.0),
+    ]
+    if branched:
+        components += [ideal_tee("TX", 1.0), reservoir("R3", 15.0, 1.0)]
+        connections += [
+            _epanet_pipe("L2", "T2:run_outlet", "TX:run_inlet", 0.1541, 160.0, EPANET_OUTLET_K),
+            _epanet_pipe("L3", "TX:run_outlet", "R2:port_1", 0.1023, 90.0),
+            _epanet_pipe("L4", "TX:branch", "R3:port_1", 0.0779, 70.0),
+        ]
+    else:
+        connections.append(
+            _epanet_pipe("L2", "T2:run_outlet", "R2:port_1", 0.1541, 160.0, EPANET_OUTLET_K)
+        )
+    return make_project(
+        f"ref-pump-group-epanet{'-branched' if branched else ''}",
+        "Two pumps in parallel, EPANET's outside",
+        fluid_,
+        components,
+        connections,
+        friction_method="swamee_jain",
+        pump_library=[curve],
+    )
+
+
+def epanet_outside_project(station: Project, q: float) -> Project:
+    """The outside of ``epanet_station_project`` with the station replaced by a demand q at S
+    (an assigned flow SX at T1's place) and a supply q at D (DX at T2's place): every component
+    and connection outside the station, L1 ending at SX and L2 starting at DX."""
+    inside = {"T1", "T2", "PA", "PB"}
+    components: list[Component] = [c for c in station.components if c.id not in inside]
+    components += [assigned_flow("SX", 0.5, q), assigned_flow("DX", 1.0, -q)]
+    connections = []
+    for c in station.connections:
+        if c.id in ("LA1", "LA2", "LB1", "LB2"):
+            continue
+        if c.id == "L1":
+            c = c.model_copy(update={"to_component_id": "SX", "to_port_id": "port_1"})
+        elif c.id == "L2":
+            c = c.model_copy(update={"from_component_id": "DX", "from_port_id": "port_1"})
+        connections.append(c)
+    return station.model_copy(update={"components": components, "connections": connections})
+
+
+def _epanet_pipe(
+    cid: str, a: str, b: str, d: float, length: float, k: float | None = None
+) -> PipeConnection:
+    fittings = [] if k is None else [fitting("custom", k_override=k)]
+    return connect(cid, a, b, [custom_pipe(d, length, 4.5e-5)], fittings)

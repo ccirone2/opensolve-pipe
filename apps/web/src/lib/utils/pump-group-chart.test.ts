@@ -198,7 +198,12 @@ describe('the chart data', () => {
 				y: expect.closeTo(fromSI(response.duty!.head, 'ft'), 9)
 			},
 			onCurve: true,
-			flow: expect.closeTo(fromSI(response.duty!.flow, 'gpm'), 9)
+			// No group system curve given: neither on it nor the curves' crossing (slice 4b).
+			onSystem: false,
+			crossing: false,
+			flow: expect.closeTo(fromSI(response.duty!.flow, 'gpm'), 9),
+			label: 'Group duty, on the curve',
+			tag: 'Group'
 		});
 		const disagree = structuredClone(response);
 		disagree.dutyCheck!.agrees = false;

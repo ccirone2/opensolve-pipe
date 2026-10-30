@@ -156,9 +156,21 @@ export interface SystemCurveOptions extends CaseRequestOptions {
 }
 
 export interface GroupCurveOptions extends CaseRequestOptions {
+	/**
+	 * 'group' (default): the group curve, the station solved alone at a grid of rises; 'system':
+	 * the group system curve, the rest of the network with the station's flow forced from its
+	 * inlet to its outlet, at a grid of flows (CLAUDE.md D21, slice 4b).
+	 */
+	curve?: 'group' | 'system';
 	/** The rises sampled, m (default: the API's, from its duty and the pumps' shutoff heads). */
 	headMin?: number;
 	headMax?: number;
+	/**
+	 * The flows sampled, m³/s, curve 'system' only (default: the API's, from 0 to 1.2 × the
+	 * largest of the duty's flow and the group curve's flows).
+	 */
+	flowMin?: number;
+	flowMax?: number;
 	numPoints?: number;
 }
 
@@ -365,17 +377,20 @@ export class ApiClient {
 	/**
 	 * The group curve of the station holding `pumpIds` (POST /api/v1/pump-group-curve, CLAUDE.md
 	 * D21): the station the API finds, its duty in the case's solve and the station solved alone
-	 * at a grid of rises; of a scenario with `scenarioId` (in the body only). Pumps that do not form
-	 * a station: NotAStationError, with every reason.
+	 * at a grid of rises; with `curve: 'system'`, its group system curve instead (the rest of the
+	 * network at a grid of the station's flows); of a scenario with `scenarioId` (in the body
+	 * only). Pumps that do not form a station: NotAStationError, with every reason.
 	 */
 	groupCurve(project: Project, pumpIds: readonly string[], options: GroupCurveOptions = {}) {
 		const body: PumpGroupCurveRequest = {
 			project,
 			pumpIds: [...pumpIds],
-			curve: 'group',
+			curve: options.curve ?? 'group',
 			numPoints: options.numPoints ?? 41,
 			...(options.headMin === undefined ? {} : { headMin: options.headMin }),
 			...(options.headMax === undefined ? {} : { headMax: options.headMax }),
+			...(options.flowMin === undefined ? {} : { flowMin: options.flowMin }),
+			...(options.flowMax === undefined ? {} : { flowMax: options.flowMax }),
 			...(options.scenarioId ? { scenarioId: options.scenarioId } : {})
 		};
 		return this.#request<PumpGroupCurveResponse>('POST', '/api/v1/pump-group-curve', body, options);

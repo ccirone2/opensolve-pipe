@@ -14,10 +14,10 @@ Read a proposal when you need to know *why* a feature is shaped as it is, or whe
 | [`export.md`](export.md) | built | D17 | Workbook and CSV contents, the SpreadsheetML and ZIP writers, licensing; §12 as built |
 | [`ui-ux-refinement.md`](ui-ux-refinement.md) | Tier 1 and items 6, 8–10 built | — | Measured friction in the web app and the remaining opportunities |
 | [`equipment-pressure-drop.md`](equipment-pressure-drop.md) | built | D18 | The rated-point and Cv/Kv law, the density scaling, §9 Later, §10 owner's answers, §12 as built |
-| [`pump-chart.md`](pump-chart.md) | slices 1–3 built, 4a built | D19, D21 | What an engineer reads from a pump chart; the slice plan; §9–§10 as built |
+| [`pump-chart.md`](pump-chart.md) | slices 1–3, 4a and 4b built | D19, D21 | What an engineer reads from a pump chart; the slice plan; §9–§10 as built |
 | [`design-checks.md`](design-checks.md) | built | D19 | The check framework, presets and their citations; §7 as built |
 | [`orifice-plate.md`](orifice-plate.md) | built | D20 | ISO 5167-2 as implemented, the named departures and their measured size, §10 owner's answers, §12 as built |
-| [`pump-groups.md`](pump-groups.md) | slice 4a built; 4b designed | D21 | The station frame, the group curve, three designs reconciled (§11), §13 owner's answers, §14 as built |
+| [`pump-groups.md`](pump-groups.md) | slices 4a and 4b built | D21 | The station frame, the group curve and the group system curve, three designs reconciled (§11), §13 owner's answers, §14–§15 as built |
 | [`project-library.md`](project-library.md) | built | D22 | References not templates, the K-at-a-bore conversion, §9 Later, §10 owner's answers, §12 as built, appendix prototype |
 | [`pressure-relief-valve.md`](pressure-relief-valve.md) | built | D23 | The law and its three named departures, the band convention accepted as an exception, §10 owner's answers, §12 as built |
 

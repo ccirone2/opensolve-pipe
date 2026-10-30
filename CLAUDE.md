@@ -72,7 +72,7 @@ Decisions override the specs and are overridden only by GOALS. Code and tests ci
 | D18 | Equipment pressure drop: a rated point or a Cv/Kv, h = cQ\|Q\| scaled with density, viscosity not corrected (1.3.0) | [`docs/decisions/D18-equipment-pressure-drop.md`](docs/decisions/D18-equipment-pressure-drop.md) |
 | D19 | Design checks, opt-in: NPSH margin, operating region, pipe velocity; user limits, cited presets; never a flag | [`docs/decisions/D19-design-checks.md`](docs/decisions/D19-design-checks.md) |
 | D20 | Orifice plate (ISO 5167-2): one loss per plate, the meter reading, the vena contracta check, refusals (1.4.0) | [`docs/decisions/D20-orifice-plate.md`](docs/decisions/D20-orifice-plate.md) |
-| D21 | Pump groups: the station between S and D, its duty and group curve solved exactly; page state only | [`docs/decisions/D21-pump-groups.md`](docs/decisions/D21-pump-groups.md) |
+| D21 | Pump groups: the station between S and D, its duty, group curve and group system curve solved exactly; page state only | [`docs/decisions/D21-pump-groups.md`](docs/decisions/D21-pump-groups.md) |
 | D22 | Project library: pipe specs and K/Cv/Kv entries with sources, referenced by id, resolved in the network build (1.5.0) | [`docs/decisions/D22-project-library.md`](docs/decisions/D22-project-library.md) |
 | D23 | Pressure relief valve, liquids: API 520/526 capacity, the linear lift band as an accepted exception, a closed start (1.6.0) | [`docs/decisions/D23-pressure-relief-valve.md`](docs/decisions/D23-pressure-relief-valve.md) |
 

@@ -612,7 +612,11 @@
 		</div>
 	{/if}
 
-	<div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-4 sm:px-4" inert={covered}>
+	<!-- A column, so the footer sits at the bottom of the pane when the results are short. -->
+	<div
+		class="flex min-h-0 flex-1 flex-col space-y-4 overflow-y-auto px-3 py-4 sm:px-4"
+		inert={covered}
+	>
 		{#if comparing}
 			<CompareView onshow={() => showTab(false)} />
 		{:else}
@@ -1097,7 +1101,7 @@
 				</div>
 			{/if}
 		{/if}
-		<SiteFooter />
+		<div class="mt-auto pt-4"><SiteFooter /></div>
 	</div>
 
 	{#if inspected && solved}

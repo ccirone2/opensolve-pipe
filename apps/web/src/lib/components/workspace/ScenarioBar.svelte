@@ -96,7 +96,8 @@
 {#if ws.scenarios.length}
 	<div
 		class={[
-			'flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-l-4 px-2 py-1 sm:px-3',
+			// The Build pane's compact controls (`dense`, build-density.md §7): one 37–41 px row.
+			'dense flex flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-l-4 px-2 py-0.5 sm:px-3',
 			scenario
 				? 'border-b-teal-200 border-l-teal-600 bg-teal-50 text-teal-950'
 				: 'border-b-slate-200 border-l-slate-300 bg-slate-50 text-slate-800'
@@ -108,7 +109,7 @@
 			<label for="{id}-case" class="text-sm font-medium">Case</label>
 			<select
 				id="{id}-case"
-				class="input min-w-0 flex-1 py-1 pr-8 sm:w-64 sm:flex-none"
+				class="input min-w-0 flex-1 py-0 pr-8 sm:w-64 sm:flex-none"
 				value={store.activeCase ?? ''}
 				onchange={(event) => choose(event.currentTarget.value)}
 			>

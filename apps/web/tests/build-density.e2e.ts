@@ -241,6 +241,21 @@ test('a valve’s status is 1 action from its panel', async ({ page }) => {
 	await expect(status).toHaveValue('isolated');
 });
 
+test('at 400 % zoom (320×256) the form is reached by scrolling the page, never sideways', async ({
+	page
+}, info) => {
+	test.skip(!DESKTOP(info.project.name), 'a laptop zoomed to 400 % (WCAG 1.4.10)');
+	await open(page, exampleProject('pump-transfer')!);
+	await page.setViewportSize({ width: 320, height: 256 });
+	const level = buildPane(page).getByRole('textbox', { name: /^Liquid level/ });
+	await level.scrollIntoViewIfNeeded();
+	await expect(level).toBeInViewport({ ratio: 1 });
+	const sideways = await page.evaluate(
+		() => document.scrollingElement!.scrollWidth - document.scrollingElement!.clientWidth
+	);
+	expect(sideways).toBe(0);
+});
+
 test('axe finds no violation in Build, with its disclosures open', async ({ page }) => {
 	const project = everyKind();
 	await open(page, project);

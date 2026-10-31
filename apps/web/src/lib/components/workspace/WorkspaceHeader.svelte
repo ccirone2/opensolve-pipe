@@ -143,7 +143,9 @@
 </script>
 
 <header class="border-b border-slate-200 bg-white">
-	<div class="flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1 sm:flex-nowrap">
+	<!-- 44 px controls (touch targets, held by the e2e suite) with 2 px around them: two rows on
+		a phone, one from 640 px (build-density.md §7). -->
+	<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-0.5 sm:flex-nowrap">
 		<a href={homeHref()} class="btn btn-quiet btn-icon" aria-label="OpenSolve Pipe home">
 			<Icon name="home" />
 		</a>

@@ -1,6 +1,13 @@
 @import 'tailwindcss';
 
 /*
+ * A viewport under 20 rem tall (a laptop at 400 % zoom: 320 × 256, WCAG 1.4.10): the workspace
+ * scrolls as one page instead of fixing its bars around a pane with no room left
+ * (build-density.md §11).
+ */
+@custom-variant short (@media (max-height: 20rem));
+
+/*
  * Density tokens (proposal build-density.md §6): one control height, a fixed label column and
  * the container widths at which a form's rows stack or pair up, on a 4 px grid. Controls are
  * 44 px by default (the header, Results and dialogs elsewhere); the Build pane sets the compact

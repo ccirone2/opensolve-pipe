@@ -135,7 +135,14 @@
 			{/each}
 		</div>
 		{#if !ws.inScenario}
-			<div class="flex min-w-0 flex-wrap justify-end max-sm:order-first max-sm:w-full sm:ml-auto">
+			<!-- On a phone the component's actions stay with its Properties: Piping has its
+				connection's own (build-density.md §11). -->
+			<div
+				class={[
+					'flex min-w-0 flex-wrap justify-end max-sm:order-first max-sm:w-full sm:ml-auto',
+					mode === 'connection' && 'max-sm:hidden'
+				]}
+			>
 				<ComponentActions {component} />
 			</div>
 		{/if}

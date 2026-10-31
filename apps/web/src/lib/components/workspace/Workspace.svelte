@@ -202,7 +202,7 @@
 
 <svelte:window onkeydown={keydown} onresize={measure} />
 
-<div class="flex h-dvh flex-col bg-white">
+<div class="flex h-dvh flex-col bg-white short:h-auto short:min-h-dvh">
 	<WorkspaceHeader />
 	<ScenarioBar />
 	{#if ws.scenarios.length}
@@ -238,7 +238,7 @@
 					{pane.label}
 					{#if pane.value === 'results' && resultsState}
 						<Icon
-							name="alert"
+							name={resultsState.kind === 'stale' ? 'alert' : 'octagon'}
 							class={[
 								'ml-1 inline size-4',
 								resultsState.kind === 'stale' ? 'text-amber-700' : 'text-red-700'

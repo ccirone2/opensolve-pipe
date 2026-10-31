@@ -138,7 +138,10 @@
 			</button>
 		</div>
 
-		<div class="@container min-h-0 flex-1 overflow-y-auto overscroll-contain" bind:this={scroller}>
+		<div
+			class="@container min-h-0 flex-1 overflow-y-auto overscroll-contain short:flex-none short:overflow-visible"
+			bind:this={scroller}
+		>
 			<ComponentPanel component={current} />
 		</div>
 

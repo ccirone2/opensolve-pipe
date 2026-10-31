@@ -166,13 +166,6 @@
 	</div>
 {:else}
 	<div class="space-y-3">
-		<TextField
-			label="Curve name"
-			value={curve.name}
-			required
-			maxlength={nameLimits.maxLength}
-			onchange={(v) => !!v && save('rename pump curve', (c) => ({ ...c, name: v }))}
-		/>
 		<PointsTable
 			caption="Head curve (at rated speed)"
 			rows={curve.points.map((p) => ({ x: p.flow, y: p.head }))}
@@ -185,6 +178,14 @@
 					...c,
 					points: rows.map((r) => ({ flow: r.x, head: r.y }))
 				}))}
+		/>
+		<!-- The curve's name after its points: what identifies it comes last (build-density.md §5). -->
+		<TextField
+			label="Curve name"
+			value={curve.name}
+			required
+			maxlength={nameLimits.maxLength}
+			onchange={(v) => !!v && save('rename pump curve', (c) => ({ ...c, name: v }))}
 		/>
 
 		{#if curve.efficiencyCurve || showEfficiency}

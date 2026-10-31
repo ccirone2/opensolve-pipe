@@ -96,12 +96,14 @@
 	}
 	const visibleColumns = $derived(table.columns.filter((c) => !hidden.includes(c.key)));
 	let fieldsOpen = $state(false);
-	let fieldsMenu: HTMLElement | undefined = $state();
-	// Closed by a press outside it.
+	let fieldsButton: HTMLElement | undefined = $state();
+	let fieldsPanel: HTMLElement | undefined = $state();
+	// Closed by a press outside it (on a phone, on the dimmed page around the sheet).
 	$effect(() => {
 		if (!fieldsOpen) return;
 		const outside = (event: PointerEvent) => {
-			if (!fieldsMenu?.contains(event.target as Node)) fieldsOpen = false;
+			const target = event.target as Node;
+			if (!fieldsPanel?.contains(target) && !fieldsButton?.contains(target)) fieldsOpen = false;
 		};
 		document.addEventListener('pointerdown', outside);
 		return () => document.removeEventListener('pointerdown', outside);
@@ -260,8 +262,9 @@
 		</div>
 	{/if}
 	{#if table.columns.length > 1}
-		<div class="relative" bind:this={fieldsMenu}>
+		<div class="relative">
 			<button
+				bind:this={fieldsButton}
 				type="button"
 				class="btn btn-quiet gap-1 px-2 text-sm"
 				aria-expanded={fieldsOpen}
@@ -276,14 +279,25 @@
 					>{hidden.length ? ` (${visibleColumns.length} of ${table.columns.length})` : ''}</span
 				>
 			</button>
+			<!-- A phone: a sheet across the screen's width from its foot, over a dimmed page, as the
+				native Sort by picker opens (owner, 2026-10-31; proposal build-density.md §16); a
+				press on the dimmed page closes it. From 640 px: a menu under the button. -->
+			{#if fieldsOpen}
+				<div class="fixed inset-0 z-40 bg-slate-900/40 sm:hidden" aria-hidden="true"></div>
+			{/if}
 			<!-- Escape inside the menu closes it (as from its button). -->
 			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 			<div
+				bind:this={fieldsPanel}
 				id="{id}-fields"
 				hidden={!fieldsOpen}
 				role="group"
 				aria-label="Fields shown in {caption}"
-				class="absolute left-0 z-40 mt-1 max-h-80 w-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
+				class={[
+					'z-50 overflow-y-auto border border-slate-200 bg-white shadow-lg',
+					'absolute left-0 mt-1 max-h-80 w-64 rounded-lg p-2',
+					'max-sm:fixed max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:mt-0 max-sm:max-h-[75dvh] max-sm:w-full max-sm:rounded-t-xl max-sm:rounded-b-none max-sm:px-3 max-sm:pt-2 max-sm:pb-[max(0.75rem,env(safe-area-inset-bottom))] max-sm:shadow-2xl'
+				]}
 				onkeydown={(event) => {
 					if (event.key === 'Escape') {
 						event.stopPropagation();
@@ -291,11 +305,21 @@
 					}
 				}}
 			>
+				<div
+					class="sticky -top-2 -mx-3 mb-1 flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-1 sm:hidden"
+				>
+					<span class="min-w-0 flex-1 text-base font-semibold">Fields shown</span>
+					<button type="button" class="btn btn-primary" onclick={() => (fieldsOpen = false)}
+						>Done</button
+					>
+				</div>
 				{#each table.columns as column (column.key)}
-					<label class="flex min-h-9 items-center gap-2 px-1 text-sm text-slate-800">
+					<label
+						class="flex min-h-9 items-center gap-2 px-1 text-sm text-slate-800 max-sm:min-h-11 max-sm:border-b max-sm:border-slate-100 max-sm:text-base"
+					>
 						<input
 							type="checkbox"
-							class="size-4"
+							class="size-4 max-sm:size-5"
 							checked={!hidden.includes(column.key)}
 							onchange={(event) =>
 								setHidden(

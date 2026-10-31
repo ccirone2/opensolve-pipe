@@ -75,3 +75,29 @@ test('each extreme links to its table sorted on it, and headings sort', async ({
 		)
 	).toBe(0);
 });
+
+test('on a phone, Fields opens as a sheet across the screen; Done closes it', async ({
+	page,
+	isMobile
+}) => {
+	test.skip(!isMobile, 'phone layout (proposal build-density.md §16)');
+	await page.goto('/');
+	await page.getByRole('link', { name: /Gravity-fed/ }).click();
+	await solveConverged(page);
+	await showPane(page, 'Results');
+	const links = await resultsView(page, 'Links');
+	const fields = links.getByRole('button', { name: /^Fields/ });
+	await fields.click();
+	const sheet = links.getByRole('group', { name: /^Fields shown in/ });
+	await expect(sheet).toBeVisible();
+	const box = (await sheet.boundingBox())!;
+	const viewport = page.viewportSize()!;
+	expect(Math.round(box.width)).toBe(viewport.width);
+	expect(Math.round(box.y + box.height)).toBe(viewport.height);
+	await sheet.getByRole('checkbox', { name: /^Velocity/ }).uncheck();
+	await expect(links.getByRole('columnheader', { name: /^Velocity/ })).toHaveCount(0);
+	await sheet.getByRole('button', { name: 'Show all' }).click();
+	await sheet.getByRole('button', { name: 'Done' }).click();
+	await expect(sheet).toBeHidden();
+	await expect(fields).toHaveAttribute('aria-expanded', 'false');
+});

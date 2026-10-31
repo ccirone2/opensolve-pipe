@@ -112,6 +112,8 @@ test('turns a check on in Settings, fills it from a preset, and solves with it',
 	await page.goto(`/p#${encoded}`);
 	await page.getByRole('button', { name: 'Settings' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Settings' });
+	// Opt-in, so behind their disclosure while all are off (proposal build-density.md §13).
+	await dialog.getByText('Design checks', { exact: true }).click();
 	const npsh = dialog.getByRole('checkbox', { name: 'NPSH margin' });
 	await expect(npsh).not.toBeChecked();
 	await npsh.check();

@@ -27,11 +27,12 @@ import type {
 	ReliefValve,
 	Reservoir,
 	TeeBranch,
+	UnitPreferences,
 	WyeBranch
 } from '../api/types';
 import { CURRENT_SCHEMA_VERSION } from './migrations';
 import type { PortRef } from './graph';
-import { INCH, SI_UNITS } from './units';
+import { IMPERIAL_UNITS, INCH } from './units';
 
 /** Every kind of component the UI can add, flat (valves by valve type). */
 export type ComponentKind =
@@ -808,10 +809,19 @@ export interface EmptyProjectOptions {
 	name?: string;
 	/** ISO 8601 timestamp for created/modified (default: now). */
 	now?: string;
+	/** Display units (default: DEFAULT_UNITS, US customary). */
+	units?: UnitPreferences;
 }
 
 /**
- * An empty project: SI display units, site at sea level, water at 20 °C (a default input the
+ * The display units a new project starts with: US customary, the owner's choice (2026-10-31,
+ * proposal build-density.md §13); SI is one tap away at the top of Settings. Units change only
+ * what is shown and typed: the project, the API and the solver stay SI (CLAUDE.md D4).
+ */
+export const DEFAULT_UNITS: Readonly<UnitPreferences> = IMPERIAL_UNITS;
+
+/**
+ * An empty project: US customary display units (DEFAULT_UNITS), site at sea level, water at 20 °C (a default input the
  * user changes in Settings), Colebrook friction, and the API's default solver options.
  */
 export function createEmptyProject(options: EmptyProjectOptions = {}): Project {
@@ -822,7 +832,7 @@ export function createEmptyProject(options: EmptyProjectOptions = {}): Project {
 		id: options.id ?? newProjectId(),
 		metadata: { name: options.name ?? 'Untitled project', created: now, modified: now },
 		settings: {
-			units: { ...SI_UNITS },
+			units: { ...(options.units ?? DEFAULT_UNITS) },
 			siteElevation: 0,
 			solverOptions: { frictionMethod: 'colebrook', maxIterations: 100, tolerance: 1e-9 }
 		},

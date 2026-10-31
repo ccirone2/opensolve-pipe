@@ -19,7 +19,14 @@
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import NominalSizeField from './NominalSizeField.svelte';
 
-	let { component }: { component: Component } = $props();
+	let {
+		component,
+		onattention
+	}: {
+		component: Component;
+		/** Told whether a port needs attention: not connected, sized unlike its pipe, an own elevation. */
+		onattention?: (attention: boolean) => void;
+	} = $props();
 	const ws = useWorkspace();
 
 	function editPort(portId: string, label: string, change: (port: Port) => Port) {
@@ -61,6 +68,32 @@
 		return pipe.materialId === CUSTOM_MATERIAL_ID ? null : pipe.nominalSize;
 	}
 
+	/** Ports needing attention: not connected, or sized unlike their pipe. */
+	const unconnected = $derived(
+		component.ports.filter((p) => !connectionAtPort(ws.project, component.id, p.id)).length
+	);
+	const mismatched = $derived(
+		component.ports.filter((port) => {
+			const connection = connectionAtPort(ws.project, component.id, port.id);
+			const nominal = connection ? nominalOf(pipeAt(connection, port).pipe) : null;
+			return nominal != null && !sameSize(nominal, port.nominalSize);
+		}).length
+	);
+	const ownElevation = $derived(component.ports.some((p) => p.elevation != null));
+	/** "2 ports, 1 not connected": what the closed list says (build-density.md §5). */
+	const status = $derived(
+		[
+			`${component.ports.length} ${component.ports.length === 1 ? 'port' : 'ports'}`,
+			unconnected && `${unconnected} not connected`,
+			mismatched && `${mismatched} sized unlike its pipe`
+		]
+			.filter(Boolean)
+			.join(', ')
+	);
+	$effect.pre(() => {
+		onattention?.(unconnected + mismatched > 0 || ownElevation);
+	});
+
 	function resizePipe(connection: PipeConnection, index: number, nominalSize: number) {
 		ws.editConnection(connection.id, 'change pipe size', (c) => ({
 			...c,
@@ -69,9 +102,17 @@
 	}
 </script>
 
-<section aria-labelledby="{component.id}-ports" class="space-y-3">
-	<h3 id="{component.id}-ports" class="section-title">Ports</h3>
-	<ul class="space-y-3">
+<section aria-labelledby="{component.id}-ports" class="space-y-2">
+	<div class="flex flex-wrap items-baseline gap-x-2">
+		<h3 id="{component.id}-ports" class="section-title">Ports</h3>
+		<span
+			class={[
+				'min-w-0 text-sm font-normal',
+				unconnected + mismatched ? 'text-amber-800' : 'text-slate-600'
+			]}>{status}</span
+		>
+	</div>
+	<ul class="space-y-2">
 		{#each component.ports as port (port.id)}
 			{@const connection = connectionAtPort(ws.project, component.id, port.id)}
 			{@const other = connection
@@ -80,10 +121,12 @@
 			{@const attached = connection ? pipeAt(connection, port) : undefined}
 			{@const nominal = attached ? nominalOf(attached.pipe) : null}
 			{@const mismatch = attached && nominal != null && !sameSize(nominal, port.nominalSize)}
-			<li class="card space-y-3 p-3">
-				<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+			<!-- One row per port: its name, where it leads and the way into its piping, then its
+				size (build-density.md §11: a row, not a card). -->
+			<li class="space-y-1 border-t border-slate-200 pt-1 first:border-t-0 first:pt-0">
+				<div class="flex flex-wrap items-center gap-x-3">
 					<span class="font-medium">{portLabel(port.id)}</span>
-					<span class={['text-sm', other ? 'text-slate-600' : 'text-amber-800']}>
+					<span class={['min-w-0 text-sm', other ? 'text-slate-600' : 'text-amber-800']}>
 						{#if other}
 							Connected to {componentName(ws.project, other.componentId)} ({portLabel(
 								other.portId
@@ -92,8 +135,28 @@
 							<Icon name="alert" class="inline size-4 align-text-bottom" /> Not connected
 						{/if}
 					</span>
+					<div class="ml-auto flex shrink-0 gap-1">
+						<button
+							type="button"
+							class="btn btn-quiet btn-tight text-blue-800"
+							onclick={() => ws.nav.showConnection(port.id)}
+						>
+							{other ? 'Edit piping' : 'Connect…'}
+							<Icon name="right" class="size-4" />
+						</button>
+						{#if component.type === 'reservoir' && !connection && component.ports.length > 1 && !ws.inScenario}
+							<button
+								type="button"
+								class="btn btn-quiet btn-tight text-red-800"
+								onclick={() =>
+									ws.edit((p) => removePort(p, component.id, port.id), `remove ${port.id}`)}
+							>
+								<Icon name="trash" class="size-4" /> Remove port
+							</button>
+						{/if}
+					</div>
 				</div>
-				<div class="grid gap-3 sm:grid-cols-2">
+				<div class="fields fields-pairs">
 					<NominalSizeField
 						label="Port size"
 						value={port.nominalSize}
@@ -105,20 +168,20 @@
 						onchange={(size) =>
 							editPort(port.id, 'change port size', (p) => ({ ...p, nominalSize: size }))}
 					/>
-					{#if component.type === 'reservoir' || port.elevation != null}
-						<NumberField
-							label="Port elevation"
-							value={port.elevation}
-							category="length"
-							units={ws.units}
-							optional
-							placeholder="Same as the component"
-							bounds={schemaBounds('Port', 'elevation')}
-							hint="Above the project datum; blank uses the component's elevation."
-							onchange={(v) =>
-								editPort(port.id, 'change port elevation', (p) => withOptional(p, 'elevation', v))}
-						/>
-					{/if}
+					<!-- Every port's elevation (build-density.md §11): an equipment item's nozzles, a
+						reservoir's outlets; blank is the component's. -->
+					<NumberField
+						label="Port elevation"
+						value={port.elevation}
+						category="length"
+						units={ws.units}
+						optional
+						placeholder="Same as the component"
+						bounds={schemaBounds('Port', 'elevation')}
+						help="Above the project datum; blank uses the component's elevation."
+						onchange={(v) =>
+							editPort(port.id, 'change port elevation', (p) => withOptional(p, 'elevation', v))}
+					/>
 				</div>
 				{#if connection && attached && mismatch}
 					{@const resizable =
@@ -148,22 +211,6 @@
 						{/if}
 					</div>
 				{/if}
-				<div class="flex flex-wrap gap-2">
-					<button type="button" class="btn" onclick={() => ws.nav.showConnection(port.id)}>
-						{other ? 'Edit piping' : 'Connect…'}
-						<Icon name="right" class="size-4" />
-					</button>
-					{#if component.type === 'reservoir' && !connection && component.ports.length > 1 && !ws.inScenario}
-						<button
-							type="button"
-							class="btn btn-quiet text-red-800"
-							onclick={() =>
-								ws.edit((p) => removePort(p, component.id, port.id), `remove ${port.id}`)}
-						>
-							<Icon name="trash" class="size-4" /> Remove port
-						</button>
-					{/if}
-				</div>
 			</li>
 		{/each}
 	</ul>

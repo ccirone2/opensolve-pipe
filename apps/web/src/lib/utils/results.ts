@@ -75,6 +75,14 @@ export const HEAD_RESOLUTION = 0.01;
  */
 export const HEAD_NOISE = 1e-7;
 
+/**
+ * The solve's continuity test (API solver/gga.py CONTINUITY_RTOL, CONTINUITY_ATOL): a flow is
+ * balanced to RTOL of the network's flows plus ATOL, m³/s; a boundary's outflow smaller than
+ * that is round-off, shown as "≈ 0" (the exact value in the cell's title).
+ */
+export const CONTINUITY_RTOL = 1e-9;
+export const CONTINUITY_ATOL = 1e-14;
+
 /** Branch K values converge to this tolerance (API solver/status.py K_TOL); smaller is "≈ 0". */
 export const K_NOISE = 1e-4;
 
@@ -1315,13 +1323,19 @@ export function boundaryTable(
 	];
 	const results = solved.boundaryResults;
 	const ids = Object.keys(results).filter((id) => !isAssignedFlowResult(results[id]));
+	// Round-off by the solve's own continuity test: relative to the largest boundary flow.
+	const scale = Math.max(
+		0,
+		...Object.values(results).map((r) => Math.abs((r as BoundaryResult).outflow ?? 0))
+	);
+	const flowNoise = CONTINUITY_RTOL * scale + CONTINUITY_ATOL;
 	const rows = orderedIds(project, ids).map((id) => {
 		const boundary = results[id] as BoundaryResult;
 		return componentRow(project, solved.flags, id, {
 			type: BOUNDARY_TYPES[boundary.type] ?? humanize(boundary.type),
 			egl: f.num(boundary.egl, 'head'),
-			outflow: f.num(boundary.outflow, 'flow'),
-			portOutflows: perPort(project, id, boundary.portOutflows, (v) => f.num(v, 'flow'))
+			outflow: f.diff(boundary.outflow, 'flow', flowNoise),
+			portOutflows: perPort(project, id, boundary.portOutflows, (v) => f.diff(v, 'flow', flowNoise))
 		});
 	});
 	return { columns, rows };

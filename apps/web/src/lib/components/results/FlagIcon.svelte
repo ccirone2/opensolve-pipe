@@ -9,7 +9,7 @@
 </script>
 
 <Icon
-	name={severity === 'info' ? 'info' : 'alert'}
+	name={severity === 'info' ? 'info' : severity === 'invalid' ? 'octagon' : 'alert'}
 	class={[
 		className,
 		'shrink-0',

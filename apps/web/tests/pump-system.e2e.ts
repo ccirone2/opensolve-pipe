@@ -113,9 +113,10 @@ test('build a pump system from a new project, solve, share and reopen it', async
 		await setNumber(curve, `Point ${i + 1} flow (L/s)`, point.flow);
 		await setNumber(curve, `Point ${i + 1} head (m)`, point.head);
 	}
-	// Saved to the project's pump library and used by the pump.
+	// Saved to the project's pump library and used by the pump (its select is in Rating, above the
+	// curve's region: proposal build-density.md §5 D16).
 	await expect(curve.getByText('This pump needs a curve.')).toBeHidden();
-	await expect(curve.getByRole('combobox', { name: 'Pump curve' })).toHaveValue('C1');
+	await expect(panel.getByRole('combobox', { name: 'Pump curve' })).toHaveValue('C1');
 	await expect(curve.getByRole('table', { name: 'Head curve (at rated speed)' })).toBeVisible();
 	for (const [i, point] of CURVE.entries()) {
 		await expect(curve.getByRole('textbox', { name: `Point ${i + 1} head (m)` })).toHaveValue(

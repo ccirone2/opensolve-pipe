@@ -67,6 +67,14 @@ async function openCompare() {
 	return screen.getByRole('region', { name: 'Compare cases' });
 }
 
+/** The Scenarios menu (build-density.md §13), opened from the header: the case shown, Solve all. */
+async function caseMenu(): Promise<HTMLElement> {
+	const group = screen.queryByRole('group', { name: 'Case' });
+	if (group) return group;
+	await fireEvent.click(screen.getByRole('button', { name: /^Scenarios/ }));
+	return screen.getByRole('group', { name: 'Case' });
+}
+
 describe('Compare cases', () => {
 	it('builds its default rows from the scenarios as they are, also after results were shown', async () => {
 		const ws = setup(pumpTransferExample(), solvesOk);
@@ -155,7 +163,7 @@ describe('Compare cases', () => {
 		expect(compare).toHaveTextContent(
 			'Winter failed with an error to fix first: Solve all skips it until its inputs change.'
 		);
-		const bar = screen.getByRole('group', { name: 'Case' });
+		const bar = await caseMenu();
 		const solveAll = within(bar).getByRole('button', { name: 'Solve all' });
 		expect(solveAll).toHaveAttribute('aria-disabled', 'true');
 		expect(solveAll).toHaveAccessibleDescription(
@@ -188,17 +196,23 @@ describe('Compare cases', () => {
 		expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Winter' }));
 	});
 
-	it('the scenario card’s Compare cases gives the focus to the Compare cases tab', async () => {
+	it('the base case has no card of its own: its tab and Compare cases beside it say it', async () => {
+		// The base case's line and its Compare cases button repeated the case tabs right above
+		// them (proposal build-density.md §15); the tab is the way to compare.
 		const ws = setup(twoCases(), solvesOk);
 		await ws.solveAll();
 		await tick();
 		const results = screen.getByRole('region', { name: 'Results' });
-		const button = within(results).getByRole('button', { name: 'Compare cases' });
-		button.focus();
-		await fireEvent.click(button);
+		expect(within(results).queryByText(/the network as built/)).toBeNull();
+		expect(within(results).getByRole('tab', { name: 'Base case' })).toHaveAttribute(
+			'aria-selected',
+			'true'
+		);
+		const compare = within(results).getByRole('tab', { name: 'Compare cases' });
+		await fireEvent.click(compare);
 		await tick();
 		expect(ws.comparing).toBe(true);
-		expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Compare cases' }));
+		expect(compare).toHaveAttribute('aria-selected', 'true');
 	});
 });
 
@@ -216,7 +230,7 @@ describe('solving cases', () => {
 			'aria-disabled',
 			'true'
 		);
-		const bar = screen.getByRole('group', { name: 'Case' });
+		const bar = await caseMenu();
 		expect(within(bar).getByRole('status')).toHaveTextContent('Solving Higher tank…');
 		expect(within(bar).getByRole('button', { name: 'Solve all' })).toHaveAttribute(
 			'aria-disabled',
@@ -232,7 +246,7 @@ describe('solving cases', () => {
 	it('Solve all from the case bar keeps the focus there, and gives it to Solve when it ends', async () => {
 		const held = heldSolver();
 		const ws = setup(twoCases(), held.solver);
-		const bar = screen.getByRole('group', { name: 'Case' });
+		const bar = await caseMenu();
 		const button = within(bar).getByRole('button', { name: 'Solve all' });
 		button.focus();
 		await fireEvent.click(button);

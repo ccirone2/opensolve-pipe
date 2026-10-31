@@ -144,7 +144,7 @@
 	}
 </script>
 
-<fieldset class="space-y-3 sm:col-span-2" data-resistance-field>
+<fieldset class="wide space-y-3" data-resistance-field>
 	<legend class="label mb-1">Resistance</legend>
 	{#if change}<ChangeNote {change} id="{noteId}-change" />{/if}
 	<SelectField
@@ -157,6 +157,13 @@
 		describedby={groupNote}
 		onchange={choose}
 	/>
+	{#if choice === 'default'}
+		<!-- The default's basis in full (D10): a phone's select cuts its option text short. -->
+		<p class="hint">Default: {defaultLabel}.</p>
+	{:else if change?.inScenario && change.changed && change.baseText === 'Default'}
+		<!-- The change note says "Base: Default": what that default is (D10, D15). -->
+		<p class="hint">The base case's default: {defaultLabel}.</p>
+	{/if}
 	{#if kind}
 		<NumberField
 			label={kind}
@@ -164,7 +171,7 @@
 			category="dimensionless"
 			{units}
 			bounds={schemaBounds('FlowCoefficient', 'value')}
-			hint={COEFFICIENT_HINTS[kind]}
+			help={COEFFICIENT_HINTS[kind]}
 			warning={coefficient ? null : `Enter ${kind} to use it; until then the default applies.`}
 			{change}
 			changeNote={false}

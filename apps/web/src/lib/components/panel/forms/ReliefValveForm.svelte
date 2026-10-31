@@ -25,6 +25,7 @@
 	import { fieldLabelFor } from '$lib/utils/scenarios';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import ReliefValveFields from '../ReliefValveFields.svelte';
+	import FieldSections from '../FieldSections.svelte';
 
 	let { component }: { component: ReliefValve } = $props();
 	const ws = useWorkspace();
@@ -82,38 +83,45 @@
 	}
 </script>
 
-<SelectField
-	label="Status"
-	value={component.status}
-	options={STATUSES.map((s) => ({ value: s, label: RELIEF_STATUS_LABELS[s] }))}
-	hint="Locked closed: gagged, or isolated by its block valve; it does not open, so a scenario shows the pressure without relief."
-	change={ws.componentChange(component.id, 'status')}
-	onchange={(v) =>
-		ws.editComponent<ReliefValve>(component.id, 'change valve status', (c) => {
-			c.status = v;
-		})}
-/>
-<ReliefValveFields
-	setPressure={component.setPressure}
-	capacity={shown}
-	units={ws.units}
-	{warning}
-	onset={(v) =>
-		ws.editComponent<ReliefValve>(component.id, 'change set pressure', (c) => {
-			c.setPressure = v;
-		})}
-	{onkind}
-	{onvalue}
-	setChange={ws.componentChange(component.id, 'setPressure')}
-	wholeChange={ws.componentChange(component.id, 'capacity')}
-	partChange={(field) => ws.componentChange(component.id, `capacity.${field}`)}
-/>
-<p class="hint sm:col-span-2">
-	A conventional spring-loaded pressure relief valve in liquid service (API 520 Part I): closed
-	while the pressure difference across it is below its set pressure, opening in proportion to the
-	overpressure (a convention: real valves surge open and reclose below set; partial lift is
-	flagged), fully open at set plus overpressure with API 520's liquid capacity. Not EPANET's PSV
-	(pressure-sustaining valve). Flashing at its outlet and a viscous liquid are flagged; gases, steam
-	and two-phase relief are not modelled. To discharge to atmosphere, use Discharge to atmosphere at
-	its free outlet (Piping).
-</p>
+<FieldSections {component}>
+	{#snippet field(path)}
+		{#if path === 'status'}
+			<SelectField
+				label="Status"
+				value={component.status}
+				options={STATUSES.map((s) => ({ value: s, label: RELIEF_STATUS_LABELS[s] }))}
+				help="Locked closed: gagged, or isolated by its block valve; it does not open, so a scenario shows the pressure without relief."
+				change={ws.componentChange(component.id, 'status')}
+				onchange={(v) =>
+					ws.editComponent<ReliefValve>(component.id, 'change valve status', (c) => {
+						c.status = v;
+					})}
+			/>
+		{:else if path === 'setPressure'}
+			<ReliefValveFields
+				setPressure={component.setPressure}
+				capacity={shown}
+				units={ws.units}
+				{warning}
+				onset={(v) =>
+					ws.editComponent<ReliefValve>(component.id, 'change set pressure', (c) => {
+						c.setPressure = v;
+					})}
+				{onkind}
+				{onvalue}
+				setChange={ws.componentChange(component.id, 'setPressure')}
+				wholeChange={ws.componentChange(component.id, 'capacity')}
+				partChange={(field) => ws.componentChange(component.id, `capacity.${field}`)}
+			/>
+		{/if}
+	{/snippet}
+	{#snippet about()}
+		A conventional spring-loaded pressure relief valve in liquid service (API 520 Part I): closed
+		while the pressure difference across it is below its set pressure, opening in proportion to the
+		overpressure (a convention: real valves surge open and reclose below set; partial lift is
+		flagged), fully open at set plus overpressure with API 520's liquid capacity. Not EPANET's PSV
+		(pressure-sustaining valve). Flashing at its outlet and a viscous liquid are flagged; gases,
+		steam and two-phase relief are not modelled. To discharge to atmosphere, use Discharge to
+		atmosphere at its free outlet (Piping).
+	{/snippet}
+</FieldSections>

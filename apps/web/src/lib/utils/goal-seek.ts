@@ -60,6 +60,7 @@ import {
 	type PipeSizeLookup
 } from './project-library';
 import { movedRatioBound, RATIO_BOUND_ANY } from './orifice-bound';
+import { entryFor, unitOf } from './field-registry';
 import { portLabel, PUMP_CONTROL_STATE_LABELS } from './labels';
 import {
 	componentGoalFields,
@@ -661,12 +662,8 @@ export function variableSpec(
 ): ValueSpec {
 	const component = componentOf(project, variable.target);
 	switch (variable.field) {
-		case 'speed':
-			return { category: 'fraction', options: {} };
-		case 'control.setpoint':
-		case 'flow':
-			return { category: 'flow', options: {} };
 		case 'setpoint': {
+			// By the valve's type, also before the valve exists in this project (a draft).
 			const type = component?.type === 'valve' ? component.valveType : variable.valveType;
 			return type === 'fcv'
 				? { category: 'flow', options: {} }
@@ -678,41 +675,28 @@ export function variableSpec(
 				options: {},
 				prefix: `${variable.coefficient ?? 'K'} `
 			};
-		case 'liquidLevel':
-		case 'length':
-			return { category: 'length', options: {} };
-		case 'surfacePressure':
-		case 'pressure':
-			return { category: 'pressure', options: { gauge: true } };
 		case 'fluid.temperature':
 			return { category: 'temperature', options: {} };
-		case 'rating.pressureLoss':
-			return { category: 'pressure', options: {} };
-		case 'rating.flow':
-			return { category: 'flow', options: {} };
-		case 'rating.density':
-			return { category: 'density', options: {} };
 		case 'rating.value': {
 			const kind = ratingKindOf(project, variable);
 			return { category: 'dimensionless', options: {}, ...(kind ? { prefix: `${kind} ` } : {}) };
 		}
-		case 'boreDiameter':
-			return { category: 'diameter', options: {} };
-		case 'dischargeCoefficient':
-			// ISO 5167-2's C at the plate's taps, as entered: a pure number.
-			return { category: 'dimensionless', options: {} };
-		case 'setPressure':
-			// A relief valve's set: a pressure difference, inlet minus outlet (no gauge marker).
-			return { category: 'pressure', options: {} };
-		case 'capacity.area':
-			return { category: 'area', options: {} };
-		case 'capacity.dischargeCoefficient':
-			// A certified rated coefficient (ASME's K), as entered: a pure number.
-			return { category: 'dimensionless', options: {} };
-		case 'capacity.overpressure':
-			return { category: 'fraction', options: {} };
-		default:
-			return { category: 'dimensionless', options: {} };
+		default: {
+			// A number in its registry unit (field-registry.ts), gauge pressures marked (D4); a
+			// pipe's length by the pipe's schema.
+			const schemaName =
+				variable.target.kind === 'pipe'
+					? 'PipeDefinition'
+					: component
+						? componentSchemaName(component)
+						: null;
+			const entry = entryFor(schemaName, variable.field);
+			const unit = entry ? unitOf(entry, component) : null;
+			return {
+				category: unit?.category ?? 'dimensionless',
+				options: unit?.gauge ? { gauge: true } : {}
+			};
+		}
 	}
 }
 

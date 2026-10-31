@@ -15,6 +15,7 @@
 	} from '$lib/utils/factory';
 	import { componentById, onwardFreePort, type NextOption } from '$lib/utils/graph';
 	import { portLabel } from '$lib/utils/labels';
+	import { mediaQuery, WIDE_SCREEN } from '$lib/utils/media.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import Breadcrumb from './Breadcrumb.svelte';
 	import ComponentPanel from './ComponentPanel.svelte';
@@ -25,6 +26,18 @@
 
 	const ws = useWorkspace();
 	const nav = ws.nav;
+
+	/**
+	 * Wide screens walk from the top bar, beside the path (build-density.md §6: one row of chrome
+	 * instead of two); phones keep Previous and Next at the bottom, under the thumb.
+	 */
+	const wide = mediaQuery(WIDE_SCREEN);
+	let scroller: HTMLElement | undefined = $state();
+	/** A component opens at its top: its name, results and first fields, not where the last was. */
+	$effect(() => {
+		void current?.id;
+		if (scroller) scroller.scrollTop = 0;
+	});
 
 	let choosing = $state(false);
 	let jumping = $state(false);
@@ -79,10 +92,42 @@
 	}
 </script>
 
+{#snippet walk()}
+	<nav
+		aria-label="Walk the network"
+		class={wide.current
+			? 'flex max-w-[55%] min-w-0 shrink gap-1'
+			: 'flex gap-2 border-t border-slate-200 bg-white px-2 pt-1 pb-[max(0.25rem,env(safe-area-inset-bottom))]'}
+	>
+		<button
+			type="button"
+			class="btn min-w-0 flex-1 justify-start"
+			disabled={!previous}
+			onclick={() => nav.previous()}
+		>
+			<Icon name="left" class="size-5 shrink-0" />
+			<span class="truncate">
+				Previous{#if previous}<span class="font-normal text-slate-600">: {previous.name}</span>{/if}
+			</span>
+		</button>
+		<button
+			type="button"
+			class="btn min-w-0 flex-1 justify-end border-blue-700 text-blue-800"
+			disabled={!nav.options.length && !openPort}
+			onclick={next}
+		>
+			<!-- The space stays outside the inner span: Svelte drops whitespace at an element's start. -->
+			<span class="truncate">Next: <span class="font-normal">{nextDetail}</span></span>
+			<Icon name="right" class="size-5 shrink-0" />
+		</button>
+	</nav>
+{/snippet}
+
 <div class="flex h-full min-h-0 flex-col">
 	{#if current}
-		<div class="flex items-center gap-1 border-b border-slate-200 pr-1 pl-2">
+		<div class="flex items-center gap-1 border-b border-slate-200 px-1">
 			<Breadcrumb />
+			{#if wide.current}{@render walk()}{/if}
 			<button
 				type="button"
 				class="btn btn-quiet shrink-0"
@@ -93,37 +138,14 @@
 			</button>
 		</div>
 
-		<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+		<div
+			class="@container min-h-0 flex-1 overflow-y-auto overscroll-contain short:flex-none short:overflow-visible"
+			bind:this={scroller}
+		>
 			<ComponentPanel component={current} />
 		</div>
 
-		<nav
-			aria-label="Walk the network"
-			class="flex gap-2 border-t border-slate-200 bg-white p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
-		>
-			<button
-				type="button"
-				class="btn min-w-0 flex-1 justify-start"
-				disabled={!previous}
-				onclick={() => nav.previous()}
-			>
-				<Icon name="left" class="size-5 shrink-0" />
-				<span class="truncate">
-					Previous{#if previous}<span class="font-normal text-slate-600">: {previous.name}</span
-						>{/if}
-				</span>
-			</button>
-			<button
-				type="button"
-				class="btn min-w-0 flex-1 justify-end border-blue-700 text-blue-800"
-				disabled={!nav.options.length && !openPort}
-				onclick={next}
-			>
-				<!-- The space stays outside the inner span: Svelte drops whitespace at an element's start. -->
-				<span class="truncate">Next: <span class="font-normal">{nextDetail}</span></span>
-				<Icon name="right" class="size-5 shrink-0" />
-			</button>
-		</nav>
+		{#if !wide.current}{@render walk()}{/if}
 	{:else}
 		<section class="mx-auto w-full max-w-lg space-y-4 px-4 py-8" aria-labelledby="empty-title">
 			<h2 id="empty-title" class="text-xl font-semibold" tabindex="-1" data-current-heading>

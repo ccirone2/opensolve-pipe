@@ -5,6 +5,7 @@
  */
 import type { Project } from '../api/types';
 import { createEmptyProject } from '../utils/factory';
+import { SI_UNITS } from '../utils/units';
 import { INCH } from '../utils/units';
 
 const NPS3 = 3 * INCH;
@@ -37,7 +38,8 @@ export function closedLoopProject(): Project {
 	const project = createEmptyProject({
 		id: 'test-closed-loop',
 		name: 'Closed loop with a pump',
-		now: '2026-10-21T00:00:00Z'
+		now: '2026-10-21T00:00:00Z',
+		units: SI_UNITS
 	});
 	return {
 		...project,

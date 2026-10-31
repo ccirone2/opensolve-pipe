@@ -50,7 +50,8 @@ import {
 import { DIRECTION_NAMES, flowDirection } from '../assigned-flow';
 import { pumpChartData } from '../pump-chart';
 import { TAP_LABELS } from '../orifice';
-import { RELIEF_DATA } from '../model-rules';
+import { entryFor, unitOf } from '../field-registry';
+import { componentSchemaName, RELIEF_DATA } from '../model-rules';
 import {
 	asmeRuleWords,
 	capacityGivenBy,
@@ -1245,38 +1246,6 @@ export function changeCategory(
 		return o.field === 'fluid.temperature' ? { category: 'temperature', options: {} } : null;
 	}
 	switch (o.field) {
-		case 'speed':
-			return { category: 'fraction', options: {} };
-		case 'control.setpoint':
-		case 'flow':
-			return { category: 'flow', options: {} };
-		case 'setpoint': {
-			const valve = componentById(project, o.componentId);
-			return valve?.type === 'valve' && valve.valveType === 'fcv'
-				? { category: 'flow', options: {} }
-				: { category: 'pressure', options: { gauge: true } };
-		}
-		case 'liquidLevel':
-			return { category: 'length', options: {} };
-		case 'surfacePressure':
-		case 'pressure':
-			return { category: 'pressure', options: { gauge: true } };
-		case 'rating.pressureLoss':
-			// A pressure difference: no gauge marker.
-			return { category: 'pressure', options: {} };
-		case 'rating.flow':
-			return { category: 'flow', options: {} };
-		case 'rating.density':
-			return { category: 'density', options: {} };
-		case 'boreDiameter':
-			return { category: 'diameter', options: {} };
-		case 'setPressure':
-			// A relief valve's set: a pressure difference, no gauge marker.
-			return { category: 'pressure', options: {} };
-		case 'capacity.area':
-			return { category: 'area', options: {} };
-		case 'capacity.overpressure':
-			return { category: 'fraction', options: {} };
 		case 'status':
 		case 'resistance':
 		case 'rating':
@@ -1286,8 +1255,16 @@ export function changeCategory(
 			// Text: a coefficient as entered with its kind ("Cv 120"), a whole rating or capacity, or
 			// an API 526 letter.
 			return null;
-		default:
-			return { category: 'dimensionless', options: {} };
+		default: {
+			// A number in its registry unit (field-registry.ts), gauge pressures marked (D4).
+			const component = componentById(project, o.componentId);
+			const entry = entryFor(component ? componentSchemaName(component) : null, o.field);
+			const unit = entry ? unitOf(entry, component) : null;
+			return {
+				category: unit?.category ?? 'dimensionless',
+				options: unit?.gauge ? { gauge: true } : {}
+			};
+		}
 	}
 }
 

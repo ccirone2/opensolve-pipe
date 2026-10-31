@@ -53,6 +53,7 @@
 	import { stringLimits } from '$lib/utils/schema-bounds';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import { calculatingReason } from '$lib/utils/goal-seek';
+	import CaseMenu from './CaseMenu.svelte';
 	import ProjectLibrary from './ProjectLibrary.svelte';
 	import ScenarioManager from './ScenarioManager.svelte';
 	import SettingsDialog from './SettingsDialog.svelte';
@@ -94,6 +95,67 @@
 				? calculatingReason('goalSeek', 'solve', true)
 				: ''
 	);
+	/**
+	 * The Scenarios menu (CaseMenu, build-density.md §13): the case shown and Solve all, once the
+	 * project has scenarios; without any, the button opens the manager.
+	 */
+	let casesOpen = $state(false);
+	let scenariosButton: HTMLButtonElement | undefined = $state();
+	let casesPanel: HTMLElement | undefined = $state();
+	const casesId = `${id}-cases`;
+	/** Solve all's progress, said while the menu is closed (its own line says it when open). */
+	const runText = $derived.by(() => {
+		const run = store.run;
+		if (!run) return '';
+		return `Solving ${run.index + 1} of ${run.cases.length}: ${ws.caseName(run.cases[run.index] ?? null)}…`;
+	});
+
+	function openManager() {
+		casesOpen = false;
+		ws.managerFocus = null;
+		ws.managerOpen = true;
+	}
+
+	async function toggleCases() {
+		if (!count) {
+			openManager();
+			return;
+		}
+		casesOpen = !casesOpen;
+		if (casesOpen) {
+			await tick();
+			casesPanel?.querySelector<HTMLElement>('select')?.focus();
+		}
+	}
+
+	function closeCases(focusButton: boolean) {
+		casesOpen = false;
+		if (focusButton) scenariosButton?.focus();
+	}
+
+	// Closed by a press outside it (not on its button, which toggles it).
+	$effect(() => {
+		if (!casesOpen) return;
+		const outside = (event: PointerEvent) => {
+			const target = event.target as Node;
+			if (!casesPanel?.contains(target) && !scenariosButton?.contains(target)) closeCases(false);
+		};
+		document.addEventListener('pointerdown', outside);
+		return () => document.removeEventListener('pointerdown', outside);
+	});
+	// A Solve all that ran to its end closes the menu (its results are in the panes); one that was
+	// cancelled or stopped keeps it open, with its line saying so.
+	let wasRunning = false;
+	$effect(() => {
+		const now = !!store.run;
+		if (wasRunning && !now && !untrack(() => store.runStop)) casesOpen = false;
+		wasRunning = now;
+	});
+	// No scenarios left (all deleted): nothing to choose.
+	$effect(() => {
+		if (!count) casesOpen = false;
+	});
+
 	let solveButton: HTMLButtonElement | undefined = $state();
 	let cancelButton: HTMLButtonElement | undefined = $state();
 
@@ -142,8 +204,10 @@
 	});
 </script>
 
-<header class="border-b border-slate-200 bg-white">
-	<div class="flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1 sm:flex-nowrap">
+<header class="relative border-b border-slate-200 bg-white">
+	<!-- 44 px controls (touch targets, held by the e2e suite) with 2 px around them: two rows on
+		a phone, one from 640 px (build-density.md §7). -->
+	<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-0.5 sm:flex-nowrap">
 		<a href={homeHref()} class="btn btn-quiet btn-icon" aria-label="OpenSolve Pipe home">
 			<Icon name="home" />
 		</a>
@@ -166,16 +230,23 @@
 		<!-- Offered once there is a network to vary, or scenarios to manage. -->
 		{#if !empty || count}
 			<button
+				bind:this={scenariosButton}
 				type="button"
-				class="btn btn-icon relative shrink-0 md:w-auto md:px-3"
+				class={[
+					'btn btn-icon relative shrink-0 md:w-auto md:px-3',
+					ws.inScenario && 'border-teal-600 bg-teal-50 text-teal-950'
+				]}
+				aria-expanded={count ? casesOpen : undefined}
+				aria-controls={count ? casesId : undefined}
+				title={count ? `Case shown: ${ws.caseName(store.activeCase)}` : undefined}
 				aria-label={count ? `Scenarios (${count})` : 'Scenarios'}
-				onclick={() => {
-					ws.managerFocus = null;
-					ws.managerOpen = true;
-				}}
+				onclick={() => void toggleCases()}
 			>
 				<!-- Its label from 768 px: at 640 px the one row also holds Cancel with its text. -->
-				<Icon name="layers" /><span class="hidden md:inline">Scenarios</span>
+				<Icon
+					name={running ? 'spinner' : 'layers'}
+					class={running ? 'motion-safe:animate-spin' : undefined}
+				/><span class="hidden md:inline">Scenarios</span>
 				{#if count}
 					<span
 						class="absolute -top-1 -right-1 min-w-5 rounded-full bg-teal-700 px-1 text-center text-xs leading-5 font-semibold text-white md:static md:bg-teal-100 md:text-teal-900"
@@ -297,6 +368,25 @@
 			</button>
 		</div>
 	</div>
+	{#if count}
+		<!-- The Scenarios menu: under the header, over the panes; Escape or a press outside closes it. -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			bind:this={casesPanel}
+			id={casesId}
+			hidden={!casesOpen}
+			class="absolute top-full right-2 z-30 mt-1 w-[min(26rem,calc(100vw-1rem))] rounded-lg border border-slate-200 bg-white p-3 shadow-lg"
+			onkeydown={(event) => {
+				if (event.key === 'Escape') {
+					event.preventDefault();
+					closeCases(true);
+				}
+			}}
+		>
+			<CaseMenu onmanage={openManager} onchoose={() => closeCases(true)} />
+		</div>
+		<p class="sr-only" role="status">{casesOpen ? '' : runText}</p>
+	{/if}
 </header>
 
 {#if ws.settingsOpen}

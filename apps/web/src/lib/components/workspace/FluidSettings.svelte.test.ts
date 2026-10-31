@@ -30,7 +30,8 @@ async function openFluid(overrides: BuiltinFluid['overrides']) {
 	await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 	// The calculated properties are fetched after a short pause, for the fluid's state without
 	// the user's overrides (the library values, for checking).
-	await screen.findByText('Calculated properties', {}, { timeout: 2000 });
+	// Its row in the calculated properties (in their disclosure) is there once they arrived.
+	await screen.findByText('Vapor pressure', {}, { timeout: 2000 });
 	expect(fluidProperties).toHaveBeenCalledWith({
 		kind: 'builtin',
 		fluidId: 'water',

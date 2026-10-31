@@ -15,6 +15,8 @@
 		required?: boolean;
 		maxlength?: number;
 		hint?: string;
+		/** Static explanation: shown while the field has focus (and with the pane's help on). */
+		help?: string;
 		placeholder?: string;
 		hideLabel?: boolean;
 		multiline?: boolean;
@@ -37,6 +39,7 @@
 		required = false,
 		maxlength,
 		hint,
+		help,
 		placeholder,
 		hideLabel = false,
 		multiline = false,
@@ -53,7 +56,7 @@
 	const mode = useFieldMode();
 	const locked = $derived(isLocked(mode, change, shared));
 	const described = $derived(
-		[locked && `${id}-locked`, error && `${id}-error`, hint && `${id}-hint`]
+		[locked && `${id}-locked`, error && `${id}-error`, hint && `${id}-hint`, help && `${id}-help`]
 			.filter(Boolean)
 			.join(' ') || undefined
 	);
@@ -75,7 +78,7 @@
 	}
 </script>
 
-<div class={['min-w-0', className]}>
+<div class={[hideLabel || multiline ? 'min-w-0' : 'field', className]}>
 	<label for={id} class={hideLabel ? 'sr-only' : 'label mb-1'}>{label}</label>
 	{#if multiline}
 		<textarea
@@ -133,4 +136,5 @@
 		</p>
 	{/if}
 	{#if hint}<p id="{id}-hint" class="hint">{hint}</p>{/if}
+	{#if help}<p id="{id}-help" class="hint help">{help}</p>{/if}
 </div>

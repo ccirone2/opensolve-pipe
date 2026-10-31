@@ -298,10 +298,19 @@ describe('fields in a scenario', () => {
 				'API 526 orifice letter'
 			]
 		};
+		/** Two-value choices are radio groups (build-density.md §11): a pump's and a gate's status. */
+		const segmented: Record<string, string[]> = { P1: ['Status'], V1: ['Status'] };
 		for (const [id, names] of Object.entries(expected)) {
 			ws.nav.jumpTo(id);
 			await tick();
 			for (const name of names) {
+				if (segmented[id]?.includes(name)) {
+					const group = screen.getByRole('radiogroup', { name });
+					const radios = within(group).getAllByRole('radio');
+					expect(radios, `${id} ${name}`).toHaveLength(2);
+					for (const radio of radios) expect(radio, `${id} ${name}`).toBeEnabled();
+					continue;
+				}
 				const field = screen.getByRole(
 					/given as|given by|Status|Direction|Rated by|Discharge coefficient|orifice letter/.test(
 						name

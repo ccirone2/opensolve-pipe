@@ -17,6 +17,18 @@
 	order (the sorted column carries aria-sort); rows without a value stay last. "Flagged only"
 	shows the rows with flags, offered when some rows have flags and some do not. A `sortRequest`
 	(the Summary's links to a sorted table) sets the sort and shows every row.
+
+	On phones (below 640 px) the same table reads as a list, as the Summary does (owner,
+	2026-10-31; proposal build-density.md §14): each row a block headed by the element's name, its
+	values as label and value pairs that wrap, its flags under them; the column headings stay for
+	screen readers, and a "Sort by" field and a direction button sort it by any column. The table
+	keeps explicit ARIA roles, so CSS that unmakes its layout never unmakes its semantics. A value
+	the row has none of ("—") is left out of a phone's row.
+
+	Fields (owner, 2026-10-31; proposal build-density.md §15): a menu of the table's columns, each a
+	checkbox, chooses which are shown, in the table and in the phone's list; the element's name
+	always is. The choice is remembered in this browser per table (localStorage: a per-viewer
+	convenience, never project data, never in the link); "Show all" forgets it.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
@@ -61,6 +73,41 @@
 
 	const id = $props.id();
 	let expanded = $state<string[]>([]);
+
+	/** The columns hidden in this browser for this table (by its caption), read and written safely. */
+	const storageKey = $derived(`opensolve-pipe:results-fields:${caption}`);
+	function readHidden(key: string): string[] {
+		try {
+			const value: unknown = JSON.parse(localStorage.getItem(key) ?? '[]');
+			return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+		} catch {
+			return [];
+		}
+	}
+	let hidden = $derived(readHidden(storageKey));
+	function setHidden(next: string[]) {
+		hidden = next;
+		try {
+			if (next.length) localStorage.setItem(storageKey, JSON.stringify(next));
+			else localStorage.removeItem(storageKey);
+		} catch {
+			// Storage refused (a private window): the choice holds for this page only.
+		}
+	}
+	const visibleColumns = $derived(table.columns.filter((c) => !hidden.includes(c.key)));
+	let fieldsOpen = $state(false);
+	let fieldsButton: HTMLElement | undefined = $state();
+	let fieldsPanel: HTMLElement | undefined = $state();
+	// Closed by a press outside it (on a phone, on the dimmed page around the sheet).
+	$effect(() => {
+		if (!fieldsOpen) return;
+		const outside = (event: PointerEvent) => {
+			const target = event.target as Node;
+			if (!fieldsPanel?.contains(target) && !fieldsButton?.contains(target)) fieldsOpen = false;
+		};
+		document.addEventListener('pointerdown', outside);
+		return () => document.removeEventListener('pointerdown', outside);
+	});
 
 	function toggle(key: string) {
 		expanded = expanded.includes(key) ? expanded.filter((k) => k !== key) : [...expanded, key];
@@ -111,6 +158,22 @@
 					: null;
 	}
 
+	/** The columns a phone's "Sort by" offers: those a heading sorts by, named with their unit. */
+	const sortChoices = $derived(
+		[
+			{ key: NAME_SORT_KEY, label: first },
+			...visibleColumns.map((c) => ({
+				key: c.key,
+				label: c.unit ? `${c.label} (${c.unit})` : c.label
+			}))
+		].filter((c) => sortable.has(c.key))
+	);
+
+	/** A field chosen sorts ascending first, as a heading does; the button then reverses it. */
+	function sortBy(key: string) {
+		sort = key ? { key, direction: 'ascending' } : null;
+	}
+
 	const rows = $derived(limit >= shown.length ? shown : shown.slice(0, limit));
 	$effect(() => {
 		if (limit >= shown.length) return;
@@ -122,7 +185,11 @@
 		const timer = setTimeout(grow, 16);
 		return () => clearTimeout(timer);
 	});
-	const columns = $derived(table.columns.length + 1);
+	const columns = $derived(visibleColumns.length + 1);
+	// A sort on a column hidden since goes back to the table's order.
+	$effect.pre(() => {
+		if (sort && sort.key !== NAME_SORT_KEY && hidden.includes(sort.key)) sort = null;
+	});
 
 	// The fixed first column: a divider and a shadow on its right edge.
 	const FIXED =
@@ -162,22 +229,149 @@
 	{/if}
 {/snippet}
 
-{#if canFilter}
-	<label class="mb-1 inline-flex min-h-11 items-center gap-2 text-sm text-slate-800">
-		<input type="checkbox" class="size-4" bind:checked={flaggedOnly} />
-		Flagged only ({flaggedCount} of {table.rows.length})
-	</label>
-{/if}
+<!-- One line on a phone: Sort (it takes what is left), its direction and Fields; Flagged only, when
+	offered, goes on the next (owner, 2026-10-31; proposal build-density.md §18). -->
+<div class="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+	{#if sortChoices.length > 1}
+		<!-- Phones: the headings are not shown, so a field sorts the list (the same sort). -->
+		<div class="flex min-w-0 grow basis-0 items-center gap-1 sm:hidden">
+			<label for="{id}-sort" class="text-sm whitespace-nowrap text-slate-700">Sort</label>
+			<!-- Named "Sort by" (its visible label, Sort, is part of the name: WCAG 2.5.3). -->
+			<select
+				id="{id}-sort"
+				aria-label="Sort by"
+				class="input w-full min-w-0 py-0 pr-8 text-sm"
+				value={sort?.key ?? ''}
+				onchange={(event) => sortBy(event.currentTarget.value)}
+			>
+				<option value="">Table order</option>
+				{#each sortChoices as choice (choice.key)}
+					<option value={choice.key}>{choice.label}</option>
+				{/each}
+			</select>
+			{#if sort}
+				{@const descending = sort.direction === 'descending'}
+				<button
+					type="button"
+					class="btn btn-icon shrink-0"
+					aria-label={descending ? 'Descending: highest first' : 'Ascending: lowest first'}
+					title={descending ? 'Highest first' : 'Lowest first'}
+					onclick={() => {
+						if (sort) sort = { key: sort.key, direction: descending ? 'ascending' : 'descending' };
+					}}
+				>
+					<Icon name={descending ? 'down' : 'up'} class="size-5" />
+				</button>
+			{/if}
+		</div>
+	{/if}
+	{#if table.columns.length > 1}
+		<div class="relative shrink-0">
+			<button
+				bind:this={fieldsButton}
+				type="button"
+				class="btn btn-quiet gap-1 px-2 text-sm"
+				aria-expanded={fieldsOpen}
+				aria-controls="{id}-fields"
+				onclick={() => (fieldsOpen = !fieldsOpen)}
+				onkeydown={(event) => {
+					if (event.key === 'Escape') fieldsOpen = false;
+				}}
+			>
+				<Icon name="list" class="size-4" />
+				<!-- Below 360 px its icon and count carry it, so Sort keeps its room. -->
+				<span class="max-[22.5rem]:sr-only">Fields</span><span class="text-slate-600"
+					>{hidden.length ? ` (${visibleColumns.length} of ${table.columns.length})` : ''}</span
+				>
+			</button>
+			<!-- A phone: a sheet across the screen's width from its foot, over a dimmed page, as the
+				native Sort by picker opens (owner, 2026-10-31; proposal build-density.md §16); a
+				press on the dimmed page closes it. From 640 px: a menu under the button. -->
+			{#if fieldsOpen}
+				<div class="fixed inset-0 z-40 bg-slate-900/40 sm:hidden" aria-hidden="true"></div>
+			{/if}
+			<!-- Escape inside the menu closes it (as from its button). -->
+			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+			<div
+				bind:this={fieldsPanel}
+				id="{id}-fields"
+				hidden={!fieldsOpen}
+				role="group"
+				aria-label="Fields shown in {caption}"
+				class={[
+					'z-50 overflow-y-auto border border-slate-200 bg-white shadow-lg',
+					'absolute left-0 mt-1 max-h-80 w-64 rounded-lg p-2',
+					'max-sm:fixed max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:mt-0 max-sm:max-h-[75dvh] max-sm:w-full max-sm:rounded-t-xl max-sm:rounded-b-none max-sm:px-3 max-sm:pt-2 max-sm:pb-[max(0.75rem,env(safe-area-inset-bottom))] max-sm:shadow-2xl'
+				]}
+				onkeydown={(event) => {
+					if (event.key === 'Escape') {
+						event.stopPropagation();
+						fieldsOpen = false;
+					}
+				}}
+			>
+				<div
+					class="sticky -top-2 -mx-3 mb-1 flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-1 sm:hidden"
+				>
+					<span class="min-w-0 flex-1 text-base font-semibold">Fields shown</span>
+					<button type="button" class="btn btn-primary" onclick={() => (fieldsOpen = false)}
+						>Done</button
+					>
+				</div>
+				{#each table.columns as column (column.key)}
+					<label
+						class="flex min-h-9 items-center gap-2 px-1 text-sm text-slate-800 max-sm:min-h-11 max-sm:border-b max-sm:border-slate-100 max-sm:text-base"
+					>
+						<input
+							type="checkbox"
+							class="size-4 max-sm:size-5"
+							checked={!hidden.includes(column.key)}
+							onchange={(event) =>
+								setHidden(
+									event.currentTarget.checked
+										? hidden.filter((k) => k !== column.key)
+										: [...hidden, column.key]
+								)}
+						/>
+						<span
+							>{column.label}{#if column.unit}<span class="text-slate-600"
+									>&nbsp;({column.unit})</span
+								>{/if}</span
+						>
+					</label>
+				{/each}
+				{#if hidden.length}
+					<button
+						type="button"
+						class="btn btn-quiet mt-1 w-full text-sm text-blue-800"
+						onclick={() => setHidden([])}>Show all</button
+					>
+				{/if}
+			</div>
+		</div>
+	{/if}
+	{#if canFilter}
+		<label class="inline-flex min-h-11 items-center gap-2 text-sm text-slate-800 max-sm:basis-full">
+			<input type="checkbox" class="size-4" bind:checked={flaggedOnly} />
+			Flagged only ({flaggedCount} of {table.rows.length})
+		</label>
+	{/if}
+</div>
 
 <!-- A size container, so the lines under a row can be exactly as wide as the visible box. -->
 <div
-	class="scroll-shadow-x @container max-h-[max(16rem,calc(100dvh-12rem))] max-w-full snap-x snap-proximity scroll-pl-[9.5rem] overflow-auto overscroll-x-contain rounded-lg border border-slate-200 sm:snap-none"
+	class="scroll-shadow-x @container max-h-[max(16rem,calc(100dvh-12rem))] max-w-full overflow-auto overscroll-x-contain rounded-lg border border-slate-200 max-sm:max-h-none max-sm:overflow-visible"
 >
-	<table class="min-w-full border-separate border-spacing-0 text-sm">
+	<!-- Explicit roles: below 640 px CSS lays the table out as a list (see the header comment). -->
+	<!-- svelte-ignore a11y_no_redundant_roles -->
+	<table role="table" class="min-w-full border-separate border-spacing-0 text-sm max-sm:block">
 		<caption class="sr-only">{caption}</caption>
-		<thead>
-			<tr class="text-slate-700">
+		<!-- svelte-ignore a11y_no_redundant_roles -->
+		<thead role="rowgroup" class="max-sm:sr-only">
+			<!-- svelte-ignore a11y_no_redundant_roles -->
+			<tr role="row" class="text-slate-700">
 				<th
+					role="columnheader"
 					scope="col"
 					aria-sort={sort?.key === NAME_SORT_KEY ? sort.direction : undefined}
 					class={[
@@ -187,8 +381,9 @@
 				>
 					{@render heading(NAME_SORT_KEY, first, undefined, false)}
 				</th>
-				{#each table.columns as column (column.key)}
+				{#each visibleColumns as column (column.key)}
 					<th
+						role="columnheader"
 						scope="col"
 						aria-sort={sort?.key === column.key ? sort.direction : undefined}
 						class={[
@@ -201,19 +396,29 @@
 				{/each}
 			</tr>
 		</thead>
-		<tbody>
+		<!-- svelte-ignore a11y_no_redundant_roles -->
+		<tbody role="rowgroup" class="max-sm:block">
 			{#each rows as row, index (row.key)}
 				{@const open = expanded.includes(row.key)}
 				{@const expandable = !!detail && hasDetail(row)}
 				{@const annotated = row.flags.length > 0 || expandable}
 				{@const divider = index > 0 && 'border-t border-slate-200'}
-				<tr>
+				<!-- svelte-ignore a11y_no_redundant_roles -->
+				<tr
+					role="row"
+					class={[
+						'max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-3 max-sm:gap-y-0.5 max-sm:px-2 max-sm:pb-1.5',
+						index > 0 && 'max-sm:border-t max-sm:border-slate-200'
+					]}
+				>
 					<th
+						role="rowheader"
 						scope="row"
 						class={[
 							FIXED,
 							divider,
-							'z-10 w-[9.5rem] max-w-[9.5rem] min-w-[9.5rem] bg-white px-1 py-0.5 text-left align-top font-normal sm:w-auto sm:max-w-[16rem] sm:min-w-[11rem]'
+							'z-10 bg-white px-1 py-0.5 text-left align-top font-normal sm:w-auto sm:max-w-[16rem] sm:min-w-[11rem]',
+							'max-sm:static max-sm:-mx-1 max-sm:block max-sm:w-full max-sm:border-0 max-sm:shadow-none'
 						]}
 					>
 						{#if onselect}
@@ -235,16 +440,24 @@
 							</span>
 						{/if}
 					</th>
-					{#each table.columns as column (column.key)}
+					{#each visibleColumns as column (column.key)}
 						{@const cell = row.cells[column.key] ?? '—'}
 						<td
+							role="cell"
+							data-label={column.unit ? `${column.label} (${column.unit})` : column.label}
 							class={[
 								divider,
-								'snap-start px-2 py-2 align-top',
+								'px-2 py-2 align-top',
 								column.numeric && 'text-right tabular-nums',
 								column.wrap
 									? 'max-w-[22rem] min-w-[14rem] text-xs break-words'
-									: 'whitespace-nowrap'
+									: 'whitespace-nowrap',
+								// A phone: "Flow (L/s) 18.98", its label from the column (not in its text).
+								'max-sm:flex max-sm:max-w-full max-sm:min-w-0 max-sm:items-baseline max-sm:gap-1 max-sm:border-0 max-sm:p-0 max-sm:text-left max-sm:whitespace-normal',
+								'max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]',
+								// A phone's row leaves out what it has no value for: out of sight only, so the
+								// row keeps its cells, in order, for screen readers.
+								cell === '—' && 'max-sm:sr-only'
 							]}
 						>
 							<!-- Plain text inline: a component per cell is slow on tables of hundreds of rows. -->
@@ -253,10 +466,11 @@
 					{/each}
 				</tr>
 				{#if annotated}
-					<tr>
-						<td colspan={columns} class="p-0">
+					<!-- svelte-ignore a11y_no_redundant_roles -->
+					<tr role="row" class="max-sm:block">
+						<td role="cell" colspan={columns} class="p-0 max-sm:block">
 							<div
-								class="sticky left-0 flex w-[100cqw] flex-wrap items-center gap-1 px-2 pb-1"
+								class="sticky left-0 flex w-[100cqw] flex-wrap items-center gap-1 px-2 pb-1 max-sm:static max-sm:w-auto"
 								data-row-notes={row.key}
 							>
 								{#each row.flags as flag, i (i)}
@@ -282,9 +496,13 @@
 					</tr>
 				{/if}
 				{#if open && detail}
-					<tr class="bg-slate-50/60">
-						<td colspan={columns} class="border-t border-slate-100 p-0">
-							<div id={domId(row.key)} class="sticky left-0 w-[100cqw] px-2 py-2">
+					<!-- svelte-ignore a11y_no_redundant_roles -->
+					<tr role="row" class="bg-slate-50/60 max-sm:block">
+						<td role="cell" colspan={columns} class="border-t border-slate-100 p-0 max-sm:block">
+							<div
+								id={domId(row.key)}
+								class="sticky left-0 w-[100cqw] px-2 py-2 max-sm:static max-sm:w-auto"
+							>
 								{@render detail(row)}
 							</div>
 						</td>

@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page, type Request, type Route } from 
 import type { GoalSeekRequest, GoalSeekResponse } from '../src/lib/api/types';
 import {
 	buildPane,
+	caseMenu,
 	cellText,
 	currentHeading,
 	resultsPane,
@@ -224,12 +225,12 @@ test('a scenario run: never applied to the base, applied as a new scenario; undo
 	await name.fill('Low suction');
 	await name.press('Enter');
 	await manager.getByRole('button', { name: 'Done' }).click();
-	const caseMenu = page.getByRole('combobox', { name: 'Case', exact: true });
-	await expect(caseMenu.locator('option:checked')).toHaveText(/^Low suction \(/);
+	const menu = caseMenu(page);
+	await expect(menu.locator('option:checked')).toHaveText(/^Low suction \(/);
 	await showPane(page, 'Build');
 	await expect(currentHeading(page)).toHaveText('Suction tank');
 	await setNumber(buildPane(page), /^Liquid level/, '1.5');
-	await expect(caseMenu.locator('option:checked')).toHaveText('Low suction (1 change)');
+	await expect(menu.locator('option:checked')).toHaveText('Low suction (1 change)');
 
 	const d = await speedForFlow(page, '15');
 	await expect(d.getByText('Low suction', { exact: true })).toBeVisible();
@@ -242,7 +243,7 @@ test('a scenario run: never applied to the base, applied as a new scenario; undo
 	).toBeVisible();
 	await d.getByRole('button', { name: 'Apply as new scenario' }).click();
 	await expect(dialog(page)).toBeHidden();
-	await expect(caseMenu.locator('option:checked')).toHaveText('Goal seek 2 (2 changes)');
+	await expect(menu.locator('option:checked')).toHaveText('Goal seek 2 (2 changes)');
 	await expect(resultsPane(page).getByRole('status')).toHaveText(
 		'Last solve of Goal seek 2: converged'
 	);
@@ -250,7 +251,7 @@ test('a scenario run: never applied to the base, applied as a new scenario; undo
 		resultsPane(page).getByText(/^Values found by goal seek on scenario Low suction for:/)
 	).toBeVisible();
 	await page.getByRole('button', { name: /^Undo add scenario Goal seek 2/ }).click();
-	await expect(caseMenu.locator('option:checked')).toHaveText('Low suction (1 change)');
+	await expect(menu.locator('option:checked')).toHaveText('Low suction (1 change)');
 });
 
 test('out of date on a project never solved, and every Solve waits during a run', async ({

@@ -76,7 +76,7 @@
 		     body; otherwise it extends the overflow-hidden dialog, which a focus move then
 		     scrolls past its title bar. -->
 		<div
-			class="relative min-h-0 flex-1 overflow-y-auto px-4 py-4"
+			class="@container relative min-h-0 flex-1 overflow-y-auto px-4 py-4"
 			use:focusableWhenScrollable={`${id}-title`}
 		>
 			{@render children()}

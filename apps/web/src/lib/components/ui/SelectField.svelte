@@ -26,7 +26,10 @@
 		label: string;
 		value: T;
 		options: readonly SelectOption<T>[];
+		/** A note about its value (always shown). */
 		hint?: string;
+		/** Static explanation: shown while the field has focus (and with the pane's help on). */
+		help?: string;
 		/** Ids of other elements that describe the select (after its hint), e.g. a note about it. */
 		describedby?: string;
 		hideLabel?: boolean;
@@ -51,6 +54,7 @@
 		value,
 		options,
 		hint,
+		help,
 		describedby,
 		hideLabel = false,
 		disabled = false,
@@ -80,7 +84,13 @@
 			((change.inScenario && change.changed) || (!change.inScenario && change.setBy.length > 0))
 	);
 	const described = $derived(
-		[noted && `${id}-change`, locked && `${id}-locked`, hint && `${id}-hint`, describedby]
+		[
+			noted && `${id}-change`,
+			locked && `${id}-locked`,
+			hint && `${id}-hint`,
+			help && `${id}-help`,
+			describedby
+		]
 			.filter(Boolean)
 			.join(' ') || undefined
 	);
@@ -96,7 +106,7 @@
 	});
 </script>
 
-<div class={['min-w-0', className]}>
+<div class={[hideLabel ? 'min-w-0' : 'field', className]}>
 	<label for={id} class={hideLabel ? 'sr-only' : 'label mb-1'}>{label}</label>
 	{#if locked}
 		<div class="relative">
@@ -142,4 +152,5 @@
 	{/if}
 	{#if noted && change}<ChangeNote {change} id="{id}-change" />{/if}
 	{#if hint}<p id="{id}-hint" class="hint">{hint}</p>{/if}
+	{#if help}<p id="{id}-help" class="hint help">{help}</p>{/if}
 </div>

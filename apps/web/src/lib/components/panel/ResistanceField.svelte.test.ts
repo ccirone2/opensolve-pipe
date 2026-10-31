@@ -18,6 +18,38 @@ async function type(input: HTMLElement, text: string) {
 }
 
 describe('ResistanceField', () => {
+	it("spells out the default it applies, and the base case's default a scenario replaced (D10)", () => {
+		const shown = render(ResistanceField, {
+			value: null,
+			defaultLabel: 'Crane TP-410 K, full bore and fully open, at the connected size',
+			units: SI_UNITS,
+			onchange: () => {}
+		});
+		expect(
+			screen.getByText('Default: Crane TP-410 K, full bore and fully open, at the connected size.')
+		).toBeInTheDocument();
+		shown.unmount();
+		render(ResistanceField, {
+			value: { kind: 'K', value: 2 },
+			defaultLabel: 'Crane TP-410 K, full bore and fully open, at the connected size',
+			units: SI_UNITS,
+			onchange: () => {},
+			change: {
+				inScenario: true,
+				changed: true,
+				baseText: 'Default',
+				label: 'Resistance',
+				reset: () => {},
+				setBy: []
+			}
+		});
+		expect(
+			screen.getByText(
+				"The base case's default: Crane TP-410 K, full bore and fully open, at the connected size."
+			)
+		).toBeInTheDocument();
+	});
+
 	it('never stores the old number under a new kind', async () => {
 		const onchange = vi.fn();
 		render(ResistanceField, {

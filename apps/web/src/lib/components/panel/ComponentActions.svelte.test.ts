@@ -45,6 +45,29 @@ function expectValid(ws: Workspace) {
 }
 
 describe('component actions', () => {
+	it('adds a common kind in one step from the dialog, the kind added last first', async () => {
+		const ws = testWorkspace(createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z' }));
+		render(WorkspaceView, { workspace: ws });
+		await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+		// Add after, then the kind: 2 actions (proposal build-density.md §11).
+		let dialog = await openDialog('Add after', 'Add after Reservoir R1');
+		const quick = within(dialog.getByRole('group', { name: 'Add now' }));
+		// Kinds that ask for a value first are chosen in the list, where their fields are.
+		expect(quick.queryByRole('button', { name: /Equipment|Orifice|Relief|Assigned/ })).toBeNull();
+		await fireEvent.click(quick.getByRole('button', { name: 'Pump' }));
+		expect(screen.queryByRole('dialog')).toBeNull();
+		expect(current()).toBe('Pump P1');
+		expect(ws.project.connections).toHaveLength(1);
+
+		dialog = await openDialog('Add after', 'Add after Pump P1');
+		const kinds = within(dialog.getByRole('group', { name: 'Add now' }))
+			.getAllByRole('button')
+			.map((b) => b.textContent?.trim());
+		expect(kinds[0]).toBe('Pump');
+		expectValid(ws);
+	});
+
 	it('adds the first component, then one after it at its free port', async () => {
 		const ws = testWorkspace(createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z' }));
 		render(WorkspaceView, { workspace: ws });

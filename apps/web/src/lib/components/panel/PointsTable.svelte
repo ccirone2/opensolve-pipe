@@ -90,10 +90,8 @@
 </script>
 
 <div class="min-w-0">
-	<table class="w-full table-fixed border-separate border-spacing-x-2 border-spacing-y-1">
-		<caption class="caption-top pb-1 text-left text-sm font-medium text-slate-700"
-			>{caption}</caption
-		>
+	<table class="w-full table-fixed border-separate border-spacing-x-2 border-spacing-y-px">
+		<caption class="caption-top text-left text-sm font-medium text-slate-700">{caption}</caption>
 		<thead>
 			<tr class="text-left text-xs font-medium text-slate-600">
 				<th scope="col" class="w-8 font-medium">#</th>

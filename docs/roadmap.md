@@ -25,10 +25,14 @@ Each ships as one verified slice with reference cases and traces. Candidates, in
 
 Speed-controlled pumps slice 2 (discharge pressure) and C1 (an exact Newton step for an active PRV's velocity-head term). Their design and measurements are in `proposals/vfd-slice2-discharge-pressure.md`; the owner's answers there are provisional notes, not decisions. Revisit with a simpler design under D13 if the owner asks for slice 2 again. The PRV's slow lag is TSD §12 open item 5.
 
-## 4. Still to do by hand
+## 4. Web: Build density (proposal `proposals/build-density.md` §10, §12)
+
+Built: every Build form laid out from the field registry, one label and unit table, and the budgets the e2e suite enforces (`proposals/build-density.md` §11). What remains is its §12: the strip kept in view when it gains a flag after a solve; segments for three-value choices where their labels fit; Build inputs in the results workbook, if wanted (D17).
+
+## 5. Still to do by hand
 
 Export's by-hand checks (TSD §10.3): the workbook in Excel for Android and the chart image on Android are recorded; the rest is still to do.
 
-## 5. Later, by the specs
+## 6. Later, by the specs
 
 PRD §2.4 (cost estimation, pipe sizing optimization, a pump database, curve digitization, a public API, colour-coded results, code compliance libraries) and the deferred list of [D5](decisions/D05-v1-scope.md). TSD §12's open items 1–2 (schematic layout, version storage) wait on accounts and the schematic, both Later.

@@ -195,7 +195,7 @@
 	}
 </script>
 
-<div class="space-y-4">
+<div class="fields">
 	<ChangeNote {change} id="{noteId}-change" />
 	<SelectField
 		{change}
@@ -299,41 +299,63 @@
 			/>
 		{/if}
 
-		<div class="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
-			{#if needsConcentration}
-				<p>Enter the glycol concentration to calculate the properties.</p>
-			{:else if properties}
-				<p class="font-medium">Calculated properties</p>
-				<dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-					<dt>Density</dt>
-					<dd>{show(properties.density, 'density')}</dd>
-					<dt>Dynamic viscosity</dt>
-					<dd>{show(properties.dynamicViscosity, 'viscosity')}</dd>
-					<dt>Vapor pressure</dt>
-					<dd>{show(properties.vaporPressure, 'pressure', true)}</dd>
-				</dl>
-				{#each Object.entries(properties.sources) as [key, source] (key)}
-					<p class="mt-1 text-xs text-slate-600">
-						{PROPERTY_LABELS[key] ?? humanize(key)}: {source.citation}
-					</p>
-				{/each}
-			{:else if propertiesError}
-				<p>Calculated properties cannot be shown right now. {propertiesError}</p>
-				<p class="mt-1">The solver calculates them when the project is solved.</p>
-			{:else}
-				<p>Calculating properties…</p>
-			{/if}
-			{#if info}<p class="mt-1 text-xs text-slate-600">Source: {info.source}</p>{/if}
-		</div>
+		<!-- Reference values and their sources one step away, the values in its summary, as
+			Results shows the fluid (build-density.md §13). -->
+		{#if needsConcentration}
+			<p class="text-sm text-slate-700">
+				Enter the glycol concentration to calculate the properties.
+			</p>
+		{:else}
+			<details class="group">
+				<summary class="more-summary">
+					<Icon
+						name="right"
+						class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+					/>
+					<span class="min-w-0 flex-1"
+						><span>Calculated properties</span><span class="font-normal text-slate-600"
+							>{#if properties}: {show(properties.density, 'density')}, {show(
+									properties.dynamicViscosity,
+									'viscosity'
+								)}{:else if propertiesError}: not available now{:else}: calculating…{/if}</span
+						></span
+					>
+				</summary>
+				<div class="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
+					{#if properties}
+						<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+							<dt>Density</dt>
+							<dd>{show(properties.density, 'density')}</dd>
+							<dt>Dynamic viscosity</dt>
+							<dd>{show(properties.dynamicViscosity, 'viscosity')}</dd>
+							<dt>Vapor pressure</dt>
+							<dd>{show(properties.vaporPressure, 'pressure', true)}</dd>
+						</dl>
+						{#each Object.entries(properties.sources) as [key, source] (key)}
+							<p class="mt-1 text-xs text-slate-600">
+								{PROPERTY_LABELS[key] ?? humanize(key)}: {source.citation}
+							</p>
+						{/each}
+					{:else if propertiesError}
+						<p>Calculated properties cannot be shown right now. {propertiesError}</p>
+						<p class="mt-1">The solver calculates them when the project is solved.</p>
+					{:else}
+						<p>Calculating properties…</p>
+					{/if}
+					{#if info}<p class="mt-1 text-xs text-slate-600">Source: {info.source}</p>{/if}
+				</div>
+			</details>
+		{/if}
 
 		<details class="group" open={!!fluid.overrides}>
-			<summary
-				class="flex min-h-11 cursor-pointer list-none items-center gap-1 text-sm font-medium text-blue-800 [&::-webkit-details-marker]:hidden"
-			>
-				<Icon name="right" class="size-4 shrink-0 transition-transform group-open:rotate-90" />
+			<summary class="more-summary">
+				<Icon
+					name="right"
+					class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+				/>
 				Override calculated properties (optional)
 			</summary>
-			<div class="space-y-3 pt-2">
+			<div class="fields pt-1 pb-2">
 				<NumberField
 					{change}
 					changeNote={false}

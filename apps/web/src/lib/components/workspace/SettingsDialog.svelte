@@ -64,6 +64,13 @@
 		});
 	});
 
+	/** The design checks switched on (they are opt-in, CLAUDE.md D19). */
+	const checksOn = $derived(Object.keys(settings.designChecks ?? {}).length);
+	/** "Length ft, flow gpm, …": what the per-quantity units are, said while they are closed. */
+	const unitsText = $derived(
+		PREFERENCE_CATEGORIES.map((c) => unitLabel(c, settings.units[c])).join(', ')
+	);
+
 	function setUnits(units: UnitPreferences, label = 'change units') {
 		ws.edit((p) => {
 			p.settings.units = { ...units };
@@ -77,51 +84,104 @@
 	}
 </script>
 
+<!--
+	Condensed (proposal build-density.md §13): the units first, as one SI / US customary choice,
+	since they are what people reach for; each section a short title; reference text and values
+	(calculated fluid properties and their sources, the per-quantity units, the design checks,
+	the convergence options) one disclosure away, each saying what it holds.
+-->
 <Dialog title="Project settings" wide {onclose}>
-	<div class="space-y-8">
+	<div class="dense space-y-5">
 		{#if ws.activeScenario}
-			<p
-				class="flex items-start gap-2 rounded-md border border-l-4 border-teal-600 bg-teal-50 p-3 text-sm text-teal-950"
-			>
+			<p class="flex items-start gap-2 text-sm text-teal-950">
 				<Icon name="layers" class="mt-0.5 size-4 shrink-0 text-teal-700" />
 				<span>
-					<strong>Scenario: {ws.activeScenario.name}.</strong> The fluid you set here is recorded in this
-					scenario. The description and units are shared by every case; the site, design checks and solver
-					settings are the same in every case.
+					<strong>Scenario: {ws.activeScenario.name}.</strong> The fluid set here is this scenario's;
+					the rest is the same in every case.
 				</span>
 			</p>
 		{/if}
-		<section aria-labelledby="settings-project" class="space-y-3">
-			<h3 id="settings-project" class="text-base font-semibold">Project</h3>
-			<TextField
-				label="Description"
-				multiline
-				value={ws.project.metadata.description}
-				maxlength={stringLimits('ProjectMetadata', 'description').maxLength}
-				shared
-				onchange={(v) =>
-					ws.edit((p) => {
-						if (v === null) delete p.metadata.description;
-						else p.metadata.description = v;
-					}, 'change description')}
-			/>
+
+		<section aria-labelledby="settings-units" class="space-y-2">
+			<div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+				<h3 id="settings-units" class="section-title">Units</h3>
+				<div
+					role="group"
+					aria-label="Unit presets"
+					class="flex overflow-hidden rounded-md border border-slate-300"
+				>
+					<button
+						type="button"
+						class={[
+							'min-h-ctl px-4 text-sm font-medium',
+							preset === 'si'
+								? 'bg-blue-700 text-white'
+								: 'bg-white text-slate-800 hover:bg-slate-50'
+						]}
+						aria-pressed={preset === 'si'}
+						onclick={() => setUnits({ ...SI_UNITS }, 'use SI units')}>SI</button
+					>
+					<button
+						type="button"
+						class={[
+							'min-h-ctl border-l border-slate-300 px-4 text-sm font-medium',
+							preset === 'imperial'
+								? 'bg-blue-700 text-white'
+								: 'bg-white text-slate-800 hover:bg-slate-50'
+						]}
+						aria-pressed={preset === 'imperial'}
+						onclick={() => setUnits({ ...IMPERIAL_UNITS }, 'use US customary units')}
+						>US customary</button
+					>
+				</div>
+				{#if preset === 'mixed'}<span class="text-sm text-slate-600">Mixed</span>{/if}
+			</div>
+			<p class="text-xs text-slate-600">
+				What is shown and typed; the project is stored in SI. Pressures are gauge unless marked
+				absolute.
+			</p>
+			<details class="group" open={preset === 'mixed'}>
+				<summary class="more-summary">
+					<Icon
+						name="right"
+						class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+					/>
+					<span class="min-w-0 flex-1"
+						>Per quantity<span class="font-normal text-slate-600">: {unitsText}</span></span
+					>
+				</summary>
+				<div class="fields fields-pairs pt-1 pb-2">
+					{#each PREFERENCE_CATEGORIES as category (category)}
+						<SelectField
+							label={CATEGORY_LABELS[category]}
+							value={settings.units[category]}
+							options={CATEGORY_UNITS[category].map((u) => ({
+								value: u,
+								label: unitLabel(category, u)
+							}))}
+							shared
+							onchange={(u) => setUnits({ ...settings.units, [category]: u } as UnitPreferences)}
+						/>
+					{/each}
+				</div>
+			</details>
 		</section>
 
-		<section aria-labelledby="settings-fluid" class="space-y-3">
-			<h3 id="settings-fluid" class="text-base font-semibold">Fluid</h3>
+		<section aria-labelledby="settings-fluid" class="space-y-2">
+			<h3 id="settings-fluid" class="section-title">Fluid</h3>
 			<FluidSettings />
 		</section>
 
-		<section aria-labelledby="settings-site" class="space-y-3">
-			<h3 id="settings-site" class="text-base font-semibold">Site</h3>
-			<div class="grid gap-3 sm:grid-cols-2">
+		<section aria-labelledby="settings-site" class="space-y-2">
+			<h3 id="settings-site" class="section-title">Site</h3>
+			<div class="fields fields-pairs">
 				<NumberField
 					label="Site elevation"
 					value={settings.siteElevation}
 					category="length"
 					units={settings.units}
 					bounds={schemaBounds('ProjectSettings', 'siteElevation')}
-					hint="Above sea level. Sets the atmospheric pressure (standard atmosphere). Component elevations are measured from the project datum."
+					help="Above sea level. Sets the atmospheric pressure (standard atmosphere). Component elevations are measured from the project datum."
 					onchange={(v) =>
 						v !== null &&
 						ws.edit((p) => {
@@ -137,7 +197,7 @@
 					optional
 					placeholder="From the site elevation"
 					bounds={schemaBounds('ProjectSettings', 'atmosphericPressure')}
-					hint="Blank uses the standard atmosphere at the site elevation."
+					help="Blank uses the standard atmosphere at the site elevation."
 					onchange={(v) =>
 						ws.edit((p) => {
 							if (v === null) delete p.settings.atmosphericPressure;
@@ -147,69 +207,50 @@
 			</div>
 		</section>
 
-		<section aria-labelledby="settings-units" class="space-y-3">
-			<h3 id="settings-units" class="text-base font-semibold">Units</h3>
-			<p class="text-sm text-slate-700">
-				Units change only what is shown and typed; the project is always stored in SI. Pressures are
-				gauge unless marked absolute.
-			</p>
-			<div role="group" aria-label="Unit presets" class="flex flex-wrap gap-2">
-				<button
-					type="button"
-					class={['btn', preset === 'si' && 'border-blue-700 bg-blue-50']}
-					aria-pressed={preset === 'si'}
-					onclick={() => setUnits({ ...SI_UNITS }, 'use SI units')}>SI</button
-				>
-				<button
-					type="button"
-					class={['btn', preset === 'imperial' && 'border-blue-700 bg-blue-50']}
-					aria-pressed={preset === 'imperial'}
-					onclick={() => setUnits({ ...IMPERIAL_UNITS }, 'use US customary units')}
-					>US customary</button
-				>
-				{#if preset === 'mixed'}<span class="self-center text-sm text-slate-600">Mixed</span>{/if}
-			</div>
-			<div class="grid gap-3 sm:grid-cols-3">
-				{#each PREFERENCE_CATEGORIES as category (category)}
-					<SelectField
-						label={CATEGORY_LABELS[category]}
-						value={settings.units[category]}
-						options={CATEGORY_UNITS[category].map((u) => ({
-							value: u,
-							label: unitLabel(category, u)
-						}))}
-						shared
-						onchange={(u) => setUnits({ ...settings.units, [category]: u } as UnitPreferences)}
-					/>
-				{/each}
-			</div>
-		</section>
-
-		<section aria-labelledby="settings-checks" class="space-y-3">
-			<h3 id="settings-checks" class="text-base font-semibold">Design checks</h3>
-			<DesignChecksSettings />
-		</section>
-
-		<section aria-labelledby="settings-solver" class="space-y-3">
-			<h3 id="settings-solver" class="text-base font-semibold">Solver</h3>
-			<SelectField
-				label="Friction factor"
-				value={settings.solverOptions.frictionMethod}
-				options={[
-					{ value: 'colebrook', label: FRICTION_METHOD_LABELS.colebrook },
-					{ value: 'swamee_jain', label: FRICTION_METHOD_LABELS.swamee_jain }
-				]}
-				hint="Darcy–Weisbach friction. Swamee–Jain is the explicit approximation EPANET uses, for like-for-like comparisons."
-				onchange={(v) => setSolver('frictionMethod', v)}
+		<section aria-labelledby="settings-project" class="space-y-2">
+			<h3 id="settings-project" class="section-title">Project</h3>
+			<TextField
+				label="Description"
+				multiline
+				value={ws.project.metadata.description}
+				maxlength={stringLimits('ProjectMetadata', 'description').maxLength}
+				shared
+				onchange={(v) =>
+					ws.edit((p) => {
+						if (v === null) delete p.metadata.description;
+						else p.metadata.description = v;
+					}, 'change description')}
 			/>
+		</section>
+
+		<section aria-labelledby="settings-solver" class="space-y-2">
+			<h3 id="settings-solver" class="section-title">Solver</h3>
+			<div class="fields">
+				<SelectField
+					label="Friction factor"
+					value={settings.solverOptions.frictionMethod}
+					options={[
+						{ value: 'colebrook', label: FRICTION_METHOD_LABELS.colebrook },
+						{ value: 'swamee_jain', label: FRICTION_METHOD_LABELS.swamee_jain }
+					]}
+					help="Darcy–Weisbach friction. Swamee–Jain is the explicit approximation EPANET uses, for like-for-like comparisons."
+					onchange={(v) => setSolver('frictionMethod', v)}
+				/>
+			</div>
 			<details class="group">
-				<summary
-					class="flex min-h-11 cursor-pointer list-none items-center gap-1 text-sm font-medium text-blue-800 [&::-webkit-details-marker]:hidden"
-				>
-					<Icon name="right" class="size-4 shrink-0 transition-transform group-open:rotate-90" />
-					Convergence (advanced)
+				<summary class="more-summary">
+					<Icon
+						name="right"
+						class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+					/>
+					<span class="min-w-0 flex-1"
+						>Convergence (advanced)<span class="font-normal text-slate-600"
+							>: {settings.solverOptions.maxIterations} iterations, tolerance {settings
+								.solverOptions.tolerance}</span
+						></span
+					>
 				</summary>
-				<div class="grid gap-3 pt-2 sm:grid-cols-2">
+				<div class="fields fields-pairs pt-1 pb-2">
 					<NumberField
 						label="Maximum iterations"
 						value={settings.solverOptions.maxIterations}
@@ -217,7 +258,7 @@
 						units={settings.units}
 						integer
 						bounds={schemaBounds('SolverOptions', 'maxIterations')}
-						hint="Newton iterations per network solve."
+						help="Newton iterations per network solve."
 						onchange={(v) => v !== null && setSolver('maxIterations', v)}
 					/>
 					<NumberField
@@ -226,12 +267,28 @@
 						category="dimensionless"
 						units={settings.units}
 						bounds={schemaBounds('SolverOptions', 'tolerance')}
-						hint="Largest flow change relative to the largest flow."
+						help="Largest flow change relative to the largest flow."
 						onchange={(v) => v !== null && setSolver('tolerance', v)}
 					/>
 				</div>
 			</details>
 		</section>
+
+		<details class="group" open={checksOn > 0}>
+			<summary class="more-summary">
+				<Icon
+					name="right"
+					class="size-4 shrink-0 text-slate-500 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+				/>
+				<h3 id="settings-checks" class="section-title">Design checks</h3>
+				<span class="font-normal text-slate-600"
+					>{checksOn ? `${checksOn} on` : 'opt-in, all off'}</span
+				>
+			</summary>
+			<section aria-labelledby="settings-checks" class="space-y-2 pt-1 pb-2">
+				<DesignChecksSettings />
+			</section>
+		</details>
 	</div>
 	{#snippet footer()}
 		<button type="button" class="btn btn-primary" onclick={onclose}>Done</button>

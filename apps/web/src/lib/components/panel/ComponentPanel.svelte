@@ -23,13 +23,13 @@
 </script>
 
 <script lang="ts">
-	import NumberField from '$lib/components/ui/NumberField.svelte';
 	import TextField from '$lib/components/ui/TextField.svelte';
 	import { kindLabel } from '$lib/utils/labels';
-	import { componentSchema, schemaBounds, stringLimits } from '$lib/utils/schema-bounds';
+	import { componentSchema, stringLimits } from '$lib/utils/schema-bounds';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import ComponentActions from './ComponentActions.svelte';
 	import ConnectionPanel from './ConnectionPanel.svelte';
+	import FieldSections from './FieldSections.svelte';
 	import AssignedFlowForm from './forms/AssignedFlowForm.svelte';
 	import BranchForm from './forms/BranchForm.svelte';
 	import CheckValveForm from './forms/CheckValveForm.svelte';
@@ -38,10 +38,7 @@
 	import IsolationValveForm from './forms/IsolationValveForm.svelte';
 	import OrificeForm from './forms/OrificeForm.svelte';
 	import PumpForm from './forms/PumpForm.svelte';
-	import ReferenceNodeForm from './forms/ReferenceNodeForm.svelte';
 	import ReliefValveForm from './forms/ReliefValveForm.svelte';
-	import ReservoirForm from './forms/ReservoirForm.svelte';
-	import PortsEditor from './PortsEditor.svelte';
 	import ResultStrip from './ResultStrip.svelte';
 	import ScenarioBanner from './ScenarioBanner.svelte';
 
@@ -70,21 +67,18 @@
 	}
 </script>
 
-<article class="space-y-4 px-3 py-4 sm:px-4" aria-labelledby="{id}-title">
+<article class="space-y-3 px-3 py-3 sm:px-4" aria-labelledby="{id}-title">
 	<!-- The name is edited in place, as the project name is: the heading stays for structure and
 		focus (hidden), and shows its focus on the field, so a keyboard user sees where it is. -->
 	<header
-		class="-mx-2 rounded-md px-2 pt-1 has-[[data-current-heading]:focus-visible]:ring-2 has-[[data-current-heading]:focus-visible]:ring-blue-600"
+		class="-mx-2 flex flex-wrap items-center gap-x-3 rounded-md px-2 has-[[data-current-heading]:focus-visible]:ring-2 has-[[data-current-heading]:focus-visible]:ring-blue-600"
 	>
-		<p class="text-sm text-slate-600">
-			{kindLabel(component)} · <span class="font-mono">{component.id}</span>
-		</p>
 		<h2 id="{id}-title" class="sr-only" tabindex="-1" data-current-heading>
 			{component.name}
 		</h2>
 		{#key component.id}
 			<TextField
-				class="-mx-2"
+				class="-mx-2 min-w-0 flex-1 basis-48 [&_.hint]:px-2"
 				label="Name"
 				hideLabel
 				value={component.name}
@@ -100,88 +94,89 @@
 					})}
 			/>
 		{/key}
+		<p class="text-sm text-slate-600">
+			{kindLabel(component)} · <span class="font-mono">{component.id}</span>
+		</p>
 	</header>
 
 	<ResultStrip element={{ kind: 'component', id: component.id }} />
 
 	{#if ws.inScenario}
 		<ScenarioBanner />
-	{:else}
-		<ComponentActions {component} />
 	{/if}
 
-	<div
-		role="tablist"
-		aria-label="Edit {component.name}"
-		class="flex border-b border-slate-200"
-		tabindex="-1"
-		onkeydown={tabKeydown}
-	>
-		{#each TABS as { value, label } (value)}
-			<button
-				type="button"
-				role="tab"
-				id="{id}-tab-{value}"
-				aria-selected={mode === value}
-				aria-controls="{id}-panel"
-				tabindex={mode === value ? 0 : -1}
+	<!-- The views and the actions in one row where they fit; phones put the actions above. -->
+	<div class="flex flex-wrap items-center gap-x-2 gap-y-2 border-b border-slate-200">
+		<div
+			role="tablist"
+			aria-label="Edit {component.name}"
+			class="flex"
+			tabindex="-1"
+			onkeydown={tabKeydown}
+		>
+			{#each TABS as { value, label } (value)}
+				<button
+					type="button"
+					role="tab"
+					id="{id}-tab-{value}"
+					aria-selected={mode === value}
+					aria-controls="{id}-panel"
+					tabindex={mode === value ? 0 : -1}
+					class={[
+						'-mb-px min-h-ctl border-b-2 px-4 text-sm font-medium',
+						mode === value
+							? 'border-blue-700 text-blue-800'
+							: 'border-transparent text-slate-600 hover:text-slate-900'
+					]}
+					onclick={() => selectTab(value)}
+				>
+					{label}
+				</button>
+			{/each}
+		</div>
+		{#if !ws.inScenario}
+			<!-- On a phone the component's actions stay with its Properties: Piping has its
+				connection's own (build-density.md §11). -->
+			<div
 				class={[
-					'-mb-px min-h-11 border-b-2 px-4 text-sm font-medium',
-					mode === value
-						? 'border-blue-700 text-blue-800'
-						: 'border-transparent text-slate-600 hover:text-slate-900'
+					'flex min-w-0 flex-wrap justify-end max-sm:order-first max-sm:w-full sm:ml-auto',
+					mode === 'connection' && 'max-sm:hidden'
 				]}
-				onclick={() => selectTab(value)}
 			>
-				{label}
-			</button>
-		{/each}
+				<ComponentActions {component} />
+			</div>
+		{/if}
 	</div>
 
 	<div id="{id}-panel" role="tabpanel" aria-labelledby="{id}-tab-{mode}" class="space-y-4">
 		{#key component.id}
 			{#if mode === 'component'}
-				<div class="grid gap-4 sm:grid-cols-2">
-					<NumberField
-						label="Elevation"
-						value={component.elevation}
-						category="length"
-						units={ws.units}
-						bounds={schemaBounds(schema, 'elevation')}
-						hint="Above the project datum."
-						onchange={(v) =>
-							v !== null &&
-							ws.editComponent(component.id, 'change elevation', (c) => {
-								c.elevation = v;
-							})}
-					/>
-					{#if component.type === 'reservoir'}
-						<ReservoirForm {component} />
-					{:else if component.type === 'reference_node'}
-						<ReferenceNodeForm {component} />
-					{:else if component.type === 'branch'}
-						<BranchForm {component} />
-					{:else if component.type === 'pump'}
-						<PumpForm {component} />
-					{:else if isCheckValve(component)}
-						<CheckValveForm {component} />
-					{:else if isControlValve(component)}
-						<ControlValveForm {component} />
-					{:else if isIsolationValve(component)}
-						<IsolationValveForm {component} />
-					{:else if component.type === 'assigned_flow'}
-						<AssignedFlowForm {component} />
-					{:else if component.type === 'equipment'}
-						<EquipmentForm {component} />
-					{:else if component.type === 'orifice'}
-						<OrificeForm {component} />
-					{:else if component.type === 'relief_valve'}
-						<ReliefValveForm {component} />
-					{:else if component.type === 'plug'}
-						<p class="hint sm:col-span-2">A closed end: no flow leaves through its port.</p>
-					{/if}
-					<div class="sm:col-span-2"><PortsEditor {component} /></div>
-				</div>
+				{#if component.type === 'branch'}
+					<BranchForm {component} />
+				{:else if component.type === 'pump'}
+					<PumpForm {component} />
+				{:else if isCheckValve(component)}
+					<CheckValveForm {component} />
+				{:else if isControlValve(component)}
+					<ControlValveForm {component} />
+				{:else if isIsolationValve(component)}
+					<IsolationValveForm {component} />
+				{:else if component.type === 'assigned_flow'}
+					<AssignedFlowForm {component} />
+				{:else if component.type === 'equipment'}
+					<EquipmentForm {component} />
+				{:else if component.type === 'orifice'}
+					<OrificeForm {component} />
+				{:else if component.type === 'relief_valve'}
+					<ReliefValveForm {component} />
+				{:else if component.type === 'plug'}
+					<FieldSections {component}>
+						{#snippet about()}A closed end: no flow leaves through its port.{/snippet}
+					</FieldSections>
+				{:else}
+					<!-- A reservoir, a reference node: every field is drawn from the registry. -->
+					<FieldSections {component} />
+				{/if}
 			{:else}
 				<ConnectionPanel {component} />
 			{/if}

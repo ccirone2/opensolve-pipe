@@ -16,6 +16,7 @@
 		| 'trash'
 		| 'list'
 		| 'alert'
+		| 'octagon'
 		| 'check'
 		| 'home'
 		| 'branch'
@@ -85,6 +86,10 @@
 	{:else if name === 'alert'}
 		<path d="M12 3 2 20h20z" />
 		<path d="M12 10v4M12 17h.01" />
+	{:else if name === 'octagon'}
+		<!-- A stop sign: an invalid result, told apart from a warning by shape, not colour only. -->
+		<path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z" />
+		<path d="M12 8v5M12 16.5h.01" />
 	{:else if name === 'check'}
 		<path d="m5 12 5 5 9-10" />
 	{:else if name === 'home'}

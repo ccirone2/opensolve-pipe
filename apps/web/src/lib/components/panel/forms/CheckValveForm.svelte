@@ -1,54 +1,22 @@
+<!--
+	A check valve: its status, type and cracking pressure are drawn from the registry
+	(field-registry.ts); its resistance here, in More.
+-->
 <script lang="ts">
 	import type { CheckValve } from '$lib/api/types';
-	import NumberField from '$lib/components/ui/NumberField.svelte';
-	import SelectField from '$lib/components/ui/SelectField.svelte';
-	import { KIND_LABELS } from '$lib/utils/factory';
-	import { CHECK_STATUS_LABELS } from '$lib/utils/labels';
-	import { schemaBounds } from '$lib/utils/schema-bounds';
-	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import ValveResistanceField from '../ValveResistanceField.svelte';
+	import FieldSections from '../FieldSections.svelte';
 
 	let { component }: { component: CheckValve } = $props();
-	const ws = useWorkspace();
-	const STATUSES = ['active', 'locked_open', 'locked_closed'] as const;
 </script>
 
-<SelectField
-	label="Valve type"
-	value={component.valveType}
-	options={[
-		{ value: 'check', label: KIND_LABELS.check },
-		{ value: 'stop_check', label: KIND_LABELS.stop_check }
-	]}
-	onchange={(v) =>
-		ws.editComponent<CheckValve>(component.id, 'change valve type', (c) => {
-			c.valveType = v;
-		})}
-/>
-<SelectField
-	label="Status"
-	value={component.status}
-	options={STATUSES.map((s) => ({ value: s, label: CHECK_STATUS_LABELS[s] }))}
-	change={ws.componentChange(component.id, 'status')}
-	onchange={(v) =>
-		ws.editComponent<CheckValve>(component.id, 'change valve status', (c) => {
-			c.status = v;
-		})}
-/>
-<NumberField
-	label="Cracking pressure"
-	value={component.crackingPressure}
-	category="pressure"
-	units={ws.units}
-	bounds={schemaBounds('CheckValve', 'crackingPressure')}
-	hint="The forward pressure across the valve that opens it, read on the energy grade line: the static pressure difference, inlet minus outlet, plus ρg × (inlet port elevation − outlet port elevation); 0 opens on any forward flow. For overpressure protection use a pressure relief valve: a check valve's fixed K does not follow API 520's capacity."
-	onchange={(v) =>
-		v !== null &&
-		ws.editComponent<CheckValve>(component.id, 'change cracking pressure', (c) => {
-			c.crackingPressure = v;
-		})}
-/>
-<ValveResistanceField
-	{component}
-	defaultLabel="the solver's cited loss for this valve type (shown in the results)"
-/>
+<FieldSections {component}>
+	{#snippet field(path)}
+		{#if path === 'resistance'}
+			<ValveResistanceField
+				{component}
+				defaultLabel="the solver's cited loss for this valve type (shown in the results)"
+			/>
+		{/if}
+	{/snippet}
+</FieldSections>

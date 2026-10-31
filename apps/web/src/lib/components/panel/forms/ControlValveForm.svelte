@@ -3,15 +3,14 @@
 	import NumberField from '$lib/components/ui/NumberField.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { KIND_LABELS } from '$lib/utils/factory';
-	import { CONTROL_STATUS_LABELS } from '$lib/utils/labels';
 	import { setpointBounds as boundsFor } from '$lib/utils/model-rules';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
 	import ValveResistanceField from '../ValveResistanceField.svelte';
+	import FieldSections from '../FieldSections.svelte';
 
 	let { component }: { component: ControlValve } = $props();
 	const ws = useWorkspace();
 	const TYPES = ['prv', 'psv', 'fcv'] as const;
-	const STATUSES = ['active', 'failed_open', 'failed_closed'] as const;
 
 	const isFlow = $derived(component.valveType === 'fcv');
 	/** FCV setpoints are flows, PRV/PSV setpoints gauge pressures; bounds from the API schema. */
@@ -37,57 +36,57 @@
 	}
 </script>
 
-<SelectField
-	label="Valve type"
-	value={component.valveType}
-	options={TYPES.map((t) => ({ value: t, label: KIND_LABELS[t] }))}
-	hint="Changing between a pressure valve (PRV, PSV) and a flow valve (FCV) resets the setpoint to 0."
-	onchange={changeType}
-/>
-<SelectField
-	label="Status"
-	value={component.status}
-	options={STATUSES.map((s) => ({ value: s, label: CONTROL_STATUS_LABELS[s] }))}
-	change={ws.componentChange(component.id, 'status')}
-	onchange={(v) =>
-		ws.editComponent<ControlValve>(component.id, 'change valve status', (c) => {
-			c.status = v;
-		})}
-/>
-{#if isFlow}
-	<NumberField
-		label="Flow setpoint"
-		value={component.setpoint}
-		category="flow"
-		units={ws.units}
-		bounds={setpointBounds}
-		hint="The flow the valve throttles to."
-		warning={setpointWarning}
-		change={ws.componentChange(component.id, 'setpoint')}
-		onchange={(v) =>
-			v !== null &&
-			ws.editComponent<ControlValve>(component.id, 'change setpoint', (c) => {
-				c.setpoint = v;
-			})}
-	/>
-{:else}
-	<NumberField
-		label={component.valveType === 'prv' ? 'Outlet pressure setpoint' : 'Inlet pressure setpoint'}
-		value={component.setpoint}
-		category="pressure"
-		gauge
-		units={ws.units}
-		bounds={setpointBounds}
-		hint={component.valveType === 'prv'
-			? 'Gauge static pressure the valve holds at its outlet.'
-			: "Gauge static pressure the valve holds at its inlet: EPANET's pressure-sustaining valve, which modulates to hold it. For a safety or relief valve (overpressure protection), use the pressure relief valve (API 520, liquids)."}
-		warning={setpointWarning}
-		change={ws.componentChange(component.id, 'setpoint')}
-		onchange={(v) =>
-			v !== null &&
-			ws.editComponent<ControlValve>(component.id, 'change setpoint', (c) => {
-				c.setpoint = v;
-			})}
-	/>
-{/if}
-<ValveResistanceField {component} defaultLabel="ideal (no loss when fully open)" />
+<FieldSections {component}>
+	{#snippet field(path)}
+		{#if path === 'valveType'}
+			<SelectField
+				label="Valve type"
+				value={component.valveType}
+				options={TYPES.map((t) => ({ value: t, label: KIND_LABELS[t] }))}
+				help="Changing between a pressure valve (PRV, PSV) and a flow valve (FCV) resets the setpoint to 0."
+				onchange={changeType}
+			/>
+		{:else if path === 'setpoint'}
+			{#if isFlow}
+				<NumberField
+					label="Flow setpoint"
+					value={component.setpoint}
+					category="flow"
+					units={ws.units}
+					bounds={setpointBounds}
+					help="The flow the valve throttles to."
+					warning={setpointWarning}
+					change={ws.componentChange(component.id, 'setpoint')}
+					onchange={(v) =>
+						v !== null &&
+						ws.editComponent<ControlValve>(component.id, 'change setpoint', (c) => {
+							c.setpoint = v;
+						})}
+				/>
+			{:else}
+				<NumberField
+					label={component.valveType === 'prv'
+						? 'Outlet pressure setpoint'
+						: 'Inlet pressure setpoint'}
+					value={component.setpoint}
+					category="pressure"
+					gauge
+					units={ws.units}
+					bounds={setpointBounds}
+					help={component.valveType === 'prv'
+						? 'Gauge static pressure the valve holds at its outlet.'
+						: "Gauge static pressure the valve holds at its inlet: EPANET's pressure-sustaining valve, which modulates to hold it. For a safety or relief valve (overpressure protection), use the pressure relief valve (API 520, liquids)."}
+					warning={setpointWarning}
+					change={ws.componentChange(component.id, 'setpoint')}
+					onchange={(v) =>
+						v !== null &&
+						ws.editComponent<ControlValve>(component.id, 'change setpoint', (c) => {
+							c.setpoint = v;
+						})}
+				/>
+			{/if}
+		{:else if path === 'resistance'}
+			<ValveResistanceField {component} defaultLabel="ideal (no loss when fully open)" />
+		{/if}
+	{/snippet}
+</FieldSections>

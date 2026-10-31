@@ -2,7 +2,12 @@ import { expect, test, type Locator, type Page, type Request, type Route } from 
 import type { SolveRequest } from '../src/lib/api/types';
 import {
 	buildPane,
+	caseGroup,
+	caseMenu,
+	chooseCase,
 	currentHeading,
+	openCases,
+	openScenarioManager,
 	resultsPane,
 	resultsView,
 	setNumber,
@@ -28,15 +33,17 @@ async function openExample(page: Page) {
 	await expect(currentHeading(page)).toHaveText('Suction tank');
 }
 
-const caseMenu = (page: Page) => page.getByRole('combobox', { name: 'Case', exact: true });
 const scenariosButton = (page: Page) => page.getByRole('button', { name: /^Scenarios/ });
 const solveAllButton = (page: Page) =>
-	page.getByRole('group', { name: 'Case' }).getByRole('button', { name: 'Solve all' });
+	caseGroup(page).getByRole('button', { name: 'Solve all', includeHidden: true });
+/** Press Solve all, in the Scenarios menu. */
+async function solveAll(page: Page): Promise<void> {
+	await (await openCases(page)).getByRole('button', { name: 'Solve all' }).click();
+}
 
 /** Create a scenario in the manager, name it, and close the manager: it is the case shown. */
 async function newScenario(page: Page, name: string): Promise<void> {
-	await scenariosButton(page).click();
-	const manager = page.getByRole('dialog', { name: 'Scenarios' });
+	const manager = await openScenarioManager(page);
 	await manager.getByRole('button', { name: 'New scenario' }).click();
 	const field = manager.getByRole('textbox', { name: /^Name of scenario S\d+$/ }).last();
 	await expect(field).toBeFocused();
@@ -91,17 +98,20 @@ test('create a scenario, change a value in it, reset it; locked values; back to 
 	// Topology actions are hidden in a scenario.
 	await expect(panel.getByRole('button', { name: 'Add after' })).toHaveCount(0);
 
-	const status = panel.getByRole('combobox', { name: 'Status' });
-	await status.selectOption('off');
+	// A two-value status is a pair of segments (proposal build-density.md §11).
+	const status = panel.getByRole('radiogroup', { name: 'Status' });
+	const on = status.getByRole('radio', { name: 'On' });
+	const off = status.getByRole('radio', { name: 'Off' });
+	await off.click();
 	await expect(status).toHaveAccessibleDescription(/Changed in this scenario\. Base value On\./);
 	const reset = panel.getByRole('button', { name: 'Reset Status to the base value, On' });
 	await expect(reset).toBeVisible();
 	await expect(caseMenu(page).locator('option:checked')).toHaveText('Pump off (1 change)');
 	await reset.click();
-	await expect(status).toHaveValue('on');
+	await expect(on).toBeChecked();
 	await expect(reset).toHaveCount(0);
 	await expect(caseMenu(page).locator('option:checked')).toHaveText('Pump off (0 changes)');
-	await status.selectOption('off');
+	await off.click();
 	await expect(caseMenu(page).locator('option:checked')).toHaveText('Pump off (1 change)');
 
 	// A value that is the same in every scenario: read-only, focusable, said so.
@@ -118,7 +128,7 @@ test('create a scenario, change a value in it, reset it; locked values; back to 
 	await panel.getByRole('button', { name: 'Switch to base case' }).click();
 	await expect(caseMenu(page)).toHaveValue('');
 	await expect(panel.getByRole('note', { name: 'Scenario' })).toHaveCount(0);
-	await expect(status).toHaveValue('on');
+	await expect(on).toBeChecked();
 	await expect(status).toHaveAccessibleDescription(/Pump off sets its own value\./);
 	await expect(elevation).not.toHaveAttribute('readonly', '');
 	await expect(panel.getByRole('button', { name: 'Add after' })).toBeVisible();
@@ -149,9 +159,9 @@ test('solve one case and all of them, read the comparison and the other cases on
 
 	// Solve all: the cases still missing (the base, then Higher tank), one after the other. The
 	// base request is the plain one, without a scenario id.
-	await solveAllButton(page).click();
+	await solveAll(page);
 	await expect(solveAllButton(page)).toHaveAttribute('aria-disabled', 'true');
-	await expect(page.getByRole('group', { name: 'Case' })).not.toContainText('Solving');
+	await expect(caseGroup(page)).not.toContainText('Solving');
 	expect(sent).toHaveLength(3);
 	expect('scenarioId' in sent[1]!).toBe(false);
 	expect(sent[2]!.scenarioId).toBe('S1');
@@ -260,7 +270,7 @@ test('cancel Solve all; then Solve all solves only the cases still missing', asy
 	await newScenario(page, 'Copy of base');
 
 	// The base case first, on its own.
-	await caseMenu(page).selectOption({ label: 'Base case' });
+	await chooseCase(page, 'Base case');
 	const first = page.waitForResponse((r) => r.url().endsWith('/api/v1/solve'));
 	await page.getByRole('banner').getByRole('button', { name: 'Solve Base case' }).click();
 	await first;
@@ -269,15 +279,19 @@ test('cancel Solve all; then Solve all solves only the cases still missing', asy
 
 	// Solve all, held at the network: it starts with the first scenario (the base is current).
 	const held = await holdSolves(page);
-	await solveAllButton(page).click();
+	await solveAll(page);
 	await expect.poll(() => held.length).toBe(1);
 	expect(held[0]!.request().postDataJSON().scenarioId).toBe('S1');
-	const bar = page.getByRole('group', { name: 'Case' });
-	await expect(bar.getByRole('status')).toHaveText('Solving 1 of 2: Higher tank…');
+	const bar = caseGroup(page);
+	await expect(bar.getByRole('status', { includeHidden: true })).toHaveText(
+		'Solving 1 of 2: Higher tank…'
+	);
 	const aborted = page.waitForEvent('requestfailed', (r) => r.url().endsWith('/api/v1/solve'));
 	await page.getByRole('button', { name: 'Cancel solving all cases' }).click();
 	await aborted;
-	await expect(bar.getByRole('status')).toHaveText(/^Solve all was cancelled/);
+	await expect(bar.getByRole('status', { includeHidden: true })).toHaveText(
+		/^Solve all was cancelled/
+	);
 	await expect(
 		page.getByRole('banner').getByRole('button', { name: /^Solve Base case$/ })
 	).toBeFocused();
@@ -287,12 +301,12 @@ test('cancel Solve all; then Solve all solves only the cases still missing', asy
 	// Solve all again: the two scenarios, not the base.
 	await page.unroute('**/api/v1/solve');
 	const before = sent.length;
-	await solveAllButton(page).click();
+	await solveAll(page);
 	// Solve all stays in place, unavailable, during the run: wait for the run's end.
-	await expect(page.getByRole('group', { name: 'Case' })).not.toContainText('Solving');
+	await expect(caseGroup(page)).not.toContainText('Solving');
 	await expect(solveAllButton(page)).toHaveAttribute('aria-disabled', 'true');
 	expect(sent.slice(before).map((r) => r.scenarioId)).toEqual(['S1', 'S2']);
-	await caseMenu(page).selectOption({ label: 'Higher tank (1 change)' });
+	await chooseCase(page, 'Higher tank (1 change)');
 	await expect(resultsStatus(page)).toHaveText('Last solve of Higher tank: converged');
 });
 
@@ -321,7 +335,7 @@ test('share and reopen: the scenarios are in the link, which opens on the base c
 	await expect(currentHeading(other)).toHaveText('Suction tank');
 	await expect(caseMenu(other)).toHaveValue('');
 	await expect(scenariosButton(other)).toHaveAccessibleName('Scenarios (1)');
-	await caseMenu(other).selectOption({ label: 'Higher tank (1 change)' });
+	await chooseCase(other, 'Higher tank (1 change)');
 	const reopened = await showComponent(other, 'Discharge tank');
 	const level = reopened.getByRole('textbox', { name: /^Liquid level/ });
 	await expect(level).toHaveValue('6');
@@ -334,7 +348,10 @@ test('a deleted component’s changes no longer apply; undo restores them and sw
 	await openExample(page);
 	await newScenario(page, 'Valve closed');
 	let panel = await showComponent(page, 'Discharge isolation valve');
-	await panel.getByRole('combobox', { name: 'Status' }).selectOption('isolated');
+	await panel
+		.getByRole('radiogroup', { name: 'Status' })
+		.getByRole('radio', { name: 'Closed (isolated)' })
+		.click();
 	await expect(caseMenu(page).locator('option:checked')).toHaveText('Valve closed (1 change)');
 
 	// Delete the valve in the base case: its change is kept and no longer applies.
@@ -349,8 +366,7 @@ test('a deleted component’s changes no longer apply; undo restores them and sw
 	await expect(caseMenu(page).locator('option', { hasText: 'Valve closed' })).toHaveText(
 		'Valve closed (1 change, 1 no longer applies)'
 	);
-	await scenariosButton(page).click();
-	const manager = page.getByRole('dialog', { name: 'Scenarios' });
+	const manager = await openScenarioManager(page);
 	await manager.getByText('Valve closed', { exact: true }).click();
 	await expect(manager.getByRole('heading', { name: 'No longer applies (1)' })).toBeVisible();
 	await manager.getByRole('button', { name: 'Done' }).click();
@@ -384,12 +400,11 @@ test('a scenario value a base edit made invalid: reported, rejected by the serve
 	panel = await showComponent(page, 'Transfer pump');
 	await setNumber(panel, /^Maximum speed/, '80');
 	// In the base case the minimum speed goes up to 85 %: valid there, not in Slow drive.
-	await caseMenu(page).selectOption({ label: 'Base case' });
+	await chooseCase(page, 'Base case');
 	await setNumber(panel, /^Minimum speed/, '85');
-	await caseMenu(page).selectOption({ label: 'Slow drive (1 change)' });
+	await chooseCase(page, 'Slow drive (1 change)');
 
-	await scenariosButton(page).click();
-	const manager = page.getByRole('dialog', { name: 'Scenarios' });
+	const manager = await openScenarioManager(page);
 	await expect(manager.getByRole('heading', { name: 'Problems (1)' })).toBeVisible();
 	await expect(manager).toContainText(
 		'The value Slow drive sets for Transfer pump maximum speed is not valid'
@@ -429,27 +444,34 @@ test('a long case name fits: Solve, the Case menu and the case bar during Solve 
 
 	// Solve all's progress has a line of its own in the case bar: a short one never squeezes the
 	// Case menu, a long one never squeezes the sentence on where edits go.
-	await caseMenu(page).selectOption({ label: 'Base case' });
-	const bar = page.getByRole('group', { name: 'Case' });
+	await chooseCase(page, 'Base case');
+	await openCases(page);
+	const bar = caseGroup(page);
 	const sentence = bar.getByText(
 		'Edits change the base case and every scenario that does not set its own value.'
 	);
 	const menu = (await caseMenu(page).boundingBox())!.width;
 	const lines = (await sentence.isVisible()) ? (await sentence.boundingBox())!.height : 0;
 	await holdSolves(page);
-	await solveAllButton(page).click();
-	await expect(bar.getByRole('status')).toHaveText('Solving 1 of 2: Base case…');
+	await solveAll(page);
+	await expect(bar.getByRole('status', { includeHidden: true })).toHaveText(
+		'Solving 1 of 2: Base case…'
+	);
 	expect((await caseMenu(page).boundingBox())!.width).toBeGreaterThanOrEqual(menu - 1);
 	await page.getByRole('button', { name: 'Cancel solving all cases' }).click();
-	await expect(bar.getByRole('status')).toHaveText(/^Solve all was cancelled/);
+	await expect(bar.getByRole('status', { includeHidden: true })).toHaveText(
+		/^Solve all was cancelled/
+	);
 
 	await page.unroute('**/api/v1/solve');
 	const first = page.waitForResponse((r) => r.url().endsWith('/api/v1/solve'));
 	await page.getByRole('banner').getByRole('button', { name: 'Solve Base case' }).click();
 	await first;
 	await holdSolves(page);
-	await solveAllButton(page).click();
-	await expect(bar.getByRole('status')).toHaveText(`Solving 1 of 1: ${name}…`);
+	await solveAll(page);
+	await expect(bar.getByRole('status', { includeHidden: true })).toHaveText(
+		`Solving 1 of 1: ${name}…`
+	);
 	if (lines) expect((await sentence.boundingBox())!.height).toBeLessThanOrEqual(lines + 1);
 	// The page never scrolls sideways.
 	expect(
@@ -458,5 +480,7 @@ test('a long case name fits: Solve, the Case menu and the case bar during Solve 
 		)
 	).toBe(0);
 	await page.getByRole('button', { name: 'Cancel solving all cases' }).click();
-	await expect(bar.getByRole('status')).toHaveText(/^Solve all was cancelled/);
+	await expect(bar.getByRole('status', { includeHidden: true })).toHaveText(
+		/^Solve all was cancelled/
+	);
 });

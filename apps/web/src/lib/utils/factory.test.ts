@@ -1,3 +1,4 @@
+import { IMPERIAL_UNITS, SI_UNITS } from './units';
 import { describe, expect, it } from 'vitest';
 import { enteredFor, link, projectWith } from '../testing/helpers';
 import { pumpTransferExample } from './examples';
@@ -26,7 +27,7 @@ import { requiredPortIds } from './model-rules';
 import { modelRuleProblems, projectProblems, schemaProblems } from './validate';
 
 describe('createEmptyProject', () => {
-	it('is valid, empty and SI', () => {
+	it('is valid, empty and in US customary units (the default; SI is one tap away)', () => {
 		const project = createEmptyProject();
 		expect(projectProblems(project)).toEqual([]);
 		expect(project.components).toEqual([]);
@@ -34,7 +35,8 @@ describe('createEmptyProject', () => {
 		expect(project.pumpLibrary).toEqual([]);
 		expect(project.schemaVersion).toBe(1);
 		expect(project.methodVersion).toBe('');
-		expect(project.settings.units.pressure).toBe('kPa');
+		expect(project.settings.units).toEqual(IMPERIAL_UNITS);
+		expect(createEmptyProject({ units: SI_UNITS }).settings.units).toEqual(SI_UNITS);
 		expect(project.fluid).toEqual({ kind: 'builtin', fluidId: 'water', temperature: 293.15 });
 		expect(project.metadata.created).toBe(project.metadata.modified);
 		expect(Date.parse(project.metadata.created)).not.toBeNaN();

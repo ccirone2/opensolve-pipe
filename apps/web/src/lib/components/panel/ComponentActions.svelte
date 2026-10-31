@@ -16,13 +16,9 @@
 	const id = $props.id();
 </script>
 
-<div
-	role="group"
-	aria-label="Component actions"
-	class="grid grid-cols-4 gap-1.5 sm:flex sm:flex-wrap sm:gap-2"
->
+<div role="group" aria-label="Component actions" class="grid grid-cols-4 gap-1 sm:flex sm:gap-1">
 	<button type="button" class="btn action" onclick={() => (adding = 'after')}>
-		<Icon name="plus" class="size-5 sm:size-4" /> Add after
+		<Icon name="plus" class="size-4 shrink-0" /> Add after
 	</button>
 	<button
 		type="button"
@@ -31,7 +27,7 @@
 		aria-describedby={connected ? undefined : `${id}-why`}
 		onclick={() => (adding = 'insert')}
 	>
-		<Icon name="insert" class="size-5 sm:size-4" /> Add before
+		<Icon name="insert" class="size-4 shrink-0" /> Add before
 	</button>
 	<button
 		type="button"
@@ -40,14 +36,14 @@
 		aria-describedby={connected ? undefined : `${id}-why`}
 		onclick={() => (adding = 'branch')}
 	>
-		<Icon name="branch" class="size-5 sm:size-4" /> Add branch
+		<Icon name="branch" class="size-4 shrink-0" /> Add branch
 	</button>
-	<button type="button" class="btn action text-red-800" onclick={() => (deleting = true)}>
-		<Icon name="trash" class="size-5 sm:size-4" /> Delete
+	<button type="button" class="btn btn-quiet action text-red-800" onclick={() => (deleting = true)}>
+		<Icon name="trash" class="size-4 shrink-0" /> Delete
 	</button>
 </div>
 {#if !connected}
-	<p id="{id}-why" class="hint -mt-2">
+	<p id="{id}-why" class="hint basis-full">
 		Add before and Add branch go into a connection; {component.name} has none yet. Use Add after to connect
 		a first component.
 	</p>
@@ -61,26 +57,31 @@
 {/if}
 
 <style>
-	/* Phones: icon above a short label, four in a row; wider screens: icon and label in a line. */
+	/*
+	 * One row of icon and label, the control height (build-density.md §6): four in a row on
+	 * phones, beside the Properties and Piping tabs on wider screens.
+	 */
 	.action {
-		flex-direction: column;
 		gap: 0.25rem;
-		min-height: 3.5rem;
-		padding: 0.375rem 0.25rem;
+		padding: 0 0.25rem;
 		font-size: 0.75rem;
-		line-height: 1rem;
-		white-space: normal;
+		line-height: 0.875rem;
+	}
+
+	/* Below 360 px a label wraps inside its button rather than running past it. */
+	@media (max-width: 22.5rem) {
+		.action {
+			white-space: normal;
+			text-align: left;
+		}
 	}
 
 	@media (min-width: 40rem) {
 		.action {
-			flex-direction: row;
-			gap: 0.5rem;
-			min-height: 2.75rem;
-			padding: 0 0.75rem;
+			gap: 0.375rem;
+			padding: 0 0.5rem;
 			font-size: 0.875rem;
 			line-height: 1.25rem;
-			white-space: nowrap;
 		}
 	}
 </style>

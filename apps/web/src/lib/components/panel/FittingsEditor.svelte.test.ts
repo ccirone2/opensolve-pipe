@@ -4,6 +4,7 @@
  * removable), and piping at a reservoir without one says that no such loss is applied and
  * offers the fitting.
  */
+import { SI_UNITS } from '$lib/utils/units';
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
@@ -20,7 +21,9 @@ const fittingsOf = (ws: ReturnType<typeof testWorkspace>, id: string) =>
 
 describe('reservoir entrance and exit losses', () => {
 	it('Add after a reservoir says it adds an entrance, and the piping shows it as the default', async () => {
-		const ws = testWorkspace(createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z' }));
+		const ws = testWorkspace(
+			createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z', units: SI_UNITS })
+		);
 		render(WorkspaceView, { workspace: ws });
 		await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
 		await fireEvent.click(screen.getByRole('button', { name: 'Add after' }));
@@ -57,7 +60,9 @@ describe('reservoir entrance and exit losses', () => {
 	});
 
 	it('Add after a reservoir: a supply runs into it, so the hint and the piping name the exit', async () => {
-		const ws = testWorkspace(createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z' }));
+		const ws = testWorkspace(
+			createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z', units: SI_UNITS })
+		);
 		render(WorkspaceView, { workspace: ws });
 		await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
 		await fireEvent.click(screen.getByRole('button', { name: 'Add after' }));

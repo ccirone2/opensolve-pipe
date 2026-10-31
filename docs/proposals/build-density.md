@@ -129,7 +129,7 @@ The red team ran twice: on the app before the build ([pass 1](build-density/find
 
 1. **A phone's main loop stays top-heavy** (field engineer): Solve, Undo and Redo are in the header, and Solve switches to Results, so edit → solve → edit is a tap at the top, then the Build tab. Not changed: Solve-to-Results is the decided phone flow (ui-ux-refinement.md §1).
 2. **Native selects need two taps** for a two-value status. Not changed: a segmented control for 2–3 values is a candidate (§12).
-3. **A solved connection on a phone**: with the connection's result strip shown, the pipe size sits below the first screen (one scroll); the budget test is unsolved.
+3. ~~A solved connection on a phone~~ **resolved** (§11 item 19); a solved pump's first curve point is still one scroll below on a phone.
 4. **The guard is blind under `whole`**: a valve's resistance editor owns its sub-fields (`resistance.kind`, `value`, `id`). Every other union (capacity, rating, control) registers each sub-field.
 5. ~~Five label tables~~ **resolved** (§11 item 13): scenario notes, goal seek and the export read labels and units from the registry, and the guard covers the allow-lists. Still by hand: the export's pump table lists its input columns, and `labels.fieldLabel` (the order rule's message, pump fields only).
 6. ~~400 % zoom~~ **resolved** (§11 item 14).
@@ -158,7 +158,7 @@ Measured with the same script on the built app (`measure.cjs`, before at `569319
 **Budgets** (`tests/build-density.e2e.ts`, both projects):
 - Core fields on a phone's first screen: **met** for all 19 types unsolved and the solved pump example (it failed for the pump's elevation until the curve editor moved after the core fields, D16).
 - Chrome at 1280×800: **14.6 %** for every type in its normal state (9.8 % for the solved pump), under 15 %; it was 23.6–29.5 %. It met the budget only once the control height was really applied (below) and the More/Ports/About rows were one (D11). The equipment item's two density buttons enter the density, so they count as inputs (`data-input`), the spec's one stated rule beyond the element type.
-- Pipe size 2 actions and valve status 1 action from the panel, no scroll: **met** at both sizes (unsolved). Solved, a phone needs one scroll for the pipe size (Size at y 808 of 650) and for the first curve point (y 781 of 650).
+- Pipe size 2 actions and valve status 1 action from the panel, no scroll: **met** at both sizes, unsolved and (after item 19) solved. The first curve point on a solved pump needs one scroll on a phone.
 - axe-core: **0 violations** on four forms with their disclosures open and on Piping, at both sizes.
 - A new field is one entry and its label: **met for plain fields** (`adding-a-field.md`); a field with its own editor adds its branch in the form's snippet; a scenario-changeable field still needs its label in `fieldLabelFor` (§10 item 5).
 
@@ -184,8 +184,10 @@ Measured with the same script on the built app (`measure.cjs`, before at `569319
 16. **The base case's default named** where a scenario replaced a valve's default resistance ("The base case's default: Crane TP-410 K, …"), beside the change note's "Base: Default".
 17. **Ports and fittings as rows, not cards**: a port's "Edit piping" on its name row; a fitting's fields as label/value rows (FittingsEditor), its source kept.
 18. **Phone Piping**: the component's own actions stay with Properties on a phone (Piping has the connection's); **the pump curve's name follows its points** (identification last).
+19. **The connection's actions follow its pipes**, and the "Pipes" heading is for screen readers only when there is one pipe (its card says "Pipe 1"): solved, on a phone, with both result strips shown, the pipe size is now on the first screen (y 760 of 656 before this item; an e2e test holds it). A pump curve's first point is still one scroll below on a phone (y 729 of 656; was 1305 of 638 before the build).
+20. **Measured after the second session**: header 49 px desktop / 95 px phone (was 53 / 101), scenario bar 41 / 45 px (was 53 / 53).
 
-Screenshots: `build-density/before-*.png` and `after-*.png` (the solved pump at 1280×800 and 390×844, the solved gate valve and the relief valve on a phone, Piping on both, the Add dialog, the equipment form).
+Screenshots: `build-density/before-*.png` and `after-*.png` (the solved pump at 1280×800 and 390×844, the solved gate valve and the relief valve on a phone, Piping on both, the Add dialog, the equipment form; the after set as of the second session), and `after-zoom-320x256.png` (400 % zoom).
 
 ## 12. Later
 

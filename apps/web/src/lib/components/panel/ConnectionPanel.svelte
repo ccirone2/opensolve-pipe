@@ -117,42 +117,11 @@
 					</p>
 				</div>
 				<ResultStrip element={{ kind: 'connection', id: connection.id }} />
-				<div class="flex flex-wrap gap-1">
-					<button
-						type="button"
-						class="btn btn-tight max-w-full min-w-0"
-						onclick={() => ws.nav.follow(connection.id)}
-					>
-						<span class="truncate">Go to {componentName(ws.project, other.componentId)}</span>
-						<Icon name="right" class="size-4 shrink-0" />
-					</button>
-					{#if !ws.inScenario}
-						<button type="button" class="btn btn-tight" onclick={() => (dialog = 'insert')}>
-							<Icon name="insert" class="size-4" /> Insert<span class="max-sm:sr-only">
-								component</span
-							>
-						</button>
-						<button type="button" class="btn btn-tight" onclick={() => (dialog = 'branch')}>
-							<Icon name="branch" class="size-4" /> Add branch
-						</button>
-						<button
-							type="button"
-							class="btn btn-quiet btn-tight text-red-800"
-							onclick={() => {
-								const removed = connection.id;
-								if (ws.disconnect(removed)) {
-									ws.notify('info', `Connection ${removed} removed. Undo restores it.`);
-								}
-							}}
-						>
-							<Icon name="trash" class="size-4" /> Disconnect
-						</button>
-					{/if}
-				</div>
 			</div>
 
 			<div class="space-y-2">
-				<h3 class="section-title">Pipes</h3>
+				<!-- One pipe: its card is headed "Pipe 1"; the list's heading is for structure only. -->
+				<h3 class={connection.piping.pipes.length > 1 ? 'section-title' : 'sr-only'}>Pipes</h3>
 				{#each connection.piping.pipes as pipe, i (i)}
 					<PipeSegmentForm {connection} index={i} {pipe} />
 				{/each}
@@ -168,6 +137,41 @@
 							}))}
 					>
 						<Icon name="plus" class="size-4" /> Add pipe segment
+					</button>
+				{/if}
+			</div>
+
+			<!-- The connection's actions after its pipes: the size, the commonest edit, comes first
+				(build-density.md §11). -->
+			<div class="flex flex-wrap gap-1">
+				<button
+					type="button"
+					class="btn btn-tight max-w-full min-w-0"
+					onclick={() => ws.nav.follow(connection.id)}
+				>
+					<span class="truncate">Go to {componentName(ws.project, other.componentId)}</span>
+					<Icon name="right" class="size-4 shrink-0" />
+				</button>
+				{#if !ws.inScenario}
+					<button type="button" class="btn btn-tight" onclick={() => (dialog = 'insert')}>
+						<Icon name="insert" class="size-4" /> Insert<span class="max-sm:sr-only">
+							component</span
+						>
+					</button>
+					<button type="button" class="btn btn-tight" onclick={() => (dialog = 'branch')}>
+						<Icon name="branch" class="size-4" /> Add branch
+					</button>
+					<button
+						type="button"
+						class="btn btn-quiet btn-tight text-red-800"
+						onclick={() => {
+							const removed = connection.id;
+							if (ws.disconnect(removed)) {
+								ws.notify('info', `Connection ${removed} removed. Undo restores it.`);
+							}
+						}}
+					>
+						<Icon name="trash" class="size-4" /> Disconnect
 					</button>
 				{/if}
 			</div>

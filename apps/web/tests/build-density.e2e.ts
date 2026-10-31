@@ -231,6 +231,19 @@ test('a pipe size is 2 actions from its component: Piping, then the size', async
 	await size.selectOption({ index: 0 }); // 2
 });
 
+test('solved, a pipe size is still 2 actions with no scroll, beside both result strips', async ({
+	page
+}) => {
+	await open(page, exampleProject('pump-transfer')!);
+	await solve(page);
+	await showPane(page, 'Build');
+	await jumpTo(page, 'Transfer pump');
+	const panel = buildPane(page);
+	await panel.getByRole('tab', { name: 'Piping' }).click(); // 1
+	await expect(panel.getByRole('group', { name: /^Last solve/ })).toHaveCount(2);
+	await expect(panel.getByRole('combobox', { name: 'Size' }).first()).toBeInViewport({ ratio: 1 });
+});
+
 test('a valve’s status is 1 action from its panel', async ({ page }) => {
 	await open(page, exampleProject('pump-transfer')!);
 	await showPane(page, 'Build');

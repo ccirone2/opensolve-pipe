@@ -31,7 +31,7 @@ Every Build form is laid out from the field registry, with one label and unit ta
 - **Adding a component in fewer than 3 actions**: an "Add after ▾" select that adds a kind with no entry values at once (the dialog stays for the others); the e2e suite's 20 dialog flows move with it.
 - **A segmented control** for 2–3-value choices (a phone's status in one tap).
 - **The export's pump table** from the registry (its input columns are listed by hand), and `labels.fieldLabel` from `fieldLabelFor`.
-- **A solved connection's pipe size and a curve's first point on a phone** are one scroll below the first screen.
+- **A solved pump's first curve point on a phone** is one scroll below the first screen (the section titles and the result strip above it).
 - The sibling inconsistencies of the proposal's §3.4 (labels of K, "difference", "default"), each reviewed on its own since a label reaches scenario notes and the export.
 
 ## 5. Still to do by hand

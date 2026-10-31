@@ -17,6 +17,12 @@
 	order (the sorted column carries aria-sort); rows without a value stay last. "Flagged only"
 	shows the rows with flags, offered when some rows have flags and some do not. A `sortRequest`
 	(the Summary's links to a sorted table) sets the sort and shows every row.
+
+	On phones (below 640 px) the same table reads as a list, as the Summary does (owner,
+	2026-10-31; proposal build-density.md §14): each row a block headed by the element's name, its
+	values as label and value pairs that wrap, its flags under them; the column headings stay for
+	screen readers, and a "Sort by" field and a direction button sort it by any column. The table
+	keeps explicit ARIA roles, so CSS that unmakes its layout never unmakes its semantics.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
@@ -111,6 +117,22 @@
 					: null;
 	}
 
+	/** The columns a phone's "Sort by" offers: those a heading sorts by, named with their unit. */
+	const sortChoices = $derived(
+		[
+			{ key: NAME_SORT_KEY, label: first },
+			...table.columns.map((c) => ({
+				key: c.key,
+				label: c.unit ? `${c.label} (${c.unit})` : c.label
+			}))
+		].filter((c) => sortable.has(c.key))
+	);
+
+	/** A field chosen sorts ascending first, as a heading does; the button then reverses it. */
+	function sortBy(key: string) {
+		sort = key ? { key, direction: 'ascending' } : null;
+	}
+
 	const rows = $derived(limit >= shown.length ? shown : shown.slice(0, limit));
 	$effect(() => {
 		if (limit >= shown.length) return;
@@ -162,22 +184,61 @@
 	{/if}
 {/snippet}
 
-{#if canFilter}
-	<label class="mb-1 inline-flex min-h-11 items-center gap-2 text-sm text-slate-800">
-		<input type="checkbox" class="size-4" bind:checked={flaggedOnly} />
-		Flagged only ({flaggedCount} of {table.rows.length})
-	</label>
-{/if}
+<div class="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+	{#if sortChoices.length > 1}
+		<!-- Phones: the headings are not shown, so a field sorts the list (the same sort). -->
+		<div class="flex min-w-0 items-center gap-1 sm:hidden">
+			<label for="{id}-sort" class="text-sm whitespace-nowrap text-slate-700">Sort by</label>
+			<select
+				id="{id}-sort"
+				class="input min-w-0 py-0 pr-8 text-sm"
+				value={sort?.key ?? ''}
+				onchange={(event) => sortBy(event.currentTarget.value)}
+			>
+				<option value="">Table order</option>
+				{#each sortChoices as choice (choice.key)}
+					<option value={choice.key}>{choice.label}</option>
+				{/each}
+			</select>
+			{#if sort}
+				{@const descending = sort.direction === 'descending'}
+				<button
+					type="button"
+					class="btn btn-icon"
+					aria-label={descending ? 'Descending: highest first' : 'Ascending: lowest first'}
+					title={descending ? 'Highest first' : 'Lowest first'}
+					onclick={() => {
+						if (sort) sort = { key: sort.key, direction: descending ? 'ascending' : 'descending' };
+					}}
+				>
+					<Icon name={descending ? 'down' : 'up'} class="size-5" />
+				</button>
+			{/if}
+		</div>
+	{/if}
+	{#if canFilter}
+		<label class="inline-flex min-h-11 items-center gap-2 text-sm text-slate-800">
+			<input type="checkbox" class="size-4" bind:checked={flaggedOnly} />
+			Flagged only ({flaggedCount} of {table.rows.length})
+		</label>
+	{/if}
+</div>
 
 <!-- A size container, so the lines under a row can be exactly as wide as the visible box. -->
 <div
-	class="scroll-shadow-x @container max-h-[max(16rem,calc(100dvh-12rem))] max-w-full snap-x snap-proximity scroll-pl-[9.5rem] overflow-auto overscroll-x-contain rounded-lg border border-slate-200 sm:snap-none"
+	class="scroll-shadow-x @container max-h-[max(16rem,calc(100dvh-12rem))] max-w-full overflow-auto overscroll-x-contain rounded-lg border border-slate-200 max-sm:max-h-none max-sm:overflow-visible"
 >
-	<table class="min-w-full border-separate border-spacing-0 text-sm">
+	<!-- Explicit roles: below 640 px CSS lays the table out as a list (see the header comment). -->
+	<!-- svelte-ignore a11y_no_redundant_roles -->
+	<table role="table" class="min-w-full border-separate border-spacing-0 text-sm max-sm:block">
 		<caption class="sr-only">{caption}</caption>
-		<thead>
-			<tr class="text-slate-700">
+		<!-- svelte-ignore a11y_no_redundant_roles -->
+		<thead role="rowgroup" class="max-sm:sr-only">
+			<!-- svelte-ignore a11y_no_redundant_roles -->
+			<tr role="row" class="text-slate-700">
+				<!-- svelte-ignore a11y_no_redundant_roles -->
 				<th
+					role="columnheader"
 					scope="col"
 					aria-sort={sort?.key === NAME_SORT_KEY ? sort.direction : undefined}
 					class={[
@@ -188,7 +249,9 @@
 					{@render heading(NAME_SORT_KEY, first, undefined, false)}
 				</th>
 				{#each table.columns as column (column.key)}
+					<!-- svelte-ignore a11y_no_redundant_roles -->
 					<th
+						role="columnheader"
 						scope="col"
 						aria-sort={sort?.key === column.key ? sort.direction : undefined}
 						class={[
@@ -201,19 +264,30 @@
 				{/each}
 			</tr>
 		</thead>
-		<tbody>
+		<!-- svelte-ignore a11y_no_redundant_roles -->
+		<tbody role="rowgroup" class="max-sm:block">
 			{#each rows as row, index (row.key)}
 				{@const open = expanded.includes(row.key)}
 				{@const expandable = !!detail && hasDetail(row)}
 				{@const annotated = row.flags.length > 0 || expandable}
 				{@const divider = index > 0 && 'border-t border-slate-200'}
-				<tr>
+				<!-- svelte-ignore a11y_no_redundant_roles -->
+				<tr
+					role="row"
+					class={[
+						'max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-3 max-sm:gap-y-0.5 max-sm:px-2 max-sm:pb-1.5',
+						index > 0 && 'max-sm:border-t max-sm:border-slate-200'
+					]}
+				>
+					<!-- svelte-ignore a11y_no_redundant_roles -->
 					<th
+						role="rowheader"
 						scope="row"
 						class={[
 							FIXED,
 							divider,
-							'z-10 w-[9.5rem] max-w-[9.5rem] min-w-[9.5rem] bg-white px-1 py-0.5 text-left align-top font-normal sm:w-auto sm:max-w-[16rem] sm:min-w-[11rem]'
+							'z-10 bg-white px-1 py-0.5 text-left align-top font-normal sm:w-auto sm:max-w-[16rem] sm:min-w-[11rem]',
+							'max-sm:static max-sm:-mx-1 max-sm:block max-sm:w-full max-sm:border-0 max-sm:shadow-none'
 						]}
 					>
 						{#if onselect}
@@ -237,14 +311,20 @@
 					</th>
 					{#each table.columns as column (column.key)}
 						{@const cell = row.cells[column.key] ?? '—'}
+						<!-- svelte-ignore a11y_no_redundant_roles -->
 						<td
+							role="cell"
+							data-label={column.unit ? `${column.label} (${column.unit})` : column.label}
 							class={[
 								divider,
-								'snap-start px-2 py-2 align-top',
+								'px-2 py-2 align-top',
 								column.numeric && 'text-right tabular-nums',
 								column.wrap
 									? 'max-w-[22rem] min-w-[14rem] text-xs break-words'
-									: 'whitespace-nowrap'
+									: 'whitespace-nowrap',
+								// A phone: "Flow (L/s) 18.98", its label from the column (not in its text).
+								'max-sm:flex max-sm:max-w-full max-sm:min-w-0 max-sm:items-baseline max-sm:gap-1 max-sm:border-0 max-sm:p-0 max-sm:text-left max-sm:whitespace-normal',
+								'max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]'
 							]}
 						>
 							<!-- Plain text inline: a component per cell is slow on tables of hundreds of rows. -->
@@ -253,10 +333,12 @@
 					{/each}
 				</tr>
 				{#if annotated}
-					<tr>
-						<td colspan={columns} class="p-0">
+					<!-- svelte-ignore a11y_no_redundant_roles -->
+					<tr role="row" class="max-sm:block">
+						<!-- svelte-ignore a11y_no_redundant_roles -->
+						<td role="cell" colspan={columns} class="p-0 max-sm:block">
 							<div
-								class="sticky left-0 flex w-[100cqw] flex-wrap items-center gap-1 px-2 pb-1"
+								class="sticky left-0 flex w-[100cqw] flex-wrap items-center gap-1 px-2 pb-1 max-sm:static max-sm:w-auto"
 								data-row-notes={row.key}
 							>
 								{#each row.flags as flag, i (i)}
@@ -282,9 +364,14 @@
 					</tr>
 				{/if}
 				{#if open && detail}
-					<tr class="bg-slate-50/60">
-						<td colspan={columns} class="border-t border-slate-100 p-0">
-							<div id={domId(row.key)} class="sticky left-0 w-[100cqw] px-2 py-2">
+					<!-- svelte-ignore a11y_no_redundant_roles -->
+					<tr role="row" class="bg-slate-50/60 max-sm:block">
+						<!-- svelte-ignore a11y_no_redundant_roles -->
+						<td role="cell" colspan={columns} class="border-t border-slate-100 p-0 max-sm:block">
+							<div
+								id={domId(row.key)}
+								class="sticky left-0 w-[100cqw] px-2 py-2 max-sm:static max-sm:w-auto"
+							>
 								{@render detail(row)}
 							</div>
 						</td>

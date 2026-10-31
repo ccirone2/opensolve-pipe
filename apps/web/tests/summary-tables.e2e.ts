@@ -14,7 +14,10 @@ async function firstRowName(table: Locator): Promise<string> {
 	return squash(await table.getByRole('rowheader').first().innerText());
 }
 
-test('each extreme links to its table sorted on it, and headings sort', async ({ page }) => {
+test('each extreme links to its table sorted on it, and headings sort', async ({
+	page,
+	isMobile
+}) => {
 	await page.goto('/');
 	await page.getByRole('link', { name: /Gravity-fed/ }).click();
 	await expect(page).toHaveURL(/\/p#[A-Za-z0-9_-]+$/);
@@ -49,11 +52,21 @@ test('each extreme links to its table sorted on it, and headings sort', async ({
 	expect(await firstRowName(links)).toContain(fastestPlace);
 
 	// A heading sorts: Flow, ascending then descending; the order reverses where values differ.
+	// On a phone the table is a list with its headings for screen readers only: "Sort by" and its
+	// direction button sort it, the same sort (proposal build-density.md §14).
 	const flow = links.getByRole('columnheader', { name: /^Flow/ });
-	await flow.getByRole('button').click();
+	if (isMobile) {
+		await links.getByRole('combobox', { name: 'Sort by' }).selectOption({ label: 'Flow (L/s)' });
+	} else {
+		await flow.getByRole('button').click();
+	}
 	await expect(flow).toHaveAttribute('aria-sort', 'ascending');
 	const ascending = await firstRowName(links);
-	await flow.getByRole('button').click();
+	if (isMobile) {
+		await links.getByRole('button', { name: 'Ascending: lowest first' }).click();
+	} else {
+		await flow.getByRole('button').click();
+	}
 	await expect(flow).toHaveAttribute('aria-sort', 'descending');
 	expect(await firstRowName(links)).not.toBe(ascending);
 	expect(

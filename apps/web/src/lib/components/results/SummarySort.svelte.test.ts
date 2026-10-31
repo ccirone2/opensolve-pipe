@@ -121,6 +121,32 @@ describe('results tables sort and filter', () => {
 		expect(rowNames()).toEqual(original);
 	});
 
+	it('sorts from "Sort by" and its direction, as a phone does (the same sort as a heading)', async () => {
+		await solveWith(pumpTransferSolved());
+		await fireEvent.click(results().getByRole('tab', { name: 'Links' }));
+		const panel = within(
+			results()
+				.getAllByRole('tabpanel')
+				.find((p) => !p.hidden)!
+		);
+		const original = rowNames();
+		const [l1, l2, l3] = original;
+		const heading = columnHeading(/^Head loss/);
+		const field = panel.getByRole('combobox', { name: 'Sort by' });
+		await fireEvent.change(field, { target: { value: 'headLoss' } });
+		expect(heading).toHaveAttribute('aria-sort', 'ascending');
+		expect(rowNames()).toEqual([l1, l2, l3]);
+		await fireEvent.click(panel.getByRole('button', { name: 'Ascending: lowest first' }));
+		expect(heading).toHaveAttribute('aria-sort', 'descending');
+		expect(rowNames()).toEqual([l3, l1, l2]);
+		// A heading's sort shows in the field: one sort, two ways to set it.
+		await fireEvent.click(within(columnHeading(/^Flow/)).getByRole('button'));
+		expect(field).toHaveValue('flow');
+		await fireEvent.change(field, { target: { value: '' } });
+		expect(rowNames()).toEqual(original);
+		expect(panel.queryByRole('button', { name: /lowest first|highest first/ })).toBeNull();
+	});
+
 	it('offers Flagged only when some rows have flags and some do not', async () => {
 		await solveWith(
 			pumpTransferSolved({

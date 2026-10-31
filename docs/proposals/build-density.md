@@ -109,7 +109,9 @@ From the IA card sort and the red team: "K" is a loss coefficient on valves and 
 
 - **Build top bar** (D12): path · Previous · Next · Jump to, 37 px on desktop (was 53 + a 60 px bottom bar).
 - **Tabs and actions** (D13): one 37 px row on desktop; on phones one 40 px row of actions above the tabs.
-- **The workspace header and the scenario bar are unchanged** (53 px desktop, 101 px phone; scenario bar 53 px): the header's buttons are held at 44 px by existing e2e tests on both projects, and two 44 px rows are what a phone needs for eight header controls without an overflow menu, which would hide core items (Undo, Share). §12 has the measured options.
+- **The workspace header** keeps its 44 px controls (held by existing e2e tests on both projects) with 2 px around them: 49 px on desktop (was 53), two rows on a phone (95 px, was 101). One row on a phone would need an overflow menu for Library, Share and Settings, which would hide core items; decided against (§11 item 12).
+- **The scenario bar** takes the Build pane's compact height (`dense`): 37 px with a mouse, 41 px on touch (was 53).
+- **400 % zoom**: below a 20 rem viewport height the workspace scrolls as one page (§11 item 14).
 
 ## 8. Verification
 
@@ -129,10 +131,11 @@ The red team ran twice: on the app before the build ([pass 1](build-density/find
 2. **Native selects need two taps** for a two-value status. Not changed: a segmented control for 2–3 values is a candidate (§12).
 3. **A solved connection on a phone**: with the connection's result strip shown, the pipe size sits below the first screen (one scroll); the budget test is unsolved.
 4. **The guard is blind under `whole`**: a valve's resistance editor owns its sub-fields (`resistance.kind`, `value`, `id`). Every other union (capacity, rating, control) registers each sub-field.
-5. **Five label tables** remain (`scenarios.ts fieldLabelFor`, `labels.fieldLabel`, the unit switches of goal seek, scenarios and export): a new scenario-changeable field still needs its label there, and a missing unit there shows silently as dimensionless (§12); pass 2 counted 4 files for such a field, and the export's pump table lists its columns by hand. The registry's label for a pump's speed repeats `fieldLabelFor`'s rule.
-7. **A scenario change note says "Base: Default"** without the default's basis (the select now spells it out under itself).
-8. **Low**: a reservoir's outflow of −8.9×10⁻¹³ L/s (convergence noise, D13) is shown as a value in its strip; "Names are the same in every case." starts 4 px from the screen edge.
-6. **400 % zoom** (320×256) leaves no room for the form under the fixed header and tabs (WCAG 1.4.10), as before this build.
+5. ~~Five label tables~~ **resolved** (§11 item 13): scenario notes, goal seek and the export read labels and units from the registry, and the guard covers the allow-lists. Still by hand: the export's pump table lists its input columns, and `labels.fieldLabel` (the order rule's message, pump fields only).
+6. ~~400 % zoom~~ **resolved** (§11 item 14).
+7. ~~"Base: Default" without the basis~~ **resolved** in Build (§11 item 16); the shared value text still says "Default", as the export's committed fixture does.
+8. **Low**: a reservoir's outflow of −8.9×10⁻¹³ L/s (convergence noise, D13) is shown as a value in its strip (the Results tables' formatting, outside Build); "Names are the same in every case." starts 4 px from the screen edge.
+9. **Adding a component stays 3 actions** (Add after, the kind, Add): the dialog's kind is the decision and the e2e suite drives that dialog in 20 flows; a one-step "Add after ▾" select is in §12.
 
 ## 11. As built
 
@@ -172,13 +175,21 @@ Measured with the same script on the built app (`measure.cjs`, before at `569319
 10. **The action labels wrap inside their buttons below 360 px** (they ran past them at 320 px).
 11. **The density fixture gives control valves a setpoint**, as a user would: a setpoint of 0 raises a warning (an exception), and with the default-resistance line it pushed a PRV's and a PSV's elevation off a phone's first screen, which the spec caught.
 
+**Second session (2026-10-31): the remaining objectives.**
+
+12. **Header and scenario bar** (§7): the header 2 px tighter on each side of its 44 px controls; the scenario bar at the compact Build height. An overflow menu for the phone header was decided against: it would hide Library, Share and Settings, and "hide less" breaks the tie.
+13. **One label and unit table.** `fieldLabelFor` reads the registry (a label may be a function of the element, given none when the element is gone); the scenario value text, the export's change unit and goal seek's variable unit read a number's `unit` from the registry, keeping only the cases with their own wording (an assigned flow's direction, a resistance's coefficient, a whole rating or capacity, a default's text). The guard fails when a field on the scenario or goal-seek allow-list has no entry, or a number goal seek varies has no unit. A new scenario-changeable plain field is now one entry.
+14. **400 % zoom** (WCAG 1.4.10): below a 20 rem viewport height (`short:` variant) the workspace scrolls as one page; the form is reached by scrolling, never sideways (an e2e test at 320×256).
+15. **Severity by shape**: an invalid flag and a failed solve's tab marker are an octagon, a warning a triangle (cockpit findings §3).
+16. **The base case's default named** where a scenario replaced a valve's default resistance ("The base case's default: Crane TP-410 K, …"), beside the change note's "Base: Default".
+17. **Ports and fittings as rows, not cards**: a port's "Edit piping" on its name row; a fitting's fields as label/value rows (FittingsEditor), its source kept.
+18. **Phone Piping**: the component's own actions stay with Properties on a phone (Piping has the connection's); **the pump curve's name follows its points** (identification last).
+
 Screenshots: `build-density/before-*.png` and `after-*.png` (the solved pump at 1280×800 and 390×844, the solved gate valve and the relief valve on a phone, Piping on both, the Add dialog, the equipment form).
 
 ## 12. Later
 
-- Unify the label tables with the registry: `fieldLabelFor` reads the registry (keeping its 9 callers), `labels.fieldLabel` becomes `inSentence(fieldLabelFor(…))`, and the three unit switches read a `unit` from the entry, with the guard extended to the allow-list's keys (architecture findings §1).
-- Compact tables for ports and fittings (inspector: ports 484 → 136 px, fittings −70 %), and a segmented control for 2–3-value choices.
-- Severity by shape as well as colour for flags in the strip, and the strip kept in view when it gains a flag after a solve (cockpit §3–4).
-- The workspace header on phones in one 44 px row (it would need an overflow menu for Library, Share and Settings: an owner's call, since it hides core items) and a 40 px scenario bar.
-- A layout for 400 % zoom (bars that scroll with the page below a 30 rem height).
-- Fix the inconsistencies of §3.4 one by one (labels for K, "difference", "default").
+- The export's pump table columns from the registry, and `labels.fieldLabel` from `fieldLabelFor`.
+- A segmented control for 2–3-value choices (a phone's status in one tap), and an "Add after ▾" select that adds a kind with no entry values in one step.
+- The strip kept in view when it gains a flag after a solve (cockpit §4).
+- The inconsistencies of §3.4 one by one (labels for K, "difference", "default"): each a label change that reaches scenario notes and the export, so each with its own review.

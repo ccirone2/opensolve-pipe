@@ -160,6 +160,9 @@
 	{#if choice === 'default'}
 		<!-- The default's basis in full (D10): a phone's select cuts its option text short. -->
 		<p class="hint">Default: {defaultLabel}.</p>
+	{:else if change?.inScenario && change.changed && change.baseText === 'Default'}
+		<!-- The change note says "Base: Default": what that default is (D10, D15). -->
+		<p class="hint">The base case's default: {defaultLabel}.</p>
 	{/if}
 	{#if kind}
 		<NumberField

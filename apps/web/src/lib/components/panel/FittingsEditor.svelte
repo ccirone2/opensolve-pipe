@@ -270,7 +270,7 @@
 	}
 </script>
 
-<section aria-labelledby="{id}-title" class="space-y-3">
+<section aria-labelledby="{id}-title" class="space-y-2">
 	<h3 id="{id}-title" class="section-title">Fittings</h3>
 	{#each bareEnds as reservoir (reservoir.end)}
 		<div class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
@@ -304,12 +304,13 @@
 		</p>
 	{/if}
 	{#if fittings.length}
-		<ul class="space-y-3">
+		<!-- A row per fitting, not a card (build-density.md §11): label/value fields, its source. -->
+		<ul class="space-y-2">
 			{#each fittings as fitting, i (i)}
 				{@const info = lib.fitting(fitting.type)}
 				{@const choice = kChoice(fitting, i)}
-				<li class="card space-y-3 p-3">
-					<div class="flex items-start gap-2">
+				<li class="space-y-1 border-t border-slate-200 pt-2 first:border-t-0 first:pt-0">
+					<div class="flex items-center gap-2">
 						<SelectField
 							label="Fitting {i + 1} type"
 							value={fitting.type}
@@ -321,7 +322,7 @@
 						/>
 						<button
 							type="button"
-							class={['btn btn-quiet btn-icon mt-6 text-red-800', ws.inScenario && 'hidden']}
+							class={['btn btn-quiet btn-icon text-red-800', ws.inScenario && 'hidden']}
 							aria-label="Remove fitting {i + 1}"
 							onclick={() => {
 								setEntering([]);
@@ -345,7 +346,7 @@
 					{:else if info && !choice.startsWith('entry:')}
 						<p class="text-xs text-slate-600">K source: {info.source}</p>
 					{/if}
-					<div class="grid grid-cols-2 gap-3">
+					<div class="fields fields-pairs">
 						<NumberField
 							label="Quantity"
 							value={fitting.quantity}
@@ -364,7 +365,7 @@
 								onchange={(v) => edit(i, 'move fitting', (f) => ({ ...f, pipeIndex: Number(v) }))}
 							/>
 						{/if}
-						<div class="col-span-2">
+						<div class="wide">
 							<SelectField
 								label="Fitting {i + 1} loss coefficient"
 								value={choice}
@@ -394,7 +395,7 @@
 						{:else if fitting.resistanceId}
 							{@const entry = entries.find((e) => e.id === fitting.resistanceId)}
 							<div
-								class="col-span-2 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700"
+								class="wide rounded-md bg-slate-50 px-2 py-1 text-sm text-slate-700"
 								data-library-entry
 							>
 								{#if entry}

@@ -121,10 +121,12 @@
 			{@const attached = connection ? pipeAt(connection, port) : undefined}
 			{@const nominal = attached ? nominalOf(attached.pipe) : null}
 			{@const mismatch = attached && nominal != null && !sameSize(nominal, port.nominalSize)}
-			<li class="card space-y-2 p-2">
-				<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+			<!-- One row per port: its name, where it leads and the way into its piping, then its
+				size (build-density.md §11: a row, not a card). -->
+			<li class="space-y-1 border-t border-slate-200 pt-1 first:border-t-0 first:pt-0">
+				<div class="flex flex-wrap items-center gap-x-3">
 					<span class="font-medium">{portLabel(port.id)}</span>
-					<span class={['text-sm', other ? 'text-slate-600' : 'text-amber-800']}>
+					<span class={['min-w-0 text-sm', other ? 'text-slate-600' : 'text-amber-800']}>
 						{#if other}
 							Connected to {componentName(ws.project, other.componentId)} ({portLabel(
 								other.portId
@@ -133,6 +135,26 @@
 							<Icon name="alert" class="inline size-4 align-text-bottom" /> Not connected
 						{/if}
 					</span>
+					<div class="ml-auto flex shrink-0 gap-1">
+						<button
+							type="button"
+							class="btn btn-quiet btn-tight text-blue-800"
+							onclick={() => ws.nav.showConnection(port.id)}
+						>
+							{other ? 'Edit piping' : 'Connect…'}
+							<Icon name="right" class="size-4" />
+						</button>
+						{#if component.type === 'reservoir' && !connection && component.ports.length > 1 && !ws.inScenario}
+							<button
+								type="button"
+								class="btn btn-quiet btn-tight text-red-800"
+								onclick={() =>
+									ws.edit((p) => removePort(p, component.id, port.id), `remove ${port.id}`)}
+							>
+								<Icon name="trash" class="size-4" /> Remove port
+							</button>
+						{/if}
+					</div>
 				</div>
 				<div class="fields fields-pairs">
 					<NominalSizeField
@@ -189,22 +211,6 @@
 						{/if}
 					</div>
 				{/if}
-				<div class="flex flex-wrap gap-2">
-					<button type="button" class="btn" onclick={() => ws.nav.showConnection(port.id)}>
-						{other ? 'Edit piping' : 'Connect…'}
-						<Icon name="right" class="size-4" />
-					</button>
-					{#if component.type === 'reservoir' && !connection && component.ports.length > 1 && !ws.inScenario}
-						<button
-							type="button"
-							class="btn btn-quiet text-red-800"
-							onclick={() =>
-								ws.edit((p) => removePort(p, component.id, port.id), `remove ${port.id}`)}
-						>
-							<Icon name="trash" class="size-4" /> Remove port
-						</button>
-					{/if}
-				</div>
 			</li>
 		{/each}
 	</ul>

@@ -27,13 +27,12 @@ Speed-controlled pumps slice 2 (discharge pressure) and C1 (an exact Newton step
 
 ## 4. Web: Build density (proposal `proposals/build-density.md` §10, §12)
 
-Every Build form is laid out from the field registry. Not done in its timebox, each with what it needs:
-- **The workspace header and the scenario bar** are unchanged (53 px desktop, 101 px phone; scenario bar 53 px): one row on phones needs an overflow menu for Library, Share and Settings, which hides core items, so it is the owner's call; the scenario bar can take the 40 px Build height.
-- **Compact tables** for ports and fittings (the inspector's measurement: ports 484 → 136 px, fittings −70 %); `FittingsEditor` keeps its cards.
-- **One label table**: `scenarios.ts fieldLabelFor`, `labels.fieldLabel` and the unit switches of goal seek, scenarios and export to read the registry, with the guard extended to the scenario allow-list's keys.
-- **A pump curve point on a phone** is one scroll below the core fields; a solved connection's pipe size likewise.
-- **400 % zoom** (WCAG 1.4.10 at 320×256): bars that scroll with the page below a 30 rem height.
-- The sibling inconsistencies of the proposal's §3.4 (labels of K, "difference", "default").
+Every Build form is laid out from the field registry, with one label and unit table and budgets the e2e suite enforces. Open, each with what it needs:
+- **Adding a component in fewer than 3 actions**: an "Add after ▾" select that adds a kind with no entry values at once (the dialog stays for the others); the e2e suite's 20 dialog flows move with it.
+- **A segmented control** for 2–3-value choices (a phone's status in one tap).
+- **The export's pump table** from the registry (its input columns are listed by hand), and `labels.fieldLabel` from `fieldLabelFor`.
+- **A solved connection's pipe size and a curve's first point on a phone** are one scroll below the first screen.
+- The sibling inconsistencies of the proposal's §3.4 (labels of K, "difference", "default"), each reviewed on its own since a label reaches scenario notes and the export.
 
 ## 5. Still to do by hand
 

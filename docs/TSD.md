@@ -116,7 +116,7 @@ opensolve-pipe/
 │   │   │   │   ├── components/
 │   │   │   │   │   ├── Home.svelte     # Home page; SiteFooter.svelte; links.ts (app links, disclaimer, legal links)
 │   │   │   │   │   ├── workspace/      # Workspace layout, header, Share, project settings, fluid, link errors,
-│   │   │   │   │   │                   #   scenario manager and case bar (ScenarioManager, ScenarioBar),
+│   │   │   │   │   │                   #   scenario manager and Scenarios menu (ScenarioManager, CaseMenu),
 │   │   │   │   │   │                   #   goal seek (GoalSeekDialog, goal-seek/: cards, forms, result),
 │   │   │   │   │   │                   #   project library (ProjectLibrary, library/: spec and entry forms)
 │   │   │   │   │   ├── panel/          # Panel navigator: breadcrumb, path chooser, jump-to, component and

@@ -3,6 +3,7 @@ import type { PipeDefinition, SolveRequest } from '../src/lib/api/types';
 import {
 	ALLOWED_ORIGINS,
 	buildPane,
+	chooseCase,
 	closeTrace,
 	currentHeading,
 	resultsView,
@@ -352,9 +353,7 @@ test('a refused Use for… says why in its dialog, in view', async ({ page }) =>
 	// The condenser example's winter case holds 19 changes; 24 pipes more pass the limit of 30.
 	const valve = 'Cell 1 isolation valve';
 	await openCondenser(page);
-	await page
-		.getByRole('combobox', { name: 'Case', exact: true })
-		.selectOption({ label: 'Winter: tower bypassed (19 changes)' });
+	await chooseCase(page, 'Winter: tower bypassed (19 changes)');
 	await jumpTo(page, valve);
 	const panel = buildPane(page);
 	await panel.getByRole('tab', { name: 'Piping' }).click();

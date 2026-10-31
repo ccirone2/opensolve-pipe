@@ -19,7 +19,7 @@ import type {
 	Project
 } from '../api/types';
 import { createEmptyProject } from './factory';
-import { FOOT, INCH, POUND_FORCE, US_GALLON } from './units';
+import { FOOT, INCH, POUND_FORCE, SI_UNITS, US_GALLON } from './units';
 
 const ILLUSTRATIVE =
 	'Illustrative example: the elevations, pipe lengths and sizes and the pump curve are ' +
@@ -61,7 +61,8 @@ function ports(...spec: [string, number, Port['direction']][]): Port[] {
 }
 
 function base(id: string, name: string, description: string): Project {
-	const project = createEmptyProject({ id, name, now: EXAMPLE_DATE });
+	// SI, as each example was published: its link and its numbers stay the same (GOALS §4.3).
+	const project = createEmptyProject({ id, name, now: EXAMPLE_DATE, units: SI_UNITS });
 	project.metadata.description = `${description} ${ILLUSTRATIVE}`;
 	return project;
 }

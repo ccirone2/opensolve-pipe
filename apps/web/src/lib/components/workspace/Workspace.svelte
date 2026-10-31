@@ -27,7 +27,6 @@
 		SPLIT_STEP
 	} from '$lib/utils/pane-split';
 	import GoalSeekDialog from './GoalSeekDialog.svelte';
-	import ScenarioBar from './ScenarioBar.svelte';
 	import WorkspaceHeader from './WorkspaceHeader.svelte';
 
 	let { workspace }: { workspace: Workspace } = $props();
@@ -204,7 +203,6 @@
 
 <div class="flex h-dvh flex-col bg-white short:h-auto short:min-h-dvh">
 	<WorkspaceHeader />
-	<ScenarioBar />
 	{#if ws.scenarios.length}
 		<!-- Case switches are said here (a polite live region, present before its text). -->
 		<p class="sr-only" role="status">{ws.announcement}</p>

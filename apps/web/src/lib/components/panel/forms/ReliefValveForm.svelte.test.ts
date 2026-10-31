@@ -9,6 +9,7 @@
  * are changes with Reset. Sets, areas and coefficients are made-up test inputs; the API is
  * replaced by fakes.
  */
+import { SI_UNITS } from '$lib/utils/units';
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import type { Project } from '$lib/api/types';
@@ -45,7 +46,7 @@ function valveOf(project: Project, id = 'RV1') {
 
 describe('adding a relief valve', () => {
 	it('after a reservoir: asks for the set and the capacity first, each at its field', async () => {
-		const empty = createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z' });
+		const empty = createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z', units: SI_UNITS });
 		const ws = testWorkspace({ ...empty, components: [createComponent('reservoir', empty)] });
 		render(WorkspaceView, { workspace: ws });
 		await fireEvent.click(screen.getByRole('button', { name: 'Add after' }));
@@ -173,7 +174,9 @@ describe('adding a relief valve', () => {
 	});
 
 	it('as the first component and in the Piping view: asked for in both', async () => {
-		const ws = testWorkspace(createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z' }));
+		const ws = testWorkspace(
+			createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z', units: SI_UNITS })
+		);
 		render(WorkspaceView, { workspace: ws });
 		const build = within(screen.getByRole('region', { name: 'Build' }));
 		await fireEvent.change(build.getByRole('combobox', { name: 'First component' }), {

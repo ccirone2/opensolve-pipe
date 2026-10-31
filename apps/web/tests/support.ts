@@ -5,6 +5,10 @@
  */
 import { expect, type Locator, type Page } from '@playwright/test';
 import type { ErrorResponse, SolvedState, SolveRequest, SolveResponse } from '../src/lib/api/types';
+import { gzip } from 'pako';
+import { createEmptyProject } from '../src/lib/utils/factory';
+import { canonicalJson } from '../src/lib/utils/json';
+import { SI_UNITS } from '../src/lib/utils/units';
 import { API_ORIGIN, WEB_ORIGIN } from './servers';
 
 export const buildPane = (page: Page) => page.getByRole('region', { name: 'Build', exact: true });
@@ -26,10 +30,15 @@ export async function showPane(page: Page, pane: 'Build' | 'Results'): Promise<v
 	await expect(pane === 'Build' ? buildPane(page) : resultsPane(page)).toBeVisible();
 }
 
-/** Start a new, empty project from the home page. */
+/**
+ * An empty project in SI display units, as the flows below type and read their values: a new
+ * project starts in US customary units (proposal build-density.md §13; home.e2e.ts checks that
+ * path), so this one is opened from its link, as utils/encoding.ts writes it.
+ */
 export async function newProject(page: Page): Promise<void> {
-	await page.goto('/');
-	await page.getByRole('link', { name: 'New project' }).click();
+	const project = createEmptyProject({ units: SI_UNITS });
+	const bytes = gzip(new TextEncoder().encode(canonicalJson(project)), { level: 9 });
+	await page.goto(`/p#${Buffer.from(bytes).toString('base64url')}`);
 	await expect(page).toHaveURL(/\/p#[A-Za-z0-9_-]+$/);
 	await expect(buildPane(page).getByRole('heading', { name: 'Start the network' })).toBeVisible();
 }
@@ -198,3 +207,39 @@ export async function closeTrace(page: Page, name: string): Promise<void> {
 
 /** Origins the app may contact: itself and its calculation server (GOALS §4.5). */
 export const ALLOWED_ORIGINS = new Set([WEB_ORIGIN, API_ORIGIN]);
+
+/**
+ * The Scenarios menu (proposal build-density.md §13): the header's Scenarios button opens it once
+ * the project has scenarios; it holds the case shown (Case), Solve all and Manage scenarios….
+ * These read it whether it is open or not (includeHidden); openCases opens it to act in it.
+ */
+export const caseMenu = (page: Page) =>
+	page.getByRole('combobox', { name: 'Case', exact: true, includeHidden: true });
+export const caseGroup = (page: Page) =>
+	page.getByRole('group', { name: 'Case', exact: true, includeHidden: true });
+
+export async function openCases(page: Page): Promise<Locator> {
+	const group = page.getByRole('group', { name: 'Case', exact: true });
+	if (!(await group.isVisible())) {
+		await page.getByRole('button', { name: /^Scenarios/ }).click();
+	}
+	await expect(group).toBeVisible();
+	return group;
+}
+
+/** Show a case: from the Scenarios menu, which closes with the choice. */
+export async function chooseCase(page: Page, label: string): Promise<void> {
+	await openCases(page);
+	await caseMenu(page).selectOption({ label });
+	await expect(page.getByRole('group', { name: 'Case', exact: true })).toBeHidden();
+}
+
+/** Open the scenario manager: directly, or from the Scenarios menu once there are scenarios. */
+export async function openScenarioManager(page: Page): Promise<Locator> {
+	await page.getByRole('button', { name: /^Scenarios/ }).click();
+	const manage = page.getByRole('button', { name: 'Manage scenarios…' });
+	if (await manage.isVisible()) await manage.click();
+	const manager = page.getByRole('dialog', { name: 'Scenarios' });
+	await expect(manager).toBeVisible();
+	return manager;
+}

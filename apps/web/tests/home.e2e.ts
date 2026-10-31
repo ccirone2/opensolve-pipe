@@ -36,3 +36,25 @@ test('home page links to the source of this build and the third-party licenses',
 	for (const name of ['chart.js', 'pako', 'svelte', 'tailwindcss'])
 		expect(text).toMatch(new RegExp(`^- ${name.replace('.', '\\.')} \\d`, 'm'));
 });
+
+test('a new project starts in US customary units; SI is the first choice in Settings, one tap', async ({
+	page
+}) => {
+	await page.goto('/');
+	await page.getByRole('link', { name: 'New project' }).click();
+	await expect(page).toHaveURL(/\/p#[A-Za-z0-9_-]+$/);
+	await page.getByRole('button', { name: 'Settings' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Project settings' });
+	// The units come first: the setting people reach for (proposal build-density.md §13).
+	const presets = dialog.getByRole('group', { name: 'Unit presets' });
+	const first = dialog.getByRole('heading', { level: 3 }).first();
+	await expect(first).toHaveText('Units');
+	await expect(presets.getByRole('button', { name: 'US customary' })).toHaveAttribute(
+		'aria-pressed',
+		'true'
+	);
+	await expect(dialog.getByRole('textbox', { name: 'Site elevation (ft)' })).toBeVisible();
+	await presets.getByRole('button', { name: 'SI' }).click();
+	await expect(presets.getByRole('button', { name: 'SI' })).toHaveAttribute('aria-pressed', 'true');
+	await expect(dialog.getByRole('textbox', { name: 'Site elevation (m)' })).toBeVisible();
+});

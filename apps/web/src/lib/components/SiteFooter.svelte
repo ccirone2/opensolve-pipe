@@ -25,38 +25,43 @@
 -->
 <footer class="space-y-1 border-t border-slate-200 pt-2 text-xs text-slate-500">
 	<p>{DISCLAIMER}</p>
-	<p class="flex flex-wrap items-center gap-x-3">
+	<!-- The links stay together on one line: after the copyright where they fit, else all on the
+		next line (build-density.md §13). -->
+	<p class="flex flex-wrap items-center gap-x-1.5 tracking-tight">
 		<span>{COPYRIGHT}</span>
-		<a href={aboutHref()} class={link} aria-label="About and privacy" title="About and privacy"
-			>About</a
-		>
-		<a
-			href={LICENSE_URL}
-			rel="external noopener noreferrer"
-			class={link}
-			aria-label="License: AGPL-3.0-or-later"
-			title="License: AGPL-3.0-or-later">AGPL-3.0</a
-		>
-		<a
-			href={SOURCE_URL}
-			rel="external noopener noreferrer"
-			class={link}
-			aria-label="Source code"
-			title="Source code of this app">Source</a
-		>
-		<a
-			href={serverSourceHref()}
-			rel="external noopener noreferrer"
-			class={link}
-			aria-label="Server source code"
-			title="Source code of the calculation server">Server source</a
-		>
-		<a
-			href={NOTICES_URL}
-			rel="external"
-			class={link}
-			aria-label="Third-party licenses"
-			title="Third-party licenses">Third-party</a
-		>
+		<!-- Below 360 px the five cannot share one line: only there do they wrap. -->
+		<span class="flex flex-nowrap items-center gap-x-1.5 whitespace-nowrap max-[22.5rem]:flex-wrap">
+			<a href={aboutHref()} class={link} aria-label="About and privacy" title="About and privacy"
+				>About</a
+			>
+			<a
+				href={LICENSE_URL}
+				rel="external noopener noreferrer"
+				class={link}
+				aria-label="License: AGPL-3.0-or-later"
+				title="License: AGPL-3.0-or-later">AGPL-3.0</a
+			>
+			<a
+				href={SOURCE_URL}
+				rel="external noopener noreferrer"
+				class={link}
+				aria-label="Source code"
+				title="Source code of this app">Source</a
+			>
+			<a
+				href={serverSourceHref()}
+				rel="external noopener noreferrer"
+				class={link}
+				aria-label="Server source code"
+				title="Source code of the calculation server">Server source</a
+			>
+			<a
+				href={NOTICES_URL}
+				rel="external"
+				class={link}
+				aria-label="Third-party licenses"
+				title="Third-party licenses">Third-party</a
+			>
+		</span>
 	</p>
 </footer>

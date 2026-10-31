@@ -102,6 +102,14 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
+/** The Scenarios menu (build-density.md §13), opened from the header: the case shown, Solve all. */
+async function caseMenu(): Promise<HTMLElement> {
+	const group = screen.queryByRole('group', { name: 'Case' });
+	if (group) return group;
+	await fireEvent.click(screen.getByRole('button', { name: /^Scenarios/ }));
+	return screen.getByRole('group', { name: 'Case' });
+}
+
 describe('setting up a goal seek', () => {
 	it('opens from the Results header, adds and removes goals and variables with their focus', async () => {
 		mount(pumpTransferExample(), false);
@@ -502,7 +510,7 @@ describe('one request at a time: every Solve control waits during a goal seek', 
 			'A goal seek is running; Cancel in the header stops it.'
 		);
 		await fireEvent.click(solve);
-		const bar = within(screen.getByRole('group', { name: 'Case' }));
+		const bar = within(await caseMenu());
 		const all = bar.getByRole('button', { name: 'Solve all' });
 		expect(all).toHaveAttribute('aria-disabled', 'true');
 		expect(all).toHaveAccessibleDescription(

@@ -10,6 +10,7 @@ import type {
 	ReliefValve
 } from '../api/types';
 import { createEmptyProject, type ComponentKind, type EnteredValues } from '../utils/factory';
+import { SI_UNITS } from '../utils/units';
 
 /** Freeze an object graph, so a test fails if code under test modifies its input. */
 export function deepFreeze<T>(value: T): T {
@@ -62,7 +63,7 @@ export function projectWith(
 	pumpLibrary: Project['pumpLibrary'] = []
 ): Project {
 	return {
-		...createEmptyProject({ id: 'test-project', now: '2026-01-01T00:00:00Z' }),
+		...createEmptyProject({ id: 'test-project', now: '2026-01-01T00:00:00Z', units: SI_UNITS }),
 		components,
 		connections,
 		pumpLibrary

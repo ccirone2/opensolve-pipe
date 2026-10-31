@@ -7,6 +7,7 @@
  * while a change of kind is one change of the whole rating. Ratings and densities are made-up test
  * inputs; the API is replaced by fakes (a density is what a fake answers, not a property value).
  */
+import { SI_UNITS } from '$lib/utils/units';
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { FluidDefinition, FluidProperties, Project } from '$lib/api/types';
@@ -66,7 +67,7 @@ function fluidProperties() {
 
 describe('adding an equipment item', () => {
 	it('after a reservoir: asks for every rating value first, then adds it with the exact values', async () => {
-		const empty = createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z' });
+		const empty = createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z', units: SI_UNITS });
 		const properties = fluidProperties();
 		const ws = testWorkspace(
 			{ ...empty, components: [createComponent('reservoir', empty)] },
@@ -154,7 +155,9 @@ describe('adding an equipment item', () => {
 	});
 
 	it('as the first component and at a free port: the rating is asked for in both', async () => {
-		const ws = testWorkspace(createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z' }));
+		const ws = testWorkspace(
+			createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z', units: SI_UNITS })
+		);
 		render(WorkspaceView, { workspace: ws });
 		const build = within(screen.getByRole('region', { name: 'Build' }));
 		await fireEvent.change(build.getByRole('combobox', { name: 'First component' }), {
@@ -183,9 +186,12 @@ describe('adding an equipment item', () => {
 	});
 	it('the first component: a density note goes as the density is typed, so Add never moves on the press', async () => {
 		const properties = fluidProperties();
-		const ws = testWorkspace(createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z' }), {
-			library: { fluidProperties: properties }
-		});
+		const ws = testWorkspace(
+			createEmptyProject({ id: 'p1', now: '2026-01-01T00:00:00Z', units: SI_UNITS }),
+			{
+				library: { fluidProperties: properties }
+			}
+		);
 		render(WorkspaceView, { workspace: ws });
 		const build = within(screen.getByRole('region', { name: 'Build' }));
 		await fireEvent.change(build.getByRole('combobox', { name: 'First component' }), {

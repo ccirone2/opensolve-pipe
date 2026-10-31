@@ -10,10 +10,15 @@ import {
 	addFirst,
 	ALLOWED_ORIGINS,
 	buildPane,
+	caseGroup,
+	caseMenu,
 	cellText,
+	chooseCase,
 	closeTrace,
 	currentHeading,
 	newProject,
+	openCases,
+	openScenarioManager,
 	resultsPane,
 	resultsView,
 	setNumber,
@@ -66,9 +71,6 @@ const CURVE = [
 /** D6: a flow, head or pressure within 0.5 % of its reference. */
 const within = (value: number, reference: number) =>
 	expect(Math.abs(value - reference)).toBeLessThanOrEqual(0.005 * Math.abs(reference));
-
-const caseMenu = (page: Page) => page.getByRole('combobox', { name: 'Case', exact: true });
-const scenariosButton = (page: Page) => page.getByRole('button', { name: /^Scenarios/ });
 
 /** Show a component in Build (through Jump to a component). */
 async function show(page: Page, name: string): Promise<Locator> {
@@ -209,8 +211,7 @@ async function readValve(page: Page, solved: SolvedState) {
 
 /** A new scenario named `name`, shown. */
 async function newScenario(page: Page, name: string): Promise<void> {
-	await scenariosButton(page).click();
-	const manager = page.getByRole('dialog', { name: 'Scenarios' });
+	const manager = await openScenarioManager(page);
 	await manager.getByRole('button', { name: 'New scenario' }).click();
 	const field = manager.getByRole('textbox', { name: /^Name of scenario S\d+$/ }).last();
 	await field.fill(name);
@@ -375,11 +376,8 @@ test('scenarios: a blocked discharge relieves; a smaller valve and a gagged one;
 	await expect(caseMenu(page).locator('option:checked')).toHaveText('Gagged (2 changes)');
 
 	// Solve all: the base, then each scenario.
-	await page
-		.getByRole('group', { name: 'Case' })
-		.getByRole('button', { name: 'Solve all' })
-		.click();
-	await expect(page.getByRole('group', { name: 'Case' })).not.toContainText('Solving');
+	await (await openCases(page)).getByRole('button', { name: 'Solve all' }).click();
+	await expect(caseGroup(page)).not.toContainText('Solving');
 	await expect.poll(() => Object.keys(solves).sort()).toEqual(['S1', 'S2', 'S3', 'base']);
 	const blocked = solves.S1!.reliefValveResults.RV1!;
 	expect(blocked.state).toBe('partial_lift');
@@ -410,7 +408,7 @@ test('scenarios: a blocked discharge relieves; a smaller valve and a gagged one;
 	expect(solves.S3!.flags.filter((f) => f.componentId === 'RV1')).toEqual([]);
 
 	// The blocked case's table: the solve's own values.
-	await caseMenu(page).selectOption({ label: 'Blocked discharge (1 change)' });
+	await chooseCase(page, 'Blocked discharge (1 change)');
 	const { shown } = await readValve(page, solves.S1!);
 	expect(shown.state).toBe('Partial lift');
 

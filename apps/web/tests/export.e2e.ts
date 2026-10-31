@@ -3,7 +3,15 @@ import { readFile } from 'node:fs/promises';
 import { expect, test, type Download, type Locator, type Page } from '@playwright/test';
 import type { SolveResponse } from '../src/lib/api/types';
 import { pumpTransferExample } from '../src/lib/utils/examples';
-import { currentHeading, resultsPane, resultsView, showPane, solveConverged } from './support';
+import {
+	caseGroup,
+	currentHeading,
+	openCases,
+	resultsPane,
+	resultsView,
+	showPane,
+	solveConverged
+} from './support';
 import { WEB_ORIGIN } from './servers';
 
 /**
@@ -228,9 +236,7 @@ test('a project with a scenario: all cases from Compare cases', async ({ page })
 	await page.goto(`/p#${encode(project)}`);
 	await expect(currentHeading(page)).toHaveText('Suction tank');
 	await showPane(page, 'Results');
-	const solveAll = page
-		.getByRole('group', { name: 'Case' })
-		.getByRole('button', { name: 'Solve all' });
+	const solveAll = (await openCases(page)).getByRole('button', { name: 'Solve all' });
 	// Solve all: the base, then the scenario, one request after the other.
 	let answered = 0;
 	page.on('response', (r) => {
@@ -238,7 +244,7 @@ test('a project with a scenario: all cases from Compare cases', async ({ page })
 	});
 	await solveAll.click();
 	await expect.poll(() => answered).toBe(2);
-	await expect(page.getByRole('group', { name: 'Case' })).not.toContainText('Solving');
+	await expect(caseGroup(page)).not.toContainText('Solving');
 	await resultsPane(page).getByRole('tab', { name: 'Compare cases' }).click();
 	await expect(exportButton(page)).toHaveAccessibleName('Export results of all cases');
 	const dialog = await openExport(page);

@@ -9,10 +9,14 @@ import {
 	addFirst,
 	ALLOWED_ORIGINS,
 	buildPane,
+	caseGroup,
+	caseMenu,
 	cellText,
 	closeTrace,
 	currentHeading,
 	newProject,
+	openCases,
+	openScenarioManager,
 	resultsPane,
 	resultsView,
 	setNumber,
@@ -57,9 +61,6 @@ const D = 0.10226;
 /** D6: a flow, head or pressure within 0.5 % of its reference. */
 const within = (value: number, reference: number) =>
 	expect(Math.abs(value - reference)).toBeLessThanOrEqual(0.005 * Math.abs(reference));
-
-const caseMenu = (page: Page) => page.getByRole('combobox', { name: 'Case', exact: true });
-const scenariosButton = (page: Page) => page.getByRole('button', { name: /^Scenarios/ });
 
 /** Show O1 in Build (through Jump to a component). */
 async function showPlate(page: Page): Promise<Locator> {
@@ -311,8 +312,7 @@ test('scenarios: a bigger bore and a calibrated C; compare and export all cases'
 
 	/** A new scenario named `name`, shown, with O1 shown in Build. */
 	async function scenario(name: string): Promise<Locator> {
-		await scenariosButton(page).click();
-		const manager = page.getByRole('dialog', { name: 'Scenarios' });
+		const manager = await openScenarioManager(page);
 		await manager.getByRole('button', { name: 'New scenario' }).click();
 		const field = manager.getByRole('textbox', { name: /^Name of scenario S\d+$/ }).last();
 		await field.fill(name);
@@ -350,11 +350,8 @@ test('scenarios: a bigger bore and a calibrated C; compare and export all cases'
 	).toBeVisible();
 
 	// Solve all: the base, then each scenario.
-	await page
-		.getByRole('group', { name: 'Case' })
-		.getByRole('button', { name: 'Solve all' })
-		.click();
-	await expect(page.getByRole('group', { name: 'Case' })).not.toContainText('Solving');
+	await (await openCases(page)).getByRole('button', { name: 'Solve all' }).click();
+	await expect(caseGroup(page)).not.toContainText('Solving');
 	expect(sent.map((r) => r.scenarioId ?? 'base').sort()).toEqual(['S1', 'S2', 'base']);
 	// The bodies are read as they arrive: wait for the three.
 	await expect.poll(() => Object.keys(solves).sort()).toEqual(['S1', 'S2', 'base']);

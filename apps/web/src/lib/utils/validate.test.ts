@@ -1,3 +1,4 @@
+import { SI_UNITS } from './units';
 import { describe, expect, it } from 'vitest';
 import type { Component, Project } from '../api/types';
 import { link, projectWith } from '../testing/helpers';
@@ -345,7 +346,9 @@ describe('projectProblems and parseProject', () => {
 			maxIterations: 100,
 			tolerance: 1e-9
 		});
-		expect(parsed.settings.units).toEqual(createEmptyProject().settings.units);
+		// The schema's defaults (the API model's: SI), not a new project's US customary units, so a
+		// link without units shows what it always did.
+		expect(parsed.settings.units).toEqual(SI_UNITS);
 		expect(parsed.fluid).toEqual({
 			kind: 'builtin',
 			fluidId: 'water',

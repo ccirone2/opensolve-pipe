@@ -56,8 +56,13 @@ test('the fluid settings get the calculated properties with the fluid in the req
 	});
 	const { properties } = (await response.json()) as FluidPropertiesResponse;
 	const dialog = page.getByRole('dialog', { name: 'Project settings' });
-	await expect(dialog.getByText('Calculated properties', { exact: true })).toBeVisible();
-	await expect(dialog.getByText(`${sig4(properties.density)} kg/m³`)).toBeVisible();
+	// One step away, as in Results (proposal build-density.md §13): opened, each value shown.
+	const calculated = dialog.getByText('Calculated properties', { exact: true });
+	await expect(calculated).toBeVisible();
+	await calculated.click();
+	await expect(
+		dialog.getByText(`${sig4(properties.density)} kg/m³`, { exact: true })
+	).toBeVisible();
 	// No request put anything in its address: no query strings (GOALS §4.5).
 	expect(urls.filter((u) => u.includes('?'))).toEqual([]);
 });

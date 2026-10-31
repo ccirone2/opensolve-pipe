@@ -16,6 +16,7 @@ What each document provides and when to read it. Agents start from [`CLAUDE.md`]
 | [`workflow.md`](workflow.md) | How a slice ships: gate, propose, build with independent reference cases, prove, record; agent practices; session report | Starting any feature or solver change | Builders |
 | [`history.md`](history.md) | Where things stand: sessions, merges, the verified numbers of the latest gate run | Starting a session; before changing anything | Appended per merge |
 | [`roadmap.md`](roadmap.md) | Open work in priority order, shelved items, Later lists by feature | Choosing or scoping the next slice | Trimmed per merge |
+| [`ui-guide.md`](ui-guide.md) | The web UI's goals and patterns (declare don't lay out, disclose without hiding, chrome budget, menus over bars, phone lists and sheets, per-browser choices, accessibility) and how a UI change ships | Any change to the web app's layout | Updated when a UI pattern is decided |
 | [`adding-a-field.md`](adding-a-field.md) | One page: how a field or a component type reaches the Build forms through the field registry, and what CI checks | Adding a model field or a component type | Updated with the registry |
 | [`library-facts.md`](library-facts.md) | Verified quirks of `fluids`, CoolProp and EPANET/WNTR | Writing code against any of them | Anyone who finds one the hard way |
 | [`deployment.md`](deployment.md) | The Cloud Run and Cloudflare Pages runbook, copy-and-paste | Deploying or checking a deployment | The owner |

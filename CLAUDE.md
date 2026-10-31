@@ -17,6 +17,7 @@ This file is loaded into every session, so it holds only what every change needs
 | ask what the product does and for whom | [`docs/PRD.md`](docs/PRD.md) |
 | need architecture, data models or API contracts | [`docs/SDD.md`](docs/SDD.md): §4 models, §5 REST and link encoding |
 | need the stack, files, solver internals, tests or deployment settings | [`docs/TSD.md`](docs/TSD.md): §4 data, §5 solver, §10 tests and corpus proofs, §11 deployment, §12 decided and open questions |
+| change the web app's layout: a field, a view, a toolbar, a dialog | [`docs/ui-guide.md`](docs/ui-guide.md): the patterns the UI follows and how a UI change ships; [`docs/adding-a-field.md`](docs/adding-a-field.md) for a Build field |
 | touch `fluids`, CoolProp or EPANET/WNTR | [`docs/library-facts.md`](docs/library-facts.md): quirks already found |
 | want a feature's design and as-built notes | [`docs/proposals/README.md`](docs/proposals/README.md) |
 | deploy | [`docs/deployment.md`](docs/deployment.md) |

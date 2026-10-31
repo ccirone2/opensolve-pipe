@@ -87,6 +87,14 @@ test('on a phone, Fields opens as a sheet across the screen; Done closes it', as
 	await showPane(page, 'Results');
 	const links = await resultsView(page, 'Links');
 	const fields = links.getByRole('button', { name: /^Fields/ });
+	// Sort, its direction and Fields share one line (proposal build-density.md §18).
+	const sortField = links.getByRole('combobox', { name: 'Sort by' });
+	await sortField.selectOption({ label: 'Flow (L/s)' });
+	const direction = links.getByRole('button', { name: /lowest first|highest first/ });
+	const tops = [sortField, direction, fields].map(async (c) => (await c.boundingBox())!.y);
+	const [a, b, c] = await Promise.all(tops);
+	expect(Math.abs(a! - b!)).toBeLessThan(2);
+	expect(Math.abs(a! - c!)).toBeLessThan(2);
 	await fields.click();
 	const sheet = links.getByRole('group', { name: /^Fields shown in/ });
 	await expect(sheet).toBeVisible();

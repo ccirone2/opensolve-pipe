@@ -245,3 +245,9 @@ Below 640 px the Fields menu opens as a sheet from the foot of the screen, the f
 Quoted in substance: make these buttons (the Results pane's views: Summary, Nodes, Links, …) one row that scrolls left and right on desktop, as on mobile.
 
 They are one row at every width (they wrapped from 1024 px; `ui-ux-refinement.md` §5 item 1 had kept the wrap because a mouse cannot easily scroll a row sideways). That reason is answered here: the row has edge shadows that say there is more, its scroll bar hidden as on phones; a mouse wheel over it scrolls it sideways while it can still move that way, and at either end the wheel scrolls the pane as before (a sideways trackpad gesture is the browser's); the view chosen, by a press, the keyboard or a Summary link, is scrolled into view. At the default split of 1280 px the row saves one line (50 px) above every view.
+
+## 18. A phone's sort and Fields on one line (owner, 2026-10-31)
+
+Quoted in substance, from a phone screenshot of a list's controls (Sort by, its direction, Fields on a second line): condense this group; these controls could stay on one line only.
+
+On a phone they share one line at 412, 390 and 320 px: the label reads "Sort" (the field is still named "Sort by", which holds the visible word: WCAG 2.5.3), the field takes the room that is left, the direction button and Fields keep theirs; below 360 px Fields shows its icon and count, its word for screen readers only. Flagged only, when a table offers it, takes the next line. The phone's e2e flow checks the three share a line.

@@ -229,14 +229,18 @@
 	{/if}
 {/snippet}
 
-<div class="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+<!-- One line on a phone: Sort (it takes what is left), its direction and Fields; Flagged only, when
+	offered, goes on the next (owner, 2026-10-31; proposal build-density.md §18). -->
+<div class="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1">
 	{#if sortChoices.length > 1}
 		<!-- Phones: the headings are not shown, so a field sorts the list (the same sort). -->
-		<div class="flex min-w-0 items-center gap-1 sm:hidden">
-			<label for="{id}-sort" class="text-sm whitespace-nowrap text-slate-700">Sort by</label>
+		<div class="flex min-w-0 grow basis-0 items-center gap-1 sm:hidden">
+			<label for="{id}-sort" class="text-sm whitespace-nowrap text-slate-700">Sort</label>
+			<!-- Named "Sort by" (its visible label, Sort, is part of the name: WCAG 2.5.3). -->
 			<select
 				id="{id}-sort"
-				class="input max-w-[11rem] min-w-0 py-0 pr-8 text-sm"
+				aria-label="Sort by"
+				class="input w-full min-w-0 py-0 pr-8 text-sm"
 				value={sort?.key ?? ''}
 				onchange={(event) => sortBy(event.currentTarget.value)}
 			>
@@ -249,7 +253,7 @@
 				{@const descending = sort.direction === 'descending'}
 				<button
 					type="button"
-					class="btn btn-icon"
+					class="btn btn-icon shrink-0"
 					aria-label={descending ? 'Descending: highest first' : 'Ascending: lowest first'}
 					title={descending ? 'Highest first' : 'Lowest first'}
 					onclick={() => {
@@ -262,7 +266,7 @@
 		</div>
 	{/if}
 	{#if table.columns.length > 1}
-		<div class="relative">
+		<div class="relative shrink-0">
 			<button
 				bind:this={fieldsButton}
 				type="button"
@@ -275,7 +279,8 @@
 				}}
 			>
 				<Icon name="list" class="size-4" />
-				Fields<span class="text-slate-600"
+				<!-- Below 360 px its icon and count carry it, so Sort keeps its room. -->
+				<span class="max-[22.5rem]:sr-only">Fields</span><span class="text-slate-600"
 					>{hidden.length ? ` (${visibleColumns.length} of ${table.columns.length})` : ''}</span
 				>
 			</button>
@@ -346,7 +351,7 @@
 		</div>
 	{/if}
 	{#if canFilter}
-		<label class="inline-flex min-h-11 items-center gap-2 text-sm text-slate-800">
+		<label class="inline-flex min-h-11 items-center gap-2 text-sm text-slate-800 max-sm:basis-full">
 			<input type="checkbox" class="size-4" bind:checked={flaggedOnly} />
 			Flagged only ({flaggedCount} of {table.rows.length})
 		</label>

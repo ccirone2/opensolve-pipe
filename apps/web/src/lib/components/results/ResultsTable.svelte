@@ -236,7 +236,6 @@
 		<thead role="rowgroup" class="max-sm:sr-only">
 			<!-- svelte-ignore a11y_no_redundant_roles -->
 			<tr role="row" class="text-slate-700">
-				<!-- svelte-ignore a11y_no_redundant_roles -->
 				<th
 					role="columnheader"
 					scope="col"
@@ -249,7 +248,6 @@
 					{@render heading(NAME_SORT_KEY, first, undefined, false)}
 				</th>
 				{#each table.columns as column (column.key)}
-					<!-- svelte-ignore a11y_no_redundant_roles -->
 					<th
 						role="columnheader"
 						scope="col"
@@ -279,7 +277,6 @@
 						index > 0 && 'max-sm:border-t max-sm:border-slate-200'
 					]}
 				>
-					<!-- svelte-ignore a11y_no_redundant_roles -->
 					<th
 						role="rowheader"
 						scope="row"
@@ -311,7 +308,6 @@
 					</th>
 					{#each table.columns as column (column.key)}
 						{@const cell = row.cells[column.key] ?? '—'}
-						<!-- svelte-ignore a11y_no_redundant_roles -->
 						<td
 							role="cell"
 							data-label={column.unit ? `${column.label} (${column.unit})` : column.label}
@@ -335,7 +331,6 @@
 				{#if annotated}
 					<!-- svelte-ignore a11y_no_redundant_roles -->
 					<tr role="row" class="max-sm:block">
-						<!-- svelte-ignore a11y_no_redundant_roles -->
 						<td role="cell" colspan={columns} class="p-0 max-sm:block">
 							<div
 								class="sticky left-0 flex w-[100cqw] flex-wrap items-center gap-1 px-2 pb-1 max-sm:static max-sm:w-auto"
@@ -366,7 +361,6 @@
 				{#if open && detail}
 					<!-- svelte-ignore a11y_no_redundant_roles -->
 					<tr role="row" class="bg-slate-50/60 max-sm:block">
-						<!-- svelte-ignore a11y_no_redundant_roles -->
 						<td role="cell" colspan={columns} class="border-t border-slate-100 p-0 max-sm:block">
 							<div
 								id={domId(row.key)}

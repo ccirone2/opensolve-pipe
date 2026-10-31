@@ -37,6 +37,7 @@ import type {
 	UnitPreferences
 } from '../api/types';
 import { flowDirection } from './assigned-flow';
+import { entryFor, labelOf, unitOf } from './field-registry';
 import { CAPACITY_FIELDS, type CapacityKind } from './factory';
 import { componentById, connectionById } from './graph';
 import { originOf } from './identity';
@@ -62,8 +63,6 @@ import {
 } from './model-rules';
 import { resistanceText, specRefText } from './project-library';
 import {
-	areaLabel,
-	CAPACITY_FIELD_LABELS,
 	CAPACITY_KIND_WORDS,
 	capacityText,
 	letterArea,
@@ -1162,62 +1161,9 @@ function splitNotes(before: Project, next: Project): string[] {
 
 /** A component field as the panel names it ('liquidLevel' → 'Liquid level'). */
 export function fieldLabelFor(component: Component | undefined, field: string): string {
-	switch (field) {
-		case 'status':
-			return 'Status';
-		case 'speed':
-			return component?.type === 'pump' && component.control ? 'Maximum speed' : 'Speed';
-		case 'control.setpoint':
-			return 'Flow setpoint';
-		case 'setpoint':
-			if (component?.type === 'valve' && component.valveType === 'prv')
-				return 'Outlet pressure setpoint';
-			if (component?.type === 'valve' && component.valveType === 'psv')
-				return 'Inlet pressure setpoint';
-			return component?.type === 'valve' && component.valveType === 'fcv'
-				? 'Flow setpoint'
-				: 'Setpoint';
-		case 'resistance':
-			return 'Resistance';
-		case 'liquidLevel':
-			return 'Liquid level';
-		case 'surfacePressure':
-			return 'Surface pressure';
-		case 'pressure':
-			return 'Pressure';
-		case 'flow':
-			return 'Assigned flow';
-		case 'rating':
-			return 'Rating';
-		case 'rating.pressureLoss':
-			return 'Rated pressure drop';
-		case 'rating.flow':
-			return 'Rated flow';
-		case 'rating.density':
-			return 'Rated fluid density';
-		case 'rating.value':
-			return component?.type === 'equipment' && component.rating.kind !== 'point'
-				? component.rating.kind
-				: 'Flow coefficient';
-		case 'boreDiameter':
-			return 'Bore diameter';
-		case 'dischargeCoefficient':
-			return 'Discharge coefficient';
-		case 'setPressure':
-			return 'Set pressure';
-		case 'capacity':
-			return 'Capacity';
-		case 'capacity.letter':
-			return CAPACITY_FIELD_LABELS.letter;
-		case 'capacity.area':
-			return areaLabel(component?.type === 'relief_valve' ? component.capacity.kind : null);
-		case 'capacity.dischargeCoefficient':
-			return CAPACITY_FIELD_LABELS.dischargeCoefficient;
-		case 'capacity.overpressure':
-			return CAPACITY_FIELD_LABELS.overpressure;
-		default:
-			return humanize(field.replace(/\./g, ' '));
-	}
+	// The registry names every field Build sets (field-registry.ts): one label table.
+	const entry = entryFor(component ? componentSchemaName(component) : null, field);
+	return entry ? labelOf(entry, component) : humanize(field.replace(/\./g, ' '));
 }
 
 /** The field a change sets, as the panel names it: 'Liquid level', 'Pipe size and material', ... */
@@ -1378,11 +1324,8 @@ export function changeValueText(
 	switch (override.field) {
 		case 'status':
 			return statusText(component, value);
-		case 'speed':
-			return number('fraction');
-		case 'control.setpoint':
 		case 'flow':
-			if (override.field === 'flow' && typeof value === 'number') {
+			if (typeof value === 'number') {
 				const direction = flowDirection(value);
 				const magnitude = formatValue(Math.abs(value), 'flow', units);
 				return direction === 'demand'
@@ -1392,27 +1335,11 @@ export function changeValueText(
 						: `${magnitude} (as a plug)`;
 			}
 			return number('flow');
-		case 'setpoint':
-			return component?.type === 'valve' && component.valveType === 'fcv'
-				? number('flow')
-				: number('pressure', true);
-		case 'liquidLevel':
-			return number('length');
-		case 'surfacePressure':
-		case 'pressure':
-			return number('pressure', true);
 		case 'resistance':
 			// A K, Cv or Kv as entered, the default, or a project library entry by its name.
 			return resistanceText(project, value, units);
 		case 'rating':
 			return ratingText(value, units);
-		case 'rating.pressureLoss':
-			// A pressure difference: no gauge marker.
-			return number('pressure');
-		case 'rating.flow':
-			return number('flow');
-		case 'rating.density':
-			return number('density');
 		case 'rating.value': {
 			// A Cv or Kv as entered, with its kind (as a resistance is written).
 			const kind =
@@ -1423,15 +1350,10 @@ export function changeValueText(
 				? `${kind}${formatValue(value, 'dimensionless', units)}`
 				: String(value);
 		}
-		case 'boreDiameter':
-			return number('diameter');
 		case 'dischargeCoefficient':
 			// A C as entered (no unit); none entered: ISO 5167-2's, the default.
 			if (value === null || value === undefined) return ISO_COEFFICIENT_TEXT;
 			return typeof value === 'number' ? formatValue(value, 'dimensionless', units) : String(value);
-		case 'setPressure':
-			// A relief valve's set: a pressure difference, inlet minus outlet (no gauge marker).
-			return number('pressure');
 		case 'capacity':
 			return capacityText(value, units);
 		case 'capacity.letter': {
@@ -1440,16 +1362,15 @@ export function changeValueText(
 				? `API 526 ${String(value)}`
 				: `API 526 ${value} (${formatValue(area, 'area', units)})`;
 		}
-		case 'capacity.area':
-			return number('area');
-		case 'capacity.dischargeCoefficient':
-			// A rated K as entered: a pure number.
-			return number('dimensionless');
 		case 'capacity.overpressure':
 			// None entered: ASME's 10 % or 3 psi, the default.
 			if (value === null || value === undefined) return overpressureDefaultText(units);
 			return number('fraction');
-		default:
-			return typeof value === 'number' ? formatValue(value, 'dimensionless', units) : String(value);
+		default: {
+			// A number in its registry unit (field-registry.ts), gauge pressures marked (D4).
+			const entry = entryFor(component ? componentSchemaName(component) : null, override.field);
+			const unit = entry ? unitOf(entry, component) : null;
+			return number(unit?.category ?? 'dimensionless', unit?.gauge ?? false);
+		}
 	}
 }

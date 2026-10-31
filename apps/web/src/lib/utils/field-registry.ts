@@ -20,7 +20,8 @@ import {
 	ISOLATION_STATUS_LABELS,
 	PUMP_STATUS_LABELS
 } from './labels';
-import { schemaFields } from './model-rules';
+import { COMPONENT_SCHEMAS, schemaFields } from './model-rules';
+import { areaLabel } from './relief';
 import type { UnitCategory } from './units';
 
 /**
@@ -57,11 +58,26 @@ export interface ChoiceInput {
 	labels: Readonly<Record<string, string>>;
 }
 
+/** The unit a field's value is shown in: its category, and a gauge pressure's marker (D4). */
+export interface FieldUnit {
+	category: UnitCategory;
+	gauge?: boolean;
+}
+
 export interface FieldEntry {
 	facet: Facet;
 	tier: Tier;
-	/** As the form labels it; a function where it depends on the element (a PRV's setpoint). */
-	label: string | ((component: Component) => string);
+	/**
+	 * As the form, scenario notes, goal seek and the export name it; a function where it depends
+	 * on the element (a PRV's setpoint), given none when the element no longer exists.
+	 */
+	label: string | ((component?: Component) => string);
+	/**
+	 * A number's unit where `input` does not give it (a field its form draws): what scenario
+	 * changes, goal seek and the export show it in. Every number a scenario or goal seek may
+	 * change has one (the test beside this file).
+	 */
+	unit?: FieldUnit | ((component?: Component) => FieldUnit);
 	/** Static explanation: shown while the field has focus, always in its description. */
 	help?: string;
 	/** How the form draws it, for a plain field; absent: the type's form draws it. */
@@ -155,7 +171,7 @@ export const FIELD_REGISTRY: Readonly<Record<string, Entries>> = {
 	},
 	Plug: { elevation: ELEVATION, ports: PORTS },
 	AssignedFlow: {
-		flow: { facet: 'operation', tier: 'core', label: 'Assigned flow' },
+		flow: { facet: 'operation', tier: 'core', label: 'Assigned flow', unit: { category: 'flow' } },
 		elevation: ELEVATION,
 		ports: PORTS
 	},
@@ -180,12 +196,23 @@ export const FIELD_REGISTRY: Readonly<Record<string, Entries>> = {
 	Pump: {
 		status: status(PUMP_STATUS_LABELS, 'change pump status'),
 		control: { facet: 'operation', tier: 'core', label: 'Control' },
-		'control.setpoint': { facet: 'operation', tier: 'core', label: 'Flow setpoint' },
-		'control.minSpeed': { facet: 'operation', tier: 'core', label: 'Minimum speed' },
+		'control.setpoint': {
+			facet: 'operation',
+			tier: 'core',
+			label: 'Flow setpoint',
+			unit: { category: 'flow' }
+		},
+		'control.minSpeed': {
+			facet: 'operation',
+			tier: 'core',
+			label: 'Minimum speed',
+			unit: { category: 'fraction' }
+		},
 		speed: {
 			facet: 'operation',
 			tier: 'core',
-			label: (c) => (c.type === 'pump' && c.control ? 'Maximum speed' : 'Speed')
+			label: (c) => (c?.type === 'pump' && c.control ? 'Maximum speed' : 'Speed'),
+			unit: { category: 'fraction' }
 		},
 		curveId: { facet: 'rating', tier: 'core', label: 'Pump curve' },
 		elevation: ELEVATION,
@@ -218,11 +245,18 @@ export const FIELD_REGISTRY: Readonly<Record<string, Entries>> = {
 			facet: 'operation',
 			tier: 'core',
 			label: (c) =>
-				c.type === 'valve' && c.valveType === 'prv'
-					? 'Outlet pressure setpoint'
-					: c.type === 'valve' && c.valveType === 'psv'
-						? 'Inlet pressure setpoint'
-						: 'Flow setpoint'
+				c?.type !== 'valve'
+					? 'Setpoint'
+					: c.valveType === 'prv'
+						? 'Outlet pressure setpoint'
+						: c.valveType === 'psv'
+							? 'Inlet pressure setpoint'
+							: 'Flow setpoint',
+			// An FCV holds a flow; a PRV or PSV a gauge pressure (D4).
+			unit: (c) =>
+				c?.type === 'valve' && c.valveType === 'fcv'
+					? { category: 'flow' }
+					: { category: 'pressure', gauge: true }
 		},
 		// Its own change: between a pressure and a flow valve the setpoint goes back to 0.
 		valveType: { facet: 'rating', tier: 'core', label: 'Valve type' },
@@ -231,39 +265,85 @@ export const FIELD_REGISTRY: Readonly<Record<string, Entries>> = {
 		ports: PORTS
 	},
 	Equipment: {
-		rating: { facet: 'rating', tier: 'core', label: 'Rated by' },
+		// The whole rating, as a scenario changes it (its kind is chosen as "Rated by").
+		rating: { facet: 'rating', tier: 'core', label: 'Rating' },
 		'rating.kind': { facet: 'rating', tier: 'core', label: 'Flow coefficient kind' },
-		'rating.pressureLoss': { facet: 'rating', tier: 'core', label: 'Rated pressure drop' },
-		'rating.flow': { facet: 'rating', tier: 'core', label: 'Rated flow' },
-		'rating.density': { facet: 'rating', tier: 'core', label: 'Rated fluid density' },
+		// A pressure difference: no gauge marker.
+		'rating.pressureLoss': {
+			facet: 'rating',
+			tier: 'core',
+			label: 'Rated pressure drop',
+			unit: { category: 'pressure', gauge: false }
+		},
+		'rating.flow': {
+			facet: 'rating',
+			tier: 'core',
+			label: 'Rated flow',
+			unit: { category: 'flow' }
+		},
+		'rating.density': {
+			facet: 'rating',
+			tier: 'core',
+			label: 'Rated fluid density',
+			unit: { category: 'density' }
+		},
 		'rating.value': {
 			facet: 'rating',
 			tier: 'core',
 			label: (c) =>
-				c.type === 'equipment' && c.rating.kind !== 'point' ? c.rating.kind : 'Flow coefficient'
+				c?.type === 'equipment' && c.rating.kind !== 'point' ? c.rating.kind : 'Flow coefficient',
+			unit: { category: 'dimensionless' }
 		},
 		elevation: ELEVATION,
 		ports: PORTS
 	},
 	Orifice: {
-		boreDiameter: { facet: 'rating', tier: 'core', label: 'Bore diameter' },
+		boreDiameter: {
+			facet: 'rating',
+			tier: 'core',
+			label: 'Bore diameter',
+			unit: { category: 'diameter' }
+		},
 		taps: { facet: 'placement', tier: 'more', label: 'Pressure taps' },
-		dischargeCoefficient: { facet: 'rating', tier: 'more', label: 'Discharge coefficient' },
+		dischargeCoefficient: {
+			facet: 'rating',
+			tier: 'more',
+			label: 'Discharge coefficient',
+			unit: { category: 'dimensionless' }
+		},
 		elevation: ELEVATION,
 		ports: PORTS
 	},
 	ReliefValve: {
 		status: { facet: 'operation', tier: 'core', label: 'Status' },
-		setPressure: { facet: 'rating', tier: 'core', label: 'Set pressure' },
-		capacity: { facet: 'rating', tier: 'core', label: 'Capacity given by' },
+		// A pressure difference, inlet minus outlet: no gauge marker.
+		setPressure: {
+			facet: 'rating',
+			tier: 'core',
+			label: 'Set pressure',
+			unit: { category: 'pressure', gauge: false }
+		},
+		// The whole capacity, as a scenario changes it (its kind is chosen as "Capacity given by").
+		capacity: { facet: 'rating', tier: 'core', label: 'Capacity' },
 		'capacity.letter': { facet: 'rating', tier: 'core', label: 'API 526 orifice letter' },
-		'capacity.area': { facet: 'rating', tier: 'core', label: 'Orifice area' },
+		'capacity.area': {
+			facet: 'rating',
+			tier: 'core',
+			label: (c) => areaLabel(c?.type === 'relief_valve' ? c.capacity.kind : null),
+			unit: { category: 'area' }
+		},
 		'capacity.dischargeCoefficient': {
 			facet: 'rating',
 			tier: 'core',
-			label: 'Rated coefficient of discharge (K)'
+			label: 'Rated coefficient of discharge (K)',
+			unit: { category: 'dimensionless' }
 		},
-		'capacity.overpressure': { facet: 'rating', tier: 'core', label: 'Overpressure at full lift' },
+		'capacity.overpressure': {
+			facet: 'rating',
+			tier: 'core',
+			label: 'Overpressure at full lift',
+			unit: { category: 'fraction' }
+		},
 		elevation: ELEVATION,
 		ports: PORTS
 	},
@@ -277,7 +357,7 @@ export const FIELD_REGISTRY: Readonly<Record<string, Entries>> = {
 		specId: { facet: 'rating', tier: 'core', label: 'Pipe spec' },
 		schedule: { facet: 'rating', tier: 'core', label: 'Schedule' },
 		nominalSize: { facet: 'placement', tier: 'core', label: 'Size' },
-		length: { facet: 'placement', tier: 'core', label: 'Length' },
+		length: { facet: 'placement', tier: 'core', label: 'Length', unit: { category: 'length' } },
 		innerDiameter: { facet: 'rating', tier: 'more', label: 'Inner diameter override' },
 		roughness: { facet: 'rating', tier: 'more', label: 'Roughness override' }
 	},
@@ -315,9 +395,35 @@ export function fieldEntry(schemaName: string, path: string): FieldEntry | undef
 	return FIELD_REGISTRY[schemaName]?.[path];
 }
 
-/** A field's label for this element. */
-export function labelOf(entry: FieldEntry, component: Component): string {
+/** A field's label for this element (or, with none, as any element would name it). */
+export function labelOf(entry: FieldEntry, component?: Component): string {
 	return typeof entry.label === 'function' ? entry.label(component) : entry.label;
+}
+
+/** A number's unit from its entry: its input's, else its own; null for a value with none. */
+export function unitOf(entry: FieldEntry, component?: Component): FieldUnit | null {
+	if (entry.input?.kind === 'number') {
+		const { category, gauge } = entry.input;
+		return gauge === undefined ? { category } : { category, gauge };
+	}
+	if (!entry.unit) return null;
+	return typeof entry.unit === 'function' ? entry.unit(component) : entry.unit;
+}
+
+/**
+ * A field's entry for an element, by the element's schema; for an element that no longer exists
+ * (undefined), the first entry of that path in any component schema, then the pipe's and port's.
+ */
+export function entryFor(
+	schemaName: string | null | undefined,
+	path: string
+): FieldEntry | undefined {
+	if (schemaName) return fieldEntry(schemaName, path);
+	for (const name of [...COMPONENT_SCHEMAS, 'PipeDefinition', 'Port']) {
+		const entry = fieldEntry(name, path);
+		if (entry) return entry;
+	}
+	return undefined;
 }
 
 /**

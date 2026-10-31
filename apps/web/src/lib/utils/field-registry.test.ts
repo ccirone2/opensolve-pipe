@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
+	fieldEntry,
 	FIELD_REGISTRY,
 	isSet,
+	unitOf,
 	sectionsOf,
 	staleEntries,
 	unregisteredFields,
 	valueAt
 } from './field-registry';
-import { COMPONENT_SCHEMAS, schemaFields } from './model-rules';
+import {
+	COMPONENT_SCHEMAS,
+	GOAL_VARIABLE_FIELDS,
+	OVERRIDE_FIELDS,
+	schemaFields
+} from './model-rules';
 
 /**
  * The schemas a Build form edits: every component type (the Project.components union, read from
@@ -79,6 +86,27 @@ describe('the Build form registry (proposal build-density.md §5)', () => {
 				}
 			}
 		}
+	});
+
+	it('names every value a scenario may change, and gives each number goal seek varies a unit', () => {
+		// Scenario notes, goal seek and the export read labels and units here (one table): a field
+		// added to an allow-list (x-override-fields, x-goal-variables) needs its entry, or a
+		// scenario change would read "Minimum flow" humanized and a flow would show with no unit.
+		let checked = 0;
+		for (const schema of [...COMPONENT_SCHEMAS, 'PipeDefinition']) {
+			checked += Object.keys(GOAL_VARIABLE_FIELDS[schema] ?? {}).length;
+			for (const path of Object.keys(OVERRIDE_FIELDS[schema] ?? {})) {
+				if (schema === 'PipeDefinition' && path === 'spec') continue; // a group: its keys
+				expect(fieldEntry(schema, path), `${schema}.${path}`).toBeDefined();
+			}
+			for (const path of Object.keys(GOAL_VARIABLE_FIELDS[schema] ?? {})) {
+				const entry = fieldEntry(schema, path);
+				expect(entry, `${schema}.${path}`).toBeDefined();
+				// A resistance is written with its coefficient ("Cv 120"), its own rule.
+				if (path !== 'resistance') expect(unitOf(entry!), `${schema}.${path}`).not.toBeNull();
+			}
+		}
+		expect(checked).toBeGreaterThan(15);
 	});
 
 	it('counts a value as set when it is not the schema default', () => {

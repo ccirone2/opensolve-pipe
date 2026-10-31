@@ -239,3 +239,9 @@ Quoted in substance, from a phone screenshot with the Results pane's top circled
 Quoted in substance: on mobile the Fields drop-down should pop up like the Sort by drop-down, as a menu across the screen's width; its icon is good, and the desktop menu is liked as it is.
 
 Below 640 px the Fields menu opens as a sheet from the foot of the screen, the full width, over a dimmed page, as the phone's native picker for Sort by opens: a title ("Fields shown") with Done, then a row per column (44 px, a larger checkbox), then Show all when some are hidden; a press on the dimmed page, Done or Escape closes it. From 640 px it is unchanged: the menu under the button. An e2e flow on the phone checks the sheet spans the screen's width from its foot, that a field it unchecks leaves the list, and that Done closes it.
+
+## 17. The view buttons in one row on desktop too (owner, 2026-10-31)
+
+Quoted in substance: make these buttons (the Results pane's views: Summary, Nodes, Links, …) one row that scrolls left and right on desktop, as on mobile.
+
+They are one row at every width (they wrapped from 1024 px; `ui-ux-refinement.md` §5 item 1 had kept the wrap because a mouse cannot easily scroll a row sideways). That reason is answered here: the row has edge shadows that say there is more, its scroll bar hidden as on phones; a mouse wheel over it scrolls it sideways while it can still move that way, and at either end the wheel scrolls the pane as before (a sideways trackpad gesture is the browser's); the view chosen, by a press, the keyboard or a Summary link, is scrolled into view. At the default split of 1280 px the row saves one line (50 px) above every view.

@@ -444,6 +444,34 @@
 					: null
 	);
 
+	/**
+	 * The views' row: a mouse wheel scrolls it sideways while it can still move that way (a
+	 * non-passive listener); at its ends the wheel scrolls the pane, and a sideways gesture is the
+	 * browser's. The chosen view is kept in view (a link from the Summary, the keyboard).
+	 */
+	let viewRow: HTMLElement | undefined = $state();
+	$effect(() => {
+		const row = viewRow;
+		if (!row) return;
+		const wheel = (event: WheelEvent) => {
+			if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+			const room = row.scrollWidth - row.clientWidth;
+			const moving =
+				(event.deltaY > 0 && row.scrollLeft < room - 1) || (event.deltaY < 0 && row.scrollLeft > 0);
+			if (room <= 0 || !moving) return;
+			event.preventDefault();
+			row.scrollLeft += event.deltaY;
+		};
+		row.addEventListener('wheel', wheel, { passive: false });
+		return () => row.removeEventListener('wheel', wheel);
+	});
+	$effect(() => {
+		void view;
+		viewRow
+			?.querySelector<HTMLElement>('[aria-selected="true"]')
+			?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+	});
+
 	/** WAI-ARIA tabs: arrow keys, Home and End move between the views. */
 	function tabKeydown(event: KeyboardEvent) {
 		const index = views.indexOf(view);
@@ -921,11 +949,14 @@
 
 			{#if response && solved && !previousHidden}
 				<div class="space-y-3">
+					<!-- One row that scrolls sideways at every width (owner, 2026-10-31; proposal
+						build-density.md §17): edge shadows say there is more, a mouse wheel scrolls it. -->
 					<div
+						bind:this={viewRow}
 						role="tablist"
 						aria-label="Results view"
 						tabindex="-1"
-						class="-mx-3 flex gap-1.5 overflow-x-auto px-3 sm:-mx-4 sm:px-4 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0"
+						class="scroll-shadow-x -mx-3 flex [scrollbar-width:none] gap-1.5 overflow-x-auto px-3 sm:-mx-4 sm:px-4 [&::-webkit-scrollbar]:hidden"
 						onkeydown={tabKeydown}
 					>
 						{#each views as v (v)}
@@ -944,7 +975,7 @@
 								]}
 								onclick={(event) => {
 									selectedView = v;
-									// Below 1024 px the views scroll sideways in one row: bring the chosen one in.
+									// The views scroll sideways in one row: bring the chosen one in.
 									event.currentTarget.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
 								}}
 							>

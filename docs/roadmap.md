@@ -27,12 +27,7 @@ Speed-controlled pumps slice 2 (discharge pressure) and C1 (an exact Newton step
 
 ## 4. Web: Build density (proposal `proposals/build-density.md` §10, §12)
 
-Every Build form is laid out from the field registry, with one label and unit table and budgets the e2e suite enforces. Open, each with what it needs:
-- **Adding a component in fewer than 3 actions**: an "Add after ▾" select that adds a kind with no entry values at once (the dialog stays for the others); the e2e suite's 20 dialog flows move with it.
-- **A segmented control** for 2–3-value choices (a phone's status in one tap).
-- **The export's pump table** from the registry (its input columns are listed by hand), and `labels.fieldLabel` from `fieldLabelFor`.
-- **A solved pump's first curve point on a phone** is one scroll below the first screen (the section titles and the result strip above it).
-- The sibling inconsistencies of the proposal's §3.4 (labels of K, "difference", "default"), each reviewed on its own since a label reaches scenario notes and the export.
+Built: every Build form laid out from the field registry, one label and unit table, and the budgets the e2e suite enforces (`proposals/build-density.md` §11). What remains is its §12: the strip kept in view when it gains a flag after a solve; segments for three-value choices where their labels fit; Build inputs in the results workbook, if wanted (D17).
 
 ## 5. Still to do by hand
 

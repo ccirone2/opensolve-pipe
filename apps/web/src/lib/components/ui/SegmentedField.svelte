@@ -96,7 +96,7 @@
 			{#each options as option, i (option.value)}
 				<label
 					class={[
-						'flex min-w-0 flex-1 cursor-pointer items-center justify-center px-2 text-center text-sm leading-tight',
+						'relative flex min-w-0 flex-1 cursor-pointer items-center justify-center px-2 text-center text-sm leading-tight',
 						'has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2 has-[:focus-visible]:outline-blue-600',
 						i > 0 && 'border-l border-slate-300',
 						option.value === value
@@ -106,13 +106,14 @@
 				>
 					<input
 						type="radio"
-						class="sr-only"
+						class="absolute inset-0 cursor-pointer appearance-none opacity-0"
 						name="{id}-choice"
 						value={option.value}
 						checked={option.value === value}
 						disabled={option.disabled}
 						onchange={() => void choose(option.value)}
 					/>
+					<!-- The radio covers its segment: the whole segment is its target. -->
 					{option.label}
 				</label>
 			{/each}

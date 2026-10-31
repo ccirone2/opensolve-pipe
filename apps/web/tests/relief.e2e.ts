@@ -222,9 +222,12 @@ async function newScenario(page: Page, name: string): Promise<void> {
 /** In the scenario shown: V1 isolated (the blocked discharge the relief valve protects against). */
 async function blockDischarge(page: Page): Promise<void> {
 	const panel = await show(page, 'Gate valve V1');
-	await panel
-		.getByRole('combobox', { name: 'Status' })
-		.selectOption({ label: 'Closed (isolated)' });
+	// A gate's status is a pair of segments (proposal build-density.md §11).
+	const closed = panel
+		.getByRole('radiogroup', { name: 'Status' })
+		.getByRole('radio', { name: 'Closed (isolated)' });
+	await closed.click();
+	await expect(closed).toBeChecked();
 }
 
 test('build and solve: the relief valve stays closed; its results, strip and trace; share and reopen', async ({

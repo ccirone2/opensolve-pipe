@@ -24,8 +24,9 @@ import { buildPane, showPane, solve } from './support';
 
 /**
  * One of every kind of component, in a chain, with the values the kinds without defaults need;
- * every port left free is plugged and every control valve has a setpoint, so each panel shows its
- * normal state (an unconnected port or a setpoint of 0 is an exception the panel raises, by design).
+ * every port left free is plugged, every control valve has a setpoint and the pump has the pump
+ * example's curve, so each panel shows its normal state (an unconnected port, a setpoint of 0 or a
+ * pump without a curve is an exception the panel raises, by design).
  */
 function everyKind(): Project {
 	const project = createEmptyProject({ name: 'Every kind', now: '2026-10-30T00:00:00Z' });
@@ -35,8 +36,10 @@ function everyKind(): Project {
 		orifice: { boreDiameter: 0.05 },
 		relief_valve: { setPressure: 500000, capacity: { kind: 'api526', letter: 'D' } }
 	};
+	project.pumpLibrary = exampleProject('pump-transfer')!.pumpLibrary;
 	for (const kind of COMPONENT_KINDS) {
 		const component = createComponent(kind, project, entered[kind] ?? {});
+		if (component.type === 'pump') component.curveId = project.pumpLibrary[0]!.id;
 		if (component.type === 'valve' && 'setpoint' in component) {
 			component.setpoint = component.valveType === 'fcv' ? 0.01 : 300000;
 		}
@@ -253,9 +256,9 @@ test('solved, a pump curve’s first point is 1 action from its panel, with no s
 	await jumpTo(page, 'Transfer pump');
 	const panel = buildPane(page);
 	await expect(panel.getByRole('group', { name: /^Last solve/ })).toBeVisible();
-	const point = panel.getByRole('textbox', { name: /^Point 1 flow/ });
-	await expect(point).toBeInViewport({ ratio: 1 });
-	await expect(panel.getByRole('textbox', { name: /^Point 1 head/ })).toBeInViewport({ ratio: 1 });
+	const head = panel.getByRole('table', { name: 'Head curve (at rated speed)' });
+	await expect(head.getByRole('textbox', { name: /^Point 1 flow/ })).toBeInViewport({ ratio: 1 });
+	await expect(head.getByRole('textbox', { name: /^Point 1 head/ })).toBeInViewport({ ratio: 1 });
 });
 
 test('a valve’s status is 1 action from its panel: one tap on its segment', async ({ page }) => {

@@ -128,14 +128,14 @@ From the IA card sort and the red team: "K" is a loss coefficient on valves and 
 The red team ran twice: on the app before the build ([pass 1](build-density/findings-redteam-1.md)) and on the built app ([pass 2](build-density/findings-redteam-2.md)). Pass 2 measured the field engineer's task (change the discharge pipe's size, re-solve, close the valve, re-solve) at **10 taps and 0 scrolls** (pass 1: 10 taps, 2 scrolls), and confirmed, with no field focused, the D15 notes in both cases, More opening for a scenario change and a base-case note, "(default)" in More's summary, "Base: 0 kPa(g)", and help in `aria-describedby`. Still standing:
 
 1. **A phone's main loop stays top-heavy** (field engineer): Solve, Undo and Redo are in the header, and Solve switches to Results, so edit → solve → edit is a tap at the top, then the Build tab. Not changed: Solve-to-Results is the decided phone flow (ui-ux-refinement.md §1).
-2. **Native selects need two taps** for a two-value status. Not changed: a segmented control for 2–3 values is a candidate (§12).
-3. ~~A solved connection on a phone~~ **resolved** (§11 item 19); a solved pump's first curve point is still one scroll below on a phone.
+2. ~~Native selects need two taps for a two-value status~~ **resolved** for two-value statuses (§11 item 22); three-value statuses keep the select.
+3. ~~A solved connection on a phone~~ **resolved** (§11 item 19), and a solved pump's first curve point (§11 item 23).
 4. **The guard is blind under `whole`**: a valve's resistance editor owns its sub-fields (`resistance.kind`, `value`, `id`). Every other union (capacity, rating, control) registers each sub-field.
 5. ~~Five label tables~~ **resolved** (§11 item 13): scenario notes, goal seek and the export read labels and units from the registry, and the guard covers the allow-lists. Still by hand: the export's pump table lists its input columns, and `labels.fieldLabel` (the order rule's message, pump fields only).
 6. ~~400 % zoom~~ **resolved** (§11 item 14).
 7. ~~"Base: Default" without the basis~~ **resolved** in Build (§11 item 16); the shared value text still says "Default", as the export's committed fixture does.
-8. **Low**: a reservoir's outflow of −8.9×10⁻¹³ L/s (convergence noise, D13) is shown as a value in its strip (the Results tables' formatting, outside Build); "Names are the same in every case." starts 4 px from the screen edge.
-9. **Adding a component stays 3 actions** (Add after, the kind, Add): the dialog's kind is the decision and the e2e suite drives that dialog in 20 flows; a one-step "Add after ▾" select is in §12.
+8. ~~Low: round-off outflow; the name note's gutter~~ **resolved** (§11 item 26; the note keeps the form's gutter).
+9. ~~Adding a component stays 3 actions~~ **resolved** (§11 item 21).
 
 ## 11. As built
 
@@ -187,11 +187,22 @@ Measured with the same script on the built app (`measure.cjs`, before at `569319
 19. **The connection's actions follow its pipes**, and the "Pipes" heading is for screen readers only when there is one pipe (its card says "Pipe 1"): solved, on a phone, with both result strips shown, the pipe size is now on the first screen (y 760 of 656 before this item; an e2e test holds it). A pump curve's first point is still one scroll below on a phone (y 729 of 656; was 1305 of 638 before the build).
 20. **Measured after the second session**: header 49 px desktop / 95 px phone (was 53 / 101), scenario bar 41 / 45 px (was 53 / 53).
 
+**Third session (2026-10-31): the open items closed.**
+
+21. **Adding a component in 2 actions**: the Add dialog leads with "Add now" buttons (up to four kinds this placement takes and that need no value first: the kinds added last in this page, then common ones); a press adds that kind (Add after, then the kind). Kinds that ask for a value first stay in the list, where their fields are. The list and Add are unchanged, so the e2e suite's dialog flows still hold.
+22. **One-tap status**: a two-value choice drawn by the registry (a pump's and an isolation valve's status) is a pair of segments (`SegmentedField`, a radio group) with the select's scenario behaviour: locked read-only with "Same in every scenario", "Changed" with the base value and Reset, the base case's "sets its own value". Three-value statuses keep the select (their labels do not fit three segments on a phone). Five places in four tests that drove those two statuses as selects now drive the radios (`Scenarios.svelte.test.ts`, `scenarios.e2e.ts` twice, `relief.e2e.ts`'s blocked discharge, the density spec), each assertion kept (the value, the description, Reset, editable in a scenario). Each radio covers its whole segment (a transparent full-size input), so the segment is its target.
+23. **A solved pump's first curve point on a phone's first screen** (y 788 of 795; was 1305 of 638 before the build): the result strip's label/value pairs share its title's line (two lines on a phone, was three), the gaps between a form's sections are 8 px, the Control note's empty live region is out of the grid, and the curve table's rows are 1 px apart. An e2e test holds it.
+24. **Every port's elevation is editable** (it was on reservoirs only, while the equipment help asks for ports at their real elevations); the ports are in More, so it costs nothing in the normal state.
+25. **A fitting's description** is shown and edited (last in its row, identification), so one a link holds is never invisible; the `Fitting` schema joins the registry and its guard.
+26. **A boundary's round-off outflow** (−8.9×10⁻¹³ L/s on the bypassed basin) shows as "≈ 0" with the exact value in its note, by the solve's own continuity test (API `solver/gga.py` CONTINUITY_RTOL × the largest boundary flow + CONTINUITY_ATOL), as heads already do with HEAD_NOISE; the Boundaries table and the strip read the same cell.
+27. **Decided, not changed** (the §3.4 inconsistencies): "K" is the loss coefficient (Crane) on valves and fittings and ASME's rated coefficient of discharge on a relief valve, each its source's symbol, and the relief label spells it out ("Rated coefficient of discharge (K)"); the orifice's "Discharge coefficient" (ISO 5167-2's C) and the relief valve's are different quantities under one field name, each labelled by its standard; the five wordings of "default" each name their basis (D10) — unifying them would change cited text in scenario notes and the export's committed fixture for no gain in correctness; pressure differences carry no "(g)" (D4), which is what marks them, and only the relief set pressure says "(difference)" because it is compared with gauge setpoints elsewhere; `angle` is scoped by its row (a wye's "Branch angle", a fitting's "Angle").
+28a. **The density fixture's pump has the pump example's curve**: without one, its "needs a curve" box (an exception, with its buttons) pushed the pump's chrome to 19.3 % once the form's gaps tightened; normal state, as for the plugged ports and the setpoints (items 6, 11).
+28. **The export's pump table** lists solved results from the API response (D17), not Build inputs; a new Build input reaching the workbook is a results-contract change for that slice, not a density one. Decided as by design; `adding-a-field.md` says so.
+
 Screenshots: `build-density/before-*.png` and `after-*.png` (the solved pump at 1280×800 and 390×844, the solved gate valve and the relief valve on a phone, Piping on both, the Add dialog, the equipment form; the after set as of the second session), and `after-zoom-320x256.png` (400 % zoom).
 
 ## 12. Later
 
-- The export's pump table columns from the registry, and `labels.fieldLabel` from `fieldLabelFor`.
-- A segmented control for 2–3-value choices (a phone's status in one tap), and an "Add after ▾" select that adds a kind with no entry values in one step.
 - The strip kept in view when it gains a flag after a solve (cockpit §4).
-- The inconsistencies of §3.4 one by one (labels for K, "difference", "default"): each a label change that reaches scenario notes and the export, so each with its own review.
+- Segments for three-value choices where their labels fit (a check valve's status on desktop).
+- The export's input columns from the registry, if the owner wants Build inputs in the results workbook (D17).

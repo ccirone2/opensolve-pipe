@@ -21,7 +21,7 @@ minimumFlow: {
 },
 ```
 
-That is all for a **plain field**, also one a scenario or goal seek may change: scenario notes, goal seek and the export read its label and unit from this entry (a number the form draws itself states `unit: { category, gauge? }`). The plain field: a number in one unit category (`input.kind: 'number'`; a pressure must say `gauge: true` or `false`, which a test checks, D4) or a choice of the schema's values with a label for each (`input.kind: 'choice'`). `FieldSections` draws it in its section, `RegistryField` gives it its unit, schema bounds, label, help on focus, the scenario note when the allow-list names it (D15), and its undo step "change minimum flow" (`edit` overrides the wording).
+That is all for a **plain field**, also one a scenario or goal seek may change: scenario notes, goal seek and the export read its label and unit from this entry (a number the form draws itself states `unit: { category, gauge? }`). The plain field: a number in one unit category (`input.kind: 'number'`; a pressure must say `gauge: true` or `false`, which a test checks, D4) or a choice of the schema's values with a label for each (`input.kind: 'choice'`; two values are drawn as segments, one tap). `FieldSections` draws it in its section, `RegistryField` gives it its unit, schema bounds, label, help on focus, the scenario note when the allow-list names it (D15), and its undo step "change minimum flow" (`edit` overrides the wording).
 
 How to choose:
 - **Facet**: what the engineer looks for it under. Operation: what the element does in this case (status, setpoints, levels, assigned flows). Rating: what it is (curve, capacity, coefficients, set pressure). Size and position: elevation, ports, angles, taps, pipe size and length. Fittings: a pipe's fittings. Identification: names.
@@ -44,8 +44,8 @@ A union's sub-fields each get an entry too (`capacity.letter`, `rating.value`), 
 
 ## 4. What CI checks for you
 
-- `field-registry.test.ts`: every field of every component schema (and `Port`, `PipeDefinition`, `PumpCurve`) has an entry; no entry names a field the schema lacks; every pressure states gauge or not; every field on the scenario or goal-seek allow-list has an entry, and every number goal seek varies a unit.
-- Not checked: the export's pump table lists its input columns by hand (`utils/export/tables.ts`); add a column there for a new pump input.
+- `field-registry.test.ts`: every field of every component schema (and `Port`, `PipeDefinition`, `Fitting`, `PumpCurve`) has an entry; no entry names a field the schema lacks; every pressure states gauge or not; every field on the scenario or goal-seek allow-list has an entry, and every number goal seek varies a unit.
+- By design, not checked: the results workbook (D17) reports solved values from the API response, not Build inputs; a new input appears there only if its slice adds a result for it.
 - `tests/build-density.e2e.ts`: every component's core fields are on the first screen of a 390×844 phone; chrome is at most 15 % of the Build pane at 1280×800; a pipe size and a valve's status stay 2 and 1 actions from their panel; the form is reachable at 400 % zoom; axe-core finds no WCAG 2.2 A/AA violation in Build with its disclosures open.
 
 If the density spec fails after your entry, the field is probably core when it should be more, or a core section has grown past a phone's first screen: move the field to More, or record why it must stay core in the proposal and rebalance the type's core fields.

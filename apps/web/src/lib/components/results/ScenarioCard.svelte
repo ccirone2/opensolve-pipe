@@ -7,8 +7,8 @@
 	control valve's setpoint is a pressure or a flow by its type then, a pump's speed its maximum
 	when it was speed-controlled), names the project's current ones, but a pipe's: its number is
 	the solve's, so its connection is named as solved once the results are out of date
-	(utils/results.ts resultsProject), as the Links table names it. For the base case of a project
-	with scenarios, one line saying so.
+	(utils/results.ts resultsProject), as the Links table names it. For the base case, nothing: its
+	tab and the Compare cases tab beside it say it (proposal build-density.md §15).
 -->
 <script lang="ts">
 	import type { Override, ScenarioResult } from '$lib/api/types';
@@ -17,8 +17,7 @@
 	import { changeElement } from '$lib/utils/scenario-problems';
 	import { changeFieldLabel, changeTargetLabel, changeValueText } from '$lib/utils/scenarios';
 
-	let { scenario, oncompare }: { scenario: ScenarioResult | null; oncompare?: () => void } =
-		$props();
+	let { scenario }: { scenario: ScenarioResult | null } = $props();
 	const ws = useWorkspace();
 	const id = $props.id();
 
@@ -95,17 +94,4 @@
 			</ul>
 		{/if}
 	</section>
-{:else}
-	<p
-		class="flex flex-wrap items-center gap-x-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
-	>
-		<span class="min-w-0 flex-1 basis-48"
-			>Base case: the network as built, without scenario changes.</span
-		>
-		{#if oncompare}
-			<button type="button" class="btn btn-quiet px-2 text-blue-800" onclick={oncompare}
-				>Compare cases</button
-			>
-		{/if}
-	</p>
 {/if}

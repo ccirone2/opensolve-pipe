@@ -22,7 +22,13 @@
 	2026-10-31; proposal build-density.md §14): each row a block headed by the element's name, its
 	values as label and value pairs that wrap, its flags under them; the column headings stay for
 	screen readers, and a "Sort by" field and a direction button sort it by any column. The table
-	keeps explicit ARIA roles, so CSS that unmakes its layout never unmakes its semantics.
+	keeps explicit ARIA roles, so CSS that unmakes its layout never unmakes its semantics. A value
+	the row has none of ("—") is left out of a phone's row.
+
+	Fields (owner, 2026-10-31; proposal build-density.md §15): a menu of the table's columns, each a
+	checkbox, chooses which are shown, in the table and in the phone's list; the element's name
+	always is. The choice is remembered in this browser per table (localStorage: a per-viewer
+	convenience, never project data, never in the link); "Show all" forgets it.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
@@ -67,6 +73,39 @@
 
 	const id = $props.id();
 	let expanded = $state<string[]>([]);
+
+	/** The columns hidden in this browser for this table (by its caption), read and written safely. */
+	const storageKey = $derived(`opensolve-pipe:results-fields:${caption}`);
+	function readHidden(key: string): string[] {
+		try {
+			const value: unknown = JSON.parse(localStorage.getItem(key) ?? '[]');
+			return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+		} catch {
+			return [];
+		}
+	}
+	let hidden = $derived(readHidden(storageKey));
+	function setHidden(next: string[]) {
+		hidden = next;
+		try {
+			if (next.length) localStorage.setItem(storageKey, JSON.stringify(next));
+			else localStorage.removeItem(storageKey);
+		} catch {
+			// Storage refused (a private window): the choice holds for this page only.
+		}
+	}
+	const visibleColumns = $derived(table.columns.filter((c) => !hidden.includes(c.key)));
+	let fieldsOpen = $state(false);
+	let fieldsMenu: HTMLElement | undefined = $state();
+	// Closed by a press outside it.
+	$effect(() => {
+		if (!fieldsOpen) return;
+		const outside = (event: PointerEvent) => {
+			if (!fieldsMenu?.contains(event.target as Node)) fieldsOpen = false;
+		};
+		document.addEventListener('pointerdown', outside);
+		return () => document.removeEventListener('pointerdown', outside);
+	});
 
 	function toggle(key: string) {
 		expanded = expanded.includes(key) ? expanded.filter((k) => k !== key) : [...expanded, key];
@@ -121,7 +160,7 @@
 	const sortChoices = $derived(
 		[
 			{ key: NAME_SORT_KEY, label: first },
-			...table.columns.map((c) => ({
+			...visibleColumns.map((c) => ({
 				key: c.key,
 				label: c.unit ? `${c.label} (${c.unit})` : c.label
 			}))
@@ -144,7 +183,11 @@
 		const timer = setTimeout(grow, 16);
 		return () => clearTimeout(timer);
 	});
-	const columns = $derived(table.columns.length + 1);
+	const columns = $derived(visibleColumns.length + 1);
+	// A sort on a column hidden since goes back to the table's order.
+	$effect.pre(() => {
+		if (sort && sort.key !== NAME_SORT_KEY && hidden.includes(sort.key)) sort = null;
+	});
 
 	// The fixed first column: a divider and a shadow on its right edge.
 	const FIXED =
@@ -191,7 +234,7 @@
 			<label for="{id}-sort" class="text-sm whitespace-nowrap text-slate-700">Sort by</label>
 			<select
 				id="{id}-sort"
-				class="input min-w-0 py-0 pr-8 text-sm"
+				class="input max-w-[11rem] min-w-0 py-0 pr-8 text-sm"
 				value={sort?.key ?? ''}
 				onchange={(event) => sortBy(event.currentTarget.value)}
 			>
@@ -214,6 +257,68 @@
 					<Icon name={descending ? 'down' : 'up'} class="size-5" />
 				</button>
 			{/if}
+		</div>
+	{/if}
+	{#if table.columns.length > 1}
+		<div class="relative" bind:this={fieldsMenu}>
+			<button
+				type="button"
+				class="btn btn-quiet gap-1 px-2 text-sm"
+				aria-expanded={fieldsOpen}
+				aria-controls="{id}-fields"
+				onclick={() => (fieldsOpen = !fieldsOpen)}
+				onkeydown={(event) => {
+					if (event.key === 'Escape') fieldsOpen = false;
+				}}
+			>
+				<Icon name="list" class="size-4" />
+				Fields<span class="text-slate-600"
+					>{hidden.length ? ` (${visibleColumns.length} of ${table.columns.length})` : ''}</span
+				>
+			</button>
+			<!-- Escape inside the menu closes it (as from its button). -->
+			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+			<div
+				id="{id}-fields"
+				hidden={!fieldsOpen}
+				role="group"
+				aria-label="Fields shown in {caption}"
+				class="absolute left-0 z-40 mt-1 max-h-80 w-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
+				onkeydown={(event) => {
+					if (event.key === 'Escape') {
+						event.stopPropagation();
+						fieldsOpen = false;
+					}
+				}}
+			>
+				{#each table.columns as column (column.key)}
+					<label class="flex min-h-9 items-center gap-2 px-1 text-sm text-slate-800">
+						<input
+							type="checkbox"
+							class="size-4"
+							checked={!hidden.includes(column.key)}
+							onchange={(event) =>
+								setHidden(
+									event.currentTarget.checked
+										? hidden.filter((k) => k !== column.key)
+										: [...hidden, column.key]
+								)}
+						/>
+						<span
+							>{column.label}{#if column.unit}<span class="text-slate-600"
+									>&nbsp;({column.unit})</span
+								>{/if}</span
+						>
+					</label>
+				{/each}
+				{#if hidden.length}
+					<button
+						type="button"
+						class="btn btn-quiet mt-1 w-full text-sm text-blue-800"
+						onclick={() => setHidden([])}>Show all</button
+					>
+				{/if}
+			</div>
 		</div>
 	{/if}
 	{#if canFilter}
@@ -247,7 +352,7 @@
 				>
 					{@render heading(NAME_SORT_KEY, first, undefined, false)}
 				</th>
-				{#each table.columns as column (column.key)}
+				{#each visibleColumns as column (column.key)}
 					<th
 						role="columnheader"
 						scope="col"
@@ -306,7 +411,7 @@
 							</span>
 						{/if}
 					</th>
-					{#each table.columns as column (column.key)}
+					{#each visibleColumns as column (column.key)}
 						{@const cell = row.cells[column.key] ?? '—'}
 						<td
 							role="cell"
@@ -320,7 +425,10 @@
 									: 'whitespace-nowrap',
 								// A phone: "Flow (L/s) 18.98", its label from the column (not in its text).
 								'max-sm:flex max-sm:max-w-full max-sm:min-w-0 max-sm:items-baseline max-sm:gap-1 max-sm:border-0 max-sm:p-0 max-sm:text-left max-sm:whitespace-normal',
-								'max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]'
+								'max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]',
+								// A phone's row leaves out what it has no value for: out of sight only, so the
+								// row keeps its cells, in order, for screen readers.
+								cell === '—' && 'max-sm:sr-only'
 							]}
 						>
 							<!-- Plain text inline: a component per cell is slow on tables of hundreds of rows. -->

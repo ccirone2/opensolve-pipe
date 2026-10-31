@@ -417,9 +417,12 @@ test('on a phone the dialog is a bottom sheet, with Download reachable and focus
 	const box = (await button.boundingBox())!;
 	expect(Math.round(box.width)).toBe(44);
 	expect(Math.round(box.height)).toBeGreaterThanOrEqual(44);
-	// The heading keeps its width beside it.
-	const heading = resultsPane(page).getByRole('heading', { level: 2, name: /^Results/ });
-	expect((await heading.boundingBox())!.width).toBeGreaterThan(40);
+	// The status line keeps its width beside it (on a phone the title is for screen readers: the
+	// view tab says Results; proposal build-density.md §15).
+	const status = resultsPane(page)
+		.getByRole('status')
+		.filter({ hasText: /^Last solve/ });
+	expect((await status.boundingBox())!.height).toBeLessThan(30); // one line, not squeezed
 	const dialog = await openExport(page);
 	const viewport = page.viewportSize()!;
 	const sheet = (await dialog.boundingBox())!;

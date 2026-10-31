@@ -429,6 +429,21 @@
 		return last ? `Last solve${of}: ${last}` : '';
 	});
 
+	/** The status line's mark: what state the results shown are in, besides its words. */
+	const statusIcon = $derived<'spinner' | 'check' | 'alert' | 'octagon' | null>(
+		results.solving
+			? 'spinner'
+			: results.error
+				? 'octagon'
+				: response && solved
+					? !(response.success && solved.converged)
+						? 'octagon'
+						: results.stale
+							? 'alert'
+							: 'check'
+					: null
+	);
+
 	/** WAI-ARIA tabs: arrow keys, Home and End move between the views. */
 	function tabKeydown(event: KeyboardEvent) {
 		const index = views.indexOf(view);
@@ -523,22 +538,35 @@
 </script>
 
 <div class="relative flex h-full min-h-0 flex-col">
+	<!--
+		One compact row (owner, 2026-10-31; proposal build-density.md §15): the status with its mark,
+		then Export and Goal seek. The title is for screen readers on phones, where the view tab
+		already says Results; the case is named by the status and by the case tabs below.
+	-->
 	<div
-		class="@container flex min-h-[53px] items-center gap-2 border-b border-slate-200 px-3 py-1 sm:px-4"
+		class="@container flex min-h-11 items-center gap-2 border-b border-slate-200 px-3 py-0.5 sm:px-4"
 		inert={covered}
 	>
-		<h2 class="flex min-w-min flex-1 flex-wrap items-center gap-2 text-base font-semibold">
-			Results
-			{#if hasScenarios}
-				<span
-					class={[
-						'rounded-full px-2 py-0.5 text-xs font-medium break-words',
-						caseId === null ? 'bg-slate-200 text-slate-800' : 'bg-teal-700 text-white'
-					]}><span class="sr-only">of&nbsp;</span>{caseName}</span
-				>
-			{/if}
+		<h2 class="shrink-0 text-base font-semibold max-sm:sr-only">
+			Results{#if hasScenarios}<span class="sr-only">&nbsp;of {caseName}</span>{/if}
 		</h2>
-		{#key caseId}<p role="status" class="min-w-0 text-sm text-slate-600">{status}</p>{/key}
+		<div class="flex min-w-0 flex-1 items-center gap-1.5">
+			{#if statusIcon}
+				<Icon
+					name={statusIcon}
+					class={[
+						'size-4 shrink-0',
+						statusIcon === 'check' && 'text-green-700',
+						statusIcon === 'alert' && 'text-amber-700',
+						statusIcon === 'octagon' && 'text-red-700',
+						statusIcon === 'spinner' && 'text-slate-500 motion-safe:animate-spin'
+					]}
+				/>
+			{/if}
+			{#key caseId}<p role="status" class="min-w-0 text-sm leading-tight text-slate-700">
+					{status}
+				</p>{/key}
+		</div>
 		{#if exportShown}
 			<button
 				type="button"
@@ -564,7 +592,7 @@
 		{#if ws.project.components.length || goalSeeking}
 			<button
 				type="button"
-				class="btn shrink-0 max-[24rem]:w-11 max-[24rem]:px-0"
+				class="btn shrink-0 @max-[26rem]:w-11 @max-[26rem]:px-0"
 				data-goal-seek-button
 				aria-label={goalSeeking ? 'Goal seek (running)' : undefined}
 				onclick={() => ws.openGoalSeek()}
@@ -573,7 +601,7 @@
 					name={goalSeeking ? 'spinner' : 'target'}
 					class={['size-4', goalSeeking && 'motion-safe:animate-spin']}
 				/>
-				<span class="max-[24rem]:sr-only">Goal seek</span>
+				<span class="@max-[26rem]:sr-only">Goal seek</span>
 			</button>
 		{/if}
 	</div>
@@ -592,7 +620,7 @@
 					aria-selected={comparing === compare}
 					tabindex={comparing === compare ? 0 : -1}
 					class={[
-						'-mb-px min-h-11 border-b-2 px-3 text-sm font-medium',
+						'-mb-px min-h-9 border-b-2 px-3 text-sm font-medium',
 						comparing === compare
 							? 'border-teal-700 text-teal-900'
 							: 'border-transparent text-slate-600 hover:text-slate-900'
@@ -621,7 +649,7 @@
 			<CompareView onshow={() => showTab(false)} />
 		{:else}
 			{#if hasScenarios && response && !previousHidden}
-				<ScenarioCard scenario={response.scenario ?? null} oncompare={() => showTab(true)} />
+				<ScenarioCard scenario={response.scenario ?? null} />
 			{/if}
 			{#if ws.project.metadata.description}
 				<section

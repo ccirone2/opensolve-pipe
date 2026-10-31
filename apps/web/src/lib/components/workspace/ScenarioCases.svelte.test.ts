@@ -196,17 +196,23 @@ describe('Compare cases', () => {
 		expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Winter' }));
 	});
 
-	it('the scenario card’s Compare cases gives the focus to the Compare cases tab', async () => {
+	it('the base case has no card of its own: its tab and Compare cases beside it say it', async () => {
+		// The base case's line and its Compare cases button repeated the case tabs right above
+		// them (proposal build-density.md §15); the tab is the way to compare.
 		const ws = setup(twoCases(), solvesOk);
 		await ws.solveAll();
 		await tick();
 		const results = screen.getByRole('region', { name: 'Results' });
-		const button = within(results).getByRole('button', { name: 'Compare cases' });
-		button.focus();
-		await fireEvent.click(button);
+		expect(within(results).queryByText(/the network as built/)).toBeNull();
+		expect(within(results).getByRole('tab', { name: 'Base case' })).toHaveAttribute(
+			'aria-selected',
+			'true'
+		);
+		const compare = within(results).getByRole('tab', { name: 'Compare cases' });
+		await fireEvent.click(compare);
 		await tick();
 		expect(ws.comparing).toBe(true);
-		expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Compare cases' }));
+		expect(compare).toHaveAttribute('aria-selected', 'true');
 	});
 });
 

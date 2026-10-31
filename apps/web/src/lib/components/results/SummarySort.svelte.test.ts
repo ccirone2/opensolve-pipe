@@ -147,6 +147,37 @@ describe('results tables sort and filter', () => {
 		expect(panel.queryByRole('button', { name: /lowest first|highest first/ })).toBeNull();
 	});
 
+	it('chooses the fields shown from its Fields menu, remembered in this browser', async () => {
+		localStorage.clear();
+		await solveWith(pumpTransferSolved());
+		await fireEvent.click(results().getByRole('tab', { name: 'Links' }));
+		const panel = () =>
+			within(
+				results()
+					.getAllByRole('tabpanel')
+					.find((p) => !p.hidden)!
+			);
+		const fields = panel().getByRole('button', { name: /^Fields/ });
+		expect(fields).toHaveAttribute('aria-expanded', 'false');
+		await fireEvent.click(fields);
+		const menu = panel().getByRole('group', { name: /^Fields shown in/ });
+		const velocity = within(menu).getByRole('checkbox', { name: /^Velocity/ });
+		expect(velocity).toBeChecked();
+		await fireEvent.click(velocity);
+		expect(panel().queryByRole('columnheader', { name: /^Velocity/ })).toBeNull();
+		expect(panel().getByRole('columnheader', { name: /^Flow/ })).toBeInTheDocument();
+		expect(fields).toHaveTextContent(/of/);
+		// Remembered: a per-browser convenience, never in the project or its link.
+		expect(
+			Object.keys(localStorage).some((k) => k.startsWith('opensolve-pipe:results-fields:'))
+		).toBe(true);
+		await fireEvent.click(within(menu).getByRole('button', { name: 'Show all' }));
+		expect(panel().getByRole('columnheader', { name: /^Velocity/ })).toBeInTheDocument();
+		expect(
+			Object.keys(localStorage).some((k) => k.startsWith('opensolve-pipe:results-fields:'))
+		).toBe(false);
+	});
+
 	it('offers Flagged only when some rows have flags and some do not', async () => {
 		await solveWith(
 			pumpTransferSolved({

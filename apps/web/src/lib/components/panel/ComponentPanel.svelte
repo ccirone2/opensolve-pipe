@@ -78,7 +78,7 @@
 		</h2>
 		{#key component.id}
 			<TextField
-				class="-mx-2 min-w-0 flex-1 basis-48"
+				class="-mx-2 min-w-0 flex-1 basis-48 [&_.hint]:px-2"
 				label="Name"
 				hideLabel
 				value={component.name}

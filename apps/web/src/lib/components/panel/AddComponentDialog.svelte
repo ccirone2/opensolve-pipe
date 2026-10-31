@@ -5,7 +5,21 @@
 	asks for it here first, wherever it goes (after, before or inserted).
 -->
 <script lang="ts" module>
+	import type { ComponentKind as Kind } from '$lib/utils/factory';
+
 	export type AddMode = 'after' | 'insert' | 'branch';
+
+	/**
+	 * Kinds added in one step (build-density.md §11): the kinds added last in this page (page
+	 * state, never in the project), then common ones. Kinds that ask for a value first are chosen
+	 * in the list below, where their fields are.
+	 */
+	let recentKinds: Kind[] = [];
+	const COMMON: Readonly<Record<AddMode, readonly Kind[]>> = {
+		after: ['gate', 'pump', 'reservoir', 'check'],
+		insert: ['gate', 'check', 'globe'],
+		branch: ['tee', 'wye']
+	};
 
 	const MODES = [
 		{ value: 'after', label: 'At a free port (after it)' },
@@ -17,11 +31,14 @@
 <script lang="ts">
 	import type { Component } from '$lib/api/types';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
+	import Icon from '$lib/components/ui/Icon.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { addsUpstream, flowRole } from '$lib/utils/edit';
 	import {
 		createComponent,
 		DEFAULT_MATERIAL_ID,
+		ENTRY_KINDS,
+		KIND_LABELS,
 		DEFAULT_PIPE_LENGTH,
 		DEFAULT_SCHEDULE,
 		missingEntries,
@@ -139,8 +156,24 @@
 			'. Change it under Piping.'
 	);
 
+	/** Up to four kinds this placement takes and that need no value first, the latest first. */
+	const quick = $derived(
+		[...new Set([...recentKinds, ...COMMON[mode]])]
+			.filter((k) => kinds.some((o) => o.value === k) && !ENTRY_KINDS.includes(k))
+			.slice(0, 4)
+	);
+
+	function addNow(chosen: ComponentKind) {
+		kind = chosen;
+		add();
+	}
+
 	function submit(event: SubmitEvent) {
 		event.preventDefault();
+		add();
+	}
+
+	function add() {
 		if (!canSubmit) return;
 		// Every mode but a branch (a tee or wye, which need no entry) may add a kind that does.
 		missing = mode === 'branch' ? [] : missingEntries(kind, values);
@@ -151,7 +184,10 @@
 				: mode === 'branch'
 					? ws.addBranch(connection, kind === 'wye' ? 'wye' : 'tee')
 					: ws.insert(connection, kind, values);
-		if (added) onclose();
+		if (added) {
+			recentKinds = [kind, ...recentKinds.filter((k) => k !== kind)];
+			onclose();
+		}
 	}
 </script>
 
@@ -159,6 +195,24 @@
 	<!-- What first, then where (build-density.md §6): the choice made most often leads, and the
 		placement, preset to the way onward, is one compact row of options. -->
 	<form id={formId} class="space-y-3" onsubmit={submit}>
+		{#if quick.length}
+			<!-- One step: a press adds the kind here (2 actions from the panel: Add after, a kind). -->
+			<div class="field">
+				<span class="label" id="{formId}-quick">Add now</span>
+				<div role="group" aria-labelledby="{formId}-quick" class="flex flex-wrap gap-1">
+					{#each quick as k (k)}
+						<button
+							type="button"
+							class="btn btn-tight"
+							disabled={!canSubmit}
+							onclick={() => addNow(k)}
+						>
+							<Icon name="plus" class="size-4 shrink-0" />{KIND_LABELS[k]}
+						</button>
+					{/each}
+				</div>
+			</div>
+		{/if}
 		<SelectField
 			label="Component"
 			value={kind}

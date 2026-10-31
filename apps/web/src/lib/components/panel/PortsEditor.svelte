@@ -168,20 +168,20 @@
 						onchange={(size) =>
 							editPort(port.id, 'change port size', (p) => ({ ...p, nominalSize: size }))}
 					/>
-					{#if component.type === 'reservoir' || port.elevation != null}
-						<NumberField
-							label="Port elevation"
-							value={port.elevation}
-							category="length"
-							units={ws.units}
-							optional
-							placeholder="Same as the component"
-							bounds={schemaBounds('Port', 'elevation')}
-							help="Above the project datum; blank uses the component's elevation."
-							onchange={(v) =>
-								editPort(port.id, 'change port elevation', (p) => withOptional(p, 'elevation', v))}
-						/>
-					{/if}
+					<!-- Every port's elevation (build-density.md §11): an equipment item's nozzles, a
+						reservoir's outlets; blank is the component's. -->
+					<NumberField
+						label="Port elevation"
+						value={port.elevation}
+						category="length"
+						units={ws.units}
+						optional
+						placeholder="Same as the component"
+						bounds={schemaBounds('Port', 'elevation')}
+						help="Above the project datum; blank uses the component's elevation."
+						onchange={(v) =>
+							editPort(port.id, 'change port elevation', (p) => withOptional(p, 'elevation', v))}
+					/>
 				</div>
 				{#if connection && attached && mismatch}
 					{@const resizable =

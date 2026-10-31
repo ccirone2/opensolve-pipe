@@ -244,14 +244,30 @@ test('solved, a pipe size is still 2 actions with no scroll, beside both result 
 	await expect(panel.getByRole('combobox', { name: 'Size' }).first()).toBeInViewport({ ratio: 1 });
 });
 
-test('a valve’s status is 1 action from its panel', async ({ page }) => {
+test('solved, a pump curve’s first point is 1 action from its panel, with no scroll', async ({
+	page
+}) => {
+	await open(page, exampleProject('pump-transfer')!);
+	await solve(page);
+	await showPane(page, 'Build');
+	await jumpTo(page, 'Transfer pump');
+	const panel = buildPane(page);
+	await expect(panel.getByRole('group', { name: /^Last solve/ })).toBeVisible();
+	const point = panel.getByRole('textbox', { name: /^Point 1 flow/ });
+	await expect(point).toBeInViewport({ ratio: 1 });
+	await expect(panel.getByRole('textbox', { name: /^Point 1 head/ })).toBeInViewport({ ratio: 1 });
+});
+
+test('a valve’s status is 1 action from its panel: one tap on its segment', async ({ page }) => {
 	await open(page, exampleProject('pump-transfer')!);
 	await showPane(page, 'Build');
 	await jumpTo(page, 'Discharge isolation valve');
-	const status = buildPane(page).getByRole('combobox', { name: 'Status' });
+	const status = buildPane(page).getByRole('radiogroup', { name: 'Status' });
 	await expect(status).toBeInViewport({ ratio: 1 });
-	await status.selectOption('isolated'); // 1
-	await expect(status).toHaveValue('isolated');
+	const closed = status.getByRole('radio', { name: 'Closed (isolated)' });
+	await closed.click(); // 1
+	await expect(closed).toBeChecked();
+	await expect(status.getByRole('radio', { name: 'Open' })).not.toBeChecked();
 });
 
 test('at 400 % zoom (320×256) the form is reached by scrolling the page, never sideways', async ({

@@ -91,17 +91,20 @@ test('create a scenario, change a value in it, reset it; locked values; back to 
 	// Topology actions are hidden in a scenario.
 	await expect(panel.getByRole('button', { name: 'Add after' })).toHaveCount(0);
 
-	const status = panel.getByRole('combobox', { name: 'Status' });
-	await status.selectOption('off');
+	// A two-value status is a pair of segments (proposal build-density.md §11).
+	const status = panel.getByRole('radiogroup', { name: 'Status' });
+	const on = status.getByRole('radio', { name: 'On' });
+	const off = status.getByRole('radio', { name: 'Off' });
+	await off.click();
 	await expect(status).toHaveAccessibleDescription(/Changed in this scenario\. Base value On\./);
 	const reset = panel.getByRole('button', { name: 'Reset Status to the base value, On' });
 	await expect(reset).toBeVisible();
 	await expect(caseMenu(page).locator('option:checked')).toHaveText('Pump off (1 change)');
 	await reset.click();
-	await expect(status).toHaveValue('on');
+	await expect(on).toBeChecked();
 	await expect(reset).toHaveCount(0);
 	await expect(caseMenu(page).locator('option:checked')).toHaveText('Pump off (0 changes)');
-	await status.selectOption('off');
+	await off.click();
 	await expect(caseMenu(page).locator('option:checked')).toHaveText('Pump off (1 change)');
 
 	// A value that is the same in every scenario: read-only, focusable, said so.
@@ -118,7 +121,7 @@ test('create a scenario, change a value in it, reset it; locked values; back to 
 	await panel.getByRole('button', { name: 'Switch to base case' }).click();
 	await expect(caseMenu(page)).toHaveValue('');
 	await expect(panel.getByRole('note', { name: 'Scenario' })).toHaveCount(0);
-	await expect(status).toHaveValue('on');
+	await expect(on).toBeChecked();
 	await expect(status).toHaveAccessibleDescription(/Pump off sets its own value\./);
 	await expect(elevation).not.toHaveAttribute('readonly', '');
 	await expect(panel.getByRole('button', { name: 'Add after' })).toBeVisible();
@@ -334,7 +337,10 @@ test('a deleted component’s changes no longer apply; undo restores them and sw
 	await openExample(page);
 	await newScenario(page, 'Valve closed');
 	let panel = await showComponent(page, 'Discharge isolation valve');
-	await panel.getByRole('combobox', { name: 'Status' }).selectOption('isolated');
+	await panel
+		.getByRole('radiogroup', { name: 'Status' })
+		.getByRole('radio', { name: 'Closed (isolated)' })
+		.click();
 	await expect(caseMenu(page).locator('option:checked')).toHaveText('Valve closed (1 change)');
 
 	// Delete the valve in the base case: its change is kept and no longer applies.

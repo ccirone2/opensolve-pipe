@@ -18,6 +18,7 @@
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
+	import TextField from '$lib/components/ui/TextField.svelte';
 	import {
 		DEFAULT_ENTRANCE,
 		DEFAULT_EXIT,
@@ -42,7 +43,7 @@
 		resistanceEntries,
 		setFittingResistance
 	} from '$lib/utils/project-library';
-	import { fittingTypes, schemaBounds } from '$lib/utils/schema-bounds';
+	import { fittingTypes, schemaBounds, stringLimits } from '$lib/utils/schema-bounds';
 	import { formatValue } from '$lib/utils/units';
 	import { ENTRANCE_TYPES, EXIT_TYPES, FITTING_PARAMETERS } from '$lib/utils/model-rules';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
@@ -456,6 +457,15 @@
 									)}
 							/>
 						{/each}
+						<!-- Its own words, last (identification): a description a link holds is shown. -->
+						<TextField
+							label="Fitting {i + 1} description"
+							value={fitting.description}
+							placeholder="Optional"
+							maxlength={stringLimits('Fitting', 'description').maxLength}
+							onchange={(v) =>
+								edit(i, 'change fitting description', (f) => withOptional(f, 'description', v))}
+						/>
 					</div>
 				</li>
 			{/each}

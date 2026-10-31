@@ -136,7 +136,7 @@ const VALVE_TYPE: FieldEntry = {
 
 /**
  * By schema, in form order. The schema names are the API's (model-rules.ts COMPONENT_SCHEMAS,
- * and the pipe, port and pump curve schemas a component's forms also edit).
+ * and the pipe, fitting, port and pump curve schemas a component's forms also edit).
  */
 export const FIELD_REGISTRY: Readonly<Record<string, Entries>> = {
 	Reservoir: {
@@ -360,6 +360,16 @@ export const FIELD_REGISTRY: Readonly<Record<string, Entries>> = {
 		length: { facet: 'placement', tier: 'core', label: 'Length', unit: { category: 'length' } },
 		innerDiameter: { facet: 'rating', tier: 'more', label: 'Inner diameter override' },
 		roughness: { facet: 'rating', tier: 'more', label: 'Roughness override' }
+	},
+	Fitting: {
+		type: { facet: 'fittings', tier: 'core', label: 'Type' },
+		quantity: { facet: 'fittings', tier: 'core', label: 'Quantity' },
+		pipeIndex: { facet: 'fittings', tier: 'core', label: 'In pipe' },
+		resistanceId: { facet: 'fittings', tier: 'core', label: 'Loss coefficient' },
+		kOverride: { facet: 'fittings', tier: 'core', label: 'K override' },
+		angle: { facet: 'fittings', tier: 'core', label: 'Angle' },
+		radiusRatio: { facet: 'fittings', tier: 'core', label: 'Radius ratio (r/D)' },
+		description: { facet: 'identity', tier: 'core', label: 'Description' }
 	},
 	PumpCurve: {
 		points: { facet: 'rating', tier: 'core', label: 'Head curve' },

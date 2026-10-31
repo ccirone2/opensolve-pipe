@@ -109,9 +109,9 @@
 	</div>
 {/snippet}
 
-<div class="space-y-4">
+<div class="space-y-2">
 	{#each core as section (section.facet)}
-		<section class="space-y-2" aria-labelledby="{id}-{section.facet}" data-tier="core">
+		<section class="space-y-1" aria-labelledby="{id}-{section.facet}" data-tier="core">
 			<h3 id="{id}-{section.facet}" class="section-title">{section.title}</h3>
 			<div class="fields fields-pairs">
 				{#each section.paths as path (path)}{@render one(path)}{/each}

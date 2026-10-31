@@ -71,7 +71,7 @@
 			results.stale ? 'border-dashed border-slate-300' : 'border-slate-200 bg-slate-50'
 		]}
 	>
-		<div class="flex flex-wrap items-center gap-x-2">
+		<div class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 pb-0.5">
 			<h3 id="{id}-title" class="text-xs font-semibold tracking-wide text-slate-600 uppercase">
 				Last solve<span class="sr-only">: {name}</span>
 			</h3>
@@ -80,11 +80,29 @@
 					Out of date: solve again
 				</span>
 			{/if}
-			<span class="flex-1"></span>
+			{#if converged && summary}
+				<!-- Label and value side by side, wrapping as pairs, on the title's line (build-density.md §6, §11). -->
+				<dl
+					class={[
+						// No box: its pairs flow on the title's line and wrap with it.
+						'contents',
+						results.stale && 'text-slate-500'
+					]}
+				>
+					{#each summary.items as item (item.key)}
+						<div class="flex min-w-0 items-baseline gap-1.5">
+							<dt class="text-xs text-slate-600">
+								{item.label}{#if item.unit}&nbsp;({item.unit}){/if}
+							</dt>
+							<dd class="font-medium break-words tabular-nums"><CellValue cell={item.cell} /></dd>
+						</div>
+					{/each}
+				</dl>
+			{/if}
 			{#if summary}
 				<button
 					type="button"
-					class="btn btn-quiet -my-1 min-h-8 px-2 text-blue-800"
+					class="btn btn-quiet -my-1 ml-auto min-h-8 px-2 text-blue-800"
 					aria-label="Trace of {name}"
 					onclick={openTrace}
 				>
@@ -100,17 +118,6 @@
 		{:else if !summary}
 			<p class="pb-2 text-slate-700">Not in the last solve: solve again to see its results.</p>
 		{:else}
-			<!-- Label and value side by side, wrapping as pairs (build-density.md §6). -->
-			<dl class={['flex flex-wrap gap-x-4 gap-y-0.5 pb-1', results.stale && 'text-slate-500']}>
-				{#each summary.items as item (item.key)}
-					<div class="flex min-w-0 items-baseline gap-1.5">
-						<dt class="text-xs text-slate-600">
-							{item.label}{#if item.unit}&nbsp;({item.unit}){/if}
-						</dt>
-						<dd class="font-medium break-words tabular-nums"><CellValue cell={item.cell} /></dd>
-					</div>
-				{/each}
-			</dl>
 			{#each summary.notes as note (note)}
 				<p class="pb-1 text-slate-700">{note}</p>
 			{/each}

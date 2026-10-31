@@ -149,7 +149,8 @@
 					describedby={problem ? noteId : undefined}
 					onchange={chooseMode}
 				/>
-				<div id={noteId} role="status" class="wide">
+				<!-- Present before its text (a live region); out of the grid while empty, so no gap. -->
+				<div id={noteId} role="status" class="wide empty:absolute">
 					{#if problem}
 						<p
 							bind:this={noteElement}
@@ -227,7 +228,7 @@
 	{/snippet}
 	{#snippet after()}
 		<!-- The curve itself, after the core fields: its table is long (build-density.md §6). -->
-		<section class="space-y-3" aria-label="Pump curve">
+		<section class="-mt-1 space-y-3" aria-label="Pump curve">
 			{#key creating ?? component.curveId}
 				<PumpCurveEditor
 					pump={component}

@@ -8,6 +8,7 @@
 <script lang="ts">
 	import type { Component } from '$lib/api/types';
 	import NumberField from '$lib/components/ui/NumberField.svelte';
+	import SegmentedField from '$lib/components/ui/SegmentedField.svelte';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { labelOf, valueAt, type FieldEntry } from '$lib/utils/field-registry';
 	import { inSentence } from '$lib/utils/labels';
@@ -50,6 +51,17 @@
 		help={entry.help}
 		{change}
 		onchange={(v) => (v === null && !optional ? false : store(v))}
+	/>
+{:else if entry.input?.kind === 'choice' && schemaChoices(schema, path).length === 2}
+	<!-- Two values: one tap, as segments (build-density.md §11). -->
+	{@const labels = entry.input.labels}
+	<SegmentedField
+		{label}
+		value={String(value)}
+		options={schemaChoices(schema, path).map((v) => ({ value: v, label: labels[v] ?? v }))}
+		help={entry.help}
+		{change}
+		onchange={(v) => store(v)}
 	/>
 {:else if entry.input?.kind === 'choice'}
 	{@const labels = entry.input.labels}

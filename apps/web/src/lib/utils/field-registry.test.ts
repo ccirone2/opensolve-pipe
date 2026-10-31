@@ -20,7 +20,7 @@ import {
  * The schemas a Build form edits: every component type (the Project.components union, read from
  * the schema), and the pipe, port and pump curve schemas its Piping and curve forms edit.
  */
-const BUILD_SCHEMAS = [...COMPONENT_SCHEMAS, 'Port', 'PipeDefinition', 'PumpCurve'];
+const BUILD_SCHEMAS = [...COMPONENT_SCHEMAS, 'Port', 'PipeDefinition', 'Fitting', 'PumpCurve'];
 
 describe('the Build form registry (proposal build-density.md §5)', () => {
 	it('covers every component schema the API has', () => {

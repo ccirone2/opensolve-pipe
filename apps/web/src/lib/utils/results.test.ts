@@ -4,7 +4,14 @@
  * made-up test inputs (testing/results.ts).
  */
 import { describe, expect, it } from 'vitest';
-import type { BranchResult, Flag, Project, PumpResult, SolvedState } from '../api/types';
+import type {
+	BoundaryResult,
+	BranchResult,
+	Flag,
+	Project,
+	PumpResult,
+	SolvedState
+} from '../api/types';
 import type { Workspace } from '../state/workspace.svelte';
 import { assignedFlowProject } from '../testing/helpers';
 import {
@@ -632,6 +639,18 @@ describe('pump, valve, branch and boundary tables', () => {
 			['Suction tank', '3', '20'],
 			['Discharge tank', '12', '-20']
 		]);
+	});
+
+	it("shows an outflow below the solve's continuity tolerance as round-off, its value kept", () => {
+		const solved = pumpTransferSolved();
+		const discharge = solved.boundaryResults.R2 as BoundaryResult;
+		// A tank the network bypasses: −8.9e-13 m³/s against 0.02 m³/s, below RTOL × 0.02 + ATOL.
+		solved.boundaryResults.R2 = { ...discharge, outflow: -8.882e-13 };
+		const rows = boundaryTable(project, solved, SI_UNITS).rows;
+		const cell = rows.find((r) => r.key === 'R2')!.cells.outflow as { text: string; title: string };
+		expect(cell.text).toBe('≈ 0');
+		expect(cell.title).toMatch(/round-off/);
+		expect(rows.find((r) => r.key === 'R1')!.cells.outflow).toBe('20');
 	});
 });
 

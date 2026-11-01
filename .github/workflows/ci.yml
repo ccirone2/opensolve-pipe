@@ -20,8 +20,10 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
-      # In parallel across the runner's CPUs (pytest-xdist): the same tests and coverage, about a
-      # third of the serial run's 7.7 min. Every test is independent of the others' order.
+      # In parallel (pytest-xdist), as the local gates run (scripts/record_history.py): the same
+      # tests and coverage. Measured on the 4-vCPU runner it gains little (7 min 25 s against
+      # 7 min 42 s serial, PR #257) where it halves a 4-CPU container's run; the job is the
+      # critical path of CI.
       - run: uv run pytest -n auto --cov --cov-report=term
       - run: uv run ruff check .
       - run: uv run ruff format --check .

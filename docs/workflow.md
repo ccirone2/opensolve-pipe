@@ -30,7 +30,7 @@ Design workflows have worked well as several designers from different angles (ph
 Every gate, every time. `cd apps/api && uv run python scripts/record_history.py` runs them all, prints each summary and rewrites [`verified-state.md`](verified-state.md) (`--skip e2e` for a quick pass, `--dry-run` to write nothing, `--only pytest` for one gate; a failed gate leaves the file unchanged). By hand:
 
 ```bash
-cd apps/api && uv sync && uv run pytest && uv run ruff check . && uv run ruff format --check . && uv run mypy src
+cd apps/api && uv sync && uv run pytest -n auto && uv run ruff check . && uv run ruff format --check . && uv run mypy src
 uv run python scripts/generate_pipe_data.py --check && uv run python scripts/generate_relief_data.py --check
 cd ../web && pnpm install && pnpm gen:types && git diff --exit-code -- src/lib/api
 pnpm check && pnpm lint && pnpm test && pnpm test:e2e

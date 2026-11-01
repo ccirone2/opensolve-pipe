@@ -20,7 +20,9 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
-      - run: uv run pytest --cov --cov-report=term
+      # In parallel across the runner's CPUs (pytest-xdist): the same tests and coverage, about a
+      # third of the serial run's 7.7 min. Every test is independent of the others' order.
+      - run: uv run pytest -n auto --cov --cov-report=term
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy src
@@ -47,10 +49,17 @@ jobs:
       - run: pnpm test
 
   e2e:
-    name: End-to-end (Playwright, desktop + mobile)
+    name: End-to-end (Playwright, ${{ matrix.project }})
     # Pinned: ubuntu-latest is moving to Ubuntu 26.04, where Playwright 1.56.1 has no
     # Chromium to install. Back to ubuntu-latest with a Playwright that supports 26.04.
     runs-on: ubuntu-24.04
+    # The two Playwright projects in parallel jobs, each with its own API and app: within one
+    # job the suite runs in one worker (the API solves one request per client at a time,
+    # playwright.config.ts), so the projects ran one after the other.
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [desktop, mobile]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -69,17 +78,28 @@ jobs:
       - run: pnpm install --frozen-lockfile
         working-directory: apps/web
       - name: Generated API types are up to date
+        if: matrix.project == 'desktop'
         run: pnpm gen:types && git diff --exit-code -- src/lib/api
         working-directory: apps/web
       - run: pnpm exec playwright install --with-deps chromium
         working-directory: apps/web
-      - run: pnpm test:e2e
+      - run: pnpm test:e2e --project=${{ matrix.project }}
         working-directory: apps/web
         env:
           CI: 'true'
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.project }}
           path: apps/web/test-results
           retention-days: 7
+
+  # The check branch protection requires, under the name it had before the projects were split:
+  # green only when both shards are.
+  e2e-result:
+    name: End-to-end (Playwright, desktop + mobile)
+    if: always()
+    needs: e2e
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.e2e.result }}" = success

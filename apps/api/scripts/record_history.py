@@ -49,7 +49,7 @@ GATES: tuple[Gate, ...] = (
         "pytest",
         "API pytest",
         API,
-        ("uv", "run", "pytest", "-q", "-p", "no:cacheprovider"),
+        ("uv", "run", "pytest", "-n", "auto", "-q", "-p", "no:cacheprovider"),
         ((r"(\d+) passed(?:, (\d+) skipped)?", "{0} passed"),),
     ),
     Gate("ruff", "API ruff", API, ("uv", "run", "ruff", "check", ".")),

@@ -96,7 +96,7 @@ TSD §3.1 has the file-level tree. Add directories when the code that needs them
 # backend (apps/api)
 uv sync
 uv run uvicorn opensolve_pipe.main:app --reload --port 8000     # /openapi.json always; /docs only with API_DOCS=1
-uv run pytest && uv run ruff check . && uv run ruff format --check . && uv run mypy src
+uv run pytest -n auto && uv run ruff check . && uv run ruff format --check . && uv run mypy src
 uv run python scripts/generate_pipe_data.py --check && uv run python scripts/generate_relief_data.py --check
 
 # frontend (apps/web)

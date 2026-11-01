@@ -1,5 +1,7 @@
 **Scope:** web-only | API | docs/tooling · **METHOD_VERSION:** unchanged | x.y.z · **Decision:** none | Dnn · **Deploy:** none | API first | Pages
 
+**History:** `docs/history.md` has this PR's line, naming the PR (owner/repo#N) or its branch in backticks (docs/workflow.md §5, item 5; CI's "History line" check).
+
 <!-- docs/workflow.md §7. Keep what applies; delete these comments. -->
 
 ## What

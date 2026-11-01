@@ -50,6 +50,32 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
 
+  # docs/workflow.md §5, item 5: every PR adds its line to docs/history.md, naming the PR or its
+  # branch, in the PR itself. Pull requests only; a few seconds.
+  history:
+    name: History line
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: docs/history.md gains a line naming this PR or its branch
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          added=$(git diff "origin/${BASE_REF}...HEAD" -- docs/history.md | grep '^+[^+]' || true)
+          # The number whole (#25 is not #257); the branch in backticks, as history.md writes it.
+          if grep -qE "#${PR_NUMBER}([^0-9]|$)" <<<"$added" \
+            || grep -qF "\`${HEAD_REF}\`" <<<"$added"; then
+            echo "docs/history.md names #${PR_NUMBER} or \`${HEAD_REF}\`."
+          else
+            echo "::error file=docs/history.md::Add this PR's line to docs/history.md, naming #${PR_NUMBER} or the branch \`${HEAD_REF}\` (docs/workflow.md §5, item 5)."
+            exit 1
+          fi
+
   e2e:
     name: End-to-end (Playwright, ${{ matrix.project }})
     # Pinned: ubuntu-latest is moving to Ubuntu 26.04, where Playwright 1.56.1 has no

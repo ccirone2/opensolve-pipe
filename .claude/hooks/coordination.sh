@@ -48,44 +48,55 @@ else
   echo "- Could not list origin's branches."
 fi
 
-# Decision files (Dnn-<slug>.md) on a commit, and the highest number among them.
+# Decision files (Dnn-<slug>.md) on a commit, and the highest number among them. Empty input
+# gives an empty number, never a failure (set -e).
 decision_files() {
-  git ls-tree --name-only "$1" docs/decisions/ | sed 's|.*/||' | grep -E '^D[0-9]{2}-.*\.md$' \
-    || true
+  git ls-tree --name-only "$1" docs/decisions/ 2>/dev/null | sed 's|.*/||' \
+    | grep -E '^D[0-9]{2}-.*\.md$' || true
 }
-highest_decision() { grep -oE '^D[0-9]{2}' | sort -u | tail -1 | tr -dc '0-9' | sed 's/^0*//'; }
+highest_decision() {
+  { grep -oE '^D[0-9]{2}' || true; } | sort -u | tail -1 | tr -dc '0-9' | sed 's/^0*//'
+}
+base=
+$have_main && base=$(git merge-base origin/main HEAD 2>/dev/null || true)
 here=$(decision_files HEAD | highest_decision)
 on_main=
 $have_main && on_main=$(decision_files origin/main | highest_decision)
 next=$(( ${here:-0} > ${on_main:-0} ? ${here:-0} : ${on_main:-0} ))
 echo "- Decisions: D${here:-0} is the highest here, D${on_main:-?} on origin/main;" \
   "a new one takes D$(( next + 1 )) unless an open branch has it."
-if [ -n "$on_main" ]; then
-  # A number this branch holds that main has given to another decision.
-  low=$(( on_main < ${here:-0} ? on_main : ${here:-0} ))
-  for n in $(seq "$low" "${here:-0}"); do
-    [ "$n" -gt 0 ] || continue
-    nn=$(printf 'D%02d-' "$n")
-    mine=$(decision_files HEAD | grep "^${nn}" || true)
-    theirs=$(decision_files origin/main | grep "^${nn}" || true)
-    if [ -n "$mine" ] && [ -n "$theirs" ] && [ "$mine" != "$theirs" ]; then
+if [ -n "$on_main" ] && [ -z "$base" ]; then
+  echo "  No merge base with origin/main in this clone; the collision checks are skipped."
+elif [ -n "$on_main" ]; then
+  # A number both sides added since they parted, to different files. A number the merge base
+  # already had is no collision, so a rename of an existing decision on one side is not one.
+  base_numbers=$(decision_files "$base" | grep -oE '^D[0-9]{2}' || true)
+  while read -r nn; do
+    [ -n "$nn" ] || continue
+    grep -qxF "$nn" <<<"$base_numbers" && continue
+    mine=$(decision_files HEAD | grep "^${nn}-" || true)
+    theirs=$(decision_files origin/main | grep "^${nn}-" || true)
+    if [ -n "$theirs" ] && [ "$mine" != "$theirs" ]; then
       echo "  Collision: ${mine} here, ${theirs} on origin/main. Renumber this branch's."
       collision=1
     fi
-  done
+  done < <(decision_files HEAD | grep -oE '^D[0-9]{2}' | sort -u)
 fi
 
 version_file=apps/api/src/opensolve_pipe/services/solver/version.py
-method_version() { grep -oE '^METHOD_VERSION = "[0-9.]+"' | grep -oE '[0-9.]+[0-9]' || true; }
-v_here=$(git show "HEAD:${version_file}" 2>/dev/null | method_version)
+# METHOD_VERSION in version.py on a commit; empty where the file is missing, never a failure.
+version_on() {
+  { git show "$1:${version_file}" 2>/dev/null || true; } \
+    | { grep -oE '^METHOD_VERSION = "[0-9.]+"' || true; } | grep -oE '[0-9.]+[0-9]' || true
+}
+v_here=$(version_on HEAD)
 if $have_main; then
-  v_main=$(git show "origin/main:${version_file}" 2>/dev/null | method_version)
+  v_main=$(version_on origin/main)
   echo "- METHOD_VERSION: ${v_here:-unknown} here, ${v_main:-unknown} on origin/main."
   # Both sides moved it since they parted (to the same number or not): this branch's changes
   # need the next version after main's, with its own changelog entry.
-  base=$(git merge-base origin/main HEAD 2>/dev/null || true)
   v_base=
-  [ -n "$base" ] && v_base=$(git show "${base}:${version_file}" 2>/dev/null | method_version)
+  [ -n "$base" ] && v_base=$(version_on "$base")
   if [ -n "$v_base" ] && [ -n "$v_main" ] && [ "$v_base" != "$v_main" ] \
     && [ "$v_base" != "${v_here:-}" ]; then
     echo "  Both this branch and main moved it from ${v_base}: renumber this branch's."
@@ -97,7 +108,9 @@ fi
 
 note="$(git rev-parse --git-dir)/opensolve-generated-merged"
 if [ -s "$note" ]; then
-  echo "- A merge kept this branch's copy of generated files; the next push regenerates them:"
+  echo "- A merge kept this branch's copy of generated files (merge-generated.sh). Regenerate"
+  echo "  them on the merged tree and commit (pnpm gen:types in apps/web; scripts/generate_*_data.py"
+  echo "  and scripts/record_history.py in apps/api); CI's generated-types check fails otherwise:"
   while read -r f; do echo "    ${f}"; done < "$note"
 fi
 

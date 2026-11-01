@@ -20,9 +20,9 @@ cd "${CLAUDE_PROJECT_DIR:-.}"
 hook=.claude/hooks/session-start.sh
 
 # --- The `generated` merge driver (.gitattributes): a merge keeps this branch's copy of a
-# generated file and pre-push.sh regenerates it. Local git config, so set at every start.
-git config merge.generated.name "keep this branch's generated file; regenerate before push"
-git config merge.generated.driver ".claude/hooks/merge-generated.sh %P"
+# generated file and the report says to regenerate it. Local git config, so set at every start.
+git config merge.generated.name "keep this branch's generated file; regenerate it after the merge"
+git config merge.generated.driver ".claude/hooks/merge-generated.sh %P %A %B"
 
 # --- Dependencies: each install runs only if a file that decides it changed since it last
 # succeeded. The hash file lives in the git-ignored directory the install fills, and is written

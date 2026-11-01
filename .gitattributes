@@ -1,8 +1,10 @@
 # Generated files (CLAUDE.md, Rules: never edited by hand) and how a merge treats them
-# (docs/workflow.md §6). The `generated` driver keeps this branch's copy and notes the file;
-# .claude/hooks/pre-push.sh then regenerates it on the merged tree and blocks the push until
-# the result is committed. The driver is configured by .claude/hooks/session-start.sh (cloud
-# sessions); elsewhere, without it, git merges these files as text, as before.
+# (docs/workflow.md §6). The `generated` driver (.claude/hooks/merge-generated.sh) keeps this
+# branch's copy and notes the file; the coordination report then says to regenerate it on the
+# merged tree. The driver is configured by .claude/hooks/session-start.sh (cloud sessions);
+# elsewhere, without it, git merges these files as text, as before. Other generated files (the
+# reference case JSONs, the export's expected workbook) merge as text on purpose: a conflict
+# there is safer than a silently kept side.
 
 # pnpm gen:types (apps/web/scripts/gen-api-types.sh)
 apps/web/src/lib/api/openapi.json                               merge=generated

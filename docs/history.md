@@ -1,6 +1,6 @@
 # History: where things stand
 
-The record of what was built, in which merge, and the numbers the gates gave on the latest verified state. Append a line per merge (newest last in each session block) and re-run `scripts/record_history.py` (it rewrites [`verified-state.md`](verified-state.md)) when the gates are re-run on `main`. [`roadmap.md`](roadmap.md) holds what is still open.
+The record of what was built, in which merge, and the proofs behind it; the gates' numbers on the latest verified state are in [`verified-state.md`](verified-state.md). Append a line per merge (newest last in each session block) and re-run `scripts/record_history.py` (it rewrites [`verified-state.md`](verified-state.md)) when the gates are re-run on `main`. [`roadmap.md`](roadmap.md) holds what is still open.
 
 The decisions are in [`decisions/`](decisions/README.md); the design of each feature and its as-built notes in [`proposals/`](proposals/README.md); the method versions in `apps/api/src/opensolve_pipe/services/solver/version.py`.
 

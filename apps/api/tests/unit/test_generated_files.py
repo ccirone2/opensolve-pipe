@@ -1,9 +1,12 @@
-"""Every generated file has the `generated` merge driver (docs/workflow.md §6).
+"""The files regenerated after a merge have the `generated` merge driver (docs/workflow.md §6).
 
-A merge keeps a branch's copy of a generated file instead of merging it line by line, and
-.claude/hooks/pre-push.sh regenerates it on the merged tree before the push; a file the
-generator writes but `.gitattributes` does not list would be merged as text, its two halves
-neither side's output (CLAUDE.md, Rules: generated files are never edited by hand).
+Those are what `pnpm gen:types` (gen-api-types.sh) writes, the two data files and
+docs/verified-state.md. A merge keeps a branch's copy of them instead of merging line by line,
+and the session regenerates them on the merged tree; a gen:types output missing from
+`.gitattributes` would be merged as text, its two halves neither side's output (CLAUDE.md,
+Rules: generated files are never edited by hand). Other generated files (the reference case
+JSONs, the export's expected workbook) are not listed on purpose: a conflict there is safer
+than a silently kept side.
 """
 
 import re
@@ -41,7 +44,7 @@ def test_gen_types_outputs_are_found() -> None:
     assert "apps/web/src/lib/api/schema.d.ts" in outputs
 
 
-def test_every_generated_file_has_the_generated_merge_driver() -> None:
+def test_regenerated_files_have_the_generated_merge_driver() -> None:
     expected = _gen_types_outputs() | {
         "apps/api/src/opensolve_pipe/data/pipe_materials.json",
         "apps/api/src/opensolve_pipe/data/api526_orifices.json",

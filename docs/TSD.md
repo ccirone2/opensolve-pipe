@@ -265,7 +265,7 @@ opensolve-pipe/
 │       ├── session-start.sh    # Cloud sessions: installs on lockfile change, then the report
 │       ├── coordination.sh     # The report: branch vs main, other branches, next D-number, version
 │       ├── merge-generated.sh  # The `generated` merge driver: keep this branch's copy, note it
-│       └── pre-push.sh         # Before git push: regenerate noted files, the report; blocks on either
+│       └── pre-push.sh         # Before git push: the report again; a collision blocks the push
 │
 ├── .github/
 │   └── workflows/

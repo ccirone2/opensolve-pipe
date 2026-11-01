@@ -259,9 +259,11 @@ opensolve-pipe/
 │   └── deployment.md           # The Cloud Run and Pages runbook
 │
 ├── .claude/
-│   ├── settings.json           # Registers the SessionStart hook
+│   ├── settings.json           # Registers the SessionStart and pre-push (PreToolUse) hooks
 │   └── hooks/
-│       └── session-start.sh    # Cloud sessions: installs on lockfile change; branch, D-number, version report
+│       ├── session-start.sh    # Cloud sessions: installs on lockfile change, then the report
+│       ├── coordination.sh     # The report: branch vs main, other branches, next D-number, version
+│       └── pre-push.sh         # Before git push: the report again; a collision blocks the push
 │
 ├── .github/
 │   └── workflows/

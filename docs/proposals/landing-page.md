@@ -42,7 +42,7 @@
 - laptop: 1280×800, the pump transfer example solved, the pump's panel with the pump and system curves;
 - phone: 390×844 at 2× density, the same project's results summary.
 
-A phone shows only the phone shot, because the laptop's is too small to read at that width; from 640 px both show. **They go out of date when the UI changes; retake them by hand** (the owner's choice), with the same states. Since §7 there are seven, in a carousel; §7 lists them and the state each shows.
+A phone shows only the phone shot, because the laptop's is too small to read at that width; from 640 px both show. **They go out of date when the UI changes; retake them by hand** (the owner's choice), with the same states. Since §6 they are in a carousel, and since §7 they tell the workflow as seven steps; §7 lists them and the state each shows.
 
 ## 4. Verification plan
 
@@ -58,11 +58,11 @@ A phone shows only the phone shot, because the laptop's is too small to read at 
 
 ## 5. As built
 
-1. Built as designed in §3; the carousel as designed in §7. The fittings sentence was checked against `data/fittings.json`: the fitting types are elbows, bends, reducers, entrances, exits and inline valves, and tees and wyes are separate elements. It says "losses from cited correlations (Crane TP-410)" rather than "every fitting by Crane", because one tee pattern uses Darby 3-K and is flagged (D9).
+1. Built as designed in §3; the carousel as designed in §6, then retold as the workflow in §7. The fittings sentence was checked against `data/fittings.json`: the fitting types are elbows, bends, reducers, entrances, exits and inline valves, and tees and wyes are separate elements. It says "losses from cited correlations (Crane TP-410)" rather than "every fitting by Crane", because one tee pattern uses Darby 3-K and is flagged (D9).
 2. The caption names only the screens shown at each size ("on a laptop and on a phone" is hidden below 640 px). Both images' alt texts stand on their own.
 3. Docs brought in line with recent projects: SDD §3.1.4 (Storage) and §5.2 (they said nothing is kept in browser storage), TSD §11 (the deployment check now expects only this key in `localStorage`), and `ui-guide.md` (per-browser choices).
 
-## 7. The screenshot carousel (the owner's request, 2026-11-01)
+## 6. The screenshot carousel (the owner's request, 2026-11-01)
 
 **The request.** "Make screenshots a user-swipable carousel to be able to see more angles of the app."
 
@@ -92,6 +92,41 @@ A phone shows slides 2, 4, 6 and 7, because laptop shots are too small to read t
 - Next through every slide and around, Previous to the last, a dot, ← and →, and a swipe as the row's own scroll;
 - at each step, the right dot, the announcement, the slide in view and its image loaded;
 - axe clean.
+
+## 7. How it works: the workflow as a story, and the squashed phone shots (the owner's request, 2026-11-01)
+
+**The request.** "Screenshots appear squished in mobile view. Also, have the screenshots tell a story about workflow and capabilities of the app." §6's slides below are replaced.
+
+**Why the phone shots looked squashed.**
+- The frame took its height from the viewport (`min(70svh, 34rem)`), and the image sized itself inside a flex box: `height: 100%; width: auto`, with its HTML width and height as the ratio. Chromium drew that in proportion but small: a 390 px screen at 244 px, 63 %.
+- WebKit resolves a percentage height on a flex item and an image's automatic width differently, which is where Safari is known to stretch or squash images. WebKit is not installed here, so its rendering could not be checked directly.
+- Either way, the layout depended on how each browser sizes an image itself.
+
+**The fix:**
+- Every frame has its shots' exact aspect ratio in CSS (`aspect-ratio: 390/560` below 640 px, `16/10` from there).
+- The image is absolutely positioned to fill the frame with `object-fit: contain`, so no browser's image sizing is involved: an image cannot be drawn out of proportion.
+- The phone shots are crops: a 390×560 window over the 390×844 screen, its top just above the element the step is about. A phone shows them at full width, 356×512 on a 390 px screen (91 % of real size), with the caption and the dots still on one screen.
+- The e2e test asserts, at both sizes and on every step, that the image's drawn box has the image's own ratio within 1 %, that the shot is the one made for the screen, and that a phone's is at least 85 % of the screen's width.
+
+**The story.** Seven steps, from an empty network to a shared one. Each step has a laptop shot (1280×800) and a phone shot (the crop, at 2× density) of the same moment. A `<picture>` serves the phone's below 640 px and the laptop's from there, so each screen downloads only its own seven (436 KB for laptops, 352 KB for phones, all but the first loaded lazily). The section is headed **How it works**, after the opening buttons and recent projects, before the examples.
+
+| # | Step | The caption's line | Shown (both screens) |
+|---|---|---|---|
+| 1 | Lay out the network | Add each element in the order the flow meets it | Pump transfer: Add after the transfer pump (quick buttons, every type, where it goes) |
+| 2 | Describe each element | The fields that define it first; the rest under More, each default labelled | The transfer pump's form, before solving |
+| 3 | Solve | Flows, pressures and each pump's duty, physically invalid results flagged | Solved: converged, the summary |
+| 4 | Check the pumps | Each pump on its system curve, with efficiency, power and NPSH on one flow axis | Results, Pumps: the chart |
+| 5 | See the working | Every result's trace: inputs with sources, equations, data | The pump's trace at its equations |
+| 6 | Compare scenarios | Named cases compared with the base case side by side | Chiller plant, Solve all: Compare cases, base against "Winter: tower bypassed" |
+| 7 | Share the link | The whole project in the link, nothing on a server; or export | The Share dialog |
+
+The captions state only what the app does, checked against D5, D10, D15, D17 and the build-density proposal (More, "default"). Files: `static/landing/<step>-laptop.webp` and `<step>-phone.webp`. To retake them, open each state at 1280×800 and at 390×844 (2× or 3× density), and crop the phone's to 390×560 from just above the step's element.
+
+**The carousel**, besides the frames:
+- The dots and the announcement name the step ("Step 4 of 7: Check the pumps"), and the dot shown is `aria-current="step"`.
+- A press of Previous, Next, a dot or a key during the scroll motion goes on from the step it chose: the row's scroll events no longer move it back.
+- When the scroll ends (`scrollend`, or after a second where there is none), the dots read the row again, and a touch, press or wheel hands control back to the user.
+- Verified: `home.e2e.ts`, "how it works", at both sizes and three times over, with axe clean.
 
 ## 8. Later
 

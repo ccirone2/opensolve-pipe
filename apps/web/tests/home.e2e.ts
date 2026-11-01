@@ -72,6 +72,7 @@ test('the landing page: the start, its sections, the screenshots, and axe clean'
 	await expect(page.getByRole('link', { name: 'New project' })).toBeVisible();
 	await expect(page.getByRole('link', { name: 'Open an example' })).toBeVisible();
 	for (const name of [
+		'How it works',
 		'Examples',
 		'What it models',
 		'How the results are checked',
@@ -81,8 +82,8 @@ test('the landing page: the start, its sections, the screenshots, and axe clean'
 		await expect(page.getByRole('heading', { level: 2, name })).toBeVisible();
 	// No recent projects in a fresh browser: the section is not there at all.
 	await expect(page.getByRole('heading', { name: 'Recent on this device' })).toHaveCount(0);
-	// The screenshots: a carousel (its own test below), the first slide loaded.
-	const first = page.getByRole('region', { name: 'Screenshots' }).getByRole('img').first();
+	// How it works: a carousel of screenshots (its own test below), the first step's loaded.
+	const first = page.getByRole('region', { name: 'How it works' }).getByRole('img').first();
 	await expect(first).toBeVisible();
 	await expect
 		.poll(() => first.evaluate((img) => (img as HTMLImageElement).naturalWidth))
@@ -102,50 +103,65 @@ test('the landing page: the start, its sections, the screenshots, and axe clean'
 });
 
 /**
- * The screenshot carousel (proposal landing-page.md §7): a phone shows the phone shots, wider screens
- * every one; Next and Previous wrap around, a dot jumps to its slide, ← and → move it while it has
- * focus, a swipe (the row's own sideways scroll) is followed by the dots and the announcement, and
- * every slide's image loads when it is shown.
+ * "How it works" (proposal landing-page.md §6–§7): seven steps, the same story on every screen, each
+ * step's shot the one made for the screen (the phone's crop below 640 px, the laptop's from there)
+ * and drawn at its own aspect ratio, never stretched or squashed. Next and Previous wrap around, a
+ * dot jumps to its step, ← and → move it while it has focus, a swipe (the row's own sideways
+ * scroll) is followed by the dots and the announcement, and every step's image loads when shown.
  */
-test('the screenshot carousel: buttons, dots, keys and swipes, every image loaded', async ({
+test('how it works: seven steps by button, dot, key and swipe, each shot loaded and in proportion', async ({
 	page,
 	isMobile
 }) => {
 	await page.goto('/');
-	const carousel = page.getByRole('region', { name: 'Screenshots' });
+	const carousel = page.getByRole('region', { name: 'How it works' });
 	const slides = carousel.locator('[aria-roledescription="slide"]');
-	const count = isMobile ? 4 : 7;
+	const count = 7;
 	await expect(slides).toHaveCount(count);
-	if (isMobile) await expect(carousel.getByRole('img', { name: /on a laptop/ })).toHaveCount(0);
-	const dots = carousel.getByRole('button', { name: /^Screenshot \d/ });
+	const dots = carousel.getByRole('button', { name: /^Step \d/ });
 	await expect(dots).toHaveCount(count);
 	const status = carousel.locator('[aria-live="polite"]');
 	const shown = async (n: number) => {
-		await expect(dots.nth(n - 1)).toHaveAttribute('aria-current', 'true');
-		await expect(carousel.locator('[aria-current="true"]')).toHaveCount(1);
-		await expect(status).toHaveText(new RegExp(`^Screenshot ${n} of ${count}: `));
+		await expect(dots.nth(n - 1)).toHaveAttribute('aria-current', 'step');
+		await expect(carousel.locator('[aria-current]')).toHaveCount(1);
+		await expect(status).toHaveText(new RegExp(`^Step ${n} of ${count}: `));
 		const image = slides.nth(n - 1).getByRole('img');
 		await expect(image).toBeInViewport();
 		await expect
 			.poll(() => image.evaluate((img) => (img as HTMLImageElement).naturalWidth))
 			.toBeGreaterThan(0);
+		const drawn = await image.evaluate((el) => {
+			const img = el as HTMLImageElement;
+			const box = img.getBoundingClientRect();
+			return {
+				src: img.currentSrc,
+				natural: img.naturalWidth / img.naturalHeight,
+				box: box.width / box.height,
+				width: box.width
+			};
+		});
+		// The shot made for this screen, its box in the image's own proportion (object-fit adds no
+		// bars), and on a phone near its real size: a 390 px wide screen shown at least 85 % wide.
+		expect(drawn.src).toMatch(isMobile ? /-phone\.webp$/ : /-laptop\.webp$/);
+		expect(Math.abs(drawn.box / drawn.natural - 1)).toBeLessThan(0.01);
+		if (isMobile) expect(drawn.width).toBeGreaterThan(0.85 * 390);
 	};
 	await carousel.scrollIntoViewIfNeeded();
 	await shown(1);
-	// Next through every slide, then around to the first; Previous wraps to the last.
+	// Next through every step, then around to the first; Previous wraps to the last.
 	for (let n = 2; n <= count; n++) {
-		await carousel.getByRole('button', { name: 'Next screenshot' }).click();
+		await carousel.getByRole('button', { name: 'Next step' }).click();
 		await shown(n);
 	}
-	await carousel.getByRole('button', { name: 'Next screenshot' }).click();
+	await carousel.getByRole('button', { name: 'Next step' }).click();
 	await shown(1);
-	await carousel.getByRole('button', { name: 'Previous screenshot' }).click();
+	await carousel.getByRole('button', { name: 'Previous step' }).click();
 	await shown(count);
-	// A dot jumps to its slide.
+	// A dot jumps to its step.
 	await dots.nth(1).click();
 	await shown(2);
 	// The keys, on the row.
-	const row = carousel.getByRole('group', { name: /^Slides/ });
+	const row = carousel.getByRole('group', { name: /^Steps/ });
 	await row.focus();
 	await page.keyboard.press('ArrowRight');
 	await shown(3);
@@ -155,7 +171,7 @@ test('the screenshot carousel: buttons, dots, keys and swipes, every image loade
 	await row.evaluate((el) => el.scrollTo({ left: 3 * el.clientWidth }));
 	await shown(4);
 	const axe = await new AxeBuilder({ page })
-		.include('section[aria-label="Screenshots"]')
+		.include('section[aria-labelledby="how-title"]')
 		.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
 		.analyze();
 	expect(axe.violations.map((v) => `${v.id} (${v.nodes.length})`)).toEqual([]);

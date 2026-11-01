@@ -1,98 +1,98 @@
 <!--
-	Screenshots of the app, one per slide, swiped sideways (proposal landing-page.md §7). The slides
-	are a scroll-snap row: touch swipe, a trackpad's sideways scroll and Shift+wheel move it natively,
-	with no script or dependency for the motion. Previous and Next wrap around, a dot per slide jumps
-	to it, ← and → move it while it has focus, and the slide shown is announced (WAI-ARIA APG
-	carousel, without rotation, so there is nothing to pause). A phone shows the phone shots only (a
-	laptop's are too small to read there); from 640 px, all of them. Taken by hand, retaken after a
-	visible UI change (§3).
+	"How it works": the app's workflow and capabilities as a story of seven steps, one screenshot per
+	step, swiped sideways (proposal landing-page.md §6–§7). Each step has a laptop shot and a phone
+	shot of the same moment; a <picture> serves the phone's below 640 px and the laptop's from there,
+	so every screen tells the same story at a readable size and downloads only its own shots.
+
+	The slides are a scroll-snap row: touch swipe, a trackpad's sideways scroll and Shift+wheel move it
+	natively, with no script or dependency for the motion. Previous and Next wrap around, a dot per step
+	jumps to it, ← and → move it while it has focus, and the step shown is announced (WAI-ARIA APG
+	carousel, without rotation, so there is nothing to pause).
+
+	Each frame has its shots' exact aspect ratio (390:560 for a phone's crop, 16:10 for a laptop) and
+	the image fills it absolutely with object-fit: contain, so no browser can stretch or squash it.
+	The shots were taken by hand; retake them after a visible UI change (§7).
 -->
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { asset } from '$app/paths';
 	import Icon from './ui/Icon.svelte';
 
-	interface Slide {
-		/** The file in static/landing/, without its extension. */
+	interface Step {
+		/** The shots: static/landing/<file>-laptop.webp and <file>-phone.webp. */
 		file: string;
-		screen: 'laptop' | 'phone';
-		caption: string;
+		title: string;
+		text: string;
+		/** What both shots show (the same moment on each screen). */
 		alt: string;
 	}
 
-	const SLIDES: Slide[] = [
+	const STEPS: Step[] = [
 		{
-			file: 'desktop',
-			screen: 'laptop',
-			caption: 'A pump and its system curve, crossing at the duty point',
-			alt: "The pump transfer example, solved, on a laptop: the transfer pump's inputs and its head curve on the left; on the right, its results with the pump and system curves crossing at the duty point, and its efficiency and power below."
+			file: 'add',
+			title: 'Lay out the network',
+			text: 'Add each element in the order the flow meets it: tanks, pumps, valves, equipment, tees and wyes.',
+			alt: 'Adding a component after the transfer pump: quick buttons for a gate, check or globe valve, a list of every component type, and where it goes in the network.'
 		},
 		{
-			file: 'phone',
-			screen: 'phone',
-			caption: 'The results summary on a phone',
-			alt: "The pump transfer example, solved, on a phone: the results summary with the pump's flow, head and NPSH margin, and the lowest and highest pressures in the network."
+			file: 'build',
+			title: 'Describe each element',
+			text: 'The fields that define it come first; the rest wait under More, each default labelled.',
+			alt: "The transfer pump's form: its status as On or Off, its control, its speed, and its rating with the pump curve."
 		},
 		{
-			file: 'compare',
-			screen: 'laptop',
-			caption: 'Scenarios solved and compared side by side',
-			alt: 'The chiller plant example on a laptop, comparing its base case with the winter scenario (tower bypassed): each pump’s flow, head and NPSH margin in both cases, with the difference from the base case under each scenario value.'
+			file: 'solve',
+			title: 'Solve',
+			text: 'Flows, pressures and each pump’s duty, with anything physically invalid flagged.',
+			alt: "The solved pump transfer example: converged, with a summary of the pump's flow, head and NPSH margin and the network's extreme pressures."
 		},
 		{
-			file: 'phone-build',
-			screen: 'phone',
-			caption: 'Editing a pump on a phone',
-			alt: "The transfer pump's form on a phone: its last solved status, flow, head and NPSH margin above its status, control and speed, with Previous and Next at the bottom to walk the network."
+			file: 'chart',
+			title: 'Check the pumps',
+			text: 'Each pump on its system curve, with efficiency, power and NPSH on the same flow axis.',
+			alt: "The transfer pump's chart: its head curve crossing the system curve at the operating point, with the best efficiency point, and efficiency, shaft power, and NPSH required against available below on one flow axis."
 		},
 		{
 			file: 'trace',
-			screen: 'laptop',
-			caption: 'Every result shows its working',
-			alt: "The transfer pump's trace on a laptop: the equations used for its curve, head, system curve, power and efficiency, after its inputs, each labelled with its source."
+			title: 'See the working',
+			text: 'Every result has a trace: its inputs with their sources, the equations and the data used.',
+			alt: "The transfer pump's trace: inputs labelled with their sources (default, library), then the equations for its curve, head, system curve and power."
 		},
 		{
-			file: 'phone-nodes',
-			screen: 'phone',
-			caption: 'Results as a sortable list on a phone',
-			alt: 'The nodes of the pump transfer example on a phone, as a list with Sort and Fields controls: each node’s elevation, gauge and absolute pressure, velocity, HGL and EGL.'
+			file: 'compare',
+			title: 'Compare scenarios',
+			text: 'Named cases, such as winter operation, solved and compared with the base case side by side.',
+			alt: "The chiller plant example's base case and its winter scenario (tower bypassed) compared: each pump's flow and head in both, with the scenario's difference from the base case."
 		},
 		{
-			file: 'phone-chart',
-			screen: 'phone',
-			caption: 'The pump chart on a phone',
-			alt: 'The pump chart on a phone: head with the system curve and the best efficiency point, then efficiency, shaft power, and NPSH required against NPSH available, on one flow axis.'
+			file: 'share',
+			title: 'Share the link',
+			text: 'The whole project travels in the link: nothing is stored on a server. Or export a workbook.',
+			alt: 'Sharing the project: its link to copy, with a note that the whole project is in the link, after the “#”, which browsers do not send to any server.'
 		}
 	];
 
-	/** From 640 px (Tailwind's sm), every slide; below, the phone shots. */
-	let wide = $state(true);
-	const slides = $derived(wide ? SLIDES : SLIDES.filter((s) => s.screen === 'phone'));
 	let current = $state(0);
 	let scroller: HTMLElement | undefined = $state();
 
-	/** A media query, or null where there is no matchMedia (all slides, smooth motion). */
-	const media = (query: string) => (typeof matchMedia === 'function' ? matchMedia(query) : null);
+	/**
+	 * The step a button or key is scrolling to: until the row arrives there, the scroll events on
+	 * the way do not move `current` back (a second press during the motion goes on from the target).
+	 * Cleared on arrival, when the scroll ends (or after a second, where there is no scrollend), and
+	 * as soon as the user touches, presses or wheels the row.
+	 */
+	let pending: number | null = null;
+	let pendingTimer: ReturnType<typeof setTimeout> | undefined;
 
-	onMount(() => {
-		const query = media('(min-width: 40rem)');
-		if (!query) return;
-		const apply = () => {
-			wide = query.matches;
-			current = 0;
-			scroller?.scrollTo({ left: 0 });
-		};
-		apply();
-		query.addEventListener('change', apply);
-		return () => query.removeEventListener('change', apply);
-	});
-
-	/** Show slide `index` (wrapping around). */
+	/** Show step `index` (wrapping around); instant when the user asks for reduced motion. */
 	function go(index: number) {
 		if (!scroller) return;
-		const n = slides.length;
+		const n = STEPS.length;
 		const target = ((index % n) + n) % n;
-		const reduced = media('(prefers-reduced-motion: reduce)')?.matches ?? false;
+		pending = target;
+		clearTimeout(pendingTimer);
+		pendingTimer = setTimeout(settle, 1000);
+		const reduced =
+			typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 		scroller.scrollTo({
 			left: target * scroller.clientWidth,
 			behavior: reduced ? 'auto' : 'smooth'
@@ -100,17 +100,36 @@
 		current = target;
 	}
 
-	/** The slide in view, from the row's scroll position (a swipe, a trackpad, a button). */
+	/** The step in view, from the row's scroll position (a swipe, a trackpad, a button). */
 	let frame = 0;
 	function onscroll() {
 		cancelAnimationFrame(frame);
 		frame = requestAnimationFrame(() => {
 			if (!scroller || !scroller.clientWidth) return;
-			current = Math.min(
-				slides.length - 1,
+			const shown = Math.min(
+				STEPS.length - 1,
 				Math.max(0, Math.round(scroller.scrollLeft / scroller.clientWidth))
 			);
+			if (pending !== null) {
+				// On the way to a step a button or key chose: wait until the row is there.
+				if (Math.abs(scroller.scrollLeft - pending * scroller.clientWidth) > 1) return;
+				pending = null;
+			}
+			current = shown;
 		});
+	}
+
+	/** The motion is over (scrollend, or the timer where there is none): show where the row is. */
+	function settle() {
+		clearTimeout(pendingTimer);
+		pending = null;
+		onscroll();
+	}
+
+	/** A touch, a press or a wheel on the row: the user steers now, not the last button. */
+	function release() {
+		clearTimeout(pendingTimer);
+		pending = null;
 	}
 
 	function onkeydown(event: KeyboardEvent) {
@@ -120,39 +139,55 @@
 	}
 </script>
 
-<section class="mt-10" aria-roledescription="carousel" aria-label="Screenshots">
+<section class="mt-10" aria-roledescription="carousel" aria-labelledby="how-title">
+	<h2 id="how-title" class="text-xl font-semibold">How it works</h2>
 	<!-- The row scrolls: it takes focus so that ← and → move it (a scrollable region must be focusable). -->
 	<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 	<div
 		bind:this={scroller}
 		role="group"
-		aria-label="Slides: swipe, or use ← and →"
+		aria-label="Steps: swipe, or use ← and →"
 		tabindex="0"
 		{onscroll}
+		onscrollend={settle}
+		onpointerdown={release}
+		ontouchstart={release}
+		onwheel={release}
 		{onkeydown}
-		class="flex snap-x snap-mandatory [scrollbar-width:none] overflow-x-auto overscroll-x-contain rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 [&::-webkit-scrollbar]:hidden"
+		class="mt-3 flex snap-x snap-mandatory [scrollbar-width:none] overflow-x-auto overscroll-x-contain rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 [&::-webkit-scrollbar]:hidden"
 	>
-		{#each slides as slide, i (slide.file)}
+		{#each STEPS as step, i (step.file)}
 			<figure
 				role="group"
 				aria-roledescription="slide"
-				aria-label="{i + 1} of {slides.length}"
+				aria-label="Step {i + 1} of {STEPS.length}"
 				class="w-full shrink-0 snap-center snap-always"
 			>
 				<div
-					class="flex h-[min(70svh,34rem)] items-center justify-center rounded-md border border-slate-200 bg-slate-100 p-2 sm:aspect-[16/10] sm:h-auto sm:p-3"
+					class="relative aspect-[390/560] overflow-hidden rounded-md border border-slate-200 bg-white sm:aspect-[16/10]"
 				>
-					<img
-						src={asset(`/landing/${slide.file}.webp`)}
-						width={slide.screen === 'laptop' ? 1280 : 390}
-						height={slide.screen === 'laptop' ? 800 : 844}
-						alt={slide.alt}
-						loading={i === 0 ? 'eager' : 'lazy'}
-						draggable="false"
-						class="h-full w-auto max-w-full rounded-sm object-contain shadow-sm"
-					/>
+					<picture>
+						<source
+							media="(min-width: 40rem)"
+							srcset={asset(`/landing/${step.file}-laptop.webp`)}
+							width="1280"
+							height="800"
+						/>
+						<img
+							src={asset(`/landing/${step.file}-phone.webp`)}
+							width="390"
+							height="560"
+							alt={step.alt}
+							loading={i === 0 ? 'eager' : 'lazy'}
+							draggable="false"
+							class="absolute inset-0 size-full object-contain"
+						/>
+					</picture>
 				</div>
-				<figcaption class="mt-2 text-center text-sm text-slate-600">{slide.caption}</figcaption>
+				<figcaption class="mx-auto mt-3 max-w-2xl text-center">
+					<span class="block font-medium">{i + 1}. {step.title}</span>
+					<span class="mt-0.5 block text-sm text-slate-600">{step.text}</span>
+				</figcaption>
 			</figure>
 		{/each}
 	</div>
@@ -161,17 +196,17 @@
 		<button
 			type="button"
 			class="btn btn-quiet btn-icon"
-			aria-label="Previous screenshot"
+			aria-label="Previous step"
 			onclick={() => go(current - 1)}
 		>
 			<Icon name="left" />
 		</button>
-		{#each slides as slide, i (slide.file)}
+		{#each STEPS as step, i (step.file)}
 			<button
 				type="button"
 				class="flex size-6 items-center justify-center rounded-full pointer-coarse:size-11"
-				aria-label="Screenshot {i + 1}: {slide.caption}"
-				aria-current={i === current ? 'true' : undefined}
+				aria-label="Step {i + 1}: {step.title}"
+				aria-current={i === current ? 'step' : undefined}
 				onclick={() => go(i)}
 			>
 				<span
@@ -185,13 +220,13 @@
 		<button
 			type="button"
 			class="btn btn-quiet btn-icon"
-			aria-label="Next screenshot"
+			aria-label="Next step"
 			onclick={() => go(current + 1)}
 		>
 			<Icon name="right" />
 		</button>
 	</div>
 	<p class="sr-only" aria-live="polite">
-		Screenshot {current + 1} of {slides.length}: {slides[current]?.caption}
+		Step {current + 1} of {STEPS.length}: {STEPS[current]?.title}
 	</p>
 </section>

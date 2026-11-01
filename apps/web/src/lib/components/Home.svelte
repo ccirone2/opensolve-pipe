@@ -1,7 +1,7 @@
 <!--
 	The landing page (proposal landing-page.md): what the tool is and how to start, for someone
 	arriving for the first time and for someone coming back. The start comes first (New project, the
-	examples, recent projects on this device), the screenshots, then what it models, how its results are checked, its
+	examples, recent projects on this device), How it works (the workflow in screenshots), then what it models, how its results are checked, its
 	scope and limits, privacy, and the disclaimer and license. Plain and technical, no figures that
 	could drift from the code (the owner's answers of 2026-11-01).
 -->

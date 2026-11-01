@@ -42,7 +42,7 @@
 - laptop: 1280×800, the pump transfer example solved, the pump's panel with the pump and system curves;
 - phone: 390×844 at 2× density, the same project's results summary.
 
-A phone shows only the phone shot, because the laptop's is too small to read at that width; from 640 px both show. **They go out of date when the UI changes; retake them by hand** (the owner's choice), with the same states.
+A phone shows only the phone shot, because the laptop's is too small to read at that width; from 640 px both show. **They go out of date when the UI changes; retake them by hand** (the owner's choice), with the same states. Since §7 there are seven, in a carousel; §7 lists them and the state each shows.
 
 ## 4. Verification plan
 
@@ -58,11 +58,42 @@ A phone shows only the phone shot, because the laptop's is too small to read at 
 
 ## 5. As built
 
-1. Built as designed in §3. The fittings sentence was checked against `data/fittings.json`: the fitting types are elbows, bends, reducers, entrances, exits and inline valves, and tees and wyes are separate elements. It says "losses from cited correlations (Crane TP-410)" rather than "every fitting by Crane", because one tee pattern uses Darby 3-K and is flagged (D9).
+1. Built as designed in §3; the carousel as designed in §7. The fittings sentence was checked against `data/fittings.json`: the fitting types are elbows, bends, reducers, entrances, exits and inline valves, and tees and wyes are separate elements. It says "losses from cited correlations (Crane TP-410)" rather than "every fitting by Crane", because one tee pattern uses Darby 3-K and is flagged (D9).
 2. The caption names only the screens shown at each size ("on a laptop and on a phone" is hidden below 640 px). Both images' alt texts stand on their own.
 3. Docs brought in line with recent projects: SDD §3.1.4 (Storage) and §5.2 (they said nothing is kept in browser storage), TSD §11 (the deployment check now expects only this key in `localStorage`), and `ui-guide.md` (per-browser choices).
 
-## 6. Later
+## 7. The screenshot carousel (the owner's request, 2026-11-01)
+
+**The request.** "Make screenshots a user-swipable carousel to be able to see more angles of the app."
+
+**The slides.** Seven shots, taken by hand on 2026-11-01 like the first two (§3): laptops at 1280×800 and phones at 390×844 at 2× density, WebP at quality 82 (`static/landing/`, 456 KB together, every slide after the first loaded lazily). Laptop and phone shots alternate so the row shows both:
+
+| # | File | Screen | Shows |
+|---|---|---|---|
+| 1 | `desktop.webp` | laptop | Pump transfer, solved: the pump's panel; Results, Pumps, with the pump and system curves |
+| 2 | `phone.webp` | phone | Pump transfer, solved: the results summary |
+| 3 | `compare.webp` | laptop | Chiller plant, Solve all: Compare cases, the base against "Winter: tower bypassed" |
+| 4 | `phone-build.webp` | phone | Pump transfer: the transfer pump's form after Next, with its last solve |
+| 5 | `trace.webp` | laptop | Pump transfer, solved: the pump's trace, scrolled to its equations |
+| 6 | `phone-nodes.webp` | phone | Pump transfer, solved: Results, Nodes, as a list with Sort and Fields |
+| 7 | `phone-chart.webp` | phone | Pump transfer, solved: Results, Pumps, scrolled to the chart's four panels |
+
+A phone shows slides 2, 4, 6 and 7, because laptop shots are too small to read there (§3). From 640 px all seven show.
+
+**The carousel (`ScreenshotCarousel.svelte`).**
+- **Motion:** the slides are one horizontal scroll-snap row, so a touch swipe, a trackpad's sideways scroll and Shift+wheel move it natively, with no library and no script for the motion. This is the same sideways row the UI guide uses for groups of buttons.
+- **Controls:** Previous and Next wrap around, a dot per slide jumps to it, and ← and → move the row while it has focus.
+- **State:** the dot shown and the announcement follow the scroll position, whatever moved it.
+- **Accessibility (WAI-ARIA APG carousel):** a region named "Screenshots" with `aria-roledescription="carousel"`, each slide a group "n of N", and a polite live line "Screenshot n of N: caption". There is no automatic rotation, so there is nothing to pause. Motion is instant under `prefers-reduced-motion`.
+- **Sizes:** each slide is a fixed frame (16:10 from 640 px; on a phone min(70 svh, 34 rem) tall) with the shot contained and its caption below, so the page does not jump between slides. The dots are 24 px targets with a mouse and 44 px on touch.
+
+**Verified.** `home.e2e.ts`, "the screenshot carousel", runs at both sizes:
+- 4 slides on a phone (no laptop shot) and 7 wider;
+- Next through every slide and around, Previous to the last, a dot, ← and →, and a swipe as the row's own scroll;
+- at each step, the right dot, the announcement, the slide in view and its image loaded;
+- axe clean.
+
+## 8. Later
 
 - Retake the screenshots after a visible UI change (by hand, §3).
 - A recent project shows the time it was last seen here; a summary (component count, last solve) would need more stored data, so it waits for a request.

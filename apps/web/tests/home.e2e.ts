@@ -66,8 +66,7 @@ test('a new project starts in US customary units; SI is the first choice in Sett
  * screen's size, and no WCAG 2.2 A/AA violation with its Details open.
  */
 test('the landing page: the start, its sections, the screenshots, and axe clean', async ({
-	page,
-	isMobile
+	page
 }) => {
 	await page.goto('/');
 	await expect(page.getByRole('link', { name: 'New project' })).toBeVisible();
@@ -82,18 +81,12 @@ test('the landing page: the start, its sections, the screenshots, and axe clean'
 		await expect(page.getByRole('heading', { level: 2, name })).toBeVisible();
 	// No recent projects in a fresh browser: the section is not there at all.
 	await expect(page.getByRole('heading', { name: 'Recent on this device' })).toHaveCount(0);
-	// The phone shot always; the laptop shot from 640 px. Each one loaded.
-	const phone = page.getByRole('img', { name: /on a phone/ });
-	const laptop = page.getByRole('img', { name: /on a laptop/ });
-	await expect(phone).toBeVisible();
-	if (isMobile) await expect(laptop).toBeHidden();
-	else await expect(laptop).toBeVisible();
-	for (const image of isMobile ? [phone] : [phone, laptop]) {
-		await image.scrollIntoViewIfNeeded();
-		await expect
-			.poll(() => image.evaluate((img) => (img as HTMLImageElement).naturalWidth))
-			.toBeGreaterThan(0);
-	}
+	// The screenshots: a carousel (its own test below), the first slide loaded.
+	const first = page.getByRole('region', { name: 'Screenshots' }).getByRole('img').first();
+	await expect(first).toBeVisible();
+	await expect
+		.poll(() => first.evaluate((img) => (img as HTMLImageElement).naturalWidth))
+		.toBeGreaterThan(0);
 	// Privacy: short, with the full text one step away.
 	const privacy = page.getByRole('region', { name: 'Your project lives in the link' });
 	await expect(privacy.getByText(/Solving sends the project/)).toBeHidden();
@@ -106,6 +99,66 @@ test('the landing page: the start, its sections, the screenshots, and axe clean'
 		.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
 		.analyze();
 	expect(scan.violations.map((v) => `${v.id} (${v.nodes.length})`)).toEqual([]);
+});
+
+/**
+ * The screenshot carousel (proposal landing-page.md §7): a phone shows the phone shots, wider screens
+ * every one; Next and Previous wrap around, a dot jumps to its slide, ← and → move it while it has
+ * focus, a swipe (the row's own sideways scroll) is followed by the dots and the announcement, and
+ * every slide's image loads when it is shown.
+ */
+test('the screenshot carousel: buttons, dots, keys and swipes, every image loaded', async ({
+	page,
+	isMobile
+}) => {
+	await page.goto('/');
+	const carousel = page.getByRole('region', { name: 'Screenshots' });
+	const slides = carousel.locator('[aria-roledescription="slide"]');
+	const count = isMobile ? 4 : 7;
+	await expect(slides).toHaveCount(count);
+	if (isMobile) await expect(carousel.getByRole('img', { name: /on a laptop/ })).toHaveCount(0);
+	const dots = carousel.getByRole('button', { name: /^Screenshot \d/ });
+	await expect(dots).toHaveCount(count);
+	const status = carousel.locator('[aria-live="polite"]');
+	const shown = async (n: number) => {
+		await expect(dots.nth(n - 1)).toHaveAttribute('aria-current', 'true');
+		await expect(carousel.locator('[aria-current="true"]')).toHaveCount(1);
+		await expect(status).toHaveText(new RegExp(`^Screenshot ${n} of ${count}: `));
+		const image = slides.nth(n - 1).getByRole('img');
+		await expect(image).toBeInViewport();
+		await expect
+			.poll(() => image.evaluate((img) => (img as HTMLImageElement).naturalWidth))
+			.toBeGreaterThan(0);
+	};
+	await carousel.scrollIntoViewIfNeeded();
+	await shown(1);
+	// Next through every slide, then around to the first; Previous wraps to the last.
+	for (let n = 2; n <= count; n++) {
+		await carousel.getByRole('button', { name: 'Next screenshot' }).click();
+		await shown(n);
+	}
+	await carousel.getByRole('button', { name: 'Next screenshot' }).click();
+	await shown(1);
+	await carousel.getByRole('button', { name: 'Previous screenshot' }).click();
+	await shown(count);
+	// A dot jumps to its slide.
+	await dots.nth(1).click();
+	await shown(2);
+	// The keys, on the row.
+	const row = carousel.getByRole('group', { name: /^Slides/ });
+	await row.focus();
+	await page.keyboard.press('ArrowRight');
+	await shown(3);
+	await page.keyboard.press('ArrowLeft');
+	await shown(2);
+	// A swipe is the row's own sideways scroll: the dots and the announcement follow it.
+	await row.evaluate((el) => el.scrollTo({ left: 3 * el.clientWidth }));
+	await shown(4);
+	const axe = await new AxeBuilder({ page })
+		.include('section[aria-label="Screenshots"]')
+		.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+		.analyze();
+	expect(axe.violations.map((v) => `${v.id} (${v.nodes.length})`)).toEqual([]);
 });
 
 /** Go home from the project page, through the app's own link. */

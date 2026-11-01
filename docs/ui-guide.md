@@ -27,6 +27,7 @@ What the web app's layout is converging on, distilled from the owner's direction
 - **Chrome earns its row** (≤ 15 % of the Build pane at 1280×800, tested): merge rows (actions beside tabs; Previous and Next in the top bar on wide screens), one-line banners and status lines with a mark (✓, ⚠, ⬣, spinner), icon-only buttons in narrow panes with the word kept for screen readers.
 - **A bar that is used now and then becomes a menu** under the button that owns it (the case bar became the Scenarios menu); **don't repeat** what a tab, a chip or a status line already says.
 - **Groups of tabs or pills are one row that scrolls sideways at every width**: edge shadows say there is more, a mouse wheel scrolls it sideways while it can move, the selected one is scrolled into view.
+- **A set of pictures is a swipeable row too** (the landing page's screenshots, `ScreenshotCarousel.svelte`): scroll-snap for the motion, Previous and Next, a dot per slide, ← and →, the slide shown announced; never rotating by itself.
 
 ### Phones
 - **Tables read as lists** below 640 px: a block per element headed by its name, values as label and value pairs that wrap, "—" out of sight. The table keeps explicit ARIA roles and its headings for screen readers, so CSS never unmakes its semantics.

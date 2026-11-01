@@ -1,15 +1,15 @@
 <!--
 	The landing page (proposal landing-page.md): what the tool is and how to start, for someone
 	arriving for the first time and for someone coming back. The start comes first (New project, the
-	examples, recent projects on this device), then what it models, how its results are checked, its
+	examples, recent projects on this device), the screenshots, then what it models, how its results are checked, its
 	scope and limits, privacy, and the disclaimer and license. Plain and technical, no figures that
 	could drift from the code (the owner's answers of 2026-11-01).
 -->
 <script lang="ts">
 	import { EXAMPLES } from '$lib/utils/examples';
 	import { encodeProject } from '$lib/utils/encoding';
-	import { asset } from '$app/paths';
 	import RecentProjects from './RecentProjects.svelte';
+	import ScreenshotCarousel from './ScreenshotCarousel.svelte';
 	import Icon from './ui/Icon.svelte';
 	import {
 		COPYRIGHT,
@@ -119,30 +119,7 @@
 		<RecentProjects />
 	</div>
 
-	<figure class="mt-10">
-		<!-- A phone shows the phone shot (the laptop's is too small to read there); wider, both. -->
-		<div class="flex items-end justify-center gap-4 sm:justify-start">
-			<img
-				src={asset('/landing/desktop.webp')}
-				width="1280"
-				height="800"
-				alt="The pump transfer example, solved, on a laptop: the transfer pump's inputs and its head curve on the left; on the right, its results with the pump and system curves crossing at the duty point, and its efficiency and power below."
-				class="hidden min-w-0 flex-1 rounded-md border border-slate-200 shadow-sm sm:block"
-			/>
-			<img
-				src={asset('/landing/phone.webp')}
-				width="390"
-				height="844"
-				alt="The pump transfer example, solved, on a phone: the results summary with the pump's flow, head and NPSH margin, and the lowest and highest pressures in the network."
-				class="w-3/5 rounded-md border border-slate-200 shadow-sm sm:w-[22%]"
-			/>
-		</div>
-		<figcaption class="mt-2 text-sm text-slate-600">
-			The pump transfer example, solved<span class="max-sm:hidden"
-				>, on a laptop and on a phone</span
-			>.
-		</figcaption>
-	</figure>
+	<ScreenshotCarousel />
 
 	<section id="examples" class="mt-12 scroll-mt-6" aria-labelledby="examples-title">
 		<h2 id="examples-title" class="text-xl font-semibold">Examples</h2>

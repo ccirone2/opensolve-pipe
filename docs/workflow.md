@@ -27,10 +27,10 @@ Design workflows have worked well as several designers from different angles (ph
 
 ## 4. Prove it
 
-Every gate, every time. `cd apps/api && uv run python scripts/record_history.py` runs them all, prints each summary and rewrites the verified-state block of [`history.md`](history.md) (`--skip e2e` for a quick pass, `--dry-run` to write nothing, `--only pytest` for one gate; a failed gate leaves the file unchanged). By hand:
+Every gate, every time. `cd apps/api && uv run python scripts/record_history.py` runs them all, prints each summary and rewrites [`verified-state.md`](verified-state.md) (`--skip e2e` for a quick pass, `--dry-run` to write nothing, `--only pytest` for one gate; a failed gate leaves the file unchanged). By hand:
 
 ```bash
-cd apps/api && uv sync && uv run pytest && uv run ruff check . && uv run ruff format --check . && uv run mypy src
+cd apps/api && uv sync && uv run pytest -n auto && uv run ruff check . && uv run ruff format --check . && uv run mypy src
 uv run python scripts/generate_pipe_data.py --check && uv run python scripts/generate_relief_data.py --check
 cd ../web && pnpm install && pnpm gen:types && git diff --exit-code -- src/lib/api
 pnpm check && pnpm lint && pnpm test && pnpm test:e2e
@@ -56,13 +56,15 @@ In the same change set as the code:
 2. The specs: PRD §2.3 and §3 (scope and requirements), SDD §4 (a model subsection) and §5 where a contract changes, TSD §4–§5 (data and solver), §10.4 (the proof counts) and §12 (the "Decided" item). Add subsections at the end of a section; never renumber, since code cites `TSD §4.10`.
 3. `METHOD_VERSION` and `METHOD_CHANGELOG` (`services/solver/version.py`) if any solved value can change, with a line saying what is unchanged and how that was proven.
 4. The proposal's status line and as-built section.
-5. [`history.md`](history.md): a line for the merge with its hash, PR, decision and method version, the verified-state block refreshed by `scripts/record_history.py`, and the proof record below it (reference-suite deviations, corpus counts) updated by hand; [`roadmap.md`](roadmap.md) trimmed.
+5. [`history.md`](history.md): a line for the merge with its hash, PR, decision and method version, [`verified-state.md`](verified-state.md) refreshed by `scripts/record_history.py`, and the proof record below it (reference-suite deviations, corpus counts) updated by hand; [`roadmap.md`](roadmap.md) trimmed.
 6. [`library-facts.md`](library-facts.md) if a library surprised you.
 
 ## 6. Commits, branches and agents
 
 - One change set per commit, every gate green, a conventional-commit message that states what was verified. Develop on the branch the session assigns, push only to it, never force-push, open a PR only when asked. Web-only changes on `web/<topic>` (`CLAUDE.md`, Rules).
-- With 4 CPUs a workflow runs about two agents at a time. Give parallel agents disjoint directories and tell them not to run `ruff format` or Prettier outside their own paths. If a workflow is stopped, check the tree before resuming: a stopped agent may have left edits half done.
+- With 4 CPUs a workflow runs about two agents at a time. Give parallel agents disjoint directories and tell them not to run `ruff format` or Prettier outside their own paths. If a workflow is stopped, check the tree before resuming: a stopped agent may have left edits half done. Two agents running the Playwright suite at once each need their own worktree (both build into `apps/web/build`) and their own ports: `E2E_API_PORT=8020 E2E_WEB_PORT=4193 pnpm test:e2e` (`tests/servers.ts`); outside CI Playwright reuses whatever server already holds a port.
+- **Parallel sessions.** In a cloud session, `.claude/hooks/session-start.sh` installs the dependencies when a lockfile changed and prints the coordination report (`.claude/hooks/coordination.sh`): the branch against `main`, the other `claude/*` and `web/*` branches, the next decision number and `METHOD_VERSION` here and on `main`, and a number both this branch and `main` added since they parted. Take numbers from it and from the other branches' open PRs; renumber at merge as §5 says. The report runs at startup, resume, `/clear` and compaction, never in between, so `.claude/hooks/pre-push.sh` runs it again before every `git push` (1–2 s) and blocks the push on a collision (renumber first; `OPENSOLVE_PUSH_ANYWAY=1 git push …` pushes work in progress anyway, and the user is told). `tests/unit/test_docs.py` (index rows, cited versions, numbered headings, TSD §12 items) and `test_methods.py` (the changelog's order) fail on a collision that reaches the merged tree.
+- **Generated files are regenerated, never merged.** `.gitattributes` gives the outputs of `pnpm gen:types`, the two data files and `docs/verified-state.md` the `generated` merge driver, which the session-start hook configures: a merge (or a rebase) keeps this branch's copy, and the next coordination report names the file. Regenerate it on the merged tree and commit: `pnpm gen:types`, the data script, or `scripts/record_history.py`. CI's generated-types check fails on stale API types; nothing else stops the push. Where the driver is not configured, git merges these files as text; resolve a conflict in one by regenerating it. `tests/unit/test_generated_files.py` fails when one of these is missing from `.gitattributes`. Other generated files (the reference case JSONs, the export's expected workbook) merge as text: a conflict there is safer than a silently kept side.
 - Where the Playwright browsers are preinstalled (`PLAYWRIGHT_BROWSERS_PATH` is set), never run `playwright install`.
 
 ## 7. Report

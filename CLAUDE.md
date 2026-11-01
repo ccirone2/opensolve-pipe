@@ -11,7 +11,7 @@ This file is loaded into every session, so it holds only what every change needs
 | When you… | Read |
 |---|---|
 | face any judgment call | [`docs/GOALS.md`](docs/GOALS.md): priority correctness → traceability → longevity → accessibility → privacy → usability → breadth; feature gates (§5) |
-| start a session or change anything | [`docs/history.md`](docs/history.md) (where things stand, the verified numbers), [`docs/roadmap.md`](docs/roadmap.md) (open work, shelved, Later) |
+| start a session or change anything | [`docs/history.md`](docs/history.md) (where things stand), [`docs/verified-state.md`](docs/verified-state.md) (the verified numbers), [`docs/roadmap.md`](docs/roadmap.md) (open work, shelved, Later) |
 | build a feature, write a proposal, record a decision | [`docs/workflow.md`](docs/workflow.md): how a slice is designed, built, proven and recorded |
 | need a decision's details | `docs/decisions/Dnn-*.md` (index below) |
 | ask what the product does and for whom | [`docs/PRD.md`](docs/PRD.md) |
@@ -96,7 +96,7 @@ TSD §3.1 has the file-level tree. Add directories when the code that needs them
 # backend (apps/api)
 uv sync
 uv run uvicorn opensolve_pipe.main:app --reload --port 8000     # /openapi.json always; /docs only with API_DOCS=1
-uv run pytest && uv run ruff check . && uv run ruff format --check . && uv run mypy src
+uv run pytest -n auto && uv run ruff check . && uv run ruff format --check . && uv run mypy src
 uv run python scripts/generate_pipe_data.py --check && uv run python scripts/generate_relief_data.py --check
 
 # frontend (apps/web)

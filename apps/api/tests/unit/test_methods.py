@@ -270,3 +270,16 @@ def test_pump_valve_and_convention_sections() -> None:
     assert "NPSH" in npsh
     fluid = _text("Fluid properties")
     assert "density 998 kg/m³" in fluid
+
+
+def test_method_changelog_is_one_entry_per_version_in_order() -> None:
+    """GOALS §4.3: METHOD_VERSION is the changelog's last entry, versions rise strictly and dates
+    never go back. Two branches that each took "the next" version and both merged would leave a
+    repeated or out-of-order version here (docs/workflow.md §5, item 3)."""
+    versions = [tuple(int(part) for part in e["version"].split(".")) for e in METHOD_CHANGELOG]
+    assert all(len(v) == 3 for v in versions)
+    assert versions == sorted(set(versions)), "versions must rise strictly"
+    assert METHOD_CHANGELOG[-1]["version"] == METHOD_VERSION
+    dates = [e["date"] for e in METHOD_CHANGELOG]
+    assert dates == sorted(dates)
+    assert all(e["changes"] for e in METHOD_CHANGELOG)

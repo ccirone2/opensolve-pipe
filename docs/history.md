@@ -1,6 +1,6 @@
 # History: where things stand
 
-The record of what was built, in which merge, and the numbers the gates gave on the latest verified state. Append a line per merge (newest last in each session block) and replace the verified-state table when the gates are re-run on `main`. [`roadmap.md`](roadmap.md) holds what is still open.
+The record of what was built, in which merge, and the proofs behind it; the gates' numbers on the latest verified state are in [`verified-state.md`](verified-state.md). Append a line per merge (newest last in each session block) and re-run `scripts/record_history.py` (it rewrites [`verified-state.md`](verified-state.md)) when the gates are re-run on `main`. [`roadmap.md`](roadmap.md) holds what is still open.
 
 The decisions are in [`decisions/`](decisions/README.md); the design of each feature and its as-built notes in [`proposals/`](proposals/README.md); the method versions in `apps/api/src/opensolve_pipe/services/solver/version.py`.
 
@@ -41,23 +41,7 @@ Session 6 (2026-10-29 to 10-30):
 Session 7 (2026-10-30), web only:
 - Build density (proposal `docs/proposals/build-density.md`, branch `web/build-density`; `METHOD_VERSION` unchanged): the Build forms measured at both sizes, six disciplines and a red team in `docs/proposals/build-density/`, the field registry (`apps/web/src/lib/utils/field-registry.ts`) with its schema guard, label/value rows, help on focus, one More disclosure per form, a 36/40 px Build control height, compact Build chrome, and `tests/build-density.e2e.ts` enforcing the budgets (core fields on a phone's first screen, chrome ≤ 15 % at 1280×800, edit action counts, axe-core); `docs/adding-a-field.md` for the next slice. Second session (2026-10-31): one label and unit table (scenario notes, goal seek and the export read the registry; the guard covers the allow-lists), a tighter header and compact scenario bar, 400 % zoom scrolling as a page, flags by shape, ports and fittings as rows, a solved pipe size on a phone's first screen. Third session (2026-10-31): adding a component in 2 actions ("Add now"), a two-value status in one tap (segments), a solved pump's first curve point on a phone's first screen, every port's elevation and a fitting's description editable, a boundary's round-off outflow shown as "≈ 0" by the solve's continuity tolerance, and the §3.4 inconsistencies decided. The owner's four requests (2026-10-31, proposal §13): the footer's links on one line, Project settings condensed with the units first and reference values one step away, US customary units for a new project (the examples and unit-less links keep SI), and the Scenarios menu in place of the case bar; then results tables as lists on phones, sortable by any field (§14); the Results header in one row and a Fields menu on every results table (§15), a sheet on phones (§16); the view buttons one sideways-scrolling row at every width (§17); a phone's Sort and Fields on one line (§18); the patterns all of this converged on, recorded for new work in `docs/ui-guide.md`. Web gates on the branch: svelte-check, Prettier and ESLint clean; Vitest 1623 passed (121 files); Playwright 205 passed, 15 skipped (per viewport), desktop and mobile. The API gates were not run (no API change).
 
-<!-- verified-state:start -->
-Verified state at `9e54d81` (`ccr-efab8cb5-vzm6cg`, 2026-10-30), written by `apps/api/scripts/record_history.py`:
-
-| Area | Result |
-|---|---|
-| API pytest | 7153 passed |
-| API ruff | clean |
-| API ruff format | clean |
-| API mypy strict | clean |
-| API pipe data | clean |
-| API relief data | clean |
-| Web generated API types | clean |
-| Web svelte-check | clean |
-| Web Prettier + ESLint | clean |
-| Web Vitest | 1576 passed (120 files) |
-| Not run this time | Web Playwright (desktop 1280×800 and mobile 390×844, one worker) |
-<!-- verified-state:end -->
+The numbers the gates gave on the latest verified state are in [`verified-state.md`](verified-state.md), written by `apps/api/scripts/record_history.py`.
 
 The proof record below is written by hand with each merge (the script measures only the gates):
 
@@ -67,4 +51,4 @@ The proof record below is written by hand with each merge (the script measures o
 
 **Differential test** (TSD §10.4): three profiles of 3,000 random networks against EPANET, `default` (seeds 0–2,999), `flow_control` (10,000–12,999) and `assigned_flow` (20,000–22,999), each with 0 critical seeds; the 1.2.0 class tables in TSD §10.4 are the baseline, and 1.3.0 (D18), 1.4.0 (D20), the project library's 1.5.0 (D22) and the relief valve (D23, measured as 1.5.0 before the library merged and as 1.6.0 on the merge `9c4b2a3`) each left all 9,000 records identical, as did pump groups (D21) and the merge of the relief valve with them. `equipment_check` (TSD §10.4) replaces every active isolation valve of the corpus by an equipment item of the same loss: 1,781 valves, 0 different. `orifice_check` replaces them by orifice plates of the same K, with an entered C (1,464 valves) and on ISO's Reynolds-dependent C (1,698 valves): 0 different, the largest differences 9.3·10⁻¹⁰ of the largest flow and 6.7·10⁻⁶ m. `relief_check` places relief valves on the corpus in three modes with exact answers (323 valves at partial lift, 420 beyond full lift, 803 set to stay closed): 0 different, the largest differences 1.05·10⁻⁹ of the largest flow and 4.47·10⁻⁶ m in the open modes, with projects at zero flow, at a switch or differing in which nodes have results listed and triaged (TSD §10.4). `pump_group_check` checks every group the suggestion rules give and every pair of pumps (4,235 groups, 537 stations) against a second station finder: 0 violations. `library_check` lifts every corpus project into the project library (95,559 pipe specs, 47,329 resistance entries) and solves it again: 0 different in both modes (mode `exact`, each K at its element's bore, bit for bit). The corpus is 5,189 projects.
 
-**Before changing anything, re-run every gate and confirm these numbers:** `cd apps/api && uv run python scripts/record_history.py` runs them all and rewrites the block above ([`workflow.md`](workflow.md) §4; `--skip e2e` for a quick pass, `--dry-run` to print without writing).
+**Before changing anything, re-run every gate and confirm these numbers:** `cd apps/api && uv run python scripts/record_history.py` runs them all and rewrites [`verified-state.md`](verified-state.md) ([`workflow.md`](workflow.md) §4; `--skip e2e` for a quick pass, `--dry-run` to print without writing).

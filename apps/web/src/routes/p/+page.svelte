@@ -2,9 +2,11 @@
 	The project page. The project is in the URL fragment (D3): it is read on arrival and whenever
 	the fragment changes, decoded (migrating older links) and opened in the workspace. A page
 	without a fragment starts a new project. Every edit rewrites the fragment (see ProjectStore).
+	Each link written or opened here is remembered in this browser for the home page's recent
+	projects (utils/recent.ts), except an empty project and an example not yet changed.
 -->
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { afterNavigate, beforeNavigate } from '$app/navigation';
 	import type { Project } from '$lib/api/types';
 	import LinkErrorView from '$lib/components/workspace/LinkErrorView.svelte';
@@ -12,7 +14,9 @@
 	import { LibraryStore } from '$lib/state/library.svelte';
 	import { ProjectStore } from '$lib/state/project.svelte';
 	import { Workspace } from '$lib/state/workspace.svelte';
-	import { decodeProject, PROJECT_PATH } from '$lib/utils/encoding';
+	import { decodeProject, encodeProject, PROJECT_PATH } from '$lib/utils/encoding';
+	import { EXAMPLES } from '$lib/utils/examples';
+	import { rememberProject } from '$lib/utils/recent';
 	import { createEmptyProject } from '$lib/utils/factory';
 	import { LinkError } from '$lib/utils/link-error';
 
@@ -50,6 +54,35 @@
 		}
 	}
 
+	/** The examples as published: opening one is not worth remembering until it is changed. */
+	const examples = new Set(EXAMPLES.map((e) => encodeProject(e.create())));
+
+	/** Remember the project as its link now stands (recent projects on this device). */
+	function remember() {
+		const store = workspace?.store;
+		if (!store || linkError || !store.encoded) return;
+		const { project, encoded } = store;
+		if (project.components.length === 0 || examples.has(encoded)) return;
+		rememberProject({
+			id: project.id,
+			name: project.metadata.name,
+			encoded,
+			savedAt: new Date().toISOString()
+		});
+	}
+
+	// Each new link: opened, or written after an edit.
+	$effect(() => {
+		void workspace?.store.encoded;
+		untrack(remember);
+	});
+
+	/** Write a pending URL change now, and remember it before the page goes. */
+	function flushAndRemember() {
+		workspace?.store.flush();
+		remember();
+	}
+
 	function backToProject() {
 		if (!workspace) return;
 		history.replaceState(history.state, '', `${PROJECT_PATH}#${workspace.store.encoded}`);
@@ -65,13 +98,13 @@
 	// (popstate) either: the browser has already made another entry current, which a write
 	// would overwrite.
 	beforeNavigate(({ type }) => {
-		if (type !== 'popstate') workspace?.store.flush();
+		if (type !== 'popstate') flushAndRemember();
 	});
 
 	onMount(() => {
 		const onHashChange = () => open(location.hash);
 		// Write a pending URL change before the page is hidden or closed.
-		const flush = () => workspace?.store.flush();
+		const flush = flushAndRemember;
 		const onVisibility = () => {
 			if (document.visibilityState === 'hidden') flush();
 		};

@@ -345,7 +345,7 @@ The pane shows, top to bottom:
 
 **Units.** Values are converted between SI and the display units only at input (`NumberField`) and display (formatters), TSD §6.
 
-**Storage.** Nothing is kept in browser storage. History is the undo stack of the open page plus the links the user keeps.
+**Storage.** The project and its undo history are not kept in browser storage: history is the undo stack of the open page plus the links the user keeps. One exception, the owner's decision of 2026-11-01 (proposal `landing-page.md`): the project page remembers the link of each project opened or changed here in `localStorage` (`opensolve-pipe:recent-projects`, at most 8, `utils/recent.ts`), for the home page's "Recent on this device", never sent anywhere; Forget and Forget all remove them. Layout and view choices are remembered per browser too (the pane split, the pump chart's panels, the fields shown per results table).
 
 Later: sync with the server for accounts and version history.
 
@@ -1489,7 +1489,7 @@ The project travels in the URL **fragment** (after `#`). Browsers never send the
 - Pending writes are flushed before Share, before an in-app navigation and when the page is hidden, so Back returns to the latest version.
 - Links are copy-on-write: a link copied earlier keeps opening the project as it was then.
 - Each accepted edit changes the project, including `metadata.modified`, so it makes a new link.
-- Undo and redo history lives only in the open page. Nothing is kept in browser storage.
+- Undo and redo history lives only in the open page. The only project data in browser storage is the home page's list of recent projects (§3.1.4, Storage), each a link the address bar already held.
 
 **Rules:**
 

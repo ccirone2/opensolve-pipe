@@ -35,7 +35,7 @@ What the web app's layout is converging on, distilled from the owner's direction
 - **Two-value choices are segments** (one tap); three or more stay selects. Previous and Next stay at the bottom, under the thumb.
 
 ### Personal choices stay personal
-- Layout and view choices (the pane split, the fields shown per table) are remembered **per browser** in `localStorage`, read and written in try/catch: a convenience, never project data, never in the link (D3, GOALS §4.5).
+- Layout and view choices (the pane split, the fields shown per table) are remembered **per browser** in `localStorage`, read and written in try/catch: a convenience, never in the link (D3, GOALS §4.5). The one store of project data, the home page's recent projects, was the owner's decision (`proposals/landing-page.md`); any other needs one too.
 - Defaults favour the user's likely setting (a new project in US customary units), but **content keeps what it was made with**: the examples stay SI, a link without units shows SI, so links give the same numbers (GOALS §4.3).
 
 ### Accessibility is part of compact

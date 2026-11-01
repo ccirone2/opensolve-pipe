@@ -56,7 +56,7 @@ In the same change set as the code:
 2. The specs: PRD §2.3 and §3 (scope and requirements), SDD §4 (a model subsection) and §5 where a contract changes, TSD §4–§5 (data and solver), §10.4 (the proof counts) and §12 (the "Decided" item). Add subsections at the end of a section; never renumber, since code cites `TSD §4.10`.
 3. `METHOD_VERSION` and `METHOD_CHANGELOG` (`services/solver/version.py`) if any solved value can change, with a line saying what is unchanged and how that was proven.
 4. The proposal's status line and as-built section.
-5. [`history.md`](history.md): a line for the merge with its hash, PR, decision and method version, [`verified-state.md`](verified-state.md) refreshed by `scripts/record_history.py`, and the proof record below it (reference-suite deviations, corpus counts) updated by hand; [`roadmap.md`](roadmap.md) trimmed.
+5. [`history.md`](history.md): a line for the change naming its PR (`owner/repo#N`) or, written before the PR is opened, its branch in backticks, with its decision and method version, committed in the PR before it merges (the merge hash does not exist yet and is not needed: the PR links to it; CI's "History line" check fails a PR that adds no line naming it), with [`verified-state.md`](verified-state.md) refreshed by `scripts/record_history.py`, and the proof record below it (reference-suite deviations, corpus counts) updated by hand; [`roadmap.md`](roadmap.md) trimmed.
 6. [`library-facts.md`](library-facts.md) if a library surprised you.
 
 ## 6. Commits, branches and agents

@@ -1,13 +1,17 @@
-"""Run the gates and write their counts into docs/history.md (docs/workflow.md §4).
+"""Run the gates and write their counts into docs/verified-state.md (docs/workflow.md §4).
 
     uv run python scripts/record_history.py              # every gate, then rewrite the block
     uv run python scripts/record_history.py --skip e2e   # a quick pass
     uv run python scripts/record_history.py --dry-run    # print the block, write nothing
 
 Each gate is a command with a parser for its summary line. The block between
-``<!-- verified-state:start -->`` and ``<!-- verified-state:end -->`` in docs/history.md is
-replaced with a table of the results, the commit and the date. A failed gate leaves the file
+``<!-- verified-state:start -->`` and ``<!-- verified-state:end -->`` in docs/verified-state.md
+is replaced with a table of the results, the commit and the date. A failed gate leaves the file
 unchanged (unless ``--force``) and the script exits 1; its log names where the output went.
+
+The block has a file of its own, not a place in docs/history.md, so that branches that each ran
+the gates do not conflict there: `.gitattributes` gives it the `generated` merge driver, which
+keeps the branch's copy (docs/workflow.md §6), and the gates are run again on the merged tree.
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ from pathlib import Path
 API = Path(__file__).resolve().parents[1]
 ROOT = API.parents[1]
 WEB = ROOT / "apps" / "web"
-HISTORY = ROOT / "docs" / "history.md"
+VERIFIED_STATE = ROOT / "docs" / "verified-state.md"
 START = "<!-- verified-state:start -->"
 END = "<!-- verified-state:end -->"
 
@@ -141,9 +145,9 @@ def render(rows: list[tuple[str, str]], skipped: list[Gate]) -> str:
 
 
 def write_block(block: str) -> None:
-    text = HISTORY.read_text()
+    text = VERIFIED_STATE.read_text()
     start, end = text.index(START), text.index(END) + len(END)
-    HISTORY.write_text(text[:start] + block + text[end:])
+    VERIFIED_STATE.write_text(text[:start] + block + text[end:])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -177,10 +181,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         return 1 if failed else 0
     if failed and not args.force:
-        print(f"\nA gate failed; docs/history.md left unchanged (logs in {log_dir}).")
+        print(f"\nA gate failed; docs/verified-state.md left unchanged (logs in {log_dir}).")
         return 1
     write_block(block)
-    print(f"\nWrote the block into {HISTORY.relative_to(ROOT)} (logs in {log_dir}).")
+    print(f"\nWrote the block into {VERIFIED_STATE.relative_to(ROOT)} (logs in {log_dir}).")
     return 1 if failed else 0
 
 

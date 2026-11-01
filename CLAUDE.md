@@ -11,7 +11,7 @@ This file is loaded into every session, so it holds only what every change needs
 | When you… | Read |
 |---|---|
 | face any judgment call | [`docs/GOALS.md`](docs/GOALS.md): priority correctness → traceability → longevity → accessibility → privacy → usability → breadth; feature gates (§5) |
-| start a session or change anything | [`docs/history.md`](docs/history.md) (where things stand, the verified numbers), [`docs/roadmap.md`](docs/roadmap.md) (open work, shelved, Later) |
+| start a session or change anything | [`docs/history.md`](docs/history.md) (where things stand), [`docs/verified-state.md`](docs/verified-state.md) (the verified numbers), [`docs/roadmap.md`](docs/roadmap.md) (open work, shelved, Later) |
 | build a feature, write a proposal, record a decision | [`docs/workflow.md`](docs/workflow.md): how a slice is designed, built, proven and recorded |
 | need a decision's details | `docs/decisions/Dnn-*.md` (index below) |
 | ask what the product does and for whom | [`docs/PRD.md`](docs/PRD.md) |

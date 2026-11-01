@@ -95,4 +95,10 @@ else
   echo "- METHOD_VERSION: ${v_here:-unknown}."
 fi
 
+note="$(git rev-parse --git-dir)/opensolve-generated-merged"
+if [ -s "$note" ]; then
+  echo "- A merge kept this branch's copy of generated files; the next push regenerates them:"
+  while read -r f; do echo "    ${f}"; done < "$note"
+fi
+
 [ "$collision" -eq 0 ] || exit 3

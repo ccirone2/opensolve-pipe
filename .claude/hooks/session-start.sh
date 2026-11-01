@@ -3,7 +3,8 @@
 #
 # 1. Installs the API's and the web app's dependencies when a lockfile changed since the last
 #    install, so the gates (CLAUDE.md, Tooling) run at once.
-# 2. Prints the coordination report (coordination.sh): where this branch stands against main,
+# 2. Configures the `generated` merge driver (.gitattributes, merge-generated.sh).
+# 3. Prints the coordination report (coordination.sh): where this branch stands against main,
 #    the other session branches, and the decision number and method version it would take.
 #
 # It runs on every SessionStart source (startup, resume, clear, compact): after /clear or a
@@ -17,6 +18,11 @@ fi
 
 cd "${CLAUDE_PROJECT_DIR:-.}"
 hook=.claude/hooks/session-start.sh
+
+# --- The `generated` merge driver (.gitattributes): a merge keeps this branch's copy of a
+# generated file and pre-push.sh regenerates it. Local git config, so set at every start.
+git config merge.generated.name "keep this branch's generated file; regenerate before push"
+git config merge.generated.driver ".claude/hooks/merge-generated.sh %P"
 
 # --- Dependencies: each install runs only if a file that decides it changed since it last
 # succeeded. The hash file lives in the git-ignored directory the install fills, and is written

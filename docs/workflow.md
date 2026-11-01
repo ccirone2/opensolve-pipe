@@ -62,7 +62,8 @@ In the same change set as the code:
 ## 6. Commits, branches and agents
 
 - One change set per commit, every gate green, a conventional-commit message that states what was verified. Develop on the branch the session assigns, push only to it, never force-push, open a PR only when asked. Web-only changes on `web/<topic>` (`CLAUDE.md`, Rules).
-- With 4 CPUs a workflow runs about two agents at a time. Give parallel agents disjoint directories and tell them not to run `ruff format` or Prettier outside their own paths. If a workflow is stopped, check the tree before resuming: a stopped agent may have left edits half done.
+- With 4 CPUs a workflow runs about two agents at a time. Give parallel agents disjoint directories and tell them not to run `ruff format` or Prettier outside their own paths. If a workflow is stopped, check the tree before resuming: a stopped agent may have left edits half done. Two agents running the Playwright suite at once each need their own worktree (both build into `apps/web/build`) and their own ports: `E2E_API_PORT=8020 E2E_WEB_PORT=4193 pnpm test:e2e` (`tests/servers.ts`); outside CI Playwright reuses whatever server already holds a port.
+- **Parallel sessions.** In a cloud session, `.claude/hooks/session-start.sh` installs the dependencies when a lockfile changed and reports the branch against `main`, the other `claude/*` and `web/*` branches, the next decision number and `METHOD_VERSION` here and on `main`, naming a number this branch took that `main` has since given away. Take numbers from it and from the other branches' open PRs; renumber at merge as §5 says. `tests/unit/test_docs.py` (index rows, cited versions, numbered headings, TSD §12 items) and `test_methods.py` (the changelog's order) fail on a collision that reaches the merged tree.
 - Where the Playwright browsers are preinstalled (`PLAYWRIGHT_BROWSERS_PATH` is set), never run `playwright install`.
 
 ## 7. Report

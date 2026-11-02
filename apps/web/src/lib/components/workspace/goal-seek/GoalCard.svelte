@@ -79,30 +79,35 @@
 	>
 		<Icon name="trash" class="size-4" />
 	</button>
+	<!-- Each half its own container: a field this narrow puts its label above (layout.css .field). -->
 	<div class="clear-both grid grid-cols-2 gap-3">
-		<NumberField
-			label="Target"
-			value={goal.target}
-			category={spec.category}
-			gauge={!!spec.options.gauge}
-			units={ws.displayUnits}
-			bounds={targetBounds()}
-			onchange={(target) => {
-				if (target === null) return false;
-				onchange({ ...goal, target });
-			}}
-		/>
-		<NumberField
-			label="Tolerance"
-			value={goal.tolerance}
-			category={spec.category}
-			units={ws.displayUnits}
-			optional
-			placeholder="Default"
-			bounds={toleranceBounds(goal.quantity, goal.target)}
-			error={toleranceError}
-			onchange={(tolerance) => onchange({ ...goal, tolerance })}
-		/>
+		<div class="@container">
+			<NumberField
+				label="Target"
+				value={goal.target}
+				category={spec.category}
+				gauge={!!spec.options.gauge}
+				units={ws.displayUnits}
+				bounds={targetBounds()}
+				onchange={(target) => {
+					if (target === null) return false;
+					onchange({ ...goal, target });
+				}}
+			/>
+		</div>
+		<div class="@container">
+			<NumberField
+				label="Tolerance"
+				value={goal.tolerance}
+				category={spec.category}
+				units={ws.displayUnits}
+				optional
+				placeholder="Default"
+				bounds={toleranceBounds(goal.quantity, goal.target)}
+				error={toleranceError}
+				onchange={(tolerance) => onchange({ ...goal, tolerance })}
+			/>
+		</div>
 	</div>
 	{#if hint}<p id="{id}-hint" class="hint">{hint}</p>{/if}
 	{#if lapse}

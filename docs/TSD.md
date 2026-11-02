@@ -114,7 +114,7 @@ opensolve-pipe/
 │   │   │   │   │   ├── types.ts        # Short names for the generated types
 │   │   │   │   │   └── client.ts       # API client (fetch), typed errors
 │   │   │   │   ├── components/
-│   │   │   │   │   ├── Home.svelte     # Home page; SiteFooter.svelte; links.ts (app links, disclaimer, legal links)
+│   │   │   │   │   ├── Home.svelte     # Home page (the landing page; RecentProjects.svelte, utils/recent.ts); SiteFooter.svelte; links.ts (app links, disclaimer, legal links)
 │   │   │   │   │   ├── workspace/      # Workspace layout, header, Share, project settings, fluid, link errors,
 │   │   │   │   │   │                   #   scenario manager and Scenarios menu (ScenarioManager, CaseMenu),
 │   │   │   │   │   │                   #   goal seek (GoalSeekDialog, goal-seek/: cards, forms, result),
@@ -1784,7 +1784,7 @@ Checked with `wrangler pages dev` 4.149.0 on a build made with `PUBLIC_API_URL` 
   - Any other feature that rewrites HTML.
 
   `no-transform` is a second line of defence for the two pages, not a substitute for these settings.
-- **Checked against the local emulation** with the API running from the exact image command, in Chromium at desktop (1280×800) and mobile (390×844) sizes. Opening the released `schema-v1` link and solving made 14 requests to the site's origin and 3 to the API's, and nothing else. The solve converged with a gzip response, and there were no cookies, no `Set-Cookie` and nothing in `localStorage`. Repeat this on the real site after each deployment (§11.4).
+- **Checked against the local emulation** with the API running from the exact image command, in Chromium at desktop (1280×800) and mobile (390×844) sizes. Opening the released `schema-v1` link and solving made 14 requests to the site's origin and 3 to the API's, and nothing else. The solve converged with a gzip response, and there were no cookies, no `Set-Cookie` and nothing in `localStorage`. Since the recent projects on the home page (2026-11-01, proposal `landing-page.md`), opening a link with components leaves one key, `opensolve-pipe:recent-projects`, holding that link: expect it and nothing else. Repeat this on the real site after each deployment (§11.4).
 - The fragment never reaches Cloudflare, so the host never holds project data. Like any host, Cloudflare sees visitors' addresses in order to serve the files.
 
 **Cost:** the Free plan.

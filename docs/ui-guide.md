@@ -27,6 +27,8 @@ What the web app's layout is converging on, distilled from the owner's direction
 - **Chrome earns its row** (≤ 15 % of the Build pane at 1280×800, tested): merge rows (actions beside tabs; Previous and Next in the top bar on wide screens), one-line banners and status lines with a mark (✓, ⚠, ⬣, spinner), icon-only buttons in narrow panes with the word kept for screen readers.
 - **A bar that is used now and then becomes a menu** under the button that owns it (the case bar became the Scenarios menu); **don't repeat** what a tab, a chip or a status line already says.
 - **Groups of tabs or pills are one row that scrolls sideways at every width**: edge shadows say there is more, a mouse wheel scrolls it sideways while it can move, the selected one is scrolled into view.
+- **A set of pictures is a swipeable row too** (the landing page's How it works, `ScreenshotCarousel.svelte`): scroll-snap for the motion, Previous and Next, a dot per slide, ← and →, the slide shown announced; never rotating by itself. Each picture has a version made for the screen (a `<picture>`, a phone's cropped to what matters), in a frame of its exact aspect ratio that it fills with `object-fit: contain`, so no browser can squash it. Captions go above their pictures; a press always moves the row (snapping off while it does, put exactly in place when the motion ends).
+- **Two fields side by side** each sit in their own `@container`, so a field in a narrow half stacks its label above rather than squeezing its box (the label-beside rule reads the nearest container's width).
 
 ### Phones
 - **Tables read as lists** below 640 px: a block per element headed by its name, values as label and value pairs that wrap, "—" out of sight. The table keeps explicit ARIA roles and its headings for screen readers, so CSS never unmakes its semantics.
@@ -35,7 +37,7 @@ What the web app's layout is converging on, distilled from the owner's direction
 - **Two-value choices are segments** (one tap); three or more stay selects. Previous and Next stay at the bottom, under the thumb.
 
 ### Personal choices stay personal
-- Layout and view choices (the pane split, the fields shown per table) are remembered **per browser** in `localStorage`, read and written in try/catch: a convenience, never project data, never in the link (D3, GOALS §4.5).
+- Layout and view choices (the pane split, the fields shown per table) are remembered **per browser** in `localStorage`, read and written in try/catch: a convenience, never in the link (D3, GOALS §4.5). The one store of project data, the home page's recent projects, was the owner's decision (`proposals/landing-page.md`); any other needs one too.
 - Defaults favour the user's likely setting (a new project in US customary units), but **content keeps what it was made with**: the examples stay SI, a link without units shows SI, so links give the same numbers (GOALS §4.3).
 
 ### Accessibility is part of compact

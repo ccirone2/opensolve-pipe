@@ -1,17 +1,20 @@
 <!--
-	"How it works": the app's workflow and capabilities as a story of seven steps, one screenshot per
-	step, swiped sideways (proposal landing-page.md §6–§7). Each step has a laptop shot and a phone
+	"How it works": the app's workflow and capabilities as a story of eight steps, one screenshot per
+	step, swiped sideways (proposal landing-page.md §6–§8): the everyday work first (lay out, describe,
+	solve, check, see the working, share), then the power tools (scenarios, goal seek). Each step's
+	caption sits above its shot. Each step has a laptop shot and a phone
 	shot of the same moment; a <picture> serves the phone's below 640 px and the laptop's from there,
 	so every screen tells the same story at a readable size and downloads only its own shots.
 
 	The slides are a scroll-snap row: touch swipe, a trackpad's sideways scroll and Shift+wheel move it
 	natively, with no script or dependency for the motion. Previous and Next wrap around, a dot per step
 	jumps to it, ← and → move it while it has focus, and the step shown is announced (WAI-ARIA APG
-	carousel, without rotation, so there is nothing to pause).
+	carousel, without rotation, so there is nothing to pause). A press always advances the row, in
+	every browser: see go().
 
 	Each frame has its shots' exact aspect ratio (390:560 for a phone's crop, 16:10 for a laptop) and
 	the image fills it absolutely with object-fit: contain, so no browser can stretch or squash it.
-	The shots were taken by hand; retake them after a visible UI change (§7).
+	The shots were taken by hand; retake them after a visible UI change (§7–§8).
 -->
 <script lang="ts">
 	import { asset } from '$app/paths';
@@ -58,16 +61,22 @@
 			alt: "The transfer pump's trace: inputs labelled with their sources (default, library), then the equations for its curve, head, system curve and power."
 		},
 		{
+			file: 'share',
+			title: 'Share the link',
+			text: 'The whole project travels in the link: nothing is stored on a server. Or export a workbook.',
+			alt: 'Sharing the project: its link to copy, with a note that the whole project is in the link, after the “#”, which browsers do not send to any server.'
+		},
+		{
 			file: 'compare',
 			title: 'Compare scenarios',
 			text: 'Named cases, such as winter operation, solved and compared with the base case side by side.',
 			alt: "The chiller plant example's base case and its winter scenario (tower bypassed) compared: each pump's flow and head in both, with the scenario's difference from the base case."
 		},
 		{
-			file: 'share',
-			title: 'Share the link',
-			text: 'The whole project travels in the link: nothing is stored on a server. Or export a workbook.',
-			alt: 'Sharing the project: its link to copy, with a note that the whole project is in the link, after the “#”, which browsers do not send to any server.'
+			file: 'goal',
+			title: 'Goal seek',
+			text: 'Find the inputs that reach your targets, each trial a full solve: here, the pump speed for 15 L/s.',
+			alt: 'Goal seek on the pump transfer example: the flow into the discharge valve set to reach 15 L/s by varying the pump’s speed from 20 % to 100 %; goal met at 86.1 % speed, with Apply to base case and Apply as new scenario.'
 		}
 	];
 
@@ -83,14 +92,20 @@
 	let pending: number | null = null;
 	let pendingTimer: ReturnType<typeof setTimeout> | undefined;
 
-	/** Show step `index` (wrapping around); instant when the user asks for reduced motion. */
+	/**
+	 * Show step `index` (wrapping around); instant when the user asks for reduced motion. Snapping
+	 * is off while a press drives the row: WebKit can snap a smooth programmatic scroll back to
+	 * where it began, so the press would not advance it. arrive() puts the row exactly on the step
+	 * when the motion is over, or after 0.9 s where the browser did not move it, and snaps again.
+	 */
 	function go(index: number) {
 		if (!scroller) return;
 		const n = STEPS.length;
 		const target = ((index % n) + n) % n;
 		pending = target;
+		scroller.style.scrollSnapType = 'none';
 		clearTimeout(pendingTimer);
-		pendingTimer = setTimeout(settle, 1000);
+		pendingTimer = setTimeout(arrive, 900);
 		const reduced =
 			typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 		scroller.scrollTo({
@@ -98,6 +113,18 @@
 			behavior: reduced ? 'auto' : 'smooth'
 		});
 		current = target;
+	}
+
+	/** A press's motion is over: the row exactly on its step, then snapping again. */
+	function arrive() {
+		clearTimeout(pendingTimer);
+		if (scroller && pending !== null) {
+			const left = pending * scroller.clientWidth;
+			if (Math.abs(scroller.scrollLeft - left) > 1) scroller.scrollTo({ left, behavior: 'auto' });
+			current = pending;
+		}
+		pending = null;
+		if (scroller) scroller.style.scrollSnapType = '';
 	}
 
 	/** The step in view, from the row's scroll position (a swipe, a trackpad, a button). */
@@ -112,24 +139,24 @@
 			);
 			if (pending !== null) {
 				// On the way to a step a button or key chose: wait until the row is there.
-				if (Math.abs(scroller.scrollLeft - pending * scroller.clientWidth) > 1) return;
-				pending = null;
+				if (Math.abs(scroller.scrollLeft - pending * scroller.clientWidth) <= 1) arrive();
+				return;
 			}
 			current = shown;
 		});
 	}
 
-	/** The motion is over (scrollend, or the timer where there is none): show where the row is. */
-	function settle() {
-		clearTimeout(pendingTimer);
-		pending = null;
-		onscroll();
+	/** A scroll ended: a press's motion arrives; otherwise the dots read where the row is. */
+	function onscrollend() {
+		if (pending !== null) arrive();
+		else onscroll();
 	}
 
 	/** A touch, a press or a wheel on the row: the user steers now, not the last button. */
 	function release() {
 		clearTimeout(pendingTimer);
 		pending = null;
+		if (scroller) scroller.style.scrollSnapType = '';
 	}
 
 	function onkeydown(event: KeyboardEvent) {
@@ -149,7 +176,7 @@
 		aria-label="Steps: swipe, or use ← and →"
 		tabindex="0"
 		{onscroll}
-		onscrollend={settle}
+		{onscrollend}
 		onpointerdown={release}
 		ontouchstart={release}
 		onwheel={release}
@@ -161,8 +188,14 @@
 				role="group"
 				aria-roledescription="slide"
 				aria-label="Step {i + 1} of {STEPS.length}"
-				class="w-full shrink-0 snap-center snap-always"
+				class="flex w-full shrink-0 snap-center snap-always flex-col"
 			>
+				<!-- The caption above its shot; the slides are as tall as the tallest, and each caption
+					sits at its slide's foot above the shot, so every shot is at the same height. -->
+				<figcaption class="mx-auto mb-3 flex max-w-2xl flex-1 flex-col justify-end text-center">
+					<span class="block font-medium">{i + 1}. {step.title}</span>
+					<span class="mt-0.5 block text-sm text-slate-600">{step.text}</span>
+				</figcaption>
 				<div
 					class="relative aspect-[390/560] overflow-hidden rounded-md border border-slate-200 bg-white sm:aspect-[16/10]"
 				>
@@ -184,15 +217,13 @@
 						/>
 					</picture>
 				</div>
-				<figcaption class="mx-auto mt-3 max-w-2xl text-center">
-					<span class="block font-medium">{i + 1}. {step.title}</span>
-					<span class="mt-0.5 block text-sm text-slate-600">{step.text}</span>
-				</figcaption>
 			</figure>
 		{/each}
 	</div>
 
-	<div class="mt-2 flex items-center justify-center gap-1">
+	<!-- Eight dots and two 44 px arrows on one row: the dots 24 px (WCAG 2.5.8), 32 px on touch
+		from 360 px, so the row fits a 320 px screen and a 390 px one. -->
+	<div class="mt-2 flex items-center justify-center sm:gap-1">
 		<button
 			type="button"
 			class="btn btn-quiet btn-icon"
@@ -204,7 +235,7 @@
 		{#each STEPS as step, i (step.file)}
 			<button
 				type="button"
-				class="flex size-6 items-center justify-center rounded-full pointer-coarse:size-11"
+				class="flex size-6 items-center justify-center rounded-full pointer-coarse:min-[22.5rem]:size-8"
 				aria-label="Step {i + 1}: {step.title}"
 				aria-current={i === current ? 'step' : undefined}
 				onclick={() => go(i)}

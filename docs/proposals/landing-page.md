@@ -128,7 +128,29 @@ The captions state only what the app does, checked against D5, D10, D15, D17 and
 - When the scroll ends (`scrollend`, or after a second where there is none), the dots read the row again, and a touch, press or wheel hands control back to the user.
 - Verified: `home.e2e.ts`, "how it works", at both sizes and three times over, with axe clean.
 
-## 8. Later
+## 8. Captions above, a press that always advances, goal seek, and the order (the owner's request, 2026-11-01)
+
+**The request.** "Move the screenshot caption to the top, above the screenshot. Make the carousel advance on button click. Include a show of the goal seek function. Put the share before the power-use tools like compare scenarios and goal seek."
+
+**The order, eight steps.** The everyday work comes first, then the power tools: 1 Lay out the network, 2 Describe each element, 3 Solve, 4 Check the pumps, 5 See the working, **6 Share the link**, 7 Compare scenarios, **8 Goal seek**. The last is new: the pump transfer example with the flow into the discharge valve set to reach 15 L/s by varying the pump's speed (20–100 %), goal met at 86.1 %, with Apply to base case and Apply as new scenario (`goal-laptop.webp`; `goal-phone.webp` cropped from just above its Result).
+
+**Captions above.** Each slide is a column: the caption (step number and title, then its line), then the shot. The slides in the row are as tall as the tallest, and each caption sits at its slide's foot above its shot, so every shot is at the same height as the row moves, whatever its caption's length.
+
+**A press always advances.**
+- In Chromium the buttons already moved the row; a smooth programmatic scroll on a scroll-snap row is where WebKit can snap back to where it began. That fits the report, which most likely came from Safari: Next and the dots did nothing.
+- `go()` now turns snapping off while a press drives the row. `arrive()` runs when the row reaches the step, when the scroll ends, or after 0.9 s at the latest. It puts the row exactly on the step, instantly where it did not get there, then turns snapping back on.
+- A touch, press or wheel on the row ends this at once and gives the row back to the user.
+- The new e2e test makes the browser ignore every smooth `scrollTo`: Next and a dot still bring their step fully into view. With `arrive()`'s correction removed, the test fails at both sizes.
+- **Not verified here:** WebKit itself (only Chromium is installed).
+
+**Eight dots** are 24 px, and 32 px on touch screens from 360 px wide, so the arrows and the dots share one row on a 320 px screen. The test checks one row within 320 px with no sideways page scroll.
+
+**Found on the way: goal seek's number fields.**
+- Since build-density (its label beside the field from a 21 rem container), the goal and variable cards' Target, Tolerance, From and To were about 20 px wide. Their two fields share a card in half-width cells, while the container queried was the whole dialog, so each label took its 8 rem column.
+- Each half is now its own container (`GoalCard.svelte`, `VariableCard.svelte`), so a field that narrow puts its label above.
+- The other two-up field grids in dialogs (the library's pipe spec and resistance entry, design checks) were measured at both sizes: no input under 72 px.
+
+## 9. Later
 
 - Retake the screenshots after a visible UI change (by hand, §3).
 - A recent project shows the time it was last seen here; a summary (component count, last solve) would need more stored data, so it waits for a request.

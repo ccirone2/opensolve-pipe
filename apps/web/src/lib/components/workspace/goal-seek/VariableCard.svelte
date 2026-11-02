@@ -87,31 +87,36 @@
 		<Icon name="trash" class="size-4" />
 	</button>
 	{#if now}<p class="clear-both text-sm break-words text-slate-700">{now}</p>{/if}
+	<!-- Each half its own container: a field this narrow puts its label above (layout.css .field). -->
 	<div class="clear-both grid grid-cols-2 gap-3">
-		<NumberField
-			label="From"
-			value={variable.lower}
-			category={spec.category}
-			gauge={!!spec.options.gauge}
-			units={ws.displayUnits}
-			bounds={bounds.lower}
-			onchange={(lower) => {
-				if (lower === null) return false;
-				onchange({ ...variable, lower });
-			}}
-		/>
-		<NumberField
-			label="To"
-			value={variable.upper}
-			category={spec.category}
-			gauge={!!spec.options.gauge}
-			units={ws.displayUnits}
-			bounds={bounds.upper}
-			onchange={(upper) => {
-				if (upper === null) return false;
-				onchange({ ...variable, upper });
-			}}
-		/>
+		<div class="@container">
+			<NumberField
+				label="From"
+				value={variable.lower}
+				category={spec.category}
+				gauge={!!spec.options.gauge}
+				units={ws.displayUnits}
+				bounds={bounds.lower}
+				onchange={(lower) => {
+					if (lower === null) return false;
+					onchange({ ...variable, lower });
+				}}
+			/>
+		</div>
+		<div class="@container">
+			<NumberField
+				label="To"
+				value={variable.upper}
+				category={spec.category}
+				gauge={!!spec.options.gauge}
+				units={ws.displayUnits}
+				bounds={bounds.upper}
+				onchange={(upper) => {
+					if (upper === null) return false;
+					onchange({ ...variable, upper });
+				}}
+			/>
+		</div>
 	</div>
 	{#if defaults}<p class="hint">{defaults}</p>{/if}
 	{#if lapse}

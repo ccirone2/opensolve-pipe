@@ -103,20 +103,20 @@ test('the landing page: the start, its sections, the screenshots, and axe clean'
 });
 
 /**
- * "How it works" (proposal landing-page.md §6–§7): seven steps, the same story on every screen, each
+ * "How it works" (proposal landing-page.md §6–§8): eight steps, the same story on every screen, each
  * step's shot the one made for the screen (the phone's crop below 640 px, the laptop's from there)
  * and drawn at its own aspect ratio, never stretched or squashed. Next and Previous wrap around, a
  * dot jumps to its step, ← and → move it while it has focus, a swipe (the row's own sideways
  * scroll) is followed by the dots and the announcement, and every step's image loads when shown.
  */
-test('how it works: seven steps by button, dot, key and swipe, each shot loaded and in proportion', async ({
+test('how it works: eight steps by button, dot, key and swipe, each shot loaded and in proportion', async ({
 	page,
 	isMobile
 }) => {
 	await page.goto('/');
 	const carousel = page.getByRole('region', { name: 'How it works' });
 	const slides = carousel.locator('[aria-roledescription="slide"]');
-	const count = 7;
+	const count = 8;
 	await expect(slides).toHaveCount(count);
 	const dots = carousel.getByRole('button', { name: /^Step \d/ });
 	await expect(dots).toHaveCount(count);
@@ -127,6 +127,11 @@ test('how it works: seven steps by button, dot, key and swipe, each shot loaded 
 		await expect(status).toHaveText(new RegExp(`^Step ${n} of ${count}: `));
 		const image = slides.nth(n - 1).getByRole('img');
 		await expect(image).toBeInViewport();
+		// The caption, the step's title first, above its shot.
+		const caption = slides.nth(n - 1).locator('figcaption');
+		await expect(caption).toContainText(new RegExp(`^${n}\\. `));
+		const [captionBox, imageBox] = [await caption.boundingBox(), await image.boundingBox()];
+		expect(captionBox!.y + captionBox!.height).toBeLessThanOrEqual(imageBox!.y);
 		await expect
 			.poll(() => image.evaluate((img) => (img as HTMLImageElement).naturalWidth))
 			.toBeGreaterThan(0);
@@ -167,7 +172,8 @@ test('how it works: seven steps by button, dot, key and swipe, each shot loaded 
 	await shown(3);
 	await page.keyboard.press('ArrowLeft');
 	await shown(2);
-	// A swipe is the row's own sideways scroll: the dots and the announcement follow it.
+	// A swipe is a touch, then the row's own sideways scroll: the dots and the announcement follow.
+	await row.dispatchEvent('pointerdown');
 	await row.evaluate((el) => el.scrollTo({ left: 3 * el.clientWidth }));
 	await shown(4);
 	const axe = await new AxeBuilder({ page })
@@ -175,6 +181,49 @@ test('how it works: seven steps by button, dot, key and swipe, each shot loaded 
 		.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
 		.analyze();
 	expect(axe.violations.map((v) => `${v.id} (${v.nodes.length})`)).toEqual([]);
+});
+
+/**
+ * A press always advances the row (proposal landing-page.md §8): here the browser ignores every
+ * smooth programmatic scroll, as WebKit can on a scroll-snap row, and Next and a dot still bring
+ * their step into view. At 320 px the arrows and the eight dots share one row.
+ */
+test('how it works: a press advances where smooth scrolling is ignored; one row at 320 px', async ({
+	page
+}) => {
+	await page.addInitScript(() => {
+		const scrollTo = Element.prototype.scrollTo;
+		Element.prototype.scrollTo = function (this: Element, ...args: unknown[]) {
+			const options = args[0] as ScrollToOptions | undefined;
+			if (options && typeof options === 'object' && options.behavior === 'smooth') return;
+			return (scrollTo as (...a: unknown[]) => void).apply(this, args);
+		} as typeof Element.prototype.scrollTo;
+	});
+	await page.setViewportSize({ width: 320, height: 720 });
+	await page.goto('/');
+	const carousel = page.getByRole('region', { name: 'How it works' });
+	const slides = carousel.locator('[aria-roledescription="slide"]');
+	await carousel.scrollIntoViewIfNeeded();
+	await carousel.getByRole('button', { name: 'Next step' }).click();
+	await expect(slides.nth(1).getByRole('img')).toBeInViewport({ ratio: 0.9 });
+	await expect(slides.nth(0).getByRole('img')).not.toBeInViewport();
+	await carousel.getByRole('button', { name: /^Step 5:/ }).click();
+	await expect(slides.nth(4).getByRole('img')).toBeInViewport({ ratio: 0.9 });
+	await expect(carousel.getByRole('button', { name: /^Step 5:/ })).toHaveAttribute(
+		'aria-current',
+		'step'
+	);
+	// The controls: one row, inside the screen.
+	const controls = [
+		carousel.getByRole('button', { name: 'Previous step' }),
+		...(await carousel.getByRole('button', { name: /^Step \d/ }).all()),
+		carousel.getByRole('button', { name: 'Next step' })
+	];
+	const boxes = await Promise.all(controls.map((c) => c.boundingBox()));
+	const tops = new Set(boxes.map((b) => Math.round(b!.y + b!.height / 2)));
+	expect(tops.size).toBe(1);
+	expect(Math.max(...boxes.map((b) => b!.x + b!.width))).toBeLessThanOrEqual(320);
+	expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
 });
 
 /** Go home from the project page, through the app's own link. */

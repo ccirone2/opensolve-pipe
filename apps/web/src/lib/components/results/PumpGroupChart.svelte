@@ -165,6 +165,11 @@
 		oncancelothers?: () => void;
 		/** Ask again for those cancelled by the user or failed. */
 		onretryothers?: () => void;
+		/**
+		 * Why "Compute them again" is unavailable ('' when it can run): a calculation runs, and the
+		 * store sends no curve request until it ends (calculatingReason's words).
+		 */
+		othersRetryReason?: string;
 		/** "Running combinations": every case's members (null: no table). */
 		combinations?: CombinationsTable | null;
 		/** The extremes over the current cases (screen only). */
@@ -203,6 +208,7 @@
 		othersProgress = null,
 		oncancelothers,
 		onretryothers,
+		othersRetryReason = '',
 		combinations = null,
 		extremes = null
 	}: Props = $props();
@@ -874,9 +880,18 @@
 									bind:this={othersRetryButton}
 									type="button"
 									class="btn btn-quiet px-2 text-blue-800"
-									aria-describedby="{id}-others-state"
-									onclick={onretryothers}>Compute them again</button
+									aria-disabled={!!othersRetryReason}
+									aria-describedby={othersRetryReason
+										? `${id}-others-retry-reason ${id}-others-state`
+										: `${id}-others-state`}
+									title={othersRetryReason || undefined}
+									onclick={() => {
+										if (!othersRetryReason) onretryothers?.();
+									}}>Compute them again</button
 								>
+								{#if othersRetryReason}<span id="{id}-others-retry-reason" class="sr-only"
+										>{othersRetryReason}</span
+									>{/if}
 							{/if}
 						</div>
 					{/if}

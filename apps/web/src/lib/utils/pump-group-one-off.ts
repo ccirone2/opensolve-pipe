@@ -573,7 +573,13 @@ export function otherGroupCases(input: OtherCasesInput): OtherGroupCase[] {
 				}
 				return shown ? as('waiting', `waits for ${shown}`) : as('loading', 'being computed');
 			}
-			if (s.status === 'loading') return as('loading', 'being computed');
+			// The store sends no curve request while a calculation runs (its queue waits for the
+			// end): one asked then, by "Compute them again" before it was unavailable, waits too.
+			if (s.status === 'loading') {
+				return input.calculating
+					? as('waiting', `waits for ${CALCULATION_WORDS[input.calculating]} to end`)
+					: as('loading', 'being computed');
+			}
 			if (s.status === 'cancelled') return as('cancelled', CANCELLED_WORDS[s.by], s.by === 'user');
 			if (s.status === 'error') return as('error', `failed: ${s.message}`, true);
 			return null;

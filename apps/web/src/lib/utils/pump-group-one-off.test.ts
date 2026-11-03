@@ -659,6 +659,12 @@ describe('the other cases on the chart', () => {
 			false
 		]);
 		expect(words(one({ status: 'loading' }))).toEqual(['loading', 'being computed', false]);
+		// Asked while a calculation runs: the store sends it only once that ends.
+		expect(words(one({ status: 'loading' }, { calculating: 'solveAll' }))).toEqual([
+			'waiting',
+			'waits for Solve all to end',
+			false
+		]);
 		expect(words(one({ status: 'cancelled', by: 'user' }))).toEqual([
 			'cancelled',
 			'cancelled: you cancelled it',

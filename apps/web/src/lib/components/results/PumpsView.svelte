@@ -610,6 +610,8 @@
 		for (const o of otherCases) if (o.onChart) cancelCase(o.caseId);
 	}
 	function retryOthers() {
+		// Unavailable while a calculation runs (othersRetryReason): nothing is sent until it ends.
+		if (ws.store.calculating !== null) return;
 		for (const o of otherCases) {
 			if (!o.onChart || !o.retry) continue;
 			ws.store.loadGroupCurve(groupMembers, { caseId: o.caseId, retry: true });
@@ -809,6 +811,7 @@
 			{othersProgress}
 			oncancelothers={cancelOthers}
 			onretryothers={retryOthers}
+			othersRetryReason={calculatingReason(ws.store.calculating, 'solve')}
 			{combinations}
 			{extremes}
 		/>

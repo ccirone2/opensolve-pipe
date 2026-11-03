@@ -632,6 +632,59 @@ describe('one pump off on the Pumps together card', () => {
 		expect(state('S2')).toEqual({ status: 'error', message: 'The server is busy.' });
 	}, 20_000);
 
+	it('offers "Compute them again" as unavailable while a run holds, says why, and asks nothing until it ends', async () => {
+		// S1's first group curve fails, so the card offers "Compute them again"; then a Solve all of
+		// one new case is held. The store sends no curve request while it runs.
+		let failS1 = true;
+		const release = deferred<void>();
+		const { ws, calls } = setup(structuredClone(oneOff.project), {
+			fail: (call) => {
+				if (call.scenarioId !== 'S1' || !failS1) return undefined;
+				failS1 = false;
+				return new Error('The server is busy.');
+			},
+			solve: async (_p, _o, request) => {
+				const id = request?.scenarioId;
+				if (id === 'S5') await release.promise;
+				return structuredClone(((id && oneOff.scenarioCases[id]) || oneOff).solve);
+			}
+		});
+		const ids = ['PA', 'PB'];
+		const state = (c: string) => ws.store.groupCurve(ws.store.resultsFor(c).response, ids);
+		const asked = (c: string) => calls.filter((call) => call.scenarioId === c).length;
+		const again = () => within(card()).getByRole('button', { name: 'Compute them again' });
+		await ws.store.solveAll();
+		ws.pumpGroupOthers = true;
+		await fireEvent.click(results().getByRole('tab', { name: 'Pumps' }));
+		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
+		await within(card()).findByRole('button', { name: 'Compute them again' });
+		await waitFor(() => expect(state('S4')?.status).toBe('ready'));
+		expect(state('S1')).toEqual({ status: 'error', message: 'The server is busy.' });
+		expect(again()).not.toHaveAttribute('aria-disabled', 'true');
+		ws.store.update(
+			(p) => withScenarios(p, [...scenariosOf(p), { id: 'S5', name: 'Copy', overrides: [] }]),
+			'add scenario'
+		);
+		const run = ws.solveAll();
+		await waitFor(() => expect(ws.store.calculating).toBe('solveAll'));
+		await waitFor(() => expect(again()).toHaveAttribute('aria-disabled', 'true'));
+		expect(again()).toHaveAccessibleDescription(
+			/^Solve all is running; Cancel in the header stops it\. /
+		);
+		await fireEvent.click(again());
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(asked('S1')).toBe(1);
+		expect(state('S1')).toEqual({ status: 'error', message: 'The server is busy.' });
+		// Nothing on the card says a duty is computed while nothing is sent.
+		expect(within(card()).queryByText(/being computed/)).toBeNull();
+		release.resolve();
+		await run;
+		await waitFor(() => expect(again()).not.toHaveAttribute('aria-disabled', 'true'));
+		await fireEvent.click(again());
+		await waitFor(() => expect(state('S1')?.status).toBe('ready'));
+		expect(asked('S1')).toBe(2);
+	}, 20_000);
+
 	it('says which duties lie on the base case’s group system curve, and why the others are not said to', async () => {
 		const { ws, calls } = setup(structuredClone(oneOff.project));
 		await ws.store.solveAll();

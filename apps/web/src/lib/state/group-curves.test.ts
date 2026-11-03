@@ -583,6 +583,49 @@ describe('group system curves (slice 4b: after the group curve’s answer, by it
 	});
 });
 
+describe('each case’s group maps, read whole (the export, CLAUDE.md D21 slice 4c)', () => {
+	it('gives each case its own maps, {} for a case never asked, emptied by its next solve', async () => {
+		const { solver, answers } = groupSolver();
+		const project = withScenarios(structuredClone(parallel.project), [
+			{ id: 'S1', name: 'Winter', overrides: [] }
+		]);
+		const store = setup(solver, project);
+		await store.solve();
+		store.setCase('S1');
+		await store.solve();
+		expect(store.groupCurvesFor(null)).toEqual({});
+		expect(store.groupSystemCurvesFor('S1')).toEqual({});
+		const key = groupKey(['PA', 'PB']);
+		store.loadGroupCurve(['PA', 'PB']);
+		await settle();
+		answers[0]!.resolve(curveOf(parallel));
+		await settle();
+		store.loadGroupSystemCurve(['PA', 'PB']);
+		await settle();
+		answers[1]!.resolve(systemOf(parallel));
+		await settle();
+		expect(store.groupCurvesFor('S1')).toEqual({
+			[key]: { status: 'ready', response: curveOf(parallel) }
+		});
+		expect(store.groupSystemCurvesFor('S1')).toEqual({
+			[key]: { status: 'ready', response: systemOf(parallel) }
+		});
+		// The base case was never asked: its maps are its own, and empty.
+		expect(store.groupCurvesFor(null)).toEqual({});
+		expect(store.groupSystemCurvesFor(null)).toEqual({});
+		// The same entries the response-keyed readers give.
+		const response = store.resultsFor('S1').response;
+		expect(store.groupCurvesFor('S1')[key]).toBe(store.groupCurve(response, ['PA', 'PB']));
+		expect(store.groupSystemCurvesFor('S1')[key]).toBe(
+			store.groupSystemCurve(response, ['PA', 'PB'])
+		);
+		// The case's next solve empties them.
+		await store.solve();
+		expect(store.groupCurvesFor('S1')).toEqual({});
+		expect(store.groupSystemCurvesFor('S1')).toEqual({});
+	});
+});
+
 describe('the group in page state keeps its pumps’ ids from new elements', () => {
 	it('a member deleted and a new pump added never takes its place, until the group lets go', () => {
 		const ws = testWorkspace(pumpTransferExample());

@@ -22,7 +22,7 @@ import type { GroupCurveState } from '$lib/state/project.svelte';
 import type { ChartImageSource, FigureImageRequest } from '$lib/utils/export/chart-image';
 import fixture from '$lib/utils/__fixtures__/pump-groups-input.json';
 import { ratedCurveRange } from '$lib/utils/pump-chart';
-import type { GroupMemberInput } from '$lib/utils/pump-group-chart';
+import { groupMethodsHeading, type GroupMemberInput } from '$lib/utils/pump-group-chart';
 import { formatNumber } from '$lib/utils/units';
 import PumpGroupChart from './PumpGroupChart.svelte';
 
@@ -183,8 +183,17 @@ describe('the card', () => {
 			'■ Pump PB',
 			'● Group duty, on the curve'
 		]);
-		// How the curve is computed: the response's methods section, under Details.
-		expect(screen.getByText('How this curve is computed')).toBeInTheDocument();
+		// How the curve is computed: the response's methods section, under Details, headed by the
+		// words the export's Methods sheet gives it (groupMethodsHeading, slice 4c).
+		const summary = screen.getByText('How this curve is computed');
+		expect(summary).toBeInTheDocument();
+		const details = summary.closest('details')!;
+		await fireEvent.click(summary);
+		expect(details.open).toBe(true);
+		const response = c.groupCurve.body as PumpGroupCurveResponse;
+		const heading = within(details).getByText(groupMethodsHeading(response));
+		expect(heading).toBeVisible();
+		expect(heading.textContent!.trim()).toBe('Pump group (calculation methods 1.6.0)');
 	});
 
 	it('shows progress while the curve is computed, with Cancel; the focus follows the controls', async () => {

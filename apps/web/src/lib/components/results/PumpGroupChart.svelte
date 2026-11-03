@@ -41,6 +41,7 @@
 		groupChartData,
 		groupImageTitle,
 		groupLegend,
+		groupMethodsHeading,
 		groupNoteLines,
 		groupNotes,
 		groupReadout,
@@ -717,7 +718,7 @@
 							</summary>
 							<div class="space-y-1 text-slate-700">
 								<p class="font-medium">
-									{shown.methods.title} (calculation methods {shown.methodVersion})
+									{groupMethodsHeading(shown)}
 								</p>
 								{#each shown.methods.items as item, i (i)}<p class="break-words">{item}</p>{/each}
 								{#if shown.methods.references.length}
@@ -744,7 +745,7 @@
 							</summary>
 							<div class="space-y-1 text-slate-700">
 								<p class="font-medium">
-									{systemShown.methods.title} (calculation methods {systemShown.methodVersion})
+									{groupMethodsHeading(systemShown)}
 								</p>
 								{#each systemShown.methods.items as item, i (i)}<p class="break-words">
 										{item}

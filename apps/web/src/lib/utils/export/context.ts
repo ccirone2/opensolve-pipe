@@ -13,14 +13,21 @@ import type {
 	Component,
 	PipeConnection,
 	Project,
+	PumpGroupCurveResponse,
 	PumpResult,
 	SolvedState,
 	SolveResponse,
-	SystemCurveResponse
+	SystemCurveResponse,
+	TopologyIssue
 } from '../../api/types';
-import type { SystemCurveState } from '../../state/project.svelte';
+import type {
+	GroupCurveState,
+	GroupSystemCurveState,
+	SystemCurveState
+} from '../../state/project.svelte';
 import { CASE_STATUS_LABELS, fittingFallbackName, portLabel } from '../labels';
 import { hasLibrary } from '../project-library';
+import { pressureControlOnly, refusalWords, wordsText } from '../pump-groups';
 import { scenariosOf } from '../scenarios';
 import { localIso } from './filename';
 import type { ExportCase, ExportInput, SheetSpec } from './model';
@@ -404,21 +411,177 @@ export function curvesOverlayOnly(c: CaseView): { pumpId: string; reason: string
 }
 
 /**
- * What a pump group's curves are listed as when left out of an export: its group curve and its
- * group system curve (CLAUDE.md D21, slices 4a and 4b; slice 4c exports them).
+ * A group of pumps of a case whose group curve or group system curve the Pumps together card
+ * asked for (CLAUDE.md D21, slice 4c): one key of either of the case's maps (the store's
+ * groupKey: the ids sorted, NUL-separated), with both states and the ready responses.
  */
-export const GROUP_CURVES_ITEM = 'Group curves and group system curves';
+export interface ExportGroup {
+	key: string;
+	/** The members in component order: the station's, else the key's ids in c.structure's order. */
+	memberIds: string[];
+	/** "PA+PB": the ids joined by +, as the calculation server names a station. */
+	id: string;
+	groupState: GroupCurveState | undefined;
+	systemState: GroupSystemCurveState | undefined;
+	/** The ready group curve's response (null when not ready). */
+	group: PumpGroupCurveResponse | null;
+	/** The ready group system curve's response (null when not ready). */
+	system: PumpGroupCurveResponse | null;
+	/** group ?? system: the station and duty the rows read (null: the group is left out). */
+	station: PumpGroupCurveResponse | null;
+}
 
-/** Why group curves are not in an export (CLAUDE.md D21, proposal pump-groups.md §6.6). */
-export const GROUP_CURVES_LEFT_OUT =
-	'not exported in this version: the Pumps together card under the pump chart draws them on request, and its Download image saves its chart';
+const readyResponse = (state: GroupCurveState | undefined): PumpGroupCurveResponse | null =>
+	state?.status === 'ready' ? state.response : null;
 
 /**
- * A case of the file has two or more pumps with results: the Pumps together card can show
- * them, so About and the dialog say its group curves are left out.
+ * Every group of a case with values (the keys of both its maps), ordered by the place of its
+ * first member in the case as solved (members no longer there after), then by its id, compared
+ * by code units; [] unless the case has values (Compare's rule, then `hasValues`).
  */
-export function groupCurvesLeftOut(ctx: ExportContext): boolean {
-	return ctx.valued.some((c) => Object.keys(c.solved?.pumpResults ?? {}).length >= 2);
+export function caseGroups(c: CaseView): ExportGroup[] {
+	if (!c.hasValues) return [];
+	const keys = [
+		...new Set([...Object.keys(c.input.groupCurves), ...Object.keys(c.input.groupSystemCurves)])
+	];
+	const index = new Map(c.structure.components.map((x, i) => [x.id, i]));
+	const unknown = c.structure.components.length;
+	const groups = keys.map((key): ExportGroup => {
+		const groupState = c.input.groupCurves[key];
+		const systemState = c.input.groupSystemCurves[key];
+		const group = readyResponse(groupState);
+		const system = readyResponse(systemState);
+		const station = group ?? system;
+		const memberIds = station
+			? [...station.station.memberIds]
+			: orderedIds(c.structure, key.split('\u0000'));
+		return {
+			key,
+			memberIds,
+			id: memberIds.join('+'),
+			groupState,
+			systemState,
+			group,
+			system,
+			station
+		};
+	});
+	const rank = (g: ExportGroup) => index.get(g.memberIds[0] ?? '') ?? unknown;
+	return groups.sort((a, b) => rank(a) - rank(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/** The groups of a case with a station response: the groups the five group sheets write. */
+export function readyGroups(c: CaseView): ExportGroup[] {
+	return caseGroups(c).filter((g) => g.station !== null);
+}
+
+/** Where a curve not in the file can be computed. */
+const NOT_COMPUTED_HERE =
+	'not computed: open the Pumps together card on this case, with these pumps ticked';
+
+/** A curve without a station response here: computing, failed, cancelled or not computed. */
+function stateWords(state: GroupCurveState | undefined): string {
+	if (!state) return 'not computed';
+	switch (state.status) {
+		case 'loading':
+			return 'being computed when exported';
+		case 'error':
+			return `failed: ${state.message}`;
+		case 'cancelled':
+			return 'cancelled';
+		case 'refused':
+			return `refused: ${state.message}`;
+		case 'ready':
+			return 'computed';
+	}
+}
+
+const capitalised = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** The card's words for why the pumps are not a station, or why their group curve is not defined. */
+function refusalText(c: CaseView, g: ExportGroup, issues: readonly TopologyIssue[]): string {
+	const boxes = Object.keys(c.solved?.pumpResults ?? {});
+	return issues
+		.map((issue) =>
+			wordsText(refusalWords(issue, g.memberIds, c.names, { solved: c.structure, boxes }))
+		)
+		.join(' ');
+}
+
+/** The cell of a curve whose station has no duty in the case. */
+const NO_DUTY = 'Not defined: the station has no duty in this case';
+
+/** The Pump groups sheet's Group curve cell: included, not defined, or why it is not in the file. */
+export function groupCurveCell(c: CaseView, g: ExportGroup): string {
+	const state = g.groupState;
+	if (!state) return capitalised(NOT_COMPUTED_HERE);
+	switch (state.status) {
+		case 'ready':
+			return state.response.duty !== null
+				? `Included (${state.response.points.length} points)`
+				: NO_DUTY;
+		case 'refused':
+			return pressureControlOnly(state.issues)
+				? `Not defined: ${refusalText(c, g, state.issues)}`
+				: `Not a station: ${refusalText(c, g, state.issues)}`;
+		default:
+			return capitalised(stateWords(state));
+	}
+}
+
+/** The Pump groups sheet's Group system curve cell, as `groupCurveCell`. */
+export function groupSystemCurveCell(c: CaseView, g: ExportGroup): string {
+	const state = g.systemState;
+	if (!state) {
+		// Never requested where the group curve has no duty (wantsGroupSystemCurve).
+		return g.group && g.group.duty === null ? NO_DUTY : capitalised(NOT_COMPUTED_HERE);
+	}
+	switch (state.status) {
+		case 'ready':
+			return state.response.duty !== null
+				? `Included (${state.response.systemPoints.length} points)`
+				: NO_DUTY;
+		case 'refused':
+			return `Not a station: ${refusalText(c, g, state.issues)}`;
+		default:
+			return capitalised(stateWords(state));
+	}
+}
+
+/**
+ * The groups of a case that are not in the file, with why (the dialog and About): every group
+ * without a station response, or, where the card computed none for a case with two or more pumps
+ * with results, one line saying so. A group in the file says its missing curve in its own cells.
+ */
+export function groupsLeftOut(c: CaseView): { what: string; reason: string }[] {
+	if (!c.hasValues || !c.solved) return [];
+	const groups = caseGroups(c);
+	if (!groups.length) {
+		return Object.keys(c.solved.pumpResults).length >= 2
+			? [
+					{
+						what: 'Pump groups',
+						reason:
+							'not computed: the Pumps together card under the pump chart computes them on request'
+					}
+				]
+			: [];
+	}
+	return groups
+		.filter((g) => g.station === null)
+		.map((g) => {
+			const state = g.groupState;
+			let reason: string;
+			if (state?.status === 'refused' && !pressureControlOnly(state.issues)) {
+				reason = `not a station: ${refusalText(c, g, state.issues)}`;
+			} else if (state?.status === 'refused') {
+				const system = g.systemState ? stateWords(g.systemState) : NOT_COMPUTED_HERE;
+				reason = `group system curve ${system}; group curve not defined: ${refusalText(c, g, state.issues)}`;
+			} else {
+				reason = `group curve ${stateWords(state)}`;
+			}
+			return { what: `Pump group ${g.id}`, reason };
+		});
 }
 
 /** What the dialog lists as left out (§5.3 item 6). */
@@ -434,8 +597,9 @@ export function omitted(ctx: ExportContext): { what: string; reason: string }[] 
 			list.push({ what: named(c, `System curve of ${componentName(c, pumpId)}`), reason });
 		}
 	}
-	if (groupCurvesLeftOut(ctx))
-		list.push({ what: GROUP_CURVES_ITEM, reason: GROUP_CURVES_LEFT_OUT });
+	for (const c of ctx.valued) {
+		for (const o of groupsLeftOut(c)) list.push({ what: named(c, o.what), reason: o.reason });
+	}
 	if (!ctx.single) {
 		list.push({
 			what: 'Trace',

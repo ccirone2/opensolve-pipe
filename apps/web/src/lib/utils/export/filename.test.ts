@@ -1,7 +1,7 @@
 /**
  * File names and local times of an export (proposal export.md §3.5, §7.1): NFC; whitespace,
  * reserved, bidi and zero-width characters; leading and trailing dots and spaces; grapheme cuts;
- * empty parts; the 147-character cap and the longest path Extract All proposes; the local time
+ * empty parts; the 144-character cap and the longest path Extract All proposes; the local time
  * from `now` and the offset (the same under two time zones of the machine); the "(not
  * converged)" suffix; the zip's inner folder.
  */
@@ -133,7 +133,7 @@ describe('a file name', () => {
 		);
 	});
 
-	it('is at most MAX_NAME_LENGTH (147) characters, whatever the parts', () => {
+	it('is at most MAX_NAME_LENGTH (144) characters, whatever the parts', () => {
 		const name = exportFileName({
 			...base,
 			project: 'P'.repeat(200),
@@ -175,6 +175,11 @@ describe("the CSV zip's folder", () => {
 			'pumps.csv',
 			'pump-curves.csv',
 			'system-curves.csv',
+			'pump-groups.csv',
+			'pump-group-members.csv',
+			'group-curves.csv',
+			'group-curve-members.csv',
+			'group-system-curves.csv',
 			'valves.csv',
 			'relief-valves.csv',
 			'equipment.csv',
@@ -197,7 +202,9 @@ describe("the CSV zip's folder", () => {
 			}
 		}
 		const longest = FILES.reduce((a, b) => (b.length > a.length ? b : a));
-		expect(longest).toBe('scenario-changes.csv');
+		// The pump group sheets' files (CLAUDE.md D21, slice 4c), 23 characters: the cap is 144.
+		expect(longest).toBe('group-curve-members.csv');
+		expect(MAX_NAME_LENGTH).toBe(144);
 		// The design's reference: a 26-character Downloads folder; Extract All proposes
 		// Downloads\{zip name without .zip}\, and in it the zip's own folder.
 		const downloads = 'C:\\Users\\abcdefg\\Downloads';

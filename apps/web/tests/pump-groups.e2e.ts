@@ -7,7 +7,15 @@ import type {
 	PumpGroupCurveRequest,
 	PumpGroupCurveResponse
 } from '../src/lib/api/types';
-import { halfUlp, resultsView, solveConverged } from './support';
+import {
+	downloadFrom,
+	expectNothingSent,
+	halfUlp,
+	readWorkbook,
+	resultsPane,
+	resultsView,
+	solveConverged
+} from './support';
 
 /**
  * The Pumps together card (CLAUDE.md D21, proposal pump-groups.md §6), against the real app and
@@ -16,7 +24,8 @@ import { halfUlp, resultsView, solveConverged } from './support';
  * Slice 4b (§7): the group system curve asked for after the group curve, drawn and listed in the
  * data table, the Group point at the curves' crossing, "Read along the curves", an FCV outside
  * the station (points without a rise, and why) and a PRV inside it (no group curve, the group
- * system curve all the same). The projects are the shared fixture's
+ * system curve all the same). Slice 4c: the export writes the group computed, in five sheets after
+ * System curves, sending nothing. The projects are the shared fixture's
  * (apps/api/tests/fixtures/pump_groups_input.py); every expected number is read from the
  * intercepted response of the real API and compared in display units, to the rounding the table
  * shows. No sideways scroll; the image is a PNG.
@@ -456,5 +465,56 @@ test('a PRV inside the station: no group curve there, the group system curve all
 		legend.getByRole('listitem').filter({ hasText: 'Group duty, on the group system curve' })
 	).toHaveCount(1);
 	await expect(card.getByRole('slider')).toHaveCount(0);
+	await noSidewaysScroll(page);
+});
+
+test('the export writes the group computed: five sheets after System curves, nothing sent', async ({
+	page
+}) => {
+	await open(page, projectOf('parallel-crane'));
+	await solveConverged(page);
+	const { toggle } = await openCard(page);
+	const { group, system } = await answersOf(page, () => toggle.click());
+	expect(group.status).toBe(200);
+	expect(system.status).toBe(200);
+
+	await resultsPane(page).locator('[data-export-button]').click();
+	const dialog = page.getByRole('dialog', { name: 'Export results' });
+	await expect(dialog).toBeVisible();
+	await dialog.getByRole('radio', { name: /^SI base units/ }).check();
+	const contents = dialog.locator('[data-export-contents]');
+	const members = group.body.points.reduce((n, p) => n + p.members.length, 0);
+	for (const item of [
+		'Pump groups (1)',
+		'Pump group members (2)',
+		`Group curves (${group.body.points.length})`,
+		`Group curve members (${members})`,
+		`Group system curves (${system.body.systemPoints.length})`
+	]) {
+		await expect(contents).toContainText(item);
+	}
+	const omitted = dialog.locator('[data-export-omitted] li');
+	for (const text of await omitted.allInnerTexts()) {
+		expect(text).not.toMatch(/^(Pump group|Group curves and group system curves)/);
+	}
+
+	const made = await downloadFrom(page, dialog.getByRole('button', { name: 'Download' }));
+	expectNothingSent(made.requests);
+	const { sheets, strings } = readWorkbook(made.bytes);
+	const names = [...sheets.keys()];
+	// The Pumps view computes the viewed pump's system curve first, on the same queue.
+	const at = names.indexOf('System curves');
+	expect(at).toBeGreaterThan(0);
+	expect(names.slice(at + 1, at + 6)).toEqual([
+		'Pump groups',
+		'Pump group members',
+		'Group curves',
+		'Group curve members',
+		'Group system curves'
+	]);
+	const groups = sheets.get('Pump groups')!;
+	expect(groups).toContain(`<v>${String(group.body.duty!.flow)}</v>`);
+	expect(groups).toContain(`<v>${String(group.body.duty!.head)}</v>`);
+	expect(strings).toContain('PA+PB');
 	await noSidewaysScroll(page);
 });

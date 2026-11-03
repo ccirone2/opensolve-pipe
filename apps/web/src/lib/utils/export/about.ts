@@ -18,6 +18,7 @@ import { projectUrl } from '../encoding';
 import { flagText } from '../flag-text';
 import { goalSeekReport, outcomeText } from '../goal-seek';
 import { CASE_STATUS_LABELS } from '../labels';
+import { groupMethodsLines } from '../pump-group-chart';
 import { compareVersions } from '../results';
 import { findScenario } from '../scenarios';
 import { methodsText, solveStatusLines } from '../trace';
@@ -25,10 +26,9 @@ import {
 	componentName,
 	curvesLeftOut,
 	curvesOverlayOnly,
-	GROUP_CURVES_ITEM,
-	GROUP_CURVES_LEFT_OUT,
-	groupCurvesLeftOut,
+	groupsLeftOut,
 	noValuesReason,
+	readyGroups,
 	type CaseView,
 	type ExportContext
 } from './context';
@@ -157,15 +157,22 @@ const units = (ctx: ExportContext) => ctx.units;
  * The Units rows (§2.7): every category's unit, the gauge note and the exceptions. `equipment`: the
  * file has an Equipment sheet, whose flow ratio is written in the fraction category (signed and
  * unbounded, Q ÷ Q_r: no 0–1 fraction) and whose Cv or Kv is as entered (lines added only then,
- * so a file without equipment is as before).
+ * so a file without equipment is as before). `relief` and `groups`: the file has the Relief valves
+ * sheet, or the pump group sheets (CLAUDE.md D21, slice 4c), whose ratios are fractions too.
  */
-function unitRows(ctx: ExportContext, equipment: boolean, relief = false): AboutRow[] {
+function unitRows(
+	ctx: ExportContext,
+	equipment: boolean,
+	relief = false,
+	groups = false
+): AboutRow[] {
 	const u = units(ctx);
 	const label = (unit: string) => unit || 'none (a pure number)';
 	const fractions = [
 		'speed, efficiency',
 		...(equipment ? ['flow ÷ rated flow'] : []),
-		...(relief ? ["a relief valve's lift, flow ÷ capacity, Δp ÷ set and overpressure"] : [])
+		...(relief ? ["a relief valve's lift, flow ÷ capacity, Δp ÷ set and overpressure"] : []),
+		...(groups ? ["a pump group member's share"] : [])
 	].join(', ');
 	const rows: AboutRow[] = [
 		['Export', 'Units: elevations and lengths', u.label('length')],
@@ -207,6 +214,9 @@ function unitRows(ctx: ExportContext, equipment: boolean, relief = false): About
 					: '') +
 				(relief
 					? " A relief valve's Δp ÷ set is a ratio with no unit, 1 at its set and above 1 while it relieves; its lift and flow ÷ capacity are 1 at full lift (flow ÷ capacity above 1 beyond it)."
+					: '') +
+				(groups
+					? " A pump group member's share is a ratio with no unit, as the calculation server gives it."
 					: '')
 		]);
 	}
@@ -222,9 +232,10 @@ function andList(items: readonly string[]): string {
 
 /**
  * The Numbers row; `equipment`, `orifices`, `relief`: the ≈ 0 rule names equipment's, orifice
- * plates' and relief valves' pressure differences too (a file with none of them is as before).
+ * plates' and relief valves' pressure differences too (a file with none of them is as before);
+ * `groups`: the card's station flows told as 0 below the duty check's floor.
  */
-function numbersText(equipment: boolean, orifices = false, relief = false): string {
+function numbersText(equipment: boolean, orifices = false, relief = false, groups = false): string {
 	const drops = [
 		'valve',
 		...(relief ? ['relief valve'] : []),
@@ -236,8 +247,34 @@ function numbersText(equipment: boolean, orifices = false, relief = false): stri
 		...(orifices ? ['orifice plate permanent losses'] : [])
 	];
 	const pressures = andList([`${andList(drops)} pressure drops`, ...losses]);
-	return `Full precision: each number is the value the calculation server returned, converted to these units, not rounded. The app shows 4 significant figures, and heads, elevations and lengths to at least 0.01 m (or its equivalent); it shows head differences below 1×10⁻⁷ m, ${pressures} below ρg·10⁻⁷ m and branch K below 1×10⁻⁴ as ≈ 0 (round-off). The file gives them as computed. Spreadsheets display and re-save at most 15 significant digits.`;
+	return `Full precision: each number is the value the calculation server returned, converted to these units, not rounded. The app shows 4 significant figures, and heads, elevations and lengths to at least 0.01 m (or its equivalent); it shows head differences below 1×10⁻⁷ m, ${pressures} below ρg·10⁻⁷ m and branch K below 1×10⁻⁴ as ≈ 0 (round-off). The file gives them as computed. Spreadsheets display and re-save at most 15 significant digits.${groups ? GROUPS_NUMBERS : ''}`;
 }
+
+/** The Numbers row's sentence in a file with the pump group sheets. */
+const GROUPS_NUMBERS =
+	" The Pumps together card shows a station's flow below 1×10⁻⁶ m³/s (its duty check's floor) as 0; the file gives the server's value, which at a station without flow is round-off about zero.";
+
+/** The pump groups' sign row, only in a file with the pump group sheets. */
+const GROUP_SIGN: [string, string] = [
+	'Sign: pump group',
+	"Rise = EGL(D) − EGL(S), from the station's inlet S to its outlet D; Station flow is + from S into the station; a pump's flow is suction → discharge."
+];
+
+/** The pump groups' rows, only in a file with the pump group sheets. */
+const GROUP_ROWS: [string, string][] = [
+	[
+		'Pump groups',
+		"The Pump groups, Pump group members, Group curves, Group curve members and Group system curves sheets hold each group of pumps whose group curve or group system curve the Pumps together card had computed for a case's solve; nothing is computed for this file. A group is named by its pumps' ids joined by + (as the calculation server names a station). Reasons are the card's own words; reason codes, messages and ids are the server's, as reported. The station's inlet EGL, the level the server holds S at to solve the group curve, is not written: it is arbitrary where the station lies in a part of the network that no reservoir or reference node reaches; the Nodes sheet gives the EGL at S where it is determined."
+	],
+	[
+		'Pump groups: share',
+		"Share: in a parallel station a pump's flow ÷ the station's flow, in a series station its head ÷ the sum of the pumps' heads; empty for a mixed station and, in parallel, without station flow. Share, Lost on its way and Lost in the piping between the pumps are the calculation server's (CLAUDE.md D21), never computed by this file."
+	],
+	[
+		'Pump groups: duty checks',
+		"Duty check: whether the group curve at the duty's rise gives the solve's flows, the station's and every pump's, within 0.5 % or 1×10⁻⁶ m³/s; System duty check: whether the group system curve at the duty's flow gives the solve's rise, within 0.5 % or 0.01 m. The curves' values there are their rows marked At the duty rise and At the duty flow. The Group curve and Group system curve columns say why a curve is not in the file."
+	]
+];
 
 /** The relief valves' sign row, only in a file with a Relief valves sheet. */
 const RELIEF_SIGN: [string, string] = [
@@ -400,6 +437,24 @@ function caseRows(ctx: ExportContext, c: CaseView, links: ProjectLink[]): AboutR
 				add(`System curve of ${componentName(c, pumpId)}`, `Not included: ${reason}`);
 			}
 		}
+		// Pump groups (CLAUDE.md D21, slice 4c): wherever the Pumps together card can show some,
+		// whether or not the file has the group sheets, as "System curves included".
+		if (pumps.length >= 2) {
+			const list = readyGroups(c)
+				.map((g) => {
+					const S = g.station!;
+					const parts =
+						S.duty === null
+							? 'no duty'
+							: [
+									...(g.group?.duty ? ['group curve'] : []),
+									...(g.system?.duty ? ['group system curve'] : [])
+								].join(', ');
+					return `${g.id} (${S.station.arrangement}): ${parts}`;
+				})
+				.join('; ');
+			add('Pump groups included', list || 'None');
+		}
 	}
 	if (ctx.input.options.link) {
 		const index = links.findIndex((l) => l.cases.includes(c));
@@ -519,6 +574,27 @@ export function goalSeekSheet(ctx: ExportContext): SheetSpec | null {
 	};
 }
 
+/**
+ * The methods of the group responses of a case in the file (CLAUDE.md D21, slice 4c), after its
+ * own: for each group with rows, its group curve's and its group system curve's sections, each
+ * after a blank line and a heading naming the group and the curve.
+ */
+function groupMethodLines(c: CaseView): string[] {
+	if (!c.hasValues) return [];
+	const lines: string[] = [];
+	for (const g of readyGroups(c)) {
+		const curves = [
+			['group curve', g.group],
+			['group system curve', g.system]
+		] as const;
+		for (const [kind, response] of curves) {
+			if (!response) continue;
+			lines.push('', `Pumps together: ${g.id}, ${kind}`, ...groupMethodsLines(response));
+		}
+	}
+	return lines;
+}
+
 /** Each case's methods text, exactly as the Methods view's Copy as text gives it (§2.8). */
 function methodsTexts(ctx: ExportContext): { c: CaseView; text: string }[] {
 	return ctx.responded.map((c) => {
@@ -546,7 +622,7 @@ export function methodsSheet(ctx: ExportContext): SheetSpec | null {
 	if (!ctx.responded.length) return null;
 	const texts = methodsTexts(ctx).map(({ c, text: t }) => ({
 		c,
-		lines: t.replace(/\n$/, '').split('\n')
+		lines: [...t.replace(/\n$/, '').split('\n'), ...groupMethodLines(c)]
 	}));
 	return {
 		id: 'methods',
@@ -617,10 +693,13 @@ export function aboutRows(
 	const orifices = sheets.some((sheet) => sheet.file === 'orifices.csv');
 	// And about relief valves only with a Relief valves sheet.
 	const relief = sheets.some((sheet) => sheet.file === 'relief-valves.csv');
-	rows.push(...unitRows(ctx, equipment, relief));
-	rows.push(['Export', 'Numbers', numbersText(equipment, orifices, relief)]);
+	// And about pump groups only with the pump group sheets (CLAUDE.md D21, slice 4c).
+	const groups = sheets.some((sheet) => sheet.file === 'pump-groups.csv');
+	rows.push(...unitRows(ctx, equipment, relief, groups));
+	rows.push(['Export', 'Numbers', numbersText(equipment, orifices, relief, groups)]);
 	for (const [item, value] of SIGNS) {
 		rows.push(['Export', item, value]);
+		if (groups && item === 'Sign: pump flow') rows.push(['Export', ...GROUP_SIGN]);
 		if (relief && item === 'Sign: valve flow') rows.push(['Export', ...RELIEF_SIGN]);
 		if (equipment && item === 'Sign: valve flow') rows.push(['Export', ...EQUIPMENT_SIGN]);
 		if (orifices && item === 'Sign: valve flow') rows.push(['Export', ...ORIFICE_SIGN]);
@@ -645,6 +724,8 @@ export function aboutRows(
 			"The Project library sheet lists the pipe specs and resistance entries each case was solved with, as that case was solved: each entry's values as entered (a K with the bore it is stated at; a Cv, US gpm of water at 1 psi, or a Kv, m³/h of water at 1 bar, as entered in every unit system), its source as typed, and the elements that use it; an entry nothing uses is listed too. The Pipes, Fittings and Valves sheets name the entry each element refers to, by id and name."
 		]);
 	}
+	// Pump groups (CLAUDE.md D21, slice 4c), only in a file that has their sheets.
+	if (groups) for (const [item, value] of GROUP_ROWS) rows.push(['Export', item, value]);
 	// Compare cases names connections by their ends now: what reads otherwise than as solved.
 	const compared = compareNotes(ctx);
 	if (compared.reversed.length) {
@@ -669,7 +750,11 @@ export function aboutRows(
 			left.push([ctx.hasScenarios ? `${what} (${c.label})` : what, reason]);
 		}
 	}
-	if (groupCurvesLeftOut(ctx)) left.push([GROUP_CURVES_ITEM, GROUP_CURVES_LEFT_OUT]);
+	for (const c of ctx.valued) {
+		for (const o of groupsLeftOut(c)) {
+			left.push([ctx.hasScenarios ? `${o.what} (${c.label})` : o.what, o.reason]);
+		}
+	}
 	if (!input.options.link) left.push(['Project link', 'left out when exported']);
 	for (const [item, value] of left) rows.push(['Not in this file', item, value]);
 

@@ -1080,7 +1080,8 @@ export function groupTable(
 // The data table (the chart's long description)
 // ---------------------------------------------------------------------------------------------
 
-const STATUS_WORDS: Readonly<Record<string, string>> = {
+/** A member's status at a point or at the duty (running, off, no flow), as the data table words it. */
+export const MEMBER_STATUS_WORDS: Readonly<Record<string, string>> = {
 	running: 'Running',
 	off: 'Off',
 	no_flow: 'No flow'
@@ -1134,7 +1135,7 @@ export function groupSampleRows(
 				const m = p.members.find((x) => x.pumpId === id);
 				if (!m) return { flow: '—', head: '—', state: '—' };
 				const control = m.controlState ? CONTROL_WORDS[m.controlState] : null;
-				const state = `${STATUS_WORDS[m.status] ?? m.status}${control && m.status === 'running' ? `, ${control}` : ''}${m.beyondData ? ', beyond its data' : ''}`;
+				const state = `${MEMBER_STATUS_WORDS[m.status] ?? m.status}${control && m.status === 'running' ? `, ${control}` : ''}${m.beyondData ? ', beyond its data' : ''}`;
 				return {
 					flow: fmt(fromSI(m.flow, flowUnit)),
 					head: m.head === null ? '—' : fmt(fromSI(m.head, headUnit)),
@@ -1259,7 +1260,9 @@ export function groupReadout(
 				const m = p.members.find((x) => x.pumpId === id);
 				if (!m) return [];
 				const state =
-					m.status === 'running' ? '' : ` (${STATUS_WORDS[m.status]?.toLowerCase() ?? m.status})`;
+					m.status === 'running'
+						? ''
+						: ` (${MEMBER_STATUS_WORDS[m.status]?.toLowerCase() ?? m.status})`;
 				return [`${name(id)} ${fmt(fromSI(m.flow, flowUnit))} ${flowLabel}${state}`];
 			});
 			const points: ChartPoint[] = [
@@ -1279,4 +1282,20 @@ export function groupReadout(
 /** The methods section of the response: "How this curve is computed". */
 export function groupMethods(state: GroupCurveState | undefined): MethodsSection | null {
 	return state?.status === 'ready' ? state.response.methods : null;
+}
+
+/** "Pump group (calculation methods 1.6.0)": the heading the card and the export give a response's methods. */
+export function groupMethodsHeading(r: PumpGroupCurveResponse): string {
+	return `${r.methods.title} (calculation methods ${r.methodVersion})`;
+}
+
+/** A response's methods as text lines, in methodsText's layout (trace.ts): heading, "- item", "References:", "- ref". */
+export function groupMethodsLines(r: PumpGroupCurveResponse): string[] {
+	return [
+		groupMethodsHeading(r),
+		...r.methods.items.map((item) => `- ${item}`),
+		...(r.methods.references.length
+			? ['References:', ...r.methods.references.map((ref) => `- ${ref}`)]
+			: [])
+	];
 }

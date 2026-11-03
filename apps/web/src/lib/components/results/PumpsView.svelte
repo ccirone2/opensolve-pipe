@@ -13,13 +13,30 @@
 	case), defaulting to the group suggested on the topology as solved for the pump viewed; its
 	group curve is computed on demand for this solve and case, cached with it (ProjectStore
 	loadGroupCurve), and after its answer the group system curve (slice 4b, loadGroupSystemCurve).
+
+	Slice 4d (one pump off): for a parallel station, while the base case is shown and current, "Add
+	cases with one pump off" makes one scenario per member running in the base case, in one undo
+	step, and turns on "Also show the other cases' station duties": each other case's group curve
+	is asked for (one request at a time, after the case shown's curves; at most six cases), its
+	duty drawn as a numbered ring. "Running combinations" lists every case's members. The card asks
+	again for the curves a solve, Solve all or goal seek cancelled, once no calculation runs.
 -->
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import type { SolvedState } from '$lib/api/types';
+	import type {
+		Project,
+		PumpGroupCurveResponse,
+		PumpGroupStation,
+		SolvedState
+	} from '$lib/api/types';
 	import SelectField from '$lib/components/ui/SelectField.svelte';
 	import { useWorkspace } from '$lib/state/workspace.svelte';
-	import { wantsGroupSystemCurve, type FlowRange } from '$lib/state/project.svelte';
+	import {
+		hydraulicFingerprint,
+		wantsGroupSystemCurve,
+		type FlowRange,
+		type GroupCurveState
+	} from '$lib/state/project.svelte';
 	import { caseResponse } from '$lib/utils/compare';
 	import type { ChartImageSource } from '$lib/utils/export/chart-image';
 	import { calculatingReason } from '$lib/utils/goal-seek';
@@ -33,13 +50,34 @@
 	} from '$lib/utils/pump-chart';
 	import {
 		flagsForElement,
+		Formatter,
 		markChanged,
 		pumpTable,
 		resultsProject,
 		type TableSort
 	} from '$lib/utils/results';
-	import { defaultGroup, suggestGroups } from '$lib/utils/pump-groups';
-	import type { GroupMemberInput } from '$lib/utils/pump-group-chart';
+	import { defaultGroup, pressureControlOnly, suggestGroups } from '$lib/utils/pump-groups';
+	import {
+		andList,
+		dutyFlow,
+		namesProject,
+		stationResponse,
+		type GroupMemberInput
+	} from '$lib/utils/pump-group-chart';
+	import {
+		addedNotice,
+		chartPriority,
+		combinationExtremes,
+		MAX_GROUP_CASES,
+		onePumpOffPlan,
+		otherGroupCases,
+		runningCombinations,
+		sharedRest,
+		withOnePumpOffCases,
+		type CombinationsInput,
+		type OtherGroupCase
+	} from '$lib/utils/pump-group-one-off';
+	import type { CaseId } from '$lib/utils/scenarios';
 	import PumpChart from './PumpChart.svelte';
 	import PumpGroupChart from './PumpGroupChart.svelte';
 	import ResultsTable from './ResultsTable.svelte';
@@ -340,6 +378,304 @@
 			ws.store.cancelSystemCurve(pumpId, { caseId: caseOf(key), range: grid });
 		}
 	}
+
+	// ---- One pump off and the other cases (slice 4d) ------------------------------------------
+
+	/** The station the card shows: the group curve's answer, else the group system curve's. */
+	const groupStation = $derived(
+		groupUnavailable ? null : stationResponse(groupState, groupSystemState)
+	);
+	const groupSystemShown = $derived(
+		!groupUnavailable && groupSystemState?.status === 'ready' ? groupSystemState.response : null
+	);
+	/** The case shown's curves have answered: the other cases' requests come after them. */
+	const shownSettled = $derived(
+		!!groupState &&
+			groupState.status !== 'loading' &&
+			(!wantsSystem || (!!groupSystemState && groupSystemState.status !== 'loading'))
+	);
+	/** A curve a calculation (a solve, Solve all, a goal seek) cancelled: asked again after it. */
+	const cancelledByCalculation = (state: GroupCurveState | undefined) =>
+		state?.status === 'cancelled' && state.by !== 'user';
+
+	/**
+	 * The other cases with values by Compare's rule (a failed or not reached case's earlier
+	 * response is never used), in case order, while the card shows a station.
+	 */
+	const valuedOthers = $derived.by(() => {
+		if (!hasScenarios || !groupStation) return [];
+		return ws.store.caseIds
+			.filter((c) => c !== ws.store.activeCase)
+			.flatMap((c) => {
+				const results = ws.store.resultsFor(c);
+				const response = caseResponse(ws.store.caseStatus(c), results);
+				if (!response || !(response.success && response.solvedState.converged)) return [];
+				return [{ key: c ?? '', caseId: c, name: ws.caseName(c), stale: results.stale, response }];
+			});
+	});
+	/** The cases on the chart: cases with one pump off first, then case order, at most six. */
+	const chartKeys = $derived(
+		chartPriority(valuedOthers, ws.store.project, groupMembers)
+			.filter((key) => !ws.pumpGroupUnticked.includes(key))
+			.slice(0, MAX_GROUP_CASES)
+	);
+	/**
+	 * Whether a case as solved is the same as the one shown outside the station (sharedRest),
+	 * kept while both projects and the station are the same objects: the fingerprints are not
+	 * computed again on every change of a curve's state.
+	 */
+	const restMemo: Record<
+		string,
+		{ shown: Project | null; other: Project | null; station: PumpGroupStation; shared: boolean }
+	> = {};
+	function shared(caseId: CaseId, station: PumpGroupStation): boolean {
+		const shown = ws.store.caseInputs(ws.store.activeCase);
+		const other = ws.store.caseInputs(caseId);
+		const key = caseId ?? '';
+		const known = restMemo[key];
+		if (known && known.shown === shown && known.other === other && known.station === station) {
+			return known.shared;
+		}
+		const value = sharedRest(shown, other, station, hydraulicFingerprint);
+		restMemo[key] = { shown, other, station, shared: value };
+		return value;
+	}
+	const otherCases = $derived.by((): OtherGroupCase[] => {
+		if (!groupStation) return [];
+		const station = groupStation.station;
+		return otherGroupCases({
+			valued: valuedOthers.map((v) => ({
+				key: v.key,
+				caseId: v.caseId,
+				name: v.name,
+				stale: v.stale,
+				group: ws.store.groupCurve(v.response, groupMembers),
+				system: ws.store.groupSystemCurve(v.response, groupMembers),
+				shared: shared(v.caseId, station),
+				solved: ws.store.caseInputs(v.caseId)
+			})),
+			shownKeys: new Set(chartKeys),
+			othersOn: ws.pumpGroupOthers,
+			shownSettled,
+			station,
+			systemShown: groupSystemShown,
+			memberIds: groupMembers,
+			project: namesProject(ws.labelsProject, groupSolvedProject),
+			boxes: groupPumps.map((p) => p.id)
+		});
+	});
+	/** The other cases' duties being computed: the cases on the chart settled, of them all. */
+	const othersProgress = $derived.by(() => {
+		const onChart = otherCases.filter((o) => o.onChart);
+		const pending = (o: OtherGroupCase) => o.state === 'loading' || o.state === 'waiting';
+		if (!ws.pumpGroupOthers || !onChart.some(pending)) return null;
+		return { done: onChart.filter((o) => !pending(o)).length, total: onChart.length };
+	});
+	/** The responses of the cases on the chart, in the chart's order (requests go in that order). */
+	const chartResponses = $derived(
+		chartKeys.flatMap((key) => {
+			const v = valuedOthers.find((x) => x.key === key);
+			return v ? [{ caseId: v.caseId, response: v.response }] : [];
+		})
+	);
+
+	// Once no calculation runs, ask again for every curve of the card a solve, Solve all or goal
+	// seek cancelled (the shown case's first): a cancelled curve is never asked again otherwise.
+	$effect(() => {
+		const ids = groupList ? groupList.split('\u0000') : [];
+		if (!ws.pumpGroupOpen || ws.store.calculating !== null || ids.length < 2 || groupUnavailable)
+			return;
+		const group = cancelledByCalculation(groupState);
+		const system = wantsSystem && cancelledByCalculation(groupSystemState);
+		// The other cases' after the case shown's curves, as their first requests (§2.4).
+		const others =
+			ws.pumpGroupOthers && shownSettled
+				? chartResponses.map(({ caseId, response }) => {
+						const g = ws.store.groupCurve(response, ids);
+						return {
+							caseId,
+							group: cancelledByCalculation(g),
+							system:
+								g?.status === 'refused' &&
+								wantsGroupSystemCurve(g) &&
+								cancelledByCalculation(ws.store.groupSystemCurve(response, ids))
+						};
+					})
+				: [];
+		untrack(() => {
+			if (group) ws.store.loadGroupCurve(ids, { retry: true });
+			if (system) ws.store.loadGroupSystemCurve(ids, { retry: true });
+			for (const other of others) {
+				if (other.group) ws.store.loadGroupCurve(ids, { caseId: other.caseId, retry: true });
+				if (other.system) {
+					ws.store.loadGroupSystemCurve(ids, { caseId: other.caseId, retry: true });
+				}
+			}
+		});
+	});
+
+	// Asked for (the box ticked), once the shown case's curves have answered: each other case's
+	// group curve on the chart, and for a case refused only for an active PRV or PSV inside, its
+	// group system curve (its duty). One request at a time, on the store's queue.
+	$effect(() => {
+		const ids = groupList ? groupList.split('\u0000') : [];
+		if (!ws.pumpGroupOpen || !ws.pumpGroupOthers || ids.length < 2 || groupUnavailable) return;
+		if (!shownSettled) return;
+		const wanted = chartResponses.map(({ caseId, response }) => ({
+			caseId,
+			group: ws.store.groupCurve(response, ids),
+			system: ws.store.groupSystemCurve(response, ids)
+		}));
+		untrack(() => {
+			for (const w of wanted) {
+				if (w.group === undefined) ws.store.loadGroupCurve(ids, { caseId: w.caseId });
+				else if (
+					w.group.status === 'refused' &&
+					pressureControlOnly(w.group.issues) &&
+					w.system === undefined
+				) {
+					ws.store.loadGroupSystemCurve(ids, { caseId: w.caseId });
+				}
+			}
+		});
+	});
+
+	/** Cancel a case's group curve and group system curve while they are computed (or wait). */
+	function cancelCase(caseId: CaseId, ids: readonly string[] = groupMembers) {
+		ws.store.cancelGroupCurve(ids, { caseId });
+		ws.store.cancelGroupSystemCurve(ids, { caseId });
+	}
+	// A change of members: the other cases' requests for the members before are cancelled.
+	let membersBefore: string[] = [];
+	$effect(() => {
+		const ids = groupList ? groupList.split('\u0000') : [];
+		const before = membersBefore;
+		membersBefore = ids;
+		if (before.length < 2 || before.join('\u0000') === ids.join('\u0000')) return;
+		untrack(() => {
+			for (const c of ws.store.caseIds) if (c !== ws.store.activeCase) cancelCase(c, before);
+		});
+	});
+
+	function setOthers(on: boolean) {
+		ws.pumpGroupOthers = on;
+		if (!on) for (const v of valuedOthers) cancelCase(v.caseId);
+	}
+	function tickOther(key: string, on: boolean) {
+		ws.pumpGroupUnticked = on
+			? ws.pumpGroupUnticked.filter((k) => k !== key)
+			: [...ws.pumpGroupUnticked, key];
+		if (!on) cancelCase(caseOf(key));
+	}
+	function cancelOthers() {
+		for (const o of otherCases) if (o.onChart) cancelCase(o.caseId);
+	}
+	function retryOthers() {
+		for (const o of otherCases) {
+			if (!o.onChart || !o.retry) continue;
+			ws.store.loadGroupCurve(groupMembers, { caseId: o.caseId, retry: true });
+			const v = valuedOthers.find((x) => x.key === o.key);
+			const group = v ? ws.store.groupCurve(v.response, groupMembers) : undefined;
+			if (group?.status === 'refused' && wantsGroupSystemCurve(group)) {
+				ws.store.loadGroupSystemCurve(groupMembers, { caseId: o.caseId, retry: true });
+			}
+		}
+	}
+
+	/** Solve all in the One pump off block: the Scenarios menu's reasons (CaseMenu.svelte). */
+	const toSolve = $derived(ws.store.casesToSolve());
+	const caseErrors = $derived(ws.store.casesWithErrors());
+	const solveAll = $derived.by(() => {
+		const count = toSolve.length;
+		const busy = calculatingReason(ws.store.calculating, 'solve');
+		const reason = !ws.store.project.components.length
+			? 'Add a component to the network first.'
+			: busy
+				? busy
+				: count
+					? ''
+					: caseErrors.length
+						? `Every case is solved except ${andList(caseErrors.map((c) => ws.caseName(c)))}, which ${caseErrors.length === 1 ? 'has' : 'have'} an error to fix first.`
+						: "Every case's results are current.";
+		return {
+			count,
+			canRun: !reason,
+			reason,
+			hint: `Solves each case whose results are missing or out of date, one after another: up to ${count} solve${count === 1 ? '' : 's'}.`
+		};
+	});
+	/** "Add cases with one pump off": what it would make now, from the base case's results. */
+	const oneOff = $derived.by(() => {
+		if (!groupStation) return null;
+		const results = ws.store.resultsFor(null);
+		const response = caseResponse(ws.store.caseStatus(null), results);
+		const plan = onePumpOffPlan({
+			project: ws.store.project,
+			shownCase: ws.store.activeCase,
+			station: groupStation.station,
+			memberIds: groupMembers,
+			base: response ? { response, stale: results.stale } : null
+		});
+		return { ...plan, solveAll };
+	});
+	function addOnePumpOff() {
+		const plan = oneOff;
+		if (!plan || plan.gate || plan.refusal || !plan.add.length) return;
+		const names = plan.add.map((a) => a.name);
+		const added = ws.updateStored(
+			(draft) => withOnePumpOffCases(draft, plan.add),
+			'add cases with one pump off'
+		);
+		if (!added) return;
+		ws.pumpGroupOthers = true;
+		ws.notify('info', addedNotice(names));
+	}
+	function solveAllCases() {
+		if (solveAll.canRun) void ws.solveAll();
+	}
+
+	/** Running combinations: every case's members, the shown first (slice 4d §3). */
+	const combinationsInput = $derived.by((): CombinationsInput | null => {
+		if (!hasScenarios || !groupStation) return null;
+		const f = new Formatter(ws.displayUnits);
+		const dutyLine = (duty: { flow: number; head: number }) =>
+			`Station ${f.value(dutyFlow(duty.flow), 'flow')} at a rise of ${f.value(duty.head, 'head')}`;
+		const shownLine = (response: PumpGroupCurveResponse) =>
+			response.duty
+				? dutyLine(response.duty)
+				: `No duty: ${response.message || 'the station has no duty in this case.'}`;
+		const active = ws.store.activeCase;
+		const nameOf = (id: string) => groupPumps.find((p) => p.id === id)?.name ?? id;
+		return {
+			members: groupMembers.map((id) => ({ id, name: nameOf(id), slot: groupSlots.indexOf(id) })),
+			cases: [active, ...ws.store.caseIds.filter((c) => c !== active)].map((c) => {
+				const status = ws.store.caseStatus(c);
+				const results = ws.store.resultsFor(c);
+				const other = otherCases.find((o) => o.caseId === c);
+				return {
+					key: c ?? '',
+					name: ws.caseName(c),
+					shown: c === active,
+					status,
+					response: caseResponse(status, results),
+					stale: results.stale,
+					station:
+						c === active
+							? shownLine(groupStation)
+							: other
+								? other.state === 'ready' && other.duty
+									? `${dutyLine(other.duty)}: ${other.words}`
+									: other.words
+								: null,
+					ring: other?.number ?? null
+				};
+			}),
+			prefs: ws.displayUnits,
+			project: ws.store.project
+		};
+	});
+	const combinations = $derived(combinationsInput ? runningCombinations(combinationsInput) : null);
+	const extremes = $derived(combinationsInput ? combinationExtremes(combinationsInput) : null);
 </script>
 
 <div class="space-y-4">
@@ -423,6 +759,18 @@
 			oninspect={(id) => ws.inspect({ kind: 'component', id })}
 			flagText={(flag) => ws.flagText(flag)}
 			{image}
+			{oneOff}
+			onaddoneoff={addOnePumpOff}
+			onsolveall={solveAllCases}
+			{otherCases}
+			othersOn={ws.pumpGroupOthers}
+			{...hasScenarios ? { onothers: setOthers } : {}}
+			onotherstick={tickOther}
+			{othersProgress}
+			oncancelothers={cancelOthers}
+			onretryothers={retryOthers}
+			{combinations}
+			{extremes}
 		/>
 	{/if}
 </div>

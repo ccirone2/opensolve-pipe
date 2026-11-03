@@ -1,11 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import type {
 	ErrorResponse,
 	Project,
 	PumpGroupCurveRequest,
-	PumpGroupCurveResponse
+	PumpGroupCurveResponse,
+	SolveRequest,
+	SolveResponse
 } from '../src/lib/api/types';
 import { halfUlp, resultsView, solveConverged } from './support';
 
@@ -16,7 +19,10 @@ import { halfUlp, resultsView, solveConverged } from './support';
  * Slice 4b (§7): the group system curve asked for after the group curve, drawn and listed in the
  * data table, the Group point at the curves' crossing, "Read along the curves", an FCV outside
  * the station (points without a rise, and why) and a PRV inside it (no group curve, the group
- * system curve all the same). The projects are the shared fixture's
+ * system curve all the same). Slice 4d: the cases with one pump off added in one step and solved
+ * with Solve all, each case's pumps in Running combinations, each station duty a numbered ring on
+ * the base case's group system curve, offered for pumps in parallel only, and axe clean with
+ * everything open. The projects are the shared fixture's
  * (apps/api/tests/fixtures/pump_groups_input.py); every expected number is read from the
  * intercepted response of the real API and compared in display units, to the rounding the table
  * shows. No sideways scroll; the image is a PNG.
@@ -69,15 +75,19 @@ async function openCard(page: Page) {
 	return { card, toggle };
 }
 
-/** The answer to a group-curve request of `curve` ('group' or 'system'). */
-function curveAnswer(page: Page, curve: 'group' | 'system') {
+/**
+ * The answer to a group-curve request of `curve` ('group' or 'system') for a case: the base case
+ * (no scenario id sent) by default, else the scenario `scenarioId`.
+ */
+function curveAnswer(page: Page, curve: 'group' | 'system', scenarioId?: string) {
 	return page
-		.waitForResponse(
-			(r) =>
-				r.url().endsWith('/api/v1/pump-group-curve') &&
-				r.request().method() === 'POST' &&
-				(r.request().postDataJSON() as PumpGroupCurveRequest).curve === curve
-		)
+		.waitForResponse((r) => {
+			if (!r.url().endsWith('/api/v1/pump-group-curve') || r.request().method() !== 'POST') {
+				return false;
+			}
+			const request = r.request().postDataJSON() as PumpGroupCurveRequest;
+			return request.curve === curve && (request.scenarioId ?? undefined) === scenarioId;
+		})
 		.then(async (response) => ({
 			status: response.status(),
 			body: (await response.json()) as PumpGroupCurveResponse & Partial<ErrorResponse>,
@@ -457,4 +467,174 @@ test('a PRV inside the station: no group curve there, the group system curve all
 	).toHaveCount(1);
 	await expect(card.getByRole('slider')).toHaveCount(0);
 	await noSidewaysScroll(page);
+});
+
+// ---- Slice 4d: one pump off ----------------------------------------------------------------
+
+/** The answer to a solve of the scenario `scenarioId`. */
+function solveAnswer(page: Page, scenarioId: string) {
+	return page
+		.waitForResponse(
+			(r) =>
+				r.url().endsWith('/api/v1/solve') &&
+				r.request().method() === 'POST' &&
+				(r.request().postDataJSON() as SolveRequest).scenarioId === scenarioId
+		)
+		.then(async (response) => (await response.json()) as SolveResponse);
+}
+
+/**
+ * Open `one-off` without its scenarios, solve, open the card (its two curves answered), add the
+ * cases with one pump off and solve them with the block's Solve all; returns the answers.
+ */
+async function addAndSolve(page: Page) {
+	const project = structuredClone(projectOf('one-off'));
+	delete project.scenarios;
+	await open(page, project);
+	const base = await solveConverged(page);
+	const { card, toggle } = await openCard(page);
+	const answers = await answersOf(page, () => toggle.click());
+	expect(answers.group.status).toBe(200);
+	expect(answers.system.status).toBe(200);
+	const block = card.getByRole('region', { name: 'One pump off' });
+	await block.getByRole('button', { name: 'Add cases with one pump off (2)' }).click();
+	await expect(
+		page.getByText(
+			'Added 2 cases with one pump off: Pump PA off and Pump PB off. Solve all solves every case not yet solved; Undo removes them.'
+		)
+	).toBeVisible();
+	const solveAll = block.getByRole('button', { name: 'Solve all (2)' });
+	await expect(solveAll).toBeFocused();
+	const solves = [solveAnswer(page, 'S1'), solveAnswer(page, 'S2')];
+	const duties = [curveAnswer(page, 'group', 'S1'), curveAnswer(page, 'group', 'S2')];
+	await solveAll.click();
+	const [s1, s2] = await Promise.all(solves);
+	const [d1, d2] = await Promise.all(duties);
+	for (const d of [d1!, d2!]) expect(d.status).toBe(200);
+	// The run ends with the button in place, unavailable, still focused.
+	await expect(block.getByRole('button', { name: 'Solve all' })).toHaveAttribute(
+		'aria-disabled',
+		'true'
+	);
+	return { card, block, base, solves: { S1: s1!, S2: s2! }, duties: [d1!, d2!] };
+}
+
+test('one pump off: the cases added in one step, solved, each pump listed and each station duty drawn', async ({
+	page,
+	isMobile
+}) => {
+	const { card, base, solves, duties } = await addAndSolve(page);
+	// Running combinations: every case, the shown first, each pump's values from its own solve.
+	const combos = card.getByRole('table', { name: 'Running combinations' });
+	const group = (name: RegExp) =>
+		combos.getByRole('rowgroup').filter({ has: page.getByRole('rowheader', { name }) });
+	await expect(group(/^Base case \(shown\)/)).toHaveCount(1);
+	await expect(group(/^Pump PA off/)).toHaveCount(1);
+	await expect(group(/^Pump PB off/)).toHaveCount(1);
+	const cases = [
+		[/^Base case \(shown\)/, base],
+		[/^Pump PA off/, solves.S1.solvedState],
+		[/^Pump PB off/, solves.S2.solvedState]
+	] as const;
+	for (const [name, solved] of cases) {
+		for (const pump of ['PA', 'PB']) {
+			const r = solved.pumpResults[pump]!;
+			const row = group(name)
+				.getByRole('row')
+				.filter({ has: page.getByRole('rowheader', { name: `Pump ${pump}`, exact: true }) });
+			const cell = async (label: string) =>
+				squash(await row.locator(`[data-label="${label}"]`).innerText());
+			shows(await cell('Flow (L/s)'), r.operatingFlow * 1000);
+			shows(await cell('Head (m)'), r.operatingHead);
+			if (r.shaftPower !== null) shows(await cell('Shaft power (kW)'), r.shaftPower / 1000);
+			if (r.npshMargin !== null) shows(await cell('NPSH margin (m)'), r.npshMargin);
+		}
+	}
+	const paWithoutPb = group(/^Pump PB off/)
+		.getByRole('row')
+		.filter({ has: page.getByRole('rowheader', { name: 'Pump PA', exact: true }) });
+	await expect(paWithoutPb.locator('[data-label="Inside curve data"]')).toHaveText(
+		'No: beyond its data'
+	);
+	await expect(paWithoutPb.locator('[data-label="Flags"]')).toContainText('Warning');
+	// The extremes: PA's largest flow with PB off.
+	await expect(card.getByLabel('Extremes over these cases')).toContainText(
+		/Pump PA, largest flow: [\d.]+ L\/s in Pump PB off; beyond its curve data/
+	);
+
+	// Each case's station duty, a numbered ring on the base case's group system curve.
+	const figure = card.getByRole('figure');
+	const legend = figure.getByRole('list', { name: 'Legend' });
+	await expect(legend.getByText('1 · Pump PA off (station duty)')).toBeVisible();
+	await expect(legend.getByText('2 · Pump PB off (station duty)')).toBeVisible();
+	await expect(
+		legend.getByRole('listitem').filter({ hasText: /^\s*Group system curve/ })
+	).toHaveCount(1);
+	await expect(card.getByText(/was not computed/)).toHaveCount(0);
+	const name = (await figure.getByRole('img').getAttribute('aria-label'))!;
+	for (const [n, label, answer] of [
+		[1, 'Pump PA off', duties[0]!],
+		[2, 'Pump PB off', duties[1]!]
+	] as const) {
+		const match = new RegExp(
+			`${n} · ${label}, ([\\d.]+) L/s at a rise of ([\\d.]+) m \\(Yes: the same rest of the network\\)`
+		).exec(name);
+		expect(match, name).not.toBeNull();
+		shows(match![1]!, answer.body.duty!.flow * 1000);
+		shows(match![2]!, answer.body.duty!.head);
+	}
+	await card.getByRole('button', { name: 'Show data table' }).click();
+	const table = card.getByRole('table', { name: "Other cases' station duties" });
+	for (const [i, answer] of duties.entries()) {
+		const cells = table
+			.getByRole('row')
+			.nth(i + 1)
+			.getByRole('cell');
+		shows(squash(await cells.nth(0).innerText()), answer.body.duty!.flow * 1000);
+		shows(squash(await cells.nth(1).innerText()), answer.body.duty!.head);
+		await expect(cells.nth(2)).toHaveText('Yes: the same rest of the network');
+	}
+
+	// The image, with the rings.
+	const image = card.locator('[data-chart-image]');
+	await expect(image).not.toHaveAttribute('aria-disabled', 'true');
+	const [download] = await Promise.all([page.waitForEvent('download'), image.click()]);
+	const png = readFileSync(await download.path());
+	expect([...png.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+	await noSidewaysScroll(page);
+	const region = card.getByRole('region', { name: 'Running combinations' });
+	if (isMobile) {
+		// A list on a phone: nothing to scroll sideways, each case's heading in view.
+		expect(await region.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+		await expect(region.getByRole('rowheader', { name: /^Base case \(shown\)/ })).toBeVisible();
+	}
+});
+
+test('one pump off is offered for pumps in parallel only', async ({ page }) => {
+	await open(page, projectOf('series'));
+	await solveConverged(page);
+	const { card, toggle } = await openCard(page);
+	const { status } = await answerOf(page, () => toggle.click());
+	expect(status).toBe(200);
+	const block = card.getByRole('region', { name: 'One pump off' });
+	await expect(block).toContainText(
+		'Cases with one pump off are offered for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.'
+	);
+	await expect(block.getByRole('button')).toHaveCount(0);
+});
+
+test('the Pumps together card with its cases passes axe, everything open', async ({ page }) => {
+	const { card } = await addAndSolve(page);
+	await expect(card.getByRole('figure').getByRole('list', { name: 'Legend' })).toContainText(
+		'2 · Pump PB off (station duty)'
+	);
+	await card.getByRole('button', { name: 'Show data table' }).click();
+	for (const summary of await card.locator('details > summary').all()) await summary.click();
+	await expect(card.getByRole('table', { name: "Other cases' station duties" })).toBeVisible();
+	const scan = await new AxeBuilder({ page })
+		.include('[data-pumps-together]')
+		.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+		.analyze();
+	expect(scan.violations.map((v) => `${v.id} (${v.nodes.length})`)).toEqual([]);
 });

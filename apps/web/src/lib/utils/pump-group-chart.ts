@@ -20,6 +20,11 @@
  * steps over the group curve's samples, each member's flow and the station's read from the
  * response at that rise (no value between samples is made up here).
  *
+ * Slice 4d (one pump off): other cases' station duties, each from that case's own group-curve
+ * answer, are numbered slate rings (pump-group-one-off.ts says which cases, in which state, and
+ * whether a ring is a point of the group system curve shown); duties within the duty checks'
+ * tolerances share one ring.
+ *
  * Identity never rests on colour alone: each member has a colour (the dataviz palette's blue and,
  * a step darker than its slot 3 to clear 3:1 on white, aqua; orange stays the system's), a dash
  * pattern from its third slot on, a marker with a text stand-in, a direct label, a legend entry
@@ -38,6 +43,7 @@ import type {
 	UnitPreferences
 } from '../api/types';
 import type { GroupCurveState, GroupSystemCurveState } from '../state/project.svelte';
+import type { OtherGroupCase } from './pump-group-one-off';
 import { readableText } from './flag-text';
 import { componentById } from './graph';
 import { portLabel } from './labels';
@@ -45,7 +51,7 @@ import { pumpChartData, type ChartPoint } from './pump-chart';
 import { pressureControlOnly } from './pump-groups';
 import { Formatter, pumpStatusLabel, type Column } from './results';
 import { systemPointNote, type SystemCurveTextContext } from './system-curve-text';
-import { displayUnit, formatNumber, fromSI, unitLabel } from './units';
+import { displayUnit, formatNumber, fromSI, unitLabel, type UnitId } from './units';
 
 /** Chart.js point styles of the members' points (a held pump: 'rectRot', the pump chart's diamond). */
 export type GroupMarker = 'triangle' | 'rect' | 'star' | 'crossRot' | 'cross' | 'rectRounded';
@@ -95,6 +101,34 @@ export const GROUP_SLOTS: readonly GroupSlot[] = [
 /** The station's point as text, and a held pump's (the pump chart's diamond). */
 export const STATION_SYMBOL = '●';
 export const HELD_SYMBOL = '◇';
+
+/**
+ * Other cases' station duties (slice 4d): slate rings, the pump chart's colour for other cases
+ * (pump-chart-config.ts CHART_COLORS.slate, 7.6:1 on white; equal by test), numbered.
+ */
+export const GROUP_OTHER = '#475569';
+/** An other case's ring as text (the legend, the tables). */
+export const OTHER_SYMBOL = '○';
+
+/**
+ * When a ring is called a point of the group system curve shown (pump-group-one-off.ts
+ * dutyClaim): the notes' sentence, while a ring and a group system curve are drawn.
+ */
+export const DUTY_CLAIM_RULE =
+	"A ring is called a point of the group system curve shown only when its case, as solved, is the same as this one outside the station, its station flow is above zero, the curve has a rise at the computed flows on both sides of it, and this case's own duty is on the curve. Its duty is then a steady state of the same rest of the network, so it lies on the curve wherever the rest has one state at its flow; the curve is drawn through sampled points, each the state the system curve's starts find (D13).";
+
+/**
+ * The station and its duty the card shows: the group curve's ready response, else the group
+ * system curve's when it has a duty (the same station and duty, from the case's own solve; the
+ * group curve refused only for an active PRV or PSV inside).
+ */
+export function stationResponse(
+	group: GroupCurveState | undefined,
+	system: GroupSystemCurveState | undefined
+): PumpGroupCurveResponse | null {
+	if (group?.status === 'ready') return group.response;
+	return system?.status === 'ready' && system.response.duty ? system.response : null;
+}
 
 /** A member of the group, as the card gets it. */
 export interface GroupMemberInput {
@@ -166,6 +200,38 @@ export interface GroupChartData {
 	/** Points of the group system curve without a rise (gaps), of `systemTotal`. */
 	systemMissing: number;
 	systemTotal: number;
+	/** Other cases' station duties, as rings (slice 4d): in number order, empty without any. */
+	others: OtherRing[];
+}
+
+/** A case of a ring: its number, name and duty (display units, the flow as words give it). */
+export interface OtherRingCase {
+	number: number;
+	/** The case's name, "(out of date)" after it when its results are. */
+	name: string;
+	/** Q_st in display units, 0 below the duty check's floor (dutyFlow). */
+	flow: number;
+	/** ΔH_st in display units. */
+	rise: number;
+	/** Whether it lies on the group system curve shown, in short words (DUTY_CLAIM_WORDS). */
+	claim: string;
+}
+
+/**
+ * An other case's station duty on the chart (slice 4d): a slate ring at (Q_st, ΔH_st) of the
+ * first of its cases; cases whose duties agree within the two duty checks' tolerances share one.
+ */
+export interface OtherRing {
+	numbers: number[];
+	names: string[];
+	point: ChartPoint;
+	/** The dataset's and the legend's label: "1 · Pump PA off (station duty)". */
+	label: string;
+	/** On the chart: "1 · Pump PA off", "1, 2 · A, B and 1 more" past two names. */
+	tag: string;
+	/** On a phone's screen: "1", "1, 2". */
+	short: string;
+	cases: OtherRingCase[];
 }
 
 const same = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
@@ -182,7 +248,8 @@ export function groupChartData(
 	members: readonly GroupMemberInput[],
 	prefs: UnitPreferences,
 	response: PumpGroupCurveResponse | null,
-	system: PumpGroupCurveResponse | null = null
+	system: PumpGroupCurveResponse | null = null,
+	others: readonly OtherGroupCase[] = []
 ): GroupChartData {
 	const flowUnit = displayUnit('flow', prefs);
 	const headUnit = displayUnit('head', prefs);
@@ -269,8 +336,80 @@ export function groupChartData(
 			: null,
 		system: systemLine,
 		systemMissing: (systemLine ?? []).filter((p) => p.y === null).length,
-		systemTotal: systemLine?.length ?? 0
+		systemTotal: systemLine?.length ?? 0,
+		others: otherRings(others, at, flowUnit, headUnit)
 	};
+}
+
+/** Two duties agree within the duty checks' tolerances (the flow's, and the rise's of 4b). */
+function dutiesAgree(a: { flow: number; head: number }, b: { flow: number; head: number }) {
+	return (
+		Math.abs(b.flow - a.flow) <= Math.max(0.005 * Math.abs(a.flow), DUTY_CHECK_FLOOR) &&
+		Math.abs(b.head - a.head) <= Math.max(0.005 * Math.abs(a.head), SYSTEM_DUTY_CHECK_FLOOR)
+	);
+}
+
+/**
+ * The rings of the other cases drawn (on the chart, ready, the same station, with a duty), in
+ * number order: a case whose duty agrees with a ring's first case's within the duty checks'
+ * tolerances joins that ring, which keeps its first case's point.
+ */
+function otherRings(
+	others: readonly OtherGroupCase[],
+	at: (flow: number, head: number) => ChartPoint,
+	flowUnit: UnitId,
+	headUnit: UnitId
+): OtherRing[] {
+	const drawn = others
+		.filter((o) => o.onChart && o.state === 'ready' && o.duty && o.number !== null)
+		.sort((a, b) => a.number! - b.number!);
+	const rings: { first: { flow: number; head: number }; ring: OtherRing }[] = [];
+	for (const o of drawn) {
+		const duty = o.duty!;
+		const name = `${o.name}${o.stale ? ' (out of date)' : ''}`;
+		const entry: OtherRingCase = {
+			number: o.number!,
+			name,
+			flow: fromSI(dutyFlow(duty.flow), flowUnit),
+			rise: fromSI(duty.head, headUnit),
+			claim: o.words
+		};
+		const joined = rings.find((r) => dutiesAgree(r.first, duty));
+		if (joined) {
+			joined.ring.numbers.push(o.number!);
+			joined.ring.names.push(name);
+			joined.ring.cases.push(entry);
+		} else {
+			rings.push({
+				first: duty,
+				ring: {
+					numbers: [o.number!],
+					names: [name],
+					point: at(duty.flow, duty.head),
+					label: '',
+					tag: '',
+					short: '',
+					cases: [entry]
+				}
+			});
+		}
+	}
+	return rings.map(({ ring }) => {
+		const numbers = ring.numbers.join(', ');
+		const merged = ring.names.length > 1;
+		const shown =
+			ring.names.length <= 2
+				? ring.names.join(', ')
+				: `${ring.names.slice(0, 2).join(', ')} and ${ring.names.length - 2} more`;
+		return {
+			...ring,
+			label: merged
+				? `${numbers} · ${andList(ring.names)} (station duties, equal within the duty checks' tolerances)`
+				: `${numbers} · ${ring.names[0]} (station duty)`,
+			tag: `${numbers} · ${shown}`,
+			short: numbers
+		};
+	});
 }
 
 /** A slot's style (slots past the sixth reuse the palette: never reached, at most six members). */
@@ -388,7 +527,14 @@ export function groupLegend(data: GroupChartData): GroupLegendItem[] {
 						symbol: STATION_SYMBOL
 					}
 				]
-			: [])
+			: []),
+		...data.others.map((ring): GroupLegendItem => ({
+			key: `other-${ring.numbers.join('-')}`,
+			label: ring.label,
+			kind: 'marker',
+			color: GROUP_OTHER,
+			symbol: OTHER_SYMBOL
+		}))
 	];
 }
 
@@ -481,6 +627,12 @@ export interface GroupNotes {
 	systemCurves: string;
 	/** Dashed lines, when any is drawn. */
 	dashed: string | null;
+	/**
+	 * Other cases' station duties (slice 4d): what a ring is, when one is called a point of the
+	 * group system curve shown, the rings, and the cases without one and why (empty with no
+	 * other case).
+	 */
+	others: string[];
 }
 
 export interface GroupNotesInput {
@@ -494,6 +646,8 @@ export interface GroupNotesInput {
 	/** The project as solved: each element's kind, for the rule a reason names (default `project`). */
 	solved?: Project | null;
 	prefs: UnitPreferences;
+	/** The other cases with values, each in its state (slice 4d; default none). */
+	others?: readonly OtherGroupCase[];
 }
 
 /** The figure's notes, from one function the screen and the image both use. */
@@ -504,7 +658,8 @@ export function groupNotes({
 	system,
 	project,
 	solved,
-	prefs
+	prefs,
+	others = []
 }: GroupNotesInput): GroupNotes {
 	const headUnit = displayUnit('head', prefs);
 	const head = (m: number) => `${formatNumber(fromSI(m, headUnit), 4)} ${data.headUnit}`;
@@ -683,8 +838,52 @@ export function groupNotes({
 		members: memberNotes,
 		systemCurves:
 			"Each pump's own system curve is on its pump chart above; it crosses that pump's curve, not the group curve.",
-		dashed
+		dashed,
+		others: otherNotes(data, others, stationResponse(state, system), project)
 	};
+}
+
+/**
+ * The notes on the other cases' station duties (slice 4d), in order: what a ring is (while one
+ * is drawn), when one is called a point of the group system curve shown (while a ring and that
+ * curve are drawn), the rings, and the other cases without one with the reason.
+ */
+function otherNotes(
+	data: GroupChartData,
+	others: readonly OtherGroupCase[],
+	station: PumpGroupCurveResponse | null,
+	project: Project
+): string[] {
+	const lines: string[] = [];
+	const cases = data.others.flatMap((ring) => ring.cases).sort((a, b) => a.number - b.number);
+	if (cases.length && station) {
+		const s = stationPortWords(station.station.inlet, project);
+		const d = stationPortWords(station.station.outlet, project);
+		lines.push(
+			`Each numbered slate ring is another case's station duty: that case's station flow and its rise from ${s} to ${d}. With a pump off, the station's flow is the running pumps' flow, so a ring lies below their curves by their losses on the way: it is not a pump's own point, and not on this case's group curve, which is drawn with this case's pumps running. Each pump's own flow and head in each case are in Running combinations.`
+		);
+	}
+	if (cases.length && data.system?.some((p) => p.y !== null)) lines.push(DUTY_CLAIM_RULE);
+	if (cases.length) {
+		const fmt = (v: number) => formatNumber(v, 4);
+		lines.push(
+			`Other cases on the chart (slate rings, numbered): ${cases
+				.map(
+					(c) =>
+						`${c.number} · ${c.name}, ${fmt(c.flow)} ${data.flowUnit} at a rise of ${fmt(c.rise)} ${data.headUnit}: ${c.claim}`
+				)
+				.join('; ')}.`
+		);
+	}
+	const without = others.filter((o) => o.state !== 'ready');
+	if (without.length) {
+		lines.push(
+			`Not on the chart: ${without
+				.map((o) => `${o.name}${o.stale ? ' (out of date)' : ''} (${o.words})`)
+				.join('; ')}.`
+		);
+	}
+	return lines;
 }
 
 /** The tolerance of the group system curve's duty check (D6): 0.5 % of the rise, or this, m. */
@@ -913,6 +1112,7 @@ export function groupNoteLines(notes: GroupNotes, refusals: readonly string[] = 
 		notes.axes,
 		...notes.duty,
 		...notes.systemDuty,
+		...notes.others,
 		...notes.members,
 		notes.dashed,
 		notes.systemCurves
@@ -957,6 +1157,15 @@ export function groupSummary(
 		stationOf && data.station
 			? `; station duty ${fmt(data.station.flow)} ${data.flowUnit} at a rise of ${fmt(data.station.point.y)} ${data.headUnit} from ${stationPortWords(stationOf.station.inlet, project)} to ${stationPortWords(stationOf.station.outlet, project)}${on}`
 			: '';
+	const cases = data.others.flatMap((ring) => ring.cases).sort((a, b) => a.number - b.number);
+	const others = cases.length
+		? `; other cases' station duties: ${cases
+				.map(
+					(c) =>
+						`${c.number} · ${c.name}, ${fmt(c.flow)} ${data.flowUnit} at a rise of ${fmt(c.rise)} ${data.headUnit} (${c.claim})`
+				)
+				.join('; ')}`
+		: '';
 	const curve =
 		data.curve && data.missing < data.total ? '; group curve shown' : '; no group curve shown';
 	const systemCurve = system
@@ -964,7 +1173,7 @@ export function groupSummary(
 			? '; group system curve shown'
 			: '; no group system curve shown'
 		: '';
-	return `Pump curves and points of ${parts.join('; ')}${station}${curve}${systemCurve}.`;
+	return `Pump curves and points of ${parts.join('; ')}${station}${others}${curve}${systemCurve}.`;
 }
 
 // ---------------------------------------------------------------------------------------------

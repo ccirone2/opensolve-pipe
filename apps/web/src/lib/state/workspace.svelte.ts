@@ -192,6 +192,14 @@ export class Workspace {
 	pumpGroupShown = $state.raw<readonly (string | null)[]>([]);
 	/** The Pumps together card is open (page state; closed by default). */
 	pumpGroupOpen = $state(false);
+	/**
+	 * "Also show the other cases' station duties" on the Pumps together card (slice 4d): each other
+	 * case's group curve is asked for, its duty drawn as a ring. Page state, off by default, kept
+	 * through a case switch; "Add cases with one pump off" turns it on.
+	 */
+	pumpGroupOthers = $state(false);
+	/** The other cases unticked under "Cases on this chart" (keys: '' is the base). Page state. */
+	pumpGroupUnticked = $state.raw<readonly string[]>([]);
 	#noticeId = 0;
 	/** The project of the case shown (the base, or the base with the active scenario's changes). */
 	#caseProject: Project;
@@ -260,6 +268,8 @@ export class Workspace {
 		this.pumpGroup = null;
 		this.pumpGroupShown = [];
 		this.pumpGroupOpen = false;
+		this.pumpGroupOthers = false;
+		this.pumpGroupUnticked = [];
 	}
 
 	/**

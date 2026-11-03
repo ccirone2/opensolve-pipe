@@ -150,7 +150,10 @@ describe('the Pumps together card in the Pumps view', () => {
 		await waitFor(() =>
 			expect(groupCalls().at(-1)).toEqual({ pumpIds: ['P2', 'P3'], scenarioId: 'S1' })
 		);
-		const boxes = within(card()).getAllByRole('checkbox') as HTMLInputElement[];
+		// The members' boxes (with scenarios the card also has "Also show the other cases'…").
+		const boxes = within(
+			within(card()).getByRole('group', { name: 'Pumps in the group' })
+		).getAllByRole('checkbox') as HTMLInputElement[];
 		expect(boxes.map((b) => [b.closest('label')!.textContent!.trim(), b.checked])).toEqual([
 			['Pump P1', false],
 			['■ Pump P2', true],
@@ -264,7 +267,11 @@ describe('the Pumps together card in the Pumps view', () => {
 		ws.setCase('S1');
 		await showPumps();
 		await fireEvent.click(within(card()).getByRole('button', { name: /^Pumps together/ }));
-		const boxes = () => within(card()).getAllByRole('checkbox') as HTMLInputElement[];
+		// The members' boxes (with scenarios the card also has "Also show the other cases'…").
+		const boxes = () =>
+			within(within(card()).getByRole('group', { name: 'Pumps in the group' })).getAllByRole(
+				'checkbox'
+			) as HTMLInputElement[];
 		expect(boxes().map((b) => b.checked)).toEqual([false, false]);
 		expect(within(card()).queryByRole('button', { name: /^Also found/ })).toBeNull();
 		expect(calls).toEqual([]);

@@ -23,6 +23,15 @@
 	for an active PRV or PSV inside, the card says so and draws the group system curve all the
 	same. "Read along the curves" steps over the group curve's samples, giving each member's flow
 	and the station's at that rise exactly as the response does, and marks them on the chart.
+
+	Slice 4d (one pump off, proposal §8 and §16): under the group table, "One pump off" adds in one
+	step the cases of the base case with each running pump off (a parallel station only, while the
+	base case is shown and current) with Solve all beside it; "Also show the other cases' station
+	duties" draws each other case's duty as a numbered slate ring ("Cases on this chart", at most
+	six), said to lie on the group system curve shown only when that case leaves the rest of the
+	network as it is (D13 allowing); "Running combinations" lists every case's members, a list on
+	phones, with the extremes over the current cases (on screen only). Presentation only: the
+	caller (PumpsView) computes every value and makes every request.
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
@@ -48,10 +57,12 @@
 		groupSummary,
 		groupSystemRows,
 		groupTable,
+		GROUP_OTHER,
 		dutyCheckState,
 		dutyCheckWords,
 		HELD_SYMBOL,
 		namesProject,
+		OTHER_SYMBOL,
 		slotStyle,
 		STATION_SYMBOL,
 		systemDutyCheckState,
@@ -65,6 +76,14 @@
 		wordsText,
 		type GroupSuggestion
 	} from '$lib/utils/pump-groups';
+	import {
+		INVALID_MARKED,
+		MAX_GROUP_CASES,
+		type CombinationsTable,
+		type ExtremeLine,
+		type OnePumpOffPlan,
+		type OtherGroupCase
+	} from '$lib/utils/pump-group-one-off';
 	import { SEVERITY_LABELS } from '$lib/utils/results';
 	import { formatNumber } from '$lib/utils/units';
 	import Icon from '$lib/components/ui/Icon.svelte';
@@ -119,6 +138,37 @@
 		flagText?: (flag: Flag) => string;
 		/** What an image names and whether one can be made (as the pump chart's). */
 		image?: ChartImageSource;
+		/**
+		 * "One pump off" (slice 4d): the plan of "Add cases with one pump off" and the block's Solve
+		 * all (null: no block).
+		 */
+		oneOff?:
+			| (OnePumpOffPlan & {
+					solveAll: { count: number; canRun: boolean; reason: string; hint: string };
+			  })
+			| null;
+		/** Add the cases (one undo step); the focus then moves to the block's Solve all. */
+		onaddoneoff?: () => void;
+		/** Solve every case not yet solved (the Scenarios menu's Solve all). */
+		onsolveall?: () => void;
+		/** The other cases with values, each in its state (slice 4d). */
+		otherCases?: readonly OtherGroupCase[];
+		/** "Also show the other cases' station duties" is ticked. */
+		othersOn?: boolean;
+		/** Tick or untick it (absent: the project has no scenarios, no box). */
+		onothers?: (on: boolean) => void;
+		/** Tick or untick a case under "Cases on this chart". */
+		onotherstick?: (key: string, on: boolean) => void;
+		/** The other cases' duties being computed: settled of all on the chart (null: none). */
+		othersProgress?: { done: number; total: number } | null;
+		/** Cancel the other cases' requests. */
+		oncancelothers?: () => void;
+		/** Ask again for those cancelled by the user or failed. */
+		onretryothers?: () => void;
+		/** "Running combinations": every case's members (null: no table). */
+		combinations?: CombinationsTable | null;
+		/** The extremes over the current cases (screen only). */
+		extremes?: { lines: ExtremeLine[]; notCounted: string[] } | null;
 	}
 
 	let {
@@ -142,7 +192,19 @@
 		caseName,
 		oninspect,
 		flagText = (flag) => flag.message,
-		image
+		image,
+		oneOff = null,
+		onaddoneoff,
+		onsolveall,
+		otherCases = [],
+		othersOn = false,
+		onothers,
+		onotherstick,
+		othersProgress = null,
+		oncancelothers,
+		onretryothers,
+		combinations = null,
+		extremes = null
 	}: Props = $props();
 	const id = $props.id();
 
@@ -192,7 +254,7 @@
 
 	const sameGroup = (ids: readonly string[]) =>
 		ids.length === memberIds.length && ids.every((x) => memberIds.includes(x));
-	const others = $derived(suggestions.filter((s) => !sameGroup(s.pumpIds)));
+	const otherGroups = $derived(suggestions.filter((s) => !sameGroup(s.pumpIds)));
 	const nameOf = (pumpId: string) => pumps.find((p) => p.id === pumpId)?.name ?? pumpId;
 
 	/** Names: current ones, and those as solved of elements deleted since. */
@@ -208,7 +270,9 @@
 	 * for an active PRV or PSV inside only.
 	 */
 	const stationShown = $derived(shown ?? (systemShown?.duty ? systemShown : null));
-	const data = $derived(groupChartData(members, prefs, shown, systemShown));
+	/** The other cases, while the card shows a station (slice 4d). */
+	const others = $derived(unavailable || !stationShown ? [] : otherCases);
+	const data = $derived(groupChartData(members, prefs, shown, systemShown, others));
 	const notes = $derived(
 		groupNotes({
 			data,
@@ -217,7 +281,8 @@
 			system: unavailable ? undefined : systemCurve,
 			project,
 			solved: solvedProject ?? labels,
-			prefs
+			prefs,
+			others
 		})
 	);
 	/** Refused only for an active PRV or PSV inside: a station, whose group curve is not defined. */
@@ -259,6 +324,14 @@
 	);
 	const loading = $derived(groupCurve?.status === 'loading' && !unavailable);
 	const systemLoading = $derived(systemCurve?.status === 'loading' && !unavailable);
+	/** The other cases' duties are being computed (slice 4d). */
+	const othersLoading = $derived(!!othersProgress && others.length > 0);
+	/** Some case on the chart was cancelled by the user or failed: "Compute them again". */
+	const othersRetry = $derived(othersOn && others.some((o) => o.onChart && o.retry));
+	const othersFull = $derived(others.filter((o) => o.onChart).length >= MAX_GROUP_CASES);
+	/** A case's ring, as drawn (its duty in display units, its claim in words). */
+	const ringCase = (n: number | null) =>
+		n === null ? null : (data.others.flatMap((r) => r.cases).find((c) => c.number === n) ?? null);
 
 	/** "Read along the curves": the group curve's samples, in rise order. */
 	const readout = $derived(shown ? groupReadout(shown, nameOf, prefs) : []);
@@ -288,6 +361,9 @@
 	let retryButton: HTMLButtonElement | undefined = $state();
 	let systemCancelButton: HTMLButtonElement | undefined = $state();
 	let systemRetryButton: HTMLButtonElement | undefined = $state();
+	let othersCancelButton: HTMLButtonElement | undefined = $state();
+	let othersRetryButton: HTMLButtonElement | undefined = $state();
+	let solveAllButton: HTMLButtonElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let noCanvas = $state(false);
 	let showTable = $state(false);
@@ -320,6 +396,29 @@
 		if (!retry || document.activeElement !== retry) return;
 		void tick().then(() => (systemCancelButton ?? figure)?.focus());
 	});
+	// The same for the other cases' Cancel and "Compute them again" (slice 4d).
+	$effect.pre(() => {
+		if (othersLoading) return;
+		const cancel = untrack(() => othersCancelButton);
+		if (!cancel || document.activeElement !== cancel) return;
+		void tick().then(() => (othersRetryButton ?? figure)?.focus());
+	});
+	$effect.pre(() => {
+		if (!othersLoading) return;
+		const retry = untrack(() => othersRetryButton);
+		if (!retry || document.activeElement !== retry) return;
+		void tick().then(() => (othersCancelButton ?? figure)?.focus());
+	});
+
+	/** "Add cases with one pump off": then the focus is on the block's Solve all (slice 4d). */
+	function addCases() {
+		if (!oneOff || oneOff.gate || oneOff.refusal || !oneOff.add.length) return;
+		onaddoneoff?.();
+		void tick().then(() => solveAllButton?.focus());
+	}
+	function solveAllCases(event: MouseEvent) {
+		if (oneOff?.solveAll.canRun && event.detail <= 1) onsolveall?.();
+	}
 
 	/** The chart chunk, kept once loaded (the image never waits for it again). */
 	let chartModule: typeof import('./chart-setup') | null = null;
@@ -335,6 +434,8 @@
 	$effect(() => {
 		const element = canvas;
 		const d = data;
+		// A phone's screen labels the other cases' rings by number only (slice 4d).
+		const compact = phone.current;
 		if (!element) return;
 		let cancelled = false;
 		let chart: ChartInstance<'line'> | null = null;
@@ -355,7 +456,8 @@
 						legendLabels: Chart.defaults.plugins.legend.labels.generateLabels,
 						format: fmt,
 						htmlLegend: true,
-						readout: () => markNow
+						readout: () => markNow,
+						compactLabels: compact
 					})
 				);
 				drawnChart = chart;
@@ -381,9 +483,11 @@
 						? 'Wait until the group curve is computed, or cancel it.'
 						: systemLoading
 							? 'Wait until the group system curve is computed, or cancel it.'
-							: !drawn
-								? 'The chart is being drawn.'
-								: '')
+							: othersLoading
+								? "Wait until the other cases' station duties are computed, or cancel them."
+								: !drawn
+									? 'The chart is being drawn.'
+									: '')
 	);
 	let makingImage = false;
 
@@ -421,7 +525,7 @@
 			>{:else}{word.name}{/if}{/each}
 {/snippet}
 
-<section class="card space-y-3 p-3" aria-labelledby="{id}-heading">
+<section class="card space-y-3 p-3" aria-labelledby="{id}-heading" data-pumps-together>
 	<h3 id="{id}-heading" class="text-sm font-semibold">
 		<button
 			type="button"
@@ -476,9 +580,9 @@
 					(its inlet and outlet), and whether they are in parallel or in series.
 				</p>
 			</fieldset>
-			{#if others.length}
+			{#if otherGroups.length}
 				<div bind:this={alsoFound} class="flex flex-wrap items-center gap-x-2">
-					{#each others as other (other.pumpIds.join('\u0000'))}
+					{#each otherGroups as other (other.pumpIds.join('\u0000'))}
 						<button
 							type="button"
 							class="btn btn-quiet px-2 text-blue-800"
@@ -496,7 +600,7 @@
 					bind:this={figure}
 					class="space-y-2"
 					aria-labelledby="{id}-caption"
-					aria-busy={loading || systemLoading}
+					aria-busy={loading || systemLoading || othersLoading}
 					tabindex="-1"
 				>
 					<figcaption id="{id}-caption" class="text-sm font-medium">{caption}</figcaption>
@@ -586,12 +690,79 @@
 							</p>
 						</div>
 					{/if}
-					<!-- One live region for both curves' progress (never computed at once). -->
+					{#if onothers && stationShown}
+						<!-- Other cases' station duties (slice 4d): which cases, and whether they are asked for. -->
+						{#if othersOn && others.length}
+							<fieldset class="space-y-1">
+								<legend class="text-xs font-medium text-slate-700">Cases on this chart</legend>
+								<div class="flex flex-wrap gap-x-4">
+									<span class="flex min-h-11 items-center gap-2 text-sm"
+										><span aria-hidden="true">{STATION_SYMBOL}</span>
+										{caseName ?? 'This case'} (shown)</span
+									>
+									{#each others as other (other.key)}
+										{@const capped = !other.onChart && othersFull}
+										<label class="flex min-h-11 items-center gap-2 text-sm">
+											<input
+												type="checkbox"
+												class="size-4"
+												checked={other.onChart}
+												aria-disabled={capped}
+												aria-describedby={capped ? `${id}-cases-full` : undefined}
+												onclick={(event) => {
+													if (capped) {
+														event.preventDefault();
+														return;
+													}
+													onotherstick?.(other.key, event.currentTarget.checked);
+												}}
+											/>
+											{#if other.number !== null}<span aria-hidden="true" style:color={GROUP_OTHER}
+													>{OTHER_SYMBOL}</span
+												>
+												{other.number} ·{/if}
+											{other.name}{other.stale ? ' (out of date)' : ''}
+										</label>
+									{/each}
+								</div>
+								{#if othersFull && others.some((o) => !o.onChart)}
+									<p id="{id}-cases-full" class="hint">
+										At most {MAX_GROUP_CASES} other cases at once.
+									</p>
+								{/if}
+							</fieldset>
+						{/if}
+						<div>
+							<label class="flex min-h-11 items-center gap-2 text-sm">
+								<input
+									type="checkbox"
+									class="size-4"
+									checked={othersOn}
+									aria-describedby="{id}-others-hint"
+									onchange={(event) => onothers(event.currentTarget.checked)}
+								/>
+								Also show the other cases' station duties
+							</label>
+							<p id="{id}-others-hint" class="hint">
+								Each case's station duty is computed on request, one case at a time, for that case's
+								last solve: a solve of that case and about 41 solves of the station (its group
+								curve, which the card shows when that case is shown).
+							</p>
+						</div>
+					{/if}
+					<!-- One live region for every progress line (never computed at once). -->
 					<div role="status" class="text-xs text-slate-600">
 						{#if notes.curve?.kind === 'loading'}
 							<span id="{id}-curve-state">{notes.curve.text}</span>
 						{:else if notes.systemCurve?.kind === 'loading'}
 							<span id="{id}-system-state">{notes.systemCurve.text}</span>
+						{:else if othersLoading && othersProgress}
+							<span
+								>Computing the other cases' station duties: {Math.min(
+									othersProgress.done + 1,
+									othersProgress.total
+								)} of {othersProgress.total}…</span
+							>
 						{/if}
 					</div>
 					{#if notes.curve?.kind === 'loading' && oncancel}
@@ -682,6 +853,31 @@
 					{:else if notes.systemCurve}
 						<p class="text-xs text-slate-700">{notes.systemCurve.text}</p>
 					{/if}
+					<!-- The other cases' station duties (slice 4d): Cancel while computed, else again. -->
+					{#if othersLoading && !loading && !systemLoading && oncancelothers}
+						<button
+							bind:this={othersCancelButton}
+							type="button"
+							class="btn btn-quiet px-2 text-blue-800"
+							aria-label="Cancel the other cases' station duties"
+							onclick={oncancelothers}>Cancel</button
+						>
+					{:else if othersRetry && !othersLoading}
+						<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+							<p id="{id}-others-state" class="text-xs text-slate-600">
+								Not every other case's station duty was computed: see Running combinations.
+							</p>
+							{#if onretryothers}
+								<button
+									bind:this={othersRetryButton}
+									type="button"
+									class="btn btn-quiet px-2 text-blue-800"
+									aria-describedby="{id}-others-state"
+									onclick={onretryothers}>Compute them again</button
+								>
+							{/if}
+						</div>
+					{/if}
 					{#if notes.frame}<p class="text-xs text-slate-700">{notes.frame}</p>{/if}
 					{#if notes.system}<p class="text-xs text-slate-700">{notes.system}</p>{/if}
 					<p class="text-xs text-slate-600">{notes.axes}</p>
@@ -698,6 +894,9 @@
 									detail={systemShown.systemDutyCheck.message}
 								/>{/if}
 						</p>
+					{/each}
+					{#each notes.others as note (note)}
+						<p class="text-xs text-slate-600">{note}</p>
 					{/each}
 					{#each notes.members as note (note)}
 						<p class="text-xs text-slate-600">{note}</p>
@@ -876,6 +1075,229 @@
 						The share of each pump and its loss on the way come with the group curve.
 					</p>
 				{/if}
+				{#if oneOff && stationShown}
+					<!-- One pump off (slice 4d): the cases of the base case with each running pump off. -->
+					<section class="space-y-1" aria-labelledby="{id}-one-off">
+						<h4 id="{id}-one-off" class="text-xs font-semibold">One pump off</h4>
+						{#if oneOff.gate}
+							<p class="text-xs text-slate-700">{oneOff.gate}</p>
+						{:else}
+							<p class="text-xs text-slate-700">{oneOff.about}</p>
+							{#each oneOff.notes as note (note)}
+								<p class="text-xs text-slate-600">{note}</p>
+							{/each}
+						{/if}
+						{#if !oneOff.gate || oneOff.showSolveAll}
+							<div class="flex flex-wrap items-center gap-2">
+								{#if !oneOff.gate}
+									<button
+										type="button"
+										class="btn"
+										aria-disabled={!!oneOff.refusal}
+										aria-describedby={oneOff.refusal ? `${id}-one-off-refusal` : undefined}
+										onclick={addCases}>{oneOff.label}</button
+									>
+								{/if}
+								{#if oneOff.showSolveAll}
+									<button
+										bind:this={solveAllButton}
+										type="button"
+										class="btn"
+										aria-disabled={!oneOff.solveAll.canRun}
+										aria-describedby="{id}-solve-all"
+										title={oneOff.solveAll.reason || undefined}
+										onclick={solveAllCases}
+									>
+										<Icon name="play" class="size-4" /> Solve all{oneOff.solveAll.count
+											? ` (${oneOff.solveAll.count})`
+											: ''}
+									</button>
+									<span id="{id}-solve-all" class="sr-only"
+										>{oneOff.solveAll.reason || oneOff.solveAll.hint}</span
+									>
+								{/if}
+							</div>
+						{/if}
+						{#if !oneOff.gate && oneOff.refusal}
+							<p id="{id}-one-off-refusal" class="hint">{oneOff.refusal}</p>
+						{/if}
+					</section>
+				{/if}
+				{#if combinations && stationShown}
+					<!-- Running combinations (slice 4d): every case's members; a list below 640 px. -->
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+					<div
+						class="scroll-shadow-x relative max-w-full overflow-auto rounded-md border border-slate-200 bg-white"
+						role="region"
+						aria-labelledby="{id}-combinations-caption"
+						tabindex="0"
+						data-running-combinations
+					>
+						<!-- svelte-ignore a11y_no_redundant_roles -->
+						<table
+							role="table"
+							class="min-w-full border-separate border-spacing-0 text-sm max-sm:block"
+						>
+							<caption
+								id="{id}-combinations-caption"
+								class="sticky left-0 px-2 py-1 text-left text-xs font-semibold text-slate-700 max-sm:block"
+							>
+								Running combinations
+							</caption>
+							<!-- svelte-ignore a11y_no_redundant_roles -->
+							<thead role="rowgroup" class="bg-slate-50 max-sm:sr-only">
+								<!-- svelte-ignore a11y_no_redundant_roles -->
+								<tr role="row">
+									<th
+										role="columnheader"
+										scope="col"
+										class="sticky left-0 z-10 border-r border-b border-slate-300 bg-slate-50 px-2 py-1 text-left font-medium"
+										>Pump</th
+									>
+									{#each combinations.columns as column (column.key)}
+										<th
+											role="columnheader"
+											scope="col"
+											class={[
+												'border-b border-slate-300 px-2 py-1 align-bottom font-medium whitespace-nowrap',
+												column.numeric ? 'text-right' : 'text-left'
+											]}
+										>
+											{column.label}
+											{#if column.unit}<span class="block text-xs font-normal text-slate-600"
+													>{column.unit}</span
+												>{/if}
+										</th>
+									{/each}
+									<th
+										role="columnheader"
+										scope="col"
+										class="border-b border-slate-300 px-2 py-1 text-left align-bottom font-medium"
+										>Flags</th
+									>
+								</tr>
+							</thead>
+							{#each combinations.groups as group (group.key)}
+								<!-- svelte-ignore a11y_no_redundant_roles -->
+								<tbody role="rowgroup" class="max-sm:block">
+									<!-- svelte-ignore a11y_no_redundant_roles -->
+									<tr role="row" class="max-sm:block">
+										<th
+											role="rowheader"
+											scope="rowgroup"
+											colspan={combinations.columns.length + 2}
+											class={[
+												'border-b border-slate-200 px-2 py-1 text-left font-normal break-words max-sm:block',
+												group.stale ? 'bg-amber-50/60' : 'bg-slate-50/60'
+											]}
+										>
+											<span class="block font-medium">{group.heading}</span>
+											{#if group.detail}<span class="block text-xs text-slate-600"
+													>{group.detail}</span
+												>{/if}
+										</th>
+									</tr>
+									{#each group.rows as row (row.id)}
+										<!-- svelte-ignore a11y_no_redundant_roles -->
+										<tr
+											role="row"
+											class="max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-3 max-sm:gap-y-0.5 max-sm:px-2 max-sm:pb-1.5"
+										>
+											<th
+												role="rowheader"
+												scope="row"
+												class={[
+													'sticky left-0 z-10 border-r border-b border-slate-200 px-2 py-1 text-left font-medium whitespace-nowrap',
+													'max-sm:static max-sm:block max-sm:w-full max-sm:border-0 max-sm:px-0',
+													group.stale ? 'bg-amber-50' : 'bg-white'
+												]}
+												><span aria-hidden="true" style:color={row.style.color}
+													>{row.style.symbol}</span
+												>
+												{row.name}</th
+											>
+											{#each combinations.columns as column (column.key)}
+												{@const cell = row.cells[column.key] ?? '—'}
+												{@const marked =
+													row.invalid &&
+													cell !== '—' &&
+													(INVALID_MARKED as readonly string[]).includes(column.key)}
+												<td
+													role="cell"
+													data-label={column.unit
+														? `${column.label} (${column.unit})`
+														: column.label}
+													class={[
+														'border-b border-slate-200 px-2 py-1 whitespace-nowrap',
+														column.numeric && 'text-right tabular-nums',
+														group.stale && 'bg-amber-50/60',
+														'max-sm:flex max-sm:max-w-full max-sm:min-w-0 max-sm:items-baseline max-sm:gap-1 max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:text-left max-sm:whitespace-normal',
+														'max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]',
+														cell === '—' && 'max-sm:sr-only'
+													]}
+													>{#if marked}<span class="inline-flex items-center gap-1"
+															><Icon name="alert" class="size-3.5 text-red-700" /><span
+																class="sr-only">physically invalid:</span
+															>{cell}</span
+														>{:else}{cell}{/if}</td
+												>
+											{/each}
+											<td
+												role="cell"
+												data-label="Flags"
+												class={[
+													'border-b border-slate-200 px-2 py-1',
+													group.stale && 'bg-amber-50/60',
+													'max-sm:flex max-sm:items-baseline max-sm:gap-1 max-sm:border-0 max-sm:bg-transparent max-sm:p-0',
+													'max-sm:before:text-xs max-sm:before:text-slate-600 max-sm:before:content-[attr(data-label)]'
+												]}
+											>
+												<span class="flex flex-wrap gap-1">
+													{#each row.flags as flag, i (i)}
+														<span
+															class="inline-flex items-center gap-1 rounded-full border border-slate-300 px-1.5 py-0.5 text-xs whitespace-nowrap"
+															title={flagText(flag)}
+															><FlagIcon
+																severity={flag.severity}
+																class="size-3.5"
+															/>{SEVERITY_LABELS[flag.severity]}<span class="sr-only"
+																>: {flagText(flag)}</span
+															></span
+														>
+													{:else}<span class="text-xs text-slate-600">None</span>{/each}
+												</span>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							{/each}
+						</table>
+					</div>
+					{#if extremes?.lines.length}
+						<!-- Extremes over the current cases: on screen only (never the image or the export). -->
+						<div class="space-y-1">
+							<h5 class="text-xs font-semibold">Extremes over these cases (current results)</h5>
+							<dl class="space-y-0.5 text-xs text-slate-700" aria-label="Extremes over these cases">
+								{#each extremes.lines as line (line.term)}
+									<div>
+										<dt class="inline">{line.term}:</dt>
+										<dd class="inline font-medium tabular-nums">
+											{#if line.invalid}<Icon
+													name="alert"
+													class="inline size-3.5 align-text-bottom text-red-700"
+												/>{/if}{line.value}
+										</dd>
+									</div>
+								{/each}
+							</dl>
+							{#if extremes.notCounted.length}
+								<p class="text-xs text-slate-600">
+									Not counted (out of date): {andList(extremes.notCounted)}.
+								</p>
+							{/if}
+						</div>
+					{/if}
+				{/if}
 
 				{#if !noCanvas && !loadFailed}
 					<div class="flex flex-wrap items-center gap-x-3">
@@ -979,6 +1401,61 @@
 									/>
 								{/if}
 							</p>
+						{/if}
+						{#if others.length}
+							<!-- The other cases' station duties (slice 4d): the rings, and why a case has none. -->
+							<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+							<div
+								class="relative overflow-auto rounded-md border border-slate-200 bg-white"
+								role="region"
+								aria-labelledby="{id}-others-caption"
+								tabindex="0"
+							>
+								<table class="w-full text-sm">
+									<caption
+										id="{id}-others-caption"
+										class="px-2 py-1 text-left text-xs font-semibold text-slate-700"
+									>
+										Other cases' station duties
+									</caption>
+									<thead class="bg-slate-50">
+										<tr>
+											<th scope="col" class="px-2 py-1 text-left font-medium">Case</th>
+											<th scope="col" class="px-2 py-1 text-right font-medium"
+												>Station flow ({data.flowUnit})</th
+											>
+											<th scope="col" class="px-2 py-1 text-right font-medium"
+												>Rise ({data.headUnit})</th
+											>
+											<th scope="col" class="px-2 py-1 text-left font-medium"
+												>On the group system curve shown</th
+											>
+										</tr>
+									</thead>
+									<tbody>
+										{#each others as other (other.key)}
+											{@const ring = ringCase(other.number)}
+											<tr class="border-t border-slate-100">
+												<th scope="row" class="px-2 py-1 text-left font-normal"
+													>{#if ring}<span aria-hidden="true" style:color={GROUP_OTHER}
+															>{`${OTHER_SYMBOL} `}</span
+														>{/if}{ring ? `${ring.number} · ` : ''}{other.name}{other.stale
+														? ' (out of date)'
+														: ''}</th
+												>
+												{#if ring}
+													<td class="px-2 py-1 text-right tabular-nums">{fmt(ring.flow)}</td>
+													<td class="px-2 py-1 text-right tabular-nums">{fmt(ring.rise)}</td>
+													<td class="px-2 py-1 text-xs text-slate-600">{ring.claim}</td>
+												{:else}
+													<td colspan="3" class="px-2 py-1 text-xs text-slate-600">{other.words}</td
+													>
+												{/if}
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
 						{/if}
 						{#if samples.length}
 							<!-- svelte-ignore a11y_no_noninteractive_tabindex -->

@@ -16,6 +16,7 @@ import type {
 	PumpGroupCurveResponse,
 	PumpResult,
 	SolvedState,
+	SolveResponse,
 	TopologyIssue
 } from '$lib/api/types';
 import type { GroupCurveState } from '$lib/state/project.svelte';
@@ -23,6 +24,15 @@ import type { ChartImageSource, FigureImageRequest } from '$lib/utils/export/cha
 import fixture from '$lib/utils/__fixtures__/pump-groups-input.json';
 import { ratedCurveRange } from '$lib/utils/pump-chart';
 import type { GroupMemberInput } from '$lib/utils/pump-group-chart';
+import {
+	combinationExtremes,
+	onePumpOffPlan,
+	otherGroupCases,
+	runningCombinations,
+	type CombinationsInput,
+	type OtherGroupCase
+} from '$lib/utils/pump-group-one-off';
+import { withScenarios } from '$lib/utils/scenarios';
 import { formatNumber } from '$lib/utils/units';
 import PumpGroupChart from './PumpGroupChart.svelte';
 
@@ -930,4 +940,418 @@ describe('the group system curve (slice 4b)', () => {
 		expect(screen.queryByRole('figure')).toBeNull();
 		expect(screen.queryByText(/group system curve/i)).toBeNull();
 	});
+});
+
+describe('one pump off (slice 4d)', () => {
+	type Answer = { status: number; body: unknown };
+	type OneOffCase = FixtureCase & {
+		solve: SolveResponse;
+		scenarioCases: Record<string, { solve: SolveResponse; groupCurve: Answer }>;
+	};
+	const c = named('one-off') as unknown as OneOffCase;
+	const station = (c.groupCurve.body as PumpGroupCurveResponse).station;
+	const runnable = {
+		count: 2,
+		canRun: true,
+		reason: '',
+		hint: 'Solves each case whose results are missing or out of date, one after another: up to 2 solves.'
+	};
+	/** The plan for the base case of `project` (default: `one-off` without its scenarios). */
+	function plan(
+		values: Partial<Parameters<typeof onePumpOffPlan>[0]> = {},
+		solveAll: typeof runnable = runnable
+	) {
+		return {
+			...onePumpOffPlan({
+				project: withScenarios(structuredClone(c.project), []),
+				shownCase: null,
+				station,
+				memberIds: ['PA', 'PB'],
+				base: { response: c.solve, stale: false },
+				...values
+			}),
+			solveAll
+		};
+	}
+	const base = (values: Record<string, unknown> = {}) =>
+		props(c, { system: systemReady(c), caseName: 'Base case', ...values });
+	const block = () => screen.getByRole('region', { name: 'One pump off' });
+
+	/** The `one-off` scenarios as the card has them, every one ready. */
+	function others(ids = ['S1', 'S2', 'S3', 'S4']): OtherGroupCase[] {
+		return otherGroupCases({
+			valued: ids.map((id) => ({
+				key: id,
+				caseId: id,
+				name: c.project.scenarios!.find((s) => s.id === id)!.name,
+				stale: false,
+				group: {
+					status: 'ready',
+					response: c.scenarioCases[id]!.groupCurve.body as PumpGroupCurveResponse
+				},
+				system: undefined,
+				shared: id !== 'S3',
+				solved: null
+			})),
+			shownKeys: new Set(ids),
+			othersOn: true,
+			shownSettled: true,
+			station,
+			systemShown: c.systemCurve!.body as PumpGroupCurveResponse,
+			memberIds: ['PA', 'PB'],
+			project: c.project,
+			boxes: ['PA', 'PB']
+		});
+	}
+
+	it('offers the add for a parallel station, and says why it is not offered otherwise', async () => {
+		const view = render(PumpGroupChart, base({ oneOff: plan() }));
+		expect(within(block()).getByRole('heading', { name: 'One pump off', level: 4 })).toBeVisible();
+		expect(block()).toHaveTextContent(
+			'Makes one scenario per pump running in the base case (Pump PA and Pump PB): the base case with that one pump off and nothing else changed. Pumps off in the base case stay off.'
+		);
+		const add = within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' });
+		expect(add).not.toHaveAttribute('aria-disabled', 'true');
+		const gates: [Partial<Parameters<typeof onePumpOffPlan>[0]>, string, boolean][] = [
+			[
+				{ station: (named('series').groupCurve.body as PumpGroupCurveResponse).station },
+				'Cases with one pump off are offered for pumps in parallel only: in series a stopped pump blocks the line in this app (a stopped pump passing flow is not modelled), so the station would carry no flow.',
+				false
+			],
+			[
+				{ station: { ...station, arrangement: 'mixed' } },
+				'Cases with one pump off are offered for pumps in parallel only; this station is mixed: neither all in parallel nor all in series.',
+				false
+			],
+			[
+				{ project: c.project, shownCase: 'S3' },
+				'Cases with one pump off are made from the base case: show the base case to add them. To study Delivery tank 5 m higher with a pump off, duplicate it in Scenarios and set that pump off there.',
+				false
+			],
+			[
+				{ base: { response: c.solve, stale: true } },
+				"The base case's results are out of date: solve it again, so the pumps that run are read from the project as it is now.",
+				true
+			]
+		];
+		for (const [values, sentence, solveAll] of gates) {
+			await view.rerender(base({ oneOff: plan(values) }));
+			expect(block()).toHaveTextContent(sentence);
+			expect(within(block()).queryByRole('button', { name: /^Add cases/ })).toBeNull();
+			expect(!!within(block()).queryByRole('button', { name: /^Solve all/ })).toBe(solveAll);
+		}
+		// No plan, or no station: no block.
+		await view.rerender(base({ oneOff: null }));
+		expect(screen.queryByRole('region', { name: 'One pump off' })).toBeNull();
+	});
+
+	it('refuses the add with its reason, described, and makes nothing', async () => {
+		const onaddoneoff = vi.fn();
+		render(PumpGroupChart, base({ oneOff: plan({ project: c.project }), onaddoneoff }));
+		const add = within(block()).getByRole('button', { name: 'Add cases with one pump off' });
+		expect(add).toHaveAttribute('aria-disabled', 'true');
+		expect(add).toHaveAccessibleDescription(
+			'Every case with one pump off already exists: Pump PA off and Pump PB off.'
+		);
+		expect(block()).toHaveTextContent('Pump PA has its case already: Pump PA off.');
+		await fireEvent.click(add);
+		expect(onaddoneoff).not.toHaveBeenCalled();
+	});
+
+	it('adds, then gives the focus to Solve all, which stays in place with its reasons', async () => {
+		const onaddoneoff = vi.fn();
+		const onsolveall = vi.fn();
+		const view = render(PumpGroupChart, base({ oneOff: plan(), onaddoneoff, onsolveall }));
+		await fireEvent.click(
+			within(block()).getByRole('button', { name: 'Add cases with one pump off (2)' })
+		);
+		expect(onaddoneoff).toHaveBeenCalledTimes(1);
+		await tick();
+		const solveAll = within(block()).getByRole('button', { name: 'Solve all (2)' });
+		expect(solveAll).toHaveFocus();
+		expect(solveAll).toHaveAccessibleDescription(runnable.hint);
+		await fireEvent.click(solveAll);
+		expect(onsolveall).toHaveBeenCalledTimes(1);
+		// A run: unavailable, with the reason; it stays, with the focus, when nothing is left.
+		const states = [
+			{ count: 2, canRun: false, reason: 'Solve all is running; Cancel in the header stops it.' },
+			{ count: 0, canRun: false, reason: "Every case's results are current." },
+			{
+				count: 0,
+				canRun: false,
+				reason: 'Every case is solved except Pump PB off, which has an error to fix first.'
+			}
+		];
+		for (const state of states) {
+			await view.rerender(
+				base({ oneOff: plan({}, { ...state, hint: runnable.hint }), onaddoneoff, onsolveall })
+			);
+			const button = within(block()).getByRole('button', { name: /^Solve all/ });
+			expect(button).toBe(solveAll);
+			expect(button).toHaveFocus();
+			expect(button).toHaveAccessibleName(state.count ? 'Solve all (2)' : 'Solve all');
+			expect(button).toHaveAttribute('aria-disabled', 'true');
+			expect(button).toHaveAccessibleDescription(state.reason);
+			await fireEvent.click(button);
+		}
+		expect(onsolveall).toHaveBeenCalledTimes(1);
+	});
+
+	it('the other cases: the box, the cases on the chart (six at most), progress, Cancel, again', async () => {
+		const onothers = vi.fn();
+		const onotherstick = vi.fn();
+		const oncancelothers = vi.fn();
+		const onretryothers = vi.fn();
+		const [first] = others(['S1']);
+		// Seven cases (synthetic): six on the chart, the seventh not (unticked, past the limit).
+		const seven: OtherGroupCase[] = Array.from({ length: 7 }, (_, i) => ({
+			...first!,
+			key: `S${i + 1}`,
+			caseId: `S${i + 1}`,
+			name: `Case ${i + 1}`,
+			...(i < 6
+				? { number: i + 1 }
+				: {
+						onChart: false,
+						number: null,
+						state: 'unticked' as const,
+						duty: null,
+						claim: null,
+						words: 'not on the chart (unticked under Cases on this chart)'
+					})
+		}));
+		const handlers = { onothers, onotherstick, oncancelothers, onretryothers };
+		const view = render(PumpGroupChart, base({ otherCases: seven, othersOn: true, ...handlers }));
+		const fieldset = screen.getByRole('group', { name: 'Cases on this chart' });
+		expect(fieldset).toHaveTextContent('Base case (shown)');
+		const boxes = within(fieldset).getAllByRole('checkbox') as HTMLInputElement[];
+		expect(boxes.map((b) => b.checked)).toEqual([true, true, true, true, true, true, false]);
+		expect(boxes[0]!.closest('label')).toHaveTextContent('○ 1 · Case 1');
+		expect(boxes[6]).toHaveAttribute('aria-disabled', 'true');
+		expect(boxes[6]).toHaveAccessibleDescription('At most 6 other cases at once.');
+		await fireEvent.click(boxes[6]!);
+		expect(onotherstick).not.toHaveBeenCalled();
+		await fireEvent.click(boxes[1]!);
+		expect(onotherstick).toHaveBeenCalledWith('S2', false);
+		const box = screen.getByRole('checkbox', { name: "Also show the other cases' station duties" });
+		expect(box).toBeChecked();
+		expect(box).toHaveAccessibleDescription(
+			"Each case's station duty is computed on request, one case at a time, for that case's last solve: a solve of that case and about 41 solves of the station (its group curve, which the card shows when that case is shown)."
+		);
+		await fireEvent.click(box);
+		expect(onothers).toHaveBeenCalledWith(false);
+
+		// Being computed: the progress in the one live region, and Cancel.
+		const loading = others(['S1', 'S2']).map((o, i) =>
+			i === 1 ? { ...o, state: 'loading' as const, number: null, duty: null, claim: null } : o
+		);
+		await view.rerender(
+			base({
+				otherCases: loading,
+				othersOn: true,
+				othersProgress: { done: 1, total: 2 },
+				...handlers
+			})
+		);
+		expect(screen.getByRole('status')).toHaveTextContent(
+			"Computing the other cases' station duties: 2 of 2…"
+		);
+		expect(screen.getByRole('figure')).toHaveAttribute('aria-busy', 'true');
+		const cancel = screen.getByRole('button', { name: "Cancel the other cases' station duties" });
+		cancel.focus();
+		await fireEvent.click(cancel);
+		expect(oncancelothers).toHaveBeenCalledTimes(1);
+		const cancelled = loading.map((o, i) =>
+			i === 1
+				? {
+						...o,
+						state: 'cancelled' as const,
+						retry: true,
+						words: 'cancelled: you cancelled it'
+					}
+				: o
+		);
+		await view.rerender(
+			base({ otherCases: cancelled, othersOn: true, othersProgress: null, ...handlers })
+		);
+		await tick();
+		await tick();
+		const again = screen.getByRole('button', { name: 'Compute them again' });
+		expect(again).toHaveFocus();
+		expect(again).toHaveAccessibleDescription(
+			"Not every other case's station duty was computed: see Running combinations."
+		);
+		await fireEvent.click(again);
+		expect(onretryothers).toHaveBeenCalledTimes(1);
+		await view.rerender(
+			base({
+				otherCases: loading,
+				othersOn: true,
+				othersProgress: { done: 1, total: 2 },
+				...handlers
+			})
+		);
+		await tick();
+		await tick();
+		expect(
+			screen.getByRole('button', { name: "Cancel the other cases' station duties" })
+		).toHaveFocus();
+	});
+
+	it('Running combinations: a row group per case, its members’ rows, invalid values marked; the extremes', () => {
+		const dead = named('one-off-dead-headed') as unknown as OneOffCase;
+		const input: CombinationsInput = {
+			members: [
+				{ id: 'PA', name: 'Pump PA', slot: 0 },
+				{ id: 'PB', name: 'Pump PB', slot: 1 }
+			],
+			cases: [
+				{
+					key: '',
+					name: 'Base case',
+					shown: true,
+					status: 'solved',
+					response: c.solve,
+					stale: false,
+					station: 'Station 55.15 L/s at a rise of 27.38 m'
+				},
+				{
+					key: 'S2',
+					name: 'Pump PB off',
+					shown: false,
+					status: 'stale',
+					response: c.scenarioCases.S2!.solve,
+					stale: true,
+					station: null,
+					ring: 2
+				},
+				{
+					key: 'S9',
+					name: 'Held (synthetic)',
+					shown: false,
+					status: 'solved',
+					response: dead.solve,
+					stale: false,
+					station: null
+				},
+				{
+					key: 'S5',
+					name: 'Failed case',
+					shown: false,
+					status: 'failed',
+					response: null,
+					stale: false,
+					station: null
+				}
+			],
+			prefs: c.project.settings.units,
+			project: c.project
+		};
+		render(
+			PumpGroupChart,
+			base({
+				combinations: runningCombinations(input),
+				extremes: combinationExtremes(input)
+			})
+		);
+		const table = screen.getByRole('table', { name: 'Running combinations' });
+		const groups = within(table).getAllByRole('rowgroup');
+		// The header, then one group per case.
+		expect(groups).toHaveLength(5);
+		const headings = within(table)
+			.getAllByRole('rowheader')
+			.filter((h) => h.getAttribute('scope') === 'rowgroup');
+		expect(headings.map((h) => h.textContent!.replace(/\s+/g, ' ').trim())).toEqual([
+			'Base case (shown) Station 55.15 L/s at a rise of 27.38 m',
+			'Pump PB off (out of date) · ring 2',
+			'Held (synthetic)',
+			'Failed case Failed'
+		]);
+		const held = groups[3]!;
+		const rows = within(held).getAllByRole('row');
+		expect(rows).toHaveLength(3);
+		const pb = rows[2]!;
+		expect(within(pb).getByRole('rowheader')).toHaveTextContent('Pump PB');
+		const cells = within(pb).getAllByRole('cell');
+		expect(cells[0]).toHaveTextContent('No flow (system head above shutoff)');
+		expect(cells[1]).toHaveAttribute('data-label', 'Flow (L/s)');
+		expect(cells[1]).toHaveTextContent('physically invalid:');
+		expect(cells.at(-1)).toHaveTextContent('Invalid');
+		// Not marked where the pump has no invalid flag.
+		const pa = within(groups[1]!).getAllByRole('row')[1]!;
+		expect(within(pa).getAllByRole('cell')[1]).not.toHaveTextContent('physically invalid');
+		expect(within(groups[4]!).getAllByRole('row')).toHaveLength(1);
+		const extremes = screen.getByLabelText('Extremes over these cases');
+		expect(extremes.tagName).toBe('DL');
+		expect(
+			screen.getByRole('heading', { name: 'Extremes over these cases (current results)' })
+		).toBeVisible();
+		expect(extremes).toHaveTextContent(
+			'Pump PA, largest flow: 40.75 L/s in Held (synthetic); beyond its curve data (over 2 of 2 cases)'
+		);
+		expect(screen.getByText('Not counted (out of date): Pump PB off.')).toBeVisible();
+	});
+
+	it('the figure: the rings in the legend and the name, the data table’s rows, no image while computed', async () => {
+		const list = others();
+		const view = render(
+			PumpGroupChart,
+			base({ otherCases: list, othersOn: true, onothers: () => {}, image: image() })
+		);
+		const figure = screen.getByRole('figure');
+		const legend = within(figure).getByRole('list', { name: 'Legend' });
+		const items = within(legend)
+			.getAllByRole('listitem')
+			.map((li) => li.textContent!.trim());
+		expect(items.slice(-4)).toEqual([
+			'○ 1 · Pump PA off (station duty)',
+			'○ 2 · Pump PB off (station duty)',
+			'○ 3 · Delivery tank 5 m higher (station duty)',
+			'○ 4 · Both pumps off (station duty)'
+		]);
+		expect(within(figure).getByRole('img')).toHaveAccessibleName(
+			/; other cases' station duties: 1 · Pump PA off, [\d.]+ L\/s at a rise of [\d.]+ m \(Yes: the same rest of the network\); 2 · Pump PB off, .*; 4 · Both pumps off, 0 L\/s at a rise of 19 m \(Not said: at zero station flow the rest can hold more than one state \(D13\)\); group curve shown; group system curve shown\.$/
+		);
+		await drawn();
+		await fireEvent.click(screen.getByRole('button', { name: 'Show data table' }));
+		const table = screen.getByRole('table', { name: "Other cases' station duties" });
+		const rows = within(table)
+			.getAllByRole('row')
+			.slice(1)
+			.map((r) =>
+				[...r.querySelectorAll('th, td')].map((cell) =>
+					cell.textContent!.replace(/\s+/g, ' ').trim()
+				)
+			);
+		const duty = (id: string) =>
+			(c.scenarioCases[id]!.groupCurve.body as PumpGroupCurveResponse).duty!;
+		expect(rows[0]).toEqual([
+			'○ 1 · Pump PA off',
+			formatNumber(duty('S1').flow * 1000, 4),
+			formatNumber(duty('S1').head, 4),
+			'Yes: the same rest of the network'
+		]);
+		expect(rows[2]![3]).toBe(
+			'No: it changes the rest of the network; its own group system curve is not drawn'
+		);
+		expect(rows[3]!.slice(1, 3)).toEqual(['0', '19']);
+		// While the other cases' duties are computed: no image, and the figure is busy.
+		await view.rerender(
+			base({
+				otherCases: list.map((o, i) =>
+					i === 3 ? { ...o, state: 'loading' as const, number: null, duty: null } : o
+				),
+				othersOn: true,
+				onothers: () => {},
+				image: image(),
+				othersProgress: { done: 3, total: 4 }
+			})
+		);
+		expect(screen.getByRole('figure')).toHaveAttribute('aria-busy', 'true');
+		expect(
+			screen.getByRole('button', { name: /^Download image of the pumps together/ })
+		).toHaveAccessibleDescription(
+			"Wait until the other cases' station duties are computed, or cancel them."
+		);
+	}, 20_000);
 });

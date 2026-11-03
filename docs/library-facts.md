@@ -1,6 +1,6 @@
 # Verified library facts
 
-Facts about `fluids`, CoolProp and EPANET (via WNTR) that were not obvious and cost time to find. Read this before writing code against any of them, and re-verify a fact against the installed package's docstrings or source before relying on it. Add a fact here when you find one the hard way; give the package version it was checked at.
+Facts about `fluids`, CoolProp, EPANET (via WNTR) and Chart.js that were not obvious and cost time to find. Read this before writing code against any of them, and re-verify a fact against the installed package's docstrings or source before relying on it. Add a fact here when you find one the hard way; give the package version it was checked at.
 
 **fluids 1.3.1**
 - `friction_factor()` switches hard to 64/Re at Re 2040. The solver uses its own regimes (`services/solver/friction.py`) and never calls it.
@@ -27,3 +27,5 @@ Facts about `fluids`, CoolProp and EPANET (via WNTR) that were not obvious and c
 - Multi-point pump curves are piecewise linear, so use collinear points to match PCHIP.
 - PRV and PSV settings are heads without velocity head; our setpoints are static pressures. `generate_epanet_cases.py` converts between them by iterating.
 
+**Chart.js 4.5.1**
+- Datasets are drawn from the last to the first in their sorted order (`order`, then index; `_drawDatasets`), so the first dataset is drawn on top; the legend lists them in that sorted order (`_getSortedDatasetMetas`). The Pumps together chart gives other cases' rings `order: -1` to draw them on top, and its image legend sorts them back to the end (slice 4d, `pump-chart-config.ts`).

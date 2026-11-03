@@ -766,6 +766,11 @@ export interface PumpGroupConfigOptions {
 	 * rise and a ring on each point read there. Not in the image.
 	 */
 	readout?: () => GroupReadoutMark | null;
+	/**
+	 * A phone's screen (slice 4d): an other case's ring is labelled by its number only on the
+	 * canvas (the legend, the name and the tables name it); never in the image.
+	 */
+	compactLabels?: boolean;
 }
 
 /**
@@ -775,11 +780,21 @@ export interface PumpGroupConfigOptions {
  * flow), the group system curve in the system orange (gaps where a point has no rise; a direct
  * label at its end) and the station's duty, an ink dot labelled "Group" ("Group (crossing)" where
  * both duty checks agree). Nothing else: no combined curve and no member's system curve
- * (proposal §6.3, §7).
+ * (proposal §6.3, §7). Slice 4d: other cases' station duties, numbered slate rings with a
+ * transparent fill, drawn on top (`order: -1`: Chart.js draws the last dataset in its sorted
+ * order first) so a Group dot or a member's marker at the same place shows through; the image's
+ * legend lists them last.
  */
 export function pumpGroupConfig(
 	d: GroupChartData,
-	{ legendLabels, format, forImage = false, htmlLegend = false, readout }: PumpGroupConfigOptions
+	{
+		legendLabels,
+		format,
+		forImage = false,
+		htmlLegend = false,
+		readout,
+		compactLabels = false
+	}: PumpGroupConfigOptions
 ): PumpChartConfig {
 	const { ink: INK, grid: GRID, text: TEXT, system: SYSTEM, slate: SLATE } = CHART_COLORS;
 	const fmt = format;
@@ -899,7 +914,25 @@ export function pumpGroupConfig(
 						caseLabel: d.station.tag
 					}
 				]
-			: [])
+			: []),
+		...d.others.map((ring) => ({
+			label: ring.label,
+			yAxisID: 'y',
+			data: [ring.point] as ChartDatum[],
+			borderColor: SLATE,
+			backgroundColor: 'transparent',
+			borderWidth: 2,
+			pointStyle: 'circle' as const,
+			pointRadius: 10,
+			pointHoverRadius: 12,
+			pointHitRadius: 12,
+			showLine: false,
+			// Drawn last, on top: Chart.js draws datasets from the last in its sorted order.
+			order: -1,
+			caseLabel: compactLabels && !forImage ? ring.short : ring.tag,
+			labelColor: SLATE,
+			otherCase: true
+		}))
 	];
 	// Direct labels next to each point: above and below in turn, so close points' labels part.
 	const pointLabels: Plugin<'line'> = {
@@ -914,6 +947,7 @@ export function pumpGroupConfig(
 				const label = (dataset as { caseLabel?: string }).caseLabel;
 				const point = chart.getDatasetMeta(i).data[0];
 				if (!label || !point || !chart.isDatasetVisible(i)) return;
+				ctx.fillStyle = (dataset as { labelColor?: string }).labelColor ?? INK;
 				// To the right of the point, or to its left where the plot ends first.
 				const width = ctx.measureText(label).width;
 				const x =
@@ -942,6 +976,7 @@ export function pumpGroupConfig(
 					Math.min(end.x - width, chart.chartArea.right - width - 2)
 				);
 				const y = Math.max(chart.chartArea.top + 14, end.y - 8);
+				ctx.fillStyle = (dataset as { labelColor?: string }).labelColor ?? INK;
 				ctx.fillText(tag, x, y);
 			});
 			ctx.restore();
@@ -1022,16 +1057,19 @@ export function pumpGroupConfig(
 								?.legend !== false,
 						...font(14),
 						generateLabels: (c) =>
-							legendLabels(c).map((item) => {
-								const ds = c.data.datasets[item.datasetIndex ?? -1] as
-									{ showLine?: boolean; pointStyle?: unknown } | undefined;
-								return {
-									...item,
-									pointStyle: (ds?.showLine === false && typeof ds.pointStyle === 'string'
-										? ds.pointStyle
-										: 'line') as 'circle' | 'line'
-								};
-							})
+							legendLabels(c)
+								.map((item) => {
+									const ds = c.data.datasets[item.datasetIndex ?? -1] as
+										{ showLine?: boolean; pointStyle?: unknown } | undefined;
+									return {
+										...item,
+										pointStyle: (ds?.showLine === false && typeof ds.pointStyle === 'string'
+											? ds.pointStyle
+											: 'line') as 'circle' | 'line'
+									};
+								})
+								// Other cases' rings last (their `order` would list them first); stable.
+								.sort((a, b) => otherCase(c, a) - otherCase(c, b))
 					}
 				},
 				tooltip: forImage
@@ -1048,4 +1086,10 @@ export function pumpGroupConfig(
 			}
 		}
 	};
+}
+
+/** 1 for a legend item of an other case's ring (slice 4d), else 0. */
+function otherCase(chart: ChartInstance, item: LegendItem): number {
+	const ds = chart.data.datasets[item.datasetIndex ?? -1] as { otherCase?: boolean } | undefined;
+	return ds?.otherCase ? 1 : 0;
 }

@@ -246,7 +246,6 @@ def test_method_1_6_0_adds_the_pressure_relief_valve() -> None:
     ]
 
 
-
 def test_method_1_6_1_refuses_coefficients_past_the_slope_bound() -> None:
     """GOALS §4.3 and CLAUDE.md D9 (TSD §12 item 18): refusing a loss coefficient past half the
     largest double wherever the element is turns a project that solved on 1.6.0 (the element
@@ -273,6 +272,7 @@ def test_method_1_6_1_refuses_coefficients_past_the_slope_bound() -> None:
         "Apart from these, flows, heads, pressures, statuses, traces, messages and system curves "
         "are unchanged (corpus comparison)."
     )
+
 
 def test_friction_section_follows_the_method() -> None:
     assert "Clamond" in _text("Pipe friction", "colebrook")

@@ -1,7 +1,8 @@
 /**
  * The CSV writer (proposal export.md §3.1, §7.1) against exact file contents: the BOM, CRLF after
- * every line, RFC 4180 quoting, String(n) numbers, booleans and empty fields, and the formula
- * guard on text (never on numbers, nor on a JSON number).
+ * every line, RFC 4180 quoting (of `;` and TAB too, which a spreadsheet may split on), String(n)
+ * numbers, booleans and empty fields, and the formula guard on text (never on numbers, nor on a
+ * JSON number).
  */
 import { describe, expect, it } from 'vitest';
 import { csvField, numberText, toCsv } from './csv';
@@ -23,13 +24,70 @@ describe('a CSV file', () => {
 		expect(toCsv([t('Severity'), t('Code')], [])).toBe('\uFEFFSeverity,Code\r\n');
 	});
 
-	it('quotes a field only when it holds a comma, a quote, CR or LF, doubling quotes', () => {
+	it('quotes a field only when it holds a comma, a quote, CR, LF, a semicolon or a TAB, doubling quotes', () => {
 		expect(
 			toCsv(
-				[t('A'), t('B'), t('C'), t('D'), t('E')],
-				[['a,b', 'say "hi"', 'line\nnext', 'cr\ronly', 'plain']]
+				[t('A'), t('B'), t('C'), t('D'), t('E'), t('F'), t('G')],
+				[['a,b', 'say "hi"', 'line\nnext', 'cr\ronly', 'a;b', 'tab\tin', 'plain']]
 			)
-		).toBe('\uFEFFA,B,C,D,E\r\n"a,b","say ""hi""","line\nnext","cr\ronly",plain\r\n');
+		).toBe(
+			'\uFEFFA,B,C,D,E,F,G\r\n"a,b","say ""hi""","line\nnext","cr\ronly","a;b","tab\tin",plain\r\n'
+		);
+	});
+
+	it('keeps a semicolon or a TAB inside its field, so a reader that splits on them too reads every field whole', () => {
+		// LibreOffice's Text Import dialog splits on Tab, Comma and Semicolon by default (24.2, TSD
+		// §10.3), and Excel under a comma-decimal setting on ';'. An RFC 4180 reader that also takes
+		// ';' and TAB as separators, outside quotes, finds the fields as written.
+		const columns = [
+			t('Name'),
+			n('Flow', 'L/s'),
+			t('Note'),
+			{ label: 'JSON', kind: 'json' as const }
+		];
+		const rows = [
+			['Pump A; duty', 12.5, 'Base case; Cv valve (S1)', '-0.01'],
+			['North\tmain', -0.125, 'a "quoted"; text', '{"kind":"Cv","value":120}'],
+			['Tank; header', 0.036, 'plain', '1e-7']
+		];
+		const text = toCsv(columns, rows);
+		expect(text).toBe(
+			'\uFEFFName,Flow [L/s],Note,JSON\r\n' +
+				'"Pump A; duty",12.5,"Base case; Cv valve (S1)",-0.01\r\n' +
+				'"North\tmain",-0.125,"a ""quoted""; text","{""kind"":""Cv"",""value"":120}"\r\n' +
+				'"Tank; header",0.036,plain,1e-7\r\n'
+		);
+		/** Fields of a line, splitting on `,`, `;` and TAB outside quotes (RFC 4180 otherwise). */
+		const fields = (line: string): string[] => {
+			const out: string[] = [];
+			let field = '';
+			let quoted = false;
+			for (let i = 0; i < line.length; i++) {
+				const ch = line[i]!;
+				if (quoted) {
+					if (ch === '"' && line[i + 1] === '"') {
+						field += '"';
+						i++;
+					} else if (ch === '"') quoted = false;
+					else field += ch;
+				} else if (ch === '"') quoted = true;
+				else if (ch === ',' || ch === ';' || ch === '\t') {
+					out.push(field);
+					field = '';
+				} else field += ch;
+			}
+			out.push(field);
+			return out;
+		};
+		const lines = text.slice(1).split('\r\n').slice(0, -1);
+		expect(lines.map(fields)).toEqual([
+			['Name', 'Flow [L/s]', 'Note', 'JSON'],
+			...rows.map((row) => row.map(String))
+		]);
+	});
+
+	it('quotes a header that holds a semicolon', () => {
+		expect(toCsv([t('Head; total', 'm'), n('Re')], [])).toBe('\uFEFF"Head; total [m]",Re\r\n');
 	});
 
 	it('writes numbers as String(n): no rounding, exponent forms, -0 as 0, never quoted', () => {
@@ -60,7 +118,7 @@ describe('the formula guard (OWASP CSV injection)', () => {
 		expect(csvField('+A1')).toBe("'+A1");
 		expect(csvField('-North tank')).toBe("'-North tank");
 		expect(csvField('@SUM(A1)')).toBe("'@SUM(A1)");
-		expect(csvField('\tTab')).toBe("'\tTab");
+		expect(csvField('\tTab')).toBe('"\'\tTab"'); // quoted too: it holds a TAB
 		expect(csvField('\rCR')).toBe('"\'\rCR"');
 		expect(csvField('=HYPERLINK("http://x")')).toBe('"\'=HYPERLINK(""http://x"")"');
 	});

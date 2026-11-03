@@ -150,6 +150,11 @@ class PipeConnectionLaw:
         area = self.segments[fitting.segment(flow)].area
         return fitting.quantity * fitting.k(flow) / (2.0 * self.g * area**2)
 
+    def minor_coefficient(self, flow: float) -> float:
+        """Σ n K/(2 g A²) of the fittings for the flow's direction, s²/m⁵: the factor of Q|Q| in
+        ``evaluate``'s fitting term (0 without fittings)."""
+        return self._minor_reverse if flow < 0 else self._minor_forward
+
     def fitting_head_loss(self, fitting: ResolvedFitting, flow: float) -> float:
         """Head loss of all units of one fitting, signed like the flow, m."""
         return self._minor_coefficient(fitting, flow) * flow * abs(flow)
@@ -357,6 +362,11 @@ class ValveLaw:
         self.area = area
         self.cracking_head = cracking_head
         self._c = k / (2.0 * g * area * area)
+
+    @property
+    def coefficient(self) -> float:
+        """K/(2 g A²), s²/m⁵: the factor of Q|Q| in h; the slope takes 2 K/(2 g A²)."""
+        return self._c
 
     def loss(self, flow: float) -> float:
         """K Q|Q| / (2 g A²) alone (the fully open loss, without the cracking head)."""

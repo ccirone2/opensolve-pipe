@@ -59,7 +59,12 @@ from ...models.project import Project
 from ...models.project_library import ResistanceRef
 from ...models.results import Flag
 from .branches import BranchGeometry
-from .coefficients import k_from_coefficient
+from .coefficients import (
+    k_from_coefficient,
+    slope_bound_text,
+    slope_bound_words,
+    slope_overflows,
+)
 from .elements import (
     HeadOffsetLaw,
     PipeConnectionLaw,
@@ -83,6 +88,7 @@ from .orifice import (
     TAP_NAMES,
     OrificeLaw,
     Refusal,
+    fluid_refusal,
     refusal,
 )
 from .project_library import entered_text, entry_k, pipe_specs, resistance_entries
@@ -627,7 +633,10 @@ def _unrepresentable_pipes(resolved: ResolvedPipes, fluid: FluidProperties) -> l
     """Pipes whose loss coefficients are not finite, positive floating-point numbers: the
     laminar r = 32 ν L/(g D² A) and the turbulent L/(2 g D A²) (f = 1). A schema-valid but
     extreme size (an inner diameter of 1e-100 m) underflows D² A to 0, and the solver could
-    only fail on it."""
+    only fail on it. So does a Reynolds number Re = |Q| D/(A ν) whose denominator A ν, as the
+    law forms it (``PipeConnectionLaw``: A of ``PipeSegment.from_resolved``), is 0: a bore of
+    1e-11 m with a custom fluid of 1e-300 Pa·s at 1000 kg/m³ underflows it, and the law divided
+    by zero (an internal error, 500, before 2026-11-03; a subnormal A ν still solves)."""
     issues: list[TopologyIssue] = []
     for conn_id, pipes in resolved.items():
         for i, pipe in pipes.items():
@@ -638,14 +647,26 @@ def _unrepresentable_pipes(resolved: ResolvedPipes, fluid: FluidProperties) -> l
                 turbulent = length / (2.0 * G * d * area * area)
             except ZeroDivisionError:
                 laminar = turbulent = math.inf
+            head = f"connection '{conn_id}' {pipe_name(i)}: {_spec_prefix(pipe)}"
             if not all(math.isfinite(c) and c > 0.0 for c in (laminar, turbulent)):
                 issues.append(
                     issue(
                         "PIPE_SIZE_OUT_OF_RANGE",
-                        f"connection '{conn_id}' {pipe_name(i)}: {_spec_prefix(pipe)}an inner "
-                        f"diameter of {d:g} m and a length of {length:g} m give a pipe "
-                        "resistance that is not a finite floating-point number; the solver "
+                        f"{head}an inner diameter of {d:g} m and a length of {length:g} m give a "
+                        "pipe resistance that is not a finite floating-point number; the solver "
                         "cannot represent this pipe",
+                        [],
+                        [conn_id],
+                    )
+                )
+            elif not 0.25 * math.pi * d**2 * fluid.kinematic_viscosity > 0.0:
+                issues.append(
+                    issue(
+                        "PIPE_SIZE_OUT_OF_RANGE",
+                        f"{head}an inner diameter of {d:g} m with the fluid's kinematic viscosity "
+                        f"of {fluid.kinematic_viscosity:g} m²/s gives a Reynolds number "
+                        "|Q| D/(A ν) whose denominator A ν is 0 in floating point (it "
+                        "underflows); the solver cannot represent this pipe",
                         [],
                         [conn_id],
                     )
@@ -669,11 +690,20 @@ def _port_end_pipes(project: Project, resolved: ResolvedPipes) -> dict[str, Reso
     return {key: pipe for key, pipe in pipes_at.items() if pipe is not None}
 
 
+VALVE_SLOPE = ("K/(2 g A²)", "s²/m⁵", "the slope of its head loss, 2 K/(2 g A²) |Q|")
+"""A valve's loss coefficient, its unit and its law's slope, for ``slope_bound_text``."""
+
+
 def _unrepresentable_valves(project: Project, resolved: ResolvedPipes) -> list[TopologyIssue]:
     """Valves whose loss coefficient is not a finite floating-point number: the K of a Cv or Kv
     on the inlet pipe's inner diameter, and K/(2 g A²). A schema-valid but extreme Cv (below
     about 1e-160) makes the conversion divide by zero or overflow, and the solver could only
-    fail on it. An unconnected inlet is left to the topology check."""
+    fail on it. So does a K/(2 g A²) that is finite but above
+    ``coefficients.SLOPE_COEFFICIENT_MAX`` (a Cv near 1e-150 on a 0.1 m pipe): the slope of
+    ``elements.ValveLaw``, 2 K/(2 g A²) |Q|, is then not a finite number at any flow (an added
+    message form quoting the coefficient and the bound). K/(2 g A²) is computed as the law
+    computes it (A of ``PipeSegment.from_resolved``), so the test holds the law's own double.
+    An unconnected inlet is left to the topology check."""
     inlet_pipes = _port_end_pipes(project, resolved)
     entries = resistance_entries(project)
     issues: list[TopologyIssue] = []
@@ -685,7 +715,7 @@ def _unrepresentable_valves(project: Project, resolved: ResolvedPipes) -> list[T
         if entered is None or pipe is None:
             continue
         d = pipe.inner_diameter
-        area = 0.25 * math.pi * d * d
+        area = 0.25 * math.pi * d**2  # PipeSegment.from_resolved's area, the law's
         if isinstance(entered, ResistanceRef):
             entry = entries.get(entered.id)
             if entry is None:
@@ -695,6 +725,10 @@ def _unrepresentable_valves(project: Project, resolved: ResolvedPipes) -> list[T
                 coefficient = k / (2.0 * G * area * area)
             except ZeroDivisionError:
                 coefficient = math.inf
+            head = (
+                f"valve '{comp.id}': its project library resistance entry '{entry.id}', "
+                f"{entered_text(entry)}, on the inlet pipe's inner diameter of {d:g} m gives "
+            )
             # A K moved to the inlet pipe's bore must stay a K a user could enter (above 0).
             if not (math.isfinite(k) and math.isfinite(coefficient)) or (
                 entry.kind == "K" and not k > 0.0
@@ -702,10 +736,18 @@ def _unrepresentable_valves(project: Project, resolved: ResolvedPipes) -> list[T
                 issues.append(
                     issue(
                         "VALVE_RESISTANCE_OUT_OF_RANGE",
-                        f"valve '{comp.id}': its project library resistance entry '{entry.id}', "
-                        f"{entered_text(entry)}, on the inlet pipe's inner diameter of {d:g} m "
-                        "gives a loss coefficient that is not a finite positive floating-point "
+                        f"{head}a loss coefficient that is not a finite positive floating-point "
                         "number; the solver cannot represent this valve",
+                        [comp.id],
+                        [],
+                    )
+                )
+            elif slope_overflows(coefficient):
+                issues.append(
+                    issue(
+                        "VALVE_RESISTANCE_OUT_OF_RANGE",
+                        f"{head}{slope_bound_text(coefficient, *VALVE_SLOPE)}; the solver cannot "
+                        "represent this valve",
                         [comp.id],
                         [],
                     )
@@ -716,14 +758,26 @@ def _unrepresentable_valves(project: Project, resolved: ResolvedPipes) -> list[T
             coefficient = k / (2.0 * G * area * area)
         except (ZeroDivisionError, OverflowError):
             k = coefficient = math.inf
+        head = (
+            f"valve '{comp.id}': a {entered.kind} of {entered.value:g} on the inlet pipe's inner "
+            f"diameter of {d:g} m gives "
+        )
         if not (math.isfinite(k) and math.isfinite(coefficient)):
             issues.append(
                 issue(
                     "VALVE_RESISTANCE_OUT_OF_RANGE",
-                    f"valve '{comp.id}': a {entered.kind} of "
-                    f"{entered.value:g} on the inlet pipe's inner diameter of {d:g} m "
-                    "gives a loss coefficient that is not a finite floating-point number; the "
+                    f"{head}a loss coefficient that is not a finite floating-point number; the "
                     "solver cannot represent this valve",
+                    [comp.id],
+                    [],
+                )
+            )
+        elif slope_overflows(coefficient):
+            issues.append(
+                issue(
+                    "VALVE_RESISTANCE_OUT_OF_RANGE",
+                    f"{head}{slope_bound_text(coefficient, *VALVE_SLOPE)}; the solver cannot "
+                    "represent this valve",
                     [comp.id],
                     [],
                 )
@@ -754,7 +808,13 @@ def _unrepresentable_fittings(project: Project, resolved: ResolvedPipes) -> list
     fitting on an entry are tested; those whose pipes did not all resolve, and the sums of
     those with a fitting on an entry the project does not have (UNKNOWN_RESISTANCE) or whose
     cited K cannot be computed on its pipe's bore (an overflow in a Crane function at a bore
-    such as 1e-310 m, which PIPE_SIZE_OUT_OF_RANGE reports), are left to the other issues."""
+    such as 1e-310 m, which PIPE_SIZE_OUT_OF_RANGE reports), are left to the other issues.
+
+    The law's slope takes 2 Σ n K/(2 g A²) |Q| from the fittings (formed as 2.0 · Σ, then |Q|),
+    so a fitting whose n K/(2 g A²) is finite but above ``coefficients.SLOPE_COEFFICIENT_MAX``,
+    or fittings each within it whose sum for one flow direction is above it, make that slope
+    not a finite number at any flow: each is refused the same way, in an added message form
+    quoting the coefficient and the bound. Σ and each term are the law's own doubles."""
     entries = resistance_entries(project)
     issues: list[TopologyIssue] = []
     for conn in project.connections:
@@ -778,20 +838,33 @@ def _unrepresentable_fittings(project: Project, resolved: ResolvedPipes) -> list
                 whole = False
         found = len(issues)
         for fit in fittings:
-            if fit.entry is None or (
-                math.isfinite(fit.entry.k) and math.isfinite(_minor_coefficient(fit, 1.0, areas))
-            ):
+            if fit.entry is None:
+                continue
+            minor = _minor_coefficient(fit, 1.0, areas)
+            finite = math.isfinite(fit.entry.k) and math.isfinite(minor)
+            if finite and not slope_overflows(minor):
                 continue
             entry = fit.entry.entry
             units = f", for its quantity of {fit.quantity}," if fit.quantity > 1 else ""
+            what = (
+                "a loss coefficient that is not a finite floating-point number"
+                if not finite
+                else slope_bound_text(
+                    minor,
+                    "n K/(2 g A²)",
+                    "s²/m⁵",
+                    "the slope of the connection's head loss, which takes 2 n K/(2 g A²) |Q| "
+                    "from it",
+                )
+            )
             issues.append(
                 issue(
                     "FITTING_RESISTANCE_OUT_OF_RANGE",
                     f"connection '{conn.id}' {fitting_name(fit.index)} ({fit.type}): its "
                     f"project library resistance entry '{entry.id}', {entered_text(entry)}, "
                     f"on the inner diameter of {pipe_name(fit.segment_forward)}, "
-                    f"{fit.entry.bore:g} m, gives{units} a loss coefficient that is not a finite "
-                    "floating-point number; the solver cannot represent this fitting",
+                    f"{fit.entry.bore:g} m, gives{units} {what}; the solver cannot represent "
+                    "this fitting",
                     [],
                     [conn.id],
                 )
@@ -803,7 +876,11 @@ def _unrepresentable_fittings(project: Project, resolved: ResolvedPipes) -> list
             inline = sum(
                 _minor_coefficient(fit, flow, areas) for fit in fittings if fit.entry is None
             )
-            if math.isfinite(total) or not math.isfinite(inline):
+            # Left as before the library where the fittings without an entry overflow by
+            # themselves (2.0 · their sum included; bounded, so never reached).
+            if not (math.isfinite(inline) and math.isfinite(2.0 * inline)):
+                continue
+            if math.isfinite(total) and not slope_overflows(total):
                 continue
             on_entries = ", ".join(
                 f"{fitting_name(fit.index)} ({fit.type}) on '{fit.entry.entry.id}'"
@@ -811,13 +888,23 @@ def _unrepresentable_fittings(project: Project, resolved: ResolvedPipes) -> list
                 if fit.entry is not None
             )
             direction = "from → to" if flow > 0 else "to → from"
+            if math.isfinite(total):
+                value, bound = slope_bound_words(total)
+                what = (
+                    f", {value} s²/m⁵, is above {bound} s²/m⁵, half the largest floating-point "
+                    "number, so the slope of the connection's head loss, which takes "
+                    "2 Σ n K/(2 g A²) |Q| from them, is not a finite floating-point number at any "
+                    "flow"
+                )
+            else:
+                what = " is not a finite floating-point number"
             issues.append(
                 issue(
                     "FITTING_RESISTANCE_OUT_OF_RANGE",
                     f"connection '{conn.id}': its fittings' loss coefficients n K/(2 g A²) are "
-                    f"each finite, but their sum for flow {direction} is not a finite "
-                    "floating-point number (on project library resistance entries: "
-                    f"{on_entries}); the solver cannot represent this connection",
+                    f"each finite, but their sum for flow {direction}{what} (on project library "
+                    f"resistance entries: {on_entries}); the solver cannot represent this "
+                    "connection",
                     [],
                     [conn.id],
                 )
@@ -830,11 +917,19 @@ def _unrepresentable_equipment(project: Project) -> list[TopologyIssue]:
     """Equipment whose loss coefficient c is not a finite positive floating-point number, or
     whose computation divides by zero or overflows (proposal equipment-pressure-drop.md decision
     10): a schema-valid but extreme rating (ρ_r = Q_r = 1e-300, a Cv of 1e-170, a Kv of 1e-160),
-    on which the solver could only fail. c is monotone in each rating value, so it stays finite
-    and positive between two ratings where it is."""
+    on which the solver could only fail. So does a finite c above
+    ``coefficients.SLOPE_COEFFICIENT_MAX`` (ΔP_r = 10⁸ Pa at Q_r = 1e-152 m³/s): the law's
+    slope, 2c|Q|, is then not a finite number at any flow (an added message form quoting c and
+    the bound). Each is refused wherever the element is, as the valves, fittings and orifice
+    plates are: one the solve would never evaluate (in a section isolated valves close off) is
+    refused too (D9). c is monotone in each rating value, so it stays representable between two
+    ratings where it is."""
     issues: list[TopologyIssue] = []
     for comp in project.components:
-        if not isinstance(comp, Equipment) or not unrepresentable(comp, G):
+        if not isinstance(comp, Equipment):
+            continue
+        refused, c = unrepresentable(comp, G)
+        if not refused:
             continue
         how = (
             "c = ΔP_r/(ρ_r g Q_r²)"
@@ -842,12 +937,23 @@ def _unrepresentable_equipment(project: Project) -> list[TopologyIssue]:
             else f"c = K/(2 g A²) with K from the {comp.rating.kind} (fluids.fittings."
             f"{comp.rating.kind}_to_K)"
         )
+        head = f"equipment '{comp.id}': a rating of {rating_text(comp.rating)} gives "
+        if slope_overflows(c):
+            value, bound = slope_bound_words(c)
+            text = (
+                f"{head}a loss coefficient, {how}, of {value} s²/m⁵, above {bound} s²/m⁵, half "
+                "the largest floating-point number, so the slope of its head loss, 2c|Q|, is not "
+                "a finite floating-point number at any flow"
+            )
+        else:
+            text = (
+                f"{head}a loss coefficient, {how}, that is not a finite positive floating-point "
+                "number"
+            )
         issues.append(
             issue(
                 "EQUIPMENT_RATING_OUT_OF_RANGE",
-                f"equipment '{comp.id}': a rating of {rating_text(comp.rating)} gives a loss "
-                f"coefficient, {how}, that is not a finite positive floating-point number; the "
-                "solver cannot represent this element",
+                f"{text}; the solver cannot represent this element",
                 [comp.id],
                 [],
             )
@@ -856,14 +962,20 @@ def _unrepresentable_equipment(project: Project) -> list[TopologyIssue]:
 
 
 def orifice_refusals(
-    project: Project, resolved: ResolvedPipes | None = None
+    project: Project, resolved: ResolvedPipes | None = None, fluid: FluidProperties | None = None
 ) -> dict[str, tuple[Orifice, float, Refusal]]:
     """Orifice plates the law cannot represent (proposal orifice-plate.md decision 17), by id:
     the plate, its inlet pipe's inner diameter D and the first rule it breaks. D is the inner
     diameter of the inlet pipe's end segment at the inlet port (decision 3), resolved as the
     builder resolves it; an unconnected inlet, or one whose pipe does not resolve, is left to
     the other topology checks. ``resolved``: the project's resolved pipes (resolved here when
-    None)."""
+    None).
+
+    With the case's ``fluid``, rule (e) too (``orifice.fluid_refusal``), after rules (a) to (d):
+    a fluid at the schema's bounds that leaves the plate's Reynolds number unrepresentable; and,
+    as a guard for any other such combination, a law that cannot be built at all (ISO's C at
+    Re_lo raising in fluids, ``iso_at_re_lo``), on which the solver would fail with an internal
+    error (500) before 2026-11-03."""
     if not any(isinstance(c, Orifice) for c in project.components):
         return {}
     if resolved is None:
@@ -878,9 +990,27 @@ def orifice_refusals(
             continue
         d = pipe.inner_diameter
         why = refusal(d, comp.bore_diameter, comp.discharge_coefficient, comp.taps, G)
+        if why is None and fluid is not None:
+            why = _orifice_fluid_refusal(comp, d, fluid)
         if why is not None:
             found[comp.id] = (comp, d, why)
     return found
+
+
+def _orifice_fluid_refusal(comp: Orifice, d: float, fluid: FluidProperties) -> Refusal | None:
+    """Rule (e) for one plate (``orifice_refusals``): ``orifice.fluid_refusal``, then the law
+    built as ``build_network`` builds it."""
+    rho, mu = fluid.density, fluid.dynamic_viscosity
+    why = fluid_refusal(d, comp.bore_diameter, rho, mu, comp.discharge_coefficient, comp.taps)
+    if why is not None:
+        return why
+    try:
+        OrificeLaw(d, comp.bore_diameter, rho, mu, comp.discharge_coefficient, comp.taps, G)
+    except (ArithmeticError, ValueError):
+        return Refusal(
+            "fluid", comp.bore_diameter / d, fluid="iso_at_re_lo", fluid_values=(rho, mu)
+        )
+    return None
 
 
 def _orifice_issue_text(comp: Orifice, d_pipe: float, why: Refusal) -> str:
@@ -907,6 +1037,18 @@ def _orifice_issue_text(comp: Orifice, d_pipe: float, why: Refusal) -> str:
             "the bore, physically impossible; check the entered coefficient (ISO 5167-2's C at "
             "the plate's taps, not the flow coefficient C/√(1 - β⁴))"
         )
+    if why.rule == "slope":
+        assert why.coefficient is not None
+        assert why.loss is not None
+        value, bound = slope_bound_words(why.loss)
+        return (
+            f"{head}: with a discharge coefficient down to {why.coefficient:.6g} it gives a loss "
+            f"coefficient K of {value}, above {bound}, half the largest floating-point number, "
+            "so the slope of its head loss, 2 K|Q|/(2 g A²), is not a finite floating-point "
+            "number at any flow but zero; the solver cannot represent this plate"
+        )
+    if why.rule == "fluid":
+        return f"{head}: {_orifice_fluid_tail(why)}; the solver cannot represent this plate"
     if why.coefficient is None:  # eq. (4)'s bounds raised: not reached inside the schema's bounds
         return (
             f"{head}: ISO 5167-2's discharge coefficient cannot be bounded at this plate; the "
@@ -917,6 +1059,39 @@ def _orifice_issue_text(comp: Orifice, d_pipe: float, why: Refusal) -> str:
         "coefficient, K/(2 g A²), that is not a finite positive floating-point number; the "
         "solver cannot represent this plate"
     )
+
+
+_ORIFICE_FLUID_TAILS = {
+    "reynolds_denominator": (
+        "with the fluid's dynamic viscosity of {mu:g} Pa·s, the denominator π D μ of its Reynolds "
+        "number Re_D = 4ρ|Q|/(π D μ) is 0 in floating point (it underflows)"
+    ),
+    "area_density": (
+        "ISO 5167-2's discharge coefficient is evaluated (fluids) from the mass flow, dividing by "
+        "the pipe's area times the fluid's density, (π D²/4) ρ, which with a density of "
+        "{rho:g} kg/m³ is 0 in floating point (it underflows)"
+    ),
+    "reynolds_infinite": (
+        "with the fluid's density of {rho:g} kg/m³ and dynamic viscosity of {mu:g} Pa·s, its "
+        "Reynolds number per unit flow, 4ρ/(π D μ), is not a finite floating-point number, so "
+        "Re_D is infinite at every flow but zero, where ISO 5167-2's discharge coefficient "
+        "cannot be evaluated"
+    ),
+    "iso_at_re_lo": (
+        "with the fluid's density of {rho:g} kg/m³ and dynamic viscosity of {mu:g} Pa·s, ISO "
+        "5167-2's discharge coefficient cannot be evaluated at the plate's lowest Reynolds number "
+        "(fluids' arithmetic fails there)"
+    ),
+}
+"""Rule (e)'s words by ``Refusal.fluid`` (``orifice.fluid_refusal``); filled with the case's
+fluid by ``_orifice_fluid_tail``."""
+
+
+def _orifice_fluid_tail(why: Refusal) -> str:
+    assert why.fluid is not None
+    assert why.fluid_values is not None
+    rho, mu = why.fluid_values
+    return _ORIFICE_FLUID_TAILS[why.fluid].format(rho=rho, mu=mu)
 
 
 def _orifice_iso_tail(comp: Orifice, why: Refusal) -> str:
@@ -965,12 +1140,15 @@ def _orifice_iso_tail(comp: Orifice, why: Refusal) -> str:
     )
 
 
-def _unrepresentable_orifices(project: Project, resolved: ResolvedPipes) -> list[TopologyIssue]:
+def _unrepresentable_orifices(
+    project: Project, resolved: ResolvedPipes, fluid: FluidProperties
+) -> list[TopologyIssue]:
     """ORIFICE_OUT_OF_RANGE (proposal orifice-plate.md decision 17): one issue per plate the law
-    cannot represent, naming the first rule it breaks; listed after every other issue."""
+    cannot represent, naming the first rule it breaks, rule (e) with the case's fluid; listed
+    after every other issue."""
     return [
         issue("ORIFICE_OUT_OF_RANGE", _orifice_issue_text(comp, d, why), [comp.id], [])
-        for comp, d, why in orifice_refusals(project, resolved).values()
+        for comp, d, why in orifice_refusals(project, resolved, fluid).values()
     ]
 
 
@@ -1064,7 +1242,7 @@ def build_network(project: Project, fluid: FluidProperties) -> BuiltNetwork:
     issues.extend(_unrepresentable_valves(project, resolved))
     issues.extend(_unrepresentable_fittings(project, resolved))
     issues.extend(_unrepresentable_equipment(project))
-    issues.extend(_unrepresentable_orifices(project, resolved))
+    issues.extend(_unrepresentable_orifices(project, resolved, fluid))
     issues.extend(_unrepresentable_relief_valves(project, fluid))
     if issues:
         raise TopologyError(issues)

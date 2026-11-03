@@ -1693,6 +1693,16 @@ def build_solved_state(
             "maxEnergyResidualAt": mapper.element_of_link(reported.energy_exceeded_link),
         }
         details |= {k: v for k, v in largest.items() if v is not None}
+        if reported.nonfinite_laws:
+            # Where the iteration diverged: the laws that gave values that are not finite
+            # numbers (gga.NonFiniteLaw), which the message names with their numbers; the first
+            # one's flow and loss coefficient as values (JSON has no inf: finite ones only).
+            first = reported.nonfinite_laws[0]
+            details["nonFiniteLawAt"] = ", ".join(x.element_id for x in reported.nonfinite_laws)
+            if math.isfinite(first.flow):
+                details["nonFiniteLawFlow"] = first.flow
+            if first.coefficient is not None:
+                details["nonFiniteLawCoefficient"] = first.coefficient
         mapper.flags.append(
             make_flag(
                 "NOT_CONVERGED",

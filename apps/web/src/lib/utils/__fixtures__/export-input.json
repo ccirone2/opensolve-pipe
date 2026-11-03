@@ -381,7 +381,7 @@
 										"velocity": 3.981279418150011
 									}
 								},
-								"methodVersion": "1.6.0",
+								"methodVersion": "1.6.1",
 								"nodeResults": {
 									"P1:discharge": {
 										"absolutePressure": 341941.2032876365,
@@ -2075,7 +2075,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.0",
+										"methodVersion": "1.6.1",
 										"sections": [
 											{
 												"items": [
@@ -3263,7 +3263,7 @@
 							"message": "Every goal is met, after 10 evaluations.",
 							"met": true,
 							"method": "scan_brent",
-							"methodVersion": "1.6.0",
+							"methodVersion": "1.6.1",
 							"methods": {
 								"items": [
 									"Goal seek on the base case of this project: 1 variable(s) were varied within their bounds to bring 1 goal(s) to their targets. Each evaluation is a full network solve of the case with the variables set to trial values, by the methods in the sections below; nothing is approximated. The values found are not applied to the project: every result below is of the case with them, and applying them gives these results.",
@@ -3481,7 +3481,7 @@
 									"velocity": 3.188457009741728
 								}
 							},
-							"methodVersion": "1.6.0",
+							"methodVersion": "1.6.1",
 							"nodeResults": {
 								"P1:discharge": {
 									"absolutePressure": 299092.2380781431,
@@ -5176,7 +5176,7 @@
 										"opensolve-pipe": "0.1.0",
 										"scipy": "1.18.1"
 									},
-									"methodVersion": "1.6.0",
+									"methodVersion": "1.6.1",
 									"sections": [
 										{
 											"items": [
@@ -7204,7 +7204,7 @@
 										"velocity": 0.0
 									}
 								},
-								"methodVersion": "1.6.0",
+								"methodVersion": "1.6.1",
 								"nodeResults": {
 									"AF1:port_1": {
 										"absolutePressure": 358105.48555784515,
@@ -12086,7 +12086,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.0",
+										"methodVersion": "1.6.1",
 										"sections": [
 											{
 												"items": [
@@ -13900,7 +13900,7 @@
 										"velocity": 3.141277055404692
 									}
 								},
-								"methodVersion": "1.6.0",
+								"methodVersion": "1.6.1",
 								"nodeResults": {
 									"AF1:port_1": {
 										"absolutePressure": 359683.955842621,
@@ -18836,7 +18836,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.0",
+										"methodVersion": "1.6.1",
 										"sections": [
 											{
 												"items": [
@@ -20602,7 +20602,7 @@
 										"velocity": 0.0
 									}
 								},
-								"methodVersion": "1.6.0",
+								"methodVersion": "1.6.1",
 								"nodeResults": {
 									"AF1:port_1": {
 										"absolutePressure": 385364.90665277775,
@@ -25488,7 +25488,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.0",
+										"methodVersion": "1.6.1",
 										"sections": [
 											{
 												"items": [
@@ -27497,7 +27497,7 @@
 										"velocity": 3.7003867491618436
 									}
 								},
-								"methodVersion": "1.6.0",
+								"methodVersion": "1.6.1",
 								"nodeResults": {
 									"R1:port_1": {
 										"absolutePressure": 150260.18349999998,
@@ -28815,7 +28815,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.0",
+										"methodVersion": "1.6.1",
 										"sections": [
 											{
 												"items": [
@@ -30082,7 +30082,7 @@
 										"velocity": 3.385661208497401
 									}
 								},
-								"methodVersion": "1.6.0",
+								"methodVersion": "1.6.1",
 								"nodeResults": {
 									"P1:discharge": {
 										"absolutePressure": 308908.5726155989,
@@ -32175,7 +32175,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.0",
+										"methodVersion": "1.6.1",
 										"sections": [
 											{
 												"items": [
@@ -33474,7 +33474,7 @@
 										"velocity": 3.1884262784009927
 									}
 								},
-								"methodVersion": "1.6.0",
+								"methodVersion": "1.6.1",
 								"nodeResults": {
 									"R1:port_1": {
 										"absolutePressure": 248161.0222820469,
@@ -34714,7 +34714,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.0",
+										"methodVersion": "1.6.1",
 										"sections": [
 											{
 												"items": [
@@ -35578,7 +35578,7 @@
 										"velocity": 3.1946478719021423
 									}
 								},
-								"methodVersion": "1.6.0",
+								"methodVersion": "1.6.1",
 								"nodeResults": {
 									"R1:port_1": {
 										"absolutePressure": 248161.0222820469,
@@ -36808,7 +36808,7 @@
 											"opensolve-pipe": "0.1.0",
 											"scipy": "1.18.1"
 										},
-										"methodVersion": "1.6.0",
+										"methodVersion": "1.6.1",
 										"sections": [
 											{
 												"items": [

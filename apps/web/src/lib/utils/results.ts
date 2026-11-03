@@ -602,10 +602,25 @@ function text(key: string, label: string, wrap = false): Column {
 	return wrap ? { key, label, wrap } : { key, label };
 }
 
+/**
+ * While rowsForElement() builds its tables, the element whose rows they hold (null: all rows). Each
+ * row is built as in the whole table, in the same order; the other rows are not built (on a large
+ * network, formatting every row of every table for one element took most of an edit).
+ */
+let rowsOf: ElementRef | null = null;
+
+/** Whether the tables being built hold the row of `element` (rowsOf). */
+function holdsRowOf(element: ElementRef): boolean {
+	return rowsOf === null || sameElement(rowsOf, element);
+}
+
 /** Component ids in project order, then ids of results whose component no longer exists. */
 function orderedIds(project: Project, keys: readonly string[]): string[] {
-	const known = project.components.map((c) => c.id).filter((id) => keys.includes(id));
-	return [...known, ...keys.filter((k) => !known.includes(k))];
+	const present = new Set(keys);
+	const known = project.components.map((c) => c.id).filter((id) => present.has(id));
+	const listed = new Set(known);
+	const ids = [...known, ...keys.filter((k) => !listed.has(k))];
+	return rowsOf ? ids.filter((id) => holdsRowOf({ kind: 'component', id })) : ids;
 }
 
 function componentRow(
@@ -658,8 +673,19 @@ export function nodeTable(project: Project, solved: SolvedState, prefs: UnitPref
 			if (results[key]) keys.push(key);
 		}
 	}
-	for (const key of Object.keys(results)) if (!keys.includes(key)) keys.push(key);
-	const rows = keys.map((key): Row => {
+	const listed = new Set(keys);
+	for (const key of Object.keys(results)) {
+		if (!listed.has(key)) {
+			keys.push(key);
+			listed.add(key);
+		}
+	}
+	const shown = rowsOf
+		? keys.filter((key) =>
+				holdsRowOf({ kind: 'component', id: (results[key] as NodeResult).componentId })
+			)
+		: keys;
+	const rows = shown.map((key): Row => {
 		const node = results[key] as NodeResult;
 		const element: ElementRef = { kind: 'component', id: node.componentId };
 		return {
@@ -698,10 +724,13 @@ export function linkTable(project: Project, solved: SolvedState, prefs: UnitPref
 	const columns = linkColumns(f);
 	const results = solved.linkResults;
 	const resultKeys = Object.keys(results);
-	const known = project.connections.map((c) => c.id).filter((id) => resultKeys.includes(id));
-	const ids = [...known, ...resultKeys.filter((k) => !known.includes(k))];
+	const present = new Set(resultKeys);
+	const known = project.connections.map((c) => c.id).filter((id) => present.has(id));
+	const listed = new Set(known);
+	const ids = [...known, ...resultKeys.filter((k) => !listed.has(k))];
 	const labels = resultsProject(project, solved);
-	const rows = ids.map((id): Row => {
+	const shown = rowsOf ? ids.filter((id) => holdsRowOf({ kind: 'connection', id })) : ids;
+	const rows = shown.map((id): Row => {
 		const link = results[id] as LinkResult;
 		const element: ElementRef = { kind: 'connection', id };
 		const perPipe = link.segments.length > 1;
@@ -1370,7 +1399,7 @@ export function assignedFlowTable(
 		const boundary = results[id] as BoundaryResult;
 		const portId = Object.keys(boundary.portOutflows)[0];
 		const node = portId === undefined ? undefined : solved.nodeResults[`${id}:${portId}`];
-		const input = inputs?.components.find((c) => c.id === id);
+		const input = inputs ? componentById(inputs, id) : undefined;
 		const flow = input?.type === 'assigned_flow' ? input.flow : null;
 		const direction = flow === null ? null : flowDirection(flow);
 		return componentRow(project, solved.flags, id, {
@@ -1460,7 +1489,8 @@ export function availableViews(solved: SolvedState): ResultsView[] {
 
 /**
  * Rows (from any table) for one element, for the trace view's result values. `inputs` is the
- * project as solved (see assignedFlowTable).
+ * project as solved (see assignedFlowTable). Each group's table has the table's columns and only
+ * this element's rows (`rows`): the others are not built (rowsOf).
  */
 export function rowsForElement(
 	project: Project,
@@ -1468,6 +1498,22 @@ export function rowsForElement(
 	prefs: UnitPreferences,
 	element: ElementRef,
 	inputs: Project | null = null
+): { title: string; table: Table; rows: Row[] }[] {
+	const scope = rowsOf;
+	rowsOf = element;
+	try {
+		return elementTables(project, solved, prefs, element, inputs);
+	} finally {
+		rowsOf = scope;
+	}
+}
+
+function elementTables(
+	project: Project,
+	solved: SolvedState,
+	prefs: UnitPreferences,
+	element: ElementRef,
+	inputs: Project | null
 ): { title: string; table: Table; rows: Row[] }[] {
 	const tables: { title: string; table: Table }[] =
 		element.kind === 'connection'

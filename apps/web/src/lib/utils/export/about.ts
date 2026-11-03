@@ -50,7 +50,14 @@ function rowSolveText(ctx: ExportContext): string {
 		: "Each row's solve: the Solved at and Results columns.";
 }
 
-/** The CSV files' reading notes: README.txt's and about.csv's first rows (§2.7, §3.1). */
+/**
+ * The CSV files' reading notes: README.txt's and about.csv's first rows (§2.7, §3.1). The
+ * LibreOffice step is the Text Import dialog as checked by hand in LibreOffice 24.2 (TSD §10.3,
+ * 2026-11-03): its field is Locale, and it ticks Tab, Comma and Semicolon by default. The writer
+ * quotes every field that holds `;` or TAB (csv.ts), so the Locale step alone keeps every field
+ * whole; the step still asks for Comma only, since the dialog remembers each user's last
+ * separators (proposal export.md §12 item 36).
+ */
 export function csvReadingNotes(ctx: ExportContext): [string, string][] {
 	return [
 		[
@@ -63,7 +70,7 @@ export function csvReadingNotes(ctx: ExportContext): [string, string][] {
 		],
 		[
 			'Opening in a spreadsheet',
-			'LibreOffice: in the Text Import dialog choose Language: English (USA). Excel: use Data › From Text/CSV, File origin 65001: Unicode (UTF-8), then Transform Data, and for each number column Change Type › Using Locale… › English (United States).'
+			'LibreOffice: in the Text Import dialog set Locale to English (USA), and under Separator Options tick Comma only (untick Tab and Semicolon). Excel: use Data › From Text/CSV, File origin 65001: Unicode (UTF-8), then Transform Data, and for each number column Change Type › Using Locale… › English (United States).'
 		],
 		[
 			'Scripts',

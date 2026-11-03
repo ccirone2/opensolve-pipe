@@ -1,6 +1,6 @@
 # OpenSolve Pipe — Claude context guide
 
-Free, browser-based steady-state hydraulic analysis of pressurized pipe networks: no install, shareable by URL, desktop and mobile equal. `apps/api` (FastAPI, our own GGA network solver, the reference suite) and `apps/web` (SvelteKit). v1 (D5) is built and deployed by the owner; it is **not a stable release** (D14). Calculation methods are at `METHOD_VERSION` 1.6.0 (`services/solver/version.py`).
+Free, browser-based steady-state hydraulic analysis of pressurized pipe networks: no install, shareable by URL, desktop and mobile equal. `apps/api` (FastAPI, our own GGA network solver, the reference suite) and `apps/web` (SvelteKit). v1 (D5) is built and deployed by the owner; it is **not a stable release** (D14). Calculation methods are at `METHOD_VERSION` 1.6.1 (`services/solver/version.py`).
 
 This file is loaded into every session, so it holds only what every change needs: the reading map, the binding rules and the decision index. Details live one link away. Keep it under 16 KB; `apps/api/tests/unit/test_docs.py` fails when it grows past that or a link breaks.
 

@@ -1,4 +1,4 @@
-import { gzip } from 'pako';
+import { gzip, ungzip } from 'pako';
 import { describe, expect, it } from 'vitest';
 import type { Project, Pump } from '../api/types';
 import openapi from '../api/openapi.json';
@@ -6,7 +6,9 @@ import { assignedFlowProject, link, projectWith, reverseKeys } from '../testing/
 import {
 	canonicalJson,
 	decodeProject,
+	ENCODE_STEP_CHARS,
 	encodeProject,
+	encodeProjectSteps,
 	fragmentOf,
 	fromBase64Url,
 	projectPath,
@@ -14,7 +16,7 @@ import {
 	toBase64Url,
 	URL_LENGTH_WARNING
 } from './encoding';
-import { EXAMPLES } from './examples';
+import { condenserWaterExample, EXAMPLES } from './examples';
 import { createComponent, createEmptyProject } from './factory';
 import { LinkError } from './link-error';
 import { CURRENT_SCHEMA_VERSION } from './migrations';
@@ -308,5 +310,44 @@ describe('links', () => {
 
 	it('warns above 8,000 characters (D3)', () => {
 		expect(URL_LENGTH_WARNING).toBe(8000);
+	});
+});
+
+describe('encodeProjectSteps', () => {
+	function run(project: Project): { encoded: string; steps: number } {
+		const steps = encodeProjectSteps(project);
+		let count = 0;
+		for (let step = steps.next(); ; step = steps.next()) {
+			count++;
+			if (step.done) return { encoded: step.value, steps: count };
+		}
+	}
+
+	it('gives exactly encodeProject’s text for every example', () => {
+		for (const example of EXAMPLES) {
+			const project = example.create();
+			expect(run(project).encoded).toBe(encodeProject(project));
+		}
+	});
+
+	it('splits a large project into steps, never inside a surrogate pair', () => {
+		const project = condenserWaterExample();
+		project.components.forEach((c, i) => (c.name = `${'😀'.repeat(190)} ${i}`));
+		const json = () => canonicalJson(project);
+		expect(json().length).toBeGreaterThan(ENCODE_STEP_CHARS);
+		// Move the text until a step would end between the two halves of an emoji.
+		let straddled = 0;
+		for (let shift = 0; shift < 8 && straddled < 2; shift++) {
+			project.components[0]!.name = `${'a'.repeat(shift)}${'😀'.repeat(190)}`;
+			const code = json().charCodeAt(ENCODE_STEP_CHARS - 1);
+			if (code < 0xd800 || code > 0xdbff) continue;
+			straddled++;
+			const { encoded, steps } = run(project);
+			expect(steps).toBeGreaterThan(3);
+			expect(encoded).toBe(encodeProject(project));
+			const text = new TextDecoder().decode(ungzip(fromBase64Url(encoded)));
+			expect(text).toBe(json());
+		}
+		expect(straddled).toBe(2);
 	});
 });

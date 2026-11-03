@@ -12,7 +12,9 @@ import {
 	projectProblems,
 	ProjectValidationError,
 	referenceProblems,
-	schemaProblems
+	schemaProblems,
+	schemaValid,
+	type KnownElements
 } from './validate';
 import { requiredPortIds } from './model-rules';
 
@@ -380,5 +382,105 @@ describe('projectProblems and parseProject', () => {
 		expect(parsed.components[0]).toMatchObject({ speed: 1, status: 'on' });
 		expect(parsed.components[1]).toMatchObject({ status: 'active', crackingPressure: 0 });
 		expect(parsed.components[2]).toMatchObject({ angle: 45, lossModel: 'crane' });
+	});
+});
+
+describe('schemaValid (the check of a version that shares checked elements)', () => {
+	/** A project's components and connections, as the store records the elements it checked. */
+	function knownOf(project: Project): KnownElements {
+		return {
+			components: new WeakSet(project.components),
+			connections: new WeakSet(project.connections)
+		};
+	}
+
+	const none = (): KnownElements => ({ components: new WeakSet(), connections: new WeakSet() });
+
+	/** Copies of `project` with one value broken (or an element added), each with its label. */
+	function broken(project: Project): [string, Project][] {
+		const variants: [string, (p: Project) => void][] = [
+			[
+				'a component value of the wrong type',
+				(p) => void ((p.components[1] as never as Record<string, unknown>).elevation = 'x')
+			],
+			['a component without its id', (p) => void delete (p.components[0] as Partial<Component>).id],
+			[
+				'an unknown component field',
+				(p) => void ((p.components[2] as never as Record<string, unknown>).extra = 1)
+			],
+			['a negative pipe length', (p) => void (p.connections[0]!.piping.pipes[0]!.length = -1)],
+			[
+				'an unknown fitting',
+				(p) => void p.connections[0]!.piping.fittings.push({ type: 'nope', quantity: 1 } as never)
+			],
+			['a connection that is not an object', (p) => void ((p.connections as unknown[])[1] = 7)],
+			[
+				'components that are not a list',
+				(p) => void ((p as unknown as Record<string, unknown>).components = {})
+			],
+			['no connections', (p) => void delete (p as Partial<Project>).connections],
+			[
+				'connections set to undefined (a key without a value)',
+				(p) => void ((p as unknown as Record<string, unknown>).connections = undefined)
+			],
+			[
+				'a settings value of the wrong type',
+				(p) => void ((p.settings as unknown as Record<string, unknown>).siteElevation = 'x')
+			],
+			[
+				'more components than the schema allows',
+				(p) => {
+					const plug = p.components.find((c) => c.type === 'plug') ?? p.components[0]!;
+					for (let i = 0; i < 1001; i++) p.components.push({ ...plug, id: `X${i}` });
+				}
+			],
+			['a valid new component', (p) => void p.components.push({ ...p.components[0]!, id: 'NEW' })]
+		];
+		return variants.map(([label, change]) => {
+			// A copy that keeps the checked elements, as an edit's version does.
+			const copy = {
+				...project,
+				components: [...project.components],
+				connections: [...project.connections]
+			};
+			const at = (list: unknown[], i: number) => (list[i] = structuredClone(list[i]));
+			at(copy.components, 0);
+			at(copy.components, 1);
+			at(copy.components, 2);
+			at(copy.connections, 0);
+			copy.settings = structuredClone(copy.settings);
+			change(copy);
+			return [label, copy];
+		});
+	}
+
+	it('answers as schemaProblems does, for every example and every broken value', () => {
+		for (const example of EXAMPLES) {
+			const project = example.create();
+			const known = knownOf(project);
+			expect(schemaValid(project, known)).toBe(true);
+			expect(schemaValid(project, none())).toBe(true);
+			let invalid = 0;
+			for (const [label, variant] of broken(project)) {
+				const valid = schemaProblems(variant).length === 0;
+				if (!valid) invalid++;
+				expect(schemaValid(variant, known), `${example.slug}: ${label}`).toBe(valid);
+			}
+			expect(invalid).toBe(11);
+		}
+	});
+
+	it('cannot answer for what is not a project', () => {
+		expect(schemaValid(null, none())).toBe(null);
+		expect(schemaValid([], none())).toBe(null);
+	});
+
+	it('takes an element as known only in its own list', () => {
+		const project = EXAMPLES[0]!.create();
+		const known = knownOf(project);
+		// A connection in the components list: valid as a connection, not as a component.
+		const moved = { ...project, components: [...project.components, project.connections[0]!] };
+		expect(schemaProblems(moved).length).toBeGreaterThan(0);
+		expect(schemaValid(moved, known)).toBe(false);
 	});
 });

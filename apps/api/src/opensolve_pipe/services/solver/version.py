@@ -14,7 +14,7 @@ class MethodChange(TypedDict):
     changes: list[str]
 
 
-METHOD_VERSION = "1.6.0"
+METHOD_VERSION = "1.6.1"
 
 METHOD_CHANGELOG: list[MethodChange] = [
     {
@@ -174,6 +174,26 @@ METHOD_CHANGELOG: list[MethodChange] = [
             "API 520's preliminary coefficient 0.65, or a certified area and rated coefficient. "
             "Flows, heads, pressures, statuses, traces, messages and system curves of projects "
             "without relief valves are unchanged (corpus comparison).",
+        ],
+    },
+    {
+        "version": "1.6.1",
+        "date": "2026-11-03",
+        "changes": [
+            "A valve, an equipment item, a fitting entry, a connection's fittings or an orifice "
+            "plate whose loss coefficient (c of h = cQ|Q|; a plate's K) is above half the largest "
+            "floating-point number, 8.988465674311579·10³⁰⁷, is refused as a topology issue: the "
+            "slope of its head loss, 2c|Q|, is not a finite number at any flow but zero, so a "
+            "solve that evaluates it could only fail. The refusal holds wherever the element is, "
+            "as it already did for a coefficient that is not a finite number, so a project "
+            "holding one the solve never evaluates (a valve isolated or locked closed, or an "
+            "element in a section that isolated valves close off), which solved before, is now "
+            "refused.",
+            "A solve that stops on a value that is not a finite number names in its message each "
+            "element whose law gave one, with the flow and its loss coefficient; inputs at the "
+            "schema's bounds that ended in an internal error are refused or reported as not "
+            "converged. Apart from these, flows, heads, pressures, statuses, traces, messages "
+            "and system curves are unchanged (corpus comparison).",
         ],
     },
 ]

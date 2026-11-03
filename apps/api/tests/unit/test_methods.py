@@ -222,8 +222,7 @@ def test_method_1_6_0_adds_the_pressure_relief_valve() -> None:
     """GOALS §4.3, proposal pressure-relief-valve.md decision 23 and §3.9: the liquid pressure
     relief valve is method 1.6.0, after 1.5.0 (the project library, CLAUDE.md D22), with one
     changelog line that says projects without relief valves are unchanged."""
-    assert METHOD_VERSION == "1.6.0"
-    assert [e["version"] for e in METHOD_CHANGELOG] == [
+    assert [e["version"] for e in METHOD_CHANGELOG][:7] == [
         "1.0.0",
         "1.1.0",
         "1.2.0",
@@ -232,7 +231,7 @@ def test_method_1_6_0_adds_the_pressure_relief_valve() -> None:
         "1.5.0",
         "1.6.0",
     ]
-    entry = METHOD_CHANGELOG[-1]
+    [entry] = [e for e in METHOD_CHANGELOG if e["version"] == "1.6.0"]
     assert entry["date"] == "2026-10-29"
     assert entry["changes"] == [
         "Adds the liquid pressure relief valve: a conventional spring-loaded valve closed below "
@@ -246,6 +245,34 @@ def test_method_1_6_0_adds_the_pressure_relief_valve() -> None:
         "without relief valves are unchanged (corpus comparison)."
     ]
 
+
+
+def test_method_1_6_1_refuses_coefficients_past_the_slope_bound() -> None:
+    """GOALS §4.3 and CLAUDE.md D9 (TSD §12 item 18): refusing a loss coefficient past half the
+    largest double wherever the element is turns a project that solved on 1.6.0 (the element
+    never evaluated, isolated) into a 422, so it is method 1.6.1, after 1.6.0, with a changelog
+    entry that says so and that every other value is unchanged."""
+    assert METHOD_VERSION == "1.6.1"
+    assert [e["version"] for e in METHOD_CHANGELOG] == [
+        "1.0.0",
+        "1.1.0",
+        "1.2.0",
+        "1.3.0",
+        "1.4.0",
+        "1.5.0",
+        "1.6.0",
+        "1.6.1",
+    ]
+    entry = METHOD_CHANGELOG[-1]
+    assert entry["date"] == "2026-11-03"
+    refusal, naming = entry["changes"]
+    assert "8.988465674311579·10³⁰⁷" in refusal
+    assert "which solved before, is now refused." in refusal
+    assert naming.startswith("A solve that stops on a value that is not a finite number names")
+    assert naming.endswith(
+        "Apart from these, flows, heads, pressures, statuses, traces, messages and system curves "
+        "are unchanged (corpus comparison)."
+    )
 
 def test_friction_section_follows_the_method() -> None:
     assert "Clamond" in _text("Pipe friction", "colebrook")

@@ -41,6 +41,7 @@ import { entryFor, labelOf, unitOf } from './field-registry';
 import { CAPACITY_FIELDS, type CapacityKind } from './factory';
 import { componentById, connectionById } from './graph';
 import { originOf } from './identity';
+import { copyData } from './sharing';
 import { canonicalJson } from './json';
 import {
 	CHECK_STATUS_LABELS,
@@ -416,7 +417,8 @@ export interface AppliedScenario {
  * are; whether they are valid is checked like any project (scenario-problems.ts) and by the API.
  */
 export function applyScenario(project: Project, scenarioId: CaseId): AppliedScenario {
-	const data = structuredClone(project) as Project;
+	// A copy of the project's data (sharing.ts copyData: structuredClone's, faster).
+	const data = copyData(project);
 	delete data.scenarios;
 	const scenario = findScenario(project, scenarioId);
 	if (!scenario) return { scenario, project: data, changes: [] };
@@ -816,7 +818,7 @@ export function scenarioEdit(
 	const before = caseProject(base, scenarioId);
 	let after: Project;
 	try {
-		const draft = structuredClone(before);
+		const draft = copyData(before);
 		after = change(draft) ?? draft;
 	} catch (error) {
 		return {

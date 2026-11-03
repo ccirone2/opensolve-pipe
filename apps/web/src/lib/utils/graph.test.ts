@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import type { Component } from '../api/types';
+import type { Component, Project } from '../api/types';
+import { deepFreeze, ProjectStore } from '../state/project.svelte';
 import { assignedFlowProject, link, projectWith } from '../testing/helpers';
 import { closedLoopProject } from '../testing/closed-loop';
-import { gravityBranchExample, pumpTransferExample } from './examples';
+import {
+	addBranch,
+	addComponentAtPort,
+	deleteComponent,
+	disconnect,
+	insertComponentInConnection,
+	plugPort
+} from './edit';
+import { condenserWaterExample, gravityBranchExample, pumpTransferExample } from './examples';
 import { createComponent, createEmptyProject } from './factory';
+import { copyData } from './sharing';
 import {
 	componentById,
 	connectionAtPort,
@@ -389,5 +399,108 @@ describe('port roles', () => {
 		expect(pick('tee')).toEqual(['run_inlet', 'run_outlet']);
 		expect(pick('wye')).toEqual(['inlet', 'outlet_1']);
 		expect(pick('reservoir')).toEqual(['port_1', 'port_1']);
+	});
+});
+
+describe('lookups of a stored project (an index per project version)', () => {
+	/** Every lookup's answers for `project`, by the index when it is frozen, else by a search. */
+	function answers(project: Project) {
+		const ids = [...project.components.map((c) => c.id), 'MISSING'];
+		return {
+			components: ids.map((id) => componentById(project, id)?.id ?? null),
+			connections: [...project.connections.map((c) => c.id), 'MISSING'].map(
+				(id) => connectionById(project, id)?.id ?? null
+			),
+			free: ids.map((id) => freePorts(project, id).map((p) => p.id)),
+			attached: ids.map((id) => connectionsOf(project, id).map((c) => c.id)),
+			neighbors: ids.map((id) => neighbors(project, id).map((n) => [n.portId, n.connection.id])),
+			atPort: project.components.flatMap((c) =>
+				[...c.ports.map((p) => p.id), 'missing'].map(
+					(portId) => connectionAtPort(project, c.id, portId)?.id ?? null
+				)
+			)
+		};
+	}
+
+	/** The store's project answers as an unfrozen copy of it (searched) does. */
+	function check(store: ProjectStore) {
+		const project = store.project;
+		expect(Object.isFrozen(project)).toBe(true);
+		const fresh = copyData(project);
+		expect(Object.isFrozen(fresh)).toBe(false);
+		expect(answers(project)).toEqual(answers(fresh));
+		// The index answers with the stored objects themselves.
+		const first = project.components[0];
+		if (first) expect(componentById(project, first.id)).toBe(first);
+		// No object is in two places (as in a project read from its link), so an edit's draft
+		// (sharing.ts copyData) is the stored project's structuredClone.
+		const seen = new Set<object>();
+		const walk = (value: unknown): void => {
+			if (typeof value !== 'object' || value === null) return;
+			expect(seen.has(value)).toBe(false);
+			seen.add(value);
+			Object.values(value).forEach(walk);
+		};
+		walk(project);
+		expect(fresh).toStrictEqual(structuredClone(project));
+	}
+
+	it('answers as a search does after every kind of edit, undo and redo', () => {
+		const store = new ProjectStore(condenserWaterExample(), {
+			writeUrl: () => {},
+			urlSyncDelayMs: 1e9
+		});
+		check(store);
+		const edits: [string, (p: Project) => Project | void][] = [
+			['rename', (p) => void (p.components[0]!.name = 'Renamed')],
+			['length', (p) => void (p.connections[0]!.piping.pipes[0]!.length += 1)],
+			[
+				'insert',
+				(p) =>
+					insertComponentInConnection(
+						p,
+						p.connections[1]!.id,
+						createComponent('gate', p, { id: 'NEWV' })
+					)
+			],
+			['branch', (p) => addBranch(p, p.connections[2]!.id)],
+			[
+				'add at a free port',
+				(p) => {
+					const at = p.components.find((c) => freePorts(p, c.id).length)!;
+					const port = freePorts(p, at.id)[0]!;
+					return addComponentAtPort(p, at.id, port.id, createComponent('plug', p, {}));
+				}
+			],
+			['disconnect', (p) => disconnect(p, p.connections[3]!.id)],
+			[
+				'plug',
+				(p) => {
+					const at = p.components.find((c) => freePorts(p, c.id).length)!;
+					return plugPort(p, at.id, freePorts(p, at.id)[0]!.id);
+				}
+			],
+			['delete', (p) => deleteComponent(p, 'NEWV', { join: true })]
+		];
+		let applied = 0;
+		for (const [label, edit] of edits) {
+			const result = store.update(edit, label);
+			expect(result, label).toMatchObject({ ok: true });
+			if (result.ok && result.changed) applied++;
+			check(store);
+		}
+		expect(applied).toBeGreaterThanOrEqual(edits.length - 1);
+		while (store.undo()) check(store);
+		while (store.redo()) check(store);
+		store.dispose();
+	});
+
+	it('searches a project that is not frozen throughout (an edit’s draft)', () => {
+		const project = deepFreeze(pumpTransferExample());
+		const draft = { ...project, components: [...project.components] };
+		const id = draft.components[0]!.id;
+		expect(componentById(draft, id)).toBe(project.components[0]);
+		draft.components[0] = { ...draft.components[0]!, name: 'Changed' };
+		expect(componentById(draft, id)?.name).toBe('Changed');
 	});
 });

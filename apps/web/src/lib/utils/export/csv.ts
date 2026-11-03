@@ -2,12 +2,17 @@
  * CSV files of an export, in one zip (proposal export.md §3.1).
  *
  * Dialect: RFC 4180. A comma between fields, CRLF after every line (the last included), one
- * header row. A field is quoted only when it holds `,`, `"`, CR or LF, with a quote inside it
- * doubled; numbers are never quoted. UTF-8 with a BOM (Excel on Windows reads a file without one
- * as cp1252). Numbers are `String(n)`: `.` decimals whatever the browser's locale, no grouping,
- * JavaScript's exponent form (1.5e-7, 1e+21), the shortest form that reads back exactly; -0 is 0
- * and a non-finite value is empty (the API never sends one). Booleans are TRUE and FALSE; a null
- * is an empty field.
+ * header row. A field is quoted only when it holds `,`, `"`, CR, LF, `;` or TAB, with a quote
+ * inside it doubled; numbers are never quoted. RFC 4180 allows any field to be quoted, and `;` and
+ * TAB are quoted because a spreadsheet may take them as separators: LibreOffice's Text Import
+ * dialog ticks Tab, Comma and Semicolon by default (24.2, checked by hand, TSD §10.3, 2026-11-03),
+ * and Excel, opening a file directly, splits on the system's list separator, `;` under German and
+ * other comma-decimal settings (not yet checked by hand). A quoted field stays whole under any of
+ * them; a number, or a JSON number, holds none of these characters. UTF-8 with a BOM (Excel on
+ * Windows reads a file without one as cp1252). Numbers are `String(n)`: `.` decimals whatever the
+ * browser's locale, no grouping, JavaScript's exponent form (1.5e-7, 1e+21), the shortest form
+ * that reads back exactly; -0 is 0 and a non-finite value is empty (the API never sends one).
+ * Booleans are TRUE and FALSE; a null is an empty field.
  *
  * Formula guard (OWASP CSV injection; names come from shared links, so they are third-party
  * input): a text field that begins with `=`, `+`, `-`, `@`, TAB or CR is written with a leading
@@ -40,8 +45,12 @@ export function numberText(n: number): string {
 	return Object.is(n, -0) ? '0' : String(n);
 }
 
+/** What a field is quoted for: the separator and the quote (RFC 4180), line ends, and the other
+ * separators a spreadsheet may split on (`;`, TAB; module comment). */
+const QUOTED = /[",\r\n;\t]/;
+
 function quoted(text: string): string {
-	return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+	return QUOTED.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 /** One field of a CSV row. */

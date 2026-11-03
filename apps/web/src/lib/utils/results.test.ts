@@ -74,7 +74,10 @@ import {
 	nodeTable,
 	pumpControlText,
 	pumpStatusLabel,
+	orificeTable,
 	pumpTable,
+	reliefTable,
+	equipmentTable,
 	rowsForElement,
 	segmentFlags,
 	segmentTable,
@@ -84,6 +87,7 @@ import {
 	versionsBetween
 } from './results';
 import { IMPERIAL_UNITS, SI_UNITS } from './units';
+import { FIXTURE_NAMES, fixtureInput } from './export/export-testing.testing';
 
 // Definitions (exact): 1 in = 0.0254 m, 1 ft = 0.3048 m, 1 lb = 0.45359237 kg, g_n = 9.80665,
 // US gallon = 231 in³.
@@ -1301,5 +1305,64 @@ describe('sorting results tables', () => {
 				pumpTransferSolved({ pumpResults: { P1: pumpResult({ npshMargin: null }) } })
 			)
 		).toBeNull();
+	});
+});
+
+describe('rowsForElement builds only the element’s rows', () => {
+	/** rowsForElement's definition: the whole tables, each element's rows filtered from them. */
+	function reference(
+		project: Project,
+		solved: SolvedState,
+		element: ElementRef,
+		inputs: Project | null
+	) {
+		const tables =
+			element.kind === 'connection'
+				? [['Pipe connection', linkTable(project, solved, SI_UNITS)] as const]
+				: ([
+						['Pump', pumpTable(project, solved, SI_UNITS)],
+						['Valve', valveTable(project, solved, SI_UNITS)],
+						['Relief valve', reliefTable(project, solved, SI_UNITS, inputs)],
+						['Equipment', equipmentTable(project, solved, SI_UNITS)],
+						['Orifice plate', orificeTable(project, solved, SI_UNITS)],
+						['Branch', branchTable(project, solved, SI_UNITS)],
+						['Boundary', boundaryTable(project, solved, SI_UNITS)],
+						['Assigned flow', assignedFlowTable(project, solved, SI_UNITS, inputs)],
+						['Ports', nodeTable(project, solved, SI_UNITS)]
+					] as const);
+		return tables
+			.map(([title, table]) => ({
+				title,
+				columns: table.columns,
+				rows: table.rows.filter(
+					(r) => r.element.kind === element.kind && r.element.id === element.id
+				)
+			}))
+			.filter((t) => t.rows.length > 0);
+	}
+
+	it('gives every element of every case of the export fixture the whole tables’ rows', () => {
+		let checked = 0;
+		for (const name of FIXTURE_NAMES) {
+			for (const c of fixtureInput(name).cases) {
+				const solved = c.response?.solvedState;
+				const project = c.sent;
+				if (!solved?.converged || !project) continue;
+				const elements: ElementRef[] = [
+					...project.components.map((x) => ({ kind: 'component' as const, id: x.id })),
+					...project.connections.map((x) => ({ kind: 'connection' as const, id: x.id })),
+					{ kind: 'component', id: 'GONE' }
+				];
+				for (const element of elements) {
+					const groups = rowsForElement(project, solved, SI_UNITS, element, c.inputs);
+					expect(
+						groups.map((g) => ({ title: g.title, columns: g.table.columns, rows: g.rows }))
+					).toEqual(reference(project, solved, element, c.inputs));
+					for (const g of groups) expect(g.table.rows).toEqual(g.rows);
+					checked++;
+				}
+			}
+		}
+		expect(checked).toBeGreaterThan(100);
 	});
 });

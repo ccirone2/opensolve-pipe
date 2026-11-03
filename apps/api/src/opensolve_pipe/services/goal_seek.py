@@ -2018,6 +2018,14 @@ _ORIFICE_BOUND_TEXTS: dict[str, str] = {
         "the orifice's loss coefficient is not a finite positive floating-point number at this "
         "{what}"
     ),
+    "slope": (
+        "the orifice's loss coefficient K is above half the largest floating-point number at "
+        "this {what}, so the slope of its head loss is not a finite floating-point number"
+    ),
+    "fluid": (
+        "the orifice's Reynolds number is not representable in floating point with the case's "
+        "fluid at this {what}"
+    ),
 }
 """Decision 17's rules at a bound, located by index: no id or value (D10, SDD §5.1.2); rule (b)
 by what eq. (4) is used for there (``orifice.Refusal.basis``)."""
@@ -2036,7 +2044,7 @@ def _orifice_bound_issues(
         element = _element_of(var.request)
         eid = var.element_id
         what = "bore" if var.request.field == "boreDiameter" else "discharge coefficient"
-        refused = orifice_refusals(trial)
+        refused = orifice_refusals(trial, fluid=fluid)
         found: list[TopologyIssue] = []
         for problem in exc.issues:
             if problem.code == "ORIFICE_OUT_OF_RANGE" and eid in problem.component_ids:

@@ -187,6 +187,17 @@ STANDARD_GRAVITY = (
 CRANE_VIA_FLUIDS = f"{CRANE} Via fluids 1.3.1 (fluids.fittings)."
 
 
+def _squared(x: float) -> float:
+    """x**2, or +inf where that overflows: a velocity above about 1.3e154 m/s, in a solve of a
+    fluid or a size at the schema's bounds, where ``**`` raises OverflowError (an internal
+    error, 500, before 2026-11-03). The trace leaves a value that is not finite out
+    (``_Trace``); every finite value is ``x**2``'s own."""
+    try:
+        return x**2
+    except OverflowError:
+        return math.inf
+
+
 # --------------------------------------------------------------------------- building blocks
 
 
@@ -1060,7 +1071,9 @@ def _branch_trace(ctx: TraceInputs, comp: TeeBranch | WyeBranch) -> ElementTrace
                         NO_UNIT,
                     )
             t.value("Reference velocity v_c", result.reference_velocity, MS)
-            t.value("Velocity head v_c²/(2g)", result.reference_velocity**2 / (2.0 * ctx.g), M)
+            t.value(
+                "Velocity head v_c²/(2g)", _squared(result.reference_velocity) / (2.0 * ctx.g), M
+            )
             arrow = "→" if result.pattern.startswith("diverging") else "←"
             for pid, k in result.k_factors.items():
                 t.value(f"K, path {combined} {arrow} {pid}", k, NO_UNIT)
@@ -1250,7 +1263,9 @@ def _pump_trace(ctx: TraceInputs, data: PumpData) -> ElementTrace:
         suction = ctx.nodes.get(data.suction)
         if suction is not None:
             t.value("Suction velocity v_s", suction.velocity, MS)
-            t.value("Suction velocity head v_s²/(2g)", suction.velocity**2 / (2.0 * ctx.g), M)
+            t.value(
+                "Suction velocity head v_s²/(2g)", _squared(suction.velocity) / (2.0 * ctx.g), M
+            )
             t.value("Suction static pressure p_s", suction.pressure, PA_G)
         discharge = ctx.nodes.get(data.discharge)
         if discharge is not None:
@@ -1878,7 +1893,9 @@ def _valve_trace(ctx: TraceInputs, data: ValveData) -> ElementTrace:
                 t.value("Setpoint head H_set", h_set, M)
                 if node is not None:
                     t.value("Velocity at the held port", node.velocity, MS)
-                    t.value("Velocity head at the held port", node.velocity**2 / (2.0 * ctx.g), M)
+                    t.value(
+                        "Velocity head at the held port", _squared(node.velocity) / (2.0 * ctx.g), M
+                    )
                     t.value("Static pressure at the held port", node.pressure, PA_G)
             t.value("Effective K_eff (throttling)", result.k_effective, NO_UNIT)
             t.value("Effective Cv_eff (throttling)", result.cv_effective, "US gpm/psi^0.5")
@@ -2139,7 +2156,11 @@ def _equipment_trace(ctx: TraceInputs, data: EquipmentData) -> ElementTrace:
         )
         z_in, z_out = port_elevation(comp, "inlet"), port_elevation(comp, "outlet")
         t.value("Elevation term ρ g (z_out − z_in)", rho * ctx.g * (z_out - z_in), PA_D)
-        t.value("Velocity-head term ρ (v_out² − v_in²)/2", 0.5 * rho * (v_out**2 - v_in**2), PA_D)
+        t.value(
+            "Velocity-head term ρ (v_out² − v_in²)/2",
+            0.5 * rho * (_squared(v_out) - _squared(v_in)),
+            PA_D,
+        )
         t.value("Static pressure drop Δp_static = p_in − p_out", result.pressure_drop, PA_D)
     t.note(EQUIPMENT_RATED_DROP_NOTE)
     if not isinstance(rating, RatedPoint):
@@ -2481,7 +2502,11 @@ def _orifice_trace(ctx: TraceInputs, data: OrificeData) -> ElementTrace:
         )
         z_in, z_out = port_elevation(comp, "inlet"), port_elevation(comp, "outlet")
         t.value("Elevation term ρ g (z_out − z_in)", rho * ctx.g * (z_out - z_in), PA_D)
-        t.value("Velocity-head term ρ (v_out² − v_in²)/2", 0.5 * rho * (v_out**2 - v_in**2), PA_D)
+        t.value(
+            "Velocity-head term ρ (v_out² − v_in²)/2",
+            0.5 * rho * (_squared(v_out) - _squared(v_in)),
+            PA_D,
+        )
         t.value("Static pressure drop Δp_static = p_in − p_out", result.pressure_drop, PA_D)
     t.note(ORIFICE_LOSS_NOTE)
     if law.uses_rhg:
@@ -2808,7 +2833,11 @@ def _relief_trace(ctx: TraceInputs, data: ValveData) -> ElementTrace:
             {"inlet": ("Inlet", "_in"), "outlet": ("Outlet", "_out")},
             velocity=False,  # v_in and v_out are above, signed as Q
         )
-        t.value("Velocity-head term ρ (v_in² − v_out²)/2", 0.5 * rho * (v_in**2 - v_out**2), PA_D)
+        t.value(
+            "Velocity-head term ρ (v_in² − v_out²)/2",
+            0.5 * rho * (_squared(v_in) - _squared(v_out)),
+            PA_D,
+        )
         t.value("Static pressure drop Δp_static = p_in − p_out", result.pressure_drop, PA_D)
         t.value("Reynolds number on the orifice Re", result.reynolds_number, NO_UNIT)
         if result.reynolds_number is not None:
@@ -2841,7 +2870,7 @@ def _relief_trace(ctx: TraceInputs, data: ValveData) -> ElementTrace:
             t.value(
                 "Inlet static pressure at full lift with the outlet at this back pressure, p_out + "
                 "Δp_f − ρ (v_in² − v_out²)/2 at Q_f (not used)",
-                p_out + law.full_lift_pressure - 0.5 * rho * (vf_in**2 - vf_out**2),
+                p_out + law.full_lift_pressure - 0.5 * rho * (_squared(vf_in) - _squared(vf_out)),
                 PA_G,
             )
             t.value(

@@ -21,7 +21,9 @@ c computed once from its rating, in this order:
 The operating density cancels out of the head law; it only converts head to pressure. A
 computation that divides by zero or overflows inside the schema's bounds (ρ_r = Q_r = 1e-300, a
 Cv of 1e-170) raises here; ``builder._unrepresentable_equipment`` reports it as the topology
-issue EQUIPMENT_RATING_OUT_OF_RANGE, with a c that is not a finite positive double.
+issue EQUIPMENT_RATING_OUT_OF_RANGE, with a c that is not a finite positive double, and so is a
+finite c above ``coefficients.SLOPE_COEFFICIENT_MAX``, half the largest double, where the law's
+slope 2c|Q| is not a finite number at any flow.
 """
 
 import math
@@ -31,7 +33,7 @@ from typing import Literal
 from fluids.constants import bar, gallon, hour, minute, psi
 
 from ...models.components import Equipment, RatedFlowCoefficient, RatedPoint
-from .coefficients import k_from_coefficient
+from .coefficients import k_from_coefficient, slope_overflows
 
 UNIT_BORE = 1.0
 """m: the bore a Cv's or Kv's K is evaluated on; any bore gives the same c (module docstring)."""
@@ -124,14 +126,17 @@ def equipment_law(rating: EquipmentRatingModel, g: float) -> EquipmentLaw:
     )
 
 
-def unrepresentable(component: Equipment, g: float) -> bool:
-    """True when the element's c is not a finite positive double, or computing it divides by
-    zero or overflows (proposal decision 10)."""
+def unrepresentable(component: Equipment, g: float) -> tuple[bool, float]:
+    """(refused, c): refused when the element's c is not a finite positive double, or computing
+    it divides by zero or overflows (proposal decision 10; c is then NaN), or when c is finite
+    but above ``coefficients.SLOPE_COEFFICIENT_MAX``, where the slope of ``QuadraticLossLaw``,
+    2c|Q|, is not a finite number at any flow. Each is monotone in each rating value, so c stays
+    representable between two ratings where it is."""
     try:
         c = equipment_law(component.rating, g).coefficient
     except (ZeroDivisionError, OverflowError):
-        return True
-    return not (math.isfinite(c) and c > 0.0)
+        return True, math.nan
+    return not (math.isfinite(c) and c > 0.0) or slope_overflows(c), c
 
 
 def rating_text(rating: EquipmentRatingModel) -> str:

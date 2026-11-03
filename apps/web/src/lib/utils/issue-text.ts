@@ -25,6 +25,23 @@
  * element's names and the entry's name from the project (CLAUDE.md D22); the server's messages
  * name entries by id only.
  *
+ * A valve, a fitting on an entry, a piping's fittings, an equipment item or an orifice plate
+ * whose loss coefficient c is finite but above half the largest floating-point number is refused
+ * under the same codes in a form of its own (the builder's coefficients.slope_bound_text): the
+ * law's slope, formed as (2c)|Q|, is then not a finite number at any flow. It is told with the
+ * names, the element's values in display units, and c and the bound as the message quotes them
+ * (SI, s²/m⁵ or, for a plate's K, none: they have no display unit), each with the digits that
+ * tell them apart (at least the message's 6), so c never reads as the bound.
+ *
+ * A pipe or an orifice plate whose Reynolds-number arithmetic the fluid, at the schema's bounds,
+ * makes unrepresentable is refused under the same codes (PIPE_SIZE_OUT_OF_RANGE's A ν form, the
+ * builder's _unrepresentable_pipes; ORIFICE_OUT_OF_RANGE's rule (e), _ORIFICE_FLUID_TAILS). It is
+ * told with the names and links, the bores in the display unit, the kinematic viscosity as the
+ * message quotes it (m²/s: it has no display unit), and the density and dynamic viscosity in
+ * theirs where they are normal floating-point numbers there; otherwise as quoted, in kg/m³ and
+ * Pa·s (a density near the smallest double is 0 in lb/ft³), so no value is shown that the message
+ * does not state.
+ *
  * A speed-controlled pump whose curve does not give one speed for each head
  * (CONTROLLED_PUMP_CURVE) is told with its names, and the curve and the flow interval where it
  * fails are taken from the server's message (an issue has no details) and shown in the display
@@ -48,7 +65,7 @@ import type {
 import { componentById, connectionById, freePorts, portById } from './graph';
 import { fittingFallbackName, fluidSummary, portLabel, sameSize } from './labels';
 import { pipeSpecOf, resistanceEntryOf } from './project-library';
-import { displayUnit, formatNumber, formatValue, INCH, SI_UNITS } from './units';
+import { displayUnit, formatNumber, formatValue, fromSI, INCH, SI_UNITS } from './units';
 
 export interface IssueLink {
 	componentId: string;
@@ -319,13 +336,22 @@ function tell(issue: TopologyIssue, links: IssueLink[], context: Context): Issue
 		case 'PIPE_SIZE_OUT_OF_RANGE':
 			return pipeIssue(issue, links, context);
 		case 'EQUIPMENT_RATING_OUT_OF_RANGE': {
-			const match = EQUIPMENT_RATING.exec(issue.message);
+			const slope = EQUIPMENT_SLOPE.exec(issue.message);
+			const match = slope ?? EQUIPMENT_RATING.exec(issue.message);
 			if (!match || match[1] !== only || !component) return null;
-			const [, , loss, flow, density, kind, value] = match;
+			const [, , loss, flow, density, kind, value, c = '', max = ''] = match;
 			const rating =
 				kind !== undefined
 					? `a ${kind} of ${formatNumber(Number(value), 6)}`
 					: `a rated pressure drop of ${formatValue(Number(loss), 'pressure', units, 6)} at ${formatValue(Number(flow), 'flow', units, 6)} for a fluid of ${formatValue(Number(density), 'density', units, 6)}`;
+			if (slope) {
+				const words = slopeWords('c', c, max, PER_FLOW_SQUARED, 'its head loss, 2c|Q|');
+				if (words === null) return null;
+				return {
+					text: `${component.name}: ${rating} gives ${words} and the solver cannot represent this element. Check its rating.`,
+					links
+				};
+			}
 			return {
 				text:
 					`${component.name}: ${rating} gives a loss coefficient that is not a finite positive ` +
@@ -342,29 +368,37 @@ function tell(issue: TopologyIssue, links: IssueLink[], context: Context): Issue
 		case 'FITTING_RESISTANCE_OUT_OF_RANGE':
 			return libraryIssue(issue, links, context, component, only);
 		case 'VALVE_RESISTANCE_OUT_OF_RANGE': {
-			const entry = VALVE_ENTRY.exec(issue.message);
+			const entrySlope = VALVE_ENTRY_SLOPE.exec(issue.message);
+			const entry = entrySlope ?? VALVE_ENTRY.exec(issue.message);
 			if (entry) {
 				if (entry[1] !== only || !component) return null;
-				const [, , id = '', kind = '', value = '', bore, diameter = ''] = entry;
+				const [, , id = '', kind = '', value = '', bore, diameter = '', c = '', max = ''] = entry;
+				const words = entrySlope
+					? slopeWords('K/(2 g A²)', c, max, PER_FLOW_SQUARED, VALVE_SLOPE_WORDS)
+					: 'a loss coefficient that is not a finite positive floating-point number,';
+				if (words === null) return null;
 				return {
 					text:
 						`${component.name}: its project library entry ${entryWords(project, id)} ` +
 						`(${coefficientWords(kind, value, bore, units)}) on its inlet pipe's inner diameter ` +
-						`(${formatValue(Number(diameter), 'diameter', units)}) gives a loss coefficient that ` +
-						'is not a finite positive floating-point number, so the solver cannot represent this ' +
-						'valve. Check the entry.',
+						`(${formatValue(Number(diameter), 'diameter', units)}) gives ${words} ` +
+						`${entrySlope ? 'and' : 'so'} the solver cannot represent this valve. Check the entry.`,
 					links
 				};
 			}
-			const match = VALVE_RESISTANCE.exec(issue.message);
+			const slope = VALVE_RESISTANCE_SLOPE.exec(issue.message);
+			const match = slope ?? VALVE_RESISTANCE.exec(issue.message);
 			if (!match || match[1] !== only || !component) return null;
-			const [, , kind, value = '', diameter = ''] = match;
+			const [, , kind, value = '', diameter = '', c = '', max = ''] = match;
+			const words = slope
+				? slopeWords('K/(2 g A²)', c, max, PER_FLOW_SQUARED, VALVE_SLOPE_WORDS)
+				: 'a loss coefficient that is not a finite floating-point number,';
+			if (words === null) return null;
 			return {
 				text:
 					`${component.name}: a ${kind} of ${formatNumber(Number(value), 6)} on its inlet pipe's inner ` +
-					`diameter (${formatValue(Number(diameter), 'diameter', units)}) gives a loss coefficient ` +
-					'that is not a finite floating-point number, so the solver cannot represent this valve. ' +
-					'Check its resistance.',
+					`diameter (${formatValue(Number(diameter), 'diameter', units)}) gives ${words} ` +
+					`${slope ? 'and' : 'so'} the solver cannot represent this valve. Check its resistance.`,
 				links
 			};
 		}
@@ -375,8 +409,10 @@ function tell(issue: TopologyIssue, links: IssueLink[], context: Context): Issue
 /**
  * An orifice plate the solver cannot represent (ORIFICE_OUT_OF_RANGE, the builder's
  * _unrepresentable_orifices, proposal orifice-plate.md decision 17), told with its name and the
- * message's bore, pipe bore, β and the bound its discharge coefficient breaks, in display units;
- * null (the server's message) when the message is not in a form expected.
+ * message's bore, pipe bore, β and the bound its discharge coefficient breaks, in display units,
+ * or its K above the slope bound (rule 'slope'), or the fluid that makes its Reynolds-number
+ * arithmetic unrepresentable (rule (e), `orificeFluidWords`); null (the server's message) when the
+ * message is not in a form expected.
  */
 function orificeIssue(
 	issue: TopologyIssue,
@@ -392,8 +428,13 @@ function orificeIssue(
 	const D = formatValue(Number(pipe), 'diameter', units);
 	const b = formatNumber(Number(beta), 6);
 	const name = component.name;
+	const fluid = orificeFluidWords(rest, units);
 	let text: string | null = null;
-	if (ORIFICE_BETA.test(rest)) {
+	if (fluid) {
+		text =
+			`${name} (a bore of ${d} in an inlet pipe of inner diameter ${D}, β = ${b}): ${fluid[0]}, ` +
+			`so the solver cannot represent this plate. ${fluid[1]}`;
+	} else if (ORIFICE_BETA.test(rest)) {
 		text =
 			`${name}'s bore (${d}) is not smaller than its inlet pipe's inner diameter (${D}): an ` +
 			'orifice plate needs β = d ÷ D below 1. Use a smaller bore.';
@@ -402,7 +443,17 @@ function orificeIssue(
 		const moved = ORIFICE_MOVED.exec(rest);
 		const unbounded = ORIFICE_UNBOUNDED.test(rest);
 		const loss = ORIFICE_LOSS.exec(rest);
-		if (iso) {
+		const slope = ORIFICE_SLOPE.exec(rest);
+		if (slope) {
+			const [, low = '', k = '', max = ''] = slope;
+			const words = slopeWords('K', k, max, '', 'its head loss, 2 K|Q|/(2 g A²)', true);
+			if (words !== null) {
+				text =
+					`${name}: a bore of ${d} in an inlet pipe of inner diameter ${D} (β = ${b}) gives, with ` +
+					`a discharge coefficient down to ${formatNumber(Number(low), 6)}, ${words} and the ` +
+					'solver cannot represent this plate. Check its bore and discharge coefficient.';
+			}
+		} else if (iso) {
 			const [, where = '', use = '', entered = '', from = '', coefficient = '', tail = ''] = iso;
 			const start =
 				`${name}'s bore (${d}) is so close to its inlet pipe's inner diameter (${D}, β = ${b}) ` +
@@ -455,6 +506,77 @@ function orificeIssue(
 		}
 	}
 	return text === null ? null : { text, links };
+}
+
+/**
+ * Rule (e) (the builder's _ORIFICE_FLUID_TAILS, orifice.fluid_refusal): what the case's fluid
+ * makes unrepresentable at the plate, with ρ and μ as the message quotes them (`propertyText`),
+ * and the remedy; null when `rest` (the message after its head) is not one of its forms.
+ */
+function orificeFluidWords(rest: string, units: UnitPreferences): [string, string] | null {
+	const rho = (value: string) => propertyText(value, 'density', units);
+	const mu = (value: string) => propertyText(value, 'viscosity', units);
+	const both = "Check the fluid's density and viscosity.";
+	const denominator = ORIFICE_FLUID_DENOMINATOR.exec(rest);
+	if (denominator) {
+		return [
+			`with the fluid's dynamic viscosity of ${mu(denominator[1] ?? '')}, the denominator π D μ ` +
+				'of its Reynolds number Re_D = 4ρ|Q|/(π D μ) is 0 in floating point (it underflows)',
+			"Check the fluid's viscosity."
+		];
+	}
+	const area = ORIFICE_FLUID_AREA.exec(rest);
+	if (area) {
+		return [
+			"ISO 5167-2's discharge coefficient is evaluated from the mass flow, dividing by the " +
+				"pipe's area times the fluid's density, (π D²/4) ρ, which with a density of " +
+				`${rho(area[1] ?? '')} is 0 in floating point (it underflows)`,
+			"Check the fluid's density."
+		];
+	}
+	const infinite = ORIFICE_FLUID_INFINITE.exec(rest);
+	if (infinite) {
+		const [, density = '', viscosity = ''] = infinite;
+		return [
+			`with the fluid's density of ${rho(density)} and dynamic viscosity of ${mu(viscosity)}, ` +
+				'its Reynolds number per unit flow, 4ρ/(π D μ), is not a finite floating-point ' +
+				"number: Re_D is infinite at every flow but zero, where ISO 5167-2's discharge " +
+				'coefficient cannot be evaluated',
+			both
+		];
+	}
+	const low = ORIFICE_FLUID_RE_LO.exec(rest);
+	if (low) {
+		const [, density = '', viscosity = ''] = low;
+		return [
+			`with the fluid's density of ${rho(density)} and dynamic viscosity of ${mu(viscosity)}, ` +
+				"ISO 5167-2's discharge coefficient cannot be evaluated at the plate's lowest Reynolds " +
+				'number',
+			both
+		];
+	}
+	return null;
+}
+
+/** The smallest positive normal double, 2⁻¹⁰²²: below it a double has lost significant digits. */
+const MIN_NORMAL = 2 ** -1022;
+
+/**
+ * A fluid's density or dynamic viscosity as a message quotes it (SI: kg/m³, Pa·s), in the display
+ * unit; as quoted, in SI with the message's 6 significant digits, where its value in the display
+ * unit is not a normal floating-point number (a density near the smallest double is 0 in lb/ft³,
+ * and a subnormal keeps fewer digits than are shown), so no value is shown that the message does
+ * not state.
+ */
+function propertyText(
+	value: string,
+	category: 'density' | 'viscosity',
+	units: UnitPreferences
+): string {
+	const si = Number(value);
+	if (Math.abs(fromSI(si, displayUnit(category, units))) >= MIN_NORMAL)
+		return formatValue(si, category, units);
+	return formatValue(si, category, { ...units, density: 'kg/m3', viscosity: 'Pa.s' }, 6);
 }
 
 /**
@@ -543,12 +665,57 @@ function coefficientWords(
 	return `${kind} ${formatNumber(Number(value), 6)}${at}`;
 }
 
+/** s²/m⁵: the unit of a loss coefficient c in h = c Q|Q|, as the server quotes c (SI; c has no
+ * display unit). */
+const PER_FLOW_SQUARED = 's²/m⁵';
+/** The slope of a valve's head loss, as the server's message names it. */
+const VALVE_SLOPE_WORDS = 'its head loss, 2 K/(2 g A²) |Q|';
+
+/**
+ * A coefficient above the slope bound and the bound, as the server quotes them, each shown with
+ * the significant digits (6, the server's least, up to 17) at which they read apart; null when
+ * they are not numbers with the coefficient above the bound (the message is then not told).
+ */
+function apart(value: string, bound: string): [string, string] | null {
+	const [v, b] = [Number(value), Number(bound)];
+	if (!Number.isFinite(v) || !Number.isFinite(b) || !(v > b)) return null;
+	let sig = 6;
+	while (sig < 17 && formatNumber(v, sig) === formatNumber(b, sig)) sig += 1;
+	return [formatNumber(v, sig), formatNumber(b, sig)];
+}
+
+/**
+ * "a loss coefficient <symbol> of <c> <unit>, above half the largest floating-point number
+ * (<bound> <unit>), so the slope of <slope>, is not a finite floating-point number at any flow":
+ * a refusal at the slope bound (the builder's coefficients.slope_bound_text), with c and the bound
+ * as the message quotes them (`apart`); null when they are not in the form expected. `butZero`:
+ * an orifice plate's slope, which is 0 at zero flow (its law forms 2K|Q| before 1/(2 g A²)).
+ */
+function slopeWords(
+	symbol: string,
+	c: string,
+	bound: string,
+	unit: string,
+	slope: string,
+	butZero = false
+): string | null {
+	const quoted = apart(c, bound);
+	if (quoted === null) return null;
+	const u = unit ? ` ${unit}` : '';
+	return (
+		`a loss coefficient ${symbol} of ${quoted[0]}${u}, above half the largest floating-point ` +
+		`number (${quoted[1]}${u}), so the slope of ${slope}, is not a finite floating-point number ` +
+		`at any flow${butZero ? ' but zero' : ''}`
+	);
+}
+
 /**
  * A reference to a project library entry the project does not have (UNKNOWN_PIPE_SPEC,
  * UNKNOWN_RESISTANCE: a valve's or a fitting's), or a fitting whose entry the solver cannot
  * represent on its pipe, for one unit or its quantity, or a piping whose fittings' loss
- * coefficients sum to no finite number (FITTING_RESISTANCE_OUT_OF_RANGE), told with names
- * (CLAUDE.md D22); null (the server's message) when the message is not in a form expected.
+ * coefficients sum to no finite number (FITTING_RESISTANCE_OUT_OF_RANGE), or to one above the
+ * slope bound, told with names (CLAUDE.md D22); null (the server's message) when the message is
+ * not in a form expected.
  */
 function libraryIssue(
 	issue: TopologyIssue,
@@ -568,8 +735,10 @@ function libraryIssue(
 	}
 	const pipe = PIPE_UNKNOWN_SPEC.exec(issue.message);
 	const fitting = FITTING_UNKNOWN_ENTRY.exec(issue.message);
-	const range = FITTING_ENTRY_RANGE.exec(issue.message);
-	const sum = FITTING_ENTRY_SUM.exec(issue.message);
+	const rangeSlope = FITTING_ENTRY_SLOPE.exec(issue.message);
+	const range = rangeSlope ?? FITTING_ENTRY_RANGE.exec(issue.message);
+	const sumSlope = FITTING_SUM_SLOPE.exec(issue.message);
+	const sum = sumSlope ?? FITTING_ENTRY_SUM.exec(issue.message);
 	const connection = pipingOf(project, issue, (pipe ?? fitting ?? range ?? sum)?.[1]);
 	if (!connection) return null;
 	const piping = `Piping ${pipingName(project, connection)}`;
@@ -594,19 +763,35 @@ function libraryIssue(
 			bore,
 			pipeNumber,
 			d = '',
-			quantity
+			quantity,
+			c = '',
+			max = ''
 		] = range;
 		const forQuantity = quantity === undefined ? '' : `, for its quantity of ${quantity},`;
-		text =
-			`${piping}, ${fittingWords(number, type)}: its project library entry ${entryWords(project, id)} ` +
-			`(${coefficientWords(kind, value, bore, units)}) on the inner diameter of pipe ${pipeNumber} ` +
-			`(${formatValue(Number(d), 'diameter', units)}) gives${forQuantity} a loss coefficient that is ` +
-			'not a finite floating-point number, so the solver cannot represent this fitting. Check the ' +
-			'entry.';
+		const words = rangeSlope
+			? slopeWords(
+					'n K/(2 g A²)',
+					c,
+					max,
+					PER_FLOW_SQUARED,
+					"the piping's head loss, which takes 2 n K/(2 g A²) |Q| from it"
+				)
+			: 'a loss coefficient that is not a finite floating-point number,';
+		if (words !== null) {
+			text =
+				`${piping}, ${fittingWords(number, type)}: its project library entry ${entryWords(project, id)} ` +
+				`(${coefficientWords(kind, value, bore, units)}) on the inner diameter of pipe ${pipeNumber} ` +
+				`(${formatValue(Number(d), 'diameter', units)}) gives${forQuantity} ${words} ` +
+				`${rangeSlope ? 'and' : 'so'} the solver cannot represent this fitting. Check the entry.`;
+		}
 	} else if (sum && issue.code === 'FITTING_RESISTANCE_OUT_OF_RANGE') {
-		const [, , direction, list = ''] = sum;
+		// The slope form quotes the sum and the bound between the direction and the entries.
+		const direction = sum[2];
+		const list = (sumSlope ? sum[5] : sum[3]) ?? '';
+		const quoted = sumSlope ? apart(sum[3] ?? '', sum[4] ?? '') : null;
 		const onEntries = list.split(', ').map((item) => FITTING_ON_ENTRY.exec(item));
-		if (onEntries.length && onEntries.every((m): m is RegExpExecArray => m !== null)) {
+		const told = !sumSlope || quoted !== null;
+		if (told && onEntries.length && onEntries.every((m): m is RegExpExecArray => m !== null)) {
 			const name = (componentId: string) =>
 				componentById(project, componentId)?.name ?? `“${componentId}”`;
 			const [from, to] =
@@ -616,10 +801,17 @@ function libraryIssue(
 			const fittings = onEntries
 				.map((m) => `${fittingWords(m[1] ?? '', m[2] ?? '')} on ${entryWords(project, m[3] ?? '')}`)
 				.join(', ');
-			text =
-				`${piping}: its fittings' loss coefficients are each finite, but their sum for flow from ` +
-				`${name(from)} to ${name(to)} is not a finite floating-point number, so the solver cannot ` +
-				`represent this piping (fittings on project library entries: ${fittings}). Check the entries.`;
+			const flow = `flow from ${name(from)} to ${name(to)}`;
+			text = quoted
+				? `${piping}: its fittings' loss coefficients are each finite, but their sum for ${flow}, ` +
+					`${quoted[0]} ${PER_FLOW_SQUARED}, is above half the largest floating-point number ` +
+					`(${quoted[1]} ${PER_FLOW_SQUARED}), so the slope of the piping's head loss, which takes ` +
+					'2 Σ n K/(2 g A²) |Q| from them, is not a finite floating-point number at any flow and ' +
+					'the solver cannot represent this piping (fittings on project library entries: ' +
+					`${fittings}). Check the entries.`
+				: `${piping}: its fittings' loss coefficients are each finite, but their sum for ${flow} ` +
+					'is not a finite floating-point number, so the solver cannot represent this piping ' +
+					`(fittings on project library entries: ${fittings}). Check the entries.`;
 		}
 	}
 	return text === null ? null : { text, links: [...links, ...pipingLink(project, connection)] };
@@ -687,7 +879,22 @@ function pipeIssue(issue: TopologyIssue, links: IssueLink[], context: Context): 
 		}
 		case 'PIPE_SIZE_OUT_OF_RANGE': {
 			const match = PIPE_SIZE.exec(rest);
-			if (match) {
+			const underflow = PIPE_RE_DENOMINATOR.exec(rest);
+			if (underflow) {
+				const [, diameter = '', nu = ''] = underflow;
+				const d = formatValue(Number(diameter), 'diameter', units);
+				// ν (m²/s) has no display unit: as the message quotes it.
+				text =
+					(ofSpec
+						? `${where}: the inner diameter of its pipe spec “${spec?.name ?? ofSpec[1]}”, ${d}, with `
+						: `${where}: an inner diameter of ${d} with `) +
+					`the fluid's kinematic viscosity of ${formatNumber(Number(nu), 6)} m²/s gives a ` +
+					'Reynolds number |Q| D/(A ν) whose denominator A ν is 0 in floating point (it ' +
+					'underflows), so the solver cannot represent this pipe. ' +
+					(ofSpec
+						? "Check the spec's inner diameter in the project library, and the fluid's viscosity."
+						: "Check its inner diameter and the fluid's viscosity.");
+			} else if (match) {
 				const [, diameter = '', length = ''] = match;
 				const d = formatValue(Number(diameter), 'diameter', units);
 				const l = formatValue(Number(length), 'length', units);
@@ -820,6 +1027,30 @@ const VALVE_RESISTANCE = new RegExp(
 		'loss coefficient that is not a finite floating-point number; the solver cannot represent ' +
 		'this valve$'
 );
+/** A pattern matching `text` literally. */
+function literal(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+/**
+ * A refusal at the slope bound (the builder's coefficients.slope_bound_text): "a loss coefficient
+ * <symbol> of <c> <unit>, above <bound> <unit>, half the largest floating-point number, so <the
+ * slope's words>, is not a finite floating-point number at any flow", c and the bound as groups.
+ */
+function slopeSource(symbol: string, unit: string, slope: string): string {
+	const u = unit ? ` ${literal(unit)}` : '';
+	return (
+		`a loss coefficient ${literal(symbol)} of ${NUM}${u}, above ${NUM}${u}, half the largest ` +
+		`floating-point number, so ${literal(slope)}, is not a finite floating-point number at any flow`
+	);
+}
+/** A valve's refusal at the slope bound ends so (the builder's VALVE_SLOPE). */
+const VALVE_SLOPE_TAIL =
+	slopeSource('K/(2 g A²)', 's²/m⁵', 'the slope of its head loss, 2 K/(2 g A²) |Q|') +
+	'; the solver cannot represent this valve$';
+const VALVE_RESISTANCE_SLOPE = new RegExp(
+	`^valve '${ID}': a (K|Cv|Kv) of ${NUM} on the inlet pipe's inner diameter of ${NUM} m gives ` +
+		VALVE_SLOPE_TAIL
+);
 /**
  * An equipment item whose rating gives no representable loss coefficient (the builder's
  * _unrepresentable_equipment): its rating as the server solved it, SI (services/solver/equipment.py
@@ -829,6 +1060,14 @@ const EQUIPMENT_RATING = new RegExp(
 	`^equipment '${ID}': a rating of (?:${NUM} Pa at ${NUM} m³/s for a fluid of ${NUM} kg/m³|(Cv|Kv) ${NUM}) ` +
 		'gives a loss coefficient, .*, that is not a finite positive floating-point number; the ' +
 		'solver cannot represent this element$',
+	's'
+);
+/** The same rating with a finite c above the slope bound: c and the bound (s²/m⁵) follow. */
+const EQUIPMENT_SLOPE = new RegExp(
+	`^equipment '${ID}': a rating of (?:${NUM} Pa at ${NUM} m³/s for a fluid of ${NUM} kg/m³|(Cv|Kv) ${NUM}) ` +
+		`gives a loss coefficient, .*, of ${NUM} s²/m⁵, above ${NUM} s²/m⁵, half the largest ` +
+		'floating-point number, so the slope of its head loss, 2c\\|Q\\|, is not a finite ' +
+		'floating-point number at any flow; the solver cannot represent this element$',
 	's'
 );
 /**
@@ -880,6 +1119,53 @@ const ORIFICE_LOSS = new RegExp(
 	`^with a discharge coefficient down to ${NUM} it gives a loss coefficient, K/\\(2 g A²\\), that is ` +
 		'not a finite positive floating-point number; the solver cannot represent this plate$'
 );
+/** Rule 'slope': K at the smallest C (dimensionless) above the slope bound; the slope is 0 at
+ * zero flow, as the law forms 2K|Q| before 1/(2 g A²). */
+const ORIFICE_SLOPE = new RegExp(
+	`^with a discharge coefficient down to ${NUM} it gives ` +
+		slopeSource('K', '', 'the slope of its head loss, 2 K|Q|/(2 g A²)') +
+		' but zero; the solver cannot represent this plate$'
+);
+/**
+ * Rule (e), the case's fluid (the builder's _ORIFICE_FLUID_TAILS after the head, with its
+ * ending): μ (Pa·s) for π D μ that underflows; ρ (kg/m³) for (π D²/4) ρ that underflows; ρ and μ
+ * for a Reynolds number per unit flow that is not finite, and for ISO 5167-2's C that fluids
+ * cannot evaluate at the plate's lowest Reynolds number.
+ */
+const ORIFICE_FLUID_DENOMINATOR = new RegExp(
+	`^with the fluid's dynamic viscosity of ${NUM} Pa·s, ` +
+		literal(
+			'the denominator π D μ of its Reynolds number Re_D = 4ρ|Q|/(π D μ) is 0 in floating ' +
+				'point (it underflows); the solver cannot represent this plate'
+		) +
+		'$'
+);
+const ORIFICE_FLUID_AREA = new RegExp(
+	'^' +
+		literal(
+			"ISO 5167-2's discharge coefficient is evaluated (fluids) from the mass flow, dividing " +
+				"by the pipe's area times the fluid's density, (π D²/4) ρ, which with a density of "
+		) +
+		`${NUM} kg/m³ is 0 in floating point \\(it underflows\\); the solver cannot represent ` +
+		'this plate$'
+);
+const ORIFICE_FLUID_INFINITE = new RegExp(
+	`^with the fluid's density of ${NUM} kg/m³ and dynamic viscosity of ${NUM} Pa·s, ` +
+		literal(
+			'its Reynolds number per unit flow, 4ρ/(π D μ), is not a finite floating-point number, ' +
+				"so Re_D is infinite at every flow but zero, where ISO 5167-2's discharge coefficient " +
+				'cannot be evaluated; the solver cannot represent this plate'
+		) +
+		'$'
+);
+const ORIFICE_FLUID_RE_LO = new RegExp(
+	`^with the fluid's density of ${NUM} kg/m³ and dynamic viscosity of ${NUM} Pa·s, ` +
+		literal(
+			"ISO 5167-2's discharge coefficient cannot be evaluated at the plate's lowest Reynolds " +
+				"number (fluids' arithmetic fails there); the solver cannot represent this plate"
+		) +
+		'$'
+);
 /** "connection 'L1' pipe 2: <the pipe's problem>" (pipes numbered from 1). */
 const PIPE_PREFIX = new RegExp(`^connection '${ID}' pipe (\\d+): (.*)$`, 's');
 /** A pipe of a project library spec: "pipe spec 'PS1': <its material's, bore's or roughness's
@@ -903,11 +1189,27 @@ const VALVE_ENTRY = new RegExp(
 		`pipe's inner diameter of ${NUM} m gives a loss coefficient that is not a finite positive ` +
 		'floating-point number; the solver cannot represent this valve$'
 );
+const VALVE_ENTRY_SLOPE = new RegExp(
+	`^valve '${ID}': its project library resistance entry '${ID}', ${ENTERED}, on the inlet ` +
+		`pipe's inner diameter of ${NUM} m gives ${VALVE_SLOPE_TAIL}`
+);
 const FITTING_ENTRY_RANGE = new RegExp(
 	`^connection '${ID}' fitting (\\d+) \\(([a-z0-9_]+)\\): its project library resistance entry ` +
 		`'${ID}', ${ENTERED}, on the inner diameter of pipe (\\d+), ${NUM} m, gives` +
 		'(?:, for its quantity of (\\d+),)? a loss coefficient that is not a finite floating-point ' +
 		'number; the solver cannot represent this fitting$'
+);
+/** The same fitting with a finite n K/(2 g A²) above the slope bound: c and the bound follow. */
+const FITTING_ENTRY_SLOPE = new RegExp(
+	`^connection '${ID}' fitting (\\d+) \\(([a-z0-9_]+)\\): its project library resistance entry ` +
+		`'${ID}', ${ENTERED}, on the inner diameter of pipe (\\d+), ${NUM} m, gives` +
+		'(?:, for its quantity of (\\d+),)? ' +
+		slopeSource(
+			'n K/(2 g A²)',
+			's²/m⁵',
+			"the slope of the connection's head loss, which takes 2 n K/(2 g A²) |Q| from it"
+		) +
+		'; the solver cannot represent this fitting$'
 );
 /** A connection whose fittings' loss coefficients are each finite but sum, for one flow
  * direction, to no finite number (builder._unrepresentable_fittings, D22): the fittings on
@@ -916,6 +1218,16 @@ const FITTING_ENTRY_SUM = new RegExp(
 	`^connection '${ID}': its fittings' loss coefficients n K/\\(2 g A²\\) are each finite, but ` +
 		'their sum for flow (from → to|to → from) is not a finite floating-point number \\(on ' +
 		'project library resistance entries: (.*)\\); the solver cannot represent this connection$'
+);
+/** The same sum, finite but above the slope bound: the sum and the bound (s²/m⁵) follow the
+ * direction. */
+const FITTING_SUM_SLOPE = new RegExp(
+	`^connection '${ID}': its fittings' loss coefficients n K/\\(2 g A²\\) are each finite, but ` +
+		`their sum for flow (from → to|to → from), ${NUM} s²/m⁵, is above ${NUM} s²/m⁵, half the ` +
+		"largest floating-point number, so the slope of the connection's head loss, which takes " +
+		'2 Σ n K/\\(2 g A²\\) \\|Q\\| from them, is not a finite floating-point number at any flow ' +
+		'\\(on project library resistance entries: (.*)\\); the solver cannot represent this ' +
+		'connection$'
 );
 const FITTING_ON_ENTRY = new RegExp(`^fitting (\\d+) \\(([a-z0-9_]+)\\) on '${ID}'$`);
 /** Material ids and schedules are free text up to a quote; the lists that end the messages are
@@ -932,6 +1244,16 @@ const ROUGHNESS = new RegExp(
 const PIPE_SIZE = new RegExp(
 	`^an inner diameter of ${NUM} m and a length of ${NUM} m give a pipe resistance that is not a ` +
 		'finite floating-point number; the solver cannot represent this pipe$'
+);
+/** A pipe whose Reynolds number's denominator A ν underflows (the builder's
+ * _unrepresentable_pipes): its inner diameter (m) and the fluid's kinematic viscosity (m²/s). */
+const PIPE_RE_DENOMINATOR = new RegExp(
+	`^an inner diameter of ${NUM} m with the fluid's kinematic viscosity of ${NUM} m²/s gives ` +
+		literal(
+			'a Reynolds number |Q| D/(A ν) whose denominator A ν is 0 in floating point (it ' +
+				'underflows); the solver cannot represent this pipe'
+		) +
+		'$'
 );
 
 /**

@@ -5,10 +5,15 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { Pump, TopologyIssue } from '../api/types';
-import { assignedFlowProject } from '../testing/helpers';
+import {
+	assignedFlowProject,
+	equipmentProject,
+	libraryProject,
+	orificeProject
+} from '../testing/helpers';
 import { pumpTransferExample } from './examples';
 import { issueTextOptions, topologyIssueViews, type IssueTextOptions } from './issue-text';
-import { IMPERIAL_UNITS } from './units';
+import { IMPERIAL_UNITS, SI_UNITS } from './units';
 
 const IN = 0.0254;
 const GPM = (231 * IN ** 3) / 60; // m³/s, US gallon = 231 in³
@@ -761,5 +766,370 @@ describe('the codes told before', () => {
 			links: [{ componentId: 'V1', portId: 'outlet' }],
 			detail: port.message
 		});
+	});
+});
+
+describe('a loss coefficient above the slope bound (open item 2, CLAUDE.md D18, D20, D22)', () => {
+	// The API's messages (builder.py, coefficients.slope_bound_text), as the real builder printed
+	// them for apps/api tests/unit/test_nonfinite_laws.py's inputs one double past the bound and
+	// further past it, with the ids, fitting types and entries of this file's projects. The
+	// coefficient and the bound are quoted with the digits that tell them apart.
+	const issue = (
+		code: string,
+		message: string,
+		componentIds: string[] = [],
+		connectionIds: string[] = []
+	): TopologyIssue => ({ code, message, componentIds, connectionIds });
+	const view = (i: TopologyIssue, project = pumpTransferExample(), units = SI_UNITS) =>
+		topologyIssueViews([i], project, true, units)[0]!;
+	const SLOPE = 'is not a finite floating-point number at any flow';
+	const valve = (c: string, bound: string, cv = '1.40232e-150') =>
+		`valve 'V1': a Cv of ${cv} on the inlet pipe's inner diameter of 0.1 m gives a loss coefficient K/(2 g A²) of ${c} s²/m⁵, above ${bound} s²/m⁵, half the largest floating-point number, so the slope of its head loss, 2 K/(2 g A²) |Q|, ${SLOPE}; the solver cannot represent this valve`;
+
+	it("tells a valve's resistance with its name, c and the bound told apart", () => {
+		const past = issue(
+			'VALVE_RESISTANCE_OUT_OF_RANGE',
+			valve('8.988465674311584e+307', '8.988465674311579e+307'),
+			['V1']
+		);
+		expect(view(past)).toEqual({
+			text:
+				"Discharge isolation valve: a Cv of 1.40232e-150 on its inlet pipe's inner diameter " +
+				'(100 mm) gives a loss coefficient K/(2 g A²) of 8.988465674311584e307 s²/m⁵, above ' +
+				'half the largest floating-point number (8.988465674311579e307 s²/m⁵), so the slope ' +
+				`of its head loss, 2 K/(2 g A²) |Q|, ${SLOPE} and the solver cannot represent this ` +
+				'valve. Check its resistance.',
+			links: [{ componentId: 'V1' }],
+			detail: past.message
+		});
+		// Far from the bound, 6 digits tell them apart, as in the message; the inlet diameter is
+		// in the display unit.
+		const far = issue(
+			'VALVE_RESISTANCE_OUT_OF_RANGE',
+			valve('1.68603e+308', '8.98847e+307', '1.0239e-150'),
+			['V1']
+		);
+		const imperial = view(far, pumpTransferExample(), IMPERIAL_UNITS).text;
+		expect(imperial).toBe(
+			`Discharge isolation valve: a Cv of 1.0239e-150 on its inlet pipe's inner diameter (${String(Number((0.1 / IN).toPrecision(4)))} in) ` +
+				'gives a loss coefficient K/(2 g A²) of 1.68603e308 s²/m⁵, above half the largest ' +
+				'floating-point number (8.98847e307 s²/m⁵), so the slope of its head loss, ' +
+				`2 K/(2 g A²) |Q|, ${SLOPE} and the solver cannot represent this valve. Check its ` +
+				'resistance.'
+		);
+		expect(imperial).not.toMatch(/'V1'| m[ );,]/);
+	});
+
+	it("tells a valve's library entry with the entry's name", () => {
+		const message =
+			"valve 'V1': its project library resistance entry 'RS1', K 1e+07 at 2.64451e-76 m, on " +
+			"the inlet pipe's inner diameter of 0.1 m gives a loss coefficient K/(2 g A²) of " +
+			'1.69e+308 s²/m⁵, above 8.98847e+307 s²/m⁵, half the largest floating-point number, so ' +
+			`the slope of its head loss, 2 K/(2 g A²) |Q|, ${SLOPE}; the solver cannot represent ` +
+			'this valve';
+		const told = view(issue('VALVE_RESISTANCE_OUT_OF_RANGE', message, ['V1']), libraryProject());
+		expect(told).toEqual({
+			text:
+				'Gate valve V1: its project library entry “Gate, open” (K 10000000 at 2.645e-73 mm) on ' +
+				"its inlet pipe's inner diameter (100 mm) gives a loss coefficient K/(2 g A²) of " +
+				'1.69e308 s²/m⁵, above half the largest floating-point number (8.98847e307 s²/m⁵), so ' +
+				`the slope of its head loss, 2 K/(2 g A²) |Q|, ${SLOPE} and the solver cannot ` +
+				'represent this valve. Check the entry.',
+			links: [{ componentId: 'V1' }],
+			detail: message
+		});
+	});
+
+	it('tells a fitting on an entry, for one unit and for its quantity, by its piping', () => {
+		const fitting = (quantity: string, entryBore: string, c: string, bound: string) =>
+			"connection 'L1' fitting 1 (elbow_90_lr): its project library resistance entry 'RS2', " +
+			`K 1e+07 at ${entryBore} m, on the inner diameter of pipe 1, 0.1 m, gives${quantity} a ` +
+			`loss coefficient n K/(2 g A²) of ${c} s²/m⁵, above ${bound} s²/m⁵, half the largest ` +
+			"floating-point number, so the slope of the connection's head loss, which takes " +
+			`2 n K/(2 g A²) |Q| from it, ${SLOPE}; the solver cannot represent this fitting`;
+		const one = issue(
+			'FITTING_RESISTANCE_OUT_OF_RANGE',
+			fitting('', '3.09668e-76', '8.98846567431159e+307', '8.98846567431158e+307'),
+			[],
+			['L1']
+		);
+		const told = view(one, libraryProject());
+		expect(told.text).toBe(
+			'Piping Upper tank → Gate valve V1, fitting 1 (90° elbow, long radius): its project ' +
+				'library entry “Elbow (K)” (K 10000000 at 3.097e-73 mm) on the inner diameter of pipe 1 ' +
+				'(100 mm) gives a loss coefficient n K/(2 g A²) of 8.98846567431159e307 s²/m⁵, above ' +
+				'half the largest floating-point number (8.98846567431158e307 s²/m⁵), so the slope of ' +
+				"the piping's head loss, which takes 2 n K/(2 g A²) |Q| from it, " +
+				`${SLOPE} and the solver cannot represent this fitting. Check the entry.`
+		);
+		expect(told.detail).toBe(one.message);
+		expect(told.links[0]).toMatchObject({ componentId: 'R1', portId: 'port_1' });
+		const quantity = issue(
+			'FITTING_RESISTANCE_OUT_OF_RANGE',
+			fitting(', for its quantity of 2,', '3.51851e-76', '1.07862e+308', '8.98847e+307'),
+			[],
+			['L1']
+		);
+		expect(view(quantity, libraryProject()).text).toContain(
+			'(K 10000000 at 3.519e-73 mm) on the inner diameter of pipe 1 (100 mm) gives, for its ' +
+				'quantity of 2, a loss coefficient n K/(2 g A²) of 1.07862e308 s²/m⁵, above half the ' +
+				'largest floating-point number (8.98847e307 s²/m⁵)'
+		);
+	});
+
+	it("tells a piping's fittings whose sum is above the bound, with the flow's direction", () => {
+		const message =
+			"connection 'L1': its fittings' loss coefficients n K/(2 g A²) are each finite, but their " +
+			'sum for flow from → to, 8.988465674311584e+307 s²/m⁵, is above 8.988465674311579e+307 ' +
+			"s²/m⁵, half the largest floating-point number, so the slope of the connection's head " +
+			`loss, which takes 2 Σ n K/(2 g A²) |Q| from them, ${SLOPE} (on project library ` +
+			"resistance entries: fitting 1 (elbow_90_lr) on 'RS2', fitting 2 (custom) on 'RS1'); the " +
+			'solver cannot represent this connection';
+		const sum = issue('FITTING_RESISTANCE_OUT_OF_RANGE', message, [], ['L1']);
+		const told = view(sum, libraryProject());
+		expect(told.text).toBe(
+			"Piping Upper tank → Gate valve V1: its fittings' loss coefficients are each finite, but " +
+				'their sum for flow from Upper tank to Gate valve V1, 8.988465674311584e307 s²/m⁵, is ' +
+				'above half the largest floating-point number (8.988465674311579e307 s²/m⁵), so the ' +
+				"slope of the piping's head loss, which takes 2 Σ n K/(2 g A²) |Q| from them, " +
+				`${SLOPE} and the solver cannot represent this piping (fittings on project library ` +
+				'entries: fitting 1 (90° elbow, long radius) on “Elbow (K)”, fitting 2 (custom fitting ' +
+				'(enter k)) on “Gate, open”). Check the entries.'
+		);
+		expect(told.detail).toBe(message);
+		expect(told.links[0]).toMatchObject({ componentId: 'R1', portId: 'port_1' });
+	});
+
+	it("tells an equipment item's rating in display units, with c and the bound", () => {
+		const message =
+			"equipment 'E1': a rating of 1e+08 Pa at 1.06512e-152 m³/s for a fluid of 1000 kg/m³ " +
+			'gives a loss coefficient, c = ΔP_r/(ρ_r g Q_r²), of 8.988465674311584e+307 s²/m⁵, ' +
+			'above 8.988465674311579e+307 s²/m⁵, half the largest floating-point number, so the ' +
+			`slope of its head loss, 2c|Q|, ${SLOPE}; the solver cannot represent this element`;
+		const told = view(issue('EQUIPMENT_RATING_OUT_OF_RANGE', message, ['E1']), equipmentProject());
+		expect(told).toEqual({
+			text:
+				'Strainer: a rated pressure drop of 100000 kPa at 1.06512e-149 L/s for a fluid of 1000 ' +
+				'kg/m³ gives a loss coefficient c of 8.988465674311584e307 s²/m⁵, above half the ' +
+				'largest floating-point number (8.988465674311579e307 s²/m⁵), so the slope of its head ' +
+				`loss, 2c|Q|, ${SLOPE} and the solver cannot represent this element. Check its rating.`,
+			links: [{ componentId: 'E1' }],
+			detail: message
+		});
+	});
+
+	it("tells an orifice plate's K at its smallest C, finite at zero flow only", () => {
+		const message =
+			"orifice 'O1': a bore diameter of 1.32588e-77 m in an inlet pipe of inner diameter 1 m " +
+			'(β = d/D = 1.32588e-77): with a discharge coefficient down to 0.6 it gives a loss ' +
+			'coefficient K of 8.98846567431159e+307, above 8.98846567431158e+307, half the largest ' +
+			'floating-point number, so the slope of its head loss, 2 K|Q|/(2 g A²), is not a finite ' +
+			'floating-point number at any flow but zero; the solver cannot represent this plate';
+		const told = view(issue('ORIFICE_OUT_OF_RANGE', message, ['O1']), orificeProject());
+		expect(told).toEqual({
+			text:
+				'Bypass orifice: a bore of 1.326e-74 mm in an inlet pipe of inner diameter 1000 mm ' +
+				'(β = 1.32588e-77) gives, with a discharge coefficient down to 0.6, a loss coefficient ' +
+				'K of 8.98846567431159e307, above half the largest floating-point number ' +
+				'(8.98846567431158e307), so the slope of its head loss, 2 K|Q|/(2 g A²), is not a ' +
+				'finite floating-point number at any flow but zero and the solver cannot represent ' +
+				'this plate. Check its bore and discharge coefficient.',
+			links: [{ componentId: 'O1' }],
+			detail: message
+		});
+	});
+
+	it("keeps the server's message when c is not above the bound it quotes, or not a number", () => {
+		const kept = [
+			issue(
+				'VALVE_RESISTANCE_OUT_OF_RANGE',
+				valve('8.988465674311579e+307', '8.988465674311579e+307'),
+				['V1']
+			),
+			issue('VALVE_RESISTANCE_OUT_OF_RANGE', valve('1e+300', '8.98847e+307'), ['V1']),
+			issue('VALVE_RESISTANCE_OUT_OF_RANGE', valve('1e+999', '8.98847e+307'), ['V1']),
+			// Another valve than the issue's.
+			issue('VALVE_RESISTANCE_OUT_OF_RANGE', valve('1.68603e+308', '8.98847e+307'), ['V9'])
+		];
+		for (const i of kept) {
+			expect(view(i), i.message).toEqual({
+				text: i.message,
+				links: i.componentIds.map((componentId) => ({ componentId }))
+			});
+		}
+	});
+});
+
+describe("a fluid at the schema's bounds (open item 2's follow-up, CLAUDE.md D20)", () => {
+	// The API's messages (builder.py _unrepresentable_pipes and _ORIFICE_FLUID_TAILS), as the
+	// real builder printed them for apps/api tests/unit/test_nonfinite_laws.py's fluids, with the
+	// ids of this file's projects. iso_at_re_lo, which no probed input reaches, is the builder's
+	// own _orifice_issue_text for that rule.
+	const issue = (
+		code: string,
+		message: string,
+		componentIds: string[] = [],
+		connectionIds: string[] = []
+	): TopologyIssue => ({ code, message, componentIds, connectionIds });
+	const view = (i: TopologyIssue, project = pumpTransferExample(), units = SI_UNITS) =>
+		topologyIssueViews([i], project, true, units)[0]!;
+	const LB_FT3 = 0.45359237 / 0.3048 ** 3; // kg/m³
+	const UNDERFLOW =
+		'a Reynolds number |Q| D/(A ν) whose denominator A ν is 0 in floating point (it underflows)';
+	const pipe = (spec = '') =>
+		`connection 'L2' pipe 1: ${spec}an inner diameter of 1e-11 m with the fluid's kinematic ` +
+		`viscosity of 1e-303 m²/s gives ${UNDERFLOW}; the solver cannot represent this pipe`;
+	const HEAD =
+		"orifice 'O1': a bore diameter of 0.05 m in an inlet pipe of inner diameter 0.1 m " +
+		'(β = d/D = 0.5): ';
+	const PLATE = 'the solver cannot represent this plate';
+	const denominator = (mu: string) =>
+		`${HEAD}with the fluid's dynamic viscosity of ${mu} Pa·s, the denominator π D μ of its ` +
+		`Reynolds number Re_D = 4ρ|Q|/(π D μ) is 0 in floating point (it underflows); ${PLATE}`;
+	const area = (rho: string) =>
+		`${HEAD}ISO 5167-2's discharge coefficient is evaluated (fluids) from the mass flow, ` +
+		"dividing by the pipe's area times the fluid's density, (π D²/4) ρ, which with a density " +
+		`of ${rho} kg/m³ is 0 in floating point (it underflows); ${PLATE}`;
+	const infinite =
+		`${HEAD}with the fluid's density of 1000 kg/m³ and dynamic viscosity of 1e-307 Pa·s, its ` +
+		'Reynolds number per unit flow, 4ρ/(π D μ), is not a finite floating-point number, so ' +
+		"Re_D is infinite at every flow but zero, where ISO 5167-2's discharge coefficient cannot " +
+		`be evaluated; ${PLATE}`;
+	const reLo =
+		`${HEAD}with the fluid's density of 1000 kg/m³ and dynamic viscosity of 1e-300 Pa·s, ISO ` +
+		"5167-2's discharge coefficient cannot be evaluated at the plate's lowest Reynolds number " +
+		`(fluids' arithmetic fails there); ${PLATE}`;
+	const plate =
+		'Bypass orifice (a bore of 50 mm in an inlet pipe of inner diameter 100 mm, β = 0.5)';
+	const imperialPlate =
+		`Bypass orifice (a bore of ${sig4(0.05 / IN)} in in an inlet pipe of inner diameter ` +
+		`${sig4(0.1 / IN)} in, β = 0.5)`;
+
+	it('tells a pipe whose A ν underflows by its piping, with a link to it', () => {
+		const i = issue('PIPE_SIZE_OUT_OF_RANGE', pipe(), [], ['L2']);
+		expect(view(i)).toEqual({
+			text:
+				'Piping Transfer pump → Discharge isolation valve, pipe 1: an inner diameter of 1e-8 mm ' +
+				`with the fluid's kinematic viscosity of 1e-303 m²/s gives ${UNDERFLOW}, so the solver ` +
+				"cannot represent this pipe. Check its inner diameter and the fluid's viscosity.",
+			links: [
+				{
+					componentId: 'P1',
+					portId: 'discharge',
+					label: 'Transfer pump → Discharge isolation valve'
+				}
+			],
+			detail: i.message
+		});
+		// The bore in the display unit; ν (m²/s) has none, and is shown as the message quotes it.
+		expect(view(i, pumpTransferExample(), IMPERIAL_UNITS).text).toContain(
+			"an inner diameter of 3.937e-10 in with the fluid's kinematic viscosity of 1e-303 m²/s"
+		);
+		expect(1e-11 / IN).toBeCloseTo(3.937e-10, 13);
+	});
+
+	it("tells a pipe spec's bore by the spec's name", () => {
+		const message = pipe("pipe spec 'PS1': ").replace("'L2'", "'L1'");
+		const told = view(issue('PIPE_SIZE_OUT_OF_RANGE', message, [], ['L1']), libraryProject());
+		expect(told.text).toBe(
+			'Piping Upper tank → Gate valve V1, pipe 1: the inner diameter of its pipe spec “NPS 4 ' +
+				"measured”, 1e-8 mm, with the fluid's kinematic viscosity of 1e-303 m²/s gives " +
+				`${UNDERFLOW}, so the solver cannot represent this pipe. Check the spec's inner ` +
+				"diameter in the project library, and the fluid's viscosity."
+		);
+		expect(told.detail).toBe(message);
+		expect(told.links[0]).toMatchObject({ componentId: 'R1', portId: 'port_1' });
+	});
+
+	it("tells an orifice plate whose Re_D denominator π D μ underflows, with the plate's name", () => {
+		const i = issue('ORIFICE_OUT_OF_RANGE', denominator('4.94066e-324'), ['O1']);
+		const told = {
+			text:
+				`${plate}: with the fluid's dynamic viscosity of 4.94066e-324 Pa·s, the denominator ` +
+				'π D μ of its Reynolds number Re_D = 4ρ|Q|/(π D μ) is 0 in floating point (it ' +
+				"underflows), so the solver cannot represent this plate. Check the fluid's viscosity.",
+			links: [{ componentId: 'O1' }],
+			detail: i.message
+		};
+		expect(view(i, orificeProject())).toEqual(told);
+		// μ is the smallest double: in mPa·s or cP it is not a normal number, so it stays in Pa·s,
+		// as the message quotes it; the bores are in the display unit.
+		expect(view(i, orificeProject(), IMPERIAL_UNITS).text).toBe(
+			told.text.replace(plate, imperialPlate)
+		);
+	});
+
+	it("tells a plate on ISO's C whose (π D²/4) ρ underflows", () => {
+		const i = issue('ORIFICE_OUT_OF_RANGE', area('4.94066e-324'), ['O1']);
+		const text =
+			`${plate}: ISO 5167-2's discharge coefficient is evaluated from the mass flow, dividing ` +
+			"by the pipe's area times the fluid's density, (π D²/4) ρ, which with a density of " +
+			'4.94066e-324 kg/m³ is 0 in floating point (it underflows), so the solver cannot ' +
+			"represent this plate. Check the fluid's density.";
+		expect(view(i, orificeProject())).toEqual({
+			text,
+			links: [{ componentId: 'O1' }],
+			detail: i.message
+		});
+		// In lb/ft³ that density is 0 in floating point: it is shown in kg/m³, never as 0.
+		expect(4.94066e-324 / LB_FT3).toBe(0);
+		expect(view(i, orificeProject(), IMPERIAL_UNITS).text).toBe(text.replace(plate, imperialPlate));
+		// A subnormal density is never shown in a unit that loses its digits, in SI either.
+		expect(
+			view(issue('ORIFICE_OUT_OF_RANGE', area('3.0138e-322'), ['O1']), orificeProject()).text
+		).toContain('with a density of 3.0138e-322 kg/m³ is 0');
+	});
+
+	it('tells a plate whose Reynolds number per unit flow is infinite, in display units', () => {
+		const i = issue('ORIFICE_OUT_OF_RANGE', infinite, ['O1']);
+		const tail =
+			'its Reynolds number per unit flow, 4ρ/(π D μ), is not a finite floating-point number: ' +
+			"Re_D is infinite at every flow but zero, where ISO 5167-2's discharge coefficient " +
+			"cannot be evaluated, so the solver cannot represent this plate. Check the fluid's " +
+			'density and viscosity.';
+		expect(view(i, orificeProject())).toEqual({
+			text: `${plate}: with the fluid's density of 1000 kg/m³ and dynamic viscosity of 1e-304 mPa·s, ${tail}`,
+			links: [{ componentId: 'O1' }],
+			detail: i.message
+		});
+		expect(view(i, orificeProject(), IMPERIAL_UNITS).text).toBe(
+			`${imperialPlate}: with the fluid's density of ${sig4(1000 / LB_FT3)} lb/ft³ and dynamic ` +
+				`viscosity of 1e-304 cP, ${tail}`
+		);
+		expect(sig4(1000 / LB_FT3)).toBe('62.43');
+	});
+
+	it('tells a plate whose ISO C cannot be evaluated at its lowest Reynolds number', () => {
+		const i = issue('ORIFICE_OUT_OF_RANGE', reLo, ['O1']);
+		expect(view(i, orificeProject())).toEqual({
+			text:
+				`${plate}: with the fluid's density of 1000 kg/m³ and dynamic viscosity of 1e-297 ` +
+				"mPa·s, ISO 5167-2's discharge coefficient cannot be evaluated at the plate's lowest " +
+				"Reynolds number, so the solver cannot represent this plate. Check the fluid's " +
+				'density and viscosity.',
+			links: [{ componentId: 'O1' }],
+			detail: i.message
+		});
+	});
+
+	it("keeps the server's message when it is not in the form expected", () => {
+		const kept = [
+			// Another connection than the issue's, or another unit.
+			[issue('PIPE_SIZE_OUT_OF_RANGE', pipe(), [], ['L1']), pumpTransferExample()],
+			[
+				issue('PIPE_SIZE_OUT_OF_RANGE', pipe().replace('m²/s', 'St'), [], ['L2']),
+				pumpTransferExample()
+			],
+			// Another plate than the issue's, or a tail that is not the builder's.
+			[issue('ORIFICE_OUT_OF_RANGE', denominator('4.94066e-324'), ['O9']), orificeProject()],
+			[
+				issue('ORIFICE_OUT_OF_RANGE', infinite.replace('every flow', 'some flow'), ['O1']),
+				orificeProject()
+			]
+		] as const;
+		for (const [i, project] of kept) {
+			expect(view(i, project).text, i.message).toBe(i.message);
+			expect(view(i, project).detail).toBeUndefined();
+		}
 	});
 });

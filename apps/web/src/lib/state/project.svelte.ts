@@ -68,10 +68,12 @@ import {
 	CANONICAL_ORIGIN,
 	canonicalJson,
 	encodeProject,
+	encodeProjectSteps,
 	PROJECT_PATH,
 	URL_LENGTH_WARNING
 } from '../utils/encoding';
 import { createEmptyProject, isoNow } from '../utils/factory';
+import { canonicalJsonEqual, canonicalJsonWithout } from '../utils/json';
 import { markProjectCopy } from '../utils/identity';
 import type { Calculating } from '../utils/goal-seek';
 import { pressureControlOnly } from '../utils/pump-groups';
@@ -85,10 +87,24 @@ import {
 	trackPipes,
 	type CaseId
 } from '../utils/scenarios';
-import { referenceProblems, schemaProblems } from '../utils/validate';
+import { copyData, shareUnchanged } from '../utils/sharing';
+import {
+	ELEMENT_LISTS,
+	type KnownElements,
+	prepareSchemaValid,
+	referenceProblems,
+	schemaProblems,
+	schemaValid
+} from '../utils/validate';
 
 export const MAX_HISTORY = 100;
 export const URL_SYNC_DELAY_MS = 300;
+/**
+ * The longest a task of a URL write runs, ms: a large project's link is written in steps
+ * (encodeProjectSteps) of about this length, one task each, so an edit never holds the page for
+ * the link. A small project's is written in its first task.
+ */
+export const URL_WRITE_SLICE_MS = 8;
 
 export interface HistoryEntry {
 	project: Project;
@@ -338,6 +354,8 @@ export interface ProjectStoreOptions {
 	origin?: string;
 	/** Debounce of URL writes, ms (default 300). */
 	urlSyncDelayMs?: number;
+	/** The longest a task of a URL write runs, ms (default URL_WRITE_SLICE_MS; 0: one step each). */
+	urlWriteSliceMs?: number;
 	/** Undo depth (default 100). */
 	maxHistory?: number;
 	/** Clock for metadata.modified (ISO 8601). */
@@ -401,8 +419,28 @@ function defaultWriteUrl(path: string): void {
 	history.replaceState(history.state, '', path);
 }
 
-/** Structural problems of a project (schema, then the port graph), as update() checks them. */
-export function structuralProblems(project: unknown): string[] {
+/**
+ * Components and connections of stored projects (deep-frozen, and valid as elements of their
+ * lists): a later version that shares them (utils/sharing.ts) has its schema checked without them.
+ */
+const validElements: KnownElements = { components: new WeakSet(), connections: new WeakSet() };
+
+/** Record the elements of a stored project, which passed structuralProblems(), as valid. */
+function recordValidElements(project: Project): void {
+	for (const key of ELEMENT_LISTS) {
+		for (const element of project[key]) {
+			if (Object.isFrozen(element)) validElements[key].add(element);
+		}
+	}
+}
+
+/**
+ * Structural problems of a project (schema, then the port graph), as update() checks them. With
+ * `known`, the schema check takes the components and connections in it as valid (validate.ts
+ * schemaValid), and checks the whole project again only to word the problems it finds.
+ */
+export function structuralProblems(project: unknown, known?: KnownElements): string[] {
+	if (known && schemaValid(project, known) === true) return referenceProblems(project as Project);
 	const schema = schemaProblems(project);
 	return schema.length ? schema : referenceProblems(project as Project);
 }
@@ -415,22 +453,39 @@ export function structuralProblems(project: unknown): string[] {
 export function hydraulicFingerprint(project: Project): string {
 	const solverSettings: Partial<Project['settings']> = { ...project.settings };
 	delete solverSettings.units;
-	return canonicalJson({
+	const fields: Record<string, unknown> = {
 		schemaVersion: project.schemaVersion,
 		settings: solverSettings,
 		fluid: project.fluid,
-		components: project.components.map((component) => {
-			const unnamed: Partial<Project['components'][number]> = { ...component };
-			delete unnamed.name;
-			return unnamed;
-		}),
+		components: project.components,
 		connections: project.connections,
 		pumpLibrary: project.pumpLibrary,
 		// The project library (CLAUDE.md D22): an entry's edit reaches every element that refers
 		// to it. Absent when empty, so a project without one keeps its fingerprint.
 		pipeLibrary: project.pipeLibrary,
 		resistanceLibrary: project.resistanceLibrary
-	});
+	};
+	// canonicalJson(fields) with each component without its name, written from the parts' texts
+	// (a stored component's is kept: json.ts), so an edit writes again only what it changed.
+	const parts: string[] = [];
+	for (const key of Object.keys(fields).sort()) {
+		const text =
+			key === 'components' && Array.isArray(project.components)
+				? `[${project.components.map(unnamedJson).join(',')}]`
+				: canonicalJson(fields[key]);
+		if (text !== undefined) parts.push(`${JSON.stringify(key)}:${text}`);
+	}
+	return `{${parts.join(',')}}`;
+}
+
+/** A component's canonical JSON without its name (as `{ ...component }` with the name deleted). */
+function unnamedJson(component: unknown): string {
+	if (typeof component === 'object' && component !== null && !Array.isArray(component)) {
+		return canonicalJsonWithout(component, 'name');
+	}
+	const unnamed: Record<string, unknown> = { ...(component as object) };
+	delete unnamed.name;
+	return canonicalJson(unnamed);
 }
 
 function toResultsError(error: unknown): ResultsError {
@@ -485,6 +540,8 @@ export class ProjectStore {
 	#mergeable = false;
 	#solveSequence = 0;
 	#timer: ReturnType<typeof setTimeout> | null = null;
+	/** The URL write in progress after the debounce (null: none), in steps (#sync). */
+	#writing: { timer: ReturnType<typeof setTimeout> | null } | null = null;
 	/** Aborts the solve request in flight (cancelled, superseded, or its results no longer wanted). */
 	#solveRequest: AbortController | null = null;
 	/** The case the solve in flight is for (undefined: none in flight). */
@@ -755,7 +812,8 @@ export class ProjectStore {
 		if (problems.length) throw new Error(`Cannot load an invalid project: ${problems[0]}`);
 		this.#cancelSync();
 		this.#stopRun();
-		this.project = deepFreeze(structuredClone(project));
+		this.project = deepFreeze(copyData(project));
+		recordValidElements(this.project);
 		this.activeCase = null;
 		this.runStop = null;
 		this.loadedMethodVersion = this.project.methodVersion;
@@ -768,6 +826,8 @@ export class ProjectStore {
 		this.#abortCurveRequests();
 		this.#cases = {};
 		this.encoded = encodeProject(this.project);
+		// What every edit's check uses (the elements' validators), made now, not in the first edit.
+		prepareSchemaValid();
 		if (options.writeUrl) this.#write();
 		for (const listener of this.#loadListeners) listener();
 	}
@@ -788,7 +848,7 @@ export class ProjectStore {
 		options: { merge?: boolean } = {}
 	): UpdateResult {
 		const current = this.project;
-		const draft = structuredClone(current);
+		const draft = copyData(current);
 		// The draft's pipes are the current ones (identity.ts): scenario changes and the results
 		// shown in Build follow them through the edit.
 		markProjectCopy(draft, current);
@@ -798,12 +858,14 @@ export class ProjectStore {
 		try {
 			next = change(draft) ?? draft;
 			if (tracker) ({ project: next, notes } = carryChanges(current, tracker, next));
-			if (canonicalJson(next) === canonicalJson(current)) return { ok: true, changed: false };
+			// What the change left as it was keeps the stored objects (and their JSON and validity).
+			next = shareUnchanged(next, current);
+			if (canonicalJsonEqual(next, current)) return { ok: true, changed: false };
 		} catch (error) {
 			return { ok: false, problems: [error instanceof Error ? error.message : String(error)] };
 		}
 		next = { ...next, metadata: { ...next.metadata, modified: this.#now() } };
-		const problems = structuralProblems(next);
+		const problems = structuralProblems(next, validElements);
 		if (problems.length) return { ok: false, problems };
 
 		const previous = this.#undo[this.#undo.length - 1];
@@ -853,8 +915,11 @@ export class ProjectStore {
 
 	#replace(project: Project): void {
 		this.project = deepFreeze(project);
+		recordValidElements(this.project);
 		if (this.activeCase !== null && !findScenario(project, this.activeCase)) this.activeCase = null;
-		const fingerprint = hydraulicFingerprint(project);
+		// Found once, and only when a goal seek or a case has results to compare it with.
+		let found: string | undefined;
+		const fingerprint = () => (found ??= hydraulicFingerprint(project));
 		// Apart from #restale, which returns at once when no case has results: a goal seek needs
 		// none (proposal goal-seek.md §6.11).
 		this.#restaleGoalSeek(project, fingerprint);
@@ -867,12 +932,12 @@ export class ProjectStore {
 	 * key differs from the run's (or the scenario is gone); applied while the applied case's key is
 	 * the one recorded right after Apply.
 	 */
-	#restaleGoalSeek(project: Project, fingerprint: string): void {
+	#restaleGoalSeek(project: Project, fingerprint: () => string): void {
 		const state = this.goalSeek;
 		if (!state) return;
 		const finished = finishedGoalSeek(state);
 		if (!finished) return;
-		const next = this.#goalSeekStaleness(finished, project, fingerprint);
+		const next = this.#goalSeekStaleness(finished, project, fingerprint());
 		if (next.stale === finished.stale && next.appliedCurrent === finished.appliedCurrent) return;
 		const updated = { ...finished, ...next };
 		this.goalSeek = 'previous' in state ? { ...state, previous: updated } : updated;
@@ -894,13 +959,13 @@ export class ProjectStore {
 	 * Recompute every case's staleness for `project` (one fingerprint for all cases). A scenario
 	 * that is no longer in the project drops its results.
 	 */
-	#restale(project: Project, fingerprint = hydraulicFingerprint(project)): void {
+	#restale(project: Project, fingerprint: () => string): void {
 		const keys = Object.keys(this.#cases);
 		if (!keys.length) return;
 		let cases: Record<string, CaseState> | null = null;
 		for (const key of keys) {
 			const state = this.#cases[key] as CaseState;
-			const caseKey = this.#key(project, caseOfSlot(key), fingerprint);
+			const caseKey = this.#key(project, caseOfSlot(key), fingerprint());
 			if (caseKey === null) {
 				cases ??= { ...this.#cases };
 				delete cases[key];
@@ -936,26 +1001,56 @@ export class ProjectStore {
 
 	#scheduleSync(): void {
 		this.#cancelSync();
-		this.#timer = setTimeout(() => this.flush(), this.#options.urlSyncDelayMs ?? URL_SYNC_DELAY_MS);
+		this.#timer = setTimeout(() => this.#sync(), this.#options.urlSyncDelayMs ?? URL_SYNC_DELAY_MS);
 	}
 
 	#cancelSync(): void {
 		if (this.#timer !== null) clearTimeout(this.#timer);
 		this.#timer = null;
+		if (this.#writing?.timer != null) clearTimeout(this.#writing.timer);
+		this.#writing = null;
+	}
+
+	/**
+	 * The debounced URL write: the project's encoding (encodeProjectSteps, exactly encodeProject's)
+	 * in tasks of about URL_WRITE_SLICE_MS, then the URL. A change, flush(), load() or dispose()
+	 * stops it (a change schedules a new one).
+	 */
+	#sync(): void {
+		this.#timer = null;
+		const steps = encodeProjectSteps(this.project);
+		const writing: { timer: ReturnType<typeof setTimeout> | null } = { timer: null };
+		this.#writing = writing;
+		const budget = this.#options.urlWriteSliceMs ?? URL_WRITE_SLICE_MS;
+		const slice = () => {
+			if (this.#writing !== writing) return;
+			writing.timer = null;
+			const started = performance.now();
+			let step = steps.next();
+			while (!step.done && performance.now() - started < budget) step = steps.next();
+			if (!step.done) {
+				writing.timer = setTimeout(slice, 0);
+				return;
+			}
+			this.#writing = null;
+			this.encoded = step.value;
+			this.#write();
+		};
+		slice();
 	}
 
 	#write(): void {
 		(this.#options.writeUrl ?? defaultWriteUrl)(`${PROJECT_PATH}#${this.encoded}`);
 	}
 
-	/** True while a URL write is waiting for the debounce. */
+	/** True while a URL write is waiting for the debounce, or under way (#sync). */
 	get syncPending(): boolean {
-		return this.#timer !== null;
+		return this.#timer !== null || this.#writing !== null;
 	}
 
 	/** Write a pending URL change now (before sharing, or when the page is hidden). */
 	flush(): void {
-		if (this.#timer === null) return;
+		if (!this.syncPending) return;
 		this.#cancelSync();
 		this.encoded = encodeProject(this.project);
 		this.#write();
@@ -1179,9 +1274,10 @@ export class ProjectStore {
 		const version = response.solvedState?.methodVersion;
 		if (!version || version === this.project.methodVersion) return;
 		const next = { ...this.project, methodVersion: version };
-		if (structuralProblems(next).length) return;
+		if (structuralProblems(next, validElements).length) return;
 		// Not a hydraulic change: the results stay current and no undo step is added.
 		this.project = deepFreeze(next);
+		recordValidElements(this.project);
 		this.#scheduleSync();
 	}
 

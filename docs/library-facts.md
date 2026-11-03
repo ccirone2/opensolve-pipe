@@ -12,6 +12,7 @@ Facts about `fluids`, CoolProp and EPANET (via WNTR) that were not obvious and c
 - No other tee correlation exists in `fluids`. Darby 3-K has single-path tee entries only.
 - `material_roughness()` fuzzy-matches free text: "PVC" returns 0.0008 m. Never use it.
 - `nearest_pipe(Di=…)` returns the next size up, not the nearest.
+- At a fluid near the schema's bounds `C_Reader_Harris_Gallagher` gives no C and no clean error: `(D 0.1, Do 0.05, m 1, ρ 5e-324, μ 1e-3, 'D')` raises `ValueError: math domain error`, and with ρ 1000, μ 1e-300 it returns `inf`. `Clamond(inf, 1e-4)` returns `nan`. The builder refuses such plates first (D20 rule (e)) and the GGA names a law that raises (D7); checked 2026-11-03.
 
 **CoolProp 8.0.0**
 - `INCOMP::MEG` and `INCOMP::MPG` take a mass fraction from 0 to 0.6 and define no saturation pressure.

@@ -295,7 +295,7 @@ About is a three-column document (`Section`, `Item`, `Value`). `about.csv` holds
 - CSV, the words of `README.txt` (§3.1):
   - "These CSV files use a comma between fields and a point as the decimal mark (101.325 is about a hundred). For a spreadsheet, open the .xlsx export instead."
   - "Opened with a comma-decimal setting (German, French and many others), a spreadsheet reads values such as 101.325 as 101325, or as text, without any warning."
-  - "LibreOffice: in the Text Import dialog choose Language: English (USA). Excel: use Data › From Text/CSV, File origin 65001: Unicode (UTF-8), then Transform Data, and for each number column Change Type › Using Locale… › English (United States)."
+  - "LibreOffice: in the Text Import dialog choose Language: English (USA). Excel: use Data › From Text/CSV, File origin 65001: Unicode (UTF-8), then Transform Data, and for each number column Change Type › Using Locale… › English (United States)." (As built: LibreOffice 24.2's dialog labels the field Locale and ticks Tab, Comma and Semicolon by default, so its step reads "LibreOffice: in the Text Import dialog set Locale to English (USA), and under Separator Options tick Comma only (untick Tab and Semicolon)."; §12 item 36.)
   - "Scripts: RFC 4180, UTF-8 with BOM. pandas reads every number exactly with `float_precision='round_trip'`; Python's `csv` module needs `encoding='utf-8-sig'`. A text cell that begins with =, +, -, @, a tab or a carriage return is written with a leading '; numbers and the JSON columns never are." (As built: the design's sentence named only = + - @, while the guard of §3.1 also covers TAB and CR; §12 item 29.)
   - "Each row's case and solve: the Case, Solved at and Results columns."
 
@@ -357,7 +357,7 @@ The Goal seek sheet holds `goalSeekReport(response, request, context)`, built wi
 ### 3.1 CSV and the zip
 
 - **Dialect.** RFC 4180: comma separator, CRLF line ends (including the last line), one header row.
-- **Quoting.** A field is quoted only when it contains `,`, `"`, CR or LF; a quote inside it is doubled. Numbers are never quoted.
+- **Quoting.** A field is quoted only when it contains `,`, `"`, CR or LF (as built, also `;` or TAB: §12 item 36); a quote inside it is doubled. Numbers are never quoted.
 - **Encoding.** UTF-8 with a BOM (EF BB BF). Headers and names hold non-ASCII characters (³, →, ·, −, °); without the BOM, Excel on Windows decodes the file as cp1252.
 - **Numbers.** `String(n)` with `.` as the decimal mark, no grouping, and JavaScript's exponent form (`1.5e-7`, `1e+21`). `-0` becomes `0`. A non-finite value is an empty field; the API never sends one.
 - **Booleans** are `TRUE`/`FALSE`. A null is an empty field.
@@ -780,7 +780,7 @@ Not used:
 **Writers, against exact file contents:**
 - `utils/export/csv.test.ts`: exact strings for small tables:
   - the BOM, the header, CRLF including the last line;
-  - quoting of `,`, `"`, CR and LF; doubled quotes;
+  - quoting of `,`, `"`, CR and LF (as built, also `;` and TAB: §12 item 36); doubled quotes;
   - `String(n)` for `0.1`, `1e-7`, `1e+21`, `-0` → `0`, `5e-324`;
   - `TRUE`/`FALSE`, and empty fields for null;
   - the formula guard on `=1+2`, `+A1`, `-North tank`, `@SUM(A1)`, TAB and CR text, and **not** on the number −5;
@@ -885,7 +885,7 @@ Names in e2e are ASCII: with `LANG` unset, as in CI, Chromium saves non-ASCII na
 
 Record the result in the TSD:
 - Open the fixture workbook without a repair prompt in Excel 365 (Windows, macOS, web), Numbers (macOS, iOS), Google Sheets and LibreOffice. Check the frozen headers, the filter and the print titles, and check that Ctrl+T in Excel selects from row 3.
-- The CSV zip under a comma-decimal setting: LibreOffice with Language German (Germany) in Text Import (101.325 must not become 101325 once README's step is followed), and Excel on Windows with German regional settings: a double-clicked CSV (one column expected), then README's Data › From Text/CSV steps. Correct README's wording to the menus the check finds.
+- The CSV zip under a comma-decimal setting: LibreOffice with Language German (Germany) in Text Import (101.325 must not become 101325 once README's step is followed; as built, the field is Locale, preset from LibreOffice's locale setting: §12 item 36), and Excel on Windows with German regional settings: a double-clicked CSV (one column expected), then README's Data › From Text/CSV steps. Correct README's wording to the menus the check finds.
 - Extract the CSV zip with Windows' Extract All, with a project and case name at the length caps, and open a CSV from the extracted folder in Excel.
 - iPhone Safari (iOS 17 or 18): download the workbook, then the prompt, then Files › Downloads, then open it in Excel and Numbers; download the image, find it in Files › Downloads, and save it to Photos with Share › Save Image.
 - Android Chrome: all three formats.
@@ -1088,7 +1088,7 @@ Where the build departs from this design, each departure is reversible (D14), an
 19. **The reader** is `tests/unit/test_web_export_fixture.py` (§7.2/§8's name), with openpyxl pinned exactly (`==3.1.5`, where §8 had `>=`). Beyond §7.2 it solves the fixture project through `POST /api/v1/solve` once per case and checks every number cell against the response with its own column-to-field map, checks K·v_ref²/2g against every branch path's loss, decodes every shared string the ST_Xstring way, checks that every `<v>` is JavaScript's `String(n)` (its own implementation, tested on its own cases), and checks About's sentences and its project link, which decodes to the project exported. Seven seeded defects in edited copies of the workbook were each caught.
 20. **What the committed workbook does not hold:** display units, Pumps, Pump curves, System curves, Goal seek, Trace, single-case captions, out-of-date and not-converged rows, flag rows, and names beginning with `+` or `@`. These are covered by the model's oracles over the other two fixture cases and the states tests (Vitest): the Flags sheet by an oracle of every column against the API flag over the fixture's flags and a case with a port, a pipe and a fitting number and the severities out of order, and the Trace sheet by an oracle of every row (order, count, part, number, name, value bit for bit, unit, source, text) over both single-case fixtures (§12 item 35; until the review the claim was false for these two sheets), and the integrator full-loaded every fixture case's workbook and zip, in both unit systems and both case choices, with openpyxl, `zipfile` and Python's `csv`: every sheet frozen at A4 with print titles `$1:$3`, no formula cell, every CSV a rectangular table with a BOM and CRLF, every `.txt` CRLF only.
 21. **e2e** asserts that no request is sent from the click to the download on every download it makes, the out-of-date and not-converged flows included (integration).
-22. **By hand (§7.4)** is not yet done: no Excel, Numbers, Google Sheets, iPhone or Android check has been recorded (TSD §10.3 holds the list).
+22. **By hand (§7.4)** was not done at the build: no Excel, Numbers, Google Sheets, iPhone or Android check had been recorded (TSD §10.3 holds the list and the record). Since then the owner has recorded the workbook in Excel for Android and the chart image on Android (2026-10-26), and LibreOffice 24.2's share was recorded on 2026-11-03 (item 36); the rest is the owner's.
 
 **Outside this slice, done with it**
 
@@ -1108,3 +1108,7 @@ Where the build departs from this design, each departure is reversible (D14), an
 33. **The load failure's words (W4).** STALE_CHUNK_MESSAGE names both causes, a redeploy or a dropped connection (Chromium keeps a failed module, so the click after a failed preload makes no request and a reload is the remedy either way), in words the chart's figure can also use (§5.2).
 34. **The button's name on Compare cases (W5)** is "Export results of all cases", the dialog's default there (§5.2).
 35. **Flags and Trace oracles (verification V1, V2).** `model.test.ts` checks every column of the Flags sheet and every row of the Trace sheet against the API; seeded defects that the suites let through before (severity, code, element kind and id, port id, pipe and fitting numbers without the +1, messages and details, the severity order; a trace unit, a part label, an intermediate value, a note's text) now each fail.
+
+**By hand**
+
+36. **LibreOffice's share of §7.4** (2026-11-03; LibreOffice 24.2.7.2 in a cloud container, through UNO, headless and through its real dialogs on a virtual display; TSD §10.3 has the counts). The workbook passed every check. `README.txt`'s LibreOffice step (§2.7) was wrong for that version: the Text Import dialog labels the field Locale, not Language, and ticks Tab, Comma and Semicolon by default: with the locale set every number was right, but a text field holding a semicolon, which the writer then left unquoted (§3.1), was cut there (142 fields in the fixtures' 124 files). The step now reads "LibreOffice: in the Text Import dialog set Locale to English (USA), and under Separator Options tick Comma only (untick Tab and Semicolon).", in `README.txt` and in `about.csv`'s "Opening in a spreadsheet" row (`csvReadingNotes`; a test in `model.test.ts` fails on the old words); with it every number of those files is bit-identical and every text as written. The committed workbook is unchanged: its About holds the workbook's reading notes. The CSV writer then changed: it also quotes a field that holds `;` or TAB (`csv.ts`; RFC 4180 allows quoting any field), which quotes 92 more fields, in 18 of those 124 files. Re-checked on the new writer's files, headless with the dialog's filter options in a fresh profile with the German locale: README's Locale step alone, the default Tab, Comma and Semicolon left ticked, gives all 8,278 numbers bit-identical, all 25,511 texts as written and no row split, as Comma only does; with no step the numbers still go wrong (126 read 1000× too large, 4,006 as text). The Comma-only words stay, since the dialog remembers each user's last separators. Excel's half of the step is the owner's to check.

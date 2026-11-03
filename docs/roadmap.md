@@ -31,7 +31,7 @@ Built: every Build form laid out from the field registry, one label and unit tab
 
 ## 5. Still to do by hand
 
-Export's by-hand checks (TSD §10.3): the workbook in Excel for Android and the chart image on Android are recorded; the rest is still to do.
+Export's by-hand checks (TSD §10.3). Recorded: the workbook in Excel for Android and the chart image on Android (the owner, 2026-10-26); LibreOffice 24.2's share, the workbook and the CSV zip under a German locale (2026-11-03, in a cloud container; it corrected `README.txt`'s LibreOffice step). The rest is the owner's, since none of it can be run from a cloud container: Excel 365 (Windows, macOS, web), Numbers and Google Sheets; Ctrl+T in Excel; the CSV zip in Excel with German regional settings (and `README.txt`'s Excel wording) and on Android; Windows' Extract All; iPhone Safari; one in-app browser.
 
 ## 6. Later, by the specs
 

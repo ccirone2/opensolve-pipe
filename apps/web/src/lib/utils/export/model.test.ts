@@ -1297,3 +1297,21 @@ describe('the CSV reading note names every guarded character (review F4)', () =>
 		}
 	});
 });
+
+describe("the CSV reading note's LibreOffice step is the dialog's (by hand, TSD §10.3, 2026-11-03)", () => {
+	it('names the Locale field and Comma only, in README.txt and in about.csv', () => {
+		// LibreOffice 24.2's Text Import dialog labels the field Locale (not Language) and ticks Tab,
+		// Comma and Semicolon by default; Semicolon cut 142 text fields of the fixtures' CSV files.
+		const step =
+			'LibreOffice: in the Text Import dialog set Locale to English (USA), and under Separator Options tick Comma only (untick Tab and Semicolon).';
+		for (const name of FIXTURE_NAMES) {
+			const bundle = exportOf(fixtureInput(name, { format: 'csv' }));
+			const line = bundle.readme.find((l) => l.startsWith('LibreOffice: '));
+			expect(line?.startsWith(`${step} Excel: `)).toBe(true);
+			expect(line).not.toContain('Language');
+			const about = readSheet(bundle, 'about');
+			const row = about.rows.find((r) => r[1] === 'Opening in a spreadsheet');
+			expect(row?.[2]).toBe(line);
+		}
+	});
+});

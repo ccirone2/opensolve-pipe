@@ -8,7 +8,7 @@ import type { Project } from '../api/types';
 import { assignedFlowProject } from '../testing/helpers';
 import { flag } from '../testing/results';
 import { gravityBranchExample, pumpTransferExample } from './examples';
-import { flagText, messageText, namedComponents, readableText } from './flag-text';
+import { flagText, messageText, namedElements, nonFiniteLawIds, readableText } from './flag-text';
 import { IMPERIAL_UNITS, SI_UNITS } from './units';
 
 const IN = 0.0254;
@@ -354,8 +354,131 @@ describe('assigned-flow nodes (SDD §4.11)', () => {
 				'assigned-flow node fixes a flow, not a pressure; EPANET reports such a part as ' +
 				'disconnected); closed around it: valve “Isolation valve” (isolated)'
 		);
-		expect(namedComponents(message, closed)).toEqual(['AF1', 'V1']);
+		expect(namedElements(message, closed)).toEqual([
+			{ kind: 'component', id: 'AF1' },
+			{ kind: 'component', id: 'V1' }
+		]);
 		// A port's key names its component; ids the project does not have are left out.
-		expect(namedComponents("at 'AF1:port_1' and 'X9', then 'AF1'", closed)).toEqual(['AF1']);
+		expect(namedElements("at 'AF1:port_1' and 'X9', then 'AF1'", closed)).toEqual([
+			{ kind: 'component', id: 'AF1' }
+		]);
+	});
+});
+
+describe('a solve that diverged (NOT_CONVERGED, CLAUDE.md D7)', () => {
+	// The API's messages and details (solver/gga.py diverged_message, solver/results.py), as the
+	// real solver printed them for two pipes at a runaway flow and for two equipment items
+	// (apps/api tests/unit/test_nonfinite_laws.py), with ids of this project's elements.
+	const pipes =
+		"the iteration diverged (non-finite head loss): not a finite number in the laws of 'L1' " +
+		"(head loss at a flow of 4.09e+300 m³/s) and 'L2' (head loss at a flow of 4.09e+300 m³/s)";
+	const items =
+		"the iteration diverged (non-finite head loss): not a finite number in the laws of 'P1' " +
+		"(head loss at a flow of 23.9 m³/s; loss coefficient c = 3.2e+305 s²/m⁵) and 'V1' (head " +
+		'loss at a flow of 23.9 m³/s; loss coefficient K/(2 g A²) = 1.69351e+308 s²/m⁵)';
+	const diverged = (message: string, nonFiniteLawAt: string) =>
+		flag({
+			code: 'NOT_CONVERGED',
+			severity: 'invalid',
+			message: `the solve did not converge: ${message}`,
+			details: { maxEnergyResidualAt: nonFiniteLawAt.split(', ')[0]!, nonFiniteLawAt }
+		});
+
+	it('names a pipe connection by its piping and a component by its name, flows in display units', () => {
+		expect(flagText(diverged(pipes, 'L1, L2'), us())).toBe(
+			'The solve did not converge: the iteration diverged (non-finite head loss): not a finite ' +
+				'number in the laws of “Suction tank → Transfer pump” (head loss at a flow of 6.483×10³⁰⁴ ' +
+				'gpm) and “Transfer pump → Discharge isolation valve” (head loss at a flow of 6.483×10³⁰⁴ gpm)'
+		);
+		expect(Number((4.09e300 / GPM).toPrecision(4))).toBe(6.483e304);
+		// A loss coefficient c (s²/m⁵) has no display unit: it is shown as the API states it.
+		expect(readableText(items, pumpProject, IMPERIAL_UNITS)).toBe(
+			'The iteration diverged (non-finite head loss): not a finite number in the laws of ' +
+				`“Transfer pump” (head loss at a flow of ${sig4(23.9 / GPM)} gpm; loss coefficient c = ` +
+				`3.2e+305 s²/m⁵) and “Discharge isolation valve” (head loss at a flow of ${sig4(23.9 / GPM)} ` +
+				'gpm; loss coefficient K/(2 g A²) = 1.69351e+308 s²/m⁵)'
+		);
+	});
+
+	it("names every connection after a fittings' coefficient, whose apostrophe pairs with no id", () => {
+		// The real solver's message for two pipes at a runaway flow with an elbow on each, and on
+		// the first only (gga.law_coefficient: "fittings' loss coefficient"), with this project's ids.
+		const fittings = "fittings' loss coefficient Σ n K/(2 g A²) = 189.299 s²/m⁵";
+		const both =
+			"the iteration diverged (non-finite head loss): not a finite number in the laws of 'L1' " +
+			`(head loss at a flow of 4.09e+300 m³/s; ${fittings}) and 'L2' (head loss at a flow of ` +
+			`4.09e+300 m³/s; ${fittings})`;
+		const first =
+			"the iteration diverged (non-finite head loss): not a finite number in the laws of 'L1' " +
+			`(head loss at a flow of 4.09e+300 m³/s; ${fittings}) and 'L2' (head loss at a flow of ` +
+			'4.09e+300 m³/s)';
+		const flow = '6.483×10³⁰⁴ gpm';
+		expect(flagText(diverged(both, 'L1, L2'), us())).toBe(
+			'The solve did not converge: the iteration diverged (non-finite head loss): not a finite ' +
+				`number in the laws of “Suction tank → Transfer pump” (head loss at a flow of ${flow}; ` +
+				`${fittings}) and “Transfer pump → Discharge isolation valve” (head loss at a flow of ` +
+				`${flow}; ${fittings})`
+		);
+		expect(readableText(first, pumpProject, IMPERIAL_UNITS)).toBe(
+			'The iteration diverged (non-finite head loss): not a finite number in the laws of ' +
+				`“Suction tank → Transfer pump” (head loss at a flow of ${flow}; ${fittings}) and ` +
+				`“Transfer pump → Discharge isolation valve” (head loss at a flow of ${flow})`
+		);
+		for (const message of [both, first]) {
+			expect(namedElements(message, pumpProject)).toEqual([
+				{ kind: 'connection', id: 'L1' },
+				{ kind: 'connection', id: 'L2' }
+			]);
+		}
+		// A port's key is still read as a quoted id.
+		expect(readableText("at 'P1:suction' and 'L1'", pumpProject, SI_UNITS)).toBe(
+			'At “Suction of Transfer pump” and “Suction tank → Transfer pump”'
+		);
+	});
+
+	it('lists the components and pipe connections the message names, as elements to link', () => {
+		expect(namedElements(pipes, pumpProject)).toEqual([
+			{ kind: 'connection', id: 'L1' },
+			{ kind: 'connection', id: 'L2' }
+		]);
+		expect(namedElements(items, pumpProject)).toEqual([
+			{ kind: 'component', id: 'P1' },
+			{ kind: 'component', id: 'V1' }
+		]);
+		// Each once, in the order named; a connection the project does not have is left out.
+		expect(namedElements("'L3' and 'P1:suction', then 'L9', 'L3' and 'P1'", pumpProject)).toEqual([
+			{ kind: 'connection', id: 'L3' },
+			{ kind: 'component', id: 'P1' }
+		]);
+	});
+
+	it("takes the laws that were not finite from the flag's details, in link order", () => {
+		expect(nonFiniteLawIds(diverged(pipes, 'L1, L2'))).toEqual(['L1', 'L2']);
+		expect(nonFiniteLawIds(diverged(items, 'P1, V1, P1'))).toEqual(['P1', 'V1']);
+		// Another flag, a solve that did not diverge, or details not in the form expected: none.
+		expect(nonFiniteLawIds(undefined)).toEqual([]);
+		expect(
+			nonFiniteLawIds(flag({ code: 'NOT_CONVERGED', severity: 'invalid', message: 'x' }))
+		).toEqual([]);
+		expect(
+			nonFiniteLawIds(
+				flag({
+					code: 'NOT_CONVERGED',
+					severity: 'invalid',
+					message: 'x',
+					details: { nonFiniteLawAt: 3 }
+				})
+			)
+		).toEqual([]);
+		expect(
+			nonFiniteLawIds(
+				flag({
+					code: 'ISOLATED_SECTION',
+					severity: 'warning',
+					message: 'x',
+					details: { nonFiniteLawAt: 'L1' }
+				})
+			)
+		).toEqual([]);
 	});
 });

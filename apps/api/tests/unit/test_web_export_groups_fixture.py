@@ -19,7 +19,9 @@ against what the design states and what the API returns:
   print titles;
 - every cell of the five group sheets against the expected rows built from the stored API
   responses, by a column-to-field map written from §2: numbers bit for bit, ids, codes, server
-  messages and the state cells exactly, the app's words as non-empty text;
+  messages, booleans, the arrangement and the curve-state cells exactly, the app's words as
+  non-empty text (utils/export/pump-groups.test.ts checks those word for word against the
+  card's helpers);
 - the stored responses are the API's: a fresh ``/api/v1/solve`` and ``/api/v1/pump-group-curve``
   give them again, to round-off (``round_off_differences``);
 - the duty in the file is the case's own solve, bit for bit (About's sign row), and the rows
@@ -427,7 +429,7 @@ def expected_pump_groups() -> Iterator[tuple[Any, ...]]:
                 *case_columns(case),
                 g.id,
                 "; ".join(n[i] for i in station["memberIds"]),
-                TEXT,  # ARRANGEMENT_WORDS, the card's word
+                station["arrangement"],  # the API's own word, as the workbook writes it
                 text_with(n[inlet["componentId"]]),  # stationPortWords names the component
                 inlet["componentId"],
                 inlet["portId"],
@@ -708,9 +710,9 @@ def test_each_group_sheet_has_its_caption_headers_panes_and_filter(sheet: str) -
 
 @pytest.mark.parametrize("sheet", GROUP_SHEETS)
 def test_every_cell_of_a_group_sheet_is_the_stored_responses_value(sheet: str) -> None:
-    """Numbers are the API's doubles bit for bit, ids, codes, server messages and state cells
-    exact, the app's words non-empty text, booleans booleans and null empty; rows in case order,
-    then group, point and member order (design §1-§3)."""
+    """Numbers are the API's doubles bit for bit, ids, codes, server messages, the arrangement
+    and state cells exact, the app's words non-empty text, booleans booleans and null empty; rows
+    in case order, then group, point and member order (design §1-§3)."""
     expected = list(EXPECTED_TABLES[sheet]())
     assert compare_table(workbook()[sheet], expected) == []
 

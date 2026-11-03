@@ -3,12 +3,15 @@
  * group the Pumps together card computed for a case's solve, only as computed and only for a case
  * with values, in five sheets after System curves (Pump groups, Pump group members, Group curves,
  * Group curve members, Group system curves); the groups left out, with why, in About and the
- * dialog; About's group rows and the Methods' group sections only in a file that has them.
+ * dialog; "Pump groups included" in every case with two or more pumps with results, with or
+ * without the sheets; About's other group rows and the Methods' group sections only in a file
+ * that has them.
  *
  * (a) The shared export fixture's `pump-groups` case (export-input.json: real API responses, two
  * pumps in parallel with an FCV outside the station, and a scenario with PB off), in SI and in
  * display units: every number cell against the API's double through a column-to-field map
- * written here, every word against the card's own helpers.
+ * written here, every id, code, message, boolean and case cell against the response and its
+ * case, every word against the card's own helpers.
  * (b) The pump-group fixture's cases (pump-groups-input.json: real API responses): series, a PRV
  * inside, no duty, a controlled member, an off member, a refusal.
  * (c) Synthetic, and labelled so: cloned, relabelled real responses, for the group order and a
@@ -406,6 +409,29 @@ describe('the pump-groups case (a): five sheets after System curves', () => {
 			]);
 		});
 
+		it('every row’s Case, Solved at and Results are its case’s; its Group, the station’s ids joined by +', () => {
+			// Every case of this fixture converged and is current.
+			for (const c of input.cases) {
+				expect(c.stale).toBe(false);
+				expect(c.response!.solvedState.converged).toBe(true);
+			}
+			for (const id of IDS) {
+				const t = readSheet(bundle, id);
+				expect(t.rows.length, id).toBeGreaterThan(0);
+				for (const row of t.rows) {
+					const c = input.cases.find((x) => x.id === t.get(row, 'Case id'));
+					expect(c, id).toBeDefined();
+					expect(t.get(row, 'Case'), id).toBe(c!.name);
+					expect(t.get(row, 'Solved at'), id).toBe(c!.response!.solvedState.timestamp);
+					expect(t.get(row, 'Results'), id).toBe('Current');
+					// Not read through groupKey, which sorts the ids: the cell exactly.
+					const state = c!.groupCurves[KEY] ?? c!.groupSystemCurves[KEY];
+					expect(t.get(row, 'Group'), id).toBe(ready(state).station.memberIds.join('+'));
+				}
+			}
+			expect(group.station.memberIds).toEqual(['PA', 'PB']);
+		});
+
 		it('the Pump groups rows: the station, the duty checks and each curve’s state, in the card’s words', () => {
 			const t = readSheet(bundle, 'pump-groups');
 			const [b, s] = t.rows;
@@ -515,15 +541,25 @@ describe('the pump-groups case (a): five sheets after System curves', () => {
 				const sample = groupSampleRows(r, r.station.memberIds, prefs, input.project);
 				expect(rows.map((row) => g.get(row, 'Reason'))).toEqual(sample.map((n) => n.note || null));
 				const sorted = [...r.points].sort((a, b) => a.head - b.head);
+				expect(rows.map((row) => g.get(row, 'Converged'))).toEqual(sorted.map((p) => p.converged));
 				expect(rows.map((row) => g.get(row, 'At the duty rise'))).toEqual(
 					sorted.map((p) => p.isDuty)
 				);
 				expect(rows.map((row) => g.get(row, 'Reason code'))).toEqual(sorted.map((p) => p.reason));
+				expect(rows.map((row) => g.get(row, 'Message (as reported, SI)'))).toEqual(
+					sorted.map((p) => p.message || null)
+				);
+				expect(rows.map((row) => g.get(row, 'Component ids'))).toEqual(
+					sorted.map((p) => (p.componentIds.length ? p.componentIds.join('; ') : null))
+				);
 			}
 			const m = readSheet(bundle, 'group-curve-members');
 			for (const row of m.rows) {
 				const { point } = pointOf(input, m, row);
 				const member = point.members.find((x) => x.pumpId === m.get(row, 'Pump id'))!;
+				expect(m.get(row, 'Pump')).toBe(
+					input.project.components.find((x) => x.id === member.pumpId)!.name
+				);
 				expect(m.get(row, 'Status')).toBe(MEMBER_STATUS_WORDS[member.status]);
 				expect(m.get(row, 'Control state')).toBeNull();
 				expect(m.get(row, 'Beyond data')).toBe(member.beyondData);
@@ -976,47 +1012,66 @@ describe('the pump-group fixture’s cases (b)', () => {
 // -------------------------------------------------------------------------------------------
 
 describe('synthetic: cloned, relabelled real responses (c)', () => {
-	it('orders the groups of a case by their first member, then by id', () => {
+	it('orders the groups of a case by their first member’s place in the case, then by id', () => {
 		const ladder = named('ladder');
 		const base = ready(stateOf(ladder.groupCurve));
-		/** The ladder's response with only `ids` as members (synthetic). */
+		// The ladder with its pumps listed P3, P2, P1 (each in the slot of the one it replaces), so
+		// the case's component order is not the ids' order: a sort by id or by key fails below.
+		const order = ['P3', 'P2', 'P1'];
+		const slots = ['P1', 'P2', 'P3'];
+		const project = structuredClone(ladder.project);
+		const byId = new Map(project.components.map((x) => [x.id, x]));
+		project.components = project.components.map((x) =>
+			slots.includes(x.id) ? byId.get(order[slots.indexOf(x.id)]!)! : x
+		);
+		expect(project.components.map((x) => x.id).filter((id) => slots.includes(id))).toEqual(order);
+		const rank = (id: string) => order.indexOf(id);
+		/** The ladder's response with only `ids` as members, in this component order (synthetic). */
 		const subset = (ids: string[]): GroupCurveState => {
 			const r = structuredClone(base);
-			r.station.memberIds = r.station.memberIds.filter((id) => ids.includes(id));
-			r.duty!.members = r.duty!.members.filter((m) => ids.includes(m.pumpId));
-			for (const p of r.points) p.members = p.members.filter((m) => ids.includes(m.pumpId));
+			r.station.memberIds = order.filter((id) => ids.includes(id));
+			r.duty!.members = r
+				.duty!.members.filter((m) => ids.includes(m.pumpId))
+				.sort((a, b) => rank(a.pumpId) - rank(b.pumpId));
+			for (const p of r.points) {
+				p.members = p.members
+					.filter((m) => ids.includes(m.pumpId))
+					.sort((a, b) => rank(a.pumpId) - rank(b.pumpId));
+			}
 			return { status: 'ready', response: r };
 		};
 		const input = inputOf('ladder', { group: null, system: null });
+		input.project = project;
+		// Listed so that neither the maps' order nor the rank alone (without the id tie-break)
+		// gives the expected order.
 		const groups = [
 			['P2', 'P3'],
-			['P1', 'P2', 'P3'],
+			['P1', 'P2'],
 			['P1', 'P3']
 		];
 		input.cases = [
 			{
 				...input.cases[0]!,
+				sent: project,
+				inputs: project,
 				groupCurves: Object.fromEntries(groups.map((ids) => [groupKey(ids), subset(ids)]))
 			}
 		];
 		const bundle = buildExport(input);
-		expect(readSheet(bundle, 'pump-groups').column('Group')).toEqual([
-			'P1+P2+P3',
-			'P1+P3',
-			'P2+P3'
-		]);
+		// P3 is first in the case: P3+P1 and P3+P2 (tied on P3, then by id), then P2+P1. A sort by
+		// id or by key would give P2+P1, P3+P1, P3+P2.
+		expect(readSheet(bundle, 'pump-groups').column('Group')).toEqual(['P3+P1', 'P3+P2', 'P2+P1']);
 		const m = readSheet(bundle, 'pump-group-members');
 		expect(m.rows.map((r) => `${m.get(r, 'Group')}:${m.get(r, 'Pump id')}`)).toEqual([
-			'P1+P2+P3:P1',
-			'P1+P2+P3:P2',
-			'P1+P2+P3:P3',
-			'P1+P3:P1',
-			'P1+P3:P3',
-			'P2+P3:P2',
-			'P2+P3:P3'
+			'P3+P1:P3',
+			'P3+P1:P1',
+			'P3+P2:P3',
+			'P3+P2:P2',
+			'P2+P1:P2',
+			'P2+P1:P1'
 		]);
 		expect(aboutValue(bundle, 'Pump groups included')).toEqual([
-			'P1+P2+P3 (parallel): group curve; P1+P3 (parallel): group curve; P2+P3 (parallel): group curve'
+			'P3+P1 (parallel): group curve; P3+P2 (parallel): group curve; P2+P1 (parallel): group curve'
 		]);
 	});
 
